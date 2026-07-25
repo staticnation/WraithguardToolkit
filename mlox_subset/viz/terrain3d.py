@@ -16,6 +16,12 @@ in the page.
 
 The projection is isometric with adjustable yaw and pitch. Faces are shaded by
 surface slope, which reads as terrain far better than shading by height does.
+
+**Camera controls.** Plain drag rotates (yaw/pitch); shift-drag or right-drag
+pans; the scroll wheel zooms. There is no separate "Z axis" control -- this is
+a painter's-algorithm canvas, not a real camera with depth, so moving closer
+to or further from the surface *is* the zoom control, not a fourth axis next
+to it.
 """
 
 from __future__ import annotations
@@ -40,24 +46,49 @@ _SCRIPT = """
 (function(){
 const D=window.__terrain;
 const cv=document.getElementById('surface'),cx=cv.getContext('2d');
-let yaw=0.7,pitch=0.55,drag=null,which=0;
+let yaw=0.7,pitch=0.55,zoom=D.zoom,panX=0,panY=0,drag=null,dragMode='rotate',which=D.default_surface||0;
+const initial={yaw:yaw,pitch:pitch,zoom:zoom};
 const btns=document.querySelectorAll('[data-surface]');
 btns.forEach(function(b){b.addEventListener('click',function(){
   which=+b.dataset.surface;
   btns.forEach(function(o){o.className=(o===b)?'on':'';});draw();});});
-cv.addEventListener('mousedown',function(e){drag=[e.clientX,e.clientY];});
-window.addEventListener('mouseup',function(){drag=null;});
+
+cv.addEventListener('contextmenu',function(e){e.preventDefault();});
+cv.addEventListener('mousedown',function(e){
+  drag=[e.clientX,e.clientY];
+  dragMode=(e.button===2||e.shiftKey)?'pan':'rotate';
+  cv.style.cursor=dragMode==='pan'?'move':'grabbing';
+});
+window.addEventListener('mouseup',function(){drag=null;cv.style.cursor='grab';});
 window.addEventListener('mousemove',function(e){
   if(!drag)return;
-  yaw+=(e.clientX-drag[0])*0.01;
-  pitch=Math.max(0.08,Math.min(1.5,pitch+(e.clientY-drag[1])*0.01));
-  drag=[e.clientX,e.clientY];draw();});
+  const dx=e.clientX-drag[0],dy=e.clientY-drag[1];
+  if(dragMode==='pan'){
+    panX+=dx;panY+=dy;
+  }else{
+    yaw+=dx*0.01;
+    pitch=Math.max(0.08,Math.min(1.5,pitch+dy*0.01));
+  }
+  drag=[e.clientX,e.clientY];draw();
+});
+cv.addEventListener('wheel',function(e){
+  e.preventDefault();
+  const factor=Math.exp(-e.deltaY*0.0015);
+  zoom=Math.max(1.5,Math.min(40,zoom*factor));
+  draw();
+},{passive:false});
+
+const resetBtn=document.getElementById('resetView');
+if(resetBtn)resetBtn.addEventListener('click',function(){
+  yaw=initial.yaw;pitch=initial.pitch;zoom=initial.zoom;panX=0;panY=0;draw();
+});
+
 function project(x,y,z,n,lo,span){
   const cxs=Math.cos(yaw),sxs=Math.sin(yaw);
   const u=(x-(n-1)/2),v=(y-(n-1)/2);
   const rx=u*cxs-v*sxs, ry=u*sxs+v*cxs;
   const h=((z-lo)/span)*D.relief;
-  return [cv.width/2+rx*D.zoom, cv.height/2+ry*D.zoom*Math.sin(pitch)-h*Math.cos(pitch)*D.zoom];
+  return [cv.width/2+panX+rx*zoom, cv.height/2+panY+ry*zoom*Math.sin(pitch)-h*Math.cos(pitch)*zoom];
 }
 function draw(){
   const g=D.surfaces[which].grid,n=g.length;
@@ -115,12 +146,16 @@ def build_terrain_3d(
     *,
     cell_label: str = "",
 ) -> str:
-    """Render one or more plugins' terrain as a rotatable 3D surface.
+    """Render one or more plugins' terrain as a rotatable, pannable 3D surface.
 
     Args:
-        surfaces: Plugin filename to ``(vertex_heights.data, offset)``. Give
-            more than one to make them switchable in place, which is what makes
-            a difference in shape obvious.
+        surfaces: Plugin filename to ``(vertex_heights.data, offset)``, in
+            load order. Give more than one to make them switchable in place,
+            which is what makes a difference in shape obvious; the page opens
+            on the last one (the winner, i.e. the shape actually in the
+            game), with the first labelled as the base/vanilla version for
+            consistency with :mod:`~mlox_subset.viz.heightdelta` and
+            :mod:`~mlox_subset.viz.pathgrid`.
         cell_label: Optional cell description.
 
     Returns:
@@ -145,21 +180,33 @@ def build_terrain_3d(
 
     payload = {
         "surfaces": decoded,
+        "default_surface": len(decoded) - 1,
         "zoom": 8.0,
         "relief": 110.0,
         "labels": {"range": _("Height range: %(lo)s to %(hi)s units")},
     }
     buttons = "".join(
-        f'<button data-surface="{index}" class="{"on" if index == 0 else ""}">'
-        f"{h.escape(surface['name'])}</button>"
+        f'<button data-surface="{index}" class="{"on" if index == len(decoded) - 1 else ""}">'
+        + (
+            h.escape(_("Base: %(plugin)s") % {"plugin": surface["name"]})
+            if index == 0 and len(decoded) > 1
+            else h.escape(_("Winner: %(plugin)s") % {"plugin": surface["name"]})
+            if index == len(decoded) - 1 and len(decoded) > 1
+            else h.escape(str(surface["name"]))
+        )
+        + "</button>"
         for index, surface in enumerate(decoded)
     )
+    reset_button = f'<button id="resetView" type="button" style="margin-left:12px">{h.escape(_("Reset view"))}</button>'
     note = (
-        _("Drag to rotate. Shading follows slope, which reads as terrain better than height does.")
+        _(
+            "Drag to rotate, shift/right-drag to pan, scroll to zoom. Shading follows "
+            "slope, which reads as terrain better than height does."
+        )
         if len(decoded) < 2
         else _(
-            "Drag to rotate; switch plugins to see the same cell as each one leaves it. "
-            "Shading follows slope."
+            "Drag to rotate, shift/right-drag to pan, scroll to zoom; switch plugins to "
+            "see the same cell as each one leaves it. Shading follows slope."
         )
     )
     warning = (
@@ -173,7 +220,7 @@ def build_terrain_3d(
         + h.card(
             _("Terrain surface"),
             warning
-            + f'<div class="tabs">{buttons}</div>'
+            + f'<div class="tabs">{buttons}{reset_button}</div>'
             + '<canvas id="surface" width="1100" height="740"></canvas>'
             + f'<div class="legend"><span id="range"></span><span>{h.escape(note)}</span></div>',
         )

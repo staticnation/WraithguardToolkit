@@ -122,6 +122,7 @@ from collections.abc import (
     Mapping,
     MutableMapping,
     Sequence,
+    Set as AbstractSet,
 )
 from datetime import datetime
 from itertools import pairwise
@@ -1215,7 +1216,48 @@ def _rec_deleted(rec: Mapping[str, Any]) -> bool:
     return bool(rec.get("deleted"))
 
 
-def _tes3conv_record_key(rec: Mapping[str, Any]) -> tuple[str, str] | None:
+def _interior_cell_names(records: Iterable[Mapping[str, Any]]) -> set[str]:
+    """Collect the lower-cased names of every interior CELL record.
+
+    Path grids don't carry the interior flag themselves -- only their parent
+    CELL record does (DATA.flags bit 0x01) -- so anything that needs to tell
+    an interior path grid from an unnamed exterior one has to look this up
+    first. This is deliberately NOT "is the grid (0, 0)": interior path grids
+    do store (0, 0) by convention, but a real exterior cell can legitimately
+    sit at world origin too (Ashlands Region), so grid alone is ambiguous and
+    the flag is the only signal that isn't.
+
+    Args:
+        records: One plugin's tes3conv records.
+
+    Returns:
+        Lower-cased interior cell names.
+    """
+    out: set[str] = set()
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        if str(rec.get("type") or "").lower() != "cell":
+            continue
+        raw_data = rec.get("data")
+        data = raw_data if isinstance(raw_data, dict) else {}
+        flags = data.get("flags")
+        interior = (
+            bool(flags & 0x01)
+            if isinstance(flags, int)
+            else (flags is not None and "INTERIOR" in str(flags).upper())
+        )
+        if not interior:
+            continue
+        name = rec.get("id") or rec.get("name")
+        if name:
+            out.add(str(name).lower())
+    return out
+
+
+def _tes3conv_record_key(
+    rec: Mapping[str, Any], interior_cells: AbstractSet[str] | None = None
+) -> tuple[str, str] | None:
     """(type, id) for a tes3conv JSON record.
 
     tes3conv (via the tes3 crate) emits internally-tagged JSON: {"type": "Npc", "id":
@@ -1223,6 +1265,15 @@ def _tes3conv_record_key(rec: Mapping[str, Any]) -> tuple[str, str] | None:
     Landscape, path grids -- carry a 'grid' instead, so we key those by their coords
     (which TES3 Conflictsolver's plain 'id or name' misses, collapsing them all
     together). Returns None for the file header / anything with no usable id.
+
+    Args:
+        rec: One tes3conv JSON record.
+        interior_cells: Lower-cased names of interior cells in this same
+            plugin, from :func:`_interior_cell_names`. Used to key a
+            cell-scoped record (path grids) by name alone when its cell is
+            genuinely interior, vs. by name-plus-coordinates for a named
+            exterior cell. Without it, falls back to the old grid-is-zero
+            heuristic, which is only ambiguous exactly at world origin.
     """
     if not isinstance(rec, dict):
         return None
@@ -1240,12 +1291,20 @@ def _tes3conv_record_key(rec: Mapping[str, Any]) -> tuple[str, str] | None:
             else (None, None)
         )
         cell = rec.get("cell") or rec.get("cell_name")
+        if cell is None and isinstance(rec.get("data"), dict):
+            cell = rec["data"].get("cell") or rec["data"].get("cell_name")
         if cell:
-            # Cell-scoped records (e.g. PathGrid): INTERIOR pathgrids all carry
-            # grid (0,0) and no id, so keying by grid alone collapses every
-            # interior's pathgrid across every plugin into one bogus "(0, 0)"
-            # conflict. Key by the CELL name instead (plus coords for exteriors).
-            rid = f"{cell} ({gx}, {gy})" if (gx or gy) else str(cell)
+            # Cell-scoped records (e.g. PathGrid): keying by grid alone
+            # collapses every interior's pathgrid across every plugin into
+            # one bogus "(0, 0)" conflict, since interiors all store that
+            # grid by convention. Key by the CELL name instead for
+            # interiors, and by name-plus-coordinates for named exteriors.
+            is_interior = (
+                str(cell).lower() in interior_cells
+                if interior_cells is not None
+                else not (gx or gy)  # no flag lookup available: old heuristic
+            )
+            rid = str(cell) if is_interior else f"{cell} ({gx}, {gy})"
         elif gx is not None:
             rid = f"({gx}, {gy})"
     if rid is None or str(rid) == "":
@@ -1294,8 +1353,11 @@ class Tes3ConvSession:
     """
 
     # Bump when the sidecar key/cell extraction changes so stale caches are
-    # rebuilt (v2: pathgrids keyed by cell, not the shared "(0,0)" grid).
-    _SIDECAR_VER = 2
+    # rebuilt (v2: pathgrids keyed by cell, not the shared "(0,0)" grid;
+    # v3: interior determination uses the CELL record's own flag bit instead
+    # of a grid==(0,0) heuristic, which was ambiguous -- a real exterior cell
+    # can legitimately sit at world origin too).
+    _SIDECAR_VER = 3
 
     def __init__(self, exe: str, dump_dir: str | None = None, keep: bool = False) -> None:
         """Open a session backed by ``exe``, spooling JSON to ``dump_dir``."""
@@ -1369,10 +1431,14 @@ class Tes3ConvSession:
     def record_map(self, path: str | Path) -> dict[tuple[str, str], Any]:
         """Return {(rectype, rid): record} for one plugin, from cached JSON."""
         # Built fresh each call and NOT cached, so only one plugin's records are
-        # ever in memory at a time.
+        # ever in memory at a time. self._records() returns an in-memory list
+        # (already read once), so iterating it twice -- once for the interior
+        # lookup, once to key every record -- costs no extra I/O.
+        records = self._records(path)
+        interior_cells = _interior_cell_names(records)
         m = {}
-        for rec in self._records(path):
-            k = _tes3conv_record_key(rec)
+        for rec in records:
+            k = _tes3conv_record_key(rec, interior_cells)
             if k and k not in m:
                 m[k] = rec
         return m
@@ -1420,10 +1486,17 @@ class Tes3ConvSession:
         """
         import json
 
+        records = self._records(path)  # the single big-JSON read
+        # A cheap first pass over the already-in-memory list (no extra I/O):
+        # path grids need to know which cells are interior before they can be
+        # keyed correctly, and a cell's own record can appear anywhere in the
+        # file relative to its path grid's.
+        interior_cells = _interior_cell_names(records)
+
         keys: list[list[Any]] = []
         cells: list[list[Any]] = []
         seen: set[Any] = set()
-        for rec in self._records(path):  # the single big-JSON read
+        for rec in records:
             if not isinstance(rec, dict):
                 continue
             # Lua scripts declared by an .omwaddon LuaScriptsCfg (keyless record)
@@ -1439,24 +1512,19 @@ class Tes3ConvSession:
                         if lk not in seen:
                             seen.add(lk)
                             keys.append([lk[0], lk[1], False])
-            k = _tes3conv_record_key(rec)
+            k = _tes3conv_record_key(rec, interior_cells)
             if not k or k in seen:
                 continue
             seen.add(k)
             rtype, rid = k
             keys.append([rtype, rid, _rec_deleted(rec)])
             if str(rtype).lower() == "cell":
-                _raw_data = rec.get("data")
-                data = _raw_data if isinstance(_raw_data, dict) else {}
-                flags = data.get("flags")
-                interior = (
-                    bool(flags & 0x01)
-                    if isinstance(flags, int)
-                    else (flags is not None and "INTERIOR" in str(flags).upper())
-                )
-                if interior:
-                    cells.append(["int", str(rec.get("id") or rec.get("name") or rid), None])
+                name = str(rec.get("id") or rec.get("name") or rid)
+                if name.lower() in interior_cells:
+                    cells.append(["int", name, None])
                 else:
+                    _raw_data = rec.get("data")
+                    data = _raw_data if isinstance(_raw_data, dict) else {}
                     grid = data.get("grid") or rec.get("grid")
                     if isinstance(grid, (list, tuple)) and len(grid) >= 2:
                         cells.append(["ext", int(grid[0]), int(grid[1])])

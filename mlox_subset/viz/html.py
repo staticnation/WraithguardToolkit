@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import html
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from mlox_subset import _
@@ -138,7 +138,10 @@ def card(heading: str, body: str) -> str:
 
 
 def table(
-    headers: Iterable[str], rows: Iterable[Iterable[object]], numeric: set[int] | None = None
+    headers: Iterable[str],
+    rows: Iterable[Iterable[object]],
+    numeric: set[int] | None = None,
+    row_attrs: Sequence[Mapping[str, str]] | None = None,
 ) -> str:
     """Render a simple table, escaping every cell.
 
@@ -146,19 +149,27 @@ def table(
         headers: Column headings.
         rows: Row values; each cell is stringified and escaped.
         numeric: Indices of columns to right-align as numbers.
+        row_attrs: Extra HTML attributes per row (e.g. ``data-*`` hooks for a
+            page's own JS), positionally matched to ``rows``. Omit for a plain
+            table; a caller that wants some rows tagged and others not can
+            still pass ``{}`` for the untagged ones.
 
     Returns:
         The table markup, or an empty-state note when there are no rows.
     """
     numeric = numeric or set()
+    rows = list(rows)
+    attrs = list(row_attrs) if row_attrs is not None else [{}] * len(rows)
     body = "".join(
-        "<tr>"
+        "<tr"
+        + "".join(f' {key}="{escape(value)}"' for key, value in extra.items())
+        + ">"
         + "".join(
             f'<td class="num">{escape(cell)}</td>' if i in numeric else f"<td>{escape(cell)}</td>"
             for i, cell in enumerate(row)
         )
         + "</tr>"
-        for row in rows
+        for row, extra in zip(rows, attrs)
     )
     if not body:
         return f'<div class="empty">{escape(_("Nothing to show."))}</div>'

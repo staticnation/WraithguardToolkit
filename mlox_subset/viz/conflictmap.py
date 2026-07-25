@@ -9,12 +9,33 @@ same record is defined twice.
 
 Keeping them as two maps rather than one map with extra marks is deliberate.
 Coverage is much the larger set, and painting collisions on top of it would
-invite reading a busy cell as a broken one. They cross-link instead.
+invite reading a busy cell as a broken one.
 
 Drawn as a sparse SVG -- one ``<rect>`` per cell that has conflicts, placed
 absolutely -- for the same reason the cell map is: a dense grid over Morrowind
 plus Tamriel Rebuilt is millions of cells, almost all of them empty, and
 emitting them all would produce a file no browser will open.
+
+**Focusing on one plugin.** The cell map's own "Focus on mod" dropdown mutes
+every cell a plugin does not touch and leaves the rest alone; that muting
+convention is reused here so the two maps interact the same way. It goes one
+step further because the question here is different -- not just "is this
+plugin present" but "how much is it colliding, and over what" -- so a focused
+cell is also recoloured by *that plugin's own* severity there (on the same
+saturation scale as the all-plugins view, so the two are still comparable),
+and a summary line reports its landscape/path-grid/cell breakdown. The
+per-plugin counts this needs are decoded once, server-side, into
+``CellConflicts.by_plugin`` (see :mod:`~mlox_subset.viz.geometry`) and
+embedded as JSON; the dropdown itself is then a pure client-side redraw, the
+same split every other switcher in this package uses.
+
+**Hovering a cell.** Native SVG ``<title>`` tooltips carry a browser-controlled
+delay of about a second and can't be styled, which is exactly wrong for a grid
+meant to be swept over with the cursor. Each cell instead carries its tooltip
+text in a ``data-t`` attribute, shown instantly in a mouse-following div --
+the same ``data-t``/``#tt`` pattern the cell map uses, so hovering either map
+feels the same. The text names which specific plugins are conflicting there,
+not just the count.
 """
 
 from __future__ import annotations
@@ -25,14 +46,158 @@ from typing import Any
 from mlox_subset import _, ngettext
 from mlox_subset.viz import html as h
 from mlox_subset.viz.geometry import Cell, CellConflicts, bounds, group_by_cell, parse_grid
-from mlox_subset.viz.palette import MINE, legend_stops, saturation_point, severity
+from mlox_subset.viz.palette import MINE, NEUTRAL, legend_stops, saturation_point, severity
 
 #: Pixel size of one cell in the rendered map.
 _CELL_PX = 9
 
-#: Cap on rows in the "worst cells" table, so a pathological load order does
-#: not produce a hundred-thousand-row page.
-_TOP_N = 40
+#: Instant, mouse-following tooltip -- native SVG <title> tooltips have a
+#: browser-controlled ~1s hover delay and can't be styled, which is exactly
+#: wrong for a dense grid the person is sweeping the cursor across. Mirrors
+#: the cell map's own #tt/data-t pattern so hovering either map feels the
+#: same. Unconditional (not tied to the focus feature): it's useful even with
+#: nothing to focus on.
+_TOOLTIP_CSS = """
+<style>
+#cm-tt{position:fixed;pointer-events:none;display:none;z-index:99;max-width:440px;
+background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:4px;
+padding:4px 8px;font-size:12.5px;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.grid rect:hover{stroke:#fff;stroke-width:1.4}
+</style>
+"""
+
+_TOOLTIP_SCRIPT = """
+(function(){
+var tt=document.getElementById('cm-tt');
+document.addEventListener('mouseover',function(e){
+  var r=e.target;
+  if(r&&r.getAttribute&&r.hasAttribute('data-t')){
+    tt.textContent=r.getAttribute('data-t');tt.style.display='block';
+  }
+});
+document.addEventListener('mousemove',function(e){
+  if(tt.style.display==='block'){
+    tt.style.left=(e.clientX+12)+'px';tt.style.top=(e.clientY+12)+'px';
+  }
+});
+document.addEventListener('mouseout',function(e){
+  var r=e.target;
+  if(r&&r.getAttribute&&r.hasAttribute('data-t')){tt.style.display='none';}
+});
+})();
+"""
+
+#: Styling for the focus bar and the muted state, kept separate from
+#: html.py's shared ``_CSS`` because it's specific to this one page's
+#: interactivity rather than something every visualisation needs.
+_FOCUS_CSS = """
+<style>
+.focusbar{margin:2px 0 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.focusbar select{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+border-radius:4px;padding:5px 8px;max-width:360px;font:inherit}
+.focusbar button{background:#2c313a;color:#d7dae0;border:1px solid #333945;border-radius:4px;
+padding:5px 10px;cursor:pointer;font:inherit}
+#cm-focus-info{color:var(--dim);font-size:12.5px;min-height:1.4em}
+.grid rect.dim{opacity:.15}
+</style>
+"""
+
+_SCRIPT = """
+(function(){
+const D=window.__conflictmap;
+function clamp(v){return Math.max(0,Math.min(1,v));}
+function channel(v){return Math.round(clamp(v)*255).toString(16).padStart(2,'0');}
+function hexColour(r,g,b){return '#'+channel(r)+channel(g)+channel(b);}
+function severityColour(count,worst){
+  if(count<=0||worst<=0)return D.neutral;
+  const t=clamp(count/worst);
+  if(t<0.5){const u=t/0.5;return hexColour(0.20+0.75*u,0.65+0.20*u,0.25-0.05*u);}
+  const u=(t-0.5)/0.5;
+  return hexColour(0.95,0.85-0.70*u,0.20-0.05*u);
+}
+
+const select=document.getElementById('cm-focus');
+const clearBtn=document.getElementById('cm-clear');
+const info=document.getElementById('cm-focus-info');
+const rects=document.querySelectorAll('.grid rect');
+const rows=document.querySelectorAll('#cm-worst tbody tr');
+
+function matches(dataM,name){return !name||(dataM||'').indexOf('|'+name+'|')>-1;}
+
+function setFocus(name){
+  name=(name||'').toLowerCase();
+  let cellsTouched=0,total=0;
+  const byType={};
+  rects.forEach(function(r){
+    const hit=matches(r.getAttribute('data-m'),name);
+    r.classList.toggle('dim',!!name&&!hit);
+    if(name&&hit){
+      const cellInfo=D.cells[r.getAttribute('data-cell')];
+      const counts=(cellInfo&&cellInfo.by_plugin[name])||{};
+      let sum=0;
+      for(const k in counts){sum+=counts[k];byType[k]=(byType[k]||0)+counts[k];}
+      r.setAttribute('fill',severityColour(sum,D.worst));
+      if(sum>0)cellsTouched++;
+      total+=sum;
+    }else{
+      r.setAttribute('fill',r.getAttribute('data-orig'));
+    }
+  });
+  rows.forEach(function(row){
+    row.style.display=matches(row.getAttribute('data-m'),name)?'':'none';
+  });
+  if(!name){info.textContent='';return;}
+  const parts=[];
+  for(const k in byType)parts.push(k+': '+byType[k]);
+  info.textContent=D.labels.focus_summary
+    .replace('%(cells)s',cellsTouched).replace('%(total)s',total)
+    .replace('%(breakdown)s',parts.length?parts.join(', '):D.labels.no_breakdown);
+}
+
+select.addEventListener('change',function(){setFocus(select.value);});
+clearBtn.addEventListener('click',function(){select.value='';setFocus('');});
+})();
+"""
+
+
+def _modattr(plugins: Sequence[str]) -> str:
+    """Render a cell's plugin list as an exact-match filter token.
+
+    Mirrors the cell map's own ``modattr`` helper: ``|a.esp|b.esp|`` so a
+    substring search for ``|name|`` can never partially match a longer
+    plugin's filename, and the two maps' focus filters behave identically.
+
+    Args:
+        plugins: Plugin filenames touching this cell, any case.
+
+    Returns:
+        An HTML-attribute-safe token string.
+    """
+    return h.escape("|" + "|".join(p.lower() for p in plugins) + "|")
+
+
+def _focus_options(cells: Mapping[Cell, CellConflicts], subset_lower: set[str]) -> tuple[str, dict[str, str]]:
+    """Build the "Focus on plugin" dropdown, customs first and starred.
+
+    Args:
+        cells: Aggregated conflicts per cell.
+        subset_lower: Lower-cased filenames of the user's own mods.
+
+    Returns:
+        ``(option_markup, display_names)`` where ``display_names`` maps a
+        lower-cased plugin name to how it should be shown -- also doubling as
+        "is there anything to put in the dropdown at all".
+    """
+    display: dict[str, str] = {}
+    for info in cells.values():
+        for plugin in info.plugins:
+            display.setdefault(plugin.lower(), plugin)
+    options = "".join(
+        f'<option value="{h.escape(low)}">{h.escape(display[low])}'
+        f'{" \u2605" if low in subset_lower else ""}</option>'
+        for low in sorted(display, key=lambda x: (x not in subset_lower, x))
+    )
+    return options, display
 
 
 def _svg_grid(cells: Mapping[Cell, CellConflicts], worst: int) -> str:
@@ -63,21 +228,32 @@ def _svg_grid(cells: Mapping[Cell, CellConflicts], worst: int) -> str:
         py = (max_y - cell.y) * _CELL_PX
         colour = severity(info.total, worst)
         klass = ' class="mine"' if info.mine else ""
-        label = _("cell (%(x)d, %(y)d): %(count)d conflict(s)") % {
+        tip = ngettext(
+            "(%(x)d, %(y)d) \u2014 %(count)d conflict, %(n)d plugin(s): %(plugins)s",
+            "(%(x)d, %(y)d) \u2014 %(count)d conflicts, %(n)d plugin(s): %(plugins)s",
+            info.total,
+        ) % {
             "x": cell.x,
             "y": cell.y,
             "count": info.total,
+            "n": len(info.plugins),
+            "plugins": ", ".join(info.plugins),
         }
+        # data-cell/data-orig/data-m are inert without the focus script (no
+        # other plugins to filter by, or the page was generated before this
+        # feature) -- they just ride along unused, same as any other
+        # attribute an SVG viewer ignores.
         parts.append(
             f'<rect x="{px}" y="{py}" width="{_CELL_PX}" height="{_CELL_PX}" '
-            f'fill="{colour}"{klass}><title>{h.escape(label)}</title></rect>'
+            f'fill="{colour}"{klass} data-cell="{cell.x},{cell.y}" data-orig="{colour}" '
+            f'data-m="{_modattr(info.plugins)}" data-t="{h.escape(tip)}"></rect>'
         )
     parts.append("</svg>")
     return "".join(parts)
 
 
 def _worst_table(cells: Mapping[Cell, CellConflicts]) -> str:
-    """Tabulate the cells with the most conflicts.
+    """Tabulate every conflicting cell, worst first.
 
     Args:
         cells: Aggregated conflicts per cell.
@@ -87,7 +263,8 @@ def _worst_table(cells: Mapping[Cell, CellConflicts]) -> str:
     """
     ranked = sorted(cells.values(), key=lambda c: (-c.total, c.cell))
     rows = []
-    for info in ranked[:_TOP_N]:
+    row_attrs = []
+    for info in ranked:
         top_winner = max(info.winners.items(), key=lambda kv: kv[1])[0] if info.winners else ""
         kinds = ", ".join(f"{k} x{v}" for k, v in sorted(info.types.items(), key=lambda kv: -kv[1]))
         rows.append(
@@ -99,6 +276,7 @@ def _worst_table(cells: Mapping[Cell, CellConflicts]) -> str:
                 top_winner,
             ]
         )
+        row_attrs.append({"data-m": _modattr(info.plugins)})
     return h.table(
         [
             _("Cell"),
@@ -109,6 +287,7 @@ def _worst_table(cells: Mapping[Cell, CellConflicts]) -> str:
         ],
         rows,
         numeric={1, 2},
+        row_attrs=row_attrs,
     )
 
 
@@ -138,6 +317,10 @@ def _type_table(cells: Mapping[Cell, CellConflicts]) -> str:
     conflicts are the ones with consequences you cannot see in a list, so the
     breakdown leads with them.
 
+    This table stays global regardless of the focus filter -- it has no
+    per-cell row to hide, and it is the reference the focused plugin's own
+    breakdown (in the info line above the map) is meant to be read against.
+
     Args:
         cells: Aggregated conflicts per cell.
 
@@ -166,15 +349,18 @@ def build_conflict_map(
     conflicts: Sequence[Mapping[str, Any]],
     *,
     title: str = "",
-    cell_map_href: str = "cell_map.html",
+    subset_lower: Iterable[str] = (),
 ) -> str:
     """Render the world conflict map as a self-contained HTML page.
 
     Args:
         conflicts: Conflict dicts as ``detect_conflicts`` returns them.
         title: Optional page title; a sensible default is used when empty.
-        cell_map_href: Where the coverage map lives, for the cross-link. Pass
-            an empty string to omit it.
+        subset_lower: Lower-cased filenames of the user's own mods, purely
+            cosmetic -- it only decides which entries get a star and sort
+            first in the focus dropdown, matching the cell map's own
+            convention. An empty iterable (the default) just means an
+            unstarred, alphabetical dropdown.
 
     Returns:
         A complete HTML document. Never raises on odd input -- records with
@@ -187,12 +373,24 @@ def build_conflict_map(
     spatial = sum(c.total for c in cells.values())
     mine = sum(c.mine for c in cells.values())
     non_spatial = len(conflicts) - spatial
+    subset = {s.lower() for s in subset_lower}
 
     stops = [
         (colour, ngettext("%(n)d conflict", "%(n)d conflicts", count) % {"n": count})
         for count, colour in legend_stops(worst)
     ]
+
+    focus_options, focus_names = _focus_options(cells, subset)
+    focus_bar = (
+        f'<div class="focusbar">{h.escape(_("Focus on plugin:"))} '
+        f'<select id="cm-focus"><option value="">{h.escape(_("— all plugins —"))}</option>'
+        f"{focus_options}</select> "
+        f'<button id="cm-clear" type="button">{h.escape(_("Clear"))}</button></div>'
+        f'<div id="cm-focus-info"></div>'
+    )
+
     body = [
+        '<div id="cm-tt"></div>',
         h.summary(
             {
                 _("Cells with conflicts"): len(cells),
@@ -203,19 +401,47 @@ def build_conflict_map(
         ),
         h.card(
             _("Conflict density by cell"),
-            _svg_grid(cells, worst)
+            (focus_bar if focus_names else "")
+            + _svg_grid(cells, worst)
             + h.legend(
                 [*stops, (MINE, _("outlined = involves your mods"))],
                 _(
-                    "North is up. Hover a cell for its count. Colour saturates at the "
-                    "95th percentile, so a few extreme cells do not flatten the rest."
+                    "North is up. Hover a cell for its count and which plugins are "
+                    "conflicting there. Colour saturates at the 95th percentile, so a "
+                    "few extreme cells do not flatten the rest. Focusing a plugin "
+                    "recolours its cells by its own severity there on this same scale, "
+                    "and mutes the rest."
                 ),
             ),
         ),
         h.card(_("What is being edited"), _type_table(cells)),
-        h.card(_("Worst cells"), _worst_table(cells)),
-        _cell_map_link(cell_map_href),
+        h.card(_("All cells (worst first)"), f'<div id="cm-worst">{_worst_table(cells)}</div>'),
+        _TOOLTIP_CSS,
+        f"<script>{_TOOLTIP_SCRIPT}</script>",
     ]
+
+    if focus_names:
+        payload = {
+            "worst": worst,
+            "neutral": NEUTRAL,
+            "cells": {
+                f"{cell.x},{cell.y}": {
+                    "by_plugin": {p.lower(): counts for p, counts in info.by_plugin.items()},
+                }
+                for cell, info in cells.items()
+            },
+            "labels": {
+                "focus_summary": _(
+                    "Touches %(cells)s cell(s), %(total)s conflict(s) here. %(breakdown)s"
+                ),
+                "no_breakdown": _("(no type breakdown available)"),
+            },
+        }
+        body.append(_FOCUS_CSS)
+        body.append(
+            f"<script>window.__conflictmap={h.script_json(payload)};</script><script>{_SCRIPT}</script>"
+        )
+
     return h.page(
         title or _("Conflict map"),
         _(
@@ -224,31 +450,6 @@ def build_conflict_map(
             "see the cell map."
         ),
         "".join(body),
-    )
-
-
-def _cell_map_link(href: str) -> str:
-    """Render the cross-link back to the coverage map.
-
-    The link points *this* way only. The cell map is deliberately left
-    untouched: it is an established view with its own SVG, and coverage is a
-    different question from collision, so this is a parallel map that
-    references it rather than a layer painted over it.
-
-    Args:
-        href: Relative path to the cell map, or empty to omit the link.
-
-    Returns:
-        The card markup, or an empty string when there is nothing to link to.
-    """
-    if not href:
-        return ""
-    return h.card(
-        _("See also"),
-        f'<a href="{h.escape(href)}">{h.escape(_("Cell map (coverage)"))}</a>'
-        f'<div class="legend"><span>'
-        f"{h.escape(_('That map shows which mods TOUCH each cell. Touching is not colliding: most shared cells here are fine, and this page is the subset that is not.'))}"
-        "</span></div>",
     )
 
 

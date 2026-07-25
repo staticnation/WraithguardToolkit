@@ -16,7 +16,6 @@ import traceback
 import webbrowser
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import TYPE_CHECKING, Any, Literal
@@ -381,7 +380,7 @@ class ConflictWindowsMixin:
         tree.bind("<<TreeviewSelect>>", on_sel)
         btns = ttk.Frame(win, padding=8)
         btns.pack(fill="x")
-        ttk.Button(btns, text=_("Save Report (CSV)"), command=self._save_resource_csv).pack(
+        ttk.Button(btns, text=_("Save report (CSV)..."), command=self._save_resource_csv).pack(
             side="left"
         )
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
@@ -539,30 +538,79 @@ class ConflictWindowsMixin:
 
         btns = ttk.Frame(win, padding=8)
         btns.pack(fill="x")
-        ttk.Button(btns, text=_("Save Report (CSV)"), command=self._save_conflicts_csv).pack(
+        ttk.Button(btns, text=_("Save report (CSV)..."), command=self._save_conflicts_csv).pack(
             side="left"
         )
         if self._conf_session is not None:
             ttk.Button(
-                btns, text=_("Dump tes3conv JSON"), command=self._dump_conflict_json
+                btns, text=_("Dump tes3conv JSON..."), command=self._dump_conflict_json
             ).pack(side="left", padx=(8, 0))
         if build_conflict_map is not None:
             cmap_button = ttk.Button(
-                btns, text=_("Conflict Map"), command=self._show_conflict_map
+                btns, text=_("Conflict map (direct)..."), command=self._show_conflict_map_direct
             )
             cmap_button.pack(side="left", padx=(8, 0))
             add_tooltip(
                 cmap_button,
                 _(
-                    "Plot every conflicting record onto the world grid, so you can see "
-                    "WHERE your mods collide. Hotter cells have more conflicts; cells "
-                    "involving your own mods are outlined.\n\n"
-                    "This is not the cell map: that shows which mods TOUCH which cells, "
-                    "which is a different (and much larger) set."  
+                    "Build and open a conflict map directly from the selected conflicts. "
+                    "Shows which mods edit LAND records in each cell, with a breakdown of "
+                    "terrain shape, NPC navigation, and cell record edits."  
                 ),
             )
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
         self._refill_conflict_tree()
+
+    def _show_conflict_map_direct(self) -> None:
+        """Build the conflict map off the main thread, then show it.
+
+        Unlike the explorer, this shows ONLY conflicts (no sampled overview cells).
+        Threaded for the same reason as the explorer.
+        """
+        conflicts = getattr(self, "_all_conflicts", None)
+        if not conflicts or build_conflict_map is None or self.worker_running:
+            return
+        self.worker_running = True
+        self.status_var.set(_("Building the conflict map..."))
+        threading.Thread(target=self._conflict_map_worker, args=(list(conflicts),), daemon=True).start()
+
+    def _conflict_map_worker(self, conflicts: list[dict]) -> None:
+        """Build the conflict map, then hand it to the UI thread to display.
+
+        Args:
+            conflicts: The conflict list to render.
+        """
+        markup: str | None = None
+        error = ""
+        cells: set[tuple[int, int]] = set()
+        if build_conflict_map is None:  # pragma: no cover - guarded by caller too
+            self.root.after(0, lambda: self._conflict_map_done(None, "viz unavailable", 0))
+            return
+        try:
+            # Collect cells with conflicts for the status-bar count only --
+            # build_conflict_map computes its own cell breakdown from
+            # `conflicts` and does not take a `cells` argument.
+            from mlox_subset.viz import conflictmap as cmap_module
+            cells = cmap_module.cells_with_conflicts(conflicts)
+            markup = build_conflict_map(
+                conflicts,
+                subset_lower=getattr(self, "_conf_subset_lower", ()),
+            )
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
+        self.root.after(0, lambda: self._conflict_map_done(markup, error, len(cells)))
+
+    def _conflict_map_done(self, markup: str | None, error: str, cells: int) -> None:
+        """Open the conflict map in the in-app viewer, or report the failure."""
+        self.worker_running = False
+        if markup is None:
+            self.status_var.set(_("The conflict map could not be built."))
+            messagebox.showerror(
+                _("Could not build conflict map"), _("%s") % {"error": error}
+            )
+            return
+        self.status_var.set(_("Conflict map ready (%(cells)d cell(s)).") % {"cells": cells})
+        self._open_html_view(markup, "conflict_map", _("Conflict Map"))
 
     def _open_html_view(self, markup: str, stem: str, title: str = "") -> None:
         """Write a generated page beside the app and show it in-app.
@@ -607,21 +655,6 @@ class ConflictWindowsMixin:
                 _("The page was written to %(path)s (%(error)s)") % {"path": path, "error": exc},
             )
 
-    def _show_conflict_map(self) -> None:
-        """Render every conflict onto the world grid and open it."""
-        conflicts = getattr(self, "_all_conflicts", None)
-        if not conflicts or build_conflict_map is None:
-            return
-        try:
-            markup = build_conflict_map(conflicts)
-        except Exception as exc:  # noqa: BLE001 - a view must never kill the scan
-            messagebox.showerror(
-                _("Could not build the conflict map"), _("%(error)s") % {"error": exc}
-            )
-            return
-        self._open_html_view(markup, "conflict_map")
-
-
     def _visualise_field(self, key: str, plugins: Sequence[str], per: Mapping[str, Any]) -> None:
         """Open the right visualisation for the selected field.
 
@@ -634,7 +667,6 @@ class ConflictWindowsMixin:
             per: Field values per plugin.
         """
         winner = plugins[-1] if plugins else ""
-        loser = plugins[-2] if len(plugins) > 1 else ""
         cell = str(getattr(self, "_conf_record_label", "") or "")
 
         def value(plugin: str, field: str, default: object = "") -> Any:  # noqa: ANN401
@@ -656,28 +688,25 @@ class ConflictWindowsMixin:
 
         try:
             if key == "connections" and build_pathgrid_graph is not None:
-                markup = build_pathgrid_graph(
-                    value(winner, "connections"),
-                    value(winner, "points", None),
-                    winner_name=winner,
-                    loser_value=value(loser, "connections", None) or None,
-                    loser_points=value(loser, "points", None),
-                    loser_name=loser,
-                    cell_label=cell,
-                )
+                surfaces = {
+                    p: (value(p, "connections"), value(p, "points", None))
+                    for p in plugins
+                    if value(p, "connections", None) is not None
+                }
+                if winner not in surfaces:
+                    return
+                markup = build_pathgrid_graph(surfaces, winner_name=winner, cell_label=cell)
                 self._open_html_view(markup, "pathgrid")
                 return
             if key == "vertex_heights.data" and build_height_delta is not None and len(plugins) > 1:
-                markup = build_height_delta(
-                    value(winner, key),
-                    value(loser, key),
-                    winner_name=winner,
-                    loser_name=loser,
-                    winner_offset=_as_float(value(winner, "vertex_heights.offset", 0.0)),
-                    loser_offset=_as_float(value(loser, "vertex_heights.offset", 0.0)),
-                    cell_label=cell,
-                )
-                self._open_html_view(markup, "height_delta")
+                surfaces = {
+                    p: (value(p, key), _as_float(value(p, "vertex_heights.offset", 0.0)))
+                    for p in plugins
+                    if value(p, key, None) is not None
+                }
+                if winner in surfaces:
+                    markup = build_height_delta(surfaces, winner_name=winner, cell_label=cell)
+                    self._open_html_view(markup, "height_delta")
                 return
 
             if key == "vertex_heights.data" and build_terrain_3d is not None:
@@ -735,7 +764,7 @@ class ConflictWindowsMixin:
         if key == "connections" and build_pathgrid_graph is not None:
             button = ttk.Button(
                 bar,
-                text=_("Show Path Grid"),
+                text=_("Show graph..."),
                 command=lambda: self._visualise_field(key, plugins, per),
             )
             button.pack(side="left", padx=(12, 0))
@@ -753,7 +782,7 @@ class ConflictWindowsMixin:
         if key == "vertex_heights.data" and build_height_delta is not None and len(plugins) > 1:
             button = ttk.Button(
                 bar,
-                text=_("Show Height Delta"),
+                text=_("Show difference..."),
                 command=lambda: self._visualise_field(key, plugins, per),
             )
             button.pack(side="left", padx=(12, 0))
@@ -771,7 +800,7 @@ class ConflictWindowsMixin:
         if has_terrain and build_terrain_3d is not None:
             button = ttk.Button(
                 bar,
-                text=_("Show 3D Terrain"),
+                text=_("Show in 3D..."),
                 command=lambda: self._show_terrain_3d(plugins, per),
             )
             button.pack(side="left", padx=(8, 0))
