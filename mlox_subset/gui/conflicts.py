@@ -150,6 +150,9 @@ class ConflictWindowsMixin:
         subset = self._current_plan.get("subset") or []
         self._keep_json = self.keep_json_var.get()
         self._conf_subset_lower = {str(s).lower() for s in subset}  # your custom mods
+        self._conf_scan_args = (order, dirs, subset)
+        self._conf_singles = None  # stale from any previous scan; refetched on demand
+        self._conf_other_singles = None
         self.worker_running = True
         self.sort_button.configure(state="disabled")
         self.export_button.configure(state="disabled")
@@ -437,6 +440,20 @@ class ConflictWindowsMixin:
             variable=self._conf_subset_only,
             command=self._refill_conflict_tree,
         ).pack(side="right")
+        self._include_singles_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            top,
+            text=_("Include my mods' non-conflicting records"),
+            variable=self._include_singles_var,
+            command=lambda: self._toggle_singles("mine"),
+        ).pack(side="right", padx=(0, 12))
+        self._other_singles_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            top,
+            text=_("Include other mods' non-conflicting records"),
+            variable=self._other_singles_var,
+            command=lambda: self._toggle_singles("other"),
+        ).pack(side="right", padx=(0, 12))
 
         engine = (stats or {}).get("engine", "builtin")
         bar = ttk.Frame(win, padding=(8, 0))
@@ -1003,14 +1020,104 @@ class ConflictWindowsMixin:
             nb.add(frame, text=tab)
         ttk.Button(win, text=_("Close"), command=win.destroy).pack(pady=(0, 8))
 
+    #: Per-checkbox config for the two non-conflicting-records toggles:
+    #: which BooleanVar, which cache attribute, and which engine function.
+    _SINGLES_KINDS: dict[str, dict[str, Any]] = {
+        "mine": {
+            "var": "_include_singles_var",
+            "cache": "_conf_singles",
+            "fn": "list_subset_singles",
+            "label": lambda: _("your mods'"),
+        },
+        "other": {
+            "var": "_other_singles_var",
+            "cache": "_conf_other_singles",
+            "fn": "list_other_singles",
+            "label": lambda: _("other mods'"),
+        },
+    }
+
+    def _toggle_singles(self, kind: str) -> None:
+        """Show/hide non-conflicting records (``kind`` "mine" or "other").
+
+        Fetched once per scan and cached -- toggling a checkbox off and back
+        on just re-filters, it doesn't re-scan. Deliberately never touches
+        ``self._all_conflicts``: the conflict map and CSV export stay
+        conflict-only, since a record one plugin defines alone isn't a
+        conflict and doesn't belong in either.
+        """
+        cfg = self._SINGLES_KINDS[kind]
+        var: tk.BooleanVar = getattr(self, cfg["var"])
+        if not var.get():
+            self._refill_conflict_tree()
+            return
+        if getattr(self, cfg["cache"], None) is not None:
+            self._refill_conflict_tree()
+            return
+        scan_args = getattr(self, "_conf_scan_args", None)
+        if scan_args is None or self.worker_running:
+            var.set(False)
+            return
+        order, dirs, subset = scan_args
+        if kind == "mine" and not subset:
+            var.set(False)
+            messagebox.showinfo(
+                _("No custom mods"),
+                _("You have no custom/subset mods configured, so there is nothing to list here."),
+            )
+            return
+        self.worker_running = True
+        self.status_var.set(
+            _("Finding %(label)s non-conflicting records...") % {"label": cfg["label"]()}
+        )
+        threading.Thread(
+            target=self._singles_worker, args=(order, dirs, subset, kind), daemon=True
+        ).start()
+
+    def _singles_worker(
+        self, order: list[str], dirs: list[str], subset: list[str], kind: str
+    ) -> None:
+        writer = QueueWriter(self.log_queue)
+        records: list[dict] = []
+        error = ""
+        try:
+            with redirect_stdout(writer), redirect_stderr(writer):
+                index = PluginFileIndex(dirs)
+                fn = getattr(core, self._SINGLES_KINDS[kind]["fn"])
+                records, _stats = fn(
+                    order, index, subset_names=subset, session=self._conf_session
+                )
+        except Exception:  # noqa: BLE001
+            error = traceback.format_exc()
+        self.root.after(0, self._singles_done, records, error, kind)
+
+    def _singles_done(self, records: list[dict], error: str, kind: str) -> None:
+        self.worker_running = False
+        cfg = self._SINGLES_KINDS[kind]
+        var: tk.BooleanVar = getattr(self, cfg["var"])
+        if error:
+            var.set(False)
+            self.status_var.set(_("Could not list records."))
+            messagebox.showerror(_("Could not list records"), error)
+            return
+        setattr(self, cfg["cache"], records)
+        self.status_var.set(
+            _("Found %(count)d non-conflicting record(s) from %(label)s.")
+            % {"count": len(records), "label": cfg["label"]()}
+        )
+        self._refill_conflict_tree()
+
     def _refill_conflict_tree(self) -> None:
         tree = getattr(self, "_conf_tree", None)
         if tree is None or not tree.winfo_exists():
             return
         only = self._conf_subset_only.get()
-        self._shown_conflicts = [
-            c for c in self._all_conflicts if c.get("involves_subset") or not only
-        ]
+        rows = list(self._all_conflicts)
+        if self._include_singles_var.get():
+            rows += getattr(self, "_conf_singles", None) or []
+        if self._other_singles_var.get():
+            rows += getattr(self, "_conf_other_singles", None) or []
+        self._shown_conflicts = [c for c in rows if c.get("involves_subset") or not only]
         tree.delete(*tree.get_children())
         for i, c in enumerate(self._shown_conflicts):
             star = "★" if c["involves_subset"] else ""

@@ -1638,33 +1638,32 @@ def diff_record_fields(
     return ordered, per, differing
 
 
-def detect_conflicts(
+def _scan_touch(
     active_order: Sequence[str],
     index: PluginFileIndex,
-    subset_names: Sequence[str] | None = None,
-    session: Tes3ConvSession | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Scan the active load order for record-level conflicts.
+    session: Tes3ConvSession | None,
+) -> tuple[dict[tuple[str, str], list[tuple[str, bool]]], list[str], int, int, dict[str, str]]:
+    """Scan the active load order and tally which plugins touch each record.
 
-    active_order : plugin filenames in load order (winner last).
-    index        : a PluginFileIndex to locate the files on disk.
-    subset_names : your custom plugins, so conflicts involving them can be flagged.
+    The shared, expensive part of :func:`detect_conflicts` and
+    :func:`list_subset_singles`: both need "every record, and which plugins
+    touch it" -- they only disagree about which counts are worth keeping (2+
+    plugins vs. exactly 1 of your own) -- so reading every plugin happens
+    once here rather than once per caller.
 
-    session : an optional Tes3ConvSession. When given, records are read from
-    tes3conv JSON (exact ids for every record type, and field-level diffing is
-    then possible via diff_record_fields); when None, the built-in binary parser
-    is used (record-level only).
+    Args:
+        active_order: Plugin filenames in load order (winner last).
+        index: A PluginFileIndex to locate the files on disk.
+        session: An optional Tes3ConvSession; when given, records are read
+            from tes3conv JSON, else the built-in binary parser is used.
 
-    Returns (conflicts, stats). conflicts is a list of dicts sorted with your
-    custom-involved ones first:
-      {type, id, plugins:[load order], winner, involves_subset, deleted_by:[...]}
-    stats = {"scanned", "unreadable":[...], "records", "conflicts",
-             "engine": "tes3conv"|"builtin", "paths": {plugin: path}}.
+    Returns:
+        ``(touch, unreadable, scanned, rec_count, paths)`` -- ``touch`` maps
+        ``(type, id)`` to every ``(plugin, deleted)`` hit, in load order.
     """
-    subset_lower = {s.lower() for s in (subset_names or [])}
-    touch: dict[tuple[str, str], list[tuple[str, bool]]] = {}  # (type, id) -> hits
+    touch: dict[tuple[str, str], list[tuple[str, bool]]] = {}
     unreadable, scanned, rec_count = [], 0, 0
-    paths = {}
+    paths: dict[str, str] = {}
     for plugin in active_order:
         path = index.find(plugin) if index else None
         if path is None:
@@ -1696,6 +1695,34 @@ def detect_conflicts(
                     continue
                 seen_here.add(key)
                 touch.setdefault(key, []).append((plugin, deleted))
+    return touch, unreadable, scanned, rec_count, paths
+
+
+def detect_conflicts(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_names: Sequence[str] | None = None,
+    session: Tes3ConvSession | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Scan the active load order for record-level conflicts.
+
+    active_order : plugin filenames in load order (winner last).
+    index        : a PluginFileIndex to locate the files on disk.
+    subset_names : your custom plugins, so conflicts involving them can be flagged.
+
+    session : an optional Tes3ConvSession. When given, records are read from
+    tes3conv JSON (exact ids for every record type, and field-level diffing is
+    then possible via diff_record_fields); when None, the built-in binary parser
+    is used (record-level only).
+
+    Returns (conflicts, stats). conflicts is a list of dicts sorted with your
+    custom-involved ones first:
+      {type, id, plugins:[load order], winner, involves_subset, deleted_by:[...]}
+    stats = {"scanned", "unreadable":[...], "records", "conflicts",
+             "engine": "tes3conv"|"builtin", "paths": {plugin: path}}.
+    """
+    subset_lower = {s.lower() for s in (subset_names or [])}
+    touch, unreadable, scanned, rec_count, paths = _scan_touch(active_order, index, session)
 
     conflicts = []
     for (rectype, rid), plugs in touch.items():
@@ -1722,6 +1749,146 @@ def detect_conflicts(
         "paths": paths,
     }
     return conflicts, stats
+
+
+def _list_singles(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_names: Sequence[str],
+    session: Tes3ConvSession | None,
+    *,
+    want_subset: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Shared core of :func:`list_subset_singles` and :func:`list_other_singles`.
+
+    Both want the same thing -- records with exactly one contributor -- and
+    only disagree about which side of ``subset_names`` that contributor has
+    to fall on, so the filter condition is the one parameter that differs.
+
+    Args:
+        active_order: Plugin filenames in load order (winner last).
+        index: A PluginFileIndex to locate the files on disk.
+        subset_names: Your custom plugins.
+        session: An optional Tes3ConvSession; same meaning as in
+            :func:`detect_conflicts`.
+        want_subset: ``True`` keeps a single-contributor record when that
+            lone plugin IS one of ``subset_names`` (your mods); ``False``
+            keeps the complement -- a momw dependency, the game's own
+            masters, anything active that isn't yours.
+
+    Returns:
+        ``(records, stats)``, matching :func:`detect_conflicts`'s shape:
+        each record is ``{type, id, plugins: [the one plugin], winner,
+        involves_subset, deleted_by}``, sorted by type then id. ``stats``
+        carries a ``"singles"`` count in place of ``"conflicts"``.
+    """
+    subset_lower = {s.lower() for s in subset_names}
+    touch, unreadable, scanned, rec_count, paths = _scan_touch(active_order, index, session)
+
+    records = []
+    for (rectype, rid), plugs in touch.items():
+        if len(plugs) != 1:
+            continue
+        plugin, deleted = plugs[0]
+        is_subset = plugin.lower() in subset_lower
+        if is_subset != want_subset:
+            continue
+        records.append(
+            {
+                "type": rectype,
+                "id": rid,
+                "plugins": [plugin],
+                "winner": plugin,
+                "involves_subset": is_subset,
+                "deleted_by": [plugin] if deleted else [],
+            }
+        )
+    records.sort(key=lambda c: (c["type"], str(c["id"]).lower()))
+    stats: dict[str, Any] = {
+        "scanned": scanned,
+        "unreadable": unreadable,
+        "records": rec_count,
+        "singles": len(records),
+        "engine": "tes3conv" if session is not None else "builtin",
+        "paths": paths,
+    }
+    return records, stats
+
+
+def list_subset_singles(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_names: Sequence[str],
+    session: Tes3ConvSession | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """List records that only your own mods touch -- no conflict, just yours.
+
+    A sister process to :func:`detect_conflicts`, not a variant of it: a
+    record with exactly one contributor isn't a conflict, and folding it into
+    the conflict list would misrepresent both the conflict count and the
+    conflict map/table, which are specifically about collisions between
+    plugins. This scans the same load order -- paying for the read only once,
+    via :func:`_scan_touch` -- but keeps the single-plugin entries
+    :func:`detect_conflicts` discards, filtered to ones where that lone
+    plugin is one of ``subset_names``.
+
+    The point is parity, not a new UI: the shape matches
+    :func:`detect_conflicts`'s output exactly (a "conflict" with one plugin
+    is just a record with one column), so the same field-diff panel and the
+    same graph/difference/3D buttons already work on it -- "Show
+    difference..." simply won't offer itself, correctly, since there's
+    nothing to diff against.
+
+    Args:
+        active_order: Plugin filenames in load order (winner last).
+        index: A PluginFileIndex to locate the files on disk.
+        subset_names: Your custom plugins. Unlike ``detect_conflicts``, this
+            is meant to be non-empty here -- there is no meaningful "single
+            plugin, not mine" entry for this function to return.
+        session: An optional Tes3ConvSession; same meaning as in
+            :func:`detect_conflicts`.
+
+    Returns:
+        ``(records, stats)`` -- see :func:`_list_singles`. ``involves_subset``
+        is always ``True`` here.
+    """
+    return _list_singles(active_order, index, subset_names, session, want_subset=True)
+
+
+def list_other_singles(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_names: Sequence[str],
+    session: Tes3ConvSession | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """List records that only ONE non-custom plugin touches.
+
+    The complement of :func:`list_subset_singles`: everything active that
+    isn't yours and isn't conflicting with anything either -- a momw-listed
+    dependency's own untouched records, Morrowind.esm/Tribunal.esm/
+    Bloodmoon.esm's own base content, any other plugin you didn't add as a
+    custom. Useful for pulling a record up in the field-diff/visualisation
+    views to just look at it, with nothing to compare it against.
+
+    This can be a much longer list than :func:`list_subset_singles` -- the
+    base masters alone define enormous numbers of records -- which is exactly
+    why it's a separate, deliberately-not-default function: callers gate it
+    behind its own opt-in control rather than fetching it automatically
+    alongside a conflict scan.
+
+    Args:
+        active_order: Plugin filenames in load order (winner last).
+        index: A PluginFileIndex to locate the files on disk.
+        subset_names: Your custom plugins, EXCLUDED here. Can be empty --
+            then this returns every plugin's single-contributor records.
+        session: An optional Tes3ConvSession; same meaning as in
+            :func:`detect_conflicts`.
+
+    Returns:
+        ``(records, stats)`` -- see :func:`_list_singles`. ``involves_subset``
+        is always ``False`` here.
+    """
+    return _list_singles(active_order, index, subset_names, session, want_subset=False)
 
 
 def format_conflict_report(
