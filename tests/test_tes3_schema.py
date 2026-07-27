@@ -45,7 +45,7 @@ PLAIN_SIZE = re.compile(r"^([\d,]+) bytes?$")
 
 #: Record types the export does not cover. Listed rather than silently tolerated
 #: so that a *new* gap fails the test instead of joining them unnoticed.
-KNOWN_GAPS = {"Bodypart"}
+KNOWN_GAPS = set()
 
 
 class TestSchemaIsSane:
