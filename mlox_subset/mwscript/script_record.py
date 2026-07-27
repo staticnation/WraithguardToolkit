@@ -16,10 +16,12 @@ Layout of a ``SCPT`` record:
 from __future__ import annotations
 
 import struct
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 #: Minimum bytes needed for a TES3 record header (tag, size, header1, flags).
 _RECORD_HEADER_SIZE: Final = 16

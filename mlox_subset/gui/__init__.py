@@ -70,7 +70,7 @@ def app_base_dir() -> Path:
 #: together. The menu labels live at the call site instead, as literals: a
 #: ``_(variable)`` is invisible to the string extractor, so a label held here
 #: could never be translated.
-HELP_DOCUMENTS: tuple[str, ...] = ("QUICKSTART.md", "README.md")
+HELP_DOCUMENTS: tuple[str, ...] = ("QUICKSTART.md", "README.md", "MLOX_RULES.md")
 
 
 def doc_path(filename: str) -> Path | None:

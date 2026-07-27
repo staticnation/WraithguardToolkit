@@ -228,6 +228,12 @@ class TestEmitterHygiene:
         assert "matches 2 openmw.cfg lines" in out
 
     def test_inserts_are_annotated_with_their_real_constraint(self):
+        """Each annotation now names its plugin.
+
+        A run of plugins shares one ``insertBlock``, so "must load after B.esp"
+        on its own no longer says *which* plugin that constraint belongs to.
+        The plugin name is prefixed instead.
+        """
         base = ["Morrowind.esm", "A.esp", "B.esp"]
         subset = ["B Patch.esp", "Loose.esp"]
         masters = {"b patch.esp": ["Morrowind.esm", "B.esp"], "loose.esp": ["Morrowind.esm"]}
@@ -240,8 +246,8 @@ class TestEmitterHygiene:
             {s: s for s in subset},
             custom_anchors=anchors,
         )
-        assert "# constraint: must load after 'B.esp'" in toml
-        assert "# no ordering constraint -- positional only" in toml
+        assert "# B Patch.esp: must load after 'B.esp'" in toml
+        assert "# Loose.esp: no ordering constraint -- positional only" in toml
 
     def test_emitted_toml_is_valid_and_reparses(self):
         try:  # 3.11+ stdlib, else the tomli backport the engine also accepts
@@ -257,3 +263,97 @@ class TestEmitterHygiene:
         parsed = tomllib.loads(toml)
         assert parsed["Customizations"][0]["listName"] == "x"
         assert parsed["Customizations"][0]["removeContent"] == ["A.esp"]
+
+
+class TestDisableOnlyRemovesWhatWeDoNotOwn:
+    """A removal is only needed for a plugin the curated list owns.
+
+    momw-configurator rebuilds openmw.cfg from the curated list plus these
+    customizations. A plugin the tool simply stops inserting is already absent
+    from the result, so a ``removeContent`` for it is noise in a file people
+    hand-edit. The old test was "is it currently in openmw.cfg", which catches
+    the user's own mods the moment they have exported once -- reported as
+    "disabling my own mod adds a disable block at the top of the TOML".
+    """
+
+    BASE = ["Curated.esp", "Mine.esp"]
+    CURATED = {"curated.esp"}
+
+    def test_a_curated_plugin_still_gets_a_removal(self, core):
+        """It is in the list, so not inserting it would change nothing."""
+        assert core.plugins_needing_removal(["Curated.esp"], self.CURATED, self.BASE) == [
+            "Curated.esp"
+        ]
+
+    def test_the_users_own_mod_is_just_not_inserted(self, core):
+        """The reported noise: no block for something we control."""
+        assert core.plugins_needing_removal(["Mine.esp"], self.CURATED, self.BASE) == []
+
+    def test_without_a_curated_list_the_old_behaviour_stands(self, core):
+        """No plugin-order.yml means "unknown", not "nothing is curated".
+
+        Guessing wrong in that direction would leave a plugin enabled that the
+        user asked to disable, so presence in the cfg stays the fallback.
+        """
+        assert core.plugins_needing_removal(["Mine.esp"], set(), self.BASE) == ["Mine.esp"]
+
+    def test_a_plugin_in_neither_needs_no_removal(self, core):
+        """There is nothing to remove it from."""
+        assert core.plugins_needing_removal(["NeverSeen.esp"], self.CURATED, self.BASE) == []
+
+    def test_matching_is_case_insensitive(self, core):
+        """Plugin names carry whatever case someone typed."""
+        assert core.plugins_needing_removal(["CURATED.ESP"], self.CURATED, self.BASE) == [
+            "CURATED.ESP"
+        ]
+
+    def test_the_result_is_sorted_and_deduplicated(self, core):
+        """It goes into a file people read; duplicates would be confusing."""
+        disabled = ["Curated.esp", "Curated.esp"]
+        assert core.plugins_needing_removal(disabled, self.CURATED, self.BASE) == ["Curated.esp"]
+
+    def test_nothing_disabled_means_no_removals(self, core):
+        """The common case must not emit an empty block."""
+        assert core.plugins_needing_removal([], self.CURATED, self.BASE) == []
+
+
+class TestDisableCoversDataPathsToo:
+    """The plugin rule, applied to folders.
+
+    A mod is a data path *and* a plugin, so fixing only the plugin half left
+    disabling a custom mod still emitting a ``removeData`` block for its folder
+    -- the same noise the content fix removed.
+    """
+
+    OURS = {"c:/mods/mine"}
+    IN_CFG = {"c:/mods/mine", "c:/mods/curated"}
+
+    def test_a_path_we_insert_needs_no_removal(self, core):
+        """We can simply stop inserting it."""
+        assert (
+            core.data_paths_needing_removal(['data="C:/mods/Mine"'], self.OURS, self.IN_CFG) == []
+        )
+
+    def test_a_curated_path_still_gets_one(self, core):
+        """Nothing else will take it out of the rebuilt cfg."""
+        result = core.data_paths_needing_removal(['data="C:/mods/Curated"'], self.OURS, self.IN_CFG)
+
+        assert result == ["C:/mods/Curated"]
+
+    def test_a_path_not_in_the_cfg_needs_nothing(self, core):
+        """There is nothing to remove it from."""
+        assert (
+            core.data_paths_needing_removal(['data="C:/mods/Absent"'], self.OURS, self.IN_CFG) == []
+        )
+
+    def test_results_are_sorted_and_deduplicated(self, core):
+        """It goes into a file people read."""
+        lines = ['data="C:/mods/Curated"', 'data="C:/mods/Curated"']
+
+        assert core.data_paths_needing_removal(lines, self.OURS, self.IN_CFG) == ["C:/mods/Curated"]
+
+    def test_a_bare_path_without_the_data_prefix_is_accepted(self, core):
+        """Callers pass raw cfg lines, but not always."""
+        assert core.data_paths_needing_removal(["C:/mods/Curated"], self.OURS, self.IN_CFG) == [
+            "C:/mods/Curated"
+        ]

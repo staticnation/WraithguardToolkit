@@ -40,8 +40,7 @@ not just the count.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mlox_subset import _, ngettext
 from mlox_subset.viz import html as h
@@ -54,6 +53,9 @@ from mlox_subset.viz.palette import (
     severity,
     severity_stops,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping, Sequence
 
 #: Pixel size of one cell in the rendered map.
 _CELL_PX = 9

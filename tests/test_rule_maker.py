@@ -1,5 +1,12 @@
 """Tests for user-rule authoring (``append_user_rule`` and its cycle guard).
 
+``append_user_rule`` now delegates to ``append_authored_rule``, so one validator
+and one renderer serve both. These tests kept their value through that change --
+and earned it: they caught the new validator accepting ``semi;colon.esp`` and
+``brackets[x].esp``, names mlox would read as a comment and as expression
+syntax. The wording of two messages and the comment prefix moved with the
+implementation, which is what the small edits here record.
+
 Per the mlox rule guidelines, a rule that would cause a cycle is *discarded*
 at sort time -- so the authoring side's job is to refuse malformed rules
 outright and warn about ones that would be silently dropped.
@@ -32,7 +39,7 @@ class TestValidation:
 
     def test_comment_is_written_as_a_mlox_comment(self, core, rules_file, capsys):
         core.append_user_rule(rules_file, "order", ["A.esp", "B.esp"], comment="(Ref: the readme)")
-        assert ";; (Ref: the readme)" in rules_file.read_text(encoding="utf-8")
+        assert "; (Ref: the readme)" in rules_file.read_text(encoding="utf-8")
         # comments must not leak into the parsed names
         assert parse_mlox_file(rules_file) == [("order", ["A.esp", "B.esp"])]
 
@@ -46,12 +53,12 @@ class TestValidation:
 
     def test_duplicate_name_is_rejected(self, core, rules_file):
         """A plugin ordered against itself is a self-cycle -- always a mistake."""
-        with pytest.raises(ValueError, match="more than once"):
+        with pytest.raises(ValueError, match="listed twice"):
             core.append_user_rule(rules_file, "order", ["A.esp", "A.esp"])
         assert not rules_file.exists()
 
     def test_duplicate_detection_is_case_insensitive(self, core, rules_file):
-        with pytest.raises(ValueError, match="more than once"):
+        with pytest.raises(ValueError, match="listed twice"):
             core.append_user_rule(rules_file, "order", ["A.esp", "B.esp", "a.ESP"])
 
     def test_order_rule_needs_two_names(self, core, rules_file):

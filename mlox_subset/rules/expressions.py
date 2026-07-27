@@ -22,12 +22,14 @@ brackets, so they are matched more simply.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from mlox_subset.i18n import gettext as _
 from mlox_subset.logging_setup import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 #: Diagnostics about the run (not the user's report) go through here.
 _LOG = get_logger(__name__)

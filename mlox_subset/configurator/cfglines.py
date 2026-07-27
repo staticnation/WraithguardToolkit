@@ -10,8 +10,10 @@ would produce a diff the user did not ask for in a file they hand-edit.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
 
 #: A ``data=`` line, capturing its value.
 _DATA_LINE_RE: Final = re.compile(r"^\s*data\s*=\s*(.+?)\s*$", re.IGNORECASE)

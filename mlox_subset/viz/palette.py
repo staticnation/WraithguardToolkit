@@ -18,9 +18,11 @@ number of steps and no lookup table has to be kept in sync with a legend.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from itertools import pairwise
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 #: Neutral fill for a cell with data but nothing to report.
 NEUTRAL = "#2c313a"

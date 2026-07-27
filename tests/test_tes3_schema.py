@@ -5,7 +5,7 @@ question is not "does it load" but "is what it says *true*". Two checks answer
 that without any hand-maintained expected values:
 
 * every struct layout that could be parsed must add up to the byte count the
-  same table declares for it -- 55 independent agreements, each one a chance for
+  same table declares for it -- 56 independent agreements, each one a chance for
   the parser to have gone wrong and not taken;
 * every record type the diff window can encounter must resolve to a documented
   record, or be a type the reference is known not to cover.
@@ -43,9 +43,10 @@ from gen_tes3_schema import (
 #: opposed to a hedge like ``12 or 52 bytes``.
 PLAIN_SIZE = re.compile(r"^([\d,]+) bytes?$")
 
-#: Record types the export does not cover. Listed rather than silently tolerated
-#: so that a *new* gap fails the test instead of joining them unnoticed.
-KNOWN_GAPS = set()
+#: Record types the export does not cover. Empty since ``BODY`` was added to it;
+#: kept as a named set rather than an inline ``== set()`` so that a *new* gap
+#: fails the test with something to read instead of joining the schema unnoticed.
+KNOWN_GAPS: set[str] = set()
 
 
 class TestSchemaIsSane:

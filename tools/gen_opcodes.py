@@ -19,6 +19,9 @@ ambiguity (every name resolved to exactly one value). The result agrees with the
 ``FLAG_*`` constants the disassembler already carries, which is the check that
 the derivation is right.
 
+Where the two tables disagree the existing ``Functions.dat`` entry is kept and
+the disagreement printed, with one documented exception: see ``CORRECTIONS``.
+
 Usage:
     python tools/gen_opcodes.py ../MWEdit-dev/data/Functions.dat [customfunctions.dat]
 """
@@ -45,6 +48,26 @@ SYMBOLIC_FLAGS: dict[str, int] = {
     "optional": 0x0800,
     "many": 0x8000,
     "none": 0x0000,
+}
+
+#: Entries where the shipped tables are demonstrably wrong, corrected against
+#: UESP's per-function documentation. Kept explicit and tiny: a table that
+#: silently "fixes" its own inputs is a table nobody can check.
+#:
+#: ``0x3C33`` -- MWEdit's ``Functions.dat`` gives ``XFileWriteFloat`` a single
+#: float operand, with no filename. Two independent sources say otherwise:
+#: ``customfunctions.dat`` lists two parameters, and UESP documents the syntax as
+#: ``xFileWriteFloat filename (string), value (float)``. Its three siblings
+#: (``XFileWriteShort``/``Long``/``String``) all take the filename first, so the
+#: omission is a typo rather than a real asymmetry. Left uncorrected, every call
+#: to it decodes one operand short and desynchronises the rest of the stream.
+#:
+#: The filename is a *string* (``0x10``), not ``Long | String`` (``0x14``), which
+#: is also why the other 25 disagreements in this family are resolved MWEdit's
+#: way: UESP documents the parameter as a string, and a wrong string decode is
+#: caught by ``_plausible_identifier`` while a wrong 4-byte read is not.
+CORRECTIONS: dict[int, tuple[str, tuple[int, ...]]] = {
+    0x3C33: ("XFileWriteFloat", (0x10, 0x8)),
 }
 
 #: Opcodes the compiler emits that appear in no function table. Values derived
@@ -253,6 +276,10 @@ def main(argv: list[str]) -> int:
         extended, notes = merge_custom(table, custom)
         for note in notes:
             print(f"  kept existing: {note}", file=sys.stderr)
+    for opcode, entry in CORRECTIONS.items():
+        if opcode in table and table[opcode] != entry:
+            print(f"  corrected: 0x{opcode:04X} -> {entry[0]}{entry[1]}", file=sys.stderr)
+        table[opcode] = entry
     for opcode, entry in CORPUS_DERIVED.items():
         table.setdefault(opcode, entry)
 
@@ -271,6 +298,9 @@ def main(argv: list[str]) -> int:
         "  MWSE updater installs, not MWSE source, so the no-GPL-source policy",
         "  is unaffected. Only opcodes the main table does not already describe",
         "  are taken from it.",
+        "* UESP's per-function MWSE pages -- for the one entry where both tables",
+        "  are wrong or disagree. Documentation, not source; see ``CORRECTIONS``",
+        "  in the generator for the evidence behind each.",
         "* A corpus of real compiled scripts -- for the compiler-internal opcodes",
         "  that no function table lists. These were measured, not copied: an",
         "  opcode's value is a fact about the game's data files.",
@@ -316,7 +346,7 @@ def main(argv: list[str]) -> int:
     OUT.write_text("\n".join(lines), encoding="utf-8")
     print(
         f"wrote {len(table)} opcodes ({len(CORPUS_DERIVED)} corpus-derived, "
-        f"{len(extended)} from the MWSE table) -> {OUT}"
+        f"{len(extended)} from the MWSE table, {len(CORRECTIONS)} corrected) -> {OUT}"
     )
     return 0
 

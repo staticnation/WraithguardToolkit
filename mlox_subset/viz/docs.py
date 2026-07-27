@@ -26,11 +26,13 @@ from __future__ import annotations
 
 import html
 import re
-from collections.abc import Iterator, Sequence
 from datetime import datetime
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from mlox_subset import _
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
 
 #: Reading-oriented styling: a measured column, generous line height, and code
 #: that stands away from prose. Shares the palette with the other pages so a

@@ -157,3 +157,72 @@ class TestRealLoadOrder:
         _b1, first, _r1 = _sort_real(core)
         _b2, second, _r2 = _sort_real(core)
         assert first == second
+
+
+class TestGroundcoverOnRealData:
+    """The groundcover hold-back, against a real 687-plugin openmw.cfg.
+
+    The synthetic cases in ``test_hardening.py`` prove the rule; this proves it
+    survives contact with a real setup, which contains the one case a filename
+    heuristic would get wrong.
+    """
+
+    def test_the_real_cfg_declares_grass_separately(self, core) -> None:
+        """A real MOMW-style setup has both kinds of line, in quantity.
+
+        Args:
+            core: The engine module.
+        """
+        lines, _cp, content, _dp, _data = core.read_cfg(CFG)
+        groundcover = core.read_groundcover_names(lines)
+
+        assert len(content) > 500, "the sample cfg is not the real one"
+        assert len(groundcover) > 10, "the sample cfg has no groundcover lines to test against"
+
+    def test_a_plugin_named_groundcover_is_not_treated_as_grass(self, core) -> None:
+        """``deleted_groundcover.omwaddon`` is content, and its name says grass.
+
+        This is why the rule is "what the cfg declares" and not "what the file
+        is called": a ``*groundcover*`` pattern would hold this one back and
+        silently drop a plugin the user wants loaded.
+
+        Args:
+            core: The engine module.
+        """
+        lines, _cp, content, _dp, _data = core.read_cfg(CFG)
+        names = [name for name, _raw in content]
+        groundcover = core.read_groundcover_names(lines)
+
+        assert "deleted_groundcover.omwaddon" in names
+        assert "deleted_groundcover.omwaddon" not in groundcover
+
+        kept, held = core.hold_back_groundcover(["deleted_groundcover.omwaddon"], groundcover)
+        assert kept == ["deleted_groundcover.omwaddon"]
+        assert held == []
+
+    def test_no_plugin_is_declared_both_ways(self, core) -> None:
+        """The state the fix prevents, absent from a healthy cfg.
+
+        Args:
+            core: The engine module.
+        """
+        lines, _cp, content, _dp, _data = core.read_cfg(CFG)
+        both = {name.lower() for name, _raw in content} & {
+            name.lower() for name in core.read_groundcover_names(lines)
+        }
+
+        assert not both, f"declared as both content and groundcover: {sorted(both)}"
+
+    def test_every_declared_grass_plugin_would_be_held_back(self, core) -> None:
+        """If a scan swept them all into the subset, none would reach content=.
+
+        Args:
+            core: The engine module.
+        """
+        lines, *_rest = core.read_cfg(CFG)
+        groundcover = core.read_groundcover_names(lines)
+
+        kept, held = core.hold_back_groundcover([*groundcover, "MyNewQuest.esp"], groundcover)
+
+        assert kept == ["MyNewQuest.esp"]
+        assert held == groundcover

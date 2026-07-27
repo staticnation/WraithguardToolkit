@@ -14,16 +14,18 @@ tell-tale leftovers of a construct the parser walked past.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+from mlox_subset.gui import HELP_DOCUMENTS
 from mlox_subset.viz.docs import DOCS_CSS, docs_page, inline, render_markdown
 
 #: The project's own documents, which the renderer exists to display.
-DOCS = ("README.md", "QUICKSTART.md", "CHANGELOG.md", "REMAINING_WORK.md")
+DOCS = ("README.md", "QUICKSTART.md", "CHANGELOG.md", "REMAINING_WORK.md", "MLOX_RULES.md")
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -247,3 +249,43 @@ class TestProjectDocuments:
         body = body_of(source.read_text(encoding="utf-8"))
         assert body.count("<table>") >= 2
         assert re.search(r"<td>.+</td>", body)
+
+
+class TestHelpMenuMatchesWhatShips:
+    """The Help menu is a promise that a document is there to open.
+
+    Two ways to break that promise, and neither shows up until someone clicks:
+    listing a document that is not in the source tree, or adding one to the menu
+    without adding it to the build manifest -- which works perfectly from a
+    checkout and fails only in the frozen build, where nobody is running tests.
+    """
+
+    #: The PyInstaller data files, as the packaging front-end records them.
+    MANIFEST = ROOT / "build" / "auto-py-to-exe_build.json"
+
+    @pytest.mark.parametrize("name", HELP_DOCUMENTS)
+    def test_every_offered_document_exists(self, name: str) -> None:
+        """A menu entry with no file behind it is a dead end.
+
+        Args:
+            name: The document the Help menu offers.
+        """
+        assert (ROOT / name).is_file(), f"Help offers {name}, which is not in the tree"
+
+    @pytest.mark.parametrize("name", HELP_DOCUMENTS)
+    def test_every_offered_document_is_bundled(self, name: str) -> None:
+        """Otherwise Help works in development and is empty in the release.
+
+        Args:
+            name: The document the Help menu offers.
+        """
+        if not self.MANIFEST.is_file():  # pragma: no cover - a trimmed checkout
+            pytest.skip("the build manifest is not in this checkout")
+        datas = [
+            entry.get("value", "")
+            for entry in json.loads(self.MANIFEST.read_text(encoding="utf-8"))["pyinstallerOptions"]
+            if entry.get("optionDest") == "datas"
+        ]
+        assert any(
+            value.split(";")[0].endswith(f"/{name}") for value in datas
+        ), f"{name} is in the Help menu but not in the build manifest"

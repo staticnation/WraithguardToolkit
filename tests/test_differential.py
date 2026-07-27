@@ -31,6 +31,7 @@ from mlox_subset.configurator import (
     customization_string_list,
     detect_data_quoting,
     format_data_line,
+    generate_customizations_toml,
     normalize_data_path,
     simulate_configurator_apply,
     toml_value,
@@ -357,6 +358,29 @@ def _configurator_observations(core, data_dir: Path) -> dict[str, str]:
         [toml_value(v) for v in ["plain", 'has "quotes"', "back\\slash", "", "C:\\path\\here"]]
     )
 
+    # The emitted customizations TOML itself. This is the artefact the whole
+    # Configurator path depends on, and until now nothing pinned it: the
+    # baseline covered `toml_value` and a *checked-in* TOML, so an emitter
+    # change could rewrite every user's file with the suite still green. The
+    # cases cover the shapes that decide the output: one custom, a consecutive
+    # run, a run split by a curated plugin, and a leading run with no
+    # predecessor to anchor after.
+    emit_cases = [
+        (["Morrowind.esm", "Mine.esp"], {"mine.esp"}),
+        (["Morrowind.esm", "A.esp", "B.esp", "C.esp"], {"a.esp", "b.esp", "c.esp"}),
+        (["A.esp", "Curated.esp", "B.esp"], {"a.esp", "b.esp"}),
+        (["Mine.esp", "Curated.esp"], {"mine.esp"}),
+        (["Only.esp"], {"only.esp"}),
+    ]
+    out["cfg.emit_customizations_toml"] = _digest(
+        [
+            generate_customizations_toml(
+                {}, order, subset, {n: n for n in order}, list_name="total-overhaul"
+            )
+            for order, subset in emit_cases
+        ]
+    )
+
     # The string-vs-array guard. A regression here silently deletes cfg lines,
     # so both the accepted and rejected shapes are pinned, with their errors.
     string_list_cases: list[object] = []
@@ -475,6 +499,7 @@ def test_baseline_exists(observations, request):
         "cfg.format_data_line",
         "cfg.detect_data_quoting",
         "cfg.toml_value",
+        "cfg.emit_customizations_toml",
         "cfg.customization_string_list",
         "cfg.configurator_remove_matches",
         "configurator.simulate_real",

@@ -23,12 +23,14 @@ own load order.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mlox_subset.viz.cellmap_js import CELLMAP_CSS, CELLMAP_JS
 from mlox_subset.viz.palette import coverage_heat, coverage_legend_stops
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
 
 #: Largest exterior cell coordinate treated as real. Beyond this a plugin is
 #: almost certainly corrupt, and plotting it would stretch the map to nothing.

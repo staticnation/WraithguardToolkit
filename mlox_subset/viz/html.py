@@ -20,11 +20,13 @@ from __future__ import annotations
 
 import html
 import json
-from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mlox_subset import _
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping, Sequence
 
 
 def script_json(value: Any) -> str:  # noqa: ANN401 - encodes arbitrary JSON-able data
@@ -169,7 +171,13 @@ def table(
     """
     numeric = numeric or set()
     rows = list(rows)
-    attrs = list(row_attrs) if row_attrs is not None else [{}] * len(rows)
+    # Padded rather than zipped short. `zip` would silently stop at whichever
+    # list ran out, and the thing that runs out is the attribute list -- so a
+    # caller that built one attribute short would lose *table rows*, which on
+    # the conflict map means losing conflicts. A row with no data-* hooks is
+    # merely unfilterable; a missing row is invisible.
+    attrs = list(row_attrs or ())
+    attrs += [{}] * (len(rows) - len(attrs))
     body = "".join(
         "<tr"
         + "".join(f' {key}="{escape(value)}"' for key, value in extra.items())

@@ -40,6 +40,7 @@ from mlox_subset.viz.housekeeping import (
     prune_generated,
     sidecar_folder,
 )
+from mlox_subset.viz.html import table
 from mlox_subset.viz.palette import (
     _COVERAGE_STOPS,
     COVERAGE_MAX_BANDS,
@@ -883,3 +884,35 @@ class TestSidecarFolder:
         """A relative page must not resolve the folder to the cwd."""
         page = Path("/deep/nested/pathgrid_20260101_000000.html")
         assert sidecar_folder(page).parent == page.parent
+
+
+class TestTableNeverLosesRows:
+    """A short ``row_attrs`` must not truncate the table.
+
+    Found in the 3.1 audit while checking the project's blanket ``B905``
+    exemption, which claims every ``zip()`` is either an intentional offset
+    pairing or a comparison that reports its own length mismatch. This one was
+    neither: ``zip`` stops at the shorter list, and the shorter list is the
+    attributes -- so a caller one attribute short would lose a *row*. On the
+    conflict map that means losing a conflict.
+    """
+
+    def test_a_short_attribute_list_pads_rather_than_truncates(self) -> None:
+        """A row with no data-* hooks is unfilterable; a missing row is invisible."""
+        rendered = table(["col"], [["one"], ["two"], ["three"]], row_attrs=[{"data-m": "x"}])
+
+        for value in ("one", "two", "three"):
+            assert value in rendered, f"row {value!r} was dropped"
+
+    def test_the_supplied_attributes_still_land_on_their_rows(self) -> None:
+        """Padding must not shift the attributes it was padding around."""
+        rendered = table(["col"], [["one"], ["two"]], row_attrs=[{"data-m": "first"}])
+
+        assert '<tr data-m="first"><td>one</td>' in rendered
+
+    def test_more_attributes_than_rows_is_harmless(self) -> None:
+        """The other direction: extra attributes have no row to sit on."""
+        rendered = table(["col"], [["only"]], row_attrs=[{"data-m": "a"}, {"data-m": "b"}])
+
+        assert rendered.count("<tr") == 2  # the header row plus one body row
+        assert "only" in rendered

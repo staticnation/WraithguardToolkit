@@ -17,12 +17,15 @@ resolved ambiguity differently would make the preview a lie.
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Sequence
+from typing import TYPE_CHECKING
 
 from mlox_subset.configurator.cfglines import (
     cfg_line_value,
     normalize_data_path,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Sequence
 
 #: ``remove*`` keys the Configurator understands. Each takes an array of
 #: whole-line substrings; see :func:`customization_string_list` for why the

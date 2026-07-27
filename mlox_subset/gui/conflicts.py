@@ -9,12 +9,10 @@ reference resolves exactly as it did when the methods lived there.
 from __future__ import annotations
 
 import json
-import queue
 import threading
 import tkinter as tk
 import traceback
 import webbrowser
-from collections.abc import Callable, Mapping, Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -33,6 +31,10 @@ from mlox_subset.gui.theme import (
 from mlox_subset.gui.widgets import QueueWriter, add_tooltip
 from mlox_subset.i18n import gettext as _, ngettext
 from mlox_subset.plugins import PluginFileIndex
+
+if TYPE_CHECKING:
+    import queue
+    from collections.abc import Callable, Mapping, Sequence
 
 # Compiled-script disassembly for the field-diff window. Optional, exactly as
 # in the main module: without it the diff shows the raw base64 blob. Declared
@@ -818,7 +820,11 @@ class ConflictWindowsMixin:
             win,
             wrap="word",
             font=("TkFixedFont", 10),
-            bg=DARK["entry_bg"],
+            # log_bg, matching every other read-only text pane in the app. NOT
+            # "entry_bg": there is no such key, and asking for one raised a
+            # KeyError *after* the Toplevel was created -- so the window opened,
+            # blank, and the traceback went to stderr where nobody was looking.
+            bg=DARK["log_bg"],
             fg=DARK["fg"],
             insertbackground=DARK["fg"],
         )

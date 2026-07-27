@@ -11,10 +11,13 @@ from __future__ import annotations
 import importlib.util
 import struct
 import sys
-import types
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    import types
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENGINE_PATH = REPO_ROOT / "mlox_subset_sort.py"

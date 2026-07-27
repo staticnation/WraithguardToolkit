@@ -23,8 +23,11 @@ folder.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
 
 #: Filename stems the visualisations generate, each written as
 #: ``<stem>_<YYYYmmdd>_<HHMMSS>.html``. Only files matching one of these (with a

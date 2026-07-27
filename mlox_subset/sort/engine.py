@@ -17,12 +17,15 @@ the product.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, MutableMapping, Sequence
 from itertools import pairwise
+from typing import TYPE_CHECKING
 
 from mlox_subset.i18n import gettext as _, ngettext
 from mlox_subset.sort.graph import expand_pattern, is_master_file, would_create_cycle
 from mlox_subset.tracing import trace_sort
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, MutableMapping, Sequence
 
 #: Nudge applied to push a dependent just past (or just short of) the custom
 #: plugin it is anchored to, so the two never resolve to the same position.

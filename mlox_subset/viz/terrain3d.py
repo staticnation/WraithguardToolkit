@@ -26,11 +26,14 @@ to it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
 
 from mlox_subset import _
 from mlox_subset.tes3fields.landscape import LandscapeDecodeError, decode_vertex_heights
 from mlox_subset.viz import html as h
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
 
 
 class Terrain3DError(Exception):

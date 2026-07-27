@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import re
 import tkinter as tk
-from collections.abc import Callable
 from pathlib import Path
 from tkinter import ttk
+from typing import TYPE_CHECKING
 
 from mlox_subset.tracing import trace
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # chrome palette -- the app-wide window/widget colours (as opposed to the

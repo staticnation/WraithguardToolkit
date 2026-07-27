@@ -693,3 +693,67 @@ def test_no_live_module_imports_the_retired_viz_subsystem() -> None:
         if hits:
             offenders[str(path.relative_to(PROJECT_ROOT))] = hits
     assert not offenders, f"retired viz modules imported again: {offenders}"
+
+
+def _dark_palette_keys() -> set[str]:
+    """Read the GUI palette's key names without importing Tk.
+
+    ``mlox_subset/gui/theme.py`` imports :mod:`tkinter` at module level and the
+    hermetic suite has no Tk, so the dict literal is parsed out of the source
+    instead.
+
+    Returns:
+        Every key defined in ``DARK``.
+
+    Raises:
+        AssertionError: If the palette could not be found, since an empty set
+            would make the check that uses it pass vacuously.
+    """
+    tree = _parse(PROJECT_ROOT / "mlox_subset/gui/theme.py")
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        names = {t.id for t in node.targets if isinstance(t, ast.Name)}
+        if "DARK" in names and isinstance(node.value, ast.Dict):
+            return {
+                key.value
+                for key in node.value.keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            }
+    message = "DARK palette not found in mlox_subset/gui/theme.py"
+    raise AssertionError(message)
+
+
+def test_gui_palette_lookups_all_resolve() -> None:
+    """Every ``DARK["..."]`` in the GUI must name a key that exists.
+
+    This is the cheapest possible guard against a whole class of GUI defect the
+    test suite cannot otherwise reach: the GUI has no automated coverage (no Tk
+    in the hermetic environment), so a mistyped palette key is a ``KeyError``
+    that only appears when a user opens that particular window.
+
+    It was written after exactly that -- ``DARK["entry_bg"]`` (the key is
+    ``log_bg``) in the format-reference window. The lookup ran *after* the
+    ``Toplevel`` was created, so the window opened, stayed blank, and the
+    traceback went to stderr where nobody was looking. A blank window is a
+    miserable thing to debug; a failing test naming the key is not.
+    """
+    palette = _dark_palette_keys()
+    assert palette, "no palette keys parsed"
+    offenders: dict[str, set[str]] = {}
+    for path in SOURCE_FILES:
+        if path.name == "test_standards.py":
+            continue  # this file names the bad key in its own docstring
+        used = {
+            node.slice.value
+            for node in ast.walk(_parse(path))
+            if isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "DARK"
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+        }
+        missing = used - palette
+        if missing:
+            offenders[str(path.relative_to(PROJECT_ROOT))] = missing
+    assert not offenders, f"DARK keys that do not exist: {offenders}"

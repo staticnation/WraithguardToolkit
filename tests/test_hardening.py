@@ -9,13 +9,16 @@ not corrupt" are features, not implementation details.
 from __future__ import annotations
 
 import struct
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from mlox_subset.configurator import simulate_configurator_apply, toml_value
 from mlox_subset.plugins import PluginFileIndex
 from mlox_subset.sort import build_and_sort, expand_pattern
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # Deliberately malformed TES3 byte streams. Each has broken something a naive
 # reader would trust: the magic, a declared size, or a subrecord boundary.
@@ -324,3 +327,334 @@ class TestTomlValueEscaping:
             tomllib = pytest.importorskip("tomli")
 
         assert tomllib.loads(f"x = {toml_value(name)}")["x"] == name
+
+
+class TestGroundcoverIsNeverContent:
+    """A grass plugin must never be inserted as ``content=``.
+
+    Reported by a user: "is it normal for it to toggle on ALL mods, including
+    mods flagged as grass mods". It was not the folder scan's fault alone. The
+    scan cannot tell a grass mod from any other mod -- it walks a directory and
+    takes every plugin -- but the *cfg* can, because it declares grass on
+    ``groundcover=`` lines, and the tool read those lines and ignored them.
+
+    The result was the plugin declared twice: once as grass, once as content.
+    OpenMW then loads the grass through the groundcover system *and* spawns
+    every blade as a real object, which is exactly the cost groundcover exists
+    to avoid, arriving silently.
+    """
+
+    CFG = (
+        'data="E:/Morrowind/Data Files"\n'
+        "content=Morrowind.esm\n"
+        "content=Patch for Purists.esp\n"
+        "groundcover=Remiros_Groundcover.esp\n"
+        "groundcover=Vurt_Grass.esp\n"
+    )
+
+    def test_groundcover_lines_are_read(self, core, tmp_path: Path) -> None:
+        """The information was always there; nothing used it.
+
+        Args:
+            core: The engine module.
+            tmp_path: Pytest temporary directory.
+        """
+        cfg = tmp_path / "openmw.cfg"
+        cfg.write_text(self.CFG, encoding="utf-8")
+        lines, _cp, _content, _dp, _data = core.read_cfg(cfg)
+
+        assert core.read_groundcover_names(lines) == [
+            "Remiros_Groundcover.esp",
+            "Vurt_Grass.esp",
+        ]
+
+    def test_groundcover_is_not_mistaken_for_content(self, core, tmp_path: Path) -> None:
+        """The two live in the same file and must not bleed into each other.
+
+        Args:
+            core: The engine module.
+            tmp_path: Pytest temporary directory.
+        """
+        cfg = tmp_path / "openmw.cfg"
+        cfg.write_text(self.CFG, encoding="utf-8")
+        _lines, _cp, content, _dp, _data = core.read_cfg(cfg)
+
+        assert [name for name, _raw in content] == ["Morrowind.esm", "Patch for Purists.esp"]
+
+    def test_commented_groundcover_is_skipped(self, core, tmp_path: Path) -> None:
+        """A disabled grass line is disabled, exactly like a disabled content one.
+
+        Args:
+            core: The engine module.
+            tmp_path: Pytest temporary directory.
+        """
+        cfg = tmp_path / "openmw.cfg"
+        cfg.write_text("#groundcover=Off.esp\n# groundcover=AlsoOff.esp\n", encoding="utf-8")
+        lines, *_rest = core.read_cfg(cfg)
+
+        assert core.read_groundcover_names(lines) == []
+
+    def test_a_declared_grass_plugin_is_held_back(self, core) -> None:
+        """The fix, stated directly.
+
+        Args:
+            core: The engine module.
+        """
+        kept, held = core.hold_back_groundcover(
+            ["MyNewQuest.esp", "Remiros_Groundcover.esp"], ["Remiros_Groundcover.esp"]
+        )
+
+        assert kept == ["MyNewQuest.esp"]
+        assert held == ["Remiros_Groundcover.esp"]
+
+    def test_matching_is_case_insensitive(self, core) -> None:
+        """Plugin names on Windows are whatever case someone typed.
+
+        Args:
+            core: The engine module.
+        """
+        kept, held = core.hold_back_groundcover(
+            ["REMIROS_groundcover.ESP"], ["Remiros_Groundcover.esp"]
+        )
+
+        assert kept == []
+        assert held == ["REMIROS_groundcover.ESP"]
+
+    def test_nothing_is_held_back_without_groundcover_lines(self, core) -> None:
+        """A cfg with no grass must behave exactly as it did before.
+
+        Args:
+            core: The engine module.
+        """
+        subset = ["A.esp", "B.esp"]
+
+        assert core.hold_back_groundcover(subset, []) == (subset, [])
+
+    def test_ordinary_plugins_are_untouched(self, core) -> None:
+        """The filter must be narrow: only what the cfg names as grass.
+
+        Args:
+            core: The engine module.
+        """
+        kept, held = core.hold_back_groundcover(
+            ["Grass_Patch_Compatibility.esp"], ["Remiros_Groundcover.esp"]
+        )
+
+        assert kept == ["Grass_Patch_Compatibility.esp"]
+        assert held == []
+
+    def test_end_to_end_export_keeps_grass_out_of_content(self, core, tmp_path: Path) -> None:
+        """The user's exact scenario, from subset to written cfg.
+
+        The grass plugin's data path must still be written: OpenMW has to find
+        the file for the ``groundcover=`` line to work at all, so dropping the
+        data= entry would break the mod this check exists to protect.
+
+        Args:
+            core: The engine module.
+            tmp_path: Pytest temporary directory.
+        """
+        data = tmp_path / "Data Files"
+        data.mkdir()
+        for name in ("Morrowind.esm", "Patch for Purists.esp"):
+            (data / name).write_bytes(b"TES3" + b"\x00" * 300)
+        grass = tmp_path / "mods" / "Remiros Groundcover"
+        (grass / "meshes").mkdir(parents=True)
+        (grass / "Remiros_Groundcover.esp").write_bytes(b"TES3" + b"\x00" * 300)
+        quest = tmp_path / "mods" / "MyNewQuest"
+        (quest / "meshes").mkdir(parents=True)
+        (quest / "MyNewQuest.esp").write_bytes(b"TES3" + b"\x00" * 300)
+
+        cfg = tmp_path / "openmw.cfg"
+        cfg.write_text(
+            f'data="{data}"\n'
+            "content=Morrowind.esm\n"
+            "content=Patch for Purists.esp\n"
+            "groundcover=Remiros_Groundcover.esp\n",
+            encoding="utf-8",
+        )
+        rules = tmp_path / "mlox_base.txt"
+        rules.write_text("", encoding="utf-8")
+        subset = tmp_path / "subset.txt"
+        subset.write_text(
+            f"{grass}\nRemiros_Groundcover.esp\n\n{quest}\nMyNewQuest.esp\n", encoding="utf-8"
+        )
+
+        args = core.build_arg_parser().parse_args(
+            [
+                "--cfg",
+                str(cfg),
+                "--rules",
+                str(rules),
+                "--subset-file",
+                str(subset),
+                "--write-cfg",
+                "--sort-data-paths",
+            ]
+        )
+        plan = core.compute_plan(args)
+        core.write_plan(args, plan)
+
+        written = cfg.read_text(encoding="utf-8").splitlines()
+        content = [line for line in written if line.startswith("content=")]
+        assert "content=Remiros_Groundcover.esp" not in content, "grass was inserted as content"
+        assert "content=MyNewQuest.esp" in content, "the real custom mod was lost"
+        assert "groundcover=Remiros_Groundcover.esp" in written, "the grass line was disturbed"
+        assert any(
+            line.startswith("data=") and "Remiros Groundcover" in line for line in written
+        ), "the grass mod's data path must still be written or OpenMW cannot find it"
+
+
+class TestDeclaringYourOwnGroundcover:
+    """Grass the cfg does not know about yet.
+
+    Holding back what the cfg already declares only helps a mod that is already
+    installed and declared. A grass mod the user has just added is in neither
+    place, so there is nothing to read the fact off -- they say so once, and the
+    declaration drives both outputs.
+    """
+
+    def test_a_declaration_line_is_read(self, core) -> None:
+        """The syntax deliberately matches openmw.cfg's own.
+
+        Args:
+            core: The engine module.
+        """
+        lines = ["C:/mods/Grass", "groundcover=Vurt_Grass.esp", "MyQuest.esp"]
+
+        assert core.extract_groundcover_declarations(lines) == ["Vurt_Grass.esp"]
+
+    def test_a_declared_plugin_does_not_become_content(self, core) -> None:
+        """Reading it as a subset entry too would defeat the whole thing.
+
+        Args:
+            core: The engine module.
+        """
+        plugins, _data = core.extract_subset_from_lines(
+            ["groundcover=Vurt_Grass.esp", "MyQuest.esp"]
+        )
+
+        assert plugins == ["MyQuest.esp"]
+
+    def test_the_data_path_line_is_still_a_data_path(self, core) -> None:
+        """The half that makes it work: OpenMW must find the file.
+
+        Args:
+            core: The engine module.
+        """
+        plugins, data = core.extract_subset_from_lines(
+            ["C:/mods/Vurt Grass", "groundcover=Vurt_Grass.esp"]
+        )
+
+        assert plugins == []
+        assert [d["value"] for d in data] == ["C:/mods/Vurt Grass"]
+
+    def test_declarations_are_deduplicated_case_insensitively(self, core) -> None:
+        """Naming it twice is a typo, not two mods.
+
+        Args:
+            core: The engine module.
+        """
+        lines = ["groundcover=Grass.esp", "groundcover=GRASS.ESP"]
+
+        assert core.extract_groundcover_declarations(lines) == ["Grass.esp"]
+
+    def test_a_non_plugin_declaration_is_refused(self, core) -> None:
+        """ "groundcover=some folder" is a mistake worth naming.
+
+        Args:
+            core: The engine module.
+        """
+        assert core.extract_groundcover_declarations(["groundcover=not a plugin"]) == []
+
+    def test_comments_are_stripped(self, core) -> None:
+        """Subset files allow them everywhere else.
+
+        Args:
+            core: The engine module.
+        """
+        assert core.extract_groundcover_declarations(["groundcover=Grass.esp  # my grass"]) == [
+            "Grass.esp"
+        ]
+
+    def test_end_to_end_declaration_reaches_both_outputs(self, core, tmp_path: Path) -> None:
+        """The whole feature, from subset file to cfg and TOML.
+
+        The plugin must be absent from ``content=``, present as ``groundcover=``,
+        and its data path present -- in both the patched cfg and the emitted
+        customizations.
+
+        Args:
+            core: The engine module.
+            tmp_path: Pytest temporary directory.
+        """
+        base = tmp_path / "Data Files"
+        base.mkdir()
+        for name in ("Morrowind.esm", "Patch for Purists.esp"):
+            (base / name).write_bytes(b"TES3" + b"\x00" * 300)
+        grass = tmp_path / "mods" / "Vurt Grass"
+        (grass / "meshes").mkdir(parents=True)
+        (grass / "Vurt_Grass.esp").write_bytes(b"TES3" + b"\x00" * 300)
+
+        cfg = tmp_path / "openmw.cfg"
+        cfg.write_text(
+            f'data="{base}"\ncontent=Morrowind.esm\ncontent=Patch for Purists.esp\n',
+            encoding="utf-8",
+        )
+        rules = tmp_path / "mlox_base.txt"
+        rules.write_text("", encoding="utf-8")
+        subset = tmp_path / "subset.txt"
+        subset.write_text(f"{grass}\ngroundcover=Vurt_Grass.esp\n", encoding="utf-8")
+        out_toml = tmp_path / "out.toml"
+
+        args = core.build_arg_parser().parse_args(
+            [
+                "--cfg",
+                str(cfg),
+                "--rules",
+                str(rules),
+                "--subset-file",
+                str(subset),
+                "--emit-toml",
+                str(out_toml),
+                "--list-name",
+                "total-overhaul",
+                "--write-cfg",
+                "--sort-data-paths",
+            ]
+        )
+        plan = core.compute_plan(args)
+        core.write_plan(args, plan)
+
+        written = cfg.read_text(encoding="utf-8").splitlines()
+        assert "content=Vurt_Grass.esp" not in written, "declared grass became content"
+        assert "groundcover=Vurt_Grass.esp" in written, "the groundcover line was not written"
+        assert any(
+            "Vurt Grass" in line and line.startswith("data=") for line in written
+        ), "the data path is required or OpenMW cannot find the file"
+
+        toml_text = out_toml.read_text(encoding="utf-8")
+        assert "append = 'groundcover=Vurt_Grass.esp'" in toml_text
+        assert "insert = 'Vurt_Grass.esp'" not in toml_text
+        assert "Vurt Grass" in toml_text, "the data path insert is missing from the TOML"
+
+    def test_the_cli_flag_declares_too(self, core, tmp_path: Path) -> None:
+        """Parity with --subset, for people who do not keep a subset file.
+
+        Args:
+            core: The engine module.
+            tmp_path: Pytest temporary directory.
+        """
+        args = core.build_arg_parser().parse_args(
+            [
+                "--cfg",
+                str(tmp_path / "openmw.cfg"),
+                "--rules",
+                str(tmp_path / "r.txt"),
+                "--groundcover",
+                "Vurt_Grass.esp",
+                "Remiros.esp",
+            ]
+        )
+
+        assert core.declared_groundcover(args) == ["Vurt_Grass.esp", "Remiros.esp"]

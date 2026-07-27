@@ -15,8 +15,10 @@ plugin would risk the map disagreeing with the list beside it.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
 
 #: Grid coordinates as the conflict scanner writes them: a trailing
 #: ``(x, y)`` with optional sign and whitespace. Anchored at the end so a cell

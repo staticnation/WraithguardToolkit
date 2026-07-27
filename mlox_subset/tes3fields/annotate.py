@@ -23,10 +23,12 @@ compression as well as their layout.
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from mlox_subset.tes3fields.naming import record_for, subrecord_for
-from mlox_subset.tes3fields.schema_types import Record
+
+if TYPE_CHECKING:
+    from mlox_subset.tes3fields.schema_types import Record
 
 #: Keys that mean the same thing in every record that has them. ``id`` is the
 #: ``NAME`` subrecord in every record type that carries one, which is the one

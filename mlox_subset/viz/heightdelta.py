@@ -31,12 +31,15 @@ and :mod:`~mlox_subset.viz.pathgrid` use for their own switchers.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
 
 from mlox_subset import _
 from mlox_subset.tes3fields.landscape import LandscapeDecodeError, decode_vertex_heights
 from mlox_subset.viz import html as h
 from mlox_subset.viz.palette import NEUTRAL, divergence
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
 
 #: Pixel size of one vertex in the rendered grid. 65 x 9 = 585px, which fits a
 #: normal window without scaling and keeps individual vertices clickable.

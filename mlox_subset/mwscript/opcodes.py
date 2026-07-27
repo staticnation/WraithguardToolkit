@@ -12,6 +12,9 @@ Sources:
   MWSE updater installs, not MWSE source, so the no-GPL-source policy
   is unaffected. Only opcodes the main table does not already describe
   are taken from it.
+* UESP's per-function MWSE pages -- for the one entry where both tables
+  are wrong or disagree. Documentation, not source; see ``CORRECTIONS``
+  in the generator for the evidence behind each.
 * A corpus of real compiled scripts -- for the compiler-internal opcodes
   that no function table lists. These were measured, not copied: an
   opcode's value is a fact about the game's data files.
@@ -881,7 +884,7 @@ FUNCTIONS: Final[dict[int, tuple[str, tuple[int, ...]]]] = {
     0x3C30: ("XHasItemEquipped", (0x10,)),
     0x3C31: ("XFileWriteShort", (0x10, 0x2)),
     0x3C32: ("XFileWriteLong", (0x10, 0x4)),
-    0x3C33: ("XFileWriteFloat", (0x8,)),
+    0x3C33: ("XFileWriteFloat", (0x10, 0x8)),
     0x3C34: ("XFileWriteString", (0x10, 0x10)),
     0x3C35: ("XGetStackSize", ()),
     0x3C36: ("xGetKeyBind", (0x4,)),

@@ -15,10 +15,12 @@ project's reference folder. No code was copied.
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from mlox_subset.tes3fields.schema import RECORDS
-from mlox_subset.tes3fields.schema_types import Record, Subrecord
+
+if TYPE_CHECKING:
+    from mlox_subset.tes3fields.schema_types import Record, Subrecord
 
 #: tes3conv's ``"type"`` value -> the record tag the format reference documents.
 TYPE_TO_TAG: Final[dict[str, str]] = {
