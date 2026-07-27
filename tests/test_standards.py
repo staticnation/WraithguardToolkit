@@ -658,3 +658,38 @@ def test_gettext_marker_is_never_shadowed_by_unpacking() -> None:
         "these sites rebind `_`, which is the gettext marker in their module -- "
         f"use a named throwaway like `_rank` or `_coords` instead: {offenders}"
     )
+
+
+def test_no_live_module_imports_the_retired_viz_subsystem() -> None:
+    """The explorer/cell-page/sidecar subsystem must stay unreferenced.
+
+    The Conflicts window builds the standalone conflict map directly, so the
+    explorer and everything that fed it (cell pages, sidecars, shared assets,
+    the mtime cache, the world-3D collectors) has no live caller -- see
+    ``CODE_REVIEW.md`` §28. They are listed for deletion; until then this guards
+    against something quietly importing them again, which would resurrect the
+    freeze the direct map was written to avoid.
+    """
+    retired = {
+        "explorer",
+        "explorer_js",
+        "cellpage",
+        "sidecar",
+        "assets",
+        "cache",
+        "draw_js",
+        "detail",
+    }
+    offenders: dict[str, set[str]] = {}
+    for path in PROJECT_ROOT.rglob("*.py"):
+        if any(part in {"build", ".git"} or part.endswith(".egg-info") for part in path.parts):
+            continue
+        if path.stem in retired or path.name == "test_standards.py":
+            continue  # the retired files may reference each other; this file names them
+        source = path.read_text(encoding="utf-8", errors="ignore")
+        hits = {
+            name for name in retired if f"viz.{name}" in source or f"viz import {name}" in source
+        }
+        if hits:
+            offenders[str(path.relative_to(PROJECT_ROOT))] = hits
+    assert not offenders, f"retired viz modules imported again: {offenders}"
