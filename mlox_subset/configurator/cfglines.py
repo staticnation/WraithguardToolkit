@@ -135,23 +135,30 @@ def toml_value(value: str) -> str:
     would require every backslash doubled ("C:\\\\Games\\\\..."), which is
     not what momw-configurator/umo actually write.
 
-    A literal string can't contain a `'` itself (it would end the string
-    early), so a name with an apostrophe -- e.g. "MyMod's.esp" -- gets
-    escalated to a triple-single-quoted multi-line literal string instead
-    ('''MyMod's.esp'''), which tolerates a lone `'` (just not three in a
-    row). In the vanishingly unlikely case a filename contains `'''`
-    itself, fall back to a properly escaped double-quoted basic string as
-    a last resort.
+    A single-line literal can hold neither a `'` (it would end the string
+    early) nor a raw newline (TOML forbids one in a single-line string of
+    either kind) -- an insertBlock/appendBlock value is exactly the case
+    that needs a real newline. Either condition escalates to a
+    triple-single-quoted multi-line literal string instead
+    ('''line one\nline two'''), which tolerates both a lone `'` and
+    embedded newlines (just not three quotes in a row). In the vanishingly
+    unlikely case a value contains `'''` itself, fall back to a properly
+    escaped double-quoted basic string as a last resort -- multi-line
+    (\"\"\"...\"\"\") if a newline is also present, since a single-line basic
+    string can't hold one either.
 
     Args:
-        value: The string to render -- a plugin name, script name, or path.
+        value: The string to render -- a plugin name, script name, path, or
+            a multi-line insertBlock/appendBlock body.
 
     Returns:
         A TOML value literal, quotes included.
     """
+    has_newline = "\n" in value
     if "'''" in value:
-        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-    if "'" in value:
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"""{escaped}"""' if has_newline else f'"{escaped}"'
+    if "'" in value or has_newline:
         return "'''" + value + "'''"
     return "'" + value + "'"
 

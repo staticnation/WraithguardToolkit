@@ -396,7 +396,7 @@ def generate_customizations_toml(
                 out.append(f"insert = {toml_value(values[0])}")
             else:
                 body = "\n".join(values)
-                out.append(f'insertBlock = """{body}"""')
+                out.append(f"insertBlock = {toml_value(body)}")
             if anchor is None:
                 out.append("# WARNING: this is the only content= plugin -- no anchor to write")
             else:
