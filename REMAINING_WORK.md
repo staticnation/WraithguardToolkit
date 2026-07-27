@@ -3,17 +3,25 @@
 > **Status at 3.0.** Every gate passes with zero findings. This document is the
 > honest list of what a reviewer would still flag, measured rather than
 > recalled, so nobody has to re-derive it. Nothing here blocks the release.
+>
+> **One outstanding action, from the §28 audit:** nine files are fully
+> unreferenced and listed for deletion in `CODE_REVIEW.md` §28.1 (the retired
+> explorer, cell-page, sidecar, asset, cache and detail modules, plus
+> `tests/test_viz_client.py`). They could not be removed from the environment
+> that audited them. `tests/test_standards.py` asserts nothing live imports
+> them, so they are inert until deleted -- but they are still ~1,700 lines a
+> reader has to work out are dead.
 
 Re-run the gates before and after any change:
 
 ```bash
-python -m pytest                       # 984 tests: 983 passed, 1 skipped
+python -m pytest                       # 1,261 tests: 1,260 passed, 1 skipped
 python -m ruff check .                 # style, naming, imports, security, BLE, DTZ, D, ANN
 python -m black --check .              # formatting
-python -m mypy                         # PEP 484 -- gates all 46 shipped files
+python -m mypy                         # PEP 484 -- gates all 54 shipped files
 python tools/check_undefined.py mlox_subset_sort_gui.py
 python tools/check_placeholders.py     # i18n %(key)s vs dict keys
-python tools/make_pot.py --check       # .pot must be current (393 messages)
+python tools/make_pot.py --check       # .pot must be current (456 messages)
 ```
 
 The single skip is `test_differential.py`'s `--update-baseline` guard, and it
@@ -108,16 +116,15 @@ better than their length suggests — but these are the genuine remaining smells
 
 | Function | Lines | Notes |
 |---|---|---|
-| `_build_controls` (GUI) | 413 | Nesting depth 1: it is a long, flat widget-construction list. Splitting by panel (inputs / options / actions) is safe and obvious. **Best first target.** |
 | `generate_customizations_toml` | 327 | A single linear emitter. Deliberately *not* split in 3.0: it has no internal stage boundaries, so splitting means inventing seams rather than following them. Pinned by the differential baseline. |
 | `_anchor_positions` (sort) | 258 | The transitive anchor resolver, extracted from `build_and_sort` in 3.0. Genuinely intricate; the nested `_final_pos` closure is the hard part. Touch only with the baseline running. |
 | `lint_plugins` | 201 | One `for` over plugins with a long body of independent checks. Each check could become a small function taking `(record, stats)`. Mechanical. |
 | `build_arg_parser` | 197 | 40+ `add_argument` calls. Long by nature; splitting by argument group would be cosmetic. **Leave it.** |
-| `generate_cell_map_html` | 185 | Mostly one embedded HTML/CSS/JS template string. Not really 185 lines of logic. **Leave it.** |
 | `simulate_configurator_apply` | 181 | Reproduces momw-configurator's behaviour step for step, including its sharp edges. Splitting would obscure the correspondence. **Leave it.** |
 
-`compute_plan` (644 → 105) and `build_and_sort` (476 → 119) were decomposed in
-3.0; the method that worked is in `CODE_REVIEW.md` §18.
+`compute_plan` (644 → 105), `build_and_sort` (476 → 119) and `_build_controls`
+(435 → 34, with no piece over 99 lines) were decomposed in 3.0; the method that
+worked is in `CODE_REVIEW.md` §18 and §30.
 
 ---
 
@@ -144,14 +151,18 @@ headlessly (`xvfb`), not more unit tests.
 
 ## 5. Smaller, concrete items
 
-* **`generate_cell_map_html` embeds its JS/CSS as one f-string.** Any change
-  means editing a 100-line string literal with `{{`/`}}` escaping. Moving it to
-  a `.html` template file loaded at runtime would make it editable and lintable
-  — but adds a data file to the PyInstaller bundle. Judgement call.
+* ~~**`generate_cell_map_html` embeds its JS/CSS as one f-string.**~~ **Done**
+  — see `CODE_REVIEW.md` §29. The generator moved to `mlox_subset/viz/cellmap.py`
+  as ten small fragment functions, and the client assets to
+  `mlox_subset/viz/cellmap_js.py` as plain `Final[str]` constants: no
+  interpolation, so no `{{`/`}}` escaping, and each fragment is asserted on
+  directly (`tests/test_viz_pages.py`). The runtime-template option was rejected
+  for the reason given here — it adds a data file to the frozen bundle — and the
+  constants get the editability without that cost.
 * **`tools/` scripts are not shipped and not covered** beyond
   `test_standards.py`'s conformance sweep and `check_placeholders`' own tests.
   `gen_opcodes.py` in particular is only ever run by hand.
-* **No `.mo` catalogue ships.** The `.pot` has 393 messages and the pipeline is
+* **No `.mo` catalogue ships.** The `.pot` has 431 messages and the pipeline is
   proven end-to-end, but no language is translated. The first real translation
   will likely surface awkward source strings — that is normal and expected.
 * **The `tes3fields` tests use synthetic fixtures**, deliberately: their

@@ -2103,3 +2103,409 @@ deliberately not written would only 404.
 
 ruff, black, mypy (54 files), `check_undefined`, `check_placeholders`,
 `make_pot --check` all clean; every test group green.
+
+---
+
+## 28. Audit after several days of solo work
+
+A review pass over changes made without me, asked for as: update the docs and
+tests, re-check typing and PEPs, find dead code and logic errors. Four real
+defects, one large dead subsystem, and a test suite that had drifted behind a
+deliberate API change.
+
+### Two defects that stopped things working
+
+**A syntax error had disabled the entire toolchain.** `conflictmap.py:198` put a
+`★` escape inside an f-string *expression*, which is illegal before Python
+3.12; this project targets 3.10. The module could not import, and because ruff,
+black and mypy all parse before they check, **every gate was silently reporting
+on an unparseable tree**. Fixed by hoisting the star to a local. Worth noting as
+a process point: a green-looking gate run is not evidence when the parse failed
+first.
+
+**The cell-map path called two methods that no longer existed.**
+`_detail_cache` and `_fill_cell_pages` were removed during the rework but
+`mlox_subset_sort_gui.py` still called them, inside a `try` whose `except`
+returned `""`. That is precisely the "no Conflicts button on the map" symptom
+reported repeatedly: an `AttributeError` swallowed and reported as absence. mypy
+found both. Resolved by removing the orphaned generation path entirely -- the
+cell map is coverage-only now, and conflicts are reached from the Conflicts
+window, so the two maps no longer have an ordering dependency at all.
+
+### Two defects that would have fired later
+
+**`_("%s") % {"error": error}`** in the conflict-map failure dialog -- a
+positional placeholder against a named dict, which raises `TypeError`. The error
+path would itself have crashed, hiding the original error. `check_placeholders`
+caught it; this is the second time that checker has paid for itself.
+
+**A mutable dict as a class attribute** (`_SINGLES_KINDS`), now `ClassVar`,
+since it is shared read-only configuration.
+
+### The dead subsystem
+
+The rework moved the Conflicts window from the heavy explorer to the direct
+`build_conflict_map` page. That left **no live caller** for a large body of code:
+`explorer.py`, `explorer_js.py`, `cellpage.py`, `sidecar.py`, `assets.py`,
+`cache.py`, `draw_js.py`, and `collect_detail`/`cell_page_detail`/
+`collect_world_terrain` in `detail.py` -- roughly 1,700 lines, reachable only
+from each other and from tests. All of it is unwired: `viz/__init__` now exports
+exactly the four page builders the GUI uses, and nothing imports the rest.
+
+The world-3D LOD machinery goes with it, as intended -- there is no conflict-map
+3D terrain any more, so `WORLD_SIDE`, `_world_patch` and the knitting code have
+no purpose.
+
+*The files could not be deleted from this environment (the mount is read-only to
+removal), so they remain on disk while being fully unreferenced. Deleting them is
+a one-line `git rm`; §28.1 below lists them.*
+
+### The tests had drifted behind a real improvement
+
+`build_height_delta` and `build_pathgrid_graph` were reworked from pairwise
+(winner vs loser) to a **chain of edits** over a `surfaces` mapping. That is the
+more correct model: Morrowind landscape records do not merge, so each plugin's
+meaningful change is against whatever the plugin *before* it left, not against
+the eventual winner. Eleven tests still asserted the old signature.
+
+Rewritten to the chain API, and while doing so two assumptions of mine were
+found wrong by the code rather than the reverse:
+
+* A **single-plugin** path grid emits no chain payload at all and falls back to
+  a plain server-rendered graph. That is correct -- there is nothing to diff --
+  and the test now asserts that fallback instead of a payload.
+* Assertions on embedded JSON must **decode** it. `html.script_json` escapes
+  `<`, `>` and `&` to `\uXXXX` (the XSS fix from §25), so substring checks
+  against raw text fail misleadingly. Tests now parse the payload out and assert
+  on data, via a shared `payload_of` helper.
+
+### Gates
+
+**1079 passed, 1 skipped.** ruff, black, mypy (54 files), `check_undefined`,
+`check_placeholders`, `make_pot --check` (456 messages) all clean. A structural
+check that every `self.<method>()` call in the GUI resolves to a definition on
+`App` or a mixin found only one hit, and it was a false positive (an assigned
+callback attribute, not a method).
+
+### §28.1 Files to delete
+
+Fully unreferenced after this pass; kept on disk only because this environment
+cannot remove them. Nothing imports any of them.
+
+```
+mlox_subset/viz/explorer.py
+mlox_subset/viz/explorer_js.py
+mlox_subset/viz/cellpage.py
+mlox_subset/viz/sidecar.py
+mlox_subset/viz/assets.py
+mlox_subset/viz/cache.py
+mlox_subset/viz/draw_js.py
+mlox_subset/viz/detail.py
+tests/test_viz_client.py
+```
+
+`detail.py` is included because its three public functions were the explorer's
+and the cell pages' data layer; the four surviving page builders take their
+`surfaces` mappings straight from the GUI's own field lookup. After deleting,
+drop `mlox_subset.viz` entries for them from `pyproject.toml` only if the
+package list names modules individually (it names packages, so no change is
+needed), and re-run the gate list.
+
+The live `viz` surface is now:
+
+| Module | Purpose |
+|---|---|
+| `conflictmap.py` | The 2D conflict map, with per-plugin focus and instant tooltips |
+| `heightdelta.py` | Terrain height as a chain of per-plugin edits |
+| `pathgrid.py` | Navigation graph, chained the same way |
+| `terrain3d.py` | One cell as a rotatable/pannable surface |
+| `geometry.py` | Grid-id parsing and per-cell aggregation |
+| `palette.py` | Severity and divergence colour ramps |
+| `html.py` | Shared page shell, escaping, safe inline JSON |
+
+---
+
+## §29 The cell map leaves the engine, and the housekeeping it needed
+
+Five requests landed together, and they turned out to be one piece of work: the
+cell map could not sensibly grow scrolling, timestamps or a wider palette while
+it was a 216-line f-string in the middle of the sort engine.
+
+### The extraction
+
+`generate_cell_map_html` is now `mlox_subset/viz/cellmap.py`, assembled from ten
+functions that each return a fragment — `_escape`, `_anchor`, `_modattr`,
+`_in_bounds`, `_focus_options`, `_svg_grid`, `_exterior_rows`, `_interior_rows`,
+`_legend` — plus the builder that composes them. CSS and JS moved to
+`mlox_subset/viz/cellmap_js.py` as plain `Final[str]` constants, which is the
+whole point: no interpolation means no doubled braces, so the JS can be read and
+edited as JS.
+
+`mlox_subset_sort.py` keeps the public name as a one-line delegation, so nothing
+that imports it had to change. The dead `_cell_heat` went with it.
+
+Two things fell out of the split that were not visible before:
+
+* The dropped `explorer_href` parameter — a leftover of the cross-link that §27
+  removed. Nothing passed it.
+* Out-of-range cells were being filtered **silently**. One corrupt grid
+  coordinate stretches the SVG to millions of pixels, so dropping them is right,
+  but the page now says how many were dropped. A quietly incomplete map is worse
+  than a noisy one.
+
+### The requested changes
+
+* **Scrolling**, matching the cell map's own panes: `.mapwrap` and `.listwrap`,
+  both `overflow:auto` with `resize:vertical` so a pane can be dragged taller.
+  Added to the conflict map too, which is where the request started.
+* **A generated timestamp** on the cell map, and on the shared shell in
+  `viz/html.py:page()` via a new `generated_at` argument. These files accumulate;
+  an hour-old map that looks identical to a fresh one is a real trap. The
+  argument defaults to now and is injectable, which is also what makes the
+  header assertable in a test.
+* **Wider palettes.** Severity went from three stops to five: with only
+  green → yellow → red the entire middle of a busy map collapsed into one narrow
+  yellow band. Coverage got its own seven-stop ramp — slate → blue → periwinkle
+  → violet → amber — deliberately *not* green-to-red, because coverage is not
+  badness (ten mods touching a cell is normal) and it must not be mistaken for
+  the conflict map at a glance.
+
+  Both legends are now generated from the ramp they sit beside
+  (`coverage_legend_stops`), and the conflict map's client-side redraw is fed the
+  stop table as data (`severity_stops`) rather than re-implementing the curve in
+  JavaScript. The old arrangement had a hand-written legend of five fixed
+  swatches next to a map with its own hard-coded five; keeping them in step was
+  manual, which is to say it was not kept.
+
+### One regression, caught by an existing test
+
+Expanding the severity ramp broke `test_severity_is_monotonic`: the new orange
+shoulder was *brighter* in red than the final red, so over the last quarter of
+the ramp more conflicts rendered with less red. The test is right and the ramp
+was wrong — "more conflicts never renders cooler" is the property the map is
+read against — so the shoulder's red was moved just below the endpoint's. The
+hue is unchanged; only the channel ordering is.
+
+The coverage ramp cannot hold that same invariant, because it rotates through
+hues and its first segment (desaturated slate to saturated blue) genuinely goes
+cooler. Its invariant is **monotonically increasing luminance**, which is the
+standard criterion for a sequential ramp and keeps it ordered in greyscale and
+for a colour-blind reader. That is what the new test asserts, with the reasoning
+in its docstring rather than in a commit message.
+
+### Housekeeping
+
+`mlox_subset/viz/housekeeping.py`, wired to a **Tidy old HTML views** checkbox on
+the main window (default on, persisted as `cleanup_html`), run from `_on_close`.
+Two properties matter more than the tidying:
+
+* **It only ever deletes files this tool wrote.** A candidate must match one of
+  the six known filename stems *and* carry a `_YYYYmmdd_HHMMSS` suffix. Never a
+  blanket `*.html` sweep, and specifically never an un-timestamped
+  `conflict_map.html`, which is a file the user named themselves via *Save*.
+  Sorting is by the timestamp *in the filename*, not mtime, which a copy or a
+  sync tool rewrites.
+* **Off means off.** With the box unchecked nothing is removed at all. A tool
+  that quietly deletes output someone meant to keep is worse than a cluttered
+  folder.
+
+A page's sidecar `_data` folder goes with it, since the folder is useless
+without the page that references it. A locked file (open in a viewer) is skipped
+rather than reported, and — checked by test — is not claimed as removed in the
+log line.
+
+### Gates
+
+ruff, black, mypy (49 source files), `check_undefined`, `check_placeholders`,
+`make_pot --check` (419 messages) all clean. Full suite green, coverage gate
+met; `mlox_subset/viz` is at **97%** (branch), with `cellmap.py`,
+`cellmap_js.py`, `conflictmap.py` and `html.py` fully covered.
+
+`tests/test_viz_pages.py` adds 90 tests over the cell map, its client assets,
+housekeeping and the new ramps. Five of them were then verified by **injecting
+the real defect** and confirming a red test: a non-monotonic ramp, a legend
+hard-coded away from the map, an undelimited mod-filter token, a matcher that no
+longer requires a timestamp (which makes the user's *Save* output a deletion
+candidate), and escaping switched off. All five were caught.
+
+Two of my own assumptions were wrong and the code corrected them, which is worth
+recording as it is the same pattern as §28:
+
+* A test asserting no `<title>` anywhere in the body failed on the *comment* in
+  `CELLMAP_JS` explaining why native SVG tooltips are not used. The assertion
+  now scopes itself to the SVG element, which is what it meant.
+* The coverage ramp's red channel is not monotonic, and asserting that it was
+  would have been asserting a property the design does not have. See above.
+
+---
+
+## §30 Help, banding, the format schema, and a wall of widgets
+
+Four requests, one release. Three were small; the fourth turned out to be the
+largest single piece of reference data this project carries.
+
+### The wall of widgets
+
+`_build_controls` was 435 lines of flat widget construction. Nothing in it was
+*hard* -- that was the problem. A one-line change meant an edit in the middle of
+a wall of text with no landmarks, and the request that prompted this ("break up
+anything that makes changes harder") named exactly that feeling.
+
+It is now `_build_controls` (34 lines, which assigns the row numbers in one
+place so the vertical order stays readable) delegating to `_build_dnd_note`,
+`_build_input_fields`, `_build_output_fields`, `_build_options_panel` ->
+`_build_write_options` / `_build_scan_options`, and `_build_action_bar` ->
+`_build_primary_actions` / `_build_tool_actions`. The button helper became a
+module-level `_action_button`, because a closure two builders have to share is a
+closure that belongs outside both.
+
+The proof it worked is the next item: adding the Help button was two lines in
+one small method.
+
+One defect surfaced during the split -- a tooltip attached to a widget built in
+a different method, which mypy caught as an undefined name. That is the failure
+mode this kind of refactor has, and the reason the gate list runs after every
+step rather than at the end.
+
+### Help, rendered rather than handed off
+
+`mlox_subset/viz/docs.py` renders the project's own Markdown to a
+self-contained page: no CDN, no external stylesheet, **no JavaScript at all**.
+Opening the `.md` with the operating system was considered and rejected -- what
+opens is whatever happens to be associated with `.md` on that machine, which is
+not a reading experience anyone would choose.
+
+The Markdown subset is deliberately small and defined by what these documents
+actually use, verified against them. Anything unrecognised is emitted as escaped
+text rather than guessed at, so an unsupported construct is visibly plain rather
+than silently mangled. All input is escaped and link schemes are vetted: the
+documents are ours, but a renderer that emits whatever URL it is handed cannot
+safely be pointed at anything else later.
+
+Two things the tests caught that reading would not have:
+
+* `*Export writes nothing while **Dry run** is checked*` -- italics wrapping
+  bold. A shared `[*_]` delimiter closed the italic on the first asterisk of
+  `**Dry`, leaving stray asterisks on the page. The two emphasis alternatives
+  are now spelled out separately with lookarounds on both ends.
+* An unterminated fence used to swallow the rest of the file. It now runs to the
+  end and renders: most of a document beats refusing to show any of it.
+
+`doc_path` looks in the PyInstaller bundle **first**, then beside the executable,
+then the source tree -- in that order, because a folder next to a shipped .exe
+may hold an older copy someone extracted by hand. Both documents were added to
+the build's data list; without that the frozen build would have had a Help button
+with nothing behind it.
+
+### Banding the cell map
+
+Counts 1-5 each get a band; above that they group in fives. The reasoning is that
+the distinctions people act on are crowded at the bottom -- one, two and three
+mods in a cell are different situations, 23 and 24 are not -- and a continuous
+ramp normalised against the busiest cell on a big map spent most of its colour on
+distinctions nobody needs, rendering all the low counts as the same dark blue.
+
+Above sixteen bands the top one goes open-ended (`76+`). Forty bands over a
+seven-stop ramp is a gradient again, with a legend nobody can use.
+
+The legend is now one row per band rather than a six-point sample, which is the
+honest thing once the map is quantised: it is the map's *key*, and a sampled key
+beside a banded map would be a key that lies.
+
+### The format schema
+
+`tools/gen_tes3_schema.py` reads a CSV export of UESP's *Morrowind Mod File
+Format* pages into `mlox_subset/tes3fields/schema.py`: **45 record types, 309
+subrecords, 61 with parsed struct layouts.** The hand-written shapes live in
+`schema_types.py` so the generated file can be overwritten wholesale without
+taking any behaviour with it.
+
+This is documentation, not code. What is taken are format facts -- a `NPDT` is 12
+or 52 bytes, its first two a uint16 Level -- which describe Bethesda's file
+format rather than anyone's implementation of it. `CREDITS.md` carries the
+attribution.
+
+**How we know the parse is right.** 55 of the parsed layouts have a plainly
+stated byte count, and every one of the 55 now equals the sum of its parsed
+members. That check found four real defects, each of which had silently dropped
+data:
+
+* a full-width **note row** between a table's header and its fields ended the
+  table early -- which cost the AI package fields and every `INFO` field their
+  entire entry;
+* the first Info line was taken as a description unconditionally, but `CELL`'s
+  `DATA` opens straight onto `uint32 - Flags`, so that field lost its first
+  member and came up four bytes short;
+* `float` was not recognised as `float32`, dropping `CELL`'s fog density;
+* `CLAS` writes `uint32 = Flags` where it means `-`, a typo in the source that
+  cost four bytes of a sixty-byte struct.
+
+A fifth was caught by a *test* rather than by the size check: several pages carry
+a second four-column table after the subrecord one (the magic-effect list, the
+GMST value list), and its rows were being read as subrecords. The schema
+contained `Subrecord(name="Jump", cardinality="9")`. Requiring a subrecord tag to
+be short and upper case removed 194 such rows.
+
+Where the tables hedge, the schema hedges. `NPDT` has two documented layouts
+under one tag, so it carries **neither**: which applies depends on a flag
+elsewhere in the record, and running the two together would mis-read every NPC
+in the game. `LAND`'s vertex normals document one three-byte element and declare
+12,675 bytes, so the element layout is kept and the multiple (4,225) recorded
+beside it.
+
+### Using it
+
+The diff window now labels a field in the file format's own terms -- `VHGT -
+Height Data (struct, 4,232 bytes, optional)` -- and offers a **Format reference**
+view of the whole record type.
+
+Two deliberate omissions:
+
+* **No struct decoding.** tes3conv already expands struct subrecords into JSON,
+  so re-deriving them from bytes would add a second, worse answer to a question
+  already answered. The blobs that arrive *unexpanded* are the compressed ones,
+  and those decoders already exist.
+* **No guessed key mapping.** tes3conv's JSON key names are its own invention and
+  nothing states the correspondence to subrecord tags, so the mapping is written
+  out by hand and only for the record types whose JSON this project has actually
+  read. An unmapped key is simply not annotated. `LandscapeTexture` does not
+  shorten to `LTEX` by any rule a computer would find, and `Header` to `TES3`
+  least of all -- a heuristic here would be wrong quietly.
+
+### MWSE functions
+
+`customfunctions.dat` adds **360 opcodes** the base game has no equivalent for,
+so an MWSE-scripted mod disassembles instead of coming out as raw bytes. Calls to
+them are marked in the listing, because a script using one will not run at all
+without that runtime.
+
+The licence position is stated fully in `CREDITS.md` and is worth repeating here:
+that file is a **data file in MWEdit's own text format**, installed by running
+the MWSE updater rather than part of the MWSE source tree. No MWSE source is
+read.
+
+It spells parameter types symbolically (`Long | String`) where `Functions.dat`
+uses hex flag words, and the mapping was **derived, not copied**: the two files
+describe 106 of the same functions, and correlating those pins each symbolic name
+to exactly one bit value -- every name resolved unambiguously, and the result
+matches the `FLAG_*` constants already taken from MWEdit's MIT header, which is
+the check that the derivation is right.
+
+Where the two disagree (two renames, 26 differing operand shapes) the existing
+MWEdit-derived entry is **kept**, because that is the one the corpus and the test
+suite have been run against. The generator prints every disagreement rather than
+resolving it silently.
+
+### Gates
+
+ruff, black, mypy (54 source files), `check_undefined`, `check_placeholders`,
+`make_pot --check` (431 messages) all clean. **1,260 passed, 1 skipped.**
+
+`make_pot` earned its place again: it flagged `_(label)` in the new Help menu --
+a non-literal the extractor cannot see, so those two menu entries could never
+have been translated. The labels moved to literal calls at the call site.
+
+Five of the new tests were verified by **injecting the real defect** and
+confirming a red test: escaping switched off, `javascript:` links allowed, a
+scalar type dropped from the schema parser, a record-type mapping broken, and the
+banding grouped by ten instead of five. All five were caught.

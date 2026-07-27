@@ -121,10 +121,29 @@ the credit is one of gratitude and correctness.
 - **MWSE** — © NullCascade, Merzasphor, Greatness7 and contributors. **GPLv2.**
   We read `MWSE/OpCodes.h` to *check* our opcode table and found it agreed with
   MWEdit on all 533 opcodes they share. Because MWSE is copyleft and this tool
-  is not, **none of its data was copied**: the shipped table is built from
-  MWEdit (MIT) plus our own corpus measurements. The MWSE-only functions it
-  additionally lists never occurred in any script we tested, so nothing of
-  value was given up by leaving them out.
+  is not, **no MWSE source was copied**: the shipped table is built from MWEdit
+  (MIT), our own corpus measurements, and `customfunctions.dat`.
+
+  That last file needs saying precisely. `customfunctions.dat` is a **data file
+  in MWEdit's own text format**, describing the MWSE / MW-Enhanced script
+  functions so MWEdit can compile against them. It is installed by running the
+  MWSE updater rather than being part of the MWSE source tree, and it is
+  configuration for an MIT tool, not a copyleft header — so reading it does not
+  bring GPLv2 obligations with it. It contributes **360 opcodes** the base game
+  has no equivalent for, which is what makes an MWSE-scripted mod disassemble
+  instead of coming out as raw bytes.
+
+  It spells parameter types symbolically (`Long | String`) where
+  `Functions.dat` uses hex flag words, and the mapping between the two was
+  **derived, not copied**: the two files describe 106 of the same functions, so
+  correlating those pins each symbolic name to exactly one bit value. The result
+  matches the `FLAG_*` constants already taken from MWEdit's MIT header, which
+  is how we know the derivation is right.
+
+  Where the two files disagree — two renames and 26 differing operand shapes —
+  **the existing MWEdit-derived entry is kept**, because that is the one our
+  corpus and test suite have been run against. The generator prints every
+  disagreement rather than resolving it silently.
 - **MGE XE** — GPLv3. Referenced alongside MWSE for the same cross-check; no
   source copied.
 
@@ -145,6 +164,27 @@ the credit is one of gratitude and correctness.
   cleaning the vanilla masters, cleaning masters before dependents) is adapted
   from the community "drag-and-drop" cleaning batch by RMWChaos, Pinkertonius,
   and Spirithawke.
+
+## Documentation referenced (no code copied)
+
+- **[UESP](https://en.uesp.net/) — *Morrowind Mod:Mod File Format*.** CC-BY-SA.
+  The community's reference for the TES3 binary layout, and the source of
+  `mlox_subset/tes3fields/schema.py`: 45 record types, their subrecords, whether
+  each is required, its declared width, and the named members inside the struct
+  ones. What is taken is **format fact** — a `NPDT` is 12 or 52 bytes; its first
+  two are a uint16 Level — which describes Bethesda's file format rather than
+  anyone's prose about it, and the generated module carries the attribution.
+
+  The schema is what lets the diff window say *what a field is* rather than only
+  what its value was, and what backs the **Format reference** view beside a
+  record diff. Nothing is guessed: where the tables are ambiguous the schema
+  says so (a field with two documented layouts carries neither), and 55 of the
+  parsed layouts are checked against the byte counts the same tables declare —
+  all 55 agree, which is how we know the parse is right.
+
+  Also the source for the LAND, PGRD and script-record field documentation used
+  when writing the binary decoders, alongside the MIT-licensed implementations
+  credited above.
 
 ## Runtime & optional libraries
 

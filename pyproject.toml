@@ -207,8 +207,9 @@ ignore = [
 # tests/test_differential.py, so the typing pass can be done safely and
 # verifiably later; see CODE_REVIEW.md. Delete an entry when its module is
 # annotated -- the list is meant to shrink to nothing.
-# Generated from upstream opcode tables -- style is the generator's business.
+# Generated from upstream reference tables -- style is the generator's business.
 "mlox_subset/mwscript/opcodes.py" = ["ALL"]
+"mlox_subset/tes3fields/schema.py" = ["ALL"]
 # The GUI split (3.0, CODE_REVIEW.md §16/§9.2): these bodies moved VERBATIM
 # out of mlox_subset_sort_gui.py. The D/ANN debt they arrived with was paid
 # off in the same release (§17): all four now meet the package's strict
@@ -301,6 +302,7 @@ omit = [
     "mlox_subset/gui/*",
     # Generated; style and coverage are the generator's problem.
     "*/opcodes.py",
+    "*/tes3fields/schema.py",
 ]
 
 [tool.coverage.report]

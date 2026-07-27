@@ -378,6 +378,9 @@ rule-files panel keep you current and let you extend it:
   leave behind (`.preclean.bak`, `.masterfix.bak`, `name~1.esp`, timestamped
   `.bak-*` / `.backup.*`) across the data folders, with restore-over-original
   and delete.
+- **Help** — opens this Read me or the Quick start as a readable page with a
+  contents sidebar, rendered by the app itself. No network, no external viewer,
+  and it works from the frozen `.exe` (both documents are bundled into it).
 
 ---
 
@@ -392,6 +395,16 @@ type + editor id), the last one in the load order wins.
   **Conflicts window** (sortable table: type, record, how many plugins touch it,
   and the winner). Conflicts that involve **your** custom mods are marked with a
   ★ and listed first — those are the ones your additions caused.
+- Double-click a field for the full value per plugin. Where the field can be
+  tied to a documented subrecord it is labelled in the file format's own terms
+  (`VHGT - Height Data (struct, 4,232 bytes, optional)`), and a **Format
+  reference** button shows what the whole record type is supposed to contain:
+  every subrecord, whether the game requires it, how wide it is, and the named
+  fields inside the struct ones. A diff tells you what changed; that tells you
+  what it was.
+- Compiled scripts are **disassembled** rather than shown as base64, including
+  the 360 MWSE / MW-Enhanced functions — calls to those are marked, because a
+  script using one will not run without that runtime installed.
 - Save the full list to CSV for later.
 - Read-only and opt-in: it never changes the sort or your files, and it needs the
   plugin files reachable via your cfg's `data=` folders. It can be slow on a big
@@ -494,11 +507,17 @@ install.
 Click **Cell Map** (after a Sort) — or pass `--cell-map out.html` — to build a
 self-contained HTML page (a port of
 [modmapper](https://www.nexusmods.com/morrowind/mods/53069)) with three tabs: an
-**exterior-cell SVG heatmap** (uniform squares, brighter/hotter = more mods
-editing that cell; hover for the mod list, click a cell to jump to its list row)
+**exterior-cell SVG heatmap** (uniform squares, coloured by how many mods edit
+that cell; hover for the mod list, click a cell to jump to its list row)
 plus filterable **exterior-** and **interior-cell lists**. Cells your custom mods
 touch get a gold outline, so you can see exactly where your additions land and
-which areas are conflict hotspots. It writes `cell_map.html` and opens it in an
+which areas are conflict hotspots.
+
+Colours are **banded**, not a gradient: 1, 2, 3, 4 and 5 mods per cell each get
+their own colour, then 6-10, 11-15, and so on. The differences that matter are
+crowded at the bottom of the range — one, two and three mods in a cell are
+different situations, while 23 and 24 are not — so the legend beside the map is
+its key, with one swatch per band. It writes `cell_map.html` and opens it in an
 in-app window (with `pywebview`/`tkinterweb`) or your browser, changes nothing,
 and works with either engine (tes3conv gives the most exact cell identification).
 
@@ -620,10 +639,10 @@ Only the standard library is needed to *run* the tool. The checks below need
 `ruff`, `black`, `mypy` and `pytest`.
 
 ```bash
-python -m pytest                # 984 tests: no network, no Tk, no real mods needed
+python -m pytest                # 1,261 tests: no network, no Tk, no real mods needed
 python -m ruff check .          # PEP 8 style, naming, import order, security, perf
 python -m black --check .       # formatting
-python -m mypy                  # PEP 484 types; gates all 46 shipped files
+python -m mypy                  # PEP 484 types; gates all 54 shipped files
 python tools/check_undefined.py mlox_subset_sort_gui.py
 python tools/check_placeholders.py   # i18n %(key)s placeholders vs their dicts
 python tools/make_pot.py --check     # the .pot template must be current

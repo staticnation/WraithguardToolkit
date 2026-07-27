@@ -2199,13 +2199,6 @@ def build_cell_coverage(
     }
 
 
-def _cell_heat(count: int) -> str:
-    """Heatmap fill: one mod = cool (coverage), 2+ = warmer/hotter (conflict)."""
-    if count <= 1:
-        return "#2f4a63"
-    return {2: "#7a5a1e", 3: "#9c4a16", 4: "#b83a1a"}.get(count, "#d8342a")
-
-
 def _html_escape(s: object) -> str:
     return (
         str(s)
@@ -2219,219 +2212,26 @@ def _html_escape(s: object) -> str:
 def generate_cell_map_html(
     coverage: Mapping[str, Any],
     title: str = "MLOX Subset Sort — Cell Map",
-    explorer_href: str = "",
 ) -> str:
     """Render the cell map as a self-contained HTML page.
 
-    Three tabs:
-
-    a colour-coded exterior heatmap drawn as a compact SVG grid (uniform squares, one
-    per touched cell; brighter/hotter = more mods; click a cell to jump to its list
-    entry), an exterior-cell list, and an interior-cell list. Cells your custom mods
-    touch get a gold outline. A port of modmapper, fed by this tool's load order.
-
-    This map is deliberately left alone by the conflict visualisations
-    (``mlox_subset/viz/``): coverage and collision are different questions, and
-    the conflict map is a *parallel* view that links back here rather than a
-    set of marks layered on top of this one.
+    The rendering itself lives in :mod:`mlox_subset.viz.cellmap` -- 216 lines of
+    HTML, CSS and JavaScript had no business sitting in the sort engine, and as
+    one f-string it could not be tested in pieces. This stays as the engine's
+    public entry point so existing callers and the CLI are unaffected.
 
     Args:
-        coverage: The result of ``build_cell_coverage``.
+        coverage: The result of :func:`build_cell_coverage`.
         title: The page title.
-        explorer_href: Where the conflict explorer lives. When given, a button
-            appears beside the tabs so the two maps reach each other. The map's
-            own SVG and data are untouched either way -- the explorer is a
-            parallel view, not a layer over this one.
 
     Returns:
         A complete, self-contained HTML document.
     """
-    ext = coverage["exterior"]
-    inte = coverage["interior"]
-    subl = coverage.get("subset_lower", set())
+    from mlox_subset.viz.cellmap import generate_cell_map_html as _render
 
-    # Exterior grid coords can be bogus/huge (an interior cell whose grid field
-    # is garbage, a mis-parse). Drop anything outside sane Morrowind+add-on
-    # bounds. The map is drawn as an SVG that only emits a <rect> for each TOUCHED
-    # cell (sparse -- bounded by plugin count), so absolute placement gives uniform
-    # squares in every column, and there's no dense billion-cell table to OOM on.
-    ext_ok = {
-        k: v
-        for k, v in ext.items()
-        if -CELL_GRID_LIMIT <= k[0] <= CELL_GRID_LIMIT
-        and -CELL_GRID_LIMIT <= k[1] <= CELL_GRID_LIMIT
-    }
-    dropped = len(ext) - len(ext_ok)
-
-    def anchor(gx: int, gy: int) -> str:
-        return f"e_{gx}_{gy}".replace("-", "m")
-
-    def modattr(mods: Sequence[str]) -> str:
-        # exact-match token list for the focus filter: |a.esp|b.esp|
-        return _html_escape("|" + "|".join(m.lower() for m in mods) + "|")
-
-    # every mod that touches any cell, customs first -- for the focus dropdown
-    all_mods: dict[str, int] = {}
-    for mods in list(ext.values()) + list(inte.values()):
-        for m in mods:
-            all_mods.setdefault(m.lower(), m)
-    focus_opts = "".join(
-        f'<option value="{_html_escape(low)}">{_html_escape(all_mods[low])}'
-        f'{" ★" if low in subl else ""}</option>'
-        for low in sorted(all_mods, key=lambda x: (x not in subl, x))
-    )
-
-    grid = '<p class="sub">No exterior cells touched.</p>'
-    if ext_ok:
-        xs = [k[0] for k in ext_ok]
-        ys = [k[1] for k in ext_ok]
-        minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
-        w, h = (maxx - minx + 1), (maxy - miny + 1)
-        trace(f"cell map: {len(ext_ok)} ext cells, bbox {w}x{h}, dropped {dropped}")
-        rects = []
-        for (gx, gy), mods in ext_ok.items():
-            px = (gx - minx) * CELL_MAP_STEP_PX
-            py = (maxy - gy) * CELL_MAP_STEP_PX  # north (max y) at the top
-            custom = any(m.lower() in subl for m in mods)
-            tip = f"({gx}, {gy}) — {len(mods)} mod(s): " + ", ".join(mods)
-            stroke = ' stroke="#ffd24a" stroke-width="1.4"' if custom else ""
-            rects.append(
-                f'<rect x="{px}" y="{py}" width="{CELL_MAP_CELL_PX}" height="{CELL_MAP_CELL_PX}" '
-                f'fill="{_cell_heat(len(mods))}"{stroke} class="cell" '
-                f'data-t="{_html_escape(tip)}" data-m="{modattr(mods)}" '
-                f"onclick=\"jump('{anchor(gx, gy)}')\"></rect>"
-            )
-        svg = (
-            f'<svg width="{w*CELL_MAP_STEP_PX}" height="{h*CELL_MAP_STEP_PX}" viewBox="0 0 {w*CELL_MAP_STEP_PX} {h*CELL_MAP_STEP_PX}" '
-            f'xmlns="http://www.w3.org/2000/svg">' + "".join(rects) + "</svg>"
-        )
-        grid = f'<div class="mapwrap">{svg}</div>'
-
-    ext_rows = []
-    for (gx, gy), mods in sorted(ext_ok.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        custom = any(m.lower() in subl for m in mods)
-        cls = ' class="cust"' if custom else ""
-        ext_rows.append(
-            f'<tr id="{anchor(gx,gy)}"{cls} data-m="{modattr(mods)}">'
-            f"<td>({gx}, {gy})</td><td>{len(mods)}</td>"
-            f'<td>{_html_escape(", ".join(mods))}</td></tr>'
-        )
-    int_rows = []
-    for name, mods in sorted(inte.items(), key=lambda kv: (-len(kv[1]), kv[0].lower())):
-        custom = any(m.lower() in subl for m in mods)
-        cls = ' class="cust"' if custom else ""
-        int_rows.append(
-            f'<tr{cls} data-m="{modattr(mods)}"><td>{_html_escape(name)}</td>'
-            f"<td>{len(mods)}</td>"
-            f'<td>{_html_escape(", ".join(mods))}</td></tr>'
-        )
-    ext = ext_ok
-    n_ext_conf = sum(1 for m in ext.values() if len(m) > 1)
-    n_int_conf = sum(1 for m in inte.values() if len(m) > 1)
-    # The other direction of the cross-link. Rendered only when a target is
-    # given, so a cell map generated on its own has no dead button.
-    explorer_tip = (
-        "Which mods EDIT the land record and path grid in a cell, and how those "
-        "edits conflict -- a different question from coverage."
-    )
-    explorer_button = (
-        f"<button onclick=\"location.href='{_html_escape(explorer_href)}'\" "
-        f'title="{_html_escape(explorer_tip)}">Conflicts &raquo;</button>'
-        if explorer_href
-        else ""
-    )
-
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>{_html_escape(title)}</title>
-<style>
- body{{background:#101013;color:#c8c8c8;font-family:Segoe UI,Arial,sans-serif;margin:16px;}}
- h1{{color:#e8905a;font-size:20px;}} .sub{{color:#8f8f8f;font-size:13px;}}
- .legend{{margin-top:12px;line-height:1.7;}}
- .tabs{{margin-top:24px;margin-bottom:4px;}}
- .tabs button{{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:6px 14px;margin-right:4px;cursor:pointer;}}
- .tabs button.on{{background:#8a3a12;color:#fff;}}
- .tab{{display:none;margin-top:10px;}} .tab.on{{display:block;}}
- .legend span{{display:inline-block;padding:2px 8px;margin-right:6px;border-radius:3px;color:#111;font-size:12px;}}
- .mapwrap{{overflow:auto;max-height:74vh;border:1px solid #333;background:#06111c;display:inline-block;max-width:100%;}}
- .mapwrap svg{{display:block;}}
- rect.cell{{cursor:pointer;}} rect.cell:hover{{stroke:#fff;stroke-width:1.4;}}
- #tt{{position:fixed;pointer-events:none;display:none;z-index:99;max-width:440px;
-   background:#000;color:#eee;border:1px solid #555;border-radius:3px;padding:3px 7px;font-size:12px;}}
- table.list{{border-collapse:collapse;width:100%;font-size:13px;}}
- .list td,.list th{{border-bottom:1px solid #262626;padding:4px 8px;text-align:left;vertical-align:top;}}
- .list th{{color:#9a9a9a;position:sticky;top:0;background:#101013;}} tr.cust td{{color:#ff9b6b;}}
- tr.hl td{{background:#3a2a10;}}
- input.f{{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:6px;width:320px;margin:6px 0;}}
- .focusbar{{margin-top:10px;}}
- .focusbar select{{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:5px;max-width:420px;}}
- .focusbar button{{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:5px 10px;margin-left:6px;cursor:pointer;}}
- #focusinfo{{margin-top:4px;max-width:900px;}}
- rect.cell.dim{{opacity:.13;}}
-</style></head><body>
-<div id="tt"></div>
-<h1>{_html_escape(title)}</h1>
-<p class="sub">Scanned {coverage['scanned']} plugin(s). Exterior: {len(ext)} cell(s) touched
- ({n_ext_conf} by 2+ mods). Interior: {len(inte)} cell(s) touched ({n_int_conf} by 2+ mods).
- Cells your custom mods touch are highlighted (gold outline / orange text).</p>
-<div class="legend">Mods per cell:
- <span style="background:#2f4a63;color:#fff;">1</span><span style="background:#7a5a1e;">2</span>
- <span style="background:#9c4a16;">3</span><span style="background:#b83a1a;color:#fff;">4</span>
- <span style="background:#d8342a;color:#fff;">5+</span> &nbsp;(north up; hover a cell for its mods, click it to jump to the list)</div>
-<div class="focusbar">Focus on mod:
- <select id="focus" onchange="setFocus(this.value)"><option value="">— all mods —</option>{focus_opts}</select>
- <button onclick="document.getElementById('focus').value='';setFocus('')">Clear</button>
- <div id="focusinfo" class="sub"></div></div>
-<div class="tabs">
- <button id="b0" class="on" onclick="show(0)">Map</button>
- <button id="b1" onclick="show(1)">Exterior list ({len(ext)})</button>
- <button id="b2" onclick="show(2)">Interior list ({len(inte)})</button>
- {explorer_button}
-</div>
-<div id="t0" class="tab on">{grid}</div>
-<div id="t1" class="tab"><input class="f" placeholder="Filter exterior cells / mods..." onkeyup="ff('xt')">
- <table class="list" id="xt"><thead><tr><th>Cell (x, y)</th><th>#</th><th>Mods (load order, last wins)</th></tr></thead>
- <tbody>{''.join(ext_rows) or '<tr><td colspan=3 class=sub>None.</td></tr>'}</tbody></table></div>
-<div id="t2" class="tab"><input class="f" placeholder="Filter interior cells / mods..." onkeyup="ff('it')">
- <table class="list" id="it"><thead><tr><th>Cell</th><th>#</th><th>Mods (load order, last wins)</th></tr></thead>
- <tbody>{''.join(int_rows) or '<tr><td colspan=3 class=sub>None.</td></tr>'}</tbody></table></div>
-<script>
- function show(n){{for(var i=0;i<3;i++){{document.getElementById('t'+i).className=i==n?'tab on':'tab';
-  document.getElementById('b'+i).className=i==n?'on':'';}}}}
- function jump(a){{show(1);var el=document.getElementById(a);
-  if(el){{el.scrollIntoView({{block:'center'}});el.classList.add('hl');
-   setTimeout(function(){{el.classList.remove('hl');}},2200);}}}}
- (function(){{var tt=document.getElementById('tt');
-  document.addEventListener('mouseover',function(e){{var r=e.target;
-   if(r&&r.classList&&r.classList.contains('cell')){{tt.textContent=r.getAttribute('data-t');tt.style.display='block';}}}});
-  document.addEventListener('mousemove',function(e){{if(tt.style.display=='block'){{
-   tt.style.left=(e.clientX+12)+'px';tt.style.top=(e.clientY+12)+'px';}}}});
-  document.addEventListener('mouseout',function(e){{var r=e.target;
-   if(r&&r.classList&&r.classList.contains('cell')){{tt.style.display='none';}}}});}})();
- var Q={{xt:'',it:''}}, FOCUS='';
- function match(r){{return !FOCUS||(r.getAttribute('data-m')||'').indexOf('|'+FOCUS+'|')>-1;}}
- function apply(id){{document.querySelectorAll('#'+id+' tbody tr').forEach(function(r){{
-   var okQ=!Q[id]||r.innerText.toLowerCase().indexOf(Q[id])>-1;
-   r.style.display=(okQ&&match(r))?'':'none';}});}}
- function ff(id){{Q[id]=event.target.value.toLowerCase();apply(id);}}
- function setFocus(v){{FOCUS=(v||'').toLowerCase();
-  document.querySelectorAll('rect.cell').forEach(function(r){{
-   r.classList.toggle('dim',FOCUS&&!match(r));}});
-  apply('xt');apply('it');
-  var info=document.getElementById('focusinfo');
-  if(!FOCUS){{info.textContent='';return;}}
-  var nE=0,nI=0,co={{}};
-  document.querySelectorAll('#xt tbody tr').forEach(function(r){{if(match(r)){{nE++;countCo(r,co);}}}});
-  document.querySelectorAll('#it tbody tr').forEach(function(r){{if(match(r)){{nI++;countCo(r,co);}}}});
-  var names=Object.keys(co).sort(function(a,b){{return co[b]-co[a];}});
-  var top=names.slice(0,14).map(function(n){{return n+' ('+co[n]+')';}}).join(', ');
-  info.textContent='Touches '+nE+' exterior + '+nI+' interior cell(s). '+
-   (names.length?'Shares cells with '+names.length+' other mod(s): '+top+
-    (names.length>14?', …':''):'No other mod touches these cells.');}}
- function countCo(r,co){{(r.getAttribute('data-m')||'').split('|').forEach(function(m){{
-   if(m&&m!=FOCUS){{co[m]=(co[m]||0)+1;}}}});}}
-</script>
-</body></html>
-"""
+    html = _render(coverage, title)
+    trace(f"cell map: rendered {len(html)} bytes via viz.cellmap")
+    return html
 
 
 # ---------------------------------------------------------------------------
