@@ -18,7 +18,7 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import mlox_subset_sort as core
 from mlox_subset.gui import app_base_dir
@@ -48,14 +48,20 @@ except ImportError:  # pragma: no cover - only when mwscript/ is absent
     listing_for_bytecode_field = None
     variables_text_for_field = None
 
-# Landscape / path-grid field decoding. Optional on the same terms.
+# Landscape / path-grid field decoding, and the format reference that explains
+# what each field is. Optional on the same terms.
 text_for_field: Callable[..., str | None] | None
 describe_field: Callable[[str], str | None] | None
+field_note: Callable[[str, str], str | None] | None
+layout_text: Callable[[str], str | None] | None
 try:
     from mlox_subset.tes3fields import describe_field, text_for_field
+    from mlox_subset.tes3fields.annotate import field_note, layout_text
 except ImportError:  # pragma: no cover - only when tes3fields/ is absent
     text_for_field = None
     describe_field = None
+    field_note = None
+    layout_text = None
 
 # The HTML visualisations that don't depend on the explorer/cell-page/detail
 # machinery: the direct conflict map and the per-field graph/difference/3D
@@ -572,7 +578,7 @@ class ConflictWindowsMixin:
                 _(
                     "Build and open a conflict map directly from the selected conflicts. "
                     "Shows which mods edit LAND records in each cell, with a breakdown of "
-                    "terrain shape, NPC navigation, and cell record edits."  
+                    "terrain shape, NPC navigation, and cell record edits."
                 ),
             )
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
@@ -589,7 +595,9 @@ class ConflictWindowsMixin:
             return
         self.worker_running = True
         self.status_var.set(_("Building the conflict map..."))
-        threading.Thread(target=self._conflict_map_worker, args=(list(conflicts),), daemon=True).start()
+        threading.Thread(
+            target=self._conflict_map_worker, args=(list(conflicts),), daemon=True
+        ).start()
 
     def _conflict_map_worker(self, conflicts: list[dict]) -> None:
         """Build the conflict map, then hand it to the UI thread to display.
@@ -608,6 +616,7 @@ class ConflictWindowsMixin:
             # build_conflict_map computes its own cell breakdown from
             # `conflicts` and does not take a `cells` argument.
             from mlox_subset.viz import conflictmap as cmap_module
+
             cells = cmap_module.cells_with_conflicts(conflicts)
             markup = build_conflict_map(
                 conflicts,
@@ -623,7 +632,8 @@ class ConflictWindowsMixin:
         if markup is None:
             self.status_var.set(_("The conflict map could not be built."))
             messagebox.showerror(
-                _("Could not build conflict map"), _("%s") % {"error": error}
+                _("Could not build conflict map"),
+                _("%(error)s") % {"error": error},
             )
             return
         self.status_var.set(_("Conflict map ready (%(cells)d cell(s)).") % {"cells": cells})
@@ -727,9 +737,9 @@ class ConflictWindowsMixin:
                 return
 
             if key == "vertex_heights.data" and build_terrain_3d is not None:
-                has_single_plugin = sum(
-                    1 for p in plugins if (per.get(p) or {}).get("vertex_heights.data")
-                ) == 1
+                has_single_plugin = (
+                    sum(1 for p in plugins if (per.get(p) or {}).get("vertex_heights.data")) == 1
+                )
                 if has_single_plugin:
                     self._show_terrain_3d(plugins, per)
         except Exception as exc:  # noqa: BLE001 - a bad record must not kill the window
@@ -760,6 +770,61 @@ class ConflictWindowsMixin:
             messagebox.showerror(_("Could not build the view"), _("%(error)s") % {"error": exc})
             return
         self._open_html_view(markup, "terrain")
+
+    def _add_format_reference_button(self, bar: ttk.Frame, record_type: str) -> None:
+        """Offer the documented layout of the record being diffed.
+
+        Only when the reference actually covers this record type, so the button
+        can never open an empty window.
+
+        Args:
+            bar: The detail window's button row.
+            record_type: tes3conv's ``"type"`` value for the record.
+        """
+        if layout_text is None or not record_type or layout_text(record_type) is None:
+            return
+        button = ttk.Button(
+            bar,
+            text=_("Format reference..."),
+            command=lambda: self._show_format_reference(record_type),
+        )
+        button.pack(side="left", padx=(12, 0))
+        add_tooltip(
+            button,
+            _(
+                "Show what this kind of record is supposed to contain: every subrecord, "
+                "whether the game requires it, how wide it is, and -- where the layout is "
+                "documented -- the named fields inside it.\n\n"
+                "A diff tells you what changed; this tells you what it was."
+            ),
+        )
+
+    def _show_format_reference(self, record_type: str) -> None:
+        """Open a window with the record type's documented layout.
+
+        Args:
+            record_type: tes3conv's ``"type"`` value for the record.
+        """
+        if layout_text is None:
+            return
+        text = layout_text(record_type)
+        if text is None:
+            return
+        win = tk.Toplevel(self.root)
+        win.title(_("Format reference: %(type)s") % {"type": record_type})
+        win.configure(bg=DARK["bg"])
+        win.geometry("860x640")
+        widget = scrolledtext.ScrolledText(
+            win,
+            wrap="word",
+            font=("TkFixedFont", 10),
+            bg=DARK["entry_bg"],
+            fg=DARK["fg"],
+            insertbackground=DARK["fg"],
+        )
+        widget.pack(fill="both", expand=True, padx=8, pady=8)
+        widget.insert("1.0", text)
+        widget.configure(state="disabled")
 
     def _add_field_view_buttons(
         self, bar: ttk.Frame, key: str, plugins: Sequence[str], per: Mapping[str, Any]
@@ -910,6 +975,12 @@ class ConflictWindowsMixin:
             note += " · decoded to local variable names"
         elif describe_field is not None and (described := describe_field(key)):
             note += f" · {described}"
+        record_type = str(getattr(self, "_conf_record_type", "") or "")
+        if field_note is not None and (formatted := field_note(record_type, key)):
+            # What this field is in the file itself, not in tes3conv's JSON:
+            # the subrecord it comes from, its width, and whether the game
+            # requires it.
+            note += f" · {formatted}"
         ttk.Label(win, text=f"{key}   ({note})", padding=8).pack(anchor="w")
         bar = ttk.Frame(win, padding=(8, 0))
         bar.pack(fill="x")
@@ -927,6 +998,7 @@ class ConflictWindowsMixin:
             side="left"
         )
         self._add_field_view_buttons(bar, key, plugins, per)
+        self._add_format_reference_button(bar, record_type)
         ttk.Label(
             bar,
             text=_("Syntax highlighting: %(theme)s") % {"theme": self.log_theme_var.get()},
@@ -1022,7 +1094,10 @@ class ConflictWindowsMixin:
 
     #: Per-checkbox config for the two non-conflicting-records toggles:
     #: which BooleanVar, which cache attribute, and which engine function.
-    _SINGLES_KINDS: dict[str, dict[str, Any]] = {
+    #: ``ClassVar`` because it is shared, read-only configuration -- never
+    #: mutated per instance, which is what a bare mutable class attribute
+    #: would invite.
+    _SINGLES_KINDS: ClassVar[dict[str, dict[str, Any]]] = {
         "mine": {
             "var": "_include_singles_var",
             "cache": "_conf_singles",
@@ -1084,9 +1159,7 @@ class ConflictWindowsMixin:
             with redirect_stdout(writer), redirect_stderr(writer):
                 index = PluginFileIndex(dirs)
                 fn = getattr(core, self._SINGLES_KINDS[kind]["fn"])
-                records, _stats = fn(
-                    order, index, subset_names=subset, session=self._conf_session
-                )
+                records, _stats = fn(order, index, subset_names=subset, session=self._conf_session)
         except Exception:  # noqa: BLE001
             error = traceback.format_exc()
         self.root.after(0, self._singles_done, records, error, kind)

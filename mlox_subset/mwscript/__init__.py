@@ -32,7 +32,7 @@ from mlox_subset.mwscript.disassembler import (
     disassemble,
     format_listing,
 )
-from mlox_subset.mwscript.opcodes import BY_NAME, FUNCTIONS, INTERNAL
+from mlox_subset.mwscript.opcodes import BY_NAME, EXTENDED, FUNCTIONS, INTERNAL
 from mlox_subset.mwscript.script_record import ScriptRecord, read_script_records
 from mlox_subset.mwscript.tes3conv import (
     BytecodeDecodeError,
@@ -44,6 +44,7 @@ from mlox_subset.mwscript.tes3conv import (
 
 __all__ = [
     "BY_NAME",
+    "EXTENDED",
     "FUNCTIONS",
     "INTERNAL",
     "BytecodeDecodeError",

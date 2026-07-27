@@ -65,6 +65,49 @@ def app_base_dir() -> Path:
     return base
 
 
+#: Filenames the Help menu offers, in the order it offers them. Kept here rather
+#: than in the GUI module so the lookup and the list of what can be looked up sit
+#: together. The menu labels live at the call site instead, as literals: a
+#: ``_(variable)`` is invisible to the string extractor, so a label held here
+#: could never be translated.
+HELP_DOCUMENTS: tuple[str, ...] = ("QUICKSTART.md", "README.md")
+
+
+def doc_path(filename: str) -> Path | None:
+    """Locate one of the project's Markdown documents.
+
+    Three places, in order, because the answer differs per build:
+
+    1. ``sys._MEIPASS`` -- a PyInstaller onefile build unpacks its bundled data
+       to a temp directory. This is where the docs live in a shipped .exe, and
+       it must be checked first: the folder beside the .exe may hold an *older*
+       copy someone extracted by hand.
+    2. Beside the executable or the app folder, via :func:`app_base_dir`.
+    3. The source tree, for a checkout where the app folder resolved elsewhere.
+
+    Args:
+        filename: The document's filename, e.g. ``"README.md"``.
+
+    Returns:
+        The first readable match, or ``None`` when the document was not shipped
+        with this build -- which the caller reports rather than crashing on,
+        since missing help is a disappointment and not a failure.
+    """
+    bundled = getattr(sys, "_MEIPASS", None)
+    candidates = [
+        *([Path(bundled) / filename] if bundled else []),
+        app_base_dir() / filename,
+        Path(__file__).resolve().parent.parent.parent / filename,
+    ]
+    try:
+        found = next((c for c in candidates if c.is_file()), None)
+    except OSError:  # is_file() on an unreadable mount
+        found = None
+    if found is None:
+        trace(f"help: {filename} not found; looked in {[str(c) for c in candidates]}")
+    return found
+
+
 # Drag-and-drop is optional -- the GUI degrades gracefully to Browse-only.
 # Probed HERE, once, so the main module and the widgets share one answer.
 try:
