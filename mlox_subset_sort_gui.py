@@ -1207,7 +1207,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         self.rules_url_var = tk.StringVar()  # blank = built-in template
 
         self._build_input_fields(top, start_row)
-        self._build_output_fields(top, start_row + 3)
+        self._build_output_fields(top, start_row)
         self.rules_panel = RuleFilesPanel(
             top,
             start_row + 7,
