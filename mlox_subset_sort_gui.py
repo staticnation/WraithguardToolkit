@@ -50,7 +50,6 @@ rather than shelling out, so results, exceptions, etc. all stay in-process).
 # only imported for type checking, and no annotation costs import time.
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import queue
@@ -60,11 +59,13 @@ import threading
 import traceback
 import types
 import webbrowser
-from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection, Mapping, Sequence
 
 # Compiled-script disassembly for the field-diff window. Optional: if the
 # package is missing the diff view still works, it just shows the raw base64
@@ -194,7 +195,7 @@ from mlox_subset.net import (  # noqa: E402
     update_rule_files,
 )
 from mlox_subset.plugins import PluginFileIndex  # noqa: E402
-from mlox_subset.rules import ORDER_NAME_RE  # noqa: E402
+from mlox_subset.rules import authoring  # noqa: E402
 
 # The cell map is coverage only and needs nothing from viz/'s page builders:
 # the conflict views are built by the Conflicts window (see
@@ -209,6 +210,9 @@ except ImportError:  # pragma: no cover - only when viz/ is absent
     viz_docs = None  # type: ignore[assignment]
     viz_housekeeping = None  # type: ignore[assignment]
 from mlox_subset.tracing import set_trace_file, trace  # noqa: E402
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _app_version() -> str:
@@ -763,6 +767,30 @@ class DataPathOrderPanel(ReorderPanel):
 # ---------------------------------------------------------------------------
 
 
+#: Marker for an ``[ANY ...]`` group in the rule maker's plugin list. A list
+#: entry is either a plugin filename or one of these; nothing else is a valid
+#: entry, so the prefix doubles as the discriminator when the rule is built.
+RM_ANY_PREFIX = "ANY: "
+
+#: One line per rule, in the guidelines' own terms. Shown under the picker so
+#: choosing a rule type does not require having read the guidelines first.
+RULE_KIND_HELP: dict[str, str] = {
+    "Order": "These plugins load in this order, first one first. The rule most "
+    "people need, and the one the guidelines steer you towards.",
+    "NearStart": "Pull each plugin toward the START of the load order. "
+    "Discouraged -- prefer [Order] to place plugins against each other.",
+    "NearEnd": "Pull each plugin toward the END. Also discouraged, and it means "
+    "'closer to the end where possible', not 'last'.",
+    "Note": "Print a message when the listed expressions are all true. The "
+    "general-purpose rule.",
+    "Requires": "The first plugin needs the second to be present. Warns, in red, "
+    "when it is not.",
+    "Conflict": "Warns, in yellow, when any two of the listed plugins are active " "at once.",
+    "Patch": "A mutual dependency: the patch is pointless without what it "
+    "patches, and what it patches wants the patch. Warns both ways.",
+}
+
+
 def _action_button(
     bar: tk.Misc,
     text: str,
@@ -932,6 +960,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "plugin_order_yml": self.plugin_order_yml_var.get(),
             "tes3conv": self._tes3conv_override or "",
             "exclude": self.exclude_var.get(),
+            "groundcover": self.groundcover_var.get(),
             "tes3cmd": self._tes3cmd_override or "",
             "plugin_order_url": self.plugin_order_url_var.get(),
             "rules_url_template": self.rules_url_var.get(),
@@ -963,6 +992,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "list_name": self.list_name_var,
             "plugin_order_yml": self.plugin_order_yml_var,
             "exclude": self.exclude_var,
+            "groundcover": self.groundcover_var,
             "plugin_order_url": self.plugin_order_url_var,
             "rules_url_template": self.rules_url_var,
         }
@@ -1206,8 +1236,8 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         self.plugin_order_url_var = tk.StringVar()  # blank = built-in candidates
         self.rules_url_var = tk.StringVar()  # blank = built-in template
 
-        self._build_input_fields(top, start_row)
-        self._build_output_fields(top, start_row)
+        self._build_input_fields(top, start_row)  # rows 0-2
+        self._build_output_fields(top, start_row + 3)  # rows 3-6
         self.rules_panel = RuleFilesPanel(
             top,
             start_row + 7,
@@ -1245,7 +1275,8 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
 
         Args:
             top: The container frame.
-            start_row: Row of the first field; three consecutive rows are used.
+            start_row: The first row this panel occupies. It uses three
+                consecutive rows from there.
         """
         self.cfg_var = tk.StringVar()
         self.customizations_var = tk.StringVar()
@@ -1302,7 +1333,8 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
 
         Args:
             top: The container frame.
-            start_row: Row of the first field; four consecutive rows are used.
+            start_row: The first row this panel occupies. It uses four
+                consecutive rows from there.
         """
         self.emit_toml_var = tk.StringVar()
         self.list_name_var = tk.StringVar()
@@ -1312,7 +1344,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         self.emit_toml_field = PathField(
             top,
             "emit corrected TOML to:",
-            start_row + 3,
+            start_row,
             self.emit_toml_var,
             browse_kind="save",
             filetypes=(("TOML files", "*.toml"), ("All files", "*.*")),
@@ -1328,9 +1360,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         # from a subset file alone it would otherwise fall back to the useless
         # placeholder "generated", so setting this is recommended in that case.
         list_name_label = ttk.Label(top, text=_("list name (optional):"))
-        list_name_label.grid(row=start_row + 4, column=0, sticky="w", padx=(0, 8), pady=4)
+        list_name_label.grid(row=start_row + 1, column=0, sticky="w", padx=(0, 8), pady=4)
         list_name_entry = ttk.Entry(top, textvariable=self.list_name_var)
-        list_name_entry.grid(row=start_row + 4, column=1, sticky="ew", pady=4)
+        list_name_entry.grid(row=start_row + 1, column=1, sticky="ew", pady=4)
         list_name_tip = (
             "The momw-configurator listName written into the emitted "
             "momw-customizations.toml, e.g. 'total-overhaul' -- the curated mod list "
@@ -1345,7 +1377,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         PathField(
             top,
             "plugin-order.yml (optional):",
-            start_row + 5,
+            start_row + 2,
             self.plugin_order_yml_var,
             filetypes=(("YAML files", "*.yml *.yaml"), ("All files", "*.*")),
             tooltip=_(
@@ -1376,7 +1408,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             variable=self.write_toml_inplace_var,
             command=self._on_toggle_inplace,
         )
-        inplace_chk.grid(row=start_row + 6, column=0, columnspan=3, sticky="w", pady=(0, 4))
+        inplace_chk.grid(row=start_row + 3, column=0, columnspan=3, sticky="w", pady=(0, 4))
         add_tooltip(
             inplace_chk,
             _(
@@ -1413,6 +1445,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         self.dry_run_var = tk.BooleanVar(value=True)
         self.create_subset_doc_var = tk.BooleanVar(value=True)
         self.exclude_var = tk.StringVar()
+        #: Comma-separated plugin names to declare as grass. Empty for the
+        #: common case: the cfg's own groundcover= lines need no help.
+        self.groundcover_var = tk.StringVar()
         self.keep_json_var = tk.BooleanVar(value=False)
         #: Prune old generated HTML views on exit. On by default: the pages
         #: are timestamped so they accumulate, and a megabyte-per-map folder
@@ -1519,6 +1554,24 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         )
         add_tooltip(excl_lbl, excl_tip)
         add_tooltip(excl_entry, excl_tip)
+        gc_lbl = ttk.Label(opts, text=_("Declare as groundcover:"))
+        gc_lbl.grid(row=4, column=0, sticky="w", padx=8, pady=4)
+        gc_entry = ttk.Entry(opts, textvariable=self.groundcover_var)
+        gc_entry.grid(row=4, column=1, columnspan=2, sticky="ew", padx=8, pady=4)
+        gc_tip = (
+            "Comma-separated plugin filenames to treat as GRASS, e.g. "
+            "'Vurt_Grass.esp, Remiros_Groundcover.esp'.\n\n"
+            "Grass belongs on a groundcover= line, never content=: loading a grass "
+            "plugin as content spawns every blade as a real object. Plugins your "
+            "openmw.cfg already declares as groundcover are handled automatically -- "
+            "this is for one you have only just installed, which isn't declared "
+            "anywhere yet.\n\n"
+            "Their data= folders are still added normally, because OpenMW has to be "
+            "able to find the file."
+        )
+        add_tooltip(gc_lbl, gc_tip)
+        add_tooltip(gc_entry, gc_tip)
+
         keep_json_chk = ttk.Checkbutton(
             opts,
             text=_("Keep tes3conv JSON dump"),
@@ -2087,6 +2140,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 else None
             ),
             subset_lines=(self._scanned_subset_lines if has_mem_scan else None),
+            groundcover=[
+                name.strip() for name in self.groundcover_var.get().split(",") if name.strip()
+            ],
         )
 
     def on_scan_mods(self) -> None:
@@ -2864,27 +2920,46 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         return str(base / "mlox_my_rules.txt")
 
     def on_rule_maker(self) -> None:
-        """Open the mlox user-rules maker."""
+        """Open the mlox rule maker.
+
+        Covers every rule the guidelines describe, not just the three ordering
+        kinds this window used to offer. The rule itself is built, rendered and
+        checked by :mod:`mlox_subset.rules.authoring`, which has no Tk and is
+        tested headlessly; this method is the front end and nothing more.
+        """
         win = getattr(self, "_rm_win", None)
         if win is not None and win.winfo_exists():
             win.lift()
             return
         win = tk.Toplevel(self.root)
         self._rm_win = win
-        win.title("New mlox rule")
+        win.title(_("New mlox rule"))
         win.configure(bg=DARK["bg"])
-        win.geometry("720x600")
-        win.minsize(660, 560)
+        win.geometry("900x760")
+        win.minsize(780, 640)
         top = ttk.Frame(win, padding=10)
         top.pack(fill="both", expand=True)
         top.columnconfigure(1, weight=1)
 
+        self._rm_build_file_row(top)
+        self._rm_build_kind_picker(top)
+        self._rm_build_plugin_list(top)
+        self._rm_build_details(top)
+        self._rm_build_preview(top)
+        self._rm_refresh()
+
+    def _rm_build_file_row(self, top: tk.Misc) -> None:
+        """Build the "which file do these go in" row.
+
+        Args:
+            top: The window's content frame.
+        """
         ttk.Label(top, text=_("rules file:")).grid(row=0, column=0, sticky="w")
         self._rm_file_var = tk.StringVar(value=self._default_rules_file())
-        fent = ttk.Entry(top, textvariable=self._rm_file_var)
-        fent.grid(row=0, column=1, sticky="ew", padx=6)
+        entry = ttk.Entry(top, textvariable=self._rm_file_var)
+        entry.grid(row=0, column=1, sticky="ew", padx=6)
         add_tooltip(
-            fent,
+            entry,
             _(
                 "Personal rules file the rule is appended to (created with a header "
                 "if new). Use your OWN file, not mlox_base/mlox_user -- those get "
@@ -2894,27 +2969,42 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         )
         ttk.Button(top, text=_("Browse..."), command=self._rm_browse_file).grid(row=0, column=2)
 
-        tf = ttk.LabelFrame(top, text=_("Rule type"))
-        tf.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 4))
-        self._rm_kind = tk.StringVar(value="order")
-        for i, (v, lbl) in enumerate(
-            (
-                ("order", "[Order] -- the plugins below load in this order (first loads first)"),
-                ("nearstart", "[NearStart] -- each plugin below is pulled toward the START"),
-                ("nearend", "[NearEnd] -- each plugin below is pulled toward the END"),
-            )
-        ):
-            ttk.Radiobutton(
-                tf, text=lbl, value=v, variable=self._rm_kind, command=self._rm_refresh
-            ).grid(row=i, column=0, sticky="w", padx=8, pady=1)
+    def _rm_build_kind_picker(self, top: tk.Misc) -> None:
+        """Build the rule-type radio buttons, one per documented rule.
 
-        pf = ttk.LabelFrame(top, text=_("Plugins (drag order matters for [Order])"))
-        pf.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=4)
+        Args:
+            top: The window's content frame.
+        """
+        frame = ttk.LabelFrame(top, text=_("Rule type"))
+        frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 4))
+        for i in range(2):
+            frame.columnconfigure(i, weight=1)
+        self._rm_kind = tk.StringVar(value="Order")
+        for i, (kind, blurb) in enumerate(RULE_KIND_HELP.items()):
+            ttk.Radiobutton(
+                frame,
+                text=f"[{kind}]",
+                value=kind,
+                variable=self._rm_kind,
+                command=self._rm_refresh,
+            ).grid(row=i // 2, column=i % 2, sticky="w", padx=8, pady=1)
+            add_tooltip(frame, blurb)
+        self._rm_kind_help = ttk.Label(frame, foreground=DARK["fg_dim"], wraplength=820)
+        self._rm_kind_help.grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 6))
+
+    def _rm_build_plugin_list(self, top: tk.Misc) -> None:
+        """Build the plugin list and its buttons.
+
+        Args:
+            top: The window's content frame.
+        """
+        frame = ttk.LabelFrame(top, text=_("Plugins (order matters for [Order])"))
+        frame.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=4)
         top.rowconfigure(2, weight=1)
-        pf.columnconfigure(0, weight=1)
-        pf.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
         self._rm_list = DragReorderListbox(
-            pf,
+            frame,
             selectmode="extended",
             exportselection=False,
             activestyle="dotbox",
@@ -2924,79 +3014,302 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         style_plain_widget(self._rm_list)
         attach_typeahead(self._rm_list)
         self._rm_list.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
-        rsc = ttk.Scrollbar(pf, orient="vertical", command=self._rm_list.yview)
-        rsc.grid(row=0, column=1, sticky="ns", pady=8)
-        self._rm_list.configure(yscrollcommand=rsc.set)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=self._rm_list.yview)
+        scroll.grid(row=0, column=1, sticky="ns", pady=8)
+        self._rm_list.configure(yscrollcommand=scroll.set)
 
-        rbtns = ttk.Frame(pf)
-        rbtns.grid(row=0, column=2, sticky="n", padx=8, pady=8)
-        b = ttk.Button(rbtns, text=_("From plugin panel"), command=self._rm_add_from_panel)
-        b.pack(fill="x", pady=2)
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=0, column=2, sticky="n", padx=8, pady=8)
+        from_panel = ttk.Button(
+            buttons, text=_("From plugin panel"), command=self._rm_add_from_panel
+        )
+        from_panel.pack(fill="x", pady=2)
         add_tooltip(
-            b,
+            from_panel,
             _(
                 "Add the rows currently SELECTED in the main plugin-order panel, in "
                 "their displayed order (Ctrl/Shift-click there to multi-select first)."
             ),
         )
-        ttk.Button(rbtns, text=_("Remove"), command=self._rm_remove).pack(fill="x", pady=2)
-        ttk.Button(
-            rbtns,
-            text=_("Clear"),
-            command=lambda: (self._rm_list.delete(0, "end"), self._rm_refresh()),  # type: ignore[func-returns-value]
-        ).pack(fill="x", pady=2)
-        af = ttk.Frame(pf)
-        af.grid(row=1, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8))
-        af.columnconfigure(0, weight=1)
+        ttk.Button(buttons, text=_("Remove"), command=self._rm_remove).pack(fill="x", pady=2)
+        ttk.Button(buttons, text=_("Clear"), command=self._rm_clear).pack(fill="x", pady=2)
+        group = ttk.Button(buttons, text=_("Group as ANY"), command=self._rm_group_any)
+        group.pack(fill="x", pady=(10, 2))
+        add_tooltip(
+            group,
+            _(
+                "Wrap the SELECTED plugins in an [ANY ...] group, for a rule that is "
+                "satisfied by whichever of several versions someone has installed -- "
+                "the shape the guidelines use for mods with an XB edition, a "
+                "Tribunal edition and so on.\n\n"
+                "Select the grouped entry and press again to ungroup."
+            ),
+        )
+
+        add_row = ttk.Frame(frame)
+        add_row.grid(row=1, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8))
+        add_row.columnconfigure(0, weight=1)
         self._rm_add_var = tk.StringVar()
-        aent = ttk.Entry(af, textvariable=self._rm_add_var)
-        aent.grid(row=0, column=0, sticky="ew")
+        typed = ttk.Entry(add_row, textvariable=self._rm_add_var)
+        typed.grid(row=0, column=0, sticky="ew")
+        typed.bind("<Return>", lambda _e: self._rm_add_typed())
         add_tooltip(
-            aent,
+            typed,
             _(
-                "Type a plugin name or mlox pattern (wildcards * ? and <VER> allowed; "
-                "must end in a plugin extension) and press Enter or Add."
+                "Type a plugin filename and press Enter. mlox wildcards are allowed: "
+                "? for one character, * for any run, <VER> for a version number -- "
+                "though the guidelines ask for these to be used sparingly, since "
+                "expanding them is slow."
             ),
         )
-        aent.bind("<Return>", lambda e: self._rm_add_typed())
-        ttk.Button(af, text=_("Add"), command=self._rm_add_typed).grid(row=0, column=1, padx=(6, 0))
+        ttk.Button(add_row, text=_("Add"), command=self._rm_add_typed).grid(row=0, column=1)
 
-        ttk.Label(top, text=_("comment (optional):")).grid(row=3, column=0, sticky="w", pady=(4, 0))
+    def _rm_build_details(self, top: tk.Misc) -> None:
+        """Build the message, citation, section and priority fields.
+
+        Args:
+            top: The window's content frame.
+        """
+        frame = ttk.LabelFrame(top, text=_("Message and source"))
+        frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=4)
+        frame.columnconfigure(1, weight=1)
+
+        ttk.Label(frame, text=_("message:")).grid(row=0, column=0, sticky="nw", padx=8, pady=4)
+        self._rm_message = tk.Text(frame, height=3, wrap="word")
+        style_plain_widget(self._rm_message)
+        self._rm_message.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(0, 8), pady=4)
+        self._rm_message.bind("<KeyRelease>", lambda _e: self._rm_refresh())
+        add_tooltip(
+            self._rm_message,
+            _(
+                "What to tell the person, and what to do about it. Ordering rules "
+                "carry no message; the warning rules are much less useful without "
+                "one.\n\n"
+                "A message containing ']' is written in the block form automatically, "
+                "because a ']' would otherwise close the rule label early."
+            ),
+        )
+
+        ttk.Label(frame, text=_("(Ref:) source:")).grid(row=1, column=0, sticky="w", padx=8, pady=4)
+        self._rm_ref = tk.StringVar()
+        ref_entry = ttk.Entry(frame, textvariable=self._rm_ref)
+        ref_entry.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(0, 8), pady=4)
+        self._rm_ref.trace_add("write", lambda *_a: self._rm_refresh())
+        add_tooltip(
+            ref_entry,
+            _(
+                "Where this rule's claim comes from: a readme filename, a forum post, "
+                "a URL. The guidelines ask for one on every rule so that someone else "
+                "can check it, or correct it.\n\n"
+                "A URL gets whitespace before the closing parenthesis automatically -- "
+                "pages that auto-link URLs otherwise swallow the ')' into the link."
+            ),
+        )
+
+        ttk.Label(frame, text=_("@section:")).grid(row=2, column=0, sticky="w", padx=8, pady=4)
+        self._rm_section = tk.StringVar()
+        section_entry = ttk.Entry(frame, textvariable=self._rm_section)
+        section_entry.grid(row=2, column=1, sticky="ew", padx=(0, 8), pady=4)
+        self._rm_section.trace_add("write", lambda *_a: self._rm_refresh())
+        add_tooltip(
+            section_entry,
+            _(
+                "Optional heading written above the rule. The rule-base groups rules "
+                "into sections, roughly one per mod, to keep the file navigable."
+            ),
+        )
+
+        priority_row = ttk.Frame(frame)
+        priority_row.grid(row=3, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6))
+        ttk.Label(priority_row, text=_("highlight:")).pack(side="left")
+        self._rm_priority = tk.IntVar(value=0)
+        for level, meaning in authoring.PRIORITY_MEANING.items():
+            ttk.Radiobutton(
+                priority_row,
+                text=(authoring.PRIORITY_MARKS[level] or _("none")),
+                value=level,
+                variable=self._rm_priority,
+                command=self._rm_refresh,
+            ).pack(side="left", padx=(8, 0))
+            add_tooltip(
+                priority_row,
+                _("%(mark)s = %(meaning)s")
+                % {
+                    "mark": authoring.PRIORITY_MARKS[level] or "(none)",
+                    "meaning": meaning,
+                },
+            )
+
+        ttk.Label(frame, text=_("; comment:")).grid(row=4, column=0, sticky="w", padx=8, pady=4)
         self._rm_comment = tk.StringVar()
-        cent = ttk.Entry(top, textvariable=self._rm_comment)
-        cent.grid(row=3, column=1, columnspan=2, sticky="ew", padx=6, pady=(4, 0))
-        cent.bind("<KeyRelease>", lambda e: self._rm_refresh())
+        comment_entry = ttk.Entry(frame, textvariable=self._rm_comment)
+        comment_entry.grid(row=4, column=1, columnspan=2, sticky="ew", padx=(0, 8), pady=(0, 8))
+        self._rm_comment.trace_add("write", lambda *_a: self._rm_refresh())
         add_tooltip(
-            cent,
+            comment_entry,
+            _("A ';' comment written above the rule. mlox strips these before reading."),
+        )
+
+    def _rm_build_preview(self, top: tk.Misc) -> None:
+        """Build the live preview, the problem list and the write button.
+
+        Args:
+            top: The window's content frame.
+        """
+        frame = ttk.LabelFrame(top, text=_("Preview"))
+        frame.grid(row=4, column=0, columnspan=3, sticky="nsew", pady=4)
+        frame.columnconfigure(0, weight=1)
+        top.rowconfigure(4, weight=1)
+
+        self._rm_preview = tk.Text(frame, height=8, wrap="none")
+        style_plain_widget(self._rm_preview)
+        self._rm_preview.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8, 4))
+        self._rm_preview.configure(state="disabled")
+
+        self._rm_problems = tk.Text(frame, height=4, wrap="word")
+        style_plain_widget(self._rm_problems)
+        self._rm_problems.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
+        self._rm_problems.tag_configure("error", foreground="#ff6b6b")
+        self._rm_problems.tag_configure("warning", foreground="#ffd24a")
+        self._rm_problems.configure(state="disabled")
+
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 8))
+        self._rm_write = ttk.Button(buttons, text=_("Append rule"), command=self._rm_append)
+        self._rm_write.pack(side="left")
+        add_tooltip(
+            self._rm_write,
             _(
-                "Written above the rule as a ';;' comment. The mlox rule guidelines "
-                "suggest citing your source, e.g. (Ref: the mod's readme) or "
-                "(Ref: a forum URL ) -- surround URLs with spaces. Handy if you "
-                "later contribute the rule upstream."
+                "Write the rule to the file above. Refused while there is an error: "
+                "mlox silently discards a rule it cannot use, so this is the only "
+                "place you would find out.\n\n"
+                "Warnings do not block -- they are the guidelines' advice, not the "
+                "parser's requirements."
+            ),
+        )
+        ttk.Button(buttons, text=_("Close"), command=self._rm_win.destroy).pack(side="right")
+
+        guide = ttk.Button(
+            buttons,
+            text=_("Rule guide"),
+            command=partial(self._open_document, _("Writing mlox rules"), "MLOX_RULES.md"),
+        )
+        guide.pack(side="left", padx=(8, 0))
+        add_tooltip(
+            guide,
+            _(
+                "Open the rule reference: what each rule kind says, how "
+                "expressions nest, and the conventions the rule-base follows.\n\n"
+                "It opens in your browser, so it can sit beside this window "
+                "while you work."
             ),
         )
 
-        vf = ttk.LabelFrame(top, text=_("Preview"))
-        vf.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 4))
-        self._rm_preview = tk.Text(
-            vf,
-            height=5,
-            wrap="none",
-            state="disabled",
-            background=DARK["log_bg"],
-            foreground=DARK["fg"],
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=1,
-            highlightbackground=DARK["border"],
-        )
-        self._rm_preview.pack(fill="x", padx=8, pady=8)
+    # -- rule assembly ------------------------------------------------------
 
-        row = ttk.Frame(top)
-        row.grid(row=5, column=0, columnspan=3, sticky="ew")
-        ttk.Button(row, text=_("Append Rule"), command=self._rm_append).pack(side="left")
-        ttk.Button(row, text=_("Close"), command=win.destroy).pack(side="right")
+    def _rm_current_rule(self) -> authoring.Rule:
+        """Build the rule the window currently describes.
+
+        Returns:
+            The rule, whether or not it is valid -- the preview and the problem
+            list both want to show an incomplete one rather than nothing.
+        """
+        kind = self._rm_kind.get()
+        entries = self._rm_names()
+        rule = authoring.Rule(
+            kind=kind,
+            message=self._rm_message.get("1.0", "end").strip(),
+            ref=self._rm_ref.get().strip(),
+            priority=self._rm_priority.get(),
+            section=self._rm_section.get().strip(),
+            comment=self._rm_comment.get().strip(),
+        )
+        if kind in authoring.ORDERING_KINDS:
+            rule.plugins = [self._rm_plain(entry) for entry in entries]
+        else:
+            rule.expressions = [self._rm_expression(entry) for entry in entries]
+        return rule
+
+    @staticmethod
+    def _rm_plain(entry: str) -> str:
+        """Strip a group marker back to a plain name for an ordering rule.
+
+        Args:
+            entry: A list entry, possibly an ANY group.
+
+        Returns:
+            The name, or the group's text unchanged when it is not a group --
+            an ordering rule cannot express a group, and validation says so
+            rather than this quietly inventing something.
+        """
+        return entry
+
+    @staticmethod
+    def _rm_expression(entry: str) -> authoring.Expr:
+        """Turn one list entry into an expression.
+
+        Args:
+            entry: Either a plugin filename, or several joined by ``ANY:`` --
+                the marker the group button writes.
+
+        Returns:
+            A plugin predicate, or an ``[ANY ...]`` group.
+        """
+        if entry.startswith(RM_ANY_PREFIX):
+            names = [n.strip() for n in entry[len(RM_ANY_PREFIX) :].split("|") if n.strip()]
+            return authoring.any_of(*[authoring.Plugin(n) for n in names])
+        return authoring.Plugin(entry)
+
+    def _rm_clear(self) -> None:
+        """Empty the plugin list."""
+        self._rm_list.delete(0, "end")
         self._rm_refresh()
+
+    def _rm_group_any(self) -> None:
+        """Wrap the selected entries in an ``[ANY ...]`` group, or ungroup one."""
+        selection = list(self._rm_list.curselection())
+        if not selection:
+            return
+        entries = [self._rm_list.get(i) for i in selection]
+        if len(entries) == 1 and entries[0].startswith(RM_ANY_PREFIX):
+            names = entries[0][len(RM_ANY_PREFIX) :].split("|")
+            self._rm_list.delete(selection[0])
+            for offset, name in enumerate(n.strip() for n in names if n.strip()):
+                self._rm_list.insert(selection[0] + offset, name)
+        else:
+            for index in reversed(selection):
+                self._rm_list.delete(index)
+            self._rm_list.insert(selection[0], RM_ANY_PREFIX + " | ".join(entries))
+        self._rm_refresh()
+
+    def _rm_refresh(self) -> None:
+        """Re-render the preview and the problem list."""
+        trace_first_fire("rules-maker refresh")
+        kind = self._rm_kind.get()
+        self._rm_kind_help.configure(text=RULE_KIND_HELP.get(kind, ""))
+
+        rule = self._rm_current_rule()
+        try:
+            text = authoring.render_rule(rule)
+            problems = authoring.validate(rule)
+        except Exception as exc:  # noqa: BLE001 - a live preview must never raise
+            text, problems = f"; preview failed: {exc}", []
+
+        self._rm_preview.configure(state="normal")
+        self._rm_preview.delete("1.0", "end")
+        self._rm_preview.insert("1.0", text)
+        self._rm_preview.configure(state="disabled")
+
+        self._rm_problems.configure(state="normal")
+        self._rm_problems.delete("1.0", "end")
+        for problem in problems:
+            self._rm_problems.insert("end", problem.describe() + "\n", problem.severity)
+        if not problems:
+            self._rm_problems.insert("end", _("No problems. This rule follows the guidelines.\n"))
+        self._rm_problems.configure(state="disabled")
+
+        blocked = bool(authoring.errors(problems))
+        self._rm_write.configure(state="disabled" if blocked else "normal")
 
     def _rm_names(self) -> list[str]:
         return list(self._rm_list.get(0, "end"))
@@ -3025,31 +3338,6 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             self._rm_list.delete(i)
         self._rm_refresh()
 
-    def _rm_preview_text(self) -> str:
-        try:
-            names = self._rm_names()
-            if not names:
-                return "(add plugins above)"
-            # build without writing: validate via the same code path
-            kw = self._rm_kind.get()
-            titles = {"order": "Order", "nearstart": "NearStart", "nearend": "NearEnd"}
-            for n in names:
-                m = ORDER_NAME_RE.match(n)
-                if any(c in n for c in "[];") or not m or m.group(0) != n:
-                    return f"INVALID: {n!r} -- names must end in a plugin extension"
-            if kw == "order" and len(names) < 2:
-                return "(an [Order] rule needs at least two plugins)"
-            parts = []
-            c = self._rm_comment.get().strip()
-            if c:
-                parts += [f";; {line}" for line in c.splitlines()]
-            parts.append(f"[{titles[kw]}]")
-            parts += names
-            return "\n".join(parts)
-        except Exception as e:  # noqa: BLE001
-            # live rule preview; any failure becomes preview text
-            return f"error: {e}"
-
     def _rm_browse_file(self) -> None:
         """Ask for a personal rules file and remember the choice.
 
@@ -3066,14 +3354,6 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         trace(f"[smoke] rules-maker Browse: {'chose ' + chosen if chosen else 'cancelled'}")
         if chosen:
             self._rm_file_var.set(chosen)
-
-    def _rm_refresh(self) -> None:
-        trace_first_fire("rules-maker refresh (radio / reorder)")
-        txt = self._rm_preview_text()
-        self._rm_preview.configure(state="normal")
-        self._rm_preview.delete("1.0", "end")
-        self._rm_preview.insert("1.0", txt)
-        self._rm_preview.configure(state="disabled")
 
     def _rm_append(self) -> None:
         path = self._rm_file_var.get().strip()
@@ -3096,8 +3376,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         # curated order (mlox would discard those edges as cycles, so the rule
         # silently wouldn't take effect). Advisory only -- the user may be
         # planning to install those mods, or know what they're doing.
-        names = self._rm_names()
-        if self._rm_kind.get() == "order" and self._current_plan:
+        rule = self._rm_current_rule()
+        names = rule.plugins
+        if rule.kind == "Order" and self._current_plan:
             final = self._current_plan.get("final_order") or []
             subset_lower = {str(s).lower() for s in (self._current_plan.get("subset") or [])}
             curated = {
@@ -3123,7 +3404,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 ):
                     return
         try:
-            core.append_user_rule(path, self._rm_kind.get(), names, comment=self._rm_comment.get())
+            core.append_authored_rule(path, rule)
         except (ValueError, OSError) as e:
             messagebox.showerror(_("New rule"), str(e), parent=self._rm_win)
             return
@@ -3132,6 +3413,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             self.rules_panel.listbox.insert("end", path)
         self._rm_list.delete(0, "end")
         self._rm_comment.set("")
+        self._rm_message.delete("1.0", "end")
         self._rm_refresh()
         self.status_var.set(
             _("Rule appended to %(file)s. Re-run '1. Sort' to apply it.")
@@ -3267,7 +3549,11 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         trace_first_fire("on_help")
         # Literal calls, not a lookup: the extractor reads the source, so
         # `_(variable)` produces a string no translator ever sees.
-        labels = {"QUICKSTART.md": _("Quick start"), "README.md": _("Read me")}
+        labels = {
+            "QUICKSTART.md": _("Quick start"),
+            "README.md": _("Read me"),
+            "MLOX_RULES.md": _("Writing mlox rules"),
+        }
         menu = tk.Menu(self.root, tearoff=0)
         for filename in HELP_DOCUMENTS:
             label = labels.get(filename, filename)

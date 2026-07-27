@@ -1,7 +1,33 @@
 # GUI smoke test
 
-The GUI has no automated coverage — there is no Tk in the test environment —
-and five callbacks were rewritten during the PEP conformance pass. This script
+## Run the automated suite first
+
+Most of what used to be on this checklist is now checked by a test suite. If you
+have Tk — and you do, if the GUI starts — run:
+
+```powershell
+python -m pytest tests/test_gui_smoke.py -v
+```
+
+Windows will flash open and closed; that is the suite working. It builds the
+real application and checks that every window opens with content in it, that no
+two panels are gridded into the same cell, that every button is bound, that
+settings survive a save and load, that every theme applies, and that the rule
+maker's preview and write button track validity.
+
+If **every** test says `SKIPPED`, nothing was checked — Tk or the display is
+missing rather than the app being fine. `python -c "import tkinter; tkinter.Tk()"`
+will say which. CI runs the same suite under a virtual X server and treats a
+skip as a failure for this reason.
+
+The manual pass below still covers what a test cannot: whether the output is
+*correct*, and whether the thing on screen is readable.
+
+---
+
+## Manual pass
+
+Five callbacks were rewritten during the PEP conformance pass. This script
 exercises exactly those, and only those.
 
 **Why a script rather than "click around":** the rewrites changed

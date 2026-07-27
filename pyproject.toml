@@ -106,6 +106,12 @@ select = [
     "PERF",      # performance
     "RUF",       # ruff-specific
     "PIE", "ISC", "ICN", "INT", "TID", "A", "PL",
+    # Annotation-only imports belong under TYPE_CHECKING, so they are not paid
+    # for at start-up. Safe here without exception because every module has
+    # `from __future__ import annotations` (PEP 563), which makes every
+    # annotation a string, and nothing in this project introspects annotations
+    # at runtime -- checked: no get_type_hints, no __annotations__ reads.
+    "TC",
     # Blind `except Exception`. This tool has a lot of genuinely defensive
     # catches -- optional imports, Tk quirks, untrusted downloaded rule files,
     # settings/trace persistence -- and they must stay broad. The rule is on

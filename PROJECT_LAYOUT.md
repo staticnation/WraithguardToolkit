@@ -42,7 +42,8 @@ MLOXSubsetSort/
 │   ├── gen_tes3_schema.py     Regenerates the TES3 record schema from the
 │   │                          UESP format-page export.
 │   └── make_pot.py            Extracts _() strings into the .pot template.
-├── tests/                     pytest suite (1,261 tests, no network, headless).
+├── tests/                     pytest suite (1,273 tests: 1,271 hermetic + a Tk
+│                               smoke set that runs under xvfb in CI).
 ├── testdata/                  Copies of a real setup, used by the tests.
 ├── locale/                    mlox_subset_sort.pot (English template),
 │                               translator guide, .mo catalogues.
@@ -74,7 +75,7 @@ feature and degrade gracefully when missing.
 ## Testing
 
 ```bash
-python -m pytest                # whole suite (1,261 tests)
+python -m pytest                # whole suite (1,273 tests)
 python -m ruff check .          # lint (PEP 8 incl. naming + import order)
 python -m mypy                  # types (PEP 484) -- gates every shipped file
 python -m black --check .       # formatting

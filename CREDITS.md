@@ -140,10 +140,18 @@ the credit is one of gratitude and correctness.
   matches the `FLAG_*` constants already taken from MWEdit's MIT header, which
   is how we know the derivation is right.
 
-  Where the two files disagree — two renames and 26 differing operand shapes —
-  **the existing MWEdit-derived entry is kept**, because that is the one our
-  corpus and test suite have been run against. The generator prints every
-  disagreement rather than resolving it silently.
+  Where the two files disagree — two renames (`XDrop`/`XDropItem`,
+  `XEquip`/`XEquipItem`) and 26 differing operand shapes — **the existing
+  MWEdit-derived entry is kept** and the disagreement printed rather than
+  resolved silently. 25 of the 26 are the same call: MWEdit says `String` where
+  customfunctions says `Long | String` for a filename or object id, and UESP's
+  per-function pages document those parameters as strings, which settles it.
+
+  The 26th is a genuine error and is corrected: MWEdit gives
+  `XFileWriteFloat` a single float operand with no filename, where
+  customfunctions lists two and UESP documents
+  `xFileWriteFloat filename (string), value (float)`. Corrections live in one
+  small explicit table in the generator, each with its evidence.
 - **MGE XE** — GPLv3. Referenced alongside MWSE for the same cross-check; no
   source copied.
 
@@ -169,7 +177,7 @@ the credit is one of gratitude and correctness.
 
 - **[UESP](https://en.uesp.net/) — *Morrowind Mod:Mod File Format*.** CC-BY-SA.
   The community's reference for the TES3 binary layout, and the source of
-  `mlox_subset/tes3fields/schema.py`: 45 record types, their subrecords, whether
+  `mlox_subset/tes3fields/schema.py`: 46 record types, their subrecords, whether
   each is required, its declared width, and the named members inside the struct
   ones. What is taken is **format fact** — a `NPDT` is 12 or 52 bytes; its first
   two are a uint16 Level — which describes Bethesda's file format rather than
@@ -178,9 +186,9 @@ the credit is one of gratitude and correctness.
   The schema is what lets the diff window say *what a field is* rather than only
   what its value was, and what backs the **Format reference** view beside a
   record diff. Nothing is guessed: where the tables are ambiguous the schema
-  says so (a field with two documented layouts carries neither), and 55 of the
+  says so (a field with two documented layouts carries neither), and 56 of the
   parsed layouts are checked against the byte counts the same tables declare —
-  all 55 agree, which is how we know the parse is right.
+  all 56 agree, which is how we know the parse is right.
 
   Also the source for the LAND, PGRD and script-record field documentation used
   when writing the binary decoders, alongside the MIT-licensed implementations

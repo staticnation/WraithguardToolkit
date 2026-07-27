@@ -114,20 +114,10 @@ import fnmatch
 import os
 import re
 import struct
-from collections.abc import (
-    Callable,
-    Collection,
-    Iterable,
-    Iterator,
-    Mapping,
-    MutableMapping,
-    Sequence,
-    Set as AbstractSet,
-)
 from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 # ---------------------------------------------------------------------------
 # mlox-exact plugin filename matching (ported from mlox's
@@ -148,7 +138,7 @@ from typing import Any
 # pinned by tests/test_differential.py. Only the names this module actually
 # calls are imported -- callers import from mlox_subset/ themselves (§23).
 from mlox_subset import _, get_logger, ngettext, setup_logging
-from mlox_subset.rules import pattern_has_meta
+from mlox_subset.rules import authoring, pattern_has_meta
 
 #: Diagnostics about the run (not the user's report) go through here. The
 #: report itself stays on print()/stdout -- see mlox_subset/logging_setup.py.
@@ -173,6 +163,18 @@ from mlox_subset.tracing import (
     trace,
     trace_sort,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import (
+        Callable,
+        Collection,
+        Iterable,
+        Iterator,
+        Mapping,
+        MutableMapping,
+        Sequence,
+        Set as AbstractSet,
+    )
 
 # ---------------------------------------------------------------------------
 # mlox [VER]/[SIZE]/[DESC] predicate functions (ported from mlox's ruleParser).
@@ -984,6 +986,221 @@ def _lint_zstr(b: bytes) -> str:
     return b.split(b"\x00", 1)[0].decode("latin-1", "replace").strip()
 
 
+class _CellFacts(NamedTuple):
+    """What one ``CELL`` record contributes to the lint.
+
+    Attributes:
+        name: The cell's display name, as written.
+        cell_id: Its lower-cased name, or ``""`` when it is unnamed or on the
+            skip list -- meaning it is not a candidate for the pathgrid check.
+        fog_bug: Whether it trips the black-void bug: interior, not
+            behave-like-exterior, fog density exactly zero.
+    """
+
+    name: str
+    cell_id: str
+    fog_bug: bool
+
+
+def _lint_expansion_calls(body: bytes, tag: bytes) -> tuple[set[str], set[str]]:
+    """Find Tribunal and Bloodmoon function calls in one script or dialogue result.
+
+    Args:
+        body: The record body.
+        tag: Its record tag. ``SCPT`` carries source text in ``SCTX``, ``INFO``
+            in ``BNAM``.
+
+    Returns:
+        The Tribunal and Bloodmoon function names found.
+    """
+    want = b"SCTX" if tag == b"SCPT" else b"BNAM"
+    tribunal: set[str] = set()
+    bloodmoon: set[str] = set()
+    for subtag, data in _iter_subrecords(body):
+        if subtag == want and data:
+            text = data.decode("latin-1", "replace")
+            tribunal.update(match.group(1) for match in _RE_TB_FUN.finditer(text))
+            bloodmoon.update(match.group(1) for match in _RE_BM_FUN.finditer(text))
+    return tribunal, bloodmoon
+
+
+def _lint_masters(body: bytes) -> set[str]:
+    """Read a plugin header's declared masters.
+
+    Args:
+        body: The ``TES3`` record body.
+
+    Returns:
+        Lower-cased master filenames.
+    """
+    return {
+        _lint_zstr(data).lower() for subtag, data in _iter_subrecords(body) if subtag == b"MAST"
+    }
+
+
+def _lint_header_gaps(body: bytes) -> list[str]:
+    """Report which of author and description a header leaves blank.
+
+    Args:
+        body: The ``TES3`` record body.
+
+    Returns:
+        The missing field names in report order. Only the first ``HEDR`` is
+        considered, since the format allows exactly one.
+    """
+    for subtag, data in _iter_subrecords(body):
+        if subtag == b"HEDR" and len(data) >= 296:
+            fields = (("author", _lint_zstr(data[8:40])), ("description", _lint_zstr(data[40:296])))
+            return [word for word, value in fields if not value]
+    return []
+
+
+def _lint_evil_gmst(body: bytes) -> str | None:
+    """Identify an evil GMST: one whose name *and* value match the known table.
+
+    Both must match. A plugin that deliberately changes a game setting is doing
+    its job; what this catches is a stale expansion default copied in wholesale
+    by an old Construction Set.
+
+    Args:
+        body: The ``GMST`` record body.
+
+    Returns:
+        The setting's lower-cased name, or ``None``.
+    """
+    name: str | None = None
+    value_tag: str | None = None
+    value = b""
+    for subtag, data in _iter_subrecords(body):
+        if subtag == b"NAME":
+            name = _lint_zstr(data).lower()
+        elif subtag in (b"STRV", b"INTV", b"FLTV"):
+            value_tag, value = subtag.decode(), data
+    known = _EVIL_GMSTS.get(name) if name else None
+    if known and value_tag == known[0] and value.rstrip(b"\x00") == known[1].rstrip(b"\x00"):
+        return name
+    return None
+
+
+def _lint_cell(body: bytes) -> _CellFacts | None:
+    """Extract the interior-cell facts the lint needs.
+
+    Args:
+        body: The ``CELL`` record body.
+
+    Returns:
+        The facts, or ``None`` for an exterior cell or one whose ``DATA`` is
+        too short to read -- neither is a finding.
+    """
+    name = ""
+    data: bytes | None = None
+    ambience: bytes | None = None
+    for subtag, payload in _iter_subrecords(body):
+        if subtag == b"NAME":
+            name = _lint_zstr(payload)
+        elif subtag == b"DATA" and data is None:
+            data = payload
+        elif subtag == b"AMBI":
+            ambience = payload
+    if data is None or len(data) < 12:
+        return None
+    (flags,) = struct.unpack_from("<I", data, 0)
+    if not flags & 1:
+        return None  # exterior
+    cell_id = name.lower()
+    fog_bug = False
+    if not flags & 128:  # not behave-like-exterior
+        if ambience is not None and len(ambience) == 16:
+            (fog,) = struct.unpack_from("<f", ambience, 12)
+        else:
+            (fog,) = struct.unpack_from("<f", data, 8)
+        fog_bug = fog == 0.0
+    return _CellFacts(
+        name=name,
+        cell_id="" if cell_id in _LINT_SKIP_CELLS else cell_id,
+        fog_bug=fog_bug,
+    )
+
+
+def _lint_interior_pathgrid(body: bytes) -> str | None:
+    """Identify the interior cell a path grid belongs to.
+
+    Args:
+        body: The ``PGRD`` record body.
+
+    Returns:
+        The cell's lower-cased name, or ``None`` for an exterior path grid.
+        Interiors are the ones carrying grid ``(0, 0)``.
+    """
+    name = ""
+    grid_x: int | None = None
+    grid_y: int | None = None
+    for subtag, data in _iter_subrecords(body):
+        if subtag == b"NAME":
+            name = _lint_zstr(data)
+        elif subtag == b"DATA" and len(data) >= 8:
+            grid_x, grid_y = struct.unpack_from("<ii", data, 0)
+    if grid_x == 0 and grid_y == 0 and name:  # interiors carry grid (0,0)
+        return name.lower()
+    return None
+
+
+def _lint_twin_warnings(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_lower: set[str],
+    tagfor: Callable[[str], str],
+) -> list[str]:
+    """Report custom plugins whose .omwscripts / content twin is not loaded.
+
+    An active ``.omwaddon``/``.esp`` sitting next to an ``.omwscripts`` of the
+    same stem (or the reverse) almost always needs both declared: a missing twin
+    silently disables the mod's Lua half, or leaves scripts referencing content
+    that never loads. This was the real cause behind a batch of user-reported
+    ORPHAN confusion.
+
+    Args:
+        active_order: The active plugins, in load order.
+        index: Resolves a plugin filename to a path on disk.
+        subset_lower: Lower-cased filenames of the user's own mods. Only those
+            are checked; curated files are the list's business.
+        tagfor: Renders a plugin's provenance tag for the warning text.
+
+    Returns:
+        One warning per missing twin.
+    """
+    warnings: list[str] = []
+    active_lower = {str(plugin).lower() for plugin in active_order}
+    for plugin in active_order:
+        lowered = str(plugin).lower()
+        if lowered not in subset_lower:
+            continue
+        found = index.find(plugin) if index else None
+        if found is None:
+            continue
+        path = Path(found)
+        stem = path.name.rsplit(".", 1)[0]
+        if lowered.endswith((".omwaddon", ".esp")):
+            twin = path.with_name(stem + ".omwscripts")
+            if twin.exists() and twin.name.lower() not in active_lower:
+                warnings.append(
+                    f"[TWIN] '{plugin}'{tagfor(plugin)}: '{twin.name}' sits in the same folder but "
+                    f"isn't in the load order -- the mod's Lua half is disabled. Add it "
+                    f"(or confirm it's optional)."
+                )
+        elif lowered.endswith(".omwscripts"):
+            for ext in (".omwaddon", ".esp"):
+                twin = path.with_name(stem + ext)
+                if twin.exists() and twin.name.lower() not in active_lower:
+                    warnings.append(
+                        f"[TWIN] '{plugin}'{tagfor(plugin)}: '{twin.name}' sits in the same folder "
+                        f"but isn't in the load order -- scripts may reference content that "
+                        f"never loads. Add it (or confirm it's optional)."
+                    )
+                    break
+    return warnings
+
+
 def lint_plugins(
     active_order: Sequence[str],
     index: PluginFileIndex,
@@ -1014,19 +1231,28 @@ def lint_plugins(
     """
     subset_lower = {str(s).lower() for s in (subset_names or ())}
     origins = origins or {}
-    warnings, stats = [], {"scanned": 0, "unreadable": 0}
-    interior_first = {}  # cell id lower -> (plugin, display name)
-    pathgrids = set()  # interior pathgrid cell ids seen anywhere
+    warnings: list[str] = []
+    stats: dict[str, Any] = {"scanned": 0, "unreadable": 0}
+    interior_first: dict[str, tuple[str, str]] = {}  # cell id lower -> (plugin, display name)
+    pathgrids: set[str] = set()  # interior pathgrid cell ids seen anywhere
 
-    def tagfor(p: str) -> str:
-        o = origins.get(str(p).lower())
-        return f" [{o}]" if o else ""
+    def tagfor(plugin: str) -> str:
+        """Render a plugin's provenance tag for a warning line.
 
-    for np, p in enumerate(active_order):
-        pl = str(p).lower()
-        if pl.endswith(".omwscripts") or pl in _LINT_SKIP:
+        Args:
+            plugin: The plugin filename.
+
+        Returns:
+            ``" [origin]"``, or an empty string when the origin is unknown.
+        """
+        origin = origins.get(str(plugin).lower())
+        return f" [{origin}]" if origin else ""
+
+    for position, plugin in enumerate(active_order):
+        lowered = str(plugin).lower()
+        if lowered.endswith(".omwscripts") or lowered in _LINT_SKIP:
             continue
-        path = index.find(p) if index else None
+        path = index.find(plugin) if index else None
         if path is None:
             continue
         try:
@@ -1038,153 +1264,122 @@ def lint_plugins(
             continue
         stats["scanned"] += 1
         if progress:
-            progress(np, p)
-        is_custom = pl in subset_lower
-        evil_here: list[str] = []
-        my_masters = set()
-        tb_hits, bm_hits = set(), set()
-        for tag, body in _iter_tes3_records(raw):
-            if is_custom and tag in (b"SCPT", b"INFO"):
-                # expansion-function dependency scan (tes3lint !TB-FUN/!BM-FUN)
-                want = b"SCTX" if tag == b"SCPT" else b"BNAM"
-                for st, sd in _iter_subrecords(body):
-                    if st == want and sd:
-                        text = sd.decode("latin-1", "replace")
-                        for mm in _RE_TB_FUN.finditer(text):
-                            tb_hits.add(mm.group(1))
-                        for mm in _RE_BM_FUN.finditer(text):
-                            bm_hits.add(mm.group(1))
-                continue
-            if tag == b"TES3":
-                for st, sd in _iter_subrecords(body):
-                    if st == b"MAST":
-                        my_masters.add(_lint_zstr(sd).lower())
-                if is_custom:
-                    for st, sd in _iter_subrecords(body):
-                        if st == b"HEDR" and len(sd) >= 296:
-                            auth = _lint_zstr(sd[8:40])
-                            desc = _lint_zstr(sd[40:296])
-                            missing = [
-                                w for w, v in (("author", auth), ("description", desc)) if not v
-                            ]
-                            if missing:
-                                warnings.append(
-                                    f"[HEADER] '{p}'{tagfor(p)}: header has no "
-                                    f"{' and no '.join(missing)}."
-                                )
-                            break
-            elif tag == b"GMST":
-                name, vtag, vdata = None, None, b""
-                for st, sd in _iter_subrecords(body):
-                    if st == b"NAME":
-                        name = _lint_zstr(sd).lower()
-                    elif st in (b"STRV", b"INTV", b"FLTV"):
-                        vtag, vdata = st.decode(), sd
-                ev = _EVIL_GMSTS.get(name) if name else None
-                if ev and vtag == ev[0] and vdata.rstrip(b"\x00") == ev[1].rstrip(b"\x00"):
-                    assert name is not None  # `ev` is only found via `name`  # noqa: S101
-                    evil_here.append(name)
-            elif tag == b"CELL":
-                name, data, ambi = "", None, None
-                for st, sd in _iter_subrecords(body):
-                    if st == b"NAME":
-                        name = _lint_zstr(sd)
-                    elif st == b"DATA" and data is None:
-                        data = sd
-                    elif st == b"AMBI":
-                        ambi = sd
-                if data is None or len(data) < 12:
-                    continue
-                (flags,) = struct.unpack_from("<I", data, 0)
-                if not flags & 1:
-                    continue  # exterior
-                cid = name.lower()
-                if cid and cid not in _LINT_SKIP_CELLS and cid not in interior_first:
-                    interior_first[cid] = (p, name)
-                if not flags & 128:  # not behave-like-exterior
-                    if ambi is not None and len(ambi) == 16:
-                        (fog,) = struct.unpack_from("<f", ambi, 12)
-                    else:
-                        (fog,) = struct.unpack_from("<f", data, 8)
-                    if fog == 0.0:
-                        warnings.append(
-                            f"[FOGBUG] '{p}'{tagfor(p)}: interior cell '{name}' has fog "
-                            f"density 0.0 -- renders as a black void on some GPUs. Fix by "
-                            f"setting any nonzero fog density on the cell."
-                        )
-            elif tag == b"PGRD":
-                name, x, y = "", None, None
-                for st, sd in _iter_subrecords(body):
-                    if st == b"NAME":
-                        name = _lint_zstr(sd)
-                    elif st == b"DATA" and len(sd) >= 8:
-                        x, y = struct.unpack_from("<ii", sd, 0)
-                if x == 0 and y == 0 and name:  # interiors carry grid (0,0)
-                    pathgrids.add(name.lower())
-        if evil_here:
-            warnings.append(
-                f"[EVLGMST] '{p}'{tagfor(p)}: {len(evil_here)} evil GMST(s): "
-                f"{', '.join(sorted(evil_here))} -- stale expansion defaults copied in "
-                f"by an old Construction Set; tes3cmd clean removes them."
+            progress(position, plugin)
+        warnings.extend(
+            _lint_one_plugin(
+                raw,
+                plugin,
+                is_custom=lowered in subset_lower,
+                tagfor=tagfor,
+                interior_first=interior_first,
+                pathgrids=pathgrids,
             )
-        if tb_hits and "tribunal.esm" not in my_masters and "bloodmoon.esm" not in my_masters:
-            warnings.append(
-                f"[EXP-DEP] '{p}'{tagfor(p)}: scripts use Tribunal function(s) "
-                f"{', '.join(sorted(tb_hits))} but the plugin doesn't master Tribunal.esm -- "
-                f"fragile on non-expansion setups (tes3lint !TB-FUN)."
-            )
-        if bm_hits and "bloodmoon.esm" not in my_masters:
-            warnings.append(
-                f"[EXP-DEP] '{p}'{tagfor(p)}: scripts use Bloodmoon function(s) "
-                f"{', '.join(sorted(bm_hits))} but the plugin doesn't master Bloodmoon.esm -- "
-                f"fragile on non-expansion setups (tes3lint !BM-FUN)."
-            )
+        )
 
-    for cid, (plug, name) in sorted(interior_first.items()):
-        if cid not in pathgrids:
+    for cell_id, (plugin, name) in sorted(interior_first.items()):
+        if cell_id not in pathgrids:
             warnings.append(
-                f"[NO PATHGRID] '{plug}'{tagfor(plug)}: new interior cell '{name}' has no "
+                f"[NO PATHGRID] '{plugin}'{tagfor(plugin)}: new interior cell '{name}' has no "
                 f"pathgrid anywhere in the load order -- NPCs can't pathfind there."
             )
 
-    # scripts-twin check (customs only): an active .omwaddon/.esp shipped
-    # next to an .omwscripts of the same stem (or vice versa) almost always
-    # needs BOTH declared -- a missing twin silently disables the mod's Lua
-    # half (or leaves scripts without their content). This was the real cause
-    # behind a batch of user-reported ORPHAN confusion.
-    active_lower = {str(p).lower() for p in active_order}
-    for p in active_order:
-        pl = str(p).lower()
-        if pl not in subset_lower:
-            continue
-        path = index.find(p) if index else None
-        if path is None:
-            continue
-        path = Path(path)
-        stem = path.name.rsplit(".", 1)[0]
-        if pl.endswith((".omwaddon", ".esp")):
-            twin = path.with_name(stem + ".omwscripts")
-            if twin.exists() and twin.name.lower() not in active_lower:
-                warnings.append(
-                    f"[TWIN] '{p}'{tagfor(p)}: '{twin.name}' sits in the same folder but "
-                    f"isn't in the load order -- the mod's Lua half is disabled. Add it "
-                    f"(or confirm it's optional)."
-                )
-        elif pl.endswith(".omwscripts"):
-            for ext in (".omwaddon", ".esp"):
-                twin = path.with_name(stem + ext)
-                if twin.exists() and twin.name.lower() not in active_lower:
-                    warnings.append(
-                        f"[TWIN] '{p}'{tagfor(p)}: '{twin.name}' sits in the same folder but "
-                        f"isn't in the load order -- scripts may reference content that "
-                        f"never loads. Add it (or confirm it's optional)."
-                    )
-                    break
+    warnings.extend(_lint_twin_warnings(active_order, index, subset_lower, tagfor))
 
     stats["warnings"] = len(warnings)
     stats["interior_cells"] = len(interior_first)
     stats["pathgrids"] = len(pathgrids)
     return warnings, stats
+
+
+def _lint_one_plugin(
+    raw: bytes,
+    plugin: str,
+    *,
+    is_custom: bool,
+    tagfor: Callable[[str], str],
+    interior_first: dict[str, tuple[str, str]],
+    pathgrids: set[str],
+) -> list[str]:
+    """Run the per-record checks over one plugin.
+
+    Two of the checks are load-order-wide rather than per-plugin -- whether an
+    interior cell has a path grid *anywhere*, and which plugin introduced it --
+    so those two accumulators are passed in and updated here. Everything else
+    this function decides on its own.
+
+    Args:
+        raw: The plugin file's bytes.
+        plugin: Its filename, for the warning text.
+        is_custom: Whether it is one of the user's own mods. The header and
+            expansion-dependency checks apply only to those: a curated file's
+            metadata is the list's business, not this tool's.
+        tagfor: Renders a plugin's provenance tag.
+        interior_first: Cell id to the plugin that first introduced it, updated
+            in place. The first writer wins, which is load order.
+        pathgrids: Interior cell ids that have a path grid, updated in place.
+
+    Returns:
+        The warnings this plugin earns on its own.
+    """
+    warnings: list[str] = []
+    evil_gmsts: list[str] = []
+    masters: set[str] = set()
+    tribunal: set[str] = set()
+    bloodmoon: set[str] = set()
+
+    for tag, body in _iter_tes3_records(raw):
+        if is_custom and tag in (b"SCPT", b"INFO"):
+            found_tribunal, found_bloodmoon = _lint_expansion_calls(body, tag)
+            tribunal |= found_tribunal
+            bloodmoon |= found_bloodmoon
+        elif tag == b"TES3":
+            masters |= _lint_masters(body)
+            missing = _lint_header_gaps(body) if is_custom else []
+            if missing:
+                warnings.append(
+                    f"[HEADER] '{plugin}'{tagfor(plugin)}: header has no "
+                    f"{' and no '.join(missing)}."
+                )
+        elif tag == b"GMST":
+            evil = _lint_evil_gmst(body)
+            if evil:
+                evil_gmsts.append(evil)
+        elif tag == b"CELL":
+            cell = _lint_cell(body)
+            if cell is None:
+                continue
+            if cell.cell_id and cell.cell_id not in interior_first:
+                interior_first[cell.cell_id] = (plugin, cell.name)
+            if cell.fog_bug:
+                warnings.append(
+                    f"[FOGBUG] '{plugin}'{tagfor(plugin)}: interior cell '{cell.name}' has fog "
+                    f"density 0.0 -- renders as a black void on some GPUs. Fix by "
+                    f"setting any nonzero fog density on the cell."
+                )
+        elif tag == b"PGRD":
+            interior = _lint_interior_pathgrid(body)
+            if interior:
+                pathgrids.add(interior)
+
+    if evil_gmsts:
+        warnings.append(
+            f"[EVLGMST] '{plugin}'{tagfor(plugin)}: {len(evil_gmsts)} evil GMST(s): "
+            f"{', '.join(sorted(evil_gmsts))} -- stale expansion defaults copied in "
+            f"by an old Construction Set; tes3cmd clean removes them."
+        )
+    if tribunal and "tribunal.esm" not in masters and "bloodmoon.esm" not in masters:
+        warnings.append(
+            f"[EXP-DEP] '{plugin}'{tagfor(plugin)}: scripts use Tribunal function(s) "
+            f"{', '.join(sorted(tribunal))} but the plugin doesn't master Tribunal.esm -- "
+            f"fragile on non-expansion setups (tes3lint !TB-FUN)."
+        )
+    if bloodmoon and "bloodmoon.esm" not in masters:
+        warnings.append(
+            f"[EXP-DEP] '{plugin}'{tagfor(plugin)}: scripts use Bloodmoon function(s) "
+            f"{', '.join(sorted(bloodmoon))} but the plugin doesn't master Bloodmoon.esm -- "
+            f"fragile on non-expansion setups (tes3lint !BM-FUN)."
+        )
+    return warnings
 
 
 def flatten_dict(d: Mapping[str, Any], parent_key: str = "", sep: str = ".") -> dict[str, Any]:
@@ -2307,6 +2502,141 @@ def read_cfg(
     return lines, content_positions, content_order, data_positions, data_order
 
 
+def read_groundcover_names(lines: Sequence[str]) -> list[str]:
+    """Read the plugins declared on ``groundcover=`` lines.
+
+    Grass plugins are declared to OpenMW on their own ``groundcover=`` lines,
+    never as ``content=``: the engine loads them through the groundcover system,
+    which instances the grass rather than spawning every blade as a real object.
+    Declaring one as ``content=`` as well loads it *both* ways, and the object
+    copy is a severe, silent performance cliff.
+
+    Read separately from :func:`read_cfg` rather than added to its return value,
+    which would change a five-value signature that several callers unpack
+    positionally. The lines are already in hand, so there is nothing to re-read.
+
+    Args:
+        lines: The cfg's lines, as :func:`read_cfg` returned them.
+
+    Returns:
+        The plugin filenames, in file order. Commented lines are skipped, the
+        same way they are for ``content=``.
+    """
+    found: list[str] = []
+    for line in lines:
+        match = re.match(r"^\s*groundcover\s*=\s*(.+?)\s*$", line, re.IGNORECASE)
+        if match:
+            name = basename_if_plugin(match.group(1)) or match.group(1).strip().strip("\"'")
+            if name:
+                found.append(name)
+    return found
+
+
+def hold_back_groundcover(
+    subset: Sequence[str], groundcover_names: Sequence[str]
+) -> tuple[list[str], list[str]]:
+    """Drop plugins the cfg already declares as groundcover from the subset.
+
+    A folder scan cannot tell a grass mod from any other mod -- it walks a
+    directory and takes every plugin it finds -- so a shared mods folder puts
+    grass plugins into the subset alongside genuinely new content. Inserting
+    those as ``content=`` is what this prevents.
+
+    The decision is made on **what the user's own cfg says**, not on the
+    filename: a plugin is held back only if that same cfg declares it on a
+    ``groundcover=`` line. Nothing is guessed from names like ``*grass*``, and
+    the existing ``groundcover=`` lines are never touched -- the mod stays
+    enabled as grass, which is what it was.
+
+    Its *data path* is deliberately still emitted. OpenMW has to be able to find
+    the file for the ``groundcover=`` line to work, so removing the data= entry
+    would break the very mod this is protecting.
+
+    Args:
+        subset: The plugin filenames destined for insertion.
+        groundcover_names: Plugins declared as groundcover in the cfg.
+
+    Returns:
+        The subset to use, and the names held back (in the order they appeared
+        in the subset), so the caller can say what it did and why.
+    """
+    blocked = {str(name).lower() for name in groundcover_names}
+    if not blocked:
+        return list(subset), []
+    kept = [name for name in subset if str(name).lower() not in blocked]
+    held = [name for name in subset if str(name).lower() in blocked]
+    return kept, held
+
+
+def plugins_needing_removal(
+    disabled: Collection[str],
+    curated_set: Collection[str],
+    base_order_names: Sequence[str],
+) -> list[str]:
+    """Decide which opted-out plugins need a durable ``removeContent``.
+
+    A removal is only needed for something this tool does **not** put in the
+    file itself. momw-configurator rebuilds openmw.cfg from the curated list
+    plus these customizations, so a plugin we simply stop inserting is already
+    absent from the result; emitting a ``removeContent`` for it as well is noise
+    in a file people hand-edit.
+
+    The discriminator is therefore "does the curated list own this plugin", not
+    "is it currently in openmw.cfg". The latter was the old test, and it catches
+    the user's own mods the moment they have exported once -- which is what made
+    disabling a custom mod add a block that did nothing.
+
+    Args:
+        disabled: Plugins the user opted out of.
+        curated_set: Lower-cased plugins the curated list owns. **Empty means
+            unknown**, not "nothing is curated": without a ``plugin-order.yml``
+            there is no curated set at all.
+        base_order_names: Plugins already in openmw.cfg, used as the fallback
+            signal when the curated set is unknown. Guessing wrong in that
+            direction would leave a plugin enabled that the user asked to
+            disable, so presence is preferred over silence there.
+
+    Returns:
+        The plugin names to emit, sorted.
+    """
+    curated_lower = {str(name).lower() for name in curated_set}
+    base_lower = {str(name).lower() for name in base_order_names}
+    owned_elsewhere = curated_lower or base_lower
+    return sorted({p for p in disabled if str(p).lower() in owned_elsewhere})
+
+
+def data_paths_needing_removal(
+    disabled_data: Iterable[str],
+    our_values: Collection[str],
+    base_data_norms: Collection[str],
+) -> list[str]:
+    """Decide which opted-out data paths need a durable ``removeData``.
+
+    The plugin rule (:func:`plugins_needing_removal`) applied to folders. A path
+    this run would have inserted is one we can simply stop inserting: the
+    Configurator rebuilds from the curated list plus these customizations, so
+    omitting it is enough and a ``removeData`` would be noise.
+
+    A path we do **not** own -- one the curated list brings in -- still needs the
+    removal, because nothing else will take it out.
+
+    Args:
+        disabled_data: Raw ``data=...`` lines the user opted out of.
+        our_values: Normalised paths this run inserts.
+        base_data_norms: Normalised paths already in openmw.cfg.
+
+    Returns:
+        The path values to emit, sorted and de-duplicated.
+    """
+    removals: list[str] = []
+    for line in disabled_data:
+        value = extract_data_path_value(line) or line
+        norm = normalize_data_path(value)
+        if norm in base_data_norms and norm not in our_values:
+            removals.append(value)
+    return sorted(set(removals))
+
+
 def backup_file(path: Path, no_backup: bool) -> None:
     """Write a timestamped .bak-YYYYMMDD-HHMMSS copy of an existing file.
 
@@ -2398,7 +2728,6 @@ from mlox_subset.momw import (
 )
 from mlox_subset.plugins import PLUGIN_EXTS, PluginFileIndex
 from mlox_subset.rules import (
-    ORDER_NAME_RE as _RE_ORDER_NAME,
     check_predicates,
     load_rule_blocks,
     load_rules_raw_text,
@@ -2576,6 +2905,56 @@ def extract_subset_from_subset_file(path: Path) -> tuple[list[str], list[dict[st
     return extract_subset_from_lines(text.splitlines(), source=str(path))
 
 
+#: ``groundcover=Vurt_Grass.esp`` in a subset file. Deliberately the same
+#: spelling openmw.cfg uses, so the line means what it looks like.
+_GROUNDCOVER_DECL = re.compile(r"^\s*groundcover\s*=\s*(?P<name>.+?)\s*$", re.IGNORECASE)
+
+
+def extract_groundcover_declarations(lines: Iterable[str], source: str = "subset") -> list[str]:
+    """Read the plugins a subset file declares as grass.
+
+    Grass belongs on a ``groundcover=`` line and nowhere else, but a plugin the
+    user has only just installed is not in openmw.cfg yet, so there is nothing
+    to read the fact off. Declaring it here says so once, and the declaration
+    then drives both outputs: the plugin is kept out of ``content=`` and its
+    ``groundcover=`` line is written for it.
+
+    The mod's **data path is a separate line, as it always was** -- a folder
+    line in the same subset file. That is deliberate: OpenMW has to find the
+    file for the groundcover line to mean anything, and the data path is not
+    grass-specific, so it goes through the ordinary data-insert path.
+
+    Args:
+        lines: Raw subset-file lines.
+        source: Where they came from, for the warning text.
+
+    Returns:
+        The declared plugin filenames, in order, de-duplicated case-insensitively.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        match = _GROUNDCOVER_DECL.match(_strip_line_comment(line))
+        if match is None:
+            continue
+        name = basename_if_plugin(match.group("name")) or match.group("name").strip()
+        if not name:
+            continue
+        if not name.lower().endswith(PLUGIN_EXTS):
+            _LOG.warning(
+                _(
+                    "'%(entry)s' from %(source)s is declared as groundcover but is not a "
+                    "plugin filename -- skipping."
+                ),
+                {"entry": name, "source": source},
+            )
+            continue
+        if name.lower() not in seen:
+            seen.add(name.lower())
+            found.append(name)
+    return found
+
+
 def _classify_subset_entry(
     raw: str, plugins: list[str], data_inserts: list[dict[str, Any]], source: str
 ) -> None:
@@ -2592,6 +2971,10 @@ def _classify_subset_entry(
     """
     raw = raw.strip()
     if not raw:
+        return
+    if _GROUNDCOVER_DECL.match(raw):
+        # Declared as grass, and read by extract_groundcover_declarations. It
+        # must not also become a content plugin -- that is the whole point.
         return
     name = basename_if_plugin(raw)
     if name:
@@ -2886,57 +3269,72 @@ def order_rule_frozen_conflicts(
 def append_user_rule(
     path: str | Path, keyword: str, names: Sequence[str], comment: str | None = None
 ) -> str:
-    """Append one mlox ordering rule block to a personal rules file.
+    """Append one mlox *ordering* rule to a personal rules file.
 
-    Creating
-    the file (with an explanatory header) if it doesn't exist yet.
+    The narrow form kept for callers that only ever write an ordering rule.
+    It delegates to :func:`append_authored_rule`, so there is one validator and
+    one renderer rather than two that can drift -- which matters here, because
+    the two used to disagree about what a valid plugin name looks like.
 
-    keyword: 'order' (the names are a load-order chain, first loads first),
-    'nearstart' or 'nearend' (each name is an independent position hint).
-    Names may use mlox wildcards (*, ?, <VER>) but must end in a recognized
-    plugin extension -- the same validation the rule parser applies, so a rule
-    that gets written is a rule that will load. Returns the text written.
+    Args:
+        path: The personal rules file, created with a header if new.
+        keyword: ``order``, ``nearstart`` or ``nearend``, in any case.
+        names: The plugin filenames. mlox wildcards are allowed.
+        comment: An optional ``;`` comment written above the rule.
+
+    Returns:
+        The text written.
+
+    Raises:
+        ValueError: If the keyword is not an ordering rule, or the rule does
+            not pass validation.
     """
-    kw = str(keyword).strip().lower()
-    titles = {"order": "Order", "nearstart": "NearStart", "nearend": "NearEnd"}
-    if kw not in titles:
-        raise ValueError(f"unsupported rule type: {keyword!r}")
-    clean = [str(n).strip() for n in names if str(n).strip()]
-    if not clean:
-        raise ValueError("no plugin names given")
-    if kw == "order" and len(clean) < 2:
-        raise ValueError("[Order] needs at least two plugin names (first loads first)")
-    seen = set()
-    for n in clean:
-        if any(c in n for c in "[];\n"):
-            raise ValueError(f"invalid character in name/pattern: {n!r}")
-        m = _RE_ORDER_NAME.match(n)
-        if not m or m.group(0) != n:
-            raise ValueError(
-                f"{n!r} must end in a plugin extension "
-                f"(.esp/.esm/.omwaddon/.omwgame/.omwscripts, optionally '*')"
-            )
-        if n.lower() in seen:
-            # a plugin listed twice orders it relative to itself -- a
-            # self-cycle mlox would discard; always a mistake
-            raise ValueError(
-                f"'{n}' is listed more than once -- a plugin can't be "
-                f"ordered relative to itself"
-            )
-        seen.add(n.lower())
-    parts = []
-    if comment and str(comment).strip():
-        parts += [f";; {line}" for line in str(comment).strip().splitlines()]
-    parts.append(f"[{titles[kw]}]")
-    parts += clean
-    text = "\n".join(parts) + "\n"
-    p = Path(path)
-    if p.exists():
-        existing = p.read_text(encoding="utf-8-sig", errors="replace")
+    kinds = {"order": "Order", "nearstart": "NearStart", "nearend": "NearEnd"}
+    kind = kinds.get(str(keyword).strip().lower())
+    if kind is None:
+        message = f"unsupported rule type: {keyword!r}"
+        raise ValueError(message)
+    cleaned = [str(name).strip() for name in names if str(name).strip()]
+    if not cleaned:
+        message = "no plugin names given"
+        raise ValueError(message)
+    rule = authoring.Rule(kind=kind, plugins=cleaned, comment=(comment or "").strip())
+    return append_authored_rule(path, rule)
+
+
+def append_authored_rule(path: str | Path, rule: authoring.Rule) -> str:
+    """Append any mlox rule to a personal rules file.
+
+    The general form of :func:`append_user_rule`, which only ever knew the three
+    ordering kinds. Validation is the authoring module's, so what gets written
+    is a rule that both parses *and* meets the rule-base guidelines -- errors
+    refuse, warnings do not.
+
+    Args:
+        path: The personal rules file. Created with an explanatory header when
+            it does not exist yet.
+        rule: The rule to write.
+
+    Returns:
+        The text appended.
+
+    Raises:
+        ValueError: If the rule has errors, listing every one of them. A rule
+            file is read by a tool that silently discards what it cannot use, so
+            refusing here is the only place a person finds out.
+    """
+    problems = authoring.errors(authoring.validate(rule))
+    if problems:
+        message = "; ".join(problem.describe() for problem in problems)
+        raise ValueError(message)
+    text = authoring.render_rule(rule) + "\n"
+    target = Path(path)
+    if target.exists():
+        existing = target.read_text(encoding="utf-8-sig", errors="replace")
         sep = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
-        p.write_text(existing + sep + text, encoding="utf-8")
+        target.write_text(existing + sep + text, encoding="utf-8")
     else:
-        p.write_text(USER_RULES_HEADER + "\n" + text, encoding="utf-8")
+        target.write_text(USER_RULES_HEADER + "\n" + text, encoding="utf-8")
     return text
 
 
@@ -3022,6 +3420,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         nargs="*",
         default=[],
         help="Explicit list of plugin filenames to sort (combined with --customizations if both given)",
+    )
+    ap.add_argument(
+        "--groundcover",
+        nargs="*",
+        default=[],
+        metavar="PLUGIN",
+        help="Plugin filenames to declare as grass. They are kept out of content= "
+        "and written as groundcover= instead. Their data= folders still go in "
+        "normally (OpenMW must be able to find the file), so name the folder with "
+        "--subset or in the subset file as usual",
     )
     ap.add_argument(
         "--subset-file",
@@ -3243,6 +3651,58 @@ def pending_custom_dirs(
                 seen.add(str(v).lower())
                 out.append(v)
     return out
+
+
+def declared_groundcover(args: argparse.Namespace) -> list[str]:
+    """Collect every plugin this run declares as grass.
+
+    Three sources, all optional and additive: ``--groundcover`` on the command
+    line, ``groundcover=`` lines in a plain-text subset file, and a
+    ``groundcover = [...]`` key in the minimal TOML form. The GUI's in-memory
+    scan lines are read the same way as a file, so a scan can carry the
+    declaration too.
+
+    Args:
+        args: The parsed arguments.
+
+    Returns:
+        Plugin filenames, in the order encountered, de-duplicated
+        case-insensitively.
+    """
+    found: list[str] = []
+    found.extend(str(name) for name in (getattr(args, "groundcover", None) or []))
+
+    path = getattr(args, "subset_file", None)
+    if path:
+        try:
+            text = read_user_text(path, encoding="utf-8")
+        except OSError:
+            text = ""  # the subset reader reports this properly; do not double-warn
+        if str(path).lower().endswith(".toml"):
+            try:
+                import tomllib
+            except ModuleNotFoundError:
+                import tomli as tomllib
+            try:
+                found.extend(str(v) for v in (tomllib.loads(text).get("groundcover") or []))
+            except (ValueError, TypeError):
+                pass  # a malformed TOML is reported by the subset reader
+        else:
+            found.extend(extract_groundcover_declarations(text.splitlines(), str(path)))
+
+    found.extend(
+        extract_groundcover_declarations(
+            getattr(args, "subset_lines", None) or [], "scanned subset"
+        )
+    )
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in found:
+        if name.lower() not in seen:
+            seen.add(name.lower())
+            unique.append(name)
+    return unique
 
 
 def _read_subset_inputs(
@@ -4095,6 +4555,54 @@ def compute_plan(args: argparse.Namespace) -> dict:
     lines, content_positions, content_order, data_positions, data_order = read_cfg(args.cfg)
     base_order_names = [name for name, _ in content_order]
 
+    # A grass plugin belongs on a groundcover= line and nowhere else. A folder
+    # scan cannot tell one apart -- it takes every plugin under the tree -- so
+    # one lands in the subset whenever the scanned folder is a shared mods
+    # directory. Inserting it as content= as well loads the grass twice, once
+    # instanced and once as real objects, which is a silent and severe
+    # performance cliff. The cfg already says which plugins those are.
+    # Grass the cfg already declares, plus grass this run declares. The second
+    # is how a newly installed grass mod gets in: it is not in the cfg yet, so
+    # there is nothing to read the fact off, and the user says so once instead.
+    cfg_groundcover = read_groundcover_names(lines)
+    user_groundcover = declared_groundcover(args)
+    known_lower = {name.lower() for name in cfg_groundcover}
+    new_groundcover = [name for name in user_groundcover if name.lower() not in known_lower]
+    subset, held_back_groundcover = hold_back_groundcover(
+        subset, [*cfg_groundcover, *user_groundcover]
+    )
+    if new_groundcover:
+        _subsection(_("groundcover declared by this run"))
+        for name in new_groundcover:
+            print(f"  groundcover={name}")
+        print(
+            _(
+                "  These are written as groundcover= rather than content=. Their data= "
+                "folders are inserted normally -- OpenMW has to find the file."
+            )
+        )
+    if held_back_groundcover:
+        _subsection(_("groundcover plugins held back"))
+        print(
+            ngettext(
+                "%(count)d plugin in your subset is already declared as groundcover in "
+                "openmw.cfg, so it was NOT added to content=:",
+                "%(count)d plugins in your subset are already declared as groundcover in "
+                "openmw.cfg, so they were NOT added to content=:",
+                len(held_back_groundcover),
+            )
+            % {"count": len(held_back_groundcover)}
+        )
+        for name in held_back_groundcover:
+            print(f"  {name}")
+        print(
+            _(
+                "  Their groundcover= lines are untouched and their data= paths are still "
+                "written, so the grass stays enabled -- as grass. Loading one as content= "
+                "too would spawn every blade as a real object."
+            )
+        )
+
     custom_anchors: dict[str, tuple[str, str | None]] = {}  # from build_and_sort
 
     subset, yml_entries, curated_set, curated_order, yml_warnings, declared_lower, list_name = (
@@ -4167,6 +4675,12 @@ def compute_plan(args: argparse.Namespace) -> dict:
         "raw_toml_data_inserts": raw_toml_data_inserts,
         "data_inserts": data_inserts,
         "base_order_names": base_order_names,
+        # Which plugins the curated list owns. Empty when no plugin-order.yml
+        # was given -- and "empty" must be read as "unknown", not "none".
+        "curated_set": curated_set,
+        # Grass this run declares that the cfg does not already have. Written
+        # as groundcover= lines (direct write) and append blocks (TOML).
+        "new_groundcover": new_groundcover,
         "conflicts": conflicts,
         # every folder the scans should search THIS run (cfg data= dirs +
         # pending custom data paths), and just the pending custom folders --
@@ -4211,29 +4725,61 @@ def write_plan(
     subset = plan["subset"]
     data_result = plan["data_result"]
 
-    # Work out durable removals: opted-out items that are already in the base
-    # openmw.cfg (a brand-new custom item that was opted out just isn't inserted,
-    # so it needs no removeContent/removeData).
-    base_lower = {n.lower() for n in (plan.get("base_order_names") or [])}
-    remove_content = sorted({p for p in (disabled_plugins or []) if p.lower() in base_lower})
+    # Work out durable removals. A removal is only needed for something this
+    # tool does NOT put in the file itself: momw-configurator rebuilds the cfg
+    # from the curated list plus these customizations, so a plugin we simply
+    # stop inserting is already absent from the result. Emitting a
+    # removeContent for it as well is noise in a file people hand-edit.
+    #
+    # The discriminator is therefore "does the curated list own this plugin",
+    # not "is it currently in openmw.cfg" -- which was the old test, and which
+    # catches the user's own mods the moment they have exported once.
+    #
+    # Without a plugin-order.yml there is no curated set, and an empty one means
+    # "unknown" rather than "nothing is curated". In that case the presence test
+    # is the only signal available, so it stays as the fallback.
+    remove_content = plugins_needing_removal(
+        disabled_plugins or [],
+        plan.get("curated_set") or (),
+        plan.get("base_order_names") or [],
+    )
     base_data_norms = {
         normalize_data_path(value)
         for value in (extract_data_path_value(line) for line in (plan.get("data_order") or []))
         if value
     }
     base_data_norms.discard("")
-    remove_data = []
-    for line in disabled_data or []:
-        val = extract_data_path_value(line) or line
-        if normalize_data_path(val) in base_data_norms:
-            remove_data.append(val)
-    remove_data = sorted(set(remove_data))
+    # The same rule as for plugins, for the same reason: a data path this run
+    # inserts is one we can simply stop inserting, so it needs no removeData.
+    # "Ours" is anything in this run's inserts -- from the subset OR from the
+    # source TOML, since the emitted file replaces that one wholesale.
+    ours = {
+        normalize_data_path(str(entry.get("value")))
+        for entry in [*(plan.get("data_inserts") or []), *(plan.get("raw_toml_data_inserts") or [])]
+        if entry.get("value")
+    }
+    ours.discard("")
+    remove_data = data_paths_needing_removal(disabled_data or [], ours, base_data_norms)
     if remove_content or remove_data:
         _subsection("opted-out items already in cfg -> removeContent/removeData")
         for p in remove_content:
             print(f"  removeContent: {p}")
         for d in remove_data:
             print(f"  removeData: {d}")
+
+    # New groundcover declarations go in as their own lines. Appended to the
+    # end rather than spliced into an existing groundcover section: appending
+    # cannot shift any index, and every content=/data= position in `segments`
+    # is an index into these same lines. Placement does not matter to OpenMW --
+    # only the order of groundcover lines relative to each other does, and
+    # appending preserves that.
+    new_groundcover = list(plan.get("new_groundcover") or [])
+    plan_lines = list(plan["lines"])
+    if new_groundcover:
+        existing = {name.lower() for name in read_groundcover_names(plan_lines)}
+        additions = [f"groundcover={n}" for n in new_groundcover if n.lower() not in existing]
+        if additions:
+            plan_lines.extend(additions)
 
     if data_order is not None and data_result is not None:
         lookup = {line: (is_new, value) for line, is_new, value in data_result}
@@ -4260,7 +4806,7 @@ def write_plan(
     _section("WRITING OUTPUT")
     wrote_cfg = False
     if args.write_cfg:
-        write_cfg(args.cfg, plan["lines"], segments, args.dry_run, args.no_backup)
+        write_cfg(args.cfg, plan_lines, segments, args.dry_run, args.no_backup)
         wrote_cfg = not args.dry_run
     else:
         print(_("  openmw.cfg left untouched (pass --write-cfg to patch it directly)"))
@@ -4278,6 +4824,7 @@ def write_plan(
             user_data_values=[d["value"] for d in (plan["data_inserts"] or [])],
             list_name=getattr(args, "list_name", None),
             remove_content=remove_content,
+            new_groundcover=new_groundcover,
             remove_data=remove_data,
             custom_anchors=plan.get("custom_anchors"),
         )
@@ -4291,7 +4838,7 @@ def write_plan(
                 if d.get("value")
             ]
             _ok, _rep = preview_configurator_result(
-                plan["lines"],
+                plan_lines,
                 toml_text,
                 list(final_order or []),
                 subset,

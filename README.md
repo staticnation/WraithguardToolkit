@@ -16,6 +16,10 @@ future Configurator rebuilds.
 
 **New here? See [QUICKSTART.md](QUICKSTART.md) for a 5-minute walkthrough.**
 
+**Writing your own rules? See [MLOX_RULES.md](MLOX_RULES.md) for the rule syntax
+and the conventions the rule-base follows.** Both open from the **Help** button
+inside the program as well.
+
 ---
 
 ## Contents
@@ -378,6 +382,22 @@ rule-files panel keep you current and let you extend it:
   leave behind (`.preclean.bak`, `.masterfix.bak`, `name~1.esp`, timestamped
   `.bak-*` / `.backup.*`) across the data folders, with restore-over-original
   and delete.
+> **Grass mods.** A folder scan takes every plugin it finds, so a shared mods
+> folder sweeps grass plugins into the subset along with everything else. Any
+> plugin your `openmw.cfg` declares on a `groundcover=` line is held out of
+> `content=` automatically (the run tells you which), because loading a grass
+> mod as content spawns every blade as a real object. Its `data=` path is still
+> written, and the `groundcover=` lines are left alone. Plugins that merely have
+> "grass" or "groundcover" in the *name* are not touched — only what your cfg
+> actually declares.
+>
+> For a grass mod you have **just installed**, which nothing declares yet, say so
+> once: a `groundcover=Vurt_Grass.esp` line in your subset file, `--groundcover
+> Vurt_Grass.esp` on the CLI, or the **Declare as groundcover** field in Options.
+> It is then written as `groundcover=` instead of `content=`, in both the cfg and
+> the emitted TOML. Name its folder as usual — the `data=` entry is still needed
+> for OpenMW to find the file.
+
 - **Help** — opens this Read me or the Quick start as a readable page with a
   contents sidebar, rendered by the app itself. No network, no external viewer,
   and it works from the frozen `.exe` (both documents are bundled into it).
@@ -639,7 +659,8 @@ Only the standard library is needed to *run* the tool. The checks below need
 `ruff`, `black`, `mypy` and `pytest`.
 
 ```bash
-python -m pytest                # 1,261 tests: no network, no Tk, no real mods needed
+python -m pytest                # 1,273 tests: no network, no Tk, no real mods needed
+                                # (the GUI smoke set skips without Tk; CI runs it under xvfb)
 python -m ruff check .          # PEP 8 style, naming, import order, security, perf
 python -m black --check .       # formatting
 python -m mypy                  # PEP 484 types; gates all 54 shipped files

@@ -2415,8 +2415,11 @@ beside a banded map would be a key that lies.
 ### The format schema
 
 `tools/gen_tes3_schema.py` reads a CSV export of UESP's *Morrowind Mod File
-Format* pages into `mlox_subset/tes3fields/schema.py`: **45 record types, 309
-subrecords, 61 with parsed struct layouts.** The hand-written shapes live in
+Format* pages into `mlox_subset/tes3fields/schema.py`: **46 record types, 313
+subrecords, 62 with parsed struct layouts.** (`BODY` was missing from the first
+export and was added to it afterwards, which closed the last gap: every record
+type tes3conv can emit now resolves to a documented one, and the test asserts
+that the set of gaps is *empty* rather than tolerating a list.) The hand-written shapes live in
 `schema_types.py` so the generated file can be overwritten wholesale without
 taking any behaviour with it.
 
@@ -2425,8 +2428,8 @@ or 52 bytes, its first two a uint16 Level -- which describe Bethesda's file
 format rather than anyone's implementation of it. `CREDITS.md` carries the
 attribution.
 
-**How we know the parse is right.** 55 of the parsed layouts have a plainly
-stated byte count, and every one of the 55 now equals the sum of its parsed
+**How we know the parse is right.** 56 of the parsed layouts have a plainly
+stated byte count, and every one of the 56 now equals the sum of its parsed
 members. That check found four real defects, each of which had silently dropped
 data:
 
@@ -2509,3 +2512,367 @@ Five of the new tests were verified by **injecting the real defect** and
 confirming a red test: escaping switched off, `javascript:` links allowed, a
 scalar type dropped from the schema parser, a record-type mapping broken, and the
 banding grouped by ten instead of five. All five were caught.
+
+### §30.1 A blank window, and the row that moved
+
+Two defects in the §30 work, both found by running it rather than reading it.
+
+**The format-reference window opened blank.** `DARK["entry_bg"]` -- there is no
+such key; the palette calls it `log_bg`. The lookup ran *after* the `Toplevel`
+was created and before the text widget was packed, so Tk showed an empty window
+and put the `KeyError` on stderr, where nobody was looking. Blank windows are a
+miserable thing to debug, and this one was reported as "it does nothing".
+
+The fix is one word. The guard is
+`test_standards.py::test_gui_palette_lookups_all_resolve`, which walks every
+first-party source for `DARK["..."]` and checks the key against the dict literal
+parsed out of `theme.py` (parsed, not imported: the hermetic suite has no Tk).
+Verified by putting the bad key back and watching it fail with the file and key
+named. This is the cheapest available guard against a whole class of GUI defect
+the suite otherwise cannot reach at all, since the GUI has no automated coverage.
+
+**Rows collided in the controls panel.** When `_build_controls` was split, the
+output-fields body moved *verbatim* -- and it still carried the absolute offsets
+`start_row + 3 .. + 6` from when there was one shared base row. Calling it with
+`start_row + 3` therefore placed it on rows 6-9, on top of the rule-files panel,
+the options box and the action bar. Some rows simply did not appear.
+
+Fixed by making each builder's parameter mean what it says -- "the first row I
+use" -- so the panel now uses `+0..+3` internally and the caller passes
+`start_row + 3`. Absolute rows are unchanged from before the split (inputs 0-2,
+outputs 3-6, rules 7, options 8, actions 9), which is the property that was
+checked afterwards.
+
+Worth recording as a *method* failure rather than a typo: moving a body verbatim
+is the safe way to split a function, but it is only safe if the body has no
+implicit relationship to its old surroundings. Row offsets computed from a
+shared base are exactly such a relationship, and nothing in the gate list can see
+it -- ruff, mypy and the test suite were all green with the panels stacked on top
+of each other.
+
+### §30.2 The 28 disagreements, itemised
+
+"Two renames and 26 differing operand shapes" was too compressed to be useful,
+and the interesting part was hiding inside the summary. The generator prints all
+28 on every run; here is what they are.
+
+**The renames** are cosmetic -- same opcode, different label:
+`0x3F0D` `XDrop`/`XDropItem` and `0x3F0E` `XEquip`/`XEquipItem`.
+
+**25 of the 26 operand differences are the same difference**: MWEdit says `0x10`
+(String) where `customfunctions.dat` says `0x14` (Long | String), on the first
+parameter of the `XFile*` family and a handful of others.
+
+That is not cosmetic. The decoder checks fixed widths first, so `0x14` reads a
+**4-byte long** while `0x10` reads a **length-prefixed string**. MWSE means
+"either, depending on what the script passed", which no single flag word can
+express to a byte-walker -- so the table has to pick one. Two reasons to keep
+`0x10`: UESP's per-function pages document these parameters as strings, and the
+string path is guarded by `_plausible_identifier`, so a wrong guess is *detected*
+and degrades to an honest raw span, while a wrong long read silently consumes
+four bytes and desynchronises everything after it. Asymmetric costs, so prefer
+the checkable branch.
+
+**The 26th was a real defect, and is now corrected.** `0x3C33`
+`XFileWriteFloat` had a single float operand in MWEdit's table and no filename.
+Three things agree against it: `customfunctions.dat` lists two parameters, UESP
+documents the syntax as `xFileWriteFloat filename (string), value (float)`, and
+its three siblings (`XFileWriteShort`/`Long`/`String`) all take the filename
+first. Uncorrected, every call to it decodes one operand short and desyncs the
+rest of the stream.
+
+Worth noting how the defect was found, since it was not by reading: the
+disagreement report exists precisely because two sources describing the same 106
+functions is a free consistency check, and this was the one difference in the 28
+that was not explainable as a naming or ambiguity choice. The other 25 look
+identical in a summary line -- "operand shapes differ" -- which is why summarising
+them was the mistake.
+
+The fix is a new `CORRECTIONS` table in `tools/gen_opcodes.py` -- deliberately
+tiny and individually justified, because a generator that quietly "improves" its
+inputs is one nobody can check. It prints what it corrected, and
+`tests/test_mwscript.py` pins both the entry and the family-wide symmetry that
+gave the omission away. Verified by reverting the correction and watching both
+tests fail.
+
+This also revised the stated reason for the keep-existing rule. "The existing
+entry is the one the corpus was run against" is true for the vanilla range and
+**false for the MWSE range** -- CREDITS records that no MWSE-only function ever
+appeared in the corpus, so those entries had never been validated by anything.
+The rule survives on the `_plausible_identifier` argument above, which is a
+better reason than the one originally given.
+
+---
+
+## §31 Clearing the remaining-work list
+
+Four items, in the order they were worth doing rather than the order the list
+gave them.
+
+### A headless Tk smoke job -- the one that mattered
+
+The GUI cannot be imported without Tk, so it is excluded from the hermetic suite
+*and* from mypy, and its verification has been a manual `SMOKE_TEST.md` run.
+That is not an abstract gap: the last two defects to reach a user were both in
+the GUI, and both invisible to ruff, mypy and twelve hundred passing tests --
+a window that opened blank (§30.1) and two panels gridded on top of each other
+(§30.1 again).
+
+Neither needed a human to spot. Both needed a *display*. `tests/test_gui_smoke.py`
+builds the real application on a virtual X server and checks what a person would
+otherwise have to look for: that every action button exists, is bound, and starts
+in its documented state; that no two widgets are gridded into the same cell; that
+the control rows are consecutive; and that each window the app opens comes up
+with content in it.
+
+Two details are the point rather than the decoration:
+
+* **The module skips when Tk or a display is missing**, so the hermetic suite is
+  unaffected -- but a skip means "not checked", so the CI job greps its own
+  output and *fails* if anything skipped. Otherwise a missing `python3-tk` would
+  turn the whole job green while verifying nothing, which is worse than not
+  having it.
+* **The collision check was verified against the real defect.** Tk is not
+  available in the environment this was written in, so the grid-collision maths
+  was exercised directly against two fake layouts: a clean one (no collisions
+  reported) and the exact shape of the §30.1 bug -- a four-row panel placed three
+  rows too low, over the rules panel, the options box and the action bar. It
+  reports nine colliding cells. A check that has never seen a failure is a check
+  nobody should trust.
+
+Stated plainly: **the smoke job itself has not run yet.** It could not be
+executed here, and CI is its first real run.
+
+### Type-checking imports
+
+76 annotation-only imports (73 `TC003`, 3 `TC001`) moved under `TYPE_CHECKING`,
+and `TC` added to ruff's `select` so new ones cannot creep back.
+
+Ruff calls this fix "unsafe" generically, because moving an import under
+`TYPE_CHECKING` breaks any annotation evaluated at runtime. It is safe *here*,
+and the reason is checkable rather than assumed: every module carries
+`from __future__ import annotations` (PEP 563), so every annotation is a string,
+and nothing in the project introspects them -- verified, no `get_type_hints`, no
+`__annotations__` reads anywhere.
+
+Verification was not "the tests still pass": every first-party module was
+imported in a fresh interpreter, because a TC move that breaks a module at
+*import* time can still leave a test suite green if nothing imports it on the
+tested path. 53 modules, no failures, and `--help` still runs.
+
+### lint_plugins
+
+201 lines -> 88, plus an 89-line per-plugin walk that dispatches to seven small
+checkers: `_lint_expansion_calls`, `_lint_masters`, `_lint_header_gaps`,
+`_lint_evil_gmst`, `_lint_cell`, `_lint_interior_pathgrid` and
+`_lint_twin_warnings`.
+
+Two of the checks are load-order-wide rather than per-plugin -- whether an
+interior cell has a path grid *anywhere*, and which plugin introduced it -- so
+those two accumulators are passed into the walk explicitly and documented as
+such, rather than being hidden in a closure.
+
+The refactor was pinned the same way the earlier ones were: a probe builds one
+synthetic load order that trips **every** branch at once (evil GMST beside a
+legitimately changed one, fog bug beside a healthy cell beside a
+behave-like-exterior exemption, a cell with no path grid, Tribunal and Bloodmoon
+calls with no matching master, a blank header, an orphaned `.omwscripts` twin),
+captures all 11 warnings plus the stats, and the same probe was run after. The
+JSON is byte-identical. That is a stronger statement than the suite alone, which
+touches those branches one at a time.
+
+### The CI matrix
+
+`requires-python = ">=3.10"` while CI ran 3.10 and 3.13 only. Testing the two
+ends was a reasonable economy while there was no version-conditional code, but
+it was an assumption about 3.11 and 3.12, and the promise is made to anyone who
+installs this. Four short jobs are cheap.
+
+---
+
+## §32 A user report: "it toggles on ALL mods"
+
+> *"Is it normal for it to toggle on ALL mods, including mods flagged as grass
+> mods and mods that were already disabled via one of the modding-openmw
+> lists?"*
+
+Two claims in one sentence, and they have different answers. Worth recording
+because the first-pass explanation -- "the scan can't tell the difference" --
+was right about one and wrong about the other, in a way that reading the code
+casually would not reveal.
+
+### The disabled mods: not us
+
+`read_cfg` matches `^\s*content\s*=`, so `#content=Foo.esp` and
+`# content=Foo.esp` do not match, verified by feeding it both. `build_and_sort`
+has no concept of enabled or disabled: it takes a flat list and returns every
+entry. A plugin a curated list leaves inactive is simply *not in* `content=`, so
+nothing in the sort path can bring it back.
+
+The only route back is `scan_mod_directories`, which does `os.walk` and takes
+every plugin under the tree with no filter of any kind. Point it at a shared
+mods folder and it picks up everything that mod manager holds, including the
+things deliberately left off. That is the documented behaviour of a folder scan,
+and the answer is to scan a narrower folder or hand-edit the exported subset.
+
+### The grass mods: ours
+
+This one was a real defect, and the give-away is that **the tool already had the
+information**. It reads the cfg. The cfg declares grass on `groundcover=` lines.
+It read those lines and ignored them.
+
+Reproduced end to end:
+
+```
+content=Morrowind.esm
+content=Patch for Purists.esp
+content=MyNewQuest.esp
+content=Remiros_Groundcover.esp     <-- inserted by us
+groundcover=Remiros_Groundcover.esp <-- already there, untouched
+```
+
+Declared twice. OpenMW then loads the grass through the groundcover system *and*
+spawns every blade as a real object -- exactly the cost groundcover exists to
+avoid, arriving silently. The emitted TOML did the same thing, so going through
+momw-configurator did not avoid it either.
+
+### The fix, and the line it does not cross
+
+`read_groundcover_names` parses the lines that were already being read;
+`hold_back_groundcover` drops those plugins from the subset before sorting, so
+they reach neither the cfg nor the TOML. The run prints what it held back and
+why.
+
+Three deliberate limits:
+
+* **The data= path is still written.** OpenMW must be able to find the file for
+  the `groundcover=` line to work at all, so dropping the data entry would break
+  the mod this check exists to protect.
+* **The `groundcover=` lines are never touched.** The mod stays enabled, as
+  grass, which is what it was.
+* **No filename heuristics.** The obvious shortcut -- hold back anything
+  matching `*grass*` or `*groundcover*` -- is wrong, and the project's own
+  sample cfg proves it: `deleted_groundcover.omwaddon` is ordinary content whose
+  name says grass. A pattern would silently drop a plugin the user wants. The
+  rule is "what your cfg declares", and nothing else.
+
+`read_groundcover_names` was added as a separate function rather than a sixth
+return value from `read_cfg`, because seven call sites unpack that five-tuple
+positionally and none of them want this.
+
+### Verification
+
+Eight synthetic cases in `test_hardening.py` covering the rule, the case
+folding, the empty case and the end-to-end export; four more in
+`test_integration.py` against the real 687-plugin sample cfg, which has 23
+`groundcover=` lines and the `deleted_groundcover.omwaddon` trap. Confirmed by
+reverting the fix and watching the end-to-end test fail with "grass was inserted
+as content".
+
+### What this says about the gap
+
+The lint checks read plugins for problems inside them. Nothing checked the
+*shape of the output* against the rest of the user's cfg -- and this defect
+lived entirely there. The natural home for a check like "a plugin must not be
+declared two ways at once" is the export path, not the linter, and there is
+currently no such stage.
+
+---
+
+## §33 Three follow-ups from the grass report
+
+### The TOML now uses `insertBlock`
+
+A run of consecutive custom plugins is one block on one anchor, rather than one
+`insert` per plugin chained on its predecessor. Read from momw-configurator's
+`doInsert`: the prefix comes from the *anchor* line, and block lines are
+inserted in order with `destIdx++`, so the placement is identical.
+
+The reason it is worth doing is not brevity. Anchors are matched with
+`strings.Contains` against whole lines, and more than one match makes the Go
+code return a nil cfg -- the whole rebuild is abandoned. Chaining anchored every
+plugin on the *previously inserted plugin name*, so each one was another chance
+to hit that.
+
+**The first version of the claim was wrong, and the harness caught it.** I
+asserted the collision came from two inserted names interfering, wrote a test
+that passed, and only found it was passing for the wrong reason when checking it
+properly. The real construction is narrower: an inserted name has to be a
+substring of a line **already in the cfg**. `Wares.esp` inserted into a list that
+ships `Better Wares.esp` aborts the run; that is an ordinary Morrowind pairing.
+A third test pins the limit honestly -- if the *first* anchor is itself
+ambiguous, both forms fail identically. `insertBlock` removes the additional
+exposure from chaining, not the exposure itself, and the tests say so, so nobody
+later reads it as a cure.
+
+Anchor choice now uses that: `after` the preceding line when it is unique, else
+`before` the following one (same placement, second chance at a unique line),
+else the natural anchor with the existing ambiguity warning. Silently dropping
+the insert would be worse than a rebuild that stops and says why.
+
+**What this exposed.** The differential baseline passed unchanged, which looked
+like reassurance and was not: it pinned `toml_value` and a *checked-in* TOML, not
+anything the emitter generates. An emitter change could have rewritten every
+user's customizations file with the suite fully green. `cfg.emit_customizations_toml`
+now pins the output over five shapes, and the first negative control on it
+**missed** -- because `.replace(..., 1)` mutated the data-insert branch, which
+those cases do not exercise. Retargeted at the content path, it caught it. Worth
+recording: the first "MISSED" was the test being wrong, not the baseline.
+
+### Removals are for what we do not own
+
+`removeContent`/`removeData` were emitted for anything opted out that was already
+in openmw.cfg -- which is every one of the user's own mods the moment they have
+exported once. The Configurator rebuilds from the curated list plus these
+customizations, so a mod we stop inserting is already absent; the block did
+nothing but clutter a hand-edited file.
+
+The rule is now "does the curated list own this", via `plugins_needing_removal`
+and `data_paths_needing_removal`. Both were pulled out as functions because the
+alternative was a test that had to build two-thirds of a plan dict to reach four
+lines of decision.
+
+Data paths were **not** covered by the first pass and had to be asked about --
+a reminder that "a mod" is a plugin *and* a folder, and fixing half of that is
+fixing none of it from the user's side. Ownership there is "is it one of this
+run's inserts", from the subset or from the source TOML, since the emitted file
+replaces that one wholesale.
+
+Empty is **unknown**, not "nothing is curated": without a `plugin-order.yml`
+there is no curated set at all, so presence stays the fallback. Guessing the
+other way would leave a plugin enabled that the user asked to disable.
+
+### Declaring your own grass
+
+§32 held back what the cfg already declares. That only helps a mod already
+installed *and* declared -- a newly added grass mod is in neither place, so
+there is nothing to read the fact off.
+
+It can now be declared, in whichever form fits: a `groundcover=X.esp` line in a
+subset file (deliberately the same spelling openmw.cfg uses, so the line means
+what it looks like), `groundcover = [...]` in the TOML form, `--groundcover`, or
+the **Declare as groundcover** field in Options. The declaration keeps the plugin
+out of `content=` and writes the `groundcover=` line in both outputs -- as an
+`append` entry in the TOML, which is how the Configurator writes one, verified by
+running the emitted file through `simulate_configurator_apply` and watching the
+groundcover section appear.
+
+Two details that are the whole point:
+
+* **The data path still goes in.** OpenMW has to find the file for the
+  groundcover line to mean anything, so the folder is inserted through the
+  ordinary data path -- a `data=` entry is not grass-specific. This is asserted
+  in the end-to-end test rather than left implied.
+* **On direct cfg write the new lines are appended**, not spliced into an
+  existing groundcover section. Appending cannot shift any index, and every
+  `content=`/`data=` position in the write segments is an index into those same
+  lines. Placement does not matter to OpenMW; only the order of groundcover lines
+  relative to each other does, and appending preserves it.
+
+### Gates
+
+ruff, black, mypy (54 files), `check_undefined`, `check_placeholders`,
+`make_pot --check` (438 messages). **1,330 passed, 2 skipped.** Four negative
+controls, all caught: data removal ignoring ownership, a declared grass plugin
+also becoming content, the old presence-based content rule, and a reversed
+`insertBlock` body against the new baseline key.
