@@ -404,6 +404,46 @@ RECORDS: Final[dict[str, Record]] = {
             ),
         ),
     ),
+    "BODY": Record(
+        name="BODY",
+        description="BODY records contain information about body parts.",
+        fields=(
+            Subrecord(
+                name="NAME",
+                cardinality="+",
+                type="zstring",
+                size="",
+                description="ID string",
+            ),
+            Subrecord(
+                name="MODL",
+                cardinality="+",
+                type="zstring",
+                size="",
+                description="NIF model file name",
+            ),
+            Subrecord(
+                name="FNAM",
+                cardinality="+",
+                type="zstring",
+                size="",
+                description="Race",
+            ),
+            Subrecord(
+                name="BYDT",
+                cardinality="+",
+                type="struct",
+                size="4 bytes",
+                description="Body Part Data",
+                members=(
+                    Member("uint8", (), "Part (0 = Head, 1 = Hair, 2 = Neck, 3 = Chest, 4 = Groin, 5 = Hand, 6 = Wrist, 7 = Forearm, 8 = Upperarm, 9 = Foot, 10 = Ankle, 11 = Knee, 12 = Upperleg, 13 = Clavicle, 14 = Tail)", 1),
+                    Member("uint8", (), "Vampire", 1),
+                    Member("uint8", (), "Flags (1 = Female, 2 = Playable)", 1),
+                    Member("uint8", (), "PartType (0 = Skin, 1 = Clothing, 2 = Armor)", 1),
+                ),
+            ),
+        ),
+    ),
     "BOOK": Record(
         name="BOOK",
         description="BOOK records contain information about books.",
@@ -615,7 +655,7 @@ RECORDS: Final[dict[str, Record]] = {
                 cardinality="+",
                 type="zstring",
                 size="",
-                description='Object ID or "PlayerSaveGame"',
+                description="Object ID or \"PlayerSaveGame\"",
             ),
             Subrecord(
                 name="UNAM",
@@ -786,12 +826,7 @@ RECORDS: Final[dict[str, Record]] = {
                 members=(
                     Member("uint32", (2,), "Primary Attributes", 8),
                     Member("uint32", (), "Specialization", 4),
-                    Member(
-                        "uint32",
-                        (5, 2),
-                        "5 sets of alternating minor/major skills. Values can be found on the Skills page.",
-                        40,
-                    ),
+                    Member("uint32", (5, 2), "5 sets of alternating minor/major skills. Values can be found on the Skills page.", 40),
                     Member("uint32", (), "Flags", 4),
                     Member("uint32", (), "Auto-calc Flags", 4),
                 ),
@@ -994,12 +1029,7 @@ RECORDS: Final[dict[str, Record]] = {
                 members=(
                     Member("uint32", (), "Type", 4),
                     Member("uint32", (), "Level", 4),
-                    Member(
-                        "uint32",
-                        (8,),
-                        "Attributes (in order of Attribute ID, as found on Morrowind:Attributes)",
-                        32,
-                    ),
+                    Member("uint32", (8,), "Attributes (in order of Attribute ID, as found on Morrowind:Attributes)", 32),
                     Member("uint32", (), "Health", 4),
                     Member("uint32", (), "SpellPts", 4),
                     Member("uint32", (), "Fatigue", 4),
@@ -1336,12 +1366,7 @@ RECORDS: Final[dict[str, Record]] = {
                     Member("uint32", (), "Primary skill modifier", 4),
                     Member("uint32", (), "Favored skill modifier", 4),
                     Member("uint32", (), "Faction reaction modifier", 4),
-                    Member(
-                        "int32",
-                        (7,),
-                        "Skills - use Skill values found on Skills, ignoring any value of -1.",
-                        28,
-                    ),
+                    Member("int32", (7,), "Skills - use Skill values found on Skills, ignoring any value of -1.", 28),
                     Member("uint32", (), "Flags", 4),
                 ),
                 repeat=4,
@@ -1490,7 +1515,7 @@ RECORDS: Final[dict[str, Record]] = {
                 cardinality="-",
                 type="zstring",
                 size="",
-                description='Faction (or the literal string "FFFF" for _NO FACTION_)',
+                description="Faction (or the literal string \"FFFF\" for _NO FACTION_)",
             ),
             Subrecord(
                 name="ANAM",
@@ -1612,18 +1637,8 @@ RECORDS: Final[dict[str, Record]] = {
                     Member("float32", (), "Weight", 4),
                     Member("uint32", (), "Value", 4),
                     Member("int32", (4,), "Effect index (-1 if unused)", 16),
-                    Member(
-                        "int32",
-                        (4,),
-                        "Skill ID (only if effect supports it; otherwise 0 or -1)",
-                        16,
-                    ),
-                    Member(
-                        "int32",
-                        (4,),
-                        "Attribute ID (only if effect supports it; otherwise 0 or -1)",
-                        16,
-                    ),
+                    Member("int32", (4,), "Skill ID (only if effect supports it; otherwise 0 or -1)", 16),
+                    Member("int32", (4,), "Attribute ID (only if effect supports it; otherwise 0 or -1)", 16),
                 ),
             ),
             Subrecord(
@@ -1684,18 +1699,8 @@ RECORDS: Final[dict[str, Record]] = {
                 size="4,232 bytes",
                 description="Height Data",
                 members=(
-                    Member(
-                        "float32",
-                        (),
-                        "A height offset for the entire cell. Decreasing this value will shift the entire cell land down (by 8 units).[verification needed — Oblivion and Skyrim use 8 units, is this the same?]",
-                        4,
-                    ),
-                    Member(
-                        "int8",
-                        (65, 65),
-                        "Contains the height data for the cell in the form of a 65x65 pixel array. The height data is not absolute values but uses differences between adjacent pixels. Thus a pixel value of 0 means it has the same height as the last pixel. Note that the Y-direction of the data is from the bottom up.",
-                        4225,
-                    ),
+                    Member("float32", (), "A height offset for the entire cell. Decreasing this value will shift the entire cell land down (by 8 units).[verification needed — Oblivion and Skyrim use 8 units, is this the same?]", 4),
+                    Member("int8", (65, 65), "Contains the height data for the cell in the form of a 65x65 pixel array. The height data is not absolute values but uses differences between adjacent pixels. Thus a pixel value of 0 means it has the same height as the last pixel. Note that the Y-direction of the data is from the bottom up.", 4225),
                     Member("uint8", (3,), "Junk data (ignored)", 3),
                 ),
             ),
@@ -2196,10 +2201,7 @@ RECORDS: Final[dict[str, Record]] = {
                 type="struct",
                 size="12 or 52 bytes",
                 description="NPC data",
-                variants=(
-                    "12-byte version (autocalc flag set)",
-                    "52-byte version (autocalc flag clear)",
-                ),
+                variants=("12-byte version (autocalc flag set)", "52-byte version (autocalc flag clear)",),
             ),
             Subrecord(
                 name="FLAG",
@@ -2355,12 +2357,7 @@ RECORDS: Final[dict[str, Record]] = {
                 members=(
                     Member("int32", (), "Grid X (exterior only)", 4),
                     Member("int32", (), "Grid Y (exterior only)", 4),
-                    Member(
-                        "uint16",
-                        (),
-                        "Flags. The values below are the only ones accessible via the TESCS; other values exist between the range of 0x1 and 0x4000 (with the exception of 0x4) but appear to be deprecated outside of cell [0, 0].",
-                        2,
-                    ),
+                    Member("uint16", (), "Flags. The values below are the only ones accessible via the TESCS; other values exist between the range of 0x1 and 0x4000 (with the exception of 0x4) but appear to be deprecated outside of cell [0, 0].", 2),
                     Member("uint16", (), "Path point count (see PGRP)", 2),
                 ),
             ),
@@ -2477,15 +2474,8 @@ RECORDS: Final[dict[str, Record]] = {
                     Member("struct", (7,), "Skill bonuses", 0),
                     Member("int32", (), "Skill ID (-1 for empty)", 4),
                     Member("int32", (), "Bonus", 4),
-                    Member(
-                        "uint32",
-                        (8, 2),
-                        "Attributes, (the first dimension being ordered by Attribute ID, as found on Morrowind:Attributes, and the second dimension by gender)",
-                        64,
-                    ),
-                    Member(
-                        "float32", (2,), "Height (one for each gender, as with Weight below)", 8
-                    ),
+                    Member("uint32", (8, 2), "Attributes, (the first dimension being ordered by Attribute ID, as found on Morrowind:Attributes, and the second dimension by gender)", 64),
+                    Member("float32", (2,), "Height (one for each gender, as with Weight below)", 8),
                     Member("float32", (2,), "Weight", 8),
                     Member("uint32", (), "Flags", 4),
                 ),
@@ -2859,12 +2849,7 @@ RECORDS: Final[dict[str, Record]] = {
                 size="300 bytes",
                 description="Header",
                 members=(
-                    Member(
-                        "float32",
-                        (),
-                        "Version (1.2 for Morrowind, 1.3 for Bloodmoon and Tribunal)",
-                        4,
-                    ),
+                    Member("float32", (), "Version (1.2 for Morrowind, 1.3 for Bloodmoon and Tribunal)", 4),
                     Member("uint32", (), "Flags", 4),
                     Member("char", (32,), "Company name string", 32),
                     Member("char", (256,), "File description", 256),
