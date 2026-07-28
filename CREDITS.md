@@ -55,6 +55,8 @@ and their `LICENSE` files are included in their source folders in this repo.
 - **TES3Tool** — © 2019 SaintBahamut. MIT.
   Referenced for the TES3 binary record/subrecord layout used by our built-in
   parser.
+- **Three.js** — © 2010-2026 three.js authors. MIT..
+  Used for viewing 3D models in the selfhosted web view.
 - **MWEdit** — © Dave Humphrey and contributors. MIT.
   Its `data/Functions.dat` and `mwedit/script_defs.h` are the primary source
   for our script-bytecode opcode table: the function names, their opcode
