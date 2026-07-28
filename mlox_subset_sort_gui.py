@@ -158,12 +158,13 @@ from mlox_subset.configurator import (  # noqa: E402
 # Imported after the sys.path fix-up, like the gettext marker above.
 # ---------------------------------------------------------------------------
 from mlox_subset.gui import (  # noqa: E402
-    DND_FILES,
     HAVE_DND,
     HELP_DOCUMENTS,
     TkinterDnD,
     app_base_dir,
+    dnd_ready,
     doc_path,
+    register_drop_target,
     trace_first_fire,
 )
 from mlox_subset.gui.conflicts import ConflictWindowsMixin  # noqa: E402
@@ -365,9 +366,7 @@ class RuleFilesPanel:
                 ),
             )
 
-        if HAVE_DND:
-            # tkinterdnd2 adds these to the widget at runtime.
-            self.listbox.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
+        if register_drop_target(self.listbox):
             self.listbox.dnd_bind("<<Drop>>", self._on_drop)  # type: ignore[attr-defined]
         else:
             ttk.Label(
@@ -1249,7 +1248,11 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         self._build_action_bar(top, start_row + 9)
 
     def _build_dnd_note(self, top: tk.Misc) -> int:
-        """Explain the missing drag-and-drop when tkinterdnd2 is not installed.
+        """Explain the missing drag-and-drop when it is not available.
+
+        Asks whether drops will actually *work*, not whether the Python package
+        imported: those differ when the tkdnd Tcl side is missing, and the
+        banner has to describe the window the user is looking at.
 
         Args:
             top: The container frame.
@@ -1258,13 +1261,17 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             The row the first real control should occupy -- one lower when the
             note is shown, so every panel below shifts with it.
         """
-        if HAVE_DND:
+        if dnd_ready(top):
             return 0
         note = ttk.Label(
             top,
             foreground=DARK["fg_dim"],
+            # Not "tkinterdnd2 not installed": it may well be installed, with
+            # its tkdnd Tcl library missing or unloadable. Saying so sends
+            # people to reinstall a package they already have.
             text=_(
-                "Drag & drop is disabled (tkinterdnd2 not installed) -- use the Browse buttons below."
+                "Drag & drop is unavailable (tkinterdnd2 or its tkdnd library "
+                "is missing) -- use the Browse buttons below."
             ),
         )
         note.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
