@@ -21,9 +21,9 @@ every cell a plugin does not touch and leaves the rest alone; that muting
 convention is reused here so the two maps interact the same way. It goes one
 step further because the question here is different -- not just "is this
 plugin present" but "how much is it colliding, and over what" -- so a focused
-cell is also recoloured by *that plugin's own* severity there (on the same
-saturation scale as the all-plugins view, so the two are still comparable),
-and a summary line reports its landscape/path-grid/cell breakdown. The
+cell is also recoloured by *that plugin's own* count there, using the same
+bands as the all-plugins view so the two remain comparable, and a summary line
+reports its landscape/path-grid/cell breakdown. The
 per-plugin counts this needs are decoded once, server-side, into
 ``CellConflicts.by_plugin`` (see :mod:`~mlox_subset.viz.geometry`) and
 embedded as JSON; the dropdown itself is then a pure client-side redraw, the
@@ -48,10 +48,9 @@ from mlox_subset.viz.geometry import Cell, CellConflicts, bounds, group_by_cell,
 from mlox_subset.viz.palette import (
     MINE,
     NEUTRAL,
-    legend_stops,
-    saturation_point,
-    severity,
-    severity_stops,
+    severity_band_table,
+    severity_banded,
+    severity_legend_rows,
 )
 
 if TYPE_CHECKING:
@@ -122,24 +121,20 @@ padding:5px 10px;cursor:pointer;font:inherit}
 _SCRIPT = """
 (function(){
 const D=window.__conflictmap;
-function clamp(v){return Math.max(0,Math.min(1,v));}
-function channel(v){return Math.round(clamp(v)*255).toString(16).padStart(2,'0');}
-function hexColour(r,g,b){return '#'+channel(r)+channel(g)+channel(b);}
-// The same multi-stop ramp palette.severity() uses, driven by the stop table
-// the page embeds -- duplicating the curve here in a different shape is how the
-// focused and unfocused views would drift apart.
-function severityColour(count,worst){
-  if(count<=0||worst<=0)return D.neutral;
-  const t=clamp(count/worst),stops=D.severity_stops;
-  for(let i=0;i<stops.length-1;i++){
-    const a=stops[i],b=stops[i+1];
-    if(t<=b[0]){
-      const span=(b[0]-a[0])||1,u=(t-a[0])/span;
-      return hexColour(a[1]+(b[1]-a[1])*u,a[2]+(b[2]-a[2])*u,a[3]+(b[3]-a[3])*u);
-    }
+// A lookup, not a ramp. The page embeds the same bands the server drew the
+// unfocused map with, so focusing a plugin cannot colour a count differently
+// from the way that count is coloured everywhere else -- which is exactly what
+// re-implementing the curve here used to risk.
+function severityColour(count){
+  if(count<=0)return D.neutral;
+  const bands=D.bands;
+  for(let i=0;i<bands.length;i++){
+    const low=bands[i][0],high=bands[i][1];
+    if(count>=low&&(high===null||count<=high))return bands[i][2];
   }
-  const last=stops[stops.length-1];
-  return hexColour(last[1],last[2],last[3]);
+  // Above every band: a stale payload, or a focused count larger than any
+  // whole-cell total. The top band is the honest answer either way.
+  return bands.length?bands[bands.length-1][2]:D.neutral;
 }
 
 const select=document.getElementById('cm-focus');
@@ -162,7 +157,7 @@ function setFocus(name){
       const counts=(cellInfo&&cellInfo.by_plugin[name])||{};
       let sum=0;
       for(const k in counts){sum+=counts[k];byType[k]=(byType[k]||0)+counts[k];}
-      r.setAttribute('fill',severityColour(sum,D.worst));
+      r.setAttribute('fill',severityColour(sum));
       if(sum>0)cellsTouched++;
       total+=sum;
     }else{
@@ -262,7 +257,7 @@ def _svg_grid(cells: Mapping[Cell, CellConflicts], worst: int) -> str:
         # map comes out upside down against every other Morrowind map.
         px = (cell.x - min_x) * _CELL_PX
         py = (max_y - cell.y) * _CELL_PX
-        colour = severity(info.total, worst)
+        colour = severity_banded(info.total, worst)
         klass = ' class="mine"' if info.mine else ""
         tip = ngettext(
             "(%(x)d, %(y)d) \u2014 %(count)d conflict, %(n)d plugin(s): %(plugins)s",
@@ -403,18 +398,23 @@ def build_conflict_map(
         unusable ids are simply not spatial and are counted as such.
     """
     cells = group_by_cell(conflicts)
-    # Saturate at a high percentile rather than the maximum: one cell touched
-    # by forty plugins would otherwise rescale every ordinary cell to green.
-    worst = saturation_point([c.total for c in cells.values()])
+    # The true maximum, not a percentile. Percentile clamping existed to stop
+    # one forty-conflict cell flattening every ordinary cell to green -- a real
+    # problem for a continuous ramp, and one the banding solves outright: an
+    # outlier now lands in the open-ended top band and costs the lower bands
+    # nothing. Using the maximum also makes the legend describe the real range,
+    # and the worst cell is findable in the table below rather than clamped
+    # away into a colour it shares with cells a tenth its size.
+    worst = max((c.total for c in cells.values()), default=0)
     spatial = sum(c.total for c in cells.values())
     mine = sum(c.mine for c in cells.values())
     non_spatial = len(conflicts) - spatial
     subset = {s.lower() for s in subset_lower}
 
-    stops = [
-        (colour, ngettext("%(n)d conflict", "%(n)d conflicts", count) % {"n": count})
-        for count, colour in legend_stops(worst)
-    ]
+    # The band's own label ("1", "6-10", "76+") is the legend text. Building a
+    # sentence per swatch was how this read before; with one swatch per band
+    # that is a wall of repeated words, and the unit belongs in the note once.
+    stops = [(colour, label) for label, colour, _dark in severity_legend_rows(worst)]
 
     focus_options, focus_names = _focus_options(cells, subset)
     focus_bar = (
@@ -442,11 +442,13 @@ def build_conflict_map(
             + h.legend(
                 [*stops, (MINE, _("outlined = involves your mods"))],
                 _(
-                    "North is up. Hover a cell for its count and which plugins are "
-                    "conflicting there. Colour saturates at the 95th percentile, so a "
-                    "few extreme cells do not flatten the rest. Focusing a plugin "
-                    "recolours its cells by its own severity there on this same scale, "
-                    "and mutes the rest."
+                    "Conflicting records per cell. North is up. Hover a cell for its "
+                    "count and which plugins are conflicting there. Each of the first "
+                    "few counts has its own colour and larger counts are grouped, "
+                    "because one, two and three conflicts are different situations "
+                    "while thirty and thirty-five are not. Focusing a plugin recolours "
+                    "its cells by its own count there on this same scale, and mutes "
+                    "the rest."
                 ),
             ),
         ),
@@ -461,10 +463,10 @@ def build_conflict_map(
 
     if focus_names:
         payload = {
-            "worst": worst,
             "neutral": NEUTRAL,
-            # The ramp itself, so the client cannot drift from palette.severity().
-            "severity_stops": severity_stops(),
+            # The bands themselves, so the client looks a count up instead of
+            # recomputing a curve it could get subtly wrong.
+            "bands": severity_band_table(worst),
             "cells": {
                 f"{cell.x},{cell.y}": {
                     "by_plugin": {p.lower(): counts for p, counts in info.by_plugin.items()},

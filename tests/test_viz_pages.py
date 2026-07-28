@@ -51,7 +51,8 @@ from mlox_subset.viz.palette import (
     coverage_heat,
     coverage_legend_stops,
     divergence,
-    severity_stops,
+    severity_band_table,
+    severity_banded,
 )
 
 HEX = re.compile(r"^#[0-9a-f]{6}$")
@@ -528,35 +529,48 @@ class TestCoverageLegend:
         assert coverage_heat(2, 2) in html
 
 
-class TestSeverityStops:
-    """The table handed to the conflict map's client-side redraw."""
+class TestSeverityBandTable:
+    """The table handed to the conflict map's client-side redraw.
 
-    def test_stops_span_zero_to_one(self) -> None:
-        """The interpolator assumes closed ends."""
-        stops = severity_stops()
-        assert stops[0][0] == 0.0
-        assert stops[-1][0] == 1.0
+    The client used to re-implement the colour ramp in JavaScript, which is how
+    the focused and unfocused views could drift apart. It now looks a count up
+    in this table instead, so the contract is the table's shape.
+    """
 
-    def test_positions_ascend(self) -> None:
-        """Out-of-order stops silently produce a flat band."""
-        positions = [stop[0] for stop in severity_stops()]
-        assert positions == sorted(positions)
+    def test_one_row_per_band(self) -> None:
+        """The client scans it linearly; a missing band is a missing colour."""
+        assert len(severity_band_table(23)) == len(coverage_bands(23))
 
-    def test_channels_are_normalised(self) -> None:
-        """The JS multiplies by 255, so 0-1 is the contract."""
-        assert all(0.0 <= c <= 1.0 for stop in severity_stops() for c in stop[1:])
+    def test_rows_are_low_high_colour(self) -> None:
+        """The exact shape the page's lookup indexes by position."""
+        low, high, colour = severity_band_table(12)[0]
+        assert (low, high) == (1, 1)
+        assert colour.startswith("#") and len(colour) == 7
 
-    def test_result_is_a_copy(self) -> None:
-        """A caller mutating the table must not repaint every future map."""
-        first = severity_stops()
-        first[0][1] = 9.0
-        assert severity_stops()[0][1] != 9.0
+    def test_the_bands_cover_every_count_without_gaps(self) -> None:
+        """A count falling through every band would render as neutral."""
+        table = severity_band_table(40)
+        for count in range(1, 41):
+            assert any(
+                count >= low and (high is None or count <= high) for low, high, _c in table
+            ), f"{count} falls in no band"
 
-    def test_ramp_runs_cool_to_hot(self) -> None:
-        """Convention people already read: cool is fine, hot wants attention."""
-        stops = severity_stops()
-        assert stops[0][1] < stops[-1][1]  # red rises
-        assert stops[0][3] > stops[-1][3]  # blue falls
+    def test_the_top_band_is_open_ended_when_it_has_to_be(self) -> None:
+        """So a huge outlier still lands somewhere rather than off the end."""
+        assert severity_band_table(500)[-1][1] is None
+
+    def test_the_colours_match_what_the_server_drew(self) -> None:
+        """The whole point: the client cannot colour a count differently.
+
+        Compared against :func:`severity_banded`, which is what painted the
+        unfocused map server-side.
+        """
+        for low, _high, colour in severity_band_table(30):
+            assert colour == severity_banded(low, 30)
+
+    def test_an_empty_map_has_no_bands(self) -> None:
+        """Nothing to colour, and the client falls back to neutral."""
+        assert severity_band_table(0) == []
 
 
 def touch(folder: Path, name: str) -> Path:

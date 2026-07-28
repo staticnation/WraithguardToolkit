@@ -84,33 +84,6 @@ def divergence(value: float, scale: float) -> str:
     return _hex(0.17 - 0.13 * t, 0.19 + 0.35 * t, 0.23 + 0.72 * t)
 
 
-def severity(count: int, worst: int) -> str:
-    """Map a conflict count to a green-yellow-red severity colour.
-
-    The ramp is **linear**, deliberately. An earlier version used a square root
-    to stop a few extreme cells flattening everything else to green -- and it
-    did the opposite of what was wanted: with a busy load order it pushed
-    ordinary cells (3 conflicts out of a worst of 30) straight into yellow, so
-    the whole map read as "everything is on fire" and nothing stood out. That
-    was only visible by rendering it and looking.
-
-    The skew is real, but the fix belongs in the *scale*, not the curve: pass a
-    high percentile as ``worst`` (see
-    :func:`~mlox_subset.viz.conflictmap.build_conflict_map`) so one pathological
-    cell clamps instead of rescaling everyone.
-
-    Args:
-        count: Conflicts on this cell.
-        worst: The count that saturates the ramp.
-
-    Returns:
-        A ``#rrggbb`` string, or :data:`NEUTRAL` when there is nothing to show.
-    """
-    if count <= 0 or worst <= 0:
-        return NEUTRAL
-    return _ramp(_clamp(count / worst), _SEVERITY_STOPS)
-
-
 #: The severity ramp as explicit stops, interpolated between. Five stops rather
 #: than the original three: with only green -> yellow -> red, the whole middle of
 #: a busy map collapsed into a narrow yellow band and neighbouring cells with
@@ -149,6 +122,122 @@ _COVERAGE_STOPS: Final[tuple[tuple[float, float, float, float], ...]] = (
 )
 
 
+#: A hypsometric tint -- the convention atlases use for elevation, and one
+#: people already read without a key: low ground green, drying to tan and ochre,
+#: rock brown at height, pale at the top. Distinct from both the severity and
+#: coverage ramps on purpose, because it answers a third question ("how high is
+#: this") and must not be mistaken for either "how bad" or "how many".
+_TERRAIN_STOPS: Final[tuple[tuple[float, float, float, float], ...]] = (
+    (0.00, 0.22, 0.42, 0.31),  # deep green -- valley floor
+    (0.20, 0.36, 0.52, 0.31),  # green
+    (0.40, 0.60, 0.60, 0.36),  # olive
+    (0.60, 0.72, 0.60, 0.42),  # tan
+    (0.80, 0.66, 0.51, 0.40),  # rock brown
+    (1.00, 0.88, 0.86, 0.83),  # pale stone -- summits
+)
+
+
+def terrain_tint(t: float) -> str:
+    """Map a normalised elevation to its hypsometric tint.
+
+    Args:
+        t: Position between the lowest and highest vertex, 0-1.
+
+    Returns:
+        A ``#rrggbb`` string.
+    """
+    return _ramp(_clamp(t), _TERRAIN_STOPS)
+
+
+def terrain_ramp(steps: int = 256) -> list[str]:
+    """The tint as a lookup table, for a page that shades pixels itself.
+
+    Handed to the 3D view rather than re-expressed in JavaScript, for the same
+    reason the conflict map is given its bands: a curve written out twice is a
+    curve that will eventually disagree with itself. Sampling it into a table
+    also makes the per-pixel path a lookup rather than an interpolation, which
+    is what makes shading every pixel affordable.
+
+    Args:
+        steps: How many samples to take. The default puts the largest step
+            between neighbours at two units per channel, which is about where a
+            step stops being visible as a band in a smooth gradient -- at 64 it
+            was seven, which shows on the ramp's steepest segment. The table
+            costs a few kilobytes, so buying the headroom is free.
+
+    Returns:
+        ``steps`` colours, from the lowest ground to the highest.
+
+    Raises:
+        ValueError: If ``steps`` is less than two, which cannot describe a ramp.
+    """
+    if steps < 2:
+        raise ValueError(f"a ramp needs at least two samples, got {steps}")
+    return [terrain_tint(i / (steps - 1)) for i in range(steps)]
+
+
+#: A rainbow in the order Turbo popularised -- dark blue, blue, cyan, green,
+#: yellow, orange, red, dark red. Written from our own stops rather than lifted
+#: from Google's Turbo table: the ordering is the useful part and it is a fact
+#: about rainbows, whereas the table is somebody's work. It keeps Turbo's actual
+#: advantage over the old jet rainbow, which is that lightness rises fairly
+#: steadily instead of spiking at cyan and yellow, so bands do not appear at
+#: values where nothing happens.
+#:
+#: Offered because a rainbow resolves *small* differences far better than a
+#: sequential ramp -- on nearly flat terrain a hypsometric tint is one shade of
+#: green and a rainbow is a contour map. It is a poor default for the same
+#: reason it is a good option: it implies boundaries that the ground does not
+#: have.
+_RAINBOW_STOPS: Final[tuple[tuple[float, float, float, float], ...]] = (
+    (0.00, 0.19, 0.07, 0.23),  # near-black violet
+    (0.14, 0.22, 0.30, 0.75),  # blue
+    (0.29, 0.16, 0.62, 0.86),  # cyan
+    (0.43, 0.20, 0.80, 0.56),  # spring green
+    (0.57, 0.62, 0.87, 0.22),  # yellow-green
+    (0.71, 0.95, 0.75, 0.13),  # amber
+    (0.86, 0.94, 0.40, 0.10),  # orange-red
+    (1.00, 0.60, 0.05, 0.06),  # dark red
+)
+
+#: A neutral ramp, for reading the hillshade with nothing painted over it.
+_GREY_STOPS: Final[tuple[tuple[float, float, float, float], ...]] = (
+    (0.00, 0.10, 0.11, 0.12),
+    (1.00, 0.95, 0.95, 0.95),
+)
+
+#: Every tint the 3D view offers, by the key its dropdown uses.
+TINT_RAMPS: Final[dict[str, tuple[tuple[float, float, float, float], ...]]] = {
+    "hypsometric": _TERRAIN_STOPS,
+    "rainbow": _RAINBOW_STOPS,
+    "grey": _GREY_STOPS,
+}
+
+
+def tint_ramp(name: str, steps: int = 256) -> list[str]:
+    """Sample one of the named tints into a lookup table.
+
+    Args:
+        name: A key of :data:`TINT_RAMPS`.
+        steps: How many samples to take.
+
+    Returns:
+        ``steps`` colours, low ground first.
+
+    Raises:
+        KeyError: If ``name`` is not a known tint. Raised rather than falling
+            back to a default, because a page silently drawing the wrong
+            palette is worse than one that fails to build.
+        ValueError: If ``steps`` is less than two.
+    """
+    if name not in TINT_RAMPS:
+        raise KeyError(f"unknown tint {name!r}; have {sorted(TINT_RAMPS)}")
+    if steps < 2:
+        raise ValueError(f"a ramp needs at least two samples, got {steps}")
+    stops = TINT_RAMPS[name]
+    return [_ramp(_clamp(i / (steps - 1)), stops) for i in range(steps)]
+
+
 def _ramp(t: float, stops: Sequence[tuple[float, float, float, float]]) -> str:
     """Interpolate a multi-stop colour ramp.
 
@@ -167,19 +256,6 @@ def _ramp(t: float, stops: Sequence[tuple[float, float, float, float]]) -> str:
             return _hex(r0 + (r1 - r0) * u, g0 + (g1 - g0) * u, b0 + (b1 - b0) * u)
     _, r, g, b = stops[-1]
     return _hex(r, g, b)
-
-
-def severity_stops() -> list[list[float]]:
-    """The severity ramp's stop table, for a page that redraws client-side.
-
-    The conflict map recolours focused cells in JavaScript. Re-expressing the
-    curve there by hand is how the focused and unfocused views drift apart, so
-    the table is handed over as data instead.
-
-    Returns:
-        Ascending ``[position, red, green, blue]`` rows, channels 0-1.
-    """
-    return [list(stop) for stop in _SEVERITY_STOPS]
 
 
 #: Counts below this each get a band of their own. One, two and three mods in a
@@ -302,46 +378,75 @@ def coverage_legend_stops(worst: int) -> list[tuple[str, str, bool]]:
     return rows
 
 
-def saturation_point(counts: Sequence[int], percentile: float = 0.95) -> int:
-    """Choose the count at which the severity ramp should saturate.
+def severity_banded(count: int, worst: int) -> str:
+    """Map a conflict count to its band's colour on the severity ramp.
 
-    Using the maximum lets a single pathological cell -- a landscape record
-    touched by forty plugins -- compress everything else into the green end.
-    Using a high percentile keeps the ordinary range legible and simply clamps
-    the outliers, which are already the reddest thing on the map.
+    The same banding as :func:`coverage_heat` -- each of 1..5 on its own, then
+    groups of five -- over the green/yellow/red severity stops instead of the
+    coverage stops. Sharing the banding rule is the point: the cell map and the
+    conflict map are read one after the other, and two maps that look alike but
+    band differently is a worse trap than two that look different.
 
-    Args:
-        counts: Every cell's conflict count.
-        percentile: Fraction of cells that should fall below the saturation
-            point.
-
-    Returns:
-        The saturating count, always at least 1.
-    """
-    if not counts:
-        return 0
-    ordered = sorted(counts)
-    index = min(len(ordered) - 1, int(len(ordered) * percentile))
-    return max(1, ordered[index])
-
-
-def legend_stops(worst: int, steps: int = 6) -> list[tuple[int, str]]:
-    """Build ``(count, colour)`` pairs for a severity legend.
+    It also fixes the same defect banding fixed for coverage. A linear ramp
+    normalised against the worst cell rendered one, two and three conflicting
+    records as indistinguishable greens, and those are the counts that decide
+    whether anyone opens the cell.
 
     Args:
+        count: Conflicting records in this cell.
         worst: The highest count on the map.
-        steps: How many swatches to produce.
 
     Returns:
-        Ascending ``(count, colour)`` pairs. Empty when there is nothing to
-        show, so the caller can omit the legend entirely.
+        A ``#rrggbb`` string.
     """
-    if worst <= 0 or steps <= 0:
-        return []
-    out: list[tuple[int, str]] = []
-    for index in range(steps):
-        count = max(1, round(worst * (index + 1) / steps))
-        pair = (count, severity(count, worst))
-        if not out or out[-1][0] != count:
-            out.append(pair)
-    return out
+    if count <= 0:
+        return NEUTRAL
+    bands = coverage_bands(worst)
+    if len(bands) <= 1:
+        return _ramp(0.0, _SEVERITY_STOPS)
+    return _ramp(_clamp(coverage_band_index(count, worst) / (len(bands) - 1)), _SEVERITY_STOPS)
+
+
+def severity_legend_rows(worst: int) -> list[tuple[str, str, bool]]:
+    """Build ``(label, colour, needs_light_text)`` rows for a conflict legend.
+
+    One row per band, from the same banding the map draws with, so the legend
+    is the map's key rather than a sample of a gradient it cannot drift from.
+
+    Args:
+        worst: The highest conflict count on the map.
+
+    Returns:
+        Ascending rows; ``needs_light_text`` is a luminance test so the label
+        stays readable at both ends of the ramp.
+    """
+    rows: list[tuple[str, str, bool]] = []
+    for low, high in coverage_bands(worst):
+        colour = severity_banded(low, worst)
+        red, green, blue = (int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+        luminance = 0.299 * red + 0.587 * green + 0.114 * blue
+        if high is None:
+            label = f"{low}+"
+        elif high == low:
+            label = str(low)
+        else:
+            label = f"{low}-{high}"
+        rows.append((label, colour, luminance < 0.55))
+    return rows
+
+
+def severity_band_table(worst: int) -> list[list[object]]:
+    """The bands and their colours, for a client that must colour cells itself.
+
+    Sent to the page so the focused view looks a count up in a table rather
+    than recomputing a ramp in JavaScript. The duplicated curve was the thing
+    most likely to drift between the focused and unfocused views; a lookup
+    table cannot drift, because there is only one copy of the arithmetic.
+
+    Args:
+        worst: The highest conflict count on the map.
+
+    Returns:
+        ``[low, high_or_None, colour]`` rows, ascending.
+    """
+    return [[low, high, severity_banded(low, worst)] for low, high in coverage_bands(worst)]

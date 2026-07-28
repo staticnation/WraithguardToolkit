@@ -48,13 +48,21 @@ if str(ROOT) not in sys.path:
 
 @pytest.fixture(scope="module")
 def tk_root() -> Iterator[Any]:
-    """A real Tk root window, or a skip when there is no display.
+    """A real Tk root window, built the way the application builds its own.
+
+    The root type is not incidental. ``main()`` uses ``TkinterDnD.Tk()`` when
+    tkinterdnd2 is present, and that is what loads the tkdnd Tcl package into
+    the interpreter; a plain ``tkinter.Tk()`` looks identical but cannot carry
+    a drop target. Building the wrong one here tested a window the application
+    never constructs.
 
     Yields:
         The root window, withdrawn so nothing flashes on screen.
     """
+    from mlox_subset.gui import HAVE_DND, TkinterDnD
+
     try:
-        root = tkinter.Tk()
+        root = TkinterDnD.Tk() if HAVE_DND else tkinter.Tk()
     except tkinter.TclError as exc:  # pragma: no cover - depends on the environment
         pytest.skip(f"no display available: {exc}")
     root.withdraw()
@@ -164,6 +172,137 @@ class TestApplicationBuilds:
         """
         assert app.sort_button.winfo_exists()
         assert app.log_text.winfo_exists()
+
+
+class TestDragAndDropIsOptional:
+    """Drag and drop is a convenience, so its absence must not stop the app.
+
+    Found by running this suite for the first time on a real desktop. The
+    fixture built a plain ``tkinter.Tk()`` root, which does not load the tkdnd
+    Tcl package, and **every test errored** -- not on an assertion but during
+    construction, because registering a drop target raised and took the whole
+    window build down with it.
+
+    That was a test bug (the application builds a ``TkinterDnD.Tk()`` root) but
+    it exposed a real one: the code asked whether the *Python package* imported
+    and then assumed the *Tcl package* was loaded. Those come apart on a
+    half-installed tkdnd or a frozen build that shipped one side without the
+    other, and the result is an application that will not open at all over a
+    feature nobody needs to have.
+    """
+
+    def test_the_app_builds_when_drag_and_drop_is_unavailable(
+        self, tk_root: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The regression: the window must finish building without tkdnd.
+
+        Simulated by turning the availability flag off rather than by building
+        a second root without the Tcl package. A second root is a second Tk
+        interpreter, which brings its own failure modes and can make this skip
+        -- and a skip here means the one check that covers the reported bug
+        quietly did not run.
+
+        Args:
+            tk_root: The Tk root.
+            tmp_path: A scratch directory for settings.
+            monkeypatch: Pytest's patcher.
+        """
+        import mlox_subset.gui as gui_pkg
+
+        monkeypatch.setattr(gui_pkg, "HAVE_DND", False)
+        monkeypatch.setattr(gui_pkg, "_APP_DIR", tmp_path)
+        import mlox_subset_sort_gui as gui
+
+        built = gui.App(tk_root)
+
+        assert built.sort_button.winfo_exists(), "the window did not finish building"
+        assert built.log_text.winfo_exists()
+
+    def test_the_missing_feature_is_reported_on_screen(
+        self, tk_root: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Silently offering a dead drop target would be worse than saying so.
+
+        Args:
+            tk_root: The Tk root.
+            tmp_path: A scratch directory for settings.
+            monkeypatch: Pytest's patcher.
+        """
+        import mlox_subset.gui as gui_pkg
+
+        monkeypatch.setattr(gui_pkg, "HAVE_DND", False)
+        monkeypatch.setattr(gui_pkg, "_APP_DIR", tmp_path)
+        import mlox_subset_sort_gui as gui
+
+        built = gui.App(tk_root)
+        labels = [
+            str(child.cget("text"))
+            for child in _all_widgets(built.root)
+            if child.winfo_class() == "TLabel"
+        ]
+
+        # Compared against the translated form of the same literal, not against
+        # English: a matched string would otherwise start failing the moment a
+        # catalogue is shipped, which is not a regression in anything.
+        from mlox_subset.i18n import gettext
+
+        expected = gettext(
+            "Drag & drop is unavailable (tkinterdnd2 or its tkdnd library "
+            "is missing) -- use the Browse buttons below."
+        )
+        assert expected in labels
+
+    def test_a_registration_that_raises_is_survivable(self) -> None:
+        """The guard itself, without needing an interpreter that lacks tkdnd.
+
+        A widget whose registration refuses must yield ``False`` rather than an
+        exception, because the caller is halfway through building a window.
+        """
+        from mlox_subset.gui import register_drop_target
+
+        class Refuses:
+            """A widget that reports tkdnd present but refuses registration."""
+
+            class _Tk:
+                @staticmethod
+                def eval(_script: str) -> str:
+                    """Report the package as present.
+
+                    Args:
+                        _script: Ignored.
+
+                    Returns:
+                        A version string.
+                    """
+                    return "2.9"
+
+            tk = _Tk()
+
+            @staticmethod
+            def drop_target_register(*_args: object) -> None:
+                """Refuse, the way Tk does when tkdnd is not really usable.
+
+                Args:
+                    _args: Ignored.
+
+                Raises:
+                    TclError: Always.
+                """
+                raise tkinter.TclError("invalid command name 'tkdnd::drop_target'")
+
+        assert register_drop_target(Refuses()) is False
+
+    def test_the_real_root_does_support_it(self, tk_root: Any) -> None:
+        """Otherwise the checks above would pass by testing nothing.
+
+        Args:
+            tk_root: The root the application actually builds on.
+        """
+        from mlox_subset.gui import HAVE_DND, dnd_ready
+
+        if not HAVE_DND:  # pragma: no cover - tkinterdnd2 is optional
+            pytest.skip("tkinterdnd2 is not installed")
+        assert dnd_ready(tk_root), "the app's own root should support drag and drop"
 
 
 class TestActionButtons:

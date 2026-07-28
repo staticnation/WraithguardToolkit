@@ -55,6 +55,16 @@ WNAM_SIZE: Final = 9
 #: Stored heights are pre-divided by this factor.
 HEIGHT_SCALE: Final = 8
 
+#: Side of one exterior cell, in world units. The engine's own cell size.
+LAND_CELL_UNITS: Final = 8192
+
+#: World units between two adjacent height vertices. 65 vertices span the cell,
+#: so there are 64 gaps between them -- not 65. Needed by anything that draws
+#: the height grid to scale: heights are already in world units, so a renderer
+#: plotting x/y as vertex *indices* has to divide the height by this to get a
+#: shape with the proportions the terrain actually has.
+LAND_VERTEX_SPACING: Final = LAND_CELL_UNITS / (LAND_SIZE - 1)
+
 
 class LandscapeDecodeError(Exception):
     """Raised when a landscape field is not the size its format requires."""

@@ -119,6 +119,71 @@ except ImportError:
     TkinterDnD = None
     HAVE_DND = False
 
+
+def dnd_ready(widget: object) -> bool:
+    """Whether this interpreter can actually accept files dropped onto it.
+
+    ``HAVE_DND`` answers a different question. It says the *Python package*
+    imports; accepting a drop needs the **tkdnd Tcl package loaded into this
+    interpreter**, which only happens when the root window was built with
+    ``TkinterDnD.Tk()``. The two disagree whenever the root came from a plain
+    ``tk.Tk()``, or tkdnd is half-installed, or a frozen build shipped the
+    Python side without the Tcl side.
+
+    Conflating them was a real failure, not a hypothetical one: a registration
+    raising ``TclError`` aborted the whole window build, so the app would not
+    start *at all* over a convenience feature -- and the traceback pointed at a
+    path entry rather than at the missing package.
+
+    Deliberately not cached. The answer belongs to an interpreter, and caching
+    it in a module global would let one root's answer leak into another's.
+
+    Args:
+        widget: Any live widget, used to reach its interpreter.
+
+    Returns:
+        ``True`` when drag and drop will work.
+    """
+    if not HAVE_DND:
+        return False
+    # Imported here rather than at module scope: this package is imported by
+    # the hermetic suite, which has no tkinter. Reaching this line means
+    # tkinterdnd2 imported, which imports tkinter itself, so it cannot fail.
+    import tkinter as tk
+
+    try:
+        widget.tk.eval("package present tkdnd")  # type: ignore[attr-defined]
+    except tk.TclError:
+        trace_first_fire("drag & drop unavailable: tkdnd is not loaded in this interpreter")
+        return False
+    return True
+
+
+def register_drop_target(widget: object) -> bool:
+    """Make a widget accept files dragged in from the file manager.
+
+    Args:
+        widget: The widget to register.
+
+    Returns:
+        ``True`` when the widget will accept drops; ``False`` when drag and
+        drop is unavailable and the caller should offer Browse instead.
+    """
+    if not dnd_ready(widget):
+        return False
+    # Still guarded: the package being present does not prove this particular
+    # widget class can carry a drop target, and no convenience feature is worth
+    # refusing to open the window over.
+    import tkinter as tk
+
+    try:
+        widget.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
+    except tk.TclError:
+        trace_first_fire("drop target registration refused by Tk")
+        return False
+    return True
+
+
 _FIRED_ONCE: set[str] = set()
 
 

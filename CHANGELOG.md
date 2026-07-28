@@ -8,6 +8,21 @@ shipped, so the two can be told apart at a glance.
 
 ### Added
 
+- **A rule reference, in the app** (`MLOX_RULES.md`). The rule maker can now
+  write every rule the format has, which made "what should I write?" the harder
+  question. The reference answers it, organised by what you are trying to *say*
+  rather than by rule name, and it opens from the **Help** menu and from a
+  **Rule guide** button inside the rule maker — offline, rendered by the same
+  viewer as the Read me.
+
+  It is written from scratch rather than copied. The conventions it describes
+  are the community's and are credited as such, with a link to the guideline
+  page as the authority; the wording and the examples are ours. A test checks
+  that every rule kind the rule maker offers is actually described in it, so the
+  two cannot drift apart, and another checks the document is in the build
+  manifest — a Help entry that works from a checkout and opens empty in the
+  release is otherwise found only by a user.
+
 - **Declare your own grass.** Holding back what `openmw.cfg` already calls
   groundcover only helps a mod that is already installed *and* declared. One you
   just added is in neither place, so you can say so once: a `groundcover=X.esp`
@@ -97,6 +112,28 @@ shipped, so the two can be told apart at a glance.
 
 ### Changed
 
+- **The conflict map is banded like the cell map** -- each of the first five
+  counts gets its own colour, larger counts group in fives, and the legend has
+  one swatch per band instead of sampling a gradient. Same reasoning as the cell
+  map: a linear ramp normalised against the worst cell rendered one, two and
+  three conflicting records as three near-identical greens, and those are the
+  counts that decide whether a cell is worth opening. The two maps are read one
+  after the other, so banding them differently would have been the worse trap.
+
+  **Scaled to the true maximum now, not the 95th percentile.** The percentile
+  clamp existed to stop one forty-conflict cell flattening every ordinary cell
+  to green -- a real problem for a continuous ramp, and one banding solves
+  outright, since an outlier lands in the open-ended top band and costs the
+  lower bands nothing. The legend now describes the range the map actually has.
+
+  The page's client-side redraw (focusing one plugin) **looks a count up in a
+  table** rather than re-implementing the ramp in JavaScript. The duplicated
+  curve was the likeliest thing to drift between the focused and unfocused
+  views; a lookup cannot drift, because there is only one copy of the
+  arithmetic. `severity`, `severity_stops`, `legend_stops` and
+  `saturation_point` were removed with it -- all four had become dead code held
+  alive only by their own tests.
+
 - **The customizations TOML now uses `insertBlock`.** A run of consecutive
   custom plugins is one block on one anchor instead of one `insert` per plugin
   chained on its predecessor. Besides being far shorter to read, it removes a
@@ -160,6 +197,197 @@ shipped, so the two can be told apart at a glance.
   touched, and the mod's `data=` path is still written, since OpenMW has to be
   able to find the file for its groundcover line to work.
 
+- **The 3D terrain view is shaded like a relief map.** A greyscale *hillshade*
+  carries the shape and a hypsometric *tint* (green valleys through tan and rock
+  to pale summits) is composited over it at 55%, adjustable from 40% to 75% or
+  off. Keeping them as two layers is the point: flat-filling one blended colour
+  per face -- what it did before -- fuses "which way does this face" with "how
+  high is it" into a single number, so neither could be read on its own.
+
+  **Shaded per pixel, not per face.** The mesh is 32x32 after sampling, so a
+  face is tens of pixels across and its edges were plainly visible as facets on
+  what should be a smooth hillside. Interpolating the normal and the height
+  across each triangle costs a lookup and a few multiplies per pixel and removes
+  them. The light is fixed to the *terrain* rather than the camera, so turning
+  the model turns it under the light like a real object -- a light pinned to the
+  viewer keeps every slope equally lit however you rotate it, which is the one
+  thing hillshade exists to prevent.
+
+  **Contour lines**, derived in the same pass from the height already
+  interpolated at each pixel. The interval is a round number (1, 2 or 5 times a
+  power of ten) chosen to put about a dozen lines on the cell, and it is named in
+  the readout -- a contour without a stated interval measures nothing. Line width
+  is divided by the local slope so lines stay a constant width on screen instead
+  of fattening on flat ground, and where the spacing would fall below three
+  line-widths the lines are dropped rather than allowed to merge into a dark
+  smear over exactly the cliffs the hillshade is describing. Paper maps drop
+  them for the same reason.
+
+  **Isometric and Top down buttons.** Neither viewpoint can be hit by dragging:
+  true isometric needs a pitch of arcsin(tan 30 degrees) so all three axes
+  foreshorten equally, and top-down needs an exact right angle.
+
+  **Every setting is exposed** on a control panel: shading mode, hillshade
+  on/off, light count, scale count, sun azimuth and altitude, tint palette and
+  opacity, contours, and vertical exaggeration. Nothing was replaced to add
+  them — the defaults reproduce the view exactly as it stood, including the
+  light direction, which was a hard-coded vector and is now the same direction
+  written in degrees. (Exposing it revealed that the vector's own comment
+  claimed north-west while the vector was south-west; the vector was right.)
+  Controls that cannot act grey out rather than disappearing, and **Reset**
+  restores all of them from one block of defaults rather than a hand-maintained
+  list.
+
+  **Multidirectional lighting** (3 or 6 lights) spreads lights evenly around the
+  compass at the chosen altitude, weighted toward the primary azimuth. One light
+  leaves whole faces in flat black where nothing can be read; several fill those
+  shadows without flattening the relief. Total brightness is unchanged — the
+  weights sum to one and all lights share an altitude, so flat ground is lit
+  identically at one light or six and only the shadow side moves.
+
+  **Multiscale shading** blends slopes measured over three window widths, because
+  a narrow window describes texture and a wide one describes landform, and one
+  radius has to choose.
+
+  **Three tint palettes**: hypsometric (default), a rainbow in the order Turbo
+  popularised, and greyscale. The rainbow is written from our own stops rather
+  than lifted from Google's table — the ordering is the useful part and is a
+  fact about rainbows. It resolves small differences far better than a
+  sequential ramp, which is both why it is offered and why it is not the
+  default: it implies boundaries the ground does not have.
+
+  **Both shading modes are switchable** from the panel: relief by default, the
+  original flat-shaded facets one click away. A faceted surface makes the mesh
+  itself visible, and "where are the vertices" is occasionally the question
+  being asked. The *geometry* is identical in both — the vertical scale is a
+  correctness matter and not a style, so switching shading can never bring back
+  the distortion the flat view originally shipped with. A test asserts exactly
+  that. Contours work in either mode.
+
+  The tint ramp is handed to the page as a lookup table rather than
+  re-implemented in JavaScript, the same decision as the conflict map's band
+  table and for the same reason. 256 samples, which puts the largest step
+  between neighbours at two units per channel -- at 64 it was seven, which shows
+  as a band on the ramp's steepest segment.
+
+- **The 3D terrain view was drawn 55x too steep.** Reported as "from the top it
+  looks correct, but from the side the slope is way too extreme" -- which is the
+  signature of a *normalised* height axis, because looking straight down hides
+  the vertical entirely and only an oblique view shows it.
+
+  Heights are in world units, and 65 vertices span a cell's 8,192 units, so
+  there are 128 world units between adjacent vertices. The renderer plotted x
+  and y as vertex *indices* but scaled height to a constant 110 units --
+  `((z-lo)/span)*110` -- so every cell was drawn the same height on screen
+  whatever its actual relief, on a footprint 32 units wide. A cell with 512
+  units of relief should stand 2 units tall; it stood 110. **The exaggeration
+  was worse the flatter the terrain**, which is exactly why gentle hills read as
+  cliffs.
+
+  Height is now divided by the real world-unit spacing (times the sampling
+  stride, which widens the horizontal step and would otherwise reintroduce the
+  bug at 2x). A 45-degree slope in the world is now a 45-degree slope on screen,
+  which is the property the tests assert. A **Vertical** control offers 2x, 5x,
+  10x and 25x for reading genuinely flat terrain, defaulting to 1x -- and the
+  height readout says so whenever the view is exaggerated, so a distorted shape
+  can never be mistaken for a true one.
+
+- **The emitted TOML could abort the Configurator outright, and did.** Found in
+  a real generated file: 389 insert entries over 2,229 lines, and one of its
+  anchors fatal.
+
+  - **`data=` inserts never got the `insertBlock` treatment.** That change
+    landed for `content=` only, so the data half still wrote one
+    `[[Customizations.insert]]` per path -- 372 of them in the reported file,
+    152 sharing a single anchor. They are now one block per contiguous run: 389
+    entries become 39.
+
+  - **A data anchor is now checked for uniqueness, and widened when it is not.**
+    The Configurator matches anchors with `strings.Contains` against whole
+    lines and treats more than one match as **fatal for the entire run** -- it
+    returns a nil cfg, so nothing is applied. `_anchor_is_unique` existed but
+    was wired only into the content path. In the reported file
+    `...\UvirithsLegacy\Data Files` was chosen as an anchor while
+    `...\UvirithsLegacy\Data Files\Addons` was also a real line, so the anchor
+    matched twice.
+
+    Rather than give up on an ambiguous anchor, the emitter now *widens* it to
+    the whole cfg line, which is very often unique where the bare value was
+    not, because the line carries delimiters the value lacks:
+    `data="...\Data Files"` is not a substring of `data="...\Data Files\Addons"`
+    -- the closing quote ends it. The same widening fixes a long-standing
+    content-side case: `Wares.esp` is a substring of `Better Wares.esp`, but
+    `content=Wares.esp` is not a substring of `content=Better Wares.esp`. That
+    ambiguity previously forced a fallback to the other neighbour; now the
+    natural anchor survives. Where widening cannot help -- an unquoted path
+    that is a prefix of another has no delimiter to widen to -- the other
+    neighbour is still tried, and only then is the ambiguous anchor emitted
+    with its warning, because a rebuild that stops and says which line was
+    ambiguous beats a cfg quietly missing mods.
+
+  - **The `after` reversal had to go with it.** N separate inserts sharing one
+    `after` anchor each land immediately after that same line, so they come out
+    reversed and were deliberately *written* reversed to compensate. A block is
+    placed as a unit and keeps its own order, so carrying the reversal across
+    would have silently inverted every run anchored that way. Both directions
+    are now pinned against `simulate_configurator_apply`.
+
+  The equivalence harness had modelled two forms -- chaining each insert on the
+  previous one, and a single block -- but never the third the data emitter
+  actually used, N inserts on one *fixed* anchor. That is why none of this was
+  caught. It is covered now, along with the data emitter end to end.
+
+- **The app could refuse to start over drag and drop.** `HAVE_DND` recorded
+  whether the *Python* package `tkinterdnd2` imports, and every drop-target
+  registration then assumed the **tkdnd Tcl package was loaded into the
+  interpreter** -- which is a different fact, and only true when the root
+  window was built with `TkinterDnD.Tk()`. Where they disagree (a
+  half-installed tkdnd, a frozen build that shipped one side without the
+  other), the first path field raised `TclError` during construction and took
+  the whole window build with it. No window, and a traceback pointing at a text
+  entry rather than at the missing package.
+
+  Registration is now guarded and probes the interpreter rather than the
+  import, so a missing tkdnd costs exactly what it should: no drag and drop,
+  Browse buttons instead, and the banner that says so now tells the truth
+  instead of reporting on the import.
+
+  Found by running the new Tk suite on a real desktop for the first time --
+  the suite built a plain root, every test errored during setup, and the test
+  bug and the product bug were the same mistake.
+
+- **Six defects found by auditing the release's own new code.** Each is fixed
+  with a test, and each test was verified by re-introducing the defect and
+  confirming a red run. Five of the six were in code written for 3.1, which is
+  the point of auditing new work rather than only reviewing it.
+
+  - **A rule could silently lose a plugin.** mlox reads a line beginning with
+    whitespace as message text, so a name typed into the rule maker with a
+    leading space vanished from the rule -- and the rule still loaded, still
+    looked right, and simply did not apply to that plugin. Verified against the
+    real loader before fixing. Names are now stripped.
+  - **`table()` could silently drop rows** (`viz/html.py`). It paired rows with
+    per-row attributes using `zip`, which stops at the shorter list, and the
+    list that runs short is the attributes -- so a caller one attribute shy lost
+    a *table row*. On the conflict map that means losing a conflict. The
+    project's blanket `B905` exemption claims every `zip()` was reviewed
+    individually; this one had not been. Now padded.
+  - **A conflict record with `plugins` as a string produced ten proposals about
+    single letters** (`rules/derive.py`). A bare string is iterable, so
+    `"A.esp"` where `["A.esp"]` was meant was iterated by character. That module
+    exists to keep guesses from being presented as facts, so confident nonsense
+    is the one output it must never produce.
+  - **`@@Section`** when the field is labelled `@section:` and the guidelines
+    write sections as `@Name`, so typing the `@` -- the natural thing to do --
+    doubled it.
+  - **An out-of-range highlight priority rendered no mark at all**, silently,
+    which is not what asking for one means. Now refused.
+  - **A dead `_REF` regex** in `rules/authoring.py`, defined and never used.
+
+  A sweep for the same shapes elsewhere found no others: no `TODO`/`FIXME`
+  markers, no unreferenced private names, and the docs renderer emits no
+  `<script` under any input tried against it.
+
 ### Internal
 
 - **A headless Tk smoke job in CI** (`tests/test_gui_smoke.py`, run under
@@ -170,6 +398,31 @@ shipped, so the two can be told apart at a glance.
   gridded into the same cell, and that each window opens with content in it. It
   fails if the tests *skip*, since a skip would otherwise pass green having
   checked nothing.
+
+  **Extended** to the things a checklist reads past: every shipped Help document
+  renders to a real page, every log theme applies and repaints, the backups
+  window replaces itself instead of stacking, a format reference opens for six
+  record types rather than the one, and settings survive a save and load --
+  each string field, each checkbox, and the rule list in order.
+
+  That last one generalises: a test compares the keys `_gather_settings` writes
+  against the keys `_load_settings` reads, because an option saved but never
+  loaded is written on every exit and discarded on every start, with nothing
+  erroring and the file looking correct. The manual `SMOKE_TEST.md` pass is now
+  scoped to what a test cannot judge -- whether the output is *right*, and
+  whether the screen is readable.
+
+  **16 tests to 42, and run for real:** 42 passed, 0 skipped on Windows 11 /
+  Python 3.14.5 / pytest 9.1.1. The expected count is recorded in
+  `SMOKE_TEST.md` because a suite that quietly collects 38 instead of 42 has
+  lost four checks and still reports green.
+
+  Zero *skipped* is the harder half of that. A skip means the check did not run,
+  and the first version of this suite hid its most important test behind one:
+  the case covering the drag-and-drop bug below needed a second Tk root, which
+  the environment declined to give it, so the check silently did not happen.
+  It is now simulated on the existing root instead and cannot skip. CI fails the
+  job on any skip for the same reason.
 - **76 annotation-only imports moved under `TYPE_CHECKING`**, and ruff's `TC`
   rules enabled so they stay there. Safe without exception because every module
   uses PEP 563 string annotations and nothing introspects them at runtime;

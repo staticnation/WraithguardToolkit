@@ -14,10 +14,17 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import struct
+from itertools import pairwise
 
 import pytest
 
+from mlox_subset.tes3fields.landscape import (
+    HEIGHT_SCALE,
+    LAND_SIZE,
+    LAND_VERTEX_SPACING,
+)
 from mlox_subset.viz import (
     build_conflict_map,
     build_height_delta,
@@ -28,8 +35,16 @@ from mlox_subset.viz import (
 from mlox_subset.viz.geometry import Cell, bounds, group_by_cell, is_interior, parse_grid
 from mlox_subset.viz.heightdelta import HeightDeltaError
 from mlox_subset.viz.html import escape, table
-from mlox_subset.viz.palette import divergence, legend_stops, saturation_point, severity
-from mlox_subset.viz.terrain3d import Terrain3DError
+from mlox_subset.viz.palette import (
+    NEUTRAL,
+    TINT_RAMPS,
+    coverage_heat,
+    divergence,
+    severity_banded,
+    severity_legend_rows,
+    tint_ramp,
+)
+from mlox_subset.viz.terrain3d import _STRIDE, Terrain3DError
 
 
 def vhgt(bumps: dict[int, int] | None = None) -> str:
@@ -155,15 +170,47 @@ class TestGeometry:
         assert bounds([]) is None
 
 
+def channel_distance(first: str, second: str) -> int:
+    """Total per-channel difference between two ``#rrggbb`` colours.
+
+    A crude stand-in for perceptual distance, and deliberately so: the question
+    is whether two swatches read as different colours at a glance, and summed
+    channel difference answers it without importing a colour-science library.
+
+    Args:
+        first: A ``#rrggbb`` string.
+        second: A ``#rrggbb`` string.
+
+    Returns:
+        The sum of the absolute red, green and blue differences, 0-765.
+    """
+    return sum(abs(int(first[i : i + 2], 16) - int(second[i : i + 2], 16)) for i in (1, 3, 5))
+
+
 class TestPalette:
     def test_severity_is_monotonic(self):
         """More conflicts must never render as a cooler colour."""
-        seen = [severity(n, 50) for n in range(1, 51)]
+        seen = [severity_banded(n, 50) for n in range(1, 51)]
         reds = [int(c[1:3], 16) for c in seen]
         assert reds == sorted(reds)
 
     def test_severity_of_nothing_is_neutral(self):
-        assert severity(0, 10) == severity(5, 0)
+        """A cell with no conflicts must not be coloured as if it had some."""
+        assert severity_banded(0, 10) == NEUTRAL
+
+    def test_a_contradictory_worst_still_yields_a_colour(self):
+        """Five conflicts on a map whose worst is zero cannot both be true.
+
+        It happens when a caller reuses a stale maximum. Matching
+        :func:`coverage_heat`'s handling exactly -- the lowest band rather than
+        an exception -- because the two maps sit side by side and a degenerate
+        input should not make them disagree about anything.
+        """
+        # Both maps must answer, and neither may answer NEUTRAL -- there is a
+        # count here, so "nothing to report" would be the one wrong reply.
+        for got in (severity_banded(5, 0), coverage_heat(5, 0)):
+            assert got.startswith("#") and len(got) == 7
+            assert got != NEUTRAL
 
     def test_divergence_is_signed(self):
         """Raised and lowered must be visually opposite, not just different."""
@@ -175,10 +222,27 @@ class TestPalette:
         """One extreme vertex must not wrap the ramp and read as its opposite."""
         assert divergence(10_000, 100) == divergence(100, 100)
 
-    def test_legend_stops_ascend(self):
-        counts = [count for count, _colour in legend_stops(30)]
-        assert counts == sorted(counts)
-        assert not legend_stops(0)
+    def test_the_legend_has_one_row_per_band(self):
+        """The legend is the map's key, so it cannot be a sample of a ramp."""
+        rows = severity_legend_rows(30)
+        assert [row[0] for row in rows][:5] == ["1", "2", "3", "4", "5"]
+        assert rows[5][0] == "6-10"
+        assert not severity_legend_rows(0)
+
+    def test_the_first_counts_are_told_apart(self):
+        """The reason for banding: one, two and three conflicts differ.
+
+        Measured as a colour *distance*, not as inequality. A linear ramp does
+        give these three different values -- 1/30, 2/30, 3/30 -- but they land
+        within a few units per channel of each other, which is invisible on a
+        nine-pixel square. Asserting only that they differ passes on the very
+        ramp banding exists to replace; this was caught by a negative control
+        doing exactly that.
+        """
+        low, mid, high = (severity_banded(n, 30) for n in (1, 2, 3))
+
+        assert channel_distance(low, mid) >= 40
+        assert channel_distance(mid, high) >= 40
 
     def test_an_ordinary_cell_stays_green_beside_a_hot_one(self):
         """The defect that rendering the map exposed.
@@ -187,16 +251,21 @@ class TestPalette:
         yellow, so a busy load order made the entire map look urgent and
         nothing stood out. Green here means "green is still reachable".
         """
-        colour = severity(3, 30)
+        colour = severity_banded(3, 30)
         assert int(colour[3:5], 16) > int(colour[1:3], 16)
 
-    def test_saturation_ignores_a_single_pathological_cell(self):
-        """One 400-conflict cell must not rescale the other ninety-nine."""
-        counts = [*([2] * 99), 400]
-        assert saturation_point(counts) < 100
+    def test_one_pathological_cell_does_not_flatten_the_rest(self):
+        """What the 95th-percentile clamp used to be for.
 
-    def test_saturation_of_nothing_is_zero(self):
-        assert saturation_point([]) == 0
+        Banding replaced it: a 400-conflict outlier lands in the open-ended top
+        band and costs the ordinary counts nothing, so the map can now be drawn
+        against the true maximum and the legend describes the real range.
+        """
+        assert severity_banded(2, 400) != severity_banded(3, 400)
+
+    def test_the_top_band_is_open_ended_on_a_wide_map(self):
+        """Otherwise a huge worst case would need hundreds of legend rows."""
+        assert severity_legend_rows(400)[-1][0].endswith("+")
 
 
 class TestHtmlEscaping:
@@ -214,6 +283,63 @@ class TestHtmlEscaping:
 
     def test_empty_table_says_so(self):
         assert "Nothing to show" in table(["a"], [])
+
+
+class TestConflictMapScale:
+    """The map is banded, and banded against the *true* worst cell."""
+
+    @staticmethod
+    def busy(count: int) -> list[dict]:
+        """A single cell carrying ``count`` conflicts.
+
+        Args:
+            count: How many conflicting records to put in the cell.
+
+        Returns:
+            Conflict records the map can group.
+        """
+        return [
+            {
+                "type": "Landscape",
+                "id": "(1, 1)",
+                "plugins": ["a.esp", "b.esp"],
+                "winner": "b.esp",
+                "involves_subset": False,
+            }
+            for _ in range(count)
+        ]
+
+    def test_the_legend_reaches_the_worst_cell(self):
+        """Scaled to the true maximum, not to a percentile of it.
+
+        Percentile clamping existed for the continuous ramp; with banding an
+        outlier lands in the top band harmlessly, and clamping would instead
+        make the legend describe a range the map does not have. Forty
+        conflicts must produce a band that contains forty.
+        """
+        page = build_conflict_map(self.busy(40))
+
+        assert "36-40" in page, "the legend stops short of the worst cell"
+
+    def test_the_cell_itself_is_painted_the_legend_colour(self):
+        """Asserted on the ``<rect>`` fill, not on the page text.
+
+        Searching the whole page finds the colour in the *legend* even when the
+        cell was painted something else entirely, so the map and its own key
+        could disagree with the test still green -- which a negative control
+        proved by rescaling only the fill.
+        """
+        page = build_conflict_map(self.busy(12))
+        fills = re.findall(r'<rect[^>]*\bfill="(#[0-9a-f]{6})"', page)
+
+        assert fills == [severity_banded(12, 12)]
+
+    def test_the_first_counts_get_their_own_bands(self):
+        """One conflict and two must not share a swatch in the legend."""
+        page = build_conflict_map(self.busy(3))
+
+        assert severity_banded(1, 3) in page
+        assert severity_banded(2, 3) in page
 
 
 class TestConflictMap:
@@ -421,6 +547,308 @@ class TestPathGrid:
         """Documented as raising KeyError -- the caller must pass a real winner."""
         with pytest.raises(KeyError):
             build_pathgrid_graph({"a.esp": (pgrd([1, 0]), self.POINTS)}, winner_name="absent.esp")
+
+
+class TestTerrain3DIsDrawnToScale:
+    """The vertical must be the same scale as the ground, not normalised.
+
+    The reported symptom was "correct from the top, way too extreme from the
+    side", which is the signature of a normalised height axis: looking straight
+    down hides the vertical entirely, so only an oblique view shows it.
+
+    The cause was ``((z-lo)/span)*110`` -- every cell drawn 110 units tall
+    whatever its actual relief, on a footprint 32 units wide. A cell with 512
+    world units of relief should stand 2 units tall; it stood 110. Fifty-five
+    times too steep, and *worse the flatter the terrain*, which is why gentle
+    hills looked like cliffs.
+    """
+
+    @staticmethod
+    def payload(units_per_step: float) -> bytes:
+        """A ramp rising a fixed number of world units per vertex step north.
+
+        Args:
+            units_per_step: World units of rise between adjacent vertices.
+
+        Returns:
+            A VHGT delta payload.
+        """
+        deltas = bytearray(LAND_SIZE * LAND_SIZE)
+        for y in range(1, LAND_SIZE):
+            deltas[y * LAND_SIZE] = round(units_per_step / HEIGHT_SCALE)
+        return bytes(deltas)
+
+    @staticmethod
+    def payload_data(page: str) -> dict:
+        """Pull the embedded terrain payload back out of a rendered page.
+
+        Args:
+            page: The rendered HTML.
+
+        Returns:
+            The decoded payload.
+        """
+        return json.loads(re.search(r"window\.__terrain=(\{.*?\});</script>", page, re.S).group(1))
+
+    def test_a_45_degree_slope_is_drawn_at_45_degrees(self):
+        """The whole property, stated as the one angle anybody can check.
+
+        A ramp rising exactly one vertex-spacing per vertex step is at 45
+        degrees in the world. One unit of height per unit of ground on screen
+        is 45 degrees there too.
+        """
+        page = build_terrain_3d({"a.esp": (self.payload(LAND_VERTEX_SPACING), 0.0)})
+        data = self.payload_data(page)
+        grid = data["surfaces"][0]["grid"]
+
+        rise = grid[1][0] - grid[0][0]
+        assert rise / data["units_per_step"] == pytest.approx(1.0)
+
+    def test_the_sampling_stride_is_accounted_for(self):
+        """The grid is drawn at every other vertex, so the step is twice as wide.
+
+        Dividing by the unsampled spacing would exaggerate by exactly the
+        stride -- a subtler version of the same bug, and one that would have
+        looked plausible.
+        """
+        data = self.payload_data(build_terrain_3d({"a.esp": (self.payload(64), 0.0)}))
+
+        assert data["units_per_step"] == LAND_VERTEX_SPACING * _STRIDE
+
+    def test_a_gentle_cell_and_a_steep_one_differ(self):
+        """The defect itself: normalising made every cell the same height.
+
+        Two cells whose relief differs by a factor of four must not draw to the
+        same height. Under the old renderer they did, exactly.
+        """
+        gentle = self.payload_data(build_terrain_3d({"a.esp": (self.payload(16), 0.0)}))
+        steep = self.payload_data(build_terrain_3d({"a.esp": (self.payload(64), 0.0)}))
+
+        def height(data: dict) -> float:
+            grid = data["surfaces"][0]["grid"]
+            flat = [v for row in grid for v in row]
+            return (max(flat) - min(flat)) / data["units_per_step"]
+
+        assert height(steep) == pytest.approx(height(gentle) * 4, rel=0.02)
+
+    def test_true_scale_is_the_default(self):
+        """Exaggeration is opt-in; the view must not lie unless asked to."""
+        assert self.payload_data(build_terrain_3d({"a.esp": (vhgt(), 0.0)}))["exaggeration"] == 1.0
+
+    def test_exaggeration_can_be_chosen_and_is_labelled(self):
+        """A distorted view is fine as long as it says it is distorted."""
+        page = build_terrain_3d({"a.esp": (vhgt(), 0.0)})
+
+        assert 'id="exag"' in page
+        assert "exaggerated" in self.payload_data(page)["labels"]
+
+
+class TestTerrainShading:
+    """A hillshade layer with a hypsometric tint composited over it.
+
+    The old renderer flat-filled one colour per quad, mixing slope and height
+    into a single number. That loses both: a smooth hillside came out as 1,024
+    visible facets, and "which way does this face" could not be read apart from
+    "how high is it". The two are now separate layers, shaded per pixel.
+    """
+
+    def test_every_palette_is_handed_over_rather_than_reimplemented(self):
+        """The client shades pixels, so it needs each curve as data.
+
+        Same reasoning as the conflict map's band table: a ramp written out
+        twice is a ramp that will eventually disagree with itself.
+        """
+        data = payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")
+
+        assert set(data["palettes"]) == set(TINT_RAMPS)
+        for ramp in data["palettes"].values():
+            assert len(ramp) == 256
+            assert all(len(rgb) == 3 for rgb in ramp)
+            assert all(0 <= c <= 255 for rgb in ramp for c in rgb)
+
+    def test_the_ramps_match_the_palette_module(self):
+        """What the page draws must be what :func:`tint_ramp` says."""
+        data = payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")
+
+        for name in TINT_RAMPS:
+            expected = [
+                [int(colour[i : i + 2], 16) for i in (1, 3, 5)] for colour in tint_ramp(name)
+            ]
+            assert data["palettes"][name] == expected, name
+
+    def test_an_unknown_palette_is_refused(self):
+        """Silently drawing the wrong colours is worse than failing to build."""
+        with pytest.raises(KeyError, match="unknown tint"):
+            tint_ramp("chartreuse")
+
+    def test_the_rainbow_resolves_more_than_the_hypsometric_ramp(self):
+        """Which is the whole reason it is offered.
+
+        On nearly flat ground a sequential tint is one shade of green; a
+        rainbow turns the same range into distinguishable bands. Measured as
+        the mean step between neighbouring samples.
+        """
+
+        def spread(name: str) -> float:
+            ramp = tint_ramp(name, 32)
+            return sum(channel_distance(a, b) for a, b in pairwise(ramp)) / (len(ramp) - 1)
+
+        assert spread("rainbow") > spread("hypsometric")
+
+    def test_the_tint_runs_low_to_high(self):
+        """Hypsometric convention: green valleys, pale summits.
+
+        Checked as lightness rather than by naming colours, so the stops can be
+        retuned without rewriting the test that says which way they go.
+        """
+        ramp = tint_ramp("hypsometric")
+        low = sum(int(ramp[0][i : i + 2], 16) for i in (1, 3, 5))
+        high = sum(int(ramp[-1][i : i + 2], 16) for i in (1, 3, 5))
+
+        assert high > low
+
+    def test_the_tint_is_continuous(self):
+        """A visible step in the ramp reads as a contour line that is not there."""
+        ramp = tint_ramp("hypsometric")
+        jumps = [channel_distance(a, b) for a, b in pairwise(ramp)]
+
+        # Two units per channel, summed over three -- roughly the point where
+        # a step in a smooth gradient stops being visible. At 64 samples the
+        # steepest segment stepped by seven per channel, which does show.
+        assert max(jumps) <= 6, f"a step of {max(jumps)} would show as a band"
+
+    def test_the_default_opacity_lets_the_hillshade_through(self):
+        """Neither layer may be doing all the work.
+
+        Below about 0.4 the colour stops reading as elevation; above about 0.7
+        the shading that carries the shape is washed out.
+        """
+        data = payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")
+
+        assert 0.4 <= data["tint_alpha"] <= 0.7
+
+    def test_the_opacity_is_a_slider_from_zero(self):
+        """Hillshade alone is a legitimate way to read a shape."""
+        page = build_terrain_3d({"a.esp": (vhgt(), 0.0)})
+
+        assert 'id="tint"' in page
+        assert 'min="0"' in page
+
+    def test_the_lighting_is_fully_exposed(self):
+        """Azimuth, altitude, light count and scale count, all adjustable.
+
+        Asserted on the *kind* of control and its range, not merely on the id
+        being present: an element with the right id and the wrong type passes a
+        presence check while being unusable, which a negative control proved by
+        swapping the azimuth slider for a checkbox.
+        """
+        page = build_terrain_3d({"a.esp": (vhgt(), 0.0)})
+
+        for control in ("lights", "detail", "palette", "shading", "exag"):
+            assert f'<select id="{control}"' in page, control
+        for control in ("hillshade", "contours"):
+            assert f'type="checkbox" id="{control}"' in page, control
+        # A compass needs the whole circle; solar elevation needs a quadrant.
+        assert 'type="range" id="azimuth" min="0" max="359"' in page
+        assert 'type="range" id="altitude" min="1" max="90"' in page
+        assert 'type="range" id="tint" min="0" max="100"' in page
+
+    def test_the_default_light_is_the_one_this_view_has_always_used(self):
+        """Exposing a value must not quietly change it.
+
+        The hard-coded vector was south-west at a shallow angle; the defaults
+        are the same direction expressed in degrees, so turning the controls on
+        does not restyle anybody's existing view.
+        """
+        data = payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")
+
+        assert data["azimuth"] == 225
+        assert 35 <= data["altitude"] <= 42
+        assert data["lights"] == 1
+        assert data["detail"] == 1
+        assert data["hillshade"] is True
+
+    def test_reset_restores_every_control(self):
+        """A Reset that misses one control is worse than none: it looks done.
+
+        The defaults are shipped as a block keyed by the script's own state
+        names, so Reset needs no mapping table -- which is the thing that goes
+        stale when a tenth control is added.
+        """
+        data = payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")
+        page = build_terrain_3d({"a.esp": (vhgt(), 0.0)})
+
+        adjustable = {
+            "shading",
+            "hillshade",
+            "lights",
+            "detail",
+            "azimuth",
+            "altitude",
+            "palette",
+            "tint",
+            "contours",
+            "exag",
+        }
+        covered = set(data["defaults"])
+        # "exag" is the element id; "exaggeration" is the state key it sets.
+        covered.add("exag") if "exaggeration" in covered else None
+
+        assert adjustable <= covered, f"not restored by Reset: {adjustable - covered}"
+        for control in adjustable:
+            assert f'id="{control}"' in page, control
+
+    def test_contours_are_on_by_default(self):
+        """They are the cheapest way to read absolute height off the surface."""
+        assert payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")["contours"]
+
+    def test_the_contour_interval_is_labelled(self):
+        """A contour without a stated interval measures nothing."""
+        data = payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")
+
+        assert "%(step)s" in data["labels"]["contours"]
+
+    def test_the_viewpoint_presets_are_offered(self):
+        """Neither can be reached by dragging with any accuracy."""
+        page = build_terrain_3d({"a.esp": (vhgt(), 0.0)})
+
+        assert 'id="isoView"' in page
+        assert 'id="topView"' in page
+
+    def test_relief_shading_is_the_default(self):
+        """Flat is the fallback, not the starting point."""
+        data = payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")
+
+        assert data["shading"] == "relief"
+
+    def test_the_shading_mode_can_be_switched(self):
+        """The old faceted look is still reachable; some questions want it."""
+        page = build_terrain_3d({"a.esp": (vhgt(), 0.0)})
+
+        assert 'id="shading"' in page
+        assert 'value="flat"' in page
+        assert 'value="relief"' in page
+
+    def test_switching_shading_cannot_change_the_geometry(self):
+        """The scale fix is correctness, not style, and both modes keep it.
+
+        Everything the projection depends on -- the height grid, the world
+        spacing, the exaggeration -- is shared, so no shading mode can
+        reintroduce the vertical distortion that mode was originally drawn
+        with. Asserted on the payload because that is the only thing the
+        renderer projects from.
+        """
+        data = payload_of(build_terrain_3d({"a.esp": (vhgt({70: 9}), 0.0)}), "terrain")
+
+        assert data["units_per_step"] == LAND_VERTEX_SPACING * _STRIDE
+        assert data["exaggeration"] == 1.0
+        # One grid, not one per mode: two grids could drift apart.
+        assert len(data["surfaces"]) == 1
+
+    def test_a_two_step_ramp_is_refused(self):
+        """A ramp needs two ends; fewer cannot describe one."""
+        with pytest.raises(ValueError, match="at least two"):
+            tint_ramp("hypsometric", 1)
 
 
 class TestTerrain3D:

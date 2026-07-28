@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from typing import TYPE_CHECKING, Any
 
-from mlox_subset.gui import DND_FILES, HAVE_DND, trace_first_fire
+from mlox_subset.gui import register_drop_target, trace_first_fire
 from mlox_subset.gui.theme import DARK
 from mlox_subset.i18n import gettext as _
 from mlox_subset.tracing import trace
@@ -220,10 +220,7 @@ class PathField:
             add_tooltip(entry, tooltip)
             add_tooltip(browse_btn, tooltip)
 
-        if HAVE_DND:
-            # tkinterdnd2 monkey-patches these onto the widget at runtime.
-            entry.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
-
+        if register_drop_target(entry):
             # Any: tkinterdnd2 synthesises its own event object, which has no
             # published type -- only a `.data` string this reads.
             def on_drop(event: Any) -> None:  # noqa: ANN401
