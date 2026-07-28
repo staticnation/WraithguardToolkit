@@ -1016,3 +1016,368 @@ class TestFormatReferenceCoversTheSchema:
             assert text.get("1.0", "end").strip(), f"{record}: the window is empty"
         finally:
             window.destroy()
+
+
+class TestResourceWindowMeshDetail:
+    """Meshes are read when a row is selected, and never before."""
+
+    @staticmethod
+    def _conflict(tmp_path: Path, name: str, left: bytes, right: bytes) -> dict[str, Any]:
+        """Build a conflict entry backed by two real files.
+
+        Args:
+            tmp_path: Temporary directory.
+            name: The asset path.
+            left: Bytes for the losing provider.
+            right: Bytes for the winning provider.
+
+        Returns:
+            A conflict entry.
+        """
+        import struct
+
+        first, second = tmp_path / "ModA", tmp_path / "ModB"
+        for folder in (first, second):
+            (folder / name).parent.mkdir(parents=True, exist_ok=True)
+        (first / name).write_bytes(left)
+        (second / name).write_bytes(right)
+        del struct
+        return {
+            "path": name,
+            "providers": [str(first), str(second)],
+            "winner": str(second),
+            "involves_subset": True,
+            "identical": left == right,
+        }
+
+    @staticmethod
+    def _mesh(blocks: int = 0) -> bytes:
+        """A parseable NIF with no blocks.
+
+        Args:
+            blocks: The block count to declare.
+
+        Returns:
+            The file bytes.
+        """
+        import struct
+
+        return b"NetImmerse File Format, Version 4.0.0.2\n" + struct.pack("<II", 0x04000002, blocks)
+
+    def test_opening_the_window_parses_no_meshes(self, app: Any, tmp_path: Path) -> None:
+        """The whole design rests on this: the scan must stay cheap.
+
+        Args:
+            app: The application.
+            tmp_path: Temporary directory.
+        """
+        conflict = self._conflict(tmp_path, "meshes/a.nif", self._mesh(0), self._mesh(1))
+        app._show_resource_window([conflict], {"conflicts": 1, "dirs": 2, "files": 2})
+        window = app._res_win
+        try:
+            analyser = getattr(app, "_mesh_analyser", None)
+            assert analyser is None or analyser.parsed == 0
+        finally:
+            window.destroy()
+
+    def test_selecting_a_mesh_row_fills_in_the_detail(self, app: Any, tmp_path: Path) -> None:
+        """And only then is anything read.
+
+        Args:
+            app: The application.
+            tmp_path: Temporary directory.
+        """
+        conflict = self._conflict(tmp_path, "meshes/a.nif", self._mesh(0), self._mesh(1))
+        app._show_resource_window([conflict], {"conflicts": 1, "dirs": 2, "files": 2})
+        window = app._res_win
+        try:
+            tree = app._res_tree
+            rows = tree.get_children()
+            assert rows, "the resource tree opened empty"
+            tree.selection_set(rows[0])
+            tree.event_generate("<<TreeviewSelect>>")
+            app.root.update_idletasks()
+            assert app._mesh_analyser.parsed > 0, "selecting a mesh row read nothing"
+        finally:
+            window.destroy()
+
+    def test_an_unreadable_mesh_does_not_close_the_window(self, app: Any, tmp_path: Path) -> None:
+        """Mod folders hold files that are not meshes at all.
+
+        Args:
+            app: The application.
+            tmp_path: Temporary directory.
+        """
+        conflict = self._conflict(tmp_path, "meshes/a.nif", b"junk", self._mesh(0))
+        app._show_resource_window([conflict], {"conflicts": 1, "dirs": 2, "files": 2})
+        window = app._res_win
+        try:
+            lines = app._mesh_detail(conflict)
+            assert any("could not read" in line for line in lines)
+            assert window.winfo_exists()
+        finally:
+            window.destroy()
+
+
+class TestResourceWindowShowsFindingsWithoutClicking:
+    """The findings must be visible in the list, not only after selecting a row.
+
+    This is the gap that shipped: the engine had the mesh pass, the detail
+    panel had it, and the *window* called neither -- so the feature existed and
+    was unreachable. Every test passed, because each one exercised a piece
+    rather than the path a user takes.
+    """
+
+    @staticmethod
+    def _entry(path: str, finding: Any) -> dict[str, Any]:
+        """A conflict entry carrying a pre-made finding.
+
+        Args:
+            path: The asset path.
+            finding: The mesh finding to attach, or ``None``.
+
+        Returns:
+            A conflict entry.
+        """
+        entry: dict[str, Any] = {
+            "path": path,
+            "providers": ["ModA", "ModB"],
+            "winner": "ModB",
+            "involves_subset": False,
+            "identical": False,
+        }
+        if finding is not None:
+            entry["mesh"] = finding
+        return entry
+
+    def test_a_mesh_with_a_finding_is_marked_in_the_list(self, app: Any) -> None:
+        """A signal you must click every row to see is not triage.
+
+        Args:
+            app: The application.
+        """
+        from mlox_subset.nif.analysis import MeshFinding
+        from mlox_subset.nif.report import Difference
+
+        finding = MeshFinding(
+            "meshes/a.nif", difference=Difference(None, True, False, [], [], False)
+        )
+        app._show_resource_window([self._entry("meshes/a.nif", finding)], {"conflicts": 1})
+        window = app._res_win
+        try:
+            row = app._res_tree.get_children()[0]
+            assert "!" in app._res_tree.item(row, "values"), app._res_tree.item(row, "values")
+        finally:
+            window.destroy()
+
+    def test_an_unreadable_mesh_is_marked_differently(self, app: Any) -> None:
+        """ "could not read" and "loses collision" send a user elsewhere.
+
+        Args:
+            app: The application.
+        """
+        from mlox_subset.nif.analysis import MeshFinding
+
+        finding = MeshFinding("meshes/a.nif", unreadable="NIF version 0x14020007")
+        app._show_resource_window([self._entry("meshes/a.nif", finding)], {"conflicts": 1})
+        window = app._res_win
+        try:
+            values = app._res_tree.item(app._res_tree.get_children()[0], "values")
+            assert "?" in values, values
+            assert "!" not in values, values
+        finally:
+            window.destroy()
+
+    def test_a_row_with_no_finding_is_not_marked(self, app: Any) -> None:
+        """A negative control: a mark on everything is a mark on nothing.
+
+        Args:
+            app: The application.
+        """
+        app._show_resource_window([self._entry("textures/a.dds", None)], {"conflicts": 1})
+        window = app._res_win
+        try:
+            values = app._res_tree.item(app._res_tree.get_children()[0], "values")
+            assert "!" not in values and "?" not in values, values
+        finally:
+            window.destroy()
+
+
+class TestThreeDButtonsAreReachable:
+    """The buttons must exist, and must enable only for meshes.
+
+    Written because "wired into the app" was claimed once already while the
+    feature was unreachable from the GUI. A structural check of the source
+    passed then too; only opening the window catches this.
+    """
+
+    @staticmethod
+    def _entry(path: str) -> dict[str, Any]:
+        """A conflict entry for the given asset path.
+
+        Args:
+            path: The asset path.
+
+        Returns:
+            A conflict entry.
+        """
+        return {
+            "path": path,
+            "providers": ["ModA", "ModB"],
+            "winner": "ModB",
+            "involves_subset": False,
+            "identical": False,
+        }
+
+    def test_both_buttons_exist_in_the_resource_window(self, app: Any) -> None:
+        """A feature nobody can find is indistinguishable from one that is absent.
+
+        Args:
+            app: The application.
+        """
+        app._show_resource_window([self._entry("meshes/a.nif")], {"conflicts": 1})
+        window = app._res_win
+        try:
+            labels = {
+                str(child.cget("text"))
+                for frame in window.winfo_children()
+                for child in frame.winfo_children()
+                if child.winfo_class() == "TButton"
+            }
+            assert any("3D" in label for label in labels), labels
+            assert any("Export" in label and "3D" in label for label in labels), labels
+        finally:
+            window.destroy()
+
+    def test_they_start_disabled(self, app: Any) -> None:
+        """Nothing is selected yet, so there is no mesh to show.
+
+        Args:
+            app: The application.
+        """
+        app._show_resource_window([self._entry("meshes/a.nif")], {"conflicts": 1})
+        window = app._res_win
+        try:
+            assert str(app._res_view3d.cget("state")) == "disabled"
+            assert str(app._res_export3d.cget("state")) == "disabled"
+        finally:
+            window.destroy()
+
+    def test_selecting_a_mesh_enables_them(self, app: Any) -> None:
+        """The path a user actually takes.
+
+        Args:
+            app: The application.
+        """
+        app._show_resource_window([self._entry("meshes/a.nif")], {"conflicts": 1})
+        window = app._res_win
+        try:
+            tree = app._res_tree
+            tree.selection_set(tree.get_children()[0])
+            tree.event_generate("<<TreeviewSelect>>")
+            app.root.update_idletasks()
+            assert str(app._res_view3d.cget("state")) == "normal"
+            assert str(app._res_export3d.cget("state")) == "normal"
+        finally:
+            window.destroy()
+
+    def test_selecting_a_texture_leaves_them_disabled(self, app: Any) -> None:
+        """A negative control: enabling them for everything would be no signal.
+
+        Args:
+            app: The application.
+        """
+        app._show_resource_window([self._entry("textures/a.dds")], {"conflicts": 1})
+        window = app._res_win
+        try:
+            tree = app._res_tree
+            tree.selection_set(tree.get_children()[0])
+            tree.event_generate("<<TreeviewSelect>>")
+            app.root.update_idletasks()
+            assert str(app._res_view3d.cget("state")) == "disabled"
+        finally:
+            window.destroy()
+
+
+class TestTheViewerChainUnderstandsUrls:
+    """Every other visualisation is a file; the 3D viewer is served.
+
+    The chain converted its target with ``Path(...).as_uri()``, which turns a
+    URL into a nonsense local path. The failure would look like a broken
+    viewer rather than a mangled address, so the distinction is made before
+    converting rather than after something fails.
+    """
+
+    def test_a_url_is_recognised_and_a_path_is_not(self) -> None:
+        """The whole branch depends on telling them apart."""
+        from mlox_subset_sort_gui import is_view_url
+
+        assert is_view_url("http://127.0.0.1:51283/index.html?t=abc")
+        assert is_view_url("https://example.invalid/x")
+        assert not is_view_url("C:/Users/someone/page.html")
+        assert not is_view_url("/home/someone/page.html")
+
+    def test_a_url_survives_with_its_query_string(self) -> None:
+        """The token lives in the query string.
+
+        Dropping it would make every request 404, and the page would look
+        broken for a reason nothing on screen could explain.
+        """
+        from mlox_subset_sort_gui import view_uri
+
+        url = "http://127.0.0.1:51283/index.html?t=SECRET-TOKEN"
+        assert view_uri(url) == url
+
+    def test_a_path_becomes_a_file_uri(self, tmp_path: Path) -> None:
+        """A negative control: the file case must still work."""
+        from mlox_subset_sort_gui import view_uri
+
+        page = tmp_path / "page.html"
+        page.write_text("<html></html>", encoding="utf-8")
+        assert view_uri(page).startswith("file://")
+        assert view_uri(page).endswith("page.html")
+
+    def test_the_mesh_viewer_goes_through_the_in_app_chain(
+        self, app: Any, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Not straight to the browser, which is what it did first.
+
+        Args:
+            app: The application.
+            tmp_path: Temporary directory.
+            monkeypatch: Patcher.
+        """
+        import struct
+
+        mesh = b"NetImmerse File Format, Version 4.0.0.2\n" + struct.pack("<II", 0x04000002, 0)
+        for name in ("ModA", "ModB"):
+            target = tmp_path / name / "meshes" / "a.nif"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(mesh)
+        conflict = {
+            "path": "meshes/a.nif",
+            "providers": [str(tmp_path / "ModA"), str(tmp_path / "ModB")],
+            "winner": str(tmp_path / "ModB"),
+            "involves_subset": False,
+            "identical": False,
+        }
+        app._show_resource_window([conflict], {"conflicts": 1})
+        window = app._res_win
+        opened: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            app, "open_html_in_app", lambda target, title: opened.append((str(target), title))
+        )
+        monkeypatch.setattr("webbrowser.open", lambda _u: opened.append(("BROWSER", "")))
+        try:
+            tree = app._res_tree
+            tree.selection_set(tree.get_children()[0])
+            tree.event_generate("<<TreeviewSelect>>")
+            app.root.update_idletasks()
+            app._open_mesh_viewer()
+            assert opened, "nothing was opened"
+            assert opened[0][0] != "BROWSER", "the viewer bypassed the in-app chain"
+        finally:
+            window.destroy()
+            server = getattr(app, "_mesh_server", None)
+            if server is not None:
+                server.stop()

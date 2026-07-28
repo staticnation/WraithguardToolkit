@@ -463,9 +463,17 @@ def test_pep420_every_package_directory_is_explicit() -> None:
     -- until it is bundled by PyInstaller, which does not collect them the same
     way. The failure would appear only in the built binary, which is the worst
     place to find it.
+
+    Scoped to directories that actually hold Python. A *data* directory --
+    ``nif/assets/``, which carries the vendored three.js build and its licence
+    -- is not a package and cannot become an accidental namespace one, so
+    demanding an ``__init__.py`` there would be the rule outrunning its reason
+    and would put an empty module beside a JavaScript file to no purpose.
     """
     for directory in (PROJECT_ROOT / "mlox_subset").rglob("*"):
         if not directory.is_dir() or directory.name == "__pycache__":
+            continue
+        if not any(directory.glob("*.py")):
             continue
         assert (directory / "__init__.py").is_file(), f"{directory} has no __init__.py"
 

@@ -9,16 +9,14 @@ not corrupt" are features, not implementation details.
 from __future__ import annotations
 
 import struct
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
+import mlox_subset_sort as mss
 from mlox_subset.configurator import simulate_configurator_apply, toml_value
 from mlox_subset.plugins import PluginFileIndex
 from mlox_subset.sort import build_and_sort, expand_pattern
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # Deliberately malformed TES3 byte streams. Each has broken something a naive
 # reader would trust: the magic, a declared size, or a subrecord boundary.
@@ -658,3 +656,202 @@ class TestDeclaringYourOwnGroundcover:
         )
 
         assert core.declared_groundcover(args) == ["Vurt_Grass.esp", "Remiros.esp"]
+
+
+class TestResourceConflictsCompareContents:
+    """A path in two data folders is a candidate, not necessarily a conflict.
+
+    The scan used to report every shared path, so a mod that re-ships an
+    unedited vanilla texture -- or a patch that simply re-includes an asset it
+    did not touch -- appeared exactly like a genuine override. On a real load
+    order that is most of the list, and it buries the overrides that matter.
+    """
+
+    @staticmethod
+    def build(tmp_path: Path, layout: dict[str, dict[str, bytes]]) -> list[str]:
+        """Create data folders from a nested mapping.
+
+        Args:
+            tmp_path: The temp directory to build under.
+            layout: Folder name to ``{relative path: bytes}``.
+
+        Returns:
+            The folder paths, in the order given.
+        """
+        made: list[str] = []
+        for folder, files in layout.items():
+            root = tmp_path / folder
+            for rel, blob in files.items():
+                target = root / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(blob)
+            made.append(str(root))
+        return made
+
+    def test_identical_files_are_marked(self, tmp_path: Path) -> None:
+        """Same bytes in every provider is not a decision anybody has to make.
+
+        Args:
+            tmp_path: Pytest's temp directory.
+        """
+        dirs = self.build(
+            tmp_path,
+            {
+                "a": {"textures/t.dds": b"same" * 64},
+                "b": {"textures/t.dds": b"same" * 64},
+            },
+        )
+        conflicts, stats = mss.detect_resource_conflicts(dirs)
+
+        assert [c["identical"] for c in conflicts] == [True]
+        assert stats["identical"] == 1
+        assert stats["differing"] == 0
+
+    def test_a_real_override_is_not(self, tmp_path: Path) -> None:
+        """Same length, different bytes -- the case the size check cannot settle.
+
+        Deliberately equal-length, because a size comparison alone would call
+        these identical and the hash is the only thing that catches it.
+
+        Args:
+            tmp_path: Pytest's temp directory.
+        """
+        dirs = self.build(
+            tmp_path,
+            {"a": {"meshes/m.nif": b"A" * 512}, "b": {"meshes/m.nif": b"B" * 512}},
+        )
+        conflicts, stats = mss.detect_resource_conflicts(dirs)
+
+        assert conflicts[0]["identical"] is False
+        assert stats["differing"] == 1
+
+    def test_differing_files_sort_first(self, tmp_path: Path) -> None:
+        """The list is read from the top, so the decisions belong there.
+
+        Args:
+            tmp_path: Pytest's temp directory.
+        """
+        dirs = self.build(
+            tmp_path,
+            {
+                "a": {"aaa_same.dds": b"x" * 8, "zzz_differs.dds": b"y" * 8},
+                "b": {"aaa_same.dds": b"x" * 8, "zzz_differs.dds": b"z" * 8},
+            },
+        )
+        conflicts, _stats = mss.detect_resource_conflicts(dirs)
+
+        assert conflicts[0]["path"] == "zzz_differs.dds", "an override must outrank a duplicate"
+        assert conflicts[-1]["path"] == "aaa_same.dds"
+
+    def test_a_file_that_cannot_be_sized_is_never_called_identical(self, tmp_path: Path) -> None:
+        """The size stage has to fail closed too.
+
+        Args:
+            tmp_path: Pytest's temp directory.
+        """
+        dirs = self.build(tmp_path, {"a": {"x.dds": b"same"}, "b": {"x.dds": b"same"}})
+        replaced = Path(dirs[1]) / "x.dds"
+        replaced.unlink()
+        replaced.mkdir()
+
+        conflicts, _stats = mss.detect_resource_conflicts(dirs)
+
+        assert conflicts == [] or conflicts[0]["identical"] is False
+
+    def test_a_file_that_cannot_be_read_is_never_called_identical(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Claiming a match on a failed *read* would retire a real conflict.
+
+        The sizes are made to agree so the comparison gets past the cheap check
+        and into the hash, which is the branch under test. A first attempt used
+        a directory in place of the file and never reached here -- the sizes
+        disagreed and it returned one stage earlier -- so the mutation that
+        made a read failure mean "identical" went uncaught.
+
+        Args:
+            tmp_path: Pytest's temp directory.
+            monkeypatch: Pytest's patcher.
+        """
+        dirs = self.build(tmp_path, {"a": {"x.dds": b"same" * 8}, "b": {"x.dds": b"same" * 8}})
+        blocked = Path(dirs[1]) / "x.dds"
+        real_open = Path.open
+
+        def refuse(self: Path, *args: object, **kwargs: object):
+            """Fail to open one specific file, as a permission error would.
+
+            Args:
+                self: The path being opened.
+                args: Passed through.
+                kwargs: Passed through.
+
+            Returns:
+                The real file object for every other path.
+
+            Raises:
+                OSError: For the blocked path.
+            """
+            if self == blocked:
+                raise OSError(13, "Permission denied")
+            return real_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", refuse)
+
+        conflicts, _stats = mss.detect_resource_conflicts(dirs)
+
+        assert conflicts[0]["identical"] is False
+
+    def test_comparison_can_be_switched_off(self, tmp_path: Path) -> None:
+        """A slow or network filesystem may not want the read.
+
+        The key is then absent rather than ``False``: "not compared" and
+        "compared and differing" are different facts, and a caller filtering on
+        the second must not sweep up the first.
+
+        Args:
+            tmp_path: Pytest's temp directory.
+        """
+        dirs = self.build(tmp_path, {"a": {"t.dds": b"one"}, "b": {"t.dds": b"two"}})
+
+        conflicts, stats = mss.detect_resource_conflicts(dirs, compare_contents=False)
+
+        assert "identical" not in conflicts[0]
+        assert stats["identical"] == 0
+
+    def test_the_report_says_how_many_need_no_decision(self, tmp_path: Path) -> None:
+        """The sentence that makes a list of thousands legible.
+
+        Args:
+            tmp_path: Pytest's temp directory.
+        """
+        dirs = self.build(
+            tmp_path,
+            {"a": {"s.dds": b"q" * 4, "d.dds": b"w"}, "b": {"s.dds": b"q" * 4, "d.dds": b"e"}},
+        )
+        conflicts, stats = mss.detect_resource_conflicts(dirs)
+
+        report = mss.format_resource_report(conflicts, stats)
+
+        assert "1 differ" in report
+        assert "1 are byte-identical" in report
+        assert "[identical]" in report
+
+    def test_the_csv_distinguishes_not_compared_from_differing(self, tmp_path: Path) -> None:
+        """An empty cell, not "no", when nothing was compared.
+
+        Args:
+            tmp_path: Pytest's temp directory.
+        """
+        dirs = self.build(tmp_path, {"a": {"t.dds": b"one"}, "b": {"t.dds": b"two"}})
+        out = tmp_path / "r.csv"
+
+        conflicts, _ = mss.detect_resource_conflicts(dirs, compare_contents=False)
+        mss.write_resource_csv(out, conflicts)
+        skipped = out.read_text(encoding="utf-8").splitlines()[1]
+
+        conflicts, _ = mss.detect_resource_conflicts(dirs)
+        mss.write_resource_csv(out, conflicts)
+        compared = out.read_text(encoding="utf-8").splitlines()[1]
+
+        assert ",," in skipped, "an uncompared file must leave the column blank"
+        assert ",no," in compared
