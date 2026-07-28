@@ -7,22 +7,43 @@
 > actually used at the time, including the decisions that were later revised.
 >
 > **Read every figure as "true when written," not as current.** The clearest
-> example is the test suite, which appears at four different sizes as it grew:
+> example is the test suite, quoted at whatever size it happened to be:
 >
 > | Section | Test count at the time |
 > |---|---|
 > | §4 (test suite, original review) | 129 |
 > | §10 (licence audit) | 305 |
 > | §13 (legacy scripts) | 374 |
-> | current (3.0) | **724** |
+> | 3.0 as released | 724 |
+> | §28 (audit after several days of solo work) | 1,079 |
+> | §30 (Help, banding, the TES3 schema) | 1,260 |
+> | §33 (grass follow-ups) | 1,330 |
+> | §34 (rule maker, audit, TOML, terrain) | 1,557 |
+> | §35 (the NIF reader reaches every vanilla mesh) | 1,696 |
+> | §36 (80,197 modded meshes, and the reader reaches the app) | 1,811 |
+> | §37 (audit of the session's own work) | 1,822 |
+> | §39 (geometry, a 3D viewer, and a loopback server) | **1,916** |
 >
-> The same applies to tooling versions, file layouts and line counts. For the
-> current state of anything, check the code, `CHANGELOG.md`, or run the gates.
+> The same applies to tooling versions, file layouts, message counts and line
+> counts. For the current state of anything, check the code, `CHANGELOG.md`, or
+> run the gates.
+>
+> **Where the version line falls.** Everything up to and including §33's early
+> entries is 3.0 as shipped; §34 onward is 3.1. `CHANGELOG.md` keeps the same
+> split, and `MloxSubsetSort-3.0 release/` is the actual backup of what went
+> out, so the two can be compared rather than argued about.
 >
 > Where a section records a decision that was *deliberately refused* (a linter
 > rule, a "fix" that would have been wrong), that reasoning is usually still
 > live and is cross-referenced from `pyproject.toml`. Those are the parts most
 > worth reading before changing something.
+>
+> **The GUI is measured separately.** It needs Tk, so it is excluded from the
+> hermetic suite and the counts above; `tests/test_gui_smoke.py` runs under a
+> virtual display in CI and on any desktop with Tk. It was 16 tests when it was
+> written in §31 and is 42 now (§34.4), and a *skip* there is treated as a
+> failure — a skipped GUI test is a check that silently did not run, which has
+> already hidden one real defect.
 
 ---
 
@@ -3220,3 +3241,498 @@ ruff, black, mypy (56 files), `check_undefined`, `check_placeholders`,
 `make_pot --check` (479 messages), differential baseline regenerated with the
 data-path half covered for the first time. **1,557 passed, 1 skipped**, plus 42
 passed / 0 skipped in the Tk suite on a real desktop.
+
+
+## §35 The NIF reader reaches every vanilla mesh, and what the checking taught
+
+The reader went from 85.5% of vanilla meshes to **7,339 of 7,343 identical, 0
+stopped early, 0 diverged**. That is the headline, but it is the least
+interesting part of this section. What is worth recording is that almost every
+finding here came from *checking*, and that the checks were wrong before the
+code was.
+
+### §35.1 The reference was wrong, and three methods were needed to prove it
+
+An externally supplied block census had been treated as ground truth. It
+reported the reader over-counting property blocks in 1,745 files, filed under
+the alarming heading "misparse".
+
+The reader was right and the census was wrong. Establishing that took three
+independent methods agreeing: the layout reader, a raw byte scan sharing none
+of its code, and NifSkope's own block list. `c/amulet_common_1.nif` holds two
+`NiMaterialProperty` blocks — indices 4 and 11 — where the census records one.
+
+Two lessons, and the second is the one that generalises. First, the census
+undercounts *property* blocks specifically while matching on every other type,
+which is exactly the kind of systematic error that survives casual checking.
+Second, **the tool had assigned blame**. It said "misparse", which named the
+reader as the culprit on the strength of an assumption nobody had tested. It
+now reports "exceeds the census" and declines to name a party.
+
+### §35.2 The self-check that caught the checker
+
+The census was replaced with a scan that generates its own reference. The
+first version of that scan was wrong, and its own reconciliation check caught
+it within one run.
+
+The claim was that a type name is a `u32` length followed by that many bytes.
+True, but not *sufficient*: every string in a NIF is length-prefixed, so the
+rule matches a node called `Bip01` as readily as `NiNode`. It over-counted 522
+of 556 files. Adding NIF's naming convention as a second filter took that to
+553 of 556.
+
+The check that caught it exists because the file declares its own block count,
+so a scan finding a different number can disqualify itself. That property was
+built in before it was needed, which is the only reason the error surfaced as
+a number rather than as a wrong conclusion published with confidence.
+
+### §35.3 Blame the right thing: three reporting defects
+
+Three defects in *reporting* were found, each of which had already sent an
+investigation in the wrong direction:
+
+- **A desynchronised cursor was reported as an unknown block type.** That
+  blamed a missing layout for a wrong field width and inflated the
+  missing-type ranking with files that were really layout failures.
+- **Stop reasons carried raw binary into logs and terminals.** A
+  desynchronised read produces arbitrary bytes and they were interpolated
+  unescaped; one survey printed an embedded NUL and a run of high bytes to
+  stdout.
+- **Files that stopped early were classified as over-reporting**, because
+  excess outranked truncation. 172 files sat under the wrong heading.
+
+The third is the subtlest and the most instructive: the classification was not
+wrong about any *fact*, only about which fact mattered. Excess is only evidence
+about the reader when the reader reached the end.
+
+### §35.4 One byte, and the value of a failure that names itself
+
+Every alignment failure in the corpus read a type name of `\x00NiMorphData` —
+the correct name behind a leading NUL, which is precisely what a cursor one
+byte early looks like. `NiGeomMorpherController` was one byte short. It was the
+**only** alignment bug in all 7,343 vanilla meshes.
+
+The byte is `0` in every observed file, so its meaning is not determinable from
+the evidence. It is named `trailing_flag`. Naming it after a guess would have
+been the moment observation turned into invention, and the name is part of the
+record.
+
+### §35.5 The bug class that matters, and separating it out
+
+`NiTexturingProperty` truncated any mesh with more than one decal, because
+`texture_count` was read as a cap of seven rather than as a slot count.
+
+This is worth its own heading because of what *kind* of bug it is. A missing
+block type is a gap: the reader stops and says so, and `Structure.partial`
+stops a caller drawing conclusions from an absence. A wrong layout in a
+supported type produces confident wrong output. `--verify` now separates the
+two, and doing so surfaced 11 real bugs that had been buried under 397
+ordinary gaps.
+
+### §35.6 Naming what is not known
+
+Four blocks contain fields that could not be identified from the bytes. They
+are stepped over as measured spans called `emitter_parameters`,
+`unidentified_tail`, `path_parameters` and `projection`.
+
+The alternative — plausible names guessed from what such a block usually holds
+— would have produced code that reads better and means less. The width is the
+only part the rest of the file depends on. An invented field name is worse than
+an admitted gap because it gets believed, and then repeated.
+
+### §35.7 A test that asserted the wrong thing
+
+Implementing `NiPixelData` broke two existing tests. They had used it as their
+example of an *unknown* block type, so they were asserting the state of the
+layout table rather than the behaviour they meant to pin down. Replaced with an
+`UNKNOWN_TYPE` constant that will never be implemented, with a comment saying
+why, so the trap is not re-laid.
+
+A third failure the same day was mine and in the opposite direction: a
+regression test for the decal fix failed because the *fixture* was wrong — slot
+5 is the bump slot and carries 24 extra bytes I had not written. Worth
+recording plainly, since a test written wrong can just as easily be written to
+pass against wrong behaviour.
+
+### §35.8 What was not done, and why
+
+Coverage stopped at the game as shipped. Four block types were left
+unimplemented — `NiCollisionSwitch`, `NiFogProperty`, `NiRollController`,
+`NiSpotLight` — on the reasoning that they occur only in the documentation
+packages' demonstration files and never in a vanilla mesh, so implementing them
+would be work whose result nothing consumes.
+
+**That reasoning was wrong, and a run over 80,197 modded meshes proved it
+within a day.** Mods use all four: 242 files stop on `NiCollisionSwitch`, 18 on
+`NiFogProperty`, 2 on `NiRollController`, 1 on `NiPointLight`. The error was
+using *vanilla* as the definition of "what exists" when this tool's entire
+purpose is comparing **mods**. The denominator was picked from the corpus that
+happened to be measured rather than from the problem being solved, which is a
+comfortable mistake to make and an easy one to miss, because every number in
+§35 was correct — they were just answers about the wrong population.
+
+The mod run also reordered the priorities entirely. `NiSwitchNode` (2,127
+files) and `NiLODNode` (1,382) do not occur in vanilla at all and together
+account for 92% of everything that stops early in a real load order.
+
+The provenance of every layout is recorded separately in `NIF_PROVENANCE.md`,
+including what was deliberately not read to derive it. That document declines
+to describe this work as "clean room": the phrase means two isolated teams, and
+this project has one author. Overclaiming in the one document whose entire
+value is that it can be trusted would be a poor trade.
+
+
+## §36 Eighty thousand modded meshes, and the reader finally reaches the app
+
+Two things happened here. The reader was tested against 80,197 meshes from a
+real mod collection rather than a game install, and it was wired into the
+product, which until this point it was not: `mlox_subset/nif/` had no importer
+outside its own tests and tools. A parser nothing calls is worth nothing, and
+that was true of it for several sections.
+
+### §36.1 The denominator was wrong, and it flattered us
+
+§35 closed by naming four block types as not worth implementing because they
+"occur only in the documentation packages' demonstration files and never in a
+vanilla mesh". A mod run disproved that within a day: 242 files stop on
+`NiCollisionSwitch`, 18 on `NiFogProperty`, 2 on `NiRollController`.
+
+Worse, it had ranked the two types that actually mattered at **zero**.
+`NiSwitchNode` (2,127 files) and `NiLODNode` (1,382) do not appear in vanilla
+at all and between them caused 92% of everything that stopped early in a real
+load order.
+
+Every number in §35 was correct. They were answers about the wrong population.
+This tool exists to compare **mods**, and the coverage denominator had been
+taken from the corpus that happened to be measured. That is a comfortable
+mistake: the measurements were rigorous, cross-checked and honestly reported,
+which made the conclusion drawn from them feel earned.
+
+### §36.2 A fix that was right about the failures and wrong about the format
+
+Three mod meshes failed inside a bounding box. Solving the span from those
+three alone gave 20 bytes, and it was written into the code as established --
+"solved rather than guessed", with the reasoning spelled out.
+
+It broke 13 files that had been working.
+
+The evidence standard this project had already set requires the layout-free
+scan to agree **across the corpus**, and that step was skipped because the
+derivation from the failing files looked so clean. The real answer needed the
+two populations separated rather than averaged: the box is *typed*, the type
+word is 1 in all 27 blocks that parse and 0 in every mesh that failed, and no
+single width can be right for both.
+
+The lesson is not "check more". It is that a derivation which explains every
+failure in front of you is not thereby correct, because the files that already
+work are evidence too and they are the ones you never look at.
+
+### §36.3 Three gates caught three real mistakes
+
+Worth recording because they are the return on the standards suite:
+
+- `test_declared_packages_match_what_exists` caught `mlox_subset.dds` missing
+  from `pyproject.toml` -- a package that would have been absent from a built
+  artefact while passing every test.
+- `TestNoReExportShim` caught `core.MeshAnalyser` in the GUI, reaching a
+  library name through the engine's imports instead of its own module.
+- A total that disagreed with its own parts: `--verify` reported 81,026 files
+  for a run over 80,197, because a subdivision of one category was being summed
+  alongside it.
+
+### §36.4 Cross-checking, again, and what it cost to not have one
+
+The DDS decoder was checked against Pillow: all 50 corpus textures decode
+byte-for-byte identically, and every PNG round-trips exactly. Pillow is not a
+dependency -- it was an oracle, the same role the layout-free scan plays for
+NIF, and it turned "the images look right" into a byte-exact claim.
+
+The contrast with §36.2 is the point. Where an independent check existed the
+answer was certain in one run; where one was skipped, a wrong fix shipped into
+the working tree and was caught only by re-running the corpus afterwards.
+
+### §36.5 Cost, and where it actually was
+
+Caching parses took a second pass over the corpus to five seconds, and almost
+all of it was **hashing**, not parsing -- the cache had removed the wrong cost.
+Identity is now three tiers: a digest the caller already has (free, since the
+conflict scan hashes those files anyway), a memo on path, size and mtime, then
+hashing. Second pass 5.2s to 2.0s.
+
+The scan-time pass opens only meshes that already conflict *and* already differ
+in bytes. The detail panel opens nothing at all until a row is selected. Both
+follow from the same observation: a mod setup holds tens of thousands of
+meshes and the scan has no idea which one anybody cares about.
+
+### §36.6 What is still open — and one thing that turned out not to be
+
+- **`dbs_meatstick.nif` is a malformed file, not a missing layout.** It was
+  left failing rather than guessed at, and that was the right call: opened in
+  NifSkope it has orphaned blocks, and its 26 block type names reconcile
+  exactly with the header while the contents of block 10 do not — a property
+  count of `0xFFFFFFFF`. The boundaries are sound and the block is not.
+
+  Two things follow. The reader refusing it is **correct behaviour**, not a
+  gap; inventing a layout to fit one broken file would have broken the sound
+  ones, which is precisely what the bounding-box episode in §36.2 already did
+  once. And the tool was **mislabelling it**: `--verify` filed it under
+  "layout bugs", which asserts the fault is ours.
+
+  That is the third category in this tool to have assigned blame before the
+  evidence supported it — "misparse" was the first, and the "unknown block
+  type" that was really a desynchronised cursor was the second. The heading now
+  states the observation ("stopped inside a type this reader supports") and
+  leaves the diagnosis to whoever opens the file. The recurring error is not
+  carelessness about facts; every measurement was right each time. It is that a
+  category name is an argument, and naming one after the most likely cause
+  quietly converts a measurement into a conclusion.
+- **Three Tk tests** for the detail view, written but never executed: the
+  sandbox has no `tkinter`. Statically checked against the GUI's attributes,
+  which is not the same as passing.
+- **BC7**, deferred at the user's direction until BC1/BC3 were proven.
+
+
+## §37 Auditing the work of §36, and what an audit is actually for
+
+An audit pass over the code written in §36. Four findings, and the pattern is
+worth more than any of them individually: **every one was in a place the tests
+were green.** A passing suite is evidence about the cases it contains, and an
+audit is the exercise of looking where it does not.
+
+### §37.1 A coupling that was invisible because it was true
+
+`analyse_mesh_conflicts` and `describe_mesh_detail` disagreed about how to
+find the winning provider. One used the declared `entry["winner"]`; the other
+took `structures[-1]`. Worse, the first was *half* positional -- it took the
+winner by value and the losers as `providers[:-1]`.
+
+They agreed on every input because `detect_resource_conflicts` sets
+`winner = prov[-1]`. So the whole suite passed, and would have kept passing
+right up until anything set a different winner -- at which point the detail
+panel would have compared the winner against itself and reported the
+comparison **backwards**, which is worse than not reporting it.
+
+Both now take the winner by value. The new test builds a conflict whose winner
+is deliberately *first*, which is the case no existing test contained.
+
+### §37.2 A guard that bounded the wrong quantity
+
+`read_dds` refused implausible dimensions by bounding each side at 32768. A
+32768 x 32768 header passes that and asks for **4.3 GB** of RGBA before a
+single byte of texture data is read. Bounding each side is not bounding the
+allocation. The total pixel count is now capped at 64 megapixels, far above
+any real texture and far below anything dangerous.
+
+Found by reading the code and asking what the guard actually guarantees, which
+is the only way to find it -- no file in any corpus triggers it.
+
+### §37.3 A handler for something that cannot happen
+
+`MeshAnalyser.structure` caught `OSError` beside `NifParseError`. It could
+never run: `read_nif` already converts an unreadable path into a
+`NifParseError`. Coverage found it, because coverage cannot reach code that
+cannot execute, and a line that can never be covered is either dead or a bug.
+
+A handler for an impossible case is worse than none. It advertises a failure
+mode that does not exist, and the next reader has to work out whether the
+impossibility is deliberate or a mistake. Removed, with a comment saying why
+there is deliberately no `OSError` branch.
+
+### §37.4 A leaked file handle, and a silent branch
+
+`p.open("rb").read(256)` in the tes3cmd probe left the handle to the garbage
+collector -- which CPython happens to close promptly and other interpreters do
+not. Now context-managed. And a `stat()` failure in the analyser returned
+silently while its sibling handler logged, so a missing provider looked
+identical to a working one at every log level.
+
+### §37.5 What the audit checked and found clean
+
+Recorded so the absence of findings is visible rather than assumed: no bare
+`except:`, no `except Exception` outside the two worker top levels that report
+tracebacks into the log panel, no mutable default arguments, no TODO/FIXME
+markers, and no undocumented public functions -- the 69 "missing" docstrings an
+initial sweep reported were 63 private functions and 6 nested closures, neither
+of which the project's pydocstyle configuration requires. Reporting those as
+defects would have been a false finding, which is its own kind of failure.
+
+Coverage of the two new modules went from 95% and 94% to **100%**, and every
+line added to get there was an error branch -- the paths that run on files from
+mod archives, and therefore the ones that most need to fail as findings rather
+than as tracebacks.
+
+### §37.6 The one thing this audit could not check — since resolved
+
+Three Tk tests for the detail view had never been executed: the development
+sandbox has no `tkinter` and it could not be installed. They were statically
+verified to reference only attributes the GUI defines, which is not the same as
+passing, and that was recorded here rather than assumed away.
+
+They have since been run on Windows 11 / Python 3.14.5: **45 passed, 0
+skipped**, up from 42. So they work — but the gap between "statically checked"
+and "actually ran" was real for a day, and the only reason it closed is that it
+was written down as an open question instead of quietly counted as done.
+
+
+## §38 "Wired into the app" was half true, and every test agreed with me
+
+The user opened the Resource Conflicts window and could not find the mesh
+analysis. They were right: it was not there.
+
+`analyse_mesh_conflicts` had exactly one caller, `_run_resource_scan` in the
+engine -- the **command line**. The GUI worker called `detect_resource_conflicts`
+and `format_resource_report` and nothing in between, so the window showed a
+conflict list with no findings in it. The detail panel *was* wired, but only
+fired on selecting a `.nif` row, in a five-line box at the bottom of a split
+pane with placeholder text that never mentioned meshes. Nothing on screen
+suggested there was anything to click for.
+
+§36 opened by observing that "a parser nothing calls is worth nothing". The
+irony is exact: the fix for that was applied to one of the two front ends and
+then reported as done.
+
+### §38.1 Why the tests were no help
+
+Coverage of the pieces was good and coverage of the *path* was zero:
+
+- engine functions: tested directly, 100% covered;
+- the detail panel: tested, including that it reads nothing until selection;
+- the GUI worker: tested that it opens a window and populates a tree.
+
+No test asserted that the scan the GUI runs produces conflicts with findings
+attached. Each piece worked; the wire between two of them did not exist, and
+nothing was looking at the wire. This is the same shape as §37.1 -- a fact
+nothing tested because every test was about something adjacent to it.
+
+### §38.2 What changed
+
+- The GUI worker now runs the analysis, so the report text and the tree both
+  have it.
+- A **column** in the tree, not just the detail panel: `!` where reading the
+  mesh found something, `?` where the mesh could not be read. Those are
+  deliberately different marks, because "this loses collision" and "we could
+  not read this" send a user to completely different places. The whole value of
+  a finding is triage, and a signal you have to click every row to discover is
+  not triage.
+- The placeholder text says what selecting a mesh does, since a feature nobody
+  can find is indistinguishable from one that does not exist.
+- Tests: three in the Tk suite asserting a marked row is visible *without*
+  selecting anything, plus one in the engine suite asserting the pass attaches
+  findings to scan output.
+
+### §38.3 The reporting lesson, again
+
+"Wired into the product" was a claim about the system made from knowledge of a
+component. It was not a lie and it was not carelessness -- the CLI genuinely
+worked -- but the user could not use it, and the user is the system. The check
+that would have caught it is the dullest one available: open the thing and look
+for the feature.
+
+
+## §39 A viewer, and a question that reframed it
+
+The reader could say a mesh had 456 triangles. It could not say whether the
+winner *looked* different, which is what a person actually wants. This section
+is the work that closed that, and the two questions from the user that changed
+its shape.
+
+### §39.1 The reader was built to discard exactly what a viewer needs
+
+`vertices = 300` was a *byte count*. `children = 2` was a count, not the
+indices, so the scene graph could not even be walked. That was deliberate and
+documented -- a structure report needs "how many", never the coordinates -- but
+it meant the honest answer to "how close are we to a 3D viewer" was "further
+than it looks", and saying so was more useful than a hopeful estimate.
+
+Retention was added by recording the byte span each field consumed rather than
+teaching every reader to return its data, so the scan path stays
+byte-identical. Verified across 300 files: every field the default path
+produces is unchanged with geometry on.
+
+### §39.2 The constraint that decided the architecture
+
+Modern three.js ships ESM only, split across two files, and **ES module scripts
+do not load from `file://`** -- origin `null`, CORS fails. That one fact ruled
+out the obvious packaging and forced the CommonJS build behind a three-line
+shim, which was verified in node before a line of the viewer was written.
+
+The same fact has a second consequence that only surfaced when the user asked
+why geometry was embedded at all: **a `file://` page cannot fetch anything**.
+Not the NIF, not a sidecar, not the library. Embedding was not a design
+preference, it was the only channel available -- and the moment the page is
+served over `http://127.0.0.1` the restriction disappears and with it the
+reason to embed. The user's follow-up ("HTTP loopback default, embedded
+export?") was a better answer than any of the three options offered, because it
+turns the fallback into a feature: the standalone page is what you keep or
+send, not dead code kept alive for an edge case.
+
+### §39.3 Measuring instead of arguing
+
+Three questions were settled by measurement rather than opinion:
+
+- **Encoding.** JSON decimals 5.40 MB, base64 typed arrays 4.91 MB, deflated
+  typed arrays 1.86 MB. Base64 alone is nearly pointless -- its 33% overhead
+  hands the binary saving straight back. Compression was doing the work.
+- **Streaming the raw NIF.** Would ship 4.37 MB against 1.86, because the file
+  carries normals, UVs, animation and blocks a viewer never draws -- *and*
+  would need a JavaScript NIF parser, which three.js has never had. The 2012
+  request for one is still open.
+- **`fastapi` + `uvicorn`.** 14 packages, 34 MB, one compiled extension,
+  against a ~38 MB app, to serve a fixed dictionary to one local browser.
+
+Each of those felt like a matter of taste until it was a number.
+
+### §39.4 Security stated as a property, not a promise
+
+The server has **no code path from a URL to `open()`**. Payloads are registered
+in memory and served by key. That is why `SimpleHTTPRequestHandler` is not used:
+it exists to serve a directory, which is precisely what must not happen here.
+
+The distinction matters for how it is tested. "Traversal is blocked" invites a
+test that tries a few clever paths and concludes safety from their failure.
+"There is no filesystem mapping" is a claim about the code, and the traversal
+tests exist to confirm the reasoning rather than to constitute it. A missing
+token returns 404 rather than 403 for the same reason: 403 confirms the key
+exists.
+
+### §39.5 One inconsistency, caught by reading rather than by a test
+
+The first wiring called `webbrowser.open()` directly, bypassing
+`_open_html_view` -- the pywebview/tkinterweb/browser chain every other
+visualisation uses. Nothing failed. The view simply behaved unlike the rest of
+the app, which no test asserts and no gate checks, and which was found only by
+looking at the neighbouring code before declaring the work done.
+
+
+### §39.6 A bug my tests bracketed, and a harness that lied about it
+
+The served page reported **"THREE is not defined"** in a real browser while
+every test passed.
+
+The CommonJS build assigns to ``exports`` and defines no global, so it needs a
+shim before it (``var module = {exports:{}}, exports = module.exports;``) and
+after it (``var THREE = module.exports;``). The inline path wrapped it in both.
+The served path emitted ``<script src=...>`` alone, so the library ran against
+an undefined ``exports``.
+
+**Why nothing caught it.** Two tests existed near the defect and neither
+touched it:
+
+* one asserted the library is *not inlined* when served -- true, and true of a
+  broken page;
+* one asserted both modes share their rendering code, comparing from
+  ``function render(`` onward -- which begins *after* the library block.
+
+They bracketed the bug. The replacement asserts the property that spans it: the
+shim opens before the library and closes after it, parametrised over both
+modes. A test written just to one side of a thing proves nothing about the
+thing.
+
+**And the first verification was wrong in the other direction.** The node
+harness ran each script through ``new Function``, giving every script its own
+scope, so the prologue's ``var exports`` was invisible to the library and the
+harness reported a failure the page did not have. Browsers share one global
+scope across classic scripts; ``vm.createContext`` models that and the fix
+verified cleanly. Trusting the first harness would have meant "fixing" an
+imaginary bug on top of the real one -- the same shape as the bounding box in
+§36.2, where a derivation that explained the visible failures was still wrong.

@@ -91,6 +91,7 @@ except ImportError:
         "On Windows/Mac's python.org installers, tkinter is included by default."
     )
 
+
 # Inline HTML rendering for the cell map is optional. tkinterweb is PREFERRED --
 # its HtmlFrame.load_file reads the map from disk (bounded memory) and renders the
 # SVG grid; tkhtmlview only takes an in-memory string and can't draw SVG, so it's
@@ -176,6 +177,7 @@ from mlox_subset.gui.theme import (  # noqa: E402
     _mix_hex,
     _normalize_hex,
     apply_dark_theme,
+    apply_titlebar_theme,
     parse_theme_file,
     restyle_widget_tree,
     set_active_chrome,
@@ -848,7 +850,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         """Build the whole application UI on ``root``."""
         self.root = root
         root.title("MLOX Subset Sort")
-        root.geometry("1320x820")
+        root.geometry("1320x900")
         root.minsize(1000, 620)
 
         self.log_queue = queue.Queue()
@@ -2650,7 +2652,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 status + "  (opened in browser — pip install pywebview " "for an in-app window)"
             )
 
-    def _open_cell_map_pywebview(self, path: str | Path) -> None:
+    def _open_cell_map_pywebview(self, path: str | Path, title: str = "Cell Map") -> None:
         """Show the map in an embedded OS webview.
 
         Re-invokes this executable with
@@ -2658,7 +2660,11 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         thread). Frozen-safe: a built .exe re-runs the .exe; from source we re-run
         the script -- never 'python -c', which a frozen exe can't do.
         """
-        ap = os.path.abspath(path)  # noqa: PTH100 - must not resolve symlinks
+        # A URL is passed through untouched; only a real path is absolutised.
+        # abspath() on "http://127.0.0.1:1/x" produces a nonsense local path,
+        # which the child would then fail to open for reasons that look
+        # nothing like the actual cause.
+        ap = str(path) if is_view_url(path) else os.path.abspath(path)  # noqa: PTH100
         # IMPORTANT: only CREATE_NO_WINDOW here (suppresses a console flash) -- do
         # NOT use the SW_HIDE startupinfo from _no_window_kwargs(): that STARTUPINFO
         # is inherited by the child's FIRST window, which would hide the WebView2
@@ -2666,9 +2672,15 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         nw = {"creationflags": 0x08000000} if os.name == "nt" else {}
         try:
             if getattr(sys, "frozen", False):
-                cmd = [sys.executable, "--show-map", ap]
+                cmd = [sys.executable, "--show-map", ap, title]
             else:
-                cmd = [sys.executable, os.path.abspath(__file__), "--show-map", ap]  # noqa: PTH100
+                cmd = [
+                    sys.executable,
+                    os.path.abspath(__file__),  # noqa: PTH100
+                    "--show-map",
+                    ap,
+                    title,
+                ]
             trace(f"cell map: launching pywebview child: {cmd}")
             subprocess.Popen(cmd, **nw)  # type: ignore[call-overload]
         except (OSError, ValueError):  # Popen: missing exe or bad argv
@@ -2688,22 +2700,42 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         cannot run the canvas the terrain and nav views draw on.
 
         Args:
-            path: The written HTML file.
+            path: The written HTML file, or a URL for a page that is served
+                rather than written -- the 3D mesh viewer runs over loopback.
             title: Window title.
         """
-        target = Path(path)
-        self._last_view_file = str(target)
+        served = is_view_url(path)
+        label = str(path) if served else Path(path).name
+        self._last_view_file = str(path)
         can_tkweb = HTMLViewer is not None and hasattr(HTMLViewer, "load_file")
         if HAVE_PYWEBVIEW:
-            trace(f"view: pywebview for {target.name}")
-            self._open_cell_map_pywebview(target)
+            trace(f"view: pywebview for {label}")
+            self._open_cell_map_pywebview(path, title or "View")
+            return
+        if served:
+            # tkinterweb's load_file cannot fetch a URL, and the served viewer
+            # needs real requests for its geometry. Straight to the browser
+            # rather than an in-app window that would render an empty page.
+            trace(f"view: browser for {label} (served page, tkinterweb cannot fetch)")
+            self._open_url_in_browser(str(path))
             return
         if can_tkweb:
-            trace(f"view: tkinterweb for {target.name}")
-            self._show_html_window(target, title)
+            trace(f"view: tkinterweb for {label}")
+            self._show_html_window(Path(path), title)
             return
-        trace(f"view: browser for {target.name} (no pywebview/tkinterweb)")
-        self._open_file_in_browser(target)
+        trace(f"view: browser for {label} (no pywebview/tkinterweb)")
+        self._open_file_in_browser(Path(path))
+
+    def _open_url_in_browser(self, url: str) -> None:
+        """Open a URL in the user's browser.
+
+        Args:
+            url: The address to open.
+        """
+        try:
+            webbrowser.open(url)
+        except webbrowser.Error:
+            trace(f"view: browser refused {url}")
 
     def _open_file_in_browser(self, path: str | Path) -> None:
         """Open any local file in the user's browser.
@@ -2727,6 +2759,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             title: Window title.
         """
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         win.title(title)
         win.configure(bg=DARK["bg"])
         win.geometry("1280x860")
@@ -2758,6 +2791,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         if win is not None and win.winfo_exists():
             win.destroy()
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         self._cellmap_win = win
         win.title("Viz Window")
         win.configure(bg=DARK["bg"])
@@ -2825,6 +2859,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             win.lift()
             return
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         self._src_win = win
         win.title("Download sources")
         win.configure(bg=DARK["bg"])
@@ -2939,6 +2974,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             win.lift()
             return
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         self._rm_win = win
         win.title(_("New mlox rule"))
         win.configure(bg=DARK["bg"])
@@ -3645,6 +3681,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         if win is not None and win.winfo_exists():
             win.destroy()
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         self._bk_win = win
         win.title("Backups")
         win.configure(bg=DARK["bg"])
@@ -3887,12 +3924,23 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         for i, c in enumerate(self._res_shown):
             star = "★" if c["involves_subset"] else ""
             tags = ("sub",) if c["involves_subset"] else ()
+            # "!" only when reading the mesh actually found something. An
+            # unreadable mesh gets "?" -- distinct on purpose, because "we
+            # could not read this" and "this loses collision" send a user to
+            # completely different places.
+            finding = c.get("mesh")
+            mark = ""
+            if finding is not None:
+                if getattr(finding, "worth_reporting", False):
+                    mark = "!"
+                elif getattr(finding, "unreadable", ""):
+                    mark = "?"
             tree.insert(
                 "",
                 "end",
                 iid=str(i),
                 tags=tags,
-                values=(star, c["path"], len(c["providers"]), c["winner"]),
+                values=(star, mark, c["path"], len(c["providers"]), c["winner"]),
             )
 
     def _is_custom(self, plugin: str) -> bool:
@@ -3976,8 +4024,38 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         return listing_for_bytecode_field(value, source_text)
 
 
-def _run_pywebview_window(path: str | Path) -> None:
-    """Open one cell-map file in an OS webview and block until closed.
+def is_view_url(target: str | Path) -> bool:
+    """Whether a view target is already a URL rather than a file to convert.
+
+    The 3D mesh viewer is *served* over loopback, so what reaches the viewer
+    chain is an ``http://127.0.0.1:...`` address. Every other visualisation is
+    a file. Passing a URL through ``Path(...).as_uri()`` mangles it into
+    something no viewer can open, which is why this is asked before converting
+    rather than after something fails.
+
+    Args:
+        target: A file path or a URL.
+
+    Returns:
+        ``True`` when it should be handed to a viewer unchanged.
+    """
+    return str(target).startswith(("http://", "https://"))
+
+
+def view_uri(target: str | Path) -> str:
+    """Turn a view target into something a webview can load.
+
+    Args:
+        target: A file path or a URL.
+
+    Returns:
+        The URL to open.
+    """
+    return str(target) if is_view_url(target) else Path(target).resolve().as_uri()
+
+
+def _run_pywebview_window(path: str | Path, title: str = "Cell Map") -> None:
+    """Open one cell-map file or served page in an OS webview, blocking until closed.
 
     Invoked in a child process (see _open_cell_map_pywebview) so webview.start() owns
     its own main thread, cleanly, without disturbing the tkinter app. Always writes its
@@ -4006,7 +4084,7 @@ def _run_pywebview_window(path: str | Path) -> None:
         import webview
 
         _log(f"pywebview {getattr(webview, '__version__', '?')}: opening {path}")
-        webview.create_window("Cell Map", Path(path).resolve().as_uri(), width=1050, height=760)
+        webview.create_window(title, view_uri(path), width=1050, height=760)
         webview.start()
         _log("pywebview: window closed cleanly")
     except Exception:  # noqa: BLE001
@@ -4015,7 +4093,7 @@ def _run_pywebview_window(path: str | Path) -> None:
 
         _log("pywebview FAILED -- falling back to browser:\n" + _tb.format_exc())
         try:
-            webbrowser.open(Path(path).resolve().as_uri())
+            webbrowser.open(view_uri(path))
         except (OSError, ValueError, webbrowser.Error):  # as_uri on a relative path / no browser
             pass
 
@@ -4026,7 +4104,8 @@ def main() -> None:
     # from source (python gui.py --show-map X) or frozen (App.exe --show-map X),
     # because it never spawns "python -c" (a frozen exe is not a Python interpreter).
     if len(sys.argv) >= 3 and sys.argv[1] == "--show-map":
-        _run_pywebview_window(sys.argv[2])
+        # The title is optional so an older invocation still works.
+        _run_pywebview_window(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "Cell Map")
         return
     import argparse
 
@@ -4045,8 +4124,9 @@ def main() -> None:
     global _TRACE_REQUEST
     _TRACE_REQUEST = args.trace
     root = TkinterDnD.Tk() if HAVE_DND else tk.Tk()
-    # theming happens inside App.__init__ (not here), because the saved theme
-    # name has to be loaded first so the chrome comes up already themed
+    # theming (including the native titlebar) happens inside App.__init__
+    # (not here), because the saved theme name has to be loaded first so the
+    # chrome -- OS titlebar included -- comes up already themed
     App(root)
     root.mainloop()
 

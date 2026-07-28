@@ -4,9 +4,315 @@
 ## 3.1
 
 Everything after the 3.0 release. 3.0's own entry below is exactly as it
-shipped, so the two can be told apart at a glance.
+shipped, so the two can be told apart at a glance, and
+`MloxSubsetSort-3.0 release/` is the backup of what actually went out.
+
+The headline is that the emitted TOML could abort a Configurator rebuild
+outright (see **Fixed**), which is worth reading before anything else here.
+Otherwise: the rule maker now writes every rule the format has and ships a
+reference for it, the 3D terrain view was drawn 55x too steep and is now to
+scale with its shading fully exposed, and the GUI has 45 automated checks where
+it had none.
 
 ### Added
+
+- **BSA archives are read**, so the base game's own assets resolve. Nearly all
+  of Morrowind's textures live inside `Morrowind.bsa`; without this every
+  base-game mesh looked untextured and every base-game texture looked missing —
+  both false. Loose files still win over archived ones, matching the engine, so
+  a retexture mod overrides the archive exactly as it does in play.
+
+  Verified against the shipped archive: **11,090 files indexed, 300 extracted,
+  every one starting with the magic its extension implies**. That last check is
+  the one that matters — an index can be entirely self-consistent and still
+  point at the wrong offset, and the reader's own round-trip test cannot catch
+  it because the test writer shares the reader's assumptions.
+
+  Written rather than imported. `bethesda-structs` is MIT and would have been
+  usable, but pulls in `construct`, `multidict`, `attrs` and `lz4`, ships 49 MB
+  of Fallout and Skyrim record formats, and every archive in its own test suite
+  is the *post-Morrowind* BSA — a different format that shares an extension and
+  nothing else.
+
+- **A node tree beside the 3D view**, listing what a render structurally
+  cannot: collision nodes, controllers, properties, and blocks nothing
+  references. Orphans are shown rather than dropped.
+
+- **Textured meshes.** UV coordinates, texture references resolved through the
+  data folders and archives, DDS decoded to PNG. A **Textures** toggle turns it
+  off, because two versions of a mesh wearing the same texture differ in
+  *shape* and the texture hides it.
+
+- **The 3D view opens in the in-app viewer**, like every other visualisation,
+  rather than the browser. The viewer chain now understands a URL as well as a
+  file, since this page is served rather than written.
+
+### Changed
+
+- **One viewport with toggles, not side-by-side panes.** Separate panes each
+  framed their own mesh, which is the one thing a comparison must not do: two
+  meshes at different scales look identical when each is fitted to its own
+  viewport. The frame now covers every provider whether shown or not, so
+  toggling never moves the camera.
+
+
+- **The 3D view is served over loopback, and can still be exported as one
+  file.** Viewing starts a server on `127.0.0.1` and hands the browser an
+  **8 KB** page instead of a multi-megabyte document; three.js is fetched once
+  and cached rather than re-embedded per view. **Export 3D file...** writes the
+  standalone version, which is also the automatic fallback when no port can be
+  bound.
+
+  Both come from one builder. The difference is confined to how bytes arrive --
+  a sink that either base64s a blob into the document or publishes it as a URL
+  — and a test asserts the rendering half of the two pages is byte-identical,
+  because a fallback sharing no code with the primary path is a second
+  implementation waiting to rot.
+
+  The server is deliberately not a web framework. It binds loopback only, on an
+  OS-chosen port, requires a per-session token, and **has no filesystem
+  mapping at all**: payloads are registered in memory and served by key, so
+  path traversal is not defended against, it is absent. `fastapi` + `uvicorn`
+  was considered and measured — 14 packages, 34 MB and a compiled
+  `pydantic_core` extension, against an app that is currently ~38 MB — to serve
+  a fixed dictionary of blobs to one local browser.
+
+
+- **A 3D mesh viewer.** Select a conflicting `.nif` in the Resource Conflicts
+  window and press **View in 3D**: both meshes open side by side, orbitable,
+  in one self-contained HTML file.
+
+  three.js r185 is vendored unmodified with its MIT licence beside it. It is
+  the **CommonJS** build, which is not the obvious choice and is the only one
+  that can work: modern three.js ships ESM only, split across two files, and ES
+  module scripts do not load from `file://` — the origin is `null` and the CORS
+  check fails. These pages are opened from disk. The CJS build is one
+  self-contained file and runs as a classic script behind a three-line shim.
+  The orbit controls are ours, because three.js's own `OrbitControls.js`
+  imports the bare specifier `'three'` and would drag ESM straight back in.
+
+  Geometry travels deflated and is inflated by the browser's native
+  `DecompressionStream`. Measured on a 204k-triangle mesh: JSON decimals
+  5.40 MB, base64 typed arrays 4.91 MB (base64's overhead hands most of the
+  binary saving back), deflated typed arrays **1.86 MB**. The two-pane demo
+  page went from 12.9 MB to 5.0 MB.
+
+  Also measured, because it was worth asking: embedding the raw `.nif` and
+  parsing it in the browser would ship **4.37 MB** against 1.86 — the file
+  carries normals, UVs, animation and blocks a viewer never draws — and would
+  need a JavaScript NIF parser, which three.js does not have and never got
+  (the request is still open from 2012).
+
+
+- **Mesh conflicts now say what the winner costs you.** When two mods ship the
+  same `.nif` and the bytes differ, the resource report and CSV say whether the
+  winning mesh loses collision, loses animation, drops to a fraction of the
+  triangles, or asks for textures nobody ships.
+
+  This is the point of the whole NIF reader. A conflict list tells you one file
+  won; it cannot tell you the winner is a low-poly stand-in with no collision,
+  and that is the difference between a list you skim and a list you act on.
+
+  It stays cheap by only opening files that already conflict **and** already
+  differ in bytes — a subset of a subset — and by caching on content, so a mesh
+  body shipped by four mods is parsed once. It reuses the blake2b digests the
+  conflict scan already computes, which matters more than it sounds: caching
+  the parses alone left hashing as the dominant cost, five seconds over a
+  corpus where every parse was a cache hit.
+
+- **A mesh detail panel that reads nothing until you ask.** Selecting a row in
+  the resource window reads that mesh, then and only then, and describes every
+  provider — shapes, triangles, textures, collision, animation — plus what the
+  winner loses against each. Reselecting is free.
+
+- **DDS decoding with no new dependency** (`mlox_subset/dds/`). BC1, BC2 and
+  BC3 plus uncompressed surfaces, decoded to RGBA, and a PNG encoder built on
+  `zlib` alone so a onefile build gains nothing to bundle.
+
+  Verified against an independent implementation: all 50 textures in the local
+  corpus decode **byte-for-byte identically to Pillow**, and every PNG this
+  writes reads back through Pillow with the exact pixels it was given. Pillow
+  is not a dependency; it was the oracle, in the same role the layout-free scan
+  plays for the NIF reader.
+
+- **NIF 4.0.0.0 is accepted.** It differs from 4.0.0.2 in the header and not in
+  the layouts, which was measured rather than taken on report: 40 such meshes
+  had their version word alone rewritten and every one then parsed identically
+  to the layout-free scan. Refusing them was costing 45 files in one mod
+  collection for no benefit.
+
+- **`NiSwitchNode` and `NiLODNode`**, which never occur in vanilla and together
+  caused 92% of everything that stopped early in a real mod collection.
+
+### Fixed
+
+- **The served 3D page failed with "THREE is not defined".** The CommonJS
+  build needs a shim around it -- globals before, namespace after -- and the
+  served path emitted the `<script src>` with neither, so the library ran
+  against an undefined `exports`. The shim now wraps the library in both modes.
+
+
+- **The mesh findings never reached the GUI.** The analysis pass had one
+  caller: the command line. The Resource Conflicts window ran the scan without
+  it, so the feature existed and was unreachable from the app. It now runs
+  there too, and a column marks the rows with a finding (`!`) or an unreadable
+  mesh (`?`) so they are visible without selecting anything.
+
+
+- **UV data follows the set count, not the `has_uv` flag.** Meshes carrying
+  `num_uv_sets=1` with `has_uv=0` write the UV data anyway; trusting the flag
+  skipped it and desynchronised the rest of the block. Confirmed by an
+  invariant rather than by "it parses": with the count as the gate,
+  `num_triangle_points` comes out as exactly three times `num_triangles`.
+
+- **The bounding box is typed, not fixed-width.** Type 1 carries a full
+  transform (64 bytes); type 0 carries 20. Found by separating the two
+  populations — the type word is 1 in all 27 blocks that parse and 0 in every
+  mesh that would not — after a first attempt that took a single 20-byte width
+  from the failing files alone and broke 13 that had been working. An
+  unrecognised type is now refused rather than guessed.
+
+- **A miscounted total in `--verify`.** "unverifiable but incomplete" is a
+  subdivision of "unverifiable", not a category beside it, and the total summed
+  the tally — so a run over 80,197 files reported 81,026. A total that
+  disagrees with its own parts quietly discredits every other number in the
+  report.
+
+
+- **The NIF reader now reads every mesh Morrowind ships.** Against the 7,343
+  meshes of a vanilla install: **7,339 identical to a layout-free cross-check,
+  0 stopped early, 0 diverged.** It was at 85.5% when this run started.
+
+  The four exceptions are not files the reader struggles with. They are files
+  where the *cross-checking scan* finds more blocks than the header declares —
+  its known false-positive mode, where a node happens to be named like a type —
+  so it cannot serve as a reference for them. They are now checked against the
+  header count instead of being skipped, because excluding a file behind a
+  limitation of the check rather than of the reader teaches nothing.
+
+  Twenty-one block types were added to get there, one at a time, each confirmed
+  by landing exactly on the following type name *and* by agreeing with a scan
+  that uses no layout knowledge at all. Skinning (`NiSkinInstance`,
+  `NiSkinData`), morph targets, the twelve particle types, texture effects, UV
+  animation, cameras, path controllers and embedded images.
+
+  Every layout was derived by reconciling block lengths, never by assumption,
+  and the derivations are recorded at the layouts and in `NIF_PROVENANCE.md`:
+
+  - `NiParticleSystemController` is a fixed 154-byte head plus `count * 40`,
+    confirmed across 51 fixtures with five distinct counts. That also proves
+    nothing follows the array, since a trailing field would offset all 51.
+  - Two `NiRotatingParticlesData` fixtures with 1000 particles differ by
+    exactly 16000 bytes, which identified an optional 16-byte-per-particle
+    rotation array behind its own flag.
+  - `NiTextureEffect`'s tail is `4 + 4n + 91` across four observed shapes. Its
+    counted entries hold values like `0x0b741950` — exporter memory addresses,
+    not block indices — so they are counted and stepped over rather than
+    offered as links a caller might try to follow.
+  - `NiMorphData` writes its interpolation word even when the key count is
+    zero, unlike every other key group in the format. Both readings were run
+    against all 26 fixtures: "always written" lands on 26, the alternative on 3.
+
+  Where fields could not be identified from the bytes they are stepped over as
+  *measured spans* with names that admit it — `emitter_parameters`,
+  `unidentified_tail`, `path_parameters`, `projection`. The width is what the
+  rest of the file depends on, and an invented field name is worse than an
+  admitted gap because it gets believed.
+
+### Fixed
+
+- **`NiTexturingProperty` truncated any mesh with more than one decal.**
+  `texture_count` is a slot count, not a cap of seven. On `7decals.NIF` it
+  reads 13, and the reader stopped 156 bytes short — exactly six more slots at
+  26 bytes each. This was the worst class of bug in the reader: it stopped
+  *inside a block type the reader claims to support*, so it produced
+  confidently wrong output rather than an honest gap. 11 files in the corpus.
+
+  `--verify` now separates the two cases explicitly, since a single list of
+  stops had been burying these under hundreds of ordinary coverage gaps.
+
+
+- **A provenance record for the NIF reader** (`NIF_PROVENANCE.md`). Where every
+  field layout came from, what was deliberately not read to derive it, and the
+  worked derivations in full so they can be re-run instead of taken on trust.
+
+  It is careful not to overclaim. "Clean room" is a term of art meaning two
+  isolated teams, and this project has one author and no wall, so the document
+  says so plainly and describes what was actually done: an independent
+  implementation from public documentation and from direct observation of files
+  the user lawfully owns, under a recorded policy of not reading incompatible
+  sources. A document whose only value is that it can be trusted is the wrong
+  place to claim more than happened.
+
+  It also draws the line around NifSkope explicitly — permitted as an *oracle*
+  ("is this parse right?"), never as a *source* ("what are the fields?"), since
+  its display is generated from `nif.xml`, which `CREDITS.md` rules out.
+
+- **The NIF reader now checks itself against a scan that shares none of its
+  code** (`mlox_subset/nif/scan.py`, `tools/check_nif_layouts.py --verify`).
+
+  The layout reader walks a file by knowing how wide every field is, which
+  gives it a specific failure mode: one wrong width desynchronises everything
+  after it, and the result is not a crash but a plausible wrong answer. The
+  scan recovers the block list using no field layout at all, so it cannot fail
+  the same way, and the file's own header says how many blocks there should be
+  — so a scan that miscounts disqualifies itself instead of misleading.
+
+  It replaces an externally supplied census that turned out to undercount
+  property blocks: `x/ex_s_longhouse_blue.nif` really has 53 `NiMaterialProperty`
+  blocks where the census recorded 9, confirmed independently by the scan and
+  by NifSkope. Beyond being wrong, the census was a file of unclear provenance;
+  a reference generated from your own installed game raises no such question and
+  works on mod folders too.
+
+  The first version of the scan was wrong and the self-check caught it. Every
+  string in a NIF is length-prefixed, so "u32 length then that many bytes"
+  matches a node called `Bip01` as readily as a type name, and it over-counted
+  522 of 556 files. Adding NIF's naming convention as a second filter took that
+  to 553 of 556. That trade is documented in the module: the scan can no longer
+  find a type named arbitrarily, only one named the way every type in this
+  format is named.
+
+  Against the corpus: 156 files identical, 397 a clean prefix, **zero
+  divergences**. `--verify` also separates the two kinds of stop, which a single
+  list had been burying — a file stopping on a type the reader *claims to
+  support* is a layout bug, while one stopping on an unimplemented type is a
+  gap. That split immediately surfaced 11 real bugs under 397 gaps.
+
+### Fixed
+
+- **`NiGeomMorpherController` was one byte short**, and it was the only
+  alignment bug in all 7,319 vanilla meshes.
+
+  Every affected file read a type name of `\x00NiMorphData` — the correct name
+  behind a leading NUL, which is exactly what a cursor one byte early looks
+  like. With the byte consumed the next `u32` reads 11 and the next 11 bytes
+  read `NiMorphData`. It is 0 in every observed file, so it is named
+  `trailing_flag`: the name says where it sits, not what it means, because the
+  corpus does not say what it means.
+
+- **A desynchronised cursor was reported as an unknown block type.** That
+  blamed a missing layout for what was a wrong field width, and inflated the
+  missing-type count with files that were really layout failures. The two are
+  now distinguished, and the missing-type ranking changed as a result.
+
+- **Stop reasons could carry raw binary into logs and terminals.** A
+  desynchronised read produces arbitrary bytes, and those were interpolated
+  into the message unescaped — one survey printed an embedded NUL and a run of
+  high bytes to stdout. Messages are now escaped, length-bounded, and asserted
+  `isprintable()`.
+
+- **The census loader silently dropped records.** 17 of 7,319 records share a
+  line with the next one, and splitting on lines lost *both* halves each time —
+  quietly, since a mangled record simply fails to parse. That removed 34 files
+  from every comparison. Records are now matched by shape rather than by line,
+  and a mismatch between records present and records parsed is reported.
+
+- **Files that stopped early were classified as over-reporting.** Excess
+  outranked truncation, so 172 truncated reads were filed under the wrong
+  heading. Truncation now wins, because excess is only evidence about the
+  reader when the reader reached the end.
+
 
 - **A rule reference, in the app** (`MLOX_RULES.md`). The rule maker can now
   write every rule the format has, which made "what should I write?" the harder
@@ -62,7 +368,8 @@ shipped, so the two can be told apart at a glance.
     likely rebuilt its path grid by accident, which strands NPCs and which
     nothing else in the toolchain reports; the page says so explicitly.
   - a **3D terrain surface** you can rotate, with each plugin's version
-    switchable in place.
+    switchable in place. Since grown a good deal: see **Fixed** for the vertical
+    scale and **Changed** for the relief shading, contours and controls.
 
   All four are dependency-free and work offline -- no CDN, no external script,
   matching the cell map's existing guarantee. The 3D view is hand-rolled on a

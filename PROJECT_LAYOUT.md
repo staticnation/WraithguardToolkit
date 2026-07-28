@@ -106,6 +106,15 @@ essentials:
   an identical one for reference)
 * `--clean` on, so PyInstaller does not reuse a cached analysis
 
+**One data file does need adding: the 3D viewer library.** PyInstaller follows
+imports, not data, so `mlox_subset/nif/assets/` is not collected automatically.
+Add it with `--add-data "mlox_subset/nif/assets;mlox_subset/nif/assets"` (or
+`--collect-data mlox_subset`). Without it the app runs normally and the **View
+in 3D** button reports that the library was not shipped — deliberately a clear
+message rather than a blank window, since a missing data file and a broken
+viewer look identical otherwise. `mlox_subset/nif/viewer.py` looks in
+`sys._MEIPASS` first, exactly as the help documents do.
+
 **You do not need to add `mlox_subset/` or `locale/` by hand.** PyInstaller
 follows the import graph, so the package is collected automatically; the only
 `--add-data` entry is `mlox_subset_sort.py`. `locale/` is a *developer*

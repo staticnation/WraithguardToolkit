@@ -138,6 +138,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 # pinned by tests/test_differential.py. Only the names this module actually
 # calls are imported -- callers import from mlox_subset/ themselves (§23).
 from mlox_subset import _, get_logger, ngettext, setup_logging
+from mlox_subset.nif.analysis import MeshAnalyser, MeshFinding
+from mlox_subset.nif.report import Structure, compare as compare_structures
 from mlox_subset.rules import authoring, pattern_has_meta
 
 #: Diagnostics about the run (not the user's report) go through here. The
@@ -685,7 +687,11 @@ def tes3cmd_invocation(path: str | Path) -> tuple[list[str] | None, str | None]:
     if p.suffix.lower() in (".exe", ".bat", ".cmd"):
         return [str(p)], None
     try:
-        head = p.open("rb").read(256)
+        # Context-managed: the handle was previously left to the garbage
+        # collector, which CPython happens to close promptly and other
+        # interpreters do not.
+        with p.open("rb") as handle:
+            head = handle.read(256)
     except OSError as e:
         return None, f"can't read '{p}': {e}"
     if head.startswith(b"#!") or b"perl" in head.lower():
@@ -2229,15 +2235,32 @@ def detect_resource_conflicts(
     data_dirs: Sequence[str],
     subset_dirs: Sequence[str] | None = None,
     exclude_exts: Collection[str] | None = None,
+    compare_contents: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Detect loose-file (VFS) conflicts across the data folders.
 
-    data_dirs:
+    A path present in two or more data folders is a *candidate*; whether it is
+    a conflict anyone has to think about depends on whether the bytes differ.
+    Mods routinely re-ship assets they did not change -- an unedited vanilla
+    texture, an asset a patch simply re-includes -- and reporting those beside
+    genuine overrides is how a list of thousands stops being read at all. Each
+    entry therefore carries ``identical``, and the differing ones sort first.
 
-    the data= folders in load order (winner last). Returns (conflicts, stats).
-    conflicts: [{path, providers:[dirs in order], winner, involves_subset}] for every
-    relative file path present in 2+ folders. Plugin files are skipped (they're ordered
-    by content=, not the VFS).
+    Args:
+        data_dirs: The ``data=`` folders in load order, winner last.
+        subset_dirs: The folders belonging to the user's own mods, used to flag
+            conflicts that involve them.
+        exclude_exts: Extensions to skip entirely.
+        compare_contents: Whether to compare bytes. Left on by default because
+            the size check makes it cheap, but exposed so a scan over a slow or
+            network filesystem can skip it; entries then carry no ``identical``
+            key rather than a guess.
+
+    Returns:
+        ``(conflicts, stats)``. Each conflict is
+        ``{path, providers, winner, involves_subset[, identical]}`` for every
+        relative path present in 2+ folders. Plugin files are skipped: they are
+        ordered by ``content=``, not by the VFS.
     """
     subset_norm = {str(s).replace("\\", "/").rstrip("/").lower() for s in (subset_dirs or [])}
     exclude_exts = {e.lower() for e in (exclude_exts or [])}
@@ -2276,11 +2299,302 @@ def detect_resource_conflicts(
             continue
         prov = [dirs[i] for i in idxs]
         involves = any(pv.replace("\\", "/").rstrip("/").lower() in subset_norm for pv in prov)
-        conflicts.append(
-            {"path": rel, "providers": prov, "winner": prov[-1], "involves_subset": involves}
+        entry: dict[str, Any] = {
+            "path": rel,
+            "providers": prov,
+            "winner": prov[-1],
+            "involves_subset": involves,
+        }
+        if compare_contents:
+            entry["identical"] = _providers_are_identical(rel, prov)
+        conflicts.append(entry)
+    # Files that genuinely differ first: a path present twice with the same
+    # bytes is not a decision anybody has to make, and burying the real
+    # overrides among them is how a list of thousands stops being read.
+    conflicts.sort(key=lambda c: (bool(c.get("identical")), not c["involves_subset"], c["path"]))
+    identical = sum(1 for c in conflicts if c.get("identical"))
+    return conflicts, {
+        "dirs": len(dirs),
+        "files": len(providers),
+        "conflicts": len(conflicts),
+        "identical": identical,
+        "differing": len(conflicts) - identical,
+    }
+
+
+def _providers_are_identical(rel: str, provider_dirs: Sequence[str]) -> bool:
+    """Whether every provider ships byte-identical content for one path.
+
+    Sizes are compared first and the hash is only reached when they agree, which
+    is what makes this affordable: a re-shipped asset and a real override almost
+    always differ in length, so the expensive path runs on the minority.
+
+    A file that cannot be read counts as *not* identical. Claiming two files
+    match when one of them could not be opened would quietly retire a genuine
+    conflict from the list, and an unreadable file is itself worth surfacing.
+
+    Args:
+        rel: The path relative to each data folder.
+        provider_dirs: The data folders providing it.
+
+    Returns:
+        ``True`` when all providers hold the same bytes.
+    """
+    import hashlib
+
+    sizes: set[int] = set()
+    paths = [Path(d) / rel for d in provider_dirs]
+    for candidate in paths:
+        try:
+            sizes.add(candidate.stat().st_size)
+        except OSError:
+            return False
+        if len(sizes) > 1:
+            return False
+    digests: set[str] = set()
+    for candidate in paths:
+        # blake2b rather than a cryptographic-strength choice: this compares
+        # files that already have the same length and the same name, so the
+        # question is accidental collision, not an adversary.
+        digest = hashlib.blake2b(digest_size=16)
+        try:
+            with candidate.open("rb") as fh:
+                # Chunked: a data folder can hold a 200 MB texture pack and
+                # reading one whole into memory per provider is avoidable.
+                while chunk := fh.read(1 << 20):
+                    digest.update(chunk)
+        except OSError:
+            return False
+        digests.add(digest.hexdigest())
+        if len(digests) > 1:
+            return False
+    return True
+
+
+#: Below this ratio of winner triangles to loser triangles, the winning mesh is
+#: simple enough that the swap is worth mentioning. A retexture that also
+#: replaces the mesh with a low-poly stand-in is the case this catches.
+_MESH_SIMPLER_RATIO = 0.5
+
+#: Logger for the mesh analysis pass, separate so it can be turned up without
+#: turning up the whole sorter.
+LOG_MESH = get_logger("mesh")
+
+
+def analyse_mesh_conflicts(
+    conflicts: Sequence[MutableMapping[str, Any]],
+    limit: int = 0,
+) -> dict[str, int]:
+    """Read the meshes behind conflicts and record what the winner changes.
+
+    Only paths that are meshes **and** already known to differ are opened. That
+    is the whole reason this is affordable: parsing runs at roughly 120 files a
+    second, so opening every mesh in a large setup would cost minutes, while
+    opening only the contested ones costs a second or two. Identical providers
+    are skipped because there is nothing to compare -- the bytes are the same.
+
+    Findings are attached to the conflict entries in place under ``"mesh"``.
+    Absent means "not looked at", which is deliberately distinct from "looked
+    at and found nothing".
+
+    Args:
+        conflicts: The scan's conflicts, modified in place.
+        limit: Stop after analysing this many meshes; 0 for no limit. A guard
+            for pathological setups, not an expected path.
+
+    Returns:
+        Counters: how many were analysed, how many had something worth saying,
+        and how many could not be read.
+    """
+    analyser = MeshAnalyser()
+    stats = {"analysed": 0, "findings": 0, "unreadable": 0}
+    for entry in conflicts:
+        path = str(entry.get("path", ""))
+        if not path.lower().endswith(".nif"):
+            continue
+        if entry.get("identical"):
+            continue
+        if limit and stats["analysed"] >= limit:
+            break
+        winner_dir = str(entry["winner"])
+        winner = Path(winner_dir) / path
+        # The losers are every provider that is not the winner, found by
+        # comparing against the declared winner rather than by assuming it is
+        # last. The two happen to coincide today; taking the position instead
+        # of the value couples this to a detail of the scan that nothing
+        # promises, and gets the comparison backwards if it ever changes.
+        losses: list[MeshFinding] = [
+            analyser.compare_providers(path, Path(str(provider)) / path, winner)
+            for provider in entry["providers"]
+            if str(provider) != winner_dir
+        ]
+        if not losses:
+            continue
+        stats["analysed"] += 1
+        # The worst finding wins the summary. A mesh overridden by three mods
+        # is one decision, not three, and the reason to look is whatever the
+        # winner loses against *any* of them.
+        reportable = next((f for f in losses if f.worth_reporting), None)
+        chosen = reportable or next((f for f in losses if f.reliable), None) or losses[0]
+        if chosen.unreadable:
+            stats["unreadable"] += 1
+        if reportable is not None:
+            stats["findings"] += 1
+        entry["mesh"] = chosen
+    LOG_MESH.debug(
+        "analysed %d mesh conflict(s): %d finding(s), %d unreadable, %d parse(s), %d cache hit(s)",
+        stats["analysed"],
+        stats["findings"],
+        stats["unreadable"],
+        analyser.parsed,
+        analyser.cache_hits,
+    )
+    return stats
+
+
+def describe_mesh_finding(finding: MeshFinding) -> str:
+    """Say what a mesh conflict costs, in one line, or nothing at all.
+
+    Only *losses* are named. A winner that adds detail is not a problem anybody
+    needs to be told about, and a report that lists every difference equally is
+    one nobody reads.
+
+    Args:
+        finding: The comparison result.
+
+    Returns:
+        A short description, or ``""`` when there is nothing worth saying.
+    """
+    if finding.unreadable:
+        return _("could not read the mesh: %(reason)s") % {"reason": finding.unreadable}
+    if not finding.reliable or finding.difference is None:
+        # Silence rather than a caveat. A partial read cannot prove an absence,
+        # so it has nothing to report, and saying "possibly lost collision"
+        # would be worse than saying nothing.
+        return ""
+    parts: list[str] = []
+    difference = finding.difference
+    if difference.lost_collision:
+        parts.append(_("loses collision"))
+    if difference.lost_animation:
+        parts.append(_("loses animation"))
+    if difference.added_textures:
+        parts.append(
+            ngettext(
+                "needs %(count)d texture the other does not ship",
+                "needs %(count)d textures the other does not ship",
+                len(difference.added_textures),
+            )
+            % {"count": len(difference.added_textures)}
         )
-    conflicts.sort(key=lambda c: (not c["involves_subset"], c["path"]))
-    return conflicts, {"dirs": len(dirs), "files": len(providers), "conflicts": len(conflicts)}
+    ratio = difference.triangle_ratio
+    if ratio is not None and ratio < _MESH_SIMPLER_RATIO:
+        parts.append(_("%(percent)d%% of the triangles") % {"percent": round(ratio * 100)})
+    return ", ".join(parts)
+
+
+def describe_mesh_detail(
+    analyser: MeshAnalyser,
+    conflict: Mapping[str, Any],
+) -> list[str]:
+    """Describe every provider of one mesh, reading them on demand.
+
+    This is the *selected a row* path, not the scan path. Nothing is parsed
+    until a user asks about a specific file, which is why it can afford to
+    describe every provider rather than only the winner: one mesh is
+    milliseconds, and the largest in the corpus is under two seconds.
+
+    Args:
+        analyser: The cache to read through, so reselecting a row is free.
+        conflict: One conflict entry.
+
+    Returns:
+        Lines for a detail panel, empty when the path is not a mesh.
+    """
+    path = str(conflict.get("path", ""))
+    if not path.lower().endswith(".nif"):
+        return []
+    providers = [str(p) for p in conflict.get("providers", [])]
+    if not providers:
+        return []
+    lines = [_("Mesh contents (read just now):")]
+    structures: list[Structure | None] = []
+    for index, provider in enumerate(providers, start=1):
+        outcome = analyser.structure(Path(provider) / path)
+        if isinstance(outcome, str):
+            structures.append(None)
+            lines.append(
+                _("  %(n)d. %(dir)s — could not read: %(why)s")
+                % {"n": index, "dir": provider, "why": outcome}
+            )
+            continue
+        structures.append(outcome)
+        traits = [
+            ngettext("%(count)d shape", "%(count)d shapes", len(outcome.shapes))
+            % {"count": len(outcome.shapes)},
+            ngettext("%(count)d triangle", "%(count)d triangles", outcome.total_triangles)
+            % {"count": outcome.total_triangles},
+            ngettext("%(count)d texture", "%(count)d textures", len(outcome.textures))
+            % {"count": len(outcome.textures)},
+        ]
+        # Presence is stated; absence only when the read was complete, because
+        # a partial parse cannot prove a node is not there.
+        if outcome.has_collision:
+            traits.append(_("collision"))
+        elif not outcome.partial:
+            traits.append(_("no collision"))
+        if outcome.has_animation:
+            traits.append(_("animated"))
+        if outcome.partial:
+            traits.append(
+                _("PARTIAL: %(read)d of %(declared)d blocks")
+                % {"read": outcome.blocks_read, "declared": outcome.blocks_declared}
+            )
+        lines.append(f"  {index}. {provider} — " + ", ".join(traits))
+    winner_dir = str(conflict.get("winner", providers[-1]))
+    try:
+        winner = structures[providers.index(winner_dir)]
+    except ValueError:
+        # The declared winner is not among the providers, which is a bug in
+        # whoever built the entry. Reporting the contents without a comparison
+        # is more useful than guessing which one won.
+        return lines
+    for index, (provider, loser) in enumerate(zip(providers, structures), start=1):
+        if loser is None or winner is None or provider == winner_dir:
+            continue
+        note = describe_mesh_finding(
+            MeshFinding(
+                path,
+                difference=compare_structures(loser, winner),
+                loser_partial=loser.partial,
+                winner_partial=winner.partial,
+            )
+        )
+        if note:
+            lines.append(
+                _("  Against provider %(n)d, the winner %(note)s.") % {"n": index, "note": note}
+            )
+    for structure in structures:
+        if structure is not None and structure.textures:
+            lines.append(
+                _("  Textures referenced: %(list)s") % {"list": ", ".join(structure.textures[:8])}
+            )
+            break
+    return lines
+
+
+def _mesh_note(conflict: Mapping[str, Any]) -> str:
+    """The one-line mesh finding for a conflict, or ``""``.
+
+    Args:
+        conflict: One conflict entry.
+
+    Returns:
+        The description, empty when the mesh was not analysed or had nothing
+        worth saying.
+    """
+    finding = conflict.get("mesh")
+    return describe_mesh_finding(finding) if isinstance(finding, MeshFinding) else ""
 
 
 def format_resource_report(
@@ -2289,36 +2603,127 @@ def format_resource_report(
     subset_only: bool = False,
     limit: int = 200,
 ) -> str:
-    """Render the loose-file conflict list as a readable report."""
+    """Render the loose-file conflict list as a readable report.
+
+    Args:
+        conflicts: The scan's conflicts.
+        stats: The scan's counters.
+        subset_only: Show only conflicts involving the user's own data paths.
+        limit: Maximum rows to list; 0 for all.
+
+    Returns:
+        The report text.
+    """
     shown = [c for c in conflicts if c["involves_subset"] or not subset_only]
     n_sub = sum(1 for c in conflicts if c["involves_subset"])
     lines = [
         f"Scanned {stats['dirs']} data folder(s), {stats['files']} loose file(s): "
         f"{stats['conflicts']} conflicting file(s), {n_sub} involving your custom data paths."
     ]
+    if stats.get("identical"):
+        # Said as a count rather than by hiding them: "3,912 of these are the
+        # same file shipped twice" is the sentence that makes the rest legible,
+        # and a reader who wants them can still scroll.
+        lines.append(
+            f"  {stats['differing']} differ; {stats['identical']} are byte-identical "
+            f"across every provider and need no decision."
+        )
+    flagged = sum(1 for c in conflicts if _mesh_note(c))
+    if flagged:
+        lines.append(
+            ngettext(
+                "  %(count)d mesh conflict changes what the asset does; "
+                "those lines are marked below.",
+                "  %(count)d mesh conflicts change what the asset does; "
+                "those lines are marked below.",
+                flagged,
+            )
+            % {"count": flagged}
+        )
     for c in (shown[:limit] if limit else shown):
         star = "* " if c["involves_subset"] else "  "
-        lines.append(f"{star}{c['path']}   ({len(c['providers'])} providers, wins: {c['winner']})")
+        same = "  [identical]" if c.get("identical") else ""
+        lines.append(
+            f"{star}{c['path']}   ({len(c['providers'])} providers, wins: {c['winner']}){same}"
+        )
+        note = _mesh_note(c)
+        if note:
+            # Indented under its file rather than as a column: the finding is
+            # a sentence, and squeezing it onto the path line pushes the path
+            # off the screen in exactly the cases worth reading.
+            lines.append(f"      -> {note}")
     if limit and len(shown) > limit:
         lines.append(f"  ... and {len(shown) - limit} more (save the full report).")
     return "\n".join(lines)
 
 
+def _mesh_columns(conflict: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    """The mesh columns for one CSV row.
+
+    Every column is blank when the mesh was not analysed or the read was not
+    reliable. Blank means "not established", which a spreadsheet filter treats
+    differently from "no" -- and writing "no" for a mesh nobody could read
+    would be a claim the scan cannot support.
+
+    Args:
+        conflict: One conflict entry.
+
+    Returns:
+        Note, lost-collision, lost-animation and triangle-ratio cells.
+    """
+    finding = conflict.get("mesh")
+    if not isinstance(finding, MeshFinding):
+        return ("", "", "", "")
+    note = describe_mesh_finding(finding)
+    if not finding.reliable or finding.difference is None:
+        return (note, "", "", "")
+    ratio = finding.difference.triangle_ratio
+    return (
+        note,
+        "yes" if finding.difference.lost_collision else "no",
+        "yes" if finding.difference.lost_animation else "no",
+        "" if ratio is None else f"{ratio:.3f}",
+    )
+
+
 def write_resource_csv(path: str | Path, conflicts: Sequence[Mapping[str, Any]]) -> None:
-    """Write the loose-file conflict list to a CSV."""
+    """Write the loose-file conflict list to a CSV.
+
+    Args:
+        path: Where to write.
+        conflicts: The scan's conflicts.
+    """
     import csv
 
     with Path(path).open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["file_path", "providers", "winner", "involves_custom", "provider_folders"])
+        w.writerow(
+            [
+                "file_path",
+                "providers",
+                "winner",
+                "involves_custom",
+                "identical",
+                "provider_folders",
+                "mesh_note",
+                "mesh_lost_collision",
+                "mesh_lost_animation",
+                "mesh_triangle_ratio",
+            ]
+        )
         for c in conflicts:
+            # "" rather than "no" when the scan did not compare: a spreadsheet
+            # filter on "no" must not sweep up files nobody looked at.
+            identical = c.get("identical")
             w.writerow(
                 [
                     c["path"],
                     len(c["providers"]),
                     c["winner"],
                     "yes" if c["involves_subset"] else "no",
+                    "" if identical is None else ("yes" if identical else "no"),
                     " -> ".join(c["providers"]),
+                    *_mesh_columns(c),
                 ]
             )
 
@@ -4476,6 +4881,11 @@ def _resource_stage(
         _section("DATA-PATH RESOURCE (VFS) CONFLICTS (read-only)")
         subset_dirs = pending_custom_dirs(raw_toml_data_inserts, data_inserts)
         rconf, rstats = detect_resource_conflicts(conf_dirs, subset_dirs=subset_dirs)
+        # Meshes that conflict *and* differ get read. Everything else is left
+        # closed: the point of the byte comparison above is that it already
+        # told us which files nobody has to think about.
+        mesh_stats = analyse_mesh_conflicts(rconf)
+        rstats = {**rstats, **{f"mesh_{k}": v for k, v in mesh_stats.items()}}
         print(format_resource_report(rconf, rstats, limit=200))
         rout = getattr(args, "resources_out", None)
         if rout and rconf:

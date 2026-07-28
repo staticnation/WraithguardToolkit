@@ -27,9 +27,11 @@ build-backend = "setuptools.build_meta"
 packages = [
     "mlox_subset",
     "mlox_subset.configurator",
+    "mlox_subset.dds",
     "mlox_subset.gui",
     "mlox_subset.mwscript",
     "mlox_subset.net",
+    "mlox_subset.nif",
     "mlox_subset.plugins",
     "mlox_subset.rules",
     "mlox_subset.sort",
@@ -40,6 +42,9 @@ py-modules = ["mlox_subset_sort", "mlox_subset_sort_gui"]
 
 [tool.setuptools.package-data]
 mlox_subset = ["py.typed"]
+# The vendored three.js build and its licence. Data, not code, so it has to be
+# named explicitly or a wheel would ship a viewer with no library in it.
+"mlox_subset.nif" = ["assets/*.cjs", "assets/*.txt"]
 
 # --- PEP 621 project metadata ------------------------------------------------
 # Declared even though the project ships as scripts and a compiled binary

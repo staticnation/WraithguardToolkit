@@ -107,6 +107,77 @@ reference your scripts at all, say the word and it is done.
   record-diff *approach* that inspired our field comparison view. All rights
   remain with its author.
 
+## The NIF reader, and why it is written rather than imported
+
+`mlox_subset/nif/` reads Morrowind meshes with our own code. That is a licence
+decision, taken deliberately and recorded here so it is not revisited by
+accident:
+
+- **pyFFI** — LGPL. The obvious Python choice. This tool ships as a PyInstaller
+  onefile binary, and statically bundling an LGPL library carries a relinking
+  obligation that does not fit that distribution.
+- **nifly** — GPL-3.0. **io_scene_mw** (Greatness7's Morrowind Blender plugin) —
+  GPL-3.0, Python, and scoped to exactly this game, which makes it the most
+  tempting option by far. **NifSkope** — GPL.
+- **nif.xml** (the NifTools format description) — in a GPL-3.0 repository whose
+  own licence status is [disputed upstream](https://github.com/niftools/nifxml/issues/86).
+  An unresolved licence is worse than one that clearly says no, so it was not
+  used as a source either.
+- **niflib** — **BSD-3**, and therefore the permissively-licensed reference to
+  consult if a layout ever needs checking against an implementation.
+
+## three.js — bundled, not merely referenced
+
+`mlox_subset/nif/assets/three.cjs` is **three.js r185, unmodified**, MIT
+licensed, with its licence text beside it as `three-LICENSE.txt`. It is the
+first third-party *source* this project ships, as distinct from the Python
+packages PyInstaller already collects, so it is called out here rather than
+left to be discovered in a build.
+
+It is the **CommonJS** build, which looks like an odd choice until the
+constraint is stated: modern three.js ships ESM only, split across
+`three.module.min.js` and `three.core.min.js`, and **ES module scripts do not
+load from `file://`** — the origin is `null` and the CORS check fails. The
+viewer pages are written to disk and opened in a browser, so no ESM packaging
+can work. The CJS build is one self-contained file with no `require()` of its
+own and runs as a classic script behind a three-line shim.
+
+The orbit controls in the page are ours, not three.js's `OrbitControls.js`,
+because that imports the bare specifier `'three'` and would pull ESM back into
+a page built specifically to avoid it.
+
+`mlox_subset/nif/bsa.py` reads Morrowind's archives, and is ours for the same
+reasons again. **bethesda-structs** (MIT, Stephen Bunn) via **BSAFileExtractor**
+(MIT, Pierre GAMBIER) would have been licence-compatible, so this was an
+engineering call rather than a legal one: it pulls in `construct`, `multidict`,
+`attrs` and `lz4` — the last with a compiled extension — ships a 49 MB tree
+covering Fallout and Skyrim record formats this project will never touch, and
+every archive in its own test suite is the *post-Morrowind* BSA format, which
+shares an extension with Morrowind's and nothing else. Morrowind's layout is a
+header and three tables. Neither project was read for the format; it was
+implemented from the public description and checked against a shipped archive
+with `tools/check_bsa.py`.
+
+`mlox_subset/dds/` is ours for the same reasons and by the same method. Pillow
+would decode these textures, but it is a large binary dependency in a
+PyInstaller onefile build for three block formats that are pure arithmetic. It
+was used instead as an **oracle**: all 50 corpus textures decode byte-for-byte
+identically to it, and every PNG we write reads back through it unchanged. Used
+but not read, exactly as with NifSkope.
+
+**How each field layout was actually derived — and what was deliberately not
+read to derive it — is recorded in `NIF_PROVENANCE.md`.** That document is the
+companion to this one: this section says *why* the reader is ours, and that one
+says *where every fact in it came from*, with the worked derivations so they can
+be re-run rather than taken on trust.
+
+Going GPL-3.0 was considered seriously: it would unlock io_scene_mw, pyFFI,
+nifly and — the bigger prize — **OpenMW**, whose NIF loading, texture handling
+and `openmw.cfg` semantics this tool models from the outside. The project stays
+**MIT** for now, so none of those were read for the reader's field layouts. They
+come from the publicly documented format, checked against real meshes with
+`tools/check_nif_layouts.py`.
+
 ## Referenced for formats & behavior (GPL — no source copied)
 
 We read these projects to understand file formats and expected behavior. **No

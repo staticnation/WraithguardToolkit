@@ -31,7 +31,9 @@ inside the program as well.
   load-order sort, `openmw.cfg` reading/emitting, plugin metadata, downloads,
   compiled-script decoding, and the conflict visualisations (`viz/`, which
   renders conflicts as self-contained HTML: a world conflict map, terrain
-  height differences, path-grid graphs and a rotatable 3D surface).
+  height differences, path-grid graphs and a rotatable 3D terrain surface with
+  relief shading, contours and multidirectional lighting — see
+  [The 3D terrain view](#the-3d-terrain-view)).
 - `mlox_subset_sort_gui.py` — a drag-and-drop GUI front-end (imports the engine
   directly; it reimplements no logic).
 - `mlox_base.txt`, `mlox_user.txt` — mlox rule databases (download/update with
@@ -43,7 +45,7 @@ inside the program as well.
   theme (see [Theming the app](#theming-the-app)).
 - `CREDITS.md` — acknowledgements for the projects this tool ports, references,
   and depends on (mlox, plox, tes3conv, modmapper, OpenMW, MOMW, and more).
-- `CHANGELOG.md` — what changed between releases (current: **3.0**).
+- `CHANGELOG.md` — what changed between releases (current: **3.1**).
 - `REMAINING_WORK.md` — the honest list of what is still outstanding in the
   codebase and against PEP standards, measured rather than recalled.
 
@@ -180,6 +182,36 @@ run against the sorted, enabled plugins and never modify anything; the **tools**
 row covers tes3cmd (clean / resync / header, VFS-safe), Save Check (verify an
 `.omwsave`'s dependencies are still present), and Backups (restore or delete
 backups left by this tool, tes3cmd, and the Configurator).
+
+**Resource Conflicts shows meshes in 3D.** Select a conflicting `.nif` and
+press **View in 3D**: one viewport with a checkbox per provider, so the camera
+never moves as you switch between them — the whole point, since a view that
+re-frames itself is comparing two different pictures. A node tree on the left
+lists what the render cannot show: collision nodes, controllers, particle
+systems, and any block nothing references. Drag to orbit, wheel to zoom, and
+**Textures** turns texturing off when you want to compare shape alone.
+
+It opens in the same in-app viewer as the other visualisations (pywebview),
+falling back to your browser. It is served from a small local server on `127.0.0.1` — nothing leaves
+your machine, the address is not reachable from the network, and every request
+carries a one-off token for that session. **Export 3D file...** writes the same
+view as a single self-contained HTML file you can keep or send to someone; that
+is also what you get automatically if the app cannot open a local port.
+
+**Resource Conflicts reads meshes.** A conflict list can tell you which mod
+wins a file; it cannot tell you the winner is a low-poly stand-in with no
+collision. So when two mods ship the same `.nif` and the bytes actually differ,
+the report says what the winning mesh *costs* you — lost collision, lost
+animation, a fraction of the triangles, or textures it references that nobody
+ships. Select a row and the panel below reads both meshes then and there and
+describes each provider in full.
+
+Nothing is read during the scan except meshes that already conflict **and**
+already differ, and results are cached on file contents, so a mesh shipped
+identically by four mods is parsed once. A mesh it cannot read — an unfamiliar
+NIF version, a truncated download — is reported as unreadable rather than
+guessed at, and a partly-read mesh never reports something as *missing*, since
+the node may simply be in the part that was not reached.
 
 Every list in the app supports **type-to-jump**: click it and start typing a
 name — prefix match first, substring fallback, tap one letter repeatedly to
@@ -360,13 +392,22 @@ rule-files panel keep you current and let you extend it:
 - **Update Rules...** downloads the current `mlox_base.txt`/`mlox_user.txt` over
   the matching files in your list (timestamped `.bak` kept; files with other
   names are never touched).
-- **New Rule...** writes your own `[Order]`/`[NearStart]`/`[NearEnd]` rule
-  without knowing the syntax: grab the selected rows from the plugin panel (their
-  order becomes the rule order) or type names (wildcards and `<VER>` allowed,
-  validated with the same regex the parser uses), preview, and append. Rules go
-  to a personal file that's auto-added **last** in the list so your rules win
-  conflicts — `mlox_base.txt`/`mlox_user.txt` are refused as targets since
-  "Update Rules..." overwrites them. Consider contributing good rules
+- **New Rule...** writes your own rule without knowing the syntax. It covers the
+  whole vocabulary — `[Order]`, `[NearStart]`, `[NearEnd]`, `[Note]`,
+  `[Requires]`, `[Conflict]` and `[Patch]`, the `ALL`/`ANY`/`NOT` expression
+  tree, the `[DESC]`/`[SIZE]`/`[VER]` predicates, `(Ref:)` citations, `@Section`
+  headings and the `!`/`!!`/`!!!` marks. Grab the selected rows from the plugin
+  panel (their order becomes the rule order) or type names, group them into
+  `[ANY ...]`, preview, and append.
+
+  Everything is **validated before it can be written**, because mlox discards a
+  rule it cannot use *without saying so* — the moment of writing is the only
+  chance you get to find out. A **Rule guide** button opens
+  [MLOX_RULES.md](MLOX_RULES.md) beside the window.
+
+  Rules go to a personal file that's auto-added **last** in the list so your
+  rules win conflicts — `mlox_base.txt`/`mlox_user.txt` are refused as targets
+  since "Update Rules..." overwrites them. Consider contributing good rules
   [upstream](https://morrowind-modding.github.io/modding-tools/sorting-plugin-load-order/mlox/mlox-rule-guidelines).
 - **Sources...** points both updaters at a fork or mirror if upstream moves. The
   rules field is a URL template containing `{name}`; the plugin-order.yml field
@@ -540,6 +581,34 @@ different situations, while 23 and 24 are not — so the legend beside the map i
 its key, with one swatch per band. It writes `cell_map.html` and opens it in an
 in-app window (with `pywebview`/`tkinterweb`) or your browser, changes nothing,
 and works with either engine (tes3conv gives the most exact cell identification).
+
+### The 3D terrain view
+
+Opened from a landscape record's field diff. It draws the cell's 65x65 height
+grid as a surface you can turn, which is the one view that settles "is that a
+ridge or a trench" without reading numbers. Drag to rotate, shift/right-drag to
+pan, scroll to zoom; **Isometric** and **Top down** are buttons because neither
+angle can be hit accurately by dragging.
+
+**Heights are drawn to the same scale as the ground.** A cell is 8,192 world
+units across and heights are in world units, so a slope on screen is the slope
+in game — a 45-degree hillside renders at 45 degrees. Use **Vertical** to
+exaggerate deliberately when a cell is genuinely almost flat; the readout says
+so while it is on.
+
+Everything about the shading is a control:
+
+| Control | What it does |
+| --- | --- |
+| **Shading** | *Relief* (hillshade with a tint over it) or *Flat facets* (one colour per face, which makes the mesh itself visible). The geometry is identical either way. |
+| **Hillshade** | The greyscale shading that carries the shape. |
+| **Lights** | *Single*, or 3/6-way **multidirectional**: lights spread around the compass, weighted toward the sun azimuth. One light leaves faces in flat black; several fill those shadows without flattening the relief. Overall brightness does not change. |
+| **Scales** | *Multiscale* blends slopes measured over three window widths — a narrow window shows texture, a wide one shows landform, and one radius has to choose. |
+| **Sun azimuth / altitude** | Where the light comes from, in compass degrees and degrees above the horizon. |
+| **Tint** | *Hypsometric* (green valleys to pale summits), *Rainbow*, or *Greyscale*, at any opacity from 0 to 100%. A rainbow resolves small differences far better on nearly flat ground, which is why it is offered — and why it is not the default, since it implies boundaries the terrain does not have. |
+| **Contours** | Lines at a round interval chosen to put about a dozen on the cell, with the interval named in the readout. They are dropped where they would crowd close enough to merge, the way a paper map drops them. |
+
+**Reset** restores every control, not just the camera.
 
 ---
 
