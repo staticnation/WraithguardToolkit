@@ -231,7 +231,12 @@ class TestServedAndStandaloneShareOneBuilder:
         )
         assert "exports.Scene" not in page
         assert '<script src="http://127.0.0.1:1/three.js"></script>' in page
-        assert len(page) < 20_000, "a served page should be kilobytes"
+        # The library is 2 MB. This bound is not a page-weight budget -- it is
+        # the assertion that the library is *absent*, stated in a way that
+        # still fails if a future change inlines it. Room is left above the
+        # current size so that adding a control does not look like a
+        # regression in something this test does not measure.
+        assert len(page) < 100_000, "a served page should be kilobytes, not megabytes"
 
     @pytest.mark.parametrize("served", [False, True])
     def test_the_shim_wraps_the_library_in_both_modes(self, served: bool) -> None:
@@ -416,7 +421,7 @@ class TestTexturesReachThePage:
 
     def test_a_resolved_texture_becomes_a_png_in_the_page(self, tmp_path: Path) -> None:
         """The whole pipeline: reference, VFS lookup, DDS decode, PNG."""
-        from tests.test_dds import bc1_block, dds
+        from tests.test_images import bc1_block, dds
 
         folder = tmp_path / "Mod"
         target = folder / "textures" / "tx_rock.dds"
@@ -439,7 +444,7 @@ class TestTexturesReachThePage:
 
     def test_one_texture_shared_by_two_sides_is_decoded_once(self, tmp_path: Path) -> None:
         """A 2048px image decoded per shape would dominate opening a view."""
-        from tests.test_dds import bc1_block, dds
+        from tests.test_images import bc1_block, dds
 
         folder = tmp_path / "Mod"
         target = folder / "textures" / "tx_rock.dds"

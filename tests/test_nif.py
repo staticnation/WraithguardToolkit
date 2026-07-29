@@ -1331,6 +1331,46 @@ class TestBoundingBoxIsTyped:
         data = nif(("NiNode", self._node_with_box(7, b"\0" * 16)))
         assert "bounding box type" in read_nif_bytes(data).stopped_reason
 
+    def test_a_union_holds_a_count_and_then_more_volumes(self) -> None:
+        """Type 4 is not a width, which is why a width table cannot hold it.
+
+        A union carries a count followed by that many complete volumes, each
+        with its own type word. Found by cross-checking against an independent
+        implementation rather than by a failing file -- a union bound would
+        have stopped this reader with "unknown bounding box type 4".
+        """
+        # Two volumes inside the union: one sphere, one box.
+        inner = struct.pack("<I", 0) + b"\0" * 16 + struct.pack("<I", 1) + b"\0" * 60
+        tail = struct.pack("<I", 2) + inner
+        data = nif(
+            ("NiNode", self._node_with_box(4, tail)),
+            ("NiShadeProperty", property_body()),
+        )
+        result = read_nif_bytes(data)
+        assert result.stopped_reason == ""
+        assert result.blocks[1].type_name == "NiShadeProperty"
+
+    def test_an_empty_union_is_legal(self) -> None:
+        """A count of zero consumes nothing further, and must not hang."""
+        data = nif(
+            ("NiNode", self._node_with_box(4, struct.pack("<I", 0))),
+            ("NiShadeProperty", property_body()),
+        )
+        assert read_nif_bytes(data).stopped_reason == ""
+
+    def test_unions_cannot_nest_without_limit(self) -> None:
+        """The format lets a union hold unions, so a file can ask for recursion.
+
+        Real files nest one level at most. A corrupt one that nests forever
+        must be refused rather than exhaust the interpreter's stack.
+        """
+        tail = b""
+        for _ in range(12):
+            tail = struct.pack("<II", 4, 1) + tail
+        # Strip the leading type word: _node_with_box writes it.
+        data = nif(("NiNode", self._node_with_box(4, tail[4:])))
+        assert "nested" in read_nif_bytes(data).stopped_reason
+
 
 class TestTextureIdentityIgnoresTheExtension:
     """A reference names a file by path and stem; the engine picks the format.

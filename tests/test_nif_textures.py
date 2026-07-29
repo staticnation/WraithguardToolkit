@@ -226,3 +226,64 @@ class TestArchivesAreSearchedAfterLooseFiles:
         folder.mkdir()
         (folder / "Morrowind.bsa").write_bytes(self._bsa({"textures/tx.dds": b"ARCHIVED"}))
         assert not TextureResolver([folder]).resolve("other.dds").found
+
+    def test_membership_does_not_read_the_file(self, tmp_path: Path) -> None:
+        """Resolving tries ten names per texture against every archive.
+
+        Answering each with a read pulls the bytes and discards them -- around
+        sixty wasted reads per texture against the three vanilla archives, on
+        the path the 3D viewer walks for every shape in a mesh.
+        """
+        from mlox_subset.nif.bsa import BsaArchive
+
+        path = tmp_path / "Morrowind.bsa"
+        path.write_bytes(self._bsa({"textures/tx.dds": b"ARCHIVED"}))
+        archive = BsaArchive(path)
+        assert "textures/tx.dds" in archive
+        assert r"TEXTURES\TX.DDS" in archive
+        assert "textures/absent.dds" not in archive
+
+
+class TestOpenMwAuxiliaryMaps:
+    """Normal and specular maps that no mesh ever mentions.
+
+    The Morrowind NIF has no dependable slot for a normal map, so OpenMW finds
+    them by *name*: given ``tx_rock.dds`` it looks for ``tx_rock_n.dds``. A
+    viewer that followed only mesh references would never show one, and a
+    conflict report that compared only referenced textures would miss two mods
+    overwriting each other's normal maps entirely.
+    """
+
+    def test_the_stock_suffixes_are_found_beside_a_diffuse_texture(
+        self, tmp_path: Path
+    ) -> None:
+        """The four patterns OpenMW ships with."""
+        folder = tmp_path / "Mod"
+        for name in ("tx_rock.dds", "tx_rock_n.dds", "tx_rock_nh.dds", "tx_rock_spec.dds"):
+            make_texture(folder, name)
+        found = TextureResolver([folder]).siblings("tx_rock.dds")
+        assert set(found) == {"_n", "_nh", "_spec"}
+
+    def test_a_texture_with_no_siblings_reports_none(self, tmp_path: Path) -> None:
+        """The common case, and it must not invent anything."""
+        make_texture(tmp_path / "Mod", "tx_rock.dds")
+        assert TextureResolver([tmp_path / "Mod"]).siblings("tx_rock.dds") == {}
+
+    def test_siblings_resolve_through_the_whole_virtual_file_system(
+        self, tmp_path: Path
+    ) -> None:
+        """A texture pack adds normal maps for another mod's textures.
+
+        That is the arrangement these suffixes exist for, so resolving them
+        only within the diffuse texture's own folder would miss the point.
+        """
+        base, pack = tmp_path / "Base", tmp_path / "Pack"
+        make_texture(base, "tx_rock.dds")
+        make_texture(pack, "tx_rock_n.dds")
+        found = TextureResolver([base, pack]).siblings("tx_rock.dds")
+        assert set(found) == {"_n"}
+
+    def test_an_empty_reference_asks_for_nothing(self, tmp_path: Path) -> None:
+        """Untextured shapes carry an empty string, and must not be searched."""
+        make_texture(tmp_path / "Mod", "tx_rock.dds")
+        assert TextureResolver([tmp_path / "Mod"]).siblings("") == {}
