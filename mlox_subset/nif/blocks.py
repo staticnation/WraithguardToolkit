@@ -146,7 +146,7 @@ _NI_DYNAMIC_EFFECT: Final[Layout] = (
     ("affected_nodes", "ref_list"),
 )
 
-#: Every light's shared body: a dimmer and three colours. Taken from tes3.
+#: Every light's shared body: a dimmer and three colors. Taken from tes3.
 #: The concrete light types differ only in what follows this.
 _NI_LIGHT: Final[Layout] = (
     *_NI_DYNAMIC_EFFECT,
@@ -166,7 +166,7 @@ _NI_TIME_CONTROLLER: Final[Layout] = (
     ("target", "link"),
 )
 
-#: Particle geometry: the same vertex, normal, colour and UV block a mesh
+#: Particle geometry: the same vertex, normal, color and UV block a mesh
 #: carries, followed by the per-particle extras. Derived by reconciling block
 #: lengths across six fixtures spanning 12 to 1000 particles and every
 #: combination of the optional arrays -- 240, 704, 2288, 660, 32052 and 48052
@@ -509,7 +509,7 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
     ),
     "NiAlphaProperty": (*_NI_PROPERTY, ("threshold", "u8")),
     # Taken from tes3, not derived -- see the note above NiFltAnimationNode.
-    # A property, a fog depth and an RGB colour.
+    # A property, a fog depth and an RGB color.
     "NiFogProperty": (*_NI_PROPERTY, ("fog_depth", "f32"), ("fog_color", "vector3")),
     "NiZBufferProperty": _NI_PROPERTY,
     "NiShadeProperty": _NI_PROPERTY,

@@ -50,7 +50,7 @@ LOG = get_logger(__name__)
 #: The vendored three.js build, relative to this package.
 _THREE_ASSET: Final[str] = "assets/three.cjs"
 
-#: Colours for the two sides of a comparison: the overridden mesh and the one
+#: Colors for the two sides of a comparison: the overridden mesh and the one
 #: that wins. Deliberately not red and green -- the point is to tell them apart,
 #: not to say which is better, and roughly 1 in 12 men cannot separate those.
 _COLOURS: Final[tuple[str, str]] = ("#6ba3ff", "#ffb86b")
@@ -321,12 +321,12 @@ def build_viewer_page(
 
     Args:
         sides: ``(label, meshes)`` pairs. One side shows a single mesh; two
-            shows a comparison, each in its own colour and its own viewport.
+            shows a comparison, each in its own color and its own viewport.
         title: The page title.
         sink: How geometry reaches the page. Defaults to inlining it.
         library_url: Where to fetch three.js. Empty means inline it.
         resolver: Finds texture files across the data folders. Omitted, the
-            meshes render in a flat colour, which stays a complete view rather
+            meshes render in a flat color, which stays a complete view rather
             than a degraded one.
         trees: Block hierarchies, one per side. Optional because the geometry
             view stands on its own; supplied, it fills the structure pane with
@@ -345,7 +345,7 @@ def build_viewer_page(
     scenes = [
         {
             "label": label,
-            "colour": _COLOURS[index % len(_COLOURS)],
+            "color": _COLOURS[index % len(_COLOURS)],
             "meshes": _mesh_payload(meshes, blob_sink, resolver, shared_textures),
             "tree": _tree_payload(trees[index]) if trees and index < len(trees) else [],
         }
@@ -516,7 +516,7 @@ __LIBRARY_BLOCK__
         // renders flat black. Computing them is cheap and always right.
         g.computeVertexNormals();
         var material = new THREE.MeshPhongMaterial({
-          color: spec.colour, side: THREE.DoubleSide
+          color: spec.color, side: THREE.DoubleSide
         });
         if (m.image && m.uvs && textured) {
           var image = new Image();
@@ -525,17 +525,17 @@ __LIBRARY_BLOCK__
           tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
           // The image arrives after the material is built, so the texture has
           // to be marked dirty and a frame drawn once it lands. Without the
-          // redraw the mesh stays flat-coloured until something else happens
+          // redraw the mesh stays flat-colored until something else happens
           // to trigger one, which looks exactly like a failure to load.
           image.onload = function () { tex.needsUpdate = true; draw(); };
           image.src = m.image.url;
           material.map = tex;
-          // Tinting a texture with the side colour would make the two
+          // Tinting a texture with the side color would make the two
           // providers look different for a reason that is not in the file.
           material.color = new THREE.Color(0xffffff);
         }
         // An OpenMW-style normal map, found beside the diffuse one by name.
-        // Not colour: it is loaded in linear space, because treating a field
+        // Not color: it is loaded in linear space, because treating a field
         // of vectors as sRGB bends every one of them.
         var extras = m.extras || {};
         var normalSource = extras["_nh"] || extras["_n"] || null;
@@ -550,7 +550,7 @@ __LIBRARY_BLOCK__
         var drawn = new THREE.Mesh(g, material);
         drawn.userData.map = material.map || null;
         drawn.userData.normalMap = normalTex;
-        drawn.userData.tint = spec.colour;
+        drawn.userData.tint = spec.color;
         if (normalTex) anyNormalMaps = true;
         group.add(drawn);
       });
@@ -641,7 +641,7 @@ __LIBRARY_BLOCK__
         any = true;
         var heading = document.createElement("h4");
         heading.textContent = spec.label;
-        heading.style.color = spec.colour;
+        heading.style.color = spec.color;
         treeBox.appendChild(heading);
         treeBox.appendChild(renderTree(spec.tree));
       });
@@ -682,7 +682,7 @@ __LIBRARY_BLOCK__
       var label = document.createElement("label");
       label.htmlFor = id;
       var swatch = document.createElement("span");
-      swatch.className = "swatch"; swatch.style.background = spec.colour;
+      swatch.className = "swatch"; swatch.style.background = spec.color;
       label.appendChild(swatch);
       label.appendChild(document.createTextNode(" " + spec.label));
       span.appendChild(box2); span.appendChild(label);
@@ -703,7 +703,7 @@ __LIBRARY_BLOCK__
     textureCtl.appendChild(textureBox); textureCtl.appendChild(textureLabel);
     controls.appendChild(textureCtl);
     textureBox.addEventListener("change", function () {
-      // Flat colour is often the better comparison: two versions of a mesh
+      // Flat color is often the better comparison: two versions of a mesh
       // wearing the same texture differ in shape, and the texture hides it.
       scene.traverse(function (o) {
         if (!o.isMesh || !o.userData.map) return;

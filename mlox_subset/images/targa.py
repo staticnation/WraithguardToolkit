@@ -10,7 +10,7 @@ resolve, load, and then fail to decode.
 
 **The format is two ideas.** A header giving dimensions and depth, then pixels
 either laid out plainly or run-length encoded a packet at a time. Both are
-here. Colour-mapped images are handled too, since 8-bit paletted Targas turn up
+here. Color-mapped images are handled too, since 8-bit paletted Targas turn up
 in older mods where disk space mattered.
 
 **Two traps, both silent.** Channels are stored **blue first**, so a decoder
@@ -48,7 +48,7 @@ _RLE_TYPES: Final[frozenset[int]] = frozenset(
     {_RLE_COLOUR_MAPPED, _RLE_TRUE_COLOUR, _RLE_GREYSCALE}
 )
 
-#: Types that index into a colour map rather than storing pixels directly.
+#: Types that index into a color map rather than storing pixels directly.
 _MAPPED_TYPES: Final[frozenset[int]] = frozenset({_COLOUR_MAPPED, _RLE_COLOUR_MAPPED})
 
 #: Descriptor bit meaning the first row stored is the top one. Clear -- which
@@ -106,8 +106,8 @@ def _unpack_pixel(raw: bytes, depth: int) -> bytes:
     raise TargaError(f"unsupported Targa depth: {depth} bits per pixel")
 
 
-def _read_colour_map(data: bytes, offset: int, length: int, depth: int) -> list[bytes]:
-    """Read the palette of a colour-mapped image.
+def _read_color_map(data: bytes, offset: int, length: int, depth: int) -> list[bytes]:
+    """Read the palette of a color-mapped image.
 
     Args:
         data: The whole file.
@@ -123,7 +123,7 @@ def _read_colour_map(data: bytes, offset: int, length: int, depth: int) -> list[
     """
     step = (depth + 7) // 8
     if offset + length * step > len(data):
-        raise TargaError("Targa colour map runs past the end of the file")
+        raise TargaError("Targa color map runs past the end of the file")
     return [
         _unpack_pixel(data[offset + index * step : offset + index * step + step], depth)
         for index in range(length)
@@ -253,10 +253,10 @@ def read_tga(data: bytes) -> Image:
     offset = _HEADER_SIZE + id_length
     palette: list[bytes] = []
     if has_map or image_type in _MAPPED_TYPES:
-        palette = _read_colour_map(data, offset, map_length, map_depth)
+        palette = _read_color_map(data, offset, map_length, map_depth)
         offset += map_length * ((map_depth + 7) // 8)
     if image_type in _MAPPED_TYPES and not palette:
-        raise TargaError("colour-mapped Targa carries no colour map")
+        raise TargaError("color-mapped Targa carries no color map")
 
     step = (depth + 7) // 8
     if step < 1:
@@ -277,10 +277,10 @@ def read_tga(data: bytes) -> Image:
 
 
 def _palette_lookup(palette: list[bytes], entry: bytes) -> bytes:
-    """Resolve one colour-map index.
+    """Resolve one color-map index.
 
     Args:
-        palette: The colour map.
+        palette: The color map.
         entry: The stored index, one or two bytes.
 
     Returns:
@@ -289,11 +289,11 @@ def _palette_lookup(palette: list[bytes], entry: bytes) -> bytes:
     Raises:
         TargaError: If the index is outside the map. That means the file and
             its own header disagree, which is worth reporting rather than
-            silently clamping to a colour the image never contained.
+            silently clamping to a color the image never contained.
     """
     index = int.from_bytes(entry, "little")
     if not 0 <= index < len(palette):
-        raise TargaError(f"colour-map index {index} is outside a map of {len(palette)}")
+        raise TargaError(f"color-map index {index} is outside a map of {len(palette)}")
     return palette[index]
 
 

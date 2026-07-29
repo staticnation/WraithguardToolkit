@@ -9,7 +9,7 @@ known and under-diagnosed failure.
 
 The text view already renders the adjacency list, which is readable but not
 *comparable*: spotting that node 37 lost two edges means reading two columns of
-numbers side by side. Drawn as a graph with added and removed edges coloured,
+numbers side by side. Drawn as a graph with added and removed edges colored,
 the same change is immediate.
 
 Projection is a plain top-down ``(x, y)`` drop. Path grids are near-planar
@@ -74,7 +74,7 @@ function edgeSet(pairs){
   return s;
 }
 
-function drawSet(set,colour,width){
+function drawSet(set,color,width){
   for(const key of set){
     const parts=key.split(',');
     const a=+parts[0],b=+parts[1];
@@ -83,7 +83,7 @@ function drawSet(set,colour,width){
     const line=document.createElementNS(NS,'line');
     line.setAttribute('x1',p1[0].toFixed(1));line.setAttribute('y1',p1[1].toFixed(1));
     line.setAttribute('x2',p2[0].toFixed(1));line.setAttribute('y2',p2[1].toFixed(1));
-    line.setAttribute('stroke',colour);line.setAttribute('stroke-width',width);
+    line.setAttribute('stroke',color);line.setAttribute('stroke-width',width);
     edgesGroup.appendChild(line);
   }
 }
@@ -95,7 +95,7 @@ function draw(step){
 
   if(step<=0){
     // Base: nothing loaded before it, so there's nothing to diff against.
-    drawSet(current,D.colours.kept,1.0);
+    drawSet(current,D.colors.kept,1.0);
     document.getElementById('val-step').textContent=D.labels.base;
     document.getElementById('val-added').textContent='\u2014';
     document.getElementById('val-removed').textContent='\u2014';
@@ -109,9 +109,9 @@ function draw(step){
   const removed=new Set([...before].filter(function(x){return !current.has(x);}));
   const kept=new Set([...current].filter(function(x){return before.has(x);}));
 
-  drawSet(kept,D.colours.kept,1.0);
-  drawSet(removed,D.colours.removed,2.0);
-  drawSet(added,D.colours.added,2.0);
+  drawSet(kept,D.colors.kept,1.0);
+  drawSet(removed,D.colors.removed,2.0);
+  drawSet(added,D.colors.added,2.0);
 
   document.getElementById('val-step').textContent=prevName+' \u2192 '+name;
   document.getElementById('val-added').textContent=added.size;
@@ -346,7 +346,7 @@ def build_pathgrid_graph(
         "chain": chain,
         "edges": {name: sorted(edges_by_name[name]) for name in chain},
         "default_step": len(chain) - 1,
-        "colours": {"added": _ADDED, "removed": _REMOVED, "kept": _KEPT},
+        "colors": {"added": _ADDED, "removed": _REMOVED, "kept": _KEPT},
         "labels": {
             "base": _("Base version \u2014 nothing loaded before it to compare against."),
             "unchanged": _(

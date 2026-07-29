@@ -340,8 +340,8 @@ class ConflictWindowsMixin:
             top,
             text=_(
                 "%(conflicts)d loose-file conflict(s) across "
-                "%(dirs)d folder(s), %(files)d file(s) — "
-                "%(involved)d involve your custom data paths (★). Later folder wins — "
+                "%(dirs)d folder(s), %(files)d file(s) - "
+                "%(involved)d involve your custom data paths (★). Later folder wins - "
                 "reorder the data-path panel to change it."
             )
             % {
@@ -854,7 +854,7 @@ class ConflictWindowsMixin:
             top,
             text=_(
                 "%(conflicts)d conflicting record(s) across "
-                "%(scanned)d plugin(s) — %(involved)d involve your custom mods "
+                "%(scanned)d plugin(s) - %(involved)d involve your custom mods "
                 "(★). Winner = last loaded."
             )
             % {
@@ -894,7 +894,7 @@ class ConflictWindowsMixin:
             text=(
                 "Field-level diffs: ON (tes3conv)."
                 if engine == "tes3conv"
-                else "Field-level diffs: OFF — record-level only. Set a tes3conv binary, then re-check."
+                else "Field-level diffs: OFF - record-level only. Set a tes3conv binary, then re-check."
             ),
         ).pack(side="left")
         ttk.Button(bar, text=_("Set tes3conv..."), command=self._set_tes3conv).pack(
@@ -943,7 +943,7 @@ class ConflictWindowsMixin:
             botf,
             foreground=DARK["fg_dim"],
             text=_(
-                "Field comparison for the selected record — differing fields in red · "
+                "Field comparison for the selected record - differing fields in red · "
                 "★ = your custom mod · last column wins · double-click a field for the full "
                 "value:"
             ),
@@ -971,7 +971,7 @@ class ConflictWindowsMixin:
                 "disassembler cannot decode are printed as offset/hex/ASCII rather than "
                 "guessed at, and a 'decoded: N%' header says how much was understood.\n"
                 "  \u2022 variables -- the script's local variable names, in declaration order.\n"
-                "  \u2022 landscape (vertex heights, normals, colours, textures, world map) "
+                "  \u2022 landscape (vertex heights, normals, colors, textures, world map) "
                 "-- decoded to one terrain row per line, so the diff shows which rows of "
                 "the cell moved. Heights are reconstructed to absolute world units.\n"
                 "  \u2022 path grid connections -- decoded to a per-point adjacency list "
@@ -1357,7 +1357,7 @@ class ConflictWindowsMixin:
                 messagebox.showwarning(
                     _("Nothing written"),
                     _(
-                        "No JSON was written. The tes3conv session may have been cleared — "
+                        "No JSON was written. The tes3conv session may have been cleared - "
                         "re-run Check Conflicts, then dump again."
                     ),
                 )
@@ -1484,7 +1484,7 @@ class ConflictWindowsMixin:
                 text=(
                     ("★ " if cust else "")
                     + p
-                    + ("   — your custom mod" if cust else "   — curated list")
+                    + ("   - your custom mod" if cust else "   - curated list")
                     + ("   ✓ wins" if i == len(plugins) - 1 else "")
                 ),
                 foreground=(custom_fg if cust else DARK["fg_dim"]),

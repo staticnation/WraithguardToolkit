@@ -3,7 +3,7 @@
 
   "_about": "Template for MLOX Subset Sort's Import Theme... button (Log panel). Keys starting with _ are ignored by the importer, as is any other unknown key. Colors are hex: #rrggbb or shorthand #rgb. Base16 scheme files (.yaml/.yml with base00..base0F) are also importable directly - this template is the native format.",
 
-  "_required": "The 9 fields below MUST be present (import fails without them). They drive the log panel, and the window colours are derived from them automatically - background is lightened (dark themes) or darkened (light themes) for panels, buttons and borders.",
+  "_required": "The 9 fields below MUST be present (import fails without them). They drive the log panel, and the window colors are derived from them automatically - background is lightened (dark themes) or darkened (light themes) for panels, buttons and borders.",
   "background": "#141414",
   "foreground": "#e6e6e6",
   "select": "#094771",
@@ -14,7 +14,7 @@
   "inserted": "#7ee0a0",
   "dim": "#8a8a8a",
 
-  "_optional_tokens": "The 7 fields below are OPTIONAL syntax-token colours for the field-diff JSON/HTML viewer (Check Conflicts -> double-click a field). Delete any or all - missing ones fall back to the required roles above (key->section, string->ok, number->warn, keyword->error, punct->dim, tag->error, attr->warn).",
+  "_optional_tokens": "The 7 fields below are OPTIONAL syntax-token colors for the field-diff JSON/HTML viewer (Check Conflicts -> double-click a field). Delete any or all - missing ones fall back to the required roles above (key->section, string->ok, number->warn, keyword->error, punct->dim, tag->error, attr->warn).",
   "key": "#9cdcfe",
   "string": "#ce9178",
   "number": "#b5cea8",
@@ -23,7 +23,7 @@
   "tag": "#569cd6",
   "attr": "#9cdcfe",
 
-  "_optional_chrome": "The chrome object below is OPTIONAL and overrides the automatic window-colour derivation. Give any subset of these 11 keys - anything missing (or invalid) is derived from background instead. Delete the whole object to use pure derivation. bg=window/frames, bg2=raised panels, field_bg=entries/lists, border=borders, fg=text, fg_dim=secondary text, select=selection, btn_bg/btn_bg_active=buttons, accent=focus highlight, log_bg=console-style panes (log, previews).",
+  "_optional_chrome": "The chrome object below is OPTIONAL and overrides the automatic window-color derivation. Give any subset of these 11 keys - anything missing (or invalid) is derived from background instead. Delete the whole object to use pure derivation. bg=window/frames, bg2=raised panels, field_bg=entries/lists, border=borders, fg=text, fg_dim=secondary text, select=selection, btn_bg/btn_bg_active=buttons, accent=focus highlight, log_bg=console-style panes (log, previews).",
   "chrome": {
     "bg": "#1e1e1e",
     "bg2": "#252526",

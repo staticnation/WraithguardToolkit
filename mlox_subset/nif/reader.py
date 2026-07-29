@@ -736,8 +736,8 @@ _FLOAT_KEY_WIDTHS: Final[dict[int, int]] = {1: 8, 2: 16, 3: 20, 5: 8}
 _VECTOR_KEY_WIDTHS: Final[dict[int, int]] = {1: 16, 2: 40, 3: 28, 5: 16}
 _QUAT_KEY_WIDTHS: Final[dict[int, int]] = {1: 20, 2: 20, 3: 32, 5: 20}
 
-#: Bytes per colour key, by the same rule as the tables above applied to a
-#: four-float colour: linear is time plus value, quadratic adds forward and
+#: Bytes per color key, by the same rule as the tables above applied to a
+#: four-float color: linear is time plus value, quadratic adds forward and
 #: backward tangents, TBC adds three floats. Only mode 1 appears anywhere in
 #: the corpus -- every NiColorData fixture is 8 bytes of head plus exactly 20
 #: per key -- so the other three are the rule extended, not observations, and

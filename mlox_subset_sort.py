@@ -2524,7 +2524,7 @@ def describe_mesh_detail(
         if isinstance(outcome, str):
             structures.append(None)
             lines.append(
-                _("  %(n)d. %(dir)s — could not read: %(why)s")
+                _("  %(n)d. %(dir)s - could not read: %(why)s")
                 % {"n": index, "dir": provider, "why": outcome}
             )
             continue
@@ -2550,7 +2550,7 @@ def describe_mesh_detail(
                 _("PARTIAL: %(read)d of %(declared)d blocks")
                 % {"read": outcome.blocks_read, "declared": outcome.blocks_declared}
             )
-        lines.append(f"  {index}. {provider} — " + ", ".join(traits))
+        lines.append(f"  {index}. {provider} - " + ", ".join(traits))
     winner_dir = str(conflict.get("winner", providers[-1]))
     try:
         winner = structures[providers.index(winner_dir)]
@@ -2811,7 +2811,7 @@ def _html_escape(s: object) -> str:
 
 def generate_cell_map_html(
     coverage: Mapping[str, Any],
-    title: str = "MLOX Subset Sort — Cell Map",
+    title: str = "MLOX Subset Sort - Cell Map",
 ) -> str:
     """Render the cell map as a self-contained HTML page.
 

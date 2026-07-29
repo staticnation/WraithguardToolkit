@@ -15,7 +15,7 @@ The pages answer questions the text diff cannot:
 * :func:`build_terrain_3d` -- the cell as a surface, for when a number grid
   still does not convey the shape.
 
-The severity colour language (green fine, yellow minor, red major) follows
+The severity color language (green fine, yellow minor, red major) follows
 ``merged_lands`` (MIT), which established it for TES3 land conflicts. Matching
 a tool people already read beats inventing a nicer palette. That tool *merges*
 land; this one sorts and reports, so these pages answer "where do my mods

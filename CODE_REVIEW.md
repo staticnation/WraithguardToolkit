@@ -1,9 +1,9 @@
-# Code review — MLOX Subset Sort (running log)
+# Code review - MLOX Subset Sort (running log)
 
 > **This is a running log, not a single review.** Sections are appended as work
 > happens and are ordered **oldest first**, so §1 is the original review and the
 > highest-numbered section is the most recent. Nothing here is rewritten when
-> later work supersedes it — the point is to keep the reasoning that was
+> later work supersedes it - the point is to keep the reasoning that was
 > actually used at the time, including the decisions that were later revised.
 >
 > **Read every figure as "true when written," not as current.** The clearest
@@ -42,12 +42,12 @@
 > hermetic suite and the counts above; `tests/test_gui_smoke.py` runs under a
 > virtual display in CI and on any desktop with Tk. It was 16 tests when it was
 > written in §31 and is 42 now (§34.4), and a *skip* there is treated as a
-> failure — a skipped GUI test is a check that silently did not run, which has
+> failure - a skipped GUI test is a check that silently did not run, which has
 > already hidden one real defect.
 
 ---
 
-**The first entry — the original review.** Everything from §1 onward was
+**The first entry - the original review.** Everything from §1 onward was
 written against the state of the code described here.
 
 Senior-developer review of `mlox_subset_sort.py` (engine) and
@@ -55,7 +55,7 @@ Senior-developer review of `mlox_subset_sort.py` (engine) and
 security, PEP 8/PEP 20 conformance, testing, and performance.
 
 **Verdict:** the codebase is in good shape. The domain logic is careful and
-unusually well commented — the *why* is recorded, not just the *what*, which
+unusually well commented - the *why* is recorded, not just the *what*, which
 is rare and valuable. Review found **four real defects** (one security-
 relevant, one resource leak, one crash, one dead conditional), all fixed, and
 added a **129-test pytest suite** that previously did not exist.
@@ -67,7 +67,7 @@ configured in `pyproject.toml`.
 
 ## 1. Defects found and fixed
 
-### 1.1 Unvalidated download scheme (security) — `fetch_url_bytes`
+### 1.1 Unvalidated download scheme (security) - `fetch_url_bytes`
 
 The two updaters (`update_rule_files`, `update_plugin_order_yml`) passed a URL
 straight to `urllib.request.urlopen`. Those URLs come from a **persisted
@@ -87,21 +87,21 @@ MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
 Covered by `tests/test_updaters.py::TestUrlSchemeAllowList` (including a test
 that a `file://` template leaves the target file byte-identical).
 
-### 1.2 Temp-file leak on every failed validation — `update_plugin_order_yml`
+### 1.2 Temp-file leak on every failed validation - `update_plugin_order_yml`
 
 The downloaded YAML was written to a `NamedTemporaryFile(delete=False)` and
 only unlinked on the success path. Any parse failure leaked the file, once per
 attempt. Fixed with `try/finally` + `unlink(missing_ok=True)`; regression test
 runs five failing downloads and asserts zero leaked files.
 
-### 1.3 Crash on a malformed URL template — `update_rule_files`
+### 1.3 Crash on a malformed URL template - `update_rule_files`
 
 The GUI's Sources dialog only checks that the template contains `{name}`. A
 template such as `https://host/{name}/{branch}` reached `str.format()` and
 raised an uncaught `KeyError`, killing the update. Now caught and reported as
 a bad template. Parametrised regression test covers four malformed shapes.
 
-### 1.4 Dead conditional — `scan_backups`
+### 1.4 Dead conditional - `scan_backups`
 
 ```python
 out.append((p, orig if (orig and orig.exists()) else orig, kind))   # both branches identical
@@ -109,7 +109,7 @@ out.append((p, orig if (orig and orig.exists()) else orig, kind))   # both branc
 
 The ternary returned `orig` either way. Reviewing the consumers showed the GUI
 already renders its own "original missing" marker, and restoring a backup
-whose original was deleted is *valid recovery* — so always reporting the path
+whose original was deleted is *valid recovery* - so always reporting the path
 is the correct behaviour. Simplified and documented, with a test pinning the
 intent.
 
@@ -127,19 +127,19 @@ intent.
 
 ## 2. PEP 8 / PEP 20 conformance
 
-- **E741 (ambiguous name `l`)** — 20 occurrences, all meaning "line". Renamed
+- **E741 (ambiguous name `l`)** - 20 occurrences, all meaning "line". Renamed
   to `line`/`name`. Because this was a mechanical rename across parser and
   emitter internals, it was **verified behaviour-neutral by differential
   testing**: the pre-rename and post-rename modules were loaded side by side
   and produced identical output for the real 975-plugin load order,
   `simulate_configurator_apply`, `find_anchor_index`, `parse_mlox_file`
   (1,544 blocks) and `preview_configurator_result`.
-- **E702 (semicolon-joined statements)** — 6 occurrences, expanded.
-- **W291/W293 (trailing whitespace)** — cleared repo-wide.
+- **E702 (semicolon-joined statements)** - 6 occurrences, expanded.
+- **W291/W293 (trailing whitespace)** - cleared repo-wide.
 - Dead imports and unused locals removed.
 
 *PEP 20 note:* the code already follows "explicit is better than implicit" in
-the places that matter — the Configurator simulation documents each upstream
+the places that matter - the Configurator simulation documents each upstream
 quirk it deliberately mirrors, which is exactly the "special cases aren't
 special enough to break the rules… although practicality beats purity"
 balance this domain needs.
@@ -153,12 +153,12 @@ rejected with a reason, recorded in `pyproject.toml` so the decision survives:
 
 | Rule | Why it is wrong here |
 | --- | --- |
-| `B905` (`zip(strict=)`) | Every call site is either an intentional offset pairing `zip(xs, xs[1:])` — where `strict=True` would raise on *every* call — or a comparison that already reports length mismatch with a better message than an exception. (This exemption originally also cited the Python 3.8 target, since `strict=` is 3.10+. That half is obsolete as of 3.0, which requires 3.10+; the reasoning above stands on its own.) |
+| `B905` (`zip(strict=)`) | Every call site is either an intentional offset pairing `zip(xs, xs[1:])` - where `strict=True` would raise on *every* call - or a comparison that already reports length mismatch with a better message than an exception. (This exemption originally also cited the Python 3.8 target, since `strict=` is 3.10+. That half is obsolete as of 3.0, which requires 3.10+; the reasoning above stands on its own.) |
 | `SIM115` (context manager) | The trace-log handles are deliberately long-lived; reopening per line made the sort crawl when logging thousands of steps. They flush per write and are closed explicitly. One flagged site already *does* use `with fh:`. |
 | `PLC0415` (import outside top level) | Optional dependencies (`tomli`, `yaml`, viewer backends) are imported lazily so a missing optional dep degrades one feature instead of preventing startup. |
 | `S110`/`S112`/`SIM105` (silent except) | Confined to cosmetic paths (a tooltip that cannot render, a trace line that cannot be written). Failing loudly there would take down a sort for a decorative reason. |
 | `S603` (subprocess) | Verified safe: no `shell=True` anywhere, argument lists only, executables chosen by the user. |
-| `S105` ("hardcoded password") | False positive — `token == "["` in the mlox expression tokenizer. |
+| `S105` ("hardcoded password") | False positive - `token == "["` in the mlox expression tokenizer. |
 | `PLR09xx` (complexity) | The sort and emit functions are long because the domain is sequential; splitting them to satisfy a counter would hurt readability. |
 
 Remaining ~85 findings are pure style preferences (`PTH123` `open()` vs
@@ -202,7 +202,7 @@ Measured on the real 975-plugin, 4,437-rule-block load order:
   quadratic-ish anchor resolution is memoised with a bounded settle loop.
 - Rule parsing: ~10 k plugin references across two files, parsed once per run.
 - Conflict/cell-map scans stream plugin JSON **to disk**, one plugin at a
-  time, with per-plugin caching — bounded memory on large installs rather
+  time, with per-plugin caching - bounded memory on large installs rather
   than holding every record in RAM.
 - Downloads are now bounded (32 MB) instead of unbounded.
 
@@ -267,18 +267,18 @@ New shared package, held to a stricter standard than the legacy scripts and
 passing `ruff --select ALL`: full type annotations, PEP 257 Google-style
 docstrings with Args/Returns/Raises, and no silent excepts.
 
-* **`logging_setup.py`** -- levelled logging with a documented policy. The key
+* !!!logging_setup.py**` -- levelled logging with a documented policy. The key
   decision: **stdout stays the report** (`print` is the product a user pipes
   or pastes into a bug report) while **logging carries diagnostics** to
   stderr, off by default, `-v`/`-vv` to raise it, and always full-detail to
   the trace file. `add_log_handler` lets the GUI mirror records into its log
   pane without losing console or file output.
-* **`i18n.py`** -- gettext-based l10n. `_()` marks strings for both runtime
+* !!!i18n.py**` -- gettext-based l10n. `_()` marks strings for both runtime
   lookup and `xgettext` extraction; `ngettext` handles counted messages so
   each language applies its own plural rules. Language comes from `$MLOX_LANG`
   or the system locale, and every lookup falls back to English, so marking
   strings is always safe even with no catalogue present.
-* **`locale/README.md`** -- the extract/translate/compile workflow and notes
+* !!!locale/README.md**` -- the extract/translate/compile workflow and notes
   for translators (named placeholders are reorderable; plugin names and mlox
   keywords are data, not prose).
 
@@ -309,7 +309,7 @@ predicate *evaluator* has not, for a reason recorded in §11.
 2. **Full typing + PEP 257 across the legacy scripts.** Apply per module as it
    moves, not as a separate sweep -- the annotations are most valuable, and
    most reviewable, at the moment the code is being relocated anyway.
-3. **`print` → logging migration.** Mechanical once the modules move; keep the
+3. !!!print` → logging migration.** Mechanical once the modules move; keep the
    user-facing report on stdout and demote genuine diagnostics.
 4. **String extraction for i18n.** Wrap user-facing strings in `_()` module by
    module, then generate the `.pot`.
@@ -319,15 +319,15 @@ predicate *evaluator* has not, for a reason recorded in §11.
 
 ## 9. Recommendations (not done here)
 
-1. **`RUF012`** — 8 mutable class attributes in the GUI would be clearer as
+1. !!!RUF012**` - 8 mutable class attributes in the GUI would be clearer as
    `ClassVar[...]`. Low risk, cosmetic.
 2. **Split the GUI module.** At ~4,100 lines it is the one genuine structural
    smell; the theme system, the conflict windows, and the tes3cmd front-end
-   are natural separate modules. Worth doing when it next needs real work —
+   are natural separate modules. Worth doing when it next needs real work -
    not as a drive-by.
 3. **CI.** `ruff check .` + `pytest` in a GitHub Action would keep this state
    from regressing.
-4. ~~**`mypy`** is configured but advisory; version 2.3.0 crashes on this
+4. ~~!!!mypy**` is configured but advisory; version 2.3.0 crashes on this
    codebase.~~ **Resolved** -- see §14. mypy 2.3.0 no longer crashes, the
    package is clean, and it now gates rather than advises.
 
@@ -338,7 +338,7 @@ predicate *evaluator* has not, for a reason recorded in §11.
 **Defect: GPL-derived data in a non-copyleft project.**
 
 The first version of `mlox_subset/mwscript/opcodes.py` was generated by merging
-two sources — MWEdit's `Functions.dat` and MWSE's `MWSE/OpCodes.h` — and its
+two sources - MWEdit's `Functions.dat` and MWSE's `MWSE/OpCodes.h` - and its
 header, and `CREDITS.md`, both described MWSE as MIT-licensed.
 
 **MWSE is GPLv2.** Reading `License/MWSE/LICENSE` rather than trusting the
@@ -349,8 +349,8 @@ would have made that sentence false, and arguably obliged the whole tool to be
 GPLv2.
 
 **Fix.** The table is regenerated from MWEdit (MIT) alone by the new
-`tools/gen_opcodes.py`. The only entry MWEdit does not cover — `_SetReference`,
-which the compiler emits for `id->Func` — was **re-derived by measurement**
+`tools/gen_opcodes.py`. The only entry MWEdit does not cover - `_SetReference`,
+which the compiler emits for `id->Func` - was **re-derived by measurement**
 rather than copied: correlating each script's bytecode against its own source
 text produced `0x010C` in 200 of 200 cases with no competing candidate. An
 opcode's numeric value observed in one's own data files is a fact, not an
@@ -359,7 +359,7 @@ expression of someone else's authorship.
 **Cost of the fix: nothing measurable.** The table shrank from 938 opcodes to
 564, and the decode ratio across the real corpus was *identical* before and
 after (min 6%, median 40%, max 54%, zero false positives). The 377 MWSE-only
-functions never occurred in any script tested — they are MWSE-mod-only calls.
+functions never occurred in any script tested - they are MWSE-mod-only calls.
 `License/MWSE/` was removed, since nothing is derived from it, and `CREDITS.md`
 now lists MWSE under *referenced, no source copied* alongside OpenMW and MO2.
 
@@ -389,20 +389,20 @@ run over the Perl tools the Lint feature came from. It found two more errors.
 
 **Misattribution: `tes3cmd`.** `CREDITS.md` credited it to *Paul Halliday
 ("Yacoby") and contributors*. The file's own header says
-**Copyright 2016 by John Moonsugar, MIT** — same author as mlox and tes3lint.
+**Copyright 2016 by John Moonsugar, MIT** - same author as mlox and tes3lint.
 Corrected, with the upstream repository linked.
 
 **Unnoticed MIT obligation: the evil-GMST table.** All 72 name/value pairs in
 `_EVIL_GMSTS` are reproduced from `tes3lint.pl` (© 2009 John Moonsugar, MIT).
-These are genuinely copied data, not a reimplementation — they record exactly
+These are genuinely copied data, not a reimplementation - they record exactly
 what a buggy Construction Set wrote, which cannot be rederived from first
 principles. MIT requires the notice travel with the copy, so it now sits inline
 above the table, and `tes3lint` has its own `CREDITS.md` entry rather than
 being folded into mlox's.
 
-**No licence at all: `missing_pathgrids.pl`, `cell_conflicts.pl.`** Neither
+**No licence at all: `missing_pathgrids.pl`, `cell_conflicts.pl.**` Neither
 file carries a copyright line, an author, or a licence. *No licence granted*
-is not the same as permissive — the default is that the author retains all
+is not the same as permissive - the default is that the author retains all
 rights, which makes these the most restricted inputs in the project, not the
 least. Both were treated as read-only inspiration: our implementations are
 independent Python working on plugin binaries, and the missing-pathgrid check
@@ -419,7 +419,7 @@ anyone's recollection.
 is not; that sentence was rewritten.
 
 **The pattern across both passes:** every attribution error here ran in the
-*permissive* direction — GPLv2 recorded as MIT, an unrelated author credited,
+*permissive* direction - GPLv2 recorded as MIT, an unrelated author credited,
 an MIT notice requirement missed, unlicensed scripts filed under a licensed
 project. Attribution guesses are not randomly wrong; they drift toward
 whatever is convenient. Each of the four was found by opening the file and
@@ -497,9 +497,9 @@ decoupled anything -- it has just moved the coupling somewhere harder to see.
 
 ### Linter findings deliberately not applied (additions to §3)
 
-* **`S105`** ("hardcoded password") on `token == "["` in `parse_mlox_lisp`.
+* !!!S105**` ("hardcoded password") on `token == "["` in `parse_mlox_lisp`.
   The variable is a parser token; the rule matches on the name alone.
-* **`PERF203`** (try/except inside a loop) in `load_rules_raw_text`. Per-file
+* !!!PERF203**` (try/except inside a loop) in `load_rules_raw_text`. Per-file
   isolation is the entire purpose -- hoisting the `try` out of the loop would
   let one unreadable file discard every file after it.
 
@@ -693,7 +693,7 @@ they are *shrinking as a side effect of the split* -- 89 before it started, 55
 now, because the code that moved was brought up to standard on the way out.
 They are concentrated in `PTH*` (``os.path`` -> ``pathlib``), `PERF203`
 (try/except in a loop, often deliberate per-item isolation) and `RUF012`
-(mutable class attributes in the GUI, mostly colour dictionaries).
+(mutable class attributes in the GUI, mostly color dictionaries).
 
 None of them are new, and none were introduced by this work.
 
@@ -709,7 +709,7 @@ None of them are new, and none were introduced by this work.
 ### The typing pass -- complete
 
 All eight relocated modules are now fully typed and PEP 257 documented, and
-**every `D`/`ANN` entry has been deleted from `per-file-ignores`** -- the list
+**every `D`/`ANN` entry has been deleted from `per-file-ignores**` -- the list
 the earlier comment said should shrink to nothing did. Package compliance:
 19/28 -> **28/28**. The exemption block is gone rather than merely empty.
 
@@ -733,15 +733,15 @@ the product, and `rules/predicates.py`, the mlox predicate evaluator.
 
 Some of what the annotations forced into the open:
 
-* **`simulate_configurator_apply` returns `tuple[list[str] | None, ...]`,** and
+* !!!simulate_configurator_apply` returns `tuple[list[str] | None, ...]`,** and
   that `None` is load-bearing: it means the Configurator run would *abort*,
   mirroring the Go code returning a nil cfg on an ambiguous insert anchor.
   Untyped, a caller could treat the first element as always-a-list and silently
   apply nothing.
-* **`build_and_sort`'s `anchor_out` is mutated in place**, which the signature
+* !!!build_and_sort`'s `anchor_out` is mutated in place**, which the signature
   never said. It now does, and the docstring states the frozen-curated-order
   guarantee as a contract rather than leaving it as folklore.
-* **`_eval_ver` treats an unknowable version as satisfying `=`.** That looks
+* !!!_eval_ver` treats an unknowable version as satisfying `=`.** That looks
   like a bug until you know it is mlox's behaviour and deliberate -- the tool
   refuses to raise a version warning it cannot substantiate. Now written down
   where someone "fixing" it will see it.
@@ -754,7 +754,7 @@ Some of what the annotations forced into the open:
 
 `ruff check .` is now clean across the entire project. Most of the 55 were
 mechanical -- `open()` -> `Path.open()`, `for`/`append` -> `extend`,
-`zip(xs, xs[1:])` -> `pairwise`, `RUF012` colour dictionaries -> `ClassVar`.
+`zip(xs, xs[1:])` -> `pairwise`, `RUF012` color dictionaries -> `ClassVar`.
 Every engine change was verified by the 374-test suite and the differential
 baseline.
 
@@ -883,7 +883,7 @@ mechanically, so the claim survives future edits:
 
 | PEP | Standard | Enforced by |
 |---|---|---|
-| 8 | Style, **naming**, **import order** | ruff `E`/`W`/**`N`**/**`I`** + black |
+| 8 | Style, **naming**, **import order** | ruff `E`/`W`/!!!N**`/!!!I**` + black |
 | 257 | Docstring conventions | ruff `D` |
 | 484 / 526 | Type hints, variable annotations | ruff `ANN` + mypy |
 | 563 | `from __future__ import annotations` | test_standards |
@@ -901,7 +901,7 @@ Test count went 374 -> **681**, almost all of it parametrised per source file.
 
 ### What turning the checks on actually found
 
-* **`N` and `I` were never enabled.** PEP 8 naming and import ordering had
+* !!!N` and `I` were never enabled.** PEP 8 naming and import ordering had
   gone unenforced the whole time. 18 findings: unsorted imports, and
   function-local `SANE`/`STEP`/`SIZE`/`CUST`/`_EPS` in UPPER_CASE, which PEP 8
   reserves for module-level constants. The genuine constants were hoisted to
@@ -961,7 +961,7 @@ Clearing the last twelve turned up two things worth more than the annotations:
   happens to import `urllib.parse` itself -- true today, guaranteed by nothing,
   and it would fail on a stdlib reshuffle in the one function that validates
   URLs. Now imported explicitly.
-* **`PluginOrderEntry` became a `TypedDict` (PEP 589).** It had been
+* !!!PluginOrderEntry` became a `TypedDict` (PEP 589).** It had been
   `dict[str, Any]`, which erased precisely what matters: that `on_lists` is a
   list of strings and `needs_cleaning` a bool. Misreading either silently
   reclassifies a curated plugin as one of the user's own -- the failure this
@@ -1064,10 +1064,10 @@ Every figure below was measured, not recalled.
 
 | Item | Where | Evidence now |
 |---|---|---|
-| `RUF012` — 8 mutable class attributes in the GUI | §9.1 | `ruff check --select RUF012` is clean; the rule is enabled repo-wide |
+| `RUF012` - 8 mutable class attributes in the GUI | §9.1 | `ruff check --select RUF012` is clean; the rule is enabled repo-wide |
 | `mypy` advisory / crashing | §9.4 | already struck through in §9; it gates, and is clean on 28 files |
 | Module split | §8.1 | §8 carries its own COMPLETE note; 6 subpackages, 28 modules |
-| i18n string extraction | §8.4 | **partially** — plumbing, 141 marked strings, `.pot`, and `tools/make_pot.py` shipped in 3.0. The remaining 127 f-string sites are specified in `I18N_BRIEF.md` |
+| i18n string extraction | §8.4 | **partially** - plumbing, 141 marked strings, `.pot`, and `tools/make_pot.py` shipped in 3.0. The remaining 127 f-string sites are specified in `I18N_BRIEF.md` |
 | **CI** | §9.3 | `.github/workflows/ci.yml` runs the full gate list (ruff, black, mypy, `check_undefined`, `make_pot --check`, pytest) on Python 3.10 and 3.13. It installs `zstandard` deliberately: without it 3 bytecode tests skip, and a skipped test proves nothing |
 | **Coverage measurement** | §8.5 | `[tool.coverage.*]` configured in `pyproject.toml`, with branch coverage and the GUI omitted (it cannot be imported without Tk, so including it would report a meaningless ~0%). CI publishes an HTML report as an artifact |
 
@@ -1075,7 +1075,7 @@ Every figure below was measured, not recalled.
 
 | Item | Where | Measured at 3.0 |
 |---|---|---|
-| **`print` → logging** | §8.3 | 75 `print()` in the engine vs 8 `get_logger` uses |
+| !!!print` → logging** | §8.3 | 75 `print()` in the engine vs 8 `get_logger` uses |
 | **Typing + PEP 257 on the legacy scripts** | §8.2 | `mlox_subset_sort.py` and the GUI still carry `"D", "ANN"` per-file exemptions; only `mlox_subset/` meets the strict standard |
 | **Split the GUI module** | §9.2 | Flagged at ~4,100 lines; now **5,586** |
 | **Oversized functions** | §15 | See below |
@@ -1085,13 +1085,13 @@ Every figure below was measured, not recalled.
 
 **The oversized functions moved, and a bigger one is now unlisted.** §15 named
 `build_and_sort` (456 lines, depth 5) and `generate_customizations_toml` (311,
-depth 6). Both relocated during the split and are essentially unchanged — 457
+depth 6). Both relocated during the split and are essentially unchanged - 457
 and 312 lines, same depths, now in `mlox_subset/sort/engine.py` and
 `mlox_subset/configurator/emit.py`. But the largest function in the codebase is
-**`compute_plan` at 545 lines, depth 5**, which §15 never named. It is also
+!!!compute_plan` at 545 lines, depth 5**, which §15 never named. It is also
 where the `_`-shadowing `NameError` hid until the gettext marker exposed it
 (see 3.0's changelog), which is weak but real evidence that its size costs
-something. `_build_controls` in the GUI is 378 lines but only depth 1 — long
+something. `_build_controls` in the GUI is 378 lines but only depth 1 - long
 rather than tangled, and correspondingly lower priority.
 
 **Deleting the shim is now a breaking change.** §15 is right that
@@ -1101,11 +1101,11 @@ ways to reach one function. But 3.0's changelog states publicly that
 Removing it is therefore a 4.0-scoped change with a deprecation period, not
 tidy-up. Recorded so the next reader does not treat §15 as licence to delete it.
 
-**`print` → logging and the i18n f-strings touch the same lines.** The 127
+!!!print` → logging and the i18n f-strings touch the same lines.** The 127
 sites in `I18N_BRIEF.md` are mostly `print(f"...")` in report output; §8.3 wants
 those same calls demoted or routed through a logger. Doing them as one pass is
 substantially cheaper than two, and avoids re-litigating which output is a
-user-facing report and which is a diagnostic — a question both jobs must answer
+user-facing report and which is a diagnostic - a question both jobs must answer
 identically.
 
 ### Suggested order, if someone picks this up
@@ -1116,7 +1116,7 @@ identically.
    so it ratchets upward instead of blocking the next PR.
 2. **i18n f-strings + `print` → logging together**, per `I18N_BRIEF.md`, whose
    first step (a static placeholder checker) is the safety net for both.
-3. **GUI split** — the largest and most disruptive; worth having 1–2 first,
+3. **GUI split** - the largest and most disruptive; worth having 1–2 first,
    and the coverage report will show which parts are least protected.
 4. `compute_plan` / `build_and_sort` decomposition and the shim deletion are
    behaviour-risk work pinned by the differential baseline. They are not
@@ -1248,7 +1248,7 @@ classifier CI already tests against was added at the same time.
   `mlox_subset_sort.py` (3,810 lines) and the GUI file (3,203); mechanical
   but long, and worthless if rushed -- §14's lesson was that 22 of the
   hand-written annotations were simply wrong until a checker read them.
-* **`compute_plan` (545) / `build_and_sort` (457) decomposition** (§15/§16).
+* !!!compute_plan` (545) / `build_and_sort` (457) decomposition** (§15/§16).
   Deliberately not attempted at the tail of the session that did everything
   above. §16's own caveat stands: this is behaviour-risk work on the two
   functions whose output *is* the product, and it deserves a fresh session
@@ -1297,7 +1297,7 @@ function above.
 
 ### The typing pass (§8.2) -- complete for `mlox_subset/gui/`, partial for the scripts
 
-**`mlox_subset/gui/` now meets the package's strict standard.** All four
+!!!mlox_subset/gui/` now meets the package's strict standard.** All four
 relocated modules are fully annotated, PEP 257 clean, and **mypy-clean** --
 so the `D`/`ANN` per-file ignores and the `ignore_errors` mypy override that
 §17 recorded as debt are **deleted**, not relaxed. mypy now gates 33 files
@@ -1332,7 +1332,7 @@ rather than glossed.** Measured now:
 | `mlox_subset_sort.py` | 25/89 | 19/200 | 337 |
 | `mlox_subset_sort_gui.py` | 87/118 | 2/84 | 165 |
 
-What landed: **96 functions gained `-> None`** by a static pass that only
+What landed: **96 functions gained `-> None**` by a static pass that only
 annotates a function when its own scope provably returns nothing (nested
 scopes excluded, any `return <value>` or `yield` disqualifies it), plus 87
 auto-fixable docstring corrections. Both files still carry their `D`/`ANN`
@@ -1366,7 +1366,7 @@ What *had* gone unverified was PEP 517/518 itself. `[build-system]` and
 than because a wheel is published" -- and then nothing ever built a wheel. A
 declaration that is never executed is a claim, not a fact, so it was tested:
 
-* **`python -m build --wheel` succeeds**, producing
+* !!!python -m build --wheel` succeeds**, producing
   `mlox_subset_sort-3.0.0-py3-none-any.whl` with all 7 subpackages and both
   top-level modules collected. The declaration is sound.
 * It also surfaced that the declared floor is real: `setuptools>=77` (needed
@@ -1379,7 +1379,7 @@ declaration that is never executed is a claim, not a fact, so it was tested:
 Two gates were added rather than leaving this as a one-off observation:
 `test_pep517_build_metadata_is_resolvable` asserts every declared package and
 py-module exists on disk (cheap, runs in the suite), and **CI now runs the
-real `python -m build`** -- the slow half belongs where it can take the time.
+real `python -m build**` -- the slow half belongs where it can take the time.
 
 A second, smaller check came out of the same audit:
 `test_public_api_all_names_resolve`. `__all__` is the package's stated public
@@ -1449,8 +1449,8 @@ read them:
   returns **pairs**, and the recorded size is `int | None` when the DATA
   subrecord is absent.
 * `_iter_tes3_records` / `_iter_subrecords` -- I wrote `tuple[str, bytes]`; the
-  record tags are raw **4-byte `bytes`** (`b"CELL"`), never decoded.
-* `_load_sidecar(side: str)` -- `side` is the sidecar **`Path`**, and the very
+  record tags are raw **4-byte `bytes**` (`b"CELL"`), never decoded.
+* `_load_sidecar(side: str)` -- `side` is the sidecar !!!Path**`, and the very
   next line calls `side.exists()`.
 * `read_cfg` -- I wrote `list[tuple[str, int]]` for the content order; it pairs
   each name with its **raw line value**, a `str`.
@@ -1493,7 +1493,7 @@ runtime -- which is exactly why the checker has to run.
   and `worker_running`, which the pass surfaced. Where the two mixins disagreed
   about a type (`T3_NEVER_CLEAN` declared `frozenset`, defined `set`), the
   declaration was corrected to match reality rather than the reverse.
-* **`assert` where a contract is real but unprovable.** Three sites -- the
+* !!!assert` where a contract is real but unprovable.** Three sites -- the
   export worker's plan, the staging dir on the clean path, the savegame file
   list after an error check -- assert a condition the caller guarantees but
   mypy cannot see. Stating it is better than an ignore comment: it documents
@@ -1526,7 +1526,7 @@ measured. Seven are style preferences and are recorded in `REMAINING_WORK.md`
 with their counts, so the choice not to enable them is now informed rather
 than implicit.
 
-One was a genuine standards question: **`DTZ`, naive datetimes.** Nine sites
+One was a genuine standards question: !!!DTZ`, naive datetimes.** Nine sites
 call `datetime.now()` without a timezone. Every one is correct -- `.bak`
 filenames, trace lines, the build stamp and the `.pot` header are all read by
 the user against their own wall clock, and UTC would be actively wrong -- but
@@ -1579,7 +1579,7 @@ outright.
 This log's own references to the briefs are left alone: it is append-only, and
 they were correct when written.
 
-Their replacement is **`REMAINING_WORK.md`** -- the only forward-looking
+Their replacement is !!!REMAINING_WORK.md**` -- the only forward-looking
 document, listing what a reviewer would still flag: the deliberate rule
 exemptions and why each stands, the six rule families not enabled and their
 measured counts, the seven oversized functions in priority order with a verdict
@@ -1687,13 +1687,13 @@ Everything above was derived from plugin bytes. A tes3conv JSON dump of a real
 
 * **Field names and shapes** are as assumed: `vertex_heights` carries `offset`
   and `data` separately, the rest carry `data` alone.
-* **`vertex_heights.data` is exactly `subrecord[4:4229]`** -- the float offset
+* !!!vertex_heights.data` is exactly `subrecord[4:4229]**` -- the float offset
   lifted out into its own field and the three trailing unused bytes dropped.
   Byte-compared against the same cell read straight from the ESP.
 * **VTEX bytes are byte-identical between the JSON and the ESP.** That closes
   the one assumption the de-swizzle rested on: tes3conv passes the payload
   through unchanged, so un-swizzling here is correct rather than probable.
-* **Path-grid points use `location` and `connection_count`** -- the first
+* **Path-grid points use `location` and `connection_count**` -- the first
   spellings the decoder probes for.
 
 **And it found a real bug.** tes3conv **prefixes `connections` with a `uint32`
@@ -1763,7 +1763,7 @@ depends on. Once that is noticed the cost comparison inverts: removing the shim
 now is one refactoring pass, and removing it later is a major-version cycle
 plus a release carrying a `DeprecationWarning` nobody would have needed to see.
 Recorded here because the *conclusion* in §16 and §21 was wrong while the
-*reasoning* was fine — the defect was an unexamined assumption, and it survived
+*reasoning* was fine - the defect was an unexamined assumption, and it survived
 two review passes precisely because it looked settled.
 
 ### What the shim actually was
@@ -1785,7 +1785,7 @@ item as written invited, would have broken the engine.
 
 1. **Rewire callers first, delete second.** Every `core.<name>` reference in
    `mlox_subset_sort_gui.py`, `mlox_subset/gui/` and `tests/` that resolved to
-   an import was repointed at the module the name really lives in — **42
+   an import was repointed at the module the name really lives in - **42
    distinct names across 12 files**.
 2. **Delete only names the engine never mentions**, recomputed after the
    rewire rather than from the list in step 1.
@@ -1795,8 +1795,8 @@ item as written invited, would have broken the engine.
 
 ### Two things worth recording
 
-**`F401` immediately found a real defect.** With the exemption gone, ruff
-reported `sys` imported but unused — genuinely unused, its only remaining
+!!!F401` immediately found a real defect.** With the exemption gone, ruff
+reported `sys` imported but unused - genuinely unused, its only remaining
 mention being the word "sys.stdout" inside a docstring. It had been dead since
 the CLI moved from `sys.exit()` to `raise SystemExit`, and the exemption had
 been hiding it. This is the argument for the whole exercise in miniature: a
@@ -1806,8 +1806,8 @@ silences everything that looks like it.
 **Aliased imports nearly caused a silent break.** The rewiring map was built by
 parsing the engine's imports, and deliberately skipped aliased ones
 (`format_version as _format_version`) rather than guess at intent. Seven names
-were aliased, and two of them — `core._format_version` and `core._is_master_file`
-— had live call sites in the tests. The safety net was refusing to delete any
+were aliased, and two of them - `core._format_version` and `core._is_master_file`
+- had live call sites in the tests. The safety net was refusing to delete any
 name still referenced *anywhere*, checked across every `.py` and `.md` in the
 tree before deletion rather than trusting the rewrite to have been exhaustive.
 Both were caught there, not by a failing test. A rewrite pass should be assumed
@@ -1819,7 +1819,7 @@ not free: three helpers (`parse`, `_sort_real`, `_configurator_observations`)
 were caught by the same sweep, and their call sites passed arguments
 positionally, so the signature and the callers had to move together. Two rounds
 of regex got this wrong in opposite directions before it was redone as an AST
-fixpoint — *a function must declare `core` if and only if its body loads it* —
+fixpoint - *a function must declare `core` if and only if its body loads it* -
 which converged in one pass. The lesson is the ordinary one about regex and
 syntax, and it is here because the first two attempts both left a green-looking
 tree with a broken test file underneath.
@@ -1827,7 +1827,7 @@ tree with a broken test file underneath.
 ### The end state, stated as something checkable
 
 `core.<name>` is still used 41 times, and that is correct: every one of those
-names is **defined in `mlox_subset_sort.py` itself** — `compute_plan`,
+names is **defined in `mlox_subset_sort.py` itself** - `compute_plan`,
 `lint_plugins`, the scanners, the CLI surface. The GUI reaching into the engine
 for engine things is not the shim; the shim was the engine standing in front of
 `mlox_subset/` for names it never touched.
@@ -1842,7 +1842,7 @@ shim creeping back.
 
 ### Gates
 
-870 tests: **869 passed, 1 skipped** — including the differential baseline's 41
+870 tests: **869 passed, 1 skipped** - including the differential baseline's 41
 pinned observations, which reproduced unchanged across the rewire and are the
 reason this was safe to do mechanically at all. ruff (now with `F401` live on
 the engine), black, mypy (38 files), `check_undefined`, `check_placeholders`,
@@ -2155,7 +2155,7 @@ window, so the two maps no longer have an ordering dependency at all.
 
 ### Two defects that would have fired later
 
-**`_("%s") % {"error": error}`** in the conflict-map failure dialog -- a
+!!!_("%s") % {"error": error}**` in the conflict-map failure dialog -- a
 positional placeholder against a named dict, which raises `TypeError`. The error
 path would itself have crashed, hiding the original error. `check_placeholders`
 caught it; this is the second time that checker has paid for itself.
@@ -2241,7 +2241,7 @@ The live `viz` surface is now:
 | `pathgrid.py` | Navigation graph, chained the same way |
 | `terrain3d.py` | One cell as a rotatable/pannable surface |
 | `geometry.py` | Grid-id parsing and per-cell aggregation |
-| `palette.py` | Severity and divergence colour ramps |
+| `palette.py` | Severity and divergence color ramps |
 | `html.py` | Shared page shell, escaping, safe inline JSON |
 
 ---
@@ -2255,9 +2255,9 @@ it was a 216-line f-string in the middle of the sort engine.
 ### The extraction
 
 `generate_cell_map_html` is now `mlox_subset/viz/cellmap.py`, assembled from ten
-functions that each return a fragment — `_escape`, `_anchor`, `_modattr`,
+functions that each return a fragment - `_escape`, `_anchor`, `_modattr`,
 `_in_bounds`, `_focus_options`, `_svg_grid`, `_exterior_rows`, `_interior_rows`,
-`_legend` — plus the builder that composes them. CSS and JS moved to
+`_legend` - plus the builder that composes them. CSS and JS moved to
 `mlox_subset/viz/cellmap_js.py` as plain `Final[str]` constants, which is the
 whole point: no interpolation means no doubled braces, so the JS can be read and
 edited as JS.
@@ -2267,7 +2267,7 @@ that imports it had to change. The dead `_cell_heat` went with it.
 
 Two things fell out of the split that were not visible before:
 
-* The dropped `explorer_href` parameter — a leftover of the cross-link that §27
+* The dropped `explorer_href` parameter - a leftover of the cross-link that §27
   removed. Nothing passed it.
 * Out-of-range cells were being filtered **silently**. One corrupt grid
   coordinate stretches the SVG to millions of pixels, so dropping them is right,
@@ -2286,8 +2286,8 @@ Two things fell out of the split that were not visible before:
   header assertable in a test.
 * **Wider palettes.** Severity went from three stops to five: with only
   green → yellow → red the entire middle of a busy map collapsed into one narrow
-  yellow band. Coverage got its own seven-stop ramp — slate → blue → periwinkle
-  → violet → amber — deliberately *not* green-to-red, because coverage is not
+  yellow band. Coverage got its own seven-stop ramp - slate → blue → periwinkle
+  → violet → amber - deliberately *not* green-to-red, because coverage is not
   badness (ten mods touching a cell is normal) and it must not be mistaken for
   the conflict map at a glance.
 
@@ -2303,15 +2303,15 @@ Two things fell out of the split that were not visible before:
 Expanding the severity ramp broke `test_severity_is_monotonic`: the new orange
 shoulder was *brighter* in red than the final red, so over the last quarter of
 the ramp more conflicts rendered with less red. The test is right and the ramp
-was wrong — "more conflicts never renders cooler" is the property the map is
-read against — so the shoulder's red was moved just below the endpoint's. The
+was wrong - "more conflicts never renders cooler" is the property the map is
+read against - so the shoulder's red was moved just below the endpoint's. The
 hue is unchanged; only the channel ordering is.
 
 The coverage ramp cannot hold that same invariant, because it rotates through
 hues and its first segment (desaturated slate to saturated blue) genuinely goes
 cooler. Its invariant is **monotonically increasing luminance**, which is the
 standard criterion for a sequential ramp and keeps it ordered in greyscale and
-for a colour-blind reader. That is what the new test asserts, with the reasoning
+for a color-blind reader. That is what the new test asserts, with the reasoning
 in its docstring rather than in a commit message.
 
 ### Housekeeping
@@ -2332,7 +2332,7 @@ Two properties matter more than the tidying:
 
 A page's sidecar `_data` folder goes with it, since the folder is useless
 without the page that references it. A locked file (open in a viewer) is skipped
-rather than reported, and — checked by test — is not claimed as removed in the
+rather than reported, and - checked by test - is not claimed as removed in the
 log line.
 
 ### Gates
@@ -2407,7 +2407,7 @@ Two things the tests caught that reading would not have:
 
 * `*Export writes nothing while **Dry run** is checked*` -- italics wrapping
   bold. A shared `[*_]` delimiter closed the italic on the first asterisk of
-  `**Dry`, leaving stray asterisks on the page. The two emphasis alternatives
+  **`Dry`, leaving stray asterisks on the page. The two emphasis alternatives
   are now spelled out separately with lookarounds on both ends.
 * An unterminated fence used to swallow the rest of the file. It now runs to the
   end and renders: most of a document beats refusing to show any of it.
@@ -2423,7 +2423,7 @@ with nothing behind it.
 Counts 1-5 each get a band; above that they group in fives. The reasoning is that
 the distinctions people act on are crowded at the bottom -- one, two and three
 mods in a cell are different situations, 23 and 24 are not -- and a continuous
-ramp normalised against the busiest cell on a big map spent most of its colour on
+ramp normalised against the busiest cell on a big map spent most of its color on
 distinctions nobody needs, rendering all the low counts as the same dark blue.
 
 Above sixteen bands the top one goes open-ended (`76+`). Forty bands over a
@@ -2956,16 +2956,16 @@ were written during 3.1.
    message text, so a name typed with a leading space vanished from the rule --
    and the rule still loaded, still looked right, and simply did not apply to
    that plugin. Verified against the real loader before fixing.
-2. **`table()` could drop rows** (`viz/html.py`). It paired rows with attributes
+2. !!!table()` could drop rows** (`viz/html.py`). It paired rows with attributes
    using `zip`, which stops at the shorter list, and the short list is the
    attributes -- so a caller one attribute shy lost a *table row*. The project's
    blanket `B905` exemption claims every `zip()` was reviewed individually; this
    one had not been.
-3. **`plugins` as a string produced ten proposals about single letters**
+3. !!!plugins` as a string produced ten proposals about single letters**
    (`derive.py`). A bare string is iterable. That module exists to keep guesses
    from being presented as facts, so confident nonsense is the one output it
    must never produce.
-4. **`@@Section`**, because the field is labelled `@section:` and the guidelines
+4. !!!@@Section**`, because the field is labelled `@section:` and the guidelines
    write `@Name`, so typing the `@` -- the natural thing -- doubled it.
 5. **An out-of-range priority rendered no mark**, silently, which is not what
    asking for one means.
@@ -2980,7 +2980,7 @@ caught. That is the control doing its job on the auditor.
 Found in a real user's file: 389 insert entries over 2,229 lines, one of its
 anchors fatal to the whole rebuild.
 
-* **`data=` inserts never got the `insertBlock` treatment.** That change landed
+* !!!data=` inserts never got the `insertBlock` treatment.** That change landed
   for `content=` only. 372 data-path inserts, 152 of them sharing one anchor,
   where 39 block entries would do.
 * **Data anchors were never checked for uniqueness.** The Configurator matches
@@ -3059,7 +3059,7 @@ The expected count is recorded in `SMOKE_TEST.md`, because a suite that collects
 ### §34.5 Banding the conflict map
 
 The same treatment the cell map had: each of the first five counts its own
-colour, then groups of five. A linear ramp against the worst cell rendered one,
+color, then groups of five. A linear ramp against the worst cell rendered one,
 two and three conflicting records as three near-identical greens, and those are
 the counts that decide whether a cell is worth opening. Sharing the banding rule
 between the two maps is deliberate -- they are read one after the other, and two
@@ -3079,13 +3079,13 @@ thing to drift between the focused and unfocused views; a lookup cannot drift.
 **Two negative controls missed here, both the same mistake in different
 clothes:** asserting something adjacent to the property instead of the property.
 
-* Reverting to a continuous ramp *passed*, because the test asserted the colours
+* Reverting to a continuous ramp *passed*, because the test asserted the colors
   for 1, 2 and 3 were "distinct" -- and a linear ramp does give three distinct
   values, differing by about five units per channel, which is invisible on a
-  nine-pixel square. Now measured as colour *distance*, requiring ≥40 where
+  nine-pixel square. Now measured as color *distance*, requiring ≥40 where
   banding gives 67.
 * Rescaling only the cell fill *passed*, because the test searched the whole
-  page and found the expected colour in the **legend** while the rect was
+  page and found the expected color in the **legend** while the rect was
   painted something else -- the map and its own key could disagree with the test
   green. Now asserted on the `<rect>` fill.
 
@@ -3125,7 +3125,7 @@ Three requests against the 3D view, all of them about reading the surface
 rather than about the geometry fixed in §34.6.
 
 **Two layers instead of one number.** The renderer flat-filled each quad with a
-single colour derived from both slope and height. That is a lossy mix: neither
+single color derived from both slope and height. That is a lossy mix: neither
 quantity can be recovered from it, and a smooth hillside came out as 1,024
 visible facets. It is now a greyscale hillshade with a hypsometric tint
 composited over it at 0.55 -- roughly where relief maps put it, high enough that
@@ -3260,7 +3260,7 @@ the alarming heading "misparse".
 The reader was right and the census was wrong. Establishing that took three
 independent methods agreeing: the layout reader, a raw byte scan sharing none
 of its code, and NifSkope's own block list. `c/amulet_common_1.nif` holds two
-`NiMaterialProperty` blocks — indices 4 and 11 — where the census records one.
+`NiMaterialProperty` blocks - indices 4 and 11 - where the census records one.
 
 Two lessons, and the second is the one that generalises. First, the census
 undercounts *property* blocks specifically while matching on every other type,
@@ -3307,7 +3307,7 @@ about the reader when the reader reached the end.
 
 ### §35.4 One byte, and the value of a failure that names itself
 
-Every alignment failure in the corpus read a type name of `\x00NiMorphData` —
+Every alignment failure in the corpus read a type name of `\x00NiMorphData` -
 the correct name behind a leading NUL, which is precisely what a cursor one
 byte early looks like. `NiGeomMorpherController` was one byte short. It was the
 **only** alignment bug in all 7,343 vanilla meshes.
@@ -3335,8 +3335,8 @@ Four blocks contain fields that could not be identified from the bytes. They
 are stepped over as measured spans called `emitter_parameters`,
 `unidentified_tail`, `path_parameters` and `projection`.
 
-The alternative — plausible names guessed from what such a block usually holds
-— would have produced code that reads better and means less. The width is the
+The alternative - plausible names guessed from what such a block usually holds
+- would have produced code that reads better and means less. The width is the
 only part the rest of the file depends on. An invented field name is worse than
 an admitted gap because it gets believed, and then repeated.
 
@@ -3349,7 +3349,7 @@ layout table rather than the behaviour they meant to pin down. Replaced with an
 why, so the trap is not re-laid.
 
 A third failure the same day was mine and in the opposite direction: a
-regression test for the decal fix failed because the *fixture* was wrong — slot
+regression test for the decal fix failed because the *fixture* was wrong - slot
 5 is the bump slot and carries 24 extra bytes I had not written. Worth
 recording plainly, since a test written wrong can just as easily be written to
 pass against wrong behaviour.
@@ -3357,8 +3357,8 @@ pass against wrong behaviour.
 ### §35.8 What was not done, and why
 
 Coverage stopped at the game as shipped. Four block types were left
-unimplemented — `NiCollisionSwitch`, `NiFogProperty`, `NiRollController`,
-`NiSpotLight` — on the reasoning that they occur only in the documentation
+unimplemented - `NiCollisionSwitch`, `NiFogProperty`, `NiRollController`,
+`NiSpotLight` - on the reasoning that they occur only in the documentation
 packages' demonstration files and never in a vanilla mesh, so implementing them
 would be work whose result nothing consumes.
 
@@ -3369,7 +3369,7 @@ using *vanilla* as the definition of "what exists" when this tool's entire
 purpose is comparing **mods**. The denominator was picked from the corpus that
 happened to be measured rather than from the problem being solved, which is a
 comfortable mistake to make and an easy one to miss, because every number in
-§35 was correct — they were just answers about the wrong population.
+§35 was correct - they were just answers about the wrong population.
 
 The mod run also reordered the priorities entirely. `NiSwitchNode` (2,127
 files) and `NiLODNode` (1,382) do not occur in vanilla at all and together
@@ -3464,12 +3464,12 @@ in bytes. The detail panel opens nothing at all until a row is selected. Both
 follow from the same observation: a mod setup holds tens of thousands of
 meshes and the scan has no idea which one anybody cares about.
 
-### §36.6 What is still open — and one thing that turned out not to be
+### §36.6 What is still open - and one thing that turned out not to be
 
-- **`dbs_meatstick.nif` is a malformed file, not a missing layout.** It was
+- !!!dbs_meatstick.nif` is a malformed file, not a missing layout.** It was
   left failing rather than guessed at, and that was the right call: opened in
   NifSkope it has orphaned blocks, and its 26 block type names reconcile
-  exactly with the header while the contents of block 10 do not — a property
+  exactly with the header while the contents of block 10 do not - a property
   count of `0xFFFFFFFF`. The boundaries are sound and the block is not.
 
   Two things follow. The reader refusing it is **correct behaviour**, not a
@@ -3479,7 +3479,7 @@ meshes and the scan has no idea which one anybody cares about.
   "layout bugs", which asserts the fault is ours.
 
   That is the third category in this tool to have assigned blame before the
-  evidence supported it — "misparse" was the first, and the "unknown block
+  evidence supported it - "misparse" was the first, and the "unknown block
   type" that was really a desynchronised cursor was the second. The heading now
   states the observation ("stopped inside a type this reader supports") and
   leaves the diagnosis to whoever opens the file. The recurring error is not
@@ -3490,7 +3490,7 @@ meshes and the scan has no idea which one anybody cares about.
   sandbox has no `tkinter`. Statically checked against the GUI's attributes,
   which is not the same as passing.
 - **BC7**, deferred at the user's direction until BC1/BC3 were proven. Now
-  done — see §40.
+  done - see §40.
 
 
 ## §37 Auditing the work of §36, and what an audit is actually for
@@ -3562,7 +3562,7 @@ line added to get there was an error branch -- the paths that run on files from
 mod archives, and therefore the ones that most need to fail as findings rather
 than as tracebacks.
 
-### §37.6 The one thing this audit could not check — since resolved
+### §37.6 The one thing this audit could not check - since resolved
 
 Three Tk tests for the detail view had never been executed: the development
 sandbox has no `tkinter` and it could not be installed. They were statically
@@ -3570,7 +3570,7 @@ verified to reference only attributes the GUI defines, which is not the same as
 passing, and that was recorded here rather than assumed away.
 
 They have since been run on Windows 11 / Python 3.14.5: **45 passed, 0
-skipped**, up from 42. So they work — but the gap between "statically checked"
+skipped**, up from 42. So they work - but the gap between "statically checked"
 and "actually ran" was real for a day, and the only reason it closed is that it
 was written down as an open question instead of quietly counted as done.
 
@@ -3653,7 +3653,7 @@ produces is unchanged with geometry on.
 ### §39.2 The constraint that decided the architecture
 
 Modern three.js ships ESM only, split across two files, and **ES module scripts
-do not load from `file://`** -- origin `null`, CORS fails. That one fact ruled
+do not load from `file://**` -- origin `null`, CORS fails. That one fact ruled
 out the obvious packaging and forced the CommonJS build behind a three-line
 shim, which was verified in node before a line of the viewer was written.
 
@@ -3678,14 +3678,14 @@ Three questions were settled by measurement rather than opinion:
   carries normals, UVs, animation and blocks a viewer never draws -- *and*
   would need a JavaScript NIF parser, which three.js has never had. The 2012
   request for one is still open.
-- **`fastapi` + `uvicorn`.** 14 packages, 34 MB, one compiled extension,
+- !!!fastapi` + `uvicorn`.** 14 packages, 34 MB, one compiled extension,
   against a ~38 MB app, to serve a fixed dictionary to one local browser.
 
 Each of those felt like a matter of taste until it was a number.
 
 ### §39.4 Security stated as a property, not a promise
 
-The server has **no code path from a URL to `open()`**. Payloads are registered
+The server has **no code path from a URL to `open()**`. Payloads are registered
 in memory and served by key. That is why `SimpleHTTPRequestHandler` is not used:
 it exists to serve a directory, which is precisely what must not happen here.
 
@@ -3744,7 +3744,7 @@ imaginary bug on top of the real one -- the same shape as the bounding box in
 BC7 is the first thing in this project whose *definition* is large. The NIF
 layouts were derived one field at a time, each verified by landing exactly on
 the next block's type name. BC1 is an interpolation. BC7 is an eight-row mode
-table, two 64-entry partition tables and three 64-entry anchor tables —
+table, two 64-entry partition tables and three 64-entry anchor tables -
 roughly six hundred numbers, transcribed by hand from a published
 specification, with nothing after the mode bits at a fixed offset.
 
@@ -3753,13 +3753,13 @@ specification, with nothing after the mode bits at a fixed offset.
 A wrong table entry does not throw. It produces a correct-looking image with a
 handful of wrong 4×4 blocks, in whichever partition shapes the encoder happened
 to pick. Nobody notices on one texture. It is invisible to a unit test, because
-the test and the table came from the same reading by the same person — the
+the test and the table came from the same reading by the same person - the
 identical structure to §36's "a reader validated only against a writer that
 shares its assumptions proves nothing".
 
 So the check was designed to be *incapable* of sharing the assumption:
 `tools/check_bc7.py` generates blocks that force every table entry to be used
-— all eight modes crossed with all 64 partitions — and compares against
+- all eight modes crossed with all 64 partitions - and compares against
 Pillow. **19,380 blocks, byte for byte.** Random bits are legitimate input
 here, which is the useful accident of this format: every 128-bit pattern is a
 valid BC7 block bar one reserved value, so noise exercises endpoint ordering,
@@ -3767,7 +3767,7 @@ P-bits, index packing and anchor widths far more harshly than a photograph.
 
 It passed on the first run. That is worth recording honestly rather than
 quietly: the expected outcome was a handful of wrong entries and a bisect. The
-value of the check does not depend on it having found something — it is what
+value of the check does not depend on it having found something - it is what
 makes "the tables are right" a claim about evidence rather than about care.
 
 ### The one thing an oracle cannot settle
@@ -3775,7 +3775,7 @@ makes "the tables are right" a claim about evidence rather than about care.
 BC5 stores two channels; blue is reconstructed. There is no right answer to
 compare against, only a convention, so comparing our blue against Pillow's
 would compare two conventions and call it a test. The cross-check compares red
-and green only — **not a weakened test but the correct one** — and the
+and green only - **not a weakened test but the correct one** - and the
 reconstruction is checked separately by geometry.
 
 **That geometric check was wrong.** It asserted every pixel of a random block
@@ -3784,7 +3784,7 @@ decoder was right both times: random bytes are not normals, and where
 x² + y² > 1 there is no real z, so the reconstruction correctly clamps. The
 check now tests the representable and clamped cases separately.
 
-Note how it was caught — not by reasoning, but by running it again with
+Note how it was caught - not by reasoning, but by running it again with
 different data. A check that is only ever run once is a check whose own
 correctness is untested. This is the fourth time in this project that the
 *verification* was the broken part (§36.2's bounding box, §35's texture
@@ -3797,7 +3797,7 @@ inputs it has not seen.**
 
 `pydds` was the obvious candidate: DDS decompression bindings, BC7 included,
 exactly the hard part. It is **GPLv3-or-later**. That ended the evaluation
-before performance or API entered into it — adopting it would relicense
+before performance or API entered into it - adopting it would relicense
 everything here, against a standing constraint. Two further facts made it moot:
 it depends on Pillow, so it would have *added* a dependency rather than
 replaced one, and it is 0.0.8, marked alpha.
@@ -3822,7 +3822,7 @@ than an exception is.
 The first version of the role model had two errors, both from reasoning about
 the formats rather than about the engines:
 
-* it treated `_spec` as a greyscale mask. It is RGB specular *colour* with
+* it treated `_spec` as a greyscale mask. It is RGB specular *color* with
   shininess in alpha.
 * it mapped the vanilla **bump slot** straight to "normal map". Vanilla
   Morrowind renders neither bump nor normal maps; MGE-XE and MCP add the
@@ -3831,15 +3831,15 @@ the formats rather than about the engines:
   file, so it is now its own role and the module declines to guess.
 
 And a framing error of mine, corrected directly: I described BC5 normal-map
-decoding as marginal — "meaningful only if we're showing normal maps
-deliberately" — when comparing one mod's normal map against another's is a
+decoding as marginal - "meaningful only if we're showing normal maps
+deliberately" - when comparing one mod's normal map against another's is a
 stated goal. Both sides are normal maps; the comparison is exactly
 apples-to-apples. That changed the implementation, not just the wording: blue
 is reconstructed rather than left flat, because discarding z would call two
 different maps identical whenever they shared x and y.
 
 The green channel is **not** flipped. Both engines use the DirectX convention,
-and tooling written for OpenGL flips on load by default — which here would
+and tooling written for OpenGL flips on load by default - which here would
 report every normal map as differing from a byte-identical copy of itself, in
 the one comparison the feature exists to make.
 
@@ -3850,14 +3850,14 @@ the one comparison the feature exists to make.
   three vanilla archives, on the path the 3D viewer walks for every shape.
   `BsaArchive.__contains__` answers from the index.
 * `pyproject.toml` declared `license-files = ["License/LICENSE"]` and no such
-  file existed — `License/` held only third-party licences. A pre-existing
+  file existed - `License/` held only third-party licences. A pre-existing
   failure in `test_standards.py`, unrelated to this work, surfaced by running
   the suite rather than the subset under change.
 
 
 ## §41 A relicence, and the gap a corpus cannot see
 
-Greatness7 — author of the Morrowind Blender Plugin — offered in chat to
+Greatness7 - author of the Morrowind Blender Plugin - offered in chat to
 relicense his NIF library MIT, then did it: `cbe18b5` adds an MIT `LICENSE` to
 `io_scene_mw/lib/es3/`. `Greatness7/tes3` was already MIT.
 
@@ -3873,10 +3873,10 @@ very easy to slide across.
 Within an hour of reading `tes3`:
 
 * It **confirmed** `_BOUNDING_BOX_TAILS`, the derivation recorded in §36.2 where
-  "20 bytes, solved not guessed" — concluded from two files — broke thirteen
+  "20 bytes, solved not guessed" - concluded from two files - broke thirteen
   meshes that already parsed. Both type numbers and both widths match, arrived
   at from bytes with no shared assumptions.
-* It found **`NiUnionBV`**: bound type 4, which is not a width at all but a
+* It found !!!NiUnionBV**`: bound type 4, which is not a width at all but a
   count followed by that many complete volumes, each with its own type word,
   nestable. A width table cannot express that shape.
 
@@ -3889,7 +3889,7 @@ is a sharper claim than "our tests might miss corner cases":
 > many files they hold. The only instrument that sees it is a second
 > implementation of the same format.
 
-Nineteen more types followed the same way — found by running against the
+Nineteen more types followed the same way - found by running against the
 categorised NIF sample archive, which took it from 624/768 to 754/768 (98.2%).
 Two needed the reading rather than a guess: `NiBltSource` descends from
 `NiObject` rather than `NiObjectNET`, so it has *no* name, extra data or
@@ -3902,7 +3902,7 @@ array before it, which needed a new field kind rather than a new table entry.
 Every one is commented as **taken from tes3, not derived**. This is not
 bookkeeping. A derived layout has survived the exact-landing test across
 thousands of files; a taken one is a transcription confirmed against however
-many samples carry that type — for several, exactly one file. Both are true;
+many samples carry that type - for several, exactly one file. Both are true;
 they are not equally well-evidenced, and a future failure should be debugged in
 the right place. `NIF_PROVENANCE.md` now carries a dated boundary so that
 nothing later blurs how the *existing* layouts were obtained.
@@ -3917,8 +3917,8 @@ with a defence.
 Where it lands least: the NIF format is *self-falsifying*. Blocks carry no
 length field, so a wrong layout cannot land on the next block's type name. Every
 layout here was verified that way across 87,000 real files, and the bugs that
-found — the typed bounding box, `NiGeomMorpherController`'s single byte, decal
-slots past the table, UV set flags — are exactly the corner cases the remark
+found - the typed bounding box, `NiGeomMorpherController`'s single byte, decal
+slots past the table, UV set flags - are exactly the corner cases the remark
 means.
 
 Where it lands hardest, and where it was right: **unknown unknowns**. Not that
@@ -3944,7 +3944,7 @@ uselessly); and roles are checked before pixels.
 The WebAssembly bridge in `wasm/` is written and has never been compiled: the
 environment it was authored in has no Rust toolchain and no root to install one.
 
-The first version was ambitious — world-space transform composition, triangle
+The first version was ambitious - world-space transform composition, triangle
 flattening, texture path extraction, roughly three hundred lines. It was
 deleted, and the reason is worth recording because it is a judgement this
 project has to keep making.
@@ -3952,7 +3952,7 @@ project has to keep making.
 It guessed at `tes3`'s API in three places and was **wrong in two**:
 
 * `shape.base.base.name`, when the `Meta` derive emits a `Deref` to `base` on
-  every type and the correct spelling is `shape.name` — wrong by two levels
+  every type and the correct spelling is `shape.name` - wrong by two levels
   *and* unnecessary.
 * `property.base_map`, when the field is `texture_maps: Vec<Option<TextureMap>>`.
 * `NiLink::from_index`, which does not appear to exist at all.
@@ -3974,7 +3974,7 @@ of plausible Rust claims much more than "written blind against an API I misread
 twice" supports.
 
 The remaining crate exposes only values `mlox_subset.nif` also produces, so the
-first thing to build with it is a differential check rather than a feature —
+first thing to build with it is a differential check rather than a feature -
 which is also the cheapest possible way to find out whether the toolchain works
 at all.
 
@@ -3992,8 +3992,8 @@ obvious one:
 
 * **Orthographic camera.** A perspective camera foreshortens the left and right
   quads differently, so the two sides disagree for a reason that is not in
-  either file — the same class of error as rescaling a texture to compare it.
-* **Normal maps loaded linear, not sRGB.** They are vectors. Applying a colour
+  either file - the same class of error as rescaling a texture to compare it.
+* **Normal maps loaded linear, not sRGB.** They are vectors. Applying a color
   transfer function bends all of them, and the result looks like a subtly wrong
   material rather than a bug.
 * **One light for both quads, and dragging moves the light rather than the

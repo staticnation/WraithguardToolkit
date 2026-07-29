@@ -1732,7 +1732,7 @@ RECORDS: Final[dict[str, Record]] = {
                     Member(
                         "float32",
                         (),
-                        "A height offset for the entire cell. Decreasing this value will shift the entire cell land down (by 8 units).[verification needed — Oblivion and Skyrim use 8 units, is this the same?]",
+                        "A height offset for the entire cell. Decreasing this value will shift the entire cell land down (by 8 units).[verification needed - Oblivion and Skyrim use 8 units, is this the same?]",
                         4,
                     ),
                     Member(

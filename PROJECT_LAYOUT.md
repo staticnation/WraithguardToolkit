@@ -17,12 +17,12 @@ MLOXSubsetSort/
 │   ├── mwscript/              Compiled-script (SCDT) reading + disassembly.
 │   │                          Makes the diff window's bytecode legible.
 │   ├── tes3fields/            Decodes binary LAND / PGRD fields for the diff
-│   │                          window (heights, normals, colours, textures,
+│   │                          window (heights, normals, colors, textures,
 │   │                          world map, path-grid edges), plus the generated
 │   │                          TES3 record schema that says what each field is.
 │   ├── viz/                   Maps and visualisations as self-contained HTML:
 │   │                          cell coverage map, conflict map, terrain height
-│   │                          deltas, path-grid graphs, 3D surface, colour
+│   │                          deltas, path-grid graphs, 3D surface, color
 │   │                          ramps, generated-page cleanup, and the Markdown
 │   │                          renderer behind in-app Help. No Tk, no CDN.
 │   ├── images/                Every texture format the game and its mods use,
@@ -47,7 +47,7 @@ MLOXSubsetSort/
 ├── wasm/                      A bridge from Greatness7's `tes3` NIF reader to
 │                               the 3D viewer, so the page can parse a mesh
 │                               itself instead of being sent packed geometry.
-│                               **Written, never compiled** — see its README.
+│                               **Written, never compiled** - see its README.
 │                               Needs a Rust toolchain, which nothing else here
 │                               does, and is not part of the Python build.
 ├── tools/                     Developer scripts (not shipped).
@@ -126,7 +126,7 @@ integration tests use `testdata/`; point them elsewhere with
 ## Building a binary
 
 `build/auto-py-to-exe_build.json` is an auto-py-to-exe configuration. Paths in
-it are absolute and will need updating for your checkout — load it via
+it are absolute and will need updating for your checkout - load it via
 *Settings -> Import Config From JSON File* rather than retyping them. The
 essentials:
 
@@ -140,7 +140,7 @@ essentials:
 imports, not data, so `mlox_subset/nif/assets/` is not collected automatically.
 Add it with `--add-data "mlox_subset/nif/assets;mlox_subset/nif/assets"` (or
 `--collect-data mlox_subset`). Without it the app runs normally and the **View
-in 3D** button reports that the library was not shipped — deliberately a clear
+in 3D** button reports that the library was not shipped - deliberately a clear
 message rather than a blank window, since a missing data file and a broken
 viewer look identical otherwise. `mlox_subset/nif/viewer.py` looks in
 `sys._MEIPASS` first, exactly as the help documents do.
@@ -148,28 +148,28 @@ viewer look identical otherwise. `mlox_subset/nif/viewer.py` looks in
 **You do not need to add `mlox_subset/` or `locale/` by hand.** PyInstaller
 follows the import graph, so the package is collected automatically; the only
 `--add-data` entry is `mlox_subset_sort.py`. `locale/` is a *developer*
-directory — the `.pot` template is not a runtime file, and no `.mo` catalogues
+directory - the `.pot` template is not a runtime file, and no `.mo` catalogues
 ship yet. If you ever do ship translations, add `locale/` as data then; until
 that day the app finds no catalogue directory, handles it, and runs in English.
 
 **Verifying the build.** The Log panel's first line is a build stamp:
 `MLOX Subset Sort <version> -- frozen=True built=<timestamp>`. Check it before
-believing any exe-only symptom — a stale build looks exactly like a code bug,
+believing any exe-only symptom - a stale build looks exactly like a code bug,
 which has cost two debugging rounds. See `SMOKE_TEST.md` §5a.
 
 ## What was left outside this folder
 
 Kept in the parent workspace, because none of it is needed to build or run:
 
-* **Reference sources** — `mlox-master/`, `plox-main/`, `openmw-master/`,
+* **Reference sources** - `mlox-master/`, `plox-main/`, `openmw-master/`,
   `momw-configurator-master/`, `tes3conv-master/`, `TES3Tool-master/`,
   `Tes3EditX-main/`, `modmapper-main/`, `modorganizer-master/`,
   `TES3 Conflictsolver/`. Read while porting; credited in `CREDITS.md`.
-* **Third-party tools** — `tes3cmd`, `tes3lint.pl`, `cell_conflicts.pl`,
+* **Third-party tools** - `tes3cmd`, `tes3lint.pl`, `cell_conflicts.pl`,
   `missing_pathgrids.pl` and their `.bat` wrappers. The tool drives `tes3cmd`
   when you point it at one; the Perl scripts' useful checks were ported into
   the native Lint feature.
-* **Run output** — logs, `cell_map.html`, `resource_conflicts.csv`,
+* **Run output** - logs, `cell_map.html`, `resource_conflicts.csv`,
   `tes3conv_json/`, `output/`, the packaged `.exe` and `.7z`.
-* **Superseded** — `mod_scan.py` (folded into the engine's scanner),
+* **Superseded** - `mod_scan.py` (folded into the engine's scanner),
   `BRIEFING_sort_engine.md` (the original problem statement).

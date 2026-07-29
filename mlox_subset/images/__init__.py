@@ -16,7 +16,7 @@ relicense the whole project.
 * :mod:`~mlox_subset.images.reader` -- picks the decoder by inspecting the
   bytes, because in this game the file extension is genuinely unreliable.
 * :mod:`~mlox_subset.images.roles` -- what a texture is *for*, so that a normal
-  map is not compared against a diffuse map or shown as though it were colour.
+  map is not compared against a diffuse map or shown as though it were color.
 * :mod:`~mlox_subset.images.compare` -- whether two versions of a texture
   actually differ, and a difference image showing where.
 

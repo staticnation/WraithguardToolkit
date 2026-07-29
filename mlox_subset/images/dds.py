@@ -20,7 +20,7 @@ sets that code to ``DX10`` and puts the real format in a twenty-byte extension
 header after it. Both are read; a file that says ``DX10`` and then stops is a
 truncation, not a format this decoder lacks, and it says so.
 
-**Normal maps are not colour.** BC5 stores two channels because a tangent-space
+**Normal maps are not color.** BC5 stores two channels because a tangent-space
 normal's third can be recomputed, and this reconstructs it -- see
 :func:`_decode_two_channel`. Morrowind and OpenMW both use the **DirectX**
 convention, so the green channel is *not* flipped on load. Flipping it, which
@@ -29,7 +29,7 @@ normal map in the collection compare as different from an identical copy of
 itself.
 
 **The block formats are arithmetic, not expression.** A DXT1 block is two
-16-bit colours and sixteen 2-bit indices; the decode is the interpolation the
+16-bit colors and sixteen 2-bit indices; the decode is the interpolation the
 format defines. That is a fact about the format, derived here from the public
 description and checked against real files, in the same way and for the same
 licensing reasons as ``mlox_subset.nif`` -- see ``NIF_PROVENANCE.md``.
@@ -136,14 +136,14 @@ class DdsError(ImageError):
 
 
 def _expand_565(value: int) -> tuple[int, int, int]:
-    """Expand a 16-bit 5:6:5 colour to 8 bits per channel.
+    """Expand a 16-bit 5:6:5 color to 8 bits per channel.
 
     The low bits are replicated from the high ones rather than zero-filled, so
     that full-scale input maps to full-scale output. Shifting alone would make
     white decode as 248, 252, 248 and give every decoded texture a faint cast.
 
     Args:
-        value: The packed colour.
+        value: The packed color.
 
     Returns:
         Red, green and blue, each 0-255.
@@ -154,13 +154,13 @@ def _expand_565(value: int) -> tuple[int, int, int]:
     return ((r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2))
 
 
-def _colour_table(c0: int, c1: int, *, punchthrough: bool) -> list[bytes]:
-    """Build the four-entry colour table for one block.
+def _color_table(c0: int, c1: int, *, punchthrough: bool) -> list[bytes]:
+    """Build the four-entry color table for one block.
 
     Args:
         c0: First endpoint, packed 5:6:5.
         c1: Second endpoint, packed 5:6:5.
-        punchthrough: Whether the three-colour mode is available. DXT1 selects
+        punchthrough: Whether the three-color mode is available. DXT1 selects
             it by endpoint order; DXT3 and DXT5 never use it, because their
             alpha lives in its own block.
 
@@ -172,7 +172,7 @@ def _colour_table(c0: int, c1: int, *, punchthrough: bool) -> list[bytes]:
     r1, g1, b1 = _expand_565(c1)
     table = [bytes((r0, g0, b0, 255)), bytes((r1, g1, b1, 255))]
     if punchthrough and c0 <= c1:
-        # Three colours and a transparent slot: the midpoint, then a hole.
+        # Three colors and a transparent slot: the midpoint, then a hole.
         table.append(bytes(((r0 + r1) // 2, (g0 + g1) // 2, (b0 + b1) // 2, 255)))
         table.append(b"\x00\x00\x00\x00")
     else:
@@ -239,7 +239,7 @@ def _decode_blocks(data: bytes, width: int, height: int, fourcc: bytes) -> bytea
                 )
                 block = block[8:]
             c0, c1, bits = struct.unpack_from("<HHI", block, 0)
-            table = _colour_table(c0, c1, punchthrough=not has_alpha_block)
+            table = _color_table(c0, c1, punchthrough=not has_alpha_block)
             # Whole rows of four pixels are written in one slice assignment.
             # Per-pixel assignment decoded the corpus in 23 seconds; a 2048px
             # texture is a quarter of a million blocks, and the loop overhead
@@ -272,7 +272,7 @@ def _decode_one_channel(data: bytes, width: int, height: int) -> bytearray:
     """Decode a BC4 surface: one channel, shown as grey.
 
     BC4 carries a single value per pixel -- a height field, a gloss mask, an
-    ambient-occlusion map. There is no colour in it to recover, so it is
+    ambient-occlusion map. There is no color in it to recover, so it is
     expanded to grey rather than dropped into the red channel alone, because
     grey is what the map means and what every tool that shows one displays.
 
@@ -380,7 +380,7 @@ def _explicit_alphas(block: bytes) -> list[int]:
     values: list[int] = []
     for byte in block:
         low, high = byte & 0xF, byte >> 4
-        # Replicated, not shifted, for the same reason as the colour channels:
+        # Replicated, not shifted, for the same reason as the color channels:
         # 0xF must reach 255 or every decoded texture is slightly transparent.
         values.append(low * 17)
         values.append(high * 17)

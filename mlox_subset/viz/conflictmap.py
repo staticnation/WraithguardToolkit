@@ -21,7 +21,7 @@ every cell a plugin does not touch and leaves the rest alone; that muting
 convention is reused here so the two maps interact the same way. It goes one
 step further because the question here is different -- not just "is this
 plugin present" but "how much is it colliding, and over what" -- so a focused
-cell is also recoloured by *that plugin's own* count there, using the same
+cell is also recolored by *that plugin's own* count there, using the same
 bands as the all-plugins view so the two remain comparable, and a summary line
 reports its landscape/path-grid/cell breakdown. The
 per-plugin counts this needs are decoded once, server-side, into
@@ -122,10 +122,10 @@ _SCRIPT = """
 (function(){
 const D=window.__conflictmap;
 // A lookup, not a ramp. The page embeds the same bands the server drew the
-// unfocused map with, so focusing a plugin cannot colour a count differently
-// from the way that count is coloured everywhere else -- which is exactly what
+// unfocused map with, so focusing a plugin cannot color a count differently
+// from the way that count is colored everywhere else -- which is exactly what
 // re-implementing the curve here used to risk.
-function severityColour(count){
+function severityColor(count){
   if(count<=0)return D.neutral;
   const bands=D.bands;
   for(let i=0;i<bands.length;i++){
@@ -157,7 +157,7 @@ function setFocus(name){
       const counts=(cellInfo&&cellInfo.by_plugin[name])||{};
       let sum=0;
       for(const k in counts){sum+=counts[k];byType[k]=(byType[k]||0)+counts[k];}
-      r.setAttribute('fill',severityColour(sum));
+      r.setAttribute('fill',severityColor(sum));
       if(sum>0)cellsTouched++;
       total+=sum;
     }else{
@@ -232,7 +232,7 @@ def _svg_grid(cells: Mapping[Cell, CellConflicts], worst: int) -> str:
 
     Args:
         cells: Aggregated conflicts per cell.
-        worst: The highest conflict count, saturating the colour ramp.
+        worst: The highest conflict count, saturating the color ramp.
 
     Returns:
         The ``<svg>`` markup, or an empty-state note when there is nothing to
@@ -257,7 +257,7 @@ def _svg_grid(cells: Mapping[Cell, CellConflicts], worst: int) -> str:
         # map comes out upside down against every other Morrowind map.
         px = (cell.x - min_x) * _CELL_PX
         py = (max_y - cell.y) * _CELL_PX
-        colour = severity_banded(info.total, worst)
+        color = severity_banded(info.total, worst)
         klass = ' class="mine"' if info.mine else ""
         tip = ngettext(
             "(%(x)d, %(y)d) \u2014 %(count)d conflict, %(n)d plugin(s): %(plugins)s",
@@ -276,7 +276,7 @@ def _svg_grid(cells: Mapping[Cell, CellConflicts], worst: int) -> str:
         # attribute an SVG viewer ignores.
         parts.append(
             f'<rect x="{px}" y="{py}" width="{_CELL_PX}" height="{_CELL_PX}" '
-            f'fill="{colour}"{klass} data-cell="{cell.x},{cell.y}" data-orig="{colour}" '
+            f'fill="{color}"{klass} data-cell="{cell.x},{cell.y}" data-orig="{color}" '
             f'data-m="{_modattr(info.plugins)}" data-t="{h.escape(tip)}"></rect>'
         )
     parts.append("</svg></div>")
@@ -334,7 +334,7 @@ def _type_meaning() -> dict[str, str]:
         Record type name to a one-line description of what it controls.
     """
     return {
-        "Landscape": _("terrain shape, textures and vertex colours"),
+        "Landscape": _("terrain shape, textures and vertex colors"),
         "PathGrid": _("NPC navigation -- broken edges strand NPCs, and nothing else reports it"),
         "Cell": _("the cell's own record: name, water level, region, ambient light"),
     }
@@ -404,7 +404,7 @@ def build_conflict_map(
     # outlier now lands in the open-ended top band and costs the lower bands
     # nothing. Using the maximum also makes the legend describe the real range,
     # and the worst cell is findable in the table below rather than clamped
-    # away into a colour it shares with cells a tenth its size.
+    # away into a color it shares with cells a tenth its size.
     worst = max((c.total for c in cells.values()), default=0)
     spatial = sum(c.total for c in cells.values())
     mine = sum(c.mine for c in cells.values())
@@ -414,12 +414,12 @@ def build_conflict_map(
     # The band's own label ("1", "6-10", "76+") is the legend text. Building a
     # sentence per swatch was how this read before; with one swatch per band
     # that is a wall of repeated words, and the unit belongs in the note once.
-    stops = [(colour, label) for label, colour, _dark in severity_legend_rows(worst)]
+    stops = [(color, label) for label, color, _dark in severity_legend_rows(worst)]
 
     focus_options, focus_names = _focus_options(cells, subset)
     focus_bar = (
         f'<div class="focusbar">{h.escape(_("Focus on plugin:"))} '
-        f'<select id="cm-focus"><option value="">{h.escape(_("— all plugins —"))}</option>'
+        f'<select id="cm-focus"><option value="">{h.escape(_("- all plugins -"))}</option>'
         f"{focus_options}</select> "
         f'<button id="cm-clear" type="button">{h.escape(_("Clear"))}</button></div>'
         f'<div id="cm-focus-info"></div>'
@@ -444,9 +444,9 @@ def build_conflict_map(
                 _(
                     "Conflicting records per cell. North is up. Hover a cell for its "
                     "count and which plugins are conflicting there. Each of the first "
-                    "few counts has its own colour and larger counts are grouped, "
+                    "few counts has its own color and larger counts are grouped, "
                     "because one, two and three conflicts are different situations "
-                    "while thirty and thirty-five are not. Focusing a plugin recolours "
+                    "while thirty and thirty-five are not. Focusing a plugin recolors "
                     "its cells by its own count there on this same scale, and mutes "
                     "the rest."
                 ),

@@ -2,7 +2,7 @@
 
 BC1, BC3 and BC5 are one interpolation each and fit in a paragraph. BC7 is a
 different kind of thing: a 16-byte block carries one of **eight modes**, and
-the mode decides how many colour subsets the block is cut into, how wide the
+the mode decides how many color subsets the block is cut into, how wide the
 endpoints are, whether alpha is stored at all, whether the block carries a
 second index set for alpha, and whether a channel has been rotated into alpha
 before encoding. Nothing in the block is at a fixed bit offset. The mode is
@@ -45,7 +45,7 @@ LOG = get_logger(__name__)
 #: Bytes in one BC7 block, which always covers 4x4 pixels.
 BLOCK_BYTES: Final[int] = 16
 
-#: How many colour subsets each mode cuts the block into.
+#: How many color subsets each mode cuts the block into.
 _SUBSETS: Final[tuple[int, ...]] = (3, 2, 3, 2, 1, 1, 1, 2)
 
 #: Bits of partition number, selecting which shape the subsets take.
@@ -55,10 +55,10 @@ _PARTITION_BITS: Final[tuple[int, ...]] = (4, 6, 6, 6, 0, 0, 0, 6)
 #: encoding. Only the single-subset modes carry one.
 _ROTATION_BITS: Final[tuple[int, ...]] = (0, 0, 0, 0, 2, 2, 0, 0)
 
-#: Bits of index selector, saying which of the two index sets drives colour.
+#: Bits of index selector, saying which of the two index sets drives color.
 _SELECTOR_BITS: Final[tuple[int, ...]] = (0, 0, 0, 0, 1, 0, 0, 0)
 
-#: Bits per colour channel in each endpoint, before any P-bit.
+#: Bits per color channel in each endpoint, before any P-bit.
 _COLOUR_BITS: Final[tuple[int, ...]] = (4, 6, 5, 7, 5, 7, 7, 5)
 
 #: Bits of alpha per endpoint. Zero means the mode stores no alpha at all and
@@ -365,8 +365,8 @@ def _read_endpoints(bits: _Bits, mode: int) -> list[list[int]]:
         subset 0's pair first.
     """
     count = _SUBSETS[mode] * 2
-    colour_bits, alpha_bits = _COLOUR_BITS[mode], _ALPHA_BITS[mode]
-    planes = [[bits.take(colour_bits) for _ in range(count)] for _ in range(3)]
+    color_bits, alpha_bits = _COLOUR_BITS[mode], _ALPHA_BITS[mode]
+    planes = [[bits.take(color_bits) for _ in range(count)] for _ in range(3)]
     planes.append([bits.take(alpha_bits) for _ in range(count)] if alpha_bits else [0] * count)
 
     # A P-bit is a shared low-order bit appended to every channel of an
@@ -379,7 +379,7 @@ def _read_endpoints(bits: _Bits, mode: int) -> list[list[int]]:
         shared = [bits.take(1) for _ in range(_SUBSETS[mode])]
         parity = [shared[index // 2] for index in range(count)]
 
-    colour_width = colour_bits + (1 if parity else 0)
+    color_width = color_bits + (1 if parity else 0)
     alpha_width = alpha_bits + (1 if parity else 0)
     endpoints: list[list[int]] = []
     for index in range(count):
@@ -388,7 +388,7 @@ def _read_endpoints(bits: _Bits, mode: int) -> list[list[int]]:
             raw = planes[plane][index]
             if parity is not None:
                 raw = (raw << 1) | parity[index]
-            channels.append(_unquantise(raw, colour_width))
+            channels.append(_unquantise(raw, color_width))
         if not alpha_bits:
             # The mode stores no alpha, which means opaque -- not absent.
             channels.append(255)
@@ -473,30 +473,30 @@ def decode_block(block: bytes) -> bytes:
     indices_2 = _read_indices(bits, width_2, (0,), None) if width_2 else None
 
     if indices_2 is None:
-        colour_idx, colour_w = indices_1, width_1
+        color_idx, color_w = indices_1, width_1
         alpha_idx, alpha_w = indices_1, width_1
     elif selector:
-        # The index selector swaps which set drives colour and which drives
+        # The index selector swaps which set drives color and which drives
         # alpha. Ignoring it decodes mode 4 blocks with the two confused,
-        # which looks like plausible colour with wrong transparency.
-        colour_idx, colour_w = indices_2, width_2
+        # which looks like plausible color with wrong transparency.
+        color_idx, color_w = indices_2, width_2
         alpha_idx, alpha_w = indices_1, width_1
     else:
-        colour_idx, colour_w = indices_1, width_1
+        color_idx, color_w = indices_1, width_1
         alpha_idx, alpha_w = indices_2, width_2
 
-    colour_weights = _WEIGHTS[colour_w]
+    color_weights = _WEIGHTS[color_w]
     alpha_weights = _WEIGHTS[alpha_w]
     out = bytearray(64)
     for pixel in range(16):
         subset = membership[pixel]
         low, high = endpoints[subset * 2], endpoints[subset * 2 + 1]
-        weight = colour_weights[colour_idx[pixel]]
+        weight = color_weights[color_idx[pixel]]
         red = _interpolate(low[0], high[0], weight)
         green = _interpolate(low[1], high[1], weight)
         blue = _interpolate(low[2], high[2], weight)
         alpha = _interpolate(low[3], high[3], alpha_weights[alpha_idx[pixel]])
-        # A rotation means the encoder moved one colour channel into the alpha
+        # A rotation means the encoder moved one color channel into the alpha
         # slot before compressing, because it had more detail there. Undoing it
         # is a swap, and skipping it produces an image that is almost right and
         # obviously wrong in one channel.

@@ -20,7 +20,7 @@ Field   Size         Contents
 VNML    12,675       65x65 vertex normals, ``int8`` x/y/z
 VHGT    4,232        ``float32`` offset + 65x65 ``int8`` deltas + 3 unused
 WNAM    81           9x9 ``int8`` low-res heightmap for the world map
-VCLR    12,675       65x65 vertex colours, ``uint8`` RGB
+VCLR    12,675       65x65 vertex colors, ``uint8`` RGB
 VTEX    512          16x16 ``uint16`` LTEX indices
 ======  ===========  ============================================
 
@@ -161,8 +161,8 @@ def decode_vertex_normals(value: str | bytes) -> list[list[tuple[int, int, int]]
     ]
 
 
-def decode_vertex_colours(value: str | bytes) -> list[list[tuple[int, int, int]]]:
-    """Decode the 65x65 grid of ``uint8`` RGB vertex colours.
+def decode_vertex_colors(value: str | bytes) -> list[list[tuple[int, int, int]]]:
+    """Decode the 65x65 grid of ``uint8`` RGB vertex colors.
 
     Args:
         value: The ``vertex_colors.data`` field.
@@ -173,7 +173,7 @@ def decode_vertex_colours(value: str | bytes) -> list[list[tuple[int, int, int]]
     Raises:
         LandscapeDecodeError: If the field is too short to be a VCLR payload.
     """
-    raw = _payload(value, 3 * LAND_NUM_VERTS, "VCLR colours")
+    raw = _payload(value, 3 * LAND_NUM_VERTS, "VCLR colors")
     return [
         [
             (
@@ -281,12 +281,12 @@ def render_vertex_normals(value: str | bytes) -> str:
     return "\n".join(header + body)
 
 
-def render_vertex_colours(value: str | bytes) -> str:
+def render_vertex_colors(value: str | bytes) -> str:
     """Render VCLR as a grid of ``#rrggbb`` values, one row per line."""
-    rows = decode_vertex_colours(value)
+    rows = decode_vertex_colors(value)
     distinct = {c for row in rows for c in row}
     header = [
-        f"; VCLR -- {LAND_SIZE}x{LAND_SIZE} vertex colours, {len(distinct)} distinct",
+        f"; VCLR -- {LAND_SIZE}x{LAND_SIZE} vertex colors, {len(distinct)} distinct",
         _BOTTOM_UP,
     ]
     body = _grid_lines([[f"#{r:02x}{g:02x}{b:02x}" for r, g, b in row] for row in rows], 7)

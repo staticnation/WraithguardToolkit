@@ -1,4 +1,4 @@
-"""Colour ramps for the conflict visualisations.
+"""Color ramps for the conflict visualisations.
 
 Two ramps, chosen for what they have to communicate rather than for looks:
 
@@ -47,7 +47,7 @@ def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
 
 
 def _hex(red: float, green: float, blue: float) -> str:
-    """Format three 0-1 channel values as a CSS hex colour.
+    """Format three 0-1 channel values as a CSS hex color.
 
     Args:
         red: Red channel, 0-1.
@@ -61,7 +61,7 @@ def _hex(red: float, green: float, blue: float) -> str:
 
 
 def divergence(value: float, scale: float) -> str:
-    """Map a signed value to a blue-neutral-red divergence colour.
+    """Map a signed value to a blue-neutral-red divergence color.
 
     Args:
         value: The signed quantity, e.g. a height delta in world units.
@@ -166,7 +166,7 @@ def terrain_ramp(steps: int = 256) -> list[str]:
             costs a few kilobytes, so buying the headroom is free.
 
     Returns:
-        ``steps`` colours, from the lowest ground to the highest.
+        ``steps`` colors, from the lowest ground to the highest.
 
     Raises:
         ValueError: If ``steps`` is less than two, which cannot describe a ramp.
@@ -222,7 +222,7 @@ def tint_ramp(name: str, steps: int = 256) -> list[str]:
         steps: How many samples to take.
 
     Returns:
-        ``steps`` colours, low ground first.
+        ``steps`` colors, low ground first.
 
     Raises:
         KeyError: If ``name`` is not a known tint. Raised rather than falling
@@ -239,7 +239,7 @@ def tint_ramp(name: str, steps: int = 256) -> list[str]:
 
 
 def _ramp(t: float, stops: Sequence[tuple[float, float, float, float]]) -> str:
-    """Interpolate a multi-stop colour ramp.
+    """Interpolate a multi-stop color ramp.
 
     Args:
         t: Position along the ramp, 0-1 (clamped by the caller).
@@ -271,7 +271,7 @@ COVERAGE_GROUP: Final[int] = 5
 
 #: Ceiling on how many bands a map can have. Beyond this the top band becomes
 #: open-ended ("76+"). A ramp is only readable while its steps are telling
-#: apart -- forty bands over seven colour stops is a gradient again, with a
+#: apart -- forty bands over seven color stops is a gradient again, with a
 #: legend nobody can use.
 COVERAGE_MAX_BANDS: Final[int] = 16
 
@@ -313,7 +313,7 @@ def coverage_band_index(count: int, worst: int) -> int:
 
     Returns:
         The band's index, clamped into range for counts outside 1..``worst``
-        (a stale ``worst`` must colour something plausible, not raise).
+        (a stale ``worst`` must color something plausible, not raise).
     """
     bands = coverage_bands(worst)
     if not bands:
@@ -325,11 +325,11 @@ def coverage_band_index(count: int, worst: int) -> int:
 
 
 def coverage_heat(count: int, worst: int) -> str:
-    """Map a mods-per-cell count to its band's colour.
+    """Map a mods-per-cell count to its band's color.
 
     Banded rather than continuous: the counts people act on are small and
     crowded at the bottom of the range, so a linear ramp against the worst cell
-    on the map spent most of its colour on distinctions nobody needs.
+    on the map spent most of its color on distinctions nobody needs.
 
     Args:
         count: How many mods touch this cell.
@@ -350,10 +350,10 @@ def coverage_heat(count: int, worst: int) -> str:
 
 
 def coverage_legend_stops(worst: int) -> list[tuple[str, str, bool]]:
-    """Build ``(label, colour, needs_light_text)`` rows for a legend.
+    """Build ``(label, color, needs_light_text)`` rows for a legend.
 
     One row per band, generated from the same banding the map draws with, so a
-    legend can never drift from the colours beside it -- and, now that the map
+    legend can never drift from the colors beside it -- and, now that the map
     is banded, the legend is the map's key rather than a sample of a gradient.
 
     Args:
@@ -365,8 +365,8 @@ def coverage_legend_stops(worst: int) -> list[tuple[str, str, bool]]:
     """
     rows: list[tuple[str, str, bool]] = []
     for low, high in coverage_bands(worst):
-        colour = coverage_heat(low, worst)
-        red, green, blue = (int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+        color = coverage_heat(low, worst)
+        red, green, blue = (int(color[i : i + 2], 16) / 255 for i in (1, 3, 5))
         luminance = 0.299 * red + 0.587 * green + 0.114 * blue
         if high is None:
             label = f"{low}+"
@@ -374,12 +374,12 @@ def coverage_legend_stops(worst: int) -> list[tuple[str, str, bool]]:
             label = str(low)
         else:
             label = f"{low}-{high}"
-        rows.append((label, colour, luminance < 0.55))
+        rows.append((label, color, luminance < 0.55))
     return rows
 
 
 def severity_banded(count: int, worst: int) -> str:
-    """Map a conflict count to its band's colour on the severity ramp.
+    """Map a conflict count to its band's color on the severity ramp.
 
     The same banding as :func:`coverage_heat` -- each of 1..5 on its own, then
     groups of five -- over the green/yellow/red severity stops instead of the
@@ -408,7 +408,7 @@ def severity_banded(count: int, worst: int) -> str:
 
 
 def severity_legend_rows(worst: int) -> list[tuple[str, str, bool]]:
-    """Build ``(label, colour, needs_light_text)`` rows for a conflict legend.
+    """Build ``(label, color, needs_light_text)`` rows for a conflict legend.
 
     One row per band, from the same banding the map draws with, so the legend
     is the map's key rather than a sample of a gradient it cannot drift from.
@@ -422,8 +422,8 @@ def severity_legend_rows(worst: int) -> list[tuple[str, str, bool]]:
     """
     rows: list[tuple[str, str, bool]] = []
     for low, high in coverage_bands(worst):
-        colour = severity_banded(low, worst)
-        red, green, blue = (int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+        color = severity_banded(low, worst)
+        red, green, blue = (int(color[i : i + 2], 16) / 255 for i in (1, 3, 5))
         luminance = 0.299 * red + 0.587 * green + 0.114 * blue
         if high is None:
             label = f"{low}+"
@@ -431,12 +431,12 @@ def severity_legend_rows(worst: int) -> list[tuple[str, str, bool]]:
             label = str(low)
         else:
             label = f"{low}-{high}"
-        rows.append((label, colour, luminance < 0.55))
+        rows.append((label, color, luminance < 0.55))
     return rows
 
 
 def severity_band_table(worst: int) -> list[list[object]]:
-    """The bands and their colours, for a client that must colour cells itself.
+    """The bands and their colors, for a client that must color cells itself.
 
     Sent to the page so the focused view looks a count up in a table rather
     than recomputing a ramp in JavaScript. The duplicated curve was the thing
@@ -447,6 +447,6 @@ def severity_band_table(worst: int) -> list[list[object]]:
         worst: The highest conflict count on the map.
 
     Returns:
-        ``[low, high_or_None, colour]`` rows, ascending.
+        ``[low, high_or_None, color]`` rows, ascending.
     """
     return [[low, high, severity_banded(low, worst)] for low, high in coverage_bands(worst)]

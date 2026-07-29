@@ -17,7 +17,7 @@ it had none.
 ### Added
 
 - **A lit material view in the texture comparison.** A flat side-by-side view
-  cannot compare two normal maps at all — a picture of one is a field of pale
+  cannot compare two normal maps at all - a picture of one is a field of pale
   blue, because what it encodes is how a surface catches light. So each texture
   is also drawn on a lit quad with its own `_n`/`_nh` and `_spec` siblings
   applied, under one light the user can drag, with sliders for key and ambient
@@ -32,13 +32,13 @@ it had none.
   **orthographic**, because a perspective one foreshortens the two quads
   differently and makes them disagree for a reason not in the files; and normal
   maps are loaded **linear, not sRGB**, because reading a field of vectors as
-  colour bends every one of them before use.
+  color bends every one of them before use.
 
 - **Texture comparison** (`mlox_subset/images/compare.py` and `viewer.py`).
   The conflict scan could already say two mods ship the same texture path; it
   could not say whether that mattered. Now it can, with three views because
   each answers a different question: *side by side* ("which do I prefer"),
-  *overlay with a wipe* ("what moved" — the eye detects motion far better than
+  *overlay with a wipe* ("what moved" - the eye detects motion far better than
   it compares two things it must look back and forth between), and *difference*
   ("where is the change", the only one that shows a change too small to see).
 
@@ -47,7 +47,7 @@ it had none.
 
   - **Different sizes are a finding, not a failure.** A retexture that doubles
     the resolution is the commonest texture conflict in this game. Nothing is
-    rescaled — resampling would invent pixels and then report differences in
+    rescaled - resampling would invent pixels and then report differences in
     the pixels it invented.
   - **Two numbers, not one.** A re-compression nudges nearly every pixel by a
     level; a real retexture moves a few pixels a long way. A single mean ranks
@@ -55,7 +55,7 @@ it had none.
     single-channel move are both reported.
   - **A one-level difference is not a change.** Every tool that touches a DDS
     rewrites it slightly. With a threshold of zero, every recompressed texture
-    in a collection reports as 100% changed — true and useless.
+    in a collection reports as 100% changed - true and useless.
   - **Roles are checked before pixels.** Comparing a normal map against a
     diffuse map produces a large, confident, meaningless number.
 
@@ -66,8 +66,8 @@ it had none.
   two things within the hour:
 
   - **Confirmation** of this project's hardest-won layout. The typed bounding
-    box — where a confident conclusion drawn from two files once broke thirteen
-    meshes that already worked — matches `tes3` exactly on both type numbers
+    box - where a confident conclusion drawn from two files once broke thirteen
+    meshes that already worked - matches `tes3` exactly on both type numbers
     and both widths, derived independently from bytes.
   - **A gap no measurement here could have found.** `NiUnionBV` is a *recursive
     list* of bounding volumes rather than a fixed width, and no file in either
@@ -79,7 +79,7 @@ it had none.
   (98.2%)** and the reader from 66 known block types to 89. Each is marked in
   `blocks.py` as *taken* rather than *derived*: a derived layout survived the
   exact-landing test across thousands of files, a taken one is a transcription
-  confirmed against however many samples carry that type — sometimes one. Both
+  confirmed against however many samples carry that type - sometimes one. Both
   true, not equally well-evidenced.
 
   **The vanilla and mod figures are unchanged at 100% and ~99%**, because every
@@ -92,29 +92,29 @@ it had none.
   | | |
   | --- | --- |
   | DDS | BC1, BC2, BC3, **BC4**, **BC5**, **BC7**, uncompressed, and the Direct3D 10 header form |
-  | Targa | plain and run-length encoded, colour-mapped, 8 to 32 bits |
+  | Targa | plain and run-length encoded, color-mapped, 8 to 32 bits |
   | Bitmap | 1, 4, 8, 16, 24 and 32 bits, palettes, both row orders |
-  | PNG | passed through to the browser untouched — it already decodes them better than we would |
+  | PNG | passed through to the browser untouched - it already decodes them better than we would |
 
   **BC7 was the real work.** A 16-byte block carries one of eight modes, and
-  the mode decides everything after it: how many colour subsets the block is
+  the mode decides everything after it: how many color subsets the block is
   cut into, how wide the endpoints are, whether alpha exists, whether a second
   index set exists, whether a channel was rotated into alpha before encoding.
   Nothing sits at a fixed bit offset. It is defined by roughly six hundred
   transcribed table entries, and a single wrong one produces a correct-looking
-  image with a handful of wrong 4×4 blocks — invisible to any test written by
+  image with a handful of wrong 4×4 blocks - invisible to any test written by
   the same person who transcribed the tables.
 
   So it is checked against a decoder that shares none of those assumptions:
   **19,380 random blocks across all eight modes and all 64 partitions, matching
   Pillow byte for byte**, plus 512 blocks each for the other formats and real
-  files from the corpus. Random bits are the harsh test here — every 128-bit
+  files from the corpus. Random bits are the harsh test here - every 128-bit
   pattern is a legal BC7 block, so noise exercises endpoint ordering, P-bits
   and anchor index widths far harder than a photograph could. See
   `tools/check_bc7.py` and `tools/check_images.py`.
 
-  **`pydds` was evaluated and rejected on licence.** It is the closest
-  technical fit — BC7 bindings, actively the thing this needed — and it is
+  !!!pydds` was evaluated and rejected on licence.** It is the closest
+  technical fit - BC7 bindings, actively the thing this needed - and it is
   **GPLv3**, which would relicense this entire project. It also depends on
   Pillow, so it would have been additive rather than a replacement. `quicktex`
   is Apache-2.0 and would have been permissible, but is a compiled extension in
@@ -142,14 +142,14 @@ it had none.
 - **BC5 normal maps reconstruct their third channel.** The format stores only X
   and Y, because a unit vector's Z follows from them. Leaving blue flat would
   make two genuinely different normal maps compare as identical whenever they
-  happened to share X and Y — and comparing a mod's normal map against another
+  happened to share X and Y - and comparing a mod's normal map against another
   mod's is a goal of this project, not an edge case. The **DirectX** convention
   is used, matching both engines: green is *not* flipped. Tooling written for
   OpenGL flips it by default, which would report every normal map as differing
   from a byte-identical copy of itself.
 
 - **Light controls in the 3D mesh view**: key intensity, ambient level, light
-  angle, and a follow-the-camera mode. Not decoration — a normal map changes
+  angle, and a follow-the-camera mode. Not decoration - a normal map changes
   nothing under flat ambient light, so without a light that moves there is
   nothing to see. Follow-the-camera is off by default and deliberately so: it
   means moving the camera changes the lighting, so two providers can never be
@@ -157,27 +157,27 @@ it had none.
 
 - **OpenMW auxiliary maps in the 3D view.** Where a `_n` or `_nh` sits beside a
   mesh's diffuse texture, it is offered as a toggle. These exist in a mod
-  collection while being mentioned in no mesh at all — the Morrowind NIF has no
+  collection while being mentioned in no mesh at all - the Morrowind NIF has no
   dependable slot for them, so OpenMW finds them by name. The control appears
   only when the collection actually ships one, because a permanently dead
   control implies a broken feature rather than an unused one.
 
 - **BSA archives are read**, so the base game's own assets resolve. Nearly all
   of Morrowind's textures live inside `Morrowind.bsa`; without this every
-  base-game mesh looked untextured and every base-game texture looked missing —
+  base-game mesh looked untextured and every base-game texture looked missing -
   both false. Loose files still win over archived ones, matching the engine, so
   a retexture mod overrides the archive exactly as it does in play.
 
   Verified against the shipped archive: **11,090 files indexed, 300 extracted,
   every one starting with the magic its extension implies**. That last check is
-  the one that matters — an index can be entirely self-consistent and still
+  the one that matters - an index can be entirely self-consistent and still
   point at the wrong offset, and the reader's own round-trip test cannot catch
   it because the test writer shares the reader's assumptions.
 
   Written rather than imported. `bethesda-structs` is MIT and would have been
   usable, but pulls in `construct`, `multidict`, `attrs` and `lz4`, ships 49 MB
   of Fallout and Skyrim record formats, and every archive in its own test suite
-  is the *post-Morrowind* BSA — a different format that shares an extension and
+  is the *post-Morrowind* BSA - a different format that shares an extension and
   nothing else.
 
 - **A node tree beside the 3D view**, listing what a render structurally
@@ -211,7 +211,7 @@ it had none.
 
   Both come from one builder. The difference is confined to how bytes arrive --
   a sink that either base64s a blob into the document or publishes it as a URL
-  — and a test asserts the rendering half of the two pages is byte-identical,
+  - and a test asserts the rendering half of the two pages is byte-identical,
   because a fallback sharing no code with the primary path is a second
   implementation waiting to rot.
 
@@ -219,8 +219,8 @@ it had none.
   OS-chosen port, requires a per-session token, and **has no filesystem
   mapping at all**: payloads are registered in memory and served by key, so
   path traversal is not defended against, it is absent. `fastapi` + `uvicorn`
-  was considered and measured — 14 packages, 34 MB and a compiled
-  `pydantic_core` extension, against an app that is currently ~38 MB — to serve
+  was considered and measured - 14 packages, 34 MB and a compiled
+  `pydantic_core` extension, against an app that is currently ~38 MB - to serve
   a fixed dictionary of blobs to one local browser.
 
 
@@ -231,7 +231,7 @@ it had none.
   three.js r185 is vendored unmodified with its MIT licence beside it. It is
   the **CommonJS** build, which is not the obvious choice and is the only one
   that can work: modern three.js ships ESM only, split across two files, and ES
-  module scripts do not load from `file://` — the origin is `null` and the CORS
+  module scripts do not load from `file://` - the origin is `null` and the CORS
   check fails. These pages are opened from disk. The CJS build is one
   self-contained file and runs as a classic script behind a three-line shim.
   The orbit controls are ours, because three.js's own `OrbitControls.js`
@@ -244,8 +244,8 @@ it had none.
   page went from 12.9 MB to 5.0 MB.
 
   Also measured, because it was worth asking: embedding the raw `.nif` and
-  parsing it in the browser would ship **4.37 MB** against 1.86 — the file
-  carries normals, UVs, animation and blocks a viewer never draws — and would
+  parsing it in the browser would ship **4.37 MB** against 1.86 - the file
+  carries normals, UVs, animation and blocks a viewer never draws - and would
   need a JavaScript NIF parser, which three.js does not have and never got
   (the request is still open from 2012).
 
@@ -260,7 +260,7 @@ it had none.
   and that is the difference between a list you skim and a list you act on.
 
   It stays cheap by only opening files that already conflict **and** already
-  differ in bytes — a subset of a subset — and by caching on content, so a mesh
+  differ in bytes - a subset of a subset - and by caching on content, so a mesh
   body shipped by four mods is parsed once. It reuses the blake2b digests the
   conflict scan already computes, which matters more than it sounds: caching
   the parses alone left hashing as the dominant cost, five seconds over a
@@ -268,7 +268,7 @@ it had none.
 
 - **A mesh detail panel that reads nothing until you ask.** Selecting a row in
   the resource window reads that mesh, then and only then, and describes every
-  provider — shapes, triangles, textures, collision, animation — plus what the
+  provider - shapes, triangles, textures, collision, animation - plus what the
   winner loses against each. Reselecting is free.
 
 - **DDS decoding with no new dependency** (`mlox_subset/dds/`). BC1, BC2 and
@@ -287,7 +287,7 @@ it had none.
   to the layout-free scan. Refusing them was costing 45 files in one mod
   collection for no benefit.
 
-- **`NiSwitchNode` and `NiLODNode`**, which never occur in vanilla and together
+- !!!NiSwitchNode` and `NiLODNode**`, which never occur in vanilla and together
   caused 92% of everything that stopped early in a real mod collection.
 
 ### Fixed
@@ -313,14 +313,14 @@ it had none.
 
 - **The bounding box is typed, not fixed-width.** Type 1 carries a full
   transform (64 bytes); type 0 carries 20. Found by separating the two
-  populations — the type word is 1 in all 27 blocks that parse and 0 in every
-  mesh that would not — after a first attempt that took a single 20-byte width
+  populations - the type word is 1 in all 27 blocks that parse and 0 in every
+  mesh that would not - after a first attempt that took a single 20-byte width
   from the failing files alone and broke 13 that had been working. An
   unrecognised type is now refused rather than guessed.
 
 - **A miscounted total in `--verify`.** "unverifiable but incomplete" is a
   subdivision of "unverifiable", not a category beside it, and the total summed
-  the tally — so a run over 80,197 files reported 81,026. A total that
+  the tally - so a run over 80,197 files reported 81,026. A total that
   disagrees with its own parts quietly discredits every other number in the
   report.
 
@@ -330,8 +330,8 @@ it had none.
   0 stopped early, 0 diverged.** It was at 85.5% when this run started.
 
   The four exceptions are not files the reader struggles with. They are files
-  where the *cross-checking scan* finds more blocks than the header declares —
-  its known false-positive mode, where a node happens to be named like a type —
+  where the *cross-checking scan* finds more blocks than the header declares -
+  its known false-positive mode, where a node happens to be named like a type -
   so it cannot serve as a reference for them. They are now checked against the
   header count instead of being skipped, because excluding a file behind a
   limitation of the check rather than of the reader teaches nothing.
@@ -352,24 +352,24 @@ it had none.
     exactly 16000 bytes, which identified an optional 16-byte-per-particle
     rotation array behind its own flag.
   - `NiTextureEffect`'s tail is `4 + 4n + 91` across four observed shapes. Its
-    counted entries hold values like `0x0b741950` — exporter memory addresses,
-    not block indices — so they are counted and stepped over rather than
+    counted entries hold values like `0x0b741950` - exporter memory addresses,
+    not block indices - so they are counted and stepped over rather than
     offered as links a caller might try to follow.
   - `NiMorphData` writes its interpolation word even when the key count is
     zero, unlike every other key group in the format. Both readings were run
     against all 26 fixtures: "always written" lands on 26, the alternative on 3.
 
   Where fields could not be identified from the bytes they are stepped over as
-  *measured spans* with names that admit it — `emitter_parameters`,
+  *measured spans* with names that admit it - `emitter_parameters`,
   `unidentified_tail`, `path_parameters`, `projection`. The width is what the
   rest of the file depends on, and an invented field name is worse than an
   admitted gap because it gets believed.
 
 ### Fixed
 
-- **`NiTexturingProperty` truncated any mesh with more than one decal.**
+- !!!NiTexturingProperty` truncated any mesh with more than one decal.**
   `texture_count` is a slot count, not a cap of seven. On `7decals.NIF` it
-  reads 13, and the reader stopped 156 bytes short — exactly six more slots at
+  reads 13, and the reader stopped 156 bytes short - exactly six more slots at
   26 bytes each. This was the worst class of bug in the reader: it stopped
   *inside a block type the reader claims to support*, so it produced
   confidently wrong output rather than an honest gap. 11 files in the corpus.
@@ -390,7 +390,7 @@ it had none.
   sources. A document whose only value is that it can be trusted is the wrong
   place to claim more than happened.
 
-  It also draws the line around NifSkope explicitly — permitted as an *oracle*
+  It also draws the line around NifSkope explicitly - permitted as an *oracle*
   ("is this parse right?"), never as a *source* ("what are the fields?"), since
   its display is generated from `nif.xml`, which `CREDITS.md` rules out.
 
@@ -402,7 +402,7 @@ it had none.
   after it, and the result is not a crash but a plausible wrong answer. The
   scan recovers the block list using no field layout at all, so it cannot fail
   the same way, and the file's own header says how many blocks there should be
-  — so a scan that miscounts disqualifies itself instead of misleading.
+  - so a scan that miscounts disqualifies itself instead of misleading.
 
   It replaces an externally supplied census that turned out to undercount
   property blocks: `x/ex_s_longhouse_blue.nif` really has 53 `NiMaterialProperty`
@@ -421,16 +421,16 @@ it had none.
 
   Against the corpus: 156 files identical, 397 a clean prefix, **zero
   divergences**. `--verify` also separates the two kinds of stop, which a single
-  list had been burying — a file stopping on a type the reader *claims to
+  list had been burying - a file stopping on a type the reader *claims to
   support* is a layout bug, while one stopping on an unimplemented type is a
   gap. That split immediately surfaced 11 real bugs under 397 gaps.
 
 ### Fixed
 
-- **`NiGeomMorpherController` was one byte short**, and it was the only
+- !!!NiGeomMorpherController` was one byte short**, and it was the only
   alignment bug in all 7,319 vanilla meshes.
 
-  Every affected file read a type name of `\x00NiMorphData` — the correct name
+  Every affected file read a type name of `\x00NiMorphData` - the correct name
   behind a leading NUL, which is exactly what a cursor one byte early looks
   like. With the byte consumed the next `u32` reads 11 and the next 11 bytes
   read `NiMorphData`. It is 0 in every observed file, so it is named
@@ -444,12 +444,12 @@ it had none.
 
 - **Stop reasons could carry raw binary into logs and terminals.** A
   desynchronised read produces arbitrary bytes, and those were interpolated
-  into the message unescaped — one survey printed an embedded NUL and a run of
+  into the message unescaped - one survey printed an embedded NUL and a run of
   high bytes to stdout. Messages are now escaped, length-bounded, and asserted
   `isprintable()`.
 
 - **The census loader silently dropped records.** 17 of 7,319 records share a
-  line with the next one, and splitting on lines lost *both* halves each time —
+  line with the next one, and splitting on lines lost *both* halves each time -
   quietly, since a mangled record simply fails to parse. That removed 34 files
   from every comparison. Records are now matched by shape rather than by line,
   and a mismatch between records present and records parsed is reported.
@@ -464,7 +464,7 @@ it had none.
   write every rule the format has, which made "what should I write?" the harder
   question. The reference answers it, organised by what you are trying to *say*
   rather than by rule name, and it opens from the **Help** menu and from a
-  **Rule guide** button inside the rule maker — offline, rendered by the same
+  **Rule guide** button inside the rule maker - offline, rendered by the same
   viewer as the Read me.
 
   It is written from scratch rather than copied. The conventions it describes
@@ -472,7 +472,7 @@ it had none.
   page as the authority; the wording and the examples are ours. A test checks
   that every rule kind the rule maker offers is actually described in it, so the
   two cannot drift apart, and another checks the document is in the build
-  manifest — a Help entry that works from a checkout and opens empty in the
+  manifest - a Help entry that works from a checkout and opens empty in the
   release is otherwise found only by a user.
 
 - **Declare your own grass.** Holding back what `openmw.cfg` already calls
@@ -566,7 +566,7 @@ it had none.
 ### Changed
 
 - **The conflict map is banded like the cell map** -- each of the first five
-  counts gets its own colour, larger counts group in fives, and the legend has
+  counts gets its own color, larger counts group in fives, and the legend has
   one swatch per band instead of sampling a gradient. Same reasoning as the cell
   map: a linear ramp normalised against the worst cell rendered one, two and
   three conflicting records as three near-identical greens, and those are the
@@ -604,8 +604,8 @@ it had none.
   a `plugin-order.yml` there is no curated list to consult, so the old
   presence-based behaviour stays as the fallback.
 
-- **The cell map's colours are now banded**: 1, 2, 3, 4 and 5 mods per cell each
-  get their own colour, then 6-10, 11-15, and so on. The distinctions that matter
+- **The cell map's colors are now banded**: 1, 2, 3, 4 and 5 mods per cell each
+  get their own color, then 6-10, 11-15, and so on. The distinctions that matter
   are crowded at the bottom of the range -- one, two and three mods in a cell are
   different situations, while 23 and 24 are not -- and a continuous ramp
   normalised against the busiest cell on a big map rendered all of the low counts
@@ -613,7 +613,7 @@ it had none.
   rather than a sample of a gradient. Above 16 bands the top one becomes
   open-ended (`76+`): a ramp is only readable while its steps are.
 
-- **Wider colour ranges on both maps.** The severity ramp went from three stops
+- **Wider color ranges on both maps.** The severity ramp went from three stops
   to five: with only green → yellow → red the whole middle of a busy map
   collapsed into one narrow yellow band, so cells with genuinely different
   conflict counts looked identical. Coverage now has its own seven-stop ramp
@@ -621,7 +621,7 @@ it had none.
   because coverage is not badness -- ten mods touching a cell is normal in a big
   load order -- and it should not be mistaken for the conflict map at a glance.
   Both legends are now generated from the same ramp the map draws with, so they
-  cannot drift apart, and the conflict map's client-side recolouring is handed
+  cannot drift apart, and the conflict map's client-side recoloring is handed
   the stop table as data instead of re-implementing the curve in JavaScript.
 - **Out-of-range cells are reported, not silently dropped.** One corrupt grid
   coordinate would stretch the map to millions of pixels, so filtering them is
@@ -653,7 +653,7 @@ it had none.
 - **The 3D terrain view is shaded like a relief map.** A greyscale *hillshade*
   carries the shape and a hypsometric *tint* (green valleys through tan and rock
   to pale summits) is composited over it at 55%, adjustable from 40% to 75% or
-  off. Keeping them as two layers is the point: flat-filling one blended colour
+  off. Keeping them as two layers is the point: flat-filling one blended color
   per face -- what it did before -- fuses "which way does this face" with "how
   high is it" into a single number, so neither could be read on its own.
 
@@ -683,7 +683,7 @@ it had none.
   **Every setting is exposed** on a control panel: shading mode, hillshade
   on/off, light count, scale count, sun azimuth and altitude, tint palette and
   opacity, contours, and vertical exaggeration. Nothing was replaced to add
-  them — the defaults reproduce the view exactly as it stood, including the
+  them - the defaults reproduce the view exactly as it stood, including the
   light direction, which was a hard-coded vector and is now the same direction
   written in degrees. (Exposing it revealed that the vector's own comment
   claimed north-west while the vector was south-west; the vector was right.)
@@ -694,7 +694,7 @@ it had none.
   **Multidirectional lighting** (3 or 6 lights) spreads lights evenly around the
   compass at the chosen altitude, weighted toward the primary azimuth. One light
   leaves whole faces in flat black where nothing can be read; several fill those
-  shadows without flattening the relief. Total brightness is unchanged — the
+  shadows without flattening the relief. Total brightness is unchanged - the
   weights sum to one and all lights share an altitude, so flat ground is lit
   identically at one light or six and only the shadow side moves.
 
@@ -704,7 +704,7 @@ it had none.
 
   **Three tint palettes**: hypsometric (default), a rainbow in the order Turbo
   popularised, and greyscale. The rainbow is written from our own stops rather
-  than lifted from Google's table — the ordering is the useful part and is a
+  than lifted from Google's table - the ordering is the useful part and is a
   fact about rainbows. It resolves small differences far better than a
   sequential ramp, which is both why it is offered and why it is not the
   default: it implies boundaries the ground does not have.
@@ -712,7 +712,7 @@ it had none.
   **Both shading modes are switchable** from the panel: relief by default, the
   original flat-shaded facets one click away. A faceted surface makes the mesh
   itself visible, and "where are the vertices" is occasionally the question
-  being asked. The *geometry* is identical in both — the vertical scale is a
+  being asked. The *geometry* is identical in both - the vertical scale is a
   correctness matter and not a style, so switching shading can never bring back
   the distortion the flat view originally shipped with. A test asserts exactly
   that. Contours work in either mode.
@@ -749,7 +749,7 @@ it had none.
   a real generated file: 389 insert entries over 2,229 lines, and one of its
   anchors fatal.
 
-  - **`data=` inserts never got the `insertBlock` treatment.** That change
+  - !!!data=` inserts never got the `insertBlock` treatment.** That change
     landed for `content=` only, so the data half still wrote one
     `[[Customizations.insert]]` per path -- 372 of them in the reported file,
     152 sharing a single anchor. They are now one block per contiguous run: 389
@@ -819,7 +819,7 @@ it had none.
     leading space vanished from the rule -- and the rule still loaded, still
     looked right, and simply did not apply to that plugin. Verified against the
     real loader before fixing. Names are now stripped.
-  - **`table()` could silently drop rows** (`viz/html.py`). It paired rows with
+  - !!!table()` could silently drop rows** (`viz/html.py`). It paired rows with
     per-row attributes using `zip`, which stops at the shorter list, and the
     list that runs short is the attributes -- so a caller one attribute shy lost
     a *table row*. On the conflict map that means losing a conflict. The
@@ -830,7 +830,7 @@ it had none.
     `"A.esp"` where `["A.esp"]` was meant was iterated by character. That module
     exists to keep guesses from being presented as facts, so confident nonsense
     is the one output it must never produce.
-  - **`@@Section`** when the field is labelled `@section:` and the guidelines
+  - !!!@@Section**` when the field is labelled `@section:` and the guidelines
     write sections as `@Name`, so typing the `@` -- the natural thing to do --
     doubled it.
   - **An out-of-range highlight priority rendered no mark at all**, silently,
@@ -876,12 +876,12 @@ it had none.
   the environment declined to give it, so the check silently did not happen.
   It is now simulated on the existing root instead and cannot skip. CI fails the
   job on any skip for the same reason.
-- **76 annotation-only imports moved under `TYPE_CHECKING`**, and ruff's `TC`
+- **76 annotation-only imports moved under `TYPE_CHECKING**`, and ruff's `TC`
   rules enabled so they stay there. Safe without exception because every module
   uses PEP 563 string annotations and nothing introspects them at runtime;
   verified by importing all 53 modules in a fresh interpreter, not just by a
   green suite.
-- **`lint_plugins` decomposed** (201 lines -> 88, over seven small checkers).
+- !!!lint_plugins` decomposed** (201 lines -> 88, over seven small checkers).
   Byte-identical output confirmed against a probe that trips every lint branch
   at once.
 - **CI now tests 3.10, 3.11, 3.12 and 3.13** -- every version
@@ -893,7 +893,7 @@ it had none.
   declare a plain byte count, and all 56 agree with the sum of their parsed
   members -- which is how four parser defects were found and fixed, each of which
   had silently dropped a field.
-- **`_build_controls` split by panel** (435 lines -> 34, largest piece 99). It was
+- !!!_build_controls` split by panel** (435 lines -> 34, largest piece 99). It was
   a flat wall of widget construction, which is the shape of code that makes
   adding one button a nervous edit; the Help button that landed in the same
   release is a two-line change because of it.
@@ -915,23 +915,23 @@ it had none.
 Two headline changes.
 
 **1. The engine is now a real package.** What was a single monolithic script is
-split into `mlox_subset/` — 7 subpackages, 33 modules — and
+split into `mlox_subset/` - 7 subpackages, 33 modules - and
 `mlox_subset_sort.py` is now the engine and CLI rather than a monolith: it
 imports from those packages like any other caller. The GUI and the tests import
 from them directly too, so each name has exactly one import path. What changed
 is that the pieces are now separable enough to test and read individually.
 
-That is not bookkeeping — **it is what surfaced the correctness fixes in this
+That is not bookkeeping - **it is what surfaced the correctness fixes in this
 release.** Splitting the code exposed API that existed but was never called,
 and twice now a dead accessor has turned out to be a real bug hiding in plain
 sight: the `[SIZE]`/`[DESC]` fix below is `PluginFileIndex.usable`, written and
 then never wired up, which meant rules asserted matches for plugins that were
 not on disk. The suite grew to **984 tests** over the course of the split
 (374 at the midpoint), alongside a differential baseline that pins 41
-behavioural observations against a real 687-plugin load order — which is what
+behavioural observations against a real 687-plugin load order - which is what
 made a refactor this size possible without taking sorting behaviour on trust.
 
-**2. The theme picker now themes the entire GUI, live** — window, buttons,
+**2. The theme picker now themes the entire GUI, live** - window, buttons,
 frames, tabs, lists and entries, not just the log panel, and switching
 re-themes every open window immediately.
 
@@ -942,31 +942,31 @@ field-diff window, and the PEP-conformance and blind-except passes.
 
 - **Translation marking, complete.** `mlox_subset/i18n.py` provides gettext
   lookup, plural handling and language auto-detection (`$MLOX_LANG`
-  overrides), and **every user-facing string is marked** — buttons, labels,
+  overrides), and **every user-facing string is marked** - buttons, labels,
   tooltips, dialogs, and the report/status messages that were built with
   f-strings, converted to named-placeholder form
   (`_("Loaded %(count)d files") % {"count": n}`) with `ngettext` for counted
   messages. `locale/mlox_subset_sort.pot` is the extracted English template
-  (**393 messages**), regenerated by the new **`tools/make_pot.py`**:
+  (**393 messages**), regenerated by the new !!!tools/make_pot.py**`:
   standard-library only, so it works on Windows without GNU `xgettext`, and
   AST-based, so a `_()` inside a docstring is correctly not extracted. Pure
   data output (plugin names, `content=` lines, section banners) is
   deliberately unmarked. The pipeline was proven end-to-end against a
-  compiled test catalogue — translation, plural selection, English fallback.
+  compiled test catalogue - translation, plural selection, English fallback.
   No language ships yet; with no catalogue installed every lookup returns the
   English source unchanged.
-- **`tools/check_placeholders.py`** — the checker that makes the placeholder
+- !!!tools/check_placeholders.py**` - the checker that makes the placeholder
   form safe to use at scale: for every marked string formatted with `% {...}`
   it verifies the `%(key)s` names against the dict's keys in both directions
   (a mistyped key is otherwise a *runtime* `KeyError`, which the suite cannot
   reach in the GUI), and rejects positional `%s` in marked strings outright
   because translators reorder words. Proven against deliberately broken
   inputs in `tests/test_i18n_placeholders.py`; runs in CI and the gate list.
-- **`-v/--verbose` on the CLI**, wiring up the levelled-logging foundation
+- !!!-v/--verbose` on the CLI**, wiring up the levelled-logging foundation
   that shipped with the package split: diagnostics about the run (an
   unparseable rule file, a failed CSV write) now go to **stderr via
-  `logging`** — WARNING and worse by default, `-v` adds progress, `-vv`
-  per-item detail — while the report you asked for stays on stdout, pipeable
+  `logging**` - WARNING and worse by default, `-v` adds progress, `-vv`
+  per-item detail - while the report you asked for stays on stdout, pipeable
   and clean. In the GUI the same diagnostics land in the log panel as before.
 - **Coverage floor.** The measured full-suite coverage (54%, branch) is now
   enforced with `fail_under = 52`, set slightly below the honest number so it
@@ -974,13 +974,13 @@ field-diff window, and the PEP-conformance and blind-except passes.
 - **PEP 639 licence metadata**: `license = "MIT"` as an SPDX expression plus
   `license-files`, replacing the deprecated table form; pinned by a new
   standards test alongside the existing PEP conformance suite.
-- **mypy now gates the entire codebase** — all **38** files, up from 28.
+- **mypy now gates the entire codebase** - all **38** files, up from 28.
   Every module, including both legacy scripts, is fully annotated (the engine
   went from 19/200 typed arguments to 200/200; the GUI from 2/84 to 84/84) and
   PEP 257 clean, so every `D`/`ANN` exemption and `ignore_errors` override was
   deleted rather than relaxed. Turning the checker on found real bugs, not just
-  style: two functions declared `list[str | Path]` parameters that — `list`
-  being invariant — could not accept the `list[str]` their callers actually
+  style: two functions declared `list[str | Path]` parameters that - `list`
+  being invariant - could not accept the `list[str]` their callers actually
   build (`PluginFileIndex`, `check_predicates`; both now `Sequence`); the
   tes3cmd worker could dereference a `None` staging path; and seven
   hand-written annotations were flatly contradicted by the code they described.
@@ -989,7 +989,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   implicit.
 - **The packaging metadata is now exercised, not just declared.** CI runs
   `python -m build`, and the suite asserts that every package and module the
-  metadata declares exists on disk — a `[build-system]`/`[project]` pair can
+  metadata declares exists on disk - a `[build-system]`/`[project]` pair can
   be syntactically valid and still unbuildable. Building it for the first time
   confirmed the wheel is sound, and that the `setuptools>=77` floor PEP 639
   requires is genuinely newer than some distros ship (it fails loudly, which
@@ -997,38 +997,38 @@ field-diff window, and the PEP-conformance and blind-except passes.
 - **18 new built-in themes** (23 total): Monokai Pro, Tokyo Night, Night Owl,
   Nord, Shades of Purple, GitHub Dark, Catppuccin Mocha, Ayu Dark, Cobalt2,
   SynthWave '84, Winter is Coming, Material Dark, Bluloco Dark, Palenight,
-  Poimandres, Noctis, Panda and City Lights — each with the scheme's published
-  syntax palette *and* hand-filled chrome (window/button/field colours) from
+  Poimandres, Noctis, Panda and City Lights - each with the scheme's published
+  syntax palette *and* hand-filled chrome (window/button/field colors) from
   its own UI slots, so the whole app re-themes, not just the log panel.
   Dracula and the One Dark palette (as "Atom One Dark") were already built in
   and are unchanged.
 - **Landscape and path-grid fields are decoded in the field-diff window.**
   Previously only a script's `bytecode` and `variables` were; everything else
-  stored as binary showed as base64, which is actively misleading in a diff —
+  stored as binary showed as base64, which is actively misleading in a diff -
   two landscape cells differing by one vertex produce *entirely* different
   base64, so a one-vertex nudge read as "completely different". Now the five
-  `LAND` grids (vertex heights, normals, colours, texture indices, world map)
+  `LAND` grids (vertex heights, normals, colors, texture indices, world map)
   render one terrain row per line, with heights reconstructed to absolute
   world units, and a path grid's `connections` renders as a per-point
-  adjacency list. Two of these are only meaningful beside a sibling field —
-  heights need their `offset`, edges need their `points` — so the whole record
+  adjacency list. Two of these are only meaningful beside a sibling field -
+  heights need their `offset`, edges need their `points` - so the whole record
   is passed to the decoder, the same way `bytecode` uses the record's `text`.
   Validated against real plugins and real tes3conv output, which is what caught
   a decoding bug worth naming: tes3conv **prefixes `connections` with a uint32
   count** (100% of 717 path grids checked), and left in place that prefix
-  shifts every edge by one slot — silently attributing each path point its
+  shifts every edge by one slot - silently attributing each path point its
   *neighbour's* connections.
-- **`theme_template.json`** — a commented, import-ready starting point for
+- !!!theme_template.json**` - a commented, import-ready starting point for
   custom themes, sitting next to the app. Covers the 9 required fields, the 7
   optional syntax-token roles (and what each falls back to), and the optional
-  `"chrome"` override object with all 11 window-colour keys. Imported as-is it
+  `"chrome"` override object with all 11 window-color keys. Imported as-is it
   reproduces the default palette exactly, so it doubles as a reference for
   what the built-in "Dark (default)" theme actually is.
 
 ### Changed
 
 - **The engine was split into the `mlox_subset/` package.** Seven subpackages
-  by concern — `rules/` (mlox pattern matching, parser, expression front-end),
+  by concern - `rules/` (mlox pattern matching, parser, expression front-end),
   `sort/` (graph primitives + load-order engine), `configurator/` (openmw.cfg
   read/simulate/emit), `plugins/` (file location + header metadata), `net/`
   (rule and curated-order downloads), `mwscript/` (compiled-script decoding),
@@ -1043,14 +1043,14 @@ field-diff window, and the PEP-conformance and blind-except passes.
 - **The two largest functions were decomposed.** `compute_plan` went from
   **644 lines to 105** and `build_and_sort` from **476 to 119**, each split
   into helpers named for the pipeline stages their own comments already
-  marked. Bodies moved verbatim, so report and trace output are unchanged —
+  marked. Bodies moved verbatim, so report and trace output are unchanged -
   and the 41-observation differential baseline stayed green throughout, which
   is the only reason a refactor of the two functions whose output *is* the
   product was attempted at all.
 - **The GUI was split too** (the second half of the same job):
   `mlox_subset_sort_gui.py` went from ~5,600 lines to ~3,200, with the
   separable pieces moved **verbatim** into a new `mlox_subset/gui/`
-  subpackage — `theme.py` (chrome palette, theme parsing, the live restyle
+  subpackage - `theme.py` (chrome palette, theme parsing, the live restyle
   walk, the JSON/HTML highlighters), `widgets.py` (tooltip, queue writer,
   path field, drag-reorder listbox, typeahead), and the two window groups as
   mixins the `App` class inherits: `t3.py` (`Tes3cmdMixin`, the tes3cmd
@@ -1071,7 +1071,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   widget tree for the plain-tk remainder). Built-in presets carry hand-tuned
   chrome from each scheme's published UI palette; base16 imports take theirs
   from the base00–base04 UI slots; native-JSON imports may supply an optional
-  `"chrome"` object — and any chrome colour not given explicitly is derived
+  `"chrome"` object - and any chrome color not given explicitly is derived
   from the theme's background (lightening dark themes, darkening light ones),
   so every existing imported theme keeps working unchanged. With the default
   theme the GUI looks as it always has.
@@ -1079,27 +1079,27 @@ field-diff window, and the PEP-conformance and blind-except passes.
 ### Fixed
 
 - **Open field-diff viewers now follow theme switches fully.** The runtime
-  re-apply walk recoloured an open diff window's chrome and text background
+  re-apply walk recolored an open diff window's chrome and text background
   but left its syntax-token tags (json_key/json_string/html_tag/...) on the
-  previous theme's colours; the walk now re-runs `style_json_syntax_tags`
+  previous theme's colors; the walk now re-runs `style_json_syntax_tags`
   with the new theme on any Text widget that has those tags. Found in smoke
   testing, which is exactly what it is for.
-- **ttk widget colours now apply in the compiled .exe.** The GUI picks a
-  colour-capable ttk base theme (`clam`, falling back to `alt`/`default`/
+- **ttk widget colors now apply in the compiled .exe.** The GUI picks a
+  color-capable ttk base theme (`clam`, falling back to `alt`/`default`/
   `classic`) rather than silently swallowing a failed `theme_use("clam")` and
-  landing on a Windows-native theme that ignores colour options — the reason a
+  landing on a Windows-native theme that ignores color options - the reason a
   frozen build previously left the main window's buttons/frames/tabs on the
   default grey while the log panel (a plain-tk widget) themed correctly. The
   active base theme is now traced, as is a build stamp (version + whether the
-  run is frozen + build time) — a stale `.exe` is otherwise indistinguishable
+  run is frozen + build time) - a stale `.exe` is otherwise indistinguishable
   from a code bug, and the Log panel now shows the running build on every start.
 
 - **A latent `NameError` in `compute_plan`.** `for line, is_new, _ in
   data_result:` bound `_` as a function-local, which would have made every
   `_()` lookup earlier in that same function raise. Harmless until the gettext
-  marker was introduced, and caught immediately by ruff's `F823` when it was —
+  marker was introduced, and caught immediately by ruff's `F823` when it was -
   the throwaway targets are now named (`_anchor`, `_is_new`).
-- **`[SIZE]` and `[DESC]` rules no longer assert a match for plugins that are
+- !!![SIZE]` and `[DESC]` rules no longer assert a match for plugins that are
   not on disk.** These predicates fall back to "assume true" when the plugin
   cannot be inspected -- mlox does the same, deliberately, to avoid raising a
   warning it cannot substantiate. But mlox gates that on having *no data
@@ -1127,27 +1127,27 @@ field-diff window, and the PEP-conformance and blind-except passes.
 ### Internal
 
 - **CI and coverage measurement** (`CODE_REVIEW.md` §9.3, §8.5).
-  `.github/workflows/ci.yml` runs the whole gate list — ruff, black, mypy,
-  `check_undefined`, `make_pot --check`, pytest — on Python 3.10 and 3.13, and
+  `.github/workflows/ci.yml` runs the whole gate list - ruff, black, mypy,
+  `check_undefined`, `make_pot --check`, pytest - on Python 3.10 and 3.13, and
   installs `zstandard` so the 3 bytecode tests actually run instead of skipping.
   Coverage is configured in `pyproject.toml` with branch tracking, the GUI
   omitted (it cannot be imported without Tk, so counting it would report a
-  meaningless ~0%), and deliberately **no `fail_under` yet** — the floor should
+  meaningless ~0%), and deliberately **no `fail_under` yet** - the floor should
   be set from the first real CI run rather than guessed. `--cov` is passed by CI
   rather than baked into `addopts`, so a plain local `pytest` still needs
   nothing but pytest.
-- **`CODE_REVIEW.md` is now labelled as the running log it always was**, with a
+- !!!CODE_REVIEW.md` is now labelled as the running log it always was**, with a
   §16 reconciling its older "roadmap" and "recommendations" sections against
   what actually shipped. Notably: §15's list of oversized functions predates the
   split and misses the largest one (`compute_plan`, 545 lines). The re-export
   shim §15 recommends deleting was deleted before release (§23), which is why
   3.0 makes no `core.<name>` compatibility promise to be held to later.
-- **`BLE001` (blind-except) is now enforced.** All 68 `except Exception` sites
+- !!!BLE001` (blind-except) is now enforced.** All 68 `except Exception` sites
   were reviewed individually: 28 narrowed to their provable raise-set
   (`ValueError` for TOML/JSON decode, `(OSError, ValueError)` for the
   documented `fetch_url_bytes` contract, `(OSError, SubprocessError)` for
   checked `subprocess.run`, `tk.TclError` for stale-widget calls), and 40 kept
-  broad with a `# noqa: BLE001` and a stated reason — untrusted rule-file
+  broad with a `# noqa: BLE001` and a stated reason - untrusted rule-file
   input, worker-thread top levels that report tracebacks into the log, optional
   third-party imports, and deliberate "unexpected" backstops. Rationale in
   `CODE_REVIEW.md` §13. No behavioural change intended; the full test suite and
@@ -1157,7 +1157,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   (now including **naming** and **import order**, which were never enforced),
   257, 484/526, 563, 585/604, 3120, 263, 3131, 328, 440, 621, 561, 594, 632,
   394, 518/517, 508, 420. Enabling the missing ruff rulesets found 18 issues.
-- **`[project]` metadata and a `[build-system]` table** now exist (PEP 621 /
+- !!![project]` metadata and a `[build-system]` table** now exist (PEP 621 /
   518), with `py.typed` (PEP 561) so a consuming type checker stops silently
   ignoring the package's annotations.
 - **mypy is clean and now gates.** It found 22 errors when first enabled --
@@ -1221,19 +1221,19 @@ field-diff window, and the PEP-conformance and blind-except passes.
   faithful re-implementation of momw-configurator's own apply logic
   (cfg/custom.go: substring matching, insert/replace/remove/append order,
   same-anchor stacking quirks, ambiguity aborts) and the result is verified
-  against the sorted order — `VERIFIED` in green when the round trip is
+  against the sorted order - `VERIFIED` in green when the round trip is
   exact, a red `MISMATCH`/`PREVIEW ABORTED` with details when it isn't. What
   the Configurator will do to your cfg is now known before it runs.
 - **Save Check.** Pick an `.omwsave` and every content file it depends on
   (the SAVE record's DEPE list) is verified against the sorted, enabled
-  order — OpenMW refuses to load a save with missing plugins, so this warns
+  order - OpenMW refuses to load a save with missing plugins, so this warns
   before an export orphans a character.
 - **Backups window.** Lists every backup this tool, tes3cmd and the
   Configurator leave behind (`.preclean.bak`, `.masterfix.bak`, `name~1.esp`,
   timestamped `.bak-*` / `.backup.*`) across the data folders, with
   restore-over-original and delete.
 - **Rule maker hardening** (checked against the mlox rule guidelines). A rule
-  that lists the same plugin twice is now rejected — ordering a plugin relative
+  that lists the same plugin twice is now rejected - ordering a plugin relative
   to itself is a self-cycle mlox would discard. And when a new `[Order]` rule
   contradicts the frozen curated (MOMW) order, the maker warns before writing
   that mlox will discard those orderings (it never reorders the curated list),
@@ -1246,9 +1246,9 @@ field-diff window, and the PEP-conformance and blind-except passes.
   `[NearEnd]`, build the plugin list by grabbing the selected rows from the
   plugin panel (their displayed order becomes the rule order), typing names
   (wildcards and `<VER>` allowed, validated with the same regex the parser
-  uses — a rule that writes is a rule that loads), add an optional `;;`
+  uses - a rule that writes is a rule that loads), add an optional `;;`
   comment, watch the live preview, append. Rules go to a personal file
-  (mlox_base/mlox_user are refused — "Update Rules..." would overwrite them)
+  (mlox_base/mlox_user are refused - "Update Rules..." would overwrite them)
   that's auto-added LAST in the rules list, so your rules win conflicts.
   This is how rules for modern mods get made; contribute good ones upstream.
 - **Configurable download sources.** A "Sources..." button on the rule-files
@@ -1262,36 +1262,36 @@ field-diff window, and the PEP-conformance and blind-except passes.
   location, `.../momw/momw/data_seeds/data/plugin-order.yml`, with the GitLab
   API raw endpoint as a fallback.)
 - **Tooltips stay on screen.** A tooltip on a right-edge or bottom-edge widget
-  (common when the window is maximized) is now clamped to the screen — it
+  (common when the window is maximized) is now clamped to the screen - it
   slides left to fit and flips above the widget when there's no room below,
   instead of being cut off past the edge.
 - **Two-row action layout.** The action buttons are split across two compact,
-  left-aligned rows — primary + read-only analysis on top (with the status
-  label trailing), tools below — so the growing toolset doesn't crowd into one
+  left-aligned rows - primary + read-only analysis on top (with the status
+  label trailing), tools below - so the growing toolset doesn't crowd into one
   long row.
 - **Update plugin-order.yml button** (next to its path field). Downloads the
   current MOMW plugin-order.yml, trying the website then the site's GitLab
   repo (`$MLOX_PLUGIN_ORDER_URL` overrides for mirrors). The download must
   parse as plugin-order data with hundreds of entries before a single byte
-  is written — an error page or moved URL can never clobber the file — and
+  is written - an error page or moved URL can never clobber the file - and
   the old copy is kept as a timestamped .bak.
 - **Update Rules button.** Downloads the current `mlox_base.txt` /
   `mlox_user.txt` from the actively maintained rules repo
-  (github.com/DanaePlays/mlox-rules — the same source plox uses and mlox
+  (github.com/DanaePlays/mlox-rules - the same source plox uses and mlox
   1.1+ auto-updates from) over the matching configured files, keeping
   timestamped backups; shows each file's age first. Personal rules files
   with other names are never touched.
-- **New lint checks:** `[TWIN]` — an active `.omwaddon`/`.esp` whose
+- **New lint checks:** `[TWIN]` - an active `.omwaddon`/`.esp` whose
   `.omwscripts` sibling sits in the same folder but isn't in the load order
-  (or vice versa), which silently disables a mod's Lua half; `[EXP-DEP]` —
+  (or vice versa), which silently disables a mod's Lua half; `[EXP-DEP]` -
   scripts calling Tribunal/Bloodmoon-only functions in a plugin that doesn't
   master the expansion (tes3lint's !TB-FUN/!BM-FUN, comment-aware).
 - **Watchdogs:** `[STALE]` warns when `delta-merged.omwaddon` /
   `deleted_groundcover.omwaddon` / `S3LightFixes.esp` is older than active
-  plugins (the merge no longer reflects the load order — re-run the
+  plugins (the merge no longer reflects the load order - re-run the
   Configurator); the GUI warns on Export when openmw.cfg changed on disk
   since the Sort.
-- **`--lint` CLI flag** for the same checks the GUI Lint button runs.
+- !!!--lint` CLI flag** for the same checks the GUI Lint button runs.
 - **Unconstrained mods keep YOUR declared order.** The subset was being
   alphabetized on input, so mods that no rule or dependency constrains landed
   at the end A→Z instead of in the order written in your subset file /
@@ -1299,7 +1299,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   (de-duped, not sorted). *(user feedback)*
 - **Multi-line mlox expressions parse correctly.** An indented line inside a
   [Note]/[Conflict]/[Requires] body is only message text when no bracket is
-  open — mlox conditions like `[ALL a.esp ⏎ [NOT b.esp] ⏎ c.esm]` continue
+  open - mlox conditions like `[ALL a.esp ⏎ [NOT b.esp] ⏎ c.esm]` continue
   across indented lines, and treating the continuations as message text
   truncated the condition (e.g. the Uvirith's Legacy "Children of Morrowind"
   note fired for people without Children of Morrowind, with the lost
@@ -1309,7 +1309,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   single line. *(user feedback)*
 - **Every emitted insert is annotated with its REAL constraint.** The
   `after=` in the generated TOML is the mod's chained position (documented
-  Configurator semantics, kept deliberately — see below), but a comment above
+  Configurator semantics, kept deliberately - see below), but a comment above
   each insert now says *why* the sort put it there: `# constraint: must load
   after 'X'` (header master or mlox rule), `must load before 'X'`, an mlox
   NearStart/NearEnd hint, or `# no ordering constraint -- positional only`.
@@ -1319,18 +1319,18 @@ field-diff window, and the PEP-conformance and blind-except passes.
 - **Ambiguity warnings, verified against momw-configurator's source.** Its
   `cfg/custom.go` matches `after`/`before`/`source` values with
   `strings.Contains` against whole cfg lines and hard-errors on multiple
-  matches — so a filename nested inside another (`Incantation.omwscripts`
-  inside `content=Incantation.omwscripts.esp` — a real pair on a real list)
+  matches - so a filename nested inside another (`Incantation.omwscripts`
+  inside `content=Incantation.omwscripts.esp` - a real pair on a real list)
   breaks the run. Worse, `remove*` entries use the same substring match with
   NO multi-match error: every matching line is deleted **silently**
   (path-like values instead match exactly / by suffix). The emitted TOML is
   now checked both ways and collisions are flagged with the exact lines.
   Warn-only; output unchanged. Also confirmed from source while in there:
   same-anchor `before=` inserts stack in file order but same-anchor `after=`
-  inserts stack in REVERSE file order — undocumented either way, which is
+  inserts stack in REVERSE file order - undocumented either way, which is
   why this tool keeps explicit chained anchors.
 - **Cell map: "Focus on mod" filter** (the good idea in cell_conflicts.pl).
-  A dropdown above the map — customs first, starred — dims every cell the
+  A dropdown above the map - customs first, starred - dims every cell the
   chosen mod doesn't touch, filters both cell lists to match (combined with
   the existing text filter), and summarizes its footprint: how many
   exterior/interior cells it touches and which other mods share those cells,
@@ -1338,14 +1338,14 @@ field-diff window, and the PEP-conformance and blind-except passes.
   and who else is in those cells?".
 - **Lint: native tes3lint-style checks.** A Lint button runs ports of the
   worthwhile tes3lint / missing_pathgrids.pl diagnostics directly on the
-  plugin binaries (VFS-aware, no perl needed): `[EVLGMST]` — the 72 evil
+  plugin binaries (VFS-aware, no perl needed): `[EVLGMST]` - the 72 evil
   GMSTs, flagged only when name AND value match tes3lint's table so
   deliberate changes aren't accused (cross-validated: tes3cmd clean removes
-  exactly the ones we flag); `[FOGBUG]` — interior cells with AMBI fog
+  exactly the ones we flag); `[FOGBUG]` - interior cells with AMBI fog
   density 0.0 (black-void bug), exact port including the behave-like-exterior
-  exemption; `[NO PATHGRID]` — new interior cells with no pathgrid anywhere
+  exemption; `[NO PATHGRID]` - new interior cells with no pathgrid anywhere
   in the load order (improves on the reference script, which missed grids
-  supplied by later plugins); `[HEADER]` — customs with a blank
+  supplied by later plugins); `[HEADER]` - customs with a blank
   author/description. Vanilla masters and merged/multipatch artifacts are
   skipped, like the reference scripts do.
 
@@ -1360,7 +1360,7 @@ The subset sorter now places your custom mods properly instead of leaving many
 of them stuck or dumped at the end:
 
 - **Customs already in the cfg are no longer frozen in place.** The frozen chain
-  is now built from the **curated list only** — custom mods already present in
+  is now built from the **curated list only** - custom mods already present in
   `openmw.cfg` are bridged over, so they can actually be re-sorted against the
   curated list and against each other. (Previously each custom was locked between
   its current neighbors and mlox rules couldn't move it.)
@@ -1368,18 +1368,18 @@ of them stuck or dumped at the end:
   masters are read (from the cfg's data= folders *and* the data paths being
   added this run), and it's forced to load **after** every master it declares.
   Applied only to customs; the curated list is never touched.
-- **Customs interleave — position comes from the whole graph, both directions.**
+- **Customs interleave - position comes from the whole graph, both directions.**
   A custom's place in the list is resolved from **all** of its graph neighbors,
   transitively:
   - *"After" anchors (preferred):* a custom lands right after the latest-loading
-    non-master thing it must load after — a curated plugin (header master *or*
+    non-master thing it must load after - a curated plugin (header master *or*
     mlox rule) or **another custom**, resolved through custom→custom chains. A
     patch of a patch of a custom mod follows its whole chain to the right spot.
   - *"Before" anchors:* a custom with no dependency anchor but an mlox rule
     saying it loads *before* something is placed just before its earliest such
     successor. Previously these customs kept their end-of-list position, and
     when the frozen chain reached their curated successor, the sort stalled
-    there and dumped **every** pending custom in one alphabetical block — the
+    there and dumped **every** pending custom in one alphabetical block - the
     "big block" bug.
   - Circular derivations are detected and skipped (a "before B" custom can't in
     turn be used to anchor B), `.esm` predecessors give no position signal
@@ -1389,7 +1389,7 @@ of them stuck or dumped at the end:
   `[Order]`/`[NearStart]`/`[NearEnd]` blocks were split on *all* whitespace
   instead of per line, so any rule mentioning a multi-word plugin name
   (`Friends & Frens - TR.ESP`, `Beautiful cities of Morrowind.ESP`, most of
-  mlox_base…) dissolved into junk tokens — the rule silently didn't apply, and
+  mlox_base…) dissolved into junk tokens - the rule silently didn't apply, and
   stray wildcard fragments matched plugins they were never about, creating
   bogus edges (and a bogus mid-list cluster). Rules with spaced names are now
   enforced, and edges only come from rules that really name the plugin.
@@ -1402,7 +1402,7 @@ of them stuck or dumped at the end:
     being chained like [Order], inventing edges between unrelated plugins
     (mlox_base's [NearEnd] alone linked Merged Objects.esp → Mashed Lists.esp
     → …). They now pull matching customs toward the start/end, edges permitting
-    — real mlox semantics.
+    - real mlox semantics.
   - *mlox_user.txt rules now beat mlox_base.txt in conflicts*, matching mlox
     (which reads user rules first so they win). Precedence was inverted.
   - *Order-block lines are parsed like the references:* a name runs to a
@@ -1413,7 +1413,7 @@ of them stuck or dumped at the end:
   - *[Conflict]/[Requires]/[Note] message lines are identified by indentation*
     (mlox's actual rule) instead of by content-sniffing, which had turned
     thousands of indented mlox_base message lines that mention a plugin name
-    into phantom logic operands — source of false conflict/note warnings.
+    into phantom logic operands - source of false conflict/note warnings.
     Header-line comments now also appear in the warning text.
   - *Smaller parity fixes:* UTF-8 BOM no longer hides a header on a file's
     first line; `[DESC]` predicates with brackets inside their `/regex/`
@@ -1423,13 +1423,13 @@ of them stuck or dumped at the end:
   block instead of sinking to the bottom.
 - **The sort is deterministic run to run.** Rule-pattern expansion and the
   anchor resolver used to iterate Python sets, whose order is randomized per
-  process — so a fresh app launch could produce a different (equally valid)
+  process - so a fresh app launch could produce a different (equally valid)
   order than the last one. All graph iteration now happens in a fixed order;
   the same inputs give the same output every time.
 
 - **tes3cmd clean is now VFS-safe (staged).** tes3cmd only understands one
   flat "Data Files" directory, so on an OpenMW multi-folder setup it couldn't
-  see a plugin's masters — cleaning without masters gives wrong results. Clean
+  see a plugin's masters - cleaning without masters gives wrong results. Clean
   now stages each plugin into a private Morrowind-shaped folder (minimal
   Morrowind.ini + Data Files with the plugin's masters, hardlinked when
   possible and cached across runs) and runs tes3cmd there; the cleaned result
@@ -1438,7 +1438,7 @@ of them stuck or dumped at the end:
   are cleaned masters-before-dependents in load order, and a "MOMW
   needs-cleaning" button queues exactly the plugins plugin-order.yml flags.
   Verified against real tes3cmd: duplicate-of-master records removed, new
-  records kept, original untouched. **multipatch was removed** — it needs the
+  records kept, original untouched. **multipatch was removed** - it needs the
   entire load order in one flat directory (unfakeable for a multi-GB setup),
   and OpenMW/MOMW users get merged leveled lists from delta-plugin instead.
 - **Master-size resync is now done in-app, not by tes3cmd.** tes3cmd's
@@ -1449,7 +1449,7 @@ of them stuck or dumped at the end:
   rewrites only the 8-byte size fields (one-time `.masterfix.bak` per file,
   idempotent, verified byte-exact). Headers zeroed by a bad tes3cmd sync are
   flagged by the master check and repaired by the same resync. Also, a
-  manually-entered tes3cmd path now wins outright or errors — it never
+  manually-entered tes3cmd path now wins outright or errors - it never
   silently falls back to another copy found on the system.
 - **tes3cmd frontend.** A `tes3cmd` button next to Resource Conflicts opens a
   frontend for tes3cmd (auto-detected; the compiled tes3cmd.exe from the MOMW
@@ -1459,8 +1459,8 @@ of them stuck or dumped at the end:
   with your customs located across the data folders (including pending ones);
   output streams to the log; modifying commands confirm first and rely on
   tes3cmd's own backups. Morrowind.esm, Tribunal.esm and Bloodmoon.esm are
-  **never cleaned** — even a careful GMST-preserving clean rewrites bytes
-  other content depends on and causes in-game failures — the frontend skips
+  **never cleaned** - even a careful GMST-preserving clean rewrites bytes
+  other content depends on and causes in-game failures - the frontend skips
   them with a warning rather than trusting tes3cmd's own name check.
 - **Plugins with master problems are flagged in the load-order panel.** Rows
   whose plugin has a missing or mis-ordered master render in purple (red
@@ -1468,7 +1468,7 @@ of them stuck or dumped at the end:
   matching the MASTER CHECK section in the log.
 - **Missing-master check on every sort.** Each active plugin's TES3 header
   masters (MAST/DATA subrecords) are verified against the final load order:
-  `[MISSING MASTER]` (red) when a required master is absent — distinguishing
+  `[MISSING MASTER]` (red) when a required master is absent - distinguishing
   "installed but not in the load order" from "not found in any data folder,
   the game will fail to load"; `[MASTER ORDER]` (red) when a master loads
   after its dependent; and tes3cmd-style `[MASTER SIZE]` notes (orange) when
@@ -1477,8 +1477,8 @@ of them stuck or dumped at the end:
   mod's origin (scan / customizations.toml) so it's clear which is yours.
 - **Conflict / Cell Map / Resource scans now see your custom mods BEFORE the
   cfg is written.** All three scans (and the CLI equivalents) searched only the
-  data= folders already in openmw.cfg, so pending custom mods — the very thing
-  being sorted — were invisible to them ("0 involve your custom mods") until
+  data= folders already in openmw.cfg, so pending custom mods - the very thing
+  being sorted - were invisible to them ("0 involve your custom mods") until
   after export. They now search the cfg's folders plus every pending custom
   data path from the scan/customizations TOML, so you can check conflicts and
   adjust the order before committing anything.
@@ -1497,8 +1497,8 @@ of them stuck or dumped at the end:
 
 - **Scan caching for fast repeats.** The first Check Conflicts / Cell Map reads
   each plugin's JSON once and writes two tiny per-plugin sidecars in a single pass
-  — `*.keys.json` (record ids, for conflict detection) and `*.cells.json` (cells
-  touched, for the map) — so running both features reads each big JSON only once
+  - `*.keys.json` (record ids, for conflict detection) and `*.cells.json` (cells
+  touched, for the map) - so running both features reads each big JSON only once
   per run. Later scans read those few-KB files instead of re-parsing the multi-MB
   JSON, so **repeat Check Conflicts and Cell Map runs are near-instant**. Sidecars
   are mtime-invalidated per plugin; the on-click field diff still reads the full
@@ -1525,10 +1525,10 @@ Windows one-file build.
   tes3conv JSON dump" now only controls whether that folder is kept or removed on
   exit.
 - **No more tes3conv console-window popups** in the windowed / auto-py-to-exe
-  build — tes3conv is launched with `CREATE_NO_WINDOW`.
+  build - tes3conv is launched with `CREATE_NO_WINDOW`.
 - **Embedded cell-map window now appears in the exe.** A console-suppression flag
   (`SW_HIDE`) was being inherited by the pywebview child's WebView2 window, so it
-  spawned hidden — looking like a hang and leaking processes, then falling back to
+  spawned hidden - looking like a hang and leaking processes, then falling back to
   the browser. The viewer launch no longer hides its window.
 - pywebview is the preferred in-app cell-map viewer; detection is a real import
   (reliable when frozen). A `cell_map_viewer.log` records the viewer's outcome, and
@@ -1541,13 +1541,13 @@ Windows one-file build.
 
 Added the inspection tools on top of the 1.0 sorter:
 
-- **TES3 record-level conflict detection** (Check Conflicts) — flags records that
+- **TES3 record-level conflict detection** (Check Conflicts) - flags records that
   two or more plugins define/override (last one wins), via a built-in binary
   parser or, if a `tes3conv` binary is available, tes3conv for exact record ids
   and **field-by-field diffs**.
-- **Cell map** — a modmapper-style SVG heatmap of which mods touch which
+- **Cell map** - a modmapper-style SVG heatmap of which mods touch which
   exterior/interior cells, with tabs and click-to-jump.
-- **Data-path (VFS) resource conflicts** — same loose file provided by 2+ `data=`
+- **Data-path (VFS) resource conflicts** - same loose file provided by 2+ `data=`
   folders (later wins), like MO2's "Data" conflicts.
 - Supporting work: exclude patterns for noisy mods, saved settings, disk-backed
   tes3conv (bounded memory on big lists), an in-app cell-map viewer, and

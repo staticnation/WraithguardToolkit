@@ -211,7 +211,7 @@ __LIBRARY__
   function texture(url, srgb) {
     var image = new Image();
     var tex = new THREE.Texture(image);
-    // Colour is sRGB; a normal map is a field of vectors and must be read
+    // Color is sRGB; a normal map is a field of vectors and must be read
     // linearly, or every one of them is bent before it is used.
     if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
     image.onload = function () { tex.needsUpdate = true; if (lit) lit.draw(); };

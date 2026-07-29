@@ -612,7 +612,7 @@ class Tes3cmdMixin:
             return
         self._tes3conv_override = p
         self.status_var.set(
-            _("tes3conv set — click 'Check Conflicts' again to re-scan with field diffs.")
+            _("tes3conv set - click 'Check Conflicts' again to re-scan with field diffs.")
         )
         messagebox.showinfo(
             _("tes3conv set"),

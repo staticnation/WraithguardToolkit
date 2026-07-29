@@ -1,6 +1,6 @@
 """What a texture is *for*, which decides how it should be shown and compared.
 
-A texture is not just an image. ``tx_rock_01.dds`` is colour a human can judge;
+A texture is not just an image. ``tx_rock_01.dds`` is color a human can judge;
 ``tx_rock_01_n.dds`` is a field of surface normals that only means anything to
 a shader. Showing the second the way you show the first produces the lurid
 blue-green sheet everyone recognises, and -- more importantly -- comparing them
@@ -58,13 +58,13 @@ class TextureRole(Enum):
     """
 
     DIFFUSE = "diffuse"
-    """Base colour and transparency: the one a human can look at and judge."""
+    """Base color and transparency: the one a human can look at and judge."""
 
     DARK = "dark"
-    """Multiplied into the base colour *after* the detail map."""
+    """Multiplied into the base color *after* the detail map."""
 
     DETAIL = "detail"
-    """Multiplied into the base colour before the dark map, zoomed 2x."""
+    """Multiplied into the base color before the dark map, zoomed 2x."""
 
     GLOSS = "gloss"
     """Vanilla specular mask; brighter means shinier. A single channel."""
@@ -87,10 +87,10 @@ class TextureRole(Enum):
     """
 
     SPECULAR = "specular"
-    """Specular **colour** in RGB with shininess in alpha. ``_spec``.
+    """Specular **color** in RGB with shininess in alpha. ``_spec``.
 
     Not a greyscale mask -- that is :attr:`GLOSS`. The distinction matters for
-    display: this one is meant to be seen as colour.
+    display: this one is meant to be seen as color.
     """
 
     DIFFUSE_SPECULAR = "diffuse-specular"
@@ -111,11 +111,11 @@ class TextureRole(Enum):
     """One of up to four overlay layers stamped onto the surface."""
 
     UNKNOWN = "unknown"
-    """Nothing said what this is. Treat it as colour, and say that it guessed."""
+    """Nothing said what this is. Treat it as color, and say that it guessed."""
 
     @property
     def is_normal_map(self) -> bool:
-        """Whether this holds vectors rather than colour.
+        """Whether this holds vectors rather than color.
 
         A normal map must not be shown as a photograph, and a difference
         between two of them is a difference in modelled geometry rather than
@@ -126,17 +126,17 @@ class TextureRole(Enum):
 
     @property
     def is_mask(self) -> bool:
-        """Whether this is a single-meaning greyscale mask rather than colour.
+        """Whether this is a single-meaning greyscale mask rather than color.
 
-        Only :attr:`GLOSS` qualifies. A specular map carries RGB colour plus
+        Only :attr:`GLOSS` qualifies. A specular map carries RGB color plus
         an alpha shininess term, so it is not a mask however much the name
         suggests one.
         """
         return self is TextureRole.GLOSS
 
     @property
-    def is_colour(self) -> bool:
-        """Whether the image is meant to be looked at as colour.
+    def is_color(self) -> bool:
+        """Whether the image is meant to be looked at as color.
 
         Used to decide whether a side-by-side view is telling the user
         something or just showing them noise.
@@ -239,7 +239,7 @@ def role_from_name(
     Returns:
         The role the suffix implies, or :attr:`TextureRole.UNKNOWN` when the
         name carries none -- which is the common case, and means "no opinion"
-        rather than "this is colour".
+        rather than "this is color".
     """
     stem = reference.strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
     if "." in stem:

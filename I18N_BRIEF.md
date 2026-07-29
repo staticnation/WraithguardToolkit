@@ -1,4 +1,4 @@
-# I18N_BRIEF — retired
+# I18N_BRIEF - retired
 
 > **This work is DONE (3.0) and this brief is retired.** It was a hand-off note
 > for finishing the i18n string marking; keeping 229 lines of "here is what to
@@ -11,7 +11,7 @@
 > pipeline was proven against a compiled German catalogue. The brief's
 > predicted `_`-shadowing trap fired exactly once, in `build_and_sort`.
 >
-> Living documentation for translators is **`locale/README.md`**.
+> Living documentation for translators is !!!locale/README.md**`.
 > The rules that outlived the brief are enforced, not remembered:
 > `tools/check_placeholders.py` and `tools/make_pot.py --check` both gate CI.
 

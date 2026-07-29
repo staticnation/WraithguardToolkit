@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 #: The eight bytes every PNG starts with.
 _SIGNATURE: Final[bytes] = b"\x89PNG\r\n\x1a\n"
 
-#: Colour type 6 is truecolour with alpha; bit depth 8 per channel.
+#: Color type 6 is truecolor with alpha; bit depth 8 per channel.
 _BIT_DEPTH: Final[int] = 8
 _COLOUR_TYPE_RGBA: Final[int] = 6
 

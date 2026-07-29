@@ -6,7 +6,7 @@ records what was consulted, what was deliberately not consulted, what method
 produced each field layout, and what evidence was required before a layout was
 accepted.
 
-`CREDITS.md` records the *licence decision* — why the reader is written rather
+`CREDITS.md` records the *licence decision* - why the reader is written rather
 than imported, and which libraries were ruled out. This document records the
 *method*. The two are meant to be read together.
 
@@ -41,8 +41,8 @@ value is that it can be trusted. The protections this practice actually relies
 on are:
 
 - **A file format is not itself a copyrightable work.** What is protected is
-  the *expression* in a particular implementation — its code, its comments, its
-  structure — not the fact that a 32-bit integer sits at a given offset.
+  the *expression* in a particular implementation - its code, its comments, its
+  structure - not the fact that a 32-bit integer sits at a given offset.
   Reimplementing a format from facts is ordinarily lawful; copying someone's
   code that reads it is not.
 - **Facts observed from a file you lawfully possess are your own
@@ -69,7 +69,7 @@ substitute for advice from a lawyer.
 Recorded so that the absence is visible, not merely asserted. See `CREDITS.md`
 for the licence analysis behind each.
 
-- **`nif.xml`** (NifTools' machine-readable format description). Not used as a
+- !!!nif.xml**` (NifTools' machine-readable format description). Not used as a
   source for any field layout. It lives in a GPL-3.0 repository whose own
   licence status is [disputed upstream](https://github.com/niftools/nifxml/issues/86),
   and an unresolved licence is worse than one that clearly says no.
@@ -86,18 +86,18 @@ for the licence analysis behind each.
 NifSkope is GPL-3.0 and this project is MIT, so the distinction matters and is
 applied consistently:
 
-- **Permitted — NifSkope as an oracle.** Opening a file the user owns and
+- **Permitted - NifSkope as an oracle.** Opening a file the user owns and
   observing *what the file contains*: how many blocks, in what order, of what
   types, with what values. These are facts about the user's file. Running a
   program does not place its licence on your observations.
-- **Not permitted — NifSkope as a source.** Transcribing the field names,
+- **Not permitted - NifSkope as a source.** Transcribing the field names,
   types and orderings it *displays* for a block this project has not yet
   implemented. That display is generated from `nif.xml`, so copying it would
   import exactly the artefact ruled out above, by a longer route.
 
 In practice this means NifSkope answers "is this parse right?" and never "what
-are the fields?". The one time it was used during this work — settling whether
-`c/amulet_common_1.nif` contains one `NiMaterialProperty` block or two — was
+are the fields?". The one time it was used during this work - settling whether
+`c/amulet_common_1.nif` contains one `NiMaterialProperty` block or two - was
 purely the first kind: counting blocks in a block list.
 
 ## The method
@@ -148,11 +148,11 @@ guess cannot quietly half-work.
 These are recorded in full because the reasoning is the evidence. Anyone can
 re-run them.
 
-### `NiGeomMorpherController` — one byte longer than its siblings
+### `NiGeomMorpherController` - one byte longer than its siblings
 
 Every file that lost alignment stopped with a type name of `\x00NiMorphData`:
 a leading NUL followed by the correct name. That is precisely what a cursor one
-byte early looks like — it read the last byte of the true length prefix as the
+byte early looks like - it read the last byte of the true length prefix as the
 first byte of the name.
 
 Inspecting the bytes at the stop point in `b_n_nord_f_head_01.nif`:
@@ -169,24 +169,24 @@ every one. After the fix, alignment failures across all 7,319 vanilla meshes
 went to **zero**.
 
 Because the corpus shows only the value `0`, its *meaning* is not determinable
-from the evidence. It is therefore named `trailing_flag` — a name that records
+from the evidence. It is therefore named `trailing_flag` - a name that records
 where it sits and declines to invent what it does. Naming it after a guess
 would have been the moment this stopped being observation.
 
-### `NiBillboardNode` — a field that is not there
+### `NiBillboardNode` - a field that is not there
 
 An earlier layout carried a speculative `billboard_mode` `u16`, reasoning from
 later NIF versions. `--explain` on `BM_Snow_01.NIF` showed the reader finishing
 two bytes past the next type string. The field was removed. Morrowind's
 billboarding has no mode to select, which is consistent with the observation
-but was *not* the reason for the change — the byte count was.
+but was *not* the reason for the change - the byte count was.
 
-### `NiKeyframeData` — a field that is
+### `NiKeyframeData` - a field that is
 
 The reverse case: a float was missing before the three XYZ key groups. With it
 consumed, the walk lands exactly on `NiTextureEffect`.
 
-### `vertices` and `normals` — a bug caused by inferring rather than recording
+### `vertices` and `normals` - a bug caused by inferring rather than recording
 
 Both fields are the same *kind*, and the reader originally inferred the
 presence-gate from the kind. That meant normals were read whenever vertices
@@ -195,11 +195,11 @@ are now written out explicitly per field. This is recorded because it shows the
 failure mode the method is designed around: the bug did not fail where the bug
 was.
 
-### The particle controller — a fixed head, found by five counts agreeing
+### The particle controller - a fixed head, found by five counts agreeing
 
 `NiParticleSystemController` block bodies measured 40154, 6154 and 16154
-bytes. Each is 154 bytes plus a multiple of 40, and the multiplier — 1000, 150,
-400 — appears in the block as a `u16` at offset 137. Across 51 fixtures with
+bytes. Each is 154 bytes plus a multiple of 40, and the multiplier - 1000, 150,
+400 - appears in the block as a `u16` at offset 137. Across 51 fixtures with
 five distinct counts, every body is exactly `154 + count * 40`.
 
 Two conclusions follow from the arithmetic rather than from any document.
@@ -213,27 +213,27 @@ identified. They are stepped over as a measured span called
 the file depends on; a plausible-looking wrong field name is worse than an
 admitted gap, because it would be believed and repeated.
 
-### Particle rotations — an optional array found by subtraction
+### Particle rotations - an optional array found by subtraction
 
 Two `NiRotatingParticlesData` fixtures both declare 1000 particles. One block
-is 32052 bytes and the other 48052. The difference is exactly 16000 — sixteen
-bytes per particle — which identified an optional array behind its own flag.
+is 32052 bytes and the other 48052. The difference is exactly 16000 - sixteen
+bytes per particle - which identified an optional array behind its own flag.
 Six fixtures spanning 12 to 1000 particles and every combination of the
-optional vertex, colour, size and rotation arrays then reconcile to the byte.
+optional vertex, color, size and rotation arrays then reconcile to the byte.
 
-### `NiTextureEffect` — counted entries that are not links
+### `NiTextureEffect` - counted entries that are not links
 
 The block's tail is `4 + 4n + 91` bytes, where `n` is the leading count: the
 four observed shapes are 95, 99, 111 and 115 bytes for counts of 0, 1, 4 and 5.
 
 The counted entries hold values such as `0x0b741950`. Those are not block
-indices — they are memory addresses the exporter left in the file. They are
+indices - they are memory addresses the exporter left in the file. They are
 counted and stepped over rather than exposed as links, because a caller
 following them would be following pointers into a process that exited two
 decades ago. This is recorded because the honest reading of the bytes and the
 convenient one differ here, and the honest one was taken.
 
-### The bounding box — where this method was applied badly, and what it cost
+### The bounding box - where this method was applied badly, and what it cost
 
 Three mod meshes failed inside an optional bounding box. Bounding the block
 between its start and the next type name gave one span that landed exactly, in
@@ -241,7 +241,7 @@ both files it could be computed for: **20 bytes**. That was written into the
 reader as established, with the derivation spelled out in a comment.
 
 It was wrong. Twenty bytes broke thirteen files that the previous width read
-correctly — files that had never been re-examined because they were not
+correctly - files that had never been re-examined because they were not
 failing.
 
 The box is *typed*. The word after the presence flag selects the size: type 1
@@ -257,7 +257,7 @@ one the standard above already required: re-running the whole corpus before
 accepting the change. An unrecognised box type is now refused outright rather
 than guessed, because an unknown width does not fail where the guess was.
 
-### Property block counts — where an external reference was wrong
+### Property block counts - where an external reference was wrong
 
 A per-file block census shipped with one of the documentation packages was used
 as a reference and reported far fewer property blocks than the reader found.
@@ -285,8 +285,8 @@ No divergence: every block the reader named matched the scan exactly.
 ```
 
 Zero files stopped early and zero diverged. The four marked unverifiable are
-ones where the *scan* found more blocks than the header declares — its known
-false-positive mode, where a node happens to be named like a type — so they are
+ones where the *scan* found more blocks than the header declares - its known
+false-positive mode, where a node happens to be named like a type - so they are
 excluded from the comparison and checked against the header count instead.
 
 The reader implements 54 block types, which covers every type occurring in
@@ -302,8 +302,8 @@ is not, and it is worth recording because it marks the method's boundary.
 
 `dbs_meatstick.nif` declares 26 blocks and the layout-free scan finds exactly
 26 type names, so every block *boundary* is where it should be. Block 10 then
-reads a property count of `0xFFFFFFFF`. Opened in NifSkope — as an oracle, per
-the rule above — it shows orphaned blocks. The boundaries are sound and the
+reads a property count of `0xFFFFFFFF`. Opened in NifSkope - as an oracle, per
+the rule above - it shows orphaned blocks. The boundaries are sound and the
 contents are not.
 
 No layout can be derived from it, because there is no consistent layout to
@@ -313,14 +313,14 @@ nonsense. A layout invented to fit one broken file breaks the sound ones, which
 is exactly what happened once already with the bounding box above.
 
 **So a failure to parse is evidence about the reader only when the file is
-sound.** Distinguishing the two needs something outside the bytes — here, a
+sound.** Distinguishing the two needs something outside the bytes - here, a
 person opening it in a viewer.
 
 ## The same method, applied to textures
 
 `mlox_subset/images/` decodes every texture format this game and its mods use,
 under the same rules and for the same reasons. The block formats are arithmetic
--- a DXT1 block is two 16-bit colours and sixteen 2-bit selectors, and the
+-- a DXT1 block is two 16-bit colors and sixteen 2-bit selectors, and the
 decode is the interpolation the format defines -- so they were implemented from
 the public description and checked against real files.
 
@@ -329,7 +329,7 @@ the public description and checked against real files.
 BC1 fits in a paragraph. BC7 does not: a 16-byte block carries one of eight
 modes, and the mode decides how many subsets the block is cut into, how wide
 the endpoints are, whether alpha exists at all, whether a second index set
-exists, and whether a colour channel was rotated into alpha before encoding.
+exists, and whether a color channel was rotated into alpha before encoding.
 Nothing after the mode bits sits at a fixed offset.
 
 Its definition is **roughly six hundred numbers**: an eight-row mode table, two
@@ -401,7 +401,7 @@ easily confused, so the difference is recorded:
 | --- | --- | --- |
 | `.nif` files | 365 | 191 |
 | Also contains | 139 `.flv` and 30 `.mp4` tutorial videos, 51 `.max` scenes, 50 `.dds` textures, 15 `.txt`, 7 `.gif`, 1 `.kf` | 4 `.txt`, 4 `.png`, 2 `.kf`, 1 `.gif` |
-| Organisation | Tutorial material; **not every folder contains a `.nif`** | Folders named for the block type they demonstrate |
+| Organisation | Tutorial material; **not every folder contains a `.nif**` | Folders named for the block type they demonstrate |
 | Total `.nif` recursively | **556** (includes the 191 below) | 191 |
 
 Two practical consequences, both of which have already caused bugs:
@@ -442,8 +442,8 @@ later should be allowed to blur the record of it.
 
 ### What changed
 
-On 28 July 2026, Greatness7 — the author of `io_scene_mw`, the Blender Morrowind
-plugin — offered publicly to relicense its NIF library under MIT, and pointed at
+On 28 July 2026, Greatness7 - the author of `io_scene_mw`, the Blender Morrowind
+plugin - offered publicly to relicense its NIF library under MIT, and pointed at
 `Greatness7/tes3`, a Rust library that is **already MIT** and covers reading and
 writing of `.esp`, `.esm`, `.nif` and `.kf`.
 
@@ -454,7 +454,7 @@ That offer, if executed, removes the constraint that shaped this entire reader.
 | | Licence, as verified 28 July 2026 | Usable? |
 | --- | --- | --- |
 | `Greatness7/tes3` (Rust) | **MIT**, repository root `LICENSE` | Yes |
-| `Greatness7/io_scene_mw`, **`lib/es3/` only** | **MIT**, granted 28 July 2026 | Yes |
+| `Greatness7/io_scene_mw`, !!!lib/es3/` only** | **MIT**, granted 28 July 2026 | Yes |
 | `Greatness7/io_scene_mw`, everything else | **GPL-3.0** | **No** |
 
 ### The grant, precisely
@@ -465,27 +465,27 @@ Commit
 21 lines of MIT text, `Copyright (c) 2026 Greatness7`. One file changed.
 
 That is a grant. The chat offer that preceded it was not, and this project
-waited for the commit — the standard being a licence file in the repository,
+waited for the commit - the standard being a licence file in the repository,
 because that is the thing still true in two years when nobody remembers the
 conversation.
 
-**The grant covers `lib/es3/` and nothing else.** The rest of the repository —
+**The grant covers `lib/es3/` and nothing else.** The rest of the repository -
 `nif_import.py`, `nif_export.py`, `nif_shader.py`, `nif_utils.py`, `operators/`,
-`panels/`, `properties/` — remains GPL-3.0, because Blender requires its plugins
+`panels/`, `properties/` - remains GPL-3.0, because Blender requires its plugins
 to be. That boundary is a directory path, and it is easy to slide from
 "io_scene_mw is MIT now" into reading `nif_import.py`, which it is not. **Only
 `lib/es3/`.**
 
 Rule 1 above is amended accordingly, for that directory only and from that date
-only. Every other project named in it — `nif.xml`, NifSkope, nifly, NiflySharp,
-OpenMW — is untouched and still off limits.
+only. Every other project named in it - `nif.xml`, NifSkope, nifly, NiflySharp,
+OpenMW - is untouched and still off limits.
 
 ### Keep the two kinds of fact apart in the code
 
 A layout derived from bytes and a layout taken from a permissively-licensed
 reference are different kinds of fact, with different reasons to be trusted and
 different things that would falsify them. A reader six months from now cannot
-tell them apart unless the comment says which is which — so say which.
+tell them apart unless the comment says which is which - so say which.
 
 Where a reference **confirms** an existing derivation, that is the strongest
 state and worth marking as such: two independent routes to the same answer.
@@ -501,8 +501,8 @@ paragraph.
 `Sphere = 0, Box = 1`; `NiBound` is a centre and a radius, 16 bytes; `NiBoxBV`
 is a centre, a 3x3 axis matrix and an extents triple, 60 bytes. Both type
 numbers and both widths match `_BOUNDING_BOX_TAILS` exactly. That is the
-derivation recorded above where a confident conclusion drawn from two files —
-"20 bytes, solved not guessed" — broke thirteen meshes that already worked, and
+derivation recorded above where a confident conclusion drawn from two files -
+"20 bytes, solved not guessed" - broke thirteen meshes that already worked, and
 the right answer only appeared once the two populations were separated. It is
 now confirmed by an implementation that shares none of this project's
 assumptions.
@@ -514,7 +514,7 @@ width table cannot express that shape, so this reader would have stopped on any
 such file with "unknown bounding box type 4". Now implemented, with a depth
 limit, since the format permits recursion a corrupt file could abuse.
 
-No file in either corpus has ever carried one — which is exactly why no test
+No file in either corpus has ever carried one - which is exactly why no test
 and no measurement here could have found it. **A gap in coverage is invisible
 to a corpus that does not exercise it**, and the only instrument that sees it is
 a second implementation.
@@ -525,8 +525,8 @@ nothing to derive one from.
 
 ### Nineteen block types, taken rather than derived
 
-Running this reader over the categorised NIF **sample archive** — not vanilla,
-not the mod corpus — showed 624 of 768 files parsing. The stops were all named
+Running this reader over the categorised NIF **sample archive** - not vanilla,
+not the mod corpus - showed 624 of 768 files parsing. The stops were all named
 types, and `tes3` had every one of them. Taking those layouts brought the
 sample archive to **723 of 768 (94.1%)**, and the reader from 66 known block
 types to 85:
@@ -542,7 +542,7 @@ types to 85:
 **Each is marked in `blocks.py` as taken from `tes3` rather than derived.**
 That distinction is not bookkeeping. A derived layout has survived the
 exact-landing test across thousands of files; a taken one is a transcription
-confirmed against however many sample files happen to carry that type — for
+confirmed against however many sample files happen to carry that type - for
 several of these, exactly one. They are both true and they are not equally
 well-evidenced, and the comment says which is which so that a future failure is
 debugged in the right place.
@@ -553,10 +553,10 @@ smaller sample.
 
 Two of these were worth the reading rather than the guessing:
 
-* **`NiBltSource` has no name, extra data or controller.** Its base is
+* !!!NiBltSource` has no name, extra data or controller.** Its base is
   `NiObject`, not `NiObjectNET`, unlike almost every other block in the format.
   A reasonable assumption would have consumed twelve bytes that are not there.
-* **`NiTriStripsData`'s final run has no stored length.** It is the *sum* of
+* !!!NiTriStripsData`'s final run has no stored length.** It is the *sum* of
   the strip-length array immediately before it. That shape cannot be expressed
   as a gated run, so it needed a new field kind rather than a new entry.
 
@@ -584,25 +584,25 @@ implementation made them visible in an afternoon.
 
 **Read the buckets carefully, because the obvious reading is wrong.**
 `unverifiable` counts files where *the scan* failed to reconcile with the
-header — it is a limitation of the cross-check, not a failure of the reader,
+header - it is a limitation of the cross-check, not a failure of the reader,
 and the reader is still run against the header's own block count for those. So
 the reader's actual failures are the 2 stops plus the 7 incompletes: **9 files
 in 80,197, or 0.011%**.
 
 The line that matters is **zero divergence**. A divergence means a field width
 is wrong in a block *before* the point of disagreement, and such a file may
-still walk to the end and look perfectly healthy — it is invisible to any
+still walk to the end and look perfectly healthy - it is invisible to any
 survey that only counts what parsed. Zero across 79,102 independently verified
 files is the strongest evidence this reader has.
 
 Both remaining stops are now settled rather than open:
 
-* **`NiBSParticleNode`** (1 file) — the tool's own message hedges between "a
+* !!!NiBSParticleNode**` (1 file) - the tool's own message hedges between "a
   layout bug here" and "a malformed file". `tes3` declares the type as a bare
   `NiNode`, identical to this reader's layout, so the layout is not the
   problem. `dbs_meatstick.nif` carries a property count of 0xFFFFFFFF and was
   inspected in NifSkope. A finding about the mod.
-* **`NiTextureProperty`** (1 file) — a genuine coverage gap, and **neither
+* !!!NiTextureProperty**` (1 file) - a genuine coverage gap, and **neither
   `tes3` nor `io_scene_mw/lib/es3` implements it either.** Worth recording
   plainly: with three implementations in hand, one file in 80,197 references a
   type none of them knows.
@@ -612,12 +612,12 @@ Both remaining stops are now settled rather than open:
 If the reader is eventually replaced, the replacement should be held to the
 measurement this one already meets: **100% of 7,343 vanilla meshes and ~99% of
 80,197 mod meshes**, with the remainder categorised. That figure is not a boast,
-it is a regression baseline — the only way to know a replacement is an
+it is a regression baseline - the only way to know a replacement is an
 improvement rather than a change.
 
 The comparison also has independent value. Two implementations of the same
 format, diffed over 87,000 real files, is the strongest check available for
 either of them, and stronger than either project's own tests. Every error found
-in this project — the typed bounding box, the BSA data offset, the texture
-extension comparison, BC5's clamped normals — came from a cross-check against
+in this project - the typed bounding box, the BSA data offset, the texture
+extension comparison, BC5's clamped normals - came from a cross-check against
 something that did not share its assumptions.

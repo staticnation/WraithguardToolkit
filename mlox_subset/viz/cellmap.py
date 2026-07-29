@@ -149,7 +149,7 @@ def _svg_grid(
     Args:
         exterior: In-bounds exterior cells to their mods.
         subset_lower: Lower-cased filenames of the user's own mods.
-        worst: The highest mod count on the map, saturating the colour ramp.
+        worst: The highest mod count on the map, saturating the color ramp.
 
     Returns:
         The scrollable wrapper and SVG, or an empty-state note.
@@ -167,7 +167,7 @@ def _svg_grid(
         # North (max y) at the top, matching every other Morrowind map.
         py = (maxy - gy) * CELL_MAP_STEP_PX
         custom = any(m.lower() in subset_lower for m in mods)
-        tip = f"({gx}, {gy}) — {len(mods)} mod(s): " + ", ".join(mods)
+        tip = f"({gx}, {gy}) - {len(mods)} mod(s): " + ", ".join(mods)
         stroke = ' stroke="#ffd24a" stroke-width="1.4"' if custom else ""
         rects.append(
             f'<rect x="{px}" y="{py}" width="{CELL_MAP_CELL_PX}" '
@@ -228,7 +228,7 @@ def _interior_rows(interior: Mapping[str, Sequence[str]], subset_lower: set[str]
 
 
 def _legend(worst: int) -> str:
-    """Build the mods-per-cell colour legend.
+    """Build the mods-per-cell color legend.
 
     Generated from the same ramp the map uses, so the two can never disagree --
     the old hand-written legend listed five fixed swatches while the map had
@@ -241,8 +241,8 @@ def _legend(worst: int) -> str:
         The legend markup.
     """
     swatches = "".join(
-        f'<span style="background:{colour};color:{"#fff" if dark else "#111"}">{label}</span>'
-        for label, colour, dark in coverage_legend_stops(worst)
+        f'<span style="background:{color};color:{"#fff" if dark else "#111"}">{label}</span>'
+        for label, color, dark in coverage_legend_stops(worst)
     )
     return (
         f'<div class="legend">Mods per cell: {swatches}'
@@ -252,12 +252,12 @@ def _legend(worst: int) -> str:
 
 def generate_cell_map_html(
     coverage: Mapping[str, Any],
-    title: str = "MLOX Subset Sort — Cell Map",
+    title: str = "MLOX Subset Sort - Cell Map",
     generated_at: datetime | None = None,
 ) -> str:
     """Render the cell map as a self-contained HTML page.
 
-    Three tabs: a colour-coded exterior heatmap (one uniform square per touched
+    Three tabs: a color-coded exterior heatmap (one uniform square per touched
     cell, hotter where more mods overlap, click to jump to its list entry), an
     exterior-cell list and an interior-cell list. Cells the user's own mods
     touch get a gold outline and orange text.
@@ -300,7 +300,7 @@ def generate_cell_map_html(
 <p class="sub stamp">Generated {stamped.strftime("%Y-%m-%d %H:%M:%S")}</p>
 {_legend(worst)}
 <div class="focusbar">Focus on mod:
- <select id="focus" onchange="setFocus(this.value)"><option value="">— all mods —</option>{
+ <select id="focus" onchange="setFocus(this.value)"><option value="">- all mods -</option>{
     _focus_options(exterior_all, interior, subset_lower)
 }</select>
  <button onclick="document.getElementById('focus').value='';setFocus('')">Clear</button>

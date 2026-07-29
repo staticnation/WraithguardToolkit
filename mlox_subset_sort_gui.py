@@ -460,7 +460,7 @@ class ReorderPanel:
 
     # NORMAL/DISABLED are methods rather than ClassVars: reading DARK at class
     # definition time would freeze the startup palette, and a runtime theme
-    # switch would then restyle rows with stale colours.
+    # switch would then restyle rows with stale colors.
     @staticmethod
     def _row_normal() -> dict[str, str]:
         return {"background": DARK["field_bg"], "foreground": DARK["fg"]}
@@ -625,7 +625,7 @@ class ReorderPanel:
 
     def _restyle(self) -> None:
         trace_first_fire("plugin list restyle")
-        """Apply per-row colours: disabled = dim, else problem rows = bright
+        """Apply per-row colors: disabled = dim, else problem rows = bright
         red, else highlighted, else normal. Explicit on every row so
         toggling/dragging stays consistent."""
         for i, disp in enumerate(self.listbox.get(0, "end")):
@@ -1801,7 +1801,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         add_tooltip(
             self.log_text,
             _(
-                "Full output from the last Sort and/or Export. Colour key: green = a plugin/path "
+                "Full output from the last Sort and/or Export. Color key: green = a plugin/path "
                 "this sort inserted or moved, orange = a heads-up (mlox warning, or a rule your "
                 "curated cfg order overrode), blue = a section header, bright red = an error worth "
                 "checking. Plain text = frozen base rows left untouched. Colors follow the "
@@ -1840,7 +1840,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         add_tooltip(
             self.theme_combo,
             _(
-                "Colour theme for the whole GUI: window/button colours, syntax "
+                "Color theme for the whole GUI: window/button colors, syntax "
                 "highlighting here in the Log panel, and the field-diff JSON viewer "
                 "(Check Conflicts -> double-click a field). Switching re-themes "
                 "everything immediately, including any windows already open. Built-in: "
@@ -1857,9 +1857,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             _(
                 "Import a custom theme from a JSON file (background/foreground/select/"
                 "section/warn/error/ok/inserted/dim as hex colors, plus an optional "
-                '"chrome" object for explicit window/button colours) or a base16 scheme '
+                '"chrome" object for explicit window/button colors) or a base16 scheme '
                 "file (.yaml/.yml/.json with base00..base0F -- e.g. from the atelierbram/"
-                "syntax-highlighting or chriskempson/base16 scheme repos). Window colours "
+                "syntax-highlighting or chriskempson/base16 scheme repos). Window colors "
                 "not given explicitly are derived from the background. Imported themes are "
                 "saved and appear in the dropdown from then on."
             ),
@@ -1936,14 +1936,14 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
     def _reapply_chrome(self) -> None:
         """Re-theme the live GUI after the chrome palette changed.
 
-        Three passes, because three different mechanisms own the colours:
+        Three passes, because three different mechanisms own the colors:
         1. apply_dark_theme() re-configures the (live) ttk.Style and option
            database, which instantly restyles every ttk widget everywhere.
         2. restyle_widget_tree() walks the real widget tree from the main
            window -- open Toplevels are its children, so dialogs, the tes3cmd
            window etc. are reached -- fixing the plain-tk widgets that
            ttk.Style can't touch.
-        3. The reorder panels' per-row itemconfig colours are re-applied.
+        3. The reorder panels' per-row itemconfig colors are re-applied.
         """
         apply_dark_theme(self.root)  # type: ignore[arg-type]
         count = restyle_widget_tree(self.root)
@@ -2649,7 +2649,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             trace("cell map: viewer = browser (no pywebview/tkinterweb available)")
             self._open_cell_map_browser()
             self.status_var.set(
-                status + "  (opened in browser — pip install pywebview " "for an in-app window)"
+                status + "  (opened in browser - pip install pywebview " "for an in-app window)"
             )
 
     def _open_cell_map_pywebview(self, path: str | Path, title: str = "Cell Map") -> None:
@@ -2814,7 +2814,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 foreground="#ffb454",
                 padding=8,
                 text=_(
-                    "(inline render failed — use 'Open in browser' for the full map)",
+                    "(inline render failed - use 'Open in browser' for the full map)",
                 ),
             ).pack(anchor="w")
 
@@ -3654,7 +3654,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             )
             return
         trace(f"help: rendered {filename} -> {out}")
-        self.open_html_in_app(out, f"{label} — MLOX Subset Sort")
+        self.open_html_in_app(out, f"{label} - MLOX Subset Sort")
 
     def on_backups(self) -> None:
         """Scan for backup files and open the restore/delete window."""
@@ -3962,7 +3962,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
     # Any: formats an arbitrary decoded TES3 field value for display.
     def _fmt_val(v: Any) -> str:  # noqa: ANN401
         if v is None:
-            return "—"
+            return "-"
         if isinstance(v, list):
             # short lists of scalars (e.g. a grid [x, y]) show inline; long ones
             # or lists of objects (e.g. references) get a count + hint to expand
@@ -3970,7 +3970,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 s = str(v)
                 if len(s) <= 140:
                     return s
-            return f"[{len(v)} item(s)]  — double-click to view"
+            return f"[{len(v)} item(s)]  - double-click to view"
         s = str(v)
         return s if len(s) <= 140 else s[:137] + "…  (double-click)"
 

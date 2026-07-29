@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
-# chrome palette -- the app-wide window/widget colours (as opposed to the
+# chrome palette -- the app-wide window/widget colors (as opposed to the
 # syntax-highlighting THEME_PRESETS below). Historically a hardcoded dark
 # constant; it is now the *active* chrome palette: set_active_chrome() (below,
 # with the theme code) rewrites these values in place from the selected
@@ -49,7 +49,7 @@ DARK = {
 
 # ttk base themes that actually honour style.configure(background=...). The
 # Windows-native themes (vista/xpnative/winnative) and aqua draw widgets with
-# the OS renderer and silently ignore our colour options, so a chrome/theme
+# the OS renderer and silently ignore our color options, so a chrome/theme
 # change would appear not to take -- notably in a PyInstaller *onefile* build,
 # where clam's Tcl file can fail to extract, theme_use("clam") then raises, and
 # without this we'd silently stay on vista. These four are defined in ttk's
@@ -58,11 +58,11 @@ _COLOR_CAPABLE_TTK_THEMES = ("clam", "alt", "default", "classic")
 
 
 def _select_color_capable_theme(style: ttk.Style) -> str:
-    """Switch ``style`` to a theme that respects our colour options.
+    """Switch ``style`` to a theme that respects our color options.
 
     Returns the theme name now in use. Traced (not swallowed) so a frozen
-    build that lands on a native, colour-ignoring theme is diagnosable from
-    the log rather than presenting as "the colours just don't change".
+    build that lands on a native, color-ignoring theme is diagnosable from
+    the log rather than presenting as "the colors just don't change".
     """
     try:
         available = set(style.theme_names())
@@ -76,17 +76,17 @@ def _select_color_capable_theme(style: ttk.Style) -> str:
                 return name
             except tk.TclError:
                 continue
-    # nothing colour-capable is registered -- almost always a frozen build that
-    # didn't bundle ttk's Tcl theme files. Report loudly; colours on ttk
+    # nothing color-capable is registered -- almost always a frozen build that
+    # didn't bundle ttk's Tcl theme files. Report loudly; colors on ttk
     # widgets (buttons/frames/tabs) will not apply until the build includes them.
     try:
         active = style.theme_use()
     except tk.TclError:
         active = "?"
     trace(
-        f"[theme] WARNING: no colour-capable ttk theme available "
+        f"[theme] WARNING: no color-capable ttk theme available "
         f"(have {sorted(available)}); staying on {active!r} -- ttk widget "
-        f"colours will NOT apply. If this is a frozen .exe, the Tcl/tk ttk "
+        f"colors will NOT apply. If this is a frozen .exe, the Tcl/tk ttk "
         f"theme files were not bundled."
     )
     return active
@@ -262,7 +262,7 @@ def apply_titlebar_theme(window: tk.Misc) -> None:
 
 
 def style_plain_widget(widget: tk.Misc, chrome: dict | None = None) -> None:
-    """Colour a non-ttk widget that ttk theming cannot reach.
+    """Color a non-ttk widget that ttk theming cannot reach.
 
     For tk.Listbox, scrolledtext.ScrolledText and friends. Applied
     option-by-option since the exact set of
@@ -480,7 +480,7 @@ THEME_PRESETS = {
         },
     },
     # -- added in the 3.0 theme-pack pass. Palettes follow each scheme's
-    # published colours; chrome uses the scheme's own UI slots where the
+    # published colors; chrome uses the scheme's own UI slots where the
     # upstream defines them, otherwise sensible neighbours from the palette.
     # NOT added, because the picker already covers them: "Dracula Official"
     # (present as "Dracula") and "One Dark Pro" (the One Dark palette,
@@ -1190,7 +1190,7 @@ def _theme_from_native(data: dict) -> tuple[dict | None, list[str]]:
                 except ValueError:  # _normalize_hex's only raise
                     pass
                 break
-    # optional explicit chrome (window/button) colours -- any subset of the
+    # optional explicit chrome (window/button) colors -- any subset of the
     # 10 chrome keys; anything missing or invalid is derived instead
     raw_chrome = data.get("chrome")
     if isinstance(raw_chrome, dict):
@@ -1274,7 +1274,7 @@ def _json_syntax_colors(theme: dict) -> dict[str, str]:
 
 # ---------------------------------------------------------------------------
 # theme -> chrome bridge (task #43). A syntax theme carries 9 required text
-# roles but no window/button colours, so the 11 chrome keys in DARK are
+# roles but no window/button colors, so the 11 chrome keys in DARK are
 # produced from a theme in two layers:
 #   1. derived: fg/fg_dim/select/accent map straight onto foreground/dim/
 #      select/section; the five background-family keys (bg, bg2, field_bg,
@@ -1284,7 +1284,7 @@ def _json_syntax_colors(theme: dict) -> dict[str, str]:
 #      spacing. This is the fallback and covers every imported theme.
 #   2. hand-tuned: a theme may carry an optional "chrome" dict giving any of
 #      the 10 keys explicitly. The built-in presets do (using each scheme's
-#      published UI colours), base16 imports get one from base00..base04's
+#      published UI colors), base16 imports get one from base00..base04's
 #      standard UI-role semantics, and native-JSON imports may supply one.
 # ---------------------------------------------------------------------------
 
@@ -1333,7 +1333,7 @@ def _is_light_color(color: str) -> bool:
 
 
 def chrome_from_theme(theme: dict) -> dict[str, str]:
-    """Derive the 11 chrome (window/widget) colours for a syntax theme.
+    """Derive the 11 chrome (window/widget) colors for a syntax theme.
 
     Derives the background-family keys from ``background`` (lightening on
     dark themes, darkening on light ones) and maps the text roles directly,
@@ -1356,12 +1356,12 @@ def chrome_from_theme(theme: dict) -> dict[str, str]:
                 try:
                     chrome[key] = _normalize_hex(overrides[key])
                 except (ValueError, TypeError):
-                    pass  # malformed colour value in an imported theme -- fall back silently
+                    pass  # malformed color value in an imported theme -- fall back silently
     return chrome
 
 
 # the syntax theme the chrome palette was last derived from. The runtime
-# re-apply walk needs the *theme* (not just the derived chrome) to recolour
+# re-apply walk needs the *theme* (not just the derived chrome) to recolor
 # the syntax-highlight tags in any open field-diff viewer.
 _ACTIVE_THEME: dict = THEME_PRESETS["Dark (default)"]
 
@@ -1370,10 +1370,10 @@ def set_active_chrome(theme: dict) -> None:
     """Point the active chrome palette (``DARK``) at ``theme``, in place.
 
     Mutating in place is deliberate: the ~106 ``DARK[...]`` read sites then
-    see the new colours without touching any of them. Widgets built after
-    this pick the palette up automatically; *live* widgets are recoloured by
+    see the new colors without touching any of them. Widgets built after
+    this pick the palette up automatically; *live* widgets are recolored by
     ``restyle_widget_tree`` (called from ``App._reapply_chrome``), which also
-    reads the remembered ``_ACTIVE_THEME`` for syntax-tag colours.
+    reads the remembered ``_ACTIVE_THEME`` for syntax-tag colors.
     """
     global _ACTIVE_THEME
     _ACTIVE_THEME = theme
@@ -1381,11 +1381,11 @@ def set_active_chrome(theme: dict) -> None:
 
 
 def _restyle_syntax_tags(widget: tk.Text) -> None:
-    """Re-colour a Text widget's field-diff syntax tags, if it has any.
+    """Re-color a Text widget's field-diff syntax tags, if it has any.
 
     The diff viewer's token tags (json_key/json_string/html_tag/...) are
     configured once when the window opens; without this, a theme switch
-    left an open viewer's tokens in the old theme's colours even though its
+    left an open viewer's tokens in the old theme's colors even though its
     chrome and background followed the new one. ``style_json_syntax_tags``
     is written as a (re-)configure, so calling it again is all it takes.
     """
@@ -1398,7 +1398,7 @@ def _restyle_syntax_tags(widget: tk.Text) -> None:
 
 
 def _restyle_combobox_popdown(widget: tk.Misc) -> None:
-    """Recolour a combobox's dropdown list, if it has been created.
+    """Recolor a combobox's dropdown list, if it has been created.
 
     The dropdown is a plain ``tk::Listbox`` that only reads the option
     database when it is first built, so a live one must be reconfigured
@@ -1450,7 +1450,7 @@ def _restyle_plain_live(w: tk.Misc) -> bool:
         apply_titlebar_theme(w)
     elif isinstance(w, tk.Text):
         # every plain Text/ScrolledText in this app is a console-style pane;
-        # the log panel itself is immediately re-coloured again (to the same
+        # the log panel itself is immediately re-colored again (to the same
         # value) by _apply_log_theme after the walk
         style_plain_widget(w)
         _configure_each(w, {"background": DARK["log_bg"]})
@@ -1570,7 +1570,7 @@ def highlight_json_with_html(text_widget: tk.Text, text: str, colors: dict) -> N
     """Tag already-inserted ``text`` as JSON, breaking out embedded HTML.
 
     ``text_widget`` must be a normal-state Text widget holding ``text``; any
-    HTML-ish markup inside string values is further broken out and coloured.
+    HTML-ish markup inside string values is further broken out and colored.
     ``colors`` is a _json_syntax_colors(...) dict.
     Tag *styles* (tag_configure) must already be set on text_widget by the
     caller -- this only calls tag_add.

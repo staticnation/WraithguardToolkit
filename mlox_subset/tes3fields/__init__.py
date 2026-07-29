@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Final
 from mlox_subset.tes3fields.landscape import (
     LandscapeDecodeError,
     render_texture_indices,
-    render_vertex_colours,
+    render_vertex_colors,
     render_vertex_heights,
     render_vertex_normals,
     render_world_map,
@@ -65,7 +65,7 @@ def _connections(value: str | bytes, record: Mapping[str, Any] | None) -> str:
 _RENDERERS: Final[dict[str, Callable[[str | bytes, Mapping[str, Any] | None], str]]] = {
     "vertex_heights.data": _heights,
     "vertex_normals.data": lambda v, _r: render_vertex_normals(v),
-    "vertex_colors.data": lambda v, _r: render_vertex_colours(v),
+    "vertex_colors.data": lambda v, _r: render_vertex_colors(v),
     "world_map_data.data": lambda v, _r: render_world_map(v),
     "texture_indices.data": lambda v, _r: render_texture_indices(v),
     "connections": _connections,

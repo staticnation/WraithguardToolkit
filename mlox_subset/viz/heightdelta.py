@@ -67,22 +67,22 @@ const btns=document.querySelectorAll('[data-step]');
 
 function clamp(v){return Math.max(0,Math.min(1,v));}
 function channel(v){return Math.round(clamp(v)*255).toString(16).padStart(2,'0');}
-function hexColour(r,g,b){return '#'+channel(r)+channel(g)+channel(b);}
+function hexColor(r,g,b){return '#'+channel(r)+channel(g)+channel(b);}
 function divergence(value,scale){
   if(scale<=0)return D.neutral;
   let t=clamp(Math.abs(value)/scale);
   t=Math.pow(t,0.6);
-  if(value>=0)return hexColour(0.17+0.78*t,0.19-0.08*t,0.23-0.15*t);
-  return hexColour(0.17-0.13*t,0.19+0.35*t,0.23+0.72*t);
+  if(value>=0)return hexColor(0.17+0.78*t,0.19-0.08*t,0.23-0.15*t);
+  return hexColor(0.17-0.13*t,0.19+0.35*t,0.23+0.72*t);
 }
 // Low-to-high elevation ramp for the Base step: there is no previous version
-// to diff against, so colour tracks absolute height within this one surface
+// to diff against, so color tracks absolute height within this one surface
 // instead of a signed delta -- cool/low to warm/high, the usual
 // topographic-map convention.
 function elevation(value,lo,span){
   const t=span>0?clamp((value-lo)/span):0;
   const loC=[0.20,0.30,0.42],hiC=[0.64,0.52,0.30];
-  return hexColour(
+  return hexColor(
     loC[0]+(hiC[0]-loC[0])*t,
     loC[1]+(hiC[1]-loC[1])*t,
     loC[2]+(hiC[2]-loC[2])*t,
@@ -310,7 +310,7 @@ def build_height_delta(
                 ],
                 _(
                     "North is up. Unchanged vertices are left blank on a diff step, and "
-                    "colour saturates at that step's largest movement, so shades are "
+                    "color saturates at that step's largest movement, so shades are "
                     "comparable within a page but not between pages. The Base step has "
                     "nothing before it to diff against, so it shows that plugin's own "
                     "absolute elevation on a separate low-to-high scale instead."
@@ -341,7 +341,7 @@ def build_height_delta(
             ),
             "identical": _(
                 "The terrain is identical at this step. It differs from the previous "
-                "step in some other field -- textures, colours or the world map -- "
+                "step in some other field -- textures, colors or the world map -- "
                 "not in height."
             ),
         },

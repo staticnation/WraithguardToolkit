@@ -1,4 +1,4 @@
-# TYPING_BRIEF — retired
+# TYPING_BRIEF - retired
 
 > **This work is DONE (3.0) and this brief is retired.** It was the hand-off
 > for clearing the `D`/`ANN` exemptions on the two legacy scripts.
@@ -11,7 +11,7 @@
 > `list`-invariance defect, and a latent `None` dereference in the tes3cmd
 > worker.
 >
-> The method it described — annotate from call sites, then enable mypy
-> **per module** before moving on — is worth reusing and is recorded in §20.
+> The method it described - annotate from call sites, then enable mypy
+> **per module** before moving on - is worth reusing and is recorded in §20.
 
 This file is kept only so existing references resolve. It can be deleted.

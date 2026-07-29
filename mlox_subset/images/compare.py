@@ -42,7 +42,7 @@ from mlox_subset.logging_setup import get_logger
 
 LOG = get_logger(__name__)
 
-#: Channel difference below which two pixels are treated as the same colour.
+#: Channel difference below which two pixels are treated as the same color.
 #: Not zero: re-encoding a texture through a different DXT compressor moves
 #: nearly every pixel by a level or two without changing the image, and a
 #: threshold of zero would report those as wholly different.

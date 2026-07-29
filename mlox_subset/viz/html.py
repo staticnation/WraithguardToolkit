@@ -196,18 +196,18 @@ def table(
 
 
 def legend(entries: Iterable[tuple[str, str]], note: str = "") -> str:
-    """Render a colour legend.
+    """Render a color legend.
 
     Args:
-        entries: ``(colour, label)`` pairs.
+        entries: ``(color, label)`` pairs.
         note: Optional trailing explanation.
 
     Returns:
         The legend markup.
     """
     swatches = "".join(
-        f'<span><i style="background:{escape(colour)}"></i>{escape(label)}</span>'
-        for colour, label in entries
+        f'<span><i style="background:{escape(color)}"></i>{escape(label)}</span>'
+        for color, label in entries
     )
     tail = f"<span>{escape(note)}</span>" if note else ""
     return f'<div class="legend">{swatches}{tail}</div>'

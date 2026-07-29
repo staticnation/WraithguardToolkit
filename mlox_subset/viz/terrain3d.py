@@ -24,7 +24,7 @@ setting that cannot act is otherwise indistinguishable from one that does
 nothing.
 
 **Two shading modes.** Relief is the default; the original *flat* mode -- one
-colour per face, mixing slope and height -- is one selection away, because a
+color per face, mixing slope and height -- is one selection away, because a
 faceted surface makes the mesh itself visible and "where are the vertices" is
 occasionally the question being asked. The **geometry is identical in both**:
 the vertical scale is a correctness matter rather than a style, so no shading
@@ -33,7 +33,7 @@ setting can change the shape.
 **Shaded the way a relief map is.** A greyscale *hillshade* carries the shape
 and a hypsometric *tint* carries the elevation, composited over it at around
 half opacity. Keeping them as two layers is the point: flat-filling one blended
-colour per face -- which this did originally -- fuses "which way does this face"
+color per face -- which this did originally -- fuses "which way does this face"
 with "how high is it" into a single number, so neither can be read on its own.
 
 Shading is per pixel, not per face. The mesh is 32x32 after sampling, so a face
@@ -105,7 +105,7 @@ _STRIDE = 2
 #: How strongly the elevation tint covers the hillshade beneath it. Relief maps
 #: put the tint somewhere near half: enough that height reads at a glance, not
 #: so much that it washes out the shading that carries the shape. Below about
-#: 0.4 the colour stops being legible as elevation; above about 0.7 the terrain
+#: 0.4 the color stops being legible as elevation; above about 0.7 the terrain
 #: flattens out and the tint is doing all the work.
 _TINT_ALPHA = 0.55
 
@@ -417,7 +417,7 @@ function triangle(buf,W,H,p0,p1,p2,a0,a1,a2,flat){
           // hillshade is describing. Paper maps drop them for the same reason.
           const spacing=contourStep*perHeight/grad;
           if(spacing>6*HALFLINE&&dh*perHeight/grad<HALFLINE){
-            const k=0.55;            // darken rather than paint a flat colour,
+            const k=0.55;            // darken rather than paint a flat color,
             r*=k;gc*=k;b*=k;         // so the tint still reads through the line
           }
         }
@@ -571,8 +571,8 @@ def build_terrain_3d(
         # in the loop by a wide margin.
         "palettes": {
             name: [
-                [int(colour[1:3], 16), int(colour[3:5], 16), int(colour[5:7], 16)]
-                for colour in tint_ramp(name)
+                [int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)]
+                for color in tint_ramp(name)
             ]
             for name in TINT_RAMPS
         },

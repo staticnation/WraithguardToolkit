@@ -96,7 +96,7 @@ def _looks_like_tga(data: bytes) -> bool:
     Targa predates the idea of a signature, so this reads the header and asks
     whether every field is one the format defines. That is weaker than a magic
     number and is why it is tried only after every other format has declined,
-    but the combination of a valid type, a valid depth, a sane colour-map flag
+    but the combination of a valid type, a valid depth, a sane color-map flag
     and non-zero dimensions is specific enough in practice.
 
     Args:
@@ -166,7 +166,7 @@ def read_image(data: bytes) -> Image:
         return read_tga(data)
     if kind is ImageFormat.PNG:
         # Decoding PNG would mean inflating, unfiltering, and handling five
-        # filter types, six colour types, palettes and interlacing -- a real
+        # filter types, six color types, palettes and interlacing -- a real
         # decoder, written to display images the browser already displays.
         # Nothing needs it yet; browser_image passes PNGs through untouched.
         raise ImageError("PNG decoding is not implemented; use browser_image to display one")

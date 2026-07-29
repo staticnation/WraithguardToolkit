@@ -4,8 +4,8 @@ A practical reference for the rule maker in this tool, and for hand-editing a
 rules file.
 
 This is written from scratch for MLOX Subset Sort. The *conventions* it
-describes — citing sources, when to reach for which rule, what counts as good
-practice — are the community's, set out in the mlox rule guidelines maintained
+describes - citing sources, when to reach for which rule, what counts as good
+practice - are the community's, set out in the mlox rule guidelines maintained
 at [morrowind-modding.github.io](https://morrowind-modding.github.io/modding-tools/sorting-plugin-load-order/mlox/mlox-rule-guidelines ).
 Read that page too if you intend to contribute rules upstream; it is the
 authority, and this is a summary written in our own words. The *syntax* below is
@@ -27,7 +27,7 @@ Pick the rule from what you want to express, not from the list of rule names.
 | "Drag this toward the front / back of the order" | `[NearStart]` / `[NearEnd]` |
 
 Nearly everything is `[Order]`. If you find yourself reaching for `[NearStart]`
-or `[NearEnd]`, the community guidance is to stop and use `[Order]` instead —
+or `[NearEnd]`, the community guidance is to stop and use `[Order]` instead -
 those two are blunt instruments and the rule-base keeps very few of them.
 
 ---
@@ -50,10 +50,10 @@ Some Mod.esp
 
 Two conventions worth adopting from the start:
 
-- **`;` comments** are for notes to whoever reads the file next. mlox removes
+- !!!;` comments** are for notes to whoever reads the file next. mlox removes
   them before parsing, so they cannot break a rule.
-- **`@Section` headings** group rules, roughly one section per mod. They have no
-  effect on behaviour — they exist so a file of thousands of rules stays
+- !!!@Section` headings** group rules, roughly one section per mod. They have no
+  effect on behaviour - they exist so a file of thousands of rules stays
   navigable.
 
 ### Where to put your rules
@@ -104,7 +104,7 @@ Mashed Lists.esp
 `[NearEnd]` does not mean "put this last". It means "move this toward the end
 where possible", and how far it gets depends on everything else. Use it only
 when a plugin genuinely needs to be near an end regardless of what else is
-installed — a merged-lists patch is the classic case.
+installed - a merged-lists patch is the classic case.
 
 ---
 
@@ -136,7 +136,7 @@ space is read as part of the message, and the rule quietly stops applying to
 that plugin. The rule maker strips the whitespace for you.
 
 One limit on the short form: the message cannot contain `]`, which would close
-the label early. Use the indented form if you need one — the rule maker switches
+the label early. Use the indented form if you need one - the rule maker switches
 automatically.
 
 ### `[Note]`
@@ -177,7 +177,7 @@ Ascadian Redone.esp
 States a mutual dependency, and it is worth understanding why this is not just
 a `[Requires]`. A patch says **two** things: the patch is pointless without what
 it patches, *and* the thing being patched wants the patch. mlox warns in both
-directions — if you install the patch alone, and if you install the mods without
+directions - if you install the patch alone, and if you install the mods without
 their patch.
 
 ```
@@ -189,7 +189,7 @@ Big Overhaul + Other Mod Patch.esp
 ```
 
 `[Patch]` cannot express NOT. If you need "use this patch with X but not with
-Y", the guidelines' answer is to write two rules instead — a `[Conflict]`
+Y", the guidelines' answer is to write two rules instead - a `[Conflict]`
 between the patch and Y, and a `[Requires]` between the patch and X. The rule
 maker refuses a NOT inside a `[Patch]` and tells you this.
 
@@ -221,7 +221,7 @@ My Archery Mod.esp
 Three predicates look at the plugin file itself rather than at whether it is
 loaded. Each must be written on a single line.
 
-**Version** — compares against the version in the plugin header, falling back to
+**Version** - compares against the version in the plugin header, falling back to
 one in the filename:
 
 ```
@@ -232,7 +232,7 @@ The operators are `<`, `=` and `>`. Version numbers can be up to three
 dot-separated or underscore-separated numbers with an optional trailing letter:
 `1`, `1.0`, `1.2.3a`, `1_3a` and `77g` are all understood.
 
-**Description** — matches a regular expression against the plugin header's
+**Description** - matches a regular expression against the plugin header's
 description field:
 
 ```
@@ -243,7 +243,7 @@ description field:
 The second form, with `!`, means the description does *not* match. Useful for
 pinning a rule to one specific release when the author did not bump the version.
 
-**Size** — matches the file size in bytes exactly, with the same `!` negation:
+**Size** - matches the file size in bytes exactly, with the same `!` negation:
 
 ```
 [SIZE 2476 Some Mod.esp]
@@ -287,7 +287,7 @@ message:
 ```
 
 This is the single most valuable convention in the rule-base. A rule without a
-source cannot be checked, corrected or updated by anyone else — including you,
+source cannot be checked, corrected or updated by anyone else - including you,
 in a year, when you have forgotten why you wrote it.
 
 Note the space before the closing parenthesis in the URL example. Some forums
@@ -300,7 +300,7 @@ citation nobody can follow. The rule maker adds that space for you.
 
 Beginning a message with exclamation marks raises it in mlox's message pane:
 
-| Prefix | Colour | Use it for |
+| Prefix | Color | Use it for |
 |---|---|---|
 | `!` | blue | worth knowing, little or no effect on play |
 | `!!` | yellow | could affect the game; worth attending to |
@@ -341,7 +341,7 @@ Vivec Expanded - Guilds Patch.esp
 The rule maker will build both of these for you, check them, and append them to
 your personal rules file. The **Check Conflicts** scan can also propose rules
 like the `[Order]` above directly, because a plugin's masters are recorded in
-its own header — that one is a fact, not a guess, and the tool labels it as
+its own header - that one is a fact, not a guess, and the tool labels it as
 such.
 
 ---
@@ -349,7 +349,7 @@ such.
 ## What the rule maker checks for you
 
 Everything below is checked before a rule can be written, because mlox discards
-a rule it cannot use *without saying so* — which makes the moment of writing the
+a rule it cannot use *without saying so* - which makes the moment of writing the
 only opportunity to find out.
 
 **Refused outright**
@@ -358,7 +358,7 @@ only opportunity to find out.
 - `[Requires]` or `[Patch]` without exactly two expressions
 - `[Conflict]` with fewer than two things to conflict
 - a `NOT` inside a `[Patch]`
-- a name that is not a plugin filename, or that contains `[`, `]` or `;` —
+- a name that is not a plugin filename, or that contains `[`, `]` or `;` -
   characters mlox reads as syntax, so the rule would silently refer to something
   other than what you typed
 - a version that mlox would not recognise, or a comparison operator other than

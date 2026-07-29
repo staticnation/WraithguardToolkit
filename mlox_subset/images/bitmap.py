@@ -55,7 +55,7 @@ _REFUSED: Final[dict[int, str]] = {
     5: "PNG-embedded",
 }
 
-#: Depths that index into a palette rather than storing colour directly.
+#: Depths that index into a palette rather than storing color directly.
 _PALETTED: Final[frozenset[int]] = frozenset({1, 4, 8})
 
 #: The same ceiling the other decoders apply.
@@ -67,7 +67,7 @@ class BitmapError(ImageError):
 
 
 def _read_palette(data: bytes, offset: int, count: int, *, wide: bool) -> list[bytes]:
-    """Read the colour table.
+    """Read the color table.
 
     Args:
         data: The whole file.
@@ -84,7 +84,7 @@ def _read_palette(data: bytes, offset: int, count: int, *, wide: bool) -> list[b
     """
     step = 4 if wide else 3
     if offset + count * step > len(data):
-        raise BitmapError("bitmap colour table runs past the end of the file")
+        raise BitmapError("bitmap color table runs past the end of the file")
     palette: list[bytes] = []
     for index in range(count):
         at = offset + index * step
@@ -115,7 +115,7 @@ def _expand_row(row: bytes, width: int, depth: int, palette: list[bytes],
         row: The stored bytes of the row.
         width: How many pixels it holds.
         depth: Bits per pixel.
-        palette: The colour table, for paletted depths.
+        palette: The color table, for paletted depths.
         masks: Channel masks, when the header supplied them.
 
     Returns:
