@@ -5,9 +5,9 @@ in about five minutes. For the full reference, see [README.md](README.md).
 
 ## What you need
 
-- Your !!!openmw.cfg**` (the one MOMW Configurator generated).
-- mlox rules: !!!mlox_base.txt**` and (optionally) !!!mlox_user.txt**`.
-- Optional but recommended: MOMW's !!!plugin-order.yml**` and your list's name
+- Your `**openmw.cfg`** (the one MOMW Configurator generated).
+- mlox rules: `**mlox_base.txt`** and (optionally) `**mlox_user.txt`**.
+- Optional but recommended: MOMW's `**plugin-order.yml`** and your list's name
   (e.g. `total-overhaul`).
 - Python 3.10+ with tkinter. On Linux: `sudo apt install python3-tk`.
 

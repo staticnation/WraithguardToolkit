@@ -70,7 +70,7 @@ and their `LICENSE` files are included in their source folders in this repo.
 
 ## abot's tes3cmd scripts (idea credited, no code used)
 
-- !!!missing_pathgrids.pl**` and !!!cell_conflicts.pl**` - © **abot**.
+- `**missing_pathgrids.pl`** and `**cell_conflicts.pl`** - © **abot**.
   Published as *Missing Pathgrids* and *Cell Conflicts* on abot's own site,
   ["Morrowind is Home"](https://abitoftaste.modlist.x10.mx/morrowind/index.php?option=downloads&catid=58&Itemid=50&-Morrowind-tools)
   (Downloads → Morrowind tools), alongside MMOG, MRS and abot's other tools.
@@ -137,7 +137,7 @@ left to be discovered in a build.
 It is the **CommonJS** build, which looks like an odd choice until the
 constraint is stated: modern three.js ships ESM only, split across
 `three.module.min.js` and `three.core.min.js`, and **ES module scripts do not
-load from `file://**` - the origin is `null` and the CORS check fails. The
+load from `file://`** - the origin is `null` and the CORS check fails. The
 viewer pages are written to disk and opened in a browser, so no ESM packaging
 can work. The CJS build is one self-contained file with no `require()` of its
 own and runs as a classic script behind a three-line shim.
@@ -165,7 +165,7 @@ textures decode byte-for-byte identically to it, BC7 matches on 19,380 random
 blocks across every mode and partition, and every PNG we write reads back
 through it unchanged. Used but not read, exactly as with NifSkope.
 
-!!!pydds` was evaluated for BC7 and rejected on licence.** It is the closest
+`**pydds` was evaluated for BC7 and rejected on licence.** It is the closest
 technical fit - DDS decompression bindings including BC7, which is precisely
 what was wanted - and it is **GPLv3-or-later**, which would relicense this
 entire project. That decision needed no technical argument at all. Two further

@@ -50,9 +50,9 @@ Some Mod.esp
 
 Two conventions worth adopting from the start:
 
-- !!!;` comments** are for notes to whoever reads the file next. mlox removes
+- `**;` comments** are for notes to whoever reads the file next. mlox removes
   them before parsing, so they cannot break a rule.
-- !!!@Section` headings** group rules, roughly one section per mod. They have no
+- `**@Section` headings** group rules, roughly one section per mod. They have no
   effect on behaviour - they exist so a file of thousands of rules stays
   navigable.
 

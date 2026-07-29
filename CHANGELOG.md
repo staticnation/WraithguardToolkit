@@ -113,7 +113,7 @@ it had none.
   and anchor index widths far harder than a photograph could. See
   `tools/check_bc7.py` and `tools/check_images.py`.
 
-  !!!pydds` was evaluated and rejected on licence.** It is the closest
+  `**pydds` was evaluated and rejected on licence.** It is the closest
   technical fit - BC7 bindings, actively the thing this needed - and it is
   **GPLv3**, which would relicense this entire project. It also depends on
   Pillow, so it would have been additive rather than a replacement. `quicktex`
@@ -287,7 +287,7 @@ it had none.
   to the layout-free scan. Refusing them was costing 45 files in one mod
   collection for no benefit.
 
-- !!!NiSwitchNode` and `NiLODNode**`, which never occur in vanilla and together
+- `**NiSwitchNode` and `NiLODNode`**, which never occur in vanilla and together
   caused 92% of everything that stopped early in a real mod collection.
 
 ### Fixed
@@ -367,7 +367,7 @@ it had none.
 
 ### Fixed
 
-- !!!NiTexturingProperty` truncated any mesh with more than one decal.**
+- `**NiTexturingProperty` truncated any mesh with more than one decal.**
   `texture_count` is a slot count, not a cap of seven. On `7decals.NIF` it
   reads 13, and the reader stopped 156 bytes short - exactly six more slots at
   26 bytes each. This was the worst class of bug in the reader: it stopped
@@ -427,7 +427,7 @@ it had none.
 
 ### Fixed
 
-- !!!NiGeomMorpherController` was one byte short**, and it was the only
+- `**NiGeomMorpherController` was one byte short**, and it was the only
   alignment bug in all 7,319 vanilla meshes.
 
   Every affected file read a type name of `\x00NiMorphData` - the correct name
@@ -749,7 +749,7 @@ it had none.
   a real generated file: 389 insert entries over 2,229 lines, and one of its
   anchors fatal.
 
-  - !!!data=` inserts never got the `insertBlock` treatment.** That change
+  - `**data=` inserts never got the `insertBlock` treatment.** That change
     landed for `content=` only, so the data half still wrote one
     `[[Customizations.insert]]` per path -- 372 of them in the reported file,
     152 sharing a single anchor. They are now one block per contiguous run: 389
@@ -819,7 +819,7 @@ it had none.
     leading space vanished from the rule -- and the rule still loaded, still
     looked right, and simply did not apply to that plugin. Verified against the
     real loader before fixing. Names are now stripped.
-  - !!!table()` could silently drop rows** (`viz/html.py`). It paired rows with
+  - `**table()` could silently drop rows** (`viz/html.py`). It paired rows with
     per-row attributes using `zip`, which stops at the shorter list, and the
     list that runs short is the attributes -- so a caller one attribute shy lost
     a *table row*. On the conflict map that means losing a conflict. The
@@ -830,7 +830,7 @@ it had none.
     `"A.esp"` where `["A.esp"]` was meant was iterated by character. That module
     exists to keep guesses from being presented as facts, so confident nonsense
     is the one output it must never produce.
-  - !!!@@Section**` when the field is labelled `@section:` and the guidelines
+  - `**@@Section`** when the field is labelled `@section:` and the guidelines
     write sections as `@Name`, so typing the `@` -- the natural thing to do --
     doubled it.
   - **An out-of-range highlight priority rendered no mark at all**, silently,
@@ -876,12 +876,12 @@ it had none.
   the environment declined to give it, so the check silently did not happen.
   It is now simulated on the existing root instead and cannot skip. CI fails the
   job on any skip for the same reason.
-- **76 annotation-only imports moved under `TYPE_CHECKING**`, and ruff's `TC`
+- **76 annotation-only imports moved under `TYPE_CHECKING`**, and ruff's `TC`
   rules enabled so they stay there. Safe without exception because every module
   uses PEP 563 string annotations and nothing introspects them at runtime;
   verified by importing all 53 modules in a fresh interpreter, not just by a
   green suite.
-- !!!lint_plugins` decomposed** (201 lines -> 88, over seven small checkers).
+- `**lint_plugins` decomposed** (201 lines -> 88, over seven small checkers).
   Byte-identical output confirmed against a probe that trips every lint branch
   at once.
 - **CI now tests 3.10, 3.11, 3.12 and 3.13** -- every version
@@ -893,7 +893,7 @@ it had none.
   declare a plain byte count, and all 56 agree with the sum of their parsed
   members -- which is how four parser defects were found and fixed, each of which
   had silently dropped a field.
-- !!!_build_controls` split by panel** (435 lines -> 34, largest piece 99). It was
+- `**_build_controls` split by panel** (435 lines -> 34, largest piece 99). It was
   a flat wall of widget construction, which is the shape of code that makes
   adding one button a nervous edit; the Help button that landed in the same
   release is a two-line change because of it.
@@ -947,7 +947,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   f-strings, converted to named-placeholder form
   (`_("Loaded %(count)d files") % {"count": n}`) with `ngettext` for counted
   messages. `locale/mlox_subset_sort.pot` is the extracted English template
-  (**393 messages**), regenerated by the new !!!tools/make_pot.py**`:
+  (**393 messages**), regenerated by the new `**tools/make_pot.py`**:
   standard-library only, so it works on Windows without GNU `xgettext`, and
   AST-based, so a `_()` inside a docstring is correctly not extracted. Pure
   data output (plugin names, `content=` lines, section banners) is
@@ -955,17 +955,17 @@ field-diff window, and the PEP-conformance and blind-except passes.
   compiled test catalogue - translation, plural selection, English fallback.
   No language ships yet; with no catalogue installed every lookup returns the
   English source unchanged.
-- !!!tools/check_placeholders.py**` - the checker that makes the placeholder
+- `**tools/check_placeholders.py`** - the checker that makes the placeholder
   form safe to use at scale: for every marked string formatted with `% {...}`
   it verifies the `%(key)s` names against the dict's keys in both directions
   (a mistyped key is otherwise a *runtime* `KeyError`, which the suite cannot
   reach in the GUI), and rejects positional `%s` in marked strings outright
   because translators reorder words. Proven against deliberately broken
   inputs in `tests/test_i18n_placeholders.py`; runs in CI and the gate list.
-- !!!-v/--verbose` on the CLI**, wiring up the levelled-logging foundation
+- `**-v/--verbose` on the CLI**, wiring up the levelled-logging foundation
   that shipped with the package split: diagnostics about the run (an
   unparseable rule file, a failed CSV write) now go to **stderr via
-  `logging**` - WARNING and worse by default, `-v` adds progress, `-vv`
+  `logging`** - WARNING and worse by default, `-v` adds progress, `-vv`
   per-item detail - while the report you asked for stays on stdout, pipeable
   and clean. In the GUI the same diagnostics land in the log panel as before.
 - **Coverage floor.** The measured full-suite coverage (54%, branch) is now
@@ -1018,7 +1018,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   count** (100% of 717 path grids checked), and left in place that prefix
   shifts every edge by one slot - silently attributing each path point its
   *neighbour's* connections.
-- !!!theme_template.json**` - a commented, import-ready starting point for
+- `**theme_template.json`** - a commented, import-ready starting point for
   custom themes, sitting next to the app. Covers the 9 required fields, the 7
   optional syntax-token roles (and what each falls back to), and the optional
   `"chrome"` override object with all 11 window-color keys. Imported as-is it
@@ -1099,7 +1099,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   `_()` lookup earlier in that same function raise. Harmless until the gettext
   marker was introduced, and caught immediately by ruff's `F823` when it was -
   the throwaway targets are now named (`_anchor`, `_is_new`).
-- !!![SIZE]` and `[DESC]` rules no longer assert a match for plugins that are
+- `**[SIZE]` and `[DESC]` rules no longer assert a match for plugins that are
   not on disk.** These predicates fall back to "assume true" when the plugin
   cannot be inspected -- mlox does the same, deliberately, to avoid raising a
   warning it cannot substantiate. But mlox gates that on having *no data
@@ -1136,13 +1136,13 @@ field-diff window, and the PEP-conformance and blind-except passes.
   be set from the first real CI run rather than guessed. `--cov` is passed by CI
   rather than baked into `addopts`, so a plain local `pytest` still needs
   nothing but pytest.
-- !!!CODE_REVIEW.md` is now labelled as the running log it always was**, with a
+- `**CODE_REVIEW.md` is now labelled as the running log it always was**, with a
   §16 reconciling its older "roadmap" and "recommendations" sections against
   what actually shipped. Notably: §15's list of oversized functions predates the
   split and misses the largest one (`compute_plan`, 545 lines). The re-export
   shim §15 recommends deleting was deleted before release (§23), which is why
   3.0 makes no `core.<name>` compatibility promise to be held to later.
-- !!!BLE001` (blind-except) is now enforced.** All 68 `except Exception` sites
+- `**BLE001` (blind-except) is now enforced.** All 68 `except Exception` sites
   were reviewed individually: 28 narrowed to their provable raise-set
   (`ValueError` for TOML/JSON decode, `(OSError, ValueError)` for the
   documented `fetch_url_bytes` contract, `(OSError, SubprocessError)` for
@@ -1157,7 +1157,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   (now including **naming** and **import order**, which were never enforced),
   257, 484/526, 563, 585/604, 3120, 263, 3131, 328, 440, 621, 561, 594, 632,
   394, 518/517, 508, 420. Enabling the missing ruff rulesets found 18 issues.
-- !!![project]` metadata and a `[build-system]` table** now exist (PEP 621 /
+- `**[project]` metadata and a `[build-system]` table** now exist (PEP 621 /
   518), with `py.typed` (PEP 561) so a consuming type checker stops silently
   ignoring the package's annotations.
 - **mypy is clean and now gates.** It found 22 errors when first enabled --
@@ -1291,7 +1291,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   plugins (the merge no longer reflects the load order - re-run the
   Configurator); the GUI warns on Export when openmw.cfg changed on disk
   since the Sort.
-- !!!--lint` CLI flag** for the same checks the GUI Lint button runs.
+- `**--lint` CLI flag** for the same checks the GUI Lint button runs.
 - **Unconstrained mods keep YOUR declared order.** The subset was being
   alphabetized on input, so mods that no rule or dependency constrains landed
   at the end A→Z instead of in the order written in your subset file /
