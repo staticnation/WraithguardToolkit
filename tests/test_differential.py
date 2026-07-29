@@ -31,6 +31,7 @@ from mlox_subset.configurator import (
     customization_string_list,
     detect_data_quoting,
     format_data_line,
+    generate_customizations_toml,
     normalize_data_path,
     simulate_configurator_apply,
     toml_value,
@@ -357,6 +358,102 @@ def _configurator_observations(core, data_dir: Path) -> dict[str, str]:
         [toml_value(v) for v in ["plain", 'has "quotes"', "back\\slash", "", "C:\\path\\here"]]
     )
 
+    # The emitted customizations TOML itself. This is the artefact the whole
+    # Configurator path depends on, and until now nothing pinned it: the
+    # baseline covered `toml_value` and a *checked-in* TOML, so an emitter
+    # change could rewrite every user's file with the suite still green. The
+    # cases cover the shapes that decide the output: one custom, a consecutive
+    # run, a run split by a curated plugin, and a leading run with no
+    # predecessor to anchor after.
+    emit_cases = [
+        (["Morrowind.esm", "Mine.esp"], {"mine.esp"}),
+        (["Morrowind.esm", "A.esp", "B.esp", "C.esp"], {"a.esp", "b.esp", "c.esp"}),
+        (["A.esp", "Curated.esp", "B.esp"], {"a.esp", "b.esp"}),
+        (["Mine.esp", "Curated.esp"], {"mine.esp"}),
+        (["Only.esp"], {"only.esp"}),
+    ]
+    out["cfg.emit_customizations_toml"] = _digest(
+        [
+            generate_customizations_toml(
+                {}, order, subset, {n: n for n in order}, list_name="total-overhaul"
+            )
+            for order, subset in emit_cases
+        ]
+    )
+
+    # The data= half of the same artefact, which the content cases above never
+    # reach. It was unpinned entirely while the emitter wrote 372 chained
+    # inserts for a real user, so nothing here would have noticed. The cases
+    # cover a run before a frozen line, a run at the end (which anchors the
+    # other way), a run split by a frozen line, and -- the one that mattered --
+    # a frozen anchor whose path is a strict prefix of another frozen path,
+    # which is ambiguous under the Configurator's substring match and fatal.
+    _nested = "E:\\Mods\\overhaul\\UvirithsLegacy\\Data Files"
+    _frozen = "E:\\Mods\\overhaul\\PatchForPurists"
+
+    def _dt(path: str, is_new: bool) -> tuple[str, bool, str]:
+        """One data_result_tuple with the cfg's own quoting.
+
+        Args:
+            path: The data path.
+            is_new: Whether this run introduced it.
+
+        Returns:
+            The ``(line, is_new, value)`` triple the emitter consumes.
+        """
+        return (f'data="{path}"', is_new, path)
+
+    data_cases = [
+        [_dt("E:\\Mods\\custom\\A", True), _dt(_frozen, False)],
+        # A MULTI-entry run at the end, so it anchors "after" the frozen line.
+        # Deliberately more than one: a single-entry run is identical whether
+        # the emitter reverses it or not, so a one-element case cannot tell the
+        # two apart -- which is exactly how a reversal bug slipped past a
+        # negative control here once already.
+        [
+            _dt(_frozen, False),
+            _dt("E:\\Mods\\custom\\A", True),
+            _dt("E:\\Mods\\custom\\B", True),
+            _dt("E:\\Mods\\custom\\C", True),
+        ],
+        [
+            _dt("E:\\Mods\\custom\\A", True),
+            _dt("E:\\Mods\\custom\\B", True),
+            _dt(_frozen, False),
+            _dt("E:\\Mods\\custom\\C", True),
+        ],
+        [
+            _dt("E:\\Mods\\custom\\A", True),
+            _dt(_nested, False),
+            _dt(f"{_nested}\\Addons", False),
+        ],
+        # A run with a frozen line on BOTH sides -- the commonest real shape,
+        # and the only one that pins *which* neighbour the emitter prefers.
+        # Without it, swapping the preference changes the anchor written into
+        # every user's file and no test notices, because both anchors place the
+        # run in the same position.
+        [
+            _dt(_frozen, False),
+            _dt("E:\\Mods\\custom\\A", True),
+            _dt("E:\\Mods\\custom\\B", True),
+            _dt(_nested, False),
+        ],
+        [_dt("E:\\Mods\\custom\\A", True)],
+    ]
+    out["cfg.emit_customizations_toml_data"] = _digest(
+        [
+            generate_customizations_toml(
+                {},
+                ["Morrowind.esm"],
+                set(),
+                {"Morrowind.esm": "Morrowind.esm"},
+                list_name="total-overhaul",
+                data_result_tuples=tuples,
+            )
+            for tuples in data_cases
+        ]
+    )
+
     # The string-vs-array guard. A regression here silently deletes cfg lines,
     # so both the accepted and rejected shapes are pinned, with their errors.
     string_list_cases: list[object] = []
@@ -475,6 +572,8 @@ def test_baseline_exists(observations, request):
         "cfg.format_data_line",
         "cfg.detect_data_quoting",
         "cfg.toml_value",
+        "cfg.emit_customizations_toml",
+        "cfg.emit_customizations_toml_data",
         "cfg.customization_string_list",
         "cfg.configurator_remove_matches",
         "configurator.simulate_real",

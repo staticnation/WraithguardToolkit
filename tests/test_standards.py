@@ -463,9 +463,17 @@ def test_pep420_every_package_directory_is_explicit() -> None:
     -- until it is bundled by PyInstaller, which does not collect them the same
     way. The failure would appear only in the built binary, which is the worst
     place to find it.
+
+    Scoped to directories that actually hold Python. A *data* directory --
+    ``nif/assets/``, which carries the vendored three.js build and its licence
+    -- is not a package and cannot become an accidental namespace one, so
+    demanding an ``__init__.py`` there would be the rule outrunning its reason
+    and would put an empty module beside a JavaScript file to no purpose.
     """
     for directory in (PROJECT_ROOT / "mlox_subset").rglob("*"):
         if not directory.is_dir() or directory.name == "__pycache__":
+            continue
+        if not any(directory.glob("*.py")):
             continue
         assert (directory / "__init__.py").is_file(), f"{directory} has no __init__.py"
 
@@ -658,3 +666,102 @@ def test_gettext_marker_is_never_shadowed_by_unpacking() -> None:
         "these sites rebind `_`, which is the gettext marker in their module -- "
         f"use a named throwaway like `_rank` or `_coords` instead: {offenders}"
     )
+
+
+def test_no_live_module_imports_the_retired_viz_subsystem() -> None:
+    """The explorer/cell-page/sidecar subsystem must stay unreferenced.
+
+    The Conflicts window builds the standalone conflict map directly, so the
+    explorer and everything that fed it (cell pages, sidecars, shared assets,
+    the mtime cache, the world-3D collectors) has no live caller -- see
+    ``CODE_REVIEW.md`` §28. They are listed for deletion; until then this guards
+    against something quietly importing them again, which would resurrect the
+    freeze the direct map was written to avoid.
+    """
+    retired = {
+        "explorer",
+        "explorer_js",
+        "cellpage",
+        "sidecar",
+        "assets",
+        "cache",
+        "draw_js",
+        "detail",
+    }
+    offenders: dict[str, set[str]] = {}
+    for path in PROJECT_ROOT.rglob("*.py"):
+        if any(part in {"build", ".git"} or part.endswith(".egg-info") for part in path.parts):
+            continue
+        if path.stem in retired or path.name == "test_standards.py":
+            continue  # the retired files may reference each other; this file names them
+        source = path.read_text(encoding="utf-8", errors="ignore")
+        hits = {
+            name for name in retired if f"viz.{name}" in source or f"viz import {name}" in source
+        }
+        if hits:
+            offenders[str(path.relative_to(PROJECT_ROOT))] = hits
+    assert not offenders, f"retired viz modules imported again: {offenders}"
+
+
+def _dark_palette_keys() -> set[str]:
+    """Read the GUI palette's key names without importing Tk.
+
+    ``mlox_subset/gui/theme.py`` imports :mod:`tkinter` at module level and the
+    hermetic suite has no Tk, so the dict literal is parsed out of the source
+    instead.
+
+    Returns:
+        Every key defined in ``DARK``.
+
+    Raises:
+        AssertionError: If the palette could not be found, since an empty set
+            would make the check that uses it pass vacuously.
+    """
+    tree = _parse(PROJECT_ROOT / "mlox_subset/gui/theme.py")
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        names = {t.id for t in node.targets if isinstance(t, ast.Name)}
+        if "DARK" in names and isinstance(node.value, ast.Dict):
+            return {
+                key.value
+                for key in node.value.keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            }
+    message = "DARK palette not found in mlox_subset/gui/theme.py"
+    raise AssertionError(message)
+
+
+def test_gui_palette_lookups_all_resolve() -> None:
+    """Every ``DARK["..."]`` in the GUI must name a key that exists.
+
+    This is the cheapest possible guard against a whole class of GUI defect the
+    test suite cannot otherwise reach: the GUI has no automated coverage (no Tk
+    in the hermetic environment), so a mistyped palette key is a ``KeyError``
+    that only appears when a user opens that particular window.
+
+    It was written after exactly that -- ``DARK["entry_bg"]`` (the key is
+    ``log_bg``) in the format-reference window. The lookup ran *after* the
+    ``Toplevel`` was created, so the window opened, stayed blank, and the
+    traceback went to stderr where nobody was looking. A blank window is a
+    miserable thing to debug; a failing test naming the key is not.
+    """
+    palette = _dark_palette_keys()
+    assert palette, "no palette keys parsed"
+    offenders: dict[str, set[str]] = {}
+    for path in SOURCE_FILES:
+        if path.name == "test_standards.py":
+            continue  # this file names the bad key in its own docstring
+        used = {
+            node.slice.value
+            for node in ast.walk(_parse(path))
+            if isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "DARK"
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+        }
+        missing = used - palette
+        if missing:
+            offenders[str(path.relative_to(PROJECT_ROOT))] = missing
+    assert not offenders, f"DARK keys that do not exist: {offenders}"

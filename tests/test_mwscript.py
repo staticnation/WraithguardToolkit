@@ -28,7 +28,7 @@ from mlox_subset.mwscript import (
     read_script_records,
     variables_text_for_field,
 )
-from mlox_subset.mwscript.opcodes import BY_NAME, FUNCTIONS, INTERNAL
+from mlox_subset.mwscript.opcodes import BY_NAME, EXTENDED, FUNCTIONS, INTERNAL
 from mlox_subset.mwscript.tes3conv import ZSTD_MAGIC
 
 
@@ -61,6 +61,37 @@ class TestOpcodeTable:
     def test_name_lookup_matches_the_forward_table(self):
         for opcode, (name, _params) in FUNCTIONS.items():
             assert BY_NAME[name.lower()] == opcode
+
+    def test_mwse_functions_are_in_the_table(self):
+        """customfunctions.dat contributes the MWSE / MW-Enhanced opcodes.
+
+        Without them an MWSE-scripted mod disassembles as raw bytes, which is
+        exactly the case the bytecode view exists for.
+        """
+        assert len(EXTENDED) > 300
+        assert set(FUNCTIONS) >= EXTENDED
+        assert BY_NAME["xgetref"] in FUNCTIONS
+
+    def test_xfilewritefloat_takes_its_filename(self):
+        """MWEdit's table omits the filename operand; two sources say otherwise.
+
+        customfunctions.dat lists two parameters and UESP documents the syntax
+        as ``xFileWriteFloat filename (string), value (float)``. Its three
+        siblings all take the filename first. Left uncorrected, every call
+        decodes one operand short and desynchronises the rest of the stream --
+        so this is pinned rather than left to whichever table is read last.
+        """
+        assert FUNCTIONS[0x3C33] == ("XFileWriteFloat", (0x10, 0x8))
+
+    def test_the_file_write_family_agrees_with_itself(self):
+        """The asymmetry that gave the omission away is now absent.
+
+        Every ``XFileWrite*`` takes a string filename, then its value.
+        """
+        for name in ("xfilewriteshort", "xfilewritelong", "xfilewritefloat"):
+            _label, params = FUNCTIONS[BY_NAME[name]]
+            assert params[0] == 0x10, name
+            assert len(params) == 2, name
 
     def test_else_and_endif_are_not_function_opcodes(self):
         """Guards against a widely-circulated but fabricated table that

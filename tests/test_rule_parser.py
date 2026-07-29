@@ -8,12 +8,15 @@ silently destroyed.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from mlox_subset.plugins import PluginFileIndex
 from mlox_subset.rules import check_predicates, load_rule_blocks, parse_mlox_file
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def parse(text: str, tmp_path: Path, *, bom: bool = False):
@@ -190,3 +193,62 @@ class TestSizeAndDescAgainstMissingPlugins:
         assert self._predicates()._eval_size("", size, "Foo.esp", {"foo.esp"}, index) is True
         assert self._predicates()._eval_size("", size + 1, "Foo.esp", {"foo.esp"}, index) is False
         assert self._predicates()._eval_size("!", size + 1, "Foo.esp", {"foo.esp"}, index) is True
+
+
+class TestPatchRulesAreEvaluated:
+    """[Patch] was parsed and then skipped, so 267 rules did nothing.
+
+    The evaluator handled Conflict, Requires and Note. ``mlox_base.txt`` carries
+    267 ``[Patch]`` rules and ``mlox_user.txt`` another 32, and none of them
+    could produce a warning -- found while building the rule maker, because the
+    rule it had just written never fired.
+
+    The guidelines define a Patch as a *mutual* dependency, and say both halves
+    out loud: "we wouldn't want the patch without the original it is supposed to
+    patch", and "we wouldn't want the original to go unpatched". So it fires in
+    two directions, and which one fired matters -- the fixes are opposite.
+    """
+
+    RULE = (
+        "[Patch]\n"
+        " glue-patch.esp makes X and Y compatible\n"
+        " (Ref: the patch readme)\n"
+        "glue-patch.esp\n"
+        "[ALL X.esp Y.esp]\n"
+    )
+
+    def test_a_patch_without_its_original_warns(self):
+        """You installed a patch for something you do not have."""
+        warnings = check_predicates(self.RULE, ["glue-patch.esp"])
+
+        assert len(warnings) == 1
+        assert "But not what it patches" in warnings[0]
+
+    def test_an_unpatched_original_warns(self):
+        """Something you have has a patch you are missing."""
+        warnings = check_predicates(self.RULE, ["X.esp", "Y.esp"])
+
+        assert len(warnings) == 1
+        assert "Missing patch" in warnings[0]
+
+    def test_both_present_is_silent(self):
+        """The state the rule exists to get you into."""
+        assert check_predicates(self.RULE, ["glue-patch.esp", "X.esp", "Y.esp"]) == []
+
+    def test_neither_present_is_silent(self):
+        """Not your mod, not your problem."""
+        assert check_predicates(self.RULE, ["Something Else.esp"]) == []
+
+    def test_a_partially_present_original_counts_as_unpatched(self):
+        """The glue patch needs both halves; one is not enough to be patched."""
+        warnings = check_predicates(self.RULE, ["glue-patch.esp", "X.esp"])
+
+        assert len(warnings) == 1
+        assert "But not what it patches" in warnings[0]
+
+    def test_the_message_and_citation_survive(self):
+        """A warning nobody can act on is barely a warning."""
+        warnings = check_predicates(self.RULE, ["glue-patch.esp"])
+
+        assert "glue-patch.esp makes X and Y compatible" in warnings[0]
+        assert "(Ref: the patch readme)" in warnings[0]
