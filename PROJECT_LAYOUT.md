@@ -18,10 +18,23 @@ MLOXSubsetSort/
 │   │                          Makes the diff window's bytecode legible.
 │   ├── tes3fields/            Decodes binary LAND / PGRD fields for the diff
 │   │                          window (heights, normals, colours, textures,
-│   │                          world map, path-grid edges).
-│   ├── viz/                   Conflict visualisations as self-contained HTML:
-│   │                          world conflict map, terrain height deltas,
-│   │                          path-grid graphs, 3D surface. No Tk, no CDN.
+│   │                          world map, path-grid edges), plus the generated
+│   │                          TES3 record schema that says what each field is.
+│   ├── viz/                   Maps and visualisations as self-contained HTML:
+│   │                          cell coverage map, conflict map, terrain height
+│   │                          deltas, path-grid graphs, 3D surface, colour
+│   │                          ramps, generated-page cleanup, and the Markdown
+│   │                          renderer behind in-app Help. No Tk, no CDN.
+│   ├── images/                Every texture format the game and its mods use,
+│   │                          decoded without a dependency: DDS (BC1-BC5, BC7,
+│   │                          uncompressed, DX10 header), Targa, bitmap, and a
+│   │                          zlib-only PNG writer. Picks the decoder by
+│   │                          inspecting the bytes, because Morrowind's file
+│   │                          extensions are genuinely unreliable. Also
+│   │                          classifies a texture's *role* (diffuse, normal,
+│   │                          glow, specular...) across the vanilla NIF slots,
+│   │                          OpenMW's name suffixes and OSG unit names, so a
+│   │                          normal map is never compared against a photo.
 │   ├── rules/                 mlox rule handling: patterns, parser,
 │   │                          expression front-end.
 │   ├── configurator/          openmw.cfg: read, simulate, emit TOML.
@@ -31,18 +44,42 @@ MLOXSubsetSort/
 │   ├── sort/                  Load-order sort: graph primitives + engine.
 │   ├── tracing.py             Crash-survival trace logs (main + sort).
 │   └── versions.py            Version regex + mlox's canonical form.
+├── wasm/                      A bridge from Greatness7's `tes3` NIF reader to
+│                               the 3D viewer, so the page can parse a mesh
+│                               itself instead of being sent packed geometry.
+│                               **Written, never compiled** — see its README.
+│                               Needs a Rust toolchain, which nothing else here
+│                               does, and is not part of the Python build.
 ├── tools/                     Developer scripts (not shipped).
 │   ├── check_placeholders.py  Verifies %(key)s placeholders match their dicts.
 │   ├── check_undefined.py     Finds names a module uses but never imports.
-│   ├── gen_opcodes.py         Regenerates the opcode table from MWEdit.
+│   ├── check_bc7.py           Compares the BC7 decoder against an independent
+│   │                          one across all 8 modes and all 64 partitions.
+│   ├── check_images.py        The same for every other texture format, plus
+│   │                          real corpus files. Needs Pillow, which is an
+│   │                          oracle here and not a dependency.
+│   ├── check_bsa.py           Validates the BSA reader against a shipped
+│   │                          archive: every extracted file must start with
+│   │                          the magic its extension implies.
+│   ├── check_nif_layouts.py   Runs the NIF reader over a corpus and buckets
+│   │                          what it could not parse, and why.
+│   ├── check_textures.py      Traces a texture from a mesh's reference to the
+│   │                          pixels the viewer shows, naming the step it
+│   │                          stopped at. For "why is this mesh untextured".
+│   ├── gen_opcodes.py         Regenerates the opcode table from MWEdit and
+│   │                          MWSE's customfunctions.dat.
+│   ├── gen_tes3_schema.py     Regenerates the TES3 record schema from the
+│   │                          UESP format-page export.
 │   └── make_pot.py            Extracts _() strings into the .pot template.
-├── tests/                     pytest suite (984 tests, no network, headless).
+├── tests/                     pytest suite (1,273 tests: 1,271 hermetic + a Tk
+│                               smoke set that runs under xvfb in CI).
 ├── testdata/                  Copies of a real setup, used by the tests.
 ├── locale/                    mlox_subset_sort.pot (English template),
 │                               translator guide, .mo catalogues.
 ├── art/                       Icons, banner, Nexus description.
 ├── build/                     PyInstaller / auto-py-to-exe configuration.
-├── License/                   Licences of the projects this tool ports from.
+├── License/                   This project's own MIT licence (`LICENSE`), plus
+│                               the licences of the projects it ports from.
 ├── pyproject.toml             ruff / black / pytest / mypy configuration.
 ├── theme_template.json        Commented starting point for a custom GUI theme.
 └── *.md                       README, QUICKSTART, CHANGELOG, CREDITS,
@@ -68,7 +105,7 @@ feature and degrade gracefully when missing.
 ## Testing
 
 ```bash
-python -m pytest                # whole suite (984 tests)
+python -m pytest                # whole suite (1,273 tests)
 python -m ruff check .          # lint (PEP 8 incl. naming + import order)
 python -m mypy                  # types (PEP 484) -- gates every shipped file
 python -m black --check .       # formatting
@@ -98,6 +135,15 @@ essentials:
 * icon: `mlox_subset_sort_icon.ico` (the copy in the project root; `art/` holds
   an identical one for reference)
 * `--clean` on, so PyInstaller does not reuse a cached analysis
+
+**One data file does need adding: the 3D viewer library.** PyInstaller follows
+imports, not data, so `mlox_subset/nif/assets/` is not collected automatically.
+Add it with `--add-data "mlox_subset/nif/assets;mlox_subset/nif/assets"` (or
+`--collect-data mlox_subset`). Without it the app runs normally and the **View
+in 3D** button reports that the library was not shipped — deliberately a clear
+message rather than a blank window, since a missing data file and a broken
+viewer look identical otherwise. `mlox_subset/nif/viewer.py` looks in
+`sys._MEIPASS` first, exactly as the help documents do.
 
 **You do not need to add `mlox_subset/` or `locale/` by hand.** PyInstaller
 follows the import graph, so the package is collected automatically; the only

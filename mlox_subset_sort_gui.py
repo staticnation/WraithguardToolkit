@@ -50,7 +50,6 @@ rather than shelling out, so results, exceptions, etc. all stay in-process).
 # only imported for type checking, and no annotation costs import time.
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import queue
@@ -60,10 +59,13 @@ import threading
 import traceback
 import types
 import webbrowser
-from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import redirect_stderr, redirect_stdout
+from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection, Mapping, Sequence
 
 # Compiled-script disassembly for the field-diff window. Optional: if the
 # package is missing the diff view still works, it just shows the raw base64
@@ -88,6 +90,7 @@ except ImportError:
         "On Debian/Ubuntu: sudo apt install python3-tk\n"
         "On Windows/Mac's python.org installers, tkinter is included by default."
     )
+
 
 # Inline HTML rendering for the cell map is optional. tkinterweb is PREFERRED --
 # its HtmlFrame.load_file reads the map from disk (bounded memory) and renders the
@@ -156,10 +159,13 @@ from mlox_subset.configurator import (  # noqa: E402
 # Imported after the sys.path fix-up, like the gettext marker above.
 # ---------------------------------------------------------------------------
 from mlox_subset.gui import (  # noqa: E402
-    DND_FILES,
     HAVE_DND,
+    HELP_DOCUMENTS,
     TkinterDnD,
     app_base_dir,
+    dnd_ready,
+    doc_path,
+    register_drop_target,
     trace_first_fire,
 )
 from mlox_subset.gui.conflicts import ConflictWindowsMixin  # noqa: E402
@@ -171,6 +177,7 @@ from mlox_subset.gui.theme import (  # noqa: E402
     _mix_hex,
     _normalize_hex,
     apply_dark_theme,
+    apply_titlebar_theme,
     parse_theme_file,
     restyle_widget_tree,
     set_active_chrome,
@@ -191,29 +198,24 @@ from mlox_subset.net import (  # noqa: E402
     update_rule_files,
 )
 from mlox_subset.plugins import PluginFileIndex  # noqa: E402
-from mlox_subset.rules import ORDER_NAME_RE  # noqa: E402
+from mlox_subset.rules import authoring  # noqa: E402
 
-# The conflict explorer, built beside the cell map. Optional like every other
-# extra: without it the cell map renders exactly as it always has.
-build_cell_pages: Callable[..., dict] | None
-build_explorer: Callable[..., str] | None
-collect_detail: Callable[..., dict] | None
-collect_world_terrain: Callable[..., dict] | None
+# The cell map is coverage only and needs nothing from viz/'s page builders:
+# the conflict views are built by the Conflicts window (see
+# mlox_subset/gui/conflicts.py), which imports the four it uses directly.
+# Housekeeping and the documentation renderer are the two exceptions -- pruning
+# generated pages and showing the shipped help are both app-level concerns, so
+# they live here. Optional like every other extra: without them the tidy-up is
+# skipped and the Help button reports that it has nothing to show.
 try:
-    from mlox_subset.viz import (
-        build_explorer,
-        collect_detail,
-        collect_world_terrain,
-        sidecar as viz_sidecar,
-    )
+    from mlox_subset.viz import docs as viz_docs, housekeeping as viz_housekeeping
 except ImportError:  # pragma: no cover - only when viz/ is absent
-    build_cell_pages = None
-    build_explorer = None
-    collect_detail = None
-    collect_world_terrain = None
-    viz_assets = None
-    viz_sidecar = None  # type: ignore[assignment]
+    viz_docs = None  # type: ignore[assignment]
+    viz_housekeeping = None  # type: ignore[assignment]
 from mlox_subset.tracing import set_trace_file, trace  # noqa: E402
+
+if TYPE_CHECKING:
+    import argparse
 
 
 def _app_version() -> str:
@@ -366,9 +368,7 @@ class RuleFilesPanel:
                 ),
             )
 
-        if HAVE_DND:
-            # tkinterdnd2 adds these to the widget at runtime.
-            self.listbox.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
+        if register_drop_target(self.listbox):
             self.listbox.dnd_bind("<<Drop>>", self._on_drop)  # type: ignore[attr-defined]
         else:
             ttk.Label(
@@ -768,6 +768,62 @@ class DataPathOrderPanel(ReorderPanel):
 # ---------------------------------------------------------------------------
 
 
+#: Marker for an ``[ANY ...]`` group in the rule maker's plugin list. A list
+#: entry is either a plugin filename or one of these; nothing else is a valid
+#: entry, so the prefix doubles as the discriminator when the rule is built.
+RM_ANY_PREFIX = "ANY: "
+
+#: One line per rule, in the guidelines' own terms. Shown under the picker so
+#: choosing a rule type does not require having read the guidelines first.
+RULE_KIND_HELP: dict[str, str] = {
+    "Order": "These plugins load in this order, first one first. The rule most "
+    "people need, and the one the guidelines steer you towards.",
+    "NearStart": "Pull each plugin toward the START of the load order. "
+    "Discouraged -- prefer [Order] to place plugins against each other.",
+    "NearEnd": "Pull each plugin toward the END. Also discouraged, and it means "
+    "'closer to the end where possible', not 'last'.",
+    "Note": "Print a message when the listed expressions are all true. The "
+    "general-purpose rule.",
+    "Requires": "The first plugin needs the second to be present. Warns, in red, "
+    "when it is not.",
+    "Conflict": "Warns, in yellow, when any two of the listed plugins are active " "at once.",
+    "Patch": "A mutual dependency: the patch is pointless without what it "
+    "patches, and what it patches wants the patch. Warns both ways.",
+}
+
+
+def _action_button(
+    bar: tk.Misc,
+    text: str,
+    cmd: Callable[[], None],
+    tip: str,
+    state: str = "normal",
+    pad: tuple[int, int] = (0, 6),
+) -> ttk.Button:
+    """Pack one left-aligned action button with its tooltip.
+
+    Module-level rather than a closure inside the action bar: two row builders
+    now share it, and a helper that has to be passed between them is a helper
+    that belongs outside both.
+
+    Args:
+        bar: The row frame to pack into.
+        text: The button label.
+        cmd: The callback.
+        tip: Hover text explaining what the button does and what it touches.
+        state: ``"normal"`` or ``"disabled"``; the scans start disabled until a
+            Sort has produced a plugin list for them to read.
+        pad: Horizontal padding, used to group related buttons visually.
+
+    Returns:
+        The button, so the caller can keep a handle for enabling it later.
+    """
+    button = ttk.Button(bar, text=text, command=cmd, state=state)
+    button.pack(side="left", padx=pad)
+    add_tooltip(button, tip)
+    return button
+
+
 class App(Tes3cmdMixin, ConflictWindowsMixin):
     """The main application window."""
 
@@ -794,7 +850,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         """Build the whole application UI on ``root``."""
         self.root = root
         root.title("MLOX Subset Sort")
-        root.geometry("1320x820")
+        root.geometry("1320x900")
         root.minsize(1000, 620)
 
         self.log_queue = queue.Queue()
@@ -905,6 +961,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "plugin_order_yml": self.plugin_order_yml_var.get(),
             "tes3conv": self._tes3conv_override or "",
             "exclude": self.exclude_var.get(),
+            "groundcover": self.groundcover_var.get(),
             "tes3cmd": self._tes3cmd_override or "",
             "plugin_order_url": self.plugin_order_url_var.get(),
             "rules_url_template": self.rules_url_var.get(),
@@ -917,6 +974,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "no_predicate_warnings": self.no_predicate_warnings_var.get(),
             "create_subset_doc": self.create_subset_doc_var.get(),
             "keep_json": self.keep_json_var.get(),
+            "cleanup_html": self.cleanup_html_var.get(),
             "log_theme": self.log_theme_var.get(),
         }
 
@@ -935,6 +993,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "list_name": self.list_name_var,
             "plugin_order_yml": self.plugin_order_yml_var,
             "exclude": self.exclude_var,
+            "groundcover": self.groundcover_var,
             "plugin_order_url": self.plugin_order_url_var,
             "rules_url_template": self.rules_url_var,
         }
@@ -950,6 +1009,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             ("no_predicate_warnings", self.no_predicate_warnings_var),
             ("create_subset_doc", self.create_subset_doc_var),
             ("keep_json", self.keep_json_var),
+            ("cleanup_html", self.cleanup_html_var),
         ):
             if isinstance(d.get(k), bool):
                 bvar.set(d[k])
@@ -985,7 +1045,30 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             except Exception:  # noqa: BLE001
                 # close path: an escape here would stop the window being destroyed
                 pass
+        self._tidy_generated_views()
         self.root.destroy()
+
+    def _tidy_generated_views(self) -> None:
+        """Prune old generated HTML views, unless the user opted out.
+
+        Runs on exit rather than per-generation so a session's pages stay
+        available for comparison while the app is open. Only files this tool
+        wrote (a known stem plus a timestamp) are candidates, never anything
+        saved under a name the user chose.
+
+        Failures are swallowed: this is on the close path, and an exception
+        here would leave the window undestroyed -- a tidy-up that prevents the
+        app from closing is far worse than an untidy folder.
+        """
+        if viz_housekeeping is None or not self.cleanup_html_var.get():
+            return
+        try:
+            removed = viz_housekeeping.prune_generated(app_base_dir())
+            summary = viz_housekeeping.describe(removed)
+            if summary:
+                trace(f"housekeeping: {summary}")
+        except Exception:  # noqa: BLE001 - see above; never block the close
+            trace("housekeeping: prune FAILED:\n" + traceback.format_exc())
 
     # -- layout ------------------------------------------------------------
 
@@ -1131,30 +1214,82 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         self._attach_hamburger_grip(right_pane, "vertical")
 
     def _build_controls(self, top: tk.Misc) -> None:
+        """Build the input, option and action area that sits above the log.
+
+        One builder per panel rather than one flat list. This was 413 lines of
+        sequential widget construction, which is exactly the shape of code that
+        makes a one-line change -- adding a button, moving a checkbox -- a nervous
+        edit in the middle of a wall of text.
+
+        Row numbers are still assigned here, in one place, so the vertical order
+        of the panels stays readable at a glance.
+
+        Args:
+            top: The container frame.
+        """
         top.columnconfigure(1, weight=1)
+        start_row = self._build_dnd_note(top)
 
-        if not HAVE_DND:
-            note = ttk.Label(
-                top,
-                foreground=DARK["fg_dim"],
-                text=_(
-                    "Drag & drop is disabled (tkinterdnd2 not installed) -- use the Browse buttons below."
-                ),
-            )
-            note.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
-            start_row = 1
-        else:
-            start_row = 0
-
-        self.cfg_var = tk.StringVar()
+        # Both are settings-backed URLs with no field of their own: the rules URL
+        # is read by the rule-files panel below, the plugin-order URL by the
+        # updater. They live here because this is where the settings loop finds
+        # them.
         self.plugin_order_url_var = tk.StringVar()  # blank = built-in candidates
         self.rules_url_var = tk.StringVar()  # blank = built-in template
+
+        self._build_input_fields(top, start_row)  # rows 0-2
+        self._build_output_fields(top, start_row + 3)  # rows 3-6
+        self.rules_panel = RuleFilesPanel(
+            top,
+            start_row + 7,
+            on_new_rule=self.on_rule_maker,
+            on_sources=self.on_sources,
+            get_rules_url=lambda: self.rules_url_var.get().strip(),
+        )
+        self._build_options_panel(top, start_row + 8)
+        self._build_action_bar(top, start_row + 9)
+
+    def _build_dnd_note(self, top: tk.Misc) -> int:
+        """Explain the missing drag-and-drop when it is not available.
+
+        Asks whether drops will actually *work*, not whether the Python package
+        imported: those differ when the tkdnd Tcl side is missing, and the
+        banner has to describe the window the user is looking at.
+
+        Args:
+            top: The container frame.
+
+        Returns:
+            The row the first real control should occupy -- one lower when the
+            note is shown, so every panel below shifts with it.
+        """
+        if dnd_ready(top):
+            return 0
+        note = ttk.Label(
+            top,
+            foreground=DARK["fg_dim"],
+            # Not "tkinterdnd2 not installed": it may well be installed, with
+            # its tkdnd Tcl library missing or unloadable. Saying so sends
+            # people to reinstall a package they already have.
+            text=_(
+                "Drag & drop is unavailable (tkinterdnd2 or its tkdnd library "
+                "is missing) -- use the Browse buttons below."
+            ),
+        )
+        note.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        return 1
+
+    def _build_input_fields(self, top: tk.Misc, start_row: int) -> None:
+        """Build the three fields naming what to read.
+
+        Args:
+            top: The container frame.
+            start_row: The first row this panel occupies. It uses three
+                consecutive rows from there.
+        """
+        self.cfg_var = tk.StringVar()
         self.customizations_var = tk.StringVar()
         self.subset_file_var = tk.StringVar()
-        self.emit_toml_var = tk.StringVar()
-        self.write_toml_inplace_var = tk.BooleanVar(value=False)
-        self.list_name_var = tk.StringVar()
-        self.plugin_order_yml_var = tk.StringVar()
 
         PathField(
             top,
@@ -1201,10 +1336,24 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 "for this session is set by the 'Create subset text document' option.",
             ),
         )
+
+    def _build_output_fields(self, top: tk.Misc, start_row: int) -> None:
+        """Build the fields naming what to write, and how.
+
+        Args:
+            top: The container frame.
+            start_row: The first row this panel occupies. It uses four
+                consecutive rows from there.
+        """
+        self.emit_toml_var = tk.StringVar()
+        self.list_name_var = tk.StringVar()
+        self.plugin_order_yml_var = tk.StringVar()
+        self.write_toml_inplace_var = tk.BooleanVar(value=False)
+
         self.emit_toml_field = PathField(
             top,
             "emit corrected TOML to:",
-            start_row + 3,
+            start_row,
             self.emit_toml_var,
             browse_kind="save",
             filetypes=(("TOML files", "*.toml"), ("All files", "*.*")),
@@ -1220,9 +1369,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         # from a subset file alone it would otherwise fall back to the useless
         # placeholder "generated", so setting this is recommended in that case.
         list_name_label = ttk.Label(top, text=_("list name (optional):"))
-        list_name_label.grid(row=start_row + 4, column=0, sticky="w", padx=(0, 8), pady=4)
+        list_name_label.grid(row=start_row + 1, column=0, sticky="w", padx=(0, 8), pady=4)
         list_name_entry = ttk.Entry(top, textvariable=self.list_name_var)
-        list_name_entry.grid(row=start_row + 4, column=1, sticky="ew", pady=4)
+        list_name_entry.grid(row=start_row + 1, column=1, sticky="ew", pady=4)
         list_name_tip = (
             "The momw-configurator listName written into the emitted "
             "momw-customizations.toml, e.g. 'total-overhaul' -- the curated mod list "
@@ -1237,7 +1386,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         PathField(
             top,
             "plugin-order.yml (optional):",
-            start_row + 5,
+            start_row + 2,
             self.plugin_order_yml_var,
             filetypes=(("YAML files", "*.yml *.yaml"), ("All files", "*.*")),
             tooltip=_(
@@ -1268,7 +1417,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             variable=self.write_toml_inplace_var,
             command=self._on_toggle_inplace,
         )
-        inplace_chk.grid(row=start_row + 6, column=0, columnspan=3, sticky="w", pady=(0, 4))
+        inplace_chk.grid(row=start_row + 3, column=0, columnspan=3, sticky="w", pady=(0, 4))
         add_tooltip(
             inplace_chk,
             _(
@@ -1278,20 +1427,26 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             ),
         )
 
-        self.rules_panel = RuleFilesPanel(
-            top,
-            start_row + 7,
-            on_new_rule=self.on_rule_maker,
-            on_sources=self.on_sources,
-            get_rules_url=lambda: self.rules_url_var.get().strip(),
-        )
+    def _build_options_panel(self, top: tk.Misc, row: int) -> None:
+        """Build the Options group box.
 
-        # options
+        Args:
+            top: The container frame.
+            row: The row the group box occupies.
+        """
         opts = ttk.LabelFrame(top, text=_("Options"))
-        opts.grid(row=start_row + 8, column=0, columnspan=3, sticky="ew", pady=(8, 4))
+        opts.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(8, 4))
         for i in range(3):
             opts.columnconfigure(i, weight=1)
+        self._build_write_options(opts)
+        self._build_scan_options(opts)
 
+    def _build_write_options(self, opts: tk.Misc) -> None:
+        """Build the toggles governing what a run is allowed to write.
+
+        Args:
+            opts: The Options group box.
+        """
         self.write_cfg_var = tk.BooleanVar(value=False)
         self.sort_data_paths_var = tk.BooleanVar(value=False)
         self.no_backup_var = tk.BooleanVar(value=False)
@@ -1299,7 +1454,14 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         self.dry_run_var = tk.BooleanVar(value=True)
         self.create_subset_doc_var = tk.BooleanVar(value=True)
         self.exclude_var = tk.StringVar()
+        #: Comma-separated plugin names to declare as grass. Empty for the
+        #: common case: the cfg's own groundcover= lines need no help.
+        self.groundcover_var = tk.StringVar()
         self.keep_json_var = tk.BooleanVar(value=False)
+        #: Prune old generated HTML views on exit. On by default: the pages
+        #: are timestamped so they accumulate, and a megabyte-per-map folder
+        #: gets unusable quickly. Unchecking it means nothing is ever deleted.
+        self.cleanup_html_var = tk.BooleanVar(value=True)
 
         dry_chk = ttk.Checkbutton(
             opts, text=_("Dry run (preview only, don't write files)"), variable=self.dry_run_var
@@ -1373,7 +1535,22 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             variable=self.create_subset_doc_var,
         )
         create_doc_chk.grid(row=1, column=2, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            create_doc_chk,
+            _(
+                "Controls what 'Scan...' does with its result. Checked: write the scanned list "
+                "to a .txt subset file you choose, and load it (the file stays on disk for reuse). "
+                "Unchecked: keep the scanned list in memory just for this session and feed it "
+                "straight to the sort -- nothing is written to disk."
+            ),
+        )
 
+    def _build_scan_options(self, opts: tk.Misc) -> None:
+        """Build the options governing the read-only scans and their leftovers.
+
+        Args:
+            opts: The Options group box.
+        """
         excl_lbl = ttk.Label(opts, text=_("Exclude from conflict / cell scans:"))
         excl_lbl.grid(row=2, column=0, sticky="w", padx=8, pady=4)
         excl_entry = ttk.Entry(opts, textvariable=self.exclude_var)
@@ -1386,13 +1563,50 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         )
         add_tooltip(excl_lbl, excl_tip)
         add_tooltip(excl_entry, excl_tip)
+        gc_lbl = ttk.Label(opts, text=_("Declare as groundcover:"))
+        gc_lbl.grid(row=4, column=0, sticky="w", padx=8, pady=4)
+        gc_entry = ttk.Entry(opts, textvariable=self.groundcover_var)
+        gc_entry.grid(row=4, column=1, columnspan=2, sticky="ew", padx=8, pady=4)
+        gc_tip = (
+            "Comma-separated plugin filenames to treat as GRASS, e.g. "
+            "'Vurt_Grass.esp, Remiros_Groundcover.esp'.\n\n"
+            "Grass belongs on a groundcover= line, never content=: loading a grass "
+            "plugin as content spawns every blade as a real object. Plugins your "
+            "openmw.cfg already declares as groundcover are handled automatically -- "
+            "this is for one you have only just installed, which isn't declared "
+            "anywhere yet.\n\n"
+            "Their data= folders are still added normally, because OpenMW has to be "
+            "able to find the file."
+        )
+        add_tooltip(gc_lbl, gc_tip)
+        add_tooltip(gc_entry, gc_tip)
+
         keep_json_chk = ttk.Checkbutton(
             opts,
             text=_("Keep tes3conv JSON dump"),
             variable=self.keep_json_var,
             command=self._on_keep_json_toggle,
         )
-        keep_json_chk.grid(row=3, column=1, columnspan=2, sticky="w", padx=8, pady=4)
+        keep_json_chk.grid(row=3, column=1, sticky="w", padx=8, pady=4)
+        cleanup_chk = ttk.Checkbutton(
+            opts,
+            text=_("Tidy old HTML views"),
+            variable=self.cleanup_html_var,
+        )
+        cleanup_chk.grid(row=3, column=2, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            cleanup_chk,
+            _(
+                "Every conflict map, terrain view and path grid is written to its own "
+                "timestamped file so you can compare two of them side by side -- which "
+                "means they pile up, and one map can be several megabytes.\n\n"
+                "Checked: on exit, the newest 3 of each kind are kept and older ones "
+                "removed (with their data folders). Only files this tool generated are "
+                "ever touched -- never anything you saved yourself with a name of your "
+                "own choosing.\n\n"
+                "Unchecked: nothing is ever deleted."
+            ),
+        )
         add_tooltip(
             keep_json_chk,
             _(
@@ -1404,43 +1618,40 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 "too); unchecked = delete it when you close the app."
             ),
         )
-        add_tooltip(
-            create_doc_chk,
-            _(
-                "Controls what 'Scan...' does with its result. Checked: write the scanned list "
-                "to a .txt subset file you choose, and load it (the file stays on disk for reuse). "
-                "Unchecked: keep the scanned list in memory just for this session and feed it "
-                "straight to the sort -- nothing is written to disk."
-            ),
-        )
 
-        # action area: Sort computes the plan (never writes anything) and
-        # populates the order panels on the left; Export writes using whatever
-        # order those panels are currently showing. Two compact rows of
-        # left-aligned buttons -- primary + read-only analysis on top, tools
-        # below -- with the status label trailing on the first row.
+    def _build_action_bar(self, top: tk.Misc, row: int) -> None:
+        """Build the two rows of buttons under the options.
+
+        Sort computes the plan (and never writes anything); Export writes using
+        whatever order the panels on the left are currently showing. Primary and
+        read-only analysis actions go on the first row with the status label
+        trailing, tools on the second.
+
+        Args:
+            top: The container frame.
+            row: The row the action area occupies.
+        """
         action_area = ttk.Frame(top)
-        action_area.grid(row=start_row + 9, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        action_area.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
         row1 = ttk.Frame(action_area)
         row1.pack(fill="x")
         row2 = ttk.Frame(action_area)
         row2.pack(fill="x", pady=(4, 0))
+        self._build_primary_actions(row1)
+        self._build_tool_actions(row2)
 
-        def _btn(
-            bar: tk.Misc,
-            text: str,
-            cmd: Callable[[], None],
-            tip: str,
-            state: str = "normal",
-            pad: tuple[int, int] = (0, 6),
-        ) -> ttk.Button:
-            b = ttk.Button(bar, text=text, command=cmd, state=state)
-            b.pack(side="left", padx=pad)
-            add_tooltip(b, tip)
-            return b
+    def _build_primary_actions(self, row1: tk.Misc) -> None:
+        """Build the first button row: the run itself, plus the read-only scans.
 
-        self.sort_button = _btn(
+        Everything after Export starts disabled: they all need a sorted, enabled
+        plugin list to work from, and offering them before a Sort has run would
+        only produce a confusing empty result.
+
+        Args:
+            row1: The frame holding the first row.
+        """
+        self.sort_button = _action_button(
             row1,
             "1. Sort",
             self.on_sort,
@@ -1448,7 +1659,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "any files -- this is always safe to run.",
             pad=(0, 12),
         )
-        self.export_button = _btn(
+        self.export_button = _action_button(
             row1,
             "2. Export",
             self.on_export,
@@ -1460,7 +1671,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             state="disabled",
             pad=(0, 18),
         )
-        self.conflicts_button = _btn(
+        self.conflicts_button = _action_button(
             row1,
             "Check Conflicts",
             self.on_check_conflicts,
@@ -1473,7 +1684,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "Runs after a Sort.",
             state="disabled",
         )
-        self.cellmap_button = _btn(
+        self.cellmap_button = _action_button(
             row1,
             "Cell Map",
             self.on_cell_map,
@@ -1487,7 +1698,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "in your browser. Read-only.",
             state="disabled",
         )
-        self.resource_button = _btn(
+        self.resource_button = _action_button(
             row1,
             "Resource Conflicts",
             self.on_resource_conflicts,
@@ -1503,7 +1714,17 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             side="right", padx=(12, 2)
         )
 
-        self.lint_button = _btn(
+    def _build_tool_actions(self, row2: tk.Misc) -> None:
+        """Build the second button row: the tools that stand on their own.
+
+        These do not need a computed order -- tes3cmd, Save Check and Backups
+        all work from files -- so only Lint, which reads the sorted list, starts
+        disabled.
+
+        Args:
+            row2: The frame holding the second row.
+        """
+        self.lint_button = _action_button(
             row2,
             "Lint",
             self.on_lint,
@@ -1516,7 +1737,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "take a little while on a big install.",
             state="disabled",
         )
-        self.tes3cmd_button = _btn(
+        self.tes3cmd_button = _action_button(
             row2,
             "tes3cmd",
             self.on_tes3cmd_window,
@@ -1527,7 +1748,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "Modifying commands keep backups. (No multipatch: OpenMW setups use "
             "delta-plugin for merged lists.)",
         )
-        self.savecheck_button = _btn(
+        self.savecheck_button = _action_button(
             row2,
             "Save Check",
             self.on_save_check,
@@ -1535,13 +1756,22 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "still in the (sorted, enabled) load order -- OpenMW refuses to load a "
             "save whose plugins are missing. Read-only.",
         )
-        self.backups_button = _btn(
+        self.backups_button = _action_button(
             row2,
             "Backups",
             self.on_backups,
             "List every backup left behind by this tool, tes3cmd and the Configurator "
             "(.preclean.bak, .masterfix.bak, name~1.esp, timestamped .bak / .backup "
             "copies) across the data folders, with restore/delete.",
+        )
+        self.help_button = _action_button(
+            row2,
+            "Help",
+            self.on_help,
+            "Open the program's own documentation -- the Quick start (what to click, in "
+            "order) or the Read me (every option, in detail) -- rendered as a readable "
+            "page with a contents sidebar. Works offline; nothing is downloaded.",
+            pad=(12, 6),
         )
 
     def _build_log(self, log_container: tk.Misc) -> None:
@@ -1919,6 +2149,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 else None
             ),
             subset_lines=(self._scanned_subset_lines if has_mem_scan else None),
+            groundcover=[
+                name.strip() for name in self.groundcover_var.get().split(",") if name.strip()
+            ],
         )
 
     def on_scan_mods(self) -> None:
@@ -2329,13 +2562,10 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 trace(
                     f"cell map: coverage built, {len(cov['exterior'])} ext, {len(cov['interior'])} int"
                 )
-                # Build the explorer alongside the map when a conflict scan
-                # has run, so the cell map's "Conflicts" button is there the
-                # first time rather than only after the explorer was opened
-                # by hand. Requiring that order was a real usability bug: the
-                # button silently did not exist and nothing said why.
-                href = self._ensure_explorer_for_cell_map(cov)
-                html = core.generate_cell_map_html(cov, explorer_href=href)
+                # The cell map answers coverage only. Conflicts are reached from
+                # the Conflicts window, which builds the standalone conflict map
+                # directly -- one conflict view, no duplicated generation path.
+                html = core.generate_cell_map_html(cov)
                 trace(f"cell map: html built, {len(html)} bytes")
                 # Write straight to disk and drop the string -- the map is viewed
                 # FROM the file (browser / tkinterweb load_file), never rendered
@@ -2422,154 +2652,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 status + "  (opened in browser — pip install pywebview " "for an in-app window)"
             )
 
-    @staticmethod
-    def _coverage_to_conflicts(coverage: Mapping[str, Any]) -> list[dict]:
-        """Turn cell coverage into conflict-shaped rows to populate the explorer.
-
-        The cell map already knows which cells more than one mod touches, and
-        the explorer's map and lists only need exactly that shape. So when no
-        record scan has run, the explorer is populated from coverage rather than
-        left empty -- which is what a user sees on first open, and an empty page
-        beside a busy cell map reads as broken.
-
-        This is coverage, **not** record-level conflict, and the page says so:
-        two mods touching a cell is not the same as their records colliding.
-        The overlap is the honest superset -- every record conflict is in here,
-        alongside cells that merely share space -- and the terrain/nav/field
-        detail that needs tes3conv is added by 'Check Conflicts'.
-
-        Args:
-            coverage: The result of ``build_cell_coverage``.
-
-        Returns:
-            One row per cell touched by two or more mods.
-        """
-        subl = {s.lower() for s in coverage.get("subset_lower", set())}
-        rows: list[dict] = []
-        for (gx, gy), mods in coverage.get("exterior", {}).items():
-            if len(mods) < 2:
-                continue
-            rows.append(
-                {
-                    "type": "Cell (coverage)",
-                    "id": f"({gx}, {gy})",
-                    "plugins": list(mods),
-                    "winner": mods[-1],
-                    "involves_subset": any(m.lower() in subl for m in mods),
-                }
-            )
-        for name, mods in coverage.get("interior", {}).items():
-            if len(mods) < 2:
-                continue
-            rows.append(
-                {
-                    "type": "Cell (coverage)",
-                    "id": str(name),
-                    "plugins": list(mods),
-                    "winner": mods[-1],
-                    "involves_subset": any(m.lower() in subl for m in mods),
-                }
-            )
-        return rows
-
-    def _ensure_explorer_for_cell_map(self, coverage: Mapping[str, Any] | None = None) -> str:
-        """Write a conflict explorer next to the cell map, and return its name.
-
-        **Always writes a populated one.** Two earlier bugs came from this
-        method being conditional: first the button was missing without a prior
-        scan, then the button was there but the page was empty. Both had the
-        same cause -- the explorer read only the record-scan results, which the
-        cell map does not produce. It now falls back to the coverage the cell
-        map *did* compute, so the map and lists are populated on first open.
-
-        The distinction is preserved, not erased: coverage-derived rows are
-        marked as such and the page states that record-level detail (which
-        records actually conflict, terrain, navigation) needs 'Check Conflicts'.
-        A record scan, once run, supersedes the coverage rows entirely.
-
-        Runs on the cell-map worker thread, so it costs nothing interactively.
-
-        Args:
-            coverage: The cell coverage already built for the map, used as the
-                fallback data source when no record scan has run.
-
-        Returns:
-            The explorer's filename for a relative link, or ``""`` only if the
-            viz package is unavailable or writing failed.
-        """
-        if build_explorer is None or viz_sidecar is None:
-            return ""
-        conflicts = list(getattr(self, "_all_conflicts", None) or [])
-        coverage_only = not conflicts
-        if coverage_only and coverage is not None:
-            conflicts = self._coverage_to_conflicts(coverage)
-        try:
-            detail: dict = {}
-            session = getattr(self, "_conf_session", None)
-            # Sampled detail only, and bounded (60 cells) -- this is the map's
-            # in-page preview. The world 3D terrain is NOT decoded here: it is
-            # held back (its toggle is off), and decoding thousands of cells for
-            # it was what froze the cell map and, because it ran before the
-            # button was written, cost the button too. Full-resolution cell
-            # pages are generated in the BACKGROUND below so the map and its
-            # Conflicts button appear immediately.
-            if not coverage_only and session is not None and collect_detail is not None:
-
-                def fields_for(conflict: dict) -> dict:
-                    """Look one conflict's fields up through tes3conv."""
-                    _keys, per, _diff = core.diff_record_fields(
-                        session, conflict, getattr(self, "_conf_paths", {})
-                    )
-                    return per
-
-                cache, sig_for = self._detail_cache()
-                detail = collect_detail(conflicts, fields_for, cache=cache, signature_for=sig_for)
-            path = self._cellmap_file().with_name("conflict_explorer.html")
-            data_dir = path.stem + viz_sidecar.DATA_SUFFIX
-            path.write_text(
-                build_explorer(
-                    conflicts,
-                    detail=detail,
-                    cell_map_href=self._cellmap_file().name,
-                    data_dir=data_dir,
-                    embed_detail=False,
-                    coverage_only=coverage_only,
-                ),
-                encoding="utf-8",
-            )
-            viz_sidecar.write_sidecars(path, {"detail": detail})
-            if viz_assets is not None:
-                viz_assets.write_assets(path.with_name(data_dir))
-            self._last_explorer_file = str(path)
-            trace(
-                f"cell map: explorer written ({len(conflicts)} rows, "
-                f"coverage_only={coverage_only}, {len(detail)} detailed)"
-            )
-            # Enrich with full-resolution per-cell pages off the critical path,
-            # so the map is already on screen. Best-effort: if this thread is
-            # slow or fails, the map, the lists and the button are untouched.
-            if not coverage_only and detail and build_cell_pages is not None:
-                threading.Thread(
-                    target=self._fill_cell_pages,
-                    args=(list(conflicts), str(path), data_dir, len(detail)),
-                    daemon=True,
-                ).start()
-            if coverage_only:
-                print(
-                    _(
-                        "  Conflict explorer: %(cells)d multi-mod cell(s) from coverage. "
-                        "Run 'Check Conflicts' for record-level detail."
-                    )
-                    % {"cells": len(conflicts)}
-                )
-            else:
-                print(_("  Conflict explorer ready; full-resolution cell pages filling in..."))
-        except Exception:  # noqa: BLE001 - the cell map must render regardless
-            trace("cell map: explorer build FAILED:\n" + traceback.format_exc())
-            return ""
-        return path.name
-
-    def _open_cell_map_pywebview(self, path: str | Path) -> None:
+    def _open_cell_map_pywebview(self, path: str | Path, title: str = "Cell Map") -> None:
         """Show the map in an embedded OS webview.
 
         Re-invokes this executable with
@@ -2577,7 +2660,11 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         thread). Frozen-safe: a built .exe re-runs the .exe; from source we re-run
         the script -- never 'python -c', which a frozen exe can't do.
         """
-        ap = os.path.abspath(path)  # noqa: PTH100 - must not resolve symlinks
+        # A URL is passed through untouched; only a real path is absolutised.
+        # abspath() on "http://127.0.0.1:1/x" produces a nonsense local path,
+        # which the child would then fail to open for reasons that look
+        # nothing like the actual cause.
+        ap = str(path) if is_view_url(path) else os.path.abspath(path)  # noqa: PTH100
         # IMPORTANT: only CREATE_NO_WINDOW here (suppresses a console flash) -- do
         # NOT use the SW_HIDE startupinfo from _no_window_kwargs(): that STARTUPINFO
         # is inherited by the child's FIRST window, which would hide the WebView2
@@ -2585,9 +2672,15 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         nw = {"creationflags": 0x08000000} if os.name == "nt" else {}
         try:
             if getattr(sys, "frozen", False):
-                cmd = [sys.executable, "--show-map", ap]
+                cmd = [sys.executable, "--show-map", ap, title]
             else:
-                cmd = [sys.executable, os.path.abspath(__file__), "--show-map", ap]  # noqa: PTH100
+                cmd = [
+                    sys.executable,
+                    os.path.abspath(__file__),  # noqa: PTH100
+                    "--show-map",
+                    ap,
+                    title,
+                ]
             trace(f"cell map: launching pywebview child: {cmd}")
             subprocess.Popen(cmd, **nw)  # type: ignore[call-overload]
         except (OSError, ValueError):  # Popen: missing exe or bad argv
@@ -2607,22 +2700,42 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         cannot run the canvas the terrain and nav views draw on.
 
         Args:
-            path: The written HTML file.
+            path: The written HTML file, or a URL for a page that is served
+                rather than written -- the 3D mesh viewer runs over loopback.
             title: Window title.
         """
-        target = Path(path)
-        self._last_view_file = str(target)
+        served = is_view_url(path)
+        label = str(path) if served else Path(path).name
+        self._last_view_file = str(path)
         can_tkweb = HTMLViewer is not None and hasattr(HTMLViewer, "load_file")
         if HAVE_PYWEBVIEW:
-            trace(f"view: pywebview for {target.name}")
-            self._open_cell_map_pywebview(target)
+            trace(f"view: pywebview for {label}")
+            self._open_cell_map_pywebview(path, title or "View")
+            return
+        if served:
+            # tkinterweb's load_file cannot fetch a URL, and the served viewer
+            # needs real requests for its geometry. Straight to the browser
+            # rather than an in-app window that would render an empty page.
+            trace(f"view: browser for {label} (served page, tkinterweb cannot fetch)")
+            self._open_url_in_browser(str(path))
             return
         if can_tkweb:
-            trace(f"view: tkinterweb for {target.name}")
-            self._show_html_window(target, title)
+            trace(f"view: tkinterweb for {label}")
+            self._show_html_window(Path(path), title)
             return
-        trace(f"view: browser for {target.name} (no pywebview/tkinterweb)")
-        self._open_file_in_browser(target)
+        trace(f"view: browser for {label} (no pywebview/tkinterweb)")
+        self._open_file_in_browser(Path(path))
+
+    def _open_url_in_browser(self, url: str) -> None:
+        """Open a URL in the user's browser.
+
+        Args:
+            url: The address to open.
+        """
+        try:
+            webbrowser.open(url)
+        except webbrowser.Error:
+            trace(f"view: browser refused {url}")
 
     def _open_file_in_browser(self, path: str | Path) -> None:
         """Open any local file in the user's browser.
@@ -2646,6 +2759,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             title: Window title.
         """
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         win.title(title)
         win.configure(bg=DARK["bg"])
         win.geometry("1280x860")
@@ -2677,8 +2791,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         if win is not None and win.winfo_exists():
             win.destroy()
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         self._cellmap_win = win
-        win.title("Cell Map")
+        win.title("Viz Window")
         win.configure(bg=DARK["bg"])
         win.geometry("1000x720")
         bar = ttk.Frame(win, padding=6)
@@ -2744,6 +2859,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             win.lift()
             return
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         self._src_win = win
         win.title("Download sources")
         win.configure(bg=DARK["bg"])
@@ -2846,27 +2962,47 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         return str(base / "mlox_my_rules.txt")
 
     def on_rule_maker(self) -> None:
-        """Open the mlox user-rules maker."""
+        """Open the mlox rule maker.
+
+        Covers every rule the guidelines describe, not just the three ordering
+        kinds this window used to offer. The rule itself is built, rendered and
+        checked by :mod:`mlox_subset.rules.authoring`, which has no Tk and is
+        tested headlessly; this method is the front end and nothing more.
+        """
         win = getattr(self, "_rm_win", None)
         if win is not None and win.winfo_exists():
             win.lift()
             return
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         self._rm_win = win
-        win.title("New mlox rule")
+        win.title(_("New mlox rule"))
         win.configure(bg=DARK["bg"])
-        win.geometry("720x600")
-        win.minsize(660, 560)
+        win.geometry("900x760")
+        win.minsize(780, 640)
         top = ttk.Frame(win, padding=10)
         top.pack(fill="both", expand=True)
         top.columnconfigure(1, weight=1)
 
+        self._rm_build_file_row(top)
+        self._rm_build_kind_picker(top)
+        self._rm_build_plugin_list(top)
+        self._rm_build_details(top)
+        self._rm_build_preview(top)
+        self._rm_refresh()
+
+    def _rm_build_file_row(self, top: tk.Misc) -> None:
+        """Build the "which file do these go in" row.
+
+        Args:
+            top: The window's content frame.
+        """
         ttk.Label(top, text=_("rules file:")).grid(row=0, column=0, sticky="w")
         self._rm_file_var = tk.StringVar(value=self._default_rules_file())
-        fent = ttk.Entry(top, textvariable=self._rm_file_var)
-        fent.grid(row=0, column=1, sticky="ew", padx=6)
+        entry = ttk.Entry(top, textvariable=self._rm_file_var)
+        entry.grid(row=0, column=1, sticky="ew", padx=6)
         add_tooltip(
-            fent,
+            entry,
             _(
                 "Personal rules file the rule is appended to (created with a header "
                 "if new). Use your OWN file, not mlox_base/mlox_user -- those get "
@@ -2876,27 +3012,42 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         )
         ttk.Button(top, text=_("Browse..."), command=self._rm_browse_file).grid(row=0, column=2)
 
-        tf = ttk.LabelFrame(top, text=_("Rule type"))
-        tf.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 4))
-        self._rm_kind = tk.StringVar(value="order")
-        for i, (v, lbl) in enumerate(
-            (
-                ("order", "[Order] -- the plugins below load in this order (first loads first)"),
-                ("nearstart", "[NearStart] -- each plugin below is pulled toward the START"),
-                ("nearend", "[NearEnd] -- each plugin below is pulled toward the END"),
-            )
-        ):
-            ttk.Radiobutton(
-                tf, text=lbl, value=v, variable=self._rm_kind, command=self._rm_refresh
-            ).grid(row=i, column=0, sticky="w", padx=8, pady=1)
+    def _rm_build_kind_picker(self, top: tk.Misc) -> None:
+        """Build the rule-type radio buttons, one per documented rule.
 
-        pf = ttk.LabelFrame(top, text=_("Plugins (drag order matters for [Order])"))
-        pf.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=4)
+        Args:
+            top: The window's content frame.
+        """
+        frame = ttk.LabelFrame(top, text=_("Rule type"))
+        frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 4))
+        for i in range(2):
+            frame.columnconfigure(i, weight=1)
+        self._rm_kind = tk.StringVar(value="Order")
+        for i, (kind, blurb) in enumerate(RULE_KIND_HELP.items()):
+            ttk.Radiobutton(
+                frame,
+                text=f"[{kind}]",
+                value=kind,
+                variable=self._rm_kind,
+                command=self._rm_refresh,
+            ).grid(row=i // 2, column=i % 2, sticky="w", padx=8, pady=1)
+            add_tooltip(frame, blurb)
+        self._rm_kind_help = ttk.Label(frame, foreground=DARK["fg_dim"], wraplength=820)
+        self._rm_kind_help.grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 6))
+
+    def _rm_build_plugin_list(self, top: tk.Misc) -> None:
+        """Build the plugin list and its buttons.
+
+        Args:
+            top: The window's content frame.
+        """
+        frame = ttk.LabelFrame(top, text=_("Plugins (order matters for [Order])"))
+        frame.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=4)
         top.rowconfigure(2, weight=1)
-        pf.columnconfigure(0, weight=1)
-        pf.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
         self._rm_list = DragReorderListbox(
-            pf,
+            frame,
             selectmode="extended",
             exportselection=False,
             activestyle="dotbox",
@@ -2906,79 +3057,302 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         style_plain_widget(self._rm_list)
         attach_typeahead(self._rm_list)
         self._rm_list.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
-        rsc = ttk.Scrollbar(pf, orient="vertical", command=self._rm_list.yview)
-        rsc.grid(row=0, column=1, sticky="ns", pady=8)
-        self._rm_list.configure(yscrollcommand=rsc.set)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=self._rm_list.yview)
+        scroll.grid(row=0, column=1, sticky="ns", pady=8)
+        self._rm_list.configure(yscrollcommand=scroll.set)
 
-        rbtns = ttk.Frame(pf)
-        rbtns.grid(row=0, column=2, sticky="n", padx=8, pady=8)
-        b = ttk.Button(rbtns, text=_("From plugin panel"), command=self._rm_add_from_panel)
-        b.pack(fill="x", pady=2)
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=0, column=2, sticky="n", padx=8, pady=8)
+        from_panel = ttk.Button(
+            buttons, text=_("From plugin panel"), command=self._rm_add_from_panel
+        )
+        from_panel.pack(fill="x", pady=2)
         add_tooltip(
-            b,
+            from_panel,
             _(
                 "Add the rows currently SELECTED in the main plugin-order panel, in "
                 "their displayed order (Ctrl/Shift-click there to multi-select first)."
             ),
         )
-        ttk.Button(rbtns, text=_("Remove"), command=self._rm_remove).pack(fill="x", pady=2)
-        ttk.Button(
-            rbtns,
-            text=_("Clear"),
-            command=lambda: (self._rm_list.delete(0, "end"), self._rm_refresh()),  # type: ignore[func-returns-value]
-        ).pack(fill="x", pady=2)
-        af = ttk.Frame(pf)
-        af.grid(row=1, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8))
-        af.columnconfigure(0, weight=1)
+        ttk.Button(buttons, text=_("Remove"), command=self._rm_remove).pack(fill="x", pady=2)
+        ttk.Button(buttons, text=_("Clear"), command=self._rm_clear).pack(fill="x", pady=2)
+        group = ttk.Button(buttons, text=_("Group as ANY"), command=self._rm_group_any)
+        group.pack(fill="x", pady=(10, 2))
+        add_tooltip(
+            group,
+            _(
+                "Wrap the SELECTED plugins in an [ANY ...] group, for a rule that is "
+                "satisfied by whichever of several versions someone has installed -- "
+                "the shape the guidelines use for mods with an XB edition, a "
+                "Tribunal edition and so on.\n\n"
+                "Select the grouped entry and press again to ungroup."
+            ),
+        )
+
+        add_row = ttk.Frame(frame)
+        add_row.grid(row=1, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8))
+        add_row.columnconfigure(0, weight=1)
         self._rm_add_var = tk.StringVar()
-        aent = ttk.Entry(af, textvariable=self._rm_add_var)
-        aent.grid(row=0, column=0, sticky="ew")
+        typed = ttk.Entry(add_row, textvariable=self._rm_add_var)
+        typed.grid(row=0, column=0, sticky="ew")
+        typed.bind("<Return>", lambda _e: self._rm_add_typed())
         add_tooltip(
-            aent,
+            typed,
             _(
-                "Type a plugin name or mlox pattern (wildcards * ? and <VER> allowed; "
-                "must end in a plugin extension) and press Enter or Add."
+                "Type a plugin filename and press Enter. mlox wildcards are allowed: "
+                "? for one character, * for any run, <VER> for a version number -- "
+                "though the guidelines ask for these to be used sparingly, since "
+                "expanding them is slow."
             ),
         )
-        aent.bind("<Return>", lambda e: self._rm_add_typed())
-        ttk.Button(af, text=_("Add"), command=self._rm_add_typed).grid(row=0, column=1, padx=(6, 0))
+        ttk.Button(add_row, text=_("Add"), command=self._rm_add_typed).grid(row=0, column=1)
 
-        ttk.Label(top, text=_("comment (optional):")).grid(row=3, column=0, sticky="w", pady=(4, 0))
+    def _rm_build_details(self, top: tk.Misc) -> None:
+        """Build the message, citation, section and priority fields.
+
+        Args:
+            top: The window's content frame.
+        """
+        frame = ttk.LabelFrame(top, text=_("Message and source"))
+        frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=4)
+        frame.columnconfigure(1, weight=1)
+
+        ttk.Label(frame, text=_("message:")).grid(row=0, column=0, sticky="nw", padx=8, pady=4)
+        self._rm_message = tk.Text(frame, height=3, wrap="word")
+        style_plain_widget(self._rm_message)
+        self._rm_message.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(0, 8), pady=4)
+        self._rm_message.bind("<KeyRelease>", lambda _e: self._rm_refresh())
+        add_tooltip(
+            self._rm_message,
+            _(
+                "What to tell the person, and what to do about it. Ordering rules "
+                "carry no message; the warning rules are much less useful without "
+                "one.\n\n"
+                "A message containing ']' is written in the block form automatically, "
+                "because a ']' would otherwise close the rule label early."
+            ),
+        )
+
+        ttk.Label(frame, text=_("(Ref:) source:")).grid(row=1, column=0, sticky="w", padx=8, pady=4)
+        self._rm_ref = tk.StringVar()
+        ref_entry = ttk.Entry(frame, textvariable=self._rm_ref)
+        ref_entry.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(0, 8), pady=4)
+        self._rm_ref.trace_add("write", lambda *_a: self._rm_refresh())
+        add_tooltip(
+            ref_entry,
+            _(
+                "Where this rule's claim comes from: a readme filename, a forum post, "
+                "a URL. The guidelines ask for one on every rule so that someone else "
+                "can check it, or correct it.\n\n"
+                "A URL gets whitespace before the closing parenthesis automatically -- "
+                "pages that auto-link URLs otherwise swallow the ')' into the link."
+            ),
+        )
+
+        ttk.Label(frame, text=_("@section:")).grid(row=2, column=0, sticky="w", padx=8, pady=4)
+        self._rm_section = tk.StringVar()
+        section_entry = ttk.Entry(frame, textvariable=self._rm_section)
+        section_entry.grid(row=2, column=1, sticky="ew", padx=(0, 8), pady=4)
+        self._rm_section.trace_add("write", lambda *_a: self._rm_refresh())
+        add_tooltip(
+            section_entry,
+            _(
+                "Optional heading written above the rule. The rule-base groups rules "
+                "into sections, roughly one per mod, to keep the file navigable."
+            ),
+        )
+
+        priority_row = ttk.Frame(frame)
+        priority_row.grid(row=3, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6))
+        ttk.Label(priority_row, text=_("highlight:")).pack(side="left")
+        self._rm_priority = tk.IntVar(value=0)
+        for level, meaning in authoring.PRIORITY_MEANING.items():
+            ttk.Radiobutton(
+                priority_row,
+                text=(authoring.PRIORITY_MARKS[level] or _("none")),
+                value=level,
+                variable=self._rm_priority,
+                command=self._rm_refresh,
+            ).pack(side="left", padx=(8, 0))
+            add_tooltip(
+                priority_row,
+                _("%(mark)s = %(meaning)s")
+                % {
+                    "mark": authoring.PRIORITY_MARKS[level] or "(none)",
+                    "meaning": meaning,
+                },
+            )
+
+        ttk.Label(frame, text=_("; comment:")).grid(row=4, column=0, sticky="w", padx=8, pady=4)
         self._rm_comment = tk.StringVar()
-        cent = ttk.Entry(top, textvariable=self._rm_comment)
-        cent.grid(row=3, column=1, columnspan=2, sticky="ew", padx=6, pady=(4, 0))
-        cent.bind("<KeyRelease>", lambda e: self._rm_refresh())
+        comment_entry = ttk.Entry(frame, textvariable=self._rm_comment)
+        comment_entry.grid(row=4, column=1, columnspan=2, sticky="ew", padx=(0, 8), pady=(0, 8))
+        self._rm_comment.trace_add("write", lambda *_a: self._rm_refresh())
         add_tooltip(
-            cent,
+            comment_entry,
+            _("A ';' comment written above the rule. mlox strips these before reading."),
+        )
+
+    def _rm_build_preview(self, top: tk.Misc) -> None:
+        """Build the live preview, the problem list and the write button.
+
+        Args:
+            top: The window's content frame.
+        """
+        frame = ttk.LabelFrame(top, text=_("Preview"))
+        frame.grid(row=4, column=0, columnspan=3, sticky="nsew", pady=4)
+        frame.columnconfigure(0, weight=1)
+        top.rowconfigure(4, weight=1)
+
+        self._rm_preview = tk.Text(frame, height=8, wrap="none")
+        style_plain_widget(self._rm_preview)
+        self._rm_preview.grid(row=0, column=0, sticky="nsew", padx=8, pady=(8, 4))
+        self._rm_preview.configure(state="disabled")
+
+        self._rm_problems = tk.Text(frame, height=4, wrap="word")
+        style_plain_widget(self._rm_problems)
+        self._rm_problems.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
+        self._rm_problems.tag_configure("error", foreground="#ff6b6b")
+        self._rm_problems.tag_configure("warning", foreground="#ffd24a")
+        self._rm_problems.configure(state="disabled")
+
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 8))
+        self._rm_write = ttk.Button(buttons, text=_("Append rule"), command=self._rm_append)
+        self._rm_write.pack(side="left")
+        add_tooltip(
+            self._rm_write,
             _(
-                "Written above the rule as a ';;' comment. The mlox rule guidelines "
-                "suggest citing your source, e.g. (Ref: the mod's readme) or "
-                "(Ref: a forum URL ) -- surround URLs with spaces. Handy if you "
-                "later contribute the rule upstream."
+                "Write the rule to the file above. Refused while there is an error: "
+                "mlox silently discards a rule it cannot use, so this is the only "
+                "place you would find out.\n\n"
+                "Warnings do not block -- they are the guidelines' advice, not the "
+                "parser's requirements."
+            ),
+        )
+        ttk.Button(buttons, text=_("Close"), command=self._rm_win.destroy).pack(side="right")
+
+        guide = ttk.Button(
+            buttons,
+            text=_("Rule guide"),
+            command=partial(self._open_document, _("Writing mlox rules"), "MLOX_RULES.md"),
+        )
+        guide.pack(side="left", padx=(8, 0))
+        add_tooltip(
+            guide,
+            _(
+                "Open the rule reference: what each rule kind says, how "
+                "expressions nest, and the conventions the rule-base follows.\n\n"
+                "It opens in your browser, so it can sit beside this window "
+                "while you work."
             ),
         )
 
-        vf = ttk.LabelFrame(top, text=_("Preview"))
-        vf.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 4))
-        self._rm_preview = tk.Text(
-            vf,
-            height=5,
-            wrap="none",
-            state="disabled",
-            background=DARK["log_bg"],
-            foreground=DARK["fg"],
-            relief="flat",
-            borderwidth=0,
-            highlightthickness=1,
-            highlightbackground=DARK["border"],
-        )
-        self._rm_preview.pack(fill="x", padx=8, pady=8)
+    # -- rule assembly ------------------------------------------------------
 
-        row = ttk.Frame(top)
-        row.grid(row=5, column=0, columnspan=3, sticky="ew")
-        ttk.Button(row, text=_("Append Rule"), command=self._rm_append).pack(side="left")
-        ttk.Button(row, text=_("Close"), command=win.destroy).pack(side="right")
+    def _rm_current_rule(self) -> authoring.Rule:
+        """Build the rule the window currently describes.
+
+        Returns:
+            The rule, whether or not it is valid -- the preview and the problem
+            list both want to show an incomplete one rather than nothing.
+        """
+        kind = self._rm_kind.get()
+        entries = self._rm_names()
+        rule = authoring.Rule(
+            kind=kind,
+            message=self._rm_message.get("1.0", "end").strip(),
+            ref=self._rm_ref.get().strip(),
+            priority=self._rm_priority.get(),
+            section=self._rm_section.get().strip(),
+            comment=self._rm_comment.get().strip(),
+        )
+        if kind in authoring.ORDERING_KINDS:
+            rule.plugins = [self._rm_plain(entry) for entry in entries]
+        else:
+            rule.expressions = [self._rm_expression(entry) for entry in entries]
+        return rule
+
+    @staticmethod
+    def _rm_plain(entry: str) -> str:
+        """Strip a group marker back to a plain name for an ordering rule.
+
+        Args:
+            entry: A list entry, possibly an ANY group.
+
+        Returns:
+            The name, or the group's text unchanged when it is not a group --
+            an ordering rule cannot express a group, and validation says so
+            rather than this quietly inventing something.
+        """
+        return entry
+
+    @staticmethod
+    def _rm_expression(entry: str) -> authoring.Expr:
+        """Turn one list entry into an expression.
+
+        Args:
+            entry: Either a plugin filename, or several joined by ``ANY:`` --
+                the marker the group button writes.
+
+        Returns:
+            A plugin predicate, or an ``[ANY ...]`` group.
+        """
+        if entry.startswith(RM_ANY_PREFIX):
+            names = [n.strip() for n in entry[len(RM_ANY_PREFIX) :].split("|") if n.strip()]
+            return authoring.any_of(*[authoring.Plugin(n) for n in names])
+        return authoring.Plugin(entry)
+
+    def _rm_clear(self) -> None:
+        """Empty the plugin list."""
+        self._rm_list.delete(0, "end")
         self._rm_refresh()
+
+    def _rm_group_any(self) -> None:
+        """Wrap the selected entries in an ``[ANY ...]`` group, or ungroup one."""
+        selection = list(self._rm_list.curselection())
+        if not selection:
+            return
+        entries = [self._rm_list.get(i) for i in selection]
+        if len(entries) == 1 and entries[0].startswith(RM_ANY_PREFIX):
+            names = entries[0][len(RM_ANY_PREFIX) :].split("|")
+            self._rm_list.delete(selection[0])
+            for offset, name in enumerate(n.strip() for n in names if n.strip()):
+                self._rm_list.insert(selection[0] + offset, name)
+        else:
+            for index in reversed(selection):
+                self._rm_list.delete(index)
+            self._rm_list.insert(selection[0], RM_ANY_PREFIX + " | ".join(entries))
+        self._rm_refresh()
+
+    def _rm_refresh(self) -> None:
+        """Re-render the preview and the problem list."""
+        trace_first_fire("rules-maker refresh")
+        kind = self._rm_kind.get()
+        self._rm_kind_help.configure(text=RULE_KIND_HELP.get(kind, ""))
+
+        rule = self._rm_current_rule()
+        try:
+            text = authoring.render_rule(rule)
+            problems = authoring.validate(rule)
+        except Exception as exc:  # noqa: BLE001 - a live preview must never raise
+            text, problems = f"; preview failed: {exc}", []
+
+        self._rm_preview.configure(state="normal")
+        self._rm_preview.delete("1.0", "end")
+        self._rm_preview.insert("1.0", text)
+        self._rm_preview.configure(state="disabled")
+
+        self._rm_problems.configure(state="normal")
+        self._rm_problems.delete("1.0", "end")
+        for problem in problems:
+            self._rm_problems.insert("end", problem.describe() + "\n", problem.severity)
+        if not problems:
+            self._rm_problems.insert("end", _("No problems. This rule follows the guidelines.\n"))
+        self._rm_problems.configure(state="disabled")
+
+        blocked = bool(authoring.errors(problems))
+        self._rm_write.configure(state="disabled" if blocked else "normal")
 
     def _rm_names(self) -> list[str]:
         return list(self._rm_list.get(0, "end"))
@@ -3007,31 +3381,6 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             self._rm_list.delete(i)
         self._rm_refresh()
 
-    def _rm_preview_text(self) -> str:
-        try:
-            names = self._rm_names()
-            if not names:
-                return "(add plugins above)"
-            # build without writing: validate via the same code path
-            kw = self._rm_kind.get()
-            titles = {"order": "Order", "nearstart": "NearStart", "nearend": "NearEnd"}
-            for n in names:
-                m = ORDER_NAME_RE.match(n)
-                if any(c in n for c in "[];") or not m or m.group(0) != n:
-                    return f"INVALID: {n!r} -- names must end in a plugin extension"
-            if kw == "order" and len(names) < 2:
-                return "(an [Order] rule needs at least two plugins)"
-            parts = []
-            c = self._rm_comment.get().strip()
-            if c:
-                parts += [f";; {line}" for line in c.splitlines()]
-            parts.append(f"[{titles[kw]}]")
-            parts += names
-            return "\n".join(parts)
-        except Exception as e:  # noqa: BLE001
-            # live rule preview; any failure becomes preview text
-            return f"error: {e}"
-
     def _rm_browse_file(self) -> None:
         """Ask for a personal rules file and remember the choice.
 
@@ -3048,14 +3397,6 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         trace(f"[smoke] rules-maker Browse: {'chose ' + chosen if chosen else 'cancelled'}")
         if chosen:
             self._rm_file_var.set(chosen)
-
-    def _rm_refresh(self) -> None:
-        trace_first_fire("rules-maker refresh (radio / reorder)")
-        txt = self._rm_preview_text()
-        self._rm_preview.configure(state="normal")
-        self._rm_preview.delete("1.0", "end")
-        self._rm_preview.insert("1.0", txt)
-        self._rm_preview.configure(state="disabled")
 
     def _rm_append(self) -> None:
         path = self._rm_file_var.get().strip()
@@ -3078,8 +3419,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         # curated order (mlox would discard those edges as cycles, so the rule
         # silently wouldn't take effect). Advisory only -- the user may be
         # planning to install those mods, or know what they're doing.
-        names = self._rm_names()
-        if self._rm_kind.get() == "order" and self._current_plan:
+        rule = self._rm_current_rule()
+        names = rule.plugins
+        if rule.kind == "Order" and self._current_plan:
             final = self._current_plan.get("final_order") or []
             subset_lower = {str(s).lower() for s in (self._current_plan.get("subset") or [])}
             curated = {
@@ -3105,7 +3447,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 ):
                     return
         try:
-            core.append_user_rule(path, self._rm_kind.get(), names, comment=self._rm_comment.get())
+            core.append_authored_rule(path, rule)
         except (ValueError, OSError) as e:
             messagebox.showerror(_("New rule"), str(e), parent=self._rm_win)
             return
@@ -3114,6 +3456,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             self.rules_panel.listbox.insert("end", path)
         self._rm_list.delete(0, "end")
         self._rm_comment.set("")
+        self._rm_message.delete("1.0", "end")
         self._rm_refresh()
         self.status_var.set(
             _("Rule appended to %(file)s. Re-run '1. Sort' to apply it.")
@@ -3240,6 +3583,72 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
 
     # -- backup manager ------------------------------------------------------
 
+    def on_help(self) -> None:
+        """Offer the shipped documentation, one entry per document.
+
+        A menu rather than a button each: the row is already full, and the set
+        of documents is a list that may grow.
+        """
+        trace_first_fire("on_help")
+        # Literal calls, not a lookup: the extractor reads the source, so
+        # `_(variable)` produces a string no translator ever sees.
+        labels = {
+            "QUICKSTART.md": _("Quick start"),
+            "README.md": _("Read me"),
+            "MLOX_RULES.md": _("Writing mlox rules"),
+        }
+        menu = tk.Menu(self.root, tearoff=0)
+        for filename in HELP_DOCUMENTS:
+            label = labels.get(filename, filename)
+            menu.add_command(
+                label=label,
+                command=partial(self._open_document, label, filename),
+            )
+        try:
+            button = self.help_button
+            menu.tk_popup(button.winfo_rootx(), button.winfo_rooty() + button.winfo_height())
+        finally:
+            menu.grab_release()
+
+    def _open_document(self, label: str, filename: str) -> None:
+        """Render one Markdown document and show it.
+
+        The page is written with a stable name and overwritten each time, so the
+        help does not join the timestamped views that accumulate -- there is only
+        ever one current copy of a document, and keeping older renders of an
+        unchanged file would be clutter with no question it answers.
+
+        Args:
+            label: The document's display name, used as the window title.
+            filename: The Markdown filename to look up.
+        """
+        source = doc_path(filename) if viz_docs is not None else None
+        if source is None:
+            messagebox.showinfo(
+                _("Documentation not found"),
+                _(
+                    "%(name)s was not found next to the program.\n\n"
+                    "It ships alongside the app; if this is a build made without it, "
+                    "the same document is in the project folder."
+                )
+                % {"name": filename},
+            )
+            return
+        try:
+            text = source.read_text(encoding="utf-8", errors="replace")
+            page = viz_docs.docs_page(label, text, source_name=filename)
+            out = app_base_dir() / f"help_{source.stem.lower()}.html"
+            out.write_text(page, encoding="utf-8")
+        except OSError as exc:
+            trace(f"help: rendering {filename} FAILED:\n" + traceback.format_exc())
+            messagebox.showerror(
+                _("Could not open documentation"),
+                _("%(name)s could not be rendered:\n%(error)s") % {"name": filename, "error": exc},
+            )
+            return
+        trace(f"help: rendered {filename} -> {out}")
+        self.open_html_in_app(out, f"{label} — MLOX Subset Sort")
+
     def on_backups(self) -> None:
         """Scan for backup files and open the restore/delete window."""
         if self.worker_running:
@@ -3272,6 +3681,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         if win is not None and win.winfo_exists():
             win.destroy()
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         self._bk_win = win
         win.title("Backups")
         win.configure(bg=DARK["bg"])
@@ -3514,12 +3924,23 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         for i, c in enumerate(self._res_shown):
             star = "★" if c["involves_subset"] else ""
             tags = ("sub",) if c["involves_subset"] else ()
+            # "!" only when reading the mesh actually found something. An
+            # unreadable mesh gets "?" -- distinct on purpose, because "we
+            # could not read this" and "this loses collision" send a user to
+            # completely different places.
+            finding = c.get("mesh")
+            mark = ""
+            if finding is not None:
+                if getattr(finding, "worth_reporting", False):
+                    mark = "!"
+                elif getattr(finding, "unreadable", ""):
+                    mark = "?"
             tree.insert(
                 "",
                 "end",
                 iid=str(i),
                 tags=tags,
-                values=(star, c["path"], len(c["providers"]), c["winner"]),
+                values=(star, mark, c["path"], len(c["providers"]), c["winner"]),
             )
 
     def _is_custom(self, plugin: str) -> bool:
@@ -3581,6 +4002,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         # ("(43, -45)" for landscape, "Balmora (-3, -2)" for a path grid), so
         # the generated page can say which cell it is showing.
         self._conf_record_label = str(conflict.get("id") or "")
+        # The record type ("Landscape", "PathGrid", ...) so the detail window
+        # can say what each field is in the file format, not just in the JSON.
+        self._conf_record_type = str(conflict.get("type") or "")
         for k in keys:
             row = [k] + [self._fmt_val(per[p].get(k)) for p in plugins]
             ftree.insert("", "end", iid=k, values=row, tags=("diff",) if k in diff else ())
@@ -3600,8 +4024,38 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         return listing_for_bytecode_field(value, source_text)
 
 
-def _run_pywebview_window(path: str | Path) -> None:
-    """Open one cell-map file in an OS webview and block until closed.
+def is_view_url(target: str | Path) -> bool:
+    """Whether a view target is already a URL rather than a file to convert.
+
+    The 3D mesh viewer is *served* over loopback, so what reaches the viewer
+    chain is an ``http://127.0.0.1:...`` address. Every other visualisation is
+    a file. Passing a URL through ``Path(...).as_uri()`` mangles it into
+    something no viewer can open, which is why this is asked before converting
+    rather than after something fails.
+
+    Args:
+        target: A file path or a URL.
+
+    Returns:
+        ``True`` when it should be handed to a viewer unchanged.
+    """
+    return str(target).startswith(("http://", "https://"))
+
+
+def view_uri(target: str | Path) -> str:
+    """Turn a view target into something a webview can load.
+
+    Args:
+        target: A file path or a URL.
+
+    Returns:
+        The URL to open.
+    """
+    return str(target) if is_view_url(target) else Path(target).resolve().as_uri()
+
+
+def _run_pywebview_window(path: str | Path, title: str = "Cell Map") -> None:
+    """Open one cell-map file or served page in an OS webview, blocking until closed.
 
     Invoked in a child process (see _open_cell_map_pywebview) so webview.start() owns
     its own main thread, cleanly, without disturbing the tkinter app. Always writes its
@@ -3630,7 +4084,7 @@ def _run_pywebview_window(path: str | Path) -> None:
         import webview
 
         _log(f"pywebview {getattr(webview, '__version__', '?')}: opening {path}")
-        webview.create_window("Cell Map", Path(path).resolve().as_uri(), width=1050, height=760)
+        webview.create_window(title, view_uri(path), width=1050, height=760)
         webview.start()
         _log("pywebview: window closed cleanly")
     except Exception:  # noqa: BLE001
@@ -3639,7 +4093,7 @@ def _run_pywebview_window(path: str | Path) -> None:
 
         _log("pywebview FAILED -- falling back to browser:\n" + _tb.format_exc())
         try:
-            webbrowser.open(Path(path).resolve().as_uri())
+            webbrowser.open(view_uri(path))
         except (OSError, ValueError, webbrowser.Error):  # as_uri on a relative path / no browser
             pass
 
@@ -3650,7 +4104,8 @@ def main() -> None:
     # from source (python gui.py --show-map X) or frozen (App.exe --show-map X),
     # because it never spawns "python -c" (a frozen exe is not a Python interpreter).
     if len(sys.argv) >= 3 and sys.argv[1] == "--show-map":
-        _run_pywebview_window(sys.argv[2])
+        # The title is optional so an older invocation still works.
+        _run_pywebview_window(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "Cell Map")
         return
     import argparse
 
@@ -3669,8 +4124,9 @@ def main() -> None:
     global _TRACE_REQUEST
     _TRACE_REQUEST = args.trace
     root = TkinterDnD.Tk() if HAVE_DND else tk.Tk()
-    # theming happens inside App.__init__ (not here), because the saved theme
-    # name has to be loaded first so the chrome comes up already themed
+    # theming (including the native titlebar) happens inside App.__init__
+    # (not here), because the saved theme name has to be loaded first so the
+    # chrome -- OS titlebar included -- comes up already themed
     App(root)
     root.mainloop()
 

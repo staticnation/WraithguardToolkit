@@ -114,19 +114,10 @@ import fnmatch
 import os
 import re
 import struct
-from collections.abc import (
-    Callable,
-    Collection,
-    Iterable,
-    Iterator,
-    Mapping,
-    MutableMapping,
-    Sequence,
-)
 from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 # ---------------------------------------------------------------------------
 # mlox-exact plugin filename matching (ported from mlox's
@@ -147,7 +138,9 @@ from typing import Any
 # pinned by tests/test_differential.py. Only the names this module actually
 # calls are imported -- callers import from mlox_subset/ themselves (§23).
 from mlox_subset import _, get_logger, ngettext, setup_logging
-from mlox_subset.rules import pattern_has_meta
+from mlox_subset.nif.analysis import MeshAnalyser, MeshFinding
+from mlox_subset.nif.report import Structure, compare as compare_structures
+from mlox_subset.rules import authoring, pattern_has_meta
 
 #: Diagnostics about the run (not the user's report) go through here. The
 #: report itself stays on print()/stdout -- see mlox_subset/logging_setup.py.
@@ -172,6 +165,18 @@ from mlox_subset.tracing import (
     trace,
     trace_sort,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import (
+        Callable,
+        Collection,
+        Iterable,
+        Iterator,
+        Mapping,
+        MutableMapping,
+        Sequence,
+        Set as AbstractSet,
+    )
 
 # ---------------------------------------------------------------------------
 # mlox [VER]/[SIZE]/[DESC] predicate functions (ported from mlox's ruleParser).
@@ -682,7 +687,11 @@ def tes3cmd_invocation(path: str | Path) -> tuple[list[str] | None, str | None]:
     if p.suffix.lower() in (".exe", ".bat", ".cmd"):
         return [str(p)], None
     try:
-        head = p.open("rb").read(256)
+        # Context-managed: the handle was previously left to the garbage
+        # collector, which CPython happens to close promptly and other
+        # interpreters do not.
+        with p.open("rb") as handle:
+            head = handle.read(256)
     except OSError as e:
         return None, f"can't read '{p}': {e}"
     if head.startswith(b"#!") or b"perl" in head.lower():
@@ -983,6 +992,221 @@ def _lint_zstr(b: bytes) -> str:
     return b.split(b"\x00", 1)[0].decode("latin-1", "replace").strip()
 
 
+class _CellFacts(NamedTuple):
+    """What one ``CELL`` record contributes to the lint.
+
+    Attributes:
+        name: The cell's display name, as written.
+        cell_id: Its lower-cased name, or ``""`` when it is unnamed or on the
+            skip list -- meaning it is not a candidate for the pathgrid check.
+        fog_bug: Whether it trips the black-void bug: interior, not
+            behave-like-exterior, fog density exactly zero.
+    """
+
+    name: str
+    cell_id: str
+    fog_bug: bool
+
+
+def _lint_expansion_calls(body: bytes, tag: bytes) -> tuple[set[str], set[str]]:
+    """Find Tribunal and Bloodmoon function calls in one script or dialogue result.
+
+    Args:
+        body: The record body.
+        tag: Its record tag. ``SCPT`` carries source text in ``SCTX``, ``INFO``
+            in ``BNAM``.
+
+    Returns:
+        The Tribunal and Bloodmoon function names found.
+    """
+    want = b"SCTX" if tag == b"SCPT" else b"BNAM"
+    tribunal: set[str] = set()
+    bloodmoon: set[str] = set()
+    for subtag, data in _iter_subrecords(body):
+        if subtag == want and data:
+            text = data.decode("latin-1", "replace")
+            tribunal.update(match.group(1) for match in _RE_TB_FUN.finditer(text))
+            bloodmoon.update(match.group(1) for match in _RE_BM_FUN.finditer(text))
+    return tribunal, bloodmoon
+
+
+def _lint_masters(body: bytes) -> set[str]:
+    """Read a plugin header's declared masters.
+
+    Args:
+        body: The ``TES3`` record body.
+
+    Returns:
+        Lower-cased master filenames.
+    """
+    return {
+        _lint_zstr(data).lower() for subtag, data in _iter_subrecords(body) if subtag == b"MAST"
+    }
+
+
+def _lint_header_gaps(body: bytes) -> list[str]:
+    """Report which of author and description a header leaves blank.
+
+    Args:
+        body: The ``TES3`` record body.
+
+    Returns:
+        The missing field names in report order. Only the first ``HEDR`` is
+        considered, since the format allows exactly one.
+    """
+    for subtag, data in _iter_subrecords(body):
+        if subtag == b"HEDR" and len(data) >= 296:
+            fields = (("author", _lint_zstr(data[8:40])), ("description", _lint_zstr(data[40:296])))
+            return [word for word, value in fields if not value]
+    return []
+
+
+def _lint_evil_gmst(body: bytes) -> str | None:
+    """Identify an evil GMST: one whose name *and* value match the known table.
+
+    Both must match. A plugin that deliberately changes a game setting is doing
+    its job; what this catches is a stale expansion default copied in wholesale
+    by an old Construction Set.
+
+    Args:
+        body: The ``GMST`` record body.
+
+    Returns:
+        The setting's lower-cased name, or ``None``.
+    """
+    name: str | None = None
+    value_tag: str | None = None
+    value = b""
+    for subtag, data in _iter_subrecords(body):
+        if subtag == b"NAME":
+            name = _lint_zstr(data).lower()
+        elif subtag in (b"STRV", b"INTV", b"FLTV"):
+            value_tag, value = subtag.decode(), data
+    known = _EVIL_GMSTS.get(name) if name else None
+    if known and value_tag == known[0] and value.rstrip(b"\x00") == known[1].rstrip(b"\x00"):
+        return name
+    return None
+
+
+def _lint_cell(body: bytes) -> _CellFacts | None:
+    """Extract the interior-cell facts the lint needs.
+
+    Args:
+        body: The ``CELL`` record body.
+
+    Returns:
+        The facts, or ``None`` for an exterior cell or one whose ``DATA`` is
+        too short to read -- neither is a finding.
+    """
+    name = ""
+    data: bytes | None = None
+    ambience: bytes | None = None
+    for subtag, payload in _iter_subrecords(body):
+        if subtag == b"NAME":
+            name = _lint_zstr(payload)
+        elif subtag == b"DATA" and data is None:
+            data = payload
+        elif subtag == b"AMBI":
+            ambience = payload
+    if data is None or len(data) < 12:
+        return None
+    (flags,) = struct.unpack_from("<I", data, 0)
+    if not flags & 1:
+        return None  # exterior
+    cell_id = name.lower()
+    fog_bug = False
+    if not flags & 128:  # not behave-like-exterior
+        if ambience is not None and len(ambience) == 16:
+            (fog,) = struct.unpack_from("<f", ambience, 12)
+        else:
+            (fog,) = struct.unpack_from("<f", data, 8)
+        fog_bug = fog == 0.0
+    return _CellFacts(
+        name=name,
+        cell_id="" if cell_id in _LINT_SKIP_CELLS else cell_id,
+        fog_bug=fog_bug,
+    )
+
+
+def _lint_interior_pathgrid(body: bytes) -> str | None:
+    """Identify the interior cell a path grid belongs to.
+
+    Args:
+        body: The ``PGRD`` record body.
+
+    Returns:
+        The cell's lower-cased name, or ``None`` for an exterior path grid.
+        Interiors are the ones carrying grid ``(0, 0)``.
+    """
+    name = ""
+    grid_x: int | None = None
+    grid_y: int | None = None
+    for subtag, data in _iter_subrecords(body):
+        if subtag == b"NAME":
+            name = _lint_zstr(data)
+        elif subtag == b"DATA" and len(data) >= 8:
+            grid_x, grid_y = struct.unpack_from("<ii", data, 0)
+    if grid_x == 0 and grid_y == 0 and name:  # interiors carry grid (0,0)
+        return name.lower()
+    return None
+
+
+def _lint_twin_warnings(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_lower: set[str],
+    tagfor: Callable[[str], str],
+) -> list[str]:
+    """Report custom plugins whose .omwscripts / content twin is not loaded.
+
+    An active ``.omwaddon``/``.esp`` sitting next to an ``.omwscripts`` of the
+    same stem (or the reverse) almost always needs both declared: a missing twin
+    silently disables the mod's Lua half, or leaves scripts referencing content
+    that never loads. This was the real cause behind a batch of user-reported
+    ORPHAN confusion.
+
+    Args:
+        active_order: The active plugins, in load order.
+        index: Resolves a plugin filename to a path on disk.
+        subset_lower: Lower-cased filenames of the user's own mods. Only those
+            are checked; curated files are the list's business.
+        tagfor: Renders a plugin's provenance tag for the warning text.
+
+    Returns:
+        One warning per missing twin.
+    """
+    warnings: list[str] = []
+    active_lower = {str(plugin).lower() for plugin in active_order}
+    for plugin in active_order:
+        lowered = str(plugin).lower()
+        if lowered not in subset_lower:
+            continue
+        found = index.find(plugin) if index else None
+        if found is None:
+            continue
+        path = Path(found)
+        stem = path.name.rsplit(".", 1)[0]
+        if lowered.endswith((".omwaddon", ".esp")):
+            twin = path.with_name(stem + ".omwscripts")
+            if twin.exists() and twin.name.lower() not in active_lower:
+                warnings.append(
+                    f"[TWIN] '{plugin}'{tagfor(plugin)}: '{twin.name}' sits in the same folder but "
+                    f"isn't in the load order -- the mod's Lua half is disabled. Add it "
+                    f"(or confirm it's optional)."
+                )
+        elif lowered.endswith(".omwscripts"):
+            for ext in (".omwaddon", ".esp"):
+                twin = path.with_name(stem + ext)
+                if twin.exists() and twin.name.lower() not in active_lower:
+                    warnings.append(
+                        f"[TWIN] '{plugin}'{tagfor(plugin)}: '{twin.name}' sits in the same folder "
+                        f"but isn't in the load order -- scripts may reference content that "
+                        f"never loads. Add it (or confirm it's optional)."
+                    )
+                    break
+    return warnings
+
+
 def lint_plugins(
     active_order: Sequence[str],
     index: PluginFileIndex,
@@ -1013,19 +1237,28 @@ def lint_plugins(
     """
     subset_lower = {str(s).lower() for s in (subset_names or ())}
     origins = origins or {}
-    warnings, stats = [], {"scanned": 0, "unreadable": 0}
-    interior_first = {}  # cell id lower -> (plugin, display name)
-    pathgrids = set()  # interior pathgrid cell ids seen anywhere
+    warnings: list[str] = []
+    stats: dict[str, Any] = {"scanned": 0, "unreadable": 0}
+    interior_first: dict[str, tuple[str, str]] = {}  # cell id lower -> (plugin, display name)
+    pathgrids: set[str] = set()  # interior pathgrid cell ids seen anywhere
 
-    def tagfor(p: str) -> str:
-        o = origins.get(str(p).lower())
-        return f" [{o}]" if o else ""
+    def tagfor(plugin: str) -> str:
+        """Render a plugin's provenance tag for a warning line.
 
-    for np, p in enumerate(active_order):
-        pl = str(p).lower()
-        if pl.endswith(".omwscripts") or pl in _LINT_SKIP:
+        Args:
+            plugin: The plugin filename.
+
+        Returns:
+            ``" [origin]"``, or an empty string when the origin is unknown.
+        """
+        origin = origins.get(str(plugin).lower())
+        return f" [{origin}]" if origin else ""
+
+    for position, plugin in enumerate(active_order):
+        lowered = str(plugin).lower()
+        if lowered.endswith(".omwscripts") or lowered in _LINT_SKIP:
             continue
-        path = index.find(p) if index else None
+        path = index.find(plugin) if index else None
         if path is None:
             continue
         try:
@@ -1037,153 +1270,122 @@ def lint_plugins(
             continue
         stats["scanned"] += 1
         if progress:
-            progress(np, p)
-        is_custom = pl in subset_lower
-        evil_here: list[str] = []
-        my_masters = set()
-        tb_hits, bm_hits = set(), set()
-        for tag, body in _iter_tes3_records(raw):
-            if is_custom and tag in (b"SCPT", b"INFO"):
-                # expansion-function dependency scan (tes3lint !TB-FUN/!BM-FUN)
-                want = b"SCTX" if tag == b"SCPT" else b"BNAM"
-                for st, sd in _iter_subrecords(body):
-                    if st == want and sd:
-                        text = sd.decode("latin-1", "replace")
-                        for mm in _RE_TB_FUN.finditer(text):
-                            tb_hits.add(mm.group(1))
-                        for mm in _RE_BM_FUN.finditer(text):
-                            bm_hits.add(mm.group(1))
-                continue
-            if tag == b"TES3":
-                for st, sd in _iter_subrecords(body):
-                    if st == b"MAST":
-                        my_masters.add(_lint_zstr(sd).lower())
-                if is_custom:
-                    for st, sd in _iter_subrecords(body):
-                        if st == b"HEDR" and len(sd) >= 296:
-                            auth = _lint_zstr(sd[8:40])
-                            desc = _lint_zstr(sd[40:296])
-                            missing = [
-                                w for w, v in (("author", auth), ("description", desc)) if not v
-                            ]
-                            if missing:
-                                warnings.append(
-                                    f"[HEADER] '{p}'{tagfor(p)}: header has no "
-                                    f"{' and no '.join(missing)}."
-                                )
-                            break
-            elif tag == b"GMST":
-                name, vtag, vdata = None, None, b""
-                for st, sd in _iter_subrecords(body):
-                    if st == b"NAME":
-                        name = _lint_zstr(sd).lower()
-                    elif st in (b"STRV", b"INTV", b"FLTV"):
-                        vtag, vdata = st.decode(), sd
-                ev = _EVIL_GMSTS.get(name) if name else None
-                if ev and vtag == ev[0] and vdata.rstrip(b"\x00") == ev[1].rstrip(b"\x00"):
-                    assert name is not None  # `ev` is only found via `name`  # noqa: S101
-                    evil_here.append(name)
-            elif tag == b"CELL":
-                name, data, ambi = "", None, None
-                for st, sd in _iter_subrecords(body):
-                    if st == b"NAME":
-                        name = _lint_zstr(sd)
-                    elif st == b"DATA" and data is None:
-                        data = sd
-                    elif st == b"AMBI":
-                        ambi = sd
-                if data is None or len(data) < 12:
-                    continue
-                (flags,) = struct.unpack_from("<I", data, 0)
-                if not flags & 1:
-                    continue  # exterior
-                cid = name.lower()
-                if cid and cid not in _LINT_SKIP_CELLS and cid not in interior_first:
-                    interior_first[cid] = (p, name)
-                if not flags & 128:  # not behave-like-exterior
-                    if ambi is not None and len(ambi) == 16:
-                        (fog,) = struct.unpack_from("<f", ambi, 12)
-                    else:
-                        (fog,) = struct.unpack_from("<f", data, 8)
-                    if fog == 0.0:
-                        warnings.append(
-                            f"[FOGBUG] '{p}'{tagfor(p)}: interior cell '{name}' has fog "
-                            f"density 0.0 -- renders as a black void on some GPUs. Fix by "
-                            f"setting any nonzero fog density on the cell."
-                        )
-            elif tag == b"PGRD":
-                name, x, y = "", None, None
-                for st, sd in _iter_subrecords(body):
-                    if st == b"NAME":
-                        name = _lint_zstr(sd)
-                    elif st == b"DATA" and len(sd) >= 8:
-                        x, y = struct.unpack_from("<ii", sd, 0)
-                if x == 0 and y == 0 and name:  # interiors carry grid (0,0)
-                    pathgrids.add(name.lower())
-        if evil_here:
-            warnings.append(
-                f"[EVLGMST] '{p}'{tagfor(p)}: {len(evil_here)} evil GMST(s): "
-                f"{', '.join(sorted(evil_here))} -- stale expansion defaults copied in "
-                f"by an old Construction Set; tes3cmd clean removes them."
+            progress(position, plugin)
+        warnings.extend(
+            _lint_one_plugin(
+                raw,
+                plugin,
+                is_custom=lowered in subset_lower,
+                tagfor=tagfor,
+                interior_first=interior_first,
+                pathgrids=pathgrids,
             )
-        if tb_hits and "tribunal.esm" not in my_masters and "bloodmoon.esm" not in my_masters:
-            warnings.append(
-                f"[EXP-DEP] '{p}'{tagfor(p)}: scripts use Tribunal function(s) "
-                f"{', '.join(sorted(tb_hits))} but the plugin doesn't master Tribunal.esm -- "
-                f"fragile on non-expansion setups (tes3lint !TB-FUN)."
-            )
-        if bm_hits and "bloodmoon.esm" not in my_masters:
-            warnings.append(
-                f"[EXP-DEP] '{p}'{tagfor(p)}: scripts use Bloodmoon function(s) "
-                f"{', '.join(sorted(bm_hits))} but the plugin doesn't master Bloodmoon.esm -- "
-                f"fragile on non-expansion setups (tes3lint !BM-FUN)."
-            )
+        )
 
-    for cid, (plug, name) in sorted(interior_first.items()):
-        if cid not in pathgrids:
+    for cell_id, (plugin, name) in sorted(interior_first.items()):
+        if cell_id not in pathgrids:
             warnings.append(
-                f"[NO PATHGRID] '{plug}'{tagfor(plug)}: new interior cell '{name}' has no "
+                f"[NO PATHGRID] '{plugin}'{tagfor(plugin)}: new interior cell '{name}' has no "
                 f"pathgrid anywhere in the load order -- NPCs can't pathfind there."
             )
 
-    # scripts-twin check (customs only): an active .omwaddon/.esp shipped
-    # next to an .omwscripts of the same stem (or vice versa) almost always
-    # needs BOTH declared -- a missing twin silently disables the mod's Lua
-    # half (or leaves scripts without their content). This was the real cause
-    # behind a batch of user-reported ORPHAN confusion.
-    active_lower = {str(p).lower() for p in active_order}
-    for p in active_order:
-        pl = str(p).lower()
-        if pl not in subset_lower:
-            continue
-        path = index.find(p) if index else None
-        if path is None:
-            continue
-        path = Path(path)
-        stem = path.name.rsplit(".", 1)[0]
-        if pl.endswith((".omwaddon", ".esp")):
-            twin = path.with_name(stem + ".omwscripts")
-            if twin.exists() and twin.name.lower() not in active_lower:
-                warnings.append(
-                    f"[TWIN] '{p}'{tagfor(p)}: '{twin.name}' sits in the same folder but "
-                    f"isn't in the load order -- the mod's Lua half is disabled. Add it "
-                    f"(or confirm it's optional)."
-                )
-        elif pl.endswith(".omwscripts"):
-            for ext in (".omwaddon", ".esp"):
-                twin = path.with_name(stem + ext)
-                if twin.exists() and twin.name.lower() not in active_lower:
-                    warnings.append(
-                        f"[TWIN] '{p}'{tagfor(p)}: '{twin.name}' sits in the same folder but "
-                        f"isn't in the load order -- scripts may reference content that "
-                        f"never loads. Add it (or confirm it's optional)."
-                    )
-                    break
+    warnings.extend(_lint_twin_warnings(active_order, index, subset_lower, tagfor))
 
     stats["warnings"] = len(warnings)
     stats["interior_cells"] = len(interior_first)
     stats["pathgrids"] = len(pathgrids)
     return warnings, stats
+
+
+def _lint_one_plugin(
+    raw: bytes,
+    plugin: str,
+    *,
+    is_custom: bool,
+    tagfor: Callable[[str], str],
+    interior_first: dict[str, tuple[str, str]],
+    pathgrids: set[str],
+) -> list[str]:
+    """Run the per-record checks over one plugin.
+
+    Two of the checks are load-order-wide rather than per-plugin -- whether an
+    interior cell has a path grid *anywhere*, and which plugin introduced it --
+    so those two accumulators are passed in and updated here. Everything else
+    this function decides on its own.
+
+    Args:
+        raw: The plugin file's bytes.
+        plugin: Its filename, for the warning text.
+        is_custom: Whether it is one of the user's own mods. The header and
+            expansion-dependency checks apply only to those: a curated file's
+            metadata is the list's business, not this tool's.
+        tagfor: Renders a plugin's provenance tag.
+        interior_first: Cell id to the plugin that first introduced it, updated
+            in place. The first writer wins, which is load order.
+        pathgrids: Interior cell ids that have a path grid, updated in place.
+
+    Returns:
+        The warnings this plugin earns on its own.
+    """
+    warnings: list[str] = []
+    evil_gmsts: list[str] = []
+    masters: set[str] = set()
+    tribunal: set[str] = set()
+    bloodmoon: set[str] = set()
+
+    for tag, body in _iter_tes3_records(raw):
+        if is_custom and tag in (b"SCPT", b"INFO"):
+            found_tribunal, found_bloodmoon = _lint_expansion_calls(body, tag)
+            tribunal |= found_tribunal
+            bloodmoon |= found_bloodmoon
+        elif tag == b"TES3":
+            masters |= _lint_masters(body)
+            missing = _lint_header_gaps(body) if is_custom else []
+            if missing:
+                warnings.append(
+                    f"[HEADER] '{plugin}'{tagfor(plugin)}: header has no "
+                    f"{' and no '.join(missing)}."
+                )
+        elif tag == b"GMST":
+            evil = _lint_evil_gmst(body)
+            if evil:
+                evil_gmsts.append(evil)
+        elif tag == b"CELL":
+            cell = _lint_cell(body)
+            if cell is None:
+                continue
+            if cell.cell_id and cell.cell_id not in interior_first:
+                interior_first[cell.cell_id] = (plugin, cell.name)
+            if cell.fog_bug:
+                warnings.append(
+                    f"[FOGBUG] '{plugin}'{tagfor(plugin)}: interior cell '{cell.name}' has fog "
+                    f"density 0.0 -- renders as a black void on some GPUs. Fix by "
+                    f"setting any nonzero fog density on the cell."
+                )
+        elif tag == b"PGRD":
+            interior = _lint_interior_pathgrid(body)
+            if interior:
+                pathgrids.add(interior)
+
+    if evil_gmsts:
+        warnings.append(
+            f"[EVLGMST] '{plugin}'{tagfor(plugin)}: {len(evil_gmsts)} evil GMST(s): "
+            f"{', '.join(sorted(evil_gmsts))} -- stale expansion defaults copied in "
+            f"by an old Construction Set; tes3cmd clean removes them."
+        )
+    if tribunal and "tribunal.esm" not in masters and "bloodmoon.esm" not in masters:
+        warnings.append(
+            f"[EXP-DEP] '{plugin}'{tagfor(plugin)}: scripts use Tribunal function(s) "
+            f"{', '.join(sorted(tribunal))} but the plugin doesn't master Tribunal.esm -- "
+            f"fragile on non-expansion setups (tes3lint !TB-FUN)."
+        )
+    if bloodmoon and "bloodmoon.esm" not in masters:
+        warnings.append(
+            f"[EXP-DEP] '{plugin}'{tagfor(plugin)}: scripts use Bloodmoon function(s) "
+            f"{', '.join(sorted(bloodmoon))} but the plugin doesn't master Bloodmoon.esm -- "
+            f"fragile on non-expansion setups (tes3lint !BM-FUN)."
+        )
+    return warnings
 
 
 def flatten_dict(d: Mapping[str, Any], parent_key: str = "", sep: str = ".") -> dict[str, Any]:
@@ -1215,7 +1417,48 @@ def _rec_deleted(rec: Mapping[str, Any]) -> bool:
     return bool(rec.get("deleted"))
 
 
-def _tes3conv_record_key(rec: Mapping[str, Any]) -> tuple[str, str] | None:
+def _interior_cell_names(records: Iterable[Mapping[str, Any]]) -> set[str]:
+    """Collect the lower-cased names of every interior CELL record.
+
+    Path grids don't carry the interior flag themselves -- only their parent
+    CELL record does (DATA.flags bit 0x01) -- so anything that needs to tell
+    an interior path grid from an unnamed exterior one has to look this up
+    first. This is deliberately NOT "is the grid (0, 0)": interior path grids
+    do store (0, 0) by convention, but a real exterior cell can legitimately
+    sit at world origin too (Ashlands Region), so grid alone is ambiguous and
+    the flag is the only signal that isn't.
+
+    Args:
+        records: One plugin's tes3conv records.
+
+    Returns:
+        Lower-cased interior cell names.
+    """
+    out: set[str] = set()
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        if str(rec.get("type") or "").lower() != "cell":
+            continue
+        raw_data = rec.get("data")
+        data = raw_data if isinstance(raw_data, dict) else {}
+        flags = data.get("flags")
+        interior = (
+            bool(flags & 0x01)
+            if isinstance(flags, int)
+            else (flags is not None and "INTERIOR" in str(flags).upper())
+        )
+        if not interior:
+            continue
+        name = rec.get("id") or rec.get("name")
+        if name:
+            out.add(str(name).lower())
+    return out
+
+
+def _tes3conv_record_key(
+    rec: Mapping[str, Any], interior_cells: AbstractSet[str] | None = None
+) -> tuple[str, str] | None:
     """(type, id) for a tes3conv JSON record.
 
     tes3conv (via the tes3 crate) emits internally-tagged JSON: {"type": "Npc", "id":
@@ -1223,6 +1466,15 @@ def _tes3conv_record_key(rec: Mapping[str, Any]) -> tuple[str, str] | None:
     Landscape, path grids -- carry a 'grid' instead, so we key those by their coords
     (which TES3 Conflictsolver's plain 'id or name' misses, collapsing them all
     together). Returns None for the file header / anything with no usable id.
+
+    Args:
+        rec: One tes3conv JSON record.
+        interior_cells: Lower-cased names of interior cells in this same
+            plugin, from :func:`_interior_cell_names`. Used to key a
+            cell-scoped record (path grids) by name alone when its cell is
+            genuinely interior, vs. by name-plus-coordinates for a named
+            exterior cell. Without it, falls back to the old grid-is-zero
+            heuristic, which is only ambiguous exactly at world origin.
     """
     if not isinstance(rec, dict):
         return None
@@ -1240,12 +1492,20 @@ def _tes3conv_record_key(rec: Mapping[str, Any]) -> tuple[str, str] | None:
             else (None, None)
         )
         cell = rec.get("cell") or rec.get("cell_name")
+        if cell is None and isinstance(rec.get("data"), dict):
+            cell = rec["data"].get("cell") or rec["data"].get("cell_name")
         if cell:
-            # Cell-scoped records (e.g. PathGrid): INTERIOR pathgrids all carry
-            # grid (0,0) and no id, so keying by grid alone collapses every
-            # interior's pathgrid across every plugin into one bogus "(0, 0)"
-            # conflict. Key by the CELL name instead (plus coords for exteriors).
-            rid = f"{cell} ({gx}, {gy})" if (gx or gy) else str(cell)
+            # Cell-scoped records (e.g. PathGrid): keying by grid alone
+            # collapses every interior's pathgrid across every plugin into
+            # one bogus "(0, 0)" conflict, since interiors all store that
+            # grid by convention. Key by the CELL name instead for
+            # interiors, and by name-plus-coordinates for named exteriors.
+            is_interior = (
+                str(cell).lower() in interior_cells
+                if interior_cells is not None
+                else not (gx or gy)  # no flag lookup available: old heuristic
+            )
+            rid = str(cell) if is_interior else f"{cell} ({gx}, {gy})"
         elif gx is not None:
             rid = f"({gx}, {gy})"
     if rid is None or str(rid) == "":
@@ -1294,8 +1554,11 @@ class Tes3ConvSession:
     """
 
     # Bump when the sidecar key/cell extraction changes so stale caches are
-    # rebuilt (v2: pathgrids keyed by cell, not the shared "(0,0)" grid).
-    _SIDECAR_VER = 2
+    # rebuilt (v2: pathgrids keyed by cell, not the shared "(0,0)" grid;
+    # v3: interior determination uses the CELL record's own flag bit instead
+    # of a grid==(0,0) heuristic, which was ambiguous -- a real exterior cell
+    # can legitimately sit at world origin too).
+    _SIDECAR_VER = 3
 
     def __init__(self, exe: str, dump_dir: str | None = None, keep: bool = False) -> None:
         """Open a session backed by ``exe``, spooling JSON to ``dump_dir``."""
@@ -1369,10 +1632,14 @@ class Tes3ConvSession:
     def record_map(self, path: str | Path) -> dict[tuple[str, str], Any]:
         """Return {(rectype, rid): record} for one plugin, from cached JSON."""
         # Built fresh each call and NOT cached, so only one plugin's records are
-        # ever in memory at a time.
+        # ever in memory at a time. self._records() returns an in-memory list
+        # (already read once), so iterating it twice -- once for the interior
+        # lookup, once to key every record -- costs no extra I/O.
+        records = self._records(path)
+        interior_cells = _interior_cell_names(records)
         m = {}
-        for rec in self._records(path):
-            k = _tes3conv_record_key(rec)
+        for rec in records:
+            k = _tes3conv_record_key(rec, interior_cells)
             if k and k not in m:
                 m[k] = rec
         return m
@@ -1420,10 +1687,17 @@ class Tes3ConvSession:
         """
         import json
 
+        records = self._records(path)  # the single big-JSON read
+        # A cheap first pass over the already-in-memory list (no extra I/O):
+        # path grids need to know which cells are interior before they can be
+        # keyed correctly, and a cell's own record can appear anywhere in the
+        # file relative to its path grid's.
+        interior_cells = _interior_cell_names(records)
+
         keys: list[list[Any]] = []
         cells: list[list[Any]] = []
         seen: set[Any] = set()
-        for rec in self._records(path):  # the single big-JSON read
+        for rec in records:
             if not isinstance(rec, dict):
                 continue
             # Lua scripts declared by an .omwaddon LuaScriptsCfg (keyless record)
@@ -1439,24 +1713,19 @@ class Tes3ConvSession:
                         if lk not in seen:
                             seen.add(lk)
                             keys.append([lk[0], lk[1], False])
-            k = _tes3conv_record_key(rec)
+            k = _tes3conv_record_key(rec, interior_cells)
             if not k or k in seen:
                 continue
             seen.add(k)
             rtype, rid = k
             keys.append([rtype, rid, _rec_deleted(rec)])
             if str(rtype).lower() == "cell":
-                _raw_data = rec.get("data")
-                data = _raw_data if isinstance(_raw_data, dict) else {}
-                flags = data.get("flags")
-                interior = (
-                    bool(flags & 0x01)
-                    if isinstance(flags, int)
-                    else (flags is not None and "INTERIOR" in str(flags).upper())
-                )
-                if interior:
-                    cells.append(["int", str(rec.get("id") or rec.get("name") or rid), None])
+                name = str(rec.get("id") or rec.get("name") or rid)
+                if name.lower() in interior_cells:
+                    cells.append(["int", name, None])
                 else:
+                    _raw_data = rec.get("data")
+                    data = _raw_data if isinstance(_raw_data, dict) else {}
                     grid = data.get("grid") or rec.get("grid")
                     if isinstance(grid, (list, tuple)) and len(grid) >= 2:
                         cells.append(["ext", int(grid[0]), int(grid[1])])
@@ -1570,33 +1839,32 @@ def diff_record_fields(
     return ordered, per, differing
 
 
-def detect_conflicts(
+def _scan_touch(
     active_order: Sequence[str],
     index: PluginFileIndex,
-    subset_names: Sequence[str] | None = None,
-    session: Tes3ConvSession | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Scan the active load order for record-level conflicts.
+    session: Tes3ConvSession | None,
+) -> tuple[dict[tuple[str, str], list[tuple[str, bool]]], list[str], int, int, dict[str, str]]:
+    """Scan the active load order and tally which plugins touch each record.
 
-    active_order : plugin filenames in load order (winner last).
-    index        : a PluginFileIndex to locate the files on disk.
-    subset_names : your custom plugins, so conflicts involving them can be flagged.
+    The shared, expensive part of :func:`detect_conflicts` and
+    :func:`list_subset_singles`: both need "every record, and which plugins
+    touch it" -- they only disagree about which counts are worth keeping (2+
+    plugins vs. exactly 1 of your own) -- so reading every plugin happens
+    once here rather than once per caller.
 
-    session : an optional Tes3ConvSession. When given, records are read from
-    tes3conv JSON (exact ids for every record type, and field-level diffing is
-    then possible via diff_record_fields); when None, the built-in binary parser
-    is used (record-level only).
+    Args:
+        active_order: Plugin filenames in load order (winner last).
+        index: A PluginFileIndex to locate the files on disk.
+        session: An optional Tes3ConvSession; when given, records are read
+            from tes3conv JSON, else the built-in binary parser is used.
 
-    Returns (conflicts, stats). conflicts is a list of dicts sorted with your
-    custom-involved ones first:
-      {type, id, plugins:[load order], winner, involves_subset, deleted_by:[...]}
-    stats = {"scanned", "unreadable":[...], "records", "conflicts",
-             "engine": "tes3conv"|"builtin", "paths": {plugin: path}}.
+    Returns:
+        ``(touch, unreadable, scanned, rec_count, paths)`` -- ``touch`` maps
+        ``(type, id)`` to every ``(plugin, deleted)`` hit, in load order.
     """
-    subset_lower = {s.lower() for s in (subset_names or [])}
-    touch: dict[tuple[str, str], list[tuple[str, bool]]] = {}  # (type, id) -> hits
+    touch: dict[tuple[str, str], list[tuple[str, bool]]] = {}
     unreadable, scanned, rec_count = [], 0, 0
-    paths = {}
+    paths: dict[str, str] = {}
     for plugin in active_order:
         path = index.find(plugin) if index else None
         if path is None:
@@ -1628,6 +1896,34 @@ def detect_conflicts(
                     continue
                 seen_here.add(key)
                 touch.setdefault(key, []).append((plugin, deleted))
+    return touch, unreadable, scanned, rec_count, paths
+
+
+def detect_conflicts(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_names: Sequence[str] | None = None,
+    session: Tes3ConvSession | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Scan the active load order for record-level conflicts.
+
+    active_order : plugin filenames in load order (winner last).
+    index        : a PluginFileIndex to locate the files on disk.
+    subset_names : your custom plugins, so conflicts involving them can be flagged.
+
+    session : an optional Tes3ConvSession. When given, records are read from
+    tes3conv JSON (exact ids for every record type, and field-level diffing is
+    then possible via diff_record_fields); when None, the built-in binary parser
+    is used (record-level only).
+
+    Returns (conflicts, stats). conflicts is a list of dicts sorted with your
+    custom-involved ones first:
+      {type, id, plugins:[load order], winner, involves_subset, deleted_by:[...]}
+    stats = {"scanned", "unreadable":[...], "records", "conflicts",
+             "engine": "tes3conv"|"builtin", "paths": {plugin: path}}.
+    """
+    subset_lower = {s.lower() for s in (subset_names or [])}
+    touch, unreadable, scanned, rec_count, paths = _scan_touch(active_order, index, session)
 
     conflicts = []
     for (rectype, rid), plugs in touch.items():
@@ -1654,6 +1950,146 @@ def detect_conflicts(
         "paths": paths,
     }
     return conflicts, stats
+
+
+def _list_singles(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_names: Sequence[str],
+    session: Tes3ConvSession | None,
+    *,
+    want_subset: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Shared core of :func:`list_subset_singles` and :func:`list_other_singles`.
+
+    Both want the same thing -- records with exactly one contributor -- and
+    only disagree about which side of ``subset_names`` that contributor has
+    to fall on, so the filter condition is the one parameter that differs.
+
+    Args:
+        active_order: Plugin filenames in load order (winner last).
+        index: A PluginFileIndex to locate the files on disk.
+        subset_names: Your custom plugins.
+        session: An optional Tes3ConvSession; same meaning as in
+            :func:`detect_conflicts`.
+        want_subset: ``True`` keeps a single-contributor record when that
+            lone plugin IS one of ``subset_names`` (your mods); ``False``
+            keeps the complement -- a momw dependency, the game's own
+            masters, anything active that isn't yours.
+
+    Returns:
+        ``(records, stats)``, matching :func:`detect_conflicts`'s shape:
+        each record is ``{type, id, plugins: [the one plugin], winner,
+        involves_subset, deleted_by}``, sorted by type then id. ``stats``
+        carries a ``"singles"`` count in place of ``"conflicts"``.
+    """
+    subset_lower = {s.lower() for s in subset_names}
+    touch, unreadable, scanned, rec_count, paths = _scan_touch(active_order, index, session)
+
+    records = []
+    for (rectype, rid), plugs in touch.items():
+        if len(plugs) != 1:
+            continue
+        plugin, deleted = plugs[0]
+        is_subset = plugin.lower() in subset_lower
+        if is_subset != want_subset:
+            continue
+        records.append(
+            {
+                "type": rectype,
+                "id": rid,
+                "plugins": [plugin],
+                "winner": plugin,
+                "involves_subset": is_subset,
+                "deleted_by": [plugin] if deleted else [],
+            }
+        )
+    records.sort(key=lambda c: (c["type"], str(c["id"]).lower()))
+    stats: dict[str, Any] = {
+        "scanned": scanned,
+        "unreadable": unreadable,
+        "records": rec_count,
+        "singles": len(records),
+        "engine": "tes3conv" if session is not None else "builtin",
+        "paths": paths,
+    }
+    return records, stats
+
+
+def list_subset_singles(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_names: Sequence[str],
+    session: Tes3ConvSession | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """List records that only your own mods touch -- no conflict, just yours.
+
+    A sister process to :func:`detect_conflicts`, not a variant of it: a
+    record with exactly one contributor isn't a conflict, and folding it into
+    the conflict list would misrepresent both the conflict count and the
+    conflict map/table, which are specifically about collisions between
+    plugins. This scans the same load order -- paying for the read only once,
+    via :func:`_scan_touch` -- but keeps the single-plugin entries
+    :func:`detect_conflicts` discards, filtered to ones where that lone
+    plugin is one of ``subset_names``.
+
+    The point is parity, not a new UI: the shape matches
+    :func:`detect_conflicts`'s output exactly (a "conflict" with one plugin
+    is just a record with one column), so the same field-diff panel and the
+    same graph/difference/3D buttons already work on it -- "Show
+    difference..." simply won't offer itself, correctly, since there's
+    nothing to diff against.
+
+    Args:
+        active_order: Plugin filenames in load order (winner last).
+        index: A PluginFileIndex to locate the files on disk.
+        subset_names: Your custom plugins. Unlike ``detect_conflicts``, this
+            is meant to be non-empty here -- there is no meaningful "single
+            plugin, not mine" entry for this function to return.
+        session: An optional Tes3ConvSession; same meaning as in
+            :func:`detect_conflicts`.
+
+    Returns:
+        ``(records, stats)`` -- see :func:`_list_singles`. ``involves_subset``
+        is always ``True`` here.
+    """
+    return _list_singles(active_order, index, subset_names, session, want_subset=True)
+
+
+def list_other_singles(
+    active_order: Sequence[str],
+    index: PluginFileIndex,
+    subset_names: Sequence[str],
+    session: Tes3ConvSession | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """List records that only ONE non-custom plugin touches.
+
+    The complement of :func:`list_subset_singles`: everything active that
+    isn't yours and isn't conflicting with anything either -- a momw-listed
+    dependency's own untouched records, Morrowind.esm/Tribunal.esm/
+    Bloodmoon.esm's own base content, any other plugin you didn't add as a
+    custom. Useful for pulling a record up in the field-diff/visualisation
+    views to just look at it, with nothing to compare it against.
+
+    This can be a much longer list than :func:`list_subset_singles` -- the
+    base masters alone define enormous numbers of records -- which is exactly
+    why it's a separate, deliberately-not-default function: callers gate it
+    behind its own opt-in control rather than fetching it automatically
+    alongside a conflict scan.
+
+    Args:
+        active_order: Plugin filenames in load order (winner last).
+        index: A PluginFileIndex to locate the files on disk.
+        subset_names: Your custom plugins, EXCLUDED here. Can be empty --
+            then this returns every plugin's single-contributor records.
+        session: An optional Tes3ConvSession; same meaning as in
+            :func:`detect_conflicts`.
+
+    Returns:
+        ``(records, stats)`` -- see :func:`_list_singles`. ``involves_subset``
+        is always ``False`` here.
+    """
+    return _list_singles(active_order, index, subset_names, session, want_subset=False)
 
 
 def format_conflict_report(
@@ -1799,15 +2235,32 @@ def detect_resource_conflicts(
     data_dirs: Sequence[str],
     subset_dirs: Sequence[str] | None = None,
     exclude_exts: Collection[str] | None = None,
+    compare_contents: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Detect loose-file (VFS) conflicts across the data folders.
 
-    data_dirs:
+    A path present in two or more data folders is a *candidate*; whether it is
+    a conflict anyone has to think about depends on whether the bytes differ.
+    Mods routinely re-ship assets they did not change -- an unedited vanilla
+    texture, an asset a patch simply re-includes -- and reporting those beside
+    genuine overrides is how a list of thousands stops being read at all. Each
+    entry therefore carries ``identical``, and the differing ones sort first.
 
-    the data= folders in load order (winner last). Returns (conflicts, stats).
-    conflicts: [{path, providers:[dirs in order], winner, involves_subset}] for every
-    relative file path present in 2+ folders. Plugin files are skipped (they're ordered
-    by content=, not the VFS).
+    Args:
+        data_dirs: The ``data=`` folders in load order, winner last.
+        subset_dirs: The folders belonging to the user's own mods, used to flag
+            conflicts that involve them.
+        exclude_exts: Extensions to skip entirely.
+        compare_contents: Whether to compare bytes. Left on by default because
+            the size check makes it cheap, but exposed so a scan over a slow or
+            network filesystem can skip it; entries then carry no ``identical``
+            key rather than a guess.
+
+    Returns:
+        ``(conflicts, stats)``. Each conflict is
+        ``{path, providers, winner, involves_subset[, identical]}`` for every
+        relative path present in 2+ folders. Plugin files are skipped: they are
+        ordered by ``content=``, not by the VFS.
     """
     subset_norm = {str(s).replace("\\", "/").rstrip("/").lower() for s in (subset_dirs or [])}
     exclude_exts = {e.lower() for e in (exclude_exts or [])}
@@ -1846,11 +2299,302 @@ def detect_resource_conflicts(
             continue
         prov = [dirs[i] for i in idxs]
         involves = any(pv.replace("\\", "/").rstrip("/").lower() in subset_norm for pv in prov)
-        conflicts.append(
-            {"path": rel, "providers": prov, "winner": prov[-1], "involves_subset": involves}
+        entry: dict[str, Any] = {
+            "path": rel,
+            "providers": prov,
+            "winner": prov[-1],
+            "involves_subset": involves,
+        }
+        if compare_contents:
+            entry["identical"] = _providers_are_identical(rel, prov)
+        conflicts.append(entry)
+    # Files that genuinely differ first: a path present twice with the same
+    # bytes is not a decision anybody has to make, and burying the real
+    # overrides among them is how a list of thousands stops being read.
+    conflicts.sort(key=lambda c: (bool(c.get("identical")), not c["involves_subset"], c["path"]))
+    identical = sum(1 for c in conflicts if c.get("identical"))
+    return conflicts, {
+        "dirs": len(dirs),
+        "files": len(providers),
+        "conflicts": len(conflicts),
+        "identical": identical,
+        "differing": len(conflicts) - identical,
+    }
+
+
+def _providers_are_identical(rel: str, provider_dirs: Sequence[str]) -> bool:
+    """Whether every provider ships byte-identical content for one path.
+
+    Sizes are compared first and the hash is only reached when they agree, which
+    is what makes this affordable: a re-shipped asset and a real override almost
+    always differ in length, so the expensive path runs on the minority.
+
+    A file that cannot be read counts as *not* identical. Claiming two files
+    match when one of them could not be opened would quietly retire a genuine
+    conflict from the list, and an unreadable file is itself worth surfacing.
+
+    Args:
+        rel: The path relative to each data folder.
+        provider_dirs: The data folders providing it.
+
+    Returns:
+        ``True`` when all providers hold the same bytes.
+    """
+    import hashlib
+
+    sizes: set[int] = set()
+    paths = [Path(d) / rel for d in provider_dirs]
+    for candidate in paths:
+        try:
+            sizes.add(candidate.stat().st_size)
+        except OSError:
+            return False
+        if len(sizes) > 1:
+            return False
+    digests: set[str] = set()
+    for candidate in paths:
+        # blake2b rather than a cryptographic-strength choice: this compares
+        # files that already have the same length and the same name, so the
+        # question is accidental collision, not an adversary.
+        digest = hashlib.blake2b(digest_size=16)
+        try:
+            with candidate.open("rb") as fh:
+                # Chunked: a data folder can hold a 200 MB texture pack and
+                # reading one whole into memory per provider is avoidable.
+                while chunk := fh.read(1 << 20):
+                    digest.update(chunk)
+        except OSError:
+            return False
+        digests.add(digest.hexdigest())
+        if len(digests) > 1:
+            return False
+    return True
+
+
+#: Below this ratio of winner triangles to loser triangles, the winning mesh is
+#: simple enough that the swap is worth mentioning. A retexture that also
+#: replaces the mesh with a low-poly stand-in is the case this catches.
+_MESH_SIMPLER_RATIO = 0.5
+
+#: Logger for the mesh analysis pass, separate so it can be turned up without
+#: turning up the whole sorter.
+LOG_MESH = get_logger("mesh")
+
+
+def analyse_mesh_conflicts(
+    conflicts: Sequence[MutableMapping[str, Any]],
+    limit: int = 0,
+) -> dict[str, int]:
+    """Read the meshes behind conflicts and record what the winner changes.
+
+    Only paths that are meshes **and** already known to differ are opened. That
+    is the whole reason this is affordable: parsing runs at roughly 120 files a
+    second, so opening every mesh in a large setup would cost minutes, while
+    opening only the contested ones costs a second or two. Identical providers
+    are skipped because there is nothing to compare -- the bytes are the same.
+
+    Findings are attached to the conflict entries in place under ``"mesh"``.
+    Absent means "not looked at", which is deliberately distinct from "looked
+    at and found nothing".
+
+    Args:
+        conflicts: The scan's conflicts, modified in place.
+        limit: Stop after analysing this many meshes; 0 for no limit. A guard
+            for pathological setups, not an expected path.
+
+    Returns:
+        Counters: how many were analysed, how many had something worth saying,
+        and how many could not be read.
+    """
+    analyser = MeshAnalyser()
+    stats = {"analysed": 0, "findings": 0, "unreadable": 0}
+    for entry in conflicts:
+        path = str(entry.get("path", ""))
+        if not path.lower().endswith(".nif"):
+            continue
+        if entry.get("identical"):
+            continue
+        if limit and stats["analysed"] >= limit:
+            break
+        winner_dir = str(entry["winner"])
+        winner = Path(winner_dir) / path
+        # The losers are every provider that is not the winner, found by
+        # comparing against the declared winner rather than by assuming it is
+        # last. The two happen to coincide today; taking the position instead
+        # of the value couples this to a detail of the scan that nothing
+        # promises, and gets the comparison backwards if it ever changes.
+        losses: list[MeshFinding] = [
+            analyser.compare_providers(path, Path(str(provider)) / path, winner)
+            for provider in entry["providers"]
+            if str(provider) != winner_dir
+        ]
+        if not losses:
+            continue
+        stats["analysed"] += 1
+        # The worst finding wins the summary. A mesh overridden by three mods
+        # is one decision, not three, and the reason to look is whatever the
+        # winner loses against *any* of them.
+        reportable = next((f for f in losses if f.worth_reporting), None)
+        chosen = reportable or next((f for f in losses if f.reliable), None) or losses[0]
+        if chosen.unreadable:
+            stats["unreadable"] += 1
+        if reportable is not None:
+            stats["findings"] += 1
+        entry["mesh"] = chosen
+    LOG_MESH.debug(
+        "analysed %d mesh conflict(s): %d finding(s), %d unreadable, %d parse(s), %d cache hit(s)",
+        stats["analysed"],
+        stats["findings"],
+        stats["unreadable"],
+        analyser.parsed,
+        analyser.cache_hits,
+    )
+    return stats
+
+
+def describe_mesh_finding(finding: MeshFinding) -> str:
+    """Say what a mesh conflict costs, in one line, or nothing at all.
+
+    Only *losses* are named. A winner that adds detail is not a problem anybody
+    needs to be told about, and a report that lists every difference equally is
+    one nobody reads.
+
+    Args:
+        finding: The comparison result.
+
+    Returns:
+        A short description, or ``""`` when there is nothing worth saying.
+    """
+    if finding.unreadable:
+        return _("could not read the mesh: %(reason)s") % {"reason": finding.unreadable}
+    if not finding.reliable or finding.difference is None:
+        # Silence rather than a caveat. A partial read cannot prove an absence,
+        # so it has nothing to report, and saying "possibly lost collision"
+        # would be worse than saying nothing.
+        return ""
+    parts: list[str] = []
+    difference = finding.difference
+    if difference.lost_collision:
+        parts.append(_("loses collision"))
+    if difference.lost_animation:
+        parts.append(_("loses animation"))
+    if difference.added_textures:
+        parts.append(
+            ngettext(
+                "needs %(count)d texture the other does not ship",
+                "needs %(count)d textures the other does not ship",
+                len(difference.added_textures),
+            )
+            % {"count": len(difference.added_textures)}
         )
-    conflicts.sort(key=lambda c: (not c["involves_subset"], c["path"]))
-    return conflicts, {"dirs": len(dirs), "files": len(providers), "conflicts": len(conflicts)}
+    ratio = difference.triangle_ratio
+    if ratio is not None and ratio < _MESH_SIMPLER_RATIO:
+        parts.append(_("%(percent)d%% of the triangles") % {"percent": round(ratio * 100)})
+    return ", ".join(parts)
+
+
+def describe_mesh_detail(
+    analyser: MeshAnalyser,
+    conflict: Mapping[str, Any],
+) -> list[str]:
+    """Describe every provider of one mesh, reading them on demand.
+
+    This is the *selected a row* path, not the scan path. Nothing is parsed
+    until a user asks about a specific file, which is why it can afford to
+    describe every provider rather than only the winner: one mesh is
+    milliseconds, and the largest in the corpus is under two seconds.
+
+    Args:
+        analyser: The cache to read through, so reselecting a row is free.
+        conflict: One conflict entry.
+
+    Returns:
+        Lines for a detail panel, empty when the path is not a mesh.
+    """
+    path = str(conflict.get("path", ""))
+    if not path.lower().endswith(".nif"):
+        return []
+    providers = [str(p) for p in conflict.get("providers", [])]
+    if not providers:
+        return []
+    lines = [_("Mesh contents (read just now):")]
+    structures: list[Structure | None] = []
+    for index, provider in enumerate(providers, start=1):
+        outcome = analyser.structure(Path(provider) / path)
+        if isinstance(outcome, str):
+            structures.append(None)
+            lines.append(
+                _("  %(n)d. %(dir)s — could not read: %(why)s")
+                % {"n": index, "dir": provider, "why": outcome}
+            )
+            continue
+        structures.append(outcome)
+        traits = [
+            ngettext("%(count)d shape", "%(count)d shapes", len(outcome.shapes))
+            % {"count": len(outcome.shapes)},
+            ngettext("%(count)d triangle", "%(count)d triangles", outcome.total_triangles)
+            % {"count": outcome.total_triangles},
+            ngettext("%(count)d texture", "%(count)d textures", len(outcome.textures))
+            % {"count": len(outcome.textures)},
+        ]
+        # Presence is stated; absence only when the read was complete, because
+        # a partial parse cannot prove a node is not there.
+        if outcome.has_collision:
+            traits.append(_("collision"))
+        elif not outcome.partial:
+            traits.append(_("no collision"))
+        if outcome.has_animation:
+            traits.append(_("animated"))
+        if outcome.partial:
+            traits.append(
+                _("PARTIAL: %(read)d of %(declared)d blocks")
+                % {"read": outcome.blocks_read, "declared": outcome.blocks_declared}
+            )
+        lines.append(f"  {index}. {provider} — " + ", ".join(traits))
+    winner_dir = str(conflict.get("winner", providers[-1]))
+    try:
+        winner = structures[providers.index(winner_dir)]
+    except ValueError:
+        # The declared winner is not among the providers, which is a bug in
+        # whoever built the entry. Reporting the contents without a comparison
+        # is more useful than guessing which one won.
+        return lines
+    for index, (provider, loser) in enumerate(zip(providers, structures), start=1):
+        if loser is None or winner is None or provider == winner_dir:
+            continue
+        note = describe_mesh_finding(
+            MeshFinding(
+                path,
+                difference=compare_structures(loser, winner),
+                loser_partial=loser.partial,
+                winner_partial=winner.partial,
+            )
+        )
+        if note:
+            lines.append(
+                _("  Against provider %(n)d, the winner %(note)s.") % {"n": index, "note": note}
+            )
+    for structure in structures:
+        if structure is not None and structure.textures:
+            lines.append(
+                _("  Textures referenced: %(list)s") % {"list": ", ".join(structure.textures[:8])}
+            )
+            break
+    return lines
+
+
+def _mesh_note(conflict: Mapping[str, Any]) -> str:
+    """The one-line mesh finding for a conflict, or ``""``.
+
+    Args:
+        conflict: One conflict entry.
+
+    Returns:
+        The description, empty when the mesh was not analysed or had nothing
+        worth saying.
+    """
+    finding = conflict.get("mesh")
+    return describe_mesh_finding(finding) if isinstance(finding, MeshFinding) else ""
 
 
 def format_resource_report(
@@ -1859,36 +2603,127 @@ def format_resource_report(
     subset_only: bool = False,
     limit: int = 200,
 ) -> str:
-    """Render the loose-file conflict list as a readable report."""
+    """Render the loose-file conflict list as a readable report.
+
+    Args:
+        conflicts: The scan's conflicts.
+        stats: The scan's counters.
+        subset_only: Show only conflicts involving the user's own data paths.
+        limit: Maximum rows to list; 0 for all.
+
+    Returns:
+        The report text.
+    """
     shown = [c for c in conflicts if c["involves_subset"] or not subset_only]
     n_sub = sum(1 for c in conflicts if c["involves_subset"])
     lines = [
         f"Scanned {stats['dirs']} data folder(s), {stats['files']} loose file(s): "
         f"{stats['conflicts']} conflicting file(s), {n_sub} involving your custom data paths."
     ]
+    if stats.get("identical"):
+        # Said as a count rather than by hiding them: "3,912 of these are the
+        # same file shipped twice" is the sentence that makes the rest legible,
+        # and a reader who wants them can still scroll.
+        lines.append(
+            f"  {stats['differing']} differ; {stats['identical']} are byte-identical "
+            f"across every provider and need no decision."
+        )
+    flagged = sum(1 for c in conflicts if _mesh_note(c))
+    if flagged:
+        lines.append(
+            ngettext(
+                "  %(count)d mesh conflict changes what the asset does; "
+                "those lines are marked below.",
+                "  %(count)d mesh conflicts change what the asset does; "
+                "those lines are marked below.",
+                flagged,
+            )
+            % {"count": flagged}
+        )
     for c in (shown[:limit] if limit else shown):
         star = "* " if c["involves_subset"] else "  "
-        lines.append(f"{star}{c['path']}   ({len(c['providers'])} providers, wins: {c['winner']})")
+        same = "  [identical]" if c.get("identical") else ""
+        lines.append(
+            f"{star}{c['path']}   ({len(c['providers'])} providers, wins: {c['winner']}){same}"
+        )
+        note = _mesh_note(c)
+        if note:
+            # Indented under its file rather than as a column: the finding is
+            # a sentence, and squeezing it onto the path line pushes the path
+            # off the screen in exactly the cases worth reading.
+            lines.append(f"      -> {note}")
     if limit and len(shown) > limit:
         lines.append(f"  ... and {len(shown) - limit} more (save the full report).")
     return "\n".join(lines)
 
 
+def _mesh_columns(conflict: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    """The mesh columns for one CSV row.
+
+    Every column is blank when the mesh was not analysed or the read was not
+    reliable. Blank means "not established", which a spreadsheet filter treats
+    differently from "no" -- and writing "no" for a mesh nobody could read
+    would be a claim the scan cannot support.
+
+    Args:
+        conflict: One conflict entry.
+
+    Returns:
+        Note, lost-collision, lost-animation and triangle-ratio cells.
+    """
+    finding = conflict.get("mesh")
+    if not isinstance(finding, MeshFinding):
+        return ("", "", "", "")
+    note = describe_mesh_finding(finding)
+    if not finding.reliable or finding.difference is None:
+        return (note, "", "", "")
+    ratio = finding.difference.triangle_ratio
+    return (
+        note,
+        "yes" if finding.difference.lost_collision else "no",
+        "yes" if finding.difference.lost_animation else "no",
+        "" if ratio is None else f"{ratio:.3f}",
+    )
+
+
 def write_resource_csv(path: str | Path, conflicts: Sequence[Mapping[str, Any]]) -> None:
-    """Write the loose-file conflict list to a CSV."""
+    """Write the loose-file conflict list to a CSV.
+
+    Args:
+        path: Where to write.
+        conflicts: The scan's conflicts.
+    """
     import csv
 
     with Path(path).open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["file_path", "providers", "winner", "involves_custom", "provider_folders"])
+        w.writerow(
+            [
+                "file_path",
+                "providers",
+                "winner",
+                "involves_custom",
+                "identical",
+                "provider_folders",
+                "mesh_note",
+                "mesh_lost_collision",
+                "mesh_lost_animation",
+                "mesh_triangle_ratio",
+            ]
+        )
         for c in conflicts:
+            # "" rather than "no" when the scan did not compare: a spreadsheet
+            # filter on "no" must not sweep up files nobody looked at.
+            identical = c.get("identical")
             w.writerow(
                 [
                     c["path"],
                     len(c["providers"]),
                     c["winner"],
                     "yes" if c["involves_subset"] else "no",
+                    "" if identical is None else ("yes" if identical else "no"),
                     " -> ".join(c["providers"]),
+                    *_mesh_columns(c),
                 ]
             )
 
@@ -1964,13 +2799,6 @@ def build_cell_coverage(
     }
 
 
-def _cell_heat(count: int) -> str:
-    """Heatmap fill: one mod = cool (coverage), 2+ = warmer/hotter (conflict)."""
-    if count <= 1:
-        return "#2f4a63"
-    return {2: "#7a5a1e", 3: "#9c4a16", 4: "#b83a1a"}.get(count, "#d8342a")
-
-
 def _html_escape(s: object) -> str:
     return (
         str(s)
@@ -1984,219 +2812,26 @@ def _html_escape(s: object) -> str:
 def generate_cell_map_html(
     coverage: Mapping[str, Any],
     title: str = "MLOX Subset Sort — Cell Map",
-    explorer_href: str = "",
 ) -> str:
     """Render the cell map as a self-contained HTML page.
 
-    Three tabs:
-
-    a colour-coded exterior heatmap drawn as a compact SVG grid (uniform squares, one
-    per touched cell; brighter/hotter = more mods; click a cell to jump to its list
-    entry), an exterior-cell list, and an interior-cell list. Cells your custom mods
-    touch get a gold outline. A port of modmapper, fed by this tool's load order.
-
-    This map is deliberately left alone by the conflict visualisations
-    (``mlox_subset/viz/``): coverage and collision are different questions, and
-    the conflict map is a *parallel* view that links back here rather than a
-    set of marks layered on top of this one.
+    The rendering itself lives in :mod:`mlox_subset.viz.cellmap` -- 216 lines of
+    HTML, CSS and JavaScript had no business sitting in the sort engine, and as
+    one f-string it could not be tested in pieces. This stays as the engine's
+    public entry point so existing callers and the CLI are unaffected.
 
     Args:
-        coverage: The result of ``build_cell_coverage``.
+        coverage: The result of :func:`build_cell_coverage`.
         title: The page title.
-        explorer_href: Where the conflict explorer lives. When given, a button
-            appears beside the tabs so the two maps reach each other. The map's
-            own SVG and data are untouched either way -- the explorer is a
-            parallel view, not a layer over this one.
 
     Returns:
         A complete, self-contained HTML document.
     """
-    ext = coverage["exterior"]
-    inte = coverage["interior"]
-    subl = coverage.get("subset_lower", set())
+    from mlox_subset.viz.cellmap import generate_cell_map_html as _render
 
-    # Exterior grid coords can be bogus/huge (an interior cell whose grid field
-    # is garbage, a mis-parse). Drop anything outside sane Morrowind+add-on
-    # bounds. The map is drawn as an SVG that only emits a <rect> for each TOUCHED
-    # cell (sparse -- bounded by plugin count), so absolute placement gives uniform
-    # squares in every column, and there's no dense billion-cell table to OOM on.
-    ext_ok = {
-        k: v
-        for k, v in ext.items()
-        if -CELL_GRID_LIMIT <= k[0] <= CELL_GRID_LIMIT
-        and -CELL_GRID_LIMIT <= k[1] <= CELL_GRID_LIMIT
-    }
-    dropped = len(ext) - len(ext_ok)
-
-    def anchor(gx: int, gy: int) -> str:
-        return f"e_{gx}_{gy}".replace("-", "m")
-
-    def modattr(mods: Sequence[str]) -> str:
-        # exact-match token list for the focus filter: |a.esp|b.esp|
-        return _html_escape("|" + "|".join(m.lower() for m in mods) + "|")
-
-    # every mod that touches any cell, customs first -- for the focus dropdown
-    all_mods: dict[str, int] = {}
-    for mods in list(ext.values()) + list(inte.values()):
-        for m in mods:
-            all_mods.setdefault(m.lower(), m)
-    focus_opts = "".join(
-        f'<option value="{_html_escape(low)}">{_html_escape(all_mods[low])}'
-        f'{" ★" if low in subl else ""}</option>'
-        for low in sorted(all_mods, key=lambda x: (x not in subl, x))
-    )
-
-    grid = '<p class="sub">No exterior cells touched.</p>'
-    if ext_ok:
-        xs = [k[0] for k in ext_ok]
-        ys = [k[1] for k in ext_ok]
-        minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
-        w, h = (maxx - minx + 1), (maxy - miny + 1)
-        trace(f"cell map: {len(ext_ok)} ext cells, bbox {w}x{h}, dropped {dropped}")
-        rects = []
-        for (gx, gy), mods in ext_ok.items():
-            px = (gx - minx) * CELL_MAP_STEP_PX
-            py = (maxy - gy) * CELL_MAP_STEP_PX  # north (max y) at the top
-            custom = any(m.lower() in subl for m in mods)
-            tip = f"({gx}, {gy}) — {len(mods)} mod(s): " + ", ".join(mods)
-            stroke = ' stroke="#ffd24a" stroke-width="1.4"' if custom else ""
-            rects.append(
-                f'<rect x="{px}" y="{py}" width="{CELL_MAP_CELL_PX}" height="{CELL_MAP_CELL_PX}" '
-                f'fill="{_cell_heat(len(mods))}"{stroke} class="cell" '
-                f'data-t="{_html_escape(tip)}" data-m="{modattr(mods)}" '
-                f"onclick=\"jump('{anchor(gx, gy)}')\"></rect>"
-            )
-        svg = (
-            f'<svg width="{w*CELL_MAP_STEP_PX}" height="{h*CELL_MAP_STEP_PX}" viewBox="0 0 {w*CELL_MAP_STEP_PX} {h*CELL_MAP_STEP_PX}" '
-            f'xmlns="http://www.w3.org/2000/svg">' + "".join(rects) + "</svg>"
-        )
-        grid = f'<div class="mapwrap">{svg}</div>'
-
-    ext_rows = []
-    for (gx, gy), mods in sorted(ext_ok.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        custom = any(m.lower() in subl for m in mods)
-        cls = ' class="cust"' if custom else ""
-        ext_rows.append(
-            f'<tr id="{anchor(gx,gy)}"{cls} data-m="{modattr(mods)}">'
-            f"<td>({gx}, {gy})</td><td>{len(mods)}</td>"
-            f'<td>{_html_escape(", ".join(mods))}</td></tr>'
-        )
-    int_rows = []
-    for name, mods in sorted(inte.items(), key=lambda kv: (-len(kv[1]), kv[0].lower())):
-        custom = any(m.lower() in subl for m in mods)
-        cls = ' class="cust"' if custom else ""
-        int_rows.append(
-            f'<tr{cls} data-m="{modattr(mods)}"><td>{_html_escape(name)}</td>'
-            f"<td>{len(mods)}</td>"
-            f'<td>{_html_escape(", ".join(mods))}</td></tr>'
-        )
-    ext = ext_ok
-    n_ext_conf = sum(1 for m in ext.values() if len(m) > 1)
-    n_int_conf = sum(1 for m in inte.values() if len(m) > 1)
-    # The other direction of the cross-link. Rendered only when a target is
-    # given, so a cell map generated on its own has no dead button.
-    explorer_tip = (
-        "Which mods EDIT the land record and path grid in a cell, and how those "
-        "edits conflict -- a different question from coverage."
-    )
-    explorer_button = (
-        f"<button onclick=\"location.href='{_html_escape(explorer_href)}'\" "
-        f'title="{_html_escape(explorer_tip)}">Conflicts &raquo;</button>'
-        if explorer_href
-        else ""
-    )
-
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>{_html_escape(title)}</title>
-<style>
- body{{background:#101013;color:#c8c8c8;font-family:Segoe UI,Arial,sans-serif;margin:16px;}}
- h1{{color:#e8905a;font-size:20px;}} .sub{{color:#8f8f8f;font-size:13px;}}
- .legend{{margin-top:12px;line-height:1.7;}}
- .tabs{{margin-top:24px;margin-bottom:4px;}}
- .tabs button{{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:6px 14px;margin-right:4px;cursor:pointer;}}
- .tabs button.on{{background:#8a3a12;color:#fff;}}
- .tab{{display:none;margin-top:10px;}} .tab.on{{display:block;}}
- .legend span{{display:inline-block;padding:2px 8px;margin-right:6px;border-radius:3px;color:#111;font-size:12px;}}
- .mapwrap{{overflow:auto;max-height:74vh;border:1px solid #333;background:#06111c;display:inline-block;max-width:100%;}}
- .mapwrap svg{{display:block;}}
- rect.cell{{cursor:pointer;}} rect.cell:hover{{stroke:#fff;stroke-width:1.4;}}
- #tt{{position:fixed;pointer-events:none;display:none;z-index:99;max-width:440px;
-   background:#000;color:#eee;border:1px solid #555;border-radius:3px;padding:3px 7px;font-size:12px;}}
- table.list{{border-collapse:collapse;width:100%;font-size:13px;}}
- .list td,.list th{{border-bottom:1px solid #262626;padding:4px 8px;text-align:left;vertical-align:top;}}
- .list th{{color:#9a9a9a;position:sticky;top:0;background:#101013;}} tr.cust td{{color:#ff9b6b;}}
- tr.hl td{{background:#3a2a10;}}
- input.f{{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:6px;width:320px;margin:6px 0;}}
- .focusbar{{margin-top:10px;}}
- .focusbar select{{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:5px;max-width:420px;}}
- .focusbar button{{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:5px 10px;margin-left:6px;cursor:pointer;}}
- #focusinfo{{margin-top:4px;max-width:900px;}}
- rect.cell.dim{{opacity:.13;}}
-</style></head><body>
-<div id="tt"></div>
-<h1>{_html_escape(title)}</h1>
-<p class="sub">Scanned {coverage['scanned']} plugin(s). Exterior: {len(ext)} cell(s) touched
- ({n_ext_conf} by 2+ mods). Interior: {len(inte)} cell(s) touched ({n_int_conf} by 2+ mods).
- Cells your custom mods touch are highlighted (gold outline / orange text).</p>
-<div class="legend">Mods per cell:
- <span style="background:#2f4a63;color:#fff;">1</span><span style="background:#7a5a1e;">2</span>
- <span style="background:#9c4a16;">3</span><span style="background:#b83a1a;color:#fff;">4</span>
- <span style="background:#d8342a;color:#fff;">5+</span> &nbsp;(north up; hover a cell for its mods, click it to jump to the list)</div>
-<div class="focusbar">Focus on mod:
- <select id="focus" onchange="setFocus(this.value)"><option value="">— all mods —</option>{focus_opts}</select>
- <button onclick="document.getElementById('focus').value='';setFocus('')">Clear</button>
- <div id="focusinfo" class="sub"></div></div>
-<div class="tabs">
- <button id="b0" class="on" onclick="show(0)">Map</button>
- <button id="b1" onclick="show(1)">Exterior list ({len(ext)})</button>
- <button id="b2" onclick="show(2)">Interior list ({len(inte)})</button>
- {explorer_button}
-</div>
-<div id="t0" class="tab on">{grid}</div>
-<div id="t1" class="tab"><input class="f" placeholder="Filter exterior cells / mods..." onkeyup="ff('xt')">
- <table class="list" id="xt"><thead><tr><th>Cell (x, y)</th><th>#</th><th>Mods (load order, last wins)</th></tr></thead>
- <tbody>{''.join(ext_rows) or '<tr><td colspan=3 class=sub>None.</td></tr>'}</tbody></table></div>
-<div id="t2" class="tab"><input class="f" placeholder="Filter interior cells / mods..." onkeyup="ff('it')">
- <table class="list" id="it"><thead><tr><th>Cell</th><th>#</th><th>Mods (load order, last wins)</th></tr></thead>
- <tbody>{''.join(int_rows) or '<tr><td colspan=3 class=sub>None.</td></tr>'}</tbody></table></div>
-<script>
- function show(n){{for(var i=0;i<3;i++){{document.getElementById('t'+i).className=i==n?'tab on':'tab';
-  document.getElementById('b'+i).className=i==n?'on':'';}}}}
- function jump(a){{show(1);var el=document.getElementById(a);
-  if(el){{el.scrollIntoView({{block:'center'}});el.classList.add('hl');
-   setTimeout(function(){{el.classList.remove('hl');}},2200);}}}}
- (function(){{var tt=document.getElementById('tt');
-  document.addEventListener('mouseover',function(e){{var r=e.target;
-   if(r&&r.classList&&r.classList.contains('cell')){{tt.textContent=r.getAttribute('data-t');tt.style.display='block';}}}});
-  document.addEventListener('mousemove',function(e){{if(tt.style.display=='block'){{
-   tt.style.left=(e.clientX+12)+'px';tt.style.top=(e.clientY+12)+'px';}}}});
-  document.addEventListener('mouseout',function(e){{var r=e.target;
-   if(r&&r.classList&&r.classList.contains('cell')){{tt.style.display='none';}}}});}})();
- var Q={{xt:'',it:''}}, FOCUS='';
- function match(r){{return !FOCUS||(r.getAttribute('data-m')||'').indexOf('|'+FOCUS+'|')>-1;}}
- function apply(id){{document.querySelectorAll('#'+id+' tbody tr').forEach(function(r){{
-   var okQ=!Q[id]||r.innerText.toLowerCase().indexOf(Q[id])>-1;
-   r.style.display=(okQ&&match(r))?'':'none';}});}}
- function ff(id){{Q[id]=event.target.value.toLowerCase();apply(id);}}
- function setFocus(v){{FOCUS=(v||'').toLowerCase();
-  document.querySelectorAll('rect.cell').forEach(function(r){{
-   r.classList.toggle('dim',FOCUS&&!match(r));}});
-  apply('xt');apply('it');
-  var info=document.getElementById('focusinfo');
-  if(!FOCUS){{info.textContent='';return;}}
-  var nE=0,nI=0,co={{}};
-  document.querySelectorAll('#xt tbody tr').forEach(function(r){{if(match(r)){{nE++;countCo(r,co);}}}});
-  document.querySelectorAll('#it tbody tr').forEach(function(r){{if(match(r)){{nI++;countCo(r,co);}}}});
-  var names=Object.keys(co).sort(function(a,b){{return co[b]-co[a];}});
-  var top=names.slice(0,14).map(function(n){{return n+' ('+co[n]+')';}}).join(', ');
-  info.textContent='Touches '+nE+' exterior + '+nI+' interior cell(s). '+
-   (names.length?'Shares cells with '+names.length+' other mod(s): '+top+
-    (names.length>14?', …':''):'No other mod touches these cells.');}}
- function countCo(r,co){{(r.getAttribute('data-m')||'').split('|').forEach(function(m){{
-   if(m&&m!=FOCUS){{co[m]=(co[m]||0)+1;}}}});}}
-</script>
-</body></html>
-"""
+    html = _render(coverage, title)
+    trace(f"cell map: rendered {len(html)} bytes via viz.cellmap")
+    return html
 
 
 # ---------------------------------------------------------------------------
@@ -2270,6 +2905,141 @@ def read_cfg(
             data_positions.append(i)
             data_order.append(line)
     return lines, content_positions, content_order, data_positions, data_order
+
+
+def read_groundcover_names(lines: Sequence[str]) -> list[str]:
+    """Read the plugins declared on ``groundcover=`` lines.
+
+    Grass plugins are declared to OpenMW on their own ``groundcover=`` lines,
+    never as ``content=``: the engine loads them through the groundcover system,
+    which instances the grass rather than spawning every blade as a real object.
+    Declaring one as ``content=`` as well loads it *both* ways, and the object
+    copy is a severe, silent performance cliff.
+
+    Read separately from :func:`read_cfg` rather than added to its return value,
+    which would change a five-value signature that several callers unpack
+    positionally. The lines are already in hand, so there is nothing to re-read.
+
+    Args:
+        lines: The cfg's lines, as :func:`read_cfg` returned them.
+
+    Returns:
+        The plugin filenames, in file order. Commented lines are skipped, the
+        same way they are for ``content=``.
+    """
+    found: list[str] = []
+    for line in lines:
+        match = re.match(r"^\s*groundcover\s*=\s*(.+?)\s*$", line, re.IGNORECASE)
+        if match:
+            name = basename_if_plugin(match.group(1)) or match.group(1).strip().strip("\"'")
+            if name:
+                found.append(name)
+    return found
+
+
+def hold_back_groundcover(
+    subset: Sequence[str], groundcover_names: Sequence[str]
+) -> tuple[list[str], list[str]]:
+    """Drop plugins the cfg already declares as groundcover from the subset.
+
+    A folder scan cannot tell a grass mod from any other mod -- it walks a
+    directory and takes every plugin it finds -- so a shared mods folder puts
+    grass plugins into the subset alongside genuinely new content. Inserting
+    those as ``content=`` is what this prevents.
+
+    The decision is made on **what the user's own cfg says**, not on the
+    filename: a plugin is held back only if that same cfg declares it on a
+    ``groundcover=`` line. Nothing is guessed from names like ``*grass*``, and
+    the existing ``groundcover=`` lines are never touched -- the mod stays
+    enabled as grass, which is what it was.
+
+    Its *data path* is deliberately still emitted. OpenMW has to be able to find
+    the file for the ``groundcover=`` line to work, so removing the data= entry
+    would break the very mod this is protecting.
+
+    Args:
+        subset: The plugin filenames destined for insertion.
+        groundcover_names: Plugins declared as groundcover in the cfg.
+
+    Returns:
+        The subset to use, and the names held back (in the order they appeared
+        in the subset), so the caller can say what it did and why.
+    """
+    blocked = {str(name).lower() for name in groundcover_names}
+    if not blocked:
+        return list(subset), []
+    kept = [name for name in subset if str(name).lower() not in blocked]
+    held = [name for name in subset if str(name).lower() in blocked]
+    return kept, held
+
+
+def plugins_needing_removal(
+    disabled: Collection[str],
+    curated_set: Collection[str],
+    base_order_names: Sequence[str],
+) -> list[str]:
+    """Decide which opted-out plugins need a durable ``removeContent``.
+
+    A removal is only needed for something this tool does **not** put in the
+    file itself. momw-configurator rebuilds openmw.cfg from the curated list
+    plus these customizations, so a plugin we simply stop inserting is already
+    absent from the result; emitting a ``removeContent`` for it as well is noise
+    in a file people hand-edit.
+
+    The discriminator is therefore "does the curated list own this plugin", not
+    "is it currently in openmw.cfg". The latter was the old test, and it catches
+    the user's own mods the moment they have exported once -- which is what made
+    disabling a custom mod add a block that did nothing.
+
+    Args:
+        disabled: Plugins the user opted out of.
+        curated_set: Lower-cased plugins the curated list owns. **Empty means
+            unknown**, not "nothing is curated": without a ``plugin-order.yml``
+            there is no curated set at all.
+        base_order_names: Plugins already in openmw.cfg, used as the fallback
+            signal when the curated set is unknown. Guessing wrong in that
+            direction would leave a plugin enabled that the user asked to
+            disable, so presence is preferred over silence there.
+
+    Returns:
+        The plugin names to emit, sorted.
+    """
+    curated_lower = {str(name).lower() for name in curated_set}
+    base_lower = {str(name).lower() for name in base_order_names}
+    owned_elsewhere = curated_lower or base_lower
+    return sorted({p for p in disabled if str(p).lower() in owned_elsewhere})
+
+
+def data_paths_needing_removal(
+    disabled_data: Iterable[str],
+    our_values: Collection[str],
+    base_data_norms: Collection[str],
+) -> list[str]:
+    """Decide which opted-out data paths need a durable ``removeData``.
+
+    The plugin rule (:func:`plugins_needing_removal`) applied to folders. A path
+    this run would have inserted is one we can simply stop inserting: the
+    Configurator rebuilds from the curated list plus these customizations, so
+    omitting it is enough and a ``removeData`` would be noise.
+
+    A path we do **not** own -- one the curated list brings in -- still needs the
+    removal, because nothing else will take it out.
+
+    Args:
+        disabled_data: Raw ``data=...`` lines the user opted out of.
+        our_values: Normalised paths this run inserts.
+        base_data_norms: Normalised paths already in openmw.cfg.
+
+    Returns:
+        The path values to emit, sorted and de-duplicated.
+    """
+    removals: list[str] = []
+    for line in disabled_data:
+        value = extract_data_path_value(line) or line
+        norm = normalize_data_path(value)
+        if norm in base_data_norms and norm not in our_values:
+            removals.append(value)
+    return sorted(set(removals))
 
 
 def backup_file(path: Path, no_backup: bool) -> None:
@@ -2363,7 +3133,6 @@ from mlox_subset.momw import (
 )
 from mlox_subset.plugins import PLUGIN_EXTS, PluginFileIndex
 from mlox_subset.rules import (
-    ORDER_NAME_RE as _RE_ORDER_NAME,
     check_predicates,
     load_rule_blocks,
     load_rules_raw_text,
@@ -2541,6 +3310,56 @@ def extract_subset_from_subset_file(path: Path) -> tuple[list[str], list[dict[st
     return extract_subset_from_lines(text.splitlines(), source=str(path))
 
 
+#: ``groundcover=Vurt_Grass.esp`` in a subset file. Deliberately the same
+#: spelling openmw.cfg uses, so the line means what it looks like.
+_GROUNDCOVER_DECL = re.compile(r"^\s*groundcover\s*=\s*(?P<name>.+?)\s*$", re.IGNORECASE)
+
+
+def extract_groundcover_declarations(lines: Iterable[str], source: str = "subset") -> list[str]:
+    """Read the plugins a subset file declares as grass.
+
+    Grass belongs on a ``groundcover=`` line and nowhere else, but a plugin the
+    user has only just installed is not in openmw.cfg yet, so there is nothing
+    to read the fact off. Declaring it here says so once, and the declaration
+    then drives both outputs: the plugin is kept out of ``content=`` and its
+    ``groundcover=`` line is written for it.
+
+    The mod's **data path is a separate line, as it always was** -- a folder
+    line in the same subset file. That is deliberate: OpenMW has to find the
+    file for the groundcover line to mean anything, and the data path is not
+    grass-specific, so it goes through the ordinary data-insert path.
+
+    Args:
+        lines: Raw subset-file lines.
+        source: Where they came from, for the warning text.
+
+    Returns:
+        The declared plugin filenames, in order, de-duplicated case-insensitively.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        match = _GROUNDCOVER_DECL.match(_strip_line_comment(line))
+        if match is None:
+            continue
+        name = basename_if_plugin(match.group("name")) or match.group("name").strip()
+        if not name:
+            continue
+        if not name.lower().endswith(PLUGIN_EXTS):
+            _LOG.warning(
+                _(
+                    "'%(entry)s' from %(source)s is declared as groundcover but is not a "
+                    "plugin filename -- skipping."
+                ),
+                {"entry": name, "source": source},
+            )
+            continue
+        if name.lower() not in seen:
+            seen.add(name.lower())
+            found.append(name)
+    return found
+
+
 def _classify_subset_entry(
     raw: str, plugins: list[str], data_inserts: list[dict[str, Any]], source: str
 ) -> None:
@@ -2557,6 +3376,10 @@ def _classify_subset_entry(
     """
     raw = raw.strip()
     if not raw:
+        return
+    if _GROUNDCOVER_DECL.match(raw):
+        # Declared as grass, and read by extract_groundcover_declarations. It
+        # must not also become a content plugin -- that is the whole point.
         return
     name = basename_if_plugin(raw)
     if name:
@@ -2851,57 +3674,72 @@ def order_rule_frozen_conflicts(
 def append_user_rule(
     path: str | Path, keyword: str, names: Sequence[str], comment: str | None = None
 ) -> str:
-    """Append one mlox ordering rule block to a personal rules file.
+    """Append one mlox *ordering* rule to a personal rules file.
 
-    Creating
-    the file (with an explanatory header) if it doesn't exist yet.
+    The narrow form kept for callers that only ever write an ordering rule.
+    It delegates to :func:`append_authored_rule`, so there is one validator and
+    one renderer rather than two that can drift -- which matters here, because
+    the two used to disagree about what a valid plugin name looks like.
 
-    keyword: 'order' (the names are a load-order chain, first loads first),
-    'nearstart' or 'nearend' (each name is an independent position hint).
-    Names may use mlox wildcards (*, ?, <VER>) but must end in a recognized
-    plugin extension -- the same validation the rule parser applies, so a rule
-    that gets written is a rule that will load. Returns the text written.
+    Args:
+        path: The personal rules file, created with a header if new.
+        keyword: ``order``, ``nearstart`` or ``nearend``, in any case.
+        names: The plugin filenames. mlox wildcards are allowed.
+        comment: An optional ``;`` comment written above the rule.
+
+    Returns:
+        The text written.
+
+    Raises:
+        ValueError: If the keyword is not an ordering rule, or the rule does
+            not pass validation.
     """
-    kw = str(keyword).strip().lower()
-    titles = {"order": "Order", "nearstart": "NearStart", "nearend": "NearEnd"}
-    if kw not in titles:
-        raise ValueError(f"unsupported rule type: {keyword!r}")
-    clean = [str(n).strip() for n in names if str(n).strip()]
-    if not clean:
-        raise ValueError("no plugin names given")
-    if kw == "order" and len(clean) < 2:
-        raise ValueError("[Order] needs at least two plugin names (first loads first)")
-    seen = set()
-    for n in clean:
-        if any(c in n for c in "[];\n"):
-            raise ValueError(f"invalid character in name/pattern: {n!r}")
-        m = _RE_ORDER_NAME.match(n)
-        if not m or m.group(0) != n:
-            raise ValueError(
-                f"{n!r} must end in a plugin extension "
-                f"(.esp/.esm/.omwaddon/.omwgame/.omwscripts, optionally '*')"
-            )
-        if n.lower() in seen:
-            # a plugin listed twice orders it relative to itself -- a
-            # self-cycle mlox would discard; always a mistake
-            raise ValueError(
-                f"'{n}' is listed more than once -- a plugin can't be "
-                f"ordered relative to itself"
-            )
-        seen.add(n.lower())
-    parts = []
-    if comment and str(comment).strip():
-        parts += [f";; {line}" for line in str(comment).strip().splitlines()]
-    parts.append(f"[{titles[kw]}]")
-    parts += clean
-    text = "\n".join(parts) + "\n"
-    p = Path(path)
-    if p.exists():
-        existing = p.read_text(encoding="utf-8-sig", errors="replace")
+    kinds = {"order": "Order", "nearstart": "NearStart", "nearend": "NearEnd"}
+    kind = kinds.get(str(keyword).strip().lower())
+    if kind is None:
+        message = f"unsupported rule type: {keyword!r}"
+        raise ValueError(message)
+    cleaned = [str(name).strip() for name in names if str(name).strip()]
+    if not cleaned:
+        message = "no plugin names given"
+        raise ValueError(message)
+    rule = authoring.Rule(kind=kind, plugins=cleaned, comment=(comment or "").strip())
+    return append_authored_rule(path, rule)
+
+
+def append_authored_rule(path: str | Path, rule: authoring.Rule) -> str:
+    """Append any mlox rule to a personal rules file.
+
+    The general form of :func:`append_user_rule`, which only ever knew the three
+    ordering kinds. Validation is the authoring module's, so what gets written
+    is a rule that both parses *and* meets the rule-base guidelines -- errors
+    refuse, warnings do not.
+
+    Args:
+        path: The personal rules file. Created with an explanatory header when
+            it does not exist yet.
+        rule: The rule to write.
+
+    Returns:
+        The text appended.
+
+    Raises:
+        ValueError: If the rule has errors, listing every one of them. A rule
+            file is read by a tool that silently discards what it cannot use, so
+            refusing here is the only place a person finds out.
+    """
+    problems = authoring.errors(authoring.validate(rule))
+    if problems:
+        message = "; ".join(problem.describe() for problem in problems)
+        raise ValueError(message)
+    text = authoring.render_rule(rule) + "\n"
+    target = Path(path)
+    if target.exists():
+        existing = target.read_text(encoding="utf-8-sig", errors="replace")
         sep = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
-        p.write_text(existing + sep + text, encoding="utf-8")
+        target.write_text(existing + sep + text, encoding="utf-8")
     else:
-        p.write_text(USER_RULES_HEADER + "\n" + text, encoding="utf-8")
+        target.write_text(USER_RULES_HEADER + "\n" + text, encoding="utf-8")
     return text
 
 
@@ -2987,6 +3825,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         nargs="*",
         default=[],
         help="Explicit list of plugin filenames to sort (combined with --customizations if both given)",
+    )
+    ap.add_argument(
+        "--groundcover",
+        nargs="*",
+        default=[],
+        metavar="PLUGIN",
+        help="Plugin filenames to declare as grass. They are kept out of content= "
+        "and written as groundcover= instead. Their data= folders still go in "
+        "normally (OpenMW must be able to find the file), so name the folder with "
+        "--subset or in the subset file as usual",
     )
     ap.add_argument(
         "--subset-file",
@@ -3208,6 +4056,58 @@ def pending_custom_dirs(
                 seen.add(str(v).lower())
                 out.append(v)
     return out
+
+
+def declared_groundcover(args: argparse.Namespace) -> list[str]:
+    """Collect every plugin this run declares as grass.
+
+    Three sources, all optional and additive: ``--groundcover`` on the command
+    line, ``groundcover=`` lines in a plain-text subset file, and a
+    ``groundcover = [...]`` key in the minimal TOML form. The GUI's in-memory
+    scan lines are read the same way as a file, so a scan can carry the
+    declaration too.
+
+    Args:
+        args: The parsed arguments.
+
+    Returns:
+        Plugin filenames, in the order encountered, de-duplicated
+        case-insensitively.
+    """
+    found: list[str] = []
+    found.extend(str(name) for name in (getattr(args, "groundcover", None) or []))
+
+    path = getattr(args, "subset_file", None)
+    if path:
+        try:
+            text = read_user_text(path, encoding="utf-8")
+        except OSError:
+            text = ""  # the subset reader reports this properly; do not double-warn
+        if str(path).lower().endswith(".toml"):
+            try:
+                import tomllib
+            except ModuleNotFoundError:
+                import tomli as tomllib
+            try:
+                found.extend(str(v) for v in (tomllib.loads(text).get("groundcover") or []))
+            except (ValueError, TypeError):
+                pass  # a malformed TOML is reported by the subset reader
+        else:
+            found.extend(extract_groundcover_declarations(text.splitlines(), str(path)))
+
+    found.extend(
+        extract_groundcover_declarations(
+            getattr(args, "subset_lines", None) or [], "scanned subset"
+        )
+    )
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in found:
+        if name.lower() not in seen:
+            seen.add(name.lower())
+            unique.append(name)
+    return unique
 
 
 def _read_subset_inputs(
@@ -3981,6 +4881,11 @@ def _resource_stage(
         _section("DATA-PATH RESOURCE (VFS) CONFLICTS (read-only)")
         subset_dirs = pending_custom_dirs(raw_toml_data_inserts, data_inserts)
         rconf, rstats = detect_resource_conflicts(conf_dirs, subset_dirs=subset_dirs)
+        # Meshes that conflict *and* differ get read. Everything else is left
+        # closed: the point of the byte comparison above is that it already
+        # told us which files nobody has to think about.
+        mesh_stats = analyse_mesh_conflicts(rconf)
+        rstats = {**rstats, **{f"mesh_{k}": v for k, v in mesh_stats.items()}}
         print(format_resource_report(rconf, rstats, limit=200))
         rout = getattr(args, "resources_out", None)
         if rout and rconf:
@@ -4060,6 +4965,54 @@ def compute_plan(args: argparse.Namespace) -> dict:
     lines, content_positions, content_order, data_positions, data_order = read_cfg(args.cfg)
     base_order_names = [name for name, _ in content_order]
 
+    # A grass plugin belongs on a groundcover= line and nowhere else. A folder
+    # scan cannot tell one apart -- it takes every plugin under the tree -- so
+    # one lands in the subset whenever the scanned folder is a shared mods
+    # directory. Inserting it as content= as well loads the grass twice, once
+    # instanced and once as real objects, which is a silent and severe
+    # performance cliff. The cfg already says which plugins those are.
+    # Grass the cfg already declares, plus grass this run declares. The second
+    # is how a newly installed grass mod gets in: it is not in the cfg yet, so
+    # there is nothing to read the fact off, and the user says so once instead.
+    cfg_groundcover = read_groundcover_names(lines)
+    user_groundcover = declared_groundcover(args)
+    known_lower = {name.lower() for name in cfg_groundcover}
+    new_groundcover = [name for name in user_groundcover if name.lower() not in known_lower]
+    subset, held_back_groundcover = hold_back_groundcover(
+        subset, [*cfg_groundcover, *user_groundcover]
+    )
+    if new_groundcover:
+        _subsection(_("groundcover declared by this run"))
+        for name in new_groundcover:
+            print(f"  groundcover={name}")
+        print(
+            _(
+                "  These are written as groundcover= rather than content=. Their data= "
+                "folders are inserted normally -- OpenMW has to find the file."
+            )
+        )
+    if held_back_groundcover:
+        _subsection(_("groundcover plugins held back"))
+        print(
+            ngettext(
+                "%(count)d plugin in your subset is already declared as groundcover in "
+                "openmw.cfg, so it was NOT added to content=:",
+                "%(count)d plugins in your subset are already declared as groundcover in "
+                "openmw.cfg, so they were NOT added to content=:",
+                len(held_back_groundcover),
+            )
+            % {"count": len(held_back_groundcover)}
+        )
+        for name in held_back_groundcover:
+            print(f"  {name}")
+        print(
+            _(
+                "  Their groundcover= lines are untouched and their data= paths are still "
+                "written, so the grass stays enabled -- as grass. Loading one as content= "
+                "too would spawn every blade as a real object."
+            )
+        )
+
     custom_anchors: dict[str, tuple[str, str | None]] = {}  # from build_and_sort
 
     subset, yml_entries, curated_set, curated_order, yml_warnings, declared_lower, list_name = (
@@ -4132,6 +5085,12 @@ def compute_plan(args: argparse.Namespace) -> dict:
         "raw_toml_data_inserts": raw_toml_data_inserts,
         "data_inserts": data_inserts,
         "base_order_names": base_order_names,
+        # Which plugins the curated list owns. Empty when no plugin-order.yml
+        # was given -- and "empty" must be read as "unknown", not "none".
+        "curated_set": curated_set,
+        # Grass this run declares that the cfg does not already have. Written
+        # as groundcover= lines (direct write) and append blocks (TOML).
+        "new_groundcover": new_groundcover,
         "conflicts": conflicts,
         # every folder the scans should search THIS run (cfg data= dirs +
         # pending custom data paths), and just the pending custom folders --
@@ -4176,29 +5135,61 @@ def write_plan(
     subset = plan["subset"]
     data_result = plan["data_result"]
 
-    # Work out durable removals: opted-out items that are already in the base
-    # openmw.cfg (a brand-new custom item that was opted out just isn't inserted,
-    # so it needs no removeContent/removeData).
-    base_lower = {n.lower() for n in (plan.get("base_order_names") or [])}
-    remove_content = sorted({p for p in (disabled_plugins or []) if p.lower() in base_lower})
+    # Work out durable removals. A removal is only needed for something this
+    # tool does NOT put in the file itself: momw-configurator rebuilds the cfg
+    # from the curated list plus these customizations, so a plugin we simply
+    # stop inserting is already absent from the result. Emitting a
+    # removeContent for it as well is noise in a file people hand-edit.
+    #
+    # The discriminator is therefore "does the curated list own this plugin",
+    # not "is it currently in openmw.cfg" -- which was the old test, and which
+    # catches the user's own mods the moment they have exported once.
+    #
+    # Without a plugin-order.yml there is no curated set, and an empty one means
+    # "unknown" rather than "nothing is curated". In that case the presence test
+    # is the only signal available, so it stays as the fallback.
+    remove_content = plugins_needing_removal(
+        disabled_plugins or [],
+        plan.get("curated_set") or (),
+        plan.get("base_order_names") or [],
+    )
     base_data_norms = {
         normalize_data_path(value)
         for value in (extract_data_path_value(line) for line in (plan.get("data_order") or []))
         if value
     }
     base_data_norms.discard("")
-    remove_data = []
-    for line in disabled_data or []:
-        val = extract_data_path_value(line) or line
-        if normalize_data_path(val) in base_data_norms:
-            remove_data.append(val)
-    remove_data = sorted(set(remove_data))
+    # The same rule as for plugins, for the same reason: a data path this run
+    # inserts is one we can simply stop inserting, so it needs no removeData.
+    # "Ours" is anything in this run's inserts -- from the subset OR from the
+    # source TOML, since the emitted file replaces that one wholesale.
+    ours = {
+        normalize_data_path(str(entry.get("value")))
+        for entry in [*(plan.get("data_inserts") or []), *(plan.get("raw_toml_data_inserts") or [])]
+        if entry.get("value")
+    }
+    ours.discard("")
+    remove_data = data_paths_needing_removal(disabled_data or [], ours, base_data_norms)
     if remove_content or remove_data:
         _subsection("opted-out items already in cfg -> removeContent/removeData")
         for p in remove_content:
             print(f"  removeContent: {p}")
         for d in remove_data:
             print(f"  removeData: {d}")
+
+    # New groundcover declarations go in as their own lines. Appended to the
+    # end rather than spliced into an existing groundcover section: appending
+    # cannot shift any index, and every content=/data= position in `segments`
+    # is an index into these same lines. Placement does not matter to OpenMW --
+    # only the order of groundcover lines relative to each other does, and
+    # appending preserves that.
+    new_groundcover = list(plan.get("new_groundcover") or [])
+    plan_lines = list(plan["lines"])
+    if new_groundcover:
+        existing = {name.lower() for name in read_groundcover_names(plan_lines)}
+        additions = [f"groundcover={n}" for n in new_groundcover if n.lower() not in existing]
+        if additions:
+            plan_lines.extend(additions)
 
     if data_order is not None and data_result is not None:
         lookup = {line: (is_new, value) for line, is_new, value in data_result}
@@ -4225,7 +5216,7 @@ def write_plan(
     _section("WRITING OUTPUT")
     wrote_cfg = False
     if args.write_cfg:
-        write_cfg(args.cfg, plan["lines"], segments, args.dry_run, args.no_backup)
+        write_cfg(args.cfg, plan_lines, segments, args.dry_run, args.no_backup)
         wrote_cfg = not args.dry_run
     else:
         print(_("  openmw.cfg left untouched (pass --write-cfg to patch it directly)"))
@@ -4243,6 +5234,7 @@ def write_plan(
             user_data_values=[d["value"] for d in (plan["data_inserts"] or [])],
             list_name=getattr(args, "list_name", None),
             remove_content=remove_content,
+            new_groundcover=new_groundcover,
             remove_data=remove_data,
             custom_anchors=plan.get("custom_anchors"),
         )
@@ -4256,7 +5248,7 @@ def write_plan(
                 if d.get("value")
             ]
             _ok, _rep = preview_configurator_result(
-                plan["lines"],
+                plan_lines,
                 toml_text,
                 list(final_order or []),
                 subset,

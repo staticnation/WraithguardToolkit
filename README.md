@@ -16,6 +16,10 @@ future Configurator rebuilds.
 
 **New here? See [QUICKSTART.md](QUICKSTART.md) for a 5-minute walkthrough.**
 
+**Writing your own rules? See [MLOX_RULES.md](MLOX_RULES.md) for the rule syntax
+and the conventions the rule-base follows.** Both open from the **Help** button
+inside the program as well.
+
 ---
 
 ## Contents
@@ -27,7 +31,9 @@ future Configurator rebuilds.
   load-order sort, `openmw.cfg` reading/emitting, plugin metadata, downloads,
   compiled-script decoding, and the conflict visualisations (`viz/`, which
   renders conflicts as self-contained HTML: a world conflict map, terrain
-  height differences, path-grid graphs and a rotatable 3D surface).
+  height differences, path-grid graphs and a rotatable 3D terrain surface with
+  relief shading, contours and multidirectional lighting — see
+  [The 3D terrain view](#the-3d-terrain-view)).
 - `mlox_subset_sort_gui.py` — a drag-and-drop GUI front-end (imports the engine
   directly; it reimplements no logic).
 - `mlox_base.txt`, `mlox_user.txt` — mlox rule databases (download/update with
@@ -39,7 +45,7 @@ future Configurator rebuilds.
   theme (see [Theming the app](#theming-the-app)).
 - `CREDITS.md` — acknowledgements for the projects this tool ports, references,
   and depends on (mlox, plox, tes3conv, modmapper, OpenMW, MOMW, and more).
-- `CHANGELOG.md` — what changed between releases (current: **3.0**).
+- `CHANGELOG.md` — what changed between releases (current: **3.1**).
 - `REMAINING_WORK.md` — the honest list of what is still outstanding in the
   codebase and against PEP standards, measured rather than recalled.
 
@@ -176,6 +182,36 @@ run against the sorted, enabled plugins and never modify anything; the **tools**
 row covers tes3cmd (clean / resync / header, VFS-safe), Save Check (verify an
 `.omwsave`'s dependencies are still present), and Backups (restore or delete
 backups left by this tool, tes3cmd, and the Configurator).
+
+**Resource Conflicts shows meshes in 3D.** Select a conflicting `.nif` and
+press **View in 3D**: one viewport with a checkbox per provider, so the camera
+never moves as you switch between them — the whole point, since a view that
+re-frames itself is comparing two different pictures. A node tree on the left
+lists what the render cannot show: collision nodes, controllers, particle
+systems, and any block nothing references. Drag to orbit, wheel to zoom, and
+**Textures** turns texturing off when you want to compare shape alone.
+
+It opens in the same in-app viewer as the other visualisations (pywebview),
+falling back to your browser. It is served from a small local server on `127.0.0.1` — nothing leaves
+your machine, the address is not reachable from the network, and every request
+carries a one-off token for that session. **Export 3D file...** writes the same
+view as a single self-contained HTML file you can keep or send to someone; that
+is also what you get automatically if the app cannot open a local port.
+
+**Resource Conflicts reads meshes.** A conflict list can tell you which mod
+wins a file; it cannot tell you the winner is a low-poly stand-in with no
+collision. So when two mods ship the same `.nif` and the bytes actually differ,
+the report says what the winning mesh *costs* you — lost collision, lost
+animation, a fraction of the triangles, or textures it references that nobody
+ships. Select a row and the panel below reads both meshes then and there and
+describes each provider in full.
+
+Nothing is read during the scan except meshes that already conflict **and**
+already differ, and results are cached on file contents, so a mesh shipped
+identically by four mods is parsed once. A mesh it cannot read — an unfamiliar
+NIF version, a truncated download — is reported as unreadable rather than
+guessed at, and a partly-read mesh never reports something as *missing*, since
+the node may simply be in the part that was not reached.
 
 Every list in the app supports **type-to-jump**: click it and start typing a
 name — prefix match first, substring fallback, tap one letter repeatedly to
@@ -356,13 +392,22 @@ rule-files panel keep you current and let you extend it:
 - **Update Rules...** downloads the current `mlox_base.txt`/`mlox_user.txt` over
   the matching files in your list (timestamped `.bak` kept; files with other
   names are never touched).
-- **New Rule...** writes your own `[Order]`/`[NearStart]`/`[NearEnd]` rule
-  without knowing the syntax: grab the selected rows from the plugin panel (their
-  order becomes the rule order) or type names (wildcards and `<VER>` allowed,
-  validated with the same regex the parser uses), preview, and append. Rules go
-  to a personal file that's auto-added **last** in the list so your rules win
-  conflicts — `mlox_base.txt`/`mlox_user.txt` are refused as targets since
-  "Update Rules..." overwrites them. Consider contributing good rules
+- **New Rule...** writes your own rule without knowing the syntax. It covers the
+  whole vocabulary — `[Order]`, `[NearStart]`, `[NearEnd]`, `[Note]`,
+  `[Requires]`, `[Conflict]` and `[Patch]`, the `ALL`/`ANY`/`NOT` expression
+  tree, the `[DESC]`/`[SIZE]`/`[VER]` predicates, `(Ref:)` citations, `@Section`
+  headings and the `!`/`!!`/`!!!` marks. Grab the selected rows from the plugin
+  panel (their order becomes the rule order) or type names, group them into
+  `[ANY ...]`, preview, and append.
+
+  Everything is **validated before it can be written**, because mlox discards a
+  rule it cannot use *without saying so* — the moment of writing is the only
+  chance you get to find out. A **Rule guide** button opens
+  [MLOX_RULES.md](MLOX_RULES.md) beside the window.
+
+  Rules go to a personal file that's auto-added **last** in the list so your
+  rules win conflicts — `mlox_base.txt`/`mlox_user.txt` are refused as targets
+  since "Update Rules..." overwrites them. Consider contributing good rules
   [upstream](https://morrowind-modding.github.io/modding-tools/sorting-plugin-load-order/mlox/mlox-rule-guidelines).
 - **Sources...** points both updaters at a fork or mirror if upstream moves. The
   rules field is a URL template containing `{name}`; the plugin-order.yml field
@@ -378,6 +423,25 @@ rule-files panel keep you current and let you extend it:
   leave behind (`.preclean.bak`, `.masterfix.bak`, `name~1.esp`, timestamped
   `.bak-*` / `.backup.*`) across the data folders, with restore-over-original
   and delete.
+> **Grass mods.** A folder scan takes every plugin it finds, so a shared mods
+> folder sweeps grass plugins into the subset along with everything else. Any
+> plugin your `openmw.cfg` declares on a `groundcover=` line is held out of
+> `content=` automatically (the run tells you which), because loading a grass
+> mod as content spawns every blade as a real object. Its `data=` path is still
+> written, and the `groundcover=` lines are left alone. Plugins that merely have
+> "grass" or "groundcover" in the *name* are not touched — only what your cfg
+> actually declares.
+>
+> For a grass mod you have **just installed**, which nothing declares yet, say so
+> once: a `groundcover=Vurt_Grass.esp` line in your subset file, `--groundcover
+> Vurt_Grass.esp` on the CLI, or the **Declare as groundcover** field in Options.
+> It is then written as `groundcover=` instead of `content=`, in both the cfg and
+> the emitted TOML. Name its folder as usual — the `data=` entry is still needed
+> for OpenMW to find the file.
+
+- **Help** — opens this Read me or the Quick start as a readable page with a
+  contents sidebar, rendered by the app itself. No network, no external viewer,
+  and it works from the frozen `.exe` (both documents are bundled into it).
 
 ---
 
@@ -392,6 +456,16 @@ type + editor id), the last one in the load order wins.
   **Conflicts window** (sortable table: type, record, how many plugins touch it,
   and the winner). Conflicts that involve **your** custom mods are marked with a
   ★ and listed first — those are the ones your additions caused.
+- Double-click a field for the full value per plugin. Where the field can be
+  tied to a documented subrecord it is labelled in the file format's own terms
+  (`VHGT - Height Data (struct, 4,232 bytes, optional)`), and a **Format
+  reference** button shows what the whole record type is supposed to contain:
+  every subrecord, whether the game requires it, how wide it is, and the named
+  fields inside the struct ones. A diff tells you what changed; that tells you
+  what it was.
+- Compiled scripts are **disassembled** rather than shown as base64, including
+  the 360 MWSE / MW-Enhanced functions — calls to those are marked, because a
+  script using one will not run without that runtime installed.
 - Save the full list to CSV for later.
 - Read-only and opt-in: it never changes the sort or your files, and it needs the
   plugin files reachable via your cfg's `data=` folders. It can be slow on a big
@@ -494,13 +568,47 @@ install.
 Click **Cell Map** (after a Sort) — or pass `--cell-map out.html` — to build a
 self-contained HTML page (a port of
 [modmapper](https://www.nexusmods.com/morrowind/mods/53069)) with three tabs: an
-**exterior-cell SVG heatmap** (uniform squares, brighter/hotter = more mods
-editing that cell; hover for the mod list, click a cell to jump to its list row)
+**exterior-cell SVG heatmap** (uniform squares, coloured by how many mods edit
+that cell; hover for the mod list, click a cell to jump to its list row)
 plus filterable **exterior-** and **interior-cell lists**. Cells your custom mods
 touch get a gold outline, so you can see exactly where your additions land and
-which areas are conflict hotspots. It writes `cell_map.html` and opens it in an
+which areas are conflict hotspots.
+
+Colours are **banded**, not a gradient: 1, 2, 3, 4 and 5 mods per cell each get
+their own colour, then 6-10, 11-15, and so on. The differences that matter are
+crowded at the bottom of the range — one, two and three mods in a cell are
+different situations, while 23 and 24 are not — so the legend beside the map is
+its key, with one swatch per band. It writes `cell_map.html` and opens it in an
 in-app window (with `pywebview`/`tkinterweb`) or your browser, changes nothing,
 and works with either engine (tes3conv gives the most exact cell identification).
+
+### The 3D terrain view
+
+Opened from a landscape record's field diff. It draws the cell's 65x65 height
+grid as a surface you can turn, which is the one view that settles "is that a
+ridge or a trench" without reading numbers. Drag to rotate, shift/right-drag to
+pan, scroll to zoom; **Isometric** and **Top down** are buttons because neither
+angle can be hit accurately by dragging.
+
+**Heights are drawn to the same scale as the ground.** A cell is 8,192 world
+units across and heights are in world units, so a slope on screen is the slope
+in game — a 45-degree hillside renders at 45 degrees. Use **Vertical** to
+exaggerate deliberately when a cell is genuinely almost flat; the readout says
+so while it is on.
+
+Everything about the shading is a control:
+
+| Control | What it does |
+| --- | --- |
+| **Shading** | *Relief* (hillshade with a tint over it) or *Flat facets* (one colour per face, which makes the mesh itself visible). The geometry is identical either way. |
+| **Hillshade** | The greyscale shading that carries the shape. |
+| **Lights** | *Single*, or 3/6-way **multidirectional**: lights spread around the compass, weighted toward the sun azimuth. One light leaves faces in flat black; several fill those shadows without flattening the relief. Overall brightness does not change. |
+| **Scales** | *Multiscale* blends slopes measured over three window widths — a narrow window shows texture, a wide one shows landform, and one radius has to choose. |
+| **Sun azimuth / altitude** | Where the light comes from, in compass degrees and degrees above the horizon. |
+| **Tint** | *Hypsometric* (green valleys to pale summits), *Rainbow*, or *Greyscale*, at any opacity from 0 to 100%. A rainbow resolves small differences far better on nearly flat ground, which is why it is offered — and why it is not the default, since it implies boundaries the terrain does not have. |
+| **Contours** | Lines at a round interval chosen to put about a dozen on the cell, with the interval named in the readout. They are dropped where they would crowd close enough to merge, the way a paper map drops them. |
+
+**Reset** restores every control, not just the camera.
 
 ---
 
@@ -620,10 +728,11 @@ Only the standard library is needed to *run* the tool. The checks below need
 `ruff`, `black`, `mypy` and `pytest`.
 
 ```bash
-python -m pytest                # 984 tests: no network, no Tk, no real mods needed
+python -m pytest                # 1,273 tests: no network, no Tk, no real mods needed
+                                # (the GUI smoke set skips without Tk; CI runs it under xvfb)
 python -m ruff check .          # PEP 8 style, naming, import order, security, perf
 python -m black --check .       # formatting
-python -m mypy                  # PEP 484 types; gates all 46 shipped files
+python -m mypy                  # PEP 484 types; gates all 54 shipped files
 python tools/check_undefined.py mlox_subset_sort_gui.py
 python tools/check_placeholders.py   # i18n %(key)s placeholders vs their dicts
 python tools/make_pot.py --check     # the .pot template must be current

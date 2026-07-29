@@ -1,7 +1,68 @@
 # GUI smoke test
 
-The GUI has no automated coverage — there is no Tk in the test environment —
-and five callbacks were rewritten during the PEP conformance pass. This script
+## Run the automated suite first
+
+Most of what used to be on this checklist is now checked by a test suite. If you
+have Tk — and you do, if the GUI starts — run:
+
+```powershell
+python -m pytest tests/test_gui_smoke.py -v
+```
+
+Windows will flash open and closed; that is the suite working. It builds the
+real application and checks that every window opens with content in it, that no
+two panels are gridded into the same cell, that every button is bound, that
+settings survive a save and load, that every theme applies, and that the rule
+maker's preview and write button track validity.
+
+### What a good run looks like
+
+```
+collected 45 items
+tests\test_gui_smoke.py .............................................  [100%]
+============================ 45 passed in 4.11s =============================
+```
+
+Verified on Windows 11, Python 3.14.5, pytest 9.1.1 — **45 passed, 0 skipped.**
+
+The count is written down on purpose. A suite that quietly collects 41 instead
+of 45 has lost four checks, and nothing about a green run says so.
+
+The three most recent cover the mesh detail panel: that opening the resource
+window parses **no** meshes, that selecting a row parses one, and that a file
+which is not a mesh at all does not close the window. They were written in an
+environment with no `tkinter` and could not be run there, so until this run
+they were unverified — which is why the number in this file is a record of an
+actual run and not a prediction.
+
+**Zero skipped matters as much as zero failed.** A skip means that check did not
+run, and every skip left in this module is genuinely unreachable on a working
+desktop: they cover a checkout with documents missing, a build with one colour
+theme, and record types absent from the schema. If you see a skip, `-rs` names
+it and something is wrong with the tree rather than with the app.
+
+If **every** test says `SKIPPED`, nothing was checked at all — Tk or the display
+is missing rather than the app being fine. `python -c "import tkinter; tkinter.Tk()"`
+will say which. CI runs the same suite under a virtual X server and fails the
+job on any skip, for exactly this reason.
+
+### What it has already caught
+
+Not hypothetical. On its first real desktop run every test errored during
+construction, which exposed a bug in the app rather than in the tests: drag-and-
+drop registration assumed the tkdnd Tcl package was loaded whenever the Python
+package imported, and where those differ the first path field raised and took
+the whole window build with it. The app would not open at all, over a
+convenience feature. See `CHANGELOG.md` (3.1, Fixed).
+
+The manual pass below still covers what a test cannot: whether the output is
+*correct*, and whether the thing on screen is readable.
+
+---
+
+## Manual pass
+
+Five callbacks were rewritten during the PEP conformance pass. This script
 exercises exactly those, and only those.
 
 **Why a script rather than "click around":** the rewrites changed

@@ -7,22 +7,43 @@
 > actually used at the time, including the decisions that were later revised.
 >
 > **Read every figure as "true when written," not as current.** The clearest
-> example is the test suite, which appears at four different sizes as it grew:
+> example is the test suite, quoted at whatever size it happened to be:
 >
 > | Section | Test count at the time |
 > |---|---|
 > | §4 (test suite, original review) | 129 |
 > | §10 (licence audit) | 305 |
 > | §13 (legacy scripts) | 374 |
-> | current (3.0) | **724** |
+> | 3.0 as released | 724 |
+> | §28 (audit after several days of solo work) | 1,079 |
+> | §30 (Help, banding, the TES3 schema) | 1,260 |
+> | §33 (grass follow-ups) | 1,330 |
+> | §34 (rule maker, audit, TOML, terrain) | 1,557 |
+> | §35 (the NIF reader reaches every vanilla mesh) | 1,696 |
+> | §36 (80,197 modded meshes, and the reader reaches the app) | 1,811 |
+> | §37 (audit of the session's own work) | 1,822 |
+> | §39 (geometry, a 3D viewer, and a loopback server) | **1,916** |
 >
-> The same applies to tooling versions, file layouts and line counts. For the
-> current state of anything, check the code, `CHANGELOG.md`, or run the gates.
+> The same applies to tooling versions, file layouts, message counts and line
+> counts. For the current state of anything, check the code, `CHANGELOG.md`, or
+> run the gates.
+>
+> **Where the version line falls.** Everything up to and including §33's early
+> entries is 3.0 as shipped; §34 onward is 3.1. `CHANGELOG.md` keeps the same
+> split, and `MloxSubsetSort-3.0 release/` is the actual backup of what went
+> out, so the two can be compared rather than argued about.
 >
 > Where a section records a decision that was *deliberately refused* (a linter
 > rule, a "fix" that would have been wrong), that reasoning is usually still
 > live and is cross-referenced from `pyproject.toml`. Those are the parts most
 > worth reading before changing something.
+>
+> **The GUI is measured separately.** It needs Tk, so it is excluded from the
+> hermetic suite and the counts above; `tests/test_gui_smoke.py` runs under a
+> virtual display in CI and on any desktop with Tk. It was 16 tests when it was
+> written in §31 and is 42 now (§34.4), and a *skip* there is treated as a
+> failure — a skipped GUI test is a check that silently did not run, which has
+> already hidden one real defect.
 
 ---
 
@@ -2103,3 +2124,1882 @@ deliberately not written would only 404.
 
 ruff, black, mypy (54 files), `check_undefined`, `check_placeholders`,
 `make_pot --check` all clean; every test group green.
+
+---
+
+## 28. Audit after several days of solo work
+
+A review pass over changes made without me, asked for as: update the docs and
+tests, re-check typing and PEPs, find dead code and logic errors. Four real
+defects, one large dead subsystem, and a test suite that had drifted behind a
+deliberate API change.
+
+### Two defects that stopped things working
+
+**A syntax error had disabled the entire toolchain.** `conflictmap.py:198` put a
+`★` escape inside an f-string *expression*, which is illegal before Python
+3.12; this project targets 3.10. The module could not import, and because ruff,
+black and mypy all parse before they check, **every gate was silently reporting
+on an unparseable tree**. Fixed by hoisting the star to a local. Worth noting as
+a process point: a green-looking gate run is not evidence when the parse failed
+first.
+
+**The cell-map path called two methods that no longer existed.**
+`_detail_cache` and `_fill_cell_pages` were removed during the rework but
+`mlox_subset_sort_gui.py` still called them, inside a `try` whose `except`
+returned `""`. That is precisely the "no Conflicts button on the map" symptom
+reported repeatedly: an `AttributeError` swallowed and reported as absence. mypy
+found both. Resolved by removing the orphaned generation path entirely -- the
+cell map is coverage-only now, and conflicts are reached from the Conflicts
+window, so the two maps no longer have an ordering dependency at all.
+
+### Two defects that would have fired later
+
+**`_("%s") % {"error": error}`** in the conflict-map failure dialog -- a
+positional placeholder against a named dict, which raises `TypeError`. The error
+path would itself have crashed, hiding the original error. `check_placeholders`
+caught it; this is the second time that checker has paid for itself.
+
+**A mutable dict as a class attribute** (`_SINGLES_KINDS`), now `ClassVar`,
+since it is shared read-only configuration.
+
+### The dead subsystem
+
+The rework moved the Conflicts window from the heavy explorer to the direct
+`build_conflict_map` page. That left **no live caller** for a large body of code:
+`explorer.py`, `explorer_js.py`, `cellpage.py`, `sidecar.py`, `assets.py`,
+`cache.py`, `draw_js.py`, and `collect_detail`/`cell_page_detail`/
+`collect_world_terrain` in `detail.py` -- roughly 1,700 lines, reachable only
+from each other and from tests. All of it is unwired: `viz/__init__` now exports
+exactly the four page builders the GUI uses, and nothing imports the rest.
+
+The world-3D LOD machinery goes with it, as intended -- there is no conflict-map
+3D terrain any more, so `WORLD_SIDE`, `_world_patch` and the knitting code have
+no purpose.
+
+*The files could not be deleted from this environment (the mount is read-only to
+removal), so they remain on disk while being fully unreferenced. Deleting them is
+a one-line `git rm`; §28.1 below lists them.*
+
+### The tests had drifted behind a real improvement
+
+`build_height_delta` and `build_pathgrid_graph` were reworked from pairwise
+(winner vs loser) to a **chain of edits** over a `surfaces` mapping. That is the
+more correct model: Morrowind landscape records do not merge, so each plugin's
+meaningful change is against whatever the plugin *before* it left, not against
+the eventual winner. Eleven tests still asserted the old signature.
+
+Rewritten to the chain API, and while doing so two assumptions of mine were
+found wrong by the code rather than the reverse:
+
+* A **single-plugin** path grid emits no chain payload at all and falls back to
+  a plain server-rendered graph. That is correct -- there is nothing to diff --
+  and the test now asserts that fallback instead of a payload.
+* Assertions on embedded JSON must **decode** it. `html.script_json` escapes
+  `<`, `>` and `&` to `\uXXXX` (the XSS fix from §25), so substring checks
+  against raw text fail misleadingly. Tests now parse the payload out and assert
+  on data, via a shared `payload_of` helper.
+
+### Gates
+
+**1079 passed, 1 skipped.** ruff, black, mypy (54 files), `check_undefined`,
+`check_placeholders`, `make_pot --check` (456 messages) all clean. A structural
+check that every `self.<method>()` call in the GUI resolves to a definition on
+`App` or a mixin found only one hit, and it was a false positive (an assigned
+callback attribute, not a method).
+
+### §28.1 Files to delete
+
+Fully unreferenced after this pass; kept on disk only because this environment
+cannot remove them. Nothing imports any of them.
+
+```
+mlox_subset/viz/explorer.py
+mlox_subset/viz/explorer_js.py
+mlox_subset/viz/cellpage.py
+mlox_subset/viz/sidecar.py
+mlox_subset/viz/assets.py
+mlox_subset/viz/cache.py
+mlox_subset/viz/draw_js.py
+mlox_subset/viz/detail.py
+tests/test_viz_client.py
+```
+
+`detail.py` is included because its three public functions were the explorer's
+and the cell pages' data layer; the four surviving page builders take their
+`surfaces` mappings straight from the GUI's own field lookup. After deleting,
+drop `mlox_subset.viz` entries for them from `pyproject.toml` only if the
+package list names modules individually (it names packages, so no change is
+needed), and re-run the gate list.
+
+The live `viz` surface is now:
+
+| Module | Purpose |
+|---|---|
+| `conflictmap.py` | The 2D conflict map, with per-plugin focus and instant tooltips |
+| `heightdelta.py` | Terrain height as a chain of per-plugin edits |
+| `pathgrid.py` | Navigation graph, chained the same way |
+| `terrain3d.py` | One cell as a rotatable/pannable surface |
+| `geometry.py` | Grid-id parsing and per-cell aggregation |
+| `palette.py` | Severity and divergence colour ramps |
+| `html.py` | Shared page shell, escaping, safe inline JSON |
+
+---
+
+## §29 The cell map leaves the engine, and the housekeeping it needed
+
+Five requests landed together, and they turned out to be one piece of work: the
+cell map could not sensibly grow scrolling, timestamps or a wider palette while
+it was a 216-line f-string in the middle of the sort engine.
+
+### The extraction
+
+`generate_cell_map_html` is now `mlox_subset/viz/cellmap.py`, assembled from ten
+functions that each return a fragment — `_escape`, `_anchor`, `_modattr`,
+`_in_bounds`, `_focus_options`, `_svg_grid`, `_exterior_rows`, `_interior_rows`,
+`_legend` — plus the builder that composes them. CSS and JS moved to
+`mlox_subset/viz/cellmap_js.py` as plain `Final[str]` constants, which is the
+whole point: no interpolation means no doubled braces, so the JS can be read and
+edited as JS.
+
+`mlox_subset_sort.py` keeps the public name as a one-line delegation, so nothing
+that imports it had to change. The dead `_cell_heat` went with it.
+
+Two things fell out of the split that were not visible before:
+
+* The dropped `explorer_href` parameter — a leftover of the cross-link that §27
+  removed. Nothing passed it.
+* Out-of-range cells were being filtered **silently**. One corrupt grid
+  coordinate stretches the SVG to millions of pixels, so dropping them is right,
+  but the page now says how many were dropped. A quietly incomplete map is worse
+  than a noisy one.
+
+### The requested changes
+
+* **Scrolling**, matching the cell map's own panes: `.mapwrap` and `.listwrap`,
+  both `overflow:auto` with `resize:vertical` so a pane can be dragged taller.
+  Added to the conflict map too, which is where the request started.
+* **A generated timestamp** on the cell map, and on the shared shell in
+  `viz/html.py:page()` via a new `generated_at` argument. These files accumulate;
+  an hour-old map that looks identical to a fresh one is a real trap. The
+  argument defaults to now and is injectable, which is also what makes the
+  header assertable in a test.
+* **Wider palettes.** Severity went from three stops to five: with only
+  green → yellow → red the entire middle of a busy map collapsed into one narrow
+  yellow band. Coverage got its own seven-stop ramp — slate → blue → periwinkle
+  → violet → amber — deliberately *not* green-to-red, because coverage is not
+  badness (ten mods touching a cell is normal) and it must not be mistaken for
+  the conflict map at a glance.
+
+  Both legends are now generated from the ramp they sit beside
+  (`coverage_legend_stops`), and the conflict map's client-side redraw is fed the
+  stop table as data (`severity_stops`) rather than re-implementing the curve in
+  JavaScript. The old arrangement had a hand-written legend of five fixed
+  swatches next to a map with its own hard-coded five; keeping them in step was
+  manual, which is to say it was not kept.
+
+### One regression, caught by an existing test
+
+Expanding the severity ramp broke `test_severity_is_monotonic`: the new orange
+shoulder was *brighter* in red than the final red, so over the last quarter of
+the ramp more conflicts rendered with less red. The test is right and the ramp
+was wrong — "more conflicts never renders cooler" is the property the map is
+read against — so the shoulder's red was moved just below the endpoint's. The
+hue is unchanged; only the channel ordering is.
+
+The coverage ramp cannot hold that same invariant, because it rotates through
+hues and its first segment (desaturated slate to saturated blue) genuinely goes
+cooler. Its invariant is **monotonically increasing luminance**, which is the
+standard criterion for a sequential ramp and keeps it ordered in greyscale and
+for a colour-blind reader. That is what the new test asserts, with the reasoning
+in its docstring rather than in a commit message.
+
+### Housekeeping
+
+`mlox_subset/viz/housekeeping.py`, wired to a **Tidy old HTML views** checkbox on
+the main window (default on, persisted as `cleanup_html`), run from `_on_close`.
+Two properties matter more than the tidying:
+
+* **It only ever deletes files this tool wrote.** A candidate must match one of
+  the six known filename stems *and* carry a `_YYYYmmdd_HHMMSS` suffix. Never a
+  blanket `*.html` sweep, and specifically never an un-timestamped
+  `conflict_map.html`, which is a file the user named themselves via *Save*.
+  Sorting is by the timestamp *in the filename*, not mtime, which a copy or a
+  sync tool rewrites.
+* **Off means off.** With the box unchecked nothing is removed at all. A tool
+  that quietly deletes output someone meant to keep is worse than a cluttered
+  folder.
+
+A page's sidecar `_data` folder goes with it, since the folder is useless
+without the page that references it. A locked file (open in a viewer) is skipped
+rather than reported, and — checked by test — is not claimed as removed in the
+log line.
+
+### Gates
+
+ruff, black, mypy (49 source files), `check_undefined`, `check_placeholders`,
+`make_pot --check` (419 messages) all clean. Full suite green, coverage gate
+met; `mlox_subset/viz` is at **97%** (branch), with `cellmap.py`,
+`cellmap_js.py`, `conflictmap.py` and `html.py` fully covered.
+
+`tests/test_viz_pages.py` adds 90 tests over the cell map, its client assets,
+housekeeping and the new ramps. Five of them were then verified by **injecting
+the real defect** and confirming a red test: a non-monotonic ramp, a legend
+hard-coded away from the map, an undelimited mod-filter token, a matcher that no
+longer requires a timestamp (which makes the user's *Save* output a deletion
+candidate), and escaping switched off. All five were caught.
+
+Two of my own assumptions were wrong and the code corrected them, which is worth
+recording as it is the same pattern as §28:
+
+* A test asserting no `<title>` anywhere in the body failed on the *comment* in
+  `CELLMAP_JS` explaining why native SVG tooltips are not used. The assertion
+  now scopes itself to the SVG element, which is what it meant.
+* The coverage ramp's red channel is not monotonic, and asserting that it was
+  would have been asserting a property the design does not have. See above.
+
+---
+
+## §30 Help, banding, the format schema, and a wall of widgets
+
+Four requests, one release. Three were small; the fourth turned out to be the
+largest single piece of reference data this project carries.
+
+### The wall of widgets
+
+`_build_controls` was 435 lines of flat widget construction. Nothing in it was
+*hard* -- that was the problem. A one-line change meant an edit in the middle of
+a wall of text with no landmarks, and the request that prompted this ("break up
+anything that makes changes harder") named exactly that feeling.
+
+It is now `_build_controls` (34 lines, which assigns the row numbers in one
+place so the vertical order stays readable) delegating to `_build_dnd_note`,
+`_build_input_fields`, `_build_output_fields`, `_build_options_panel` ->
+`_build_write_options` / `_build_scan_options`, and `_build_action_bar` ->
+`_build_primary_actions` / `_build_tool_actions`. The button helper became a
+module-level `_action_button`, because a closure two builders have to share is a
+closure that belongs outside both.
+
+The proof it worked is the next item: adding the Help button was two lines in
+one small method.
+
+One defect surfaced during the split -- a tooltip attached to a widget built in
+a different method, which mypy caught as an undefined name. That is the failure
+mode this kind of refactor has, and the reason the gate list runs after every
+step rather than at the end.
+
+### Help, rendered rather than handed off
+
+`mlox_subset/viz/docs.py` renders the project's own Markdown to a
+self-contained page: no CDN, no external stylesheet, **no JavaScript at all**.
+Opening the `.md` with the operating system was considered and rejected -- what
+opens is whatever happens to be associated with `.md` on that machine, which is
+not a reading experience anyone would choose.
+
+The Markdown subset is deliberately small and defined by what these documents
+actually use, verified against them. Anything unrecognised is emitted as escaped
+text rather than guessed at, so an unsupported construct is visibly plain rather
+than silently mangled. All input is escaped and link schemes are vetted: the
+documents are ours, but a renderer that emits whatever URL it is handed cannot
+safely be pointed at anything else later.
+
+Two things the tests caught that reading would not have:
+
+* `*Export writes nothing while **Dry run** is checked*` -- italics wrapping
+  bold. A shared `[*_]` delimiter closed the italic on the first asterisk of
+  `**Dry`, leaving stray asterisks on the page. The two emphasis alternatives
+  are now spelled out separately with lookarounds on both ends.
+* An unterminated fence used to swallow the rest of the file. It now runs to the
+  end and renders: most of a document beats refusing to show any of it.
+
+`doc_path` looks in the PyInstaller bundle **first**, then beside the executable,
+then the source tree -- in that order, because a folder next to a shipped .exe
+may hold an older copy someone extracted by hand. Both documents were added to
+the build's data list; without that the frozen build would have had a Help button
+with nothing behind it.
+
+### Banding the cell map
+
+Counts 1-5 each get a band; above that they group in fives. The reasoning is that
+the distinctions people act on are crowded at the bottom -- one, two and three
+mods in a cell are different situations, 23 and 24 are not -- and a continuous
+ramp normalised against the busiest cell on a big map spent most of its colour on
+distinctions nobody needs, rendering all the low counts as the same dark blue.
+
+Above sixteen bands the top one goes open-ended (`76+`). Forty bands over a
+seven-stop ramp is a gradient again, with a legend nobody can use.
+
+The legend is now one row per band rather than a six-point sample, which is the
+honest thing once the map is quantised: it is the map's *key*, and a sampled key
+beside a banded map would be a key that lies.
+
+### The format schema
+
+`tools/gen_tes3_schema.py` reads a CSV export of UESP's *Morrowind Mod File
+Format* pages into `mlox_subset/tes3fields/schema.py`: **46 record types, 313
+subrecords, 62 with parsed struct layouts.** (`BODY` was missing from the first
+export and was added to it afterwards, which closed the last gap: every record
+type tes3conv can emit now resolves to a documented one, and the test asserts
+that the set of gaps is *empty* rather than tolerating a list.) The hand-written shapes live in
+`schema_types.py` so the generated file can be overwritten wholesale without
+taking any behaviour with it.
+
+This is documentation, not code. What is taken are format facts -- a `NPDT` is 12
+or 52 bytes, its first two a uint16 Level -- which describe Bethesda's file
+format rather than anyone's implementation of it. `CREDITS.md` carries the
+attribution.
+
+**How we know the parse is right.** 56 of the parsed layouts have a plainly
+stated byte count, and every one of the 56 now equals the sum of its parsed
+members. That check found four real defects, each of which had silently dropped
+data:
+
+* a full-width **note row** between a table's header and its fields ended the
+  table early -- which cost the AI package fields and every `INFO` field their
+  entire entry;
+* the first Info line was taken as a description unconditionally, but `CELL`'s
+  `DATA` opens straight onto `uint32 - Flags`, so that field lost its first
+  member and came up four bytes short;
+* `float` was not recognised as `float32`, dropping `CELL`'s fog density;
+* `CLAS` writes `uint32 = Flags` where it means `-`, a typo in the source that
+  cost four bytes of a sixty-byte struct.
+
+A fifth was caught by a *test* rather than by the size check: several pages carry
+a second four-column table after the subrecord one (the magic-effect list, the
+GMST value list), and its rows were being read as subrecords. The schema
+contained `Subrecord(name="Jump", cardinality="9")`. Requiring a subrecord tag to
+be short and upper case removed 194 such rows.
+
+Where the tables hedge, the schema hedges. `NPDT` has two documented layouts
+under one tag, so it carries **neither**: which applies depends on a flag
+elsewhere in the record, and running the two together would mis-read every NPC
+in the game. `LAND`'s vertex normals document one three-byte element and declare
+12,675 bytes, so the element layout is kept and the multiple (4,225) recorded
+beside it.
+
+### Using it
+
+The diff window now labels a field in the file format's own terms -- `VHGT -
+Height Data (struct, 4,232 bytes, optional)` -- and offers a **Format reference**
+view of the whole record type.
+
+Two deliberate omissions:
+
+* **No struct decoding.** tes3conv already expands struct subrecords into JSON,
+  so re-deriving them from bytes would add a second, worse answer to a question
+  already answered. The blobs that arrive *unexpanded* are the compressed ones,
+  and those decoders already exist.
+* **No guessed key mapping.** tes3conv's JSON key names are its own invention and
+  nothing states the correspondence to subrecord tags, so the mapping is written
+  out by hand and only for the record types whose JSON this project has actually
+  read. An unmapped key is simply not annotated. `LandscapeTexture` does not
+  shorten to `LTEX` by any rule a computer would find, and `Header` to `TES3`
+  least of all -- a heuristic here would be wrong quietly.
+
+### MWSE functions
+
+`customfunctions.dat` adds **360 opcodes** the base game has no equivalent for,
+so an MWSE-scripted mod disassembles instead of coming out as raw bytes. Calls to
+them are marked in the listing, because a script using one will not run at all
+without that runtime.
+
+The licence position is stated fully in `CREDITS.md` and is worth repeating here:
+that file is a **data file in MWEdit's own text format**, installed by running
+the MWSE updater rather than part of the MWSE source tree. No MWSE source is
+read.
+
+It spells parameter types symbolically (`Long | String`) where `Functions.dat`
+uses hex flag words, and the mapping was **derived, not copied**: the two files
+describe 106 of the same functions, and correlating those pins each symbolic name
+to exactly one bit value -- every name resolved unambiguously, and the result
+matches the `FLAG_*` constants already taken from MWEdit's MIT header, which is
+the check that the derivation is right.
+
+Where the two disagree (two renames, 26 differing operand shapes) the existing
+MWEdit-derived entry is **kept**, because that is the one the corpus and the test
+suite have been run against. The generator prints every disagreement rather than
+resolving it silently.
+
+### Gates
+
+ruff, black, mypy (54 source files), `check_undefined`, `check_placeholders`,
+`make_pot --check` (431 messages) all clean. **1,260 passed, 1 skipped.**
+
+`make_pot` earned its place again: it flagged `_(label)` in the new Help menu --
+a non-literal the extractor cannot see, so those two menu entries could never
+have been translated. The labels moved to literal calls at the call site.
+
+Five of the new tests were verified by **injecting the real defect** and
+confirming a red test: escaping switched off, `javascript:` links allowed, a
+scalar type dropped from the schema parser, a record-type mapping broken, and the
+banding grouped by ten instead of five. All five were caught.
+
+### §30.1 A blank window, and the row that moved
+
+Two defects in the §30 work, both found by running it rather than reading it.
+
+**The format-reference window opened blank.** `DARK["entry_bg"]` -- there is no
+such key; the palette calls it `log_bg`. The lookup ran *after* the `Toplevel`
+was created and before the text widget was packed, so Tk showed an empty window
+and put the `KeyError` on stderr, where nobody was looking. Blank windows are a
+miserable thing to debug, and this one was reported as "it does nothing".
+
+The fix is one word. The guard is
+`test_standards.py::test_gui_palette_lookups_all_resolve`, which walks every
+first-party source for `DARK["..."]` and checks the key against the dict literal
+parsed out of `theme.py` (parsed, not imported: the hermetic suite has no Tk).
+Verified by putting the bad key back and watching it fail with the file and key
+named. This is the cheapest available guard against a whole class of GUI defect
+the suite otherwise cannot reach at all, since the GUI has no automated coverage.
+
+**Rows collided in the controls panel.** When `_build_controls` was split, the
+output-fields body moved *verbatim* -- and it still carried the absolute offsets
+`start_row + 3 .. + 6` from when there was one shared base row. Calling it with
+`start_row + 3` therefore placed it on rows 6-9, on top of the rule-files panel,
+the options box and the action bar. Some rows simply did not appear.
+
+Fixed by making each builder's parameter mean what it says -- "the first row I
+use" -- so the panel now uses `+0..+3` internally and the caller passes
+`start_row + 3`. Absolute rows are unchanged from before the split (inputs 0-2,
+outputs 3-6, rules 7, options 8, actions 9), which is the property that was
+checked afterwards.
+
+Worth recording as a *method* failure rather than a typo: moving a body verbatim
+is the safe way to split a function, but it is only safe if the body has no
+implicit relationship to its old surroundings. Row offsets computed from a
+shared base are exactly such a relationship, and nothing in the gate list can see
+it -- ruff, mypy and the test suite were all green with the panels stacked on top
+of each other.
+
+### §30.2 The 28 disagreements, itemised
+
+"Two renames and 26 differing operand shapes" was too compressed to be useful,
+and the interesting part was hiding inside the summary. The generator prints all
+28 on every run; here is what they are.
+
+**The renames** are cosmetic -- same opcode, different label:
+`0x3F0D` `XDrop`/`XDropItem` and `0x3F0E` `XEquip`/`XEquipItem`.
+
+**25 of the 26 operand differences are the same difference**: MWEdit says `0x10`
+(String) where `customfunctions.dat` says `0x14` (Long | String), on the first
+parameter of the `XFile*` family and a handful of others.
+
+That is not cosmetic. The decoder checks fixed widths first, so `0x14` reads a
+**4-byte long** while `0x10` reads a **length-prefixed string**. MWSE means
+"either, depending on what the script passed", which no single flag word can
+express to a byte-walker -- so the table has to pick one. Two reasons to keep
+`0x10`: UESP's per-function pages document these parameters as strings, and the
+string path is guarded by `_plausible_identifier`, so a wrong guess is *detected*
+and degrades to an honest raw span, while a wrong long read silently consumes
+four bytes and desynchronises everything after it. Asymmetric costs, so prefer
+the checkable branch.
+
+**The 26th was a real defect, and is now corrected.** `0x3C33`
+`XFileWriteFloat` had a single float operand in MWEdit's table and no filename.
+Three things agree against it: `customfunctions.dat` lists two parameters, UESP
+documents the syntax as `xFileWriteFloat filename (string), value (float)`, and
+its three siblings (`XFileWriteShort`/`Long`/`String`) all take the filename
+first. Uncorrected, every call to it decodes one operand short and desyncs the
+rest of the stream.
+
+Worth noting how the defect was found, since it was not by reading: the
+disagreement report exists precisely because two sources describing the same 106
+functions is a free consistency check, and this was the one difference in the 28
+that was not explainable as a naming or ambiguity choice. The other 25 look
+identical in a summary line -- "operand shapes differ" -- which is why summarising
+them was the mistake.
+
+The fix is a new `CORRECTIONS` table in `tools/gen_opcodes.py` -- deliberately
+tiny and individually justified, because a generator that quietly "improves" its
+inputs is one nobody can check. It prints what it corrected, and
+`tests/test_mwscript.py` pins both the entry and the family-wide symmetry that
+gave the omission away. Verified by reverting the correction and watching both
+tests fail.
+
+This also revised the stated reason for the keep-existing rule. "The existing
+entry is the one the corpus was run against" is true for the vanilla range and
+**false for the MWSE range** -- CREDITS records that no MWSE-only function ever
+appeared in the corpus, so those entries had never been validated by anything.
+The rule survives on the `_plausible_identifier` argument above, which is a
+better reason than the one originally given.
+
+---
+
+## §31 Clearing the remaining-work list
+
+Four items, in the order they were worth doing rather than the order the list
+gave them.
+
+### A headless Tk smoke job -- the one that mattered
+
+The GUI cannot be imported without Tk, so it is excluded from the hermetic suite
+*and* from mypy, and its verification has been a manual `SMOKE_TEST.md` run.
+That is not an abstract gap: the last two defects to reach a user were both in
+the GUI, and both invisible to ruff, mypy and twelve hundred passing tests --
+a window that opened blank (§30.1) and two panels gridded on top of each other
+(§30.1 again).
+
+Neither needed a human to spot. Both needed a *display*. `tests/test_gui_smoke.py`
+builds the real application on a virtual X server and checks what a person would
+otherwise have to look for: that every action button exists, is bound, and starts
+in its documented state; that no two widgets are gridded into the same cell; that
+the control rows are consecutive; and that each window the app opens comes up
+with content in it.
+
+Two details are the point rather than the decoration:
+
+* **The module skips when Tk or a display is missing**, so the hermetic suite is
+  unaffected -- but a skip means "not checked", so the CI job greps its own
+  output and *fails* if anything skipped. Otherwise a missing `python3-tk` would
+  turn the whole job green while verifying nothing, which is worse than not
+  having it.
+* **The collision check was verified against the real defect.** Tk is not
+  available in the environment this was written in, so the grid-collision maths
+  was exercised directly against two fake layouts: a clean one (no collisions
+  reported) and the exact shape of the §30.1 bug -- a four-row panel placed three
+  rows too low, over the rules panel, the options box and the action bar. It
+  reports nine colliding cells. A check that has never seen a failure is a check
+  nobody should trust.
+
+Stated plainly: **the smoke job itself has not run yet.** It could not be
+executed here, and CI is its first real run.
+
+### Type-checking imports
+
+76 annotation-only imports (73 `TC003`, 3 `TC001`) moved under `TYPE_CHECKING`,
+and `TC` added to ruff's `select` so new ones cannot creep back.
+
+Ruff calls this fix "unsafe" generically, because moving an import under
+`TYPE_CHECKING` breaks any annotation evaluated at runtime. It is safe *here*,
+and the reason is checkable rather than assumed: every module carries
+`from __future__ import annotations` (PEP 563), so every annotation is a string,
+and nothing in the project introspects them -- verified, no `get_type_hints`, no
+`__annotations__` reads anywhere.
+
+Verification was not "the tests still pass": every first-party module was
+imported in a fresh interpreter, because a TC move that breaks a module at
+*import* time can still leave a test suite green if nothing imports it on the
+tested path. 53 modules, no failures, and `--help` still runs.
+
+### lint_plugins
+
+201 lines -> 88, plus an 89-line per-plugin walk that dispatches to seven small
+checkers: `_lint_expansion_calls`, `_lint_masters`, `_lint_header_gaps`,
+`_lint_evil_gmst`, `_lint_cell`, `_lint_interior_pathgrid` and
+`_lint_twin_warnings`.
+
+Two of the checks are load-order-wide rather than per-plugin -- whether an
+interior cell has a path grid *anywhere*, and which plugin introduced it -- so
+those two accumulators are passed into the walk explicitly and documented as
+such, rather than being hidden in a closure.
+
+The refactor was pinned the same way the earlier ones were: a probe builds one
+synthetic load order that trips **every** branch at once (evil GMST beside a
+legitimately changed one, fog bug beside a healthy cell beside a
+behave-like-exterior exemption, a cell with no path grid, Tribunal and Bloodmoon
+calls with no matching master, a blank header, an orphaned `.omwscripts` twin),
+captures all 11 warnings plus the stats, and the same probe was run after. The
+JSON is byte-identical. That is a stronger statement than the suite alone, which
+touches those branches one at a time.
+
+### The CI matrix
+
+`requires-python = ">=3.10"` while CI ran 3.10 and 3.13 only. Testing the two
+ends was a reasonable economy while there was no version-conditional code, but
+it was an assumption about 3.11 and 3.12, and the promise is made to anyone who
+installs this. Four short jobs are cheap.
+
+---
+
+## §32 A user report: "it toggles on ALL mods"
+
+> *"Is it normal for it to toggle on ALL mods, including mods flagged as grass
+> mods and mods that were already disabled via one of the modding-openmw
+> lists?"*
+
+Two claims in one sentence, and they have different answers. Worth recording
+because the first-pass explanation -- "the scan can't tell the difference" --
+was right about one and wrong about the other, in a way that reading the code
+casually would not reveal.
+
+### The disabled mods: not us
+
+`read_cfg` matches `^\s*content\s*=`, so `#content=Foo.esp` and
+`# content=Foo.esp` do not match, verified by feeding it both. `build_and_sort`
+has no concept of enabled or disabled: it takes a flat list and returns every
+entry. A plugin a curated list leaves inactive is simply *not in* `content=`, so
+nothing in the sort path can bring it back.
+
+The only route back is `scan_mod_directories`, which does `os.walk` and takes
+every plugin under the tree with no filter of any kind. Point it at a shared
+mods folder and it picks up everything that mod manager holds, including the
+things deliberately left off. That is the documented behaviour of a folder scan,
+and the answer is to scan a narrower folder or hand-edit the exported subset.
+
+### The grass mods: ours
+
+This one was a real defect, and the give-away is that **the tool already had the
+information**. It reads the cfg. The cfg declares grass on `groundcover=` lines.
+It read those lines and ignored them.
+
+Reproduced end to end:
+
+```
+content=Morrowind.esm
+content=Patch for Purists.esp
+content=MyNewQuest.esp
+content=Remiros_Groundcover.esp     <-- inserted by us
+groundcover=Remiros_Groundcover.esp <-- already there, untouched
+```
+
+Declared twice. OpenMW then loads the grass through the groundcover system *and*
+spawns every blade as a real object -- exactly the cost groundcover exists to
+avoid, arriving silently. The emitted TOML did the same thing, so going through
+momw-configurator did not avoid it either.
+
+### The fix, and the line it does not cross
+
+`read_groundcover_names` parses the lines that were already being read;
+`hold_back_groundcover` drops those plugins from the subset before sorting, so
+they reach neither the cfg nor the TOML. The run prints what it held back and
+why.
+
+Three deliberate limits:
+
+* **The data= path is still written.** OpenMW must be able to find the file for
+  the `groundcover=` line to work at all, so dropping the data entry would break
+  the mod this check exists to protect.
+* **The `groundcover=` lines are never touched.** The mod stays enabled, as
+  grass, which is what it was.
+* **No filename heuristics.** The obvious shortcut -- hold back anything
+  matching `*grass*` or `*groundcover*` -- is wrong, and the project's own
+  sample cfg proves it: `deleted_groundcover.omwaddon` is ordinary content whose
+  name says grass. A pattern would silently drop a plugin the user wants. The
+  rule is "what your cfg declares", and nothing else.
+
+`read_groundcover_names` was added as a separate function rather than a sixth
+return value from `read_cfg`, because seven call sites unpack that five-tuple
+positionally and none of them want this.
+
+### Verification
+
+Eight synthetic cases in `test_hardening.py` covering the rule, the case
+folding, the empty case and the end-to-end export; four more in
+`test_integration.py` against the real 687-plugin sample cfg, which has 23
+`groundcover=` lines and the `deleted_groundcover.omwaddon` trap. Confirmed by
+reverting the fix and watching the end-to-end test fail with "grass was inserted
+as content".
+
+### What this says about the gap
+
+The lint checks read plugins for problems inside them. Nothing checked the
+*shape of the output* against the rest of the user's cfg -- and this defect
+lived entirely there. The natural home for a check like "a plugin must not be
+declared two ways at once" is the export path, not the linter, and there is
+currently no such stage.
+
+---
+
+## §33 Three follow-ups from the grass report
+
+### The TOML now uses `insertBlock`
+
+A run of consecutive custom plugins is one block on one anchor, rather than one
+`insert` per plugin chained on its predecessor. Read from momw-configurator's
+`doInsert`: the prefix comes from the *anchor* line, and block lines are
+inserted in order with `destIdx++`, so the placement is identical.
+
+The reason it is worth doing is not brevity. Anchors are matched with
+`strings.Contains` against whole lines, and more than one match makes the Go
+code return a nil cfg -- the whole rebuild is abandoned. Chaining anchored every
+plugin on the *previously inserted plugin name*, so each one was another chance
+to hit that.
+
+**The first version of the claim was wrong, and the harness caught it.** I
+asserted the collision came from two inserted names interfering, wrote a test
+that passed, and only found it was passing for the wrong reason when checking it
+properly. The real construction is narrower: an inserted name has to be a
+substring of a line **already in the cfg**. `Wares.esp` inserted into a list that
+ships `Better Wares.esp` aborts the run; that is an ordinary Morrowind pairing.
+A third test pins the limit honestly -- if the *first* anchor is itself
+ambiguous, both forms fail identically. `insertBlock` removes the additional
+exposure from chaining, not the exposure itself, and the tests say so, so nobody
+later reads it as a cure.
+
+Anchor choice now uses that: `after` the preceding line when it is unique, else
+`before` the following one (same placement, second chance at a unique line),
+else the natural anchor with the existing ambiguity warning. Silently dropping
+the insert would be worse than a rebuild that stops and says why.
+
+**What this exposed.** The differential baseline passed unchanged, which looked
+like reassurance and was not: it pinned `toml_value` and a *checked-in* TOML, not
+anything the emitter generates. An emitter change could have rewritten every
+user's customizations file with the suite fully green. `cfg.emit_customizations_toml`
+now pins the output over five shapes, and the first negative control on it
+**missed** -- because `.replace(..., 1)` mutated the data-insert branch, which
+those cases do not exercise. Retargeted at the content path, it caught it. Worth
+recording: the first "MISSED" was the test being wrong, not the baseline.
+
+### Removals are for what we do not own
+
+`removeContent`/`removeData` were emitted for anything opted out that was already
+in openmw.cfg -- which is every one of the user's own mods the moment they have
+exported once. The Configurator rebuilds from the curated list plus these
+customizations, so a mod we stop inserting is already absent; the block did
+nothing but clutter a hand-edited file.
+
+The rule is now "does the curated list own this", via `plugins_needing_removal`
+and `data_paths_needing_removal`. Both were pulled out as functions because the
+alternative was a test that had to build two-thirds of a plan dict to reach four
+lines of decision.
+
+Data paths were **not** covered by the first pass and had to be asked about --
+a reminder that "a mod" is a plugin *and* a folder, and fixing half of that is
+fixing none of it from the user's side. Ownership there is "is it one of this
+run's inserts", from the subset or from the source TOML, since the emitted file
+replaces that one wholesale.
+
+Empty is **unknown**, not "nothing is curated": without a `plugin-order.yml`
+there is no curated set at all, so presence stays the fallback. Guessing the
+other way would leave a plugin enabled that the user asked to disable.
+
+### Declaring your own grass
+
+§32 held back what the cfg already declares. That only helps a mod already
+installed *and* declared -- a newly added grass mod is in neither place, so
+there is nothing to read the fact off.
+
+It can now be declared, in whichever form fits: a `groundcover=X.esp` line in a
+subset file (deliberately the same spelling openmw.cfg uses, so the line means
+what it looks like), `groundcover = [...]` in the TOML form, `--groundcover`, or
+the **Declare as groundcover** field in Options. The declaration keeps the plugin
+out of `content=` and writes the `groundcover=` line in both outputs -- as an
+`append` entry in the TOML, which is how the Configurator writes one, verified by
+running the emitted file through `simulate_configurator_apply` and watching the
+groundcover section appear.
+
+Two details that are the whole point:
+
+* **The data path still goes in.** OpenMW has to find the file for the
+  groundcover line to mean anything, so the folder is inserted through the
+  ordinary data path -- a `data=` entry is not grass-specific. This is asserted
+  in the end-to-end test rather than left implied.
+* **On direct cfg write the new lines are appended**, not spliced into an
+  existing groundcover section. Appending cannot shift any index, and every
+  `content=`/`data=` position in the write segments is an index into those same
+  lines. Placement does not matter to OpenMW; only the order of groundcover lines
+  relative to each other does, and appending preserves it.
+
+### Gates
+
+ruff, black, mypy (54 files), `check_undefined`, `check_placeholders`,
+`make_pot --check` (438 messages). **1,330 passed, 2 skipped.** Four negative
+controls, all caught: data removal ignoring ownership, a declared grass plugin
+also becoming content, the old presence-based content rule, and a reversed
+`insertBlock` body against the new baseline key.
+
+---
+
+## §34 The rule maker, an audit, and a TOML that could not be applied
+
+Six pieces of work, reviewed together because four of them were found by the
+previous one.
+
+### The rule model (`mlox_subset/rules/authoring.py`)
+
+The rule maker wrote three kinds of rule out of seven and validated almost
+nothing. It now covers the whole vocabulary -- `[Order]`, `[NearStart]`,
+`[NearEnd]`, `[Note]`, `[Requires]`, `[Conflict]`, `[Patch]`, the `ALL`/`ANY`/
+`NOT` expression tree, the `DESC`/`SIZE`/`VER` predicates, filename expansion,
+`(Ref:)` citations, `@Section` headings and the `!`/`!!`/`!!!` marks.
+
+The design decision worth recording is **where validation lives**. mlox
+discards a rule it cannot use *without saying so*, which makes the moment of
+writing the only opportunity anyone has to find out. So the model refuses at
+authoring time rather than warning afterwards, and the GUI's write button is
+driven by the validator rather than by its own opinion.
+
+The rendered rule is fed back through this project's own parser -- the one that
+reads `mlox_base.txt` -- and has to come back as the rule that went in. String
+comparison cannot find a renderer that emits something valid-looking but
+unparseable; a round trip can.
+
+### Deriving rules from what we scanned (`rules/derive.py`)
+
+Two tiers, kept apart deliberately. A **fact** comes out of a plugin header --
+if `B.esp` masters `A.esp` then `A` loads first, and that is read from the file
+rather than inferred. A **candidate** comes from observed conflicts, which is
+evidence of a relationship without saying which relationship: two mods editing
+one cell might want ordering either way, or might be incompatible.
+
+A tool that presented both the same way would be inviting someone to
+rubber-stamp guesses, and a wrong rule in a load-order file is worse than no
+rule -- it is a wrong answer that looks researched. Candidates therefore carry
+their evidence, propose the reading the current order implies, and offer the
+alternatives.
+
+### `[Patch]` was never evaluated
+
+`predicates.py` handled Conflict, Requires and Note and silently skipped Patch
+-- 267 such rules in `mlox_base.txt`, 32 in `mlox_user.txt`, all inert. Now
+implemented, and it fires both ways: a patch present without what it patches,
+and the originals present without their patch. On real data it adds exactly two
+genuine warnings, which is the right order of magnitude for a rule type that
+only speaks when something is actually missing.
+
+### §34.1 The audit: six defects, five of them in this release's own code
+
+Auditing new work rather than only reviewing it is the point; five of the six
+were written during 3.1.
+
+1. **A leading space swallowed a plugin.** mlox reads an indented line as
+   message text, so a name typed with a leading space vanished from the rule --
+   and the rule still loaded, still looked right, and simply did not apply to
+   that plugin. Verified against the real loader before fixing.
+2. **`table()` could drop rows** (`viz/html.py`). It paired rows with attributes
+   using `zip`, which stops at the shorter list, and the short list is the
+   attributes -- so a caller one attribute shy lost a *table row*. The project's
+   blanket `B905` exemption claims every `zip()` was reviewed individually; this
+   one had not been.
+3. **`plugins` as a string produced ten proposals about single letters**
+   (`derive.py`). A bare string is iterable. That module exists to keep guesses
+   from being presented as facts, so confident nonsense is the one output it
+   must never produce.
+4. **`@@Section`**, because the field is labelled `@section:` and the guidelines
+   write `@Name`, so typing the `@` -- the natural thing -- doubled it.
+5. **An out-of-range priority rendered no mark**, silently, which is not what
+   asking for one means.
+6. **A dead `_REF` regex**, defined and never used.
+
+Negative controls: five mutations, four caught immediately, **one missed** --
+the `table()` fix had shipped without a test. A test was added and it then
+caught. That is the control doing its job on the auditor.
+
+### §34.2 The generated TOML: bloated, and in one case fatal
+
+Found in a real user's file: 389 insert entries over 2,229 lines, one of its
+anchors fatal to the whole rebuild.
+
+* **`data=` inserts never got the `insertBlock` treatment.** That change landed
+  for `content=` only. 372 data-path inserts, 152 of them sharing one anchor,
+  where 39 block entries would do.
+* **Data anchors were never checked for uniqueness.** The Configurator matches
+  anchors with `strings.Contains` against whole lines and treats more than one
+  match as **fatal** -- it returns a nil cfg and nothing is applied.
+  `_anchor_is_unique` existed but was wired only into the content path. In the
+  reported file `...\UvirithsLegacy\Data Files` was chosen while
+  `...\UvirithsLegacy\Data Files\Addons` was also a real line.
+
+  The fix **widens** rather than gives up: an ambiguous value is retried as its
+  whole cfg line, which is very often unique where the value was not, because
+  the line carries delimiters the value lacks. `data="...\Data Files"` is not a
+  substring of `data="...\Data Files\Addons"` -- the closing quote ends it. The
+  same widening resolves a long-standing content-side case: `content=Wares.esp`
+  is not a substring of `content=Better Wares.esp`.
+* **The `after` reversal had to go with the change.** N inserts sharing one
+  `after` anchor each land immediately after that same line, so they come out
+  reversed and were deliberately written reversed to compensate. A block is
+  placed as a unit, so carrying the reversal across would have silently
+  inverted every run anchored that way.
+
+The equivalence harness had modelled two forms -- chaining each insert on the
+previous, and one block -- but **never the third the data emitter actually
+used**, N inserts on one fixed anchor. That is why none of this was caught, and
+it is the more useful finding than any individual bug: a harness is only as good
+as its inventory of the shapes the code really emits.
+
+The differential baseline had a matching gap. It covered `content=` only, and
+its one `after`-mode case was a *single-entry* run -- and reversing one element
+is a no-op, so the first control on the reversal **passed**. Extended with a
+multi-entry run at the end and a run with frozen lines on both sides (the
+commonest real shape, and the only one that pins which neighbour is preferred).
+
+Note also that the baseline had been recording the emitter's `"""` bug as
+correct behaviour, which is the standing hazard of characterization tests: they
+pin whatever was there. `"""` is a multi-line *basic* string and TOML processes
+escapes inside it, so a Windows path's `\M` and `\G` are invalid escapes and the
+file fails to parse outright.
+
+### §34.3 Drag and drop could stop the app opening
+
+`HAVE_DND` recorded whether the *Python* package imports; every registration
+then assumed the **tkdnd Tcl package was loaded**, which is a different fact and
+only true when the root was built with `TkinterDnD.Tk()`. Where they disagree,
+the first path field raised during construction and took the whole window build
+with it: no window at all, over a convenience feature, and a traceback pointing
+at a text entry rather than at the missing package.
+
+Found by running the new Tk suite on a real desktop for the first time. The
+suite built a plain root, every test errored in setup, and the test bug and the
+product bug turned out to be the same mistake.
+
+The banner was fixed with it. "tkinterdnd2 not installed" is false in exactly
+the case that matters and sends people to reinstall a package they already have.
+
+### §34.4 The Tk suite, and two skips that hid checks
+
+16 tests to 42: every Help document rendering, every theme applying and
+repainting, the backups window replacing itself, six record types in the format
+reference, and settings surviving a save and load -- each field, each checkbox,
+the rule list in order.
+
+The general form of that last one is worth keeping: a test compares the keys
+`_gather_settings` writes against the keys `_load_settings` reads, because an
+option saved but never loaded is written on every exit and discarded on every
+start with nothing erroring.
+
+**A skip is a check that did not run.** The first version put the drag-and-drop
+regression test behind a second Tk root, the environment declined to provide
+one, and the single most important test in the suite silently did not execute
+while the run reported green. It is now simulated on the existing root and
+cannot skip. Verified: **42 passed, 0 skipped** on Windows 11 / Python 3.14.5.
+The expected count is recorded in `SMOKE_TEST.md`, because a suite that collects
+38 instead of 42 has lost four checks and still passes.
+
+### §34.5 Banding the conflict map
+
+The same treatment the cell map had: each of the first five counts its own
+colour, then groups of five. A linear ramp against the worst cell rendered one,
+two and three conflicting records as three near-identical greens, and those are
+the counts that decide whether a cell is worth opening. Sharing the banding rule
+between the two maps is deliberate -- they are read one after the other, and two
+maps that look alike but band differently is a worse trap than two that look
+different.
+
+Percentile clamping was dropped for the true maximum. It existed to stop an
+outlier flattening the ramp, which banding solves outright: an outlier lands in
+the open-ended top band and costs the lower bands nothing.
+
+The client-side redraw now **looks a count up in a table** instead of
+re-implementing the ramp in JavaScript. The duplicated curve was the likeliest
+thing to drift between the focused and unfocused views; a lookup cannot drift.
+`severity`, `severity_stops`, `legend_stops` and `saturation_point` went with it
+-- all four had become dead code held alive only by their own tests.
+
+**Two negative controls missed here, both the same mistake in different
+clothes:** asserting something adjacent to the property instead of the property.
+
+* Reverting to a continuous ramp *passed*, because the test asserted the colours
+  for 1, 2 and 3 were "distinct" -- and a linear ramp does give three distinct
+  values, differing by about five units per channel, which is invisible on a
+  nine-pixel square. Now measured as colour *distance*, requiring ≥40 where
+  banding gives 67.
+* Rescaling only the cell fill *passed*, because the test searched the whole
+  page and found the expected colour in the **legend** while the rect was
+  painted something else -- the map and its own key could disagree with the test
+  green. Now asserted on the `<rect>` fill.
+
+After tightening, all six mutations caught.
+
+### §34.6 The 3D view was 55x too steep
+
+Reported as "correct from the top, way too extreme from the side". That framing
+is the diagnosis: looking straight down hides the vertical axis, so a wrong
+vertical scale is invisible from above and only an oblique view exposes it.
+
+Heights are in world units and 65 vertices span 8,192 of them, so adjacent
+vertices are 128 units apart. The renderer plotted x/y as vertex *indices* and
+then scaled height to a constant -- `((z-lo)/span)*110` -- which is a
+normalisation, not a scale. Every cell came out 110 units tall on a 32-unit
+footprint regardless of its relief, and the error grew as the terrain flattened:
+512 units of relief should stand 2 units tall and stood 110.
+
+The fix divides by the real spacing, including the sampling stride -- the grid
+is drawn at every other vertex, so the horizontal step is 256 units, and
+dividing by 128 would have reintroduced the same bug at 2x while looking
+plausible. The invariant the tests state is the one anyone can check by eye: a
+45-degree slope in the world draws at 45 degrees on screen.
+
+Exaggeration is now explicit rather than accidental. 1x is the default and the
+readout announces any other setting, because the previous behaviour's real cost
+was not that it exaggerated but that it did so silently, and a view that lies
+without saying so is worse than one that refuses to.
+
+Four negative controls, all caught: restoring the normalisation, ignoring the
+stride, exaggerating by default, and computing the spacing from 65 gaps instead
+of 64.
+
+### §34.7 Relief shading, contours and a true isometric
+
+Three requests against the 3D view, all of them about reading the surface
+rather than about the geometry fixed in §34.6.
+
+**Two layers instead of one number.** The renderer flat-filled each quad with a
+single colour derived from both slope and height. That is a lossy mix: neither
+quantity can be recovered from it, and a smooth hillside came out as 1,024
+visible facets. It is now a greyscale hillshade with a hypsometric tint
+composited over it at 0.55 -- roughly where relief maps put it, high enough that
+elevation reads at a glance and low enough that the shading carrying the shape
+is not washed out.
+
+**Per pixel rather than per face**, by interpolating the vertex normal and the
+height barycentrically across each triangle. Worth doing because the mesh is
+only 32x32 after sampling, so a facet is tens of pixels wide. Two details that
+would otherwise bite: adjacent triangles sharing an edge can leave a pixel
+centre marginally outside both, which shows as a hairline crack across a
+continuous surface (closed with a small tolerance, verified by checking that the
+two triangles of a quad tile it with zero missing interior pixels); and clearing
+800,000 pixels in a JS loop every mousemove costs more than rasterising the
+terrain does, so the background is a prefilled buffer and one memcpy.
+
+The light is fixed to the terrain, not the camera. A camera-fixed light keeps
+every slope equally lit however the model is turned, which defeats the purpose.
+
+**Contours** come out of the same pass, since the height is already interpolated
+per pixel. Two decisions carry the feature:
+
+* The interval is a *round* number -- 1, 2 or 5 times a power of ten, chosen to
+  land near a dozen lines. Contours at 137 units are a texture; at 100 they are
+  a measurement. The interval is stated in the readout.
+* Line width is divided by the local slope, so a line is a constant width on
+  screen rather than fat on flat ground and hairline on a cliff. That is also
+  what makes crowding meaningful: lines bunch where the ground is steep, which
+  is the information contours carry.
+
+The first attempt at that second point was wrong in a way worth recording. A
+probe of the width rule showed that on a slope of 1.0 the neighbouring contours
+land about three pixels apart while the line itself is one and a half wide --
+half ink, which reads as a dark smear over precisely the cliffs the hillshade is
+describing. Contours are now dropped wherever the spacing falls below three
+line-widths, which is what paper maps do, and the threshold is expressed in
+terms of the line width rather than as a magic number so the two cannot drift.
+
+**Isometric and Top down are buttons** because neither is reachable by dragging:
+isometric needs a pitch of ``asin(tan(30 degrees))`` for the three axes to
+foreshorten equally (verified by projecting the unit axes and checking their
+screen lengths agree to 1e-9), and top-down needs an exact right angle.
+
+The tint ramp is sent to the page as a table, the same decision as the conflict
+map's bands. 256 samples: at 64 the steepest segment stepped by seven units per
+channel, which is visible as a band, and the table costs a few kilobytes.
+
+**Both modes are switchable**, which needed one decision stated rather than
+assumed: the request was to be able to get the old view back, and the old view
+had two properties -- a flat-shaded look and a broken vertical scale. Only the
+first is a style. The button therefore swaps the shading and nothing else, and
+`test_switching_shading_cannot_change_the_geometry` pins that the projection
+inputs are shared, so no future edit can quietly reattach the distortion to the
+mode it came from. The toggle is labelled with what clicking it *will do*
+rather than with the current state, since a toggle captioned with its own state
+reads as a status line and gets clicked by mistake.
+
+Ten negative controls in total, all caught: the ramp not handed over, a fully
+opaque
+tint, an inverted ramp, contours off by default, the isometric preset removed,
+a ramp coarse enough to band, flat as the default mode, the toggle removed, and
+two attempts to reintroduce the old vertical scale through the flat path.
+
+### §34.8 Exposing every setting
+
+The request was to put everything on the page: multidirectional lighting, a
+rainbow palette, azimuth and solar altitude, and checkboxes and dropdowns for
+the rest -- with the existing hillshade kept as one of the options rather than
+replaced. Three things are worth recording.
+
+**Exposing a value must not change it.** The light was a hard-coded vector; the
+defaults are that same vector written as compass degrees, and a test pins the
+azimuth at 225 so turning the controls on cannot restyle anybody's view.
+Deriving those degrees also settled a small discrepancy: the vector's comment
+claimed north-west and the vector was south-west. The vector was right.
+
+**Reset needs one source of truth.** Every default is a single dict keyed by the
+script's own state names, shipped both flat (what the page reads at startup) and
+under ``defaults`` (what Reset restores). The alternative -- a mapping table
+between two lists of setting names -- is exactly the thing that goes stale when
+a tenth control is added, and a Reset that misses one control is worse than none
+because it looks finished. A test asserts every adjustable control is covered.
+
+**Multidirectional is weighted, not averaged.** Six lights evenly around the
+compass at one altitude, each weighted by its agreement with the primary
+azimuth. An unweighted mean is ambient light with no shape at all; the weighting
+keeps the primary direction dominant while filling the shadow side. Verified
+that the weights sum to one, every light is a unit vector at the chosen
+altitude, and flat ground is lit identically at one light or six -- so the
+setting moves shadows without changing exposure.
+
+**Multiscale blends normals rather than hillshades**, which is a deviation from
+how the technique is normally described and is documented as one: it costs a
+single per-pixel pass instead of three, and the results diverge only near the
+terminator, which the shading floor already softens. Checked against a probe --
+a broad ramp with a one-vertex gully cut into it -- that the fine radius sees the
+gully, the coarse radius smooths it away, and the blend keeps both.
+
+The rainbow palette is written from our own stops rather than taken from
+Google's Turbo table. The ordering is the useful part and is a fact about
+rainbows; the table is somebody's work.
+
+**One negative control missed and had to be tightened.** Replacing the azimuth
+slider with a checkbox passed, because the test asserted the *id* was present
+rather than what kind of control carried it -- an element with the right id and
+the wrong type is unusable while satisfying a presence check. The tests now
+assert the control type and its range, and three further mutations (a checkbox,
+a half-circle azimuth, a tint slider that cannot reach zero) are all caught.
+
+### Gates
+
+ruff, black, mypy (56 files), `check_undefined`, `check_placeholders`,
+`make_pot --check` (479 messages), differential baseline regenerated with the
+data-path half covered for the first time. **1,557 passed, 1 skipped**, plus 42
+passed / 0 skipped in the Tk suite on a real desktop.
+
+
+## §35 The NIF reader reaches every vanilla mesh, and what the checking taught
+
+The reader went from 85.5% of vanilla meshes to **7,339 of 7,343 identical, 0
+stopped early, 0 diverged**. That is the headline, but it is the least
+interesting part of this section. What is worth recording is that almost every
+finding here came from *checking*, and that the checks were wrong before the
+code was.
+
+### §35.1 The reference was wrong, and three methods were needed to prove it
+
+An externally supplied block census had been treated as ground truth. It
+reported the reader over-counting property blocks in 1,745 files, filed under
+the alarming heading "misparse".
+
+The reader was right and the census was wrong. Establishing that took three
+independent methods agreeing: the layout reader, a raw byte scan sharing none
+of its code, and NifSkope's own block list. `c/amulet_common_1.nif` holds two
+`NiMaterialProperty` blocks — indices 4 and 11 — where the census records one.
+
+Two lessons, and the second is the one that generalises. First, the census
+undercounts *property* blocks specifically while matching on every other type,
+which is exactly the kind of systematic error that survives casual checking.
+Second, **the tool had assigned blame**. It said "misparse", which named the
+reader as the culprit on the strength of an assumption nobody had tested. It
+now reports "exceeds the census" and declines to name a party.
+
+### §35.2 The self-check that caught the checker
+
+The census was replaced with a scan that generates its own reference. The
+first version of that scan was wrong, and its own reconciliation check caught
+it within one run.
+
+The claim was that a type name is a `u32` length followed by that many bytes.
+True, but not *sufficient*: every string in a NIF is length-prefixed, so the
+rule matches a node called `Bip01` as readily as `NiNode`. It over-counted 522
+of 556 files. Adding NIF's naming convention as a second filter took that to
+553 of 556.
+
+The check that caught it exists because the file declares its own block count,
+so a scan finding a different number can disqualify itself. That property was
+built in before it was needed, which is the only reason the error surfaced as
+a number rather than as a wrong conclusion published with confidence.
+
+### §35.3 Blame the right thing: three reporting defects
+
+Three defects in *reporting* were found, each of which had already sent an
+investigation in the wrong direction:
+
+- **A desynchronised cursor was reported as an unknown block type.** That
+  blamed a missing layout for a wrong field width and inflated the
+  missing-type ranking with files that were really layout failures.
+- **Stop reasons carried raw binary into logs and terminals.** A
+  desynchronised read produces arbitrary bytes and they were interpolated
+  unescaped; one survey printed an embedded NUL and a run of high bytes to
+  stdout.
+- **Files that stopped early were classified as over-reporting**, because
+  excess outranked truncation. 172 files sat under the wrong heading.
+
+The third is the subtlest and the most instructive: the classification was not
+wrong about any *fact*, only about which fact mattered. Excess is only evidence
+about the reader when the reader reached the end.
+
+### §35.4 One byte, and the value of a failure that names itself
+
+Every alignment failure in the corpus read a type name of `\x00NiMorphData` —
+the correct name behind a leading NUL, which is precisely what a cursor one
+byte early looks like. `NiGeomMorpherController` was one byte short. It was the
+**only** alignment bug in all 7,343 vanilla meshes.
+
+The byte is `0` in every observed file, so its meaning is not determinable from
+the evidence. It is named `trailing_flag`. Naming it after a guess would have
+been the moment observation turned into invention, and the name is part of the
+record.
+
+### §35.5 The bug class that matters, and separating it out
+
+`NiTexturingProperty` truncated any mesh with more than one decal, because
+`texture_count` was read as a cap of seven rather than as a slot count.
+
+This is worth its own heading because of what *kind* of bug it is. A missing
+block type is a gap: the reader stops and says so, and `Structure.partial`
+stops a caller drawing conclusions from an absence. A wrong layout in a
+supported type produces confident wrong output. `--verify` now separates the
+two, and doing so surfaced 11 real bugs that had been buried under 397
+ordinary gaps.
+
+### §35.6 Naming what is not known
+
+Four blocks contain fields that could not be identified from the bytes. They
+are stepped over as measured spans called `emitter_parameters`,
+`unidentified_tail`, `path_parameters` and `projection`.
+
+The alternative — plausible names guessed from what such a block usually holds
+— would have produced code that reads better and means less. The width is the
+only part the rest of the file depends on. An invented field name is worse than
+an admitted gap because it gets believed, and then repeated.
+
+### §35.7 A test that asserted the wrong thing
+
+Implementing `NiPixelData` broke two existing tests. They had used it as their
+example of an *unknown* block type, so they were asserting the state of the
+layout table rather than the behaviour they meant to pin down. Replaced with an
+`UNKNOWN_TYPE` constant that will never be implemented, with a comment saying
+why, so the trap is not re-laid.
+
+A third failure the same day was mine and in the opposite direction: a
+regression test for the decal fix failed because the *fixture* was wrong — slot
+5 is the bump slot and carries 24 extra bytes I had not written. Worth
+recording plainly, since a test written wrong can just as easily be written to
+pass against wrong behaviour.
+
+### §35.8 What was not done, and why
+
+Coverage stopped at the game as shipped. Four block types were left
+unimplemented — `NiCollisionSwitch`, `NiFogProperty`, `NiRollController`,
+`NiSpotLight` — on the reasoning that they occur only in the documentation
+packages' demonstration files and never in a vanilla mesh, so implementing them
+would be work whose result nothing consumes.
+
+**That reasoning was wrong, and a run over 80,197 modded meshes proved it
+within a day.** Mods use all four: 242 files stop on `NiCollisionSwitch`, 18 on
+`NiFogProperty`, 2 on `NiRollController`, 1 on `NiPointLight`. The error was
+using *vanilla* as the definition of "what exists" when this tool's entire
+purpose is comparing **mods**. The denominator was picked from the corpus that
+happened to be measured rather than from the problem being solved, which is a
+comfortable mistake to make and an easy one to miss, because every number in
+§35 was correct — they were just answers about the wrong population.
+
+The mod run also reordered the priorities entirely. `NiSwitchNode` (2,127
+files) and `NiLODNode` (1,382) do not occur in vanilla at all and together
+account for 92% of everything that stops early in a real load order.
+
+The provenance of every layout is recorded separately in `NIF_PROVENANCE.md`,
+including what was deliberately not read to derive it. That document declines
+to describe this work as "clean room": the phrase means two isolated teams, and
+this project has one author. Overclaiming in the one document whose entire
+value is that it can be trusted would be a poor trade.
+
+
+## §36 Eighty thousand modded meshes, and the reader finally reaches the app
+
+Two things happened here. The reader was tested against 80,197 meshes from a
+real mod collection rather than a game install, and it was wired into the
+product, which until this point it was not: `mlox_subset/nif/` had no importer
+outside its own tests and tools. A parser nothing calls is worth nothing, and
+that was true of it for several sections.
+
+### §36.1 The denominator was wrong, and it flattered us
+
+§35 closed by naming four block types as not worth implementing because they
+"occur only in the documentation packages' demonstration files and never in a
+vanilla mesh". A mod run disproved that within a day: 242 files stop on
+`NiCollisionSwitch`, 18 on `NiFogProperty`, 2 on `NiRollController`.
+
+Worse, it had ranked the two types that actually mattered at **zero**.
+`NiSwitchNode` (2,127 files) and `NiLODNode` (1,382) do not appear in vanilla
+at all and between them caused 92% of everything that stopped early in a real
+load order.
+
+Every number in §35 was correct. They were answers about the wrong population.
+This tool exists to compare **mods**, and the coverage denominator had been
+taken from the corpus that happened to be measured. That is a comfortable
+mistake: the measurements were rigorous, cross-checked and honestly reported,
+which made the conclusion drawn from them feel earned.
+
+### §36.2 A fix that was right about the failures and wrong about the format
+
+Three mod meshes failed inside a bounding box. Solving the span from those
+three alone gave 20 bytes, and it was written into the code as established --
+"solved rather than guessed", with the reasoning spelled out.
+
+It broke 13 files that had been working.
+
+The evidence standard this project had already set requires the layout-free
+scan to agree **across the corpus**, and that step was skipped because the
+derivation from the failing files looked so clean. The real answer needed the
+two populations separated rather than averaged: the box is *typed*, the type
+word is 1 in all 27 blocks that parse and 0 in every mesh that failed, and no
+single width can be right for both.
+
+The lesson is not "check more". It is that a derivation which explains every
+failure in front of you is not thereby correct, because the files that already
+work are evidence too and they are the ones you never look at.
+
+### §36.3 Three gates caught three real mistakes
+
+Worth recording because they are the return on the standards suite:
+
+- `test_declared_packages_match_what_exists` caught `mlox_subset.dds` missing
+  from `pyproject.toml` -- a package that would have been absent from a built
+  artefact while passing every test.
+- `TestNoReExportShim` caught `core.MeshAnalyser` in the GUI, reaching a
+  library name through the engine's imports instead of its own module.
+- A total that disagreed with its own parts: `--verify` reported 81,026 files
+  for a run over 80,197, because a subdivision of one category was being summed
+  alongside it.
+
+### §36.4 Cross-checking, again, and what it cost to not have one
+
+The DDS decoder was checked against Pillow: all 50 corpus textures decode
+byte-for-byte identically, and every PNG round-trips exactly. Pillow is not a
+dependency -- it was an oracle, the same role the layout-free scan plays for
+NIF, and it turned "the images look right" into a byte-exact claim.
+
+The contrast with §36.2 is the point. Where an independent check existed the
+answer was certain in one run; where one was skipped, a wrong fix shipped into
+the working tree and was caught only by re-running the corpus afterwards.
+
+### §36.5 Cost, and where it actually was
+
+Caching parses took a second pass over the corpus to five seconds, and almost
+all of it was **hashing**, not parsing -- the cache had removed the wrong cost.
+Identity is now three tiers: a digest the caller already has (free, since the
+conflict scan hashes those files anyway), a memo on path, size and mtime, then
+hashing. Second pass 5.2s to 2.0s.
+
+The scan-time pass opens only meshes that already conflict *and* already differ
+in bytes. The detail panel opens nothing at all until a row is selected. Both
+follow from the same observation: a mod setup holds tens of thousands of
+meshes and the scan has no idea which one anybody cares about.
+
+### §36.6 What is still open — and one thing that turned out not to be
+
+- **`dbs_meatstick.nif` is a malformed file, not a missing layout.** It was
+  left failing rather than guessed at, and that was the right call: opened in
+  NifSkope it has orphaned blocks, and its 26 block type names reconcile
+  exactly with the header while the contents of block 10 do not — a property
+  count of `0xFFFFFFFF`. The boundaries are sound and the block is not.
+
+  Two things follow. The reader refusing it is **correct behaviour**, not a
+  gap; inventing a layout to fit one broken file would have broken the sound
+  ones, which is precisely what the bounding-box episode in §36.2 already did
+  once. And the tool was **mislabelling it**: `--verify` filed it under
+  "layout bugs", which asserts the fault is ours.
+
+  That is the third category in this tool to have assigned blame before the
+  evidence supported it — "misparse" was the first, and the "unknown block
+  type" that was really a desynchronised cursor was the second. The heading now
+  states the observation ("stopped inside a type this reader supports") and
+  leaves the diagnosis to whoever opens the file. The recurring error is not
+  carelessness about facts; every measurement was right each time. It is that a
+  category name is an argument, and naming one after the most likely cause
+  quietly converts a measurement into a conclusion.
+- **Three Tk tests** for the detail view, written but never executed: the
+  sandbox has no `tkinter`. Statically checked against the GUI's attributes,
+  which is not the same as passing.
+- **BC7**, deferred at the user's direction until BC1/BC3 were proven. Now
+  done — see §40.
+
+
+## §37 Auditing the work of §36, and what an audit is actually for
+
+An audit pass over the code written in §36. Four findings, and the pattern is
+worth more than any of them individually: **every one was in a place the tests
+were green.** A passing suite is evidence about the cases it contains, and an
+audit is the exercise of looking where it does not.
+
+### §37.1 A coupling that was invisible because it was true
+
+`analyse_mesh_conflicts` and `describe_mesh_detail` disagreed about how to
+find the winning provider. One used the declared `entry["winner"]`; the other
+took `structures[-1]`. Worse, the first was *half* positional -- it took the
+winner by value and the losers as `providers[:-1]`.
+
+They agreed on every input because `detect_resource_conflicts` sets
+`winner = prov[-1]`. So the whole suite passed, and would have kept passing
+right up until anything set a different winner -- at which point the detail
+panel would have compared the winner against itself and reported the
+comparison **backwards**, which is worse than not reporting it.
+
+Both now take the winner by value. The new test builds a conflict whose winner
+is deliberately *first*, which is the case no existing test contained.
+
+### §37.2 A guard that bounded the wrong quantity
+
+`read_dds` refused implausible dimensions by bounding each side at 32768. A
+32768 x 32768 header passes that and asks for **4.3 GB** of RGBA before a
+single byte of texture data is read. Bounding each side is not bounding the
+allocation. The total pixel count is now capped at 64 megapixels, far above
+any real texture and far below anything dangerous.
+
+Found by reading the code and asking what the guard actually guarantees, which
+is the only way to find it -- no file in any corpus triggers it.
+
+### §37.3 A handler for something that cannot happen
+
+`MeshAnalyser.structure` caught `OSError` beside `NifParseError`. It could
+never run: `read_nif` already converts an unreadable path into a
+`NifParseError`. Coverage found it, because coverage cannot reach code that
+cannot execute, and a line that can never be covered is either dead or a bug.
+
+A handler for an impossible case is worse than none. It advertises a failure
+mode that does not exist, and the next reader has to work out whether the
+impossibility is deliberate or a mistake. Removed, with a comment saying why
+there is deliberately no `OSError` branch.
+
+### §37.4 A leaked file handle, and a silent branch
+
+`p.open("rb").read(256)` in the tes3cmd probe left the handle to the garbage
+collector -- which CPython happens to close promptly and other interpreters do
+not. Now context-managed. And a `stat()` failure in the analyser returned
+silently while its sibling handler logged, so a missing provider looked
+identical to a working one at every log level.
+
+### §37.5 What the audit checked and found clean
+
+Recorded so the absence of findings is visible rather than assumed: no bare
+`except:`, no `except Exception` outside the two worker top levels that report
+tracebacks into the log panel, no mutable default arguments, no TODO/FIXME
+markers, and no undocumented public functions -- the 69 "missing" docstrings an
+initial sweep reported were 63 private functions and 6 nested closures, neither
+of which the project's pydocstyle configuration requires. Reporting those as
+defects would have been a false finding, which is its own kind of failure.
+
+Coverage of the two new modules went from 95% and 94% to **100%**, and every
+line added to get there was an error branch -- the paths that run on files from
+mod archives, and therefore the ones that most need to fail as findings rather
+than as tracebacks.
+
+### §37.6 The one thing this audit could not check — since resolved
+
+Three Tk tests for the detail view had never been executed: the development
+sandbox has no `tkinter` and it could not be installed. They were statically
+verified to reference only attributes the GUI defines, which is not the same as
+passing, and that was recorded here rather than assumed away.
+
+They have since been run on Windows 11 / Python 3.14.5: **45 passed, 0
+skipped**, up from 42. So they work — but the gap between "statically checked"
+and "actually ran" was real for a day, and the only reason it closed is that it
+was written down as an open question instead of quietly counted as done.
+
+
+## §38 "Wired into the app" was half true, and every test agreed with me
+
+The user opened the Resource Conflicts window and could not find the mesh
+analysis. They were right: it was not there.
+
+`analyse_mesh_conflicts` had exactly one caller, `_run_resource_scan` in the
+engine -- the **command line**. The GUI worker called `detect_resource_conflicts`
+and `format_resource_report` and nothing in between, so the window showed a
+conflict list with no findings in it. The detail panel *was* wired, but only
+fired on selecting a `.nif` row, in a five-line box at the bottom of a split
+pane with placeholder text that never mentioned meshes. Nothing on screen
+suggested there was anything to click for.
+
+§36 opened by observing that "a parser nothing calls is worth nothing". The
+irony is exact: the fix for that was applied to one of the two front ends and
+then reported as done.
+
+### §38.1 Why the tests were no help
+
+Coverage of the pieces was good and coverage of the *path* was zero:
+
+- engine functions: tested directly, 100% covered;
+- the detail panel: tested, including that it reads nothing until selection;
+- the GUI worker: tested that it opens a window and populates a tree.
+
+No test asserted that the scan the GUI runs produces conflicts with findings
+attached. Each piece worked; the wire between two of them did not exist, and
+nothing was looking at the wire. This is the same shape as §37.1 -- a fact
+nothing tested because every test was about something adjacent to it.
+
+### §38.2 What changed
+
+- The GUI worker now runs the analysis, so the report text and the tree both
+  have it.
+- A **column** in the tree, not just the detail panel: `!` where reading the
+  mesh found something, `?` where the mesh could not be read. Those are
+  deliberately different marks, because "this loses collision" and "we could
+  not read this" send a user to completely different places. The whole value of
+  a finding is triage, and a signal you have to click every row to discover is
+  not triage.
+- The placeholder text says what selecting a mesh does, since a feature nobody
+  can find is indistinguishable from one that does not exist.
+- Tests: three in the Tk suite asserting a marked row is visible *without*
+  selecting anything, plus one in the engine suite asserting the pass attaches
+  findings to scan output.
+
+### §38.3 The reporting lesson, again
+
+"Wired into the product" was a claim about the system made from knowledge of a
+component. It was not a lie and it was not carelessness -- the CLI genuinely
+worked -- but the user could not use it, and the user is the system. The check
+that would have caught it is the dullest one available: open the thing and look
+for the feature.
+
+
+## §39 A viewer, and a question that reframed it
+
+The reader could say a mesh had 456 triangles. It could not say whether the
+winner *looked* different, which is what a person actually wants. This section
+is the work that closed that, and the two questions from the user that changed
+its shape.
+
+### §39.1 The reader was built to discard exactly what a viewer needs
+
+`vertices = 300` was a *byte count*. `children = 2` was a count, not the
+indices, so the scene graph could not even be walked. That was deliberate and
+documented -- a structure report needs "how many", never the coordinates -- but
+it meant the honest answer to "how close are we to a 3D viewer" was "further
+than it looks", and saying so was more useful than a hopeful estimate.
+
+Retention was added by recording the byte span each field consumed rather than
+teaching every reader to return its data, so the scan path stays
+byte-identical. Verified across 300 files: every field the default path
+produces is unchanged with geometry on.
+
+### §39.2 The constraint that decided the architecture
+
+Modern three.js ships ESM only, split across two files, and **ES module scripts
+do not load from `file://`** -- origin `null`, CORS fails. That one fact ruled
+out the obvious packaging and forced the CommonJS build behind a three-line
+shim, which was verified in node before a line of the viewer was written.
+
+The same fact has a second consequence that only surfaced when the user asked
+why geometry was embedded at all: **a `file://` page cannot fetch anything**.
+Not the NIF, not a sidecar, not the library. Embedding was not a design
+preference, it was the only channel available -- and the moment the page is
+served over `http://127.0.0.1` the restriction disappears and with it the
+reason to embed. The user's follow-up ("HTTP loopback default, embedded
+export?") was a better answer than any of the three options offered, because it
+turns the fallback into a feature: the standalone page is what you keep or
+send, not dead code kept alive for an edge case.
+
+### §39.3 Measuring instead of arguing
+
+Three questions were settled by measurement rather than opinion:
+
+- **Encoding.** JSON decimals 5.40 MB, base64 typed arrays 4.91 MB, deflated
+  typed arrays 1.86 MB. Base64 alone is nearly pointless -- its 33% overhead
+  hands the binary saving straight back. Compression was doing the work.
+- **Streaming the raw NIF.** Would ship 4.37 MB against 1.86, because the file
+  carries normals, UVs, animation and blocks a viewer never draws -- *and*
+  would need a JavaScript NIF parser, which three.js has never had. The 2012
+  request for one is still open.
+- **`fastapi` + `uvicorn`.** 14 packages, 34 MB, one compiled extension,
+  against a ~38 MB app, to serve a fixed dictionary to one local browser.
+
+Each of those felt like a matter of taste until it was a number.
+
+### §39.4 Security stated as a property, not a promise
+
+The server has **no code path from a URL to `open()`**. Payloads are registered
+in memory and served by key. That is why `SimpleHTTPRequestHandler` is not used:
+it exists to serve a directory, which is precisely what must not happen here.
+
+The distinction matters for how it is tested. "Traversal is blocked" invites a
+test that tries a few clever paths and concludes safety from their failure.
+"There is no filesystem mapping" is a claim about the code, and the traversal
+tests exist to confirm the reasoning rather than to constitute it. A missing
+token returns 404 rather than 403 for the same reason: 403 confirms the key
+exists.
+
+### §39.5 One inconsistency, caught by reading rather than by a test
+
+The first wiring called `webbrowser.open()` directly, bypassing
+`_open_html_view` -- the pywebview/tkinterweb/browser chain every other
+visualisation uses. Nothing failed. The view simply behaved unlike the rest of
+the app, which no test asserts and no gate checks, and which was found only by
+looking at the neighbouring code before declaring the work done.
+
+
+### §39.6 A bug my tests bracketed, and a harness that lied about it
+
+The served page reported **"THREE is not defined"** in a real browser while
+every test passed.
+
+The CommonJS build assigns to ``exports`` and defines no global, so it needs a
+shim before it (``var module = {exports:{}}, exports = module.exports;``) and
+after it (``var THREE = module.exports;``). The inline path wrapped it in both.
+The served path emitted ``<script src=...>`` alone, so the library ran against
+an undefined ``exports``.
+
+**Why nothing caught it.** Two tests existed near the defect and neither
+touched it:
+
+* one asserted the library is *not inlined* when served -- true, and true of a
+  broken page;
+* one asserted both modes share their rendering code, comparing from
+  ``function render(`` onward -- which begins *after* the library block.
+
+They bracketed the bug. The replacement asserts the property that spans it: the
+shim opens before the library and closes after it, parametrised over both
+modes. A test written just to one side of a thing proves nothing about the
+thing.
+
+**And the first verification was wrong in the other direction.** The node
+harness ran each script through ``new Function``, giving every script its own
+scope, so the prologue's ``var exports`` was invisible to the library and the
+harness reported a failure the page did not have. Browsers share one global
+scope across classic scripts; ``vm.createContext`` models that and the fix
+verified cleanly. Trusting the first harness would have meant "fixing" an
+imaginary bug on top of the real one -- the same shape as the bounding box in
+§36.2, where a derivation that explained the visible failures was still wrong.
+
+
+## §40 Six hundred numbers, and a check that had to disagree with me
+
+BC7 is the first thing in this project whose *definition* is large. The NIF
+layouts were derived one field at a time, each verified by landing exactly on
+the next block's type name. BC1 is an interpolation. BC7 is an eight-row mode
+table, two 64-entry partition tables and three 64-entry anchor tables —
+roughly six hundred numbers, transcribed by hand from a published
+specification, with nothing after the mode bits at a fixed offset.
+
+### The failure mode transcription has
+
+A wrong table entry does not throw. It produces a correct-looking image with a
+handful of wrong 4×4 blocks, in whichever partition shapes the encoder happened
+to pick. Nobody notices on one texture. It is invisible to a unit test, because
+the test and the table came from the same reading by the same person — the
+identical structure to §36's "a reader validated only against a writer that
+shares its assumptions proves nothing".
+
+So the check was designed to be *incapable* of sharing the assumption:
+`tools/check_bc7.py` generates blocks that force every table entry to be used
+— all eight modes crossed with all 64 partitions — and compares against
+Pillow. **19,380 blocks, byte for byte.** Random bits are legitimate input
+here, which is the useful accident of this format: every 128-bit pattern is a
+valid BC7 block bar one reserved value, so noise exercises endpoint ordering,
+P-bits, index packing and anchor widths far more harshly than a photograph.
+
+It passed on the first run. That is worth recording honestly rather than
+quietly: the expected outcome was a handful of wrong entries and a bisect. The
+value of the check does not depend on it having found something — it is what
+makes "the tables are right" a claim about evidence rather than about care.
+
+### The one thing an oracle cannot settle
+
+BC5 stores two channels; blue is reconstructed. There is no right answer to
+compare against, only a convention, so comparing our blue against Pillow's
+would compare two conventions and call it a test. The cross-check compares red
+and green only — **not a weakened test but the correct one** — and the
+reconstruction is checked separately by geometry.
+
+**That geometric check was wrong.** It asserted every pixel of a random block
+decodes to a unit vector. It passed on one seed and failed on the next, and the
+decoder was right both times: random bytes are not normals, and where
+x² + y² > 1 there is no real z, so the reconstruction correctly clamps. The
+check now tests the representable and clamped cases separately.
+
+Note how it was caught — not by reasoning, but by running it again with
+different data. A check that is only ever run once is a check whose own
+correctness is untested. This is the fourth time in this project that the
+*verification* was the broken part (§36.2's bounding box, §35's texture
+comparison, §39's `new Function` harness), and the pattern is consistent
+enough now to state plainly: **a new check deserves the same suspicion as new
+code, and the cheapest way to earn confidence in one is to run it against
+inputs it has not seen.**
+
+### A licence decision that needed no technical argument
+
+`pydds` was the obvious candidate: DDS decompression bindings, BC7 included,
+exactly the hard part. It is **GPLv3-or-later**. That ended the evaluation
+before performance or API entered into it — adopting it would relicense
+everything here, against a standing constraint. Two further facts made it moot:
+it depends on Pillow, so it would have *added* a dependency rather than
+replaced one, and it is 0.0.8, marked alpha.
+
+Worth noting what the useful step was: reading the metadata. The summary line
+promised the right thing. The classifier was three lines further down.
+
+### Naming a thing after what it does
+
+`mlox_subset/dds/` became `mlox_subset/images/` because `mlox_subset.dds.targa`
+is a lie, and the rename was cheap while the package had one external caller.
+The `Image` type moved out of the DDS module so that `bitmap` and `targa` were
+not importing from `dds` to borrow a dataclass.
+
+`Image` also gained a `__post_init__` that refuses a buffer inconsistent with
+its dimensions. A decoder that miscounts rows renders as a diagonal smear
+rather than failing, and a smear is far harder to diagnose from a screenshot
+than an exception is.
+
+### Roles, and a correction from the user
+
+The first version of the role model had two errors, both from reasoning about
+the formats rather than about the engines:
+
+* it treated `_spec` as a greyscale mask. It is RGB specular *colour* with
+  shininess in alpha.
+* it mapped the vanilla **bump slot** straight to "normal map". Vanilla
+  Morrowind renders neither bump nor normal maps; MGE-XE and MCP add the
+  capability by repurposing the *environment map* slot, and NifSkope follows
+  that convention. What a bump slot holds depends on which toolchain wrote the
+  file, so it is now its own role and the module declines to guess.
+
+And a framing error of mine, corrected directly: I described BC5 normal-map
+decoding as marginal — "meaningful only if we're showing normal maps
+deliberately" — when comparing one mod's normal map against another's is a
+stated goal. Both sides are normal maps; the comparison is exactly
+apples-to-apples. That changed the implementation, not just the wording: blue
+is reconstructed rather than left flat, because discarding z would call two
+different maps identical whenever they shared x and y.
+
+The green channel is **not** flipped. Both engines use the DirectX convention,
+and tooling written for OpenGL flips on load by default — which here would
+report every normal map as differing from a byte-identical copy of itself, in
+the one comparison the feature exists to make.
+
+### Two smaller things the work surfaced
+
+* `TextureResolver` tested archive membership with `archive.read()`, pulling
+  and discarding the bytes. Around sixty wasted reads per texture against the
+  three vanilla archives, on the path the 3D viewer walks for every shape.
+  `BsaArchive.__contains__` answers from the index.
+* `pyproject.toml` declared `license-files = ["License/LICENSE"]` and no such
+  file existed — `License/` held only third-party licences. A pre-existing
+  failure in `test_standards.py`, unrelated to this work, surfaced by running
+  the suite rather than the subset under change.
+
+
+## §41 A relicence, and the gap a corpus cannot see
+
+Greatness7 — author of the Morrowind Blender Plugin — offered in chat to
+relicense his NIF library MIT, then did it: `cbe18b5` adds an MIT `LICENSE` to
+`io_scene_mw/lib/es3/`. `Greatness7/tes3` was already MIT.
+
+**The offer was not treated as the grant.** Nothing was read until the commit
+existed, because a chat message is not something anyone can cite in two years,
+and this project had spent months documenting exactly what it had not read. The
+grant covers `lib/es3/` and nothing else; the rest of the plugin stays GPL-3.0
+where Blender requires it, and that boundary is a directory path it would be
+very easy to slide across.
+
+### What a second implementation saw that no measurement could
+
+Within an hour of reading `tes3`:
+
+* It **confirmed** `_BOUNDING_BOX_TAILS`, the derivation recorded in §36.2 where
+  "20 bytes, solved not guessed" — concluded from two files — broke thirteen
+  meshes that already parsed. Both type numbers and both widths match, arrived
+  at from bytes with no shared assumptions.
+* It found **`NiUnionBV`**: bound type 4, which is not a width at all but a
+  count followed by that many complete volumes, each with its own type word,
+  nestable. A width table cannot express that shape.
+
+No file in either corpus carries a union bound. That is the whole point, and it
+is a sharper claim than "our tests might miss corner cases":
+
+> **A gap in coverage produces no failure to count.** The 100%-of-vanilla and
+> ~99%-of-mods figures are evidence about files that have been *seen*. Running
+> the same corpora harder cannot find a type they do not contain, no matter how
+> many files they hold. The only instrument that sees it is a second
+> implementation of the same format.
+
+Nineteen more types followed the same way — found by running against the
+categorised NIF sample archive, which took it from 624/768 to 754/768 (98.2%).
+Two needed the reading rather than a guess: `NiBltSource` descends from
+`NiObject` rather than `NiObjectNET`, so it has *no* name, extra data or
+controller, and assuming the usual preamble would eat twelve absent bytes;
+`NiTriStripsData`'s final run has no stored length at all, being the sum of the
+array before it, which needed a new field kind rather than a new table entry.
+
+### Marking taken layouts as taken
+
+Every one is commented as **taken from tes3, not derived**. This is not
+bookkeeping. A derived layout has survived the exact-landing test across
+thousands of files; a taken one is a transcription confirmed against however
+many samples carry that type — for several, exactly one file. Both are true;
+they are not equally well-evidenced, and a future failure should be debugged in
+the right place. `NIF_PROVENANCE.md` now carries a dated boundary so that
+nothing later blurs how the *existing* layouts were obtained.
+
+### On the criticism that prompted it
+
+The remark in the same conversation was that an AI "rewrite from scratch" will
+be buggy because it lacks the years of testing that maintained libraries have.
+That is fair, and it is worth answering with what actually happened rather than
+with a defence.
+
+Where it lands least: the NIF format is *self-falsifying*. Blocks carry no
+length field, so a wrong layout cannot land on the next block's type name. Every
+layout here was verified that way across 87,000 real files, and the bugs that
+found — the typed bounding box, `NiGeomMorpherController`'s single byte, decal
+slots past the table, UV set flags — are exactly the corner cases the remark
+means.
+
+Where it lands hardest, and where it was right: **unknown unknowns**. Not that
+the code is wrong on what it handles, but that it silently handles less than it
+appears to, and no amount of running the existing corpora reveals it. Nineteen
+types in an afternoon is the measure of that. The corpus was never the problem;
+treating corpus coverage as coverage was.
+
+### The comparison feature this unblocked
+
+`mlox_subset/images/compare.py` finally answers the question the whole texture
+effort exists for. Four choices in it are each the opposite of the obvious one:
+different sizes are reported rather than rescaled (resampling invents pixels and
+then reports differences in the invented ones); two metrics rather than a mean
+(a re-compression nudges every pixel by a level, a retexture moves a few pixels
+a long way, and a mean ranks the first higher); a one-level difference is not a
+change (or every recompressed texture reports as 100% changed, truly and
+uselessly); and roles are checked before pixels.
+
+
+## §42 Knowing when to stop writing code you cannot run
+
+The WebAssembly bridge in `wasm/` is written and has never been compiled: the
+environment it was authored in has no Rust toolchain and no root to install one.
+
+The first version was ambitious — world-space transform composition, triangle
+flattening, texture path extraction, roughly three hundred lines. It was
+deleted, and the reason is worth recording because it is a judgement this
+project has to keep making.
+
+It guessed at `tes3`'s API in three places and was **wrong in two**:
+
+* `shape.base.base.name`, when the `Meta` derive emits a `Deref` to `base` on
+  every type and the correct spelling is `shape.name` — wrong by two levels
+  *and* unnecessary.
+* `property.base_map`, when the field is `texture_maps: Vec<Option<TextureMap>>`.
+* `NiLink::from_index`, which does not appear to exist at all.
+
+Each was found by reading `tes3`'s source *after* writing code against an
+imagined version of it. The hit rate on unverifiable guesses was one in three.
+
+**The argument for deleting it rather than shipping it with a caveat.** A
+caveat at the top of a file does not survive contact with someone skimming for
+the function they need. Untestable code that looks finished is worse than
+obviously-unfinished code, because the first invites use and the second invites
+a compiler. What remains uses only calls verified against the source, and says
+in its own docstring which ones those are.
+
+This is the same principle as `NIF_PROVENANCE.md`'s "taken versus derived", and
+as §40's refusal to compare BC5's blue against Pillow's: **the confidence a
+piece of work claims should match the evidence behind it.** Three hundred lines
+of plausible Rust claims much more than "written blind against an API I misread
+twice" supports.
+
+The remaining crate exposes only values `mlox_subset.nif` also produces, so the
+first thing to build with it is a differential check rather than a feature —
+which is also the cheapest possible way to find out whether the toolchain works
+at all.
+
+### The lit material view, and why it is not decoration
+
+`mlox_subset/images/viewer.py` gained a fourth mode. The three flat modes
+answer "which do I prefer", "what moved" and "where is the change". None of
+them can compare two **normal maps**, because a normal map is not a picture: it
+encodes how a surface responds to light, and rendered flat it is a field of
+pale blue in which two quite different maps look identical.
+
+So each texture is drawn on a quad with its own auxiliary maps applied, under a
+single draggable light. Three choices in it were each the opposite of the
+obvious one:
+
+* **Orthographic camera.** A perspective camera foreshortens the left and right
+  quads differently, so the two sides disagree for a reason that is not in
+  either file — the same class of error as rescaling a texture to compare it.
+* **Normal maps loaded linear, not sRGB.** They are vectors. Applying a colour
+  transfer function bends all of them, and the result looks like a subtly wrong
+  material rather than a bug.
+* **One light for both quads, and dragging moves the light rather than the
+  camera.** On a flat quad there is nothing to orbit, and a comparison in which
+  each side is lit differently is not a comparison.
+
+The map toggles exist for the same reason the mesh viewer's texture toggle
+does: turning a layer off is frequently the clearest way to see what it was
+contributing. They are offered only where the map exists.

@@ -107,6 +107,115 @@ reference your scripts at all, say the word and it is done.
   record-diff *approach* that inspired our field comparison view. All rights
   remain with its author.
 
+## The NIF reader, and why it is written rather than imported
+
+`mlox_subset/nif/` reads Morrowind meshes with our own code. That is a licence
+decision, taken deliberately and recorded here so it is not revisited by
+accident:
+
+- **pyFFI** — LGPL. The obvious Python choice. This tool ships as a PyInstaller
+  onefile binary, and statically bundling an LGPL library carries a relinking
+  obligation that does not fit that distribution.
+- **nifly** — GPL-3.0. **io_scene_mw** (Greatness7's Morrowind Blender plugin) —
+  GPL-3.0, Python, and scoped to exactly this game, which makes it the most
+  tempting option by far. **NifSkope** — GPL.
+- **nif.xml** (the NifTools format description) — in a GPL-3.0 repository whose
+  own licence status is [disputed upstream](https://github.com/niftools/nifxml/issues/86).
+  An unresolved licence is worse than one that clearly says no, so it was not
+  used as a source either.
+- **niflib** — **BSD-3**, and therefore the permissively-licensed reference to
+  consult if a layout ever needs checking against an implementation.
+
+## three.js — bundled, not merely referenced
+
+`mlox_subset/nif/assets/three.cjs` is **three.js r185, unmodified**, MIT
+licensed, with its licence text beside it as `three-LICENSE.txt`. It is the
+first third-party *source* this project ships, as distinct from the Python
+packages PyInstaller already collects, so it is called out here rather than
+left to be discovered in a build.
+
+It is the **CommonJS** build, which looks like an odd choice until the
+constraint is stated: modern three.js ships ESM only, split across
+`three.module.min.js` and `three.core.min.js`, and **ES module scripts do not
+load from `file://`** — the origin is `null` and the CORS check fails. The
+viewer pages are written to disk and opened in a browser, so no ESM packaging
+can work. The CJS build is one self-contained file with no `require()` of its
+own and runs as a classic script behind a three-line shim.
+
+The orbit controls in the page are ours, not three.js's `OrbitControls.js`,
+because that imports the bare specifier `'three'` and would pull ESM back into
+a page built specifically to avoid it.
+
+`mlox_subset/nif/bsa.py` reads Morrowind's archives, and is ours for the same
+reasons again. **bethesda-structs** (MIT, Stephen Bunn) via **BSAFileExtractor**
+(MIT, Pierre GAMBIER) would have been licence-compatible, so this was an
+engineering call rather than a legal one: it pulls in `construct`, `multidict`,
+`attrs` and `lz4` — the last with a compiled extension — ships a 49 MB tree
+covering Fallout and Skyrim record formats this project will never touch, and
+every archive in its own test suite is the *post-Morrowind* BSA format, which
+shares an extension with Morrowind's and nothing else. Morrowind's layout is a
+header and three tables. Neither project was read for the format; it was
+implemented from the public description and checked against a shipped archive
+with `tools/check_bsa.py`.
+
+`mlox_subset/images/` is ours for the same reasons and by the same method.
+Pillow would decode these textures, but it is a large binary dependency in a
+PyInstaller onefile build. It was used instead as an **oracle**: the corpus
+textures decode byte-for-byte identically to it, BC7 matches on 19,380 random
+blocks across every mode and partition, and every PNG we write reads back
+through it unchanged. Used but not read, exactly as with NifSkope.
+
+**`pydds` was evaluated for BC7 and rejected on licence.** It is the closest
+technical fit — DDS decompression bindings including BC7, which is precisely
+what was wanted — and it is **GPLv3-or-later**, which would relicense this
+entire project. That decision needed no technical argument at all. Two further
+facts made it moot anyway: it *depends on* Pillow rather than replacing it, so
+adopting it would have added a dependency rather than removed one; and it is a
+compiled extension at version 0.0.8, marked alpha.
+
+`quicktex` (Apache-2.0) would have been licence-compatible and remains the
+option if a hand-written BC7 decoder ever proves too slow. It was not needed:
+ours matches an independent implementation exactly, and a viewer decodes one
+texture on demand rather than a collection.
+
+The BC7 tables come from the **published format specification** — Khronos's
+OpenGL BPTC specification and Microsoft's Direct3D 11 documentation — not from
+any implementation. `NIF_PROVENANCE.md` records how that was verified, and why
+transcribing six hundred numbers needed a cross-check rather than a unit test.
+
+### Greatness7 relicensed the `es3` library so this project could use it
+
+On 28 July 2026, **Greatness7** — author of the Morrowind Blender Plugin and of
+`Greatness7/tes3` — offered to relicense the NIF library inside `io_scene_mw`,
+and then did it:
+[`cbe18b5`](https://github.com/Greatness7/io_scene_mw/commit/cbe18b558299e14ecd959183e3cf9ea096fe95df)
+adds an MIT `LICENSE` to `lib/es3/`. `Greatness7/tes3` was already MIT.
+
+That was an unprompted act of generosity toward a project that had spent months
+carefully working around his code, and it is worth naming plainly. The
+relicensed library is `lib/es3/` **only**; the rest of `io_scene_mw` remains
+GPL-3.0 because Blender requires plugins to be, and this project respects that
+line. See `NIF_PROVENANCE.md` for the exact boundary.
+
+Within an hour of reading `tes3`, the cross-check had confirmed this project's
+hardest-won layout — the typed bounding box — and found a gap it could not have
+found alone: `NiUnionBV`, a bound type no file in either corpus carries, which
+this reader would have refused. A second implementation sees what a corpus
+cannot.
+
+**How each field layout was actually derived — and what was deliberately not
+read to derive it — is recorded in `NIF_PROVENANCE.md`.** That document is the
+companion to this one: this section says *why* the reader is ours, and that one
+says *where every fact in it came from*, with the worked derivations so they can
+be re-run rather than taken on trust.
+
+Going GPL-3.0 was considered seriously: it would unlock io_scene_mw, pyFFI,
+nifly and — the bigger prize — **OpenMW**, whose NIF loading, texture handling
+and `openmw.cfg` semantics this tool models from the outside. The project stays
+**MIT** for now, so none of those were read for the reader's field layouts. They
+come from the publicly documented format, checked against real meshes with
+`tools/check_nif_layouts.py`.
+
 ## Referenced for formats & behavior (GPL — no source copied)
 
 We read these projects to understand file formats and expected behavior. **No
@@ -121,10 +230,37 @@ the credit is one of gratitude and correctness.
 - **MWSE** — © NullCascade, Merzasphor, Greatness7 and contributors. **GPLv2.**
   We read `MWSE/OpCodes.h` to *check* our opcode table and found it agreed with
   MWEdit on all 533 opcodes they share. Because MWSE is copyleft and this tool
-  is not, **none of its data was copied**: the shipped table is built from
-  MWEdit (MIT) plus our own corpus measurements. The MWSE-only functions it
-  additionally lists never occurred in any script we tested, so nothing of
-  value was given up by leaving them out.
+  is not, **no MWSE source was copied**: the shipped table is built from MWEdit
+  (MIT), our own corpus measurements, and `customfunctions.dat`.
+
+  That last file needs saying precisely. `customfunctions.dat` is a **data file
+  in MWEdit's own text format**, describing the MWSE / MW-Enhanced script
+  functions so MWEdit can compile against them. It is installed by running the
+  MWSE updater rather than being part of the MWSE source tree, and it is
+  configuration for an MIT tool, not a copyleft header — so reading it does not
+  bring GPLv2 obligations with it. It contributes **360 opcodes** the base game
+  has no equivalent for, which is what makes an MWSE-scripted mod disassemble
+  instead of coming out as raw bytes.
+
+  It spells parameter types symbolically (`Long | String`) where
+  `Functions.dat` uses hex flag words, and the mapping between the two was
+  **derived, not copied**: the two files describe 106 of the same functions, so
+  correlating those pins each symbolic name to exactly one bit value. The result
+  matches the `FLAG_*` constants already taken from MWEdit's MIT header, which
+  is how we know the derivation is right.
+
+  Where the two files disagree — two renames (`XDrop`/`XDropItem`,
+  `XEquip`/`XEquipItem`) and 26 differing operand shapes — **the existing
+  MWEdit-derived entry is kept** and the disagreement printed rather than
+  resolved silently. 25 of the 26 are the same call: MWEdit says `String` where
+  customfunctions says `Long | String` for a filename or object id, and UESP's
+  per-function pages document those parameters as strings, which settles it.
+
+  The 26th is a genuine error and is corrected: MWEdit gives
+  `XFileWriteFloat` a single float operand with no filename, where
+  customfunctions lists two and UESP documents
+  `xFileWriteFloat filename (string), value (float)`. Corrections live in one
+  small explicit table in the generator, each with its evidence.
 - **MGE XE** — GPLv3. Referenced alongside MWSE for the same cross-check; no
   source copied.
 
@@ -145,6 +281,27 @@ the credit is one of gratitude and correctness.
   cleaning the vanilla masters, cleaning masters before dependents) is adapted
   from the community "drag-and-drop" cleaning batch by RMWChaos, Pinkertonius,
   and Spirithawke.
+
+## Documentation referenced (no code copied)
+
+- **[UESP](https://en.uesp.net/) — *Morrowind Mod:Mod File Format*.** CC-BY-SA.
+  The community's reference for the TES3 binary layout, and the source of
+  `mlox_subset/tes3fields/schema.py`: 46 record types, their subrecords, whether
+  each is required, its declared width, and the named members inside the struct
+  ones. What is taken is **format fact** — a `NPDT` is 12 or 52 bytes; its first
+  two are a uint16 Level — which describes Bethesda's file format rather than
+  anyone's prose about it, and the generated module carries the attribution.
+
+  The schema is what lets the diff window say *what a field is* rather than only
+  what its value was, and what backs the **Format reference** view beside a
+  record diff. Nothing is guessed: where the tables are ambiguous the schema
+  says so (a field with two documented layouts carries neither), and 56 of the
+  parsed layouts are checked against the byte counts the same tables declare —
+  all 56 agree, which is how we know the parse is right.
+
+  Also the source for the LAND, PGRD and script-record field documentation used
+  when writing the binary decoders, alongside the MIT-licensed implementations
+  credited above.
 
 ## Runtime & optional libraries
 

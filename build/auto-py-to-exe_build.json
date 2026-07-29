@@ -76,6 +76,18 @@
   {
    "optionDest": "datas",
    "value": "C:/Users/l33t3/Desktop/subset sort/MLOXSubsetSort/mlox_subset_sort.py;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/l33t3/Desktop/subset sort/MLOXSubsetSort/README.md;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/l33t3/Desktop/subset sort/MLOXSubsetSort/QUICKSTART.md;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/l33t3/Desktop/subset sort/MLOXSubsetSort/MLOX_RULES.md;."
   }
  ],
  "nonPyinstallerOptions": {
