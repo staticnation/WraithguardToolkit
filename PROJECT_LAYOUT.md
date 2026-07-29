@@ -25,6 +25,16 @@ MLOXSubsetSort/
 │   │                          deltas, path-grid graphs, 3D surface, colour
 │   │                          ramps, generated-page cleanup, and the Markdown
 │   │                          renderer behind in-app Help. No Tk, no CDN.
+│   ├── images/                Every texture format the game and its mods use,
+│   │                          decoded without a dependency: DDS (BC1-BC5, BC7,
+│   │                          uncompressed, DX10 header), Targa, bitmap, and a
+│   │                          zlib-only PNG writer. Picks the decoder by
+│   │                          inspecting the bytes, because Morrowind's file
+│   │                          extensions are genuinely unreliable. Also
+│   │                          classifies a texture's *role* (diffuse, normal,
+│   │                          glow, specular...) across the vanilla NIF slots,
+│   │                          OpenMW's name suffixes and OSG unit names, so a
+│   │                          normal map is never compared against a photo.
 │   ├── rules/                 mlox rule handling: patterns, parser,
 │   │                          expression front-end.
 │   ├── configurator/          openmw.cfg: read, simulate, emit TOML.
@@ -34,9 +44,28 @@ MLOXSubsetSort/
 │   ├── sort/                  Load-order sort: graph primitives + engine.
 │   ├── tracing.py             Crash-survival trace logs (main + sort).
 │   └── versions.py            Version regex + mlox's canonical form.
+├── wasm/                      A bridge from Greatness7's `tes3` NIF reader to
+│                               the 3D viewer, so the page can parse a mesh
+│                               itself instead of being sent packed geometry.
+│                               **Written, never compiled** — see its README.
+│                               Needs a Rust toolchain, which nothing else here
+│                               does, and is not part of the Python build.
 ├── tools/                     Developer scripts (not shipped).
 │   ├── check_placeholders.py  Verifies %(key)s placeholders match their dicts.
 │   ├── check_undefined.py     Finds names a module uses but never imports.
+│   ├── check_bc7.py           Compares the BC7 decoder against an independent
+│   │                          one across all 8 modes and all 64 partitions.
+│   ├── check_images.py        The same for every other texture format, plus
+│   │                          real corpus files. Needs Pillow, which is an
+│   │                          oracle here and not a dependency.
+│   ├── check_bsa.py           Validates the BSA reader against a shipped
+│   │                          archive: every extracted file must start with
+│   │                          the magic its extension implies.
+│   ├── check_nif_layouts.py   Runs the NIF reader over a corpus and buckets
+│   │                          what it could not parse, and why.
+│   ├── check_textures.py      Traces a texture from a mesh's reference to the
+│   │                          pixels the viewer shows, naming the step it
+│   │                          stopped at. For "why is this mesh untextured".
 │   ├── gen_opcodes.py         Regenerates the opcode table from MWEdit and
 │   │                          MWSE's customfunctions.dat.
 │   ├── gen_tes3_schema.py     Regenerates the TES3 record schema from the
@@ -49,7 +78,8 @@ MLOXSubsetSort/
 │                               translator guide, .mo catalogues.
 ├── art/                       Icons, banner, Nexus description.
 ├── build/                     PyInstaller / auto-py-to-exe configuration.
-├── License/                   Licences of the projects this tool ports from.
+├── License/                   This project's own MIT licence (`LICENSE`), plus
+│                               the licences of the projects it ports from.
 ├── pyproject.toml             ruff / black / pytest / mypy configuration.
 ├── theme_template.json        Commented starting point for a custom GUI theme.
 └── *.md                       README, QUICKSTART, CHANGELOG, CREDITS,

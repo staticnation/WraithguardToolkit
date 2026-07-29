@@ -17,7 +17,7 @@ import webbrowser
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import mlox_subset_sort as core
 from mlox_subset.gui import app_base_dir
@@ -28,9 +28,15 @@ from mlox_subset.gui.theme import (
     highlight_json_with_html,
     highlight_plain_text_with_html,
     style_json_syntax_tags,
+    apply_titlebar_theme,
 )
 from mlox_subset.gui.widgets import QueueWriter, add_tooltip
 from mlox_subset.i18n import gettext as _, ngettext
+from mlox_subset.images.compare import Verdict, compare_bytes, difference_image
+from mlox_subset.images.image import ImageError
+from mlox_subset.images.png import encode_png
+from mlox_subset.images.reader import browser_image, read_image
+from mlox_subset.images.viewer import Maps, build_compare_page
 from mlox_subset.logging_setup import get_logger
 from mlox_subset.nif import MeshAnalyser
 from mlox_subset.nif.geometry import block_tree, world_meshes
@@ -95,6 +101,13 @@ except ImportError:  # pragma: no cover - only when viz/ is absent
     build_height_delta = None
     build_pathgrid_graph = None
     build_terrain_3d = None
+
+#: Extensions the resource-conflict tree offers "Compare Textures" for.
+#: Matched on the filename, the same as the ".nif" check below it -- the
+#: comparison itself sniffs the actual bytes, so a mislabelled file still
+#: fails informatively rather than silently, but a button enabled by content
+#: detection would mean reading every row's bytes just to draw the toolbar.
+_TEXTURE_EXTENSIONS: Final[tuple[str, ...]] = (".dds", ".tga", ".bmp", ".png")
 
 
 def _as_float(value: object) -> float:
@@ -316,6 +329,7 @@ class ConflictWindowsMixin:
             win.destroy()
         win = tk.Toplevel(self.root)
         self._res_win = win
+        apply_titlebar_theme(win)
         win.title("Data-path Resource Conflicts")
         win.configure(bg=DARK["bg"])
         win.geometry("900x560")
@@ -423,6 +437,12 @@ class ConflictWindowsMixin:
                 button = getattr(self, name, None)
                 if button is not None:
                     button.configure(state="normal" if is_mesh else "disabled")
+            is_texture = str(c.get("path", "")).lower().endswith(
+                _TEXTURE_EXTENSIONS
+            ) and len(c.get("providers", [])) >= 2
+            texture_button = getattr(self, "_res_view_texture", None)
+            if texture_button is not None:
+                texture_button.configure(state="normal" if is_texture else "disabled")
             detail.configure(state="normal")
             detail.delete("1.0", "end")
             detail.insert("1.0", "\n".join(lines))
@@ -442,6 +462,13 @@ class ConflictWindowsMixin:
             btns, text=_("Export 3D file..."), command=self._export_mesh_viewer, state="disabled"
         )
         self._res_export3d.pack(side="left", padx=(4, 0))
+        self._res_view_texture = ttk.Button(
+            btns,
+            text=_("Compare Textures"),
+            command=self._open_texture_viewer,
+            state="disabled",
+        )
+        self._res_view_texture.pack(side="left", padx=(8, 0))
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
         self._refill_res_tree()
 
@@ -640,6 +667,157 @@ class ConflictWindowsMixin:
             return
         self.status_var.set(_("Exported: %(path)s") % {"path": target})
 
+    def _selected_texture_conflict(self) -> dict | None:
+        """The selected row, when it is a texture with something to compare.
+
+        Mirrors :meth:`_selected_mesh_conflict`. A conflict with fewer than
+        two providers cannot happen from the scan itself, but is excluded
+        explicitly rather than trusted, the same way :meth:`_texture_sides`
+        does not trust it either.
+
+        Returns:
+            The conflict entry, or ``None``.
+        """
+        tree = getattr(self, "_res_tree", None)
+        selection = tree.selection() if tree is not None else ()
+        if not selection:
+            return None
+        conflict = self._res_shown[int(selection[0])]
+        path = str(conflict.get("path", "")).lower()
+        if not path.endswith(_TEXTURE_EXTENSIONS):
+            return None
+        if len(conflict.get("providers", [])) < 2:
+            return None
+        return conflict
+
+    def _texture_provider_dirs(self, conflict: dict) -> tuple[Path, Path]:
+        """The two providers a texture comparison actually needs.
+
+        Unlike the mesh view -- which shows every provider at once because
+        three.js has room for it -- a texture comparison is inherently a pair
+        of images. With more than two providers this picks the winner (what
+        actually loads) and the one immediately below it in load order (what
+        it replaced), rather than every provider or the earliest one: that is
+        the pair whose difference the winning file is actually responsible
+        for.
+
+        Args:
+            conflict: The selected conflict entry.
+
+        Returns:
+            The overridden provider's folder, then the winner's.
+        """
+        providers = [Path(str(p)) for p in conflict["providers"]]
+        return providers[-2], providers[-1]
+
+    def _texture_sides(self, conflict: dict) -> tuple[tuple[str, bytes], tuple[str, bytes]]:
+        """Read the two textures a comparison actually needs.
+
+        Args:
+            conflict: The selected conflict entry.
+
+        Returns:
+            ``(label, bytes)`` for the overridden provider, then the winner.
+
+        Raises:
+            OSError: If either file cannot be read.
+        """
+        path = str(conflict.get("path", ""))
+        overridden_dir, winner_dir = self._texture_provider_dirs(conflict)
+        overridden_bytes = (overridden_dir / path).read_bytes()
+        winner_bytes = (winner_dir / path).read_bytes()
+        return (
+            (f"{overridden_dir.name} / {path}", overridden_bytes),
+            (f"{winner_dir.name} / {path}", winner_bytes),
+        )
+
+    def _texture_maps(self, provider_dir: Path, reference: str) -> Maps:
+        """Find one provider's own auxiliary maps for a texture.
+
+        A resolver scoped to just this one folder, not the shared
+        multi-folder one :meth:`_texture_resolver` builds for the mesh view.
+        That one answers "what would actually load" across every data folder,
+        merged -- right for a single 3D scene, wrong here: a side-by-side
+        comparison wants each side's *own* normal/specular map, even when a
+        later-loading mod's version would win the VFS. Showing the winner's
+        map beside both textures would defeat the point of comparing them.
+
+        Indexing one folder is cheap enough to do per side, per view -- it
+        walks a single mod's ``textures/`` directory, not the whole scan.
+
+        Args:
+            provider_dir: The one data folder this side of the comparison
+                came from.
+            reference: The diffuse texture's own path.
+
+        Returns:
+            Suffix to displayable bytes and MIME type, for the maps this
+            folder ships beside the texture. Empty when it ships none, which
+            is the common case and is why the lit view's controls stay
+            conditional.
+        """
+        resolver = TextureResolver([provider_dir])
+        maps: Maps = {}
+        for suffix, resolved in resolver.siblings(reference).items():
+            data = resolver.read(resolved)
+            if data is None:
+                continue
+            try:
+                maps[suffix] = browser_image(data)
+            except ImageError:
+                continue
+        return maps
+
+    def _open_texture_viewer(self) -> None:
+        """Show the selected texture conflict: side by side, wipe, and difference.
+
+        Always written and opened through :meth:`_open_html_view` rather than
+        the mesh view's loopback server -- a texture pair inlined as data URLs
+        is at most a few megabytes, nowhere near the hundreds a compressed
+        mesh needs a server to avoid, so the extra machinery would buy
+        nothing here.
+
+        The lit view's three.js dependency is inlined only when at least one
+        side actually has an auxiliary map to show under it -- vendoring a 3D
+        library into every plain-diffuse comparison would cost every ordinary
+        view for a feature almost none of them use.
+        """
+        conflict = self._selected_texture_conflict()
+        if conflict is None:
+            return
+        path = str(conflict.get("path", ""))
+        try:
+            overridden_dir, winner_dir = self._texture_provider_dirs(conflict)
+            (left_name, left_bytes), (right_name, right_bytes) = self._texture_sides(conflict)
+            outcome = compare_bytes(left_bytes, right_bytes, reference=path)
+            left_display, left_mime = browser_image(left_bytes)
+            right_display, right_mime = browser_image(right_bytes)
+            difference = None
+            # worst_channel is only ever 0 when compare_bytes skipped pixel
+            # measurement outright (identical bytes, a decode failure, a size
+            # mismatch, or a pair too large to measure) -- every one of those
+            # is also a case with no difference image to build.
+            if outcome.verdict is Verdict.DIFFERENT and outcome.worst_channel > 0:
+                diff_img = difference_image(read_image(left_bytes), read_image(right_bytes))
+                difference = (encode_png(diff_img), "image/png")
+            left_maps = self._texture_maps(overridden_dir, path)
+            right_maps = self._texture_maps(winner_dir, path)
+            page = build_compare_page(
+                (left_name, left_display, left_mime),
+                (right_name, right_display, right_mime),
+                outcome,
+                difference=difference,
+                title=path,
+                left_maps=left_maps,
+                right_maps=right_maps,
+                library_source=three_source() if (left_maps or right_maps) else "",
+            )
+        except (OSError, ImageError) as exc:
+            messagebox.showerror(_("Cannot show this texture"), str(exc))
+            return
+        self._open_html_view(page, "texture_compare", _("Texture comparison"))
+        self.status_var.set(_("Opened the texture comparison for %(path)s") % {"path": path})
+
     def _save_resource_csv(self) -> None:
         if not getattr(self, "_all_res", None):
             return
@@ -664,6 +842,7 @@ class ConflictWindowsMixin:
             win.destroy()
         win = tk.Toplevel(self.root)
         self._conflict_win = win
+        apply_titlebar_theme(win)
         win.title("TES3 Record Conflicts")
         win.configure(bg=DARK["bg"])
         win.geometry("980x680")
@@ -1056,6 +1235,7 @@ class ConflictWindowsMixin:
         if text is None:
             return
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         win.title(_("Format reference: %(type)s") % {"type": record_type})
         win.configure(bg=DARK["bg"])
         win.geometry("860x640")
@@ -1214,6 +1394,7 @@ class ConflictWindowsMixin:
         theme = self._resolve_theme(self.log_theme_var.get()) or THEME_PRESETS["Dark (default)"]
         json_colors = _json_syntax_colors(theme)
         win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
         win.title(f"Field: {key}")
         win.configure(bg=DARK["bg"])
         win.geometry("1040x680")

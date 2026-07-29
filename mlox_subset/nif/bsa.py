@@ -102,6 +102,23 @@ class BsaArchive:
         """Every stored path, normalised."""
         return list(self._entries)
 
+    def __contains__(self, name: object) -> bool:
+        """Whether the archive holds this path, without reading it.
+
+        Resolving a texture tries roughly ten candidate names against every
+        open archive. Answering that with :meth:`read` opens the file and
+        pulls the bytes each time, only to throw them away -- around sixty
+        wasted reads per texture against the three vanilla archives, on a path
+        the 3D viewer walks for every shape in a mesh.
+
+        Args:
+            name: The stored path, in any case and with either separator.
+
+        Returns:
+            Whether it is in the index.
+        """
+        return isinstance(name, str) and normalise(name) in self._entries
+
     def _read_index(self) -> None:
         """Parse the header and the three tables.
 

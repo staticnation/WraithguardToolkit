@@ -24,10 +24,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import Final
 
-from mlox_subset.images.bitmap import MAGIC as BMP_MAGIC
-from mlox_subset.images.bitmap import read_bmp
-from mlox_subset.images.dds import MAGIC as DDS_MAGIC
-from mlox_subset.images.dds import read_dds
+from mlox_subset.images.bitmap import MAGIC as BMP_MAGIC, read_bmp
+from mlox_subset.images.dds import MAGIC as DDS_MAGIC, read_dds
 from mlox_subset.images.image import Image, ImageError
 from mlox_subset.images.png import encode_png
 from mlox_subset.images.targa import read_tga

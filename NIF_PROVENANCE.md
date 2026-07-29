@@ -318,11 +318,57 @@ person opening it in a viewer.
 
 ## The same method, applied to textures
 
-`mlox_subset/dds/` decodes DDS textures under the same rules and for the same
-reasons. The block formats are arithmetic -- a DXT1 block is two 16-bit colours
-and sixteen 2-bit selectors, and the decode is the interpolation the format
-defines -- so they were implemented from the public description and checked
-against real files.
+`mlox_subset/images/` decodes every texture format this game and its mods use,
+under the same rules and for the same reasons. The block formats are arithmetic
+-- a DXT1 block is two 16-bit colours and sixteen 2-bit selectors, and the
+decode is the interpolation the format defines -- so they were implemented from
+the public description and checked against real files.
+
+### BC7 is a different scale of problem, and was treated as one
+
+BC1 fits in a paragraph. BC7 does not: a 16-byte block carries one of eight
+modes, and the mode decides how many subsets the block is cut into, how wide
+the endpoints are, whether alpha exists at all, whether a second index set
+exists, and whether a colour channel was rotated into alpha before encoding.
+Nothing after the mode bits sits at a fixed offset.
+
+Its definition is **roughly six hundred numbers**: an eight-row mode table, two
+64-entry partition tables and three 64-entry anchor tables. These were
+transcribed from the **published format specification** -- Khronos's OpenGL
+BPTC specification and Microsoft's Direct3D 11 BC7 documentation, both public
+descriptions of the format rather than implementations of it. No decoder source
+was read. The licence reasoning is identical to the NIF reader's.
+
+**Why transcription needed a different kind of check.** A single wrong table
+entry does not fail loudly. It produces a correct-looking image with a handful
+of wrong 4x4 blocks, in whichever partition shapes the encoder happened to
+choose. A unit test cannot find that, because the test and the table were
+written by the same person from the same reading.
+
+So `tools/check_bc7.py` does not test against expectations at all. It generates
+blocks that *force every table entry to be used* -- all eight modes crossed with
+all 64 partitions -- and compares against Pillow's unrelated implementation.
+**19,380 blocks, byte-for-byte identical.** Random bits are valid input here:
+every 128-bit pattern is a legal BC7 block except the one reserved value, so
+noise exercises endpoints, P-bits, index packing and anchor widths far harder
+than any real texture would.
+
+### One thing Pillow cannot adjudicate
+
+BC5 stores two channels; blue is **reconstructed** by whoever decodes it.
+There is no right answer to compare against, only a convention -- so comparing
+our blue against Pillow's would be comparing two conventions rather than
+testing a decoder. The cross-check therefore compares red and green only, and
+the reconstruction is checked separately **by geometry**: a decoded normal
+should be a unit vector, and a flat normal should come back pointing straight
+out of the surface.
+
+That check was itself wrong on the first attempt. It asserted every pixel of a
+random block was unit length, passed on one seed and failed on the next --
+because random bytes are not normals, and where x² + y² exceeds one the
+reconstruction correctly clamps z to zero. It now checks both branches
+separately. Worth recording: the error was found only by rerunning the check,
+not by reasoning about it.
 
 The cross-check here was **Pillow**, used as an instrument and not read: all 50
 textures in the local corpus decode byte-for-byte identically to it, and every
@@ -384,3 +430,194 @@ user's machine.
    here when the reasoning is not obvious from the comment.
 6. If a permissively-licensed reference such as niflib is ever consulted, record
    it here **at the time**.
+
+
+## The licence boundary, dated
+
+Everything in this document above this line was derived **before 28 July 2026**
+and **without access to any GPL-licensed NIF implementation**. That is the claim
+the whole document exists to support, and it is fixed as of that date. Nothing
+written later can change how the existing layouts were obtained, and nothing
+later should be allowed to blur the record of it.
+
+### What changed
+
+On 28 July 2026, Greatness7 — the author of `io_scene_mw`, the Blender Morrowind
+plugin — offered publicly to relicense its NIF library under MIT, and pointed at
+`Greatness7/tes3`, a Rust library that is **already MIT** and covers reading and
+writing of `.esp`, `.esm`, `.nif` and `.kf`.
+
+That offer, if executed, removes the constraint that shaped this entire reader.
+
+### What has and has not actually happened
+
+| | Licence, as verified 28 July 2026 | Usable? |
+| --- | --- | --- |
+| `Greatness7/tes3` (Rust) | **MIT**, repository root `LICENSE` | Yes |
+| `Greatness7/io_scene_mw`, **`lib/es3/` only** | **MIT**, granted 28 July 2026 | Yes |
+| `Greatness7/io_scene_mw`, everything else | **GPL-3.0** | **No** |
+
+### The grant, precisely
+
+Commit
+[`cbe18b5`](https://github.com/Greatness7/io_scene_mw/commit/cbe18b558299e14ecd959183e3cf9ea096fe95df),
+*"mark `es3` library explicitly as MIT license"*, adds `lib/es3/LICENSE`:
+21 lines of MIT text, `Copyright (c) 2026 Greatness7`. One file changed.
+
+That is a grant. The chat offer that preceded it was not, and this project
+waited for the commit — the standard being a licence file in the repository,
+because that is the thing still true in two years when nobody remembers the
+conversation.
+
+**The grant covers `lib/es3/` and nothing else.** The rest of the repository —
+`nif_import.py`, `nif_export.py`, `nif_shader.py`, `nif_utils.py`, `operators/`,
+`panels/`, `properties/` — remains GPL-3.0, because Blender requires its plugins
+to be. That boundary is a directory path, and it is easy to slide from
+"io_scene_mw is MIT now" into reading `nif_import.py`, which it is not. **Only
+`lib/es3/`.**
+
+Rule 1 above is amended accordingly, for that directory only and from that date
+only. Every other project named in it — `nif.xml`, NifSkope, nifly, NiflySharp,
+OpenMW — is untouched and still off limits.
+
+### Keep the two kinds of fact apart in the code
+
+A layout derived from bytes and a layout taken from a permissively-licensed
+reference are different kinds of fact, with different reasons to be trusted and
+different things that would falsify them. A reader six months from now cannot
+tell them apart unless the comment says which is which — so say which.
+
+Where a reference **confirms** an existing derivation, that is the strongest
+state and worth marking as such: two independent routes to the same answer.
+`_BOUNDING_BOX_TAILS` is the model for how to write it.
+
+### First results from the MIT library, 28 July 2026
+
+`Greatness7/tes3` is MIT **in the repository**, so it was read. Two results
+within the first half hour, which is the argument for cross-checking in one
+paragraph.
+
+**It confirmed the hardest derivation in this project.** Its `BoundType` is
+`Sphere = 0, Box = 1`; `NiBound` is a centre and a radius, 16 bytes; `NiBoxBV`
+is a centre, a 3x3 axis matrix and an extents triple, 60 bytes. Both type
+numbers and both widths match `_BOUNDING_BOX_TAILS` exactly. That is the
+derivation recorded above where a confident conclusion drawn from two files —
+"20 bytes, solved not guessed" — broke thirteen meshes that already worked, and
+the right answer only appeared once the two populations were separated. It is
+now confirmed by an implementation that shares none of this project's
+assumptions.
+
+**It found a real gap.** `tes3` also handles `NiUnionBV`, bound type 4, which
+is *not a width*: it is a count followed by that many complete bounding
+volumes, each carrying its own type word, and a union may contain unions. A
+width table cannot express that shape, so this reader would have stopped on any
+such file with "unknown bounding box type 4". Now implemented, with a depth
+limit, since the format permits recursion a corrupt file could abuse.
+
+No file in either corpus has ever carried one — which is exactly why no test
+and no measurement here could have found it. **A gap in coverage is invisible
+to a corpus that does not exercise it**, and the only instrument that sees it is
+a second implementation.
+
+Types 2 (Capsule), 3 (Lozenge) and 5 (Halfspace) are named by the format and
+are still refused. `tes3` declines them too, so there is no width to take and
+nothing to derive one from.
+
+### Nineteen block types, taken rather than derived
+
+Running this reader over the categorised NIF **sample archive** — not vanilla,
+not the mod corpus — showed 624 of 768 files parsing. The stops were all named
+types, and `tes3` had every one of them. Taking those layouts brought the
+sample archive to **723 of 768 (94.1%)**, and the reader from 66 known block
+types to 85:
+
+| | |
+| --- | --- |
+| Nodes | `NiBSPNode`, `NiCollisionSwitch`, `NiFltAnimationNode`, `NiSortAdjustNode` |
+| Lights | `NiAmbientLight`, `NiDirectionalLight`, `NiPointLight`, `NiSpotLight` |
+| Controllers | `NiRollController`, `NiLookAtController`, `NiLightColorController` |
+| Geometry | `NiTriStrips`, `NiTriStripsData` |
+| Other | `NiFogProperty`, `NiBltSource`, `NiSequenceStreamHelper`, and the three accumulators |
+
+**Each is marked in `blocks.py` as taken from `tes3` rather than derived.**
+That distinction is not bookkeeping. A derived layout has survived the
+exact-landing test across thousands of files; a taken one is a transcription
+confirmed against however many sample files happen to carry that type — for
+several of these, exactly one. They are both true and they are not equally
+well-evidenced, and the comment says which is which so that a future failure is
+debugged in the right place.
+
+They did all pass the exact-landing test on the files that exercise them, which
+is the same standard applied to everything else here. It is simply a much
+smaller sample.
+
+Two of these were worth the reading rather than the guessing:
+
+* **`NiBltSource` has no name, extra data or controller.** Its base is
+  `NiObject`, not `NiObjectNET`, unlike almost every other block in the format.
+  A reasonable assumption would have consumed twelve bytes that are not there.
+* **`NiTriStripsData`'s final run has no stored length.** It is the *sum* of
+  the strip-length array immediately before it. That shape cannot be expressed
+  as a gated run, so it needed a new field kind rather than a new entry.
+
+The 45 files still failing are the honest remainder: `NiLines`,
+`NiParticleBomb`, `NiParticlesData`, `NiSphericalCollider` and a handful of
+others, plus two files that are not NIFs at all and two that are genuinely
+malformed (a properties count of 4,294,967,295).
+
+**None of this changes the vanilla or mod figures**, which were already 100%
+and ~99%. Every type here was absent from both corpora. That is the point:
+these were invisible to every measurement this project had, and a second
+implementation made them visible in an afternoon.
+
+### The mod corpus, re-verified
+
+`--verify` over 80,197 mod meshes, 28 July 2026:
+
+| | |
+| --- | --- |
+| Cross-checked against the layout-free scan, agreed on every block | **79,102** |
+| **Diverged** | **0** |
+| Reader stopped early | 2 |
+| Reader did not read every declared block | 7 |
+| Scan could not produce a reference at all | 1,086 |
+
+**Read the buckets carefully, because the obvious reading is wrong.**
+`unverifiable` counts files where *the scan* failed to reconcile with the
+header — it is a limitation of the cross-check, not a failure of the reader,
+and the reader is still run against the header's own block count for those. So
+the reader's actual failures are the 2 stops plus the 7 incompletes: **9 files
+in 80,197, or 0.011%**.
+
+The line that matters is **zero divergence**. A divergence means a field width
+is wrong in a block *before* the point of disagreement, and such a file may
+still walk to the end and look perfectly healthy — it is invisible to any
+survey that only counts what parsed. Zero across 79,102 independently verified
+files is the strongest evidence this reader has.
+
+Both remaining stops are now settled rather than open:
+
+* **`NiBSParticleNode`** (1 file) — the tool's own message hedges between "a
+  layout bug here" and "a malformed file". `tes3` declares the type as a bare
+  `NiNode`, identical to this reader's layout, so the layout is not the
+  problem. `dbs_meatstick.nif` carries a property count of 0xFFFFFFFF and was
+  inspected in NifSkope. A finding about the mod.
+* **`NiTextureProperty`** (1 file) — a genuine coverage gap, and **neither
+  `tes3` nor `io_scene_mw/lib/es3` implements it either.** Worth recording
+  plainly: with three implementations in hand, one file in 80,197 references a
+  type none of them knows.
+
+### One thing worth not losing
+
+If the reader is eventually replaced, the replacement should be held to the
+measurement this one already meets: **100% of 7,343 vanilla meshes and ~99% of
+80,197 mod meshes**, with the remainder categorised. That figure is not a boast,
+it is a regression baseline — the only way to know a replacement is an
+improvement rather than a change.
+
+The comparison also has independent value. Two implementations of the same
+format, diffed over 87,000 real files, is the strongest check available for
+either of them, and stronger than either project's own tests. Every error found
+in this project — the typed bounding box, the BSA data offset, the texture
+extension comparison, BC5's clamped normals — came from a cross-check against
+something that did not share its assumptions.

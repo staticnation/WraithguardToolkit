@@ -27,8 +27,8 @@ build-backend = "setuptools.build_meta"
 packages = [
     "mlox_subset",
     "mlox_subset.configurator",
-    "mlox_subset.dds",
     "mlox_subset.gui",
+    "mlox_subset.images",
     "mlox_subset.mwscript",
     "mlox_subset.net",
     "mlox_subset.nif",

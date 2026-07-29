@@ -17,6 +17,8 @@ relicense the whole project.
   bytes, because in this game the file extension is genuinely unreliable.
 * :mod:`~mlox_subset.images.roles` -- what a texture is *for*, so that a normal
   map is not compared against a diffuse map or shown as though it were colour.
+* :mod:`~mlox_subset.images.compare` -- whether two versions of a texture
+  actually differ, and a difference image showing where.
 
 The point of all of it is the same question a mesh conflict raises: when two
 mods ship the same texture, does the winner actually look different? Answering
@@ -26,6 +28,13 @@ that needs pixels rather than a hash.
 from __future__ import annotations
 
 from mlox_subset.images.bitmap import BitmapError, read_bmp
+from mlox_subset.images.compare import (
+    Comparison,
+    Verdict,
+    compare_bytes,
+    compare_images,
+    difference_image,
+)
 from mlox_subset.images.dds import DdsError, read_dds
 from mlox_subset.images.image import Image, ImageError
 from mlox_subset.images.png import encode_png
@@ -35,16 +44,21 @@ from mlox_subset.images.targa import TargaError, read_tga
 
 __all__ = [
     "BitmapError",
+    "Comparison",
     "DdsError",
     "Image",
     "ImageError",
     "ImageFormat",
     "TargaError",
     "TextureRole",
+    "Verdict",
     "browser_image",
     "classify",
     "comparable",
+    "compare_bytes",
+    "compare_images",
     "detect",
+    "difference_image",
     "encode_png",
     "read_bmp",
     "read_dds",

@@ -76,11 +76,71 @@ _MAX_COUNT = 1 << 24
 #: parses*, the type word is 1 in all 27; in the meshes that would not parse it
 #: is 0 in every one. A single width cannot be right for both, and picking
 #: either alone breaks the other set.
+#: Type 0 is a sphere: a centre and a radius. Type 1 is a box: a centre, a 3x3
+#: axis matrix and an extents triple.
+#:
+#: **Confirmed against an independent implementation on 28 July 2026.**
+#: ``Greatness7/tes3`` (MIT) declares ``BoundType`` as ``Sphere = 0, Box = 1``,
+#: with ``NiBound`` as centre plus radius (16 bytes) and ``NiBoxBV`` as centre,
+#: 3x3 axis and extents (60 bytes). Both widths and both type numbers match
+#: what was derived here from bytes alone. See ``NIF_PROVENANCE.md``.
 _BOUNDING_BOX_TAILS: Final[dict[int, int]] = {0: 16, 1: 12 + 36 + 12}
+
+#: The union type, which is not a width at all -- it is a count followed by
+#: that many bounding volumes, each with its own type word. That is why it
+#: cannot live in the table above and needs :func:`_read_bounding_volume`.
+_BOUND_UNION: Final[int] = 4
+
+#: A ceiling on how deep unions may nest. The format permits a union to contain
+#: unions, so a corrupt or hostile file could otherwise recurse until the
+#: interpreter's stack gives out. Real files nest one level at most.
+_MAX_BOUND_DEPTH: Final[int] = 8
 
 
 class NifParseError(Exception):
     """Raised when a file is not a readable Morrowind NIF."""
+
+
+def _read_bounding_volume(cursor: _Cursor, name: str, depth: int = 0) -> None:
+    """Read one bounding volume, which may contain others.
+
+    A volume is a type word followed by data whose shape that word decides. Two
+    of the types are fixed widths and live in :data:`_BOUNDING_BOX_TAILS`. The
+    union type is different in kind: it holds a *count* and then that many
+    further volumes, each with its own type word, so it cannot be expressed as
+    a width and is read here instead.
+
+    Args:
+        cursor: Positioned at the type word.
+        name: The field name, for error messages.
+        depth: How many unions deep this call already is.
+
+    Raises:
+        NifParseError: If the type is not one this reader knows, or unions nest
+            past :data:`_MAX_BOUND_DEPTH`.
+    """
+    (bound_type,) = cursor.unpack("<I", f"{name} type")
+    kind = int(bound_type)
+    if kind == _BOUND_UNION:
+        if depth >= _MAX_BOUND_DEPTH:
+            raise NifParseError(f"{name}: bounding volumes nested more than {_MAX_BOUND_DEPTH} deep")
+        count = cursor.count(f"{name} union count")
+        for _ in range(count):
+            _read_bounding_volume(cursor, name, depth + 1)
+        return
+    tail = _BOUNDING_BOX_TAILS.get(kind)
+    if tail is None:
+        # Refused rather than guessed. An unrecognised type means an unknown
+        # width, and a wrong width here does not fail here -- it desynchronises
+        # the rest of the file and surfaces much later as something that looks
+        # like a different bug entirely.
+        #
+        # Capsule (2), Lozenge (3) and Halfspace (5) are named by the format
+        # and are refused deliberately: no file in either corpus has ever
+        # carried one, so there is nothing to derive a width from, and the
+        # independent implementation checked against declines them too.
+        raise NifParseError(f"{name}: unknown bounding box type {bound_type}")
+    cursor.take(tail, name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -564,20 +624,23 @@ def _read_compound(
         # :data:`_BOUNDING_BOX_TAILS`.
         if not seen.get("has_bounding_box"):
             return None
-        (box_type,) = cursor.unpack("<I", f"{name} type")
-        tail = _BOUNDING_BOX_TAILS.get(int(box_type))
-        if tail is None:
-            # Refused rather than guessed. An unrecognised type means an
-            # unknown width, and a wrong width here does not fail here -- it
-            # desynchronises the rest of the file and surfaces much later as
-            # something that looks like a different bug entirely.
-            raise NifParseError(f"{name}: unknown bounding box type {box_type}")
-        cursor.take(tail, name)
+        _read_bounding_volume(cursor, name)
         return True
     if kind == "vec3_array":
         return _optional_run(cursor, name, seen, gate, vertices * 12)
     if kind == "color4_array":
         return _optional_run(cursor, name, seen, gate, vertices * 16)
+    if kind == "strip_array":
+        # A strip count, one 16-bit length per strip, then that many indices
+        # *in total*. The final run's size is the sum of the lengths just
+        # read, which is not a number stored anywhere in the file -- so this
+        # cannot be expressed as a gated run and needs its own branch.
+        strips = int(cursor.unpack("<H", f"{name} strip count")[0])
+        if strips > _MAX_COUNT:
+            raise NifParseError(f"{name}: implausible strip count {strips}")
+        lengths = cursor.unpack(f"<{strips}H", f"{name} strip lengths") if strips else ()
+        cursor.take(sum(lengths) * 2, name)
+        return strips
     if kind == "lod_level_array":
         levels = cursor.count(f"{name} count")
         cursor.take(levels * 8, name)

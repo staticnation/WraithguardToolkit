@@ -18,15 +18,17 @@ maker's preview and write button track validity.
 ### What a good run looks like
 
 ```
-collected 45 items
-tests\test_gui_smoke.py .............................................  [100%]
-============================ 45 passed in 4.11s =============================
+collected 56 items
+
+tests\test_gui_smoke.py ........................................................                                 [100%]
+
+================================================= 56 passed in 4.44s ==================================================
 ```
 
-Verified on Windows 11, Python 3.14.5, pytest 9.1.1 — **45 passed, 0 skipped.**
+Verified on Windows 11, Python 3.14.5, pytest 9.1.1 — **56 passed, 0 skipped.**
 
-The count is written down on purpose. A suite that quietly collects 41 instead
-of 45 has lost four checks, and nothing about a green run says so.
+The count is written down on purpose. A suite that quietly collects 52 instead
+of 56 has lost four checks, and nothing about a green run says so.
 
 The three most recent cover the mesh detail panel: that opening the resource
 window parses **no** meshes, that selecting a row parses one, and that a file

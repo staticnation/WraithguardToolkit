@@ -3489,7 +3489,8 @@ meshes and the scan has no idea which one anybody cares about.
 - **Three Tk tests** for the detail view, written but never executed: the
   sandbox has no `tkinter`. Statically checked against the GUI's attributes,
   which is not the same as passing.
-- **BC7**, deferred at the user's direction until BC1/BC3 were proven.
+- **BC7**, deferred at the user's direction until BC1/BC3 were proven. Now
+  done — see §40.
 
 
 ## §37 Auditing the work of §36, and what an audit is actually for
@@ -3736,3 +3737,269 @@ scope across classic scripts; ``vm.createContext`` models that and the fix
 verified cleanly. Trusting the first harness would have meant "fixing" an
 imaginary bug on top of the real one -- the same shape as the bounding box in
 §36.2, where a derivation that explained the visible failures was still wrong.
+
+
+## §40 Six hundred numbers, and a check that had to disagree with me
+
+BC7 is the first thing in this project whose *definition* is large. The NIF
+layouts were derived one field at a time, each verified by landing exactly on
+the next block's type name. BC1 is an interpolation. BC7 is an eight-row mode
+table, two 64-entry partition tables and three 64-entry anchor tables —
+roughly six hundred numbers, transcribed by hand from a published
+specification, with nothing after the mode bits at a fixed offset.
+
+### The failure mode transcription has
+
+A wrong table entry does not throw. It produces a correct-looking image with a
+handful of wrong 4×4 blocks, in whichever partition shapes the encoder happened
+to pick. Nobody notices on one texture. It is invisible to a unit test, because
+the test and the table came from the same reading by the same person — the
+identical structure to §36's "a reader validated only against a writer that
+shares its assumptions proves nothing".
+
+So the check was designed to be *incapable* of sharing the assumption:
+`tools/check_bc7.py` generates blocks that force every table entry to be used
+— all eight modes crossed with all 64 partitions — and compares against
+Pillow. **19,380 blocks, byte for byte.** Random bits are legitimate input
+here, which is the useful accident of this format: every 128-bit pattern is a
+valid BC7 block bar one reserved value, so noise exercises endpoint ordering,
+P-bits, index packing and anchor widths far more harshly than a photograph.
+
+It passed on the first run. That is worth recording honestly rather than
+quietly: the expected outcome was a handful of wrong entries and a bisect. The
+value of the check does not depend on it having found something — it is what
+makes "the tables are right" a claim about evidence rather than about care.
+
+### The one thing an oracle cannot settle
+
+BC5 stores two channels; blue is reconstructed. There is no right answer to
+compare against, only a convention, so comparing our blue against Pillow's
+would compare two conventions and call it a test. The cross-check compares red
+and green only — **not a weakened test but the correct one** — and the
+reconstruction is checked separately by geometry.
+
+**That geometric check was wrong.** It asserted every pixel of a random block
+decodes to a unit vector. It passed on one seed and failed on the next, and the
+decoder was right both times: random bytes are not normals, and where
+x² + y² > 1 there is no real z, so the reconstruction correctly clamps. The
+check now tests the representable and clamped cases separately.
+
+Note how it was caught — not by reasoning, but by running it again with
+different data. A check that is only ever run once is a check whose own
+correctness is untested. This is the fourth time in this project that the
+*verification* was the broken part (§36.2's bounding box, §35's texture
+comparison, §39's `new Function` harness), and the pattern is consistent
+enough now to state plainly: **a new check deserves the same suspicion as new
+code, and the cheapest way to earn confidence in one is to run it against
+inputs it has not seen.**
+
+### A licence decision that needed no technical argument
+
+`pydds` was the obvious candidate: DDS decompression bindings, BC7 included,
+exactly the hard part. It is **GPLv3-or-later**. That ended the evaluation
+before performance or API entered into it — adopting it would relicense
+everything here, against a standing constraint. Two further facts made it moot:
+it depends on Pillow, so it would have *added* a dependency rather than
+replaced one, and it is 0.0.8, marked alpha.
+
+Worth noting what the useful step was: reading the metadata. The summary line
+promised the right thing. The classifier was three lines further down.
+
+### Naming a thing after what it does
+
+`mlox_subset/dds/` became `mlox_subset/images/` because `mlox_subset.dds.targa`
+is a lie, and the rename was cheap while the package had one external caller.
+The `Image` type moved out of the DDS module so that `bitmap` and `targa` were
+not importing from `dds` to borrow a dataclass.
+
+`Image` also gained a `__post_init__` that refuses a buffer inconsistent with
+its dimensions. A decoder that miscounts rows renders as a diagonal smear
+rather than failing, and a smear is far harder to diagnose from a screenshot
+than an exception is.
+
+### Roles, and a correction from the user
+
+The first version of the role model had two errors, both from reasoning about
+the formats rather than about the engines:
+
+* it treated `_spec` as a greyscale mask. It is RGB specular *colour* with
+  shininess in alpha.
+* it mapped the vanilla **bump slot** straight to "normal map". Vanilla
+  Morrowind renders neither bump nor normal maps; MGE-XE and MCP add the
+  capability by repurposing the *environment map* slot, and NifSkope follows
+  that convention. What a bump slot holds depends on which toolchain wrote the
+  file, so it is now its own role and the module declines to guess.
+
+And a framing error of mine, corrected directly: I described BC5 normal-map
+decoding as marginal — "meaningful only if we're showing normal maps
+deliberately" — when comparing one mod's normal map against another's is a
+stated goal. Both sides are normal maps; the comparison is exactly
+apples-to-apples. That changed the implementation, not just the wording: blue
+is reconstructed rather than left flat, because discarding z would call two
+different maps identical whenever they shared x and y.
+
+The green channel is **not** flipped. Both engines use the DirectX convention,
+and tooling written for OpenGL flips on load by default — which here would
+report every normal map as differing from a byte-identical copy of itself, in
+the one comparison the feature exists to make.
+
+### Two smaller things the work surfaced
+
+* `TextureResolver` tested archive membership with `archive.read()`, pulling
+  and discarding the bytes. Around sixty wasted reads per texture against the
+  three vanilla archives, on the path the 3D viewer walks for every shape.
+  `BsaArchive.__contains__` answers from the index.
+* `pyproject.toml` declared `license-files = ["License/LICENSE"]` and no such
+  file existed — `License/` held only third-party licences. A pre-existing
+  failure in `test_standards.py`, unrelated to this work, surfaced by running
+  the suite rather than the subset under change.
+
+
+## §41 A relicence, and the gap a corpus cannot see
+
+Greatness7 — author of the Morrowind Blender Plugin — offered in chat to
+relicense his NIF library MIT, then did it: `cbe18b5` adds an MIT `LICENSE` to
+`io_scene_mw/lib/es3/`. `Greatness7/tes3` was already MIT.
+
+**The offer was not treated as the grant.** Nothing was read until the commit
+existed, because a chat message is not something anyone can cite in two years,
+and this project had spent months documenting exactly what it had not read. The
+grant covers `lib/es3/` and nothing else; the rest of the plugin stays GPL-3.0
+where Blender requires it, and that boundary is a directory path it would be
+very easy to slide across.
+
+### What a second implementation saw that no measurement could
+
+Within an hour of reading `tes3`:
+
+* It **confirmed** `_BOUNDING_BOX_TAILS`, the derivation recorded in §36.2 where
+  "20 bytes, solved not guessed" — concluded from two files — broke thirteen
+  meshes that already parsed. Both type numbers and both widths match, arrived
+  at from bytes with no shared assumptions.
+* It found **`NiUnionBV`**: bound type 4, which is not a width at all but a
+  count followed by that many complete volumes, each with its own type word,
+  nestable. A width table cannot express that shape.
+
+No file in either corpus carries a union bound. That is the whole point, and it
+is a sharper claim than "our tests might miss corner cases":
+
+> **A gap in coverage produces no failure to count.** The 100%-of-vanilla and
+> ~99%-of-mods figures are evidence about files that have been *seen*. Running
+> the same corpora harder cannot find a type they do not contain, no matter how
+> many files they hold. The only instrument that sees it is a second
+> implementation of the same format.
+
+Nineteen more types followed the same way — found by running against the
+categorised NIF sample archive, which took it from 624/768 to 754/768 (98.2%).
+Two needed the reading rather than a guess: `NiBltSource` descends from
+`NiObject` rather than `NiObjectNET`, so it has *no* name, extra data or
+controller, and assuming the usual preamble would eat twelve absent bytes;
+`NiTriStripsData`'s final run has no stored length at all, being the sum of the
+array before it, which needed a new field kind rather than a new table entry.
+
+### Marking taken layouts as taken
+
+Every one is commented as **taken from tes3, not derived**. This is not
+bookkeeping. A derived layout has survived the exact-landing test across
+thousands of files; a taken one is a transcription confirmed against however
+many samples carry that type — for several, exactly one file. Both are true;
+they are not equally well-evidenced, and a future failure should be debugged in
+the right place. `NIF_PROVENANCE.md` now carries a dated boundary so that
+nothing later blurs how the *existing* layouts were obtained.
+
+### On the criticism that prompted it
+
+The remark in the same conversation was that an AI "rewrite from scratch" will
+be buggy because it lacks the years of testing that maintained libraries have.
+That is fair, and it is worth answering with what actually happened rather than
+with a defence.
+
+Where it lands least: the NIF format is *self-falsifying*. Blocks carry no
+length field, so a wrong layout cannot land on the next block's type name. Every
+layout here was verified that way across 87,000 real files, and the bugs that
+found — the typed bounding box, `NiGeomMorpherController`'s single byte, decal
+slots past the table, UV set flags — are exactly the corner cases the remark
+means.
+
+Where it lands hardest, and where it was right: **unknown unknowns**. Not that
+the code is wrong on what it handles, but that it silently handles less than it
+appears to, and no amount of running the existing corpora reveals it. Nineteen
+types in an afternoon is the measure of that. The corpus was never the problem;
+treating corpus coverage as coverage was.
+
+### The comparison feature this unblocked
+
+`mlox_subset/images/compare.py` finally answers the question the whole texture
+effort exists for. Four choices in it are each the opposite of the obvious one:
+different sizes are reported rather than rescaled (resampling invents pixels and
+then reports differences in the invented ones); two metrics rather than a mean
+(a re-compression nudges every pixel by a level, a retexture moves a few pixels
+a long way, and a mean ranks the first higher); a one-level difference is not a
+change (or every recompressed texture reports as 100% changed, truly and
+uselessly); and roles are checked before pixels.
+
+
+## §42 Knowing when to stop writing code you cannot run
+
+The WebAssembly bridge in `wasm/` is written and has never been compiled: the
+environment it was authored in has no Rust toolchain and no root to install one.
+
+The first version was ambitious — world-space transform composition, triangle
+flattening, texture path extraction, roughly three hundred lines. It was
+deleted, and the reason is worth recording because it is a judgement this
+project has to keep making.
+
+It guessed at `tes3`'s API in three places and was **wrong in two**:
+
+* `shape.base.base.name`, when the `Meta` derive emits a `Deref` to `base` on
+  every type and the correct spelling is `shape.name` — wrong by two levels
+  *and* unnecessary.
+* `property.base_map`, when the field is `texture_maps: Vec<Option<TextureMap>>`.
+* `NiLink::from_index`, which does not appear to exist at all.
+
+Each was found by reading `tes3`'s source *after* writing code against an
+imagined version of it. The hit rate on unverifiable guesses was one in three.
+
+**The argument for deleting it rather than shipping it with a caveat.** A
+caveat at the top of a file does not survive contact with someone skimming for
+the function they need. Untestable code that looks finished is worse than
+obviously-unfinished code, because the first invites use and the second invites
+a compiler. What remains uses only calls verified against the source, and says
+in its own docstring which ones those are.
+
+This is the same principle as `NIF_PROVENANCE.md`'s "taken versus derived", and
+as §40's refusal to compare BC5's blue against Pillow's: **the confidence a
+piece of work claims should match the evidence behind it.** Three hundred lines
+of plausible Rust claims much more than "written blind against an API I misread
+twice" supports.
+
+The remaining crate exposes only values `mlox_subset.nif` also produces, so the
+first thing to build with it is a differential check rather than a feature —
+which is also the cheapest possible way to find out whether the toolchain works
+at all.
+
+### The lit material view, and why it is not decoration
+
+`mlox_subset/images/viewer.py` gained a fourth mode. The three flat modes
+answer "which do I prefer", "what moved" and "where is the change". None of
+them can compare two **normal maps**, because a normal map is not a picture: it
+encodes how a surface responds to light, and rendered flat it is a field of
+pale blue in which two quite different maps look identical.
+
+So each texture is drawn on a quad with its own auxiliary maps applied, under a
+single draggable light. Three choices in it were each the opposite of the
+obvious one:
+
+* **Orthographic camera.** A perspective camera foreshortens the left and right
+  quads differently, so the two sides disagree for a reason that is not in
+  either file — the same class of error as rescaling a texture to compare it.
+* **Normal maps loaded linear, not sRGB.** They are vectors. Applying a colour
+  transfer function bends all of them, and the result looks like a subtly wrong
+  material rather than a bug.
+* **One light for both quads, and dragging moves the light rather than the
+  camera.** On a flat quad there is nothing to orbit, and a comparison in which
+  each side is lit differently is not a comparison.
+
+The map toggles exist for the same reason the mesh viewer's texture toggle
+does: turning a layer off is frequently the clearest way to see what it was
+contributing. They are offered only where the map exists.

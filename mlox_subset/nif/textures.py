@@ -55,6 +55,12 @@ _FALLBACK_SUFFIXES: Final[tuple[str, ...]] = (".dds", ".tga", ".bmp", ".png")
 #: cannot turn opening a viewer into a filesystem walk of the whole disk.
 _MAX_INDEXED: Final[int] = 500_000
 
+#: The name suffixes OpenMW looks for beside a diffuse texture, in the order a
+#: viewer would want to offer them. These are the stock patterns from the
+#: ``[Shaders]`` section of ``settings.cfg``; an install can configure others,
+#: which is why they are named here rather than buried in the lookup.
+_AUXILIARY_SUFFIXES: Final[tuple[str, ...]] = ("_n", "_nh", "_spec", "_diffusespec")
+
 
 @dataclass(frozen=True, slots=True)
 class Resolved:
@@ -205,6 +211,43 @@ class TextureResolver:
                     return data
         return None
 
+    def siblings(self, reference: str) -> dict[str, Resolved]:
+        """Find the OpenMW auxiliary maps that sit beside a diffuse texture.
+
+        A vanilla mesh names one texture per slot and knows nothing about
+        normal or specular maps -- the Morrowind NIF has no dependable slot for
+        them. OpenMW fills that gap by *looking for them by name*: given
+        ``tx_rock.dds`` it will use ``tx_rock_n.dds`` as a normal map if the
+        file is there and the feature is switched on in ``settings.cfg``.
+
+        So these maps exist in a mod collection while being mentioned nowhere
+        in any mesh. A viewer that only followed mesh references would never
+        show them, and a conflict report that only compared referenced textures
+        would miss two mods overwriting each other's normal maps entirely.
+
+        Args:
+            reference: A diffuse texture reference.
+
+        Returns:
+            The suffix (``"_n"``, ``"_nh"``, ``"_spec"``, ``"_diffusespec"``)
+            mapped to what it resolved to, for those that exist. Empty when
+            the collection ships none, which is the common case.
+        """
+        cleaned = reference.strip().replace("\\", "/")
+        if not cleaned:
+            return {}
+        stem, _, suffix = cleaned.rpartition(".")
+        if not stem:
+            stem, suffix = cleaned, "dds"
+        found: dict[str, Resolved] = {}
+        for extra in _AUXILIARY_SUFFIXES:
+            resolved = self.resolve(f"{stem}{extra}.{suffix}")
+            if resolved.found:
+                found[extra] = resolved
+        if found:
+            LOG.debug("%s has auxiliary map(s): %s", reference, ", ".join(found))
+        return found
+
     def resolve(self, reference: str) -> Resolved:
         """Find the file a reference points at.
 
@@ -258,7 +301,9 @@ class TextureResolver:
         for key in candidates:
             for archive in reversed(self._archives):
                 for stored in (key, f"{_TEXTURE_ROOT}/{key}"):
-                    if archive.read(stored) is not None:
+                    # Membership only -- reading here would fetch the bytes of
+                    # every candidate that misses as well as the one that hits.
+                    if stored in archive:
                         found_suffix = key.rsplit(".", 1)[-1] if "." in key else ""
                         return Resolved(
                             reference=reference,

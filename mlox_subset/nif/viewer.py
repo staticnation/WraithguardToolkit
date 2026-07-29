@@ -38,7 +38,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from mlox_subset.dds import DdsError, encode_png, read_dds
+from mlox_subset.images import ImageError, browser_image
 from mlox_subset.logging_setup import get_logger
 
 if TYPE_CHECKING:
@@ -164,8 +164,8 @@ def _packed(values: list[float] | list[int], fmt: str) -> bytes:
     return zlib.compress(raw, 6)
 
 
-def texture_png(resolved: Resolved, resolver: TextureResolver) -> bytes | None:
-    """Decode a resolved texture to PNG, or give up quietly.
+def texture_bytes(resolved: Resolved, resolver: TextureResolver) -> tuple[bytes, str] | None:
+    """Turn a resolved texture into something a browser shows, or give up quietly.
 
     Read through the resolver rather than off the path directly, because most
     of the base game's textures are inside ``Morrowind.bsa`` and have no path
@@ -177,10 +177,14 @@ def texture_png(resolved: Resolved, resolver: TextureResolver) -> bytes | None:
             bytes whether they are loose or archived.
 
     Returns:
-        PNG bytes, or ``None`` when nothing provides the texture, or it is in a
-        format the decoder does not handle. Both are ordinary in a mod
-        collection -- BC7 is deliberately unsupported, and a broken texture is
-        a finding about the mod, not a reason to fail the whole view.
+        Bytes a browser can display and their MIME type, or ``None`` when
+        nothing provides the texture or it is in a format the decoders do not
+        handle. Both are ordinary in a mod collection, and a broken texture is
+        a finding about the mod rather than a reason to fail the whole view.
+
+        A PNG comes back as the bytes it arrived as -- browsers decode PNG
+        better than anything here would, and re-encoding could only lose
+        fidelity. Everything else is decoded and re-encoded as PNG.
     """
     if not resolved.found:
         return None
@@ -188,8 +192,8 @@ def texture_png(resolved: Resolved, resolver: TextureResolver) -> bytes | None:
     if raw is None:
         return None
     try:
-        return encode_png(read_dds(raw))
-    except (DdsError, ValueError) as exc:
+        return browser_image(raw)
+    except (ImageError, ValueError) as exc:
         LOG.debug("cannot decode %s: %s", resolved.reference, exc)
         return None
 
@@ -241,17 +245,29 @@ def _mesh_payload(
                 # copy renders every texture upside down.
                 uvs.extend((u, 1.0 - v))
         image: dict[str, str] | None = None
+        extras: dict[str, dict[str, str]] = {}
         if resolver is not None and mesh.texture and uvs:
             if mesh.texture not in decoded:
                 found = resolver.resolve(mesh.texture)
-                png = texture_png(found, resolver)
-                decoded[mesh.texture] = sink(png, "image/png") if png else None
+                shown = texture_bytes(found, resolver)
+                decoded[mesh.texture] = sink(*shown) if shown else None
             image = decoded[mesh.texture]
+            # The mesh names only its diffuse texture; OpenMW finds the rest by
+            # name. Offering them is the only way a normal map in a texture
+            # pack is ever visible here, since no NIF mentions one.
+            for suffix, resolved in resolver.siblings(mesh.texture).items():
+                key = f"{mesh.texture}{suffix}"
+                if key not in decoded:
+                    aux = texture_bytes(resolved, resolver)
+                    decoded[key] = sink(*aux) if aux else None
+                if decoded[key] is not None:
+                    extras[suffix] = decoded[key]
         payload.append(
             {
                 "name": mesh.name,
                 "texture": mesh.texture,
                 "image": image,
+                "extras": extras,
                 "positions": sink(_packed(positions, "f"), ""),
                 "indices": sink(_packed(indices, "I"), ""),
                 "uvs": sink(_packed(uvs, "f"), "") if uvs else None,
@@ -383,6 +399,7 @@ _PAGE: Final[str] = """<!DOCTYPE html>
    border-radius:4px;padding:4px 9px;cursor:pointer;font:inherit}
  .panel button:hover{background:#3d4450}
  .panel .spacer{flex:1}
+ .panel input[type=range]{width:78px;accent-color:#6f8fb8;cursor:pointer}
  #body{flex:1;display:flex;min-height:0}
  #tree{width:300px;min-width:160px;max-width:50%;overflow:auto;padding:8px 10px;
    border-right:1px solid var(--line);background:#181b21;font-size:12px;
@@ -481,6 +498,9 @@ __LIBRARY_BLOCK__
     scene.add(pivot);
 
     var textured = true;
+    // Whether anything in this view has an OpenMW auxiliary normal map, which
+    // decides whether the control for them is worth offering at all.
+    var anyNormalMaps = false;
     scenes.forEach(function (spec, index) {
       // The inner group carries the Z-up to Y-up rotation; the outer pivot
       // carries the centring. They cannot be the same object: three.js
@@ -514,9 +534,24 @@ __LIBRARY_BLOCK__
           // providers look different for a reason that is not in the file.
           material.color = new THREE.Color(0xffffff);
         }
+        // An OpenMW-style normal map, found beside the diffuse one by name.
+        // Not colour: it is loaded in linear space, because treating a field
+        // of vectors as sRGB bends every one of them.
+        var extras = m.extras || {};
+        var normalSource = extras["_nh"] || extras["_n"] || null;
+        var normalTex = null;
+        if (normalSource && m.uvs && textured) {
+          var nImage = new Image();
+          normalTex = new THREE.Texture(nImage);
+          normalTex.wrapS = normalTex.wrapT = THREE.RepeatWrapping;
+          nImage.onload = function () { normalTex.needsUpdate = true; draw(); };
+          nImage.src = normalSource.url;
+        }
         var drawn = new THREE.Mesh(g, material);
         drawn.userData.map = material.map || null;
+        drawn.userData.normalMap = normalTex;
         drawn.userData.tint = spec.colour;
+        if (normalTex) anyNormalMaps = true;
         group.add(drawn);
       });
       group.rotation.x = -Math.PI / 2;
@@ -537,13 +572,39 @@ __LIBRARY_BLOCK__
     pivot.position.copy(centre).negate();
     pivot.updateMatrixWorld(true);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    // Lighting is not decoration here. A normal map changes nothing at all
+    // under flat ambient light -- the whole point of one is how it catches a
+    // light that moves -- so these are the controls that make a normal map
+    // comparison possible.
+    var ambient = new THREE.AmbientLight(0xffffff, 0.55);
+    scene.add(ambient);
     var key = new THREE.DirectionalLight(0xffffff, 1.6);
     key.position.set(1, 1.4, 1);
     scene.add(key);
     var fill = new THREE.DirectionalLight(0xffffff, 0.5);
     fill.position.set(-1, -0.6, -0.8);
     scene.add(fill);
+
+    var lightState = {ambient: 0.55, key: 1.6, angle: 0.0, headlamp: false};
+
+    function placeLights() {
+      ambient.intensity = lightState.ambient;
+      key.intensity = lightState.key;
+      fill.intensity = lightState.key * 0.31;
+      if (lightState.headlamp) {
+        // From the camera's own position, so a surface is always lit from
+        // wherever you are looking. Useful for reading a normal map's detail,
+        // and deliberately *not* the default: it means moving the camera
+        // changes the lighting, so two providers can never be compared under
+        // identical light while it is on.
+        key.position.copy(camera.position);
+        fill.position.copy(camera.position).negate();
+        return;
+      }
+      var a = lightState.angle;
+      key.position.set(Math.sin(a), 1.4, Math.cos(a));
+      fill.position.set(-Math.sin(a), -0.6, -Math.cos(a));
+    }
 
     var treeBox = document.getElementById("tree");
 
@@ -654,6 +715,73 @@ __LIBRARY_BLOCK__
       draw();
     });
 
+    function addSlider(id, label, min, max, value, step, onInput) {
+      var ctl = document.createElement("span");
+      ctl.className = "ctl";
+      var text = document.createElement("label");
+      text.htmlFor = id; text.textContent = label;
+      var range = document.createElement("input");
+      range.type = "range"; range.id = id;
+      range.min = min; range.max = max; range.step = step; range.value = value;
+      range.addEventListener("input", function () {
+        onInput(parseFloat(range.value));
+        placeLights();
+        draw();
+      });
+      ctl.appendChild(text); ctl.appendChild(range);
+      controls.appendChild(ctl);
+      return range;
+    }
+
+    addSlider("lightkey", "Light", 0, 4, lightState.key, 0.05,
+      function (v) { lightState.key = v; });
+    addSlider("lightamb", "Ambient", 0, 2, lightState.ambient, 0.05,
+      function (v) { lightState.ambient = v; });
+    var angleRange = addSlider("lightang", "Angle", 0, 6.2832, lightState.angle, 0.02,
+      function (v) { lightState.angle = v; });
+
+    var lampBox = document.createElement("input");
+    lampBox.type = "checkbox"; lampBox.id = "headlamp";
+    var lampCtl = document.createElement("span");
+    lampCtl.className = "ctl off";
+    var lampLabel = document.createElement("label");
+    lampLabel.htmlFor = "headlamp";
+    lampLabel.textContent = "Follow camera";
+    lampCtl.appendChild(lampBox); lampCtl.appendChild(lampLabel);
+    controls.appendChild(lampCtl);
+    lampBox.addEventListener("change", function () {
+      lightState.headlamp = lampBox.checked;
+      // The fixed-angle slider means nothing while the light tracks the
+      // camera, so it is disabled rather than left to look operative.
+      angleRange.disabled = lampBox.checked;
+      lampCtl.className = "ctl" + (lampBox.checked ? "" : " off");
+      placeLights();
+      draw();
+    });
+
+    // Only offered when the collection actually ships one. A permanently
+    // dead control implies the feature is broken rather than unused.
+    if (anyNormalMaps) {
+      var normalBox = document.createElement("input");
+      normalBox.type = "checkbox"; normalBox.id = "normals";
+      var normalCtl = document.createElement("span");
+      normalCtl.className = "ctl off";
+      var normalLabel = document.createElement("label");
+      normalLabel.htmlFor = "normals";
+      normalLabel.textContent = "Normal maps";
+      normalCtl.appendChild(normalBox); normalCtl.appendChild(normalLabel);
+      controls.appendChild(normalCtl);
+      normalBox.addEventListener("change", function () {
+        scene.traverse(function (o) {
+          if (!o.isMesh || !o.userData.normalMap) return;
+          o.material.normalMap = normalBox.checked ? o.userData.normalMap : null;
+          o.material.needsUpdate = true;
+        });
+        normalCtl.className = "ctl" + (normalBox.checked ? "" : " off");
+        draw();
+      });
+    }
+
     var spacer = document.createElement("span");
     spacer.className = "spacer";
     controls.appendChild(spacer);
@@ -680,6 +808,9 @@ __LIBRARY_BLOCK__
         distance * Math.sin(pitch),
         distance * Math.cos(pitch) * Math.cos(yaw));
       camera.lookAt(0, 0, 0);
+      // In headlamp mode the light rides the camera, so it has to move here
+      // rather than only when a slider changes.
+      placeLights();
     }
     function draw() { renderer.render(scene, camera); }
     function resize() {

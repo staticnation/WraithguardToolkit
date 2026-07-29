@@ -39,6 +39,7 @@ GENERATED_STEMS: tuple[str, ...] = (
     "height_delta",
     "pathgrid",
     "cell_detail",
+    "texture_compare",
 )
 
 #: How many of each kind to keep by default. More than one so a before/after

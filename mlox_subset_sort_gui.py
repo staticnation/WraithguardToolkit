@@ -3597,7 +3597,14 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "README.md": _("Read me"),
             "MLOX_RULES.md": _("Writing mlox rules"),
         }
-        menu = tk.Menu(self.root, tearoff=0)
+        menu = tk.Menu(
+            self.root,
+            tearoff=0,
+            bg=DARK["log_bg"],
+            fg=DARK["fg"],
+            activebackground=DARK["select"],
+            activeforeground=DARK["fg"]
+        )
         for filename in HELP_DOCUMENTS:
             label = labels.get(filename, filename)
             menu.add_command(

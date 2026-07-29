@@ -195,8 +195,10 @@ def _decode_rle(data: bytes, offset: int, count: int, step: int) -> list[bytes]:
             continue
         if position + run * step > len(data):
             raise TargaError("Targa literal packet is truncated")
-        for index in range(min(run, count - len(pixels))):
-            pixels.append(data[position + index * step : position + index * step + step])
+        pixels.extend(
+            data[position + index * step : position + index * step + step]
+            for index in range(min(run, count - len(pixels)))
+        )
         position += run * step
     return pixels
 
@@ -234,7 +236,7 @@ def read_tga(data: bytes) -> Image:
     except struct.error as exc:
         raise TargaError(f"Targa header is truncated: {exc}") from exc
 
-    if not 0 < width or not 0 < height:
+    if width <= 0 or height <= 0:
         raise TargaError(f"implausible dimensions {width}x{height}")
     if width * height > _MAX_PIXELS:
         raise TargaError(f"implausible size: {width}x{height} is {width * height} pixel(s)")

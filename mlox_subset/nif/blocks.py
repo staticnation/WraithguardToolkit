@@ -139,6 +139,23 @@ _NI_NODE: Final[Layout] = (
 
 #: Every controller's preamble: where it sits in the controller chain, when it
 #: runs, and what it drives.
+#: A scene object that projects something onto the nodes it affects. Taken
+#: from tes3: an AV object followed by the list of nodes it applies to.
+_NI_DYNAMIC_EFFECT: Final[Layout] = (
+    *_NI_AV_OBJECT,
+    ("affected_nodes", "ref_list"),
+)
+
+#: Every light's shared body: a dimmer and three colours. Taken from tes3.
+#: The concrete light types differ only in what follows this.
+_NI_LIGHT: Final[Layout] = (
+    *_NI_DYNAMIC_EFFECT,
+    ("dimmer", "f32"),
+    ("ambient_color", "vector3"),
+    ("diffuse_color", "vector3"),
+    ("specular_color", "vector3"),
+)
+
 _NI_TIME_CONTROLLER: Final[Layout] = (
     ("next_controller", "link"),
     ("flags", "u16"),
@@ -202,6 +219,14 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
     # Inspected in NifSkope, which tolerates it and shows orphaned blocks.
     # Refusing it is the right behaviour: the alternative is inventing a layout
     # to fit one broken file and breaking the sound ones.
+    #
+    # **Settled on 28 July 2026.** `--verify` over 80,197 mod meshes reports
+    # exactly one stop inside this type, and its own message hedges: "usually a
+    # layout bug here; sometimes a malformed file". That hedge is now resolved.
+    # tes3 declares NiBSParticleNode as a bare NiNode -- identical to this --
+    # so the layout is not the problem and the file is. Two independent
+    # implementations agreeing is what turns "probably malformed" into a
+    # finding about the mod.
     "NiBSParticleNode": _NI_NODE,
     "NiBSAnimationNode": _NI_NODE,
     # No billboard_mode field: later NIF versions carry one, 4.0.0.2 does not.
@@ -213,6 +238,34 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
     # Absent from vanilla entirely, and the single commonest reason a modded
     # mesh stopped: 2,127 files in one mod collection.
     "NiSwitchNode": (*_NI_NODE, ("active_child", "u32")),
+    # A node, a sorting mode and a link to the sub-sorter. Taken from tes3.
+    "NiSortAdjustNode": (*_NI_NODE, ("sorting_mode", "u32"), ("sub_sorter", "link")),
+    # -- taken from tes3, not derived ------------------------------------
+    #
+    # The five layouts below come from Greatness7's `tes3` (MIT), read on
+    # 28 July 2026 under the licence recorded in NIF_PROVENANCE.md. They are
+    # marked because they are a *different kind of fact* from the rest of this
+    # table: everything else here was derived from bytes and survives the
+    # exact-landing test, while these are transcriptions that have been
+    # confirmed against only the handful of sample files that carry them.
+    #
+    # None of these types appears in vanilla Morrowind or in the 80,197-mesh
+    # mod corpus. They stopped the reader on files from the categorised NIF
+    # sample archive, which is how they were found at all -- a gap no corpus
+    # measurement could reveal, because a type absent from the corpus produces
+    # no failure to count.
+    #
+    # A switch node plus a period.
+    "NiFltAnimationNode": (*_NI_NODE, ("active_child", "u32"), ("period", "f32")),
+    # A plain node; the collision behaviour is carried in the node's flags.
+    "NiCollisionSwitch": _NI_NODE,
+    # A node plus a plane: a normal and a distance.
+    "NiBSPNode": (
+        *_NI_NODE,
+        # A plane: a normal and a distance from the origin.
+        ("plane_normal", "vector3"),
+        ("plane_distance", "f32"),
+    ),
     # A node, 16 bytes, then a count and eight bytes per level. Solved from
     # the counts rather than assumed: a fixture with 4 levels leaves 52 bytes
     # past the node's shape and one with 1 level leaves 28, and 16 + 4 + n*8
@@ -222,6 +275,36 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
     "NiLODNode": (*_NI_NODE, ("lod_center", "skip:16"), ("lod_levels", "lod_level_array")),
     # -- geometry ---------------------------------------------------------
     "NiTriShape": (*_NI_AV_OBJECT, ("data", "link"), ("skin_instance", "link")),
+    # -- lights, taken from tes3 ------------------------------------------
+    #
+    # None appears in vanilla or the mod corpus -- Morrowind lights cells
+    # rather than meshes -- but they occur in the sample archive, and a mesh
+    # carrying one stopped this reader outright.
+    "NiAmbientLight": _NI_LIGHT,
+    "NiDirectionalLight": _NI_LIGHT,
+    "NiPointLight": (
+        *_NI_LIGHT,
+        ("constant_attenuation", "f32"),
+        ("linear_attenuation", "f32"),
+        ("quadratic_attenuation", "f32"),
+    ),
+    # A point light plus a cone. Note the base: a spot light is a *point*
+    # light, so it carries the attenuation triple before its own two fields.
+    "NiSpotLight": (
+        *_NI_LIGHT,
+        ("constant_attenuation", "f32"),
+        ("linear_attenuation", "f32"),
+        ("quadratic_attenuation", "f32"),
+        ("outer_spot_angle", "f32"),
+        ("exponent", "f32"),
+    ),
+    # -- triangle strips, taken from tes3 ---------------------------------
+    #
+    # The same shape as NiTriShape: geometry data and an optional skin.
+    "NiTriStrips": (*_NI_AV_OBJECT, ("data", "link"), ("skin_instance", "link")),
+    # Line geometry, which shares the geometry shape and then stores one
+    # connectivity byte per vertex rather than faces. Taken from tes3.
+    "NiLines": (*_NI_AV_OBJECT, ("data", "link"), ("skin_instance", "link")),
     "NiTriShapeData": (
         ("num_vertices", "u16"),
         ("has_vertices", "bool32"),
@@ -245,6 +328,29 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
         ("num_triangle_points", "u32"),
         ("triangles", "triangle_array"),
         ("match_groups", "match_group_array"),
+    ),
+    # Taken from tes3. The same geometry body as NiTriShapeData, then strips
+    # instead of a triangle list: a triangle count, a count of strips, one
+    # length per strip, and finally that many indices *in total*.
+    #
+    # The last field is why this needs its own kind rather than a repeat
+    # count: its length is the **sum of the preceding array**, not a number
+    # stored anywhere in the file.
+    "NiTriStripsData": (
+        ("num_vertices", "u16"),
+        ("has_vertices", "bool32"),
+        ("vertices", "vec3_array", "has_vertices"),
+        ("has_normals", "bool32"),
+        ("normals", "vec3_array", "has_normals"),
+        ("center", "vector3"),
+        ("radius", "f32"),
+        ("has_vertex_colors", "bool32"),
+        ("vertex_colors", "color4_array", "has_vertex_colors"),
+        ("num_uv_sets", "u16"),
+        ("has_uv", "bool32"),
+        ("uv_sets", "uv_array", "num_uv_sets"),
+        ("num_triangles", "u16"),
+        ("strips", "strip_array"),
     ),
     # A scene object with 52 bytes of projection parameters. Only one fixture
     # carries this block, so the span is measured rather than corroborated --
@@ -294,6 +400,10 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
     # single fixed size across all its fixtures, which is what makes the split
     # between "named links" and "measured span" safe here.
     "NiAutoNormalParticlesData": _NI_PARTICLES_DATA,
+    # The base name for the same body. Taken from tes3: this reader already
+    # had the layout under two derived names and simply never had this one,
+    # which is the cheapest kind of gap and the least visible.
+    "NiParticlesData": _NI_PARTICLES_DATA,
     "NiRotatingParticlesData": (
         *_NI_PARTICLES_DATA,
         ("has_rotations", "bool32"),
@@ -301,6 +411,27 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
     ),
     "NiColorData": (("keys", "color_key_group"),),
     "NiParticleColorModifier": (*_NI_PARTICLE_MODIFIER, ("color_data", "link")),
+    # -- taken from tes3 ---------------------------------------------------
+    #
+    # A collider is a modifier plus a bounce coefficient; the spherical one
+    # adds where it is and how big.
+    "NiSphericalCollider": (
+        *_NI_PARTICLE_MODIFIER,
+        ("bounce", "f32"),
+        ("radius", "f32"),
+        ("position", "vector3"),
+    ),
+    "NiParticleBomb": (
+        *_NI_PARTICLE_MODIFIER,
+        ("decay", "f32"),
+        ("duration", "f32"),
+        ("delta_v", "f32"),
+        ("start_time", "f32"),
+        ("decay_type", "u32"),
+        ("symmetry_type", "u32"),
+        ("position", "vector3"),
+        ("direction", "vector3"),
+    ),
     "NiParticleGrowFade": (*_NI_PARTICLE_MODIFIER, ("grow", "f32"), ("fade", "f32")),
     "NiParticleRotation": (
         *_NI_PARTICLE_MODIFIER,
@@ -377,6 +508,9 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
         ("textures", "texture_slots"),
     ),
     "NiAlphaProperty": (*_NI_PROPERTY, ("threshold", "u8")),
+    # Taken from tes3, not derived -- see the note above NiFltAnimationNode.
+    # A property, a fog depth and an RGB colour.
+    "NiFogProperty": (*_NI_PROPERTY, ("fog_depth", "f32"), ("fog_color", "vector3")),
     "NiZBufferProperty": _NI_PROPERTY,
     "NiShadeProperty": _NI_PROPERTY,
     "NiWireframeProperty": _NI_PROPERTY,
@@ -408,6 +542,25 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
         ("alpha_format", "u32"),
         ("is_static", "u8"),
     ),
+    # Taken from tes3, not derived. The same texture-source shape as
+    # NiSourceTexture -- a flag, then either a path or a link to embedded
+    # pixels -- but with **no name, extra data or controller in front of it**:
+    # its base is NiObject rather than NiObjectNET. Assuming the usual
+    # preamble here would consume twelve bytes that are not there.
+    "NiBltSource": (
+        ("use_external", "u8"),
+        ("external_or_internal", "source_texture_body"),
+    ),
+    # Taken from tes3. Accumulators decide draw order and carry **no fields
+    # at all** -- their whole content is their type name. An empty layout is
+    # the correct answer here, not a placeholder: the reader must consume
+    # nothing and move straight to the next block.
+    "NiAccumulator": (),
+    "NiClusterAccumulator": (),
+    "NiAlphaAccumulator": (),
+    # Taken from tes3. A name, extra data and a controller, and nothing else:
+    # the helper exists to hang an animation's controllers off.
+    "NiSequenceStreamHelper": _NI_OBJECT_NET,
     # -- extra data -------------------------------------------------------
     "NiStringExtraData": (*_NI_EXTRA_DATA, ("string_data", "string")),
     "NiTextKeyExtraData": (*_NI_EXTRA_DATA, ("text_keys", "text_key_array")),
@@ -423,6 +576,14 @@ BLOCK_LAYOUTS: Final[dict[str, Layout]] = {
     "NiKeyframeController": (*_NI_TIME_CONTROLLER, ("data", "link")),
     "NiVisController": (*_NI_TIME_CONTROLLER, ("data", "link")),
     "NiAlphaController": (*_NI_TIME_CONTROLLER, ("data", "link")),
+    # Taken from tes3, not derived. A float controller: the standard preamble
+    # and a link to its data. Confirmed by the exact-landing test on the one
+    # sample file that carries it.
+    "NiRollController": (*_NI_TIME_CONTROLLER, ("data", "link")),
+    # Taken from tes3. A time controller and the object being looked at.
+    "NiLookAtController": (*_NI_TIME_CONTROLLER, ("look_at", "link")),
+    # Taken from tes3. A time controller and its position data.
+    "NiLightColorController": (*_NI_TIME_CONTROLLER, ("data", "link")),
     # One byte longer than the other data-link controllers. Found by byte
     # inspection, not by guessing: in all ten alignment failures in the
     # sampled corpus the reader landed exactly one byte early, reading a type

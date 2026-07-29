@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import mlox_subset_sort as core
 from mlox_subset.gui import app_base_dir, trace_first_fire
-from mlox_subset.gui.theme import DARK, style_plain_widget
+from mlox_subset.gui.theme import DARK, style_plain_widget, apply_titlebar_theme
 from mlox_subset.gui.widgets import QueueWriter, add_tooltip, attach_typeahead
 from mlox_subset.i18n import gettext as _, ngettext
 from mlox_subset.momw import needs_cleaning_set, parse_plugin_order_yml
@@ -66,6 +66,7 @@ class Tes3cmdMixin:
             return
         win = tk.Toplevel(self.root)
         self._t3_win = win
+        apply_titlebar_theme(win)
         win.title("tes3cmd")
         win.configure(bg=DARK["bg"])
         win.geometry("760x520")

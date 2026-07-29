@@ -55,8 +55,6 @@ and their `LICENSE` files are included in their source folders in this repo.
 - **TES3Tool** — © 2019 SaintBahamut. MIT.
   Referenced for the TES3 binary record/subrecord layout used by our built-in
   parser.
-- **Three.js** — © 2010-2026 three.js authors. MIT.
-  Used for viewing 3D models in the selfhosted web view.
 - **MWEdit** — © Dave Humphrey and contributors. MIT.
   Its `data/Functions.dat` and `mwedit/script_defs.h` are the primary source
   for our script-bytecode opcode table: the function names, their opcode
@@ -160,12 +158,50 @@ header and three tables. Neither project was read for the format; it was
 implemented from the public description and checked against a shipped archive
 with `tools/check_bsa.py`.
 
-`mlox_subset/dds/` is ours for the same reasons and by the same method. Pillow
-would decode these textures, but it is a large binary dependency in a
-PyInstaller onefile build for three block formats that are pure arithmetic. It
-was used instead as an **oracle**: all 50 corpus textures decode byte-for-byte
-identically to it, and every PNG we write reads back through it unchanged. Used
-but not read, exactly as with NifSkope.
+`mlox_subset/images/` is ours for the same reasons and by the same method.
+Pillow would decode these textures, but it is a large binary dependency in a
+PyInstaller onefile build. It was used instead as an **oracle**: the corpus
+textures decode byte-for-byte identically to it, BC7 matches on 19,380 random
+blocks across every mode and partition, and every PNG we write reads back
+through it unchanged. Used but not read, exactly as with NifSkope.
+
+**`pydds` was evaluated for BC7 and rejected on licence.** It is the closest
+technical fit — DDS decompression bindings including BC7, which is precisely
+what was wanted — and it is **GPLv3-or-later**, which would relicense this
+entire project. That decision needed no technical argument at all. Two further
+facts made it moot anyway: it *depends on* Pillow rather than replacing it, so
+adopting it would have added a dependency rather than removed one; and it is a
+compiled extension at version 0.0.8, marked alpha.
+
+`quicktex` (Apache-2.0) would have been licence-compatible and remains the
+option if a hand-written BC7 decoder ever proves too slow. It was not needed:
+ours matches an independent implementation exactly, and a viewer decodes one
+texture on demand rather than a collection.
+
+The BC7 tables come from the **published format specification** — Khronos's
+OpenGL BPTC specification and Microsoft's Direct3D 11 documentation — not from
+any implementation. `NIF_PROVENANCE.md` records how that was verified, and why
+transcribing six hundred numbers needed a cross-check rather than a unit test.
+
+### Greatness7 relicensed the `es3` library so this project could use it
+
+On 28 July 2026, **Greatness7** — author of the Morrowind Blender Plugin and of
+`Greatness7/tes3` — offered to relicense the NIF library inside `io_scene_mw`,
+and then did it:
+[`cbe18b5`](https://github.com/Greatness7/io_scene_mw/commit/cbe18b558299e14ecd959183e3cf9ea096fe95df)
+adds an MIT `LICENSE` to `lib/es3/`. `Greatness7/tes3` was already MIT.
+
+That was an unprompted act of generosity toward a project that had spent months
+carefully working around his code, and it is worth naming plainly. The
+relicensed library is `lib/es3/` **only**; the rest of `io_scene_mw` remains
+GPL-3.0 because Blender requires plugins to be, and this project respects that
+line. See `NIF_PROVENANCE.md` for the exact boundary.
+
+Within an hour of reading `tes3`, the cross-check had confirmed this project's
+hardest-won layout — the typed bounding box — and found a gap it could not have
+found alone: `NiUnionBV`, a bound type no file in either corpus carries, which
+this reader would have refused. A second implementation sees what a corpus
+cannot.
 
 **How each field layout was actually derived — and what was deliberately not
 read to derive it — is recorded in `NIF_PROVENANCE.md`.** That document is the

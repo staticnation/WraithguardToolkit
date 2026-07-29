@@ -16,6 +16,152 @@ it had none.
 
 ### Added
 
+- **A lit material view in the texture comparison.** A flat side-by-side view
+  cannot compare two normal maps at all — a picture of one is a field of pale
+  blue, because what it encodes is how a surface catches light. So each texture
+  is also drawn on a lit quad with its own `_n`/`_nh` and `_spec` siblings
+  applied, under one light the user can drag, with sliders for key and ambient
+  intensity.
+
+  Checkboxes turn diffuse, normal and specular off independently, so the
+  lighting stays fixed while the maps come and go and the thing that changes is
+  the map rather than the whole scene. Each toggle appears only where such a
+  map exists, since a permanently dead control implies a broken feature.
+
+  Two details that are the opposite of the obvious choice: the camera is
+  **orthographic**, because a perspective one foreshortens the two quads
+  differently and makes them disagree for a reason not in the files; and normal
+  maps are loaded **linear, not sRGB**, because reading a field of vectors as
+  colour bends every one of them before use.
+
+- **Texture comparison** (`mlox_subset/images/compare.py` and `viewer.py`).
+  The conflict scan could already say two mods ship the same texture path; it
+  could not say whether that mattered. Now it can, with three views because
+  each answers a different question: *side by side* ("which do I prefer"),
+  *overlay with a wipe* ("what moved" — the eye detects motion far better than
+  it compares two things it must look back and forth between), and *difference*
+  ("where is the change", the only one that shows a change too small to see).
+
+  Four decisions in it are worth stating, because the obvious alternative is
+  wrong in each case:
+
+  - **Different sizes are a finding, not a failure.** A retexture that doubles
+    the resolution is the commonest texture conflict in this game. Nothing is
+    rescaled — resampling would invent pixels and then report differences in
+    the pixels it invented.
+  - **Two numbers, not one.** A re-compression nudges nearly every pixel by a
+    level; a real retexture moves a few pixels a long way. A single mean ranks
+    the first above the second, so the share of pixels changed and the worst
+    single-channel move are both reported.
+  - **A one-level difference is not a change.** Every tool that touches a DDS
+    rewrites it slightly. With a threshold of zero, every recompressed texture
+    in a collection reports as 100% changed — true and useless.
+  - **Roles are checked before pixels.** Comparing a normal map against a
+    diffuse map produces a large, confident, meaningless number.
+
+- **Nineteen more NIF block types**, and a licence worth recording. Greatness7
+  relicensed the `es3` library inside `io_scene_mw` under MIT
+  ([`cbe18b5`](https://github.com/Greatness7/io_scene_mw/commit/cbe18b558299e14ecd959183e3cf9ea096fe95df))
+  after offering to, and `Greatness7/tes3` was already MIT. Reading them found
+  two things within the hour:
+
+  - **Confirmation** of this project's hardest-won layout. The typed bounding
+    box — where a confident conclusion drawn from two files once broke thirteen
+    meshes that already worked — matches `tes3` exactly on both type numbers
+    and both widths, derived independently from bytes.
+  - **A gap no measurement here could have found.** `NiUnionBV` is a *recursive
+    list* of bounding volumes rather than a fixed width, and no file in either
+    corpus carries one. A type absent from the corpus produces no failure to
+    count, so 100%-of-vanilla and 99%-of-mods said nothing about it.
+
+  Nodes, lights, controllers, triangle strips and more followed, taking the
+  categorised NIF sample archive from 624 of 768 files to **754 of 768
+  (98.2%)** and the reader from 66 known block types to 89. Each is marked in
+  `blocks.py` as *taken* rather than *derived*: a derived layout survived the
+  exact-landing test across thousands of files, a taken one is a transcription
+  confirmed against however many samples carry that type — sometimes one. Both
+  true, not equally well-evidenced.
+
+  **The vanilla and mod figures are unchanged at 100% and ~99%**, because every
+  one of these types was absent from both.
+
+- **Every texture format Morrowind and OpenMW use now decodes**, still with no
+  third-party dependency. `mlox_subset/dds/` has become `mlox_subset/images/`,
+  because it is no longer only DDS:
+
+  | | |
+  | --- | --- |
+  | DDS | BC1, BC2, BC3, **BC4**, **BC5**, **BC7**, uncompressed, and the Direct3D 10 header form |
+  | Targa | plain and run-length encoded, colour-mapped, 8 to 32 bits |
+  | Bitmap | 1, 4, 8, 16, 24 and 32 bits, palettes, both row orders |
+  | PNG | passed through to the browser untouched — it already decodes them better than we would |
+
+  **BC7 was the real work.** A 16-byte block carries one of eight modes, and
+  the mode decides everything after it: how many colour subsets the block is
+  cut into, how wide the endpoints are, whether alpha exists, whether a second
+  index set exists, whether a channel was rotated into alpha before encoding.
+  Nothing sits at a fixed bit offset. It is defined by roughly six hundred
+  transcribed table entries, and a single wrong one produces a correct-looking
+  image with a handful of wrong 4×4 blocks — invisible to any test written by
+  the same person who transcribed the tables.
+
+  So it is checked against a decoder that shares none of those assumptions:
+  **19,380 random blocks across all eight modes and all 64 partitions, matching
+  Pillow byte for byte**, plus 512 blocks each for the other formats and real
+  files from the corpus. Random bits are the harsh test here — every 128-bit
+  pattern is a legal BC7 block, so noise exercises endpoint ordering, P-bits
+  and anchor index widths far harder than a photograph could. See
+  `tools/check_bc7.py` and `tools/check_images.py`.
+
+  **`pydds` was evaluated and rejected on licence.** It is the closest
+  technical fit — BC7 bindings, actively the thing this needed — and it is
+  **GPLv3**, which would relicense this entire project. It also depends on
+  Pillow, so it would have been additive rather than a replacement. `quicktex`
+  is Apache-2.0 and would have been permissible, but is a compiled extension in
+  a PyInstaller onefile build. Pillow has never been a dependency here and
+  still is not: it is the oracle these decoders are checked against, and
+  nothing shipped imports it.
+
+- **Textures are classified by role** (`mlox_subset/images/roles.py`), because
+  a normal map is not a picture. Three conventions say what a texture is for
+  and all three are real: vanilla puts it in the mesh's `NiTexturingProperty`
+  slot, OpenMW infers it from file-name suffixes (`_n`, `_nh`, `_spec`,
+  `_diffusespec`) configured under `[Shaders]`, and OSG native meshes name it
+  on the texture unit outright. All three are read.
+
+  The **bump slot is deliberately not called a normal map**. Vanilla Morrowind
+  does not render bump or normal maps at all; MGE-XE and MCP add the capability
+  by repurposing the *environment map* slot, and NifSkope follows that
+  convention. What a bump slot contains depends on which toolchain wrote the
+  file, so it is recorded as its own role rather than guessed at.
+
+  This is what stops a report claiming a conflict between one mod's
+  `tx_rock.dds` and another's `tx_rock_n.dds`, which are complementary channels
+  of one material rather than rivals.
+
+- **BC5 normal maps reconstruct their third channel.** The format stores only X
+  and Y, because a unit vector's Z follows from them. Leaving blue flat would
+  make two genuinely different normal maps compare as identical whenever they
+  happened to share X and Y — and comparing a mod's normal map against another
+  mod's is a goal of this project, not an edge case. The **DirectX** convention
+  is used, matching both engines: green is *not* flipped. Tooling written for
+  OpenGL flips it by default, which would report every normal map as differing
+  from a byte-identical copy of itself.
+
+- **Light controls in the 3D mesh view**: key intensity, ambient level, light
+  angle, and a follow-the-camera mode. Not decoration — a normal map changes
+  nothing under flat ambient light, so without a light that moves there is
+  nothing to see. Follow-the-camera is off by default and deliberately so: it
+  means moving the camera changes the lighting, so two providers can never be
+  compared under identical light while it is on.
+
+- **OpenMW auxiliary maps in the 3D view.** Where a `_n` or `_nh` sits beside a
+  mesh's diffuse texture, it is offered as a toggle. These exist in a mod
+  collection while being mentioned in no mesh at all — the Morrowind NIF has no
+  dependable slot for them, so OpenMW finds them by name. The control appears
+  only when the collection actually ships one, because a permanently dead
+  control implies a broken feature rather than an unused one.
+
 - **BSA archives are read**, so the base game's own assets resolve. Nearly all
   of Morrowind's textures live inside `Morrowind.bsa`; without this every
   base-game mesh looked untextured and every base-game texture looked missing —
