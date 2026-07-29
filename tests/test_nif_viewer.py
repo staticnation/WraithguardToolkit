@@ -138,11 +138,11 @@ class TestGeometryReachesThePage:
         as_json = len(json.dumps([round(c, 4) for v in big.vertices for c in v]))
         assert len(mesh["positions"]["b64"]) < as_json / 2
 
-    def test_two_sides_get_two_scenes_in_different_colours(self) -> None:
+    def test_two_sides_get_two_scenes_in_different_colors(self) -> None:
         """Telling them apart is the reason there are two."""
         scenes = payload(build_viewer_page([("a", [TRIANGLE]), ("b", [TRIANGLE])]))
         assert [s["label"] for s in scenes] == ["a", "b"]
-        assert scenes[0]["colour"] != scenes[1]["colour"]
+        assert scenes[0]["color"] != scenes[1]["color"]
 
     def test_a_mesh_with_no_triangles_is_dropped(self) -> None:
         """An empty shape would add a draw call and show nothing."""

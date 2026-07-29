@@ -24,7 +24,7 @@ That's the durable fix: it [b]survives every future Configurator rebuild[/b], an
 [*][b]Health checks[/b] - master presence/order verification, a lint pass, save-file checks and timestamped backups.
 [*][b]tes3cmd frontend[/b] - clean plugins without leaving the app (Morrowind/Tribunal/Bloodmoon are never touched).
 [*][b]One-click mods-folder scan[/b] - point it at your custom mods folder and it builds the subset for you.
-[*][b]Drag-and-drop GUI + full CLI[/b] - reorder rows, with a live, colour-coded log ([color=#7ee0a0]green = inserted/moved[/color], [color=#ffb454]orange = heads-up[/color], red = error).
+[*][b]Drag-and-drop GUI + full CLI[/b] - reorder rows, with a live, color-coded log ([color=#7ee0a0]green = inserted/moved[/color], [color=#ffb454]orange = heads-up[/color], red = error).
 [*][b]Fully themeable[/b] - [color=#bd93f9]Dracula[/color], [color=#a6e22e]Monokai[/color], [color=#61afef]Atom One Dark[/color], [color=#fabd2f]Gruvbox[/color] built in, and you can import your own or any [b]base16[/b] scheme. Themes the whole app, and switching applies instantly to every open window.
 [*][b]Opt out what you don't want[/b] - disable plugins/paths (multi-select); anything already in your cfg is removed durably via [font=Courier New]removeContent[/font]/[font=Courier New]removeData[/font].
 [*][b]Safe by default[/b] - dry-run preview, timestamped backups, and it can either emit a corrected TOML (recommended) or patch [font=Courier New]openmw.cfg[/font] directly.

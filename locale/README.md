@@ -1,7 +1,7 @@
 # Translation catalogues
 
 Translatable strings are marked with `_()` (see `mlox_subset/i18n.py`).
-`locale/mlox_subset_sort.pot` is the extracted English template — that is the
+`locale/mlox_subset_sort.pot` is the extracted English template - that is the
 file a translator starts from.
 
 ## Regenerating the template
@@ -14,7 +14,7 @@ python tools/make_pot.py --check    # CI-style: fail if it is out of date
 `tools/make_pot.py` needs nothing but the standard library, so it works on
 Windows where GNU `xgettext` is not installed. It parses with `ast` rather than
 scanning text, so a `_("...")` written inside a docstring is correctly *not*
-extracted, and it warns about `_(variable)` calls it cannot read — a marker the
+extracted, and it warns about `_(variable)` calls it cannot read - a marker the
 extractor can't see is a string that will never reach a translator.
 
 Run it after adding or changing any `_()` string.
@@ -61,7 +61,7 @@ The app picks the language up automatically on next launch. Force one with
 ## Notes for translators
 
 * Placeholders are **named** (`%(count)d`) and may be reordered freely. Never
-  use positional `%s` — translators frequently need a different word order.
+  use positional `%s` - translators frequently need a different word order.
 * Counted messages use `ngettext`, so your language's own plural rules apply.
 * Plugin names, file paths and mlox rule keywords (`[Order]`, `content=`) are
   data, not prose -- leave them untranslated.

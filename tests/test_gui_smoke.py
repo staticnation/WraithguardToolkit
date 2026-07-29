@@ -854,7 +854,7 @@ class TestLogThemes:
         }
         assert not failed, f"themes that could not be applied: {failed}"
 
-    def test_switching_theme_changes_the_log_colours(self, fresh_app: Any) -> None:
+    def test_switching_theme_changes_the_log_colors(self, fresh_app: Any) -> None:
         """Applying without repainting looks exactly like a theme that matches.
 
         Args:
@@ -868,7 +868,7 @@ class TestLogThemes:
         for name in names:
             fresh_app._apply_log_theme(name, announce=False)
             seen.add(str(fresh_app.log_text.tag_cget("error", "foreground")))
-        assert len(seen) > 1, "every theme painted the error tag the same colour"
+        assert len(seen) > 1, "every theme painted the error tag the same color"
 
     def test_the_chosen_theme_is_remembered(self, fresh_app: Any) -> None:
         """It is a per-person preference, so it has to outlive the session.

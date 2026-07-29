@@ -96,7 +96,7 @@ def dx10_dds(dxgi: int, width: int, height: int, surface: bytes) -> bytes:
 
 
 def bc1_block(c0: int, c1: int, indices: int) -> bytes:
-    """One DXT1 colour block.
+    """One DXT1 color block.
 
     Args:
         c0: First endpoint, packed 5:6:5.
@@ -145,7 +145,7 @@ def bmp(width: int, height: int, rows: bytes, *, depth: int = 24, palette: bytes
         height: Image height; negative means the rows are stored top-down.
         rows: The padded row data.
         depth: Bits per pixel.
-        palette: The colour table, for paletted depths.
+        palette: The color table, for paletted depths.
 
     Returns:
         The whole file.
@@ -164,13 +164,13 @@ BLACK_565 = 0x0000
 
 
 class TestBc1:
-    """DXT1: two endpoints, four colours, and a punchthrough mode."""
+    """DXT1: two endpoints, four colors, and a punchthrough mode."""
 
     def test_full_scale_white_decodes_to_255(self) -> None:
         """The channel expansion must replicate bits, not zero-fill them.
 
         Shifting alone decodes white as (248, 252, 248), which is invisible on
-        one texture and shows up as a colour cast across a whole comparison.
+        one texture and shows up as a color cast across a whole comparison.
         """
         image = read_dds(dds(b"DXT1", 4, 4, bc1_block(WHITE_565, WHITE_565, 0)))
         assert image.pixel(0, 0) == (255, 255, 255, 255)
@@ -182,7 +182,7 @@ class TestBc1:
         assert image.pixel(1, 0) == (255, 255, 255, 255)
 
     def test_punchthrough_makes_index_three_transparent(self) -> None:
-        """When c0 <= c1 the fourth slot is a hole, not a colour.
+        """When c0 <= c1 the fourth slot is a hole, not a color.
 
         This is the mode that carries cutout foliage, so getting it wrong makes
         leaves opaque black rather than absent.
@@ -191,7 +191,7 @@ class TestBc1:
         assert image.pixel(0, 0) == (0, 0, 0, 0)
 
     def test_the_opaque_mode_gives_a_third_not_a_hole(self) -> None:
-        """A negative control: with c0 > c1 index 3 is a real colour."""
+        """A negative control: with c0 > c1 index 3 is a real color."""
         image = read_dds(dds(b"DXT1", 4, 4, bc1_block(WHITE_565, BLACK_565, 0b11)))
         red, _green, _blue, alpha = image.pixel(0, 0)
         assert alpha == 255
@@ -224,8 +224,8 @@ class TestBc2AndBc3Alpha:
         image = read_dds(dds(b"DXT5", 4, 4, surface))
         assert image.pixel(0, 0)[3] == 0
 
-    def test_bc3_never_uses_the_punchthrough_colour_mode(self) -> None:
-        """Its alpha lives in its own block, so index 3 is always a colour.
+    def test_bc3_never_uses_the_punchthrough_color_mode(self) -> None:
+        """Its alpha lives in its own block, so index 3 is always a color.
 
         Sharing the DXT1 rule here would punch holes in every DXT5 texture
         whose endpoints happen to be ordered the other way.
@@ -239,7 +239,7 @@ class TestBc4AndBc5:
     """The one- and two-channel formats, which mods use for masks and normals."""
 
     def test_bc4_expands_its_single_channel_to_grey(self) -> None:
-        """There is no colour in a height or gloss map to recover.
+        """There is no color in a height or gloss map to recover.
 
         Dropping the value into red alone would render every one of them as a
         red wash, which reads as a decode failure rather than a mask.
@@ -532,7 +532,7 @@ class TestTextureRoles:
         assert role_from_name("rock_n.dds") is TextureRole.NORMAL
 
     def test_a_plain_name_has_no_opinion(self) -> None:
-        """Most vanilla textures carry no suffix, and that is not "colour"."""
+        """Most vanilla textures carry no suffix, and that is not "color"."""
         assert role_from_name("tx_rock_01.dds") is TextureRole.UNKNOWN
 
     def test_osg_units_name_the_role_outright(self) -> None:
@@ -565,8 +565,8 @@ class TestTextureRoles:
         """Otherwise the feature switches itself off for the whole base game."""
         assert comparable(TextureRole.UNKNOWN, TextureRole.DIFFUSE)
 
-    def test_a_specular_map_is_colour_not_a_mask(self) -> None:
-        """Its RGB is specular colour; only gloss is a single channel."""
+    def test_a_specular_map_is_color_not_a_mask(self) -> None:
+        """Its RGB is specular color; only gloss is a single channel."""
         assert not TextureRole.SPECULAR.is_mask
         assert TextureRole.GLOSS.is_mask
 
@@ -669,8 +669,8 @@ class TestPng:
         png = encode_png(Image(2, 2, pixels))
         assert png.startswith(b"\x89PNG\r\n\x1a\n")
         assert png[12:16] == b"IHDR"
-        width, height, depth, colour = struct.unpack_from(">IIBB", png, 16)
-        assert (width, height, depth, colour) == (2, 2, 8, 6)
+        width, height, depth, color = struct.unpack_from(">IIBB", png, 16)
+        assert (width, height, depth, color) == (2, 2, 8, 6)
         start = png.index(b"IDAT") + 4
         length = struct.unpack_from(">I", png, start - 8)[0]
         raw = zlib.decompress(png[start : start + length])

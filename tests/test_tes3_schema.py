@@ -314,7 +314,7 @@ class TestGenerator:
 
     def test_float_is_treated_as_float32(self) -> None:
         """CELL's AMBI says ``float``, and the member was being dropped."""
-        members, _variants = parse_layout("Ambient light\nrgb - Colour\nfloat - Fog density")
+        members, _variants = parse_layout("Ambient light\nrgb - Color\nfloat - Fog density")
         assert [m[0] for m in members] == ["rgb", "float"]
         assert sum(member_size(t, d) for t, d, _n in members) == 8
 

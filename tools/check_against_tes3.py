@@ -3,10 +3,10 @@ r"""Compare this reader's type coverage against Greatness7's `tes3` library.
 `tes3` is MIT (repository root `LICENSE`), and the NIF library inside
 `io_scene_mw` was relicensed MIT for `lib/es3/` in commit `cbe18b5` on
 28 July 2026. Both may therefore be read. See ``NIF_PROVENANCE.md`` for the
-exact boundary — in `io_scene_mw` it is `lib/es3/` and nothing else.
+exact boundary - in `io_scene_mw` it is `lib/es3/` and nothing else.
 
-**Why this exists.** The corpus measurement — 100% of 7,343 vanilla meshes,
-~99% of 80,197 mod meshes — is evidence about files that have been *seen*. It
+**Why this exists.** The corpus measurement - 100% of 7,343 vanilla meshes,
+~99% of 80,197 mod meshes - is evidence about files that have been *seen*. It
 says nothing about a block type no file in the corpus happens to contain. That
 kind of gap produces no failure, no warning and no test result; it is invisible
 by construction, and the only instrument that detects it is a second
@@ -17,7 +17,7 @@ type 4, which is a recursive list rather than a fixed width. Nothing in either
 corpus carries one, so nothing here could have known.
 
 **What this tool does and does not claim.** It compares the *set of types* each
-implementation knows. It does not compare field layouts — those live in a Rust
+implementation knows. It does not compare field layouts - those live in a Rust
 struct on one side and a layout tuple on the other, and reconciling them is a
 reading job, not a diffing job. What this gives you is the list to read.
 

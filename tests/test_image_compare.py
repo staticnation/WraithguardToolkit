@@ -21,18 +21,18 @@ from mlox_subset.images import (
 from mlox_subset.images.viewer import build_compare_page
 
 
-def solid(width: int, height: int, colour: tuple[int, int, int, int]) -> Image:
-    """An image of one colour.
+def solid(width: int, height: int, color: tuple[int, int, int, int]) -> Image:
+    """An image of one color.
 
     Args:
         width: Width in pixels.
         height: Height in pixels.
-        colour: Red, green, blue and alpha.
+        color: Red, green, blue and alpha.
 
     Returns:
         The image.
     """
-    return Image(width, height, bytes(colour) * (width * height))
+    return Image(width, height, bytes(color) * (width * height))
 
 
 class TestTheCheapAnswersComeFirst:
@@ -283,7 +283,7 @@ class TestTheLitMaterialView:
         assert '"leftMaps": {}' in without
 
     def test_normal_maps_are_not_loaded_as_srgb(self) -> None:
-        """A normal map is a field of vectors, not colour.
+        """A normal map is a field of vectors, not color.
 
         Reading one as sRGB bends every vector in it before it is used, which
         tilts the lighting everywhere and looks like a subtly wrong material

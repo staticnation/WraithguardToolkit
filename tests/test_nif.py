@@ -138,7 +138,7 @@ def tri_shape_data(vertices: int, triangles: int) -> bytes:
             struct.pack("<I", 0),  # has normals
             b"\0" * 12,  # center
             struct.pack("<f", 1.0),  # radius
-            struct.pack("<I", 0),  # has vertex colours
+            struct.pack("<I", 0),  # has vertex colors
             struct.pack("<H", 0),  # uv sets
             struct.pack("<I", 0),  # has uv
             struct.pack("<H", triangles),
@@ -1167,7 +1167,7 @@ class TestParticles:
         assert block.link("next_modifier") == 6
         assert block.link("controller") == 4
 
-    def test_colour_keys_are_twenty_bytes_each(self) -> None:
+    def test_color_keys_are_twenty_bytes_each(self) -> None:
         """A time and an RGBA, which is what every fixture reconciles to."""
         body = struct.pack("<II", 3, 1) + (struct.pack("<5f", *([0.0] * 5)) * 3)
         result = read_nif_bytes(nif(("NiColorData", body), ("NiShadeProperty", property_body())))

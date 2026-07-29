@@ -80,7 +80,7 @@ msgid "Resource conflicts: %(count)d file(s). See the window."
 msgstr ""
 
 #: mlox_subset/gui/conflicts.py:327
-msgid "%(conflicts)d loose-file conflict(s) across %(dirs)d folder(s), %(files)d file(s) — %(involved)d involve your custom data paths (★). Later folder wins — reorder the data-path panel to change it."
+msgid "%(conflicts)d loose-file conflict(s) across %(dirs)d folder(s), %(files)d file(s) - %(involved)d involve your custom data paths (★). Later folder wins - reorder the data-path panel to change it."
 msgstr ""
 
 #: mlox_subset/gui/conflicts.py:343
@@ -159,7 +159,7 @@ msgid "Save failed"
 msgstr ""
 
 #: mlox_subset/gui/conflicts.py:676
-msgid "%(conflicts)d conflicting record(s) across %(scanned)d plugin(s) — %(involved)d involve your custom mods (★). Winner = last loaded."
+msgid "%(conflicts)d conflicting record(s) across %(scanned)d plugin(s) - %(involved)d involve your custom mods (★). Winner = last loaded."
 msgstr ""
 
 #: mlox_subset/gui/conflicts.py:690
@@ -179,11 +179,11 @@ msgid "Set tes3conv..."
 msgstr ""
 
 #: mlox_subset/gui/conflicts.py:766
-msgid "Field comparison for the selected record — differing fields in red · ★ = your custom mod · last column wins · double-click a field for the full value:"
+msgid "Field comparison for the selected record - differing fields in red · ★ = your custom mod · last column wins · double-click a field for the full value:"
 msgstr ""
 
 #: mlox_subset/gui/conflicts.py:785
-msgid "Field-by-field diff of the selected record. Red = the plugins disagree; the last one in the load order wins.\n\nDouble-click any row for the full value, one tab per plugin. Fields stored as binary are decoded rather than shown raw, so an edit reads as a change instead of a wall of base64:\n  • bytecode -- disassembled to named script instructions. Spans the disassembler cannot decode are printed as offset/hex/ASCII rather than guessed at, and a 'decoded: N%' header says how much was understood.\n  • variables -- the script's local variable names, in declaration order.\n  • landscape (vertex heights, normals, colours, textures, world map) -- decoded to one terrain row per line, so the diff shows which rows of the cell moved. Heights are reconstructed to absolute world units.\n  • path grid connections -- decoded to a per-point adjacency list (point -> its neighbours), so you can see which nodes were rewired."
+msgid "Field-by-field diff of the selected record. Red = the plugins disagree; the last one in the load order wins.\n\nDouble-click any row for the full value, one tab per plugin. Fields stored as binary are decoded rather than shown raw, so an edit reads as a change instead of a wall of base64:\n  • bytecode -- disassembled to named script instructions. Spans the disassembler cannot decode are printed as offset/hex/ASCII rather than guessed at, and a 'decoded: N%' header says how much was understood.\n  • variables -- the script's local variable names, in declaration order.\n  • landscape (vertex heights, normals, colors, textures, world map) -- decoded to one terrain row per line, so the diff shows which rows of the cell moved. Heights are reconstructed to absolute world units.\n  • path grid connections -- decoded to a per-point adjacency list (point -> its neighbours), so you can see which nodes were rewired."
 msgstr ""
 
 #: mlox_subset/gui/conflicts.py:814
@@ -306,7 +306,7 @@ msgid "Nothing written"
 msgstr ""
 
 #: mlox_subset/gui/conflicts.py:1179
-msgid "No JSON was written. The tes3conv session may have been cleared — re-run Check Conflicts, then dump again."
+msgid "No JSON was written. The tes3conv session may have been cleared - re-run Check Conflicts, then dump again."
 msgstr ""
 
 #: mlox_subset/gui/conflicts.py:1186
@@ -593,7 +593,7 @@ msgid "Locate the tes3conv executable"
 msgstr ""
 
 #: mlox_subset/gui/t3.py:614
-msgid "tes3conv set — click 'Check Conflicts' again to re-scan with field diffs."
+msgid "tes3conv set - click 'Check Conflicts' again to re-scan with field diffs."
 msgstr ""
 
 #: mlox_subset/gui/t3.py:617
@@ -643,8 +643,8 @@ msgid "No exterior cells have conflicts."
 msgstr ""
 
 #: mlox_subset/viz/conflictmap.py:262
-msgid "(%(x)d, %(y)d) — %(count)d conflict, %(n)d plugin(s): %(plugins)s"
-msgid_plural "(%(x)d, %(y)d) — %(count)d conflicts, %(n)d plugin(s): %(plugins)s"
+msgid "(%(x)d, %(y)d) - %(count)d conflict, %(n)d plugin(s): %(plugins)s"
+msgid_plural "(%(x)d, %(y)d) - %(count)d conflicts, %(n)d plugin(s): %(plugins)s"
 msgstr[0] ""
 msgstr[1] ""
 
@@ -673,7 +673,7 @@ msgid "Usually wins"
 msgstr ""
 
 #: mlox_subset/viz/conflictmap.py:337
-msgid "terrain shape, textures and vertex colours"
+msgid "terrain shape, textures and vertex colors"
 msgstr ""
 
 #: mlox_subset/viz/conflictmap.py:338
@@ -701,7 +701,7 @@ msgid "Focus on plugin:"
 msgstr ""
 
 #: mlox_subset/viz/conflictmap.py:422
-msgid "— all plugins —"
+msgid "- all plugins -"
 msgstr ""
 
 #: mlox_subset/viz/conflictmap.py:432
@@ -729,7 +729,7 @@ msgid "outlined = involves your mods"
 msgstr ""
 
 #: mlox_subset/viz/conflictmap.py:444
-msgid "Conflicting records per cell. North is up. Hover a cell for its count and which plugins are conflicting there. Each of the first few counts has its own colour and larger counts are grouped, because one, two and three conflicts are different situations while thirty and thirty-five are not. Focusing a plugin recolours its cells by its own count there on this same scale, and mutes the rest."
+msgid "Conflicting records per cell. North is up. Hover a cell for its count and which plugins are conflicting there. Each of the first few counts has its own color and larger counts are grouped, because one, two and three conflicts are different situations while thirty and thirty-five are not. Focusing a plugin recolors its cells by its own count there on this same scale, and mutes the rest."
 msgstr ""
 
 #: mlox_subset/viz/conflictmap.py:455
@@ -814,7 +814,7 @@ msgid "lower than the previous step"
 msgstr ""
 
 #: mlox_subset/viz/heightdelta.py:311
-msgid "North is up. Unchanged vertices are left blank on a diff step, and colour saturates at that step's largest movement, so shades are comparable within a page but not between pages. The Base step has nothing before it to diff against, so it shows that plugin's own absolute elevation on a separate low-to-high scale instead."
+msgid "North is up. Unchanged vertices are left blank on a diff step, and color saturates at that step's largest movement, so shades are comparable within a page but not between pages. The Base step has nothing before it to diff against, so it shows that plugin's own absolute elevation on a separate low-to-high scale instead."
 msgstr ""
 
 #: mlox_subset/viz/heightdelta.py:331
@@ -838,7 +838,7 @@ msgid "%(changed)s of %(total)s vertices differ from the previous step. Largest 
 msgstr ""
 
 #: mlox_subset/viz/heightdelta.py:342
-msgid "The terrain is identical at this step. It differs from the previous step in some other field -- textures, colours or the world map -- not in height."
+msgid "The terrain is identical at this step. It differs from the previous step in some other field -- textures, colors or the world map -- not in height."
 msgstr ""
 
 #: mlox_subset/viz/heightdelta.py:354
@@ -907,7 +907,7 @@ msgid "Top-down view, north up. Hover a point for its coordinates."
 msgstr ""
 
 #: mlox_subset/viz/pathgrid.py:351
-msgid "Base version — nothing loaded before it to compare against."
+msgid "Base version - nothing loaded before it to compare against."
 msgstr ""
 
 #: mlox_subset/viz/pathgrid.py:352
@@ -1094,7 +1094,7 @@ msgid "Mesh contents (read just now):"
 msgstr ""
 
 #: mlox_subset_sort.py:2527
-msgid "  %(n)d. %(dir)s — could not read: %(why)s"
+msgid "  %(n)d. %(dir)s - could not read: %(why)s"
 msgstr ""
 
 #: mlox_subset_sort.py:2533
@@ -1630,7 +1630,7 @@ msgid "Log"
 msgstr ""
 
 #: mlox_subset_sort_gui.py:1801
-msgid "Full output from the last Sort and/or Export. Colour key: green = a plugin/path this sort inserted or moved, orange = a heads-up (mlox warning, or a rule your curated cfg order overrode), blue = a section header, bright red = an error worth checking. Plain text = frozen base rows left untouched. Colors follow the syntax highlighting theme picked below."
+msgid "Full output from the last Sort and/or Export. Color key: green = a plugin/path this sort inserted or moved, orange = a heads-up (mlox warning, or a rule your curated cfg order overrode), blue = a section header, bright red = an error worth checking. Plain text = frozen base rows left untouched. Colors follow the syntax highlighting theme picked below."
 msgstr ""
 
 #: mlox_subset_sort_gui.py:1817
@@ -1654,7 +1654,7 @@ msgid "Theme:"
 msgstr ""
 
 #: mlox_subset_sort_gui.py:1840
-msgid "Colour theme for the whole GUI: window/button colours, syntax highlighting here in the Log panel, and the field-diff JSON viewer (Check Conflicts -> double-click a field). Switching re-themes everything immediately, including any windows already open. Built-in: Dracula, Monokai, Atom One Dark, Gruvbox Dark, plus anything you've imported."
+msgid "Color theme for the whole GUI: window/button colors, syntax highlighting here in the Log panel, and the field-diff JSON viewer (Check Conflicts -> double-click a field). Switching re-themes everything immediately, including any windows already open. Built-in: Dracula, Monokai, Atom One Dark, Gruvbox Dark, plus anything you've imported."
 msgstr ""
 
 #: mlox_subset_sort_gui.py:1850
@@ -1662,7 +1662,7 @@ msgid "Import Theme..."
 msgstr ""
 
 #: mlox_subset_sort_gui.py:1855
-msgid "Import a custom theme from a JSON file (background/foreground/select/section/warn/error/ok/inserted/dim as hex colors, plus an optional \"chrome\" object for explicit window/button colours) or a base16 scheme file (.yaml/.yml/.json with base00..base0F -- e.g. from the atelierbram/syntax-highlighting or chriskempson/base16 scheme repos). Window colours not given explicitly are derived from the background. Imported themes are saved and appear in the dropdown from then on."
+msgid "Import a custom theme from a JSON file (background/foreground/select/section/warn/error/ok/inserted/dim as hex colors, plus an optional \"chrome\" object for explicit window/button colors) or a base16 scheme file (.yaml/.yml/.json with base00..base0F -- e.g. from the atelierbram/syntax-highlighting or chriskempson/base16 scheme repos). Window colors not given explicitly are derived from the background. Imported themes are saved and appear in the dropdown from then on."
 msgstr ""
 
 #: mlox_subset_sort_gui.py:1932
@@ -1791,7 +1791,7 @@ msgid "Save HTML..."
 msgstr ""
 
 #: mlox_subset_sort_gui.py:2812
-msgid "(inline render failed — use 'Open in browser' for the full map)"
+msgid "(inline render failed - use 'Open in browser' for the full map)"
 msgstr ""
 
 #: mlox_subset_sort_gui.py:2831

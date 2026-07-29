@@ -171,11 +171,11 @@ class TestGeometry:
 
 
 def channel_distance(first: str, second: str) -> int:
-    """Total per-channel difference between two ``#rrggbb`` colours.
+    """Total per-channel difference between two ``#rrggbb`` colors.
 
     A crude stand-in for perceptual distance, and deliberately so: the question
-    is whether two swatches read as different colours at a glance, and summed
-    channel difference answers it without importing a colour-science library.
+    is whether two swatches read as different colors at a glance, and summed
+    channel difference answers it without importing a color-science library.
 
     Args:
         first: A ``#rrggbb`` string.
@@ -189,16 +189,16 @@ def channel_distance(first: str, second: str) -> int:
 
 class TestPalette:
     def test_severity_is_monotonic(self):
-        """More conflicts must never render as a cooler colour."""
+        """More conflicts must never render as a cooler color."""
         seen = [severity_banded(n, 50) for n in range(1, 51)]
         reds = [int(c[1:3], 16) for c in seen]
         assert reds == sorted(reds)
 
     def test_severity_of_nothing_is_neutral(self):
-        """A cell with no conflicts must not be coloured as if it had some."""
+        """A cell with no conflicts must not be colored as if it had some."""
         assert severity_banded(0, 10) == NEUTRAL
 
-    def test_a_contradictory_worst_still_yields_a_colour(self):
+    def test_a_contradictory_worst_still_yields_a_color(self):
         """Five conflicts on a map whose worst is zero cannot both be true.
 
         It happens when a caller reuses a stale maximum. Matching
@@ -232,7 +232,7 @@ class TestPalette:
     def test_the_first_counts_are_told_apart(self):
         """The reason for banding: one, two and three conflicts differ.
 
-        Measured as a colour *distance*, not as inequality. A linear ramp does
+        Measured as a color *distance*, not as inequality. A linear ramp does
         give these three different values -- 1/30, 2/30, 3/30 -- but they land
         within a few units per channel of each other, which is invisible on a
         nine-pixel square. Asserting only that they differ passes on the very
@@ -251,8 +251,8 @@ class TestPalette:
         yellow, so a busy load order made the entire map look urgent and
         nothing stood out. Green here means "green is still reachable".
         """
-        colour = severity_banded(3, 30)
-        assert int(colour[3:5], 16) > int(colour[1:3], 16)
+        color = severity_banded(3, 30)
+        assert int(color[3:5], 16) > int(color[1:3], 16)
 
     def test_one_pathological_cell_does_not_flatten_the_rest(self):
         """What the 95th-percentile clamp used to be for.
@@ -321,10 +321,10 @@ class TestConflictMapScale:
 
         assert "36-40" in page, "the legend stops short of the worst cell"
 
-    def test_the_cell_itself_is_painted_the_legend_colour(self):
+    def test_the_cell_itself_is_painted_the_legend_color(self):
         """Asserted on the ``<rect>`` fill, not on the page text.
 
-        Searching the whole page finds the colour in the *legend* even when the
+        Searching the whole page finds the color in the *legend* even when the
         cell was painted something else entirely, so the map and its own key
         could disagree with the test still green -- which a negative control
         proved by rescaling only the fill.
@@ -646,7 +646,7 @@ class TestTerrain3DIsDrawnToScale:
 class TestTerrainShading:
     """A hillshade layer with a hypsometric tint composited over it.
 
-    The old renderer flat-filled one colour per quad, mixing slope and height
+    The old renderer flat-filled one color per quad, mixing slope and height
     into a single number. That loses both: a smooth hillside came out as 1,024
     visible facets, and "which way does this face" could not be read apart from
     "how high is it". The two are now separate layers, shaded per pixel.
@@ -672,12 +672,12 @@ class TestTerrainShading:
 
         for name in TINT_RAMPS:
             expected = [
-                [int(colour[i : i + 2], 16) for i in (1, 3, 5)] for colour in tint_ramp(name)
+                [int(color[i : i + 2], 16) for i in (1, 3, 5)] for color in tint_ramp(name)
             ]
             assert data["palettes"][name] == expected, name
 
     def test_an_unknown_palette_is_refused(self):
-        """Silently drawing the wrong colours is worse than failing to build."""
+        """Silently drawing the wrong colors is worse than failing to build."""
         with pytest.raises(KeyError, match="unknown tint"):
             tint_ramp("chartreuse")
 
@@ -698,7 +698,7 @@ class TestTerrainShading:
     def test_the_tint_runs_low_to_high(self):
         """Hypsometric convention: green valleys, pale summits.
 
-        Checked as lightness rather than by naming colours, so the stops can be
+        Checked as lightness rather than by naming colors, so the stops can be
         retuned without rewriting the test that says which way they go.
         """
         ramp = tint_ramp("hypsometric")
@@ -720,7 +720,7 @@ class TestTerrainShading:
     def test_the_default_opacity_lets_the_hillshade_through(self):
         """Neither layer may be doing all the work.
 
-        Below about 0.4 the colour stops reading as elevation; above about 0.7
+        Below about 0.4 the color stops reading as elevation; above about 0.7
         the shading that carries the shape is washed out.
         """
         data = payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")

@@ -38,7 +38,7 @@ from mlox_subset.tes3fields.landscape import (
     LAND_SIZE,
     LandscapeDecodeError,
     decode_texture_indices,
-    decode_vertex_colours,
+    decode_vertex_colors,
     decode_vertex_heights,
     decode_vertex_normals,
     decode_world_map,
@@ -101,9 +101,9 @@ class TestOtherLandscapeGrids:
         assert len(grid[0]) == LAND_SIZE
         assert grid[0][0] == (1, 2, -1)
 
-    def test_colours_are_unsigned_triples(self) -> None:
+    def test_colors_are_unsigned_triples(self) -> None:
         payload = bytes([0, 128, 255]) * LAND_NUM_VERTS
-        assert decode_vertex_colours(_b64(payload))[0][0] == (0, 128, 255)
+        assert decode_vertex_colors(_b64(payload))[0][0] == (0, 128, 255)
 
     def test_world_map_is_nine_by_nine_signed(self) -> None:
         grid = decode_world_map(_b64(bytes([0xFF]) * 81))

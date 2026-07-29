@@ -58,16 +58,16 @@ from mlox_subset.viz.palette import (
 HEX = re.compile(r"^#[0-9a-f]{6}$")
 
 
-def _luminance(colour: str) -> float:
-    """Perceived brightness of a ``#rrggbb`` colour.
+def _luminance(color: str) -> float:
+    """Perceived brightness of a ``#rrggbb`` color.
 
     Args:
-        colour: A six-digit hex colour.
+        color: A six-digit hex color.
 
     Returns:
         Rec. 601 luma, 0-1.
     """
-    red, green, blue = (int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    red, green, blue = (int(color[i : i + 2], 16) / 255 for i in (1, 3, 5))
     return 0.299 * red + 0.587 * green + 0.114 * blue
 
 
@@ -384,7 +384,7 @@ class TestCoverageRamp:
         so red and "warmth" both dip early on -- the first segment desaturated
         slate to saturated blue goes *cooler*. What has to hold for the map to
         read as a scale is that each step is brighter than the last, which also
-        keeps it ordered in greyscale and for a colour-blind reader.
+        keeps it ordered in greyscale and for a color-blind reader.
         """
         for worst in (6, 12, 30):
             lums = [_luminance(coverage_heat(n, worst)) for n in range(1, worst + 1)]
@@ -392,11 +392,11 @@ class TestCoverageRamp:
             assert lums[0] < lums[-1]
 
     def test_counts_above_worst_are_clamped(self) -> None:
-        """A stale ``worst`` must not produce an out-of-range colour."""
+        """A stale ``worst`` must not produce an out-of-range color."""
         assert coverage_heat(20, 5) == coverage_heat(5, 5)
 
     def test_endpoints_are_the_declared_stops(self) -> None:
-        """The floor and ceiling are documented colours, not emergent ones."""
+        """The floor and ceiling are documented colors, not emergent ones."""
         assert coverage_heat(1, 8) == "#2e4a63"
         assert coverage_heat(8, 8) == "#d99e3d"
 
@@ -415,7 +415,7 @@ class TestRampEdges:
         assert divergence(500, 0) == NEUTRAL
         assert divergence(0, 0) == NEUTRAL
 
-    def test_position_past_the_last_stop_returns_the_last_colour(self) -> None:
+    def test_position_past_the_last_stop_returns_the_last_color(self) -> None:
         """Callers clamp, but a ramp that fell through would return ``None``."""
         assert _ramp(1.5, _COVERAGE_STOPS) == _ramp(1.0, _COVERAGE_STOPS)
 
@@ -445,7 +445,7 @@ class TestCoverageBands:
         assert coverage_bands(17)[-1] == (16, 17)
 
     def test_bands_are_contiguous_and_cover_every_count(self) -> None:
-        """A count falling between two bands would have no colour at all."""
+        """A count falling between two bands would have no color at all."""
         for worst in (1, 4, 5, 6, 9, 23, 47):
             bands = coverage_bands(worst)
             assert bands[0][0] == 1
@@ -455,7 +455,7 @@ class TestCoverageBands:
             assert all(0 <= coverage_band_index(n, worst) < len(bands) for n in range(1, worst + 1))
 
     def test_huge_worst_stops_at_the_band_ceiling(self) -> None:
-        """Forty bands over seven colour stops is a gradient again."""
+        """Forty bands over seven color stops is a gradient again."""
         bands = coverage_bands(500)
         assert len(bands) == COVERAGE_MAX_BANDS
         assert bands[-1][1] is None
@@ -468,27 +468,27 @@ class TestCoverageBands:
         """Zero is not a band; it is off the scale."""
         assert coverage_bands(0) == []
 
-    def test_every_count_in_a_band_shares_its_colour(self) -> None:
-        """Banding is only banding if the band is one colour."""
+    def test_every_count_in_a_band_shares_its_color(self) -> None:
+        """Banding is only banding if the band is one color."""
         assert coverage_heat(6, 30) == coverage_heat(10, 30)
         assert coverage_heat(11, 30) != coverage_heat(10, 30)
 
-    def test_each_band_gets_a_distinct_colour(self) -> None:
-        """Two bands sharing a colour is two bands the reader cannot tell apart."""
+    def test_each_band_gets_a_distinct_color(self) -> None:
+        """Two bands sharing a color is two bands the reader cannot tell apart."""
         for worst in (5, 12, 30):
-            colours = {coverage_heat(low, worst) for low, _high in coverage_bands(worst)}
-            assert len(colours) == len(coverage_bands(worst))
+            colors = {coverage_heat(low, worst) for low, _high in coverage_bands(worst)}
+            assert len(colors) == len(coverage_bands(worst))
 
 
 class TestCoverageLegend:
     """The legend is the map's key, one row per band."""
 
-    def test_swatch_colours_match_the_map(self) -> None:
+    def test_swatch_colors_match_the_map(self) -> None:
         """This is the whole reason it is generated rather than written."""
-        for (label, colour, _dark), (low, _high) in zip(
+        for (label, color, _dark), (low, _high) in zip(
             coverage_legend_stops(9), coverage_bands(9)
         ):
-            assert colour == coverage_heat(low, 9)
+            assert color == coverage_heat(low, 9)
             assert label.startswith(str(low))
 
     def test_one_row_per_band(self) -> None:
@@ -500,7 +500,7 @@ class TestCoverageLegend:
         assert [row[0] for row in coverage_legend_stops(5)] == ["1", "2", "3", "4", "5"]
 
     def test_grouped_counts_are_labelled_as_ranges(self) -> None:
-        """The reader has to know 6-10 share a colour."""
+        """The reader has to know 6-10 share a color."""
         assert [row[0] for row in coverage_legend_stops(15)][-2:] == ["6-10", "11-15"]
 
     def test_open_ended_band_is_marked(self) -> None:
@@ -532,20 +532,20 @@ class TestCoverageLegend:
 class TestSeverityBandTable:
     """The table handed to the conflict map's client-side redraw.
 
-    The client used to re-implement the colour ramp in JavaScript, which is how
+    The client used to re-implement the color ramp in JavaScript, which is how
     the focused and unfocused views could drift apart. It now looks a count up
     in this table instead, so the contract is the table's shape.
     """
 
     def test_one_row_per_band(self) -> None:
-        """The client scans it linearly; a missing band is a missing colour."""
+        """The client scans it linearly; a missing band is a missing color."""
         assert len(severity_band_table(23)) == len(coverage_bands(23))
 
-    def test_rows_are_low_high_colour(self) -> None:
+    def test_rows_are_low_high_color(self) -> None:
         """The exact shape the page's lookup indexes by position."""
-        low, high, colour = severity_band_table(12)[0]
+        low, high, color = severity_band_table(12)[0]
         assert (low, high) == (1, 1)
-        assert colour.startswith("#") and len(colour) == 7
+        assert color.startswith("#") and len(color) == 7
 
     def test_the_bands_cover_every_count_without_gaps(self) -> None:
         """A count falling through every band would render as neutral."""
@@ -559,17 +559,17 @@ class TestSeverityBandTable:
         """So a huge outlier still lands somewhere rather than off the end."""
         assert severity_band_table(500)[-1][1] is None
 
-    def test_the_colours_match_what_the_server_drew(self) -> None:
-        """The whole point: the client cannot colour a count differently.
+    def test_the_colors_match_what_the_server_drew(self) -> None:
+        """The whole point: the client cannot color a count differently.
 
         Compared against :func:`severity_banded`, which is what painted the
         unfocused map server-side.
         """
-        for low, _high, colour in severity_band_table(30):
-            assert colour == severity_banded(low, 30)
+        for low, _high, color in severity_band_table(30):
+            assert color == severity_banded(low, 30)
 
     def test_an_empty_map_has_no_bands(self) -> None:
-        """Nothing to colour, and the client falls back to neutral."""
+        """Nothing to color, and the client falls back to neutral."""
         assert severity_band_table(0) == []
 
 
