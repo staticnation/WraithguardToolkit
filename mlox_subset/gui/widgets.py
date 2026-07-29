@@ -6,16 +6,18 @@ Moved verbatim from ``mlox_subset_sort_gui.py`` (see the package docstring).
 from __future__ import annotations
 
 import io
-import queue
 import tkinter as tk
-from collections.abc import Callable
 from tkinter import filedialog, ttk
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mlox_subset.gui import DND_FILES, HAVE_DND, trace_first_fire
+from mlox_subset.gui import register_drop_target, trace_first_fire
 from mlox_subset.gui.theme import DARK
 from mlox_subset.i18n import gettext as _
 from mlox_subset.tracing import trace
+
+if TYPE_CHECKING:
+    import queue
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # a small hover tooltip -- delayed popup, dark-themed to match the rest of
@@ -218,10 +220,7 @@ class PathField:
             add_tooltip(entry, tooltip)
             add_tooltip(browse_btn, tooltip)
 
-        if HAVE_DND:
-            # tkinterdnd2 monkey-patches these onto the widget at runtime.
-            entry.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
-
+        if register_drop_target(entry):
             # Any: tkinterdnd2 synthesises its own event object, which has no
             # published type -- only a `.data` string this reads.
             def on_drop(event: Any) -> None:  # noqa: ANN401

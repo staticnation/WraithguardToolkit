@@ -9,11 +9,9 @@ reference resolves exactly as it did when the methods lived there.
 from __future__ import annotations
 
 import os
-import queue
 import threading
 import tkinter as tk
 import traceback
-from collections.abc import Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -27,6 +25,10 @@ from mlox_subset.i18n import gettext as _, ngettext
 from mlox_subset.momw import needs_cleaning_set, parse_plugin_order_yml
 from mlox_subset.plugins import PluginFileIndex
 from mlox_subset.tracing import trace
+
+if TYPE_CHECKING:
+    import queue
+    from collections.abc import Sequence
 
 
 class Tes3cmdMixin:

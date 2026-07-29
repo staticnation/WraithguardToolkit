@@ -8,8 +8,7 @@ inserted path lands next to the mod it belongs with rather than at the end.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mlox_subset.configurator.cfglines import (
     detect_data_quoting,
@@ -20,6 +19,9 @@ from mlox_subset.configurator.cfglines import (
 )
 from mlox_subset.i18n import gettext as _
 from mlox_subset.plugins import list_plugins_in_dir
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 #: One pending ``data=`` insertion: its value plus optional anchors.
 DataInsert = dict[str, Any]

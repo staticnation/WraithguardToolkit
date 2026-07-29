@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import html
 import json
-from collections.abc import Iterable, Mapping
-from typing import Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from mlox_subset import _
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping, Sequence
 
 
 def script_json(value: Any) -> str:  # noqa: ANN401 - encodes arbitrary JSON-able data
@@ -67,6 +70,7 @@ font:14px/1.5 "Segoe UI",system-ui,sans-serif}
 header{padding:14px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
 h1{margin:0;font-size:17px;font-weight:600}
 .sub{color:var(--dim);font-size:12.5px;margin-top:3px}
+.stamp{color:#6f7784;font-size:11.5px;margin-top:2px}
 main{padding:18px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;
 padding:14px;margin-bottom:16px}
@@ -102,24 +106,32 @@ def escape(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
-def page(title: str, subtitle: str, body: str) -> str:
+def page(title: str, subtitle: str, body: str, generated_at: datetime | None = None) -> str:
     """Wrap rendered content in the standard self-contained shell.
 
     Args:
         title: The page heading, shown and used as ``<title>``.
         subtitle: One line of context under the heading.
         body: Already-escaped HTML for the page body.
+        generated_at: When the page was built. Stamped into the header so a
+            file found on disk can be told from a freshly generated one --
+            these pages accumulate, and an hour-old map that looks identical
+            to a new one is a real source of confusion. Defaults to now; pass
+            a fixed value to make output reproducible.
 
     Returns:
         A complete HTML document.
     """
+    stamped = generated_at or datetime.now()  # noqa: DTZ005 - local clock is what the user reads
     return (
         "<!DOCTYPE html>\n"
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         f"<title>{escape(title)}</title><style>{_CSS}</style></head><body>"
         f"<header><h1>{escape(title)}</h1>"
-        f'<div class="sub">{escape(subtitle)}</div></header>'
+        f'<div class="sub">{escape(subtitle)}</div>'
+        f'<div class="stamp">{escape(_("Generated %(when)s") % {"when": stamped.strftime("%Y-%m-%d %H:%M:%S")})}</div>'
+        f"</header>"
         f"<main>{body}</main></body></html>"
     )
 
@@ -138,7 +150,10 @@ def card(heading: str, body: str) -> str:
 
 
 def table(
-    headers: Iterable[str], rows: Iterable[Iterable[object]], numeric: set[int] | None = None
+    headers: Iterable[str],
+    rows: Iterable[Iterable[object]],
+    numeric: set[int] | None = None,
+    row_attrs: Sequence[Mapping[str, str]] | None = None,
 ) -> str:
     """Render a simple table, escaping every cell.
 
@@ -146,19 +161,33 @@ def table(
         headers: Column headings.
         rows: Row values; each cell is stringified and escaped.
         numeric: Indices of columns to right-align as numbers.
+        row_attrs: Extra HTML attributes per row (e.g. ``data-*`` hooks for a
+            page's own JS), positionally matched to ``rows``. Omit for a plain
+            table; a caller that wants some rows tagged and others not can
+            still pass ``{}`` for the untagged ones.
 
     Returns:
         The table markup, or an empty-state note when there are no rows.
     """
     numeric = numeric or set()
+    rows = list(rows)
+    # Padded rather than zipped short. `zip` would silently stop at whichever
+    # list ran out, and the thing that runs out is the attribute list -- so a
+    # caller that built one attribute short would lose *table rows*, which on
+    # the conflict map means losing conflicts. A row with no data-* hooks is
+    # merely unfilterable; a missing row is invisible.
+    attrs = list(row_attrs or ())
+    attrs += [{}] * (len(rows) - len(attrs))
     body = "".join(
-        "<tr>"
+        "<tr"
+        + "".join(f' {key}="{escape(value)}"' for key, value in extra.items())
+        + ">"
         + "".join(
             f'<td class="num">{escape(cell)}</td>' if i in numeric else f"<td>{escape(cell)}</td>"
             for i, cell in enumerate(row)
         )
         + "</tr>"
-        for row in rows
+        for row, extra in zip(rows, attrs)
     )
     if not body:
         return f'<div class="empty">{escape(_("Nothing to show."))}</div>'

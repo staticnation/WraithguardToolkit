@@ -8,13 +8,18 @@ theme through it.
 
 from __future__ import annotations
 
+import ctypes as ct
 import re
+import sys
 import tkinter as tk
-from collections.abc import Callable
 from pathlib import Path
 from tkinter import ttk
+from typing import TYPE_CHECKING
 
 from mlox_subset.tracing import trace
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # chrome palette -- the app-wide window/widget colours (as opposed to the
@@ -212,7 +217,48 @@ def apply_dark_theme(root: tk.Tk) -> ttk.Style:
         arrowcolor=DARK["fg"],
     )
     style.map("TScrollbar", background=[("active", DARK["btn_bg_active"])])
+    apply_titlebar_theme(root)
     return style
+
+
+def apply_titlebar_theme(window: tk.Misc) -> None:
+    """Sync a window's native OS titlebar with the active chrome palette.
+
+    ``apply_dark_theme`` above only reaches ttk/tk *content* -- the titlebar
+    is OS-drawn frame that Tk has no theming API for at all. Windows-only (a
+    no-op everywhere else, since this app also runs on Linux and macOS, and
+    a no-op on Windows builds before the 2004 update, where the DWM
+    attribute below doesn't exist yet) -- cosmetic titlebar theming must
+    never be the thing that breaks startup or a theme switch.
+
+    Reads whether the *active* chrome (``DARK``) is presently dark or light
+    via :func:`_is_light_color`, rather than hardcoding dark: every built-in
+    preset is dark, but an imported theme (native JSON or base16) can be
+    light, and in that case the titlebar should follow it like everything
+    else DARK[...] drives.
+
+    Call this on any ``tk.Tk``/``tk.Toplevel`` once it's been realized
+    (created via ``apply_dark_theme`` for ``root``; every other window
+    should call this directly once, right after creation). Live re-syncing
+    on a runtime theme switch is handled by ``_restyle_plain_live`` below,
+    which reaches every open window (root and Toplevels alike) via
+    ``restyle_widget_tree``.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        # winfo_id() needs the window already realized as a real OS window;
+        # update_idletasks() forces that without also pumping the event
+        # queue (which update() does, and which can re-enter user code at
+        # an awkward point mid-construction or mid-theme-switch).
+        window.update_idletasks()
+        hwnd = ct.windll.user32.GetParent(window.winfo_id())
+        value = ct.c_int(0 if _is_light_color(DARK["bg"]) else 2)  # 2=dark, 0=light/default
+        ct.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd, 20, ct.byref(value), ct.sizeof(value)
+        )  # 20 = DWMWA_USE_IMMERSIVE_DARK_MODE
+    except (AttributeError, OSError):
+        pass
 
 
 def style_plain_widget(widget: tk.Misc, chrome: dict | None = None) -> None:
@@ -1401,6 +1447,7 @@ def _restyle_plain_live(w: tk.Misc) -> bool:
         handled = False
     elif isinstance(w, (tk.Tk, tk.Toplevel)):
         _configure_each(w, {"bg": DARK["bg"]})
+        apply_titlebar_theme(w)
     elif isinstance(w, tk.Text):
         # every plain Text/ScrolledText in this app is a console-style pane;
         # the log panel itself is immediately re-coloured again (to the same

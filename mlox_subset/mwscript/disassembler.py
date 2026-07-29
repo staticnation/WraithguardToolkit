@@ -20,7 +20,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Final
 
-from mlox_subset.mwscript.opcodes import FUNCTIONS, INTERNAL
+from mlox_subset.mwscript.opcodes import EXTENDED, FUNCTIONS, INTERNAL
 
 #: Parameter flag bits, from MWEdit's ``script_defs.h``.
 FLAG_BYTE: Final = 0x00000001
@@ -324,7 +324,10 @@ def format_listing(listing: Listing, *, width: int = 16) -> str:
 
     Returns:
         A multi-line string: one line per instruction, and an offset/hex/ASCII
-        dump for each raw span.
+        dump for each raw span. Functions that exist only under MWSE or
+        MW-Enhanced are marked, because a script calling one will not run at
+        all without that runtime -- which is the sort of thing a load-order
+        tool should say out loud rather than leave to be discovered in game.
     """
     lines: list[str] = []
     if listing.declared_length is not None:
@@ -335,7 +338,8 @@ def format_listing(listing: Listing, *, width: int = 16) -> str:
             args = ", ".join(
                 f'"{value}"' if isinstance(value, str) else str(value) for value in item.operands
             )
-            lines.append(f"{item.offset:04X}  {item.name}{f' {args}' if args else ''}")
+            mark = "   ; MWSE/MWE" if item.opcode in EXTENDED else ""
+            lines.append(f"{item.offset:04X}  {item.name}{f' {args}' if args else ''}{mark}")
         else:
             for start in range(0, len(item.data), width):
                 chunk = item.data[start : start + width]

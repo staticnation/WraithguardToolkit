@@ -15,8 +15,10 @@ plugin would risk the map disagreeing with the list beside it.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
 
 #: Grid coordinates as the conflict scanner writes them: a trailing
 #: ``(x, y)`` with optional sign and whitespace. Anchored at the end so a cell
@@ -94,6 +96,12 @@ class CellConflicts(NamedTuple):
         types: Record type to count, so the map can say *what* collided.
         plugins: Every plugin involved, in load order of first appearance.
         winners: Winning plugin to the number of records it wins here.
+        by_plugin: Plugin filename to record-type-to-count, for the subset of
+            this cell's conflicts that plugin actually took part in. Lets a
+            per-plugin view answer "what did THIS mod do here", not just
+            "what happened here" -- see
+            :func:`~mlox_subset.viz.conflictmap.build_conflict_map`'s focus
+            filter.
     """
 
     cell: Cell
@@ -102,6 +110,7 @@ class CellConflicts(NamedTuple):
     types: dict[str, int]
     plugins: list[str]
     winners: dict[str, int]
+    by_plugin: dict[str, dict[str, int]]
 
 
 def group_by_cell(conflicts: Iterable[Mapping[str, Any]]) -> dict[Cell, CellConflicts]:
@@ -127,13 +136,15 @@ def group_by_cell(conflicts: Iterable[Mapping[str, Any]]) -> dict[Cell, CellConf
             continue
         entry = out.get(cell)
         if entry is None:
-            entry = CellConflicts(cell, 0, 0, {}, [], {})
+            entry = CellConflicts(cell, 0, 0, {}, [], {}, {})
         rectype = str(conflict.get("type") or "?")
         entry.types[rectype] = entry.types.get(rectype, 0) + 1
         plugins = conflict.get("plugins") or []
         for plugin in plugins:
             if plugin not in entry.plugins:
                 entry.plugins.append(plugin)
+            per_plugin = entry.by_plugin.setdefault(plugin, {})
+            per_plugin[rectype] = per_plugin.get(rectype, 0) + 1
         winner = conflict.get("winner")
         if winner:
             entry.winners[winner] = entry.winners.get(winner, 0) + 1

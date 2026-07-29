@@ -2,7 +2,7 @@
 
 The back half of the pipeline that :mod:`mlox_subset.rules.expressions` starts:
 given an AST, decide whether it holds for the plugins actually present, and
-turn ``[Requires]``/``[Conflict]``/``[Note]`` blocks into warnings.
+turn ``[Requires]``/``[Conflict]``/``[Patch]``/``[Note]`` blocks into warnings.
 
 Unlike the front half, this needs to read real plugin files -- ``[VER]`` and
 ``[DESC]`` test a plugin's header, ``[SIZE]`` its byte length. It therefore
@@ -21,9 +21,7 @@ bodies in the real rule files through tokenise -> parse -> evaluate.
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Mapping, Sequence
-from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from mlox_subset.plugins import PluginFileIndex, plugin_version, read_plugin_description
 from mlox_subset.rules.expressions import (
@@ -34,6 +32,10 @@ from mlox_subset.rules.expressions import (
 from mlox_subset.rules.parser import TOP_RE, strip_comment
 from mlox_subset.rules.patterns import mlox_pattern_to_regex
 from mlox_subset.versions import MLOX_VERSION_PATTERN, format_version
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Mapping, Sequence
+    from pathlib import Path
 
 # Atomic function forms, matched against a single whole token from the
 # tokeniser. Kept with the evaluator because only it dispatches on them.
@@ -328,7 +330,8 @@ def check_predicates(
 ) -> list[str]:
     """Evaluate every predicate block against the sorted load order.
 
-    Extracts ``[Conflict]``, ``[Requires]`` and ``[Note]`` blocks and reports
+    Extracts ``[Conflict]``, ``[Requires]``, ``[Patch]`` and ``[Note]`` blocks
+    and reports
     the ones that fire.
 
     Args:
@@ -374,7 +377,7 @@ def check_predicates(
     matches = list(TOP_RE.finditer(rules_text))
     for idx, m in enumerate(matches):
         keyword = m.group(1).title()
-        if keyword not in ("Conflict", "Requires", "Note"):
+        if keyword not in ("Conflict", "Requires", "Note", "Patch"):
             continue
 
         start = m.end()
@@ -441,6 +444,41 @@ def check_predicates(
                     if target_names:
                         warning_msg += f"\n    Needed by: {annotate_all(target_names)}"
                     warning_msg += f"\n    Missing: {', '.join(describe_node(n) for n in missing)}"
+                    warnings.append(warning_msg)
+
+        elif keyword == "Patch":
+            # A [Patch] states a MUTUAL dependency, and the guidelines spell out
+            # both halves: "we wouldn't want the patch without the original it
+            # is supposed to patch", and "we wouldn't want the original to go
+            # unpatched". So it fires in two directions, and which one fired is
+            # the useful part of the message -- one means "you installed a patch
+            # for something you do not have", the other means "something you
+            # have has a patch you are missing", and the fixes are opposite.
+            if len(ast) >= 2:
+                patch_active = evaluate_node(ast[0], active_set, index)
+                originals = ast[1:]
+                missing_originals = [
+                    n for n in originals if not evaluate_node(n, active_set, index)
+                ]
+                if patch_active and missing_originals:
+                    names = get_triggered_plugins(ast[0], active_set, index)
+                    warning_msg = f"[PATCH] {message}"
+                    if names:
+                        warning_msg += f"\n    Patch present: {annotate_all(names)}"
+                    warning_msg += "\n    But not what it patches: " + ", ".join(
+                        describe_node(n) for n in missing_originals
+                    )
+                    warnings.append(warning_msg)
+                elif not patch_active and all(
+                    evaluate_node(n, active_set, index) for n in originals
+                ):
+                    present = set()
+                    for n in originals:
+                        present.update(get_triggered_plugins(n, active_set, index))
+                    warning_msg = f"[PATCH] {message}"
+                    if present:
+                        warning_msg += f"\n    Unpatched: {annotate_all(present)}"
+                    warning_msg += f"\n    Missing patch: {describe_node(ast[0])}"
                     warnings.append(warning_msg)
 
         elif keyword == "Note":

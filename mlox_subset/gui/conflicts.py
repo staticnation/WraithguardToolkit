@@ -8,18 +8,16 @@ reference resolves exactly as it did when the methods lived there.
 
 from __future__ import annotations
 
+import itertools
 import json
-import queue
 import threading
 import tkinter as tk
 import traceback
 import webbrowser
-from collections.abc import Callable, Mapping, Sequence
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import mlox_subset_sort as core
 from mlox_subset.gui import app_base_dir
@@ -33,15 +31,20 @@ from mlox_subset.gui.theme import (
 )
 from mlox_subset.gui.widgets import QueueWriter, add_tooltip
 from mlox_subset.i18n import gettext as _, ngettext
+from mlox_subset.logging_setup import get_logger
+from mlox_subset.nif import MeshAnalyser
+from mlox_subset.nif.geometry import block_tree, world_meshes
+from mlox_subset.nif.reader import NifParseError, read_nif
+from mlox_subset.nif.serve import Payload, ViewerServer
+from mlox_subset.nif.textures import TextureResolver
+from mlox_subset.nif.viewer import ViewerError, build_viewer_page, three_source
 from mlox_subset.plugins import PluginFileIndex
-from mlox_subset.tracing import trace
-from mlox_subset.viz import sidecar
 
-try:
-    from mlox_subset.viz import assets as viz_assets, cache as viz_cache
-except ImportError:  # pragma: no cover - only when viz/ is absent
-    viz_assets = None  # type: ignore[assignment]
-    viz_cache = None  # type: ignore[assignment]
+LOG_GUI = get_logger(__name__)
+
+if TYPE_CHECKING:
+    import queue
+    from collections.abc import Callable, Mapping, Sequence
 
 # Compiled-script disassembly for the field-diff window. Optional, exactly as
 # in the main module: without it the diff shows the raw base64 blob. Declared
@@ -57,42 +60,41 @@ except ImportError:  # pragma: no cover - only when mwscript/ is absent
     listing_for_bytecode_field = None
     variables_text_for_field = None
 
-# Landscape / path-grid field decoding. Optional on the same terms.
+# Landscape / path-grid field decoding, and the format reference that explains
+# what each field is. Optional on the same terms.
 text_for_field: Callable[..., str | None] | None
 describe_field: Callable[[str], str | None] | None
+field_note: Callable[[str, str], str | None] | None
+layout_text: Callable[[str], str | None] | None
 try:
     from mlox_subset.tes3fields import describe_field, text_for_field
+    from mlox_subset.tes3fields.annotate import field_note, layout_text
 except ImportError:  # pragma: no cover - only when tes3fields/ is absent
     text_for_field = None
     describe_field = None
+    field_note = None
+    layout_text = None
 
-# The HTML visualisations. Optional on the same terms again: without the
-# package the windows lose their "Visualise" buttons and nothing else changes.
-build_cell_pages: Callable[..., dict] | None
+# The HTML visualisations that don't depend on the explorer/cell-page/detail
+# machinery: the direct conflict map and the per-field graph/difference/3D
+# views. Optional on the same terms as above: without the package the
+# windows lose their "Visualise" buttons and nothing else changes.
 build_conflict_map: Callable[..., str] | None
-build_explorer: Callable[..., str] | None
 build_height_delta: Callable[..., str] | None
 build_pathgrid_graph: Callable[..., str] | None
 build_terrain_3d: Callable[..., str] | None
-collect_detail: Callable[..., dict] | None
 try:
     from mlox_subset.viz import (
-        build_cell_pages,
         build_conflict_map,
-        build_explorer,
         build_height_delta,
         build_pathgrid_graph,
         build_terrain_3d,
-        collect_detail,
     )
 except ImportError:  # pragma: no cover - only when viz/ is absent
-    build_cell_pages = None
     build_conflict_map = None
-    build_explorer = None
     build_height_delta = None
     build_pathgrid_graph = None
     build_terrain_3d = None
-    collect_detail = None
 
 
 def _as_float(value: object) -> float:
@@ -166,6 +168,9 @@ class ConflictWindowsMixin:
         subset = self._current_plan.get("subset") or []
         self._keep_json = self.keep_json_var.get()
         self._conf_subset_lower = {str(s).lower() for s in subset}  # your custom mods
+        self._conf_scan_args = (order, dirs, subset)
+        self._conf_singles = None  # stale from any previous scan; refetched on demand
+        self._conf_other_singles = None
         self.worker_running = True
         self.sort_button.configure(state="disabled")
         self.export_button.configure(state="disabled")
@@ -273,6 +278,12 @@ class ConflictWindowsMixin:
                 print(_(" DATA-PATH RESOURCE (VFS) CONFLICTS"))
                 print("=" * 70)
                 conflicts, stats = core.detect_resource_conflicts(dirs, subset_dirs=subset_dirs)
+                # Read the meshes that conflict *and* differ, so the report and
+                # the tree can mark them. Without this the GUI had the whole
+                # mesh reader available and showed none of it -- the scan-time
+                # pass was wired into the command line only.
+                mesh_stats = core.analyse_mesh_conflicts(conflicts)
+                stats = {**stats, **{f"mesh_{k}": v for k, v in mesh_stats.items()}}
                 print(core.format_resource_report(conflicts, stats, limit=200))
             status = _("Resource conflicts: %(count)d file(s). See the window.") % {
                 "count": stats.get("conflicts", 0)
@@ -339,13 +350,18 @@ class ConflictWindowsMixin:
         body.pack(fill="both", expand=True, padx=8, pady=(0, 6))
 
         mid = ttk.Frame(body)
-        cols = ("custom", "path", "count", "winner")
+        cols = ("custom", "mesh", "path", "count", "winner")
         tree = ttk.Treeview(
             mid, columns=cols, show="headings", selectmode="browse", style="Conf.Treeview"
         )
         for c, txt, w in (
             ("custom", "★", 34),
-            ("path", "File", 520),
+            # A marked row is one where reading the mesh found something. It
+            # earns a column rather than living only in the detail panel: the
+            # whole value of the finding is triage, and a signal you have to
+            # click every row to see is not triage.
+            ("mesh", "!", 28),
+            ("path", "File", 500),
             ("count", "#", 50),
             ("winner", "Winner (loads last)", 280),
         ):
@@ -364,7 +380,7 @@ class ConflictWindowsMixin:
         detbox = ttk.Frame(body)
         detail = tk.Text(
             detbox,
-            height=5,
+            height=7,
             wrap="word",
             background=DARK["log_bg"],
             foreground=DARK["fg"],
@@ -373,7 +389,16 @@ class ConflictWindowsMixin:
             highlightbackground=DARK["border"],
         )
         detail.pack(fill="both", expand=True)
-        detail.insert("1.0", "Select a file to see every folder that provides it, in load order.")
+        detail.insert(
+            "1.0",
+            _(
+                "Select a file to see every folder that provides it, in load order.\n"
+                "Selecting a mesh (.nif) also reads it and describes what each "
+                "provider contains -- shapes, textures, collision, animation -- "
+                "and what the winning mesh loses. Rows marked ! in the second "
+                "column already have a finding."
+            ),
+        )
         detail.configure(state="disabled")
         body.add(detbox, minsize=70)
         self._attach_hamburger_grip(body, "vertical")
@@ -383,14 +408,24 @@ class ConflictWindowsMixin:
             if not sel:
                 return
             c = self._res_shown[int(sel[0])]
-            txt = (
-                f"{c['path']}\n"
-                + "\n".join(f"  {i + 1}. {p}" for i, p in enumerate(c["providers"]))
-                + f"\nWins: {c['winner']}"
-            )
+            lines = [
+                c["path"],
+                *(f"  {i + 1}. {p}" for i, p in enumerate(c["providers"])),
+                f"Wins: {c['winner']}",
+            ]
+            # Meshes are read *here*, on selection, and never during the scan.
+            # A large mod setup holds tens of thousands of meshes and the scan
+            # has no idea which one anybody cares about; by the time a row is
+            # clicked, it knows exactly.
+            lines.extend(self._mesh_detail(c))
+            is_mesh = str(c.get("path", "")).lower().endswith(".nif")
+            for name in ("_res_view3d", "_res_export3d"):
+                button = getattr(self, name, None)
+                if button is not None:
+                    button.configure(state="normal" if is_mesh else "disabled")
             detail.configure(state="normal")
             detail.delete("1.0", "end")
-            detail.insert("1.0", txt)
+            detail.insert("1.0", "\n".join(lines))
             detail.configure(state="disabled")
 
         tree.bind("<<TreeviewSelect>>", on_sel)
@@ -399,8 +434,211 @@ class ConflictWindowsMixin:
         ttk.Button(btns, text=_("Save report (CSV)..."), command=self._save_resource_csv).pack(
             side="left"
         )
+        self._res_view3d = ttk.Button(
+            btns, text=_("View in 3D"), command=self._open_mesh_viewer, state="disabled"
+        )
+        self._res_view3d.pack(side="left", padx=(8, 0))
+        self._res_export3d = ttk.Button(
+            btns, text=_("Export 3D file..."), command=self._export_mesh_viewer, state="disabled"
+        )
+        self._res_export3d.pack(side="left", padx=(4, 0))
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
         self._refill_res_tree()
+
+    def _mesh_detail(self, conflict: dict) -> list[str]:
+        """Read the meshes behind one selected conflict.
+
+        Kept off the scan path deliberately -- see the caller. Failures are
+        shown rather than raised: a mod folder holds meshes for other engines
+        and truncated downloads, and neither should close the window a user
+        just opened.
+
+        Args:
+            conflict: The selected conflict entry.
+
+        Returns:
+            Lines to append to the detail panel, empty when it is not a mesh.
+        """
+        analyser = getattr(self, "_mesh_analyser", None)
+        if analyser is None:
+            analyser = MeshAnalyser()
+            self._mesh_analyser = analyser
+        try:
+            return core.describe_mesh_detail(analyser, conflict)
+        except OSError as exc:
+            return [_("Could not read the meshes: %(error)s") % {"error": exc}]
+
+    def _mesh_sides(self, conflict: dict) -> tuple[list[tuple[str, list]], list[list]]:
+        """Read every provider of a mesh conflict.
+
+        Args:
+            conflict: The selected conflict entry.
+
+        Returns:
+            ``(label, meshes)`` pairs and the matching block trees. Both come
+            from one parse per provider -- reading each file twice to get the
+            geometry and then the structure would double the cost of opening
+            a view for no reason.
+
+        Raises:
+            NifParseError: If a mesh cannot be parsed.
+            OSError: If one cannot be read.
+        """
+        path = str(conflict.get("path", ""))
+        sides: list[tuple[str, list]] = []
+        trees: list[list] = []
+        for provider in conflict["providers"]:
+            parsed = read_nif(Path(str(provider)) / path, geometry=True)
+            sides.append((f"{Path(str(provider)).name} / {path}", world_meshes(parsed)))
+            trees.append(block_tree(parsed))
+        return sides, trees
+
+    def _texture_resolver(self, conflict: dict) -> TextureResolver | None:
+        """Build a texture index for the folders this scan covered.
+
+        Textures are resolved across *all* the data folders, not just the one
+        providing the mesh: a mesh in one mod routinely draws with a texture
+        another mod ships, and resolving only within its own folder would show
+        half a mod collection untextured.
+
+        Args:
+            conflict: The selected conflict, for its providers.
+
+        Returns:
+            A resolver, or ``None`` when there is nothing to index.
+        """
+        dirs = [Path(str(d)) for d in (self._plan_scan_dirs() or [])]
+        if not dirs:
+            dirs = [Path(str(p)) for p in conflict.get("providers", [])]
+        if not dirs:
+            return None
+        cached = getattr(self, "_texture_index", None)
+        key = tuple(str(d) for d in dirs)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        resolver = TextureResolver(dirs)
+        self._texture_index = (key, resolver)
+        return resolver
+
+    def _selected_mesh_conflict(self) -> dict | None:
+        """The selected row, when it is a mesh.
+
+        Returns:
+            The conflict entry, or ``None``.
+        """
+        tree = getattr(self, "_res_tree", None)
+        selection = tree.selection() if tree is not None else ()
+        if not selection:
+            return None
+        conflict = self._res_shown[int(selection[0])]
+        return conflict if str(conflict.get("path", "")).lower().endswith(".nif") else None
+
+    def _viewer_server(self) -> ViewerServer | None:
+        """The loopback server, started on first use.
+
+        Returns:
+            The running server, or ``None`` when no socket could be bound --
+            which happens on locked-down machines and is why the standalone
+            page still exists.
+        """
+        server: ViewerServer | None = getattr(self, "_mesh_server", None)
+        if server is None:
+            server = ViewerServer()
+            self._mesh_server = server
+        if not server.running:
+            try:
+                server.start()
+            except OSError as exc:
+                LOG_GUI.warning("no loopback port for the mesh viewer: %s", exc)
+                return None
+        return server
+
+    def _open_mesh_viewer(self) -> None:
+        """Show the selected mesh conflict in 3D.
+
+        Served over loopback when a port can be bound: the page is a few
+        kilobytes and three.js is fetched once and cached, instead of a
+        multi-megabyte document rebuilt per view. Falls back to the standalone
+        page, which is the same builder with the bytes carried inline.
+        """
+        conflict = self._selected_mesh_conflict()
+        if conflict is None:
+            return
+        path = str(conflict.get("path", ""))
+        try:
+            sides, trees = self._mesh_sides(conflict)
+            server = self._viewer_server()
+            if server is None:
+                self._open_html_view(
+                    build_viewer_page(
+                        sides, title=path, trees=trees, resolver=self._texture_resolver(conflict)
+                    ),
+                    "mesh_view",
+                    _("Mesh view"),
+                )
+                return
+            counter = itertools.count()
+
+            def sink(blob: bytes, content_type: str = "") -> dict[str, str]:
+                kind = content_type or "application/octet-stream"
+                suffix = "png" if content_type.startswith("image/") else "bin"
+                key = f"g{next(counter)}.{suffix}"
+                return {"url": server.publish(key, Payload(blob, kind))}
+
+            library_url = server.publish(
+                "three.js", Payload(three_source().encode("utf-8"), "text/javascript")
+            )
+            page = build_viewer_page(
+                sides,
+                title=path,
+                sink=sink,
+                library_url=library_url,
+                trees=trees,
+                resolver=self._texture_resolver(conflict),
+            )
+            url = server.publish("index.html", Payload(page.encode("utf-8"), "text/html"))
+        except (ViewerError, NifParseError, OSError) as exc:
+            messagebox.showerror(_("Cannot show this mesh"), str(exc))
+            return
+        # Through the same chain as every other visualisation. The served page
+        # is a URL rather than a file, which the chain now understands: the one
+        # viewer it cannot use is tkinterweb, whose load_file cannot fetch, and
+        # this page needs real requests for its geometry.
+        opener = getattr(self, "open_html_in_app", None)
+        if callable(opener):
+            opener(url, _("Mesh view"))
+        else:  # pragma: no cover - only if the mixin is used outside App
+            webbrowser.open(url)
+        self.status_var.set(_("Opened the 3D view for %(path)s") % {"path": path})
+
+    def _export_mesh_viewer(self) -> None:
+        """Write the selected mesh conflict as one standalone HTML file.
+
+        The served page is smaller and quicker; this one survives being moved,
+        kept or sent to someone, which the served page cannot.
+        """
+        conflict = self._selected_mesh_conflict()
+        if conflict is None:
+            return
+        path = str(conflict.get("path", ""))
+        target = filedialog.asksaveasfilename(
+            title=_("Export the 3D view"),
+            defaultextension=".html",
+            initialfile=f"{Path(path).stem}_3d.html",
+            filetypes=(("HTML files", "*.html"), ("All files", "*.*")),
+        )
+        if not target:
+            return
+        try:
+            sides, trees = self._mesh_sides(conflict)
+            page = build_viewer_page(
+                sides, title=path, trees=trees, resolver=self._texture_resolver(conflict)
+            )
+            Path(target).write_text(page, encoding="utf-8")
+        except (ViewerError, NifParseError, OSError) as exc:
+            messagebox.showerror(_("Export failed"), str(exc))
+            return
+        self.status_var.set(_("Exported: %(path)s") % {"path": target})
 
     def _save_resource_csv(self) -> None:
         if not getattr(self, "_all_res", None):
@@ -453,6 +691,20 @@ class ConflictWindowsMixin:
             variable=self._conf_subset_only,
             command=self._refill_conflict_tree,
         ).pack(side="right")
+        self._include_singles_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            top,
+            text=_("Include my mods' non-conflicting records"),
+            variable=self._include_singles_var,
+            command=lambda: self._toggle_singles("mine"),
+        ).pack(side="right", padx=(0, 12))
+        self._other_singles_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            top,
+            text=_("Include other mods' non-conflicting records"),
+            variable=self._other_singles_var,
+            command=lambda: self._toggle_singles("other"),
+        ).pack(side="right", padx=(0, 12))
 
         engine = (stats or {}).get("engine", "builtin")
         bar = ttk.Frame(win, padding=(8, 0))
@@ -561,50 +813,76 @@ class ConflictWindowsMixin:
             ttk.Button(
                 btns, text=_("Dump tes3conv JSON..."), command=self._dump_conflict_json
             ).pack(side="left", padx=(8, 0))
-        if build_explorer is not None:
-            map_button = ttk.Button(
-                btns, text=_("Conflict explorer..."), command=self._show_conflict_map
+        if build_conflict_map is not None:
+            cmap_button = ttk.Button(
+                btns, text=_("Conflict map (direct)..."), command=self._show_conflict_map_direct
             )
-            map_button.pack(side="left", padx=(8, 0))
+            cmap_button.pack(side="left", padx=(8, 0))
             add_tooltip(
-                map_button,
+                cmap_button,
                 _(
-                    "Open the conflict explorer: a world map of WHERE your mods collide, "
-                    "filterable by mod, plus exterior and interior lists. Click any cell "
-                    "to see that cell's terrain surface, height difference and navigation "
-                    "grid.\n\n"
-                    "This is not the cell map: that shows which mods TOUCH which cells. "
-                    "This shows which mods EDIT the land record and path grid there, and "
-                    "how those edits conflict."
+                    "Build and open a conflict map directly from the selected conflicts. "
+                    "Shows which mods edit LAND records in each cell, with a breakdown of "
+                    "terrain shape, NPC navigation, and cell record edits."
                 ),
             )
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
-
         self._refill_conflict_tree()
 
-    def _detail_cache(self) -> tuple[Any, Callable[[Mapping[str, Any]], str] | None]:
-        """Build the mtime cache and per-conflict signature function.
+    def _show_conflict_map_direct(self) -> None:
+        """Build the conflict map off the main thread, then show it.
 
-        The cache persists decoded cell JSON under the app directory, so the
-        slow tes3conv decode is skipped for cells whose plugins have not
-        changed since the last run -- which is what "help with load times"
-        means here. The signature is the mtime and size of the conflict's
-        plugins, so a re-saved plugin transparently invalidates just its cells.
-
-        Returns:
-            ``(cache, signature_for)``, or ``(None, None)`` if the viz cache is
-            unavailable.
+        Unlike the explorer, this shows ONLY conflicts (no sampled overview cells).
+        Threaded for the same reason as the explorer.
         """
-        if viz_cache is None:
-            return None, None
-        cache = viz_cache.DetailCache(app_base_dir() / ".viz_cache")
-        paths = dict(getattr(self, "_conf_paths", {}) or {})
+        conflicts = getattr(self, "_all_conflicts", None)
+        if not conflicts or build_conflict_map is None or self.worker_running:
+            return
+        self.worker_running = True
+        self.status_var.set(_("Building the conflict map..."))
+        threading.Thread(
+            target=self._conflict_map_worker, args=(list(conflicts),), daemon=True
+        ).start()
 
-        def signature_for(conflict: Mapping[str, Any]) -> str:
-            """Change signature for one conflict's contributing plugins."""
-            return viz_cache.plugin_signature(conflict.get("plugins") or [], paths)
+    def _conflict_map_worker(self, conflicts: list[dict]) -> None:
+        """Build the conflict map, then hand it to the UI thread to display.
 
-        return cache, signature_for
+        Args:
+            conflicts: The conflict list to render.
+        """
+        markup: str | None = None
+        error = ""
+        cells: set[tuple[int, int]] = set()
+        if build_conflict_map is None:  # pragma: no cover - guarded by caller too
+            self.root.after(0, lambda: self._conflict_map_done(None, "viz unavailable", 0))
+            return
+        try:
+            # Collect cells with conflicts for the status-bar count only --
+            # build_conflict_map computes its own cell breakdown from
+            # `conflicts` and does not take a `cells` argument.
+            from mlox_subset.viz import conflictmap as cmap_module
+
+            cells = cmap_module.cells_with_conflicts(conflicts)
+            markup = build_conflict_map(
+                conflicts,
+                subset_lower=getattr(self, "_conf_subset_lower", ()),
+            )
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
+        self.root.after(0, lambda: self._conflict_map_done(markup, error, len(cells)))
+
+    def _conflict_map_done(self, markup: str | None, error: str, cells: int) -> None:
+        """Open the conflict map in the in-app viewer, or report the failure."""
+        self.worker_running = False
+        if markup is None:
+            self.status_var.set(_("The conflict map could not be built."))
+            messagebox.showerror(
+                _("Could not build conflict map"),
+                _("%(error)s") % {"error": error},
+            )
+            return
+        self.status_var.set(_("Conflict map ready (%(cells)d cell(s)).") % {"cells": cells})
+        self._open_html_view(markup, "conflict_map", _("Conflict Map"))
 
     def _open_html_view(self, markup: str, stem: str, title: str = "") -> None:
         """Write a generated page beside the app and show it in-app.
@@ -649,138 +927,6 @@ class ConflictWindowsMixin:
                 _("The page was written to %(path)s (%(error)s)") % {"path": path, "error": exc},
             )
 
-    def _show_conflict_map(self) -> None:
-        """Build the conflict explorer off the main thread, then show it.
-
-        Threaded because it is genuinely slow: decoding landscape and path-grid
-        payloads means a tes3conv field lookup per cell. Doing that inline froze
-        the window with no indication of why -- the first version of this did
-        exactly that, and looked like a hang rather than work in progress.
-        """
-        conflicts = getattr(self, "_all_conflicts", None)
-        if not conflicts or build_explorer is None or self.worker_running:
-            return
-        self.worker_running = True
-        self.status_var.set(_("Building the conflict explorer..."))
-        threading.Thread(target=self._explorer_worker, args=(list(conflicts),), daemon=True).start()
-
-    def _explorer_worker(self, conflicts: list[dict]) -> None:
-        """Decode, render and write the explorer, then hand back to the UI.
-
-        Args:
-            conflicts: The conflict list to render.
-        """
-        written: str | None = None
-        error = ""
-        cells = 0
-        if build_explorer is None:  # pragma: no cover - guarded by the caller too
-            self.root.after(0, lambda: self._explorer_done(None, "viz is unavailable", 0))
-            return
-        try:
-            detail: dict = {}
-            if collect_detail is not None and self._conf_session is not None:
-
-                def fields_for(conflict: Mapping[str, Any]) -> dict:
-                    """Look one conflict's fields up through tes3conv."""
-                    _keys, per, _diff = core.diff_record_fields(
-                        self._conf_session, conflict, self._conf_paths
-                    )
-                    return per
-
-                cache, sig_for = self._detail_cache()
-                # Only the sampled overview here (bounded to ~60 cells) so the
-                # explorer opens promptly. Full-resolution cell pages are the
-                # expensive part and are written in the background afterwards --
-                # the world 3D terrain is not decoded at all (held back).
-                detail = collect_detail(conflicts, fields_for, cache=cache, signature_for=sig_for)
-            cells = len(detail)
-            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005 - local clock
-            path = app_base_dir() / f"conflict_explorer_{stamp}.html"
-            data_dir = path.stem + sidecar.DATA_SUFFIX
-            markup = build_explorer(
-                conflicts,
-                detail=detail,
-                cell_map_href="cell_map.html",
-                data_dir=data_dir,
-                embed_detail=False,
-            )
-            path.write_text(markup, encoding="utf-8")
-            sidecar.write_sidecars(path, {"detail": detail})
-            if viz_assets is not None:
-                # Shared JS/CSS as files, so the pages are small and debuggable.
-                viz_assets.write_assets(app_base_dir() / data_dir)
-            written = str(path)
-            if detail and build_cell_pages is not None:
-                threading.Thread(
-                    target=self._fill_cell_pages,
-                    args=(list(conflicts), str(path), data_dir, len(detail)),
-                    daemon=True,
-                ).start()
-        except Exception as exc:  # noqa: BLE001 - a view must never kill the scan
-            error = str(exc)
-        self.root.after(0, lambda: self._explorer_done(written, error, cells))
-
-    def _fill_cell_pages(
-        self, conflicts: list[dict], page_path: str, data_dir: str, limit: int
-    ) -> None:
-        """Decode full-resolution cells and write their pages, in the background.
-
-        Runs after the explorer is already open, so its cost is never on the
-        path to seeing it. Best-effort: any failure is swallowed, because the
-        pages enrich the explorer rather than being required by it, and the
-        client degrades to the sampled view for a cell whose page is not ready.
-
-        Args:
-            conflicts: The conflict rows.
-            page_path: The explorer HTML path (for sibling filenames).
-            data_dir: The sidecar folder name.
-            limit: How many cells the overview covered, so the two agree.
-        """
-        if self._conf_session is None or collect_detail is None or build_cell_pages is None:
-            return
-        try:
-
-            def fields_for(conflict: Mapping[str, Any]) -> dict:
-                """Look one conflict's fields up through tes3conv."""
-                _keys, per, _diff = core.diff_record_fields(
-                    self._conf_session, conflict, self._conf_paths
-                )
-                return per
-
-            cache, sig_for = self._detail_cache()
-            full = collect_detail(
-                conflicts, fields_for, limit=limit, stride=1, cache=cache, signature_for=sig_for
-            )
-            path = Path(page_path)
-            pages = build_cell_pages(full, explorer_href=path.name, cell_map_href="cell_map.html")
-            sidecar.write_sidecars(path, per_cell=full, cell_pages=pages)
-            trace(f"conflict explorer: {len(pages)} full-resolution cell page(s) written")
-        except Exception:  # noqa: BLE001 - enrichment only; the explorer is already open
-            trace("conflict explorer: cell-page fill FAILED:\n" + traceback.format_exc())
-
-    def _explorer_done(self, path: str | None, error: str, cells: int) -> None:
-        """Open the built explorer, or report why it could not be built.
-
-        Args:
-            path: The written page, or ``None`` on failure.
-            error: The failure message, if any.
-            cells: How many cells got local detail.
-        """
-        self.worker_running = False
-        if path is None:
-            self.status_var.set(_("The conflict explorer could not be built."))
-            messagebox.showerror(
-                _("Could not build the conflict explorer"), _("%(error)s") % {"error": error}
-            )
-            return
-        self._last_explorer_file = path
-        self.status_var.set(
-            _("Conflict explorer: %(cells)d cell(s) with local detail.") % {"cells": cells}
-        )
-        opener = getattr(self, "open_html_in_app", None)
-        if callable(opener):
-            opener(Path(path), _("Conflict explorer"))
-
     def _visualise_field(self, key: str, plugins: Sequence[str], per: Mapping[str, Any]) -> None:
         """Open the right visualisation for the selected field.
 
@@ -793,7 +939,6 @@ class ConflictWindowsMixin:
             per: Field values per plugin.
         """
         winner = plugins[-1] if plugins else ""
-        loser = plugins[-2] if len(plugins) > 1 else ""
         cell = str(getattr(self, "_conf_record_label", "") or "")
 
         def value(plugin: str, field: str, default: object = "") -> Any:  # noqa: ANN401
@@ -815,41 +960,33 @@ class ConflictWindowsMixin:
 
         try:
             if key == "connections" and build_pathgrid_graph is not None:
-                markup = build_pathgrid_graph(
-                    value(winner, "connections"),
-                    value(winner, "points", None),
-                    winner_name=winner,
-                    loser_value=value(loser, "connections", None) or None,
-                    loser_points=value(loser, "points", None),
-                    loser_name=loser,
-                    cell_label=cell,
-                )
+                surfaces = {
+                    p: (value(p, "connections"), value(p, "points", None))
+                    for p in plugins
+                    if value(p, "connections", None) is not None
+                }
+                if winner not in surfaces:
+                    return
+                markup = build_pathgrid_graph(surfaces, winner_name=winner, cell_label=cell)
                 self._open_html_view(markup, "pathgrid")
                 return
-            if key == "vertex_heights.data" and loser and build_height_delta is not None:
-                markup = build_height_delta(
-                    value(winner, key),
-                    value(loser, key),
-                    winner_name=winner,
-                    loser_name=loser,
-                    winner_offset=_as_float(value(winner, "vertex_heights.offset", 0.0)),
-                    loser_offset=_as_float(value(loser, "vertex_heights.offset", 0.0)),
-                    cell_label=cell,
-                )
-                self._open_html_view(markup, "height_delta")
+            if key == "vertex_heights.data" and build_height_delta is not None and len(plugins) > 1:
+                surfaces = {
+                    p: (value(p, key), _as_float(value(p, "vertex_heights.offset", 0.0)))
+                    for p in plugins
+                    if value(p, key, None) is not None
+                }
+                if winner in surfaces:
+                    markup = build_height_delta(surfaces, winner_name=winner, cell_label=cell)
+                    self._open_html_view(markup, "height_delta")
                 return
+
             if key == "vertex_heights.data" and build_terrain_3d is not None:
-                # Only one plugin has the field, so there is nothing to
-                # subtract -- show the surface itself instead of refusing.
-                markup = build_terrain_3d(
-                    {
-                        p: (value(p, key), _as_float(value(p, "vertex_heights.offset", 0.0)))
-                        for p in plugins
-                        if value(p, key)
-                    },
-                    cell_label=cell,
+                has_single_plugin = (
+                    sum(1 for p in plugins if (per.get(p) or {}).get("vertex_heights.data")) == 1
                 )
-                self._open_html_view(markup, "terrain")
+                if has_single_plugin:
+                    self._show_terrain_3d(plugins, per)
         except Exception as exc:  # noqa: BLE001 - a bad record must not kill the window
             messagebox.showerror(_("Could not build the view"), _("%(error)s") % {"error": exc})
 
@@ -878,6 +1015,65 @@ class ConflictWindowsMixin:
             messagebox.showerror(_("Could not build the view"), _("%(error)s") % {"error": exc})
             return
         self._open_html_view(markup, "terrain")
+
+    def _add_format_reference_button(self, bar: ttk.Frame, record_type: str) -> None:
+        """Offer the documented layout of the record being diffed.
+
+        Only when the reference actually covers this record type, so the button
+        can never open an empty window.
+
+        Args:
+            bar: The detail window's button row.
+            record_type: tes3conv's ``"type"`` value for the record.
+        """
+        if layout_text is None or not record_type or layout_text(record_type) is None:
+            return
+        button = ttk.Button(
+            bar,
+            text=_("Format reference..."),
+            command=lambda: self._show_format_reference(record_type),
+        )
+        button.pack(side="left", padx=(12, 0))
+        add_tooltip(
+            button,
+            _(
+                "Show what this kind of record is supposed to contain: every subrecord, "
+                "whether the game requires it, how wide it is, and -- where the layout is "
+                "documented -- the named fields inside it.\n\n"
+                "A diff tells you what changed; this tells you what it was."
+            ),
+        )
+
+    def _show_format_reference(self, record_type: str) -> None:
+        """Open a window with the record type's documented layout.
+
+        Args:
+            record_type: tes3conv's ``"type"`` value for the record.
+        """
+        if layout_text is None:
+            return
+        text = layout_text(record_type)
+        if text is None:
+            return
+        win = tk.Toplevel(self.root)
+        win.title(_("Format reference: %(type)s") % {"type": record_type})
+        win.configure(bg=DARK["bg"])
+        win.geometry("860x640")
+        widget = scrolledtext.ScrolledText(
+            win,
+            wrap="word",
+            font=("TkFixedFont", 10),
+            # log_bg, matching every other read-only text pane in the app. NOT
+            # "entry_bg": there is no such key, and asking for one raised a
+            # KeyError *after* the Toplevel was created -- so the window opened,
+            # blank, and the traceback went to stderr where nobody was looking.
+            bg=DARK["log_bg"],
+            fg=DARK["fg"],
+            insertbackground=DARK["fg"],
+        )
+        widget.pack(fill="both", expand=True, padx=8, pady=8)
+        widget.insert("1.0", text)
+        widget.configure(state="disabled")
 
     def _add_field_view_buttons(
         self, bar: ttk.Frame, key: str, plugins: Sequence[str], per: Mapping[str, Any]
@@ -1028,6 +1224,12 @@ class ConflictWindowsMixin:
             note += " · decoded to local variable names"
         elif describe_field is not None and (described := describe_field(key)):
             note += f" · {described}"
+        record_type = str(getattr(self, "_conf_record_type", "") or "")
+        if field_note is not None and (formatted := field_note(record_type, key)):
+            # What this field is in the file itself, not in tes3conv's JSON:
+            # the subrecord it comes from, its width, and whether the game
+            # requires it.
+            note += f" · {formatted}"
         ttk.Label(win, text=f"{key}   ({note})", padding=8).pack(anchor="w")
         bar = ttk.Frame(win, padding=(8, 0))
         bar.pack(fill="x")
@@ -1045,6 +1247,7 @@ class ConflictWindowsMixin:
             side="left"
         )
         self._add_field_view_buttons(bar, key, plugins, per)
+        self._add_format_reference_button(bar, record_type)
         ttk.Label(
             bar,
             text=_("Syntax highlighting: %(theme)s") % {"theme": self.log_theme_var.get()},
@@ -1138,14 +1341,105 @@ class ConflictWindowsMixin:
             nb.add(frame, text=tab)
         ttk.Button(win, text=_("Close"), command=win.destroy).pack(pady=(0, 8))
 
+    #: Per-checkbox config for the two non-conflicting-records toggles:
+    #: which BooleanVar, which cache attribute, and which engine function.
+    #: ``ClassVar`` because it is shared, read-only configuration -- never
+    #: mutated per instance, which is what a bare mutable class attribute
+    #: would invite.
+    _SINGLES_KINDS: ClassVar[dict[str, dict[str, Any]]] = {
+        "mine": {
+            "var": "_include_singles_var",
+            "cache": "_conf_singles",
+            "fn": "list_subset_singles",
+            "label": lambda: _("your mods'"),
+        },
+        "other": {
+            "var": "_other_singles_var",
+            "cache": "_conf_other_singles",
+            "fn": "list_other_singles",
+            "label": lambda: _("other mods'"),
+        },
+    }
+
+    def _toggle_singles(self, kind: str) -> None:
+        """Show/hide non-conflicting records (``kind`` "mine" or "other").
+
+        Fetched once per scan and cached -- toggling a checkbox off and back
+        on just re-filters, it doesn't re-scan. Deliberately never touches
+        ``self._all_conflicts``: the conflict map and CSV export stay
+        conflict-only, since a record one plugin defines alone isn't a
+        conflict and doesn't belong in either.
+        """
+        cfg = self._SINGLES_KINDS[kind]
+        var: tk.BooleanVar = getattr(self, cfg["var"])
+        if not var.get():
+            self._refill_conflict_tree()
+            return
+        if getattr(self, cfg["cache"], None) is not None:
+            self._refill_conflict_tree()
+            return
+        scan_args = getattr(self, "_conf_scan_args", None)
+        if scan_args is None or self.worker_running:
+            var.set(False)
+            return
+        order, dirs, subset = scan_args
+        if kind == "mine" and not subset:
+            var.set(False)
+            messagebox.showinfo(
+                _("No custom mods"),
+                _("You have no custom/subset mods configured, so there is nothing to list here."),
+            )
+            return
+        self.worker_running = True
+        self.status_var.set(
+            _("Finding %(label)s non-conflicting records...") % {"label": cfg["label"]()}
+        )
+        threading.Thread(
+            target=self._singles_worker, args=(order, dirs, subset, kind), daemon=True
+        ).start()
+
+    def _singles_worker(
+        self, order: list[str], dirs: list[str], subset: list[str], kind: str
+    ) -> None:
+        writer = QueueWriter(self.log_queue)
+        records: list[dict] = []
+        error = ""
+        try:
+            with redirect_stdout(writer), redirect_stderr(writer):
+                index = PluginFileIndex(dirs)
+                fn = getattr(core, self._SINGLES_KINDS[kind]["fn"])
+                records, _stats = fn(order, index, subset_names=subset, session=self._conf_session)
+        except Exception:  # noqa: BLE001
+            error = traceback.format_exc()
+        self.root.after(0, self._singles_done, records, error, kind)
+
+    def _singles_done(self, records: list[dict], error: str, kind: str) -> None:
+        self.worker_running = False
+        cfg = self._SINGLES_KINDS[kind]
+        var: tk.BooleanVar = getattr(self, cfg["var"])
+        if error:
+            var.set(False)
+            self.status_var.set(_("Could not list records."))
+            messagebox.showerror(_("Could not list records"), error)
+            return
+        setattr(self, cfg["cache"], records)
+        self.status_var.set(
+            _("Found %(count)d non-conflicting record(s) from %(label)s.")
+            % {"count": len(records), "label": cfg["label"]()}
+        )
+        self._refill_conflict_tree()
+
     def _refill_conflict_tree(self) -> None:
         tree = getattr(self, "_conf_tree", None)
         if tree is None or not tree.winfo_exists():
             return
         only = self._conf_subset_only.get()
-        self._shown_conflicts = [
-            c for c in self._all_conflicts if c.get("involves_subset") or not only
-        ]
+        rows = list(self._all_conflicts)
+        if self._include_singles_var.get():
+            rows += getattr(self, "_conf_singles", None) or []
+        if self._other_singles_var.get():
+            rows += getattr(self, "_conf_other_singles", None) or []
+        self._shown_conflicts = [c for c in rows if c.get("involves_subset") or not only]
         tree.delete(*tree.get_children())
         for i, c in enumerate(self._shown_conflicts):
             star = "★" if c["involves_subset"] else ""

@@ -17,15 +17,17 @@ behaviour rather than guessing.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from mlox_subset.versions import (
     RE_FILENAME_VERSION,
     RE_HEADER_VERSION,
     format_version,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 #: Extensions OpenMW treats as content plugins.
 PLUGIN_EXTS: Final = (".esp", ".esm", ".omwaddon", ".omwgame", ".omwscripts")

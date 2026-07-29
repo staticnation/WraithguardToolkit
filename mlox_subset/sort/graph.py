@@ -10,9 +10,12 @@ testable in isolation.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Mapping
+from typing import TYPE_CHECKING
 
 from mlox_subset.rules import mlox_pattern_to_regex, pattern_has_meta
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Iterable, Mapping
 
 #: Extensions that load before ordinary plugins.
 _MASTER_SUFFIXES = (".esm", ".omwgame")

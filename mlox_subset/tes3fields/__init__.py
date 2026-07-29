@@ -21,8 +21,7 @@ record is worse than one that says what went wrong in place.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from mlox_subset.tes3fields.landscape import (
     LandscapeDecodeError,
@@ -33,6 +32,9 @@ from mlox_subset.tes3fields.landscape import (
     render_world_map,
 )
 from mlox_subset.tes3fields.pathgrid import PathGridDecodeError, render_connections
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
 
 __all__ = [
     "DECODABLE_FIELDS",

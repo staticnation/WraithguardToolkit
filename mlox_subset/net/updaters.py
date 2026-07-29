@@ -23,12 +23,14 @@ so a refactor that let one through fails the suite rather than shipping.
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from mlox_subset.momw import parse_plugin_order_yml
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 #: Where MOMW publishes ``plugin-order.yml``. Two URLs because the raw path
 #: and the API path have each been the one that works at different times.

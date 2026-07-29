@@ -18,9 +18,11 @@ needs-cleaning set against the real file.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+    from pathlib import Path
 
 
 class PluginOrderEntry(TypedDict):
