@@ -19,7 +19,7 @@ python -m pytest                       # 1,273 tests: 1,271 passed, 2 skipped
 python -m ruff check .                 # style, naming, imports, security, BLE, DTZ, D, ANN
 python -m black --check .              # formatting
 python -m mypy                         # PEP 484 -- gates all 54 shipped files
-python tools/check_undefined.py mlox_subset_sort_gui.py
+python tools/check_undefined.py wraithguard_toolkit_gui.py
 python tools/check_placeholders.py     # i18n %(key)s vs dict keys
 python tools/make_pot.py --check       # .pot must be current (456 messages)
 ```
@@ -47,7 +47,7 @@ non-conformance but *documented deviation*, which is a different thing:
 | `PLR0911/0912/0913/0915` off | global | Complexity counters. The domain functions are long and sequential; splitting purely to satisfy a counter would hurt readability. See §3 for the ones genuinely worth splitting. |
 | `PLC0415` (imports in functions) off | global | Optional dependencies (`tomli`, `yaml`, Tk extras) are imported inside functions on purpose, so a missing extra degrades one feature instead of blocking startup. |
 | `S110`/`S112`/`SIM105` off | global | Cosmetic failures (a tooltip that cannot render, a trace line that cannot be written) are swallowed so they can never take down a sort. |
-| `E402` | `mlox_subset_sort.py` | The imports follow the section comments that group and explain them. `F401` was **removed** from this exemption when the re-export shim went (§2) - it caught a genuinely unused `sys` import the moment it was switched on. |
+| `E402` | `wraithguard_toolkit.py` | The imports follow the section comments that group and explain them. `F401` was **removed** from this exemption when the re-export shim went (§2) - it caught a genuinely unused `sys` import the moment it was switched on. |
 | `PERF203` | the four Tk modules | Per-widget `try`/`except` is mandatory in Tk - one destroyed widget must not abort styling all the others. |
 | `S603` | `gui/t3.py`, `gui/conflicts.py` | Subprocess argv is built from `sys.executable` and paths this code constructed. No shell, no user interpolation. |
 | `D`/`ANN` | `tests/*` | `assert` is the point there, and docstrings on parametrised cases would be noise. |
@@ -78,7 +78,7 @@ than implicit - enabling any of them is a legitimate next task.
 ## 2. The one architectural item - DONE, before release
 
 **The re-export shim is gone.** It used to re-export 62 names from
-`mlox_subset/` so that `core.build_and_sort` and `mlox_subset.sort.build_and_sort`
+`wraithguard/` so that `core.build_and_sort` and `wraithguard.sort.build_and_sort`
 both resolved - two obvious ways, where PEP 20 asks for one.
 
 Earlier revisions of this document scoped the removal to **4.0** with a
@@ -92,11 +92,11 @@ What was done (`CODE_REVIEW.md` §23):
 
 * The 62 imports split into **26 the engine actually calls** (kept - they were
   never re-exports, just imports) and **36 pure re-exports** (deleted).
-* **42 names** reached via `core.<name>` across the GUI, `mlox_subset/gui/` and
+* **42 names** reached via `core.<name>` across the GUI, `wraithguard/gui/` and
   the tests now come from the module they live in. 75 test functions that took
   the `core` fixture only to reach a re-export no longer take it.
 * `core.<name>` is still used for **41 names - every one of them defined in
-  `mlox_subset_sort.py` itself**. That is not a leftover shim; that is the GUI
+  `wraithguard_toolkit.py` itself**. That is not a leftover shim; that is the GUI
   calling the engine, which is what the engine is for.
 * `F401` was removed from this file's per-file exemption in `pyproject.toml`.
   That is the part that matters: the exemption existed *because* unused imports
@@ -134,11 +134,11 @@ that worked is in `CODE_REVIEW.md` §18, §30 and §31.
 installed. Enforced at `fail_under = 52` so it ratchets. The distribution is
 uneven and the reason is structural:
 
-* `mlox_subset/` is well covered - the foundation modules are near-complete.
-* `mlox_subset_sort.py` sits around **33%**, because the conflict/cell-map/lint
+* `wraithguard/` is well covered - the foundation modules are near-complete.
+* `wraithguard_toolkit.py` sits around **33%**, because the conflict/cell-map/lint
   scanners need real plugin binaries to exercise.
 * **The GUI has none at all.** There is no Tk in the hermetic test environment,
-  so `mlox_subset_sort_gui.py` and `mlox_subset/gui/*` are omitted from
+  so `wraithguard_toolkit_gui.py` and `wraithguard/gui/*` are omitted from
   coverage entirely rather than reported as a misleading ~0%.
 
 The GUI's verification is the manual `SMOKE_TEST.md` run (§2, §5, §6). That is
@@ -152,9 +152,9 @@ headlessly (`xvfb`), not more unit tests.
 ## 5. Smaller, concrete items
 
 * ~~`**generate_cell_map_html` embeds its JS/CSS as one f-string.**~~ **Done**
-  - see `CODE_REVIEW.md` §29. The generator moved to `mlox_subset/viz/cellmap.py`
+  - see `CODE_REVIEW.md` §29. The generator moved to `wraithguard/viz/cellmap.py`
   as ten small fragment functions, and the client assets to
-  `mlox_subset/viz/cellmap_js.py` as plain `Final[str]` constants: no
+  `wraithguard/viz/cellmap_js.py` as plain `Final[str]` constants: no
   interpolation, so no `{{`/`}}` escaping, and each fragment is asserted on
   directly (`tests/test_viz_pages.py`). The runtime-template option was rejected
   for the reason given here - it adds a data file to the frozen bundle - and the

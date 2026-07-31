@@ -1,4 +1,4 @@
-# MLOX Subset Sort
+# Wraithguard Toolkit
 
 Sort **only your custom mods** into an existing OpenMW `openmw.cfg` using mlox
 rules, **without ever reordering the curated [Modding-OpenMW.com](https://modding-openmw.com/)
@@ -24,17 +24,17 @@ inside the program as well.
 
 ## Contents
 
-- `mlox_subset_sort.py` - the command-line tool and the sort engine. It imports
-  from `mlox_subset/` like any other caller; import library names from the
+- `wraithguard_toolkit.py` - the command-line tool and the sort engine. It imports
+  from `wraithguard/` like any other caller; import library names from the
   package they live in, not from here.
-- `mlox_subset/` - the engine itself, split by concern: rule handling, the
+- `wraithguard/` - the engine itself, split by concern: rule handling, the
   load-order sort, `openmw.cfg` reading/emitting, plugin metadata, downloads,
   compiled-script decoding, and the conflict visualisations (`viz/`, which
   renders conflicts as self-contained HTML: a world conflict map, terrain
   height differences, path-grid graphs and a rotatable 3D terrain surface with
   relief shading, contours and multidirectional lighting - see
   [The 3D terrain view](#the-3d-terrain-view)).
-- `mlox_subset_sort_gui.py` - a drag-and-drop GUI front-end (imports the engine
+- `wraithguard_toolkit_gui.py` - a drag-and-drop GUI front-end (imports the engine
   directly; it reimplements no logic).
 - `mlox_base.txt`, `mlox_user.txt` - mlox rule databases (download/update with
   mlox or `plox`).
@@ -80,7 +80,7 @@ The tool runs frozen. It never persists data next to `__file__` (which, when
 frozen, is a temp extraction dir that's wiped on exit), so your settings and
 outputs survive the build:
 
-- `mlox_subset_sort_settings.json`, `mlox_subset_sort_trace.log`, `cell_map.html`,
+- `wraithguard_toolkit_settings.json`, `wraithguard_toolkit_trace.log`, `cell_map.html`,
   and the `tes3conv_json/` spool are written **next to the `.exe`**. If that
   folder isn't writable (e.g. installed under `Program Files`), they fall back to
   a per-user data dir (`%APPDATA%\MloxSubsetSort` on Windows,
@@ -99,7 +99,7 @@ its Windows backend. In auto-py-to-exe, add under *Advanced → hidden-import* a
 ```
 pyinstaller --noconsole --collect-all webview --collect-all clr_loader \
     --hidden-import clr --hidden-import webview.platforms.edgechromium \
-    mlox_subset_sort_gui.py
+    wraithguard_toolkit_gui.py
 ```
 
 pywebview on Windows uses the Edge **WebView2** runtime (present on Windows 11 and
@@ -116,7 +116,7 @@ browser* for those). Without either library, the map opens in your browser.
 Run the GUI:
 
 ```
-python mlox_subset_sort_gui.py
+python wraithguard_toolkit_gui.py
 ```
 
 ---
@@ -512,7 +512,7 @@ install.
   Conflict / Cell-map / Resource scans, e.g. `s3lightfixes*, *delta*, *grass*`.
   Great for "touches-everything" mods that swamp the results. Saved with settings.
 - **Settings are remembered** - your paths, rule files, options, tes3conv path,
-  and exclude patterns are saved to `mlox_subset_sort_settings.json` on close and
+  and exclude patterns are saved to `wraithguard_toolkit_settings.json` on close and
   reloaded next launch.
 - **Dump tes3conv JSON** - in the Conflicts window (tes3conv mode), export the
   per-plugin JSON for every scanned plugin to a folder you pick.
@@ -616,17 +616,17 @@ Everything about the shading is a control:
 
 ```
 # Preview (default): print the plan, write nothing
-python mlox_subset_sort.py \
+python wraithguard_toolkit.py \
     --cfg openmw.cfg \
     --rules mlox_base.txt mlox_user.txt \
     --customizations momw-customizations.toml
 
 # Durable fix: write a corrected customizations TOML (feed back into Configurator)
-python mlox_subset_sort.py --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
+python wraithguard_toolkit.py --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
     --customizations momw-customizations.toml --emit-toml momw-customizations.toml
 
 # One-shot: scan a mods folder, use MOMW's yml, and emit a fresh TOML
-python mlox_subset_sort.py --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
+python wraithguard_toolkit.py --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
     --scan-dir "E:\OpenMW\Mods\custom" --subset-file mod_scan_results.txt \
     --plugin-order-yml plugin-order.yml --list-name total-overhaul \
     --sort-data-paths --emit-toml momw-customizations.toml
@@ -733,7 +733,7 @@ python -m pytest                # 1,273 tests: no network, no Tk, no real mods n
 python -m ruff check .          # PEP 8 style, naming, import order, security, perf
 python -m black --check .       # formatting
 python -m mypy                  # PEP 484 types; gates all 54 shipped files
-python tools/check_undefined.py mlox_subset_sort_gui.py
+python tools/check_undefined.py wraithguard_toolkit_gui.py
 python tools/check_placeholders.py   # i18n %(key)s placeholders vs their dicts
 python tools/make_pot.py --check     # the .pot template must be current
 ```

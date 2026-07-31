@@ -1,7 +1,7 @@
 {
   "name": "My Custom Theme",
 
-  "_about": "Template for MLOX Subset Sort's Import Theme... button (Log panel). Keys starting with _ are ignored by the importer, as is any other unknown key. Colors are hex: #rrggbb or shorthand #rgb. Base16 scheme files (.yaml/.yml with base00..base0F) are also importable directly - this template is the native format.",
+  "_about": "Template for Wraithguard Toolkit's Import Theme... button (Log panel). Keys starting with _ are ignored by the importer, as is any other unknown key. Colors are hex: #rrggbb or shorthand #rgb. Base16 scheme files (.yaml/.yml with base00..base0F) are also importable directly - this template is the native format.",
 
   "_required": "The 9 fields below MUST be present (import fails without them). They drive the log panel, and the window colors are derived from them automatically - background is lightened (dark themes) or darkened (light themes) for panels, buttons and borders.",
   "background": "#141414",

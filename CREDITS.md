@@ -1,6 +1,6 @@
 # Credits & Acknowledgements
 
-MLOX Subset Sort stands on the work of a lot of other people. This tool exists
+Wraithguard Toolkit stands on the work of a lot of other people. This tool exists
 because these projects were generous enough to share their code, formats, and
 research. Huge thanks to everyone below - the good ideas are theirs; any bugs are
 ours.
@@ -109,7 +109,7 @@ reference your scripts at all, say the word and it is done.
 
 ## The NIF reader, and why it is written rather than imported
 
-`mlox_subset/nif/` reads Morrowind meshes with our own code. That is a licence
+`wraithguard/nif/` reads Morrowind meshes with our own code. That is a licence
 decision, taken deliberately and recorded here so it is not revisited by
 accident:
 
@@ -128,7 +128,7 @@ accident:
 
 ## three.js - bundled, not merely referenced
 
-`mlox_subset/nif/assets/three.cjs` is **three.js r185, unmodified**, MIT
+`wraithguard/nif/assets/three.cjs` is **three.js r185, unmodified**, MIT
 licensed, with its licence text beside it as `three-LICENSE.txt`. It is the
 first third-party *source* this project ships, as distinct from the Python
 packages PyInstaller already collects, so it is called out here rather than
@@ -146,7 +146,7 @@ The orbit controls in the page are ours, not three.js's `OrbitControls.js`,
 because that imports the bare specifier `'three'` and would pull ESM back into
 a page built specifically to avoid it.
 
-`mlox_subset/nif/bsa.py` reads Morrowind's archives, and is ours for the same
+`wraithguard/nif/bsa.py` reads Morrowind's archives, and is ours for the same
 reasons again. **bethesda-structs** (MIT, Stephen Bunn) via **BSAFileExtractor**
 (MIT, Pierre GAMBIER) would have been licence-compatible, so this was an
 engineering call rather than a legal one: it pulls in `construct`, `multidict`,
@@ -158,7 +158,7 @@ header and three tables. Neither project was read for the format; it was
 implemented from the public description and checked against a shipped archive
 with `tools/check_bsa.py`.
 
-`mlox_subset/images/` is ours for the same reasons and by the same method.
+`wraithguard/images/` is ours for the same reasons and by the same method.
 Pillow would decode these textures, but it is a large binary dependency in a
 PyInstaller onefile build. It was used instead as an **oracle**: the corpus
 textures decode byte-for-byte identically to it, BC7 matches on 19,380 random
@@ -286,7 +286,7 @@ the credit is one of gratitude and correctness.
 
 - **[UESP](https://en.uesp.net/) - *Morrowind Mod:Mod File Format*.** CC-BY-SA.
   The community's reference for the TES3 binary layout, and the source of
-  `mlox_subset/tes3fields/schema.py`: 46 record types, their subrecords, whether
+  `wraithguard/tes3fields/schema.py`: 46 record types, their subrecords, whether
   each is required, its declared width, and the named members inside the struct
   ones. What is taken is **format fact** - a `NPDT` is 12 or 52 bytes; its first
   two are a uint16 Level - which describes Bethesda's file format rather than
@@ -322,7 +322,7 @@ the credit is one of gratitude and correctness.
 
 ---
 
-*MLOX Subset Sort is provided as-is. Where we reproduce MIT-licensed material
+*Wraithguard Toolkit is provided as-is. Where we reproduce MIT-licensed material
 (notably tes3lint's evil-GMST table), the original copyright and licence notice
 travels with it in the source. We copy no GPL or unlicensed source: MWSE and
 OpenMW were read for cross-checking only, and the unlicensed community Perl

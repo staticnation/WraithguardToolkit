@@ -18,7 +18,7 @@ in about five minutes. For the full reference, see [README.md](README.md).
 Launch it:
 
 ```
-python mlox_subset_sort_gui.py
+python wraithguard_toolkit_gui.py
 ```
 
 1. **openmw.cfg** - Browse to your `openmw.cfg`.
@@ -77,7 +77,7 @@ into place on every rebuild, and the curated list stays untouched.
 Scan a mods folder, use MOMW's yml, and write a corrected TOML in one go:
 
 ```
-python mlox_subset_sort.py \
+python wraithguard_toolkit.py \
     --cfg openmw.cfg \
     --rules mlox_base.txt mlox_user.txt \
     --scan-dir "E:\OpenMW\Mods\custom" --subset-file mod_scan_results.txt \

@@ -80,13 +80,13 @@ appear**; a missing line is the failure signal, not a visible glitch.
 Tracing is **off by default**. Either works:
 
 ```powershell
-python mlox_subset_sort_gui.py --trace
+python wraithguard_toolkit_gui.py --trace
 ```
 
 or set `MLOX_SUBSET_TRACE=1` before launching. Both write to:
 
 ```
-mlox_subset_sort_trace.log      (next to the app)
+wraithguard_toolkit_trace.log      (next to the app)
 ```
 
 Delete any existing log first so the run is clean - the file is truncated per
@@ -142,8 +142,8 @@ duplicated by the drag. That would be a real bug; send the two counts.
 
 ## 4. Send me
 
-- `mlox_subset_sort_trace.log`
-- `mlox_subset_sort_sort_trace.log` (written next to it, if you ran a sort)
+- `wraithguard_toolkit_trace.log`
+- `wraithguard_toolkit_sort_trace.log` (written next to it, if you ran a sort)
 - Which of the five steps you did, and anything that looked wrong on screen
 
 Screenshots are useful for visual problems but the log is what identifies
@@ -188,7 +188,7 @@ already cost two debugging rounds here.
 **No flag needed:** the first line in the **Log panel** on every start is now
 
 ```
-MLOX Subset Sort 3.0.0 -- frozen=True built=2026-07-20 17:20:11 path=mlox_subset_sort.exe
+Wraithguard Toolkit 3.0.0 -- frozen=True built=2026-07-20 17:20:11 path=wraithguard_toolkit.exe
 ```
 
 Read it off the screen. If it doesn't say `3.0.0`, or `built=` predates your
@@ -196,7 +196,7 @@ last source edit, you are looking at an old build and nothing below applies.
 
 > **Where the exe's trace file actually is.** For a frozen build,
 > `app_base_dir()` resolves to the folder **containing the .exe** - typically
-> `output\`. It is *not* the `mlox_subset_sort_trace.log` sitting in the source
+> `output\`. It is *not* the `wraithguard_toolkit_trace.log` sitting in the source
 > tree; that one is left over from running the `.py`. Collecting the wrong copy
 > looks exactly like "the new code didn't run". The `[trace] writing debug
 > trace to: …` line in the Log panel now prints the absolute path - use that.
@@ -204,11 +204,11 @@ last source edit, you are looking at an old build and nothing below applies.
 With `--trace` on, the same stamp is also written to the log:
 
 ```
-build: version=3.0.0 frozen=True built=2026-07-20 17:20:11 path=mlox_subset_sort.exe
+build: version=3.0.0 frozen=True built=2026-07-20 17:20:11 path=wraithguard_toolkit.exe
 ```
 
 - `version=` below `3.0.0`, or a `built=` timestamp older than your last edit
-  to `mlox_subset_sort_gui.py` → **the exe predates the change. Rebuild.**
+  to `wraithguard_toolkit_gui.py` → **the exe predates the change. Rebuild.**
 - The three `[theme] …` lines below are also unconditional on every startup.
   If the log has `GUI started` but **no `[theme]` lines at all**, the build does
   not contain the theming code, regardless of what the source says.
@@ -271,8 +271,8 @@ will strip them.
 
 ## 6. The GUI split (3.0 - §16 pass): re-verify the moved windows
 
-Roughly 2,600 lines moved out of `mlox_subset_sort_gui.py` into
-`mlox_subset/gui/` (theming, widgets, and the tes3cmd + conflict windows as
+Roughly 2,600 lines moved out of `wraithguard_toolkit_gui.py` into
+`wraithguard/gui/` (theming, widgets, and the tes3cmd + conflict windows as
 mixins). Bodies are verbatim and every name is re-imported, so **nothing
 above should behave differently** - but the moved code is exactly the code
 sections 2 and 5 exercise, so a re-run of both is the verification:
@@ -287,7 +287,7 @@ sections 2 and 5 exercise, so a re-run of both is the verification:
 Also new in this pass, worth 30 seconds from a terminal:
 
 ```
-python mlox_subset_sort.py --cfg <your cfg> --rules mlox_base.txt -v
+python wraithguard_toolkit.py --cfg <your cfg> --rules mlox_base.txt -v
 ```
 
 `-v` is new: diagnostics (WARNING and worse always; `-v` adds progress) now

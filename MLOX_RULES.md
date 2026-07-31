@@ -3,7 +3,7 @@
 A practical reference for the rule maker in this tool, and for hand-editing a
 rules file.
 
-This is written from scratch for MLOX Subset Sort. The *conventions* it
+This is written from scratch for Wraithguard Toolkit. The *conventions* it
 describes - citing sources, when to reach for which rule, what counts as good
 practice - are the community's, set out in the mlox rule guidelines maintained
 at [morrowind-modding.github.io](https://morrowind-modding.github.io/modding-tools/sorting-plugin-load-order/mlox/mlox-rule-guidelines ).

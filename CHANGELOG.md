@@ -34,7 +34,7 @@ it had none.
   maps are loaded **linear, not sRGB**, because reading a field of vectors as
   color bends every one of them before use.
 
-- **Texture comparison** (`mlox_subset/images/compare.py` and `viewer.py`).
+- **Texture comparison** (`wraithguard/images/compare.py` and `viewer.py`).
   The conflict scan could already say two mods ship the same texture path; it
   could not say whether that mattered. Now it can, with three views because
   each answers a different question: *side by side* ("which do I prefer"),
@@ -86,7 +86,7 @@ it had none.
   one of these types was absent from both.
 
 - **Every texture format Morrowind and OpenMW use now decodes**, still with no
-  third-party dependency. `mlox_subset/dds/` has become `mlox_subset/images/`,
+  third-party dependency. `wraithguard/dds/` has become `wraithguard/images/`,
   because it is no longer only DDS:
 
   | | |
@@ -122,7 +122,7 @@ it had none.
   still is not: it is the oracle these decoders are checked against, and
   nothing shipped imports it.
 
-- **Textures are classified by role** (`mlox_subset/images/roles.py`), because
+- **Textures are classified by role** (`wraithguard/images/roles.py`), because
   a normal map is not a picture. Three conventions say what a texture is for
   and all three are real: vanilla puts it in the mesh's `NiTexturingProperty`
   slot, OpenMW infers it from file-name suffixes (`_n`, `_nh`, `_spec`,
@@ -271,7 +271,7 @@ it had none.
   provider - shapes, triangles, textures, collision, animation - plus what the
   winner loses against each. Reselecting is free.
 
-- **DDS decoding with no new dependency** (`mlox_subset/dds/`). BC1, BC2 and
+- **DDS decoding with no new dependency** (`wraithguard/dds/`). BC1, BC2 and
   BC3 plus uncompressed surfaces, decoded to RGBA, and a PNG encoder built on
   `zlib` alone so a onefile build gains nothing to bundle.
 
@@ -395,7 +395,7 @@ it had none.
   its display is generated from `nif.xml`, which `CREDITS.md` rules out.
 
 - **The NIF reader now checks itself against a scan that shares none of its
-  code** (`mlox_subset/nif/scan.py`, `tools/check_nif_layouts.py --verify`).
+  code** (`wraithguard/nif/scan.py`, `tools/check_nif_layouts.py --verify`).
 
   The layout reader walks a file by knowing how wide every field is, which
   gives it a specific failure mode: one wrong width desynchronises everything
@@ -487,7 +487,7 @@ it had none.
   Its `data=` folder is still inserted normally, deliberately: OpenMW has to be
   able to find the file for the groundcover line to mean anything.
 
-- **Conflicts can now be seen, not just listed** (`mlox_subset/viz/`). Four
+- **Conflicts can now be seen, not just listed** (`wraithguard/viz/`). Four
   self-contained HTML views, generated from data the tool already had and
   opened from the Conflicts and field-diff windows:
   - a **conflict map** plotting every colliding record onto the world grid,
@@ -887,7 +887,7 @@ it had none.
 - **CI now tests 3.10, 3.11, 3.12 and 3.13** -- every version
   `requires-python` promises, rather than just the two ends.
 
-- **A native TES3 record schema** (`mlox_subset/tes3fields/schema.py`, generated
+- **A native TES3 record schema** (`wraithguard/tes3fields/schema.py`, generated
   by `tools/gen_tes3_schema.py`): 46 record types, 313 subrecords, 62 with parsed
   struct layouts, built from UESP's format-page tables. 56 of those layouts
   declare a plain byte count, and all 56 agree with the sum of their parsed
@@ -899,13 +899,13 @@ it had none.
   release is a two-line change because of it.
 
 - **The cell map generator moved out of the engine** into
-  `mlox_subset/viz/cellmap.py`, with its CSS and JS in
-  `mlox_subset/viz/cellmap_js.py` as plain constants (`CODE_REVIEW.md` §29). It
+  `wraithguard/viz/cellmap.py`, with its CSS and JS in
+  `wraithguard/viz/cellmap_js.py` as plain constants (`CODE_REVIEW.md` §29). It
   was 216 lines of HTML/CSS/JS in one f-string sitting in the middle of the sort
   engine, with every brace doubled -- `REMAINING_WORK.md` flagged it as
   effectively uneditable, and that is why it could not grow the features asked
   of it. It is now ten small functions that each return a fragment, and the
-  client assets need no escaping at all. `mlox_subset_sort.py` keeps the public
+  client assets need no escaping at all. `wraithguard_toolkit.py` keeps the public
   name as a delegation, so nothing that imported it had to change.
   `tests/test_viz_pages.py` adds 85 tests over the result, five of which were
   verified by injecting the real defect and confirming a red test.
@@ -915,8 +915,8 @@ it had none.
 Two headline changes.
 
 **1. The engine is now a real package.** What was a single monolithic script is
-split into `mlox_subset/` - 7 subpackages, 33 modules - and
-`mlox_subset_sort.py` is now the engine and CLI rather than a monolith: it
+split into `wraithguard/` - 7 subpackages, 33 modules - and
+`wraithguard_toolkit.py` is now the engine and CLI rather than a monolith: it
 imports from those packages like any other caller. The GUI and the tests import
 from them directly too, so each name has exactly one import path. What changed
 is that the pieces are now separable enough to test and read individually.
@@ -940,13 +940,13 @@ field-diff window, and the PEP-conformance and blind-except passes.
 
 ### Added
 
-- **Translation marking, complete.** `mlox_subset/i18n.py` provides gettext
+- **Translation marking, complete.** `wraithguard/i18n.py` provides gettext
   lookup, plural handling and language auto-detection (`$MLOX_LANG`
   overrides), and **every user-facing string is marked** - buttons, labels,
   tooltips, dialogs, and the report/status messages that were built with
   f-strings, converted to named-placeholder form
   (`_("Loaded %(count)d files") % {"count": n}`) with `ngettext` for counted
-  messages. `locale/mlox_subset_sort.pot` is the extracted English template
+  messages. `locale/wraithguard_toolkit.pot` is the extracted English template
   (**393 messages**), regenerated by the new `**tools/make_pot.py`**:
   standard-library only, so it works on Windows without GNU `xgettext`, and
   AST-based, so a `_()` inside a docstring is correctly not extracted. Pure
@@ -1027,13 +1027,13 @@ field-diff window, and the PEP-conformance and blind-except passes.
 
 ### Changed
 
-- **The engine was split into the `mlox_subset/` package.** Seven subpackages
+- **The engine was split into the `wraithguard/` package.** Seven subpackages
   by concern - `rules/` (mlox pattern matching, parser, expression front-end),
   `sort/` (graph primitives + load-order engine), `configurator/` (openmw.cfg
   read/simulate/emit), `plugins/` (file location + header metadata), `net/`
   (rule and curated-order downloads), `mwscript/` (compiled-script decoding),
   `gui/` (Tk theming, widgets and the window mixins),
-  `momw.py`/`versions.py`/`tracing.py`/`i18n.py`. `mlox_subset_sort.py` briefly
+  `momw.py`/`versions.py`/`tracing.py`/`i18n.py`. `wraithguard_toolkit.py` briefly
   re-exported the moved names so the split could land without touching every
   call site; that shim was removed before release, and the GUI, CLI and tests
   now import from the packages directly. The package was held to a
@@ -1048,8 +1048,8 @@ field-diff window, and the PEP-conformance and blind-except passes.
   is the only reason a refactor of the two functions whose output *is* the
   product was attempted at all.
 - **The GUI was split too** (the second half of the same job):
-  `mlox_subset_sort_gui.py` went from ~5,600 lines to ~3,200, with the
-  separable pieces moved **verbatim** into a new `mlox_subset/gui/`
+  `wraithguard_toolkit_gui.py` went from ~5,600 lines to ~3,200, with the
+  separable pieces moved **verbatim** into a new `wraithguard/gui/`
   subpackage - `theme.py` (chrome palette, theme parsing, the live restyle
   walk, the JSON/HTML highlighters), `widgets.py` (tooltip, queue writer,
   path field, drag-reorder listbox, typeahead), and the two window groups as
@@ -1059,7 +1059,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   name is re-imported by the main module, so behaviour, the smoke-test
   instructions and the build config are unchanged. The exemptions the moved
   code arrived with were then paid off in this same release (see the mypy
-  entry above), so `mlox_subset/gui/` now meets the package standard rather
+  entry above), so `wraithguard/gui/` now meets the package standard rather
   than the legacy one. Its runtime verification is the SMOKE_TEST.md §2/§5/§6
   run, since there is no Tk in the hermetic suite.
 - **The theme picker now themes the whole GUI, live** (task #43). What was a
@@ -1511,7 +1511,7 @@ of them stuck or dumped at the end:
   orange (vs grey for curated-list plugins) in the double-click field popout, so
   it's obvious which side of a conflict is yours. The popout also gained a
   **Word wrap** toggle for long values.
-- **App icon.** A vector program icon (`art/mlox_subset_sort_icon.svg`) plus a
+- **App icon.** A vector program icon (`art/wraithguard_toolkit_icon.svg`) plus a
   multi-size `.ico` for the built exe.
 
 ## 2.1

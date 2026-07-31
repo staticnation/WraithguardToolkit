@@ -1,14 +1,14 @@
 # Project layout
 
-Everything needed to **build, run and test** MLOX Subset Sort lives in this
+Everything needed to **build, run and test** Wraithguard Toolkit lives in this
 folder. Reference material (the upstream projects whose formats and behaviour
 this tool mirrors) and scratch output were deliberately left outside it.
 
 ```
 MLOXSubsetSort/
-├── mlox_subset_sort.py        Engine + CLI. No GUI import; runs headless.
-├── mlox_subset_sort_gui.py    Tkinter front-end. Imports the engine.
-├── mlox_subset/               Shared foundation package.
+├── wraithguard_toolkit.py        Engine + CLI. No GUI import; runs headless.
+├── wraithguard_toolkit_gui.py    Tkinter front-end. Imports the engine.
+├── wraithguard/               Shared foundation package.
 │   ├── i18n.py                gettext translation, the _() marker.
 │   ├── logging_setup.py       Levelled logging (stderr) + trace file.
 │   ├── gui/                   GUI support (needs Tk): theming, widgets,
@@ -74,7 +74,7 @@ MLOXSubsetSort/
 ├── tests/                     pytest suite (1,273 tests: 1,271 hermetic + a Tk
 │                               smoke set that runs under xvfb in CI).
 ├── testdata/                  Copies of a real setup, used by the tests.
-├── locale/                    mlox_subset_sort.pot (English template),
+├── locale/                    wraithguard_toolkit.pot (English template),
 │                               translator guide, .mo catalogues.
 ├── art/                       Icons, banner, Nexus description.
 ├── build/                     PyInstaller / auto-py-to-exe configuration.
@@ -94,8 +94,8 @@ MLOXSubsetSort/
 ## Running
 
 ```bash
-python mlox_subset_sort_gui.py          # GUI
-python mlox_subset_sort.py --help       # CLI
+python wraithguard_toolkit_gui.py          # GUI
+python wraithguard_toolkit.py --help       # CLI
 ```
 
 Only the standard library is required. Optional extras (`tkinterdnd2`,
@@ -109,7 +109,7 @@ python -m pytest                # whole suite (1,273 tests)
 python -m ruff check .          # lint (PEP 8 incl. naming + import order)
 python -m mypy                  # types (PEP 484) -- gates every shipped file
 python -m black --check .       # formatting
-python tools/check_undefined.py mlox_subset_sort_gui.py
+python tools/check_undefined.py wraithguard_toolkit_gui.py
 python tools/check_placeholders.py   # i18n %(key)s vs dict keys
 python tools/make_pot.py --check     # .pot template must be current
 ```
@@ -130,30 +130,30 @@ it are absolute and will need updating for your checkout - load it via
 *Settings -> Import Config From JSON File* rather than retyping them. The
 essentials:
 
-* entry point: `mlox_subset_sort_gui.py`
+* entry point: `wraithguard_toolkit_gui.py`
 * one-file, windowed (no console)
-* icon: `mlox_subset_sort_icon.ico` (the copy in the project root; `art/` holds
+* icon: `wraithguard_toolkit_icon.ico` (the copy in the project root; `art/` holds
   an identical one for reference)
 * `--clean` on, so PyInstaller does not reuse a cached analysis
 
 **One data file does need adding: the 3D viewer library.** PyInstaller follows
-imports, not data, so `mlox_subset/nif/assets/` is not collected automatically.
-Add it with `--add-data "mlox_subset/nif/assets;mlox_subset/nif/assets"` (or
-`--collect-data mlox_subset`). Without it the app runs normally and the **View
+imports, not data, so `wraithguard/nif/assets/` is not collected automatically.
+Add it with `--add-data "wraithguard/nif/assets;wraithguard/nif/assets"` (or
+`--collect-data wraithguard`). Without it the app runs normally and the **View
 in 3D** button reports that the library was not shipped - deliberately a clear
 message rather than a blank window, since a missing data file and a broken
-viewer look identical otherwise. `mlox_subset/nif/viewer.py` looks in
+viewer look identical otherwise. `wraithguard/nif/viewer.py` looks in
 `sys._MEIPASS` first, exactly as the help documents do.
 
-**You do not need to add `mlox_subset/` or `locale/` by hand.** PyInstaller
+**You do not need to add `wraithguard/` or `locale/` by hand.** PyInstaller
 follows the import graph, so the package is collected automatically; the only
-`--add-data` entry is `mlox_subset_sort.py`. `locale/` is a *developer*
+`--add-data` entry is `wraithguard_toolkit.py`. `locale/` is a *developer*
 directory - the `.pot` template is not a runtime file, and no `.mo` catalogues
 ship yet. If you ever do ship translations, add `locale/` as data then; until
 that day the app finds no catalogue directory, handles it, and runs in English.
 
 **Verifying the build.** The Log panel's first line is a build stamp:
-`MLOX Subset Sort <version> -- frozen=True built=<timestamp>`. Check it before
+`Wraithguard Toolkit <version> -- frozen=True built=<timestamp>`. Check it before
 believing any exe-only symptom - a stale build looks exactly like a code bug,
 which has cost two debugging rounds. See `SMOKE_TEST.md` §5a.
 

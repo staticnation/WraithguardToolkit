@@ -1,6 +1,6 @@
 # How the NIF reader was written, and where every fact in it came from
 
-This document exists so that the origin of `mlox_subset/nif/` can be examined
+This document exists so that the origin of `wraithguard/nif/` can be examined
 by someone who did not write it, including someone who assumes the worst. It
 records what was consulted, what was deliberately not consulted, what method
 produced each field layout, and what evidence was required before a layout was
@@ -120,7 +120,7 @@ guess cannot quietly half-work.
    length `n` and the following `n` bytes read as a well-formed type name, the
    layout consumed the right number of bytes. If they do not, it did not.
 4. **Cross-check the whole file against a scan that shares no code with the
-   reader.** `mlox_subset/nif/scan.py` recovers a file's block list *without
+   reader.** `wraithguard/nif/scan.py` recovers a file's block list *without
    using any field layout*, so it cannot fail the way the reader fails. It also
    reconciles against the block count the file's own header declares, and
    disqualifies itself when it does not. `--verify` reports the first index at
@@ -318,7 +318,7 @@ person opening it in a viewer.
 
 ## The same method, applied to textures
 
-`mlox_subset/images/` decodes every texture format this game and its mods use,
+`wraithguard/images/` decodes every texture format this game and its mods use,
 under the same rules and for the same reasons. The block formats are arithmetic
 -- a DXT1 block is two 16-bit colors and sixteen 2-bit selectors, and the
 decode is the interpolation the format defines -- so they were implemented from
