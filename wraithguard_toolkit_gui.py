@@ -2954,10 +2954,19 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         An existing personal file already in the rules list, else
         'mlox_my_rules.txt' next to the first rule file (or the cfg).
         """
-        for p in self.rules_panel.get_paths():
+        paths = self.rules_panel.get_paths()
+        # Walk from the END (highest priority) rather than the start: the
+        # rules list can perfectly legitimately contain other non-base/
+        # non-user-named files earlier in it (an old mlox_base_legacy.txt, a
+        # third-party rule pack, ...), and the file we want here is always
+        # the LAST one -- the one the panel itself treats as highest
+        # priority -- not just the first name that happens not to be
+        # "mlox_base.txt"/"mlox_user.txt". Walking forward returned whatever
+        # non-standard file came first, silently appending rules to a file
+        # that was never meant to be the personal override.
+        for p in reversed(paths):
             if Path(p).name.lower() not in ("mlox_base.txt", "mlox_user.txt"):
                 return str(p)
-        paths = self.rules_panel.get_paths()
         base = Path(paths[0]).parent if paths else Path(self._cfg_dir() or ".")
         return str(base / "mlox_my_rules.txt")
 

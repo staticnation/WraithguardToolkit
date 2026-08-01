@@ -130,6 +130,10 @@ class Mesh:
             none. Only the first UV set is kept: Morrowind draws from it, and
             the rest exist for tools rather than for the game.
         texture: The base texture path, normalised, or ``""`` when untextured.
+        glow: The self-illumination texture path, normalised, or ``""`` when
+            the shape has none. Distinct from the normal and specular maps a
+            viewer finds by filename: this one is a real NIF texture slot,
+            the same way ``texture`` is.
     """
 
     name: str
@@ -137,6 +141,8 @@ class Mesh:
     triangles: list[tuple[int, int, int]] = field(default_factory=list)
     uvs: list[tuple[float, float]] = field(default_factory=list)
     texture: str = ""
+    glow: str = ""
+    collision: bool = False
 
 
 def _transform_of(block: Block) -> Transform:
@@ -200,7 +206,7 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
     meshes: list[Mesh] = []
     seen: set[int] = set()
 
-    def walk(index: int, parent: Transform, depth: int) -> None:
+    def walk(index: int, parent: Transform, depth: int, collision: bool) -> None:
         block = by_index.get(index)
         if block is None or depth > _MAX_DEPTH or index in seen:
             if depth > _MAX_DEPTH:
@@ -208,27 +214,35 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
             return
         seen.add(index)
         here = parent.then(_transform_of(block))
+        # RootCollisionNode marks everything under it as physics-only geometry
+        # -- never drawn by the game, whatever a NiTriShape inside it looks
+        # like. Once set, it stays set for the rest of the branch: a shape
+        # three levels under a collision node is still collision geometry.
+        collision = collision or block.type_name in COLLISION_HINT
         if block.type_name in _SHAPE_TYPES:
-            mesh = _shape_to_mesh(block, here, by_index)
+            mesh = _shape_to_mesh(block, here, by_index, collision)
             if mesh is not None:
                 meshes.append(mesh)
         if block.type_name in _NODE_TYPES:
             for child in block.fields.get("children_links") or []:
                 if child >= 0:
-                    walk(int(child), here, depth + 1)
+                    walk(int(child), here, depth + 1, collision)
 
     for root in find_roots(parsed):
-        walk(root, Transform(), 0)
+        walk(root, Transform(), 0, False)
     return meshes
 
 
-def _shape_to_mesh(block: Block, world: Transform, by_index: dict[int, Block]) -> Mesh | None:
+def _shape_to_mesh(
+    block: Block, world: Transform, by_index: dict[int, Block], collision: bool = False
+) -> Mesh | None:
     """Build one mesh from a shape and its data block.
 
     Args:
         block: The ``NiTriShape``.
         world: Its composed world transform.
         by_index: Every parsed block, by index.
+        collision: Whether this shape sits under a ``RootCollisionNode``.
 
     Returns:
         The mesh, or ``None`` when its data block was not reached or carries no
@@ -249,19 +263,27 @@ def _shape_to_mesh(block: Block, world: Transform, by_index: dict[int, Block]) -
         vertices=[world.apply(v) for v in vertices],
         triangles=list(triangles),
         uvs=[(float(u), float(v)) for u, v in uvs],
-        texture=_base_texture(block, by_index),
+        texture=_texture_slot(block, by_index, "base"),
+        glow=_texture_slot(block, by_index, "glow"),
+        collision=collision,
     )
 
 
-def _base_texture(block: Block, by_index: dict[int, Block]) -> str:
-    """Find the base texture a shape draws with.
+def _texture_slot(block: Block, by_index: dict[int, Block], slot: str) -> str:
+    """Find the texture a shape's ``NiTexturingProperty`` names in one slot.
 
     Args:
         block: The shape.
         by_index: Every parsed block, by index.
+        slot: Which slot to read -- ``"base"`` for the diffuse texture,
+            ``"glow"`` for the self-illumination map Morrowind's own renderer
+            already understands (unlike normal or specular maps, this one is
+            not an OpenMW-only guess by filename: it is a real slot the NIF
+            format carries).
 
     Returns:
-        The normalised texture path, or ``""``.
+        The normalised texture path, or ``""`` when the shape has no
+        ``NiTexturingProperty``, or that property has nothing in this slot.
     """
     for prop_index in block.fields.get("properties_links") or []:
         prop = by_index.get(int(prop_index))
@@ -270,7 +292,7 @@ def _base_texture(block: Block, by_index: dict[int, Block]) -> str:
         slots = prop.fields.get("textures")
         if not isinstance(slots, dict):
             continue
-        source = by_index.get(int(slots.get("base", -1)))
+        source = by_index.get(int(slots.get(slot, -1)))
         if source is None:
             continue
         reference = source.fields.get("external_or_internal")

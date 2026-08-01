@@ -102,7 +102,16 @@ _PAGE = """<!DOCTYPE html>
  /* A texture comparison is about the pixels that are there. Smoothing
     invents new ones that match neither original. */
  img{image-rendering:pixelated;display:block;max-width:100%}
- #wipe .frame img.b{position:absolute;inset:0;clip-path:inset(0 0 0 var(--split))}
+ /* The wipe frame gets an explicit size (--ar, set once an image reports its
+    natural dimensions) instead of sizing itself from whichever image happens
+    to be in normal flow. Both images then fill that exact box -- rather than
+    one sizing the frame and the other stretching to match it via opposing
+    insets -- so a resolution difference between two otherwise-identical
+    textures actually shows, and the 50% split lands on the middle of the
+    image instead of the middle of an oversized box around it. */
+ #wipe .frame{width:min(100%,800px);aspect-ratio:var(--ar,1)}
+ #wipe .frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+ #wipe .frame img.b{clip-path:inset(0 0 0 var(--split))}
  #wipe .handle{position:absolute;top:0;bottom:0;width:2px;background:#9ecbff;
    left:var(--split);cursor:ew-resize;box-shadow:0 0 6px #000}
  .miss{padding:2rem;text-align:center;opacity:.75}
@@ -162,8 +171,28 @@ __LIBRARY__
     var box = document.createElement("div");
     box.className = "frame";
     box.style.setProperty("--split", "50%");
-    var a = document.createElement("img"); a.src = data.left.url;
-    var b = document.createElement("img"); b.src = data.right.url; b.className = "b";
+    var a = document.createElement("img");
+    var b = document.createElement("img"); b.className = "b";
+    // The frame's aspect ratio comes from whichever image reports its
+    // natural size first, so the box is never sized off just one side while
+    // the other is left to overflow it or shrink unmatched inside it. A real
+    // pair keeps the same ratio at a new resolution -- that is what
+    // "upscaled" means -- so it does not matter which of the two wins the
+    // race to load.
+    function setRatio(img) {
+      if (img.naturalWidth && img.naturalHeight) {
+        box.style.setProperty("--ar", img.naturalWidth + " / " + img.naturalHeight);
+      }
+    }
+    a.addEventListener("load", function () { setRatio(a); });
+    b.addEventListener("load", function () { setRatio(b); });
+    a.src = data.left.url;
+    b.src = data.right.url;
+    // Data URLs are occasionally already "complete" by the time a listener
+    // is attached to a freshly created element; the event fires once and a
+    // race here would otherwise leave --ar unset for that image entirely.
+    if (a.complete) setRatio(a);
+    if (b.complete) setRatio(b);
     var handle = document.createElement("div");
     handle.className = "handle";
     box.appendChild(a); box.appendChild(b); box.appendChild(handle);

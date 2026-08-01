@@ -245,6 +245,7 @@ def _mesh_payload(
                 # copy renders every texture upside down.
                 uvs.extend((u, 1.0 - v))
         image: dict[str, str] | None = None
+        glow: dict[str, str] | None = None
         extras: dict[str, dict[str, str]] = {}
         if resolver is not None and mesh.texture and uvs:
             if mesh.texture not in decoded:
@@ -253,8 +254,8 @@ def _mesh_payload(
                 decoded[mesh.texture] = sink(*shown) if shown else None
             image = decoded[mesh.texture]
             # The mesh names only its diffuse texture; OpenMW finds the rest by
-            # name. Offering them is the only way a normal map in a texture
-            # pack is ever visible here, since no NIF mentions one.
+            # name. Offering them is the only way a normal or specular map in
+            # a texture pack is ever visible here, since no NIF mentions one.
             for suffix, resolved in resolver.siblings(mesh.texture).items():
                 key = f"{mesh.texture}{suffix}"
                 if key not in decoded:
@@ -262,11 +263,22 @@ def _mesh_payload(
                     decoded[key] = sink(*aux) if aux else None
                 if decoded[key] is not None:
                     extras[suffix] = decoded[key]
+        if resolver is not None and mesh.glow and uvs:
+            # Unlike the siblings above, the glow map is not a filename guess
+            # -- the shape names it directly, so it is resolved the same way
+            # the base texture is.
+            if mesh.glow not in decoded:
+                found = resolver.resolve(mesh.glow)
+                shown = texture_bytes(found, resolver)
+                decoded[mesh.glow] = sink(*shown) if shown else None
+            glow = decoded[mesh.glow]
         payload.append(
             {
                 "name": mesh.name,
                 "texture": mesh.texture,
+                "collision": mesh.collision,
                 "image": image,
+                "glow": glow,
                 "extras": extras,
                 "positions": sink(_packed(positions, "f"), ""),
                 "indices": sink(_packed(indices, "I"), ""),
@@ -426,7 +438,7 @@ _PAGE: Final[str] = """<!DOCTYPE html>
   <div id="tree"></div>
   <div id="stage">
     <div id="stats"></div>
-    <div id="hint">drag to orbit &middot; wheel to zoom</div>
+    <div id="hint">drag to orbit &middot; shift/right-drag to pan &middot; wheel to zoom</div>
   </div>
 </div>
 __LIBRARY_BLOCK__
@@ -501,6 +513,16 @@ __LIBRARY_BLOCK__
     // Whether anything in this view has an OpenMW auxiliary normal map, which
     // decides whether the control for them is worth offering at all.
     var anyNormalMaps = false;
+    // Same reasoning, for the specular maps OpenMW finds beside the diffuse
+    // texture by name.
+    var anySpecularMaps = false;
+    // And for glow: a real NIF texture slot rather than a filename guess, but
+    // still worth gating the control on, since most meshes have none.
+    var anyGlowMaps = false;
+    // Whether anything is collision-only geometry -- physics shapes a
+    // RootCollisionNode carries that the game never draws. Same reasoning:
+    // no point offering a toggle that would always be a no-op.
+    var anyCollision = false;
     scenes.forEach(function (spec, index) {
       // The inner group carries the Z-up to Y-up rotation; the outer pivot
       // carries the centring. They cannot be the same object: three.js
@@ -547,11 +569,46 @@ __LIBRARY_BLOCK__
           nImage.onload = function () { normalTex.needsUpdate = true; draw(); };
           nImage.src = normalSource.url;
         }
+        // Same OpenMW naming convention, for a specular map. Also linear:
+        // it modulates highlight strength, not a color to be seen directly.
+        var specSource = extras["_spec"] || extras["_diffusespec"] || null;
+        var specTex = null;
+        if (specSource && m.uvs && textured) {
+          var sImage = new Image();
+          specTex = new THREE.Texture(sImage);
+          sImage.onload = function () { specTex.needsUpdate = true; draw(); };
+          sImage.src = specSource.url;
+          // MeshPhongMaterial's default specular color is a dim 0x111111,
+          // dim enough that a specular map barely shows against it. This is
+          // set once, whether or not the map is currently attached, so
+          // toggling the control only ever adds or removes the map itself.
+          material.specular = new THREE.Color(0x808080);
+        }
+        // The glow slot, unlike the two above, is not a filename guess -- the
+        // shape names it directly, and it is what Morrowind's own renderer
+        // (not just OpenMW) uses for self-illumination: lit windows, lava,
+        // glowing eyes. sRGB, like the diffuse map: it is a color being
+        // added to the surface, not a vector or a scalar mask.
+        var glowTex = null;
+        if (m.glow && m.uvs && textured) {
+          var gImage = new Image();
+          glowTex = new THREE.Texture(gImage);
+          glowTex.colorSpace = THREE.SRGBColorSpace;
+          glowTex.wrapS = glowTex.wrapT = THREE.RepeatWrapping;
+          gImage.onload = function () { glowTex.needsUpdate = true; draw(); };
+          gImage.src = m.glow.url;
+        }
         var drawn = new THREE.Mesh(g, material);
         drawn.userData.map = material.map || null;
         drawn.userData.normalMap = normalTex;
+        drawn.userData.specularMap = specTex;
+        drawn.userData.glowMap = glowTex;
         drawn.userData.tint = spec.color;
+        drawn.userData.collision = !!m.collision;
         if (normalTex) anyNormalMaps = true;
+        if (specTex) anySpecularMaps = true;
+        if (glowTex) anyGlowMaps = true;
+        if (m.collision) anyCollision = true;
         group.add(drawn);
       });
       group.rotation.x = -Math.PI / 2;
@@ -715,6 +772,33 @@ __LIBRARY_BLOCK__
       draw();
     });
 
+    var alphaBox = document.createElement("input");
+    alphaBox.type = "checkbox"; alphaBox.id = "alphacut";
+    var alphaCtl = document.createElement("span");
+    alphaCtl.className = "ctl off";
+    var alphaLabel = document.createElement("label");
+    alphaLabel.htmlFor = "alphacut";
+    alphaLabel.textContent = "Alpha cutout";
+    alphaCtl.appendChild(alphaBox); alphaCtl.appendChild(alphaLabel);
+    controls.appendChild(alphaCtl);
+    alphaBox.addEventListener("change", function () {
+      // A cutout texture (grass, a fence, a leaf) has a quad behind it that
+      // otherwise renders fully opaque wherever the mesh exists, regardless
+      // of what the alpha channel says -- Phong's default ignores it
+      // entirely. alphaTest discards those fragments outright rather than
+      // blending them, which is what a cutout wants: blending needs the
+      // triangles sorted back-to-front to look right, and two overlapping
+      // cutout quads sorted wrong show through each other. A hard cutoff has
+      // no ordering to get wrong.
+      scene.traverse(function (o) {
+        if (!o.isMesh || !o.userData.map) return;
+        o.material.alphaTest = alphaBox.checked ? 0.5 : 0;
+        o.material.needsUpdate = true;
+      });
+      alphaCtl.className = "ctl" + (alphaBox.checked ? "" : " off");
+      draw();
+    });
+
     function addSlider(id, label, min, max, value, step, onInput) {
       var ctl = document.createElement("span");
       ctl.className = "ctl";
@@ -782,11 +866,89 @@ __LIBRARY_BLOCK__
       });
     }
 
+    if (anySpecularMaps) {
+      var specBox = document.createElement("input");
+      specBox.type = "checkbox"; specBox.id = "specular";
+      var specCtl = document.createElement("span");
+      specCtl.className = "ctl off";
+      var specLabel = document.createElement("label");
+      specLabel.htmlFor = "specular";
+      specLabel.textContent = "Specular maps";
+      specCtl.appendChild(specBox); specCtl.appendChild(specLabel);
+      controls.appendChild(specCtl);
+      specBox.addEventListener("change", function () {
+        scene.traverse(function (o) {
+          if (!o.isMesh || !o.userData.specularMap) return;
+          o.material.specularMap = specBox.checked ? o.userData.specularMap : null;
+          o.material.needsUpdate = true;
+        });
+        specCtl.className = "ctl" + (specBox.checked ? "" : " off");
+        draw();
+      });
+    }
+
+    if (anyGlowMaps) {
+      var glowBox = document.createElement("input");
+      glowBox.type = "checkbox"; glowBox.id = "glow";
+      var glowCtl = document.createElement("span");
+      glowCtl.className = "ctl off";
+      var glowLabel = document.createElement("label");
+      glowLabel.htmlFor = "glow";
+      glowLabel.textContent = "Glow maps";
+      glowCtl.appendChild(glowBox); glowCtl.appendChild(glowLabel);
+      controls.appendChild(glowCtl);
+      glowBox.addEventListener("change", function () {
+        // Off by default like every other optional map here, so the
+        // starting view is the plain textured mesh and every extra is
+        // something you switch on rather than something you notice you
+        // have to switch off.
+        scene.traverse(function (o) {
+          if (!o.isMesh || !o.userData.glowMap) return;
+          o.material.emissiveMap = glowBox.checked ? o.userData.glowMap : null;
+          o.material.emissive = glowBox.checked ? new THREE.Color(0xffffff) : new THREE.Color(0x000000);
+          o.material.needsUpdate = true;
+        });
+        glowCtl.className = "ctl" + (glowBox.checked ? "" : " off");
+        draw();
+      });
+    }
+
+    // Only offered when the collection actually has collision geometry, for
+    // the same reason as the normal-map control above.
+    if (anyCollision) {
+      var collisionBox = document.createElement("input");
+      collisionBox.type = "checkbox"; collisionBox.id = "collision"; collisionBox.checked = true;
+      var collisionCtl = document.createElement("span");
+      collisionCtl.className = "ctl";
+      var collisionLabel = document.createElement("label");
+      collisionLabel.htmlFor = "collision";
+      collisionLabel.textContent = "Collision shapes";
+      collisionCtl.appendChild(collisionBox); collisionCtl.appendChild(collisionLabel);
+      controls.appendChild(collisionCtl);
+      collisionBox.addEventListener("change", function () {
+        // Collision geometry is never drawn in game, so hiding it here only
+        // turns off its render -- the mesh itself stays in the scene graph.
+        // That is deliberate: the bounding box was measured once at load
+        // from every mesh regardless of visibility, and the stats count
+        // every mesh in a visible side the same way, so hiding a collision
+        // shape does not shrink the framing or the numbers, only what is
+        // drawn -- it stays present, just invisible.
+        scene.traverse(function (o) {
+          if (!o.isMesh || !o.userData.collision) return;
+          o.visible = collisionBox.checked;
+        });
+        collisionCtl.className = "ctl" + (collisionBox.checked ? "" : " off");
+        draw();
+      });
+    }
+
     var spacer = document.createElement("span");
     spacer.className = "spacer";
     controls.appendChild(spacer);
     [["Show all", function () { groups.forEach(function (g) { g.visible = true; }); }],
-     ["Reset view", function () { yaw = 0.6; pitch = 0.5; distance = radius * 3; }]
+     ["Reset view", function () {
+       yaw = 0.6; pitch = 0.5; distance = radius * 3; target.set(0, 0, 0);
+     }]
     ].forEach(function (pair) {
       var button = document.createElement("button");
       button.type = "button";
@@ -802,12 +964,17 @@ __LIBRARY_BLOCK__
     });
 
     var yaw = 0.6, pitch = 0.5, distance = radius * 3;
+    // What the camera orbits and looks at. Panning moves this rather than the
+    // camera directly, so zoom and orbit keep working exactly as before --
+    // they are still defined relative to a point, just one that is no longer
+    // pinned to the mesh's centre.
+    var target = new THREE.Vector3(0, 0, 0);
     function place() {
       camera.position.set(
-        distance * Math.cos(pitch) * Math.sin(yaw),
-        distance * Math.sin(pitch),
-        distance * Math.cos(pitch) * Math.cos(yaw));
-      camera.lookAt(0, 0, 0);
+        target.x + distance * Math.cos(pitch) * Math.sin(yaw),
+        target.y + distance * Math.sin(pitch),
+        target.z + distance * Math.cos(pitch) * Math.cos(yaw));
+      camera.lookAt(target);
       // In headlamp mode the light rides the camera, so it has to move here
       // rather than only when a slider changes.
       placeLights();
@@ -819,18 +986,37 @@ __LIBRARY_BLOCK__
       camera.aspect = w / Math.max(h, 1);
       camera.updateProjectionMatrix();
     }
-    var dragging = false, lastX = 0, lastY = 0;
+    var dragging = false, dragMode = "orbit", lastX = 0, lastY = 0;
+    // A right-drag must not also pop up the browser's context menu.
+    renderer.domElement.addEventListener("contextmenu", function (e) { e.preventDefault(); });
     renderer.domElement.addEventListener("mousedown", function (e) {
       dragging = true; lastX = e.clientX; lastY = e.clientY;
+      dragMode = (e.button === 2 || e.shiftKey) ? "pan" : "orbit";
     });
     window.addEventListener("mouseup", function () { dragging = false; });
     window.addEventListener("mousemove", function (e) {
       if (!dragging) return;
-      yaw -= (e.clientX - lastX) * 0.01;
-      pitch += (e.clientY - lastY) * 0.01;
-      // Stop short of the poles: at exactly +/-90 degrees the look-at up
-      // vector is parallel to the view and the image flips.
-      pitch = Math.max(-1.55, Math.min(1.55, pitch));
+      var dx = e.clientX - lastX, dy = e.clientY - lastY;
+      if (dragMode === "pan") {
+        // Move the point the camera looks at across the camera's own
+        // right/up axes rather than the world's, so panning "up" always
+        // means up on screen whatever angle the mesh is being viewed from.
+        // Scaled by distance so a drag covers the same apparent screen
+        // distance whether zoomed in on a buckle or zoomed out on a whole
+        // building -- a fixed world-space step would crawl at one zoom and
+        // fly past the mesh at another.
+        var panScale = distance * 0.0015;
+        var rightAxis = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+        var upAxis = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+        target.addScaledVector(rightAxis, -dx * panScale);
+        target.addScaledVector(upAxis, dy * panScale);
+      } else {
+        yaw -= dx * 0.01;
+        pitch += dy * 0.01;
+        // Stop short of the poles: at exactly +/-90 degrees the look-at up
+        // vector is parallel to the view and the image flips.
+        pitch = Math.max(-1.55, Math.min(1.55, pitch));
+      }
       lastX = e.clientX; lastY = e.clientY;
       place(); draw();
     });
