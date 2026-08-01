@@ -20,6 +20,18 @@ The severity color language (green fine, yellow minor, red major) follows
 a tool people already read beats inventing a nicer palette. That tool *merges*
 land; this one sorts and reports, so these pages answer "where do my mods
 collide and who wins" rather than "what did the merge do".
+
+**The purity guarantee above is about the four renderers, not the package.**
+:mod:`~wraithguard.viz.serve` and :mod:`~wraithguard.viz.library` also live
+here, and neither one is pure -- ``serve`` opens a loopback socket, and
+``library`` reads a file off disk. They earn their place anyway: both exist
+to get a generated page in front of a user, which is the same job
+``build_conflict_map`` and its siblings do one step earlier, just for the mesh
+viewer and the texture comparison rather than for a page built in this
+package. Reached directly (``wraithguard.viz.serve``, ``wraithguard.viz.library``)
+rather than through this module, the same way :mod:`wraithguard.nif` leaves
+:mod:`~wraithguard.nif.viewer` and :mod:`~wraithguard.nif.textures` off its
+own curated export list without those modules being any less real.
 """
 
 from __future__ import annotations
@@ -28,6 +40,8 @@ from wraithguard.viz.conflictmap import build_conflict_map, cells_with_conflicts
 from wraithguard.viz.heightdelta import build_height_delta
 from wraithguard.viz.pathgrid import build_pathgrid_graph
 from wraithguard.viz.terrain3d import build_terrain_3d
+from wraithguard.viz.library import ViewerError, three_source
+from wraithguard.viz.serve import Payload, PublishSession, ViewerServer, payloads_for
 
 __all__ = [
     "build_conflict_map",
@@ -35,4 +49,10 @@ __all__ = [
     "build_pathgrid_graph",
     "build_terrain_3d",
     "cells_with_conflicts",
+    "Payload",
+    "PublishSession",
+    "ViewerError",
+    "ViewerServer",
+    "payloads_for",
+    "three_source",
 ]

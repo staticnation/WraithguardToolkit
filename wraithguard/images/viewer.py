@@ -22,10 +22,23 @@ as black. Multiplying it makes it visible but no longer proportional, so the
 control is in the user's hands with the factor shown, rather than a fixed
 constant that quietly decides what counts as different.
 
-Pixels are drawn with smoothing off. A texture comparison is about the pixels
-that are there, and a browser's default interpolation invents new ones that
-differ from *both* originals -- which is precisely the wrong thing when the
-question is which of two files a user wants.
+Side by side and difference are drawn with smoothing off. A texture
+comparison there is about the pixels that are there, and a browser's default
+interpolation invents new ones that differ from *both* originals -- which is
+precisely the wrong thing when the question is which of two files a user
+wants.
+
+**The overlay is the deliberate exception.** A wipe is shown at whatever size
+the pane happens to be, almost never the texture's native resolution, so
+"smoothing off" there means nearest-neighbor decimation -- a filter that
+discards most of the source and calls the pixels it kept representative.
+Two re-encodes of the same art can shimmer against each other under that
+filter for a reason that is entirely the resampling and not the textures.
+Where three.js is available, the overlay renders through it instead, on a
+pair of textured quads mipmapped and minified the way a game would actually
+draw them. When it is not -- no ``library_url`` was given and the vendored
+build was not shipped with this run -- the overlay falls back to a plain CSS
+clip -- sharper in principle, and noisier in exactly the cases that matter.
 """
 
 from __future__ import annotations
@@ -38,6 +51,7 @@ from typing import TYPE_CHECKING
 
 from wraithguard.images.compare import Verdict
 from wraithguard.logging_setup import get_logger
+from wraithguard.viz.library import ViewerError, three_source
 
 if TYPE_CHECKING:
     from wraithguard.images.compare import Comparison
@@ -109,9 +123,18 @@ _PAGE = """<!DOCTYPE html>
     insets -- so a resolution difference between two otherwise-identical
     textures actually shows, and the 50% split lands on the middle of the
     image instead of the middle of an oversized box around it. */
- #wipe .frame{width:min(100%,800px);aspect-ratio:var(--ar,1)}
- #wipe .frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+ #wipe{width:100%;flex:1;align-items:center}
+ #wipe .frame{width:min(100%, calc(82vh * var(--ar, 1)));aspect-ratio:var(--ar,1);margin:0 auto}
+ #wipe .frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+   /* Only this fallback still resizes an <img> in the DOM. The global
+      pixelated rule above is right for side-by-side and difference -- it is
+      the opposite of right here, where the browser is doing real
+      minification and nearest-neighbor is close to the worst algorithm for
+      that. The WebGL wipe below does not go through image-rendering at all;
+      a canvas's pixels are whatever the renderer put there. */
+   image-rendering:auto}
  #wipe .frame img.b{clip-path:inset(0 0 0 var(--split))}
+ #wipe .frame canvas{position:absolute;inset:0;width:100%;height:100%}
  #wipe .handle{position:absolute;top:0;bottom:0;width:2px;background:#9ecbff;
    left:var(--split);cursor:ew-resize;box-shadow:0 0 6px #000}
  .miss{padding:2rem;text-align:center;opacity:.75}
@@ -181,7 +204,7 @@ __LIBRARY__
     // race to load.
     function setRatio(img) {
       if (img.naturalWidth && img.naturalHeight) {
-        box.style.setProperty("--ar", img.naturalWidth + " / " + img.naturalHeight);
+        box.style.setProperty("--ar", img.naturalWidth / img.naturalHeight);
       }
     }
     a.addEventListener("load", function () { setRatio(a); });
@@ -214,6 +237,139 @@ __LIBRARY__
     stage.appendChild(pane);
   }
 
+  // -- the same wipe, rendered instead of clipped -----------------------
+  //
+  // The CSS wipe above resizes an <img>, and a browser's default image
+  // scaling is free to interpolate however it likes -- which is exactly the
+  // wrong thing when the question a wipe exists to answer is "what moved".
+  // With three.js available, the same two textures go on a pair of ordinary
+  // unlit quads instead, sized one-to-one with the canvas, and the split is
+  // drawn with the scissor test rather than a CSS clip: the left texture's
+  // quad is rendered into the left of the handle, the right texture's quad
+  // into the right of it, same two textures, same handle, same drag math --
+  // only *how the pixels get to the screen* changes. A WebGL texture
+  // mipmaps by default, so minifying a 2048px source down to a 400px pane
+  // is a real filtered downsample instead of nearest-neighbor decimation.
+  var wipeGL = null;
+
+  function wipeTexture(url, maxAniso, onReady) {
+    var image = new Image();
+    var tex = new THREE.Texture(image);
+    // Color, not vectors -- read as sRGB the same way the lit view's own
+    // diffuse map is, so the wipe shows what the pixels actually look like.
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = maxAniso;
+    image.onload = function () { tex.needsUpdate = true; onReady(image); };
+    image.src = url;
+    return tex;
+  }
+
+  function buildWipeGL() {
+    var wrap = document.createElement("div");
+    wrap.className = "pane"; wrap.id = "wipe";
+    var head = document.createElement("h4");
+    head.textContent = "drag the handle -- left is " + data.leftName;
+    var box = document.createElement("div");
+    box.className = "frame";
+    box.style.setProperty("--split", "50%");
+
+    var renderer = new THREE.WebGLRenderer({antialias: true, alpha: false});
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    // Each draw makes two scissored render() calls into the same buffer;
+    // the second must not erase the first, so the buffer is cleared once,
+    // by hand, before either of them.
+    renderer.autoClear = false;
+    var maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+    var scene = new THREE.Scene();
+    var camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+    camera.position.z = 1;
+
+    var naturalW = 0, naturalH = 0, sizeW = 0, sizeH = 0, split = 0.5;
+
+    var geometry = new THREE.PlaneGeometry(2, 2);
+    var leftMesh = new THREE.Mesh(
+      geometry, new THREE.MeshBasicMaterial({map: wipeTexture(data.left.url, maxAniso, setRatio)}));
+    var rightMesh = new THREE.Mesh(
+      geometry, new THREE.MeshBasicMaterial({map: wipeTexture(data.right.url, maxAniso, setRatio)}));
+    scene.add(leftMesh); scene.add(rightMesh);
+
+    // Whichever image reports its natural size first sets the frame's
+    // aspect ratio -- the same tie-break the CSS wipe uses. A real pair
+    // keeps the same ratio at a new resolution, so it does not matter which
+    // one wins the race.
+    function setRatio(image) {
+      if (!naturalW && image.naturalWidth && image.naturalHeight) {
+        naturalW = image.naturalWidth; naturalH = image.naturalHeight;
+        box.style.setProperty("--ar", naturalW / naturalH);
+        resize();
+      }
+      draw();
+    }
+
+    function resize() {
+      // The box's own layout already carries --ar (or the default square),
+      // so reading it back is simpler than recomputing what CSS just did.
+      sizeW = Math.max(1, box.clientWidth || 800);
+      sizeH = Math.max(1, box.clientHeight || sizeW);
+      var ratio = sizeW / sizeH;
+      camera.left = -ratio; camera.right = ratio;
+      camera.updateProjectionMatrix();
+      leftMesh.scale.x = ratio;
+      rightMesh.scale.x = ratio;
+      renderer.setSize(sizeW, sizeH, false);
+    }
+
+    function draw() {
+      if (!sizeW || !sizeH) return;
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, sizeW, sizeH);
+      renderer.clear();
+      renderer.setScissorTest(true);
+      var splitPx = Math.round(sizeW * split);
+      if (splitPx > 0) {
+        leftMesh.visible = true; rightMesh.visible = false;
+        renderer.setScissor(0, 0, splitPx, sizeH);
+        renderer.render(scene, camera);
+      }
+      if (splitPx < sizeW) {
+        leftMesh.visible = false; rightMesh.visible = true;
+        renderer.setScissor(splitPx, 0, sizeW - splitPx, sizeH);
+        renderer.render(scene, camera);
+      }
+      renderer.setScissorTest(false);
+    }
+
+    var handle = document.createElement("div");
+    handle.className = "handle";
+    // Identical to the CSS wipe's own track(): same rect, same clamp, same
+    // percent. Only the last line differs -- a re-render instead of a
+    // style write.
+    function track(event) {
+      var rect = box.getBoundingClientRect();
+      var x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+      split = x / Math.max(rect.width, 1);
+      box.style.setProperty("--split", (split * 100) + "%");
+      draw();
+    }
+    var dragging = false;
+    handle.addEventListener("mousedown", function (e) { dragging = true; e.preventDefault(); });
+    window.addEventListener("mouseup", function () { dragging = false; });
+    window.addEventListener("mousemove", function (e) { if (dragging) track(e); });
+    box.addEventListener("click", track);
+
+    box.appendChild(renderer.domElement);
+    box.appendChild(handle);
+    wrap.appendChild(head); wrap.appendChild(box);
+    return {node: wrap, resize: resize, draw: draw};
+  }
+
+  function renderWipeGL() {
+    wipeGL = buildWipeGL();
+    stage.appendChild(wipeGL.node);
+    wipeGL.resize(); wipeGL.draw();
+  }
+
   function renderDifference() {
     if (!data.difference) {
       var none = document.createElement("div");
@@ -243,7 +399,7 @@ __LIBRARY__
     // Color is sRGB; a normal map is a field of vectors and must be read
     // linearly, or every one of them is bent before it is used.
     if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
-    image.onload = function () { tex.needsUpdate = true; if (lit) lit.draw(); };
+    image.onload = function () { tex.needsUpdate = true; if (onLoad) onLoad(image); if (lit) lit.draw(); };
     image.src = url;
     return tex;
   }
@@ -255,6 +411,9 @@ __LIBRARY__
     head.textContent = "lit material -- drag to move the light";
     var renderer = new THREE.WebGLRenderer({antialias: true, alpha: false});
     renderer.setPixelRatio(window.devicePixelRatio || 1);
+    // Track the natural resolution of the source texture
+    var naturalW = 0, naturalH = 0;
+
     var scene = new THREE.Scene();
     // Orthographic: a perspective camera would foreshorten one side of each
     // quad and make the two panes disagree for a reason that is not in the
@@ -269,15 +428,35 @@ __LIBRARY__
 
     function makeQuad(x, maps, base) {
       var material = new THREE.MeshPhongMaterial({color: 0xffffff, shininess: 30});
-      material.userData.maps = {
-        map: texture(base, true),
-        normalMap: maps["_nh"] ? texture(maps["_nh"].url, false)
-                 : maps["_n"] ? texture(maps["_n"].url, false) : null,
-        specularMap: maps["_spec"] ? texture(maps["_spec"].url, true) : null
-      };
+      // Start with the default 2x2 square geometry
       var mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
       mesh.position.x = x;
       scene.add(mesh);
+      // Scale the mesh dynamically and trigger a canvas resize
+      function applyScale(img) {
+        var aspect = img.naturalWidth / img.naturalHeight;
+
+        // Scale the Y or X axis so the texture fits into the 2-unit boundary
+        if (aspect > 1) {
+          mesh.scale.set(1, 1 / aspect, 1);
+        } else {
+          mesh.scale.set(aspect, 1, 1);
+        }
+        // Set the shared boundaries
+        if (!naturalW && img.naturalWidth && img.naturalHeight) {
+          naturalW = img.naturalWidth;
+          naturalH = img.naturalHeight;
+          resize();
+        }
+      }
+
+      material.userData.maps = {
+        map: texture(base, true, applyScale),
+        normalMap: maps["_nh"] ? texture(maps["_nh"].url, false, null)
+                 : maps["_n"] ? texture(maps["_n"].url, false, null) : null,
+        specularMap: maps["_diffusespec"] ? texture(maps["_diffusespec"].url, true, null)
+                   : maps["_spec"] ? texture(maps["_spec"].url, true, null) : null
+      };
       return mesh;
     }
 
@@ -309,8 +488,20 @@ __LIBRARY__
 
     function resize() {
       var w = Math.max(stage.clientWidth - 40, 320);
-      var h = Math.round(w / 4.0);
+      var w = Math.max(stage.clientWidth - 40, 320);
+      var aspect = (naturalW && naturalH) ? (naturalW / naturalH) : 1;
+      
+      // Dynamically calculate canvas height based on the scaled meshes 
+      var baseAspect = Math.max(aspect, 1.0);
+      var h = Math.round(w / (2.0 * baseAspect));
       renderer.setSize(w, h, false);
+
+      // Update orthographic camera bounds so it perfectly frames the new ratio
+      var ratio = w / h;
+      var vertical = 4.2 / ratio / 2;
+      camera.top = vertical;
+      camera.bottom = -vertical;
+      camera.updateProjectionMatrix();
     }
 
     function draw() { renderer.render(scene, camera); }
@@ -352,9 +543,10 @@ __LIBRARY__
 
   function draw() {
     lit = null;
+    wipeGL = null;
     stage.textContent = "";
     if (mode === "side") renderSide();
-    else if (mode === "wipe") renderWipe();
+    else if (mode === "wipe") { if (data.canLight) renderWipeGL(); else renderWipe(); }
     else if (mode === "material") renderLit();
     else renderDifference();
     Array.prototype.forEach.call(controls.querySelectorAll("button[data-mode]"),
@@ -447,6 +639,7 @@ __LIBRARY__
 
   window.addEventListener("resize", function () {
     if (lit) { lit.resize(); lit.draw(); }
+    if (wipeGL) { wipeGL.resize(); wipeGL.draw(); }
   });
 
   draw();
@@ -467,9 +660,14 @@ def build_compare_page(
     left_maps: Maps | None = None,
     right_maps: Maps | None = None,
     library_url: str = "",
-    library_source: str = "",
 ) -> str:
     """Build a page comparing two textures.
+
+    Two shapes from one template, the same split
+    :func:`~wraithguard.nif.viewer.build_viewer_page` uses: given a
+    ``library_url`` this produces a **served page** that fetches three.js;
+    otherwise it inlines the library itself, the same way it inlines every
+    other blob when ``sink`` is omitted.
 
     Args:
         left: Provider name, displayable bytes, and their MIME type.
@@ -484,9 +682,9 @@ def build_compare_page(
             texture, when the collection ships any. Their presence is what
             enables the lit material view.
         right_maps: The same for the other side.
-        library_url: Where to fetch three.js from, for a served page.
-        library_source: The library itself, to inline for a standalone file.
-            One or the other; inlining is what makes the export work offline.
+        library_url: Where to fetch three.js from, for a served page. Empty
+            means inline it -- see :func:`_inline_library` for why that can
+            come back empty too, unlike the mesh viewer's own version of this.
 
     Returns:
         The whole page.
@@ -494,6 +692,7 @@ def build_compare_page(
     publish = sink or _data_url
     left_name, left_bytes, left_type = left
     right_name, right_bytes, right_type = right
+    library_source = "" if library_url else _inline_library()
     payload: dict[str, object] = {
         "leftName": left_name,
         "rightName": right_name,
@@ -517,6 +716,29 @@ def build_compare_page(
         .replace("__LIBRARY__", _library_block(library_url, library_source))
         .replace("__PAYLOAD__", json.dumps(payload))
     )
+
+
+def _inline_library() -> str:
+    """Load the vendored three.js build for a standalone page, if it is there.
+
+    :func:`~wraithguard.nif.viewer.build_viewer_page` calls
+    :func:`~wraithguard.viz.library.three_source` directly and lets
+    :class:`~wraithguard.viz.library.ViewerError` propagate, because a mesh
+    genuinely cannot be shown without a 3D engine -- there is no fallback
+    rendering path to degrade to. This page is not that page: side by side
+    and difference need nothing from three.js, and the overlay has a working
+    CSS fallback (see the module docstring). So a missing library is worth
+    trying to inline and not worth failing the whole page over -- it costs
+    the lit view and swaps the overlay's renderer, nothing more.
+
+    Returns:
+        The library source, or ``""`` when it could not be found.
+    """
+    try:
+        return three_source()
+    except ViewerError as exc:
+        LOG.info("building the texture comparison without three.js: %s", exc)
+        return ""
 
 
 def _publish_maps(maps: Maps | None, publish: BlobSink) -> dict[str, object]:

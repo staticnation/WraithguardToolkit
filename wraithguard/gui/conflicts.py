@@ -32,7 +32,7 @@ from wraithguard.gui.theme import (
 )
 from wraithguard.gui.widgets import QueueWriter, add_tooltip
 from wraithguard.i18n import gettext as _, ngettext
-from wraithguard.images.compare import Verdict, compare_bytes, difference_image
+from wraithguard.images.compare import Comparison, Verdict, compare_bytes, difference_image
 from wraithguard.images.image import ImageError
 from wraithguard.images.png import encode_png
 from wraithguard.images.reader import browser_image, read_image
@@ -41,10 +41,11 @@ from wraithguard.logging_setup import get_logger
 from wraithguard.nif import MeshAnalyser
 from wraithguard.nif.geometry import block_tree, world_meshes
 from wraithguard.nif.reader import NifParseError, read_nif
-from wraithguard.nif.serve import Payload, ViewerServer
 from wraithguard.nif.textures import TextureResolver
-from wraithguard.nif.viewer import ViewerError, build_viewer_page, three_source
+from wraithguard.nif.viewer import build_viewer_page
 from wraithguard.plugins import PluginFileIndex
+from wraithguard.viz.library import ViewerError, three_source
+from wraithguard.viz.serve import Payload, ViewerServer
 
 LOG_GUI = get_logger(__name__)
 
@@ -440,9 +441,10 @@ class ConflictWindowsMixin:
             is_texture = str(c.get("path", "")).lower().endswith(
                 _TEXTURE_EXTENSIONS
             ) and len(c.get("providers", [])) >= 2
-            texture_button = getattr(self, "_res_view_texture", None)
-            if texture_button is not None:
-                texture_button.configure(state="normal" if is_texture else "disabled")
+            for name in ("_res_view_texture", "_res_export_texture"):
+                button = getattr(self, name, None)
+                if button is not None:
+                    button.configure(state="normal" if is_texture else "disabled")
             detail.configure(state="normal")
             detail.delete("1.0", "end")
             detail.insert("1.0", "\n".join(lines))
@@ -469,6 +471,13 @@ class ConflictWindowsMixin:
             state="disabled",
         )
         self._res_view_texture.pack(side="left", padx=(8, 0))
+        self._res_export_texture = ttk.Button(
+            btns,
+            text=_("Export comparison..."),
+            command=self._export_texture_viewer,
+            state="disabled",
+        )
+        self._res_export_texture.pack(side="left", padx=(4, 0))
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
         self._refill_res_tree()
 
@@ -561,24 +570,49 @@ class ConflictWindowsMixin:
         return conflict if str(conflict.get("path", "")).lower().endswith(".nif") else None
 
     def _viewer_server(self) -> ViewerServer | None:
-        """The loopback server, started on first use.
+        """The loopback server, started on first use and shared by every view.
+
+        One server for the whole session -- the mesh viewer, the texture
+        comparison, and whatever else ends up wanting a browser tab -- rather
+        than one per feature.
+        :meth:`~wraithguard.viz.serve.ViewerServer.publish_session` is what
+        keeps them from colliding on it.
 
         Returns:
             The running server, or ``None`` when no socket could be bound --
-            which happens on locked-down machines and is why the standalone
-            page still exists.
+            which happens on locked-down machines and is why a standalone
+            export still exists for every view that has one.
         """
-        server: ViewerServer | None = getattr(self, "_mesh_server", None)
+        server: ViewerServer | None = getattr(self, "_shared_viewer_server", None)
         if server is None:
             server = ViewerServer()
-            self._mesh_server = server
+            self._shared_viewer_server = server
         if not server.running:
             try:
                 server.start()
             except OSError as exc:
-                LOG_GUI.warning("no loopback port for the mesh viewer: %s", exc)
+                LOG_GUI.warning("no loopback port for the viewer: %s", exc)
                 return None
         return server
+
+    def _three_js_url(self, server: ViewerServer) -> str:
+        """The URL for the vendored three.js build.
+
+        Published under a fixed, un-namespaced key deliberately: the bytes are
+        the same build regardless of which view asks for them or how many
+        times, so giving every session its own copy under its own namespace
+        would only store duplicates of a file that never changes within a run
+        -- worth avoiding once more than one kind of view wants it.
+
+        Args:
+            server: The running server.
+
+        Returns:
+            The URL three.js is served from.
+        """
+        return server.publish(
+            "three.js", Payload(three_source().encode("utf-8"), "text/javascript")
+        )
 
     def _open_mesh_viewer(self) -> None:
         """Show the selected mesh conflict in 3D.
@@ -604,26 +638,24 @@ class ConflictWindowsMixin:
                     _("Mesh view"),
                 )
                 return
+            session = server.publish_session("mesh")
             counter = itertools.count()
 
             def sink(blob: bytes, content_type: str = "") -> dict[str, str]:
                 kind = content_type or "application/octet-stream"
                 suffix = "png" if content_type.startswith("image/") else "bin"
                 key = f"g{next(counter)}.{suffix}"
-                return {"url": server.publish(key, Payload(blob, kind))}
+                return {"url": session.publish(key, Payload(blob, kind))}
 
-            library_url = server.publish(
-                "three.js", Payload(three_source().encode("utf-8"), "text/javascript")
-            )
             page = build_viewer_page(
                 sides,
                 title=path,
                 sink=sink,
-                library_url=library_url,
+                library_url=self._three_js_url(server),
                 trees=trees,
                 resolver=self._texture_resolver(conflict),
             )
-            url = server.publish("index.html", Payload(page.encode("utf-8"), "text/html"))
+            url = session.publish("index.html", Payload(page.encode("utf-8"), "text/html"))
         except (ViewerError, NifParseError, OSError) as exc:
             messagebox.showerror(_("Cannot show this mesh"), str(exc))
             return
@@ -756,7 +788,14 @@ class ConflictWindowsMixin:
             is the common case and is why the lit view's controls stay
             conditional.
         """
-        resolver = TextureResolver([provider_dir])
+        vfs_dirs = self._plan_scan_dirs()
+        if vfs_dirs:
+            search_dirs = [Path(str(d)) for d in vfs_dirs]
+            if provider_dir not in search_dirs:
+                search_dirs.append(provider_dir)
+        else:
+            search_dirs = [provider_dir]
+        resolver = TextureResolver(search_dirs)
         maps: Maps = {}
         for suffix, resolved in resolver.siblings(reference).items():
             data = resolver.read(resolved)
@@ -768,55 +807,175 @@ class ConflictWindowsMixin:
                 continue
         return maps
 
+    def _texture_compare_payload(
+        self, conflict: dict
+    ) -> tuple[
+        tuple[str, bytes, str],
+        tuple[str, bytes, str],
+        Comparison,
+        tuple[bytes, str] | None,
+        Maps,
+        Maps,
+        str,
+    ]:
+        """Read and compare the selected texture conflict.
+
+        Shared by :meth:`_open_texture_viewer` and :meth:`_export_texture_viewer`
+        so reading both files, comparing them and building a difference image
+        happens once regardless of which one a person reaches for -- the same
+        split :meth:`_mesh_sides` already makes for the mesh viewer.
+
+        Args:
+            conflict: The selected conflict entry.
+
+        Returns:
+            Everything :func:`~wraithguard.images.viewer.build_compare_page`
+            needs except how to publish it: both displayable sides, the
+            comparison outcome, a difference image when there is one, each
+            side's own auxiliary maps, and the asset path.
+
+        Raises:
+            OSError: If either file cannot be read.
+            ImageError: If either cannot be decoded.
+        """
+        path = str(conflict.get("path", ""))
+        overridden_dir, winner_dir = self._texture_provider_dirs(conflict)
+        (left_name, left_bytes), (right_name, right_bytes) = self._texture_sides(conflict)
+        outcome = compare_bytes(left_bytes, right_bytes, reference=path)
+        left_display, left_mime = browser_image(left_bytes)
+        right_display, right_mime = browser_image(right_bytes)
+        difference = None
+        # worst_channel is only ever 0 when compare_bytes skipped pixel
+        # measurement outright (identical bytes, a decode failure, a size
+        # mismatch, or a pair too large to measure) -- every one of those
+        # is also a case with no difference image to build.
+        if outcome.verdict is Verdict.DIFFERENT and outcome.worst_channel > 0:
+            diff_img = difference_image(read_image(left_bytes), read_image(right_bytes))
+            difference = (encode_png(diff_img), "image/png")
+        left_maps = self._texture_maps(overridden_dir, path)
+        right_maps = self._texture_maps(winner_dir, path)
+        return (
+            (left_name, left_display, left_mime),
+            (right_name, right_display, right_mime),
+            outcome,
+            difference,
+            left_maps,
+            right_maps,
+            path,
+        )
+
     def _open_texture_viewer(self) -> None:
         """Show the selected texture conflict: side by side, wipe, and difference.
 
-        Always written and opened through :meth:`_open_html_view` rather than
-        the mesh view's loopback server -- a texture pair inlined as data URLs
-        is at most a few megabytes, nowhere near the hundreds a compressed
-        mesh needs a server to avoid, so the extra machinery would buy
-        nothing here.
+        Served over loopback when a port can be bound, through the same
+        shared server as the mesh viewer -- worth doing now that the wipe view
+        wants three.js on effectively every comparison rather than only the
+        ones with an auxiliary map, which makes three.js itself, not the
+        textures, the payload worth not re-embedding on every open. Falls back
+        to the standalone page, built the same way :meth:`_export_texture_viewer`
+        always builds it, when no port could be bound.
 
-        The lit view's three.js dependency is inlined only when at least one
-        side actually has an auxiliary map to show under it -- vendoring a 3D
-        library into every plain-diffuse comparison would cost every ordinary
-        view for a feature almost none of them use.
+        Unlike the mesh viewer, a missing three.js does not stop this one
+        from opening: :func:`~wraithguard.images.viewer.build_compare_page`
+        needs it for the lit view and the WebGL overlay only, and degrades to
+        its CSS fallback on its own when it cannot be found -- see
+        :func:`~wraithguard.images.viewer._inline_library`. Publishing it to
+        the server gets the same treatment here, so a build that shipped
+        without the library still gets a working, merely less capable, served
+        page rather than an error dialog over a feature it was not using.
+        """
+        conflict = self._selected_texture_conflict()
+        if conflict is None:
+            return
+        try:
+            left, right, outcome, difference, left_maps, right_maps, path = (
+                self._texture_compare_payload(conflict)
+            )
+            server = self._viewer_server()
+            if server is None:
+                page = build_compare_page(
+                    left,
+                    right,
+                    outcome,
+                    difference=difference,
+                    title=path,
+                    left_maps=left_maps,
+                    right_maps=right_maps,
+                )
+                self._open_html_view(page, "texture_compare", _("Texture comparison"))
+                return
+            session = server.publish_session("texture")
+            counter = itertools.count()
+
+            def sink(blob: bytes, content_type: str = "") -> dict[str, str]:
+                kind = content_type or "application/octet-stream"
+                suffix = "png" if content_type.startswith("image/") else "bin"
+                key = f"t{next(counter)}.{suffix}"
+                return {"url": session.publish(key, Payload(blob, kind))}
+
+            try:
+                library_url = self._three_js_url(server)
+            except ViewerError:
+                library_url = ""
+            page = build_compare_page(
+                left,
+                right,
+                outcome,
+                difference=difference,
+                title=path,
+                sink=sink,
+                left_maps=left_maps,
+                right_maps=right_maps,
+                library_url=library_url,
+            )
+            url = session.publish("index.html", Payload(page.encode("utf-8"), "text/html"))
+        except (OSError, ImageError) as exc:
+            messagebox.showerror(_("Cannot show this texture"), str(exc))
+            return
+        opener = getattr(self, "open_html_in_app", None)
+        if callable(opener):
+            opener(url, _("Texture comparison"))
+        else:  # pragma: no cover - only if the mixin is used outside App
+            webbrowser.open(url)
+        self.status_var.set(_("Opened the texture comparison for %(path)s") % {"path": path})
+
+    def _export_texture_viewer(self) -> None:
+        """Write the selected texture comparison as one standalone HTML file.
+
+        Mirrors :meth:`_export_mesh_viewer`: the served page is smaller and
+        quicker to open, this one survives being moved, kept or sent to
+        someone, which the served page cannot.
         """
         conflict = self._selected_texture_conflict()
         if conflict is None:
             return
         path = str(conflict.get("path", ""))
+        target = filedialog.asksaveasfilename(
+            title=_("Export the texture comparison"),
+            defaultextension=".html",
+            initialfile=f"{Path(path).stem}_compare.html",
+            filetypes=(("HTML files", "*.html"), ("All files", "*.*")),
+        )
+        if not target:
+            return
         try:
-            overridden_dir, winner_dir = self._texture_provider_dirs(conflict)
-            (left_name, left_bytes), (right_name, right_bytes) = self._texture_sides(conflict)
-            outcome = compare_bytes(left_bytes, right_bytes, reference=path)
-            left_display, left_mime = browser_image(left_bytes)
-            right_display, right_mime = browser_image(right_bytes)
-            difference = None
-            # worst_channel is only ever 0 when compare_bytes skipped pixel
-            # measurement outright (identical bytes, a decode failure, a size
-            # mismatch, or a pair too large to measure) -- every one of those
-            # is also a case with no difference image to build.
-            if outcome.verdict is Verdict.DIFFERENT and outcome.worst_channel > 0:
-                diff_img = difference_image(read_image(left_bytes), read_image(right_bytes))
-                difference = (encode_png(diff_img), "image/png")
-            left_maps = self._texture_maps(overridden_dir, path)
-            right_maps = self._texture_maps(winner_dir, path)
+            left, right, outcome, difference, left_maps, right_maps, path = (
+                self._texture_compare_payload(conflict)
+            )
             page = build_compare_page(
-                (left_name, left_display, left_mime),
-                (right_name, right_display, right_mime),
+                left,
+                right,
                 outcome,
                 difference=difference,
                 title=path,
                 left_maps=left_maps,
                 right_maps=right_maps,
-                library_source=three_source() if (left_maps or right_maps) else "",
             )
+            Path(target).write_text(page, encoding="utf-8")
         except (OSError, ImageError) as exc:
-            messagebox.showerror(_("Cannot show this texture"), str(exc))
+            messagebox.showerror(_("Export failed"), str(exc))
             return
-        self._open_html_view(page, "texture_compare", _("Texture comparison"))
-        self.status_var.set(_("Opened the texture comparison for %(path)s") % {"path": path})
+        self.status_var.set(_("Exported: %(path)s") % {"path": target})
 
     def _save_resource_csv(self) -> None:
         if not getattr(self, "_all_res", None):

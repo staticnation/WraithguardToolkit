@@ -24,6 +24,13 @@ a user can move, keep or send to someone. Referencing a sibling script would
 break that, and would also behave differently in the in-app viewers
 (``pywebview``, ``tkinterweb``) than in a browser. One file behaves the same
 everywhere.
+
+**Finding the three.js build itself, and ``ViewerError``, now live in**
+:mod:`wraithguard.net.library`. That code was never specific to a NIF -- it
+locates and reads one vendored asset -- and the texture comparison's WebGL
+wipe view needs the identical bytes. This module still owns everything that
+*is* NIF-specific: the scene payload, the orbit controls, and the page
+template below.
 """
 
 from __future__ import annotations
@@ -32,14 +39,13 @@ import base64
 import html
 import json
 import struct
-import sys
 import zlib
 from collections.abc import Callable
-from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from wraithguard.images import ImageError, browser_image
 from wraithguard.logging_setup import get_logger
+from wraithguard.net import ViewerError, three_source
 
 if TYPE_CHECKING:
     from wraithguard.nif.geometry import Mesh, TreeNode
@@ -47,17 +53,12 @@ if TYPE_CHECKING:
 
 LOG = get_logger(__name__)
 
-#: The vendored three.js build, relative to this package.
-_THREE_ASSET: Final[str] = "assets/three.cjs"
-
 #: Colors for the two sides of a comparison: the overridden mesh and the one
 #: that wins. Deliberately not red and green -- the point is to tell them apart,
 #: not to say which is better, and roughly 1 in 12 men cannot separate those.
 _COLOURS: Final[tuple[str, str]] = ("#6ba3ff", "#ffb86b")
 
-
-class ViewerError(Exception):
-    """Raised when the viewer cannot be built."""
+__all__ = ["BlobSink", "ViewerError", "build_viewer_page", "inline_blob", "three_source"]
 
 
 #: Turns one deflated blob into whatever the page should read it from: a
@@ -83,57 +84,6 @@ def inline_blob(blob: bytes, content_type: str = "") -> dict[str, str]:
     if content_type.startswith("image/"):
         return {"url": f"data:{content_type};base64,{encoded}"}
     return {"b64": encoded}
-
-
-def three_source() -> str:
-    """Locate and read the vendored three.js build.
-
-    Looks in the same places, and for the same reason, as the help documents:
-    a frozen build unpacks its data to ``sys._MEIPASS``, while a source checkout
-    has it beside this module.
-
-    Returns:
-        The library source.
-
-    Raises:
-        ViewerError: If it was not shipped with this build. Reported rather
-            than crashed on: a missing viewer is a disappointment, and the
-            caller can say so.
-    """
-    bundled = getattr(sys, "_MEIPASS", None)
-    candidates = [
-        *([Path(bundled) / "wraithguard" / "nif" / _THREE_ASSET] if bundled else []),
-        *([Path(bundled) / _THREE_ASSET] if bundled else []),
-        Path(__file__).resolve().parent / _THREE_ASSET,
-    ]
-    found = _first_readable(candidates)
-    if found is not None:
-        return found
-    raise ViewerError(
-        "the 3D viewer library was not shipped with this build; "
-        f"looked in {[str(c) for c in candidates]}"
-    )
-
-
-def _first_readable(candidates: list[Path]) -> str | None:
-    """Return the contents of the first candidate that can be read.
-
-    Args:
-        candidates: Paths to try, in order.
-
-    Returns:
-        The file's text, or ``None`` when none of them could be read.
-    """
-    for candidate in candidates:
-        try:
-            if candidate.is_file():
-                return candidate.read_text(encoding="utf-8")
-        except OSError as exc:  # noqa: PERF203 -- candidates must fail independently
-            # An unreadable mount or a partial extraction. Hoisting the try out
-            # of the loop would make one bad path skip the remaining ones, and
-            # the whole purpose here is to try them in turn.
-            LOG.warning("cannot read %s: %s", candidate, exc)
-    return None
 
 
 def _packed(values: list[float] | list[int], fmt: str) -> bytes:
@@ -796,6 +746,37 @@ __LIBRARY_BLOCK__
         o.material.needsUpdate = true;
       });
       alphaCtl.className = "ctl" + (alphaBox.checked ? "" : " off");
+      draw();
+    });
+
+    var blendBox = document.createElement("input");
+    blendBox.type = "checkbox"; blendBox.id = "alphablend";
+    var blendCtl = document.createElement("span");
+    blendCtl.className = "ctl off";
+    var blendLabel = document.createElement("label");
+    blendLabel.htmlFor = "alphablend";
+    blendLabel.textContent = "Alpha blend";
+    blendCtl.appendChild(blendBox); blendCtl.appendChild(blendLabel);
+    controls.appendChild(blendCtl);
+    blendBox.addEventListener("change", function () {
+      // Alpha cutout is a mask, either in or out -- right for grass and
+      // fences, wrong for genuine translucency like glass, water or a ghost,
+      // where alpha sits meaningfully between 0 and 1 and a 0.5 cutoff would
+      // just round it to fully-opaque-or-fully-gone. This blends it properly
+      // instead. The trade this time is the one alphaTest was chosen to
+      // avoid above: three.js sorts whole objects back-to-front by distance
+      // to the camera, but never the triangles within a single one, so a
+      // mesh with self-overlapping transparent geometry -- a complex glass
+      // shape folded back on itself -- can still show the wrong surface on
+      // top. Independent of the cutout checkbox; a mesh can want both at
+      // once (a cutout leaf with softened edges), so neither toggle turns
+      // the other off.
+      scene.traverse(function (o) {
+        if (!o.isMesh || !o.userData.map) return;
+        o.material.transparent = blendBox.checked;
+        o.material.needsUpdate = true;
+      });
+      blendCtl.className = "ctl" + (blendBox.checked ? "" : " off");
       draw();
     });
 
