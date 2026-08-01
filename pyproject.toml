@@ -54,7 +54,7 @@ wraithguard = ["py.typed"]
 # below and wraithguard.__version__ never drift apart.
 [project]
 name = "mlox-subset-sort"
-version = "3.1.1"
+version = "3.1.2"
 description = "Sort your own Morrowind mods into a frozen MOMW load order."
 readme = "README.md"
 requires-python = ">=3.10"
