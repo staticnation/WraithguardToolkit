@@ -209,6 +209,57 @@ def _pick_anchor(
     return "after", None
 
 
+def _replace_notes(rep: Mapping[str, Any], final_content_order: Sequence[str]) -> list[str]:
+    """Explain a ``replace`` block that this tool carried through untouched.
+
+    **Why this needs saying.** A regenerated file moves things around, so a
+    block the user wrote by hand turns up somewhere it was not before, with no
+    note attached, looking exactly like something the tool invented. That
+    happened: a user asked publicly whether a ``replace`` at the bottom of
+    their exported file was normal, and it was theirs all along -- written to
+    reconcile a plugin momw names one way and their install names another.
+
+    The second thing worth saying is a real limitation. momw-configurator's
+    ``replace`` has no ``after``/``before``: it inherits the position of
+    ``source``. So when mlox wants the replaced plugin somewhere else, this
+    tool cannot express that as a replace, and silently leaves it where it is.
+    The note gives the position mlox chose, so the user can act on it -- by
+    turning the block into an insert, or by leaving it alone deliberately.
+
+    Args:
+        rep: The ``replace`` entry, as parsed from the source TOML.
+        final_content_order: The full mlox-sorted plugin list.
+
+    Returns:
+        Comment lines to emit above the block. Empty when there is nothing
+        useful to say -- a malformed entry gets no invented commentary.
+    """
+    dest = str(rep.get("dest") or "").strip()
+    source = str(rep.get("source") or "").strip()
+    if not dest or not source:
+        return []
+
+    notes = [
+        "# Yours: carried through unchanged. This tool never writes a replace of",
+        "# its own -- only insert, append and remove blocks are regenerated.",
+    ]
+
+    # Data-path replaces have no place in the plugin order and nothing to say.
+    lowered = [name.lower() for name in final_content_order]
+    try:
+        position = lowered.index(dest.lower())
+    except ValueError:
+        return notes
+
+    notes.append(f"# mlox sorts {dest} to position {position + 1} of {len(final_content_order)}")
+    if position > 0:
+        notes.append(f"#   after: {final_content_order[position - 1]}")
+    notes.append("# A replace has no after/before -- it inherits the position of source --")
+    notes.append("# so if that is not where it sits now, only you can move it: change this")
+    notes.append("# block to an insert, or leave it as it is on purpose.")
+    return notes
+
+
 def generate_customizations_toml(
     original_data: Mapping[str, Any] | None,
     final_content_order: Sequence[str],
@@ -500,6 +551,7 @@ def generate_customizations_toml(
             out.append("")
 
         for rep in block.get("replace", []):
+            out.extend(_replace_notes(rep, final_content_order))
             out.append("[[Customizations.replace]]")
             if "source" in rep:
                 out.append(f"source = {toml_value(rep['source'])}")

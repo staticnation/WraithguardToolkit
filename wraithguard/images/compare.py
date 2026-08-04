@@ -122,9 +122,7 @@ class Comparison:
         return self.differs
 
 
-def compare_bytes(
-    left: bytes, right: bytes, *, reference: str = "", slot: str = ""
-) -> Comparison:
+def compare_bytes(left: bytes, right: bytes, *, reference: str = "", slot: str = "") -> Comparison:
     """Compare two texture files.
 
     Args:
@@ -151,13 +149,22 @@ def compare_bytes(
     try:
         first = read_image(left)
     except ImageError as exc:
-        return Comparison(Verdict.UNDECODABLE, f"the first could not be decoded: {exc}",
-                          left_role=role, right_role=role)
+        return Comparison(
+            Verdict.UNDECODABLE,
+            f"the first could not be decoded: {exc}",
+            left_role=role,
+            right_role=role,
+        )
     try:
         second = read_image(right)
     except ImageError as exc:
-        return Comparison(Verdict.UNDECODABLE, f"the second could not be decoded: {exc}",
-                          left_size=(first.width, first.height), left_role=role, right_role=role)
+        return Comparison(
+            Verdict.UNDECODABLE,
+            f"the second could not be decoded: {exc}",
+            left_size=(first.width, first.height),
+            left_role=role,
+            right_role=role,
+        )
 
     return compare_images(first, second, left_role=role, right_role=role)
 
@@ -296,8 +303,7 @@ def difference_image(left: Image, right: Image, *, amplify: int = 4) -> Image:
     """
     if (left.width, left.height) != (right.width, right.height):
         raise ImageError(
-            f"cannot difference {left.width}x{left.height} against "
-            f"{right.width}x{right.height}"
+            f"cannot difference {left.width}x{left.height} against " f"{right.width}x{right.height}"
         )
     out = bytearray(len(left.pixels))
     first, second = left.pixels, right.pixels

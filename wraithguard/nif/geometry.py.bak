@@ -118,15 +118,6 @@ class Transform:
         )
 
 
-#: Bit in a ``NiAlphaProperty``'s flags that enables blending. Taken from
-#: ``tes3``'s ``flag_props!`` block, which spells the same masks out.
-_ALPHA_BLEND_MASK: Final[int] = 0x0001
-
-#: Bit that enables alpha testing -- a cutout rather than a fade. Independent
-#: of blending, and the distinction matters: foliage sets this one alone.
-_ALPHA_TEST_MASK: Final[int] = 0x0200
-
-
 @dataclass(frozen=True, slots=True)
 class Mesh:
     """One drawable shape, in world coordinates.
@@ -146,79 +137,75 @@ class Mesh:
         dark: The dark-map texture path, normalised, or ``""`` when the shape
             has none. Multiplied into the base color; the closest built-in
             equivalent a renderer has is an ambient-occlusion map.
-        decals: Every decal texture path the shape names, normalised, in slot
-            order -- ``decal_0`` first. Empty when it has none.
-
-            A list rather than a single path because the format genuinely
-            allows several and vanilla content uses them: ``7decals.NIF`` is
-            named for the fact. The reader has always parsed past the first
-            (see :func:`~wraithguard.nif.reader._slot_name`); only this layer
-            was throwing the rest away.
-
-            Order is load-bearing. Decals composite over one another, so
-            slot order is paint order, and reversing it puts the wrong one
-            on top.
+        decal: The first decal texture path, normalised, or ``""`` when the
+            shape has none. A mesh may declare more than one -- see
+            :func:`~wraithguard.nif.reader._slot_name` -- but only the first is
+            kept here, the same way only the first UV set is: further decals
+            exist for a handful of vanilla meshes and nothing here draws one
+            differently from another.
         detail: The detail-map texture path, normalised, or ``""`` when the
-            shape has none. Also multiplied into the base color, at a 2x UV
-            tile -- a second multiply alongside ``dark``, not a substitute for
-            it.
+            shape has none.
         gloss: The gloss-map texture path, normalised, or ``""`` when the
-            shape has none. A single-channel specular *mask* -- brighter is
-            shinier -- and distinct from the specular *map* an OpenMW-style
-            ``_spec`` sibling provides, which carries color.
-        bump: The bump-slot texture path, normalised, or ``""`` when the shape
-            has none. What this means is convention-dependent and this module
-            does not decide it: vanilla Morrowind ignores the slot outright,
-            while MGE-XE and NifSkope repurpose it to carry tangent-space
-            normals. See :func:`~wraithguard.images.roles.classify`.
-        vertex_colors: One RGBA tuple per vertex, each channel 0-1, empty when
-            the shape has none *or* when the count does not match the vertex
-            count. That is the same all-or-nothing rule :attr:`uvs` uses and
-            for the same reason: a partial set makes a renderer index past the
-            end of an attribute and draw nothing, which is worse than drawing
-            it uncoloured.
-        diffuse: The material's diffuse color, or ``None`` when the shape has
-            no ``NiMaterialProperty``. Multiplies with the base texture.
-            ``None`` means *undescribed*, not *black* -- a caller with neither
-            texture nor color must fall back to white, or every unmaterialed
-            shape renders as a silhouette.
-        emissive: The material's emissive color, or ``None`` when there is no
-            material property. Combines with :attr:`glow` the way
-            :attr:`diffuse` combines with :attr:`texture` -- multiplied -- so
-            a renderer that already multiplies an emissive map by an emissive
-            color is correct by construction, with no glow-specific case.
-        opacity: The material's own alpha, ``1.0`` when there is no material
-            property. Independent of :attr:`alpha_blend`: this is *how*
-            transparent, blending is *whether the renderer looks at all*.
-        alpha_blend: Whether the shape's ``NiAlphaProperty`` enables blending.
-            ``False`` when the shape has no such property, which reads
-            correctly: nothing describing transparency means opaque.
-        alpha_test: Whether that property enables alpha testing -- a cutout,
-            not a fade. Independent of :attr:`alpha_blend`; foliage commonly
-            sets this and not that.
-        alpha_threshold: The cutout reference, normalised to 0-1 from the
-            byte the file stores. Only meaningful when :attr:`alpha_test`.
+            shape has none. Sent through so a caller has it, even though
+            nothing here draws it -- see the note in
+            :mod:`wraithguard.nif.viewer` about why it is resolved but not
+            yet applied to a material.
+        bump: The bump-map texture path, normalised, or ``""`` when the shape
+            has none. What convention drew it (a true bump map, or MGE's
+            reuse of the slot for a normal map) is not decidable from the
+            file alone, so it is only ever applied when a caller is told to.
+        vertex_colors: One RGBA tuple per vertex, empty when the shape has
+            none or its count does not match the vertex count -- the same
+            all-or-nothing rule :attr:`uvs` uses, for the same reason: a
+            partial set is worse than none, not better.
+        diffuse: The shape's material diffuse color from its
+            ``NiMaterialProperty``, or ``None`` when it has no material
+            property. Multiplies with the base texture; a caller with no
+            texture and no color here should still fall back to white,
+            never to black -- ``None`` means "undescribed", not "zero".
+        emissive: The shape's material emissive color, or ``None`` when it
+            has no material property. Combines with the glow texture the
+            same way ``diffuse`` combines with the base texture: multiplied
+            together, so a renderer that already multiplies an emissive map
+            by an emissive color gets the right answer by construction,
+            with no separate glow-specific logic needed.
+        opacity: The material's own alpha value, ``1.0`` (fully opaque) when
+            there is no material property. Independent of
+            :attr:`alpha_blend`: this is *how* transparent, blending is
+            *whether* the renderer looks at it at all.
+        alpha_blend: Whether the shape's ``NiAlphaProperty`` has blending
+            enabled. ``False`` (and every other alpha field at its default)
+            when the shape has no alpha property, which is the correct
+            reading: nothing describing transparency means opaque.
+        alpha_test: Whether the shape's ``NiAlphaProperty`` has alpha testing
+            (cutout) enabled. Independent of :attr:`alpha_blend` -- a shape
+            can blend, test, both, or neither; they are separate bits in the
+            same flags word, not two names for one setting.
+        alpha_threshold: The alpha-test cutoff, normalised to 0-1 from the
+            file's 0-255 byte. Meaningless when :attr:`alpha_test` is
+            ``False``, but always present so a caller never has to branch on
+            whether the value exists before reading it.
     """
 
     name: str
     vertices: list[tuple[float, float, float]] = field(default_factory=list)
     triangles: list[tuple[int, int, int]] = field(default_factory=list)
     uvs: list[tuple[float, float]] = field(default_factory=list)
+    vertex_colors: list[tuple[float, float, float, float]] = field(default_factory=list)
     texture: str = ""
     glow: str = ""
     dark: str = ""
-    decals: list[str] = field(default_factory=list)
+    decal: str = ""
     detail: str = ""
     gloss: str = ""
     bump: str = ""
-    collision: bool = False
-    vertex_colors: list[tuple[float, float, float, float]] = field(default_factory=list)
     diffuse: tuple[float, float, float] | None = None
     emissive: tuple[float, float, float] | None = None
     opacity: float = 1.0
     alpha_blend: bool = False
     alpha_test: bool = False
-    alpha_threshold: float = 0.0
+    alpha_threshold: float = 0.5
+    collision: bool = False
 
 
 def _transform_of(block: Block) -> Transform:
@@ -331,168 +318,113 @@ def _shape_to_mesh(
     triangles = data.fields.get("triangles_indices")
     if not vertices or not triangles:
         return None
+        
     # A shape can declare several UV sets. Only the first is Morrowind's, and
     # taking more would mean guessing which one a texture belongs to.
-    uvs = (data.fields.get("uv_sets_uv") or [])[: len(vertices)]
-    diffuse, emissive, opacity = _material(block, by_index)
-    blend, test, threshold = _alpha(block, by_index)
+    raw_uvs = data.fields.get("uv_sets_uv")
+    uvs = (raw_uvs if isinstance(raw_uvs, (list, tuple)) else [])[: len(vertices)]
+    
+    # Same all-or-nothing rule as uvs: a color per vertex or none, never a
+    # partial set a renderer would have to pad or guess the rest of.
+    raw_colors_data = data.fields.get("vertex_colors")
+    raw_colors = raw_colors_data if isinstance(raw_colors_data, (list, tuple)) else []
+    
+    vertex_colors = (
+        [(float(r), float(g), float(b), float(a)) for r, g, b, a in raw_colors]
+        if len(raw_colors) == len(vertices)
+        else []
+    )
+    diffuse, emissive, opacity = _material_colors(block, by_index)
+    alpha_blend, alpha_test, alpha_threshold = _alpha_info(block, by_index)
+    
     return Mesh(
         name=_name_of(block),
         vertices=[world.apply(v) for v in vertices],
         triangles=list(triangles),
         uvs=[(float(u), float(v)) for u, v in uvs],
+        vertex_colors=vertex_colors,
         texture=_texture_slot(block, by_index, "base"),
         glow=_texture_slot(block, by_index, "glow"),
         dark=_texture_slot(block, by_index, "dark"),
-        decals=_decal_slots(block, by_index),
+        decal=_texture_slot(block, by_index, "decal_0"),
         detail=_texture_slot(block, by_index, "detail"),
         gloss=_texture_slot(block, by_index, "gloss"),
         bump=_texture_slot(block, by_index, "bump"),
-        collision=collision,
-        vertex_colors=_vertex_colors(data, len(vertices)),
         diffuse=diffuse,
         emissive=emissive,
         opacity=opacity,
-        alpha_blend=blend,
-        alpha_test=test,
-        alpha_threshold=threshold,
+        alpha_blend=alpha_blend,
+        alpha_test=alpha_test,
+        alpha_threshold=alpha_threshold,
+        collision=collision,
     )
 
 
-def _vertex_colors(data: Block, vertices: int) -> list[tuple[float, float, float, float]]:
-    """Read a shape's per-vertex colors, if it has a usable set.
-
-    Reads ``vertex_colors_rgba`` -- the *decoded* companion -- rather than
-    ``vertex_colors``, which holds only the count the array gate produced. An
-    earlier draft of this read the latter, found an integer where it expected a
-    list, and silently produced no colors at all: the field existed and held a
-    number, so nothing looked wrong.
-
-    Args:
-        data: The shape's geometry data block.
-        vertices: How many vertices the shape has.
-
-    Returns:
-        One RGBA tuple per vertex, or empty when there are none or the count
-        disagrees with the vertex count.
-    """
-    colors = data.fields.get("vertex_colors_rgba")
-    if not isinstance(colors, list) or len(colors) != vertices:
-        return []
-    return [(float(r), float(g), float(b), float(a)) for r, g, b, a in colors]
-
-
-def _material(
+def _material_colors(
     block: Block, by_index: dict[int, Block]
 ) -> tuple[tuple[float, float, float] | None, tuple[float, float, float] | None, float]:
-    """Read a shape's ``NiMaterialProperty``.
-
-    The layout is confirmed against Greatness7's ``tes3`` (MIT): ambient,
-    diffuse, specular and emissive colors, then shine, then alpha. Only the
-    three a renderer here needs are returned; specular and shine are read past
-    rather than dropped by guessing at their width.
+    """Find a shape's diffuse and emissive color and its opacity.
 
     Args:
         block: The shape.
         by_index: Every parsed block, by index.
 
     Returns:
-        Diffuse color, emissive color and opacity. The colors are ``None`` when
-        the shape has no material property -- *undescribed*, not black -- and
-        opacity is ``1.0``.
+        Diffuse color, emissive color -- either ``None`` when the shape has
+        no ``NiMaterialProperty`` -- and opacity, ``1.0`` when it has none.
+        ``None`` rather than a guessed color matters here: a caller falls
+        back to white for diffuse and black for emissive, and those are only
+        the right fallbacks when nothing in the file said otherwise.
     """
-    for link in block.fields.get("properties_links") or []:
-        prop = by_index.get(int(link))
+    for prop_index in block.fields.get("properties_links") or []:
+        prop = by_index.get(int(prop_index))
         if prop is None or prop.type_name != "NiMaterialProperty":
             continue
-        diffuse = prop.fields.get("diffuse_xyz")
-        emissive = prop.fields.get("emissive_xyz")
-        alpha = prop.fields.get("alpha", 1.0)
+        diffuse = prop.fields.get("diffuse")
+        emissive = prop.fields.get("emissive")
+        alpha = prop.fields.get("alpha")
         return (
-            _triple(diffuse),
-            _triple(emissive),
+            (float(diffuse[0]), float(diffuse[1]), float(diffuse[2])) if diffuse else None,
+            (float(emissive[0]), float(emissive[1]), float(emissive[2])) if emissive else None,
             float(alpha) if isinstance(alpha, (int, float)) else 1.0,
         )
     return (None, None, 1.0)
 
 
-def _triple(value: object) -> tuple[float, float, float] | None:
-    """Coerce a retained vector to a color, or ``None``.
-
-    Args:
-        value: The decoded ``vector3``, or whatever was in its place.
-
-    Returns:
-        Three floats, or ``None`` when the field was absent.
-    """
-    if not isinstance(value, (list, tuple)) or len(value) != 3:
-        return None
-    return (float(value[0]), float(value[1]), float(value[2]))
+#: Bits inside a NiAlphaProperty's flags word that this reads. The rest --
+#: which blend functions, which test function -- describe *how* a GPU should
+#: blend or test, not *whether* it should; a viewer picking its own blend
+#: mode only needs the two switches and the threshold, not the original
+#: renderer's exact GL state.
+_ALPHA_BLEND_BIT: Final[int] = 1 << 0
+_ALPHA_TEST_BIT: Final[int] = 1 << 9
 
 
-def _alpha(block: Block, by_index: dict[int, Block]) -> tuple[bool, bool, float]:
-    """Read a shape's ``NiAlphaProperty``.
-
-    Blending and testing live in the *property flags*, not in a field of their
-    own -- confirmed against ``tes3``, which exposes them as masks over the
-    same ``u16``: blending at ``0x0001`` and testing at ``0x0200``. The byte
-    after the flags is the test reference.
-
-    The two are independent, and conflating them is the mistake worth avoiding:
-    foliage routinely sets testing without blending, and treating "has an alpha
-    property" as "is translucent" makes every leaf in the game fade.
+def _alpha_info(block: Block, by_index: dict[int, Block]) -> tuple[bool, bool, float]:
+    """Find a shape's alpha blending and testing state.
 
     Args:
         block: The shape.
         by_index: Every parsed block, by index.
 
     Returns:
-        Whether blending is on, whether testing is on, and the test reference
-        normalised to 0-1.
+        Whether blending is enabled, whether testing is enabled, and the
+        test threshold normalised to 0-1. Everything is at its opaque
+        default when the shape has no ``NiAlphaProperty`` -- nothing
+        describing transparency means there is none.
     """
-    for link in block.fields.get("properties_links") or []:
-        prop = by_index.get(int(link))
+    for prop_index in block.fields.get("properties_links") or []:
+        prop = by_index.get(int(prop_index))
         if prop is None or prop.type_name != "NiAlphaProperty":
             continue
-        flags = prop.fields.get("flags", 0)
-        flags = int(flags) if isinstance(flags, int) else 0
-        threshold = prop.fields.get("threshold", 0)
-        threshold = int(threshold) if isinstance(threshold, int) else 0
+        flags = int(prop.fields.get("flags") or 0)
+        threshold = int(prop.fields.get("threshold") or 128)
         return (
-            bool(flags & _ALPHA_BLEND_MASK),
-            bool(flags & _ALPHA_TEST_MASK),
+            bool(flags & _ALPHA_BLEND_BIT),
+            bool(flags & _ALPHA_TEST_BIT),
             threshold / 255.0,
         )
-    return (False, False, 0.0)
-
-
-def _decal_slots(block: Block, by_index: dict[int, Block]) -> list[str]:
-    """Collect every decal a shape names, in slot order.
-
-    The reader numbers them ``decal_0``, ``decal_1`` and upward for as many as
-    the property declares, so this walks until one is missing rather than
-    stopping at a fixed count -- the format sets no limit, and ``7decals.NIF``
-    is in the vanilla corpus specifically because it exceeds any guess.
-
-    Stops at the first gap rather than scanning to some ceiling: the slots are
-    written consecutively, so a missing one means the end. Scanning past it
-    would be looking for something the format cannot produce.
-
-    Args:
-        block: The shape.
-        by_index: Every parsed block, by index.
-
-    Returns:
-        The decal texture paths, first slot first. Empty when there are none.
-    """
-    found: list[str] = []
-    index = 0
-    while True:
-        path = _texture_slot(block, by_index, f"decal_{index}")
-        if not path:
-            return found
-        found.append(path)
-        index += 1
+    return (False, False, 0.5)
 
 
 def _texture_slot(block: Block, by_index: dict[int, Block], slot: str) -> str:

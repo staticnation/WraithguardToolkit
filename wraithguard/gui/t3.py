@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import wraithguard_toolkit as core
 from wraithguard.gui import app_base_dir, trace_first_fire
-from wraithguard.gui.theme import DARK, style_plain_widget, apply_titlebar_theme
+from wraithguard.gui.theme import DARK, apply_titlebar_theme, style_plain_widget
 from wraithguard.gui.widgets import QueueWriter, add_tooltip, attach_typeahead
 from wraithguard.i18n import gettext as _, ngettext
 from wraithguard.momw import needs_cleaning_set, parse_plugin_order_yml

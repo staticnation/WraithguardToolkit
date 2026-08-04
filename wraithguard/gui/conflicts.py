@@ -25,10 +25,10 @@ from wraithguard.gui.theme import (
     DARK,
     THEME_PRESETS,
     _json_syntax_colors,
+    apply_titlebar_theme,
     highlight_json_with_html,
     highlight_plain_text_with_html,
     style_json_syntax_tags,
-    apply_titlebar_theme,
 )
 from wraithguard.gui.widgets import QueueWriter, add_tooltip
 from wraithguard.i18n import gettext as _, ngettext
@@ -40,9 +40,11 @@ from wraithguard.images.viewer import Maps, build_compare_page
 from wraithguard.logging_setup import get_logger
 from wraithguard.nif import MeshAnalyser
 from wraithguard.nif.geometry import block_tree, world_meshes
-from wraithguard.nif.reader import NifParseError, read_nif
+from wraithguard.nif.reader import NifParseError
 from wraithguard.nif.textures import TextureResolver
+from wraithguard.nif.vfs import read_mesh
 from wraithguard.nif.viewer import build_viewer_page
+from wraithguard.patch import FieldChoice, Selection
 from wraithguard.plugins import PluginFileIndex
 from wraithguard.viz.library import ViewerError, three_source
 from wraithguard.viz.serve import Payload, ViewerServer
@@ -153,6 +155,19 @@ class ConflictWindowsMixin:
         worker_running: bool
         _res_shown: list
         _tes3conv_override: str | None
+        _conf_paths: dict[str, str]
+        _conf_scan_args: tuple
+        _conf_session: core.Tes3ConvSession | None
+        _shown_conflicts: list[dict]
+        _patch_button: ttk.Button
+
+        # Supplied by PatchBuilderMixin, which owns the patch queue.
+        def queue_field(  # noqa: D102
+            self, record_type: str, key: str, choice: FieldChoice
+        ) -> None: ...
+        def queue_whole_record(self, selection: Selection) -> None: ...  # noqa: D102
+        def refresh_patch_views(self) -> None: ...  # noqa: D102
+        def show_patch_builder(self) -> None: ...  # noqa: D102
 
         def _apply_exclusions(self, names: list[str]) -> list[str]: ...
         def _attach_hamburger_grip(self, widget: tk.Misc, orient: str) -> None: ...
@@ -438,9 +453,10 @@ class ConflictWindowsMixin:
                 button = getattr(self, name, None)
                 if button is not None:
                     button.configure(state="normal" if is_mesh else "disabled")
-            is_texture = str(c.get("path", "")).lower().endswith(
-                _TEXTURE_EXTENSIONS
-            ) and len(c.get("providers", [])) >= 2
+            is_texture = (
+                str(c.get("path", "")).lower().endswith(_TEXTURE_EXTENSIONS)
+                and len(c.get("providers", [])) >= 2
+            )
             for name in ("_res_view_texture", "_res_export_texture"):
                 button = getattr(self, name, None)
                 if button is not None:
@@ -524,8 +540,9 @@ class ConflictWindowsMixin:
         sides: list[tuple[str, list]] = []
         trees: list[list] = []
         for provider in conflict["providers"]:
-            parsed = read_nif(Path(str(provider)) / path, geometry=True)
-            sides.append((f"{Path(str(provider)).name} / {path}", world_meshes(parsed)))
+            folder = Path(str(provider))
+            parsed = read_mesh(folder, path)
+            sides.append((f"{folder.name} / {path}", world_meshes(parsed)))
             trees.append(block_tree(parsed))
         return sides, trees
 
@@ -807,9 +824,7 @@ class ConflictWindowsMixin:
                 continue
         return maps
 
-    def _texture_compare_payload(
-        self, conflict: dict
-    ) -> tuple[
+    def _texture_compare_payload(self, conflict: dict) -> tuple[
         tuple[str, bytes, str],
         tuple[str, bytes, str],
         Comparison,
@@ -1164,8 +1179,193 @@ class ConflictWindowsMixin:
                     "terrain shape, NPC navigation, and cell record edits."
                 ),
             )
+        patch_add = ttk.Button(
+            btns, text=_("Add record to patch..."), command=self._add_record_to_patch
+        )
+        patch_add.pack(side="left", padx=(8, 0))
+        merge_field = ttk.Button(
+            btns, text=_("Merge field..."), command=self._merge_field_into_patch
+        )
+        merge_field.pack(side="left", padx=(8, 0))
+        add_tooltip(
+            merge_field,
+            _(
+                "Take the selected field from a plugin of your choosing and keep the "
+                "rest of the record as it is now -- for when one mod fixed one thing "
+                "and another mod fixed something else in the same record."
+            ),
+        )
+        add_tooltip(
+            patch_add,
+            _(
+                "Choose which plugin's version of the selected record should win, and "
+                "add it to a patch. Nothing is written yet, and no mod is ever modified: "
+                "the patch is one new plugin that loads last."
+            ),
+        )
+        self._patch_button = ttk.Button(
+            btns, text=_("Patch Builder..."), command=self.show_patch_builder
+        )
+        self._patch_button.pack(side="left", padx=(8, 0))
+        add_tooltip(
+            self._patch_button,
+            _(
+                "Review and edit the records queued so far, then write them as one "
+                "new plugin. Nothing is written until you say so."
+            ),
+        )
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
+        self.refresh_patch_views()
         self._refill_conflict_tree()
+
+    def _merge_field_into_patch(self) -> None:
+        """Take the selected field from a chosen plugin, keeping the rest.
+
+        The whole-record button answers "which side wins". This answers "this
+        record, but with *this* field from somewhere else" -- which is what you
+        want when one mod fixed the script and another retextured the mesh.
+        """
+        tree = getattr(self, "_conf_tree", None)
+        ftree = getattr(self, "_conf_ftree", None)
+        row = ftree.selection() if ftree else None
+        sel = tree.selection() if tree else None
+        if not sel or not row:
+            messagebox.showinfo(
+                _("Nothing selected"),
+                _("Select a record above, then a field in the comparison below."),
+            )
+            return
+
+        conflict = self._shown_conflicts[int(sel[0])]
+        plugins = list(conflict.get("plugins") or [])
+        path = str(row[0])
+        if len(plugins) < 2:
+            return
+
+        chosen = self._ask_patch_winner(conflict, plugins, field=path)
+        if chosen is None:
+            return
+
+        self.queue_field(
+            str(conflict.get("type") or ""),
+            str(conflict.get("id") or ""),
+            FieldChoice(path=path, plugin=chosen),
+        )
+        self.show_patch_builder()
+
+    def _add_record_to_patch(self) -> None:
+        """Ask which plugin should win for the selected record, and remember it."""
+        tree = getattr(self, "_conf_tree", None)
+        sel = tree.selection() if tree else None
+        if not sel:
+            messagebox.showinfo(_("Nothing selected"), _("Select a conflicting record first."))
+            return
+        conflict = self._shown_conflicts[int(sel[0])]
+        plugins = list(conflict.get("plugins") or [])
+        if len(plugins) < 2:
+            messagebox.showinfo(
+                _("Nothing to choose"),
+                _("Only one plugin defines this record, so there is nothing to patch."),
+            )
+            return
+
+        chosen = self._ask_patch_winner(conflict, plugins)
+        if chosen is None:
+            return
+
+        self.queue_whole_record(
+            Selection(
+                plugin=chosen,
+                record_type=str(conflict.get("type") or ""),
+                key=str(conflict.get("id") or ""),
+            )
+        )
+        # Opened rather than merely counted: a queued decision is one you may
+        # want to change, and the window is where that happens.
+        self.show_patch_builder()
+
+    def _ask_patch_winner(
+        self, conflict: dict, plugins: list[str], field: str | None = None
+    ) -> str | None:
+        """Put the choice of winner to the user.
+
+        Args:
+            conflict: The selected conflict.
+            plugins: Its plugins, in load order -- the last currently wins.
+            field: The field being taken, when this is a field-level merge
+                rather than a choice of whole record. Changes the wording only:
+                what the caller does with the answer differs, not the question.
+
+        Returns:
+            The chosen plugin, or ``None`` if the dialog was dismissed.
+        """
+        # Parented to the *conflicts* window, not the main one. A modal that is
+        # transient to a window the user is not looking at opens behind the one
+        # they are, and grab_set() then swallows every click on it -- which is
+        # indistinguishable from the application having frozen.
+        parent = getattr(self, "_conflict_win", None)
+        if parent is None or not parent.winfo_exists():
+            parent = self.root
+        win = tk.Toplevel(parent)
+        win.title(_("Which version should win?"))
+        win.transient(parent)
+        apply_titlebar_theme(win)
+        win.configure(bg=DARK["bg"])
+        frame = ttk.Frame(win, padding=10)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(
+            frame,
+            text=_("%(type)s  %(id)s")
+            % {"type": conflict.get("type", ""), "id": conflict.get("id", "")},
+        ).pack(anchor="w")
+        ttk.Label(
+            frame,
+            foreground=DARK["fg_dim"],
+            text=(
+                _(
+                    "Take %(field)s from this plugin, keeping the rest of the record "
+                    "as it is now.\nYour mods are not modified."
+                )
+                % {"field": field}
+                if field
+                else _(
+                    "The patch will carry this plugin's whole record and load last.\n"
+                    "Your mods are not modified."
+                )
+            ),
+        ).pack(anchor="w", pady=(0, 8))
+
+        picked = tk.StringVar(value=plugins[-1])
+        for name in plugins:
+            label = f"{name}  ({_('currently wins')})" if name == plugins[-1] else name
+            ttk.Radiobutton(frame, text=label, value=name, variable=picked).pack(anchor="w")
+
+        answer: dict[str, str | None] = {"value": None}
+
+        def accept() -> None:
+            answer["value"] = picked.get()
+            win.destroy()
+
+        row = ttk.Frame(frame)
+        row.pack(fill="x", pady=(10, 0))
+        ttk.Button(
+            row, text=_("Use this field") if field else _("Add to patch"), command=accept
+        ).pack(side="left")
+        ttk.Button(row, text=_("Cancel"), command=win.destroy).pack(side="right")
+
+        # Placed over the window it belongs to before grabbing, so it is on
+        # screen and focused by the time input is captured.
+        win.update_idletasks()
+        win.geometry(f"+{parent.winfo_rootx() + 60}+{parent.winfo_rooty() + 60}")
+        win.lift()
+        win.focus_force()
+        # Closing with the window manager must release the grab, or the parent
+        # stays dead. Cancel already does; this makes the X button agree.
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
+        win.grab_set()
+        parent.wait_window(win)
+        return answer["value"]
 
     def _show_conflict_map_direct(self) -> None:
         """Build the conflict map off the main thread, then show it.

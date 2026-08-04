@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING
 
 from wraithguard.images.compare import Verdict
 from wraithguard.logging_setup import get_logger
-from wraithguard.viz.library import ViewerError, three_source
+from wraithguard.viz.library import EXTRA_SLOTS_JS, ViewerError, three_source
 
 if TYPE_CHECKING:
     from wraithguard.images.compare import Comparison
@@ -146,6 +146,9 @@ _PAGE = """<!DOCTYPE html>
 <div id="stage"></div>
 __LIBRARY__
 <script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+__EXTRA_SLOTS__
+</script>
 <script>
 (function () {
   var data = JSON.parse(document.getElementById("payload").textContent);
@@ -393,7 +396,12 @@ __LIBRARY__
   // better" is a question the eye can answer.
   var lit = null;
 
-  function texture(url, srgb) {
+  // `onLoad` is a real parameter, not an optional flourish. Every call site
+  // already passes a third argument, and without it here the body referenced
+  // an undeclared identifier -- which in JavaScript is a ReferenceError rather
+  // than `undefined`, thrown from inside the image's own load handler on every
+  // texture. The lit view died the moment its first image arrived.
+  function texture(url, srgb, onLoad) {
     var image = new Image();
     var tex = new THREE.Texture(image);
     // Color is sRGB; a normal map is a field of vectors and must be read
@@ -454,9 +462,21 @@ __LIBRARY__
         map: texture(base, true, applyScale),
         normalMap: maps["_nh"] ? texture(maps["_nh"].url, false, null)
                  : maps["_n"] ? texture(maps["_n"].url, false, null) : null,
-        specularMap: maps["_diffusespec"] ? texture(maps["_diffusespec"].url, true, null)
-                   : maps["_spec"] ? texture(maps["_spec"].url, true, null) : null
+        // _spec is a specular *color* map: RGB is the highlight color, so
+        // Phong's own specularMap slot is the right home for it.
+        specularMap: maps["_spec"] ? texture(maps["_spec"].url, true, null) : null,
+        // _diffusespec is a different animal and was being treated as the
+        // same one. It is a diffuse texture with specular *intensity packed
+        // into alpha* -- so binding it as a specularMap read its RGB, used the
+        // diffuse color as a highlight color, and ignored the intensity
+        // entirely. Through the shared gloss slot it attenuates the highlight
+        // from alpha, which is what the channel actually holds.
+        glossMap: maps["_diffusespec"] ? texture(maps["_diffusespec"].url, true, null) : null
       };
+      // Vanilla gloss maps are luminance in red; OpenMW's _diffusespec packs
+      // the same quantity into alpha. The shared shader reads whichever this
+      // names, so one slot serves both conventions.
+      mesh.userData.glossChannel = "a";
       return mesh;
     }
 
@@ -471,6 +491,12 @@ __LIBRARY__
         m.map = show.diffuse ? held.map : null;
         m.normalMap = show.normal ? held.normalMap : null;
         m.specularMap = show.specular ? held.specularMap : null;
+        // The gloss slot rides the same toggle: both answer "how shiny is
+        // this here", one as a color and one as a packed intensity.
+        q.userData.glossMap = held.glossMap;
+        attachExtraSlots(m, q, function (slot) {
+          return slot === "gloss" ? show.specular : false;
+        });
         // With the diffuse map off the quad must still be a surface rather
         // than a black hole, or turning it off reads as a broken toggle.
         m.color = new THREE.Color(show.diffuse ? 0xffffff : 0x9aa0aa);
@@ -488,10 +514,9 @@ __LIBRARY__
 
     function resize() {
       var w = Math.max(stage.clientWidth - 40, 320);
-      var w = Math.max(stage.clientWidth - 40, 320);
       var aspect = (naturalW && naturalH) ? (naturalW / naturalH) : 1;
-      
-      // Dynamically calculate canvas height based on the scaled meshes 
+
+      // Dynamically calculate canvas height based on the scaled meshes
       var baseAspect = Math.max(aspect, 1.0);
       var h = Math.round(w / (2.0 * baseAspect));
       renderer.setSize(w, h, false);
@@ -714,6 +739,7 @@ def build_compare_page(
         _PAGE.replace("__TITLE__", html.escape(title))
         .replace("__VERDICT__", _verdict_line(outcome))
         .replace("__LIBRARY__", _library_block(library_url, library_source))
+        .replace("__EXTRA_SLOTS__", EXTRA_SLOTS_JS)
         .replace("__PAYLOAD__", json.dumps(payload))
     )
 
@@ -775,8 +801,10 @@ def _library_block(url: str, source: str) -> str:
         return ""
     shim_open = "<script>var exports = {}, module = {exports: exports};</script>"
     shim_close = "<script>var THREE = module.exports || exports;</script>"
-    body = f'<script src="{html.escape(url, quote=True)}"></script>' if url else (
-        f"<script>{source}</script>"
+    body = (
+        f'<script src="{html.escape(url, quote=True)}"></script>'
+        if url
+        else (f"<script>{source}</script>")
     )
     return f"{shim_open}\n{body}\n{shim_close}"
 

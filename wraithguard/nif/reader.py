@@ -123,7 +123,9 @@ def _read_bounding_volume(cursor: _Cursor, name: str, depth: int = 0) -> None:
     kind = int(bound_type)
     if kind == _BOUND_UNION:
         if depth >= _MAX_BOUND_DEPTH:
-            raise NifParseError(f"{name}: bounding volumes nested more than {_MAX_BOUND_DEPTH} deep")
+            raise NifParseError(
+                f"{name}: bounding volumes nested more than {_MAX_BOUND_DEPTH} deep"
+            )
         count = cursor.count(f"{name} union count")
         for _ in range(count):
             _read_bounding_volume(cursor, name, depth + 1)
@@ -463,6 +465,11 @@ _RETAINED_SUFFIX: Final[dict[str, str]] = {
     "ref_list": "_links",
     "vector3": "_xyz",
     "matrix33": "_m3",
+    # Without this entry ``vertex_colors`` holds only the *count* the array
+    # gate produced, and a caller that reasonably expects colours gets an
+    # integer. Nothing announced that: the field existed, held a number, and
+    # every length check against it quietly failed closed to "no colours".
+    "color4_array": "_rgba",
 }
 
 
@@ -501,6 +508,13 @@ def _decode_retained(kind: str, data: bytes, start: int, end: int) -> Any:  # no
         pairs = span // 8
         flat = struct.unpack_from(f"<{pairs * 2}f", data, start) if pairs else ()
         return [(flat[i], flat[i + 1]) for i in range(0, len(flat), 2)]
+    if kind == "color4_array":
+        # Four floats per vertex, 0-1 rather than 0-255. Confirmed against
+        # tes3, which types the same field ``Vec<ColorA>`` with ``ColorA`` an
+        # alias for a four-component float vector.
+        colours = span // 16
+        flat = struct.unpack_from(f"<{colours * 4}f", data, start) if colours else ()
+        return [tuple(flat[i : i + 4]) for i in range(0, len(flat), 4)]
     triangles = span // 6
     flat = struct.unpack_from(f"<{triangles * 3}H", data, start) if triangles else ()
     return [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat), 3)]
@@ -969,6 +983,13 @@ def _read_texture_slots(cursor: _Cursor, seen: dict[str, Any]) -> dict[str, int]
         cursor.take(4 * 3 + 2 * 3, f"{slot} texture descriptor")
         if slot == "bump":
             # The bump slot carries a luma scale and offset plus a 2x2 matrix.
+            #
+            # Confirmed against the Morrowind NIF Notes' field walk of
+            # NiTexturingProperty, which lists exactly these after the bump
+            # descriptor: Luma Scale, Luma Offset, then Matrix 00-11. Two
+            # floats and four is the 24 bytes taken here, and the field walk
+            # also confirms the *slot order* above -- base, dark, detail,
+            # gloss, glow, bump, then decals from index 6.
             cursor.take(4 * 2 + 4 * 4, "bump texture extras")
         used[slot] = int(link)
     return used

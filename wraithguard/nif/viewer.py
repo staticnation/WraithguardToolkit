@@ -26,7 +26,7 @@ break that, and would also behave differently in the in-app viewers
 everywhere.
 
 **Finding the three.js build itself, and ``ViewerError``, now live in**
-:mod:`wraithguard.net.library`. That code was never specific to a NIF -- it
+:mod:`wraithguard.viz.library`. That code was never specific to a NIF -- it
 locates and reads one vendored asset -- and the texture comparison's WebGL
 wipe view needs the identical bytes. This module still owns everything that
 *is* NIF-specific: the scene payload, the orbit controls, and the page
@@ -45,7 +45,8 @@ from typing import TYPE_CHECKING, Final
 
 from wraithguard.images import ImageError, browser_image
 from wraithguard.logging_setup import get_logger
-from wraithguard.net import ViewerError, three_source
+from wraithguard.viz import ViewerError, three_source
+from wraithguard.viz.library import EXTRA_SLOTS_JS
 
 if TYPE_CHECKING:
     from wraithguard.nif.geometry import Mesh, TreeNode
@@ -195,14 +196,33 @@ def _mesh_payload(
                 # copy renders every texture upside down.
                 uvs.extend((u, 1.0 - v))
         image: dict[str, str] | None = None
-        glow: dict[str, str] | None = None
         extras: dict[str, dict[str, str]] = {}
+
+        def resolve_slot(reference: str) -> dict[str, str] | None:
+            """Resolve one texture-slot reference, sharing the page's cache.
+
+            Every optional slot below -- glow, dark, decal, detail, gloss,
+            bump -- is a real ``NiTexturingProperty`` entry rather than a
+            filename guess, so each is resolved the same way the base texture
+            is: through the folder order, not by pattern-matching a sibling
+            file.
+
+            Args:
+                reference: The slot's normalised texture path, already
+                    checked for truthiness by the caller.
+
+            Returns:
+                The decoded blob for the page, or ``None`` when it could not
+                be read.
+            """
+            if reference not in decoded:
+                found = resolver.resolve(reference)  # type: ignore[union-attr]
+                shown = texture_bytes(found, resolver)  # type: ignore[arg-type]
+                decoded[reference] = sink(*shown) if shown else None
+            return decoded[reference]
+
         if resolver is not None and mesh.texture and uvs:
-            if mesh.texture not in decoded:
-                found = resolver.resolve(mesh.texture)
-                shown = texture_bytes(found, resolver)
-                decoded[mesh.texture] = sink(*shown) if shown else None
-            image = decoded[mesh.texture]
+            image = resolve_slot(mesh.texture)
             # The mesh names only its diffuse texture; OpenMW finds the rest by
             # name. Offering them is the only way a normal or specular map in
             # a texture pack is ever visible here, since no NIF mentions one.
@@ -213,15 +233,16 @@ def _mesh_payload(
                     decoded[key] = sink(*aux) if aux else None
                 if decoded[key] is not None:
                     extras[suffix] = decoded[key]
-        if resolver is not None and mesh.glow and uvs:
-            # Unlike the siblings above, the glow map is not a filename guess
-            # -- the shape names it directly, so it is resolved the same way
-            # the base texture is.
-            if mesh.glow not in decoded:
-                found = resolver.resolve(mesh.glow)
-                shown = texture_bytes(found, resolver)
-                decoded[mesh.glow] = sink(*shown) if shown else None
-            glow = decoded[mesh.glow]
+        glow = resolve_slot(mesh.glow) if resolver is not None and mesh.glow and uvs else None
+        dark = resolve_slot(mesh.dark) if resolver is not None and mesh.dark and uvs else None
+        decals = (
+            [found for found in (resolve_slot(path) for path in mesh.decals) if found]
+            if resolver is not None and mesh.decals and uvs
+            else []
+        )
+        detail = resolve_slot(mesh.detail) if resolver is not None and mesh.detail and uvs else None
+        gloss = resolve_slot(mesh.gloss) if resolver is not None and mesh.gloss and uvs else None
+        bump = resolve_slot(mesh.bump) if resolver is not None and mesh.bump and uvs else None
         payload.append(
             {
                 "name": mesh.name,
@@ -229,10 +250,49 @@ def _mesh_payload(
                 "collision": mesh.collision,
                 "image": image,
                 "glow": glow,
+                "dark": dark,
+                # A list, in slot order, because that is paint order: decals
+                # composite over one another and the last one declared is the
+                # one on top. Unresolvable ones are dropped rather than sent
+                # as holes, so the order that reaches the shader is the order
+                # of the decals that actually exist.
+                "decals": decals,
+                # dark, detail, gloss and decal are all drawn through the
+                # onBeforeCompile shader hook (attachExtraSlots, in the JS
+                # below) rather than a MeshPhongMaterial property -- Phong has
+                # exactly one multiply-the-surface slot and one
+                # modulate-specular slot, not four, and specularMap is
+                # already spoken for by an OpenMW-style _spec map.
+                "detail": detail,
+                "gloss": gloss,
+                # bump is sent unconditionally too -- what it means depends on
+                # which convention drew the file, and only the caller (via the
+                # "Bump as normal (MGE)" control) decides whether to use it.
+                "bump": bump,
                 "extras": extras,
                 "positions": sink(_packed(positions, "f"), ""),
                 "indices": sink(_packed(indices, "I"), ""),
                 "uvs": sink(_packed(uvs, "f"), "") if uvs else None,
+                # Per-vertex colors as a packed float run, like every other
+                # attribute, rather than JSON numbers: a 30,000-vertex shape
+                # is 120,000 floats, and spelling those out as text is larger
+                # than the mesh.
+                "colors": (
+                    sink(_packed([c for rgba in mesh.vertex_colors for c in rgba[:3]], "f"), "")
+                    if mesh.vertex_colors
+                    else None
+                ),
+                # The material the *file* describes. Until now the viewer's
+                # alpha controls applied one global guess -- a 0.5 cutoff on
+                # everything -- because nothing carried the real values. These
+                # let each shape use its own, and turn those controls from a
+                # guess into an override of a known default.
+                "diffuse": list(mesh.diffuse) if mesh.diffuse else None,
+                "emissive": list(mesh.emissive) if mesh.emissive else None,
+                "opacity": mesh.opacity,
+                "alphaBlend": mesh.alpha_blend,
+                "alphaTest": mesh.alpha_test,
+                "alphaThreshold": mesh.alpha_threshold,
                 "vertexCount": len(mesh.vertices),
                 "triangleCount": len(mesh.triangles),
             }
@@ -338,13 +398,24 @@ def build_viewer_page(
         .replace("__LIBRARY_BLOCK__", library_block)
         .replace("__DATA__", data)
         .replace("__EMPTY__", "true" if empty else "false")
+        .replace("__EXTRA_SLOTS__", EXTRA_SLOTS_JS)
     )
 
 
 #: The page. Written as one template rather than assembled from fragments: it
 #: is read far more often than it is edited, and a reader needs to see the
 #: whole document to judge it.
-_PAGE: Final[str] = """<!DOCTYPE html>
+# A **raw** string, and it has to be. The template is verbatim HTML, CSS and
+# JavaScript, so a backslash in it belongs to the language being emitted rather
+# than to Python. Without the `r`, the eleven `\n` sequences in the shader
+# assembly below are turned into real newlines *by Python* and land inside
+# JavaScript string literals, which is a syntax error that takes the whole
+# page down with it -- the viewer renders nothing and the console blames a line
+# that looks fine in the source.
+#
+# That is exactly how this broke: the shader code was the first thing in the
+# template to need an escape, so the missing `r` had been harmless until then.
+_PAGE: Final[str] = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>__TITLE__</title>
 <style>
  :root{--ink:#e6e6e6;--dim:#9aa0aa;--line:#333945;--panel:#20242c}
@@ -376,6 +447,11 @@ _PAGE: Final[str] = """<!DOCTYPE html>
  #tree h4{margin:10px 0 3px;font:600 11px/1.4 "Segoe UI",system-ui,sans-serif;
    color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
  #tree h4:first-child{margin-top:0}
+ #tree ul.shapes{padding-left:0}
+ #tree ul.shapes li{display:flex;align-items:baseline;gap:5px;white-space:normal}
+ #tree ul.shapes input{margin:0;flex:none;accent-color:#6f8fb8;cursor:pointer}
+ #tree .shapename{cursor:pointer;text-decoration:underline dotted transparent}
+ #tree .shapename:hover{text-decoration-color:#9ecbff;color:#fff}
  #stage{flex:1;position:relative;min-height:0}
  canvas{display:block}
  #stats{position:absolute;bottom:8px;left:10px;opacity:.75;pointer-events:none}
@@ -429,10 +505,12 @@ __LIBRARY_BLOCK__
     return Promise.all(spec.meshes.map(function (m) {
       var jobs = [load(m.positions), load(m.indices)];
       jobs.push(m.uvs ? load(m.uvs) : Promise.resolve(null));
+      jobs.push(m.colors ? load(m.colors) : Promise.resolve(null));
       return Promise.all(jobs).then(function (bufs) {
         m.positions = new Float32Array(bufs[0]);
         m.indices = new Uint32Array(bufs[1]);
         m.uvs = bufs[2] ? new Float32Array(bufs[2]) : null;
+        m.colors = bufs[3] ? new Float32Array(bufs[3]) : null;
         return m;
       });
     }));
@@ -469,27 +547,95 @@ __LIBRARY_BLOCK__
     // And for glow: a real NIF texture slot rather than a filename guess, but
     // still worth gating the control on, since most meshes have none.
     var anyGlowMaps = false;
+    // Same reasoning as glow -- a real slot, just a rarer one.
+    var anyDarkMaps = false;
+    var anyDetailMaps = false;
+    var anyGlossMaps = false;
+    var anyDecalMaps = false;
+    // Whether any mesh has a bump-slot texture at all -- not whether it is
+    // currently being drawn as anything, since what it means is a choice
+    // the "Bump as normal (MGE)" checkbox makes, not this flag.
+    var anyBumpMaps = false;
     // Whether anything is collision-only geometry -- physics shapes a
     // RootCollisionNode carries that the game never draws. Same reasoning:
     // no point offering a toggle that would always be a no-op.
     var anyCollision = false;
+
+    // Injects dark, detail, gloss and decal straight into MeshPhongMaterial's
+    // own fragment shader, string-patched at the two chunks that already do
+    // the equivalent work for the base map and the specular map. Kept to
+    // three.js's built-in Phong lighting rather than a shader written from
+    // scratch -- the risk in a hand-rolled lighting model is getting the
+    // lighting wrong, and nothing here needs to touch it, only what feeds it.
+    //
+    // Checked live, not baked in at attach time: a material only recompiles
+    // when something sets needsUpdate, so every checkbox below that toggles
+    // one of these sets it on the meshes it affects, and the next compile
+    // reads whatever is checked *then*. Whether a given layer is even a
+    // candidate is decided once, up front (only mount the ones the mesh
+    // actually has); whether it is currently drawn is decided every compile.
+__EXTRA_SLOTS__
+    // Which layers the *mesh viewer* draws: one checkbox per slot. Passed in
+    // rather than read inside the shared helper, because the texture
+    // comparison has entirely different controls over the same slots.
+    function wantsSlot(slot) {
+      var box = {detail: typeof detailBox !== "undefined" ? detailBox : null,
+                 dark: typeof darkBox !== "undefined" ? darkBox : null,
+                 gloss: typeof glossBox !== "undefined" ? glossBox : null,
+                 decal: typeof decalBox !== "undefined" ? decalBox : null}[slot];
+      return !!(box && box.checked);
+    }
+
     scenes.forEach(function (spec, index) {
       // The inner group carries the Z-up to Y-up rotation; the outer pivot
       // carries the centring. They cannot be the same object: three.js
       // composes T*R*S, so a position set from a centre measured before the
       // rotation leaves the mesh at R*v - centre rather than R*(v - centre).
       var group = new THREE.Group();
+      group.userData.shapes = [];
       spec.meshes.forEach(function (m) {
         var g = new THREE.BufferGeometry();
         g.setAttribute("position", new THREE.BufferAttribute(m.positions, 3));
         g.setIndex(new THREE.BufferAttribute(m.indices, 1));
         if (m.uvs) g.setAttribute("uv", new THREE.BufferAttribute(m.uvs, 2));
+        // Vertex colors are three floats each, already 0-1 in the file. They
+        // are only attached when the count matches, which geometry.py has
+        // already enforced -- a short set makes three.js index past the end of
+        // the attribute and draw nothing at all.
+        if (m.colors) g.setAttribute("color", new THREE.BufferAttribute(m.colors, 3));
         // The files carry normals, but not always, and a mesh with none
         // renders flat black. Computing them is cheap and always right.
         g.computeVertexNormals();
         var material = new THREE.MeshPhongMaterial({
           color: spec.color, side: THREE.DoubleSide
         });
+        // What the file itself says about this shape's material. Held on the
+        // mesh rather than applied blindly, because every one of these is
+        // something a control below can override -- and a control that
+        // overrides a *known* value is far more useful than one that
+        // overrides a guess, which is what these were before the reader
+        // carried them.
+        var fromFile = {
+          diffuse: m.diffuse ? new THREE.Color(m.diffuse[0], m.diffuse[1], m.diffuse[2]) : null,
+          emissive: m.emissive
+            ? new THREE.Color(m.emissive[0], m.emissive[1], m.emissive[2]) : null,
+          opacity: typeof m.opacity === "number" ? m.opacity : 1.0,
+          blend: !!m.alphaBlend,
+          test: !!m.alphaTest,
+          // A threshold of zero with testing on discards nothing, which is
+          // indistinguishable from testing being off. Morrowind's own default
+          // reference is what the file stores; fall back only when it is
+          // absent entirely.
+          threshold: typeof m.alphaThreshold === "number" ? m.alphaThreshold : 0.5
+        };
+        material.userData.fromFile = fromFile;
+        if (m.colors) material.vertexColors = true;
+        // Emissive is the material's own glow color, and it combines with the
+        // glow *map* by multiplication -- so setting it here is correct
+        // whether or not a glow texture also arrives.
+        if (fromFile.emissive) material.emissive = fromFile.emissive;
+        if (fromFile.blend) { material.transparent = true; material.opacity = fromFile.opacity; }
+        if (fromFile.test) material.alphaTest = fromFile.threshold;
         if (m.image && m.uvs && textured) {
           var image = new Image();
           var tex = new THREE.Texture(image);
@@ -519,6 +665,21 @@ __LIBRARY_BLOCK__
           nImage.onload = function () { normalTex.needsUpdate = true; draw(); };
           nImage.src = normalSource.url;
         }
+        // The bump slot, read as tangent-space normals -- the MGE-XE/NifSkope
+        // convention, not vanilla's (which ignores the slot outright) and not
+        // necessarily OpenMW's. Loaded regardless of which convention is
+        // in force; the "Bump as normal (MGE)" checkbox decides whether it
+        // is ever attached to a material, and prefers an OpenMW-style
+        // sibling when a mesh happens to carry both rather than fight over
+        // which wins.
+        var bumpTex = null;
+        if (m.bump && m.uvs && textured) {
+          var buImage = new Image();
+          bumpTex = new THREE.Texture(buImage);
+          bumpTex.wrapS = bumpTex.wrapT = THREE.RepeatWrapping;
+          buImage.onload = function () { bumpTex.needsUpdate = true; draw(); };
+          buImage.src = m.bump.url;
+        }
         // Same OpenMW naming convention, for a specular map. Also linear:
         // it modulates highlight strength, not a color to be seen directly.
         var specSource = extras["_spec"] || extras["_diffusespec"] || null;
@@ -529,10 +690,17 @@ __LIBRARY_BLOCK__
           sImage.onload = function () { specTex.needsUpdate = true; draw(); };
           sImage.src = specSource.url;
           // MeshPhongMaterial's default specular color is a dim 0x111111,
-          // dim enough that a specular map barely shows against it. This is
-          // set once, whether or not the map is currently attached, so
-          // toggling the control only ever adds or removes the map itself.
-          material.specular = new THREE.Color(0x808080);
+          // dim enough that a specular map barely shows against it. The
+          // brighter value belongs *with* the map and is applied by the
+          // control, not here.
+          //
+          // Setting it at construction was the earlier approach and made the
+          // control read backwards: with the box unchecked the shape still
+          // got the bright highlight, unmodulated across its whole surface,
+          // which looks like specular is on. Ticking the box then attached
+          // the map and *darkened* it wherever the map was dark -- so "on"
+          // looked duller than "off". The logic was right and the appearance
+          // was inverted, which is the harder kind to spot.
         }
         // The glow slot, unlike the two above, is not a filename guess -- the
         // shape names it directly, and it is what Morrowind's own renderer
@@ -548,17 +716,91 @@ __LIBRARY_BLOCK__
           gImage.onload = function () { glowTex.needsUpdate = true; draw(); };
           gImage.src = m.glow.url;
         }
+        // The dark and detail slots both multiply into the base color --
+        // Morrowind applies detail first, then dark -- and gloss modulates
+        // specular strength by a mask rather than supplying a specular
+        // color. None of the three is a color meant to be seen on its own,
+        // so none is sRGB, the same reasoning as the normal and specular
+        // maps above. A decal is different again: a layer stamped on top,
+        // meant to be seen, so it stays sRGB like the base texture.
+        //
+        // MeshPhongMaterial has exactly one slot shaped like "multiply the
+        // surface by a texture" (aoMap) and exactly one shaped like
+        // "modulate specular by a texture" (specularMap) -- and specularMap
+        // is already spoken for by an OpenMW-style _spec sibling. Cramming
+        // dark and detail into the one multiply slot would mean whichever
+        // assigned second silently overwrote the first. Rather than pick a
+        // loser, all four slots below are drawn through a shared
+        // onBeforeCompile hook (attachExtraSlots, defined once outside this
+        // loop) that injects them straight into Phong's own fragment shader
+        // -- real per-mesh layers, not a shared property fighting over who
+        // gets to hold it.
+        var detailTex = null;
+        if (m.detail && m.uvs && textured) {
+          var deImage = new Image();
+          detailTex = new THREE.Texture(deImage);
+          detailTex.wrapS = detailTex.wrapT = THREE.RepeatWrapping;
+          deImage.onload = function () { detailTex.needsUpdate = true; draw(); };
+          deImage.src = m.detail.url;
+        }
+        var darkTex = null;
+        if (m.dark && m.uvs && textured) {
+          var dImage = new Image();
+          darkTex = new THREE.Texture(dImage);
+          darkTex.wrapS = darkTex.wrapT = THREE.RepeatWrapping;
+          dImage.onload = function () { darkTex.needsUpdate = true; draw(); };
+          dImage.src = m.dark.url;
+        }
+        var glossTex = null;
+        if (m.gloss && m.uvs && textured) {
+          var glImage = new Image();
+          glossTex = new THREE.Texture(glImage);
+          glossTex.wrapS = glossTex.wrapT = THREE.RepeatWrapping;
+          glImage.onload = function () { glossTex.needsUpdate = true; draw(); };
+          glImage.src = m.gloss.url;
+        }
+        // Every decal the shape declares, in slot order. Kept as an array
+        // rather than one texture because slot order *is* paint order: they
+        // composite over one another, and the last declared is the one on top.
+        var decalTexes = [];
+        if (m.decals && m.decals.length && m.uvs && textured) {
+          m.decals.forEach(function (slot) {
+            var declImage = new Image();
+            var tex = new THREE.Texture(declImage);
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            declImage.onload = function () { tex.needsUpdate = true; draw(); };
+            declImage.src = slot.url;
+            decalTexes.push(tex);
+          });
+        }
         var drawn = new THREE.Mesh(g, material);
         drawn.userData.map = material.map || null;
         drawn.userData.normalMap = normalTex;
+        drawn.userData.bumpMap = bumpTex;
         drawn.userData.specularMap = specTex;
         drawn.userData.glowMap = glowTex;
+        drawn.userData.darkMap = darkTex;
+        drawn.userData.detailMap = detailTex;
+        drawn.userData.glossMap = glossTex;
+        drawn.userData.decalMaps = decalTexes;
         drawn.userData.tint = spec.color;
         drawn.userData.collision = !!m.collision;
+        attachExtraSlots(material, drawn, wantsSlot);
         if (normalTex) anyNormalMaps = true;
+        if (bumpTex) anyBumpMaps = true;
         if (specTex) anySpecularMaps = true;
         if (glowTex) anyGlowMaps = true;
+        if (darkTex) anyDarkMaps = true;
+        if (detailTex) anyDetailMaps = true;
+        if (glossTex) anyGlossMaps = true;
+        if (decalTexes.length) anyDecalMaps = true;
         if (m.collision) anyCollision = true;
+        // Kept alongside the object so the shape list below can reach both:
+        // the three.js mesh to hide, and the payload to describe. Matching
+        // them up later by name would be guesswork -- shape names repeat
+        // freely within one file, and several vanilla meshes have none.
+        group.userData.shapes.push({object: drawn, spec: m});
         group.add(drawn);
       });
       group.rotation.x = -Math.PI / 2;
@@ -640,17 +882,103 @@ __LIBRARY_BLOCK__
       return ul;
     }
 
+    // What the *file* says this shape is made of, as a sentence rather than
+    // as controls. A mesh routinely has twenty shapes, and a checkbox per
+    // material property per shape would be a hundred controls answering a
+    // question nobody asks -- while "which shape wants a cutout" is answered
+    // perfectly well by reading it.
+    function summaryOf(m) {
+      var parts = [];
+      parts.push(m.triangleCount + " tri");
+      if (m.collision) parts.push("collision");
+      if (!m.uvs) parts.push("no UVs");
+      if (m.colors) parts.push("vertex colors");
+      if (m.alphaBlend) parts.push("blend @ " + (m.opacity !== undefined
+        ? Math.round(m.opacity * 100) + "%" : "?"));
+      // A cutout's reference matters -- 0 discards nothing, which is the same
+      // as the flag being off -- so it is shown rather than just named.
+      if (m.alphaTest) parts.push("cutout @ " + Math.round((m.alphaThreshold || 0) * 255));
+      var maps = [];
+      if (m.image) maps.push("base");
+      if (m.glow) maps.push("glow");
+      if (m.dark) maps.push("dark");
+      if (m.detail) maps.push("detail");
+      if (m.gloss) maps.push("gloss");
+      if (m.decals && m.decals.length) {
+        maps.push(m.decals.length > 1 ? "decal x" + m.decals.length : "decal");
+      }
+      if (m.bump) maps.push("bump");
+      if (maps.length) parts.push(maps.join("+"));
+      return parts.join(", ");
+    }
+
+    // Per-shape visibility. Isolating one shape is the control that earns its
+    // place: when two providers' meshes differ it is almost always in one
+    // sub-shape, and with everything drawn at once you can see *that*
+    // something moved without seeing *what*.
+    function renderShapes(group, spec) {
+      var ul = document.createElement("ul");
+      ul.className = "shapes";
+      group.userData.shapes.forEach(function (entry, i) {
+        var li = document.createElement("li");
+        var box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = entry.object.visible;
+        box.addEventListener("change", function () {
+          entry.object.visible = box.checked;
+          draw();
+        });
+        var name = document.createElement("span");
+        name.className = "nm shapename";
+        name.textContent = entry.spec.name || "(unnamed " + i + ")";
+        name.title = "click to isolate; click again to restore";
+        // Solo, and solo again to restore. A dedicated "show all" button
+        // would be a second control for something the first one can say.
+        name.addEventListener("click", function () {
+          var soloed = group.userData.shapes.every(function (o) {
+            return o === entry ? o.object.visible : !o.object.visible;
+          });
+          group.userData.shapes.forEach(function (o) {
+            o.object.visible = soloed || o === entry;
+          });
+          refreshTree();
+          draw();
+        });
+        var note = document.createElement("span");
+        note.className = "no";
+        note.textContent = "  " + summaryOf(entry.spec);
+        li.appendChild(box); li.appendChild(name); li.appendChild(note);
+        ul.appendChild(li);
+      });
+      return ul;
+    }
+
     function refreshTree() {
       treeBox.textContent = "";
       var any = false;
       scenes.forEach(function (spec, i) {
-        if (!groups[i].visible || !spec.tree || !spec.tree.length) return;
+        if (!groups[i].visible) return;
+        var shapes = groups[i].userData.shapes || [];
+        if (!shapes.length && (!spec.tree || !spec.tree.length)) return;
         any = true;
         var heading = document.createElement("h4");
         heading.textContent = spec.label;
         heading.style.color = spec.color;
         treeBox.appendChild(heading);
-        treeBox.appendChild(renderTree(spec.tree));
+        if (shapes.length) {
+          var sub = document.createElement("h4");
+          sub.textContent = "shapes (" + shapes.length + ")";
+          sub.style.opacity = ".7";
+          treeBox.appendChild(sub);
+          treeBox.appendChild(renderShapes(groups[i], spec));
+        }
+        if (spec.tree && spec.tree.length) {
+          var blocks = document.createElement("h4");
+          blocks.textContent = "blocks";
+          blocks.style.opacity = ".7";
+          treeBox.appendChild(blocks);
+          treeBox.appendChild(renderTree(spec.tree));
+        }
       });
       if (!any) {
         var note = document.createElement("div");
@@ -740,9 +1068,18 @@ __LIBRARY_BLOCK__
       // triangles sorted back-to-front to look right, and two overlapping
       // cutout quads sorted wrong show through each other. A hard cutoff has
       // no ordering to get wrong.
+      //
+      // Checked forces a cutout on every shape; unchecked returns each to
+      // whatever its own NiAlphaProperty asked for, at that shape's own
+      // reference value. Before the reader carried those, "unchecked" meant
+      // "off everywhere" -- which silently overrode files that had asked for
+      // a cutout and got none.
       scene.traverse(function (o) {
         if (!o.isMesh || !o.userData.map) return;
-        o.material.alphaTest = alphaBox.checked ? 0.5 : 0;
+        var own = o.material.userData.fromFile;
+        o.material.alphaTest = alphaBox.checked
+          ? 0.5
+          : (own && own.test ? own.threshold : 0);
         o.material.needsUpdate = true;
       });
       alphaCtl.className = "ctl" + (alphaBox.checked ? "" : " off");
@@ -771,9 +1108,17 @@ __LIBRARY_BLOCK__
       // top. Independent of the cutout checkbox; a mesh can want both at
       // once (a cutout leaf with softened edges), so neither toggle turns
       // the other off.
+      //
+      // As with the cutout: checked forces blending everywhere, unchecked
+      // returns each shape to what its own file asked for -- including the
+      // material's own alpha value, which is *how* transparent as distinct
+      // from *whether* it blends at all.
       scene.traverse(function (o) {
         if (!o.isMesh || !o.userData.map) return;
-        o.material.transparent = blendBox.checked;
+        var own = o.material.userData.fromFile;
+        var blend = blendBox.checked || !!(own && own.blend);
+        o.material.transparent = blend;
+        o.material.opacity = blend && own ? own.opacity : 1.0;
         o.material.needsUpdate = true;
       });
       blendCtl.className = "ctl" + (blendBox.checked ? "" : " off");
@@ -861,6 +1206,12 @@ __LIBRARY_BLOCK__
         scene.traverse(function (o) {
           if (!o.isMesh || !o.userData.specularMap) return;
           o.material.specularMap = specBox.checked ? o.userData.specularMap : null;
+          // The highlight color moves with the map. A specular map modulates
+          // the specular color, so a bright color with no map is a highlight
+          // over the whole surface -- the state that made this control look
+          // inverted. 0x111111 is three.js's own default, i.e. what the
+          // material would have had if no specular map had ever been found.
+          o.material.specular = new THREE.Color(specBox.checked ? 0x808080 : 0x111111);
           o.material.needsUpdate = true;
         });
         specCtl.className = "ctl" + (specBox.checked ? "" : " off");
@@ -890,6 +1241,117 @@ __LIBRARY_BLOCK__
           o.material.needsUpdate = true;
         });
         glowCtl.className = "ctl" + (glowBox.checked ? "" : " off");
+        draw();
+      });
+    }
+
+    if (anyDarkMaps) {
+      var darkBox = document.createElement("input");
+      darkBox.type = "checkbox"; darkBox.id = "dark";
+      var darkCtl = document.createElement("span");
+      darkCtl.className = "ctl off";
+      var darkLabel = document.createElement("label");
+      darkLabel.htmlFor = "dark";
+      darkLabel.textContent = "Dark maps";
+      darkCtl.appendChild(darkBox); darkCtl.appendChild(darkLabel);
+      controls.appendChild(darkCtl);
+      darkBox.addEventListener("change", function () {
+        // Nothing here sets a material property directly -- attachExtraSlots
+        // reads darkBox.checked itself the next time the shader compiles,
+        // which needsUpdate is what triggers.
+        scene.traverse(function (o) {
+          if (o.isMesh && o.userData.darkMap) o.material.needsUpdate = true;
+        });
+        darkCtl.className = "ctl" + (darkBox.checked ? "" : " off");
+        draw();
+      });
+    }
+
+    if (anyDetailMaps) {
+      var detailBox = document.createElement("input");
+      detailBox.type = "checkbox"; detailBox.id = "detail";
+      var detailCtl = document.createElement("span");
+      detailCtl.className = "ctl off";
+      var detailLabel = document.createElement("label");
+      detailLabel.htmlFor = "detail";
+      detailLabel.textContent = "Detail maps";
+      detailCtl.appendChild(detailBox); detailCtl.appendChild(detailLabel);
+      controls.appendChild(detailCtl);
+      detailBox.addEventListener("change", function () {
+        scene.traverse(function (o) {
+          if (o.isMesh && o.userData.detailMap) o.material.needsUpdate = true;
+        });
+        detailCtl.className = "ctl" + (detailBox.checked ? "" : " off");
+        draw();
+      });
+    }
+
+    if (anyGlossMaps) {
+      var glossBox = document.createElement("input");
+      glossBox.type = "checkbox"; glossBox.id = "gloss";
+      var glossCtl = document.createElement("span");
+      glossCtl.className = "ctl off";
+      var glossLabel = document.createElement("label");
+      glossLabel.htmlFor = "gloss";
+      glossLabel.textContent = "Gloss maps";
+      glossCtl.appendChild(glossBox); glossCtl.appendChild(glossLabel);
+      controls.appendChild(glossCtl);
+      glossBox.addEventListener("change", function () {
+        scene.traverse(function (o) {
+          if (o.isMesh && o.userData.glossMap) o.material.needsUpdate = true;
+        });
+        glossCtl.className = "ctl" + (glossBox.checked ? "" : " off");
+        draw();
+      });
+    }
+
+    if (anyDecalMaps) {
+      var decalBox = document.createElement("input");
+      decalBox.type = "checkbox"; decalBox.id = "decal";
+      var decalCtl = document.createElement("span");
+      decalCtl.className = "ctl off";
+      var decalLabel = document.createElement("label");
+      decalLabel.htmlFor = "decal";
+      decalLabel.textContent = "Decal maps";
+      decalCtl.appendChild(decalBox); decalCtl.appendChild(decalLabel);
+      controls.appendChild(decalCtl);
+      decalBox.addEventListener("change", function () {
+        scene.traverse(function (o) {
+          if (o.isMesh && o.userData.decalMaps && o.userData.decalMaps.length) {
+            o.material.needsUpdate = true;
+          }
+        });
+        decalCtl.className = "ctl" + (decalBox.checked ? "" : " off");
+        draw();
+      });
+    }
+
+    if (anyBumpMaps) {
+      var bumpBox = document.createElement("input");
+      bumpBox.type = "checkbox"; bumpBox.id = "bump";
+      var bumpCtl = document.createElement("span");
+      bumpCtl.className = "ctl off";
+      var bumpLabel = document.createElement("label");
+      bumpLabel.htmlFor = "bump";
+      bumpLabel.textContent = "Bump as normal (MGE)";
+      bumpCtl.appendChild(bumpBox); bumpCtl.appendChild(bumpLabel);
+      controls.appendChild(bumpCtl);
+      bumpBox.addEventListener("change", function () {
+        // Unlike the four above, this is a real MeshPhongMaterial property
+        // (normalMap), not a shader injection -- three.js already supports
+        // it correctly, including the tangent-space lighting math, so there
+        // is nothing to patch. An OpenMW-style _n/_nh sibling still wins
+        // when a mesh happens to carry both, rather than the two fighting
+        // over which is current: MGE-converted content and OpenMW-authored
+        // normal maps are different eras of the same idea, not a pair meant
+        // to be layered.
+        scene.traverse(function (o) {
+          if (!o.isMesh || !o.userData.bumpMap) return;
+          if (o.userData.normalMap) return;
+          o.material.normalMap = bumpBox.checked ? o.userData.bumpMap : null;
+          o.material.needsUpdate = true;
+        });
+        bumpCtl.className = "ctl" + (bumpBox.checked ? "" : " off");
         draw();
       });
     }

@@ -107,8 +107,13 @@ def _row_bytes(width: int, depth: int) -> int:
     return ((width * depth + 31) // 32) * 4
 
 
-def _expand_row(row: bytes, width: int, depth: int, palette: list[bytes],
-                masks: tuple[int, int, int, int] | None) -> bytes:
+def _expand_row(
+    row: bytes,
+    width: int,
+    depth: int,
+    palette: list[bytes],
+    masks: tuple[int, int, int, int] | None,
+) -> bytes:
     """Turn one stored row into RGBA.
 
     Args:
@@ -135,9 +140,7 @@ def _expand_row(row: bytes, width: int, depth: int, palette: list[bytes],
             shift = 8 - depth * (column % per_byte + 1)
             index = (byte >> shift) & mask
             if index >= len(palette):
-                raise BitmapError(
-                    f"palette index {index} is outside a table of {len(palette)}"
-                )
+                raise BitmapError(f"palette index {index} is outside a table of {len(palette)}")
             out[column * 4 : column * 4 + 4] = palette[index]
         return bytes(out)
     if depth == 24:
@@ -243,8 +246,11 @@ def read_bmp(data: bytes) -> Image:
     palette: list[bytes] = []
     if depth in _PALETTED:
         count = palette_count or (1 << depth)
-        table_at = _FILE_HEADER + header_size + (16 if compression == _BI_BITFIELDS
-                                                 and header_size == 40 else 0)
+        table_at = (
+            _FILE_HEADER
+            + header_size
+            + (16 if compression == _BI_BITFIELDS and header_size == 40 else 0)
+        )
         palette = _read_palette(data, table_at, count, wide=not core)
 
     stride = _row_bytes(width, depth)

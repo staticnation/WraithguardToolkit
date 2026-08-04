@@ -401,8 +401,9 @@ def _read_endpoints(bits: _Bits, mode: int) -> list[list[int]]:
     return endpoints
 
 
-def _read_indices(bits: _Bits, width: int, anchors: tuple[int, ...], subset_of: list[int] | None
-                  ) -> list[int]:
+def _read_indices(
+    bits: _Bits, width: int, anchors: tuple[int, ...], subset_of: list[int] | None
+) -> list[int]:
     """Read one index set, allowing for the short anchor indices.
 
     Args:

@@ -25,6 +25,7 @@ __all__ = [
     "PLUGIN_ORDER_URLS",
     "RULES_REPO",
     "RULES_URL_TEMPLATE",
+    "ViewerError",
     "fetch_url_bytes",
     "rule_file_ages",
     "update_plugin_order_yml",
