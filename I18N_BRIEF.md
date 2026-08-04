@@ -11,7 +11,7 @@
 > pipeline was proven against a compiled German catalogue. The brief's
 > predicted `_`-shadowing trap fired exactly once, in `build_and_sort`.
 >
-> Living documentation for translators is `**locale/README.md`**.
+> Living documentation for translators is **`locale/README.md`**.
 > The rules that outlived the brief are enforced, not remembered:
 > `tools/check_placeholders.py` and `tools/make_pot.py --check` both gate CI.
 

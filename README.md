@@ -256,7 +256,7 @@ Atom One Dark.) **Import Theme...** adds your own, in either of two formats:
 - **Native JSON** - 9 required colors (`background`, `foreground`, `select`,
   `section`, `warn`, `error`, `ok`, `inserted`, `dim`), plus optional
   syntax-token colors and an optional `"chrome"` object if you want to set the
-  window colors explicitly. Start from `**theme_template.json`** next to the
+  window colors explicitly. Start from **`theme_template.json`** next to the
   app: it is commented, imports as-is, and reproduces the default palette.
 - **base16 schemes** - any `.yaml`/`.yml`/`.json` with `base00`..`base0F`, e.g.
   from the [base16](https://github.com/chriskempson/base16) or
@@ -471,7 +471,7 @@ type + editor id), the last one in the load order wins.
   plugin files reachable via your cfg's `data=` folders. It can be slow on a big
   list (it parses every active plugin), so it runs in the background.
 
-Handles `**.esp/.esm/.omwaddon/.omwgame`** (all TES3-format) and `**.omwscripts`**
+Handles **`.esp/.esm/.omwaddon/.omwgame`** (all TES3-format) and **`.omwscripts`**
 (OpenMW's text Lua-attach config). Lua scripts are surfaced as `LuaScript` records
 keyed by their script path - whether declared in an `.omwscripts` file or in an
 `.omwaddon`'s `LuaScriptsCfg` - so two mods attaching the same script path show up
@@ -541,10 +541,10 @@ install.
   **Word wrap** toggle for long values.
 - **Compiled scripts are disassembled, not shown as base64.** Two script fields
   are decoded in that popout rather than displayed raw:
-  - `**bytecode`** - the compiled script (`SCDT`), rendered as named
+  - **`bytecode`** - the compiled script (`SCDT`), rendered as named
     instructions with their operands. Without this, *any* script edit looks like
     a total rewrite, because the whole base64 blob changes.
-  - `**variables`** - the script's local variable names (`SCVR`), in declaration
+  - **`variables`** - the script's local variable names (`SCVR`), in declaration
     order, so you can see *which* locals a mod added rather than just that the
     blob differs.
 
@@ -743,7 +743,7 @@ list, plus a `python -m build` that exercises the packaging metadata, and
 coverage against a `fail_under` floor). A few things worth knowing before
 changing anything:
 
-- `**tests/test_differential.py` is the safety net.** It pins 41 observations
+- **`tests/test_differential.py` is the safety net.** It pins 41 observations
   of the engine's behaviour - the sorted order of a real 687-plugin list, rule
   parsing, all 2,964 predicate bodies, the configurator simulation - to hashes
   in `tests/baselines/`. If a refactor changes an answer, it fails loudly
@@ -754,12 +754,12 @@ changing anything:
   python -m pytest tests/test_differential.py --update-baseline
   ```
 
-- `**tests/test_standards.py` checks PEP conformance mechanically** - the
+- **`tests/test_standards.py` checks PEP conformance mechanically** - the
   PEPs that define a standard for this codebase (including PEP 639 licence
   metadata and the one line of PEP 20 that can be checked: `except: pass`
   must say why).
 
-- `**tools/check_undefined.py`** reports every name a module uses but never
+- **`tools/check_undefined.py`** reports every name a module uses but never
   imports. A test run tells you the first one; this tells you all of them.
   It complements the linter rather than replacing it - the two miss different
   things, so run both.

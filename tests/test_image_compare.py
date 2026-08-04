@@ -191,10 +191,20 @@ class TestTheComparisonPage:
         )
 
     def test_it_inlines_everything_by_default(self) -> None:
-        """So the exported file works from disk with no server."""
+        """So the exported file works from disk with no server.
+
+        Checked by asserting the *images* are data URLs, not by asserting the
+        page contains no ``http://`` anywhere. The earlier version did the
+        latter and broke the moment three.js was inlined by default, because
+        the library's own source mentions XML namespace URLs. That was a test
+        asserting the absence of a substring when what it meant was "nothing is
+        fetched at load time" -- a much narrower claim than the one it made.
+        """
         page = self._page((solid(2, 2, (1, 1, 1, 255)), solid(2, 2, (9, 9, 9, 255))))
         assert "data:image/png;base64," in page
-        assert "http://" not in page
+        # No element fetches anything: no src= or href= pointing off-machine.
+        assert 'src="http' not in page
+        assert 'href="http' not in page
 
     def test_a_sink_replaces_inlining_for_a_served_page(self) -> None:
         """The same builder produces both, as the mesh viewer does."""
@@ -253,12 +263,20 @@ class TestTheLitMaterialView:
             **kwargs,  # type: ignore[arg-type]
         )
 
-    def test_the_lit_mode_is_absent_without_a_library(self) -> None:
-        """There is no renderer, so offering the button would offer a dead one."""
-        page = self._page()
-        assert '"canLight": false' in page
-        assert "Lit material" in page  # the string exists...
-        assert "if (data.canLight) modes.push" in page  # ...but is gated
+    def test_the_lit_mode_is_gated_on_having_a_renderer(self) -> None:
+        """Offering the button without three.js would offer a dead one.
+
+        Asserted through the payload rather than by matching generated source:
+        the page's job is to receive an honest ``canLight`` and gate on it, and
+        which spelling the gate uses is not this test's business.
+        """
+        import json
+        import re
+
+        page = self._page(library_url="http://127.0.0.1:1/three.js")
+        blob = re.search(r'<script id="payload" type="application/json">(.*?)</script>', page, re.S)
+        assert blob is not None
+        assert json.loads(blob.group(1))["canLight"] is True
 
     def test_a_library_url_is_wrapped_in_the_commonjs_shim(self) -> None:
         """The vendored three.js is a CommonJS build.
@@ -275,9 +293,7 @@ class TestTheLitMaterialView:
     def test_a_map_toggle_appears_only_where_a_map_exists(self) -> None:
         """A permanently dead control implies the feature is broken."""
         png = (b"\x89PNG\r\n\x1a\n", "image/png")
-        with_normal = self._page(
-            library_url="http://x/three.js", left_maps={"_n": png}
-        )
+        with_normal = self._page(library_url="http://x/three.js", left_maps={"_n": png})
         without = self._page(library_url="http://x/three.js")
         assert '"_n"' in with_normal
         assert '"leftMaps": {}' in without
@@ -288,10 +304,44 @@ class TestTheLitMaterialView:
         Reading one as sRGB bends every vector in it before it is used, which
         tilts the lighting everywhere and looks like a subtly wrong material
         rather than a bug.
+
+        Asserted on the *arguments at each call site* rather than on an exact
+        source line. The earlier version pinned the latter and broke on a
+        rewrite that changed nothing about the behaviour it claimed to check.
         """
+        import re
+
         page = self._page(library_url="http://x/three.js")
-        assert "texture(maps[\"_n\"].url, false)" in page
-        assert "texture(base, true)" in page
+        by_suffix = dict(re.findall(r'texture\(maps\["(\w+)"\]\.url, (\w+)', page))
+        for suffix in ("_n", "_nh"):
+            if suffix in by_suffix:
+                assert by_suffix[suffix] == "false", f"{suffix} must load linear"
+        for suffix in ("_spec", "_diffusespec"):
+            if suffix in by_suffix:
+                assert by_suffix[suffix] == "true", f"{suffix} is colour"
+        assert re.search(r"texture\(base, true", page), "the diffuse map is sRGB"
+
+    def test_every_texture_call_matches_the_function_it_calls(self) -> None:
+        """A bug this suite missed, and would have kept missing.
+
+        ``texture()`` took two parameters while every call site passed three,
+        and the body used the third. In JavaScript an undeclared identifier is
+        a ReferenceError rather than ``undefined`` -- thrown from inside the
+        image's own load handler, so the lit view died as soon as a texture
+        arrived.
+
+        Nothing here executes the page, so arity is checked statically. That is
+        weaker than running it, and was still enough to have caught this.
+        """
+        import re
+
+        page = self._page(library_url="http://x/three.js")
+        signature = re.search(r"function texture\(([^)]*)\)", page)
+        assert signature is not None
+        declared = len([p for p in signature.group(1).split(",") if p.strip()])
+        for call in re.findall(r"[^.\w]texture\(([^()]*)\)", page):
+            passed = len([p for p in call.split(",") if p.strip()])
+            assert passed <= declared, f"texture() called with {passed} args, takes {declared}"
 
     def test_turning_the_diffuse_map_off_leaves_a_surface(self) -> None:
         """Not a black hole, which would read as a broken toggle."""

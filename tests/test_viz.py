@@ -671,9 +671,7 @@ class TestTerrainShading:
         data = payload_of(build_terrain_3d({"a.esp": (vhgt(), 0.0)}), "terrain")
 
         for name in TINT_RAMPS:
-            expected = [
-                [int(color[i : i + 2], 16) for i in (1, 3, 5)] for color in tint_ramp(name)
-            ]
+            expected = [[int(color[i : i + 2], 16) for i in (1, 3, 5)] for color in tint_ramp(name)]
             assert data["palettes"][name] == expected, name
 
     def test_an_unknown_palette_is_refused(self):

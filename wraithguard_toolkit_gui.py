@@ -64,6 +64,8 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from wraithguard.land import service as land_service
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Mapping, Sequence
 
@@ -169,6 +171,7 @@ from wraithguard.gui import (  # noqa: E402
     trace_first_fire,
 )
 from wraithguard.gui.conflicts import ConflictWindowsMixin  # noqa: E402
+from wraithguard.gui.patchwin import PatchBuilderMixin  # noqa: E402
 from wraithguard.gui.t3 import Tes3cmdMixin  # noqa: E402
 from wraithguard.gui.theme import (  # noqa: E402
     _THEME_REQUIRED,
@@ -824,7 +827,7 @@ def _action_button(
     return button
 
 
-class App(Tes3cmdMixin, ConflictWindowsMixin):
+class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
     """The main application window."""
 
     # Colors for the log panel's tags now come from the selected syntax
@@ -860,6 +863,11 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         # in-memory scan result (when not saved to a file)
         self._scanned_subset_lines: list[str] | None = None
         self._tes3conv_override = None  # user-set path to tes3conv (for field-level diffs)
+        # Where "Merge Lands" writes. Remembered, because the folder chosen by
+        # "wherever most of the load order lives" is a mod's own directory on a
+        # per-mod install -- which works, but buries the output somewhere the
+        # user did not pick and would lose if that mod were uninstalled.
+        self._merged_lands_out: str | None = None
         self._tes3cmd_override = None  # user-set path to tes3cmd (frontend window)
         self._conf_session = None
         self._conf_paths = {}
@@ -960,6 +968,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "list_name": self.list_name_var.get(),
             "plugin_order_yml": self.plugin_order_yml_var.get(),
             "tes3conv": self._tes3conv_override or "",
+            "merged_lands_out": self._merged_lands_out or "",
             "exclude": self.exclude_var.get(),
             "groundcover": self.groundcover_var.get(),
             "tes3cmd": self._tes3cmd_override or "",
@@ -1015,6 +1024,8 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
                 bvar.set(d[k])
         if d.get("tes3conv"):
             self._tes3conv_override = d["tes3conv"]
+        if d.get("merged_lands_out"):
+            self._merged_lands_out = d["merged_lands_out"]
         if d.get("tes3cmd"):
             self._tes3cmd_override = d["tes3cmd"]
         for p in d.get("rules") or []:
@@ -1698,6 +1709,19 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             "in your browser. Read-only.",
             state="disabled",
         )
+        self.mergedlands_button = _action_button(
+            row1,
+            "Merge Lands",
+            self.on_merged_lands,
+            "Build a 'Merged Lands.esp' from the sorted, enabled plugins. Where two mods "
+            "reshape different vertices of the same exterior cell, a load order keeps only "
+            "one and discards the other; this recovers both. Seams between cells are "
+            "repaired and the terrain is conditioned so every height fits the format. "
+            "WRITES A NEW PLUGIN into your Data Files -- your mods are never modified, and "
+            "deleting the merged plugin restores your previous behaviour exactly. Load it "
+            "LAST. Needs tes3conv.",
+            state="disabled",
+        )
         self.resource_button = _action_button(
             row1,
             "Resource Conflicts",
@@ -2315,6 +2339,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         self.export_button.configure(state="normal" if (final_order or data_lines) else "disabled")
         self.conflicts_button.configure(state="normal" if final_order else "disabled")
         self.cellmap_button.configure(state="normal" if final_order else "disabled")
+        self.mergedlands_button.configure(state="normal" if final_order else "disabled")
         self.resource_button.configure(state="normal" if final_order else "disabled")
         self.lint_button.configure(state="normal" if final_order else "disabled")
 
@@ -2417,6 +2442,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         self.export_button.configure(state="normal" if self._current_plan else "disabled")
         self.conflicts_button.configure(state="normal" if self._current_plan else "disabled")
         self.cellmap_button.configure(state="normal" if self._current_plan else "disabled")
+        self.mergedlands_button.configure(state="normal" if self._current_plan else "disabled")
         self.resource_button.configure(state="normal" if self._current_plan else "disabled")
         self.status_var.set(status)
 
@@ -2525,6 +2551,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             self.export_button,
             self.conflicts_button,
             self.cellmap_button,
+            self.mergedlands_button,
             self.resource_button,
         ):
             b.configure(state="disabled")
@@ -2532,6 +2559,292 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
         threading.Thread(
             target=self._cellmap_worker, args=(order, dirs, subset), daemon=True
         ).start()
+
+    # -- merged lands ----------------------------------------------------------
+
+    def on_merged_lands(self) -> None:
+        """Build a merged landscape plugin, after confirming the write."""
+        if self.worker_running or not self._current_plan:
+            return
+        order = self._apply_exclusions(self.order_panel.get_enabled())
+        if not order:
+            return
+
+        cfg_dir = (
+            str(Path(self.cfg_var.get().strip()).parent) if self.cfg_var.get().strip() else None
+        )
+        conv = core.find_tes3conv(explicit=self._tes3conv_override, extra_dirs=[cfg_dir])
+        if not conv:
+            messagebox.showwarning(
+                _("tes3conv needed"),
+                _(
+                    "Merging land needs tes3conv, which does the binary encoding.\n\n"
+                    "Use 'Set tes3conv...' in the Conflicts window to point at it."
+                ),
+            )
+            return
+
+        folders = self._merged_lands_dirs()
+        chosen = self._merged_lands_target(folders, order)
+        if chosen is None:
+            return
+
+        # This is the only thing in the toolkit that writes a plugin, so the
+        # confirmation states exactly what will and will not happen rather than
+        # asking a vague "are you sure". Three answers rather than two, so the
+        # folder can be changed on any run without hunting for a setting:
+        # yes writes, no re-opens the browser, cancel abandons.
+        while True:
+            target = chosen / land_service.DEFAULT_NAME
+            existing = (
+                _("\n\nThis REPLACES the existing %(name)s.") % {"name": land_service.DEFAULT_NAME}
+                if target.exists()
+                else ""
+            )
+            answer = messagebox.askyesnocancel(
+                _("Build Merged Lands.esp?"),
+                _(
+                    "A new plugin will be written to:\n%(path)s\n\n"
+                    "It carries terrain only -- no references, objects or scripts -- so "
+                    "everything placed in those cells stays where it is. Your mods are NOT "
+                    "modified, and deleting the merged plugin restores your previous "
+                    "behaviour completely.\n\n"
+                    "Load it LAST, and back up your saves before playing with it the first "
+                    "time.%(existing)s\n\n"
+                    "Yes: write it here.   No: choose a different folder."
+                )
+                % {"path": target, "existing": existing},
+            )
+            if answer is None:
+                return
+            if answer:
+                break
+            picked = self._ask_merged_lands_folder(chosen, folders)
+            if picked is None:
+                return
+            chosen = picked
+
+        self.worker_running = True
+        for b in (
+            self.sort_button,
+            self.export_button,
+            self.conflicts_button,
+            self.cellmap_button,
+            self.mergedlands_button,
+            self.resource_button,
+        ):
+            b.configure(state="disabled")
+        self.status_var.set(_("Merging land..."))
+        threading.Thread(
+            target=self._merged_lands_worker,
+            args=(folders, order, conv, target),
+            daemon=True,
+        ).start()
+
+    def _merged_lands_dirs(self) -> list[Path]:
+        """Every data folder the plan scans, in search order.
+
+        An OpenMW load order is composed from many ``data=`` directories -- one
+        per mod is normal -- so a single folder is not enough to find the
+        plugins in. Searching all of them is what lets a master installed
+        somewhere other than Data Files be read at all.
+
+        Returns:
+            The existing scan directories, in order.
+        """
+        return [Path(directory) for directory in self._plan_scan_dirs() if Path(directory).is_dir()]
+
+    def _merged_lands_target(self, folders: list[Path], order: list[str]) -> Path | None:
+        """Settle where the merged plugin is written, asking if need be.
+
+        The folder is remembered between runs, so the usual answer is one
+        confirmation. It is still shown every time rather than assumed: this is
+        the only thing in the toolkit that writes a plugin, and a merged file
+        that quietly appears somewhere other than last time is worse than one
+        extra click.
+
+        Args:
+            folders: The data folders being searched.
+            order: The enabled plugins, in load order.
+
+        Returns:
+            The folder to write into, or ``None`` if the user backed out.
+        """
+        saved = Path(self._merged_lands_out) if self._merged_lands_out else None
+        if saved is not None and not saved.is_dir():
+            # The folder was remembered and has since gone. Say so rather than
+            # silently writing somewhere else.
+            messagebox.showinfo(
+                _("Folder not found"),
+                _("%(path)s no longer exists. Please choose where to write.") % {"path": saved},
+            )
+            saved = None
+        target = saved or self._merged_lands_home(folders, order)
+        if target is None:
+            messagebox.showwarning(
+                _("Data Files not found"),
+                _(
+                    "Could not work out which folder holds your plugins, so "
+                    "there is no sensible place to put the merged plugin. "
+                    "Use 'Merged Lands folder...' to choose one."
+                ),
+            )
+            target = self._ask_merged_lands_folder(None, folders)
+            if target is None:
+                return None
+        return target
+
+    def _ask_merged_lands_folder(
+        self, start: Path | None, folders: list[Path] | None = None
+    ) -> Path | None:
+        """Ask for the output folder and remember it.
+
+        Args:
+            start: Where the browser should open, if anywhere.
+            folders: The data folders the game actually reads. Used only to
+                warn when the chosen folder is not one of them.
+
+        Returns:
+            The chosen folder, or ``None`` if the dialog was dismissed.
+        """
+        picked = filedialog.askdirectory(
+            title=_("Where should Merged Lands.esp be written?"),
+            initialdir=str(start) if start else None,
+            mustexist=True,
+        )
+        if not picked:
+            return None
+        chosen = Path(picked)
+        self._warn_if_not_a_data_path(chosen, folders)
+        self._merged_lands_out = str(chosen)
+        self._save_settings()
+        return chosen
+
+    def _warn_if_not_a_data_path(self, chosen: Path, folders: list[Path] | None) -> None:
+        """Say so when the game will not look in the chosen folder.
+
+        A plugin outside every ``data=`` path is invisible to OpenMW: the merge
+        succeeds, the file is written, and nothing happens in game. That is a
+        confusing failure to debug, and the fix is one line of ``openmw.cfg``,
+        so it is worth saying at the moment the folder is chosen.
+
+        Told rather than refused: a perfectly reasonable order of operations is
+        to make the folder, point the toolkit at it, and add the ``data=`` line
+        afterwards.
+
+        Args:
+            chosen: The folder picked.
+            folders: The data folders being searched, if known.
+        """
+        if not folders:
+            return
+        try:
+            resolved = chosen.resolve()
+            known = {folder.resolve() for folder in folders}
+        except OSError:
+            return
+        if resolved in known:
+            return
+        messagebox.showinfo(
+            _("Not a data folder"),
+            _(
+                "%(path)s is not one of the folders OpenMW reads, so it will not "
+                "find the merged plugin there.\n\n"
+                'Add this line to openmw.cfg:\n\ndata="%(path)s"\n\n'
+                "and put 'content=%(name)s' last."
+            )
+            % {"path": resolved, "name": land_service.DEFAULT_NAME},
+        )
+
+    def _merged_lands_home(self, folders: list[Path], order: list[str]) -> Path | None:
+        """Choose where the merged plugin should be written.
+
+        Args:
+            folders: The data folders being searched.
+            order: The enabled plugins, in load order.
+
+        Returns:
+            The folder holding the most of the load order, or ``None`` when no
+            folder holds any of it. The merged plugin goes where the bulk of
+            the game lives rather than in whichever mod folder sorted first.
+        """
+        best: Path | None = None
+        best_count = 0
+        for folder in folders:
+            count = sum(1 for name in order if (folder / name).is_file())
+            if count > best_count:
+                best, best_count = folder, count
+        return best
+
+    def _merged_lands_worker(
+        self, data_files: list[Path], order: list[str], converter: str, target: Path
+    ) -> None:
+        """Run the merge off the UI thread."""
+        writer = QueueWriter(self.log_queue)
+        result = None
+        try:
+            with redirect_stdout(writer), redirect_stderr(writer):
+                print("\n" + "=" * 70)
+                print(_(" MERGE LANDS"))
+                print("=" * 70)
+                result = land_service.build_merged_lands(
+                    data_files=data_files,
+                    load_order=order,
+                    converter=converter,
+                    output=target,
+                    # The conflict scanner's record-key sidecars say which
+                    # plugins have terrain, so the ~90% that do not are never
+                    # converted. Absent, the merge just runs slower.
+                    sidecars=self._tes3conv_json_dir(),
+                    report=lambda line: print("  " + line),
+                )
+            status = (
+                _("Merge produced nothing to write.")
+                if result.output is None
+                else _("Merged Lands written: %(cells)d cell(s).") % {"cells": result.cells_written}
+            )
+        except land_service.MergeServiceError as exc:
+            writer.write(f"\nMerge failed: {exc}\n")
+            status = _("Merge failed -- see log.")
+        except Exception:  # noqa: BLE001
+            # worker top level: reports the traceback into the log panel
+            writer.write("\nERROR: merge failed:\n" + traceback.format_exc())
+            status = _("Merge failed -- see log.")
+        finally:
+            self.root.after(0, self._merged_lands_finished, result, status)
+
+    def _merged_lands_finished(self, result: object, status: str) -> None:
+        """Re-enable the UI and report where the plugin went."""
+        self.worker_running = False
+        self.sort_button.configure(state="normal")
+        for b in (
+            self.export_button,
+            self.conflicts_button,
+            self.cellmap_button,
+            self.mergedlands_button,
+            self.resource_button,
+        ):
+            b.configure(state="normal" if self._current_plan else "disabled")
+        self.status_var.set(status)
+        output = getattr(result, "output", None)
+        if output is not None:
+            messagebox.showinfo(
+                _("Merged Lands built"),
+                _(
+                    "Written to:\n%(path)s\n\n"
+                    "Enable it and place it LAST in your load order.\n\n"
+                    "%(cells)d land record(s), %(textures)d land texture(s).\n"
+                    "%(contested)d contested vertex/vertices; %(major)d settled far "
+                    "from at least one mod's intent."
+                )
+                % {
+                    "path": output,
+                    "cells": getattr(result, "cells_written", 0),
+                    "textures": getattr(result, "textures_written", 0),
+                    "contested": getattr(result, "contested", 0),
+                    "major": getattr(result, "major", 0),
+                },
+            )
 
     def _cellmap_file(self) -> Path:
         """Stable, user-findable, writable location for the generated map."""
@@ -3612,7 +3925,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin):
             bg=DARK["log_bg"],
             fg=DARK["fg"],
             activebackground=DARK["select"],
-            activeforeground=DARK["fg"]
+            activeforeground=DARK["fg"],
         )
         for filename in HELP_DOCUMENTS:
             label = labels.get(filename, filename)

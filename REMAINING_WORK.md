@@ -151,7 +151,7 @@ headlessly (`xvfb`), not more unit tests.
 
 ## 5. Smaller, concrete items
 
-* ~~`**generate_cell_map_html` embeds its JS/CSS as one f-string.**~~ **Done**
+* ~~**`generate_cell_map_html` embeds its JS/CSS as one f-string.**~~ **Done**
   - see `CODE_REVIEW.md` §29. The generator moved to `wraithguard/viz/cellmap.py`
   as ten small fragment functions, and the client assets to
   `wraithguard/viz/cellmap_js.py` as plain `Final[str]` constants: no
@@ -159,7 +159,7 @@ headlessly (`xvfb`), not more unit tests.
   directly (`tests/test_viz_pages.py`). The runtime-template option was rejected
   for the reason given here - it adds a data file to the frozen bundle - and the
   constants get the editability without that cost.
-* `**tools/` scripts are not shipped and not covered** beyond
+* **`tools/` scripts are not shipped and not covered** beyond
   `test_standards.py`'s conformance sweep and `check_placeholders`' own tests.
   `gen_opcodes.py` in particular is only ever run by hand.
 * **No `.mo` catalogue ships.** The `.pot` has 431 messages and the pipeline is
@@ -172,7 +172,7 @@ headlessly (`xvfb`), not more unit tests.
   the byte-level comparison against a plugin's own subrecords, which is what
   found the `connections` length-prefix bug. Re-running it needs a plugin with
   LAND/PGRD records and a tes3conv dump of it.
-* `**requires-python = ">=3.10"`** while CI tests 3.10 and 3.13. 3.11 and 3.12
+* **`requires-python = ">=3.10"**` while CI tests 3.10 and 3.13. 3.11 and 3.12
   are untested in between. Low risk (no version-conditional code), but it is an
   assumption rather than a measurement.
 
@@ -202,10 +202,10 @@ Recorded because each has been considered and rejected on evidence:
 
 Everything on this list is **done** as of `CODE_REVIEW.md` §31:
 
-1. ~~`**TC` type-checking imports**~~ - 76 moved (73 `TC003`, 3 `TC001`), and
+1. ~~**`TC` type-checking imports**~~ - 76 moved (73 `TC003`, 3 `TC001`), and
    `TC` is now in ruff's `select` so they stay moved.
 2. ~~**Split `_build_controls`**~~ - 435 → 34 (§30).
-3. ~~`**lint_plugins`**~~ - 201 → 88, over seven small checkers (§31).
+3. ~~**`lint_plugins`**~~ - 201 → 88, over seven small checkers (§31).
 4. ~~**A headless Tk smoke job in CI**~~ - `tests/test_gui_smoke.py` under
    `xvfb`, closing the one gap where "all gates green" meant nothing.
 5. ~~**3.11 and 3.12 untested**~~ - the CI matrix now covers every version

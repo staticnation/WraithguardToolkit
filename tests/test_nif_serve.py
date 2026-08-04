@@ -15,7 +15,7 @@ import urllib.request
 
 import pytest
 
-from wraithguard.nif.serve import Payload, ViewerServer, payloads_for
+from wraithguard.viz.serve import Payload, ViewerServer, payloads_for
 
 
 @pytest.fixture
@@ -87,7 +87,7 @@ class TestItRefusesEverythingElse:
         [
             "../../../etc/passwd",
             "..%2f..%2f..%2fetc%2fpasswd",
-            "wraithguard/nif/serve.py",
+            "wraithguard/viz/serve.py",
             "/etc/hostname",
             "....//....//etc/passwd",
         ],

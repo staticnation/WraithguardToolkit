@@ -5,7 +5,7 @@
 > the log panel.
 >
 > **What shipped is in `CHANGELOG.md` (3.0) and `CODE_REVIEW.md`.**
-> The runtime verification that outlived it is `**SMOKE_TEST.md` §5**, which
+> The runtime verification that outlived it is **`SMOKE_TEST.md` §5**, which
 > is the living document - it covers the two things this brief did not
 > anticipate: a frozen `.exe` needs a color-capable ttk base theme, and an
 > already-open field-diff viewer needs its syntax *tags* re-configured, not

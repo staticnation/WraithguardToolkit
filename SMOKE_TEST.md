@@ -135,7 +135,7 @@ Tell me which label is missing; it maps to one specific line I changed.
 **Line present but the UI misbehaved** → the binding works and the bug is in the
 logic, not the wiring. Note what you saw versus expected.
 
-`**drag-reorder committed` shows a changed row count** → rows were lost or
+**`drag-reorder committed` shows a changed row count** → rows were lost or
 duplicated by the drag. That would be a real bug; send the two counts.
 
 ---
@@ -173,7 +173,7 @@ re-themes **every open window immediately**.
 **A `[theme]` line missing after a dropdown switch** → the combobox binding is
 broken; that is the failure signal.
 
-`**re-applied chrome to N` present but a widget stayed on the old colors** →
+**`re-applied chrome to N` present but a widget stayed on the old colors** →
 the walk misses that widget class. Say exactly which widget and where.
 
 **Wrong or unreadable colors** (with the lines present) → the wiring works

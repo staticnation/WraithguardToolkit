@@ -60,8 +60,9 @@ def dx10_dds(blocks: bytes, width: int, height: int) -> bytes:
         A complete DDS file with a DX10 extension header.
     """
     header = bytearray(124)
-    struct.pack_into("<IIIIII", header, 0, 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x80000,
-                     height, width, len(blocks), 0)
+    struct.pack_into(
+        "<IIIIII", header, 0, 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x80000, height, width, len(blocks), 0
+    )
     # Pixel format: 32 bytes at offset 72, flagged as carrying a FourCC.
     struct.pack_into("<II4s", header, 72, 32, 0x4, b"DX10")
     struct.pack_into("<I", header, 108, 0x1000)
@@ -106,16 +107,19 @@ def main(argv: list[str] | None = None) -> int:
         A process exit code; non-zero when any block differed.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--trials", type=int, default=TRIALS,
-                        help=f"random blocks per mode/partition (default {TRIALS})")
+    parser.add_argument(
+        "--trials",
+        type=int,
+        default=TRIALS,
+        help=f"random blocks per mode/partition (default {TRIALS})",
+    )
     parser.add_argument("--seed", type=int, default=20260727, help="for a reproducible run")
     args = parser.parse_args(argv)
 
     try:
         from PIL import Image as PilImage
     except ImportError:
-        print("Pillow is not installed; this check needs an independent decoder.",
-              file=sys.stderr)
+        print("Pillow is not installed; this check needs an independent decoder.", file=sys.stderr)
         return 2
 
     rng = random.Random(args.seed)  # noqa: S311 -- test data, not a secret
@@ -125,9 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     for mode in range(8):
         partitions = 64 if (4, 6, 6, 6, 0, 0, 0, 6)[mode] else 1
         for partition in range(partitions):
-            blocks = b"".join(
-                make_block(rng, mode, partition) for _ in range(args.trials)
-            )
+            blocks = b"".join(make_block(rng, mode, partition) for _ in range(args.trials))
             # One block tall, N wide: each block stays a separate 4x4 tile.
             data = dx10_dds(blocks, 4 * args.trials, 4)
             try:
@@ -141,8 +143,10 @@ def main(argv: list[str] | None = None) -> int:
             if ours != reference:
                 differing = sum(1 for a, b in zip(ours, reference) if a != b)
                 if failures[f"mode {mode}"] == 0:
-                    print(f"  MISMATCH mode {mode} partition {partition}: "
-                          f"{differing} of {len(ours)} byte(s) differ")
+                    print(
+                        f"  MISMATCH mode {mode} partition {partition}: "
+                        f"{differing} of {len(ours)} byte(s) differ"
+                    )
                 failures[f"mode {mode}"] += 1
 
     print(f"\nchecked {checked} block(s) across 8 mode(s) and every partition")

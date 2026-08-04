@@ -122,8 +122,9 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("tes3", type=Path, help="a tes3 checkout")
-    parser.add_argument("--corpus-types", type=Path, default=None,
-                        help="a list of block types real files contain")
+    parser.add_argument(
+        "--corpus-types", type=Path, default=None, help="a list of block types real files contain"
+    )
     args = parser.parse_args(argv)
 
     theirs = tes3_types(args.tes3)

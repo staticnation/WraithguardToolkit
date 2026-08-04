@@ -267,18 +267,18 @@ New shared package, held to a stricter standard than the legacy scripts and
 passing `ruff --select ALL`: full type annotations, PEP 257 Google-style
 docstrings with Args/Returns/Raises, and no silent excepts.
 
-* `**logging_setup.py`** -- levelled logging with a documented policy. The key
+* **`logging_setup.py`** -- levelled logging with a documented policy. The key
   decision: **stdout stays the report** (`print` is the product a user pipes
   or pastes into a bug report) while **logging carries diagnostics** to
   stderr, off by default, `-v`/`-vv` to raise it, and always full-detail to
   the trace file. `add_log_handler` lets the GUI mirror records into its log
   pane without losing console or file output.
-* `**i18n.py`** -- gettext-based l10n. `_()` marks strings for both runtime
+* **`i18n.py`** -- gettext-based l10n. `_()` marks strings for both runtime
   lookup and `xgettext` extraction; `ngettext` handles counted messages so
   each language applies its own plural rules. Language comes from `$MLOX_LANG`
   or the system locale, and every lookup falls back to English, so marking
   strings is always safe even with no catalogue present.
-* `**locale/README.md`** -- the extract/translate/compile workflow and notes
+* **`locale/README.md`** -- the extract/translate/compile workflow and notes
   for translators (named placeholders are reorderable; plugin names and mlox
   keywords are data, not prose).
 
@@ -309,7 +309,7 @@ predicate *evaluator* has not, for a reason recorded in §11.
 2. **Full typing + PEP 257 across the legacy scripts.** Apply per module as it
    moves, not as a separate sweep -- the annotations are most valuable, and
    most reviewable, at the moment the code is being relocated anyway.
-3. `**print` → logging migration.** Mechanical once the modules move; keep the
+3. **`print` → logging migration.** Mechanical once the modules move; keep the
    user-facing report on stdout and demote genuine diagnostics.
 4. **String extraction for i18n.** Wrap user-facing strings in `_()` module by
    module, then generate the `.pot`.
@@ -319,7 +319,7 @@ predicate *evaluator* has not, for a reason recorded in §11.
 
 ## 9. Recommendations (not done here)
 
-1. `**RUF012`** - 8 mutable class attributes in the GUI would be clearer as
+1. **`RUF012`** - 8 mutable class attributes in the GUI would be clearer as
    `ClassVar[...]`. Low risk, cosmetic.
 2. **Split the GUI module.** At ~4,100 lines it is the one genuine structural
    smell; the theme system, the conflict windows, and the tes3cmd front-end
@@ -327,7 +327,7 @@ predicate *evaluator* has not, for a reason recorded in §11.
    not as a drive-by.
 3. **CI.** `ruff check .` + `pytest` in a GitHub Action would keep this state
    from regressing.
-4. ~~`**mypy`** is configured but advisory; version 2.3.0 crashes on this
+4. ~~**`mypy`** is configured but advisory; version 2.3.0 crashes on this
    codebase.~~ **Resolved** -- see §14. mypy 2.3.0 no longer crashes, the
    package is clean, and it now gates rather than advises.
 
@@ -497,9 +497,9 @@ decoupled anything -- it has just moved the coupling somewhere harder to see.
 
 ### Linter findings deliberately not applied (additions to §3)
 
-* `**S105`** ("hardcoded password") on `token == "["` in `parse_mlox_lisp`.
+* **`S105`** ("hardcoded password") on `token == "["` in `parse_mlox_lisp`.
   The variable is a parser token; the rule matches on the name alone.
-* `**PERF203`** (try/except inside a loop) in `load_rules_raw_text`. Per-file
+* **`PERF203`** (try/except inside a loop) in `load_rules_raw_text`. Per-file
   isolation is the entire purpose -- hoisting the `try` out of the loop would
   let one unreadable file discard every file after it.
 
@@ -733,15 +733,15 @@ the product, and `rules/predicates.py`, the mlox predicate evaluator.
 
 Some of what the annotations forced into the open:
 
-* `**simulate_configurator_apply` returns `tuple[list[str] | None, ...]`,** and
+* **`simulate_configurator_apply` returns `tuple[list[str] | None, ...]`,** and
   that `None` is load-bearing: it means the Configurator run would *abort*,
   mirroring the Go code returning a nil cfg on an ambiguous insert anchor.
   Untyped, a caller could treat the first element as always-a-list and silently
   apply nothing.
-* `**build_and_sort`'s `anchor_out` is mutated in place**, which the signature
+* **`build_and_sort`'s `anchor_out` is mutated in place**, which the signature
   never said. It now does, and the docstring states the frozen-curated-order
   guarantee as a contract rather than leaving it as folklore.
-* `**_eval_ver` treats an unknowable version as satisfying `=`.** That looks
+* **`_eval_ver` treats an unknowable version as satisfying `=`.** That looks
   like a bug until you know it is mlox's behaviour and deliberate -- the tool
   refuses to raise a version warning it cannot substantiate. Now written down
   where someone "fixing" it will see it.
@@ -883,7 +883,7 @@ mechanically, so the claim survives future edits:
 
 | PEP | Standard | Enforced by |
 |---|---|---|
-| 8 | Style, **naming**, **import order** | ruff `E`/`W`/`**N`**/`**I`** + black |
+| 8 | Style, **naming**, **import order** | ruff `E`/`W`/`N`/`I` + black |
 | 257 | Docstring conventions | ruff `D` |
 | 484 / 526 | Type hints, variable annotations | ruff `ANN` + mypy |
 | 563 | `from __future__ import annotations` | test_standards |
@@ -901,7 +901,7 @@ Test count went 374 -> **681**, almost all of it parametrised per source file.
 
 ### What turning the checks on actually found
 
-* `**N` and `I` were never enabled.** PEP 8 naming and import ordering had
+* **`N` and `I` were never enabled.** PEP 8 naming and import ordering had
   gone unenforced the whole time. 18 findings: unsorted imports, and
   function-local `SANE`/`STEP`/`SIZE`/`CUST`/`_EPS` in UPPER_CASE, which PEP 8
   reserves for module-level constants. The genuine constants were hoisted to
@@ -961,7 +961,7 @@ Clearing the last twelve turned up two things worth more than the annotations:
   happens to import `urllib.parse` itself -- true today, guaranteed by nothing,
   and it would fail on a stdlib reshuffle in the one function that validates
   URLs. Now imported explicitly.
-* `**PluginOrderEntry` became a `TypedDict` (PEP 589).** It had been
+* **`PluginOrderEntry` became a `TypedDict` (PEP 589).** It had been
   `dict[str, Any]`, which erased precisely what matters: that `on_lists` is a
   list of strings and `needs_cleaning` a bool. Misreading either silently
   reclassifies a curated plugin as one of the user's own -- the failure this
@@ -1075,7 +1075,7 @@ Every figure below was measured, not recalled.
 
 | Item | Where | Measured at 3.0 |
 |---|---|---|
-| `**print` → logging** | §8.3 | 75 `print()` in the engine vs 8 `get_logger` uses |
+| **`print` → logging** | §8.3 | 75 `print()` in the engine vs 8 `get_logger` uses |
 | **Typing + PEP 257 on the legacy scripts** | §8.2 | `wraithguard_toolkit.py` and the GUI still carry `"D", "ANN"` per-file exemptions; only `wraithguard/` meets the strict standard |
 | **Split the GUI module** | §9.2 | Flagged at ~4,100 lines; now **5,586** |
 | **Oversized functions** | §15 | See below |
@@ -1088,7 +1088,7 @@ Every figure below was measured, not recalled.
 depth 6). Both relocated during the split and are essentially unchanged - 457
 and 312 lines, same depths, now in `wraithguard/sort/engine.py` and
 `wraithguard/configurator/emit.py`. But the largest function in the codebase is
-`**compute_plan` at 545 lines, depth 5**, which §15 never named. It is also
+**`compute_plan` at 545 lines, depth 5**, which §15 never named. It is also
 where the `_`-shadowing `NameError` hid until the gettext marker exposed it
 (see 3.0's changelog), which is weak but real evidence that its size costs
 something. `_build_controls` in the GUI is 378 lines but only depth 1 - long
@@ -1101,7 +1101,7 @@ ways to reach one function. But 3.0's changelog states publicly that
 Removing it is therefore a 4.0-scoped change with a deprecation period, not
 tidy-up. Recorded so the next reader does not treat §15 as licence to delete it.
 
-`**print` → logging and the i18n f-strings touch the same lines.** The 127
+**`print` → logging and the i18n f-strings touch the same lines.** The 127
 sites in `I18N_BRIEF.md` are mostly `print(f"...")` in report output; §8.3 wants
 those same calls demoted or routed through a logger. Doing them as one pass is
 substantially cheaper than two, and avoids re-litigating which output is a
@@ -1248,7 +1248,7 @@ classifier CI already tests against was added at the same time.
   `wraithguard_toolkit.py` (3,810 lines) and the GUI file (3,203); mechanical
   but long, and worthless if rushed -- §14's lesson was that 22 of the
   hand-written annotations were simply wrong until a checker read them.
-* `**compute_plan` (545) / `build_and_sort` (457) decomposition** (§15/§16).
+* **`compute_plan` (545) / `build_and_sort` (457) decomposition** (§15/§16).
   Deliberately not attempted at the tail of the session that did everything
   above. §16's own caveat stands: this is behaviour-risk work on the two
   functions whose output *is* the product, and it deserves a fresh session
@@ -1297,7 +1297,7 @@ function above.
 
 ### The typing pass (§8.2) -- complete for `wraithguard/gui/`, partial for the scripts
 
-`**wraithguard/gui/` now meets the package's strict standard.** All four
+**`wraithguard/gui/` now meets the package's strict standard.** All four
 relocated modules are fully annotated, PEP 257 clean, and **mypy-clean** --
 so the `D`/`ANN` per-file ignores and the `ignore_errors` mypy override that
 §17 recorded as debt are **deleted**, not relaxed. mypy now gates 33 files
@@ -1366,7 +1366,7 @@ What *had* gone unverified was PEP 517/518 itself. `[build-system]` and
 than because a wheel is published" -- and then nothing ever built a wheel. A
 declaration that is never executed is a claim, not a fact, so it was tested:
 
-* `**python -m build --wheel` succeeds**, producing
+* **`python -m build --wheel` succeeds**, producing
   `wraithguard_toolkit-3.0.0-py3-none-any.whl` with all 7 subpackages and both
   top-level modules collected. The declaration is sound.
 * It also surfaced that the declared floor is real: `setuptools>=77` (needed
@@ -1450,7 +1450,7 @@ read them:
   subrecord is absent.
 * `_iter_tes3_records` / `_iter_subrecords` -- I wrote `tuple[str, bytes]`; the
   record tags are raw **4-byte `bytes`** (`b"CELL"`), never decoded.
-* `_load_sidecar(side: str)` -- `side` is the sidecar `**Path`**, and the very
+* `_load_sidecar(side: str)` -- `side` is the sidecar **`Path`**, and the very
   next line calls `side.exists()`.
 * `read_cfg` -- I wrote `list[tuple[str, int]]` for the content order; it pairs
   each name with its **raw line value**, a `str`.
@@ -1493,7 +1493,7 @@ runtime -- which is exactly why the checker has to run.
   and `worker_running`, which the pass surfaced. Where the two mixins disagreed
   about a type (`T3_NEVER_CLEAN` declared `frozenset`, defined `set`), the
   declaration was corrected to match reality rather than the reverse.
-* `**assert` where a contract is real but unprovable.** Three sites -- the
+* **`assert` where a contract is real but unprovable.** Three sites -- the
   export worker's plan, the staging dir on the clean path, the savegame file
   list after an error check -- assert a condition the caller guarantees but
   mypy cannot see. Stating it is better than an ignore comment: it documents
@@ -1526,7 +1526,7 @@ measured. Seven are style preferences and are recorded in `REMAINING_WORK.md`
 with their counts, so the choice not to enable them is now informed rather
 than implicit.
 
-One was a genuine standards question: `**DTZ`, naive datetimes.** Nine sites
+One was a genuine standards question: **`DTZ`, naive datetimes.** Nine sites
 call `datetime.now()` without a timezone. Every one is correct -- `.bak`
 filenames, trace lines, the build stamp and the `.pot` header are all read by
 the user against their own wall clock, and UTC would be actively wrong -- but
@@ -1579,7 +1579,7 @@ outright.
 This log's own references to the briefs are left alone: it is append-only, and
 they were correct when written.
 
-Their replacement is `**REMAINING_WORK.md`** -- the only forward-looking
+Their replacement is **`REMAINING_WORK.md`** -- the only forward-looking
 document, listing what a reviewer would still flag: the deliberate rule
 exemptions and why each stands, the six rule families not enabled and their
 measured counts, the seven oversized functions in priority order with a verdict
@@ -1687,7 +1687,7 @@ Everything above was derived from plugin bytes. A tes3conv JSON dump of a real
 
 * **Field names and shapes** are as assumed: `vertex_heights` carries `offset`
   and `data` separately, the rest carry `data` alone.
-* `**vertex_heights.data` is exactly `subrecord[4:4229]`** -- the float offset
+* **`vertex_heights.data` is exactly `subrecord[4:4229]`** -- the float offset
   lifted out into its own field and the three trailing unused bytes dropped.
   Byte-compared against the same cell read straight from the ESP.
 * **VTEX bytes are byte-identical between the JSON and the ESP.** That closes
@@ -1795,7 +1795,7 @@ item as written invited, would have broken the engine.
 
 ### Two things worth recording
 
-`**F401` immediately found a real defect.** With the exemption gone, ruff
+**`F401` immediately found a real defect.** With the exemption gone, ruff
 reported `sys` imported but unused - genuinely unused, its only remaining
 mention being the word "sys.stdout" inside a docstring. It had been dead since
 the CLI moved from `sys.exit()` to `raise SystemExit`, and the exemption had
@@ -2155,7 +2155,7 @@ window, so the two maps no longer have an ordering dependency at all.
 
 ### Two defects that would have fired later
 
-`**_("%s") % {"error": error}`** in the conflict-map failure dialog -- a
+**`_("%s") % {"error": error}**` in the conflict-map failure dialog -- a
 positional placeholder against a named dict, which raises `TypeError`. The error
 path would itself have crashed, hiding the original error. `check_placeholders`
 caught it; this is the second time that checker has paid for itself.
@@ -2407,7 +2407,7 @@ Two things the tests caught that reading would not have:
 
 * `*Export writes nothing while **Dry run** is checked*` -- italics wrapping
   bold. A shared `[*_]` delimiter closed the italic on the first asterisk of
-  `**Dry`, leaving stray asterisks on the page. The two emphasis alternatives
+  **`Dry`, leaving stray asterisks on the page. The two emphasis alternatives
   are now spelled out separately with lookarounds on both ends.
 * An unterminated fence used to swallow the rest of the file. It now runs to the
   end and renders: most of a document beats refusing to show any of it.
@@ -2956,16 +2956,16 @@ were written during 3.1.
    message text, so a name typed with a leading space vanished from the rule --
    and the rule still loaded, still looked right, and simply did not apply to
    that plugin. Verified against the real loader before fixing.
-2. `**table()` could drop rows** (`viz/html.py`). It paired rows with attributes
+2. **`table()` could drop rows** (`viz/html.py`). It paired rows with attributes
    using `zip`, which stops at the shorter list, and the short list is the
    attributes -- so a caller one attribute shy lost a *table row*. The project's
    blanket `B905` exemption claims every `zip()` was reviewed individually; this
    one had not been.
-3. `**plugins` as a string produced ten proposals about single letters**
+3. **`plugins` as a string produced ten proposals about single letters**
    (`derive.py`). A bare string is iterable. That module exists to keep guesses
    from being presented as facts, so confident nonsense is the one output it
    must never produce.
-4. `**@@Section`**, because the field is labelled `@section:` and the guidelines
+4. **`@@Section`**, because the field is labelled `@section:` and the guidelines
    write `@Name`, so typing the `@` -- the natural thing -- doubled it.
 5. **An out-of-range priority rendered no mark**, silently, which is not what
    asking for one means.
@@ -2980,7 +2980,7 @@ caught. That is the control doing its job on the auditor.
 Found in a real user's file: 389 insert entries over 2,229 lines, one of its
 anchors fatal to the whole rebuild.
 
-* `**data=` inserts never got the `insertBlock` treatment.** That change landed
+* **`data=` inserts never got the `insertBlock` treatment.** That change landed
   for `content=` only. 372 data-path inserts, 152 of them sharing one anchor,
   where 39 block entries would do.
 * **Data anchors were never checked for uniqueness.** The Configurator matches
@@ -3466,7 +3466,7 @@ meshes and the scan has no idea which one anybody cares about.
 
 ### §36.6 What is still open - and one thing that turned out not to be
 
-- `**dbs_meatstick.nif` is a malformed file, not a missing layout.** It was
+- **`dbs_meatstick.nif` is a malformed file, not a missing layout.** It was
   left failing rather than guessed at, and that was the right call: opened in
   NifSkope it has orphaned blocks, and its 26 block type names reconcile
   exactly with the header while the contents of block 10 do not - a property
@@ -3678,7 +3678,7 @@ Three questions were settled by measurement rather than opinion:
   carries normals, UVs, animation and blocks a viewer never draws -- *and*
   would need a JavaScript NIF parser, which three.js has never had. The 2012
   request for one is still open.
-- `**fastapi` + `uvicorn`.** 14 packages, 34 MB, one compiled extension,
+- **`fastapi` + `uvicorn`.** 14 packages, 34 MB, one compiled extension,
   against a ~38 MB app, to serve a fixed dictionary to one local browser.
 
 Each of those felt like a matter of taste until it was a number.
@@ -3876,7 +3876,7 @@ Within an hour of reading `tes3`:
   "20 bytes, solved not guessed" - concluded from two files - broke thirteen
   meshes that already parsed. Both type numbers and both widths match, arrived
   at from bytes with no shared assumptions.
-* It found `**NiUnionBV`**: bound type 4, which is not a width at all but a
+* It found **`NiUnionBV`**: bound type 4, which is not a width at all but a
   count followed by that many complete volumes, each with its own type word,
   nestable. A width table cannot express that shape.
 

@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_integration import _find_data_dir
 from wraithguard.configurator import (
     cfg_line_value,
     configurator_remove_matches,
@@ -53,7 +54,6 @@ from wraithguard.rules import (
 )
 from wraithguard.sort import build_and_sort
 from wraithguard.versions import format_version
-from tests.test_integration import _find_data_dir
 
 BASELINE_DIR = Path(__file__).resolve().parent / "baselines"
 BASELINE_FILE = BASELINE_DIR / "engine_behaviour.json"

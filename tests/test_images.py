@@ -154,9 +154,7 @@ def bmp(width: int, height: int, rows: bytes, *, depth: int = 24, palette: bytes
     info = struct.pack(
         "<IiiHHIIiiII", 40, width, height, 1, depth, 0, len(rows), 0, 0, len(palette) // 4, 0
     )
-    return (
-        struct.pack("<2sIHHI", b"BM", offset + len(rows), 0, 0, offset) + info + palette + rows
-    )
+    return struct.pack("<2sIHHI", b"BM", offset + len(rows), 0, 0, offset) + info + palette + rows
 
 
 WHITE_565 = 0xFFFF
@@ -277,9 +275,9 @@ class TestBc4AndBc5:
     def test_the_modern_spellings_decode_the_same_way(self) -> None:
         """BC4U and BC5U are ATI1 and ATI2 under later names."""
         block = bytes((200, 40)) + bytes(6)
-        assert read_dds(dds(b"BC4U", 4, 4, block)).pixels == read_dds(
-            dds(b"ATI1", 4, 4, block)
-        ).pixels
+        assert (
+            read_dds(dds(b"BC4U", 4, 4, block)).pixels == read_dds(dds(b"ATI1", 4, 4, block)).pixels
+        )
 
 
 class TestBc7:

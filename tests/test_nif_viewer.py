@@ -197,8 +197,14 @@ class TestMissingLibraryIsReported:
     """A build that shipped without the asset must say so."""
 
     def test_it_raises_a_named_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Rather than producing a page that renders nothing."""
-        monkeypatch.setattr("wraithguard.nif.viewer._first_readable", lambda _c: None)
+        """Rather than producing a page that renders nothing.
+
+        Patched at :mod:`wraithguard.viz.library`, which is where locating the
+        vendored build now lives. Patching the old location silently did
+        nothing once the function moved -- the test still passed by asserting
+        an error that was raised for a different reason.
+        """
+        monkeypatch.setattr("wraithguard.viz.library._first_readable", lambda _c: None)
         with pytest.raises(ViewerError, match="not shipped"):
             build_viewer_page([("only", [TRIANGLE])])
 
@@ -461,3 +467,302 @@ class TestTexturesReachThePage:
             if entry["image"]
         }
         assert len(urls) == 1, "the same texture produced more than one payload"
+
+
+class TestMaterialsReachThePage:
+    """The file's own material, not a viewer-wide guess.
+
+    Before the reader carried these, the page's alpha controls applied one
+    global default -- a 0.5 cutoff on everything -- and "off" meant off
+    everywhere, silently overriding any file that had asked for a cutout.
+    """
+
+    @staticmethod
+    def _shape(name: str, **kwargs: object) -> Mesh:
+        """A one-triangle mesh with material fields set.
+
+        Args:
+            name: The shape's name.
+            kwargs: Material attributes to set.
+
+        Returns:
+            The mesh.
+        """
+        return Mesh(
+            name=name,
+            vertices=[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+            triangles=[(0, 1, 2)],
+            uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    def test_the_cutout_threshold_travels_with_the_shape(self) -> None:
+        """A per-shape value, not the page's 0.5 default."""
+        page = build_viewer_page(
+            [("side", [self._shape("body", alpha_test=True, alpha_threshold=0.25)])]
+        )
+        mesh = payload(page)[0]["meshes"][0]
+        assert mesh["alphaTest"] is True
+        assert mesh["alphaThreshold"] == 0.25
+
+    def test_blending_and_cutout_stay_separate(self) -> None:
+        """Foliage sets testing without blending; glass does the reverse.
+
+        Conflating them makes every leaf in the game fade instead of cut out,
+        which looks like a rendering choice rather than an error.
+        """
+        page = build_viewer_page(
+            [
+                (
+                    "side",
+                    [
+                        self._shape("leaf", alpha_test=True),
+                        self._shape("glass", alpha_blend=True, opacity=0.4),
+                    ],
+                )
+            ]
+        )
+        leaf, glass = payload(page)[0]["meshes"]
+        assert leaf["alphaTest"] and not leaf["alphaBlend"]
+        assert glass["alphaBlend"] and not glass["alphaTest"]
+        assert glass["opacity"] == 0.4
+
+    def test_an_undescribed_material_is_null_not_black(self) -> None:
+        """A caller that cannot tell them apart renders silhouettes."""
+        page = build_viewer_page([("side", [self._shape("plain")])])
+        mesh = payload(page)[0]["meshes"][0]
+        assert mesh["diffuse"] is None
+        assert mesh["emissive"] is None
+
+    def test_vertex_colors_ship_as_a_packed_blob(self) -> None:
+        """Not as JSON numbers: 30,000 vertices is 90,000 floats."""
+        page = build_viewer_page(
+            [
+                (
+                    "side",
+                    [
+                        self._shape(
+                            "tinted",
+                            vertex_colors=[
+                                (1.0, 0.0, 0.0, 1.0),
+                                (0.0, 1.0, 0.0, 1.0),
+                                (0.0, 0.0, 1.0, 1.0),
+                            ],
+                        )
+                    ],
+                )
+            ]
+        )
+        mesh = payload(page)[0]["meshes"][0]
+        assert mesh["colors"] is not None
+        assert "b64" in mesh["colors"] or "url" in mesh["colors"]
+
+    def test_a_shape_without_colors_sends_none(self) -> None:
+        """A negative control, so the attribute means something when present."""
+        page = build_viewer_page([("side", [self._shape("plain")])])
+        assert payload(page)[0]["meshes"][0]["colors"] is None
+
+
+class TestThePerShapeList:
+    """Isolating one shape is what turns "something differs" into "this does"."""
+
+    def test_the_page_carries_a_shape_list_and_a_summary(self) -> None:
+        """Visibility per shape, and the material as text beside it.
+
+        Text rather than controls on purpose: a mesh routinely has twenty
+        shapes, and a checkbox per material property per shape would be a
+        hundred controls answering a question nobody asks.
+        """
+        page = build_viewer_page([("side", [TRIANGLE])])
+        assert "renderShapes" in page
+        assert "summaryOf" in page
+        assert "click to isolate" in page
+
+    def test_shapes_are_tracked_per_provider(self) -> None:
+        """Solo must isolate within one side, not across both.
+
+        Hiding the other provider's shapes as a side effect would silently
+        turn a comparison into a single-mesh view.
+        """
+        page = build_viewer_page([("a", [TRIANGLE]), ("b", [TRIANGLE])])
+        assert "group.userData.shapes" in page
+
+
+class TestTheCompositeOrderIsPinned:
+    """Which layer multiplies into which, and in what sequence.
+
+    Morrowind applies **detail before dark**, and a decal composites over the
+    result of both rather than multiplying into it. Today that ordering is an
+    accident of the order the ``if`` blocks appear in ``attachExtraSlots`` --
+    nothing states it and nothing checks it, so a reordering during an
+    unrelated edit would change how every multi-slot mesh renders with no test
+    going red and no visible error.
+
+    These read the generated shader source. That is a weaker instrument than
+    rendering a frame and comparing pixels, and it is the one available here;
+    it is enough to catch a reordering, which is the failure being guarded
+    against.
+    """
+
+    @staticmethod
+    def _shader(mesh: Mesh, tmp_path: Path) -> str:
+        """Build a page for a mesh with real texture files behind its slots.
+
+        Args:
+            mesh: The shape.
+            tmp_path: A folder to put texture files in.
+
+        Returns:
+            The generated page.
+        """
+        from tests.test_images import bc1_block, dds
+
+        folder = tmp_path / "Data Files" / "textures"
+        folder.mkdir(parents=True, exist_ok=True)
+        # Distinct colors per slot. Writing the same bytes everywhere
+        # makes every slot resolve to an identical data URL, which would
+        # let an ordering test pass while proving nothing about order.
+        colors = {
+            "base": 0xFFFF,
+            "detail": 0xF800,
+            "dark": 0x07E0,
+            "d0": 0x001F,
+            "d1": 0xFFE0,
+            "gloss": 0x8410,
+        }
+        for name, packed in colors.items():
+            (folder / f"{name}.dds").write_bytes(dds(b"DXT1", 4, 4, bc1_block(packed, packed, 0)))
+        return build_viewer_page(
+            [("side", [mesh])],
+            resolver=TextureResolver([tmp_path / "Data Files"]),
+        )
+
+    def test_detail_uses_multiply_2x_not_a_uv_scale(self, tmp_path: Path) -> None:
+        """The 2 belongs to the color, not to the texture coordinates.
+
+        Gamebryo applies detail maps in "multiply 2X" mode -- Direct3D's
+        MODULATE2X: base and detail are multiplied together and the *result*
+        is doubled. That doubling is what gives the mode a neutral value: a
+        detail map at half brightness leaves the base unchanged, so it can
+        brighten as well as darken.
+
+        This asserts the negative too, because the bug it replaces was
+        ``texture2D(detailMap, vMapUv * 2.0)`` -- the same literal applied to
+        the wrong operand. That scaled the coordinates, left the color
+        undoubled, and so had no neutral value at all: every texel is at most
+        1.0, so the layer could only ever darken every surface it touched.
+
+        The real tiling comes from the mesh's own UVs. Detail maps are wrapped
+        far more densely than the base -- 16x to 64x, per the Gamebryo notes --
+        which is a property of the file, not a constant belonging here.
+        """
+        page = self._shader(
+            Mesh(
+                name="s",
+                vertices=TRIANGLE.vertices,
+                triangles=TRIANGLE.triangles,
+                uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+                texture="base.dds",
+                detail="detail.dds",
+                dark="dark.dds",
+            ),
+            tmp_path,
+        )
+        assert "texture2D(detailMap, vMapUv).rgb * 2.0" in page
+        # The negative names the whole wrong *call*, not the substring. A bare
+        # "vMapUv * 2.0" check matched the source comment that documents the
+        # old bug, so the test failed on its own explanation.
+        assert "texture2D(detailMap, vMapUv * 2.0)" not in page
+
+    def test_detail_and_dark_are_both_multiplies(self, tmp_path: Path) -> None:
+        """Which is why their relative order does not matter.
+
+        An earlier version of this test asserted detail comes before dark.
+        That was pinning something unfalsifiable: both are multiplies into the
+        same value, multiplication commutes, and no reordering of the two can
+        change a single pixel. Decal order *does* matter -- a decal is a mix,
+        not a multiply -- and that is tested separately.
+
+        What is worth pinning is that they *are* multiplies, since switching
+        either to a mix would change the image and would not be caught by any
+        ordering assertion.
+        """
+        page = self._shader(
+            Mesh(
+                name="s",
+                vertices=TRIANGLE.vertices,
+                triangles=TRIANGLE.triangles,
+                uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+                texture="base.dds",
+                detail="detail.dds",
+                dark="dark.dds",
+            ),
+            tmp_path,
+        )
+        assert "diffuseColor.rgb *= texture2D(detailMap" in page
+        assert "diffuseColor.rgb *= texture2D(darkMap" in page
+
+    def test_decals_composite_after_the_multiplies(self, tmp_path: Path) -> None:
+        """A decal replaces what is under it, so it goes last.
+
+        Compositing it before the multiplies would let a dark map darken the
+        decal, which is the opposite of what a decal is for.
+        """
+        page = self._shader(
+            Mesh(
+                name="s",
+                vertices=TRIANGLE.vertices,
+                triangles=TRIANGLE.triangles,
+                uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+                texture="base.dds",
+                dark="dark.dds",
+                decals=["d0.dds"],
+            ),
+            tmp_path,
+        )
+        # The uniform name is built at runtime ("decalMap" + slot), so it
+        # never appears literally. Anchor on the code that emits it.
+        assert page.index("darkMap, vMapUv") < page.index('"decalMap" + slot')
+
+    def test_every_decal_gets_its_own_uniform_in_slot_order(self, tmp_path: Path) -> None:
+        """Slot order is paint order; the last declared ends up on top."""
+        page = self._shader(
+            Mesh(
+                name="s",
+                vertices=TRIANGLE.vertices,
+                triangles=TRIANGLE.triangles,
+                uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+                texture="base.dds",
+                decals=["d0.dds", "d1.dds"],
+            ),
+            tmp_path,
+        )
+        mesh = payload(page)[0]["meshes"][0]
+        assert len(mesh["decals"]) == 2
+        # Both reach the page in slot order, and the shader unrolls one
+        # sample per slot -- named at runtime, so the source carries the
+        # construction rather than the names.
+        assert mesh["decals"][0] != mesh["decals"][1]
+        assert '"decalMap" + slot' in page
+        assert "decalMaps.forEach" in page
+
+    def test_the_extra_slots_are_guarded_on_the_base_map(self, tmp_path: Path) -> None:
+        """Every injected line samples vMapUv, which exists only under USE_MAP.
+
+        The Textures checkbox sets ``material.map = null``, which undefines
+        USE_MAP and forces a recompile. Without the guard that combination
+        injects a reference to a varying that no longer exists, the shader
+        fails to compile, and the mesh renders as nothing -- from two clicks.
+        """
+        page = self._shader(
+            Mesh(
+                name="s",
+                vertices=TRIANGLE.vertices,
+                triangles=TRIANGLE.triangles,
+                uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+                texture="base.dds",
+                dark="dark.dds",
+            ),
+            tmp_path,
+        )
+        assert "#ifdef USE_MAP" in page

@@ -485,9 +485,7 @@ class TestCoverageLegend:
 
     def test_swatch_colors_match_the_map(self) -> None:
         """This is the whole reason it is generated rather than written."""
-        for (label, color, _dark), (low, _high) in zip(
-            coverage_legend_stops(9), coverage_bands(9)
-        ):
+        for (label, color, _dark), (low, _high) in zip(coverage_legend_stops(9), coverage_bands(9)):
             assert color == coverage_heat(low, 9)
             assert label.startswith(str(low))
 

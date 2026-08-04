@@ -136,8 +136,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("dirs", nargs="+", type=Path, help="data folders, in load order")
     parser.add_argument("--mesh", help="a .nif to trace every texture of")
-    parser.add_argument("--texture", action="append", default=[],
-                        help="a texture reference to trace; may be repeated")
+    parser.add_argument(
+        "--texture",
+        action="append",
+        default=[],
+        help="a texture reference to trace; may be repeated",
+    )
     args = parser.parse_args(argv)
 
     problems = describe_folders(args.dirs)
@@ -190,8 +194,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"no mesh or texture named, so sampling {len(references)} from the archives")
 
     print(f"\ntracing {len(references)} texture(s):")
-    good = sum(trace(ref, resolver, verbose=index < DETAIL)
-               for index, ref in enumerate(references))
+    good = sum(trace(ref, resolver, verbose=index < DETAIL) for index, ref in enumerate(references))
     if len(references) > DETAIL:
         print(f"  ... {len(references) - DETAIL} more not shown")
 

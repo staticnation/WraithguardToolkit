@@ -16,6 +16,109 @@ it had none.
 
 ### Added
 
+- **A Patch Builder window.** The patch queue is now something you can see and
+  edit rather than a number on a button. It opens beside the conflict list,
+  updates as you add to it, and shows every queued record - whole or merged,
+  and for a merge, which field came from where. Remove a record, remove a
+  single field, or clear the lot; nothing is written until you press Write.
+
+  This exists because queuing a record is a decision, and decisions get
+  revisited: you pick a winner, look at three more conflicts, then realise the
+  first one should have taken one field from somewhere else. With only a count
+  there was nowhere to do that - the only way to correct a mistake was to write
+  the patch and start again.
+
+  The rules live in `wraithguard/patch/queue.py`, which imports no widgets:
+  re-deciding replaces rather than accumulates, a record is taken whole or
+  merged but never both, and a merge left with no fields is dropped because it
+  would write the base record unchanged.
+
+- **Merging a record down, field by field.** Carrying a whole record settles a
+  conflict by picking a side. Sometimes neither side is right - one mod fixed
+  the script, another retextured the mesh - and what you want is a record with
+  both. Select a field in the comparison panel, hit **Merge field...**, and
+  choose whose version of *that field* to take; everything else stays as your
+  load order already has it, so a merge reads as a list of departures rather
+  than a rewrite.
+
+  Two things are refused rather than guessed. **Identity** - `type`, `id`, the
+  grid - because taking those from elsewhere does not merge a record, it makes
+  a different one, which the patch would then apply somewhere you never looked.
+  And **a field the chosen plugin does not have**, because that could mean
+  "delete this field" or "I misread the panel", and the two produce different
+  records.
+
+  The `mast_index` trap arrives here by a second door: a `references` list
+  taken from one plugin while the rest of the record comes from another is
+  numbered against *its own* plugin's master list, and is remapped against
+  that. Using the base record's mapping would repoint every object in the cell
+  at a different file.
+
+  A record can be taken whole or merged, never both: carrying it twice would
+  leave the patch's own last-wins to decide, so the choice made last in the
+  window might not be the one that reaches the game.
+
+- **Record patcher in the conflict viewer.** Pick a conflicting record, choose
+  which plugin's version should win, and write the result as one new plugin
+  that loads last. TES3 has no partial records - whichever file defines one
+  last supplies all of it - so a patch carries whole records, and everything it
+  does not carry still comes from the original mods. **No mod file is ever
+  opened for writing**; deleting the patch restores your previous behaviour
+  exactly.
+
+  The part that is not a copy is `mast_index`. Every reference inside a `Cell`
+  carries one, and it is a *position*, not a name: `0` means the file being
+  read, `k >= 1` means that file's k-th master. Measured on real plugins,
+  `Clean Solstheim_Castle_v1.1` puts 11,972 of its references at 0 and
+  `Bloodmoon` all 26,473 of its. Moving such a record into a patch changes what
+  position 0 refers to and renumbers everything after it, so copied verbatim
+  every placed object in that cell would silently point at a different file.
+  References are remapped, and a record whose references cannot be remapped is
+  refused rather than written wrong.
+
+- **Merged Lands.** A full port of David Von Derau's Merged Lands (MIT), which
+  recovers the terrain a load order throws away. Morrowind resolves a `LAND`
+  record by last-wins, so where two mods edit the same cell one of them simply
+  disappears - and across 300 plugins here, **19,078 height vertices are moved
+  by exactly one mod** and lost anyway, against 8,082 that are genuinely
+  contested. Those are free to keep; only the contested ones need a decision.
+
+  The tool builds a reference landmass from the masters, diffs each mod against
+  it, merges vertex by vertex, repairs the seams that leaves, and writes one
+  new plugin to load last. It carries terrain only - no references, objects or
+  scripts - so everything placed in those cells stays where it is, your plugins
+  are never modified, and deleting the output restores the previous behaviour
+  exactly.
+
+  Available from the main window as **Merge Lands** and from
+  `tools/build_merged_lands.py`. You choose where the plugin is written and
+  the choice is remembered; the confirmation offers *write here* / *choose a
+  different folder* / *cancel* every run, since a merged plugin quietly
+  appearing somewhere other than last time is worse than one extra click. If
+  the folder is not one OpenMW reads, it says so and gives you the `data=`
+  line to add - a plugin outside every data path is invisible to the game, and
+  that is a miserable thing to debug. `.mergedlands.toml` sidecars are read with the
+  same schema the original uses, so per-plugin settings written for it work
+  here.
+
+  Two things are ours rather than the original's. A **slope limiter** enforces
+  what `VHGT` can actually store: a vertex delta is one signed byte, so adjacent
+  heights cannot differ by more than 1,016 world units, and seam repair pulling
+  two borders together can exceed that. And a **curvature-weighted resolve**
+  (opt-in) weighs an edit by the structure it introduces rather than by how far
+  it moves the ground, so a road cut can outweigh a bulk shift eight times its
+  size. Measured: a +500 shift introduces 0.000 radians of structure, a -60
+  road cut introduces 0.297.
+
+  Ten correctness faults in the port were found by reading the Rust function by
+  function - all ten were silent, and the only signal any of them produced was
+  in the game. The last was the merge's own post-condition: the original
+  repairs the seams and then repairs them *again*, requiring the second pass to
+  find nothing, and we had ported the repair but not the assertion. The toolkit
+  now refuses to write a plugin with a surviving tear rather than shipping a
+  wall across a cell boundary. They are written up in `docs/MERGED_LANDS_FUNCTIONS.md`
+  alongside all 191 functions and where each one lives here.
+
 - **A lit material view in the texture comparison.** A flat side-by-side view
   cannot compare two normal maps at all - a picture of one is a field of pale
   blue, because what it encodes is how a surface catches light. So each texture
@@ -113,7 +216,7 @@ it had none.
   and anchor index widths far harder than a photograph could. See
   `tools/check_bc7.py` and `tools/check_images.py`.
 
-  `**pydds` was evaluated and rejected on licence.** It is the closest
+  **`pydds` was evaluated and rejected on licence.** It is the closest
   technical fit - BC7 bindings, actively the thing this needed - and it is
   **GPLv3**, which would relicense this entire project. It also depends on
   Pillow, so it would have been additive rather than a replacement. `quicktex`
@@ -287,10 +390,66 @@ it had none.
   to the layout-free scan. Refusing them was costing 45 files in one mod
   collection for no benefit.
 
-- `**NiSwitchNode` and `NiLODNode`**, which never occur in vanilla and together
+- **`NiSwitchNode` and `NiLODNode`**, which never occur in vanilla and together
   caused 92% of everything that stopped early in a real mod collection.
 
 ### Fixed
+
+- **A patched dialogue response lost its topic.** Found by reading a patch a
+  user had actually built: it contained one `INFO` record and no `DIAL`. A
+  `DialogueInfo` carries no topic of its own - the engine attaches it to the
+  last `Dialogue` it read, so the response's meaning comes from its position in
+  the file. Carried into a patch alone, there was nothing for the engine to
+  attach it to.
+
+  The response in question was *"Now, what was I going to do today?"*, voiced by
+  `Idl_IF005.mp3`, belonging to the `Idle` topic - with nothing in the patch
+  saying so. A patch now carries the owning topic immediately before the
+  response, once however many responses share it.
+
+- **The Merge field... dialog appeared to freeze the toolkit.** It was parented
+  and made `transient` to the *main* window while the conflict list - a
+  separate window - was the one in front. So the modal opened behind what you
+  were looking at, and its `grab_set()` swallowed every click on the conflict
+  list: indistinguishable from a hang. It is now parented to the window it
+  belongs to, positioned over it, and raised and focused before it takes input;
+  closing it with the window manager releases the grab too.
+
+- **A carried-through `replace` block now says it is carried through.** A user
+  asked publicly whether a `[[Customizations.replace]]` at the bottom of their
+  exported file was normal. It was theirs - written by hand to reconcile a
+  plugin momw names `CORE PATCH` with the `BASE PATCH` they have installed.
+  Regenerating the file moved it, so it appeared somewhere it had never been
+  with nothing to say where it came from, looking exactly like something the
+  tool had invented. Establishing that nothing was wrong took a Discord thread
+  and two people reading a `plugin_order.yml`.
+
+  Six comment lines now answer it in place: this is yours, this tool only ever
+  regenerates insert/append/remove blocks, and - the part that was previously
+  invisible - momw-configurator's `replace` inherits the position of `source`,
+  so when mlox wants the plugin somewhere else we cannot express that. The note
+  gives the position mlox chose and the plugin it would follow, so the choice
+  to convert the block to an insert, or to leave it alone deliberately, is the
+  user's and is informed.
+
+- **The 3D mesh view could not open a vanilla mesh.** Reported on Linux:
+  "cannot read .../Data Files/meshes/b/b_n_argonian_m_head_02.nif: No such file
+  or directory". Nothing was wrong with the path - **most of Morrowind's meshes
+  are not files.** They live inside `Morrowind.bsa`, and plenty of mods ship
+  theirs the same way. The view read `<folder>/<path>` and gave up when that
+  missed.
+
+  The tell was that the *texture* comparison in the same window worked
+  perfectly: `TextureResolver` has always fallen through to the archives, and
+  only the mesh side went straight to the filesystem.
+
+  Mesh resolution now lives in `wraithguard/nif/vfs.py` rather than in the
+  window that needed it - finding a game asset is not a user-interface concern,
+  and a GUI module cannot be tested without a display, which is exactly how the
+  gap survived. Loose files still win over archived ones, as they do in the
+  game. When a mesh really is missing, the message now says both places were
+  searched instead of blaming the path.
+
 
 - **The served 3D page failed with "THREE is not defined".** The CommonJS
   build needs a shim around it -- globals before, namespace after -- and the
@@ -367,7 +526,7 @@ it had none.
 
 ### Fixed
 
-- `**NiTexturingProperty` truncated any mesh with more than one decal.**
+- **`NiTexturingProperty` truncated any mesh with more than one decal.**
   `texture_count` is a slot count, not a cap of seven. On `7decals.NIF` it
   reads 13, and the reader stopped 156 bytes short - exactly six more slots at
   26 bytes each. This was the worst class of bug in the reader: it stopped
@@ -427,7 +586,7 @@ it had none.
 
 ### Fixed
 
-- `**NiGeomMorpherController` was one byte short**, and it was the only
+- **`NiGeomMorpherController` was one byte short**, and it was the only
   alignment bug in all 7,319 vanilla meshes.
 
   Every affected file read a type name of `\x00NiMorphData` - the correct name
@@ -749,7 +908,7 @@ it had none.
   a real generated file: 389 insert entries over 2,229 lines, and one of its
   anchors fatal.
 
-  - `**data=` inserts never got the `insertBlock` treatment.** That change
+  - **`data=` inserts never got the `insertBlock` treatment.** That change
     landed for `content=` only, so the data half still wrote one
     `[[Customizations.insert]]` per path -- 372 of them in the reported file,
     152 sharing a single anchor. They are now one block per contiguous run: 389
@@ -819,7 +978,7 @@ it had none.
     leading space vanished from the rule -- and the rule still loaded, still
     looked right, and simply did not apply to that plugin. Verified against the
     real loader before fixing. Names are now stripped.
-  - `**table()` could silently drop rows** (`viz/html.py`). It paired rows with
+  - **`table()` could silently drop rows** (`viz/html.py`). It paired rows with
     per-row attributes using `zip`, which stops at the shorter list, and the
     list that runs short is the attributes -- so a caller one attribute shy lost
     a *table row*. On the conflict map that means losing a conflict. The
@@ -830,7 +989,7 @@ it had none.
     `"A.esp"` where `["A.esp"]` was meant was iterated by character. That module
     exists to keep guesses from being presented as facts, so confident nonsense
     is the one output it must never produce.
-  - `**@@Section`** when the field is labelled `@section:` and the guidelines
+  - **`@@Section`** when the field is labelled `@section:` and the guidelines
     write sections as `@Name`, so typing the `@` -- the natural thing to do --
     doubled it.
   - **An out-of-range highlight priority rendered no mark at all**, silently,
@@ -881,7 +1040,7 @@ it had none.
   uses PEP 563 string annotations and nothing introspects them at runtime;
   verified by importing all 53 modules in a fresh interpreter, not just by a
   green suite.
-- `**lint_plugins` decomposed** (201 lines -> 88, over seven small checkers).
+- **`lint_plugins` decomposed** (201 lines -> 88, over seven small checkers).
   Byte-identical output confirmed against a probe that trips every lint branch
   at once.
 - **CI now tests 3.10, 3.11, 3.12 and 3.13** -- every version
@@ -893,7 +1052,7 @@ it had none.
   declare a plain byte count, and all 56 agree with the sum of their parsed
   members -- which is how four parser defects were found and fixed, each of which
   had silently dropped a field.
-- `**_build_controls` split by panel** (435 lines -> 34, largest piece 99). It was
+- **`_build_controls` split by panel** (435 lines -> 34, largest piece 99). It was
   a flat wall of widget construction, which is the shape of code that makes
   adding one button a nervous edit; the Help button that landed in the same
   release is a two-line change because of it.
@@ -947,7 +1106,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   f-strings, converted to named-placeholder form
   (`_("Loaded %(count)d files") % {"count": n}`) with `ngettext` for counted
   messages. `locale/wraithguard_toolkit.pot` is the extracted English template
-  (**393 messages**), regenerated by the new `**tools/make_pot.py`**:
+  (**393 messages**), regenerated by the new **`tools/make_pot.py`**:
   standard-library only, so it works on Windows without GNU `xgettext`, and
   AST-based, so a `_()` inside a docstring is correctly not extracted. Pure
   data output (plugin names, `content=` lines, section banners) is
@@ -955,14 +1114,14 @@ field-diff window, and the PEP-conformance and blind-except passes.
   compiled test catalogue - translation, plural selection, English fallback.
   No language ships yet; with no catalogue installed every lookup returns the
   English source unchanged.
-- `**tools/check_placeholders.py`** - the checker that makes the placeholder
+- **`tools/check_placeholders.py`** - the checker that makes the placeholder
   form safe to use at scale: for every marked string formatted with `% {...}`
   it verifies the `%(key)s` names against the dict's keys in both directions
   (a mistyped key is otherwise a *runtime* `KeyError`, which the suite cannot
   reach in the GUI), and rejects positional `%s` in marked strings outright
   because translators reorder words. Proven against deliberately broken
   inputs in `tests/test_i18n_placeholders.py`; runs in CI and the gate list.
-- `**-v/--verbose` on the CLI**, wiring up the levelled-logging foundation
+- **`-v/--verbose` on the CLI**, wiring up the levelled-logging foundation
   that shipped with the package split: diagnostics about the run (an
   unparseable rule file, a failed CSV write) now go to **stderr via
   `logging`** - WARNING and worse by default, `-v` adds progress, `-vv`
@@ -1018,7 +1177,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   count** (100% of 717 path grids checked), and left in place that prefix
   shifts every edge by one slot - silently attributing each path point its
   *neighbour's* connections.
-- `**theme_template.json`** - a commented, import-ready starting point for
+- **`theme_template.json`** - a commented, import-ready starting point for
   custom themes, sitting next to the app. Covers the 9 required fields, the 7
   optional syntax-token roles (and what each falls back to), and the optional
   `"chrome"` override object with all 11 window-color keys. Imported as-is it
@@ -1099,7 +1258,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   `_()` lookup earlier in that same function raise. Harmless until the gettext
   marker was introduced, and caught immediately by ruff's `F823` when it was -
   the throwaway targets are now named (`_anchor`, `_is_new`).
-- `**[SIZE]` and `[DESC]` rules no longer assert a match for plugins that are
+- **`[SIZE]` and `[DESC]` rules no longer assert a match for plugins that are
   not on disk.** These predicates fall back to "assume true" when the plugin
   cannot be inspected -- mlox does the same, deliberately, to avoid raising a
   warning it cannot substantiate. But mlox gates that on having *no data
@@ -1136,13 +1295,13 @@ field-diff window, and the PEP-conformance and blind-except passes.
   be set from the first real CI run rather than guessed. `--cov` is passed by CI
   rather than baked into `addopts`, so a plain local `pytest` still needs
   nothing but pytest.
-- `**CODE_REVIEW.md` is now labelled as the running log it always was**, with a
+- **`CODE_REVIEW.md` is now labelled as the running log it always was**, with a
   §16 reconciling its older "roadmap" and "recommendations" sections against
   what actually shipped. Notably: §15's list of oversized functions predates the
   split and misses the largest one (`compute_plan`, 545 lines). The re-export
   shim §15 recommends deleting was deleted before release (§23), which is why
   3.0 makes no `core.<name>` compatibility promise to be held to later.
-- `**BLE001` (blind-except) is now enforced.** All 68 `except Exception` sites
+- **`BLE001` (blind-except) is now enforced.** All 68 `except Exception` sites
   were reviewed individually: 28 narrowed to their provable raise-set
   (`ValueError` for TOML/JSON decode, `(OSError, ValueError)` for the
   documented `fetch_url_bytes` contract, `(OSError, SubprocessError)` for
@@ -1157,7 +1316,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   (now including **naming** and **import order**, which were never enforced),
   257, 484/526, 563, 585/604, 3120, 263, 3131, 328, 440, 621, 561, 594, 632,
   394, 518/517, 508, 420. Enabling the missing ruff rulesets found 18 issues.
-- `**[project]` metadata and a `[build-system]` table** now exist (PEP 621 /
+- **`[project]` metadata and a `[build-system]` table** now exist (PEP 621 /
   518), with `py.typed` (PEP 561) so a consuming type checker stops silently
   ignoring the package's annotations.
 - **mypy is clean and now gates.** It found 22 errors when first enabled --
@@ -1291,7 +1450,7 @@ field-diff window, and the PEP-conformance and blind-except passes.
   plugins (the merge no longer reflects the load order - re-run the
   Configurator); the GUI warns on Export when openmw.cfg changed on disk
   since the Sort.
-- `**--lint` CLI flag** for the same checks the GUI Lint button runs.
+- **`--lint` CLI flag** for the same checks the GUI Lint button runs.
 - **Unconstrained mods keep YOUR declared order.** The subset was being
   alphabetized on input, so mods that no rule or dependency constrains landed
   at the end A→Z instead of in the order written in your subset file /

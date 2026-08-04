@@ -78,8 +78,9 @@ def fourcc_dds(fourcc: bytes, blocks: bytes, width: int, height: int) -> bytes:
         A complete DDS file.
     """
     header = bytearray(124)
-    struct.pack_into("<IIIIII", header, 0, 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x80000,
-                     height, width, len(blocks), 0)
+    struct.pack_into(
+        "<IIIIII", header, 0, 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x80000, height, width, len(blocks), 0
+    )
     struct.pack_into("<II4s", header, 72, 32, 0x4, fourcc)
     struct.pack_into("<I", header, 108, 0x1000)
     return b"DDS " + bytes(header) + blocks
@@ -202,8 +203,10 @@ def check_normal_reconstruction() -> int:
         print(f"    decoded normals are not unit vectors: worst length error {worst:.3f}")
         failures += 1
     else:
-        print(f"  {representable} representable normal(s) stay unit length to within "
-              f"{worst:.3f}; {clamped} out-of-range one(s) clamped")
+        print(
+            f"  {representable} representable normal(s) stay unit length to within "
+            f"{worst:.3f}; {clamped} out-of-range one(s) clamped"
+        )
     return failures
 
 
@@ -298,8 +301,10 @@ def check_corpus(folder: Path, pil: object) -> int:
         # BC5 is expected to differ in blue; nothing else should differ at all.
         if ours != reference and compare(ours, reference, "RGBA", path.name):
             mismatched += 1
-    print(f"  {len(files) - skipped - failures - mismatched} matched, "
-          f"{mismatched} differed, {failures} undecodable, {skipped} the oracle skipped")
+    print(
+        f"  {len(files) - skipped - failures - mismatched} matched, "
+        f"{mismatched} differed, {failures} undecodable, {skipped} the oracle skipped"
+    )
     return failures + mismatched
 
 
@@ -313,15 +318,15 @@ def main(argv: list[str] | None = None) -> int:
         A process exit code; non-zero when anything did not match.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--corpus", type=Path, default=None,
-                        help="a folder of real textures to check as well")
+    parser.add_argument(
+        "--corpus", type=Path, default=None, help="a folder of real textures to check as well"
+    )
     args = parser.parse_args(argv)
 
     try:
         from PIL import Image as PilImage
     except ImportError:
-        print("Pillow is not installed; this check needs an independent decoder.",
-              file=sys.stderr)
+        print("Pillow is not installed; this check needs an independent decoder.", file=sys.stderr)
         return 2
 
     failures = check_block_formats(None, PilImage)

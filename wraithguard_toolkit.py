@@ -1629,6 +1629,21 @@ class Tes3ConvSession:
             # UnicodeDecodeError both subclass it.
             return []
 
+    def records(self, path: str | Path) -> list[Any]:
+        """Return every record in one plugin, header included.
+
+        The header is the point: it carries the master list, and a record
+        patch cannot renumber a cell's references without it. `record_map`
+        cannot serve this because the header has no id to key it by.
+
+        Args:
+            path: The plugin file.
+
+        Returns:
+            The decoded records, or an empty list if it could not be read.
+        """
+        return self._records(path)
+
     def record_map(self, path: str | Path) -> dict[tuple[str, str], Any]:
         """Return {(rectype, rid): record} for one plugin, from cached JSON."""
         # Built fresh each call and NOT cached, so only one plugin's records are

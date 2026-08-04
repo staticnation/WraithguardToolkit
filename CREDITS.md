@@ -42,6 +42,20 @@ and their `LICENSE` files are included in their source folders in this repo.
 - **tes3conv** - © 2025 Greatness7. MIT.
   Converts Morrowind plugins ↔ JSON. Used (optionally, if present on PATH) as the
   exact record-identification and field-diff engine behind Check Conflicts.
+- **Merged Lands** - © 2022 David Von Derau. MIT.
+  A Rust tool that merges the landscape changes a load order would otherwise
+  discard. Our `wraithguard/land/` package is a **port of it**, function by
+  function - the reference landmass, the per-mod diff, the four conflict
+  strategies and their thresholds, corner-then-edge seam repair, cleaning, the
+  shared `LTEX` index space, the conflict images, and the `.mergedlands.toml`
+  sidecar schema, which we read with the same field names and values so
+  settings written for the original work here unchanged.
+
+  `docs/MERGED_LANDS_FUNCTIONS.md` accounts for **all 191 functions** in its
+  `src/`, names where each one lives here, and records every place we diverge
+  and why. Our additions - a slope limiter, curvature-weighted resolution, and
+  digest-based cleaning - are marked as ours there rather than attributed to it.
+
 - **momw-configurator** - © Modding-OpenMW.com (johnnyhostile). MIT.
   We read its `cfg/custom.go` to reimplement its customization-apply logic
   faithfully, so the **Export preview** can simulate exactly what the
@@ -70,7 +84,7 @@ and their `LICENSE` files are included in their source folders in this repo.
 
 ## abot's tes3cmd scripts (idea credited, no code used)
 
-- `**missing_pathgrids.pl`** and `**cell_conflicts.pl`** - © **abot**.
+- **`missing_pathgrids.pl`** and **`cell_conflicts.pl`** - © **abot**.
   Published as *Missing Pathgrids* and *Cell Conflicts* on abot's own site,
   ["Morrowind is Home"](https://abitoftaste.modlist.x10.mx/morrowind/index.php?option=downloads&catid=58&Itemid=50&-Morrowind-tools)
   (Downloads → Morrowind tools), alongside MMOG, MRS and abot's other tools.
@@ -165,7 +179,7 @@ textures decode byte-for-byte identically to it, BC7 matches on 19,380 random
 blocks across every mode and partition, and every PNG we write reads back
 through it unchanged. Used but not read, exactly as with NifSkope.
 
-`**pydds` was evaluated for BC7 and rejected on licence.** It is the closest
+**`pydds` was evaluated for BC7 and rejected on licence.** It is the closest
 technical fit - DDS decompression bindings including BC7, which is precisely
 what was wanted - and it is **GPLv3-or-later**, which would relicense this
 entire project. That decision needed no technical argument at all. Two further

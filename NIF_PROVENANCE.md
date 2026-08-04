@@ -69,7 +69,7 @@ substitute for advice from a lawyer.
 Recorded so that the absence is visible, not merely asserted. See `CREDITS.md`
 for the licence analysis behind each.
 
-- `**nif.xml`** (NifTools' machine-readable format description). Not used as a
+- **`nif.xml`** (NifTools' machine-readable format description). Not used as a
   source for any field layout. It lives in a GPL-3.0 repository whose own
   licence status is [disputed upstream](https://github.com/niftools/nifxml/issues/86),
   and an unresolved licence is worse than one that clearly says no.
@@ -454,7 +454,7 @@ That offer, if executed, removes the constraint that shaped this entire reader.
 | | Licence, as verified 28 July 2026 | Usable? |
 | --- | --- | --- |
 | `Greatness7/tes3` (Rust) | **MIT**, repository root `LICENSE` | Yes |
-| `Greatness7/io_scene_mw`, `**lib/es3/` only** | **MIT**, granted 28 July 2026 | Yes |
+| `Greatness7/io_scene_mw`, **`lib/es3/` only** | **MIT**, granted 28 July 2026 | Yes |
 | `Greatness7/io_scene_mw`, everything else | **GPL-3.0** | **No** |
 
 ### The grant, precisely
@@ -553,10 +553,10 @@ smaller sample.
 
 Two of these were worth the reading rather than the guessing:
 
-* `**NiBltSource` has no name, extra data or controller.** Its base is
+* **`NiBltSource` has no name, extra data or controller.** Its base is
   `NiObject`, not `NiObjectNET`, unlike almost every other block in the format.
   A reasonable assumption would have consumed twelve bytes that are not there.
-* `**NiTriStripsData`'s final run has no stored length.** It is the *sum* of
+* **`NiTriStripsData`'s final run has no stored length.** It is the *sum* of
   the strip-length array immediately before it. That shape cannot be expressed
   as a gated run, so it needed a new field kind rather than a new entry.
 
@@ -597,12 +597,12 @@ files is the strongest evidence this reader has.
 
 Both remaining stops are now settled rather than open:
 
-* `**NiBSParticleNode`** (1 file) - the tool's own message hedges between "a
+* **`NiBSParticleNode`** (1 file) - the tool's own message hedges between "a
   layout bug here" and "a malformed file". `tes3` declares the type as a bare
   `NiNode`, identical to this reader's layout, so the layout is not the
   problem. `dbs_meatstick.nif` carries a property count of 0xFFFFFFFF and was
   inspected in NifSkope. A finding about the mod.
-* `**NiTextureProperty`** (1 file) - a genuine coverage gap, and **neither
+* **`NiTextureProperty`** (1 file) - a genuine coverage gap, and **neither
   `tes3` nor `io_scene_mw/lib/es3` implements it either.** Worth recording
   plainly: with three implementations in hand, one file in 80,197 references a
   type none of them knows.

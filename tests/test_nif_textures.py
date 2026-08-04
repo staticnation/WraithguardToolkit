@@ -254,9 +254,7 @@ class TestOpenMwAuxiliaryMaps:
     overwriting each other's normal maps entirely.
     """
 
-    def test_the_stock_suffixes_are_found_beside_a_diffuse_texture(
-        self, tmp_path: Path
-    ) -> None:
+    def test_the_stock_suffixes_are_found_beside_a_diffuse_texture(self, tmp_path: Path) -> None:
         """The four patterns OpenMW ships with."""
         folder = tmp_path / "Mod"
         for name in ("tx_rock.dds", "tx_rock_n.dds", "tx_rock_nh.dds", "tx_rock_spec.dds"):
@@ -269,9 +267,7 @@ class TestOpenMwAuxiliaryMaps:
         make_texture(tmp_path / "Mod", "tx_rock.dds")
         assert TextureResolver([tmp_path / "Mod"]).siblings("tx_rock.dds") == {}
 
-    def test_siblings_resolve_through_the_whole_virtual_file_system(
-        self, tmp_path: Path
-    ) -> None:
+    def test_siblings_resolve_through_the_whole_virtual_file_system(self, tmp_path: Path) -> None:
         """A texture pack adds normal maps for another mod's textures.
 
         That is the arrangement these suffixes exist for, so resolving them

@@ -325,3 +325,235 @@ class TestBlockTree:
         )
         roots = block_tree(parsed)
         assert roots, "a cycle should still produce a tree"
+
+
+def material_body(
+    diffuse: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    emissive: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    alpha: float = 1.0,
+) -> bytes:
+    """A ``NiMaterialProperty`` body.
+
+    The field order is ambient, diffuse, specular, emissive, shine, alpha --
+    confirmed against Greatness7's ``tes3``. Writing it here in that order is
+    what makes the test meaningful: a reader that read diffuse where emissive
+    lives would still return three floats and look plausible.
+
+    Args:
+        diffuse: The diffuse color.
+        emissive: The emissive color.
+        alpha: The material's own opacity.
+
+    Returns:
+        The body bytes.
+    """
+    body = text("mat") + struct.pack("<iiH", -1, -1, 0)
+    body += struct.pack("<3f", 0.1, 0.1, 0.1)  # ambient
+    body += struct.pack("<3f", *diffuse)
+    body += struct.pack("<3f", 0.5, 0.5, 0.5)  # specular
+    body += struct.pack("<3f", *emissive)
+    body += struct.pack("<f", 10.0)  # shine
+    return body + struct.pack("<f", alpha)
+
+
+def alpha_body(flags: int, threshold: int) -> bytes:
+    """A ``NiAlphaProperty`` body.
+
+    Args:
+        flags: The property flags, carrying blend and test bits.
+        threshold: The alpha-test reference byte.
+
+    Returns:
+        The body bytes.
+    """
+    return text("alpha") + struct.pack("<iiH", -1, -1, flags) + struct.pack("<B", threshold)
+
+
+def shape_with(properties: tuple[int, ...]) -> bytes:
+    """A ``NiTriShape`` body pointing at property blocks and data block 1.
+
+    Args:
+        properties: Property block indices.
+
+    Returns:
+        The body bytes.
+    """
+    return av_body("s", properties=properties, tail=struct.pack("<ii", 1, -1))
+
+
+class TestMaterialsComeFromTheFile:
+    """What a shape is made of, not what a viewer guesses.
+
+    Every layout here was confirmed field-for-field against Greatness7's
+    ``tes3`` before being read. That matters more than usual: a material is
+    four consecutive three-float colors, so reading the wrong one returns a
+    perfectly well-formed color that is simply the wrong one, and nothing
+    downstream can tell.
+    """
+
+    def test_diffuse_and_emissive_are_not_confused(self) -> None:
+        """They sit two colors apart, with specular between them."""
+        data = nif(
+            ("NiTriShape", shape_with((2,))),
+            ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            (
+                "NiMaterialProperty",
+                material_body(diffuse=(1.0, 0.0, 0.0), emissive=(0.0, 0.0, 1.0)),
+            ),
+        )
+        mesh = world_meshes(read_nif_bytes(data, geometry=True))[0]
+        assert mesh.diffuse == (1.0, 0.0, 0.0)
+        assert mesh.emissive == (0.0, 0.0, 1.0)
+
+    def test_no_material_property_means_undescribed_not_black(self) -> None:
+        """``None`` rather than ``(0, 0, 0)``.
+
+        A caller that cannot tell "no material" from "black material" renders
+        every unmaterialed shape as a silhouette, which is a plausible-looking
+        result and completely wrong.
+        """
+        data = nif(
+            ("NiTriShape", shape_with(())),
+            ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+        )
+        mesh = world_meshes(read_nif_bytes(data, geometry=True))[0]
+        assert mesh.diffuse is None
+        assert mesh.emissive is None
+        assert mesh.opacity == 1.0
+
+    def test_opacity_is_the_materials_own_alpha(self) -> None:
+        """The last float in the property, after shine."""
+        data = nif(
+            ("NiTriShape", shape_with((2,))),
+            ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ("NiMaterialProperty", material_body(alpha=0.25)),
+        )
+        mesh = world_meshes(read_nif_bytes(data, geometry=True))[0]
+        assert math.isclose(mesh.opacity, 0.25, rel_tol=1e-6)
+
+
+class TestAlphaIsTwoIndependentQuestions:
+    """Blending and testing are separate bits, and conflating them is the bug.
+
+    Foliage routinely sets testing without blending. Treating "has an alpha
+    property" as "is translucent" makes every leaf in the game fade instead of
+    cut out -- and a faded leaf looks like a rendering choice rather than an
+    error, so nothing would report it.
+    """
+
+    def test_testing_without_blending(self) -> None:
+        """The foliage case: bit 0x0200 set, bit 0x0001 clear."""
+        data = nif(
+            ("NiTriShape", shape_with((2,))),
+            ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ("NiAlphaProperty", alpha_body(0x0200, 128)),
+        )
+        mesh = world_meshes(read_nif_bytes(data, geometry=True))[0]
+        assert mesh.alpha_test
+        assert not mesh.alpha_blend
+
+    def test_blending_without_testing(self) -> None:
+        """The glass case, and the negative control for the one above."""
+        data = nif(
+            ("NiTriShape", shape_with((2,))),
+            ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ("NiAlphaProperty", alpha_body(0x0001, 0)),
+        )
+        mesh = world_meshes(read_nif_bytes(data, geometry=True))[0]
+        assert mesh.alpha_blend
+        assert not mesh.alpha_test
+
+    def test_the_threshold_is_normalised_from_the_stored_byte(self) -> None:
+        """The file stores 0-255; a renderer wants 0-1."""
+        data = nif(
+            ("NiTriShape", shape_with((2,))),
+            ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ("NiAlphaProperty", alpha_body(0x0200, 255)),
+        )
+        mesh = world_meshes(read_nif_bytes(data, geometry=True))[0]
+        assert math.isclose(mesh.alpha_threshold, 1.0, rel_tol=1e-6)
+
+    def test_no_alpha_property_reads_as_opaque(self) -> None:
+        """Nothing describing transparency means opaque, not unknown."""
+        data = nif(
+            ("NiTriShape", shape_with(())),
+            ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+        )
+        mesh = world_meshes(read_nif_bytes(data, geometry=True))[0]
+        assert not mesh.alpha_blend
+        assert not mesh.alpha_test
+
+
+def shape_data_coloured(
+    vertices: list[tuple[float, float, float]],
+    triangles: list[tuple[int, int, int]],
+    colors: list[tuple[float, float, float, float]],
+) -> bytes:
+    """A ``NiTriShapeData`` body that actually carries vertex colors.
+
+    The ordinary fixture writes ``has_vertex_colors = 0``, so it never
+    exercised the colour path at all -- which is how the reader could hold a
+    count where a caller expected a list without any test noticing.
+
+    Args:
+        vertices: The vertex positions.
+        triangles: Index triples.
+        colors: One RGBA per vertex, channels 0-1.
+
+    Returns:
+        The body bytes.
+    """
+    body = struct.pack("<H", len(vertices)) + struct.pack("<I", 1)
+    body += b"".join(struct.pack("<3f", *v) for v in vertices)
+    body += struct.pack("<I", 0)  # has_normals
+    body += struct.pack("<4f", 0.0, 0.0, 0.0, 1.0)  # centre + radius
+    body += struct.pack("<I", 1)  # has_vertex_colors
+    body += b"".join(struct.pack("<4f", *c) for c in colors)
+    body += struct.pack("<HI", 0, 0)  # num_uv_sets, has_uv
+    body += struct.pack("<HI", len(triangles), len(triangles) * 3)
+    body += b"".join(struct.pack("<3H", *t) for t in triangles)
+    return body + struct.pack("<H", 0)
+
+
+class TestVertexColoursSurviveTheReader:
+    """The field existed long before it held anything usable.
+
+    ``color4_array`` was not in the reader's retained set, so
+    ``fields["vertex_colors"]`` held the *count* the array gate produced. Any
+    caller checking ``len(...) == len(vertices)`` compared against an integer,
+    failed closed, and reported no colours -- with no error anywhere, because
+    the field was present and held a number.
+    """
+
+    def test_the_decoded_companion_carries_the_colours(self) -> None:
+        """``vertex_colors_rgba`` beside the count, as every other array does."""
+        colours = [(1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 1.0), (0.0, 0.0, 1.0, 0.5)]
+        data = nif(("NiTriShapeData", shape_data_coloured(SQUARE, ONE_TRIANGLE, colours)))
+        fields = read_nif_bytes(data, geometry=True).blocks[0].fields
+        assert fields["vertex_colors_rgba"] == colours
+
+    def test_the_count_still_lives_under_the_plain_name(self) -> None:
+        """A structure report must not change behaviour when geometry is on."""
+        colours = [(1.0, 1.0, 1.0, 1.0)] * 3
+        data = nif(("NiTriShapeData", shape_data_coloured(SQUARE, ONE_TRIANGLE, colours)))
+        plain = read_nif_bytes(data).blocks[0].fields
+        rich = read_nif_bytes(data, geometry=True).blocks[0].fields
+        assert plain["vertex_colors"] == rich["vertex_colors"]
+
+    def test_a_mesh_exposes_them_one_per_vertex(self) -> None:
+        """The whole point: a renderer can attach them as an attribute."""
+        colours = [(1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 1.0), (0.0, 0.0, 1.0, 1.0)]
+        data = nif(
+            ("NiTriShape", shape_with(())),
+            ("NiTriShapeData", shape_data_coloured(SQUARE, ONE_TRIANGLE, colours)),
+        )
+        mesh = world_meshes(read_nif_bytes(data, geometry=True))[0]
+        assert mesh.vertex_colors == colours
+
+    def test_a_shape_without_them_reports_none(self) -> None:
+        """A negative control, so the presence of colours means something."""
+        data = nif(
+            ("NiTriShape", shape_with(())),
+            ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+        )
+        assert world_meshes(read_nif_bytes(data, geometry=True))[0].vertex_colors == []
