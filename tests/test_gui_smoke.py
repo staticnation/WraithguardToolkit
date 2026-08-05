@@ -488,6 +488,175 @@ class TestSecondaryWindows:
         finally:
             window.destroy()
 
+    def test_the_plugin_summary_window_has_rows(self, app: Any) -> None:
+        """It is built from a survey, so it can be checked without a scan.
+
+        The counts and the judgement are tested in ``test_patch_summary.py``.
+        What only a display can catch is the window opening empty, which is
+        what a mistyped column or palette key looks like from the outside.
+
+        Args:
+            app: The application.
+        """
+        from wraithguard.patch.status import ConflictThis
+        from wraithguard.patch.summary import PluginTally, Survey
+
+        found = Survey(
+            plugins={
+                "Loser.esp": PluginTally("Loser.esp", {ConflictThis.CONFLICT_LOSES: 3}),
+                "Winner.esp": PluginTally("Winner.esp", {ConflictThis.CONFLICT_WINS: 3}),
+            }
+        )
+        before = set(app.root.winfo_children())
+        app._show_plugin_summary(found)
+        opened = [w for w in app.root.winfo_children() if w not in before]
+        assert opened, "no window was created"
+        window = opened[-1]
+        try:
+            assert window.winfo_children(), "window opened with nothing in it"
+            tree = _first_widget_of_class(window, "Treeview")
+            assert tree is not None, "no table in the summary window"
+            rows = tree.get_children()
+            assert len(rows) == 2, "a plugin was dropped from the summary"
+            # Worst first: the mod losing work is the one to act on.
+            assert "Loser.esp" in tree.item(rows[0], "text")
+        finally:
+            window.destroy()
+
+    def _scan(self) -> list[dict[str, Any]]:
+        """Two records across two plugins, as the scanner reports them."""
+        return [
+            {
+                "type": "Armor",
+                "id": "cuirass",
+                "plugins": ["Base.esm", "Mod.esp"],
+                "winner": "Mod.esp",
+                "involves_subset": False,
+            },
+            {
+                "type": "Cell",
+                "id": "(1, 2)",
+                "plugins": ["Mod.esp"],
+                "winner": "Mod.esp",
+                "involves_subset": False,
+            },
+        ]
+
+    def test_the_plugin_view_builds_a_tree_on_demand(self, app: Any) -> None:
+        """Plugin, then record type, then record -- built as it is opened.
+
+        The grouping is tested in ``test_patch_summary.py``. What needs a
+        display is that the tree nests the right way round *and* that expanding
+        a node actually replaces its placeholder -- lazy building is exactly
+        the kind of thing that silently leaves "(opening...)" on screen.
+
+        Args:
+            app: The application.
+        """
+        app._shown_conflicts = self._scan()
+        app.show_plugin_view()
+        window = app._plugin_win
+        try:
+            nav = app._plugin_nav
+            plugins = nav.get_children()
+            assert len(plugins) == 2, "one branch per plugin"
+
+            # Nothing below a plugin exists until it is opened.
+            placeholder = nav.get_children("Mod.esp")
+            assert len(placeholder) == 1
+            assert "pending" in nav.item(placeholder[0], "tags")
+
+            nav.focus("Mod.esp")
+            app._on_plugin_open()
+            groups = nav.get_children("Mod.esp")
+            assert {nav.item(g, "text") for g in groups} == {"Armor", "Cell"}
+
+            group = next(g for g in groups if nav.item(g, "text") == "Armor")
+            nav.focus(group)
+            app._on_plugin_open()
+            records = nav.get_children(group)
+            assert records, "a record type group with no records under it"
+            assert nav.item(records[0], "text") == "cuirass"
+        finally:
+            window.destroy()
+
+    def test_a_large_group_is_inserted_in_batches(self, app: Any) -> None:
+        """Every record is listed, none is dropped, and the window survives.
+
+        The first version capped a group at 500 rows because inserting more at
+        once froze Tk. Batching removes the cap; this pins that the cap is
+        actually gone rather than merely raised.
+
+        Args:
+            app: The application.
+        """
+        app._shown_conflicts = [
+            {
+                "type": "Cell",
+                "id": f"({n}, 0)",
+                "plugins": ["Mod.esp"],
+                "winner": "Mod.esp",
+                "involves_subset": False,
+            }
+            for n in range(1200)
+        ]
+        app.show_plugin_view()
+        window = app._plugin_win
+        try:
+            nav = app._plugin_nav
+            nav.focus("Mod.esp")
+            app._on_plugin_open()
+            group = nav.get_children("Mod.esp")[0]
+            nav.focus(group)
+            app._on_plugin_open()
+            # Batches are scheduled with after(); let them all run.
+            for _ in range(40):
+                app.root.update()
+            assert len(nav.get_children(group)) == 1200
+        finally:
+            window.destroy()
+
+    def test_a_judged_row_takes_its_colour_and_rolls_up(self, app: Any) -> None:
+        """A verdict must reach the row, its group and its plugin.
+
+        Args:
+            app: The application.
+        """
+        from wraithguard.patch.status import ConflictThis
+
+        app._shown_conflicts = self._scan()
+        app.show_plugin_view()
+        window = app._plugin_win
+        try:
+            nav = app._plugin_nav
+            nav.focus("Mod.esp")
+            app._on_plugin_open()
+            group = next(g for g in nav.get_children("Mod.esp") if nav.item(g, "text") == "Armor")
+            nav.focus(group)
+            app._on_plugin_open()
+            app._paint("Mod.esp", {("Armor", "cuirass"): ConflictThis.CONFLICT_LOSES})
+            row = nav.get_children(group)[0]
+            assert "this-conflict_loses" in nav.item(row, "tags")
+            assert "this-conflict_loses" in nav.item(group, "tags")
+            assert "this-conflict_loses" in nav.item("Mod.esp", "tags")
+        finally:
+            window.destroy()
+
+    def test_the_plugin_view_survives_an_empty_scan(self, app: Any) -> None:
+        """Opening it before scanning must say so, not raise.
+
+        Args:
+            app: The application.
+        """
+        app._shown_conflicts = []
+        app.show_plugin_view()
+        window = app._plugin_win
+        try:
+            assert app._plugin_nav.get_children() == ()
+            assert "scan" in app.status_var.get().lower()
+        finally:
+            window.destroy()
+
     def test_format_reference_is_not_offered_for_an_unknown_type(self, app: Any) -> None:
         """It must not open an empty window for a type it cannot describe.
 
@@ -520,6 +689,25 @@ class TestSecondaryWindows:
         assert "<nav>" in page, "the contents sidebar is missing"
 
 
+def _first_widget_of_class(widget: Any, name: str) -> Any:
+    """Find the first widget of a given Tk class in a tree.
+
+    Args:
+        widget: The root of the tree.
+        name: The Tk class name, as ``winfo_class`` reports it.
+
+    Returns:
+        The widget, or ``None``.
+    """
+    if widget.winfo_class() == name:
+        return widget
+    for child in widget.winfo_children():
+        found = _first_widget_of_class(child, name)
+        if found is not None:
+            return found
+    return None
+
+
 def _first_text_widget(widget: Any) -> Any:
     """Find the first Text widget in a tree.
 
@@ -529,13 +717,7 @@ def _first_text_widget(widget: Any) -> Any:
     Returns:
         The widget, or ``None``.
     """
-    if widget.winfo_class() == "Text":
-        return widget
-    for child in widget.winfo_children():
-        found = _first_text_widget(child)
-        if found is not None:
-            return found
-    return None
+    return _first_widget_of_class(widget, "Text")
 
 
 class TestRuleMakerWindow:
@@ -1381,3 +1563,79 @@ class TestTheViewerChainUnderstandsUrls:
             server = getattr(app, "_mesh_server", None)
             if server is not None:
                 server.stop()
+
+
+class TestPacedRecolour:
+    """The conflict list colours itself a chunk at a time, never one long freeze.
+
+    A full-MOMW summary judges tens of thousands of rows; tagging them in one
+    loop froze the window. The recolour now applies RECOLOUR_CHUNK rows, hands
+    control back to the event loop, and continues -- so colours fill in over
+    time and the window stays responsive. These pin that it (a) still colours
+    every judged row, (b) does so in more than one turn, and (c) a superseding
+    pass stops the old one.
+    """
+
+    @staticmethod
+    def _host(tk_root: Any, n: int, after):
+        from tkinter import ttk
+
+        from wraithguard.gui.conflicts import ConflictWindowsMixin
+        from wraithguard.patch.status import ConflictAll
+        from wraithguard.patch.summary import Survey
+
+        tree = ttk.Treeview(tk_root, columns=("id",), show="headings")
+        rows = [{"type": "Npc", "id": f"n{i}"} for i in range(n)]
+        for i in range(n):
+            tree.insert("", "end", iid=str(i), values=(f"n{i}",))
+        records = {("Npc", f"n{i}"): ConflictAll.CONFLICT for i in range(n)}
+
+        host = ConflictWindowsMixin.__new__(ConflictWindowsMixin)
+        host._conf_tree = tree  # type: ignore[attr-defined]
+        host._conf_survey = Survey(records=records)  # type: ignore[attr-defined]
+        host._shown_conflicts = rows  # type: ignore[attr-defined]
+        host.root = type("R", (), {"after": staticmethod(after)})()  # type: ignore[attr-defined]
+        return host, tree
+
+    def test_it_colours_every_row_across_several_turns(self, tk_root: Any) -> None:
+        from wraithguard.gui.conflicts import RECOLOUR_CHUNK
+        from wraithguard.patch.status import ConflictAll
+        from wraithguard.patch.summary import ALL_TAGS
+
+        n = RECOLOUR_CHUNK * 3 + 7
+        turns = {"n": 0}
+
+        def after(_ms: int, cb) -> None:
+            turns["n"] += 1
+            cb()  # run now; depth is one per chunk
+
+        host, tree = self._host(tk_root, n, after)
+        try:
+            host._recolour_conflict_tree()
+            tag = ALL_TAGS[ConflictAll.CONFLICT][0]
+            assert all(tag in tree.item(str(i), "tags") for i in range(n))
+            assert turns["n"] >= 3, "recolour did not pace itself across turns"
+        finally:
+            tree.destroy()
+
+    def test_a_newer_pass_stops_the_old_one(self, tk_root: Any) -> None:
+        from wraithguard.gui.conflicts import RECOLOUR_CHUNK
+        from wraithguard.patch.status import ConflictAll
+        from wraithguard.patch.summary import ALL_TAGS
+
+        pending: list = []
+
+        def after(_ms: int, cb) -> None:
+            pending.append(cb)  # defer, so the test controls the turns
+
+        host, tree = self._host(tk_root, RECOLOUR_CHUNK * 3, after)
+        try:
+            host._recolour_conflict_tree()  # paints chunk 0, schedules chunk 1
+            host._recolour_token = object()  # a newer pass takes over
+            while pending:
+                pending.pop(0)()  # the stale continuations must now no-op
+            tag = ALL_TAGS[ConflictAll.CONFLICT][0]
+            coloured = sum(1 for i in range(RECOLOUR_CHUNK * 3) if tag in tree.item(str(i), "tags"))
+            assert coloured == RECOLOUR_CHUNK, "a superseded pass kept painting"
+        finally:
+            tree.destroy()

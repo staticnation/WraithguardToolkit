@@ -103,3 +103,74 @@ class TestCounting:
     def test_an_empty_queue_counts_nothing(self) -> None:
         """And the write button stays disabled on it."""
         assert len(PatchQueue()) == 0
+
+
+class TestTakingThingsBackOut:
+    """The other half of "editable": removal.
+
+    The Patch Builder's Remove and Clear buttons are the reason the queue is a
+    window rather than a counter, and until this class they were the only part
+    of the queue with no tests at all -- the audit found them at 0% coverage.
+    """
+
+    def _queued(self) -> PatchQueue:
+        """A queue holding one whole record and one merged one."""
+        queue = PatchQueue()
+        queue.add_whole(Selection(plugin="Castle.esp", record_type="Cell", key="(7, 22)"))
+        queue.add_field("Static", "rock", FieldChoice("mesh", "B.esp"))
+        queue.add_field("Static", "rock", FieldChoice("name", "A.esp"))
+        return queue
+
+    def test_clearing_empties_both_kinds(self) -> None:
+        """A half-cleared queue would write records nobody asked for."""
+        queue = self._queued()
+        queue.clear()
+        assert len(queue) == 0
+        assert queue.selections == []
+        assert queue.fields == {}
+
+    def test_removing_a_whole_record_drops_it(self) -> None:
+        """The ordinary Remove."""
+        queue = self._queued()
+        queue.remove_record("Cell", "(7, 22)")
+        assert [entry.key for entry in queue.selections] == []
+
+    def test_removing_a_record_drops_its_field_choices_too(self) -> None:
+        """Removing "the record" must not leave a merge of it behind."""
+        queue = self._queued()
+        queue.remove_record("Static", "rock")
+        assert ("Static", "rock") not in queue.fields
+
+    def test_removing_a_record_that_is_not_queued_is_harmless(self) -> None:
+        """The tree can outlive a rescan; a stale Remove must not raise."""
+        queue = self._queued()
+        queue.remove_record("Weapon", "nothing")
+        assert len(queue) == 2
+
+    def test_removing_one_field_leaves_the_others(self) -> None:
+        """Field-level Remove is field-level."""
+        queue = self._queued()
+        queue.remove_field("Static", "rock", "mesh")
+        assert [c.path for c in queue.fields[("Static", "rock")]] == ["name"]
+
+    def test_removing_the_last_field_drops_the_record(self) -> None:
+        """A merge with no departures writes the base record unchanged, which
+        is what the load order already does -- so carrying it is noise.
+        """
+        queue = self._queued()
+        queue.remove_field("Static", "rock", "mesh")
+        queue.remove_field("Static", "rock", "name")
+        assert ("Static", "rock") not in queue.fields
+        assert len(queue) == 1
+
+    def test_removing_a_field_from_a_record_with_none_is_harmless(self) -> None:
+        """Same staleness case, one level down."""
+        queue = self._queued()
+        queue.remove_field("Weapon", "nothing", "mesh")
+        assert len(queue) == 2
+
+    def test_removing_an_unqueued_field_leaves_the_record(self) -> None:
+        """Only an *emptied* record is dropped, not a missed removal."""
+        queue = self._queued()
+        queue.remove_field("Static", "rock", "never-chosen")
+        assert len(queue.fields[("Static", "rock")]) == 2

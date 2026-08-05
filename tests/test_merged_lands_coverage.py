@@ -1,6 +1,6 @@
 """The port's coverage claim has to be checkable, not asserted.
 
-``docs/MERGED_LANDS_FUNCTIONS.md`` says every function in Merged Lands is
+``MERGED_LANDS_FUNCTIONS.md`` says every function in Merged Lands is
 accounted for. The first version of that document said so while grouping
 related functions onto one table row and reporting the *row* count as the
 function count -- ``land/`` was labelled 37 functions when it has 64, and forty
@@ -32,7 +32,7 @@ ROOT: Final = Path(__file__).resolve().parent.parent
 GENERATOR: Final = ROOT / "tools" / "gen_merged_lands_table.py"
 
 #: The document it produces.
-DOC: Final = ROOT / "docs" / "MERGED_LANDS_FUNCTIONS.md"
+DOC: Final = ROOT / "MERGED_LANDS_FUNCTIONS.md"
 
 #: Where a copy of the Rust source may be, relative to the repository root.
 #: Absent on a clean checkout, which is why those tests skip rather than fail.

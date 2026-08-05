@@ -765,3 +765,38 @@ def test_gui_palette_lookups_all_resolve() -> None:
         if missing:
             offenders[str(path.relative_to(PROJECT_ROOT))] = missing
     assert not offenders, f"DARK keys that do not exist: {offenders}"
+
+
+def test_pep257_every_function_in_the_package_is_documented() -> None:
+    """PEP 257 on *every* function, not only the public ones.
+
+    pydocstyle's D103 exempts names beginning with an underscore, so the lint
+    gate could not see private methods or nested helpers at all. The audit
+    found 54 of them undocumented while ruff reported the tree clean -- a gap
+    between the standard this project states ("full typing, PEP 257 docstrings
+    with Args/Returns/Raises", pyproject, no exemptions for ``wraithguard/*``)
+    and the standard it could enforce.
+
+    This closes it. Protocol stubs whose whole body is ``...`` are exempt: they
+    declare a signature for the type checker and have no behaviour to describe.
+    """
+    undocumented: list[str] = []
+    for path in SOURCE_FILES:
+        if path.parts[-2:][0] in {"tests", "tools"} or "tests" in path.parts:
+            continue
+        if "wraithguard" not in path.parts:
+            continue
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if ast.get_docstring(node) is not None:
+                continue
+            first = node.body[0]
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and first.value.value is Ellipsis
+            ):
+                continue
+            undocumented.append(f"{path.name}:{node.lineno} {node.name}")
+    assert not undocumented, "functions without a docstring:\n  " + "\n  ".join(undocumented)
