@@ -42,7 +42,11 @@ class Tes3cmdMixin:
         # the surface ``App`` must keep providing.
         T3_COMMANDS: ClassVar[tuple[tuple[str, str], ...]]
         T3_NEVER_CLEAN: ClassVar[set[str]]
-        root: tk.Misc
+        # tk.Tk, not tk.Misc: App is built on a real toplevel and these
+        # windows call transient()/title()/geometry() on it, which live on Wm
+        # and not on Misc. Declaring the weaker type here type-checked fine and
+        # hid those calls from mypy entirely.
+        root: tk.Tk
         log_queue: queue.Queue
         status_var: tk.StringVar
         sort_button: ttk.Button
@@ -56,6 +60,12 @@ class Tes3cmdMixin:
         def _plan_scan_dirs(self) -> list[str]: ...
 
     def _tes3conv_json_dir(self) -> Path:
+        """Where converted plugin JSON is spooled.
+
+        Returns:
+            A folder inside the application directory, so a frozen build does
+            not try to write beside the executable.
+        """
         return app_base_dir() / "tes3conv_json"
 
     def on_tes3cmd_window(self) -> None:
@@ -90,6 +100,7 @@ class Tes3cmdMixin:
         )
 
         def _browse() -> None:
+            """Ask for the tes3cmd executable and put it in the field."""
             p = filedialog.askopenfilename(
                 title=_("Locate tes3cmd"),
                 filetypes=(("tes3cmd", "tes3cmd*"), ("Executables", "*.exe"), ("All files", "*.*")),
@@ -190,12 +201,18 @@ class Tes3cmdMixin:
         ttk.Button(row, text=_("Close"), command=win.destroy).pack(side="right")
 
     def _t3_set_files(self, paths: Sequence[str]) -> None:
+        """Replace the file list and redraw it.
+
+        Args:
+            paths: The plugins to operate on, in the order shown.
+        """
         self._t3_files = list(paths)
         self._t3_list.delete(0, "end")
         for p in self._t3_files:
             self._t3_list.insert("end", f"{Path(p).name}    ({Path(p).parent})")
 
     def _t3_remove_selected(self) -> None:
+        """Drop the highlighted rows from the file list."""
         trace_first_fire("tes3cmd Remove selected")
         before = len(self._t3_files)
         keep = [
@@ -205,6 +222,11 @@ class Tes3cmdMixin:
         self._t3_set_files(keep)
 
     def _t3_add_from_plan(self) -> None:
+        """Add the sorted plan's own mods to the file list.
+
+        The common case: the plugins a user wants to clean are the ones they
+        added themselves, which the plan already knows.
+        """
         plan = self._current_plan or {}
         subset = plan.get("subset") or []
         if not subset:
@@ -271,6 +293,7 @@ class Tes3cmdMixin:
         self.status_var.set(msg + ".")
 
     def _t3_add_files(self) -> None:
+        """Add plugins to the file list from a file dialog."""
         ps = filedialog.askopenfilenames(
             title=_("Choose plugin file(s)"),
             filetypes=(("TES3 plugins", "*.esp *.esm *.omwaddon *.omwgame"), ("All files", "*.*")),
@@ -280,6 +303,11 @@ class Tes3cmdMixin:
             self._t3_set_files(self._t3_files + [p for p in ps if str(p).lower() not in have])
 
     def _t3_run(self) -> None:
+        """Start the chosen tes3cmd command over the listed files.
+
+        Refuses while another worker is running: tes3cmd rewrites plugins in
+        place, and two runs over one file is not a race worth having.
+        """
         if self.worker_running:
             return
         cmd = self._t3_cmd_var.get()
@@ -412,6 +440,14 @@ class Tes3cmdMixin:
         return app_base_dir() / "tes3cmd_staging"
 
     def _t3_worker(self, argv: list[str], cmd: str, extra: list[str], files: Sequence[str]) -> None:
+        """Run tes3cmd over each file, off the UI thread.
+
+        Args:
+            argv: How to invoke tes3cmd, already resolved.
+            cmd: The subcommand, for the log and the result message.
+            extra: Options for the subcommand.
+            files: The plugins to run over, one invocation each.
+        """
         import subprocess
 
         writer = QueueWriter(self.log_queue)
@@ -422,6 +458,18 @@ class Tes3cmdMixin:
         sub = {"clean": ["clean", "--replace", "--hide-backups"], "header": ["header"]}[cmd]
 
         def _run_t3(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+            """Run one tes3cmd invocation and hand back its result.
+
+            Args:
+                args: The full argument list.
+                cwd: The directory to run in -- tes3cmd resolves plugin names
+                    against it, so this is not incidental.
+
+            Returns:
+                The completed process. ``check=False``: the caller inspects the
+                return code itself, because a non-zero exit from tes3cmd is
+                often a report rather than a failure.
+            """
             env = dict(os.environ)
             env["PWD"] = str(cwd)  # tes3cmd trusts $PWD over getcwd when set
             # check=False: the caller inspects returncode itself and reports it
@@ -439,7 +487,7 @@ class Tes3cmdMixin:
             )
 
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 print("\n" + "=" * 70)
                 print(
                     f" TES3CMD {' '.join(sub).upper()}"
@@ -552,7 +600,7 @@ class Tes3cmdMixin:
         writer = QueueWriter(self.log_queue)
         ok = fixed = fail = 0
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 print("\n" + "=" * 70)
                 print(_(" MASTER-SIZE RESYNC (in-app, VFS-aware)"))
                 print("=" * 70)
@@ -595,6 +643,11 @@ class Tes3cmdMixin:
             self.root.after(0, self._t3_finished, status)
 
     def _t3_finished(self, status: str) -> None:
+        """Re-enable the window and report how the run went.
+
+        Args:
+            status: The line to show in the status bar.
+        """
         self.worker_running = False
         self.sort_button.configure(state="normal")
         try:
@@ -605,6 +658,11 @@ class Tes3cmdMixin:
         self.status_var.set(status)
 
     def _set_tes3conv(self) -> None:
+        """Ask for the tes3conv executable and remember it.
+
+        Field-level diffs need it, and it is not always on PATH, so the choice
+        is stored rather than asked for again on the next scan.
+        """
         p = filedialog.askopenfilename(
             title=_("Locate the tes3conv executable"), filetypes=(("All files", "*.*"),)
         )

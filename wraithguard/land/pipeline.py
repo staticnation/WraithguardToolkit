@@ -44,7 +44,7 @@ from wraithguard.land.cleaning import (
     clean_landmass,
     digest,
 )
-from wraithguard.land.diff import LandData, RelativeGrid
+from wraithguard.land.diff import ALL_LAYERS, LandData, RelativeGrid
 from wraithguard.land.heights import vertex_normals_from_heights
 from wraithguard.land.landmass import plugin_differences
 from wraithguard.land.merge import ConflictStrategy, merge_layer
@@ -196,7 +196,7 @@ def merge_landmass(
             outcome.skipped_plugins.append((plugin.name, "a previous merge"))
             continue
 
-        allowed = meta.allowed_layers() if meta else ~LandData.NONE
+        allowed = meta.allowed_layers() if meta else ALL_LAYERS
         if not allowed:
             outcome.skipped_plugins.append((plugin.name, "every layer excluded"))
             continue

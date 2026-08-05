@@ -42,10 +42,8 @@ from wraithguard.tes3fields.landscape import (
     decode_world_map,
 )
 
+
 #: Side of the world-map grid, re-exported so callers need one import.
-WORLD_MAP_SIZE: Final = WNAM_SIZE
-
-
 class LandData(IntFlag):
     """Which layers of a landscape record carry data.
 
@@ -61,6 +59,13 @@ class LandData(IntFlag):
     VERTEX_HEIGHTS = 0b01000
     VERTEX_NORMALS = 0b10000
     WORLD_MAP = 0b100000
+
+
+#: Every layer -- the default "consider all layers" mask. Written as the
+#: inverse of NONE so it tracks the members automatically. Wrapped in
+#: ``LandData()`` because typeshed types ``IntFlag.__invert__`` as ``int``; the
+#: value is identical, the constructor only restores the declared type.
+ALL_LAYERS: Final[LandData] = LandData(~LandData.NONE)
 
 
 #: The ``landscape_flags`` names tes3conv writes, mapped to the layers each
@@ -561,7 +566,7 @@ def diff_against_reference(
     plugin_name: str,
     plugin: LandscapeLayers,
     reference: LandscapeLayers | None,
-    allowed: LandData = ~LandData.NONE,
+    allowed: LandData = ALL_LAYERS,
 ) -> LandscapeDiff:
     """Compute what a plugin changed in a cell, against the reference terrain.
 

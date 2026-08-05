@@ -199,7 +199,11 @@ def _load_toml(path: Path) -> dict[str, Any]:
         import tomllib
     except ImportError:
         try:
-            import tomli as tomllib  # type: ignore[no-redef]
+            # no-redef fires only when tomllib resolved above (3.11+), and
+            # unused-ignore only when it did not (3.10). The project supports
+            # both, so both codes are silenced -- suppressing one alone makes
+            # the file fail to check on the other version.
+            import tomli as tomllib  # type: ignore[no-redef, unused-ignore]
         except ImportError as exc:
             raise MetaError(
                 f"{path.name} exists but cannot be read: TOML parsing needs "

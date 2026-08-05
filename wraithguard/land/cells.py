@@ -182,7 +182,7 @@ def merge_cells(
         for record in records:
             if record.get("type") != CELL_TYPE:
                 continue
-            coords = _grid_of(record)  # type: ignore[arg-type]
+            coords = _grid_of(record)
             if coords is None:
                 continue
 
@@ -190,11 +190,11 @@ def merge_cells(
             if existing is None:
                 merged[coords] = MergedCellRecord(
                     coords=coords,
-                    record=_without_references(record),  # type: ignore[arg-type]
+                    record=_without_references(record),
                     editors=[name],
                 )
             else:
-                merge_cell_into(existing, record, name)  # type: ignore[arg-type]
+                merge_cell_into(existing, record, name)
 
     _log.info("merged %d exterior cell record(s)", len(merged))
     return merged

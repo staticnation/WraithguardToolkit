@@ -1069,6 +1069,22 @@ _THEME_OPTIONAL_FIELD_ALIASES = {
 
 
 def _normalize_hex(value: str) -> str:
+    """Bring one colour value to ``#rrggbb``.
+
+    Theme files come from several formats and from people, so a colour arrives
+    as ``#abc``, ``abc``, ``#AABBCC`` or with stray spaces.
+
+    Args:
+        value: The colour as written in the file.
+
+    Returns:
+        The colour as ``#rrggbb``.
+
+    Raises:
+        ValueError: If it is empty or not a colour. Raised rather than
+            defaulted, because a theme quietly losing one colour is harder to
+            notice than one that refuses to load.
+    """
     v = str(value).strip()
     if not v:
         raise ValueError("empty color value")
@@ -1173,6 +1189,16 @@ def _theme_from_base16(data: dict) -> dict | None:
 
 
 def _theme_from_native(data: dict) -> tuple[dict | None, list[str]]:
+    """Read a theme written in this application's own format.
+
+    Args:
+        data: The parsed file.
+
+    Returns:
+        ``(theme, problems)``. The theme is ``None`` when nothing usable was
+        found; problems are returned rather than raised so a mostly-good file
+        can still load with its faults reported.
+    """
     out: dict[str, object] = {}
     for field, aliases in _THEME_FIELD_ALIASES.items():
         for alias in aliases:
@@ -1577,6 +1603,14 @@ def highlight_json_with_html(text_widget: tk.Text, text: str, colors: dict) -> N
     """
 
     def idx(pos: int) -> str:
+        """Turn an offset in the string into a Tk text index.
+
+        Args:
+            pos: Character offset from the start of the inserted text.
+
+        Returns:
+            A ``line.column`` index Tk will accept.
+        """
         return text_widget.index(f"1.0 + {pos} chars")
 
     for m in _JSON_TOKEN_RE.finditer(text):
@@ -1620,6 +1654,14 @@ def highlight_plain_text_with_html(text_widget: tk.Text, text: str, colors: dict
     """
 
     def idx(pos: int) -> str:
+        """Turn an offset in the string into a Tk text index.
+
+        Args:
+            pos: Character offset from the start of the inserted text.
+
+        Returns:
+            A ``line.column`` index Tk will accept.
+        """
         return text_widget.index(f"1.0 + {pos} chars")
 
     text_widget.tag_add("json_string", idx(0), idx(len(text)))

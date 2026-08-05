@@ -53,7 +53,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
 _log: Final = logging.getLogger(__name__)
 
@@ -183,7 +183,7 @@ def differs_any(left: CellDigest, right: CellDigest) -> bool:
 def clean_landmass(
     merged: dict[Coords, CellDigest],
     reference: dict[Coords, CellDigest],
-    sources: dict[Coords, Sequence[str]],
+    sources: Mapping[Coords, Sequence[str]],
     originals: dict[Coords, CellDigest],
 ) -> tuple[set[Coords], CleaningReport]:
     """Decide which merged cells are worth writing.

@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 import tkinter as tk
 from tkinter import filedialog, ttk
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from wraithguard.gui import register_drop_target, trace_first_fire
 from wraithguard.gui.theme import DARK
@@ -18,6 +18,7 @@ from wraithguard.tracing import trace
 if TYPE_CHECKING:
     import queue
     from collections.abc import Callable
+    from typing import TextIO
 
 # ---------------------------------------------------------------------------
 # a small hover tooltip -- delayed popup, dark-themed to match the rest of
@@ -40,11 +41,12 @@ class Tooltip:
         widget.bind("<Leave>", self._hide, add="+")
         widget.bind("<ButtonPress>", self._hide, add="+")
 
-    def set_text(self, text: str) -> None:
-        """Replace the tooltip text shown on the next hover."""
-        self.text = text
-
     def _schedule(self, event: tk.Event | None = None) -> None:
+        """Start the hover delay, replacing any delay already running.
+
+        Args:
+            event: The Tk event, unused -- present because this is bound.
+        """
         self._unschedule()
         try:
             self._after_id = self.widget.after(self.delay, self._show)
@@ -52,6 +54,7 @@ class Tooltip:
             pass  # the widget can vanish mid-operation (window closed); cosmetic, never fatal
 
     def _unschedule(self) -> None:
+        """Cancel a pending hover delay, if there is one."""
         if self._after_id is not None:
             try:
                 self.widget.after_cancel(self._after_id)
@@ -60,6 +63,11 @@ class Tooltip:
             self._after_id = None
 
     def _show(self) -> None:
+        """Put the tooltip on screen beside its widget.
+
+        Does nothing when one is already up or there is no text, so a repeated
+        Enter event cannot leave a second window behind with no way to close it.
+        """
         if self.tip_window or not self.text:
             return
         try:
@@ -110,6 +118,11 @@ class Tooltip:
         tw.wm_geometry(f"+{x}+{y}")
 
     def _hide(self, event: tk.Event | None = None) -> None:
+        """Take the tooltip down and cancel any pending one.
+
+        Args:
+            event: The Tk event, unused -- present because this is bound.
+        """
         self._unschedule()
         if self.tip_window is not None:
             try:
@@ -151,6 +164,21 @@ class QueueWriter(io.TextIOBase):
     def flush(self) -> None:
         """No-op: every write is already visible to the consumer."""
 
+    def as_stream(self) -> TextIO:
+        """Return ``self`` typed as a ``TextIO`` for ``contextlib.redirect_*``.
+
+        ``QueueWriter`` subclasses ``io.TextIOBase`` and implements the
+        ``write``/``flush`` a redirect target uses, so it is a valid stdout or
+        stderr replacement at runtime. typeshed, however, does not model
+        ``io.TextIOBase`` as ``typing.IO[str]``, so ``redirect_stdout`` and
+        ``redirect_stderr`` reject it on their ``_T_io`` bound. This states the
+        relationship the stubs omit; it has no runtime effect.
+
+        Returns:
+            ``self``, unchanged, annotated as ``TextIO``.
+        """
+        return cast("TextIO", self)
+
 
 # ---------------------------------------------------------------------------
 # small reusable "path field": label + entry + Browse button, optionally
@@ -187,6 +215,7 @@ class PathField:
         self.entry = entry
 
         def browse() -> None:
+            """Ask for a path with the dialog this field was configured for."""
             if browse_kind == "save":
                 path = filedialog.asksaveasfilename(filetypes=filetypes, defaultextension=".toml")
             elif browse_kind == "dir":
@@ -224,6 +253,12 @@ class PathField:
             # Any: tkinterdnd2 synthesises its own event object, which has no
             # published type -- only a `.data` string this reads.
             def on_drop(event: Any) -> None:  # noqa: ANN401
+                """Fill the field from a dropped path.
+
+                Args:
+                    event: The tkinterdnd2 drop event; ``data`` is a Tk list of
+                        paths, of which the first is taken.
+                """
                 paths = parent.tk.splitlist(event.data)
                 if paths:
                     var.set(paths[0])
@@ -272,6 +307,15 @@ class DragReorderListbox(tk.Listbox):
         self.bind("<ButtonRelease-1>", self._on_release, add="+")
 
     def _on_press(self, event: tk.Event) -> str | None:
+        """Begin a drag, remembering which rows were grabbed.
+
+        Args:
+            event: The button-press event; its ``y`` picks the row.
+
+        Returns:
+            ``"break"`` to stop Tk's own selection handling when the press
+            starts a drag, otherwise ``None`` to let it through.
+        """
         idx = self.nearest(event.y)
         self._moved = False
         if not (0 <= idx < self.size()):
@@ -290,6 +334,11 @@ class DragReorderListbox(tk.Listbox):
         return None  # let Listbox's own click handling run
 
     def _on_motion(self, event: tk.Event) -> None:
+        """Move the grabbed rows to follow the pointer.
+
+        Args:
+            event: The motion event; its ``y`` names the row moved onto.
+        """
         if not self._drag_block:
             return
         target = self.nearest(event.y)
@@ -301,6 +350,13 @@ class DragReorderListbox(tk.Listbox):
             self._shift(1)
 
     def _shift(self, direction: int) -> None:
+        """Move the grabbed block one row up or down.
+
+        Args:
+            direction: ``-1`` for up, ``1`` for down. Movement that would run
+                off either end is ignored rather than clamped, so a drag past
+                the edge does not silently reorder anything.
+        """
         block, size = self._drag_block, self.size()
         if not block:
             return
@@ -319,6 +375,11 @@ class DragReorderListbox(tk.Listbox):
         self._moved = True
 
     def _on_release(self, event: tk.Event) -> None:
+        """Finish a drag and notify the owner if anything actually moved.
+
+        Args:
+            event: The button-release event, unused beyond the binding.
+        """
         if self._moved and self.on_reorder:
             trace_first_fire("listbox drag-reorder -> on_reorder")
             trace(f"[smoke] drag-reorder committed: {self.size()} row(s) now listed")
@@ -366,6 +427,7 @@ def attach_typeahead(
     strip_fn: Callable[[str], str] = strip or (lambda s: s)
 
     def _feedback() -> None:
+        """Show the current type-ahead buffer, if the caller wanted it shown."""
         if feedback:
             try:
                 feedback(buf)
@@ -374,11 +436,21 @@ def attach_typeahead(
                 pass
 
     def _clear(_e: tk.Event | None = None) -> None:
+        """Forget what has been typed so far.
+
+        Args:
+            _e: The Tk event, unused -- present because this is bound.
+        """
         nonlocal buf
         buf = ""
         _feedback()
 
     def _schedule_reset() -> None:
+        """Restart the idle timer that forgets the type-ahead buffer.
+
+        Type-ahead has to expire, or a search begun a minute ago silently
+        prefixes the next keystroke and the list jumps somewhere unexplained.
+        """
         nonlocal after_id
         if after_id is not None:
             try:
@@ -388,6 +460,11 @@ def attach_typeahead(
         after_id = listbox.after(1200, _clear)
 
     def _jump(idx: int) -> None:
+        """Select one row and scroll it into view.
+
+        Args:
+            idx: The row to move to.
+        """
         listbox.selection_clear(0, "end")
         listbox.selection_set(idx)
         listbox.activate(idx)
@@ -395,6 +472,15 @@ def attach_typeahead(
         listbox.event_generate("<<ListboxSelect>>")
 
     def _on_key(e: tk.Event) -> str | None:
+        """Fold one keystroke into the type-ahead search.
+
+        Args:
+            e: The key event.
+
+        Returns:
+            ``"break"`` when the key was consumed as part of a search, so Tk's
+            own single-character jump does not also fire, otherwise ``None``.
+        """
         nonlocal buf, last_at
         ks = e.keysym
         if ks == "Escape":

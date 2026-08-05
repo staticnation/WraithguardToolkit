@@ -287,6 +287,15 @@ def build_merged_lands(
     lines: list[str] = []
 
     def say(text: str) -> None:
+        """Record one progress line and pass it on.
+
+        Kept for the caller either way: the report callback is optional, but
+        the collected lines go back in the result, so a failure can be read
+        after the fact by anything that was not watching live.
+
+        Args:
+            text: The line to record.
+        """
         lines.append(text)
         if report is not None:
             report(text)
@@ -560,10 +569,17 @@ def _build_records(
             ]
         colors = None
         if cell.colors is not None:
+            # Written out rather than built with a comprehension over range(3):
+            # a generator makes this a tuple of *some* length as far as anything
+            # reading the code or the types is concerned, and the record writer
+            # needs exactly three. Spelling the channels out says which is which.
+            channels = cell.colors
             colors = [
                 [
-                    tuple(
-                        max(0, min(255, cell.colors[(y * LAND_SIZE + x) * 3 + c])) for c in range(3)
+                    (
+                        max(0, min(255, channels[(y * LAND_SIZE + x) * 3])),
+                        max(0, min(255, channels[(y * LAND_SIZE + x) * 3 + 1])),
+                        max(0, min(255, channels[(y * LAND_SIZE + x) * 3 + 2])),
                     )
                     for x in range(LAND_SIZE)
                 ]

@@ -155,6 +155,18 @@ def index_map(
     lowered = {name.lower(): position for position, name in enumerate(patch_masters, start=1)}
 
     def position_of(name: str) -> int:
+        """Where one file sits in the patch's master list.
+
+        Args:
+            name: The file being looked for.
+
+        Returns:
+            Its one-based position.
+
+        Raises:
+            PatchError: If the patch does not declare it. Returning a guess
+                would repoint every reference that used it, silently.
+        """
         found = lowered.get(name.lower())
         if found is None:
             raise PatchError(

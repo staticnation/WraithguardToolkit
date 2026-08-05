@@ -283,6 +283,20 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
     seen: set[int] = set()
 
     def walk(index: int, parent: Transform, depth: int, collision: bool) -> None:
+        """Visit one block and its children, accumulating world transforms.
+
+        A NIF is a graph rather than a tree: a block can be referenced twice,
+        and a malformed file can reference itself. ``seen`` and ``_MAX_DEPTH``
+        are what stop this recursing forever on a file that is merely wrong
+        rather than malicious.
+
+        Args:
+            index: The block to visit.
+            parent: The accumulated transform of everything above it.
+            depth: How far down the graph this is, for the depth guard.
+            collision: Whether an ancestor marked this branch as collision
+                geometry, which is not drawn.
+        """
         block = by_index.get(index)
         if block is None or depth > _MAX_DEPTH or index in seen:
             if depth > _MAX_DEPTH:
@@ -586,6 +600,15 @@ def block_tree(parsed: NifFile) -> list[TreeNode]:
     seen: set[int] = set()
 
     def describe(block: Block) -> str:
+        """A short summary of what a block holds, for its tree row.
+
+        Args:
+            block: The block to describe.
+
+        Returns:
+            A few words, or an empty string for block types with nothing worth
+            summarising -- the row still shows the type name.
+        """
         if block.type_name == "NiTriShapeData":
             return f"{block.fields.get('num_vertices', 0)} verts, {block.fields.get('num_triangles', 0)} tris"
         if block.type_name == "NiSourceTexture":
@@ -600,6 +623,16 @@ def block_tree(parsed: NifFile) -> list[TreeNode]:
         return ""
 
     def build(index: int, depth: int) -> TreeNode | None:
+        """Build the tree node for one block and everything under it.
+
+        Args:
+            index: The block to build from.
+            depth: How far down the graph this is, for the depth guard.
+
+        Returns:
+            The node, or ``None`` when the block is missing, already placed, or
+            deeper than the guard allows.
+        """
         block = by_index.get(index)
         if block is None or index in seen or depth > _MAX_DEPTH:
             return None

@@ -231,8 +231,13 @@ def _mesh_payload(
                 if key not in decoded:
                     aux = texture_bytes(resolved, resolver)
                     decoded[key] = sink(*aux) if aux else None
-                if decoded[key] is not None:
-                    extras[suffix] = decoded[key]
+                # Bound to a name rather than subscripted twice: a subscript is
+                # re-evaluated, so the None check does not narrow the second
+                # one -- which is a real hole, not a typing nicety, if the
+                # cache is ever mutated between the two.
+                found_aux = decoded[key]
+                if found_aux is not None:
+                    extras[suffix] = found_aux
         glow = resolve_slot(mesh.glow) if resolver is not None and mesh.glow and uvs else None
         dark = resolve_slot(mesh.dark) if resolver is not None and mesh.dark and uvs else None
         decals = (

@@ -21,6 +21,17 @@ plugin is a plugin whatever its records are.
 
 from __future__ import annotations
 
+from wraithguard.patch.align import Row, align, alignable_fields, identity, label_for
+from wraithguard.patch.dialogue import (
+    Placed,
+    Response,
+    moved,
+    orphans,
+    positions,
+    responses_by_topic,
+    shifts,
+    topic_order,
+)
 from wraithguard.patch.merge import FieldChoice, Merge, describe, merge_record
 from wraithguard.patch.records import (
     GREETING,
@@ -38,24 +49,53 @@ from wraithguard.patch.records import (
     required_masters,
     topic_kind,
 )
+from wraithguard.patch.status import (
+    ABSENT,
+    ConflictAll,
+    ConflictThis,
+    conflict_all,
+    conflict_this,
+    worst_all,
+    worst_this,
+)
 
 __all__ = [
+    "ABSENT",
     "GREETING",
+    "ConflictAll",
+    "ConflictThis",
     "FieldChoice",
     "Merge",
     "PatchError",
+    "Placed",
+    "Response",
+    "Row",
     "Selection",
+    "align",
+    "alignable_fields",
     "collect",
+    "conflict_all",
+    "conflict_this",
     "defining_plugins",
     "describe",
     "dialogue_position_risk",
+    "identity",
     "index_map",
+    "label_for",
     "master_names",
     "merge_record",
+    "moved",
     "needs_remapping",
+    "orphans",
     "position_anchors",
+    "positions",
     "record_key",
     "remap_references",
     "required_masters",
+    "responses_by_topic",
+    "shifts",
     "topic_kind",
+    "topic_order",
+    "worst_all",
+    "worst_this",
 ]

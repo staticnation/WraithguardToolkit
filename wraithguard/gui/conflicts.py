@@ -45,11 +45,32 @@ from wraithguard.nif.textures import TextureResolver
 from wraithguard.nif.vfs import read_mesh
 from wraithguard.nif.viewer import build_viewer_page
 from wraithguard.patch import FieldChoice, Selection
+from wraithguard.patch.status import ConflictThis
+from wraithguard.patch.summary import ALL_TAGS, Survey, row_tag_updates, survey
 from wraithguard.plugins import PluginFileIndex
 from wraithguard.viz.library import ViewerError, three_source
 from wraithguard.viz.serve import Payload, ViewerServer
 
 LOG_GUI = get_logger(__name__)
+
+#: Past this many records the plugin summary asks first. Each one is a separate
+#: tes3conv read, and a real load order produces tens of thousands of them.
+SURVEY_WARN_AT: Final = 10000
+
+#: The conflict list is recoloured a chunk at a time, handing control back to
+#: the event loop between chunks, so tagging tens of thousands of rows fills in
+#: over a second or two instead of freezing the window while one loop does them
+#: all. RECOLOUR_CHUNK rows per turn, RECOLOUR_PACE_MS between turns -- small
+#: enough that the window keeps answering the window manager, large enough that
+#: the whole list still finishes quickly.
+RECOLOUR_CHUNK: Final = 400
+RECOLOUR_PACE_MS: Final = 1
+
+#: How often the summary reports progress, in records.
+#: How long a UI-thread read will wait for the tes3conv session before giving
+#: up and saying so. Long enough to cover a normal plugin read, short enough
+#: that the window never stops answering the window manager.
+UI_READ_WAIT: Final = 2.0
 
 if TYPE_CHECKING:
     import queue
@@ -138,7 +159,15 @@ class ConflictWindowsMixin:
     if TYPE_CHECKING:
         # The host contract -- see the equivalent block in gui/t3.py for why
         # this is declared rather than silenced.
-        root: tk.Misc
+        # tk.Tk, not tk.Misc: App is built on a real toplevel and these
+        # windows call transient()/title()/geometry() on it, which live on Wm
+        # and not on Misc. Declaring the weaker type here type-checked fine and
+        # hid those calls from mypy entirely.
+        root: tk.Tk
+        # This mixin owns _conflict_win (it opens the window and assigns it).
+        # Declared here with the same type the sibling mixins use so the three
+        # host-contract blocks agree when App inherits all of them.
+        _conflict_win: tk.Toplevel | None
         log_queue: queue.Queue
         status_var: tk.StringVar
         cfg_var: tk.StringVar
@@ -159,7 +188,14 @@ class ConflictWindowsMixin:
         _conf_scan_args: tuple
         _conf_session: core.Tes3ConvSession | None
         _shown_conflicts: list[dict]
+        # Identity of the recolour pass currently painting the tree; a new pass
+        # replaces it so a superseded one stops (see _recolour_conflict_tree).
+        _recolour_token: object
         _patch_button: ttk.Button
+        _conf_survey: Survey | None
+
+        # Supplied by PluginViewMixin, which owns the plugin tree window.
+        def show_plugin_view(self) -> None: ...  # noqa: D102
 
         # Supplied by PatchBuilderMixin, which owns the patch queue.
         def queue_field(  # noqa: D102
@@ -210,12 +246,19 @@ class ConflictWindowsMixin:
         ).start()
 
     def _conflicts_worker(self, order: list[str], dirs: list[str], subset: list[str]) -> None:
+        """Scan every plugin for record conflicts, off the UI thread.
+
+        Args:
+            order: The active load order, in order -- which decides who wins.
+            dirs: The data directories to resolve plugin names against.
+            subset: The user's own mods, marked with a star in the result.
+        """
         writer = QueueWriter(self.log_queue)
         conflicts: list[dict] = []
         stats: dict = {}
         session = None
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 index = PluginFileIndex(dirs)
                 cfg_dir = (
                     str(Path(self.cfg_var.get().strip()).parent)
@@ -260,6 +303,15 @@ class ConflictWindowsMixin:
         session: core.Tes3ConvSession | None,
         status: str,
     ) -> None:
+        """Re-enable the window and show the record-conflict results.
+
+        Args:
+            conflicts: What the scan found.
+            stats: Counts for the header.
+            session: The tes3conv session the scan opened, kept so the field
+                diff can reuse it rather than converting every plugin again.
+            status: The line to show in the status bar.
+        """
         self.worker_running = False
         self.sort_button.configure(state="normal")
         self.export_button.configure(state="normal" if self._current_plan else "disabled")
@@ -298,11 +350,18 @@ class ConflictWindowsMixin:
         ).start()
 
     def _resource_worker(self, dirs: list[str], subset_dirs: list[str]) -> None:
+        """Scan the data folders for loose-file conflicts, off the UI thread.
+
+        Args:
+            dirs: Every data directory, in load order -- the later folder wins
+                in OpenMW, so order is the answer here too.
+            subset_dirs: The folders holding the user's own mods.
+        """
         writer = QueueWriter(self.log_queue)
         conflicts: list[dict] = []
         stats: dict = {}
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 print("\n" + "=" * 70)
                 print(_(" DATA-PATH RESOURCE (VFS) CONFLICTS"))
                 print("=" * 70)
@@ -325,6 +384,13 @@ class ConflictWindowsMixin:
             self.root.after(0, self._resource_finished, conflicts, stats, status)
 
     def _resource_finished(self, conflicts: list[dict], stats: dict, status: str) -> None:
+        """Re-enable the window and show the loose-file results.
+
+        Args:
+            conflicts: What the scan found.
+            stats: Counts for the summary line.
+            status: The line to show in the status bar.
+        """
         self.worker_running = False
         self.sort_button.configure(state="normal")
         for b in (
@@ -339,6 +405,12 @@ class ConflictWindowsMixin:
         self._show_resource_window(conflicts, stats)
 
     def _show_resource_window(self, conflicts: list[dict], stats: dict) -> None:
+        """Open the loose-file conflict window.
+
+        Args:
+            conflicts: The conflicts to list.
+            stats: Counts for the header.
+        """
         self._all_res = conflicts
         win = getattr(self, "_res_win", None)
         if win is not None and win.winfo_exists():
@@ -434,6 +506,11 @@ class ConflictWindowsMixin:
         self._attach_hamburger_grip(body, "vertical")
 
         def on_sel(_e: object = None) -> None:
+            """Show the detail for whichever row is selected.
+
+            Args:
+                _e: The Tk event, unused -- present because this is bound.
+            """
             sel = tree.selection()
             if not sel:
                 return
@@ -659,6 +736,15 @@ class ConflictWindowsMixin:
             counter = itertools.count()
 
             def sink(blob: bytes, content_type: str = "") -> dict[str, str]:
+                """Spool one embedded asset to disk for the generated page.
+
+                Args:
+                    blob: The bytes to write.
+                    content_type: Its MIME type, which picks the extension.
+
+                Returns:
+                    What the page should use to reference it.
+                """
                 kind = content_type or "application/octet-stream"
                 suffix = "png" if content_type.startswith("image/") else "bin"
                 key = f"g{next(counter)}.{suffix}"
@@ -923,6 +1009,15 @@ class ConflictWindowsMixin:
             counter = itertools.count()
 
             def sink(blob: bytes, content_type: str = "") -> dict[str, str]:
+                """Spool one embedded asset to disk for the generated page.
+
+                Args:
+                    blob: The bytes to write.
+                    content_type: Its MIME type, which picks the extension.
+
+                Returns:
+                    What the page should use to reference it.
+                """
                 kind = content_type or "application/octet-stream"
                 suffix = "png" if content_type.startswith("image/") else "bin"
                 key = f"t{next(counter)}.{suffix}"
@@ -993,6 +1088,7 @@ class ConflictWindowsMixin:
         self.status_var.set(_("Exported: %(path)s") % {"path": target})
 
     def _save_resource_csv(self) -> None:
+        """Write the loose-file conflicts to a CSV the user chooses."""
         if not getattr(self, "_all_res", None):
             return
         path = filedialog.asksaveasfilename(
@@ -1010,6 +1106,12 @@ class ConflictWindowsMixin:
             messagebox.showerror(_("Save failed"), str(e))
 
     def _show_conflict_window(self, conflicts: list[dict], stats: dict) -> None:
+        """Open the record conflict window.
+
+        Args:
+            conflicts: The conflicts to list.
+            stats: Counts for the header.
+        """
         self._all_conflicts = conflicts
         win = getattr(self, "_conflict_win", None)
         if win is not None and win.winfo_exists():
@@ -1108,6 +1210,13 @@ class ConflictWindowsMixin:
         topf.rowconfigure(0, weight=1)
         topf.columnconfigure(0, weight=1)
         tree.tag_configure("sub", foreground="#ff9b6b")
+        # Filled in by the plugin summary. Until it runs the list says only
+        # that these records conflict, which is what it has always said.
+        tree.tag_configure("status-unknown", foreground=DARK["fg"])
+        tree.tag_configure("status-only-one", foreground=DARK["fg_dim"])
+        tree.tag_configure("status-agree", foreground=DARK["fg_dim"])
+        tree.tag_configure("status-benign", foreground="#e8c07d")
+        tree.tag_configure("status-conflict", foreground="#ff6b6b")
         self._conf_tree = tree
         panes.add(topf, minsize=150, stretch="always")
 
@@ -1117,9 +1226,9 @@ class ConflictWindowsMixin:
             botf,
             foreground=DARK["fg_dim"],
             text=_(
-                "Field comparison for the selected record - differing fields in red · "
-                "★ = your custom mod · last column wins · double-click a field for the full "
-                "value:"
+                "Field comparison for the selected record - RED = a plugin's edit is "
+                "discarded · AMBER = overridden but nothing lost · ★ = your custom mod · "
+                "last column wins · double-click a field for the full value:"
             ),
         ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(2, 2))
         ftree = ttk.Treeview(botf, show="headings", selectmode="browse", style="Conf.Treeview")
@@ -1132,6 +1241,14 @@ class ConflictWindowsMixin:
         botf.rowconfigure(1, weight=1)
         botf.columnconfigure(0, weight=1)
         ftree.tag_configure("diff", foreground="#ff6b6b")
+        # Four outcomes, not two. The names and their meanings live in
+        # wraithguard.patch.summary.ALL_TAGS so the wording can be tested
+        # without a display; only the colours are chosen here.
+        ftree.tag_configure("status-unknown", foreground=DARK["fg_dim"])
+        ftree.tag_configure("status-only-one", foreground=DARK["fg_dim"])
+        ftree.tag_configure("status-agree", foreground=DARK["fg"])
+        ftree.tag_configure("status-benign", foreground="#e8c07d")
+        ftree.tag_configure("status-conflict", foreground="#ff6b6b")
         ftree.bind("<Double-Button-1>", lambda _e: self._show_field_detail())
         add_tooltip(
             ftree,
@@ -1214,9 +1331,345 @@ class ConflictWindowsMixin:
                 "new plugin. Nothing is written until you say so."
             ),
         )
+        view_button = ttk.Button(btns, text=_("Plugin view..."), command=self.show_plugin_view)
+        view_button.pack(side="left", padx=(8, 0))
+        add_tooltip(
+            view_button,
+            _(
+                "The same scan with the load order's own shape restored: plugin, then "
+                "kind of record, then record, with the record compared across every "
+                "plugin that defines it.\n\n"
+                "A flat list answers 'what conflicts'. This answers 'what does this mod "
+                "change, and where does it lose', which is the question you are actually "
+                "asking. Run 'Plugin summary' first to colour it in. Read-only."
+            ),
+        )
+        if self._conf_session is not None:
+            summary_button = ttk.Button(
+                btns, text=_("Plugin summary..."), command=self._survey_conflicts
+            )
+            summary_button.pack(side="left", padx=(8, 0))
+            add_tooltip(
+                summary_button,
+                _(
+                    "Judge every conflict in the list and count the result per mod, "
+                    "rather than per record.\n\n"
+                    "A flat list of conflicts cannot answer the question that decides "
+                    "load order: which of my mods is losing work? This compares each "
+                    "record field by field and counts, for every plugin, how many "
+                    "records it edits and does not get its way on.\n\n"
+                    "Reads every conflicting record with tes3conv, so it takes a "
+                    "moment on a large load order. Read-only."
+                ),
+            )
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
         self.refresh_patch_views()
         self._refill_conflict_tree()
+
+    def _session_lock(self) -> threading.Lock:
+        """The lock guarding the tes3conv session.
+
+        The session is one process answering one request at a time down one
+        pipe. Two threads talking to it at once do not fail -- they interleave,
+        and each gets the other's answer, which is the worst possible outcome
+        because it looks like data.
+
+        Holds are one request long, so a background scan and a click never
+        block each other for more than a single record. That is why this is a
+        lock rather than a refusal: refusing made the window feel broken while
+        a summary ran.
+
+        Returns:
+            The lock, created on first use.
+        """
+        lock = getattr(self, "_conf_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._conf_lock = lock
+        return lock
+
+    def read_fields_now(
+        self, conflict: Mapping[str, Any]
+    ) -> tuple[list[str], dict[str, dict[str, Any]], set[str]] | None:
+        """Read one record's fields from the UI thread, without ever hanging.
+
+        The UI thread must never wait on the session lock indefinitely. It did,
+        once: a Plugin summary held the lock for its whole run, a click in the
+        Plugin view asked for a record, and the application stopped answering
+        the window manager -- which reports that as "not responding" and offers
+        to kill it. That is the crash this exists to prevent.
+
+        Reads are now short (one plugin each), so a brief wait is reasonable
+        and a long one means something is wrong. Waiting a bounded moment and
+        then saying so is honest; waiting forever is not.
+
+        Args:
+            conflict: The record, as the scanner reports it.
+
+        Returns:
+            ``(keys, per plugin values, differing keys)``, or ``None`` when the
+            session is busy or the record cannot be read.
+        """
+        if self._conf_session is None:
+            return None
+        lock = self._session_lock()
+        if not lock.acquire(timeout=UI_READ_WAIT):
+            self.status_var.set(_("Busy reading plugins -- try that again in a moment."))
+            return None
+        try:
+            return core.diff_record_fields(self._conf_session, conflict, self._conf_paths)
+        except Exception:
+            LOG_GUI.exception("could not read %s %s", conflict.get("type"), conflict.get("id"))
+            return None
+        finally:
+            lock.release()
+
+    # -- plugin-level summary ------------------------------------------------
+    #
+    # The judgement and the roll-up live in wraithguard.patch.summary, which
+    # imports no widgets and is tested without a display. What is here is the
+    # worker, the window, and nothing else.
+
+    def _survey_conflicts(self) -> None:
+        """Judge every listed conflict and summarise it per plugin."""
+        if self.worker_running or self._conf_session is None:
+            return
+        rows = list(getattr(self, "_shown_conflicts", None) or [])
+        if not rows:
+            self.status_var.set(_("Nothing to summarise."))
+            return
+        if len(rows) > SURVEY_WARN_AT and not messagebox.askyesno(
+            _("Judge every conflict?"),
+            _(
+                "This reads every plugin that defines any of these %(count)d records "
+                "-- once each, not once per record -- and will take a few minutes. "
+                "The checkboxes and filters above narrow the list first if you would "
+                "rather summarise part of it.\n\nGo ahead?"
+            )
+            % {"count": len(rows)},
+        ):
+            return
+        self.worker_running = True
+        self._survey_total = len(rows)
+        self._survey_seen = 0
+        self.status_var.set(_("Judging %(count)d conflict(s)...") % {"count": len(rows)})
+        threading.Thread(target=self._survey_worker, args=(rows,), daemon=True).start()
+
+    def _survey_worker(self, rows: list[dict]) -> None:
+        """Compare every conflict off the UI thread.
+
+        Args:
+            rows: The conflicts currently listed.
+        """
+        found: Survey | None = None
+        error = ""
+        try:
+            # One JSON parse per plugin, not one per record. Reading each
+            # record on its own re-parsed its plugins' JSON every time, which
+            # on a real load order is hours of repeated work.
+            read = core.batch_record_fields(
+                self._conf_session,
+                rows,
+                self._conf_paths,
+                self._survey_progress,
+                # The summary only ever compares values for equality, and
+                # holding 50,000 records' landscape blobs is how this runs
+                # the machine out of memory.
+                digest=True,
+                # Per plugin read, never around the whole batch: holding it
+                # for the length of a summary froze every other reader --
+                # including the UI thread -- for as long as it ran.
+                lock=self._session_lock(),
+            )
+            found = survey(rows, lambda c: read.get((c["type"], c["id"])))
+        except Exception as exc:
+            error = str(exc)
+            LOG_GUI.exception("plugin summary failed")
+        finally:
+            self.root.after(0, lambda: self._survey_done(found, error))
+
+    def _survey_progress(self, done: int, total: int) -> None:
+        """Say how far through the plugins the read has got.
+
+        Progress is counted in plugins because that is what the work is: each
+        one is read once and every record wanted from it is taken in that pass.
+        No sign of movement is indistinguishable from a hang, and the only
+        thing worse than a slow scan is a slow scan that looks broken.
+
+        Args:
+            done: Plugins read so far.
+            total: Plugins to read.
+        """
+        self.root.after(
+            0,
+            lambda: self.status_var.set(
+                _("Reading plugin %(done)d of %(total)d...") % {"done": done, "total": total}
+            ),
+        )
+
+    def _survey_done(self, found: Survey | None, error: str) -> None:
+        """Show the summary, and recolour the conflict list with it.
+
+        Args:
+            found: The survey, or ``None`` if it failed.
+            error: What went wrong, if anything.
+        """
+        self.worker_running = False
+        if found is None:
+            self.status_var.set(_("Could not summarise the conflicts."))
+            messagebox.showerror(_("Summary failed"), error or _("Unknown error."))
+            return
+        self._conf_survey = found
+        self._recolour_conflict_tree()
+        self.status_var.set(
+            _("Judged %(count)d record(s); %(losers)d plugin(s) losing work.")
+            % {"count": len(found.records), "losers": len(found.losing_plugins)}
+        )
+        self._show_plugin_summary(found)
+
+    def _recolour_conflict_tree(self) -> None:
+        """Tag each listed record with what is actually happening to it.
+
+        The list already said these records conflict. What it could not say is
+        whether anything is being *lost*, which is the difference between a
+        record worth opening and one that is merely popular.
+
+        **Driven at a controlled pace.** A full-MOMW summary judges tens of
+        thousands of rows, and tagging them all in one loop froze the window for
+        as long as it took. Instead this applies :data:`RECOLOUR_CHUNK` rows,
+        hands control back to the event loop for :data:`RECOLOUR_PACE_MS`, and
+        continues -- so the colours fill in over a second or two and the window
+        keeps answering throughout. A token supersedes any pass still running,
+        so a filter change or a fresh summary starts clean rather than leaving
+        two passes fighting over the same rows.
+        """
+        tree = getattr(self, "_conf_tree", None)
+        found = getattr(self, "_conf_survey", None)
+        if tree is None or found is None or not tree.winfo_exists():
+            return
+
+        updates = row_tag_updates(getattr(self, "_shown_conflicts", None) or [], found.records)
+        token = object()
+        self._recolour_token = token
+
+        def paint(start: int) -> None:
+            """Tag one chunk of rows, then reschedule for the next, or stop."""
+            # A newer recolour (a filter, another summary) took over: stop, so
+            # two paced passes never interleave on the same tree.
+            if getattr(self, "_recolour_token", None) is not token:
+                return
+            if not tree.winfo_exists():
+                return
+            end = min(start + RECOLOUR_CHUNK, len(updates))
+            for index, status, involves_subset in updates[start:end]:
+                iid = str(index)
+                if tree.exists(iid):
+                    keep = ("sub",) if involves_subset else ()
+                    tree.item(iid, tags=(*keep, ALL_TAGS[status][0]))
+            if end < len(updates):
+                self.root.after(RECOLOUR_PACE_MS, lambda: paint(end))
+
+        paint(0)
+
+    def _show_plugin_summary(self, found: Survey) -> None:
+        """A window of per-plugin counts, worst first.
+
+        Args:
+            found: The survey to show.
+        """
+        win = tk.Toplevel(getattr(self, "_conflict_win", None) or self.root)
+        apply_titlebar_theme(win)
+        win.title(_("Plugin conflict summary"))
+        win.configure(bg=DARK["bg"])
+        win.geometry("880x520")
+
+        ttk.Label(
+            win,
+            foreground=DARK["fg_dim"],
+            padding=(8, 6, 8, 2),
+            justify="left",
+            text=_(
+                "How each mod fares across the conflicts listed. 'Loses' counts records "
+                "it edits where a later plugin overwrote the change with something "
+                "different -- work that never reaches the game. 'Same as original' "
+                "counts records it redefines without changing anything, which is usually "
+                "removable but not always: an unchanged dialogue response may be there "
+                "to hold a line's position in its topic."
+            ),
+            wraplength=850,
+        ).pack(fill="x")
+
+        frame = ttk.Frame(win, padding=8)
+        frame.pack(fill="both", expand=True)
+        cols = ("records", "loses", "wins", "same", "first")
+        tree = ttk.Treeview(frame, columns=cols, show="tree headings", style="Conf.Treeview")
+        tree.heading("#0", text=_("Plugin"))
+        tree.column("#0", width=330, stretch=True)
+        for name, title, width in (
+            ("records", _("Records"), 90),
+            ("loses", _("Loses"), 80),
+            ("wins", _("Wins"), 80),
+            ("same", _("Same as original"), 140),
+            ("first", _("Defines first"), 110),
+        ):
+            tree.heading(name, text=title)
+            tree.column(name, width=width, anchor="e", stretch=False)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        scroll.grid(row=0, column=1, sticky="ns")
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+        tree.tag_configure("losing", foreground="#ff6b6b")
+        tree.tag_configure("mine", foreground="#ff9b6b")
+
+        ordered = sorted(
+            found.plugins.values(),
+            key=lambda entry: (-entry.losing, -sum(entry.counts.values()), entry.plugin.lower()),
+        )
+        for entry in ordered:
+            counts = entry.counts
+            tags: tuple[str, ...] = ()
+            if entry.losing:
+                tags = ("losing",)
+            elif self._is_custom(entry.plugin):
+                tags = ("mine",)
+            tree.insert(
+                "",
+                "end",
+                text=("★ " if self._is_custom(entry.plugin) else "") + entry.plugin,
+                tags=tags,
+                values=(
+                    sum(counts.values()),
+                    entry.losing or "",
+                    counts.get(ConflictThis.CONFLICT_WINS, 0)
+                    + counts.get(ConflictThis.OVERRIDE_WINS, 0)
+                    or "",
+                    entry.redundant or "",
+                    counts.get(ConflictThis.MASTER, 0) or "",
+                ),
+            )
+
+        note = ttk.Label(win, foreground=DARK["fg_dim"], padding=(8, 0))
+        note.pack(fill="x")
+        note.configure(
+            text=_(
+                "%(records)d record(s) judged, %(plugins)d plugin(s) involved"
+                "%(unreadable)s. The conflict list behind this window is now "
+                "coloured to match: red where an edit is discarded, amber where a "
+                "record is overridden but nothing is lost."
+            )
+            % {
+                "records": len(found.records),
+                "plugins": len(found.plugins),
+                "unreadable": (
+                    _(", %(n)d could not be read") % {"n": found.unreadable}
+                    if found.unreadable
+                    else ""
+                ),
+            }
+        )
+        ttk.Button(win, text=_("Close"), command=win.destroy).pack(side="right", padx=8, pady=8)
 
     def _merge_field_into_patch(self) -> None:
         """Take the selected field from a chosen plugin, keeping the rest.
@@ -1344,6 +1797,7 @@ class ConflictWindowsMixin:
         answer: dict[str, str | None] = {"value": None}
 
         def accept() -> None:
+            """Take the chosen plugin and close the dialog."""
             answer["value"] = picked.get()
             win.destroy()
 
@@ -1725,6 +2179,7 @@ class ConflictWindowsMixin:
             messagebox.showerror(_("Dump failed"), str(e))
 
     def _on_conflict_select(self) -> None:
+        """Show the field comparison for whichever record is selected."""
         tree = getattr(self, "_conf_tree", None)
         sel = tree.selection() if tree else None
         if not sel:
@@ -1777,6 +2232,7 @@ class ConflictWindowsMixin:
         texts: list[tk.Text] = []
 
         def _apply_wrap() -> None:
+            """Turn word wrap on or off in every tab at once."""
             w: Literal["word", "none"] = "word" if wrap_var.get() else "none"
             for st in texts:
                 st.configure(state="normal")
@@ -1872,8 +2328,10 @@ class ConflictWindowsMixin:
                     else:
                         highlight_json_with_html(st, text, json_colors)
                 except Exception:  # noqa: BLE001
-                    # highlighting is cosmetic -- never let it block showing the value
-                    pass  # highlighting is cosmetic -- never let it block showing the value
+                    # Highlighting is cosmetic. Never let it stop the value
+                    # being shown -- the value is the thing the user opened
+                    # this window for.
+                    pass
             st.configure(state="disabled")
             texts.append(st)
             label = (p[:22] + "…") if len(p) > 24 else p
@@ -1941,11 +2399,19 @@ class ConflictWindowsMixin:
     def _singles_worker(
         self, order: list[str], dirs: list[str], subset: list[str], kind: str
     ) -> None:
+        """List records only one plugin defines, off the UI thread.
+
+        Args:
+            order: The active load order.
+            dirs: The data directories to resolve names against.
+            subset: The user's own mods.
+            kind: Which toggle asked -- the user's own mods, or everything else.
+        """
         writer = QueueWriter(self.log_queue)
         records: list[dict] = []
         error = ""
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 index = PluginFileIndex(dirs)
                 fn = getattr(core, self._SINGLES_KINDS[kind]["fn"])
                 records, _stats = fn(order, index, subset_names=subset, session=self._conf_session)
@@ -1954,6 +2420,13 @@ class ConflictWindowsMixin:
         self.root.after(0, self._singles_done, records, error, kind)
 
     def _singles_done(self, records: list[dict], error: str, kind: str) -> None:
+        """Fold a non-conflicting-records scan back into the list.
+
+        Args:
+            records: What was found.
+            error: What went wrong, if anything.
+            kind: Which of the two "include singles" toggles asked for it.
+        """
         self.worker_running = False
         cfg = self._SINGLES_KINDS[kind]
         var: tk.BooleanVar = getattr(self, cfg["var"])
@@ -1970,6 +2443,7 @@ class ConflictWindowsMixin:
         self._refill_conflict_tree()
 
     def _refill_conflict_tree(self) -> None:
+        """Rebuild the conflict list from the current filters."""
         tree = getattr(self, "_conf_tree", None)
         if tree is None or not tree.winfo_exists():
             return
@@ -1991,8 +2465,13 @@ class ConflictWindowsMixin:
                 tags=tags,
                 values=(star, c["type"], c["id"], len(c["plugins"]), c["winner"]),
             )
+        # Filtering rebuilds every row, which would drop the judgement colours.
+        # Reapplying them here rather than at the call sites means a filter can
+        # never silently un-say what the summary found.
+        self._recolour_conflict_tree()
 
     def _save_conflicts_csv(self) -> None:
+        """Write the record conflicts to a CSV the user chooses."""
         if not getattr(self, "_all_conflicts", None):
             return
         path = filedialog.asksaveasfilename(

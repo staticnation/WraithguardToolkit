@@ -278,6 +278,22 @@ def build_texture_records(textures: Sequence[KnownTexture]) -> list[dict[str, An
     return records
 
 
+#: Payload size of each landscape field, in bytes.
+#:
+#: One copy of the arithmetic. The empty-field branches below used to spell
+#: each of these out again -- ``bytes(3 * LAND_NUM_VERTS)`` and so on -- which
+#: is two statements of one fact about a wire format, and the kind that stays
+#: wrong for a long time, because an empty field of the wrong length still
+#: encodes, still writes, and only misreads in the game.
+FIELD_SIZES: Final[dict[str, int]] = {
+    "vertex_heights": LAND_NUM_VERTS,
+    "vertex_normals": 3 * LAND_NUM_VERTS,
+    "world_map_data": WNAM_SIZE * WNAM_SIZE,
+    "vertex_colors": 3 * LAND_NUM_VERTS,
+    "texture_indices": 2 * NUM_TEXTURES,
+}
+
+
 def build_landscape_record(
     coords: tuple[int, int],
     heights: Sequence[Sequence[float]] | None = None,
@@ -344,26 +360,26 @@ def build_landscape_record(
     else:
         record["vertex_heights"] = {
             "offset": 0.0,
-            "data": encode_field(bytes(LAND_NUM_VERTS)),
+            "data": encode_field(bytes(FIELD_SIZES["vertex_heights"])),
         }
-        record["vertex_normals"] = {"data": encode_field(bytes(3 * LAND_NUM_VERTS))}
+        record["vertex_normals"] = {"data": encode_field(bytes(FIELD_SIZES["vertex_normals"]))}
 
     if world_map is not None:
         record["world_map_data"] = {"data": encode_field(pack_world_map(world_map))}
     else:
-        record["world_map_data"] = {"data": encode_field(bytes(WNAM_SIZE * WNAM_SIZE))}
+        record["world_map_data"] = {"data": encode_field(bytes(FIELD_SIZES["world_map_data"]))}
 
     if colors is not None:
         record["vertex_colors"] = {"data": encode_field(pack_vertex_colors(colors))}
         declared.append(FLAG_VERTEX_COLORS)
     else:
-        record["vertex_colors"] = {"data": encode_field(bytes(3 * LAND_NUM_VERTS))}
+        record["vertex_colors"] = {"data": encode_field(bytes(FIELD_SIZES["vertex_colors"]))}
 
     if textures is not None:
         record["texture_indices"] = {"data": encode_field(pack_texture_indices(textures))}
         declared.append(FLAG_TEXTURES)
     else:
-        record["texture_indices"] = {"data": encode_field(bytes(2 * NUM_TEXTURES))}
+        record["texture_indices"] = {"data": encode_field(bytes(FIELD_SIZES["texture_indices"]))}
 
     record["landscape_flags"] = " | ".join(declared)
     return record, clamped
@@ -417,13 +433,3 @@ def build_plugin(
     """
     header = build_header(masters, num_objects=len(records), description=description)
     return [header, *records]
-
-
-#: Payload sizes, so a caller can assert what it built before writing it.
-FIELD_SIZES: Final[dict[str, int]] = {
-    "vertex_heights": LAND_NUM_VERTS,
-    "vertex_normals": 3 * LAND_NUM_VERTS,
-    "world_map_data": WNAM_SIZE * WNAM_SIZE,
-    "vertex_colors": 3 * LAND_NUM_VERTS,
-    "texture_indices": 2 * NUM_TEXTURES,
-}

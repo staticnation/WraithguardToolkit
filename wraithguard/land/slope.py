@@ -321,12 +321,18 @@ def limit_slopes(
     if use_curvature:
         structure = {coords: _structure_map(grid) for coords, grid in cells.items()}
     flat = [0.0] * (LAND_SIZE * LAND_SIZE)
+    # Sorted once, not once per pass. The order exists to make the result
+    # deterministic -- a vertex moved by two neighbours must be moved in the
+    # same sequence every run -- and no pass adds or removes a cell, only
+    # mutates the grids behind them. On a real load order this was 24 sorts of
+    # 17,560 tuples to produce the same list 24 times.
+    in_order = sorted(cells)
 
     for attempt in range(1, MAX_PASSES + 1):
         report.passes = attempt
         excessive = 0
 
-        for coords in sorted(cells):
+        for coords in in_order:
             grid = cells[coords]
             shape = structure.get(coords, flat)
 

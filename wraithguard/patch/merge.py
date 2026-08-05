@@ -177,6 +177,19 @@ def merge_record(
     maps: dict[str, dict[int, int]] = {}
 
     def mapping_for(plugin: str) -> dict[int, int]:
+        """The index map for one plugin, built once and reused.
+
+        A merge can take fields from several plugins, and each needs its *own*
+        mapping -- that is the whole hazard this module exists for. Caching is
+        not just speed: it keeps one mapping per plugin, so two fields taken
+        from the same source cannot end up renumbered differently.
+
+        Args:
+            plugin: The file the field is being taken from.
+
+        Returns:
+            Its ``mast_index`` mapping into the patch's master list.
+        """
         found = maps.get(plugin)
         if found is None:
             found = index_map(

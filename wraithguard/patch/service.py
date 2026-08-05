@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from wraithguard.land.emit import EmitError, build_plugin
+from wraithguard.patch.dialogue import shifts as dialogue_shifts
 from wraithguard.patch.merge import Merge, describe, merge_record
 from wraithguard.patch.records import (
     PatchError,
@@ -108,6 +109,15 @@ def build_record_patch(
     lines: list[str] = []
 
     def say(text: str) -> None:
+        """Record one progress line and pass it on.
+
+        Kept for the caller either way: the report callback is optional, but
+        the collected lines go back in the result, so a failure can be read
+        after the fact by anything that was not watching live.
+
+        Args:
+            text: The line to record.
+        """
         lines.append(text)
         if report is not None:
             report(text)
@@ -151,6 +161,15 @@ def build_record_patch(
     # note as many times as there were plugins.
     for note in dialogue_position_risk(records, records_by_plugin):
         say(f"  note: {note}")
+    # Where the hedging stops. The engine's placement rule is simple enough to
+    # replay, so instead of saying a position "depends on" other files, resolve
+    # the topic with and without the patch and report the actual numbers.
+    for topic, key, was, now in dialogue_shifts(records_by_plugin, load_order, records):
+        say(
+            f"  moves: {key} in topic {topic!r} goes from position {was} to "
+            f"{now}. A topic is read top down and the first response whose "
+            "filters match is the one spoken."
+        )
     for key, anchor, plugin in position_anchors(records, records_by_plugin):
         say(
             f"  anchor: {key} sits next to {anchor[:12]}..., which {plugin} "

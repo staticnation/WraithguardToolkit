@@ -48,7 +48,11 @@ class PatchBuilderMixin:
     """The queue of patch decisions, and the window that edits it."""
 
     if TYPE_CHECKING:  # pragma: no cover - declarations for the host class
-        root: tk.Misc
+        # tk.Tk, not tk.Misc: App is built on a real toplevel and these
+        # windows call transient()/title()/geometry() on it, which live on Wm
+        # and not on Misc. Declaring the weaker type here type-checked fine and
+        # hid those calls from mypy entirely.
+        root: tk.Tk
         _conflict_win: tk.Toplevel | None
         _conf_session: Any
         _conf_paths: dict[str, str]

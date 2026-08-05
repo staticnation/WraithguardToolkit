@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
 from wraithguard.land.diff import (
+    ALL_LAYERS,
     LandData,
     LandscapeDiff,
     LandscapeLayers,
@@ -239,7 +240,7 @@ def plugin_differences(
     reference: Landmass,
     plugin: PluginRecords,
     known: KnownTextures,
-    allowed: LandData = ~LandData.NONE,
+    allowed: LandData = ALL_LAYERS,
 ) -> list[LandscapeDiff]:
     """Compute what one plugin changed, cell by cell, against the reference.
 
@@ -332,7 +333,7 @@ def survey(
     reference: Landmass,
     plugins: Sequence[PluginRecords],
     known: KnownTextures,
-    allowed: LandData = ~LandData.NONE,
+    allowed: LandData = ALL_LAYERS,
 ) -> dict[Coords, CellContention]:
     """Compute every plugin's differences and group them by cell.
 
