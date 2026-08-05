@@ -121,6 +121,110 @@ headline.
   filters alone, so position is the whole of it - a greeting that moves down is
   a greeting that stops being said.
 
+- **A Patch Builder window.** The patch queue is now something you can see and
+  edit rather than a number on a button. It opens beside the conflict list,
+  updates as you add to it, and shows every queued record - whole or merged,
+  and for a merge, which field came from where. Remove a record, remove a
+  single field, or clear the lot; nothing is written until you press Write.
+
+  This exists because queuing a record is a decision, and decisions get
+  revisited: you pick a winner, look at three more conflicts, then realise the
+  first one should have taken one field from somewhere else. With only a count
+  there was nowhere to do that - the only way to correct a mistake was to write
+  the patch and start again.
+
+  The rules live in `wraithguard/patch/queue.py`, which imports no widgets:
+  re-deciding replaces rather than accumulates, a record is taken whole or
+  merged but never both, and a merge left with no fields is dropped because it
+  would write the base record unchanged.
+
+- **Merging a record down, field by field.** Carrying a whole record settles a
+  conflict by picking a side. Sometimes neither side is right - one mod fixed
+  the script, another retextured the mesh - and what you want is a record with
+  both. Select a field in the comparison panel, hit **Merge field...**, and
+  choose whose version of *that field* to take; everything else stays as your
+  load order already has it, so a merge reads as a list of departures rather
+  than a rewrite.
+
+  Two things are refused rather than guessed. **Identity** - `type`, `id`, the
+  grid - because taking those from elsewhere does not merge a record, it makes
+  a different one, which the patch would then apply somewhere you never looked.
+  And **a field the chosen plugin does not have**, because that could mean
+  "delete this field" or "I misread the panel", and the two produce different
+  records.
+
+  The `mast_index` trap arrives here by a second door: a `references` list
+  taken from one plugin while the rest of the record comes from another is
+  numbered against *its own* plugin's master list, and is remapped against
+  that. Using the base record's mapping would repoint every object in the cell
+  at a different file.
+
+  A record can be taken whole or merged, never both: carrying it twice would
+  leave the patch's own last-wins to decide, so the choice made last in the
+  window might not be the one that reaches the game.
+
+- **Record patcher in the conflict viewer.** Pick a conflicting record, choose
+  which plugin's version should win, and write the result as one new plugin
+  that loads last. TES3 has no partial records - whichever file defines one
+  last supplies all of it - so a patch carries whole records, and everything it
+  does not carry still comes from the original mods. **No mod file is ever
+  opened for writing**; deleting the patch restores your previous behaviour
+  exactly.
+
+  The part that is not a copy is `mast_index`. Every reference inside a `Cell`
+  carries one, and it is a *position*, not a name: `0` means the file being
+  read, `k >= 1` means that file's k-th master. Measured on real plugins,
+  `Clean Solstheim_Castle_v1.1` puts 11,972 of its references at 0 and
+  `Bloodmoon` all 26,473 of its. Moving such a record into a patch changes what
+  position 0 refers to and renumbers everything after it, so copied verbatim
+  every placed object in that cell would silently point at a different file.
+  References are remapped, and a record whose references cannot be remapped is
+  refused rather than written wrong.
+
+- **Merged Lands.** A full port of David Von Derau's Merged Lands (MIT), which
+  recovers the terrain a load order throws away. Morrowind resolves a `LAND`
+  record by last-wins, so where two mods edit the same cell one of them simply
+  disappears - and across 300 plugins here, **19,078 height vertices are moved
+  by exactly one mod** and lost anyway, against 8,082 that are genuinely
+  contested. Those are free to keep; only the contested ones need a decision.
+
+  The tool builds a reference landmass from the masters, diffs each mod against
+  it, merges vertex by vertex, repairs the seams that leaves, and writes one
+  new plugin to load last. It carries terrain only - no references, objects or
+  scripts - so everything placed in those cells stays where it is, your plugins
+  are never modified, and deleting the output restores the previous behaviour
+  exactly.
+
+  Available from the main window as **Merge Lands** and from
+  `tools/build_merged_lands.py`. You choose where the plugin is written and
+  the choice is remembered; the confirmation offers *write here* / *choose a
+  different folder* / *cancel* every run, since a merged plugin quietly
+  appearing somewhere other than last time is worse than one extra click. If
+  the folder is not one OpenMW reads, it says so and gives you the `data=`
+  line to add - a plugin outside every data path is invisible to the game, and
+  that is a miserable thing to debug. `.mergedlands.toml` sidecars are read with the
+  same schema the original uses, so per-plugin settings written for it work
+  here.
+
+  Two things are ours rather than the original's. A **slope limiter** enforces
+  what `VHGT` can actually store: a vertex delta is one signed byte, so adjacent
+  heights cannot differ by more than 1,016 world units, and seam repair pulling
+  two borders together can exceed that. And a **curvature-weighted resolve**
+  (opt-in) weighs an edit by the structure it introduces rather than by how far
+  it moves the ground, so a road cut can outweigh a bulk shift eight times its
+  size. Measured: a +500 shift introduces 0.000 radians of structure, a -60
+  road cut introduces 0.297.
+
+  Ten correctness faults in the port were found by reading the Rust function by
+  function - all ten were silent, and the only signal any of them produced was
+  in the game. The last was the merge's own post-condition: the original
+  repairs the seams and then repairs them *again*, requiring the second pass to
+  find nothing, and we had ported the repair but not the assertion. The toolkit
+  now refuses to write a plugin with a surviving tear rather than shipping a
+  wall across a cell boundary. They are written up in `MERGED_LANDS_FUNCTIONS.md`
+  alongside all 191 functions and where each one lives here.
+
+
 ### Fixed
 
 - **Pages opened in the browser instead of the in-app window, and the app
@@ -254,115 +358,6 @@ it had none.
 
 ### Added
 
-
-
-
-
-
-
-- **A Patch Builder window.** The patch queue is now something you can see and
-  edit rather than a number on a button. It opens beside the conflict list,
-  updates as you add to it, and shows every queued record - whole or merged,
-  and for a merge, which field came from where. Remove a record, remove a
-  single field, or clear the lot; nothing is written until you press Write.
-
-  This exists because queuing a record is a decision, and decisions get
-  revisited: you pick a winner, look at three more conflicts, then realise the
-  first one should have taken one field from somewhere else. With only a count
-  there was nowhere to do that - the only way to correct a mistake was to write
-  the patch and start again.
-
-  The rules live in `wraithguard/patch/queue.py`, which imports no widgets:
-  re-deciding replaces rather than accumulates, a record is taken whole or
-  merged but never both, and a merge left with no fields is dropped because it
-  would write the base record unchanged.
-
-- **Merging a record down, field by field.** Carrying a whole record settles a
-  conflict by picking a side. Sometimes neither side is right - one mod fixed
-  the script, another retextured the mesh - and what you want is a record with
-  both. Select a field in the comparison panel, hit **Merge field...**, and
-  choose whose version of *that field* to take; everything else stays as your
-  load order already has it, so a merge reads as a list of departures rather
-  than a rewrite.
-
-  Two things are refused rather than guessed. **Identity** - `type`, `id`, the
-  grid - because taking those from elsewhere does not merge a record, it makes
-  a different one, which the patch would then apply somewhere you never looked.
-  And **a field the chosen plugin does not have**, because that could mean
-  "delete this field" or "I misread the panel", and the two produce different
-  records.
-
-  The `mast_index` trap arrives here by a second door: a `references` list
-  taken from one plugin while the rest of the record comes from another is
-  numbered against *its own* plugin's master list, and is remapped against
-  that. Using the base record's mapping would repoint every object in the cell
-  at a different file.
-
-  A record can be taken whole or merged, never both: carrying it twice would
-  leave the patch's own last-wins to decide, so the choice made last in the
-  window might not be the one that reaches the game.
-
-- **Record patcher in the conflict viewer.** Pick a conflicting record, choose
-  which plugin's version should win, and write the result as one new plugin
-  that loads last. TES3 has no partial records - whichever file defines one
-  last supplies all of it - so a patch carries whole records, and everything it
-  does not carry still comes from the original mods. **No mod file is ever
-  opened for writing**; deleting the patch restores your previous behaviour
-  exactly.
-
-  The part that is not a copy is `mast_index`. Every reference inside a `Cell`
-  carries one, and it is a *position*, not a name: `0` means the file being
-  read, `k >= 1` means that file's k-th master. Measured on real plugins,
-  `Clean Solstheim_Castle_v1.1` puts 11,972 of its references at 0 and
-  `Bloodmoon` all 26,473 of its. Moving such a record into a patch changes what
-  position 0 refers to and renumbers everything after it, so copied verbatim
-  every placed object in that cell would silently point at a different file.
-  References are remapped, and a record whose references cannot be remapped is
-  refused rather than written wrong.
-
-- **Merged Lands.** A full port of David Von Derau's Merged Lands (MIT), which
-  recovers the terrain a load order throws away. Morrowind resolves a `LAND`
-  record by last-wins, so where two mods edit the same cell one of them simply
-  disappears - and across 300 plugins here, **19,078 height vertices are moved
-  by exactly one mod** and lost anyway, against 8,082 that are genuinely
-  contested. Those are free to keep; only the contested ones need a decision.
-
-  The tool builds a reference landmass from the masters, diffs each mod against
-  it, merges vertex by vertex, repairs the seams that leaves, and writes one
-  new plugin to load last. It carries terrain only - no references, objects or
-  scripts - so everything placed in those cells stays where it is, your plugins
-  are never modified, and deleting the output restores the previous behaviour
-  exactly.
-
-  Available from the main window as **Merge Lands** and from
-  `tools/build_merged_lands.py`. You choose where the plugin is written and
-  the choice is remembered; the confirmation offers *write here* / *choose a
-  different folder* / *cancel* every run, since a merged plugin quietly
-  appearing somewhere other than last time is worse than one extra click. If
-  the folder is not one OpenMW reads, it says so and gives you the `data=`
-  line to add - a plugin outside every data path is invisible to the game, and
-  that is a miserable thing to debug. `.mergedlands.toml` sidecars are read with the
-  same schema the original uses, so per-plugin settings written for it work
-  here.
-
-  Two things are ours rather than the original's. A **slope limiter** enforces
-  what `VHGT` can actually store: a vertex delta is one signed byte, so adjacent
-  heights cannot differ by more than 1,016 world units, and seam repair pulling
-  two borders together can exceed that. And a **curvature-weighted resolve**
-  (opt-in) weighs an edit by the structure it introduces rather than by how far
-  it moves the ground, so a road cut can outweigh a bulk shift eight times its
-  size. Measured: a +500 shift introduces 0.000 radians of structure, a -60
-  road cut introduces 0.297.
-
-  Ten correctness faults in the port were found by reading the Rust function by
-  function - all ten were silent, and the only signal any of them produced was
-  in the game. The last was the merge's own post-condition: the original
-  repairs the seams and then repairs them *again*, requiring the second pass to
-  find nothing, and we had ported the repair but not the assertion. The toolkit
-  now refuses to write a plugin with a surviving tear rather than shipping a
-  wall across a cell boundary. They are written up in `MERGED_LANDS_FUNCTIONS.md`
-  alongside all 191 functions and where each one lives here.
-
 - **A lit material view in the texture comparison.** A flat side-by-side view
   cannot compare two normal maps at all - a picture of one is a field of pale
   blue, because what it encodes is how a surface catches light. So each texture
@@ -381,7 +376,7 @@ it had none.
   maps are loaded **linear, not sRGB**, because reading a field of vectors as
   color bends every one of them before use.
 
-- **Texture comparison** (`wraithguard/images/compare.py` and `viewer.py`).
+- **Texture comparison** (`mlox_subset/images/compare.py` and `viewer.py`).
   The conflict scan could already say two mods ship the same texture path; it
   could not say whether that mattered. Now it can, with three views because
   each answers a different question: *side by side* ("which do I prefer"),
@@ -433,7 +428,7 @@ it had none.
   one of these types was absent from both.
 
 - **Every texture format Morrowind and OpenMW use now decodes**, still with no
-  third-party dependency. `wraithguard/dds/` has become `wraithguard/images/`,
+  third-party dependency. `mlox_subset/dds/` has become `mlox_subset/images/`,
   because it is no longer only DDS:
 
   | | |
@@ -469,7 +464,7 @@ it had none.
   still is not: it is the oracle these decoders are checked against, and
   nothing shipped imports it.
 
-- **Textures are classified by role** (`wraithguard/images/roles.py`), because
+- **Textures are classified by role** (`mlox_subset/images/roles.py`), because
   a normal map is not a picture. Three conventions say what a texture is for
   and all three are real: vanilla puts it in the mesh's `NiTexturingProperty`
   slot, OpenMW infers it from file-name suffixes (`_n`, `_nh`, `_spec`,
@@ -618,7 +613,7 @@ it had none.
   provider - shapes, triangles, textures, collision, animation - plus what the
   winner loses against each. Reselecting is free.
 
-- **DDS decoding with no new dependency** (`wraithguard/dds/`). BC1, BC2 and
+- **DDS decoding with no new dependency** (`mlox_subset/dds/`). BC1, BC2 and
   BC3 plus uncompressed surfaces, decoded to RGBA, and a PNG encoder built on
   `zlib` alone so a onefile build gains nothing to bundle.
 
@@ -637,10 +632,71 @@ it had none.
 - **`NiSwitchNode` and `NiLODNode`**, which never occur in vanilla and together
   caused 92% of everything that stopped early in a real mod collection.
 
+
+- **The conflict map is banded like the cell map** -- each of the first five
+  counts gets its own color, larger counts group in fives, and the legend has
+  one swatch per band instead of sampling a gradient. Same reasoning as the cell
+  map: a linear ramp normalised against the worst cell rendered one, two and
+  three conflicting records as three near-identical greens, and those are the
+  counts that decide whether a cell is worth opening. The two maps are read one
+  after the other, so banding them differently would have been the worse trap.
+
+  **Scaled to the true maximum now, not the 95th percentile.** The percentile
+  clamp existed to stop one forty-conflict cell flattening every ordinary cell
+  to green -- a real problem for a continuous ramp, and one banding solves
+  outright, since an outlier lands in the open-ended top band and costs the
+  lower bands nothing. The legend now describes the range the map actually has.
+
+  The page's client-side redraw (focusing one plugin) **looks a count up in a
+  table** rather than re-implementing the ramp in JavaScript. The duplicated
+  curve was the likeliest thing to drift between the focused and unfocused
+  views; a lookup cannot drift, because there is only one copy of the
+  arithmetic. `severity`, `severity_stops`, `legend_stops` and
+  `saturation_point` were removed with it -- all four had become dead code held
+  alive only by their own tests.
+
+- **The customizations TOML now uses `insertBlock`.** A run of consecutive
+  custom plugins is one block on one anchor instead of one `insert` per plugin
+  chained on its predecessor. Besides being far shorter to read, it removes a
+  real failure: anchors are matched by *substring* and more than one match makes
+  momw-configurator abandon the cfg it was building, so chaining gave every
+  plugin its own chance to collide. Inserting `Wares.esp` into a list that ships
+  `Better Wares.esp` used to abort the whole rebuild; it now applies cleanly.
+  The anchor is checked for uniqueness before it is written, falling back to
+  anchoring `before` the following line when the preceding one is ambiguous.
+- **Disabling your own mod no longer writes a `removeContent`/`removeData`
+  block.** The Configurator rebuilds the cfg from the curated list plus these
+  customizations, so a mod we simply stop inserting is already gone -- the block
+  did nothing except clutter a file people hand-edit. Removals are now emitted
+  only for what the curated list owns, for plugins and data paths alike. Without
+  a `plugin-order.yml` there is no curated list to consult, so the old
+  presence-based behaviour stays as the fallback.
+
+- **The cell map's colors are now banded**: 1, 2, 3, 4 and 5 mods per cell each
+  get their own color, then 6-10, 11-15, and so on. The distinctions that matter
+  are crowded at the bottom of the range -- one, two and three mods in a cell are
+  different situations, while 23 and 24 are not -- and a continuous ramp
+  normalised against the busiest cell on a big map rendered all of the low counts
+  as the same dark blue. The legend lists every band, so it is now the map's key
+  rather than a sample of a gradient. Above 16 bands the top one becomes
+  open-ended (`76+`): a ramp is only readable while its steps are.
+
+- **Wider color ranges on both maps.** The severity ramp went from three stops
+  to five: with only green → yellow → red the whole middle of a busy map
+  collapsed into one narrow yellow band, so cells with genuinely different
+  conflict counts looked identical. Coverage now has its own seven-stop ramp
+  (slate → blue → periwinkle → violet → amber), deliberately *not* green-to-red,
+  because coverage is not badness -- ten mods touching a cell is normal in a big
+  load order -- and it should not be mistaken for the conflict map at a glance.
+  Both legends are now generated from the same ramp the map draws with, so they
+  cannot drift apart, and the conflict map's client-side recoloring is handed
+  the stop table as data instead of re-implementing the curve in JavaScript.
+- **Out-of-range cells are reported, not silently dropped.** One corrupt grid
+  coordinate would stretch the map to millions of pixels, so filtering them is
+  right -- but the page now says how many were dropped rather than quietly
+  rendering an incomplete map.
+
 ### Fixed
-
-
-
 
 - **A patched dialogue response lost its topic.** Found by reading a patch a
   user had actually built: it contained one `INFO` record and no `DIAL`. A
@@ -691,7 +747,7 @@ it had none.
   perfectly: `TextureResolver` has always fallen through to the archives, and
   only the mesh side went straight to the filesystem.
 
-  Mesh resolution now lives in `wraithguard/nif/vfs.py` rather than in the
+  Mesh resolution now lives in `mlox_subset/nif/vfs.py` rather than in the
   window that needed it - finding a game asset is not a user-interface concern,
   and a GUI module cannot be tested without a display, which is exactly how the
   gap survived. Loose files still win over archived ones, as they do in the
@@ -772,7 +828,6 @@ it had none.
   rest of the file depends on, and an invented field name is worse than an
   admitted gap because it gets believed.
 
-### Fixed
 
 - **`NiTexturingProperty` truncated any mesh with more than one decal.**
   `texture_count` is a slot count, not a cap of seven. On `7decals.NIF` it
@@ -802,7 +857,7 @@ it had none.
   its display is generated from `nif.xml`, which `CREDITS.md` rules out.
 
 - **The NIF reader now checks itself against a scan that shares none of its
-  code** (`wraithguard/nif/scan.py`, `tools/check_nif_layouts.py --verify`).
+  code** (`mlox_subset/nif/scan.py`, `tools/check_nif_layouts.py --verify`).
 
   The layout reader walks a file by knowing how wide every field is, which
   gives it a specific failure mode: one wrong width desynchronises everything
@@ -832,7 +887,6 @@ it had none.
   support* is a layout bug, while one stopping on an unimplemented type is a
   gap. That split immediately surfaced 11 real bugs under 397 gaps.
 
-### Fixed
 
 - **`NiGeomMorpherController` was one byte short**, and it was the only
   alignment bug in all 7,319 vanilla meshes.
@@ -894,7 +948,7 @@ it had none.
   Its `data=` folder is still inserted normally, deliberately: OpenMW has to be
   able to find the file for the groundcover line to mean anything.
 
-- **Conflicts can now be seen, not just listed** (`wraithguard/viz/`). Four
+- **Conflicts can now be seen, not just listed** (`mlox_subset/viz/`). Four
   self-contained HTML views, generated from data the tool already had and
   opened from the Conflicts and field-diff windows:
   - a **conflict map** plotting every colliding record onto the world grid,
@@ -970,72 +1024,6 @@ it had none.
   the map and the worst-cells list each scroll independently and can be dragged
   taller.
 
-### Changed
-
-- **The conflict map is banded like the cell map** -- each of the first five
-  counts gets its own color, larger counts group in fives, and the legend has
-  one swatch per band instead of sampling a gradient. Same reasoning as the cell
-  map: a linear ramp normalised against the worst cell rendered one, two and
-  three conflicting records as three near-identical greens, and those are the
-  counts that decide whether a cell is worth opening. The two maps are read one
-  after the other, so banding them differently would have been the worse trap.
-
-  **Scaled to the true maximum now, not the 95th percentile.** The percentile
-  clamp existed to stop one forty-conflict cell flattening every ordinary cell
-  to green -- a real problem for a continuous ramp, and one banding solves
-  outright, since an outlier lands in the open-ended top band and costs the
-  lower bands nothing. The legend now describes the range the map actually has.
-
-  The page's client-side redraw (focusing one plugin) **looks a count up in a
-  table** rather than re-implementing the ramp in JavaScript. The duplicated
-  curve was the likeliest thing to drift between the focused and unfocused
-  views; a lookup cannot drift, because there is only one copy of the
-  arithmetic. `severity`, `severity_stops`, `legend_stops` and
-  `saturation_point` were removed with it -- all four had become dead code held
-  alive only by their own tests.
-
-- **The customizations TOML now uses `insertBlock`.** A run of consecutive
-  custom plugins is one block on one anchor instead of one `insert` per plugin
-  chained on its predecessor. Besides being far shorter to read, it removes a
-  real failure: anchors are matched by *substring* and more than one match makes
-  momw-configurator abandon the cfg it was building, so chaining gave every
-  plugin its own chance to collide. Inserting `Wares.esp` into a list that ships
-  `Better Wares.esp` used to abort the whole rebuild; it now applies cleanly.
-  The anchor is checked for uniqueness before it is written, falling back to
-  anchoring `before` the following line when the preceding one is ambiguous.
-- **Disabling your own mod no longer writes a `removeContent`/`removeData`
-  block.** The Configurator rebuilds the cfg from the curated list plus these
-  customizations, so a mod we simply stop inserting is already gone -- the block
-  did nothing except clutter a file people hand-edit. Removals are now emitted
-  only for what the curated list owns, for plugins and data paths alike. Without
-  a `plugin-order.yml` there is no curated list to consult, so the old
-  presence-based behaviour stays as the fallback.
-
-- **The cell map's colors are now banded**: 1, 2, 3, 4 and 5 mods per cell each
-  get their own color, then 6-10, 11-15, and so on. The distinctions that matter
-  are crowded at the bottom of the range -- one, two and three mods in a cell are
-  different situations, while 23 and 24 are not -- and a continuous ramp
-  normalised against the busiest cell on a big map rendered all of the low counts
-  as the same dark blue. The legend lists every band, so it is now the map's key
-  rather than a sample of a gradient. Above 16 bands the top one becomes
-  open-ended (`76+`): a ramp is only readable while its steps are.
-
-- **Wider color ranges on both maps.** The severity ramp went from three stops
-  to five: with only green → yellow → red the whole middle of a busy map
-  collapsed into one narrow yellow band, so cells with genuinely different
-  conflict counts looked identical. Coverage now has its own seven-stop ramp
-  (slate → blue → periwinkle → violet → amber), deliberately *not* green-to-red,
-  because coverage is not badness -- ten mods touching a cell is normal in a big
-  load order -- and it should not be mistaken for the conflict map at a glance.
-  Both legends are now generated from the same ramp the map draws with, so they
-  cannot drift apart, and the conflict map's client-side recoloring is handed
-  the stop table as data instead of re-implementing the curve in JavaScript.
-- **Out-of-range cells are reported, not silently dropped.** One corrupt grid
-  coordinate would stretch the map to millions of pixels, so filtering them is
-  right -- but the page now says how many were dropped rather than quietly
-  rendering an incomplete map.
-
-### Fixed
 
 - **Grass mods are no longer inserted as `content=`.** Reported by a user as
   "it toggles on ALL mods, including mods flagged as grass mods". A folder scan
@@ -1294,7 +1282,7 @@ it had none.
 - **CI now tests 3.10, 3.11, 3.12 and 3.13** -- every version
   `requires-python` promises, rather than just the two ends.
 
-- **A native TES3 record schema** (`wraithguard/tes3fields/schema.py`, generated
+- **A native TES3 record schema** (`mlox_subset/tes3fields/schema.py`, generated
   by `tools/gen_tes3_schema.py`): 46 record types, 313 subrecords, 62 with parsed
   struct layouts, built from UESP's format-page tables. 56 of those layouts
   declare a plain byte count, and all 56 agree with the sum of their parsed
@@ -1306,13 +1294,13 @@ it had none.
   release is a two-line change because of it.
 
 - **The cell map generator moved out of the engine** into
-  `wraithguard/viz/cellmap.py`, with its CSS and JS in
-  `wraithguard/viz/cellmap_js.py` as plain constants (`CODE_REVIEW.md` §29). It
+  `mlox_subset/viz/cellmap.py`, with its CSS and JS in
+  `mlox_subset/viz/cellmap_js.py` as plain constants (`CODE_REVIEW.md` §29). It
   was 216 lines of HTML/CSS/JS in one f-string sitting in the middle of the sort
   engine, with every brace doubled -- `REMAINING_WORK.md` flagged it as
   effectively uneditable, and that is why it could not grow the features asked
   of it. It is now ten small functions that each return a fragment, and the
-  client assets need no escaping at all. `wraithguard_toolkit.py` keeps the public
+  client assets need no escaping at all. `mlox_subset_sort.py` keeps the public
   name as a delegation, so nothing that imported it had to change.
   `tests/test_viz_pages.py` adds 85 tests over the result, five of which were
   verified by injecting the real defect and confirming a red test.
