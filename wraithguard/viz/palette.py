@@ -149,33 +149,6 @@ def terrain_tint(t: float) -> str:
     return _ramp(_clamp(t), _TERRAIN_STOPS)
 
 
-def terrain_ramp(steps: int = 256) -> list[str]:
-    """The tint as a lookup table, for a page that shades pixels itself.
-
-    Handed to the 3D view rather than re-expressed in JavaScript, for the same
-    reason the conflict map is given its bands: a curve written out twice is a
-    curve that will eventually disagree with itself. Sampling it into a table
-    also makes the per-pixel path a lookup rather than an interpolation, which
-    is what makes shading every pixel affordable.
-
-    Args:
-        steps: How many samples to take. The default puts the largest step
-            between neighbours at two units per channel, which is about where a
-            step stops being visible as a band in a smooth gradient -- at 64 it
-            was seven, which shows on the ramp's steepest segment. The table
-            costs a few kilobytes, so buying the headroom is free.
-
-    Returns:
-        ``steps`` colors, from the lowest ground to the highest.
-
-    Raises:
-        ValueError: If ``steps`` is less than two, which cannot describe a ramp.
-    """
-    if steps < 2:
-        raise ValueError(f"a ramp needs at least two samples, got {steps}")
-    return [terrain_tint(i / (steps - 1)) for i in range(steps)]
-
-
 #: A rainbow in the order Turbo popularised -- dark blue, blue, cyan, green,
 #: yellow, orange, red, dark red. Written from our own stops rather than lifted
 #: from Google's Turbo table: the ordering is the useful part and it is a fact
