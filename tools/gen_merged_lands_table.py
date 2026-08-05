@@ -2,7 +2,7 @@
 r"""Regenerate the function-by-function coverage table for the Merged Lands port.
 
 **Why this is generated rather than written.** The first version of
-``docs/MERGED_LANDS_FUNCTIONS.md`` was written by hand, grouped related Rust
+``MERGED_LANDS_FUNCTIONS.md`` was written by hand, grouped related Rust
 functions onto one table row, and then reported the *row* count as the function
 count -- so ``land/`` was labelled 37 functions when it has 64, and forty
 functions were covered only by a group heading that never named them. A table
@@ -17,7 +17,7 @@ script fails rather than emitting a table with a hole in it.
 Usage::
 
     python tools/gen_merged_lands_table.py --src ../merged_lands-main/src \\
-        --out docs/MERGED_LANDS_FUNCTIONS.md
+        --out MERGED_LANDS_FUNCTIONS.md
 
 Merged Lands is MIT (David Von Derau, 2022). See ``CREDITS.md``.
 """
