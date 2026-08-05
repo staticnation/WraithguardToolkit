@@ -42,7 +42,8 @@ and their `LICENSE` files are included in their source folders in this repo.
 - **tes3conv** - © 2025 Greatness7. MIT.
   Converts Morrowind plugins ↔ JSON. Used (optionally, if present on PATH) as the
   exact record-identification and field-diff engine behind Check Conflicts.
-- **Merged Lands** - © 2022 David Von Derau. MIT.
+- **Merged Lands** - © 2022 David Von Derau. MIT. Licence text vendored at
+  `License/MergedLands/LICENSE`.
   A Rust tool that merges the landscape changes a load order would otherwise
   discard. Our `wraithguard/land/` package is a **port of it**, function by
   function - the reference landmass, the per-mod diff, the four conflict
@@ -51,7 +52,7 @@ and their `LICENSE` files are included in their source folders in this repo.
   sidecar schema, which we read with the same field names and values so
   settings written for the original work here unchanged.
 
-  `docs/MERGED_LANDS_FUNCTIONS.md` accounts for **all 191 functions** in its
+  `MERGED_LANDS_FUNCTIONS.md` accounts for **all 191 functions** in its
   `src/`, names where each one lives here, and records every place we diverge
   and why. Our additions - a slope limiter, curvature-weighted resolution, and
   digest-based cleaning - are marked as ours there rather than attributed to it.
@@ -317,6 +318,43 @@ the credit is one of gratitude and correctness.
   when writing the binary decoders, alongside the MIT-licensed implementations
   credited above.
 
+## yampt - Yet Another Morrowind Plugin Tools
+
+**yampt - MIT, Copyright (c) 2016-2026 Rafał Wierzchoś.** Licence text vendored
+at `License/yampt/LICENSE`.
+
+Four things are ported from yampt's C++, with its permission by licence:
+
+- `status.py` - the two-axis conflict model, from
+  `yampt.core/source/scanner/record_conflict.cpp` and the worst-of roll-up in
+  `yampt.editor/source/model/nav_tree_model.cpp`. The names (`conflict_all`,
+  `conflict_this`, "identical to master", "override wins") follow yampt, which
+  in turn follows TES5Edit/xEdit's "Conflict Status All" / "Conflict Status
+  This". The absence sentinel is ours: yampt uses a magic byte string because
+  its values are C++ strings, and Python can just use an object.
+
+- `wraithguard/gui/pluginview.py` - the plugin tree's shape, from
+  `yampt.editor/source/model/nav_tree_model.hpp`: file node -> record-type
+  group -> records, each level taking the worst status of its children on both
+  axes. yampt follows xEdit here and so do we.
+
+- `align.py` - matching the entries of a repeated field by content identity
+  rather than by position, from
+  `yampt.core/source/decoder/content_alignment.cpp`. yampt does this over raw
+  subrecords with per-record anchor and key rules; working from tes3conv's
+  decoded JSON means the entries arrive structured, so what is taken is the
+  principle and the question it answers - what identifies an entry - not the
+  subrecord machinery.
+
+- `dialogue.py` - resolving a topic into the order the engine reads it, from
+  `yampt.core/source/scanner/dial_info_align.cpp`. Including the rule that
+  matters most: a response whose `PNAM` names something not yet seen goes to
+  the **end** of the topic.
+
+Verified rather than assumed: the port reproduces the file order of all 4,111
+topics and 36,735 responses in Morrowind.esm, Tribunal.esm and Bloodmoon.esm
+exactly, from the `prev_id` chain alone.
+
 ## Runtime & optional libraries
 
 - **Python** and **Tkinter/ttk** - the language and GUI toolkit.
@@ -337,10 +375,11 @@ the credit is one of gratitude and correctness.
 ---
 
 *Wraithguard Toolkit is provided as-is. Where we reproduce MIT-licensed material
-(notably tes3lint's evil-GMST table), the original copyright and licence notice
-travels with it in the source. We copy no GPL or unlicensed source: MWSE and
-OpenMW were read for cross-checking only, and the unlicensed community Perl
-scripts contributed ideas, not code.*
+(notably tes3lint's evil-GMST table, and the algorithms ported from Merged
+Lands and yampt), the original copyright and licence notice travels with it in
+the source. We copy no GPL or unlicensed source: MWSE and OpenMW were read for
+cross-checking only, and the unlicensed community Perl scripts contributed
+ideas, not code.*
 
 *Attribution is something we would rather over-do than get wrong. If anything
 here is inaccurate - a name, a licence, a claim about what we derived from

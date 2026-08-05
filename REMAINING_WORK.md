@@ -1,32 +1,44 @@
 # What is left: codebase and PEP conformance
 
-> **Status at 3.0.** Every gate passes with zero findings. This document is the
-> honest list of what a reviewer would still flag, measured rather than
-> recalled, so nobody has to re-derive it. Nothing here blocks the release.
+> **Status at 3.1.2.** All gates pass with zero findings -- pytest, ruff,
+> black, mypy (checked on 1.8.0 and 1.14.1), and the `.pot` / placeholder /
+> undefined-name checks. This document is the honest list of what a reviewer
+> would still flag, measured rather than recalled, so nobody has to re-derive
+> it. Nothing here blocks the release.
 >
-> **One outstanding action, from the §28 audit:** nine files are fully
-> unreferenced and listed for deletion in `CODE_REVIEW.md` §28.1 (the retired
-> explorer, cell-page, sidecar, asset, cache and detail modules, plus
-> `tests/test_viz_client.py`). They could not be removed from the environment
-> that audited them. `tests/test_standards.py` asserts nothing live imports
-> them, so they are inert until deleted -- but they are still ~1,700 lines a
-> reader has to work out are dead.
+> **The toolchain is now pinned** (`pip install -e .[dev]`, see the `dev` extra
+> in `pyproject.toml`). This was the root cause of the drift the audit found: an
+> unpinned ruff/mypy silently grows new rules, which is where the ISC004,
+> PLR0917 and the wave of typeshed `type-var` errors came from -- newer tool
+> releases, not changed code. The 30 mypy false positives that surfaced (a
+> `QueueWriter` that subclasses `io.TextIOBase` but is not seen as `IO[str]`,
+> `~LandData.NONE` reading as `int` off `IntFlag.__invert__`, an
+> identical-across-mixins attribute, a stale `# type: ignore`, and the untyped
+> `yaml` import) were resolved rather than suppressed -- see `AUDIT_REPORT.md`.
+>
+> **The §28 audit's outstanding action is DONE:** the nine unreferenced files
+> (`viz/explorer.py`, `explorer_js.py`, `cellpage.py`, `sidecar.py`,
+> `assets.py`, `cache.py`, `draw_js.py`, `detail.py`, and
+> `tests/test_viz_client.py`) have been deleted.
 
 Re-run the gates before and after any change:
 
 ```bash
-python -m pytest                       # 1,273 tests: 1,271 passed, 2 skipped
+python -m pytest                       # 3,205 tests: 3,202 passed, 3 skipped
 python -m ruff check .                 # style, naming, imports, security, BLE, DTZ, D, ANN
 python -m black --check .              # formatting
-python -m mypy                         # PEP 484 -- gates all 54 shipped files
+python -m mypy                         # PEP 484 -- gates all 109 shipped files
 python tools/check_undefined.py wraithguard_toolkit_gui.py
 python tools/check_placeholders.py     # i18n %(key)s vs dict keys
-python tools/make_pot.py --check       # .pot must be current (456 messages)
+python tools/make_pot.py --check       # .pot must be current (613 messages)
 ```
 
-The single skip is `test_differential.py`'s `--update-baseline` guard, and it
-is **correct** for it to stay skipped: it exists to stop the 41 pinned
-behavioural observations being silently regenerated.
+One skip is deliberate: `test_differential.py`'s `--update-baseline` guard, and
+it is **correct** for it to stay skipped -- it exists to stop the 41 pinned
+behavioural observations being silently regenerated. The other two are
+environmental and appear only where the host lacks the dependency:
+`test_gui_smoke.py` (no Tk) and `test_nif_serve.py` (no network). Under xvfb
+with network in CI, the deliberate skip is the only one.
 
 ---
 

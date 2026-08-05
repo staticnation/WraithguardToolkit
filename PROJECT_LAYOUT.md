@@ -5,7 +5,15 @@ folder. Reference material (the upstream projects whose formats and behaviour
 this tool mirrors) and scratch output were deliberately left outside it.
 
 ```
-MLOXSubsetSort/
+WraithguardToolkit/
+├── *.md                          Project documentation, all at the top level:
+│                                 README, QUICKSTART, CHANGELOG, CREDITS,
+│                                 CODE_REVIEW, PROJECT_LAYOUT, MLOX_RULES,
+│                                 NIF_PROVENANCE, MERGED_LANDS_PORT and
+│                                 MERGED_LANDS_FUNCTIONS, the briefs, and
+│                                 SMOKE_TEST.
+├── License/                      One folder per upstream project whose licence
+│                                 travels with code we ported or adapted.
 ├── wraithguard_toolkit.py        Engine + CLI. No GUI import; runs headless.
 ├── wraithguard_toolkit_gui.py    Tkinter front-end. Imports the engine.
 ├── wraithguard/               Shared foundation package.
@@ -35,6 +43,19 @@ MLOXSubsetSort/
 │   │                          glow, specular...) across the vanilla NIF slots,
 │   │                          OpenMW's name suffixes and OSG unit names, so a
 │   │                          normal map is never compared against a photo.
+│   ├── nif/                   Morrowind NIF meshes: block reader, geometry,
+│   │                          texture resolution, BSA-aware VFS, and the
+│   │                          3D viewer page.
+│   ├── land/                  The Merged Lands port: reference landmass,
+│   │                          per-plugin diff, merge strategies, seam repair,
+│   │                          slope and curvature conditioning, plugin emit.
+│   ├── patch/                 Building a *new* patch plugin from records
+│   │                          chosen in the diff viewer. Never writes to a
+│   │                          source mod. Also the conflict-status model
+│   │                          (`status.py`), its per-record and per-plugin
+│   │                          roll-ups (`summary.py`), entry alignment for
+│   │                          repeated fields (`align.py`), and dialogue
+│   │                          topic ordering (`dialogue.py`).
 │   ├── rules/                 mlox rule handling: patterns, parser,
 │   │                          expression front-end.
 │   ├── configurator/          openmw.cfg: read, simulate, emit TOML.
@@ -71,7 +92,7 @@ MLOXSubsetSort/
 │   ├── gen_tes3_schema.py     Regenerates the TES3 record schema from the
 │   │                          UESP format-page export.
 │   └── make_pot.py            Extracts _() strings into the .pot template.
-├── tests/                     pytest suite (1,273 tests: 1,271 hermetic + a Tk
+├── tests/                     pytest suite (3,205 tests: 3,202 hermetic + a Tk
 │                               smoke set that runs under xvfb in CI).
 ├── testdata/                  Copies of a real setup, used by the tests.
 ├── locale/                    wraithguard_toolkit.pot (English template),
@@ -105,7 +126,7 @@ feature and degrade gracefully when missing.
 ## Testing
 
 ```bash
-python -m pytest                # whole suite (1,273 tests)
+python -m pytest                # whole suite (3,202 tests)
 python -m ruff check .          # lint (PEP 8 incl. naming + import order)
 python -m mypy                  # types (PEP 484) -- gates every shipped file
 python -m black --check .       # formatting
@@ -136,14 +157,24 @@ essentials:
   an identical one for reference)
 * `--clean` on, so PyInstaller does not reuse a cached analysis
 
-**One data file does need adding: the 3D viewer library.** PyInstaller follows
-imports, not data, so `wraithguard/nif/assets/` is not collected automatically.
-Add it with `--add-data "wraithguard/nif/assets;wraithguard/nif/assets"` (or
-`--collect-data wraithguard`). Without it the app runs normally and the **View
-in 3D** button reports that the library was not shipped - deliberately a clear
-message rather than a blank window, since a missing data file and a broken
-viewer look identical otherwise. `wraithguard/nif/viewer.py` looks in
-`sys._MEIPASS` first, exactly as the help documents do.
+**One data folder does need adding: the 3D viewer library.** PyInstaller
+follows imports, not data, so the vendored three.js build is not collected
+automatically. It lives at **`wraithguard/viz/assets/`** and is loaded as
+`assets/three.cjs`, so the entry maps the folder to `assets/`:
+
+```
+--add-data "wraithguard/viz/assets;assets"
+```
+
+Without it the app runs normally and the **View in 3D** button reports that the
+library was not shipped - deliberately a clear message rather than a blank
+window, since a missing data file and a broken viewer look identical otherwise.
+`wraithguard/viz/library.py` looks in `sys._MEIPASS` first, exactly as the help
+documents do.
+
+*(This paragraph previously named `wraithguard/nif/assets/`, which does not
+exist: `nif/viewer.py` gets the library from `viz.three_source()`. Following it
+would have added nothing and left the viewer broken.)*
 
 **You do not need to add `wraithguard/` or `locale/` by hand.** PyInstaller
 follows the import graph, so the package is collected automatically; the only

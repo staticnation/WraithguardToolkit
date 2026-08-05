@@ -23,7 +23,8 @@ python tools/gen_merged_lands_table.py --src ../merged_lands-main/src --check
 `tests/test_merged_lands_coverage.py` runs the same check whenever the source
 tree is present.
 
-Merged Lands is MIT (David Von Derau, 2022). See `CREDITS.md`.
+Merged Lands is MIT (David Von Derau, 2022). Licence text vendored at
+`License/MergedLands/LICENSE`; see `CREDITS.md`.
 
 Status column:
 

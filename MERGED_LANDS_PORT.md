@@ -5,7 +5,8 @@ written because "we ported it" had been asserted more than it had been checked.
 Every row states where the behaviour lives here, or says plainly that it does
 not exist yet.
 
-Merged Lands is MIT (David Von Derau, 2022). See `CREDITS.md`.
+Merged Lands is MIT (David Von Derau, 2022). Licence text vendored at
+`License/MergedLands/LICENSE`; see `CREDITS.md`.
 
 ## Coverage
 
@@ -114,3 +115,22 @@ by the structure it introduces rather than by how far it moves a vertex —
 following Zhao, Jiang and Guo (2022) §2.3. A +500 bulk shift introduces 0.000
 radians of structure; a −60 road cut introduces 0.297. Magnitude alone gives the
 shift eight times the say.
+
+## Where the code has moved on since this was written
+
+The audit above is a statement about *behaviour*, and the behaviour is
+unchanged. Two things about the implementation are not:
+
+- **The slope limiter sorted its cells on every pass.** `sorted(cells)` sat
+  inside the pass loop, so a 17,560-cell landmass was sorted 24 times to
+  produce the same list 24 times. The order is there to make the result
+  deterministic, and no pass adds or removes a cell, so it is now sorted once.
+  No merged plugin changes as a result; this is speed only.
+
+- **`emit.py` states each field's payload size once.** The empty-field branches
+  used to spell out `bytes(3 * LAND_NUM_VERTS)` and friends alongside a
+  `FIELD_SIZES` table that said the same thing and had no caller. They now read
+  from the table. An empty field of the wrong length still encodes and still
+  writes, so this is the kind of duplication that stays wrong quietly.
+
+Neither is a divergence from Merged Lands: both are internal to `land/`.

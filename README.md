@@ -725,14 +725,16 @@ Deliberately different from full mlox (by design):
 ## Developing
 
 Only the standard library is needed to *run* the tool. The checks below need
-`ruff`, `black`, `mypy` and `pytest`.
+`ruff`, `black`, `mypy` and `pytest`; `pip install -e .[dev]` installs them at
+the exact versions these standards are measured against (see the `dev` extra in
+`pyproject.toml`), so the gates don't drift as the tools add new rules.
 
 ```bash
-python -m pytest                # 1,273 tests: no network, no Tk, no real mods needed
+python -m pytest                # 3,202 tests: no network, no Tk, no real mods needed
                                 # (the GUI smoke set skips without Tk; CI runs it under xvfb)
 python -m ruff check .          # PEP 8 style, naming, import order, security, perf
 python -m black --check .       # formatting
-python -m mypy                  # PEP 484 types; gates all 54 shipped files
+python -m mypy                  # PEP 484 types; gates all 109 shipped files
 python tools/check_undefined.py wraithguard_toolkit_gui.py
 python tools/check_placeholders.py   # i18n %(key)s placeholders vs their dicts
 python tools/make_pot.py --check     # the .pot template must be current

@@ -2177,9 +2177,10 @@ The world-3D LOD machinery goes with it, as intended -- there is no conflict-map
 3D terrain any more, so `WORLD_SIDE`, `_world_patch` and the knitting code have
 no purpose.
 
-*The files could not be deleted from this environment (the mount is read-only to
-removal), so they remain on disk while being fully unreferenced. Deleting them is
-a one-line `git rm`; §28.1 below lists them.*
+*At the time of that review the files could not be deleted from the environment,
+so they stayed on disk while fully unreferenced. **They have since been
+removed** -- see §28.1, which is now a record of what went rather than a list of
+what to do.*
 
 ### The tests had drifted behind a real improvement
 
@@ -2208,10 +2209,10 @@ check that every `self.<method>()` call in the GUI resolves to a definition on
 `App` or a mixin found only one hit, and it was a false positive (an assigned
 callback attribute, not a method).
 
-### §28.1 Files to delete
+### §28.1 Files deleted
 
-Fully unreferenced after this pass; kept on disk only because this environment
-cannot remove them. Nothing imports any of them.
+Fully unreferenced after that pass, and **since removed**. Verified by the
+module audit: none of these paths exists any more, and nothing imports them.
 
 ```
 wraithguard/viz/explorer.py
@@ -2225,12 +2226,10 @@ wraithguard/viz/detail.py
 tests/test_viz_client.py
 ```
 
-`detail.py` is included because its three public functions were the explorer's
+`detail.py` was included because its three public functions were the explorer's
 and the cell pages' data layer; the four surviving page builders take their
-`surfaces` mappings straight from the GUI's own field lookup. After deleting,
-drop `wraithguard.viz` entries for them from `pyproject.toml` only if the
-package list names modules individually (it names packages, so no change is
-needed), and re-run the gate list.
+`surfaces` mappings straight from the GUI's own field lookup. `pyproject.toml`
+needed no change, since its package list names packages rather than modules.
 
 The live `viz` surface is now:
 

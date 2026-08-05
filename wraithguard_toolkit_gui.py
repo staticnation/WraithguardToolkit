@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from wraithguard.land import service as land_service
+from wraithguard.patch.summary import ALL_TAGS, field_statuses
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Mapping, Sequence
@@ -99,19 +100,29 @@ except ImportError:
 # SVG grid; tkhtmlview only takes an in-memory string and can't draw SVG, so it's
 # a last resort. Without either, the map is written to a file and opened in a
 # browser. (pip install tkinterweb  -- recommended for the in-app window.)
+#: Why each optional viewer backend is unavailable, if it is. Recorded rather
+#: than discarded: "pywebview=False" in the trace says a page opened in the
+#: browser but not *why*, and the difference between "not installed in the
+#: build environment" and "bundled but its DLLs did not come with it" is the
+#: whole diagnosis. Every entry here is a swallowed exception that would
+#: otherwise have to be reproduced by hand.
+VIEWER_IMPORT_ERRORS: dict[str, str] = {}
+
 HTMLViewer: Any = None
 try:
     from tkinterweb import HtmlFrame as _HtmlFrame
 
     HTMLViewer = _HtmlFrame  # supports load_file + SVG
-except Exception:  # noqa: BLE001
+except Exception as _exc:  # noqa: BLE001
     # optional 3rd-party import; a broken install must not kill startup
+    VIEWER_IMPORT_ERRORS["tkinterweb"] = f"{type(_exc).__name__}: {_exc}"
     try:
         from tkhtmlview import HTMLScrolledText as _HTMLScrolledText
 
         HTMLViewer = _HTMLScrolledText
-    except Exception:  # noqa: BLE001
+    except Exception as _exc2:  # noqa: BLE001
         # optional 3rd-party import; a broken install must not kill startup
+        VIEWER_IMPORT_ERRORS["tkhtmlview"] = f"{type(_exc2).__name__}: {_exc2}"
         HTMLViewer = None
 
 # pywebview is the BEST in-app option: it hosts the OS webview (Edge WebView2 /
@@ -123,8 +134,9 @@ try:
 
     HAVE_PYWEBVIEW = True
     del _webview_probe
-except Exception:  # noqa: BLE001
+except Exception as _exc3:  # noqa: BLE001
     # optional 3rd-party import; a broken install must not kill startup
+    VIEWER_IMPORT_ERRORS["pywebview"] = f"{type(_exc3).__name__}: {_exc3}"
     HAVE_PYWEBVIEW = False
 
 
@@ -172,6 +184,7 @@ from wraithguard.gui import (  # noqa: E402
 )
 from wraithguard.gui.conflicts import ConflictWindowsMixin  # noqa: E402
 from wraithguard.gui.patchwin import PatchBuilderMixin  # noqa: E402
+from wraithguard.gui.pluginview import PluginViewMixin  # noqa: E402
 from wraithguard.gui.t3 import Tes3cmdMixin  # noqa: E402
 from wraithguard.gui.theme import (  # noqa: E402
     _THEME_REQUIRED,
@@ -827,7 +840,7 @@ def _action_button(
     return button
 
 
-class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
+class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin):
     """The main application window."""
 
     # Colors for the log panel's tags now come from the selected syntax
@@ -915,6 +928,12 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
                     f"HTMLViewer={HTMLViewer.__module__ + '.' + HTMLViewer.__name__ if HTMLViewer else None} "
                     f"load_file={HTMLViewer is not None and hasattr(HTMLViewer, 'load_file')}"
                 )
+                # The line above says a viewer is missing; these say why it is
+                # missing. Without them the only way to tell "never installed"
+                # from "bundled but its DLLs did not come too" is to rebuild
+                # and guess, which is how this cost an evening.
+                for _name, _why in VIEWER_IMPORT_ERRORS.items():
+                    trace(f"viewers: {_name} unavailable -- {_why}")
                 # absolute path: for a frozen .exe this is next to the .exe,
                 # which is NOT where the source tree's copy lives
                 self.log_queue.put(f"[trace] writing debug trace to: {Path(path).resolve()}\n")
@@ -1969,7 +1988,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
            ttk.Style can't touch.
         3. The reorder panels' per-row itemconfig colors are re-applied.
         """
-        apply_dark_theme(self.root)  # type: ignore[arg-type]
+        apply_dark_theme(self.root)
         count = restyle_widget_tree(self.root)
         for panel in (getattr(self, "order_panel", None), getattr(self, "data_order_panel", None)):
             if panel is not None:
@@ -2212,7 +2231,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
         writer = QueueWriter(self.log_queue)
         written, mem_lines = None, None
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 lines, n_folders, n_plugins = core.scan_mod_directories(folder, out)
             if out:
                 written = out
@@ -2269,7 +2288,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
         writer = QueueWriter(self.log_queue)
         plan = None
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 plan = core.compute_plan(args)
             n_warn = len(plan.get("predicate_warnings") or [])
             n_yml = len(plan.get("yml_warnings") or [])
@@ -2413,7 +2432,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
         # the contract is checked rather than assumed.
         assert self._current_plan is not None  # noqa: S101
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 result = core.write_plan(
                     args,
                     self._current_plan,
@@ -2783,7 +2802,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
         writer = QueueWriter(self.log_queue)
         result = None
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 print("\n" + "=" * 70)
                 print(_(" MERGE LANDS"))
                 print("=" * 70)
@@ -2855,7 +2874,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
         path = None
         trace(f"cell map: start, {len(order)} plugin(s)")
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 index = PluginFileIndex(dirs)
                 cfg_dir = (
                     str(Path(self.cfg_var.get().strip()).parent)
@@ -4158,7 +4177,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
         writer = QueueWriter(self.log_queue)
         stats: dict = {}
         try:
-            with redirect_stdout(writer), redirect_stderr(writer):
+            with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 print("\n" + "=" * 70)
                 print(_(" LINT (tes3lint-style checks, native)"))
                 print("=" * 70)
@@ -4318,14 +4337,13 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
                 values=["(set a tes3conv binary for field-level diffs)"] + [""] * len(plugins),
             )
             return
-        try:
-            keys, per, diff = core.diff_record_fields(
-                self._conf_session, conflict, self._conf_paths
-            )
-        except Exception:  # noqa: BLE001
-            # field diff is best-effort; degrades to '(field diff unavailable)'
-            ftree.insert("", "end", values=["(field diff unavailable)"] + [""] * len(plugins))
+        read = self.read_fields_now(conflict)
+        if read is None:
+            # Busy, or unreadable. Either way the panel says so rather than
+            # blocking the UI thread until whatever holds the session lets go.
+            ftree.insert("", "end", values=["(busy or unavailable)"] + [""] * len(plugins))
             return
+        keys, per, diff = read
         self._conf_fdiff = {"plugins": plugins, "per": per}  # for the expand popup
         # The record's own id doubles as its cell label for the visualisations
         # ("(43, -45)" for landscape, "Balmora (-3, -2)" for a path grid), so
@@ -4334,9 +4352,19 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin):
         # The record type ("Landscape", "PathGrid", ...) so the detail window
         # can say what each field is in the file format, not just in the JSON.
         self._conf_record_type = str(conflict.get("type") or "")
+        # Red-or-not was the wrong resolution. "These disagree" reads the same
+        # whether four plugins agree with the winner or one plugin's work is
+        # being thrown away, and only the second is worth opening. Each row is
+        # now coloured by what is actually happening to that field.
+        judged = {status.key: status for status in field_statuses(keys, per, plugins)}
         for k in keys:
             row = [k] + [self._fmt_val(per[p].get(k)) for p in plugins]
-            ftree.insert("", "end", iid=k, values=row, tags=("diff",) if k in diff else ())
+            status = judged.get(k)
+            tag = ALL_TAGS[status.overall][0] if status else ""
+            tags = (tag,) if tag else ()
+            if not tags and k in diff:
+                tags = ("diff",)
+            ftree.insert("", "end", iid=k, values=row, tags=tags)
         if not keys:
             ftree.insert("", "end", values=["(no fields / identical)"] + [""] * len(plugins))
 

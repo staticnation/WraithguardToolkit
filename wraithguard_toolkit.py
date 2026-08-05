@@ -110,6 +110,7 @@ mods-folder scanner, and the GUI).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fnmatch
 import os
 import re
@@ -177,6 +178,7 @@ if TYPE_CHECKING:
         Sequence,
         Set as AbstractSet,
     )
+    from contextlib import AbstractContextManager
 
 # ---------------------------------------------------------------------------
 # mlox [VER]/[SIZE]/[DESC] predicate functions (ported from mlox's ruleParser).
@@ -1659,6 +1661,81 @@ class Tes3ConvSession:
                 m[k] = rec
         return m
 
+    def record_subset(
+        self, path: str | Path, wanted: AbstractSet[tuple[str, str]]
+    ) -> dict[tuple[str, str], Any]:
+        """Return ``{(rectype, rid): record}`` for just the ``wanted`` keys.
+
+        Like :meth:`record_map`, but *streams* the plugin's JSON and keeps only
+        the records asked for, so peak memory is one record plus the kept subset
+        rather than the whole decoded file. Decoding a plugin's JSON costs about
+        3.5x its size in RAM, so on a 600 MB landmass plugin this is the
+        difference between ~2 GB and tens of MB. :func:`batch_record_fields` and
+        the on-click :func:`diff_record_fields` both want only a handful of a
+        plugin's records, and are the callers that need it.
+
+        Streaming needs the ``ijson`` parser (optional). Without it, this falls
+        back to :meth:`record_map` filtered to ``wanted`` -- the same result, at
+        the old peak memory. So installing ``ijson`` only changes the memory
+        profile, never the records returned.
+
+        Args:
+            path: The plugin file.
+            wanted: The ``(rectype, rid)`` keys to keep.
+
+        Returns:
+            Those of the ``wanted`` records that exist, keyed exactly as
+            :func:`_tes3conv_record_key` keys them. Absent keys are simply not
+            in the result.
+        """
+        want = set(wanted)
+        if not want:
+            return {}
+
+        try:
+            import ijson
+        except ImportError:
+            # No streaming parser: same answer, whole-file peak. Optional dep,
+            # so a missing one degrades memory rather than breaking the read.
+            return {k: v for k, v in self.record_map(path).items() if k in want}
+
+        jp = self._json_for(path)
+        if not jp:
+            return {}
+
+        # Cell-scoped, id-less records (path grids) are keyed by their parent
+        # cell, and whether that cell is interior decides the key shape.
+        # record_map learns this from a full pre-pass; the cells sidecar already
+        # holds it for a few KB, so streaming needs no second parse of the file.
+        interior = {
+            str(name).lower() for kind, name, *_ in self.cells(path) if kind == "int" and name
+        }
+
+        out: dict[tuple[str, str], Any] = {}
+        remaining = set(want)
+        try:
+            with Path(jp).open("rb") as fh:
+                # use_float=True: decode reals as float and integers as int,
+                # exactly as json.load does. Without it ijson yields Decimal,
+                # which would compare and repr() differently from every other
+                # read path and quietly change what the differ calls a conflict.
+                for rec in ijson.items(fh, "item", use_float=True):
+                    if not isinstance(rec, dict):
+                        continue
+                    key = _tes3conv_record_key(rec, interior)
+                    if key in remaining:
+                        out[key] = rec
+                        remaining.discard(key)
+                        if not remaining:
+                            # Everything asked for is in hand; stop parsing the
+                            # rest of the file entirely.
+                            break
+        except (OSError, ValueError):
+            # A truncated or otherwise unstreamable file must never silently
+            # return less than record_map would: fall back to the whole read.
+            return {k: v for k, v in self.record_map(path).items() if k in want}
+        return out
+
     @staticmethod
     def _stale(json_path: Path, plugin_path: str | Path) -> bool:
         """Report whether a cached JSON predates its plugin.
@@ -1797,29 +1874,6 @@ class Tes3ConvSession:
 
             shutil.rmtree(self.dump_dir, ignore_errors=True)
 
-    def lua_scripts(self, path: str | Path) -> list[str]:
-        """Return the Lua script paths a plugin declares.
-
-        Read from the LuaScriptsCfg record inside an
-        .omwaddon/.omwgame (tes3conv's JSON for the LUAL record), so tes3conv
-        mode matches the built-in parser. Field names are probed defensively.
-        """
-        out = []
-        for rec in self._records(path):
-            if not isinstance(rec, dict):
-                continue
-            if str(rec.get("type", "")).lower().replace("_", "") not in ("luascriptscfg", "lual"):
-                continue
-            for s in rec.get("scripts") or rec.get("mScripts") or []:
-                sp = None
-                if isinstance(s, dict):
-                    sp = s.get("script_path") or s.get("path") or s.get("mScriptPath")
-                elif isinstance(s, str):
-                    sp = s
-                if sp:
-                    out.append(str(sp).replace("\\", "/").lower().lstrip("/"))
-        return out
-
 
 def diff_record_fields(
     session: Tes3ConvSession | None, conflict: Mapping[str, Any], paths: Mapping[str, str]
@@ -1837,7 +1891,10 @@ def diff_record_fields(
     key = (conflict["type"], conflict["id"])
     per = {}
     for p in conflict["plugins"]:
-        rec = session.record_map(paths.get(p, "")).get(key) if paths.get(p) else None
+        # Stream out just this one record rather than decoding the whole
+        # plugin: the on-click diff of a record a 600 MB landmass defines used
+        # to materialise ~2 GB to read one entry (see record_subset).
+        rec = session.record_subset(paths.get(p, ""), {key}).get(key) if paths.get(p) else None
         per[p] = flatten_dict(rec) if isinstance(rec, dict) else {}
     ordered, seen = [], set()
     for p in conflict["plugins"]:
@@ -1852,6 +1909,108 @@ def diff_record_fields(
         if len(vals) > 1 or present != len(conflict["plugins"]):
             differing.add(k)
     return ordered, per, differing
+
+
+def batch_record_fields(
+    session: Tes3ConvSession | None,
+    conflicts: Sequence[Mapping[str, Any]],
+    paths: Mapping[str, str],
+    report: Callable[[int, int], None] | None = None,
+    digest: bool = False,
+    lock: AbstractContextManager[Any] | None = None,
+) -> dict[tuple[str, str], tuple[list[str], dict[str, dict[str, Any]]]]:
+    """Field values for many records, with one JSON parse per plugin.
+
+    :func:`diff_record_fields` answers for one record, and calls
+    :meth:`Tes3ConvSession.record_map` once per plugin defining it. That method
+    deliberately caches nothing -- holding every plugin's records was multi-GB --
+    so each call re-reads and re-parses that plugin's entire JSON.
+
+    For one record on demand that is right. For a batch it is quadratic in the
+    worst way: judging 2,000 records that Morrowind.esm defines re-parses its
+    183 MB JSON 2,000 times, and one parse is 14 seconds cold. The sidecar
+    already saves re-running tes3conv; nothing was saving the parse.
+
+    So this inverts the loops. Every plugin is read once, only the wanted
+    records are kept from it, and the parse is thrown away before the next.
+    With ``ijson`` installed the read is a streaming one
+    (:meth:`Tes3ConvSession.record_subset`), so peak memory is one record plus
+    the wanted subset rather than the whole plugin's JSON -- the difference
+    between tens of MB and ~2 GB on a big landmass plugin. Without ``ijson`` it
+    falls back to a whole-file parse per plugin: same records, old peak.
+
+    Args:
+        session: The conversion session, or ``None`` for no field data.
+        conflicts: The records to read, as the scanner reports them.
+        paths: Plugin name to its file path.
+        report: Called with ``(plugins done, plugins total)`` as it goes.
+        digest: Keep a hash of each value rather than the value. A caller that
+            only compares values for equality -- which is all judging does --
+            does not need to hold them, and holding them is what makes a whole
+            load order run out of memory: a landscape's height and normal
+            fields are tens of kilobytes of base64 each, and there are 50,000
+            conflicting records. Hashing bounds it to 16 bytes a field. Use it
+            for judging; leave it off when the values will be shown.
+        lock: Held around *each plugin read*, not around the whole call. The
+            tes3conv session is one process on one pipe, so concurrent readers
+            must take turns -- but holding it for a whole batch blocks every
+            other reader for minutes, and a caller waiting minutes is an
+            application the operating system reports as not responding.
+
+    Returns:
+        ``(type, id)`` to ``(ordered field keys, per-plugin values)`` -- the
+        same shape :func:`diff_record_fields` returns, minus the differing set,
+        which callers judging with :mod:`wraithguard.patch.status` do not use.
+    """
+    import hashlib
+
+    # Any in and out: a decoded field is whatever tes3conv produced, and what
+    # comes back is either that value unchanged or a hash of it.
+    def keep(value: Any) -> Any:  # noqa: ANN401
+        if not digest:
+            return value
+        return hashlib.blake2b(repr(value).encode("utf-8", "replace"), digest_size=16).digest()
+
+    if session is None:
+        return {}
+
+    wanted: dict[str, set[tuple[str, str]]] = {}
+    for conflict in conflicts:
+        key = (conflict["type"], conflict["id"])
+        for plugin in conflict["plugins"]:
+            wanted.setdefault(plugin, set()).add(key)
+
+    held: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
+    for done, (plugin, keys) in enumerate(wanted.items(), start=1):
+        path = paths.get(plugin, "")
+        if path:
+            with lock if lock is not None else contextlib.nullcontext():
+                found = session.record_subset(path, keys)
+            held[plugin] = {
+                key: {name: keep(value) for name, value in flatten_dict(found[key]).items()}
+                for key in keys
+                if isinstance(found.get(key), dict)
+            }
+            del found  # before the next plugin, not after
+        else:
+            held[plugin] = {}
+        if report is not None:
+            report(done, len(wanted))
+
+    out: dict[tuple[str, str], tuple[list[str], dict[str, dict[str, Any]]]] = {}
+    for conflict in conflicts:
+        key = (conflict["type"], conflict["id"])
+        plugins = list(conflict["plugins"])
+        per = {plugin: held.get(plugin, {}).get(key, {}) for plugin in plugins}
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for plugin in plugins:
+            for field in per[plugin]:
+                if field not in seen:
+                    seen.add(field)
+                    ordered.append(field)
+        out[key] = (ordered, per)
+    return out
 
 
 def _scan_touch(

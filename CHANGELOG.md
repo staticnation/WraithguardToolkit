@@ -1,11 +1,249 @@
 # Changelog
 
 
+## 3.1.2
+
+Everything after the 3.1.1 patch. Enough of it is new capability rather than
+repair that this may ship as 4.0 instead; the content is the same either way.
+
+The headline is that the conflict viewer stopped being a list. It now says what
+*kind* of conflict each record has, shows the load order as a tree you can walk
+per mod, and answers "which of my mods is losing work" with a number. Two of
+those needed a read path that was quietly quadratic, and fixing it is the other
+headline.
+
+### Added
+
+- **The field diff says what kind of conflict it is, not just that there is
+  one.** Red or not red was the wrong resolution: five plugins editing a record
+  where nothing is lost looked exactly like five where one plugin's work is
+  being discarded, and only the second is worth opening. Fields are now judged
+  on the rule the engine itself implies - with the versions in load order, the
+  first is the original and the last is what the game uses, and nothing is lost
+  so long as every version matches one or the other. Amber means overridden but
+  intact; red means somebody's edit is being thrown away.
+
+  The model (`wraithguard/patch/status.py`) is ported from yampt (MIT, Rafal
+  Wierzchos) and follows xEdit's "Conflict Status All" / "Conflict Status This"
+  naming.
+
+- **A Plugin view: the load order as a tree.** Plugin, then kind of record,
+  then record, with the record compared across every plugin that defines it in
+  the pane beside it. The conflict list is unchanged and still opens first.
+
+  A flat list answers "what conflicts", which is the right question exactly
+  once - when you want a count. Every question after that is about a *mod*:
+  what does this one change, where does it lose, is it worth moving or
+  patching. 51,946 rows cannot be read that way, and no amount of filtering
+  turns a list of records into a picture of a load order. The tree structure
+  follows yampt's `nav_tree_model` (file -> type group -> records), which
+  follows xEdit.
+
+  Colour carries the two axes: text colour says what *this plugin* is doing to
+  the record, and a plugin row takes the worst of everything beneath it - so a
+  branch worth opening looks like one before you open it.
+
+  **Nothing is built or read until it is opened.** A plugin's groups appear
+  when the plugin is opened, its records when the group is opened, and those
+  are inserted in batches with the event loop given a turn between them, so a
+  group of thirty thousand fills in behind you instead of freezing the window.
+  The judgement follows the same rule: reading a whole load order with tes3conv
+  is far too slow, but reading the group you just expanded takes a moment, so
+  each group judges itself in the background and its rows colour as the answers
+  arrive.
+
+  The per-plugin verdict is always read fresh rather than taken from a Plugin
+  summary that has already run. The summary judges the *record* ("is anything
+  lost here"), not the *plugin* ("is this the file losing"), and a record-wide
+  verdict cannot be turned into a per-plugin one without guessing - a guess
+  that would colour a plugin as winning a conflict it actually loses, which is
+  the single answer this window exists to get right.
+
+  Inside a record, list fields expand into their entries, matched by what they
+  *are* rather than where they sit. Comparing entries by position is worse than
+  not comparing them: a mod that inserts one item near the top of a leveled
+  list shifts everything after it, and an ordinal diff reports every remaining
+  entry as changed - one real edit buried in a hundred false ones. Identity is
+  per-field and never the index: a reference by its object instance, a leveled
+  entry by item *and* level, an inventory entry by item id because the count is
+  what gets edited.
+
+  Measured on this corpus: across 127 leveled lists that real mods edit, an
+  ordinal comparison flags 1,523 rows and the aligned one flags 788 - with a
+  check confirming no genuine addition or removal is lost.
+
+  The alignment idea is from yampt's `content_alignment.cpp`; working from
+  tes3conv's decoded JSON means the entries arrive already structured, so what
+  is ported is the principle and the per-field identity rules.
+
+- **A Plugin summary, in the conflict window.** The button judges every listed
+  conflict and counts the result *per mod* rather than per record: how many it
+  edits and loses, how many it wins, how many it redefines without changing
+  anything. Worst first, because that is the order worth acting in.
+
+  This is the question a flat conflict list cannot answer and the one that
+  actually decides load order - "which of my mods is losing work?" - and the
+  answer is a number per plugin, not four thousand rows. Running it also
+  colours the conflict list itself, so red now means an edit is being discarded
+  rather than merely that several mods touched the record.
+
+  Note that "same as original" is reported, not condemned. An unchanged
+  dialogue response is very often deliberate: it holds a line's place in its
+  topic.
+
+- **Dialogue position is now a number instead of a warning.** The patch report
+  used to say a response's position "depends on" files it does not control,
+  which is true and nearly useless. It now resolves each affected topic twice -
+  as the load order reads it now, and with the patch appended - and reports the
+  actual move: *goes from position 4 to position 9*.
+
+  The placement rule is replayed from `prev_id`, including the one that does
+  the damage: a response whose predecessor is nowhere to be found goes to the
+  **end** of its topic, where its filters are tested last and may never match.
+  Ported from yampt's `dial_info_align.cpp`, and checked against vanilla - it
+  reproduces the file order of all 4,111 topics and 36,735 responses in
+  Morrowind, Tribunal and Bloodmoon from the link chain alone.
+
+- **Position anchors are reported.** To insert a line mid-topic an author drags
+  the neighbouring responses into their plugin unchanged, so the plugin itself
+  states where the new line goes. Measured across the 298 plugins in this
+  corpus that contain dialogue: 1,729 responses are byte-identical to their
+  master apart from `prev_id`/`next_id`, and 1,711 of them - 98% - sit directly
+  beside a response the same plugin added or edited. Tribunal and Bloodmoon do
+  it 1,125 times between them.
+
+  These look exactly like records with no changes, which is the danger:
+  `tes3cmd` lists `INFO` among the types its clean command deletes when they
+  duplicate a master, while its own manual warns the duplication is often
+  deliberate. The patch report now names them.
+
+- **Greetings get their own wording.** They are numbered buckets matched on
+  filters alone, so position is the whole of it - a greeting that moves down is
+  a greeting that stops being said.
+
+### Fixed
+
+- **Pages opened in the browser instead of the in-app window, and the app
+  could not say why.** `tkinterweb` -- the *preferred* in-app viewer -- was
+  never declared in `pyproject.toml`, so no install command brought it and the
+  chain fell through to `tkhtmlview`, which cannot `load_file` and cannot draw
+  SVG. The trace reported `pywebview=False HTMLViewer=tkhtmlview...` and
+  stopped there, because both probes swallowed the import exception whole.
+
+  Three changes. The probes now record the exception, and the trace prints
+  `viewers: <name> unavailable -- <error>` beside the summary, so "never
+  installed" and "bundled but its DLLs did not come too" stop looking alike.
+  `pyproject.toml` gains `html = ["tkinterweb"]` and a `gui` extra that pulls
+  everything the interface can use in one command. And the build config gains
+  `--hidden-import tkinterweb`, because the import sits inside a `try` and
+  **PyInstaller does not follow imports inside a `try`** -- so even an
+  installed tkinterweb could be left out of the bundle.
+
+  Also `--collect-submodules wraithguard`: the config relied entirely on
+  import analysis, and a subpackage reached only through a mixin fails at
+  runtime in one window rather than at build time.
+
+- **`PROJECT_LAYOUT.md` named a data folder that does not exist.** It told you
+  to bundle `wraithguard/nif/assets`; the vendored three.js lives at
+  `wraithguard/viz/assets` and loads as `assets/three.cjs`. Following the
+  instruction would have added nothing and left the 3D view broken.
+
+- **54 private and nested functions had no docstring, and the gate could not
+  see them.** pydocstyle's D103 exempts names beginning with an underscore, so
+  ruff reported the tree clean while a third of `gui/` was undocumented -- a
+  gap between the standard this project states (PEP 257 with Args/Returns/
+  Raises, no exemptions for `wraithguard/*`) and the one it could enforce.
+
+  All 54 written, and `test_standards.py` now walks every function in the
+  package and fails with file, line and name for any that lacks one. Verified
+  by deleting a docstring and watching it fail; protocol stubs whose body is
+  `...` are exempt, since they declare a signature and have no behaviour.
+
+- **Aligning a cell's references was quadratic.** Found by the deep audit, in
+  code added earlier in this same version. Each new entry was inserted into a
+  shared list and then the key-to-index map was rebuilt so the next insertion
+  knew where to go -- O(n) per entry, O(n^2) overall. Invisible on an
+  inventory of nine items; ruinous on an exterior cell, which can carry
+  thousands. Measured on the same input: **3.095 seconds for 8,000 entries
+  against 0.002 seconds**, byte-identical output, 1,392x. Now one pass per
+  plugin, with tests pinning both the ordering rules and the size.
+
+- **The slope limiter re-sorted every cell on every pass.** `sorted(cells)`
+  sat inside the pass loop, so a real load order sorted 17,560 coordinate
+  tuples 24 times to produce the same list 24 times. The order exists to make
+  the result deterministic and no pass adds or removes a cell, so it is now
+  sorted once.
+
+- **Reading many records re-parsed their plugins once per record.**
+  `Tes3ConvSession.record_map` caches nothing on purpose - holding every
+  plugin's decoded records was multi-gigabyte - which is right for one record
+  on demand and quadratic for a batch. Judging 2,000 records that Morrowind.esm
+  defines re-parsed its 183 MB JSON 2,000 times, and one cold parse is 14
+  seconds. The JSON sidecar cache was already saving the *tes3conv* run;
+  nothing was saving the parse.
+
+  `batch_record_fields` inverts the loops: each plugin is read once, only the
+  wanted records are kept from it, and the parse is dropped before the next
+  plugin is opened, so peak memory is still one plugin's JSON. Measured on the
+  real cache: 159 records across 3 plugins took **109 seconds and 477 parses**
+  the old way and **0.68 seconds and 3 parses** the new one, with byte-identical
+  output. Both the Plugin summary and the Plugin view's on-demand judging now
+  use it, and progress is reported in plugins because that is what the work is.
+
+  Batching then exposed the memory side of the same problem. Judging only ever
+  compares values for equality, so it never needs to *hold* them - and holding
+  them is what runs the machine out of memory: a landscape record flattens to
+  27 KB of base64 heights and normals, and a real scan has 51,946 conflicting
+  records across roughly two and a half plugins each. Measured: **3.6 GB of
+  values against 21 MB of hashes.** So the judging callers ask for a 16-byte
+  digest per field instead, and only the display path keeps the values.
+
+- **Two threads could talk to one tes3conv session at once.** The session is a
+  single process answering one request at a time down one pipe; a background
+  scan and a click on a record would interleave, and each would receive the
+  other's answer. That does not fail - it returns the wrong record's fields,
+  which is the worst outcome available because it looks like data. All four
+  callers now go through one lock, held for a single request, so neither side
+  waits more than one record. (The first fix refused to read while a worker ran,
+  which was correct but made the window feel broken.)
+
+- **Every dialogue position note was printed once per source plugin.** The
+  service called `dialogue_position_risk` in a loop over the sources, but the
+  notes are a property of what is being carried, not of any one source - so a
+  patch drawing on three plugins repeated each warning three times. A warning
+  that repeats is a warning people learn to skim.
+
+## 3.1.1
+
+A single fix, released on its own because it changed how an existing file is
+read rather than adding anything.
+
+### Fixed
+
+- **A hand-written `replace` block was carried through without explanation.**
+  Importing a customizations TOML containing a `[[Customizations.replace]]`
+  block regenerated the file with that block moved and unlabelled, so it
+  appeared somewhere it had never been with nothing to say where it came from
+  -- looking exactly like something the tool had invented. Establishing that
+  nothing was wrong took a Discord thread and two people reading a
+  `plugin_order.yml`.
+
+  Six comment lines now answer it in place: this is yours, this tool only ever
+  regenerates insert/append/remove blocks, and -- the part that was previously
+  invisible -- momw-configurator's `replace` inherits the position of `source`,
+  so when mlox wants the plugin somewhere else that cannot be expressed. The
+  note gives the position mlox chose and the plugin it would follow, so the
+  choice to convert the block to an insert, or to leave it alone deliberately,
+  is the user's and is informed.
+
+
 ## 3.1
 
-Everything after the 3.0 release. 3.0's own entry below is exactly as it
-shipped, so the two can be told apart at a glance, and
+The 3.1 release: everything between 3.0 and it. 3.0's own entry below is
+exactly as it shipped, so the two can be told apart at a glance, and
 `MloxSubsetSort-3.0 release/` is the backup of what actually went out.
+
+Work done *after* this shipped is under 3.1.1 and 3.1.2 above.
 
 The headline is that the emitted TOML could abort a Configurator rebuild
 outright (see **Fixed**), which is worth reading before anything else here.
@@ -15,6 +253,12 @@ scale with its shading fully exposed, and the GUI has 45 automated checks where
 it had none.
 
 ### Added
+
+
+
+
+
+
 
 - **A Patch Builder window.** The patch queue is now something you can see and
   edit rather than a number on a button. It opens beside the conflict list,
@@ -116,7 +360,7 @@ it had none.
   repairs the seams and then repairs them *again*, requiring the second pass to
   find nothing, and we had ported the repair but not the assertion. The toolkit
   now refuses to write a plugin with a surviving tear rather than shipping a
-  wall across a cell boundary. They are written up in `docs/MERGED_LANDS_FUNCTIONS.md`
+  wall across a cell boundary. They are written up in `MERGED_LANDS_FUNCTIONS.md`
   alongside all 191 functions and where each one lives here.
 
 - **A lit material view in the texture comparison.** A flat side-by-side view
@@ -395,6 +639,9 @@ it had none.
 
 ### Fixed
 
+
+
+
 - **A patched dialogue response lost its topic.** Found by reading a patch a
   user had actually built: it contained one `INFO` record and no `DIAL`. A
   `DialogueInfo` carries no topic of its own - the engine attaches it to the
@@ -415,7 +662,8 @@ it had none.
   belongs to, positioned over it, and raised and focused before it takes input;
   closing it with the window manager releases the grab too.
 
-- **A carried-through `replace` block now says it is carried through.** A user
+- **A carried-through `replace` block now says it is carried through.**
+  *(Shipped in 3.1.1, above.)* A user
   asked publicly whether a `[[Customizations.replace]]` at the bottom of their
   exported file was normal. It was theirs - written by hand to reconcile a
   plugin momw names `CORE PATCH` with the `BASE PATCH` they have installed.

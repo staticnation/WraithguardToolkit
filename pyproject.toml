@@ -6,7 +6,7 @@
 #     python -m ruff check .          # PEP 8 style, naming, import order
 #     python -m black --check .       # formatting
 #     python -m mypy                  # PEP 484 types (gates every file)
-#     python -m pytest                # 800 tests
+#     python -m pytest                # 3,202 tests
 
 # --- PEP 518 / 517 build system ----------------------------------------------
 # Required once [project] exists: PEP 518 makes this the declaration of what is
@@ -79,8 +79,44 @@ dependencies = []
 [project.optional-dependencies]
 yaml = ["PyYAML"]          # faster plugin-order.yml parsing
 dnd = ["tkinterdnd2"]       # drag-and-drop into the GUI
-webview = ["pywebview"]     # in-app cell map
+webview = ["pywebview"]     # in-app viewer, first choice: a real OS webview
+html = ["tkinterweb"]       # in-app viewer, second choice: renders SVG, load_file
 zstd = ["zstandard"]        # tes3conv bytecode on Python < 3.14
+# Streaming JSON for the diff/patch reader. Without it the field-level readers
+# fall back to a whole-file parse per plugin (same records, old peak memory);
+# with it they stream and keep only the wanted records, so peak memory reading
+# a few records out of a 600 MB landmass plugin drops from ~2 GB to tens of MB.
+stream = ["ijson"]
+
+# Everything the GUI can use. `pip install -e .[gui]` is the one command that
+# leaves no viewer missing -- which is worth having as a single name, because
+# the failure mode is silent: with none of these installed the app runs, writes
+# its pages, and quietly opens them in the browser instead.
+gui = ["PyYAML", "tkinterdnd2", "pywebview", "tkinterweb", "zstandard", "ijson"]
+
+# The gates, pinned. `pip install -e .[dev]` installs the exact tool versions
+# the standards claims in this file and in README/REMAINING_WORK are measured
+# against. This exists because the empty runtime `dependencies` means nothing
+# else pins the toolchain: ruff and mypy keep adding and stabilising rules, so
+# an unpinned `python -m mypy` / `ruff check` drifts from "zero findings" to a
+# pile of new-rule noise without a line of project code changing -- which is
+# exactly what an audit found (ISC004, PLR0917, and a wave of typeshed
+# type-var errors all appeared purely from newer tool releases). Bump these
+# deliberately, re-run the gates, and adjust the ignore lists in the same
+# commit -- never let them float.
+#   types-PyYAML: stubs for the optional `yaml` import in wraithguard.momw, so
+#   mypy types it instead of reporting import-untyped when PyYAML is present.
+dev = [
+    "ruff==0.16.1",
+    "black==26.5.1",
+    "mypy==1.14.1",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "types-PyYAML==6.0.12.20260724",
+    # Installed in dev so the streaming diff/patch reader is exercised by the
+    # suite rather than only its whole-file fallback.
+    "ijson==3.5.1",
+]
 
 [project.scripts]
 mlox-subset-sort = "wraithguard_toolkit:main"
@@ -168,10 +204,16 @@ ignore = [
     "PLW0603",
     # Complexity limits: this is a domain tool whose sort/emit functions are
     # inherently long and sequential; splitting them purely to satisfy a
-    # counter would hurt readability.
-    "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",
-    # Formatter-owned.
-    "COM812", "ISC001",
+    # counter would hurt readability. PLR0917 (too-many-positional) is the same
+    # family as PLR0913 (too-many-arguments), split into its own rule in a
+    # later ruff; exempted for the same reason and to keep the two consistent.
+    "PLR0911", "PLR0912", "PLR0913", "PLR0917", "PLR0915", "PLR2004",
+    # Formatter-owned. ISC004 (unparenthesized implicit concatenation in a
+    # collection) is the false-positive-prone sibling of ISC001: every site is
+    # a long user-facing / HTML string deliberately wrapped across lines and
+    # already parenthesized as a tuple element, so the "forgot a comma?"
+    # heuristic is noise here. Stabilized after this config was written.
+    "COM812", "ISC001", "ISC004",
 ]
 
 [tool.ruff.lint.per-file-ignores]
