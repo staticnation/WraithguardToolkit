@@ -52,6 +52,19 @@ NUM_TEXTURES: Final = TEXTURE_SIZE * TEXTURE_SIZE
 #: Side of the low-resolution world-map heightmap.
 WNAM_SIZE: Final = 9
 
+#: World units per WNAM step. The world map stores every eighth height vertex
+#: divided by this factor: a stored height of 8496 becomes ``round(8496 / 128)``
+#: = 66. Equivalent to the raw VHGT value (height / :data:`HEIGHT_SCALE`) divided
+#: by 16, which is how the engine and the Construction Set regenerate WNAM from
+#: terrain. Negative values render as water on the world map, positive as land,
+#: so a cell whose heights are below sea level but whose WNAM is zero paints as
+#: brown coast over open water -- the symptom that made this factor matter.
+WNAM_HEIGHT_SCALE: Final = 128
+
+#: The world map samples every ``WNAM_STEP``-th height vertex: vertices
+#: 0, 8, ..., 64, which is nine samples across the 65-vertex edge.
+WNAM_STEP: Final = (LAND_SIZE - 1) // (WNAM_SIZE - 1)
+
 #: Stored heights are pre-divided by this factor.
 HEIGHT_SCALE: Final = 8
 

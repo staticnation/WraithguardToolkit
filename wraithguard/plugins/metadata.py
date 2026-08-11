@@ -70,8 +70,15 @@ class PluginFileIndex:
     def _build(self) -> None:
         """Populate the index, skipping directories that cannot be read.
 
-        Earlier directories win on a name collision (``setdefault``), matching
-        how the caller orders ``data=`` lines.
+        **Later directories win on a name collision**, matching OpenMW: a
+        plugin (or loose file) provided by more than one ``data=`` folder
+        resolves to the one declared *latest*, because a later ``data=`` line
+        shadows an earlier one. ``data_dirs`` arrives in load order (earliest
+        ``data=`` first), so a plain assignment -- last write wins -- is
+        correct, and ``setdefault`` would be exactly wrong: it kept the first
+        copy, so a mod split across ``00 Core`` and ``01 Patch`` resolved to
+        the pre-patch file, and every downstream read (tes3conv JSON, the
+        conflict scan, Merged Lands) then saw terrain the player never loads.
         """
         index: dict[str, Path] = {}
         for directory in self._dirs:
@@ -81,7 +88,7 @@ class PluginFileIndex:
                     continue
                 for entry in path.iterdir():
                     if entry.is_file() and entry.name.lower().endswith(PLUGIN_EXTS):
-                        index.setdefault(entry.name.lower(), entry)
+                        index[entry.name.lower()] = entry  # last data= dir wins
             except OSError:
                 continue  # unreadable directory: skip, do not fail the run
         self._index = index

@@ -32,6 +32,7 @@ from wraithguard.patch.records import (
     position_anchors,
     required_masters,
 )
+from wraithguard.proc import no_window_kwargs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -259,6 +260,8 @@ def _write(document: Sequence[Mapping[str, Any]], target: Path, converter: str) 
                 text=True,
                 timeout=600,
                 check=False,
+                # No console flash when a --noconsole build writes the patch.
+                **no_window_kwargs(),
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise PatchServiceError(f"tes3conv could not be run: {exc}") from exc

@@ -31,6 +31,7 @@ import secrets
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
@@ -224,6 +225,39 @@ class ViewerServer:
         with self._lock:
             self._payloads.clear()
         LOG.info("viewer server stopped")
+
+
+def publish_html_file(server: ViewerServer | None, path: str | Path) -> str | None:
+    """Serve a self-contained HTML view from a running loopback server.
+
+    Some platforms refuse a ``file://`` page -- the Steam Deck's browser and
+    various sandboxed webviews among them -- so a generated view is served over
+    loopback by default and only opened as the written file when no port can be
+    bound. Every view this tool writes embeds its data and scripts (no external
+    assets), so publishing the one document is the whole page; there are no
+    sidecars to map, which keeps the server's no-filesystem guarantee intact.
+
+    Args:
+        server: A running :class:`ViewerServer`, or ``None``.
+        path: The written HTML file.
+
+    Returns:
+        A ``http://127.0.0.1`` URL, or ``None`` when the server is not running
+        or the file cannot be read -- in which case the caller keeps the file
+        path as the fallback.
+    """
+    if server is None or not server.running:
+        return None
+    try:
+        body = Path(path).read_bytes()
+    except OSError:
+        return None
+    try:
+        session = server.publish_session("view")
+        return session.publish("index.html", Payload(body, "text/html; charset=utf-8"))
+    except RuntimeError:
+        # Raced with a stop(): treat as "no loopback", fall back to the file.
+        return None
 
 
 def _make_handler(owner: ViewerServer) -> type[BaseHTTPRequestHandler]:

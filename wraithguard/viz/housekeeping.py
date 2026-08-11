@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 #: ``<stem>_<YYYYmmdd>_<HHMMSS>.html``. Only files matching one of these (with a
 #: timestamp) are ever considered for deletion.
 GENERATED_STEMS: tuple[str, ...] = (
+    "cell_map",
     "conflict_map",
     "terrain_surface",
     "terrain3d",

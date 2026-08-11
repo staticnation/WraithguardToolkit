@@ -20,7 +20,7 @@ the question that decides load order.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from wraithguard.patch.status import (
     ABSENT,
@@ -206,11 +206,17 @@ class Survey:
         unreadable: How many records could not be compared. Reported rather
             than skipped: a summary that quietly leaves records out is worse
             than one that says how much it could not see.
+        verdicts: ``(type, key)`` to ``{plugin: what that plugin does to it}``.
+            The per-plugin judgement this pass computes anyway -- kept rather
+            than thrown away so the plugin-tree view can colour every row from
+            it without re-reading a single record. Compact: enum values keyed by
+            shared plugin-name strings, a few bytes per membership.
     """
 
     records: dict[tuple[str, str], ConflictAll] = field(default_factory=dict)
     plugins: dict[str, PluginTally] = field(default_factory=dict)
     unreadable: int = 0
+    verdicts: dict[tuple[str, str], Mapping[str, ConflictThis]] = field(default_factory=dict)
 
     @property
     def losing_plugins(self) -> list[PluginTally]:
@@ -246,7 +252,6 @@ def survey(
         The whole scan, judged.
     """
     found = Survey()
-    per_record: list[Mapping[str, ConflictThis]] = []
 
     for conflict in conflicts:
         plugins = list(conflict.get("plugins") or [])
@@ -258,10 +263,76 @@ def survey(
         keys, per = read
         statuses = field_statuses(keys, per, plugins, skip_absent)
         found.records[marker] = record_status(statuses)
-        per_record.append(record_plugin_statuses(statuses, plugins))
+        # The per-plugin verdicts are the tree's colour index. Kept keyed by
+        # marker rather than only folded into the tally, so a per-row colour is
+        # a dict lookup instead of a fresh read.
+        found.verdicts[marker] = record_plugin_statuses(statuses, plugins)
 
-    found.plugins = tally(per_record)
+    found.plugins = tally(found.verdicts.values())
     return found
+
+
+_Row = TypeVar("_Row", bound="Mapping[str, Any]")
+
+#: How each sortable conflict-list column reads a row. ``custom`` sorts by
+#: whether the row is one of your mods, ``count`` numerically by how many
+#: plugins touch it, the rest by their text case-insensitively.
+_CONFLICT_SORT_KEYS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
+    "custom": lambda row: bool(row.get("involves_subset")),
+    "type": lambda row: str(row.get("type", "")).lower(),
+    "id": lambda row: str(row.get("id", "")).lower(),
+    "count": lambda row: len(row.get("plugins") or []),
+    "winner": lambda row: str(row.get("winner", "")).lower(),
+}
+
+#: The conflict-list columns that can be sorted by clicking their header.
+SORTABLE_CONFLICT_COLUMNS: frozenset[str] = frozenset(_CONFLICT_SORT_KEYS)
+
+
+def sort_conflicts(rows: Sequence[_Row], column: str, *, descending: bool = False) -> list[_Row]:
+    """Sort the conflict list by one of its columns.
+
+    The pure core behind clicking a column header. Python's sort is stable, so
+    rows that tie on the chosen column keep the order they already had -- which
+    is what makes a second click (to reverse) predictable rather than
+    reshuffling equal rows. An unknown column leaves the order untouched.
+
+    Args:
+        rows: The rows to sort, in their current order.
+        column: A column name from :data:`SORTABLE_CONFLICT_COLUMNS`.
+        descending: Sort high-to-low when ``True``.
+
+    Returns:
+        A new sorted list; the input is not mutated.
+    """
+    key = _CONFLICT_SORT_KEYS.get(column)
+    if key is None:
+        return list(rows)
+    return sorted(rows, key=key, reverse=descending)
+
+
+def search_rows(rows: Sequence[_Row], query: str, fields: Sequence[str]) -> list[_Row]:
+    """Filter rows to those matching a search box, case-insensitively.
+
+    The pure core behind the conflict and resource lists' search: a row is kept
+    when any of ``fields`` contains ``query`` as a substring. An empty or
+    whitespace query keeps everything, so clearing the box restores the list.
+    Kept Tk-free so the filtering is testable without a display.
+
+    Args:
+        rows: The rows to filter, in display order.
+        query: The search text.
+        fields: The row keys to search, e.g. ``("type", "id")``.
+
+    Returns:
+        The matching rows, in their original order.
+    """
+    wanted = query.strip().lower()
+    if not wanted:
+        return list(rows)
+    return [
+        row for row in rows if any(wanted in str(row.get(field, "")).lower() for field in fields)
+    ]
 
 
 def row_tag_updates(

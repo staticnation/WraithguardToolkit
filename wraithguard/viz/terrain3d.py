@@ -78,7 +78,7 @@ three axes foreshorten equally) and top-down needs an exact right angle.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from wraithguard import _
 from wraithguard.tes3fields.landscape import (
@@ -500,8 +500,21 @@ def _sample(grid: Sequence[Sequence[float]], stride: int) -> list[list[float]]:
     return out if len(out) >= 2 else [list(row) for row in grid]
 
 
+def _is_encoded(value: object) -> bool:
+    """Whether a surface value is encoded ``(data, offset)`` vs a decoded grid.
+
+    Args:
+        value: A ``build_terrain_3d`` surface value.
+
+    Returns:
+        ``True`` for the ``(vertex_heights.data, offset)`` pair a plugin ships,
+        ``False`` for an already-decoded 65x65 grid.
+    """
+    return isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], (str, bytes))
+
+
 def build_terrain_3d(
-    surfaces: Mapping[str, tuple[str | bytes, float]],
+    surfaces: Mapping[str, tuple[str | bytes, float] | Sequence[Sequence[float]]],
     *,
     cell_label: str = "",
 ) -> str:
@@ -525,9 +538,17 @@ def build_terrain_3d(
     """
     decoded: list[dict[str, object]] = []
     failures: list[str] = []
-    for name, (value, offset) in surfaces.items():
+    for name, value in surfaces.items():
+        # A surface is either the encoded ``(vertex_heights.data, offset)`` a
+        # plugin ships, or an already-decoded 65x65 grid -- the merge-strategy
+        # preview computes the latter and hands them in directly rather than
+        # round-tripping them back through VHGT encoding.
         try:
-            grid = decode_vertex_heights(value, offset)
+            if _is_encoded(value):
+                data, offset = cast("tuple[str | bytes, float]", value)
+                grid: Sequence[Sequence[float]] = decode_vertex_heights(data, offset)
+            else:
+                grid = cast("Sequence[Sequence[float]]", value)
         except LandscapeDecodeError as exc:
             failures.append(f"{name}: {exc}")
             continue

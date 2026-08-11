@@ -417,12 +417,26 @@ def _anchor_positions(
     # plugin as close to the start/end as the edges allow -- NOT a chain).
     # Applied to CUSTOMS only (the curated list is frozen), and they override
     # the anchor heuristic above; graph edges still always win.
+    #
+    # The tie-break among hinted plugins is the order they are *listed* in the
+    # hint blocks, not their existing position. "[NearEnd] A, B, C" therefore
+    # ends the load order with A before B before C, which is what a hand-written
+    # rule means and what mlox does with it -- a user pinning a base plugin ahead
+    # of the addons built on top of it (each near-end, none mastering the other)
+    # gets the order they wrote. This is still a soft position and not a chain:
+    # it invents no edges, and a real edge (a master, an [Order] rule) still wins
+    # in the placement below. The first block to name a plugin fixes its rank; a
+    # later block mentioning it again does not move it.
+    pos_hinted: set[str] = set()  # first hint block to name a plugin fixes its rank
     for pats, to_start, label in ((nearstart, True, "NearStart"), (nearend, False, "NearEnd")):
+        rank = 0
         for pat in pats or ():
             for n in expand_pattern(pat, node_pool):
-                if n not in subset_set:
+                if n not in subset_set or n in pos_hinted:
                     continue
-                j = declared_end[n] - nb  # stable tie-break among hinted customs
+                pos_hinted.add(n)
+                j = rank
+                rank += 1
                 pos[n] = (
                     (-1.0 + j * _POSITION_EPSILON)
                     if to_start
@@ -432,7 +446,7 @@ def _anchor_positions(
                     anchor_out[n.lower()] = ("nearstart" if to_start else "nearend", None)
                 trace_sort(
                     f"[sort]  [{label}] hint: '{n}' -> {'front' if to_start else 'very end'} "
-                    f"(pos {pos[n]:.6g})"
+                    f"(listed #{j}, pos {pos[n]:.6g})"
                 )
     return pos
 
