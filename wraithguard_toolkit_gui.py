@@ -913,6 +913,14 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         self._current_plan = None
         # in-memory scan result (when not saved to a file)
         self._scanned_subset_lines: list[str] | None = None
+        # Folders and plugins the user added by hand (button or drag-drop)
+        # because the scan's folder-name heuristic missed them -- e.g. an OpenMW
+        # Lua mod using a non-standard VFS layout, or a stray plugin outside a
+        # scanned folder. Merged into the subset at Sort time, additive to
+        # whatever other subset source is active. Session-scoped, like an
+        # in-memory scan.
+        self._manual_data_dirs: list[str] = []
+        self._manual_plugins: list[str] = []
         self._tes3conv_override = None  # user-set path to tes3conv (for field-level diffs)
         # Where "Merge Lands" writes. Remembered, because the folder chosen by
         # "wherever most of the load order lives" is a mod's own directory on a
@@ -1258,10 +1266,12 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
 
         plugin_frame = ttk.Frame(left_pane, padding=(0, 0, 6, 0))
         self.order_panel = PluginOrderPanel(plugin_frame)
+        self._build_manual_add_row(plugin_frame, kind="plugin")
         left_pane.add(plugin_frame, minsize=120, stretch="always")
 
         data_frame = ttk.Frame(left_pane, padding=(0, 6, 6, 0))
         self.data_order_panel = DataPathOrderPanel(data_frame)
+        self._build_manual_add_row(data_frame, kind="data")
         left_pane.add(data_frame, minsize=120, stretch="always")
 
         # RIGHT: the rest of the program (inputs/options/actions on top, log
@@ -2230,7 +2240,17 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         # an in-memory scan (Scan with 'Create subset text document' off) counts
         # as input too, so don't demand a file/customizations in that case
         has_mem_scan = bool(self._scanned_subset_lines) and not subset_file
-        if not customizations and not subset_file and not has_mem_scan:
+        # Folders and plugins added by hand are additive to whatever else is
+        # present -- the core reads subset_lines alongside a subset file and
+        # customizations -- so they count as input in their own right and merge
+        # in below. Each line is classified by the core the same way a subset
+        # file's lines are: a plugin filename becomes content, a path becomes a
+        # data insert.
+        manual_lines = list(self._manual_plugins) + list(self._manual_data_dirs)
+        combined_subset_lines = (
+            (list(self._scanned_subset_lines or []) if has_mem_scan else []) + manual_lines
+        ) or None
+        if not customizations and not subset_file and not has_mem_scan and not manual_lines:
             errors.append("Provide a customizations.toml, a subset file, or run Scan.")
 
         write_inplace = self.write_toml_inplace_var.get()
@@ -2265,7 +2285,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                 if self.plugin_order_yml_var.get().strip()
                 else None
             ),
-            subset_lines=(self._scanned_subset_lines if has_mem_scan else None),
+            subset_lines=combined_subset_lines,
             groundcover=[
                 name.strip() for name in self.groundcover_var.get().split(",") if name.strip()
             ],
@@ -2339,6 +2359,161 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             self._scanned_subset_lines = mem_lines
             self.subset_file_var.set("")  # in-memory: no file path to show
         self.status_var.set(status)
+
+    # -- manual subset additions (folders / plugins the scan missed) --------
+
+    def _build_manual_add_row(self, parent: tk.Misc, *, kind: str) -> None:
+        """A button + drag-drop to add a folder or plugin the scan missed.
+
+        The folder scan recognises a mod by a standard asset subfolder
+        (meshes/textures/...) or a plugin file; an OpenMW Lua mod with a
+        non-standard VFS layout, or a stray plugin outside such a folder, has
+        neither and is skipped. This row lets the user include one by hand -- a
+        picker button, or drag it in from the file manager onto the list above.
+        Added items merge into the subset on the next Sort.
+
+        Args:
+            parent: The frame that holds the list panel this row sits under.
+            kind: ``"plugin"`` or ``"data"`` -- which panel and picker to wire.
+        """
+        panel: ReorderPanel = self.order_panel if kind == "plugin" else self.data_order_panel
+        if kind == "plugin":
+            label, command = _("Add plugin..."), self._pick_manual_plugin
+            tip = _(
+                "Include a plugin the Scan missed -- e.g. one sitting outside a "
+                "recognised mod folder. It joins your custom subset on the next Sort. "
+                "You can also drag a plugin file onto the list above from your file "
+                "manager."
+            )
+            drop_hint = _("(install tkinterdnd2 to drag a plugin in)")
+        else:
+            label, command = _("Add data folder..."), self._pick_manual_data_dir
+            tip = _(
+                "Include a folder the Scan missed -- e.g. an OpenMW Lua mod with a "
+                "non-standard layout (no meshes/textures/... folder and no plugin). It "
+                "joins your data paths on the next Sort; tick 'Sort data= paths too' to "
+                "place it in the load order. You can also drag a folder onto the list "
+                "above from your file manager."
+            )
+            drop_hint = _("(install tkinterdnd2 to drag a folder in)")
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=(4, 0))
+        add_btn = ttk.Button(row, text=label, command=command)
+        add_btn.pack(side="left")
+        add_tooltip(add_btn, tip)
+        # Drop onto the list itself: a folder or plugin from the file manager is
+        # routed by what it is, so either list accepts either -- the button just
+        # names the common case for that panel.
+        if register_drop_target(panel.listbox):
+            panel.listbox.dnd_bind("<<Drop>>", self._on_manual_drop)  # type: ignore[attr-defined]
+        else:
+            ttk.Label(row, text=drop_hint, foreground=DARK["fg_dim"]).pack(
+                side="left", padx=(10, 0)
+            )
+
+    # Any: tkinterdnd2 synthesises its own event object, whose only published
+    # field is the `.data` string of dropped paths.
+    def _on_manual_drop(self, event: Any) -> None:  # noqa: ANN401
+        """Add each dropped folder or plugin to the manual subset.
+
+        Args:
+            event: The tkinterdnd2 drop event; ``.data`` is a space-joined list
+                of paths, with ``{braces}`` around any that contain spaces.
+        """
+        for raw in self.root.tk.splitlist(event.data):
+            self._add_manual_path(str(raw))
+
+    def _pick_manual_data_dir(self) -> None:
+        """Choose a data folder to add via a directory dialog."""
+        folder = filedialog.askdirectory(title=_("Select a data folder to add"))
+        if folder:
+            self._add_manual_path(folder)
+
+    def _pick_manual_plugin(self) -> None:
+        """Choose one or more plugins to add via a file dialog."""
+        picked = filedialog.askopenfilenames(
+            title=_("Select plugin(s) to add"),
+            filetypes=(
+                (_("Plugins"), "*.esp *.esm *.omwaddon *.omwgame *.omwscripts"),
+                (_("All files"), "*.*"),
+            ),
+        )
+        for path in self.root.tk.splitlist(picked):
+            self._add_manual_path(str(path))
+
+    def _add_manual_path(self, raw: str) -> None:
+        """Add a dropped/picked path, routed by whether it is a plugin or folder.
+
+        Args:
+            raw: A path to a plugin file or a folder. A plugin file joins the
+                custom subset; a directory joins the data paths. Anything else is
+                reported and ignored.
+        """
+        path = raw.strip().strip("{}").strip()
+        if not path:
+            return
+        plugin = core.basename_if_plugin(path)
+        if plugin is not None:
+            self._record_manual(
+                plugin,
+                self._manual_plugins,
+                key=plugin.lower(),
+                keyed=lambda p: p.lower(),
+                added=_("Added plugin"),
+                dupe=_("Already added"),
+            )
+            return
+        p = Path(path)
+        if p.is_dir():
+            abspath = os.path.abspath(str(p))  # noqa: PTH100 -- match scan (no symlink resolve)
+            self._record_manual(
+                abspath,
+                self._manual_data_dirs,
+                key=normalize_data_path(abspath),
+                keyed=normalize_data_path,
+                added=_("Added data folder"),
+                dupe=_("Already added"),
+                hint=(
+                    ""
+                    if self.sort_data_paths_var.get()
+                    else _("  Tick 'Sort data= paths too' to place it.")
+                ),
+            )
+            return
+        self.status_var.set(_("Not a plugin or folder: %(path)s") % {"path": path})
+
+    def _record_manual(
+        self,
+        value: str,
+        store: list[str],
+        *,
+        key: str,
+        keyed: Callable[[str], str],
+        added: str,
+        dupe: str,
+        hint: str = "",
+    ) -> None:
+        """Append one manual entry unless it is already present, and report it.
+
+        Args:
+            value: The display value to store (a plugin name or absolute folder).
+            store: The list it belongs to.
+            key: The comparison key for this value.
+            keyed: How to key the values already in ``store``.
+            added: The status/log verb when it is added.
+            dupe: The status verb when it is already present.
+            hint: Extra status text (e.g. the sort-data-paths reminder).
+        """
+        if key in {keyed(v) for v in store}:
+            self.status_var.set(f"{dupe}: {value}")
+            return
+        store.append(value)
+        self.log_queue.put(f"{added}: {value}\n")
+        self.status_var.set(
+            _("%(what)s (%(n)d added, applied on Sort): %(value)s")
+            % {"what": added, "n": len(store), "value": value}
+            + hint
+        )
 
     def on_sort(self) -> None:
         """Run step 1: compute the plan, in a worker."""

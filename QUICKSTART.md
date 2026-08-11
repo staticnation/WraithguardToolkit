@@ -27,7 +27,10 @@ python wraithguard_toolkit_gui.py
    - Browse to an existing `momw-customizations.toml` (**customizations.toml**
      field) or a subset text file, **or**
    - click **Scan...** next to *subset file* and pick your `custom` mods folder
-     to generate the list automatically.
+     to generate the list automatically. If the scan misses a mod with a
+     non-standard layout (an OpenMW Lua mod with no `meshes`/`sound`/... folder
+     and no plugin), add it by hand: **Add data folder...** / **Add plugin...**
+     under the lists on the left, or drag the folder/plugin onto them.
 4. *(Recommended)* Set **list name** (e.g. `total-overhaul`) and point
    **plugin-order.yml** at MOMW's file. Now the tool tells your curated list
    apart from your true additions and won't touch the curated order.

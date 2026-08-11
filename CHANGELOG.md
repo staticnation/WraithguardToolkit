@@ -27,6 +27,22 @@
   gained a "second cross-check against the OpenMW fork" section recording the
   zero-normal and i8-saturation findings and the load-order-default decision.
 
+### Added
+
+- **Add a folder or plugin the scan missed, by button or drag-drop.** The
+  mods-folder scan recognises a mod by a standard asset subfolder
+  (`meshes`/`textures`/`sound`/...) or a plugin file; an OpenMW Lua mod with a
+  non-standard VFS layout (e.g. `NgardeParrySounds\sounds\parry\`) has neither
+  and was silently skipped -- and loosening the walk to catch it risks
+  mis-reading other mods. Instead there is now an escape hatch: **Add data
+  folder...** and **Add plugin...** buttons under the two lists on the left, and
+  drag-drop of a folder or plugin onto those lists from the file manager. A
+  dropped plugin is filed as a plugin, a folder as a data path, whichever list it
+  lands on. Additions merge into the subset on the next Sort, on top of any
+  subset file or in-memory scan already loaded (a data folder needs *Sort data=
+  paths too* checked to be placed in the load order). They are session-scoped,
+  like an in-memory scan. (Prompted by Balketh.)
+
 ### Changed
 
 - **The conflict list colours itself on open -- no need to run Plugin summary

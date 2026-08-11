@@ -300,6 +300,21 @@ any plugins in it as `content=` entries - then stops descending that branch.
 - OFF → the result is held in memory and fed straight to the sort; nothing is
   written to disk.
 
+**Adding what the scan missed.** The recognised-folder rule is deliberately
+conservative -- loosening it risks mis-reading another mod's layout -- so a mod
+with no standard asset folder and no plugin is skipped. The common case is an
+OpenMW Lua mod with a non-standard VFS layout (e.g. `NgardeParrySounds\sounds\`,
+where `sounds` isn't a recognised name). For those, add the folder by hand:
+**Add data folder...** under the data-path list opens a picker, or drag the
+folder onto that list from your file manager. The plugin list has the same pair
+-- **Add plugin...** and drag-drop -- for a stray plugin outside a scanned
+folder. Either list accepts either kind (a dropped plugin is filed as a plugin,
+a folder as a data path). Manual additions merge into the subset on the next
+**Sort**, on top of whatever subset file or in-memory scan is already loaded; a
+data folder needs **Sort data= paths too** checked to be placed in the load
+order (otherwise it is only carried into an emitted TOML). They last for the
+session.
+
 ---
 
 ## plugin-order.yml integration

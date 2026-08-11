@@ -18,19 +18,23 @@ maker's preview and write button track validity.
 ### What a good run looks like
 
 ```
-collected 95 items
+collected 99 items
 
-tests\test_gui_smoke.py ............................................................................................... [100%]
+tests\test_gui_smoke.py ................................................................................................... [100%]
 
-================================================= 95 passed in 6.69s ==================================================
+================================================= 99 passed in 8.36s ==================================================
 ```
 
-Verified on Windows 11, Python 3.14.5, pytest 9.1.1 - **95 passed, 0 skipped.**
+Verified on Windows 11, Python 3.14.5, pytest 9.1.1 - **99 passed, 0 skipped.**
 
-The count is written down on purpose. A suite that quietly collects 91 instead
-of 95 has lost four checks, and nothing about a green run says so.
+The count is written down on purpose. A suite that quietly collects 95 instead
+of 99 has lost four checks, and nothing about a green run says so.
 
-The most recent additions cover this session's work. Two guard the draggable
+The most recent additions cover this session's work. Four cover **adding a folder
+or plugin the scan missed**: that a dropped/picked plugin path is filed as a
+plugin (by basename) and a directory as a data path, that both de-dupe
+case-insensitively, and that a path which is neither is ignored. Two guard the
+draggable
 lists: that clicking one row after a Ctrl+A select-all collapses the selection to
 that row (the reported bug -- a full-list contiguous block used to swallow every
 click as a drag-grab), and that an actual drag still reorders the block rather
