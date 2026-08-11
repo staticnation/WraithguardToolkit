@@ -143,8 +143,9 @@ that worked is in `CODE_REVIEW.md` §18, §30 and §31.
 
 ## 4. Test coverage
 
-**54.4%** overall (branch coverage), last measured full-suite with `zstandard`
-installed. Enforced at `fail_under = 52` so it ratchets. The distribution is
+**79.3%** overall (branch coverage), last measured full-suite with `zstandard`
+installed (up from 54.4% as the suite grew). Enforced at `fail_under = 77` so it
+ratchets -- raised from 52 once the honest number climbed. The distribution is
 uneven and the reason is structural:
 
 * `wraithguard/` is well covered - the foundation modules are near-complete.

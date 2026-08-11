@@ -45,7 +45,7 @@ not exist yet.
 | `repair/cleaning.rs` | 176 | **ported** | `land/cleaning.py` + `compact_textures` |
 | `io/meta_schema.rs` | 95 | **ported** | `land/meta.py` — `.mergedlands.toml` |
 | `main.rs` (merge flow) | 808 | **ported** | `land/pipeline.py` — the six steps in order |
-| `merge/cells.rs` | 100 | **ported** | `land/cells.py` — `--cells`, references never carried |
+| `merge/cells.rs` | 100 | **ported** | `land/cells.py` — opt-in `--cells` (off by default), references never carried |
 | `io/save_to_image.rs` | 359 | **ported** | `land/conflict_image.py` — `--conflicts-dir` |
 | `repair/debugging.rs` | 79 | **ported** | `land/debug_colors.py` — `--add-debug-vertex-colors` |
 
@@ -73,11 +73,21 @@ dropped 26 redundant cells — and **5 single-mod cells were kept only because
 seam repair had moved them**. Under the old shape those 5 were never candidates
 at all, and their borders would have stayed torn.
 
-## `CELL` merging, and why it is safe
+## `CELL` merging: opt-in, off by default
 
-`--cells` emits `CELL` records alongside the terrain: region, water height, map
-colour, name and flags. Mods that reshape land frequently adjust these too —
-lowering water to match a dug channel, renaming a cell.
+Terrain is the whole job, so `Merged Lands.esp` carries `LAND` records only
+unless you ask otherwise. **`CELL` merging is off by default** (`--cells`;
+`include_cells=False`, and the GUI does not expose it). This follows the OpenMW
+Merged Lands fork, which removed it outright (`cells.rs` deleted): the OpenMW
+Merged Lands discussions landed on cell-attribute merging not being worth the
+ownership it takes, and the value of the merge being in the land. We default to
+that rather than reproduce the original's always-on behaviour, and keep the code
+as an explicit opt-in instead of deleting it, for the rare setup that wants it.
+
+When enabled, `--cells` emits `CELL` records alongside the terrain: region, water
+height, map colour, name and flags — the things a mod reshaping land frequently
+adjusts too (lowering water to match a dug channel, renaming a cell). The rest of
+this section is why that opt-in is safe when it is used.
 
 **References are never carried.** Merged Lands emits `references: default()` —
 an empty list — and so does this. That is what makes it safe: reference lists
@@ -310,7 +320,7 @@ of the fork.** There is no critical work hiding here.
 | `i64` accumulators in corner-seam averaging | overflow guard | Python `int` is arbitrary-precision — cannot overflow | **none** |
 | `f32_to_i8_saturating` / `is_finite()` guards in height encoding | NaN/inf robustness | heights are integer stored-units; NaN/inf can't arise | **none** (low value) |
 | `has_difference` via `!=` instead of `average()` | equivalent (`average()` returns `None` iff equal) | already exact comparison | **none** |
-| Dropped `CELL` records (`cells.rs` deleted) | feature *removal* | we **keep** `land/cells.py` (`--cells`) | **do not follow** |
+| Dropped `CELL` records (`cells.rs` deleted) | feature *removal* | off by default like the fork; `land/cells.py` kept as an opt-in `--cells` | **follow the default; keep the escape hatch** |
 | `fallback_texture_index` replaces the panic on an unremappable index | behavioural | we **pass through and report** (`translate_indices`), a documented, arguably-better choice | **your call — see below** |
 | OpenMW app-config `merged_lands.toml` with `ignore_plugins` | new feature | we already skip plugins with no `LAND`/`LTEX` | optional convenience |
 | Reads `openmw.cfg` `content=` order, outputs `.omwaddon` | OpenMW IO | we read `openmw.cfg` via the configurator and emit our own output | already handled our way |

@@ -45,6 +45,14 @@
 
 ### Changed
 
+- **The distribution and command are now `wraithguard`.** The packaging name was
+  still the old `mlox-subset-sort`, so a built wheel and the installed console
+  command carried the pre-rename identity. The distribution is now
+  `wraithguard-toolkit` and the command is `wraithguard` (`pip install .` then
+  `wraithguard --cfg ...`). The importable package was already `wraithguard`.
+- **Dev toolchain: mypy pinned to 2.3.0** (from 1.14.1), so installing the `dev`
+  extra no longer downgrades a current mypy. The tree types clean under it (0
+  errors, 111 files); ruff, black and pytest pins are unchanged.
 - **The conflict list colours itself on open -- no need to run Plugin summary
   first.** The verdict colours (what wins, what loses, what is benign) came from a
   survey that only ran when you opened Plugin summary or the Plugin view. The
@@ -57,6 +65,16 @@
 
 ### Fixed
 
+- **Writing a cfg no longer rewrites its line endings on Windows.** `write_cfg`
+  wrote through text mode, so every `\n` became `\r\n` on Windows -- changing the
+  bytes of a user's `openmw.cfg` it was only meant to reorder. It now writes with
+  `newline=""`; `read_cfg` already strips line endings, so the result is faithful
+  `\n` on every platform. Found by running the full suite on Windows/Python 3.14,
+  which also surfaced two test-only portability issues (a shell-script stand-in
+  for tes3conv that only POSIX can execute, now skipped off POSIX; and a "no zstd
+  backend" simulation that 3.14's new stdlib `compression.zstd` defeated, now
+  blocked at the parent package). The suite is green on Windows/3.14: 3,438
+  passed, 4 skipped.
 - **Select-all in a draggable list can be undone by clicking again.** In the
   reorderable lists (plugin order, `data=` paths, the rule maker), pressing
   Ctrl+A (Tk's `<<SelectAll>>`) selected every row and then nothing but a

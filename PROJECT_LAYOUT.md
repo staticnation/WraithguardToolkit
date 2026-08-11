@@ -11,7 +11,8 @@ WraithguardToolkit/
 │                                 CODE_REVIEW, PROJECT_LAYOUT, MLOX_RULES,
 │                                 NIF_PROVENANCE, MERGED_LANDS, AUDIT_REPORT,
 │                                 REMAINING_WORK, and SMOKE_TEST.
-├── License/                      One folder per upstream project whose licence
+├── License/                      This project's own MIT licence (`LICENSE`), plus
+│                                 one file per upstream project whose licence
 │                                 travels with code we ported or adapted.
 ├── wraithguard_toolkit.py        Engine + CLI. No GUI import; runs headless.
 ├── wraithguard_toolkit_gui.py    Tkinter front-end. Imports the engine.
@@ -91,15 +92,14 @@ WraithguardToolkit/
 │   ├── gen_tes3_schema.py     Regenerates the TES3 record schema from the
 │   │                          UESP format-page export.
 │   └── make_pot.py            Extracts _() strings into the .pot template.
-├── tests/                     pytest suite (3,205 tests: 3,202 hermetic + a Tk
-│                               smoke set that runs under xvfb in CI).
+├── tests/                     pytest suite (3,442 tests: the hermetic set plus a
+│                               Tk smoke set that runs under xvfb in CI; last
+│                               full run 3,438 passed, 4 skipped).
 ├── testdata/                  Copies of a real setup, used by the tests.
 ├── locale/                    wraithguard_toolkit.pot (English template),
 │                               translator guide, .mo catalogues.
 ├── art/                       Icons, banner, Nexus description.
 ├── build/                     PyInstaller / auto-py-to-exe configuration.
-├── License/                   This project's own MIT licence (`LICENSE`), plus
-│                               the licences of the projects it ports from.
 ├── pyproject.toml             ruff / black / pytest / mypy configuration.
 └── theme_template.json        Commented starting point for a custom GUI theme.
 ```

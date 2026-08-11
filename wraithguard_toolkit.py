@@ -3388,10 +3388,16 @@ def write_cfg(
         return
 
     backup_file(path, no_backup)
+    # newline="" disables the text-mode newline translation that would rewrite
+    # every "\n" to "\r\n" on Windows -- read_cfg already stripped line endings
+    # via splitlines(), so the join is authoritative and must reach disk byte
+    # for byte. Without this, writing back a cfg on Windows silently changed its
+    # line endings (and broke the byte-preservation contract this promises).
     path.write_text(
         "\n".join(new_lines_out) + "\n",
         encoding=CFG_WRITE_ENCODING,
         errors=CFG_ERRORS,
+        newline="",
     )
     print(_("Wrote updated: %(path)s") % {"path": path})
 

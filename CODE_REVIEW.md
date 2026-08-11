@@ -22,7 +22,8 @@
 > | §35 (the NIF reader reaches every vanilla mesh) | 1,696 |
 > | §36 (80,197 modded meshes, and the reader reaches the app) | 1,811 |
 > | §37 (audit of the session's own work) | 1,822 |
-> | §39 (geometry, a 3D viewer, and a loopback server) | **1,916** |
+> | §39 (geometry, a 3D viewer, and a loopback server) | 1,916 |
+> | §43 (colour, escapes, and the coverage floor) | **3,442** (3,438 passed, 4 skipped; coverage 80.5%) |
 >
 > The same applies to tooling versions, file layouts, message counts and line
 > counts. For the current state of anything, check the code, `CHANGELOG.md`, or
@@ -4001,3 +4002,71 @@ obvious one:
 The map toggles exist for the same reason the mesh viewer's texture toggle
 does: turning a layer off is frequently the clearest way to see what it was
 contributing. They are offered only where the map exists.
+
+## §43 Colour that carries meaning, escapes from dead ends, and a floor that had drifted
+
+A run of user-reported papercuts, each of which turned out to be a small design
+question rather than a bug to patch.
+
+### Ownership was spending a colour it did not need
+
+The record-conflict list painted every row that touches one of your mods a flat
+orange, and that orange won over the verdict colour -- so a record of yours read
+the same whether it was losing work or perfectly benign. But the list already
+has a ★ column that says "yours". The colour was being spent twice on ownership
+and not at all on the thing the colour is *for*. The fix was to let an owned row
+take its verdict colour like any other, a shade more saturated so it still
+catches the eye, and let the ★ carry ownership alone. Two follow-ups fell out of
+using it: the "nothing lost" greys were `#9a9a9a`, too faint to read against the
+dark rows, so they were lifted for every record (brighter still on yours); and
+the whole exercise is a reminder that a second signal competing for the same
+channel usually means one of them is in the wrong channel.
+
+### A select-all you could not get out of
+
+Ctrl+A (Tk's `<<SelectAll>>`) selected every row in a draggable list, and then
+nothing but a reset would clear it. The cause was in the block-drag handler:
+a press inside a contiguous multi-selection returns `"break"` to drag the whole
+block, and once every row is selected they *are* one contiguous block, so every
+click was swallowed as a drag-grab. The fix is the file-manager rule -- a press
+that grabs a block but never moves is a plain click, so on release it collapses
+to the clicked row. The feature (drag a block) and the escape (click to reduce)
+are the same gesture told apart by whether the mouse moved.
+
+### The colours that waited for a window nobody opened
+
+The conflict list's verdict colours came from a survey that only ran when you
+opened Plugin summary or the Plugin view. People who never opened either saw an
+uncoloured list and assumed it had nothing to say. The survey already had a
+`quiet` mode (built to colour the plugin tree in the background); the change was
+just to fire it when the conflict window opens, reusing the warm cache from the
+scan that just ran. The lesson repeats one from earlier sections: a result that
+requires a second, non-obvious action to appear is a result most users never
+see.
+
+### An escape hatch instead of a looser guess
+
+The mods-folder scan recognises a mod by a standard asset subfolder or a plugin;
+an OpenMW Lua mod with a non-standard VFS layout (`NgardeParrySounds\sounds\`)
+has neither and is skipped. The tempting fix -- add `sounds` and friends to the
+recognised set -- trades a miss for a false match on some *other* mod's stray
+folder, and there is no folder-name set that covers arbitrary Lua layouts. So
+the walk stays conservative and the user gets a manual override instead: an
+**Add data folder... / Add plugin...** button and drag-drop, decoupled from the
+scan and merged into the subset through the `subset_lines` input the core
+already reads additively. When a heuristic cannot be made reliable, the honest
+move is a cheap manual path around it, not a heuristic that is wrong more
+quietly.
+
+### A floor that had drifted below the building
+
+The cell map was still opening as a `file://` path (refused by some webviews)
+and writing a fixed `cell_map.html` that housekeeping never pruned; both were
+brought in line with the other views -- served over loopback, written
+timestamped. And the coverage floor, set at `fail_under = 52` in 3.0 against a
+measured 54%, was found by the 3.1.3 audit to be sitting under a suite that now
+covers **79.3%**. A floor 27 points below the real number no longer ratchets
+anything, which is the entire job of a floor. It was raised to 77 -- a couple of
+points below the honest figure, the same discipline it was set with -- so it
+tracks the number up instead of rubber-stamping a large regression. Never
+lowered to make a change pass; raised to keep meaning what it says.

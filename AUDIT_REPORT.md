@@ -35,7 +35,7 @@ honesty-of-record work.
 |------|-----------|--------|---------|
 | `black --check .` | clean | clean, 179 files | ✅ matches |
 | `pytest` | 1,273 / 800 tests | 3,202 passed, 3 skipped | ✅ green, ❌ count stale |
-| coverage floor 52 | measured 54% | 79.3% | ✅ passes, baseline stale |
+| coverage floor 77 | measured 54% (3.0) | 79.3% | ✅ ratcheted 52 → 77 |
 | `check_undefined.py` | ok | ok | ✅ |
 | `check_placeholders.py` | ok | ok (108 files) | ✅ |
 | `ruff check .` | zero findings | **69 findings** | ⚠️ see below |
@@ -127,9 +127,10 @@ The code is ahead of its own prose. Concrete mismatches:
   clean mypy that a fresh checkout does not produce (30 errors; mypy actually
   checks 109 source files).
 - **ruff is described as "zero findings"** (`REMAINING_WORK.md`) — actually 69.
-- **Coverage baseline is stale (harmlessly).** Docs cite "measured at 54%";
-  it's now 79.3%. The `fail_under = 52` floor still passes — consider ratcheting
-  it up as the config comment itself invites.
+- **Coverage baseline was stale (harmlessly); now ratcheted.** Docs cited
+  "measured at 54%"; it's 79.3%. The `fail_under` floor has been raised 52 → 77,
+  a couple of points below the honest number so it keeps ratcheting upward, as
+  the config comment invites.
 - **Skip count.** Docs say "1 deliberate skip" / "2 skipped"; a hermetic
   checkout shows **3** — one deliberate (`test_differential` baseline) and two
   environmental (`test_gui_smoke` needs Tk, `test_nif_serve` needs network).
@@ -223,5 +224,7 @@ mypy clean (0 errors, 109 files) · 3,202 passed / 3 skipped · coverage 79% ·
 `.pot` current · check_undefined ok · check_placeholders ok.
 
 *Not touched:* `CODE_REVIEW.md`'s historical running log (its dated entries are
-a changelog and were left as the record); the `fail_under = 52` coverage floor
-(passes at 79% — a candidate to ratchet up, left as a judgment call).
+a changelog and were left as the record; a new section records later work).
+
+*Followed up since:* the `fail_under` coverage floor was ratcheted 52 → 77 to
+track the measured 79.3%.
