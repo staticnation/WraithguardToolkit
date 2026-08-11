@@ -302,6 +302,7 @@ class DragReorderListbox(tk.Listbox):
         self.on_reorder = on_reorder
         self._drag_block: list[int] | None = None  # contiguous indices being dragged
         self._moved = False
+        self._press_idx: int | None = None  # row a block-grab press landed on
         self.bind("<Button-1>", self._on_press, add="+")
         self.bind("<B1-Motion>", self._on_motion, add="+")
         self.bind("<ButtonRelease-1>", self._on_release, add="+")
@@ -329,6 +330,7 @@ class DragReorderListbox(tk.Listbox):
         contiguous = bool(sel) and sel == list(range(sel[0], sel[-1] + 1))
         if len(sel) > 1 and contiguous and idx in sel:
             self._drag_block = sel
+            self._press_idx = idx
             return "break"
         self._drag_block = [idx]
         return None  # let Listbox's own click handling run
@@ -384,8 +386,20 @@ class DragReorderListbox(tk.Listbox):
             trace_first_fire("listbox drag-reorder -> on_reorder")
             trace(f"[smoke] drag-reorder committed: {self.size()} row(s) now listed")
             self.on_reorder()
+        elif not self._moved and self._press_idx is not None:
+            # A press that grabbed a multi-row block but never moved is a plain
+            # click, so collapse the selection to the clicked row -- the standard
+            # click-in-selection behaviour the drag "break" had suppressed.
+            # Without this, once every row is selected (Ctrl+A / <<SelectAll>>
+            # makes one contiguous block) every click reads as a drag-grab and
+            # the selection can never be reduced. Clicking any row now escapes it.
+            self.selection_clear(0, "end")
+            self.selection_set(self._press_idx)
+            self.activate(self._press_idx)
+            self.event_generate("<<ListboxSelect>>")
         self._drag_block = None
         self._moved = False
+        self._press_idx = None
 
 
 # ---------------------------------------------------------------------------

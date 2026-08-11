@@ -49,7 +49,9 @@ from wraithguard.tes3fields.landscape import (
     LAND_SIZE,
     NUM_TEXTURES,
     TEXTURE_SIZE,
+    WNAM_HEIGHT_SCALE,
     WNAM_SIZE,
+    WNAM_STEP,
 )
 
 if TYPE_CHECKING:
@@ -149,8 +151,88 @@ def pack_world_map(rows: Sequence[Sequence[int]]) -> bytes:
     """
     if len(rows) != WNAM_SIZE or any(len(row) != WNAM_SIZE for row in rows):
         raise EmitError(f"world map must be {WNAM_SIZE}x{WNAM_SIZE}")
-    flat = [int(value) for row in rows for value in row]
+    # Saturate to the signed byte the format stores. A merged value can land
+    # just outside the range, and ``struct.pack("b", ...)`` raises on that --
+    # struct.error, which is not caught in service._build_records, so one such
+    # vertex would abort the whole merge. This is the i8-overflow the OpenMW
+    # fork hit on large load orders; its RelativeTo::add now clamps for the same
+    # reason. Clamping is also the correct answer over the original's wrapping
+    # ``as i8`` cast, which would flip a high map value to a negative one.
+    flat = [max(-128, min(127, int(value))) for row in rows for value in row]
     return struct.pack(f"<{WNAM_SIZE * WNAM_SIZE}b", *flat)
+
+
+def world_map_from_heights(heights: Sequence[Sequence[float]]) -> list[list[int]]:
+    """Derive the 9x9 world map from a cell's absolute heights.
+
+    The world map is a downsample of the terrain: the engine and the
+    Construction Set take every eighth height vertex and divide by
+    :data:`WNAM_HEIGHT_SCALE`. We reproduce that here so a merged cell always
+    has a map that matches its terrain.
+
+    This exists because a merged cell can arrive with heights but no carried
+    ``WNAM`` -- a source plugin edited the terrain without shipping a world map,
+    or the reference had none to inherit. Writing zeros in that case paints the
+    cell at sea level, which the world map renders as brown coast; an
+    underwater cell then shows as land over open water. Deriving from the
+    merged heights instead gives negative values for below-sea-level terrain,
+    which render as water, and keeps the low-resolution map honest about what
+    the full-resolution terrain actually is.
+
+    Args:
+        heights: 65 rows of 65 absolute heights in world units.
+
+    Returns:
+        A 9x9 grid of signed values, each clamped to the ``int8`` the format
+        stores.
+    """
+    return [
+        [
+            max(-128, min(127, round(heights[gy * WNAM_STEP][gx * WNAM_STEP] / WNAM_HEIGHT_SCALE)))
+            for gx in range(WNAM_SIZE)
+        ]
+        for gy in range(WNAM_SIZE)
+    ]
+
+
+def sink_underwater_land(
+    world_map: Sequence[Sequence[int]], heights: Sequence[Sequence[float]]
+) -> list[list[int]]:
+    """Force any below-sea-level world-map vertex to read as water.
+
+    The world map paints a vertex with a non-negative value as land, in a brown
+    coast colour; only a negative value reads as water. So a vertex sampled from
+    terrain that is below sea level must not carry a non-negative value, or it
+    paints as a brown speck -- or, over a whole underwater cell, a brown square
+    -- on open water. That happens two ways even with a faithful map: a carried
+    map can disagree with the merged heights (a deep-water master against a mod's
+    edit), and ``round(height / 128)`` rounds terrain in the top 64 units of
+    water up to zero.
+
+    The rule is one-directional: a sampled height below zero whose map value is
+    at or above zero is dropped to ``-1``, the shallowest value that still reads
+    as water. Nothing is ever pushed toward land, so real coastline and a mod's
+    intentional deep-water map are both untouched.
+
+    Args:
+        world_map: The 9x9 map to correct.
+        heights: 65 rows of 65 absolute heights, sampled the same way
+            :func:`world_map_from_heights` samples them.
+
+    Returns:
+        A 9x9 grid, corrected where the terrain is underwater.
+    """
+    return [
+        [
+            (
+                -1
+                if heights[gy * WNAM_STEP][gx * WNAM_STEP] < 0 and world_map[gy][gx] >= 0
+                else int(world_map[gy][gx])
+            )
+            for gx in range(WNAM_SIZE)
+        ]
+        for gy in range(WNAM_SIZE)
+    ]
 
 
 def pack_vertex_colors(rows: Sequence[Sequence[tuple[int, int, int]]]) -> bytes:
@@ -167,7 +249,12 @@ def pack_vertex_colors(rows: Sequence[Sequence[tuple[int, int, int]]]) -> bytes:
     """
     if len(rows) != LAND_SIZE or any(len(row) != LAND_SIZE for row in rows):
         raise EmitError(f"vertex colors must be {LAND_SIZE}x{LAND_SIZE}")
-    return bytes(component for row in rows for triple in row for component in triple)
+    # Saturate each channel to a byte: ``bytes()`` raises on anything outside
+    # 0-255, and a merged colour can land just outside. Same reasoning as
+    # pack_world_map -- clamp rather than crash the merge on one vertex.
+    return bytes(
+        max(0, min(255, component)) for row in rows for triple in row for component in triple
+    )
 
 
 def pack_texture_indices(rows: Sequence[Sequence[int]]) -> bytes:
@@ -364,6 +451,29 @@ def build_landscape_record(
         }
         record["vertex_normals"] = {"data": encode_field(bytes(FIELD_SIZES["vertex_normals"]))}
 
+    # The world map (WNAM). Two corrections, both aimed at one symptom -- brown
+    # land squares painted over open water -- and both driven by the merged
+    # heights, which are the ground truth a low-resolution map should agree with.
+    #
+    # 1. A carried map that is *all zeros* is the format's missing-value
+    #    sentinel: a source that edited heights without regenerating its map
+    #    exports it, and the merge carries the zeros. There is nothing to
+    #    preserve, so it is derived from the heights instead. An absent map
+    #    (``None``) is derived the same way.
+    #
+    # 2. Whatever map is then in hand -- carried or derived -- is made
+    #    *water-safe*: any sample vertex whose terrain sits below sea level is
+    #    forced to read as water. Zero paints as brown coast, and
+    #    ``round(height / 128)`` rounds terrain in the top 64 units of water up
+    #    to zero, so an underwater vertex could still paint land even from a
+    #    faithful downsample. This is what showed up wherever a deep-water master
+    #    (distant_seafloor) met a merged cell. The correction only ever pushes a
+    #    vertex toward water, never toward land, so real coastline is untouched
+    #    and a mod's intentional deep-water (-128) map is left alone.
+    if heights is not None and (world_map is None or not any(v for row in world_map for v in row)):
+        world_map = world_map_from_heights([list(row) for row in heights])
+    if heights is not None and world_map is not None:
+        world_map = sink_underwater_land(world_map, [list(row) for row in heights])
     if world_map is not None:
         record["world_map_data"] = {"data": encode_field(pack_world_map(world_map))}
     else:

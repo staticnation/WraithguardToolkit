@@ -31,6 +31,7 @@ fall back to one mod's version, and the other two hundred plugins still merge.
 
 from __future__ import annotations
 
+import math
 import struct
 from typing import Final
 
@@ -58,6 +59,52 @@ VHGT_SIZE: Final = 4 + LAND_NUM_VERTS + _VHGT_PADDING
 
 class HeightEncodeError(Exception):
     """Raised when a height grid is not the shape ``VHGT`` requires."""
+
+
+def _to_signed_byte(value: float) -> int:
+    """Convert a float to a signed byte, saturating, with NaN mapped to zero.
+
+    Ports Merged Lands' ``f32_to_i8_saturating``. An ``int8`` field cannot hold
+    every value the geometry might produce, and ``struct.pack('b', ...)`` raises
+    on anything outside ``[-128, 127]`` -- so a single out-of-range or
+    non-finite component (a normal computed from a merged or corrupt vertex)
+    would abort encoding the whole cell rather than round one number. Clamping
+    keeps the cell. ``int()`` truncates toward zero, matching the rest of this
+    module and Rust's ``as i8``.
+
+    Args:
+        value: The component to store.
+
+    Returns:
+        ``int(value)`` clamped to ``[MIN_GRADIENT, MAX_GRADIENT]``; ``0`` when
+        ``value`` is NaN, ``MAX_GRADIENT``/``MIN_GRADIENT`` when it is
+        infinite.
+    """
+    if math.isnan(value):
+        return 0
+    if value >= MAX_GRADIENT:
+        return MAX_GRADIENT
+    if value <= MIN_GRADIENT:
+        return MIN_GRADIENT
+    return int(value)
+
+
+def _finite_height(value: float) -> float:
+    """Return ``value`` if finite, else zero, so encoding never raises.
+
+    ``int(nan)`` and ``int(inf)`` raise, and a merged vertex can arrive
+    non-finite -- a division in slope or curvature weighting, or garbage in a
+    source ``VHGT``. That must not lose the whole cell, so a non-finite height
+    is treated as flat ground rather than crashing the pack. Extreme *finite*
+    heights need no guard: their gradient is clamped by :func:`encode_vertex_heights`.
+
+    Args:
+        value: A world-unit height.
+
+    Returns:
+        ``value`` when finite, otherwise ``0.0``.
+    """
+    return value if math.isfinite(value) else 0.0
 
 
 def _check_grid(rows: list[list[float]]) -> None:
@@ -102,8 +149,9 @@ def encode_vertex_heights(
 
     # Work in stored units throughout. The grid arrives multiplied by
     # HEIGHT_SCALE, so divide first; integer division matches the original,
-    # which truncates rather than rounds.
-    stored = [[int(value) // HEIGHT_SCALE for value in row] for row in rows]
+    # which truncates rather than rounds. _finite_height keeps a NaN or inf
+    # vertex -- which int() would raise on -- from losing the whole cell.
+    stored = [[int(_finite_height(value)) // HEIGHT_SCALE for value in row] for row in rows]
     offset = float(stored[0][0])
     base = int(offset)
 
@@ -230,9 +278,11 @@ def vertex_normals_from_heights(rows: list[list[float]]) -> list[list[tuple[int,
         for x in range(LAND_SIZE):
             fx = x - 1 if x == limit else x
 
-            here = rows[fy][fx] / scale
-            east = rows[fy][fx + 1] / scale
-            north = rows[fy + 1][fx] / scale
+            # _finite_height keeps a non-finite vertex from poisoning the whole
+            # normal (nan propagates through the cross product and length).
+            here = _finite_height(rows[fy][fx]) / scale
+            east = _finite_height(rows[fy][fx + 1]) / scale
+            north = _finite_height(rows[fy + 1][fx]) / scale
 
             # v1 runs east, v2 runs north; their cross product faces up.
             nx = -(east - here) * step
@@ -244,7 +294,11 @@ def vertex_normals_from_heights(rows: list[list[float]]) -> list[list[tuple[int,
                 row.append((0, 0, 127))
                 continue
             unit = length / 127.0
-            row.append((int(nx / unit), int(ny / unit), int(nz / unit)))
+            # Saturating: a component that rounds to +-128 (or a non-finite one)
+            # must not raise in pack_vertex_normals -- clamp, keep the cell.
+            row.append(
+                (_to_signed_byte(nx / unit), _to_signed_byte(ny / unit), _to_signed_byte(nz / unit))
+            )
         normals.append(row)
     return normals
 
@@ -263,5 +317,12 @@ def pack_vertex_normals(normals: list[list[tuple[int, int, int]]]) -> bytes:
     """
     if len(normals) != LAND_SIZE or any(len(row) != LAND_SIZE for row in normals):
         raise HeightEncodeError(f"expected a {LAND_SIZE}x{LAND_SIZE} normals grid")
-    flat = [component for row in normals for triple in row for component in triple]
+    # Saturate to the signed byte the format stores. Recomputed normals are
+    # already in range (vertex_normals_from_heights clamps), but a *carried*
+    # normal reconstructed as reference + delta can land just outside, and
+    # ``struct.pack("b", ...)`` raises on that -- which would abort the merge on
+    # one vertex. This mirrors the OpenMW fork's saturating RelativeTo::add.
+    flat = [
+        max(-128, min(127, component)) for row in normals for triple in row for component in triple
+    ]
     return struct.pack(f"<{3 * LAND_NUM_VERTS}b", *flat)

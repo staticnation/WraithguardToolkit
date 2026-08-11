@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -31,18 +33,27 @@ from wraithguard.land.emit import (
 )
 from wraithguard.land.landmass import Landmass, PluginRecords, build_reference
 from wraithguard.land.merge import ConflictStrategy
-from wraithguard.land.meta import MetaError, load_meta, write_merged_marker
+from wraithguard.land.meta import (
+    LAYER_NAMES,
+    MetaError,
+    PluginMeta,
+    load_meta,
+    strategy_display_name,
+    write_merged_marker,
+)
 from wraithguard.land.native import (
     NativeReadError,
     has_landscape,
+    landscape_records_from_sidecar,
     read_landscape_records,
 )
 from wraithguard.land.pipeline import MergeOutcome, finish, merge_landmass
 from wraithguard.land.textures import KnownTextures
+from wraithguard.proc import no_window_kwargs
 from wraithguard.tes3fields.landscape import LAND_SIZE, TEXTURE_SIZE, WNAM_SIZE
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
 _log: Final = logging.getLogger(__name__)
 
@@ -57,6 +68,13 @@ _MASTER_SUFFIXES: Final[tuple[str, ...]] = (".esm", ".omwgame")
 #: quite legitimately. Reporting it as an unreadable plugin is noise that looks
 #: like a problem.
 _NOT_PLUGINS: Final[tuple[str, ...]] = (".omwscripts",)
+
+#: Ceiling on concurrent tes3conv conversions while reading mods. Each worker is
+#: a live converter process plus its JSON, so the cap is what keeps peak memory
+#: to a few conversions instead of the whole load order. Capped against the CPU
+#: count at the call site; four hides per-process latency without stacking large
+#: conversions.
+_READ_WORKERS: Final = 4
 
 #: How progress is reported. Called with one line at a time.
 Report = "Callable[[str], None]"
@@ -123,6 +141,19 @@ def resolve_plugin(name: str, directories: Sequence[Path]) -> Path | None:
     mod in its own. Looking in only the folder where the first plugin happened
     to be found makes every master installed elsewhere unreadable.
 
+    **The last directory holding the file wins, not the first.** OpenMW
+    resolves a name that several ``data=`` folders provide to the one declared
+    *latest*: a later ``data=`` line shadows an earlier one, exactly as a later
+    plugin overrides an earlier plugin. So a mod split across
+    ``.../00 Core`` and ``.../01 Patch`` -- both providing the same
+    ``Foo.esp``, with the patch folder second -- must resolve to the patch
+    copy. Returning the first match instead reads the pre-patch file: the merge
+    then diffs terrain the player never loads, and a ``.mergedlands.toml`` aimed
+    at the patch has no effect because the patch was never opened.
+
+    ``directories`` therefore arrives in load order (earliest ``data=`` first),
+    and the search keeps the *last* match rather than returning the first.
+
     The search is case-insensitive because ``openmw.cfg`` and the file system
     routinely disagree: ``RepopulatedMorrowind.ESM`` against
     ``RepopulatedMorrowind.esm``, and a case-sensitive filesystem will not
@@ -130,25 +161,29 @@ def resolve_plugin(name: str, directories: Sequence[Path]) -> Path | None:
 
     Args:
         name: The plugin's file name, as the load order spells it.
-        directories: Data folders, in the order to search.
+        directories: Data folders, in load order (earliest ``data=`` first).
 
     Returns:
-        The path, or ``None`` when no folder holds it.
+        The path in the last directory that holds the plugin, or ``None`` when
+        no folder holds it.
     """
     wanted = name.lower()
+    found: Path | None = None
     for directory in directories:
         candidate = directory / name
         if candidate.is_file():
-            return candidate
+            found = candidate
+            continue
         try:
             for entry in directory.iterdir():
                 if entry.name.lower() == wanted and entry.is_file():
-                    return entry
+                    found = entry
+                    break
         except OSError:
             # An unreadable or vanished data folder is not a reason to abandon
             # the search; the plugin may well be in the next one.
             continue
-    return None
+    return found
 
 
 def _records_via(
@@ -193,6 +228,15 @@ def _records_via(
     if not has_landscape(plugin, sidecar_dir):
         return [], ""
 
+    # Reuse the conflict scanner's landscape sidecar when it is present and
+    # current: it already holds exactly the records this would convert to, so a
+    # merge over a load order that was just scanned skips the converter here
+    # entirely. A stale or absent sidecar falls through to a fresh conversion.
+    if sidecar_dir is not None:
+        cached = landscape_records_from_sidecar(plugin, sidecar_dir)
+        if cached is not None:
+            return cached, ""
+
     target = scratch / (plugin.stem + ".json")
     try:
         result = subprocess.run(  # noqa: S603 -- fixed argv, no shell
@@ -201,6 +245,9 @@ def _records_via(
             text=True,
             timeout=600,
             check=False,
+            # Suppress the Windows console flash: a --noconsole build otherwise
+            # pops one window per plugin converted during a Merged Lands run.
+            **no_window_kwargs(),
         )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "").strip()[:200]
@@ -249,6 +296,28 @@ def _records_natively(plugin: Path, why: str) -> tuple[list[dict[str, Any]], str
     return records, ""
 
 
+def _describe_meta(meta: PluginMeta) -> str:
+    """One-line summary of a plugin's ``.mergedlands.toml`` for a verbose log.
+
+    Names every layer and what it is set to -- ``on``/``OFF`` and the conflict
+    strategy -- so a troubleshooting log shows exactly *why* a plugin's terrain
+    merged the way it did, not just that it carried settings.
+
+    Args:
+        meta: The plugin's settings.
+
+    Returns:
+        A compact ``meta_type=...; layer: state/strategy; ...`` line.
+    """
+    layers = "; ".join(
+        f"{name}: {'on' if settings.included else 'OFF'}"
+        f"/{strategy_display_name(settings.conflict_strategy)}"
+        for name in LAYER_NAMES
+        for settings in (meta.settings_for(name),)
+    )
+    return f"meta_type={meta.meta_type}; {layers}"
+
+
 def build_merged_lands(
     data_files: Path | Sequence[Path],
     load_order: Sequence[str],
@@ -259,6 +328,8 @@ def build_merged_lands(
     sidecars: Path | None = None,
     dry_run: bool = False,
     report: Callable[[str], None] | None = None,
+    substitute_unknown_textures: bool = True,
+    verbose: bool = False,
 ) -> MergeResult:
     """Merge a load order's terrain and write ``Merged Lands.esp``.
 
@@ -277,6 +348,19 @@ def build_merged_lands(
             terrain, so the rest are never converted -- 869 of 972 here.
         dry_run: Report without writing.
         report: Called with each progress line.
+        substitute_unknown_textures: What to do with a texture index no ``LTEX``
+            record defines (a missing master). ``True`` (the default) replaces
+            it with the smallest valid painted texture so the plugin always
+            loads; ``False`` passes it through as a dangling index. Both are
+            reported at emit -- the default is the safe choice for a GUI run,
+            and a CLI caller that would rather see the dangling index can turn
+            it off.
+        verbose: Report per-plugin detail as well as the headline numbers --
+            every plugin that carries settings and what those settings are, and
+            the full list of anything that could not be read, rather than the
+            truncated summaries. Off by default; the headline log is enough for
+            a run that goes as expected, and this is for troubleshooting one
+            that did not.
 
     Returns:
         What was produced.
@@ -325,6 +409,13 @@ def build_merged_lands(
         scratch = Path(scratch_dir)
 
         say("reading masters ...")
+        # Settings for every plugin, masters included. A master's
+        # .mergedlands.toml was silently ignored before -- it is a master, so it
+        # builds the reference rather than being diffed, and only the diff loop
+        # loaded settings. That both under-counted the "carry settings" total and
+        # left a master's `included = false` with no effect. Masters are loaded
+        # here so their settings are reported and applied to the reference.
+        metas: dict[str, PluginMeta] = {}
         masters: list[PluginRecords] = []
         rescued = 0
         for name in master_names:
@@ -336,6 +427,10 @@ def build_merged_lands(
                     "are the reference terrain the whole merge is measured "
                     "against."
                 )
+            try:
+                metas[name] = load_meta(path)
+            except MetaError as exc:
+                raise MergeServiceError(str(exc)) from exc
             records, failure = _records_via(converter, path, scratch, sidecars)
             if failure:
                 records, failure = _records_natively(path, failure)
@@ -346,14 +441,18 @@ def build_merged_lands(
             masters.append(PluginRecords(name=name, records=records))
         if rescued:
             say(f"  {rescued} master(s) tes3conv refused were read directly")
-        reference, known = build_reference(masters)
+        reference, known = build_reference(masters, metas=metas)
         say(f"  reference landmass: {len(reference)} cell(s), {len(known)} land texture(s)")
 
         say("reading mods ...")
         mods: list[PluginRecords] = []
-        metas = {}
         unreadable: list[str] = []
-        for index, name in enumerate(mod_names, start=1):
+
+        # Resolve paths and read settings serially first: both are cheap, and a
+        # bad .mergedlands.toml must abort the whole run rather than surface from
+        # inside a worker thread.
+        resolved: list[tuple[str, Path]] = []
+        for name in mod_names:
             path = resolve_plugin(name, directories)
             if path is None:
                 # A mod that is not installed is not fatal -- the load order may
@@ -364,23 +463,59 @@ def build_merged_lands(
                 metas[name] = load_meta(path)
             except MetaError as exc:
                 raise MergeServiceError(str(exc)) from exc
+            resolved.append((name, path))
+
+        def _read_one(item: tuple[str, Path]) -> tuple[str, list[dict[str, Any]], str]:
+            """Read one plugin's terrain -- the parallelised, thread-safe step.
+
+            tes3conv runs per plugin as a separate process writing a uniquely
+            named JSON, and the native fallback only reads the file, so several
+            can run at once. No shared state is touched here.
+            """
+            name, path = item
             records, failure = _records_via(converter, path, scratch, sidecars)
             if failure:
                 records, failure = _records_natively(path, failure)
-            if records:
-                mods.append(PluginRecords(name=name, records=records))
-            elif failure:
-                # No records and no reason means the plugin simply has no
-                # terrain, which is the common case and not worth reporting.
-                unreadable.append(f"{name} ({failure})")
-            if index % 50 == 0:
-                say(f"  {index}/{len(mod_names)}")
+            return name, records, failure
+
+        # Convert in parallel, bounded so peak memory stays a few conversions,
+        # not the whole load order. Results come back in load order (map keeps
+        # input order), which the merge depends on -- later plugins win.
+        workers = max(1, min((os.cpu_count() or 1), _READ_WORKERS, len(resolved) or 1))
+        reads: Iterator[tuple[str, list[dict[str, Any]], str]]
+        if workers == 1:
+            reads = (_read_one(item) for item in resolved)
+        else:
+            pool = ThreadPoolExecutor(max_workers=workers)
+            reads = pool.map(_read_one, resolved)
+        try:
+            for index, (name, records, failure) in enumerate(reads, start=1):
+                if records:
+                    mods.append(PluginRecords(name=name, records=records))
+                elif failure:
+                    # No records and no reason means the plugin simply has no
+                    # terrain, which is the common case and not worth reporting.
+                    unreadable.append(f"{name} ({failure})")
+                if index % 50 == 0:
+                    say(f"  {index}/{len(resolved)}")
+        finally:
+            if workers != 1:
+                pool.shutdown()
 
     if unreadable:
-        say(f"  {len(unreadable)} plugin(s) could not be read: {', '.join(unreadable[:5])}")
+        if verbose:
+            say(f"  {len(unreadable)} plugin(s) could not be read:")
+            for entry in unreadable:
+                say(f"    {entry}")
+        else:
+            say(f"  {len(unreadable)} plugin(s) could not be read: {', '.join(unreadable[:5])}")
     patched = [name for name, meta in metas.items() if meta.layers]
     if patched:
-        say(f"  {len(patched)} plugin(s) carry .mergedlands.toml settings")
+        listed = ", ".join(patched[:12]) + (", ..." if len(patched) > 12 else "")
+        say(f"  {len(patched)} plugin(s) carry .mergedlands.toml settings: {listed}")
+        if verbose:
+            for name in patched:
+                say(f"    {name}: {_describe_meta(metas[name])}")
 
     say("merging ...")
     outcome = merge_landmass(reference, mods, known, metas, strategy)
@@ -441,7 +576,9 @@ def build_merged_lands(
         result.lines = lines
         return result
 
-    texture_records, texture_sources = _finish_textures(pending, used, known, say)
+    texture_records, texture_sources = _finish_textures(
+        pending, used, known, say, substitute_unknown=substitute_unknown_textures
+    )
     records = [*texture_records, *records]
     result.cells_written = len(records) - len(texture_records)
     result.textures_written = len(texture_records)
@@ -626,6 +763,8 @@ def _finish_textures(
     used: set[int],
     known: KnownTextures,
     say: Callable[[str], None],
+    *,
+    substitute_unknown: bool = True,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Compact the texture table and attach every grid.
 
@@ -634,6 +773,10 @@ def _finish_textures(
         used: Every shared index the merge paints with.
         known: The shared texture table.
         say: Progress reporter.
+        substitute_unknown: Passed to
+            :func:`~wraithguard.land.textures.compact_textures` -- replace a
+            texture index no ``LTEX`` defines with the fallback rather than
+            writing it through as a dangling index.
 
     Returns:
         The ``LTEX`` records to emit, and the plugins that supplied their file
@@ -643,7 +786,7 @@ def _finish_textures(
 
     if not pending:
         return [], []
-    mapping, kept = compact_textures(known, used)
+    mapping, kept, unresolved = compact_textures(known, used, substitute_unknown=substitute_unknown)
     for record, rows in pending:
         compacted = [[mapping.get(value, value) for value in row] for row in rows]
         try:
@@ -651,6 +794,21 @@ def _finish_textures(
         except EmitError as exc:
             say(f"  texture grid could not be written: {exc}")
     say(f"  land textures: {len(known)} known, {len(kept)} painted by the merge")
+    if unresolved:
+        # A missing master left these indices with no LTEX. Say what was done
+        # about it either way -- the fallback keeps the plugin loadable, the
+        # passthrough keeps it honest, and the user chose which risk to take.
+        count = len(unresolved)
+        if substitute_unknown:
+            say(
+                f"  {count} texture index/indices no LTEX defines: substituted with the "
+                "fallback (smallest painted texture) so the plugin loads -- a missing master"
+            )
+        else:
+            say(
+                f"  {count} texture index/indices no LTEX defines: passed through unchanged, "
+                "so the plugin carries a dangling index -- a missing master"
+            )
     sources = sorted({texture.source for texture in kept if texture.source})
     return build_texture_records(kept), sources
 
@@ -697,6 +855,8 @@ def _write(
                 text=True,
                 timeout=900,
                 check=False,
+                # No console flash when a --noconsole build encodes the merge.
+                **no_window_kwargs(),
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise MergeServiceError(f"tes3conv could not be run: {exc}") from exc

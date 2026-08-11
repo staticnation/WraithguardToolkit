@@ -385,7 +385,12 @@ def generate_customizations_toml(
         out.append("")
 
         # 1) DATA INSERTS FIRST (Ensures paths are defined before plugins look for them)
-        if data_result_tuples:
+        # Only in the first block. The inserts are this run's sorted subset --
+        # global, not a property of any one source [[Customizations]] block --
+        # so emitting them once per block (as this used to) inserted every
+        # plugin and data path once per block, duplicating them in the rebuilt
+        # cfg. The removes and groundcover appends are gated the same way above.
+        if bi == 0 and data_result_tuples:
             # We emit a block for every line that's OURS -- a genuinely new
             # insert, OR an existing cfg line whose path is one of this run's
             # data paths (i.e. one momw-configurator already applied on a prior
@@ -484,7 +489,7 @@ def generate_customizations_toml(
                         )
                     out.append("")
                 i = j
-        elif raw_data_inserts:
+        elif bi == 0 and raw_data_inserts:
             # --sort-data-paths not given -- pass these through exactly as originally written
             for d in raw_data_inserts:
                 out.append("[[Customizations.insert]]")
@@ -513,7 +518,10 @@ def generate_customizations_toml(
         # (see _pick_anchor). Equivalence with the chained form is proven in
         # tests/test_toml_equivalence.py by applying both through
         # simulate_configurator_apply and diffing the resulting cfg.
-        for start, end in _subset_runs(final_content_order, subset_set_lower, replace_dest_names):
+        # Only in the first block, for the same reason the data inserts are:
+        # the subset is global, not per source [[Customizations]] block.
+        subset_runs = _subset_runs(final_content_order, subset_set_lower, replace_dest_names)
+        for start, end in subset_runs if bi == 0 else ():
             names = final_content_order[start:end]
             values = [original_content_values.get(n, n) for n in names]
 

@@ -32,7 +32,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
+
+    from wraithguard.land.meta import PluginMeta
 
 from wraithguard.land.diff import (
     ALL_LAYERS,
@@ -192,8 +194,34 @@ def merge_master_layers(existing: LandscapeLayers, incoming: LandscapeLayers) ->
             existing.declared |= flag
 
 
+def _mask_layers(layers: LandscapeLayers, allowed: LandData) -> None:
+    """Drop the layers a plugin's ``.mergedlands.toml`` excludes from a cell.
+
+    A layer set ``included = false`` must not contribute -- for a master, that
+    means it does not enter the reference. The excluded grids are cleared and
+    the declared flags are narrowed to match, so the rest of the merge treats
+    them exactly as it would a master that never carried them.
+
+    Args:
+        layers: The decoded cell, modified in place.
+        allowed: The layers the plugin's settings permit.
+    """
+    for name, flag in (
+        ("heights", LandData.VERTEX_HEIGHTS),
+        ("normals", LandData.VERTEX_NORMALS),
+        ("colors", LandData.VERTEX_COLORS),
+        ("textures", LandData.TEXTURES),
+        ("world_map", LandData.WORLD_MAP),
+    ):
+        if not (allowed & flag):
+            setattr(layers, name, None)
+            layers.declared = LandData(layers.declared & ~flag)
+
+
 def build_reference(
-    masters: Sequence[PluginRecords], textures: KnownTextures | None = None
+    masters: Sequence[PluginRecords],
+    textures: KnownTextures | None = None,
+    metas: Mapping[str, PluginMeta] | None = None,
 ) -> tuple[Landmass, KnownTextures]:
     """Build the reference landmass from the master files.
 
@@ -207,6 +235,11 @@ def build_reference(
         textures: An existing texture table to extend, or ``None`` to start
             one. Supplying one lets a caller share the table with
             :func:`plugin_differences`, which it must.
+        metas: Per-plugin ``.mergedlands.toml`` settings. A master's settings
+            apply here, to the reference, because a master is not diffed: a layer
+            it excludes is dropped from its contribution, and a master marked as
+            a previous merge is skipped entirely. ``None`` treats every master as
+            fully included, which is the default with no sidecars.
 
     Returns:
         The reference landmass and the texture table built alongside it.
@@ -215,11 +248,18 @@ def build_reference(
     landmass = Landmass(name="reference")
 
     for master in masters:
+        meta = metas.get(master.name) if metas else None
+        if meta is not None and meta.is_previous_merge:
+            _log.info("reference: skipping %s -- it is marked a previous merge", master.name)
+            continue
+        allowed = meta.allowed_layers() if meta is not None else ALL_LAYERS
         mapping = known.observe(master.name, master.records)
         for record in _landscape_records(master.records):
             layers = _decode_cell(master.name, record, mapping)
             if layers is None:
                 continue
+            if allowed != ALL_LAYERS:
+                _mask_layers(layers, allowed)
             existing = landmass.cells.get(layers.coords)
             if existing is None:
                 landmass.cells[layers.coords] = layers

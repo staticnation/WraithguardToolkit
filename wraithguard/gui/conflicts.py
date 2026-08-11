@@ -8,6 +8,7 @@ reference resolves exactly as it did when the methods lived there.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import json
 import threading
@@ -39,14 +40,22 @@ from wraithguard.images.reader import browser_image, read_image
 from wraithguard.images.viewer import Maps, build_compare_page
 from wraithguard.logging_setup import get_logger
 from wraithguard.nif import MeshAnalyser
+from wraithguard.nif.bsa import BsaError, normalise
 from wraithguard.nif.geometry import block_tree, world_meshes
 from wraithguard.nif.reader import NifParseError
 from wraithguard.nif.textures import TextureResolver
-from wraithguard.nif.vfs import read_mesh
+from wraithguard.nif.vfs import archives_in, read_mesh
 from wraithguard.nif.viewer import build_viewer_page
 from wraithguard.patch import FieldChoice, Selection
 from wraithguard.patch.status import ConflictThis
-from wraithguard.patch.summary import ALL_TAGS, Survey, row_tag_updates, survey
+from wraithguard.patch.summary import (
+    ALL_TAGS,
+    Survey,
+    row_tag_updates,
+    search_rows,
+    sort_conflicts,
+    survey,
+)
 from wraithguard.plugins import PluginFileIndex
 from wraithguard.viz.library import ViewerError, three_source
 from wraithguard.viz.serve import Payload, ViewerServer
@@ -65,6 +74,16 @@ SURVEY_WARN_AT: Final = 10000
 #: the whole list still finishes quickly.
 RECOLOUR_CHUNK: Final = 400
 RECOLOUR_PACE_MS: Final = 1
+
+#: Verdict tags that get a punchier variant (``<tag>-mine``) for records that
+#: touch one of your custom mods. The ★ already marks a row as yours, so the
+#: colour is freed to carry the verdict: a benign or losing record reads in a
+#: brighter amber or red, and the two "nothing lost" greys are lifted off the
+#: dim used for other mods' records so your rows stay legible rather than fading
+#: out. ``status-unknown`` is already the full foreground, so it needs no variant.
+MINE_STATUS_TAGS: Final[frozenset[str]] = frozenset(
+    {"status-benign", "status-conflict", "status-only-one", "status-agree"}
+)
 
 #: How often the summary reports progress, in records.
 #: How long a UI-thread read will wait for the tes3conv session before giving
@@ -133,6 +152,16 @@ except ImportError:  # pragma: no cover - only when viz/ is absent
 #: detection would mean reading every row's bytes just to draw the toolbar.
 _TEXTURE_EXTENSIONS: Final[tuple[str, ...]] = (".dds", ".tga", ".bmp", ".png")
 
+#: Record fields that name an image, mapped to the VFS root the value is
+#: relative to. ``icon`` values sit under ``Icons\``, texture and landscape
+#: file names under ``Textures\`` -- the prefix the field diff must prepend to
+#: resolve the file the way the game does.
+_IMAGE_FIELDS: Final[dict[str, str]] = {
+    "icon": "icons",
+    "texture": "textures",
+    "file_name": "textures",
+}
+
 
 def _as_float(value: object) -> float:
     """Coerce a field value to a float, defaulting to zero.
@@ -193,6 +222,11 @@ class ConflictWindowsMixin:
         _recolour_token: object
         _patch_button: ttk.Button
         _conf_survey: Survey | None
+
+        # Guarded worker-thread -> UI-thread marshaller, from the host App.
+        def _schedule_ui(
+            self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
+        ) -> None: ...
 
         # Supplied by PluginViewMixin, which owns the plugin tree window.
         def show_plugin_view(self) -> None: ...  # noqa: D102
@@ -294,7 +328,7 @@ class ConflictWindowsMixin:
             writer.write("\nERROR: conflict scan failed:\n" + traceback.format_exc())
             status = "Conflict scan failed -- see log."
         finally:
-            self.root.after(0, self._conflicts_finished, conflicts, stats, session, status)
+            self._schedule_ui(0, self._conflicts_finished, conflicts, stats, session, status)
 
     def _conflicts_finished(
         self,
@@ -381,7 +415,7 @@ class ConflictWindowsMixin:
             writer.write("\nERROR: resource scan failed:\n" + traceback.format_exc())
             status = "Resource scan failed -- see log."
         finally:
-            self.root.after(0, self._resource_finished, conflicts, stats, status)
+            self._schedule_ui(0, self._resource_finished, conflicts, stats, status)
 
     def _resource_finished(self, conflicts: list[dict], stats: dict, status: str) -> None:
         """Re-enable the window and show the loose-file results.
@@ -446,6 +480,14 @@ class ConflictWindowsMixin:
             variable=self._res_subset_only,
             command=self._refill_res_tree,
         ).pack(side="right")
+        self._res_search_var = tk.StringVar()
+        res_search = ttk.Frame(top)
+        res_search.pack(side="left", padx=(16, 0))
+        ttk.Label(res_search, text=_("Search:")).pack(side="left", padx=(0, 4))
+        res_entry = ttk.Entry(res_search, textvariable=self._res_search_var, width=26)
+        res_entry.pack(side="left")
+        res_entry.bind("<KeyRelease>", lambda _e: self._refill_res_tree())
+        add_tooltip(res_entry, _("Filter by file path or winning folder."))
         # tree (top) and the detail panel (bottom) live in a draggable vertical
         # split, so the detail box can be resized -- grab the grip to grow it.
         body = self._paned(win, "vertical")
@@ -722,24 +764,59 @@ class ConflictWindowsMixin:
         path = str(conflict.get("path", ""))
         try:
             sides, trees = self._mesh_sides(conflict)
+        except (NifParseError, OSError) as exc:
+            messagebox.showerror(_("Cannot show this mesh"), str(exc))
+            return
+        self._serve_mesh_view(
+            sides,
+            trees,
+            path,
+            self._texture_resolver(conflict),
+            _("Opened the 3D view for %(path)s") % {"path": path},
+        )
+
+    def _serve_mesh_view(
+        self,
+        sides: list[tuple[str, list]],
+        trees: list[list],
+        title: str,
+        resolver: TextureResolver | None,
+        status_note: str = "",
+    ) -> None:
+        """Serve a 3D mesh view over loopback, standalone-file as fallback.
+
+        The shared core behind the resource window's mesh viewer and the field
+        diff's "View mesh": both build the same ``(label, meshes)`` sides and
+        want the same served page. Served over loopback when a port can be
+        bound (a few-KB page plus three.js fetched once); otherwise the same
+        builder writes a standalone page with the bytes carried inline.
+
+        Args:
+            sides: ``(label, meshes)`` per provider or plugin, in order.
+            trees: The block tree for each side, in the same order.
+            title: The page title -- a VFS path or a field name.
+            resolver: Texture resolver for the meshes, or ``None``.
+            status_note: A status-bar line to set on success, if any.
+        """
+        try:
             server = self._viewer_server()
             if server is None:
                 self._open_html_view(
-                    build_viewer_page(
-                        sides, title=path, trees=trees, resolver=self._texture_resolver(conflict)
-                    ),
+                    build_viewer_page(sides, title=title, trees=trees, resolver=resolver),
                     "mesh_view",
                     _("Mesh view"),
                 )
+                if status_note:
+                    self.status_var.set(status_note)
                 return
             session = server.publish_session("mesh")
             counter = itertools.count()
 
             def sink(blob: bytes, content_type: str = "") -> dict[str, str]:
-                """Spool one embedded asset to disk for the generated page.
+                """Spool one embedded asset over loopback for the served page.
 
                 Args:
-                    blob: The bytes to write.
+                    blob: The bytes to publish.
                     content_type: Its MIME type, which picks the extension.
 
                 Returns:
@@ -752,26 +829,174 @@ class ConflictWindowsMixin:
 
             page = build_viewer_page(
                 sides,
-                title=path,
+                title=title,
                 sink=sink,
                 library_url=self._three_js_url(server),
                 trees=trees,
-                resolver=self._texture_resolver(conflict),
+                resolver=resolver,
             )
             url = session.publish("index.html", Payload(page.encode("utf-8"), "text/html"))
         except (ViewerError, NifParseError, OSError) as exc:
             messagebox.showerror(_("Cannot show this mesh"), str(exc))
             return
-        # Through the same chain as every other visualisation. The served page
-        # is a URL rather than a file, which the chain now understands: the one
-        # viewer it cannot use is tkinterweb, whose load_file cannot fetch, and
-        # this page needs real requests for its geometry.
+        # Through the same chain as every other visualisation -- now loopback
+        # first. The one viewer it cannot use is tkinterweb, whose load_file
+        # cannot fetch, and this page needs real requests for its geometry.
         opener = getattr(self, "open_html_in_app", None)
         if callable(opener):
             opener(url, _("Mesh view"))
         else:  # pragma: no cover - only if the mixin is used outside App
             webbrowser.open(url)
-        self.status_var.set(_("Opened the 3D view for %(path)s") % {"path": path})
+        if status_note:
+            self.status_var.set(status_note)
+
+    def _read_mesh_anywhere(self, dirs: Sequence[Path], vfs_path: str) -> Any:  # noqa: ANN401
+        """Read a mesh from whichever data folder holds it, later folders first.
+
+        OpenMW resolves a VFS path to the *last* data folder that provides it
+        (loose or archived), so the search runs the folders in reverse and
+        returns the first hit -- the winner the game would load.
+
+        Args:
+            dirs: The data folders, in load order (earliest first).
+            vfs_path: The mesh's VFS path, e.g. ``meshes/x/y.nif``.
+
+        Returns:
+            The parsed :class:`~wraithguard.nif.reader.NifFile`, or ``None``
+            when no folder holds a readable copy.
+        """
+        for folder in reversed(list(dirs)):
+            try:
+                return read_mesh(folder, vfs_path)
+            except OSError:
+                continue  # not in this folder -- try the one before it
+            except NifParseError:
+                continue  # found but unreadable -- an earlier copy may parse
+        return None
+
+    def _view_field_mesh(self, plugins: Sequence[str], per: Mapping[str, Any], field: str) -> None:
+        """Open the mesh(es) a record's mesh field names, in 3D, one per plugin.
+
+        The same 3D viewer the resource-conflict window uses, but sided by the
+        plugins that define this record rather than by the folders providing
+        one file -- so a record whose plugins point at different meshes shows
+        them side by side.
+
+        Args:
+            plugins: The plugins defining the record, in load order.
+            per: Field values per plugin.
+            field: The mesh field's flattened name (``"mesh"``).
+        """
+        dirs = [Path(str(d)) for d in (self._plan_scan_dirs() or [])]
+        sides: list[tuple[str, list]] = []
+        trees: list[list] = []
+        for plugin in plugins:
+            value = (per.get(plugin) or {}).get(field)
+            if not isinstance(value, str) or not value:
+                continue
+            parsed = self._read_mesh_anywhere(dirs, f"meshes/{value}")
+            if parsed is None:
+                continue
+            sides.append((f"{plugin} / {value}", world_meshes(parsed)))
+            trees.append(block_tree(parsed))
+        if not sides:
+            messagebox.showinfo(
+                _("No mesh to show"),
+                _(
+                    "None of the referenced meshes could be found in the data folders "
+                    "(a missing mod, or the file lives in a .bsa that is not present)."
+                ),
+            )
+            return
+        resolver = TextureResolver(dirs) if dirs else None
+        self._serve_mesh_view(sides, trees, field, resolver)
+
+    def _read_vfs_bytes(self, dirs: Sequence[Path], vfs_path: str) -> bytes | None:
+        """Read a file from whichever data folder holds it, later folders first.
+
+        The generic sibling of :func:`~wraithguard.nif.vfs.read_mesh`: it returns
+        the raw bytes rather than a parsed mesh, so it serves icons and textures
+        as well. Loose files win over archived ones, and a later ``data=`` folder
+        wins over an earlier one, exactly as the game resolves them.
+
+        Args:
+            dirs: The data folders, in load order (earliest first).
+            vfs_path: The file's VFS path, e.g. ``icons/x/y.dds``.
+
+        Returns:
+            The bytes, or ``None`` when no folder holds the file.
+        """
+        wanted = normalise(vfs_path)
+        for folder in reversed(list(dirs)):
+            loose = folder / vfs_path
+            try:
+                if loose.is_file():
+                    return loose.read_bytes()
+            except OSError:
+                pass  # unreadable here; the archives below may still hold it
+            for archive in archives_in(folder):
+                try:
+                    data = archive.read(wanted)
+                except BsaError:
+                    continue
+                if data is not None:
+                    return data
+        return None
+
+    def _view_field_image(self, plugins: Sequence[str], per: Mapping[str, Any], field: str) -> None:
+        """Open the image a record's icon/texture field names, compared.
+
+        The same image viewer the resource-conflict window uses -- side by
+        side, wipe, and difference -- but sided by the plugins that define this
+        record. Compares the earliest and latest plugin that reference an
+        image; a single reference compares with itself and reads as identical.
+
+        Args:
+            plugins: The plugins defining the record, in load order.
+            per: Field values per plugin.
+            field: The image field's flattened name (``icon``/``texture``/...).
+        """
+        root = _IMAGE_FIELDS.get(field, "textures")
+        dirs = [Path(str(d)) for d in (self._plan_scan_dirs() or [])]
+        resolved: list[tuple[str, str, bytes]] = []
+        for plugin in plugins:
+            value = (per.get(plugin) or {}).get(field)
+            if not isinstance(value, str) or not value:
+                continue
+            data = self._read_vfs_bytes(dirs, f"{root}/{value}")
+            if data is not None:
+                resolved.append((plugin, value, data))
+        if not resolved:
+            messagebox.showinfo(
+                _("No image to show"),
+                _(
+                    "None of the referenced images could be found in the data folders "
+                    "(a missing mod, or the file lives in a .bsa that is not present)."
+                ),
+            )
+            return
+        left_plugin, left_value, left_bytes = resolved[0]
+        right_plugin, right_value, right_bytes = resolved[-1]
+        try:
+            outcome = compare_bytes(left_bytes, right_bytes, reference=right_value)
+            left_display, left_mime = browser_image(left_bytes)
+            right_display, right_mime = browser_image(right_bytes)
+            difference = None
+            if outcome.verdict is Verdict.DIFFERENT and outcome.worst_channel > 0:
+                diff_img = difference_image(read_image(left_bytes), read_image(right_bytes))
+                difference = (encode_png(diff_img), "image/png")
+        except (OSError, ImageError) as exc:
+            messagebox.showerror(_("Cannot show this image"), str(exc))
+            return
+        self._serve_image_view(
+            (f"{left_plugin} / {left_value}", left_display, left_mime),
+            (f"{right_plugin} / {right_value}", right_display, right_mime),
+            outcome,
+            difference,
+            {},
+            {},
+            right_value,
+        )
 
     def _export_mesh_viewer(self) -> None:
         """Write the selected mesh conflict as one standalone HTML file.
@@ -992,6 +1217,48 @@ class ConflictWindowsMixin:
             left, right, outcome, difference, left_maps, right_maps, path = (
                 self._texture_compare_payload(conflict)
             )
+        except (OSError, ImageError) as exc:
+            messagebox.showerror(_("Cannot show this texture"), str(exc))
+            return
+        self._serve_image_view(
+            left,
+            right,
+            outcome,
+            difference,
+            left_maps,
+            right_maps,
+            path,
+            _("Opened the texture comparison for %(path)s") % {"path": path},
+        )
+
+    def _serve_image_view(
+        self,
+        left: tuple[str, bytes, str],
+        right: tuple[str, bytes, str],
+        outcome: Comparison,
+        difference: tuple[bytes, str] | None,
+        left_maps: Maps,
+        right_maps: Maps,
+        title: str,
+        status_note: str = "",
+    ) -> None:
+        """Serve an image comparison over loopback, standalone-file as fallback.
+
+        The shared core behind the resource window's texture viewer and the
+        field diff's "View image": both hand it two displayable sides and want
+        the same served comparison page (side by side, wipe, difference).
+
+        Args:
+            left: ``(label, displayable bytes, mime)`` for the overridden side.
+            right: The same for the winner.
+            outcome: The comparison verdict from :func:`compare_bytes`.
+            difference: A difference image and its mime, or ``None``.
+            left_maps: The overridden side's own auxiliary maps.
+            right_maps: The winner side's auxiliary maps.
+            title: The page title -- a VFS path or a field name.
+            status_note: A status-bar line to set on success, if any.
+        """
+        try:
             server = self._viewer_server()
             if server is None:
                 page = build_compare_page(
@@ -999,20 +1266,22 @@ class ConflictWindowsMixin:
                     right,
                     outcome,
                     difference=difference,
-                    title=path,
+                    title=title,
                     left_maps=left_maps,
                     right_maps=right_maps,
                 )
                 self._open_html_view(page, "texture_compare", _("Texture comparison"))
+                if status_note:
+                    self.status_var.set(status_note)
                 return
             session = server.publish_session("texture")
             counter = itertools.count()
 
             def sink(blob: bytes, content_type: str = "") -> dict[str, str]:
-                """Spool one embedded asset to disk for the generated page.
+                """Spool one embedded asset over loopback for the served page.
 
                 Args:
-                    blob: The bytes to write.
+                    blob: The bytes to publish.
                     content_type: Its MIME type, which picks the extension.
 
                 Returns:
@@ -1032,7 +1301,7 @@ class ConflictWindowsMixin:
                 right,
                 outcome,
                 difference=difference,
-                title=path,
+                title=title,
                 sink=sink,
                 left_maps=left_maps,
                 right_maps=right_maps,
@@ -1047,7 +1316,8 @@ class ConflictWindowsMixin:
             opener(url, _("Texture comparison"))
         else:  # pragma: no cover - only if the mixin is used outside App
             webbrowser.open(url)
-        self.status_var.set(_("Opened the texture comparison for %(path)s") % {"path": path})
+        if status_note:
+            self.status_var.set(status_note)
 
     def _export_texture_viewer(self) -> None:
         """Write the selected texture comparison as one standalone HTML file.
@@ -1113,6 +1383,10 @@ class ConflictWindowsMixin:
             stats: Counts for the header.
         """
         self._all_conflicts = conflicts
+        # A fresh scan: drop any earlier survey so stale verdict colours are not
+        # shown against new rows, and so the auto-colour pass below actually runs
+        # rather than seeing a leftover survey and skipping.
+        self._conf_survey = None
         win = getattr(self, "_conflict_win", None)
         if win is not None and win.winfo_exists():
             win.destroy()
@@ -1146,6 +1420,14 @@ class ConflictWindowsMixin:
             variable=self._conf_subset_only,
             command=self._refill_conflict_tree,
         ).pack(side="right")
+        self._conf_search_var = tk.StringVar()
+        search = ttk.Frame(top)
+        search.pack(side="left", padx=(16, 0))
+        ttk.Label(search, text=_("Search:")).pack(side="left", padx=(0, 4))
+        search_entry = ttk.Entry(search, textvariable=self._conf_search_var, width=26)
+        search_entry.pack(side="left")
+        search_entry.bind("<KeyRelease>", lambda _e: self._refill_conflict_tree())
+        add_tooltip(search_entry, _("Filter by record type, id, or winning plugin."))
         self._include_singles_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             top,
@@ -1194,6 +1476,7 @@ class ConflictWindowsMixin:
         tree = ttk.Treeview(
             topf, columns=cols, show="headings", selectmode="browse", style="Conf.Treeview"
         )
+        self._conf_col_labels = {}
         for c, txt, w in (
             ("custom", "★", 34),
             ("type", "Type", 90),
@@ -1201,7 +1484,9 @@ class ConflictWindowsMixin:
             ("count", "#", 40),
             ("winner", "Winner (loads last)", 280),
         ):
-            tree.heading(c, text=txt)
+            self._conf_col_labels[c] = txt
+            # Clicking a header sorts by that column; clicking it again reverses.
+            tree.heading(c, text=txt, command=functools.partial(self._sort_conflict_tree, c))
             tree.column(c, width=w, anchor="w", stretch=(c in ("id", "winner")))
         vsb = ttk.Scrollbar(topf, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=vsb.set)
@@ -1209,14 +1494,25 @@ class ConflictWindowsMixin:
         vsb.grid(row=0, column=1, sticky="ns")
         topf.rowconfigure(0, weight=1)
         topf.columnconfigure(0, weight=1)
-        tree.tag_configure("sub", foreground="#ff9b6b")
         # Filled in by the plugin summary. Until it runs the list says only
         # that these records conflict, which is what it has always said.
         tree.tag_configure("status-unknown", foreground=DARK["fg"])
-        tree.tag_configure("status-only-one", foreground=DARK["fg_dim"])
-        tree.tag_configure("status-agree", foreground=DARK["fg_dim"])
+        # The two "nothing lost" verdicts. Dimmer than a real conflict so they
+        # recede, but not fg_dim (#9a9a9a), which is too faint to read against
+        # the dark rows -- a legible mid-grey that still sits back from amber/red.
+        tree.tag_configure("status-only-one", foreground="#b8b8b8")
+        tree.tag_configure("status-agree", foreground="#b8b8b8")
         tree.tag_configure("status-benign", foreground="#e8c07d")
         tree.tag_configure("status-conflict", foreground="#ff6b6b")
+        # Owned (★) rows take the same verdict, a shade brighter so they still
+        # catch the eye. The star carries ownership; the colour is free to carry
+        # the verdict, which the old flat orange used to mask. The chromatic
+        # verdicts get a more-saturated amber/red; the two "nothing lost" greys
+        # are lifted off fg_dim so your rows do not fade out. See MINE_STATUS_TAGS.
+        tree.tag_configure("status-benign-mine", foreground="#ffb454")
+        tree.tag_configure("status-conflict-mine", foreground="#ff4d4d")
+        tree.tag_configure("status-only-one-mine", foreground="#d0d0d0")
+        tree.tag_configure("status-agree-mine", foreground="#d0d0d0")
         self._conf_tree = tree
         panes.add(topf, minsize=150, stretch="always")
 
@@ -1341,7 +1637,8 @@ class ConflictWindowsMixin:
                 "plugin that defines it.\n\n"
                 "A flat list answers 'what conflicts'. This answers 'what does this mod "
                 "change, and where does it lose', which is the question you are actually "
-                "asking. Run 'Plugin summary' first to colour it in. Read-only."
+                "asking. The colours fill in on their own once the conflict window's "
+                "background survey finishes. Read-only."
             ),
         )
         if self._conf_session is not None:
@@ -1365,6 +1662,13 @@ class ConflictWindowsMixin:
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
         self.refresh_patch_views()
         self._refill_conflict_tree()
+        # Colour the list without waiting for the user to open Plugin summary or
+        # the Plugin view: kick the same background survey those do, quietly. It
+        # reuses the warm session cache from the scan that just ran, reports
+        # progress in the status bar, and paints in paced chunks, so the window
+        # stays responsive. The manual 'Plugin summary...' button still gives the
+        # on-demand per-mod report; this only fills in the colours.
+        self._schedule_ui(120, self._auto_survey_conflicts)
 
     def _session_lock(self) -> threading.Lock:
         """The lock guarding the tes3conv session.
@@ -1430,29 +1734,64 @@ class ConflictWindowsMixin:
     # imports no widgets and is tested without a display. What is here is the
     # worker, the window, and nothing else.
 
-    def _survey_conflicts(self) -> None:
-        """Judge every listed conflict and summarise it per plugin."""
+    def _auto_survey_conflicts(self) -> None:
+        """Start the colour survey in the background when the window opens.
+
+        The verdict colours used to arrive only once the user opened Plugin
+        summary or the Plugin view. This runs the same survey quietly on open so
+        the list colours itself. It is a thin wrapper because a scheduled call
+        cannot pass ``quiet=True`` positionally, and because it must bail if the
+        window was closed in the meantime or a survey has already coloured the
+        list (a manual summary beating it to it), rather than start a needless
+        read of every plugin.
+        """
+        win = getattr(self, "_conflict_win", None)
+        if win is None or not win.winfo_exists():
+            return
+        if getattr(self, "_conf_survey", None) is not None:
+            return
+        self._survey_conflicts(quiet=True)
+
+    def _survey_conflicts(self, *, quiet: bool = False) -> None:
+        """Judge every listed conflict and summarise it per plugin.
+
+        Args:
+            quiet: When true, skip the confirmation prompt and the summary
+                window -- used to populate the plugin tree's colour index in the
+                background when that view is opened, where the only visible
+                result wanted is the colouring, not a report.
+        """
         if self.worker_running or self._conf_session is None:
             return
         rows = list(getattr(self, "_shown_conflicts", None) or [])
         if not rows:
-            self.status_var.set(_("Nothing to summarise."))
+            if not quiet:
+                self.status_var.set(_("Nothing to summarise."))
             return
-        if len(rows) > SURVEY_WARN_AT and not messagebox.askyesno(
-            _("Judge every conflict?"),
-            _(
-                "This reads every plugin that defines any of these %(count)d records "
-                "-- once each, not once per record -- and will take a few minutes. "
-                "The checkboxes and filters above narrow the list first if you would "
-                "rather summarise part of it.\n\nGo ahead?"
+        if (
+            not quiet
+            and len(rows) > SURVEY_WARN_AT
+            and not messagebox.askyesno(
+                _("Judge every conflict?"),
+                _(
+                    "This reads every plugin that defines any of these %(count)d records "
+                    "-- once each, not once per record -- and will take a few minutes. "
+                    "The checkboxes and filters above narrow the list first if you would "
+                    "rather summarise part of it.\n\nGo ahead?"
+                )
+                % {"count": len(rows)},
             )
-            % {"count": len(rows)},
         ):
             return
+        self._survey_quiet = quiet
         self.worker_running = True
         self._survey_total = len(rows)
         self._survey_seen = 0
-        self.status_var.set(_("Judging %(count)d conflict(s)...") % {"count": len(rows)})
+        self.status_var.set(
+            _("Colouring the load order (%(count)d record(s))...") % {"count": len(rows)}
+            if quiet
+            else _("Judging %(count)d conflict(s)...") % {"count": len(rows)}
+        )
         threading.Thread(target=self._survey_worker, args=(rows,), daemon=True).start()
 
     def _survey_worker(self, rows: list[dict]) -> None:
@@ -1486,7 +1825,7 @@ class ConflictWindowsMixin:
             error = str(exc)
             LOG_GUI.exception("plugin summary failed")
         finally:
-            self.root.after(0, lambda: self._survey_done(found, error))
+            self._schedule_ui(0, self._survey_done, found, error)
 
     def _survey_progress(self, done: int, total: int) -> None:
         """Say how far through the plugins the read has got.
@@ -1500,7 +1839,7 @@ class ConflictWindowsMixin:
             done: Plugins read so far.
             total: Plugins to read.
         """
-        self.root.after(
+        self._schedule_ui(
             0,
             lambda: self.status_var.set(
                 _("Reading plugin %(done)d of %(total)d...") % {"done": done, "total": total}
@@ -1515,17 +1854,30 @@ class ConflictWindowsMixin:
             error: What went wrong, if anything.
         """
         self.worker_running = False
+        quiet = getattr(self, "_survey_quiet", False)
+        self._survey_quiet = False
         if found is None:
-            self.status_var.set(_("Could not summarise the conflicts."))
-            messagebox.showerror(_("Summary failed"), error or _("Unknown error."))
+            if not quiet:
+                self.status_var.set(_("Could not summarise the conflicts."))
+                messagebox.showerror(_("Summary failed"), error or _("Unknown error."))
             return
         self._conf_survey = found
         self._recolour_conflict_tree()
+        # If the plugin-tree view is open, colour it from the fresh index too.
+        # No-op when it is closed; it will colour on open instead.
+        colour_tree = getattr(self, "_colour_tree_from_index", None)
+        if callable(colour_tree):
+            colour_tree()
         self.status_var.set(
-            _("Judged %(count)d record(s); %(losers)d plugin(s) losing work.")
+            _("Coloured %(count)d record(s) across the load order.") % {"count": len(found.records)}
+            if quiet
+            else _("Judged %(count)d record(s); %(losers)d plugin(s) losing work.")
             % {"count": len(found.records), "losers": len(found.losing_plugins)}
         )
-        self._show_plugin_summary(found)
+        # The summary window is an explicit report; a background colour pass that
+        # nobody asked to see a table for should not pop one.
+        if not quiet:
+            self._show_plugin_summary(found)
 
     def _recolour_conflict_tree(self) -> None:
         """Tag each listed record with what is actually happening to it.
@@ -1564,8 +1916,9 @@ class ConflictWindowsMixin:
             for index, status, involves_subset in updates[start:end]:
                 iid = str(index)
                 if tree.exists(iid):
-                    keep = ("sub",) if involves_subset else ()
-                    tree.item(iid, tags=(*keep, ALL_TAGS[status][0]))
+                    base = ALL_TAGS[status][0]
+                    tag = f"{base}-mine" if involves_subset and base in MINE_STATUS_TAGS else base
+                    tree.item(iid, tags=(tag,))
             if end < len(updates):
                 self.root.after(RECOLOUR_PACE_MS, lambda: paint(end))
 
@@ -1688,23 +2041,7 @@ class ConflictWindowsMixin:
                 _("Select a record above, then a field in the comparison below."),
             )
             return
-
-        conflict = self._shown_conflicts[int(sel[0])]
-        plugins = list(conflict.get("plugins") or [])
-        path = str(row[0])
-        if len(plugins) < 2:
-            return
-
-        chosen = self._ask_patch_winner(conflict, plugins, field=path)
-        if chosen is None:
-            return
-
-        self.queue_field(
-            str(conflict.get("type") or ""),
-            str(conflict.get("id") or ""),
-            FieldChoice(path=path, plugin=chosen),
-        )
-        self.show_patch_builder()
+        self._patch_field(self._shown_conflicts[int(sel[0])], str(row[0]))
 
     def _add_record_to_patch(self) -> None:
         """Ask which plugin should win for the selected record, and remember it."""
@@ -1713,7 +2050,18 @@ class ConflictWindowsMixin:
         if not sel:
             messagebox.showinfo(_("Nothing selected"), _("Select a conflicting record first."))
             return
-        conflict = self._shown_conflicts[int(sel[0])]
+        self._patch_whole_record(self._shown_conflicts[int(sel[0])])
+
+    def _patch_whole_record(self, conflict: Mapping[str, Any]) -> None:
+        """Queue a whole record after asking which plugin wins.
+
+        The shared core behind the conflict window's "Add record" and the field
+        popup's, so the tree view can queue a record without a duplicate flow.
+
+        Args:
+            conflict: The record, needing a ``type``, an ``id`` and its
+                ``plugins`` in load order.
+        """
         plugins = list(conflict.get("plugins") or [])
         if len(plugins) < 2:
             messagebox.showinfo(
@@ -1721,11 +2069,9 @@ class ConflictWindowsMixin:
                 _("Only one plugin defines this record, so there is nothing to patch."),
             )
             return
-
-        chosen = self._ask_patch_winner(conflict, plugins)
+        chosen = self._ask_patch_winner(dict(conflict), plugins)
         if chosen is None:
             return
-
         self.queue_whole_record(
             Selection(
                 plugin=chosen,
@@ -1735,6 +2081,29 @@ class ConflictWindowsMixin:
         )
         # Opened rather than merely counted: a queued decision is one you may
         # want to change, and the window is where that happens.
+        self.show_patch_builder()
+
+    def _patch_field(self, conflict: Mapping[str, Any], path: str) -> None:
+        """Queue one field of a record from a chosen plugin.
+
+        The shared core behind the conflict window's "Take this field" and the
+        field popup's, so the tree view can queue a field the same way.
+
+        Args:
+            conflict: The record, as :meth:`_patch_whole_record` needs it.
+            path: The flattened field name to take.
+        """
+        plugins = list(conflict.get("plugins") or [])
+        if len(plugins) < 2:
+            return
+        chosen = self._ask_patch_winner(dict(conflict), plugins, field=path)
+        if chosen is None:
+            return
+        self.queue_field(
+            str(conflict.get("type") or ""),
+            str(conflict.get("id") or ""),
+            FieldChoice(path=path, plugin=chosen),
+        )
         self.show_patch_builder()
 
     def _ask_patch_winner(
@@ -1846,7 +2215,7 @@ class ConflictWindowsMixin:
         error = ""
         cells: set[tuple[int, int]] = set()
         if build_conflict_map is None:  # pragma: no cover - guarded by caller too
-            self.root.after(0, lambda: self._conflict_map_done(None, "viz unavailable", 0))
+            self._schedule_ui(0, lambda: self._conflict_map_done(None, "viz unavailable", 0))
             return
         try:
             # Collect cells with conflicts for the status-bar count only --
@@ -1861,7 +2230,7 @@ class ConflictWindowsMixin:
             )
         except Exception as exc:  # noqa: BLE001
             error = str(exc)
-        self.root.after(0, lambda: self._conflict_map_done(markup, error, len(cells)))
+        self._schedule_ui(0, lambda: self._conflict_map_done(markup, error, len(cells)))
 
     def _conflict_map_done(self, markup: str | None, error: str, cells: int) -> None:
         """Open the conflict map in the in-app viewer, or report the failure."""
@@ -1919,7 +2288,13 @@ class ConflictWindowsMixin:
                 _("The page was written to %(path)s (%(error)s)") % {"path": path, "error": exc},
             )
 
-    def _visualise_field(self, key: str, plugins: Sequence[str], per: Mapping[str, Any]) -> None:
+    def _visualise_field(
+        self,
+        key: str,
+        plugins: Sequence[str],
+        per: Mapping[str, Any],
+        record_label: str | None = None,
+    ) -> None:
         """Open the right visualisation for the selected field.
 
         Which view makes sense is a property of the field, so the button is
@@ -1929,9 +2304,16 @@ class ConflictWindowsMixin:
             key: The flattened field name the user selected.
             plugins: The plugins that touch this record, in load order.
             per: Field values per plugin.
+            record_label: The record's label for the page (a cell's coords).
+                Passed by the tree view, which has its own selected record;
+                ``None`` falls back to the conflict window's own selection.
         """
         winner = plugins[-1] if plugins else ""
-        cell = str(getattr(self, "_conf_record_label", "") or "")
+        cell = (
+            record_label
+            if record_label is not None
+            else str(getattr(self, "_conf_record_label", "") or "")
+        )
 
         def value(plugin: str, field: str, default: object = "") -> Any:  # noqa: ANN401
             """Read one field for one plugin, tolerating a missing record.
@@ -1978,16 +2360,20 @@ class ConflictWindowsMixin:
                     sum(1 for p in plugins if (per.get(p) or {}).get("vertex_heights.data")) == 1
                 )
                 if has_single_plugin:
-                    self._show_terrain_3d(plugins, per)
+                    self._show_terrain_3d(plugins, per, cell)
         except Exception as exc:  # noqa: BLE001 - a bad record must not kill the window
             messagebox.showerror(_("Could not build the view"), _("%(error)s") % {"error": exc})
 
-    def _show_terrain_3d(self, plugins: Sequence[str], per: Mapping[str, Any]) -> None:
+    def _show_terrain_3d(
+        self, plugins: Sequence[str], per: Mapping[str, Any], record_label: str | None = None
+    ) -> None:
         """Open the 3D surface for every plugin that has terrain here.
 
         Args:
             plugins: The plugins that touch this record, in load order.
             per: Field values per plugin.
+            record_label: The cell label for the page; ``None`` falls back to
+                the conflict window's own selected record.
         """
         if build_terrain_3d is None:
             return
@@ -1999,9 +2385,82 @@ class ConflictWindowsMixin:
             for p in plugins
             if (per.get(p) or {}).get("vertex_heights.data")
         }
+        label = (
+            record_label
+            if record_label is not None
+            else str(getattr(self, "_conf_record_label", "") or "")
+        )
+        try:
+            markup = build_terrain_3d(surfaces, cell_label=label)
+        except Exception as exc:  # noqa: BLE001 - a bad record must not kill the window
+            messagebox.showerror(_("Could not build the view"), _("%(error)s") % {"error": exc})
+            return
+        self._open_html_view(markup, "terrain")
+
+    def _compare_merge_strategies(
+        self, plugins: Sequence[str], per: Mapping[str, Any], record_label: str | None = None
+    ) -> None:
+        """Preview each conflict strategy on this cell, alongside each plugin.
+
+        Decodes every plugin's terrain, merges it under each strategy with the
+        first plugin as the base, and opens the 3D view carrying each plugin's
+        own version *and* the merged result for Overwrite, Resolve, Ignore and
+        Curvature -- so the choice a ``.mergedlands.toml`` makes can be seen on
+        the terrain before it is written.
+
+        Args:
+            plugins: The plugins that touch this record, in load order.
+            per: Field values per plugin.
+            record_label: The cell label for the page.
+        """
+        if build_terrain_3d is None:
+            return
+        from wraithguard.land.meta import strategy_display_name
+        from wraithguard.land.preview import PREVIEW_STRATEGIES, merge_preview
+        from wraithguard.tes3fields.landscape import decode_vertex_heights
+
+        grids: list[list[list[float]]] = []
+        sources: dict[str, tuple[str, float]] = {}
+        for p in plugins:
+            pv = per.get(p) or {}
+            data = pv.get("vertex_heights.data")
+            if not data:
+                continue
+            offset = _as_float(pv.get("vertex_heights.offset", 0.0))
+            try:
+                grids.append(decode_vertex_heights(data, offset))
+            except Exception:  # noqa: BLE001 - a bad record is just skipped
+                continue
+            sources[p] = (data, offset)
+
+        if len(grids) < 2:
+            messagebox.showinfo(
+                _("Nothing to compare"),
+                _(
+                    "Only one plugin edits this cell's terrain, so every strategy gives the "
+                    "same result. Strategy choice only matters where two or more plugins "
+                    "change the same ground."
+                ),
+            )
+            return
+
+        label = (
+            record_label
+            if record_label is not None
+            else str(getattr(self, "_conf_record_label", "") or "")
+        )
+        surfaces: dict[str, tuple[str, float] | list[list[float]]] = dict(sources)
+        for strat in PREVIEW_STRATEGIES:
+            try:
+                surfaces[_("Merged: %(s)s") % {"s": strategy_display_name(strat)}] = merge_preview(
+                    grids, strat
+                )
+            except Exception:  # noqa: BLE001 - skip a strategy that will not compute
+                continue
         try:
             markup = build_terrain_3d(
-                surfaces, cell_label=str(getattr(self, "_conf_record_label", "") or "")
+                surfaces,
+                cell_label=(f"{label} - strategy comparison" if label else "strategy comparison"),
             )
         except Exception as exc:  # noqa: BLE001 - a bad record must not kill the window
             messagebox.showerror(_("Could not build the view"), _("%(error)s") % {"error": exc})
@@ -2069,7 +2528,12 @@ class ConflictWindowsMixin:
         widget.configure(state="disabled")
 
     def _add_field_view_buttons(
-        self, bar: ttk.Frame, key: str, plugins: Sequence[str], per: Mapping[str, Any]
+        self,
+        bar: ttk.Frame,
+        key: str,
+        plugins: Sequence[str],
+        per: Mapping[str, Any],
+        record_label: str = "",
     ) -> None:
         """Add the visualisation buttons that apply to this field.
 
@@ -2082,6 +2546,9 @@ class ConflictWindowsMixin:
             key: The flattened field name being shown.
             plugins: The plugins that touch this record, in load order.
             per: Field values per plugin.
+            record_label: The record's label for the generated page (a cell's
+                coords), so a view opened from the tree view labels the right
+                cell rather than the conflict window's last selection.
         """
         has_terrain = sum(1 for p in plugins if (per.get(p) or {}).get("vertex_heights.data"))
 
@@ -2089,7 +2556,7 @@ class ConflictWindowsMixin:
             button = ttk.Button(
                 bar,
                 text=_("Show graph..."),
-                command=lambda: self._visualise_field(key, plugins, per),
+                command=lambda: self._visualise_field(key, plugins, per, record_label),
             )
             button.pack(side="left", padx=(12, 0))
             add_tooltip(
@@ -2107,7 +2574,7 @@ class ConflictWindowsMixin:
             button = ttk.Button(
                 bar,
                 text=_("Show difference..."),
-                command=lambda: self._visualise_field(key, plugins, per),
+                command=lambda: self._visualise_field(key, plugins, per, record_label),
             )
             button.pack(side="left", padx=(12, 0))
             add_tooltip(
@@ -2125,7 +2592,7 @@ class ConflictWindowsMixin:
             button = ttk.Button(
                 bar,
                 text=_("Show in 3D..."),
-                command=lambda: self._show_terrain_3d(plugins, per),
+                command=lambda: self._show_terrain_3d(plugins, per, record_label),
             )
             button.pack(side="left", padx=(8, 0))
             add_tooltip(
@@ -2136,6 +2603,126 @@ class ConflictWindowsMixin:
                     "Shading follows slope rather than height, which reads as terrain."
                 ),
             )
+            compare = ttk.Button(
+                bar,
+                text=_("Compare strategies..."),
+                command=lambda: self._compare_merge_strategies(plugins, per, record_label),
+            )
+            compare.pack(side="left", padx=(8, 0))
+            add_tooltip(
+                compare,
+                _(
+                    "Show what each conflict strategy would do to this cell -- the merged "
+                    "terrain under Overwrite, Resolve, Ignore and Curvature, switchable in "
+                    "the same 3D view alongside each plugin's own version.\n\n"
+                    "Preview it here, then set the strategy you want in the plugin's "
+                    ".mergedlands.toml with Merge Settings. Only differs where two or more "
+                    "plugins actually contest a vertex."
+                ),
+            )
+
+        if key == "mesh" and self._field_has_string(plugins, per, "mesh"):
+            button = ttk.Button(
+                bar,
+                text=_("View mesh..."),
+                command=lambda: self._view_field_mesh(plugins, per, "mesh"),
+            )
+            button.pack(side="left", padx=(12, 0))
+            add_tooltip(
+                button,
+                _(
+                    "Open the mesh this record points at in the 3D viewer, resolved "
+                    "through your data folders and .bsa archives. One per plugin, so a "
+                    "record whose plugins point at different meshes shows them side by "
+                    "side -- the same viewer the Resource Conflicts window uses."
+                ),
+            )
+
+        if key in _IMAGE_FIELDS and self._field_has_string(plugins, per, key):
+            button = ttk.Button(
+                bar,
+                text=_("View image..."),
+                command=lambda: self._view_field_image(plugins, per, key),
+            )
+            button.pack(side="left", padx=(12, 0))
+            add_tooltip(
+                button,
+                _(
+                    "Open the texture/icon this record points at, resolved through your "
+                    "data folders and .bsa archives, and compared across the plugins that "
+                    "define it -- the same image viewer the Resource Conflicts window uses."
+                ),
+            )
+
+    @staticmethod
+    def _field_has_string(plugins: Sequence[str], per: Mapping[str, Any], field: str) -> bool:
+        """Whether any plugin gives ``field`` a non-empty string value.
+
+        Args:
+            plugins: The plugins defining the record.
+            per: Field values per plugin.
+            field: The flattened field name.
+
+        Returns:
+            ``True`` when at least one plugin references a file through it, so a
+            view button has something to open.
+        """
+        for plugin in plugins:
+            value = (per.get(plugin) or {}).get(field)
+            if isinstance(value, str) and value:
+                return True
+        return False
+
+    def _add_patch_buttons(
+        self,
+        bar: ttk.Frame,
+        key: str,
+        plugins: Sequence[str],
+        record_type: str,
+        record_label: str,
+    ) -> None:
+        """Add the patch-maker actions to a field-value popup.
+
+        Reachable from the conflict window's field diff and the tree view
+        alike, since both open the same popup -- so a record or a single field
+        can be queued for a patch without going back to a specific window.
+        Needs at least two plugins to choose between and a record type/id to
+        queue under.
+
+        Args:
+            bar: The popup's button row.
+            key: The flattened field name being shown.
+            plugins: The plugins that touch this record, in load order.
+            record_type: The record's tes3conv ``type``.
+            record_label: The record's id.
+        """
+        if len(plugins) < 2 or not record_type or not record_label:
+            return
+        conflict = {"type": record_type, "id": record_label, "plugins": list(plugins)}
+        record_btn = ttk.Button(
+            bar,
+            text=_("Add record to patch..."),
+            command=lambda: self._patch_whole_record(conflict),
+        )
+        record_btn.pack(side="left", padx=(12, 0))
+        add_tooltip(
+            record_btn,
+            _("Queue the whole record from a plugin you pick, then open the patch builder."),
+        )
+        field_btn = ttk.Button(
+            bar,
+            text=_("Take this field..."),
+            command=lambda: self._patch_field(conflict, key),
+        )
+        field_btn.pack(side="left", padx=(6, 0))
+        add_tooltip(
+            field_btn,
+            _(
+                "Queue just this field from a plugin you pick -- the rest of the record "
+                "keeps the load-order winner. For when one mod fixed the script and "
+                "another retextured the mesh."
+            ),
+        )
 
     def _dump_conflict_json(self) -> None:
         """Write the tes3conv JSON for every scanned plugin to a chosen folder."""
@@ -2202,9 +2789,38 @@ class ConflictWindowsMixin:
         sel = ftree.selection()
         if not sel:
             return
-        key = sel[0]
-        plugins = fd["plugins"]
-        per = fd["per"]
+        record_type = str(getattr(self, "_conf_record_type", "") or "")
+        record_label = str(getattr(self, "_conf_record_label", "") or "")
+        self._show_field_value(sel[0], fd["plugins"], fd["per"], record_type, record_label)
+
+    def _show_field_value(
+        self,
+        key: str,
+        plugins: Sequence[str],
+        per: Mapping[str, Mapping[str, Any]],
+        record_type: str = "",
+        record_label: str = "",
+    ) -> None:
+        """Pop up the full value of one field for each plugin.
+
+        The reusable core behind both the conflict window's double-click and the
+        tree view's: one tab per plugin, the value pretty-printed with JSON
+        syntax highlighting (and, for text fields like book/dialogue content,
+        the embedded markup broken out), disassembled for compiled scripts, and
+        decoded for the base64 blobs. Uses whatever theme is picked next to the
+        Log panel. For long fields like ``references`` that get truncated in a
+        table.
+
+        Args:
+            key: The field name.
+            plugins: The plugins defining the record, in load order.
+            per: Plugin name to that plugin's field values.
+            record_type: The record's type, for the format-reference note and
+                button. Empty when unknown.
+            record_label: The record's label (a cell's coords), so a
+                visualisation opened from here names the right cell. Empty when
+                unknown.
+        """
         theme = self._resolve_theme(self.log_theme_var.get()) or THEME_PRESETS["Dark (default)"]
         json_colors = _json_syntax_colors(theme)
         win = tk.Toplevel(self.root)
@@ -2219,7 +2835,6 @@ class ConflictWindowsMixin:
             note += " · decoded to local variable names"
         elif describe_field is not None and (described := describe_field(key)):
             note += f" · {described}"
-        record_type = str(getattr(self, "_conf_record_type", "") or "")
         if field_note is not None and (formatted := field_note(record_type, key)):
             # What this field is in the file itself, not in tes3conv's JSON:
             # the subrecord it comes from, its width, and whether the game
@@ -2242,7 +2857,8 @@ class ConflictWindowsMixin:
         ttk.Checkbutton(bar, text=_("Word wrap"), variable=wrap_var, command=_apply_wrap).pack(
             side="left"
         )
-        self._add_field_view_buttons(bar, key, plugins, per)
+        self._add_field_view_buttons(bar, key, plugins, per, record_label)
+        self._add_patch_buttons(bar, key, plugins, record_type, record_label)
         self._add_format_reference_button(bar, record_type)
         ttk.Label(
             bar,
@@ -2417,7 +3033,7 @@ class ConflictWindowsMixin:
                 records, _stats = fn(order, index, subset_names=subset, session=self._conf_session)
         except Exception:  # noqa: BLE001
             error = traceback.format_exc()
-        self.root.after(0, self._singles_done, records, error, kind)
+        self._schedule_ui(0, self._singles_done, records, error, kind)
 
     def _singles_done(self, records: list[dict], error: str, kind: str) -> None:
         """Fold a non-conflicting-records scan back into the list.
@@ -2442,6 +3058,31 @@ class ConflictWindowsMixin:
         )
         self._refill_conflict_tree()
 
+    def _sort_conflict_tree(self, column: str) -> None:
+        """Sort the conflict list by a clicked column; reverse on a repeat click.
+
+        Args:
+            column: The column name whose header was clicked.
+        """
+        current = getattr(self, "_conf_sort", None)
+        if current is not None and current[0] == column:
+            self._conf_sort = (column, not current[1])
+        else:
+            self._conf_sort = (column, False)
+        self._refill_conflict_tree()
+
+    def _apply_conflict_sort_indicators(self) -> None:
+        """Mark the sorted column's header with a direction arrow, clear the rest."""
+        tree = getattr(self, "_conf_tree", None)
+        labels = getattr(self, "_conf_col_labels", None)
+        if tree is None or labels is None or not tree.winfo_exists():
+            return
+        sort = getattr(self, "_conf_sort", None)
+        active_col, descending = sort if sort is not None else (None, False)
+        for col, base in labels.items():
+            arrow = (" ▼" if descending else " ▲") if col == active_col else ""
+            tree.heading(col, text=f"{base}{arrow}")
+
     def _refill_conflict_tree(self) -> None:
         """Rebuild the conflict list from the current filters."""
         tree = getattr(self, "_conf_tree", None)
@@ -2453,16 +3094,27 @@ class ConflictWindowsMixin:
             rows += getattr(self, "_conf_singles", None) or []
         if self._other_singles_var.get():
             rows += getattr(self, "_conf_other_singles", None) or []
-        self._shown_conflicts = [c for c in rows if c.get("involves_subset") or not only]
+        shown = [c for c in rows if c.get("involves_subset") or not only]
+        query = getattr(self, "_conf_search_var", None)
+        if query is not None:
+            shown = search_rows(shown, query.get(), ("type", "id", "winner"))
+        sort = getattr(self, "_conf_sort", None)
+        if sort is not None:
+            column, descending = sort
+            shown = sort_conflicts(shown, column, descending=descending)
+        self._shown_conflicts = shown
+        self._apply_conflict_sort_indicators()
         tree.delete(*tree.get_children())
         for i, c in enumerate(self._shown_conflicts):
             star = "★" if c["involves_subset"] else ""
-            tags = ("sub",) if c["involves_subset"] else ()
+            # No ownership tag: the ★ marks a row as yours, and the verdict
+            # recolour (below) then gives owned rows a saturated verdict colour
+            # rather than a flat orange that used to hide it. Until the summary
+            # lands, every row reads plain -- the star is the only marker needed.
             tree.insert(
                 "",
                 "end",
                 iid=str(i),
-                tags=tags,
                 values=(star, c["type"], c["id"], len(c["plugins"]), c["winner"]),
             )
         # Filtering rebuilds every row, which would drop the judgement colours.

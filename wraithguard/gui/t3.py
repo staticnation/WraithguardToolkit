@@ -15,7 +15,7 @@ import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import wraithguard_toolkit as core
 from wraithguard.gui import app_base_dir, trace_first_fire
@@ -28,7 +28,7 @@ from wraithguard.tracing import trace
 
 if TYPE_CHECKING:
     import queue
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 
 class Tes3cmdMixin:
@@ -58,6 +58,11 @@ class Tes3cmdMixin:
 
         def _cfg_dir(self) -> str | None: ...
         def _plan_scan_dirs(self) -> list[str]: ...
+
+        # Guarded worker-thread -> UI-thread marshaller, from the host App.
+        def _schedule_ui(
+            self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
+        ) -> None: ...
 
     def _tes3conv_json_dir(self) -> Path:
         """Where converted plugin JSON is spooled.
@@ -146,6 +151,16 @@ class Tes3cmdMixin:
             _(
                 "Add every custom mod from the last Sort whose file could be located "
                 "(curated plugins are the list's job, not yours)."
+            ),
+        )
+        b1a = ttk.Button(btns, text=_("List mods (last sort)"), command=self._t3_add_list_mods)
+        b1a.pack(fill="x", pady=2)
+        add_tooltip(
+            b1a,
+            _(
+                "Add every curated-list plugin from the last Sort whose file could be "
+                "located -- the complement of 'My mods': everything ACTIVE that is NOT "
+                "one of your custom additions."
             ),
         )
         b1b = ttk.Button(btns, text=_("MOMW needs-cleaning"), command=self._t3_add_needs_cleaning)
@@ -245,6 +260,43 @@ class Tes3cmdMixin:
                 found.append(str(p))
         self._t3_set_files(self._t3_files + found)
         msg = _("tes3cmd: added %(count)d of your mods") % {"count": len(found)}
+        if missing:
+            msg += ngettext(
+                " (%(count)d file not found in the data folders)",
+                " (%(count)d files not found in the data folders)",
+                missing,
+            ) % {"count": missing}
+        self.status_var.set(msg + ".")
+
+    def _t3_add_list_mods(self) -> None:
+        """Add the curated (non-custom) plugins from the last sort to the file list.
+
+        The complement of :func:`_t3_add_from_plan`: everything ACTIVE in the
+        last sort that is NOT one of your own custom mods -- i.e. the curated
+        MOMW list. Useful when the list itself needs a clean/sync pass, not
+        just your own additions.
+        """
+        plan = self._current_plan or {}
+        subset_lower = {str(n).lower() for n in (plan.get("subset") or [])}
+        active = plan.get("final_order") or plan.get("base_order_names") or []
+        if not active:
+            self.status_var.set(_("Run '1. Sort' first so I know the active load order."))
+            return
+        index = PluginFileIndex(self._plan_scan_dirs())
+        found, missing = [], 0
+        have = {str(p).lower() for p in self._t3_files}
+        for n in active:
+            if str(n).lower() in subset_lower:
+                continue  # that's "My mods"'s job, not this button's
+            if str(n).lower().endswith(".omwscripts"):
+                continue  # not a TES3 file; nothing for tes3cmd to do
+            p = index.find(n)
+            if p is None:
+                missing += 1
+            elif str(p).lower() not in have:
+                found.append(str(p))
+        self._t3_set_files(self._t3_files + found)
+        msg = _("tes3cmd: added %(count)d list mod(s)") % {"count": len(found)}
         if missing:
             msg += ngettext(
                 " (%(count)d file not found in the data folders)",
@@ -593,7 +645,7 @@ class Tes3cmdMixin:
             writer.write("\nERROR: tes3cmd run failed:\n" + traceback.format_exc())
             status = "tes3cmd run failed -- see log."
         finally:
-            self.root.after(0, self._t3_finished, status)
+            self._schedule_ui(0, self._t3_finished, status)
 
     def _t3_sync_worker(self, files: Sequence[str]) -> None:
         """In-app master-size resync (see core.sync_plugin_master_sizes)."""
@@ -640,7 +692,7 @@ class Tes3cmdMixin:
             writer.write("\nERROR: resync failed:\n" + traceback.format_exc())
             status = "Resync failed -- see log."
         finally:
-            self.root.after(0, self._t3_finished, status)
+            self._schedule_ui(0, self._t3_finished, status)
 
     def _t3_finished(self, status: str) -> None:
         """Re-enable the window and report how the run went.

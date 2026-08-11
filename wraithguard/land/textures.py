@@ -214,9 +214,29 @@ class TranslationResult:
         return not self.unknown
 
 
+def fallback_texture_index(mapping: dict[int, int]) -> int:
+    """The smallest real texture index in a compaction mapping.
+
+    Ports Merged Lands' ``RemappedTextures::fallback_texture_index``. When a
+    merged cell paints with an index no ``LTEX`` record defines, the fork
+    substitutes this -- the lowest valid painted texture -- so the plugin never
+    carries a dangling index. :data:`NO_TEXTURE` is excluded because it is not a
+    texture; if nothing else is mapped, :data:`NO_TEXTURE` is the only answer.
+
+    Args:
+        mapping: A compaction mapping from :func:`compact_textures`.
+
+    Returns:
+        The smallest mapped value other than :data:`NO_TEXTURE`, or
+        :data:`NO_TEXTURE` when there is none.
+    """
+    real = [value for value in mapping.values() if value != NO_TEXTURE]
+    return min(real) if real else NO_TEXTURE
+
+
 def compact_textures(
-    known: KnownTextures, used: set[int]
-) -> tuple[dict[int, int], list[KnownTexture]]:
+    known: KnownTextures, used: set[int], *, substitute_unknown: bool = True
+) -> tuple[dict[int, int], list[KnownTexture], list[int]]:
     """Renumber the shared table down to the textures a merge actually paints.
 
     Merged Lands does this in ``KnownTextures::remove_unused``, and skipping it
@@ -238,14 +258,29 @@ def compact_textures(
     Args:
         known: The shared table, as built by walking the load order.
         used: Every ``VTEX`` value appearing in the merged cells.
+        substitute_unknown: What to do with a value no ``LTEX`` record defines
+            (a missing master, already reported cell-by-cell during the diff).
+            The default (``True``) maps it to :func:`fallback_texture_index`
+            (the smallest valid painted texture), so the written plugin always
+            loads rather than carrying a dangling index -- the safe default for
+            a GUI-driven run, reported at emit as a fallback. ``False`` leaves
+            it out of the mapping, so the emit passes it through unchanged: the
+            index dangles, but nothing is silently repainted. Either way the
+            caller is told; the choice is which risk to take, and a CLI run that
+            wants the second can pass it.
 
     Returns:
-        A mapping from shared ``VTEX`` values to compacted ones, and the
-        textures to emit, in their new index order.
+        A triple ``(mapping, kept, unresolved)``: the shared-to-compacted
+        ``VTEX`` mapping, the textures to emit in their new index order, and the
+        sorted values no ``LTEX`` defined. With ``substitute_unknown`` the
+        mapping also carries every ``unresolved`` value, pointing at the
+        fallback; without it they are absent and pass through. ``unresolved`` is
+        returned either way so the emit can report what it did.
     """
     by_index = {vtex_of(texture.index): texture for texture in known.sorted()}
     mapping = {NO_TEXTURE: NO_TEXTURE}
     kept: list[KnownTexture] = []
+    unresolved: list[int] = []
 
     for value in sorted(used):
         if value == NO_TEXTURE:
@@ -253,8 +288,8 @@ def compact_textures(
         texture = by_index.get(value)
         if texture is None:
             # A merged grid references a texture the table never learned. That
-            # is a missing master, already reported by translate_indices; it is
-            # passed through unchanged rather than remapped to something real.
+            # is a missing master, already reported by translate_indices.
+            unresolved.append(value)
             continue
         kept.append(
             KnownTexture(
@@ -266,7 +301,14 @@ def compact_textures(
         )
         mapping[value] = vtex_of(len(kept) - 1)
 
-    return mapping, kept
+    if substitute_unknown and unresolved:
+        # Point every unresolved value at the smallest valid painted texture,
+        # so the emit substitutes it rather than writing a dangling index.
+        fallback = fallback_texture_index(mapping)
+        for value in unresolved:
+            mapping[value] = fallback
+
+    return mapping, kept, unresolved
 
 
 def translate_indices(values: list[int], mapping: dict[int, int]) -> TranslationResult:

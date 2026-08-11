@@ -24,14 +24,26 @@ reason merging works. For any vertex:
 ``IGNORE``
     Keep the earlier plugin's edit at contested vertices.
 
-**Averaging is right for heights and wrong for textures**, which is why the
-default differs by layer. Heights, normals, colours and the world map are
-continuous: a value between two edits is a sensible compromise. Texture indices
-are *names* -- index 3 and index 7 are two unrelated textures, and their average
-is a third unrelated texture. Averaging them would paint terrain with something
-neither mod chose, so textures default to ``OVERWRITE`` and
-:func:`merge_layer` refuses ``RESOLVE`` on them outright rather than trusting a
-caller not to ask.
+**The default is the load order's own answer: OVERWRITE.** Where two mods both
+moved a vertex, the later one in the load order wins it -- the same rule the
+engine applies to a whole record, but here applied per vertex, so everything
+*not* contested still merges. This is what makes the tool a seam resolver rather
+than a terrain blender: it keeps each mod's authored ground and reconciles only
+the borders between them.
+
+Blending (``RESOLVE``) is available per layer through a ``.mergedlands.toml``
+but is **not** the default. Averaging every contested vertex synthesises a
+surface neither mod authored, and across a large load order that shows up as
+visible stretching -- the OpenMW fork reached the same conclusion and made its
+``Auto`` mean load-order-winner for the same reason. ``RESOLVE`` is the right
+tool where two edits are both intentional and a compromise is genuinely wanted;
+it is asked for, not assumed. The magnitude-weighted average, the curvature
+weighting and the minor/major severity split all still exist -- they run when a
+sidecar selects ``RESOLVE`` or ``CURVATURE``, not on their own.
+
+**Textures never blend, default or not.** Index 3 and index 7 are two unrelated
+textures and their average is a third, so :func:`merge_layer` refuses
+``RESOLVE`` on textures outright rather than trust a caller not to ask.
 
 **Severity is reported, not acted on.** A resolved conflict is classified minor
 or major by how far the compromise sits from the smaller edit. Both produce the
@@ -78,13 +90,17 @@ class Severity(Enum):
 
 #: What each layer does when asked for :attr:`ConflictStrategy.AUTO`.
 #:
-#: Textures are the odd one out and deliberately so: an averaged texture index
-#: names a texture neither mod chose. See the module docstring.
+#: Every layer is load-order-winner (:attr:`ConflictStrategy.OVERWRITE`): the
+#: later plugin wins the vertices it changed, and only those. Blending is opt-in
+#: per layer through a ``.mergedlands.toml``. The dict is kept per-layer rather
+#: than collapsed to a single value so a future default can differ by layer
+#: again without touching callers. See the module docstring for why the default
+#: is not ``RESOLVE``.
 DEFAULT_STRATEGY: Final[dict[LandData, ConflictStrategy]] = {
-    LandData.VERTEX_HEIGHTS: ConflictStrategy.RESOLVE,
-    LandData.VERTEX_NORMALS: ConflictStrategy.RESOLVE,
-    LandData.VERTEX_COLORS: ConflictStrategy.RESOLVE,
-    LandData.WORLD_MAP: ConflictStrategy.RESOLVE,
+    LandData.VERTEX_HEIGHTS: ConflictStrategy.OVERWRITE,
+    LandData.VERTEX_NORMALS: ConflictStrategy.OVERWRITE,
+    LandData.VERTEX_COLORS: ConflictStrategy.OVERWRITE,
+    LandData.WORLD_MAP: ConflictStrategy.OVERWRITE,
     LandData.TEXTURES: ConflictStrategy.OVERWRITE,
 }
 

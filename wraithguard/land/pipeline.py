@@ -332,6 +332,16 @@ def resolve_normals(outcome: MergeOutcome, reference: Landmass) -> int:
     keeps the original in exactly that case (``recompute_vertex_normals``), and
     so does this.
 
+    **A zero authored normal is never kept.** ``(0, 0, 0)`` is not a lighting
+    choice, it is missing data -- a reference cell that declared heights but
+    left its ``VNML`` unfilled, which tes3conv hands back as zeros. Inheriting it
+    would replace a correctly-recomputed normal with one that lights the vertex
+    flat, and the engine paints a flat-normal vertex black: the dark squares that
+    show up in coastal and underwater cells, where the reference normals are most
+    often zero. So the inherited normal is taken only where it is non-zero, and
+    the fresh one stands everywhere else. The OpenMW fork made this same fix to
+    ``recompute_vertex_normals`` for the same reason.
+
     Args:
         outcome: The merged cells, with ``normals`` filled in place.
         reference: The reference landmass, for the normals to preserve.
@@ -359,11 +369,16 @@ def resolve_normals(outcome: MergeOutcome, reference: Landmass) -> int:
                     if cell.heights[index] != base[index]:
                         continue
                     start = index * 3
-                    computed[y][x] = (
+                    inherited = (
                         original[start],
                         original[start + 1],
                         original[start + 2],
                     )
+                    if inherited == (0, 0, 0):
+                        # Missing data, not a lighting choice: keep the fresh
+                        # normal rather than paint the vertex flat/black.
+                        continue
+                    computed[y][x] = inherited
                     preserved += 1
 
         cell.normals = [c for row in computed for triple in row for c in triple]

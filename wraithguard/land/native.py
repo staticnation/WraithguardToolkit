@@ -87,6 +87,11 @@ _GRIDS: Final[dict[bytes, str]] = {
 #: Suffix of the record-key sidecar the conflict scanner writes.
 KEYS_SUFFIX: Final = ".keys.json"
 
+#: Suffix of the landscape-records sidecar. Unlike the keys sidecar, this holds
+#: the whole Landscape/LandscapeTexture records -- everything a merge needs -- so
+#: a merge can read terrain from it instead of re-running the converter.
+LAND_SUFFIX: Final = ".land.json"
+
 #: Schema version of the sidecar this understands. A sidecar written by a
 #: different version is ignored rather than guessed at.
 KEYS_VERSION: Final = 3
@@ -312,6 +317,43 @@ def landscape_in_sidecar(plugin: Path, sidecar_dir: Path) -> bool | None:
     return any(
         isinstance(row, (list, tuple)) and row and row[0] in _LANDSCAPE_TYPES for row in rows
     )
+
+
+def landscape_records_from_sidecar(plugin: Path, sidecar_dir: Path) -> list[Any] | None:
+    """Return a plugin's landscape records from the scan cache, if fresh.
+
+    The conflict scanner writes a ``<stem>.land.json`` beside every plugin it
+    converts, holding the whole ``Landscape``/``LandscapeTexture`` records. When
+    it is present and newer than the plugin, a merge can take terrain straight
+    from it and skip the converter entirely -- the expensive step, on a file
+    that may run to hundreds of MB.
+
+    **A stale sidecar is no answer.** As with :func:`landscape_in_sidecar`, a
+    plugin newer than its sidecar falls through to a fresh conversion: reusing
+    terrain from before an edit would merge the wrong ground silently.
+
+    Args:
+        plugin: The plugin file.
+        sidecar_dir: The folder the scanner writes sidecars to.
+
+    Returns:
+        The list of landscape records, or ``None`` when there is no usable,
+        current sidecar and the caller must convert the plugin itself.
+    """
+    side = sidecar_dir / (plugin.stem + LAND_SUFFIX)
+    try:
+        if side.stat().st_mtime < plugin.stat().st_mtime:
+            return None
+        document = json.loads(side.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+
+    if not isinstance(document, dict) or document.get("v") != KEYS_VERSION:
+        return None
+    records = document.get("d")
+    if not isinstance(records, list):
+        return None
+    return records
 
 
 def has_landscape(path: Path, sidecar_dir: Path | None = None) -> bool:

@@ -99,6 +99,36 @@ _STRATEGIES: Final[dict[str, ConflictStrategy]] = {
     "Curvature": ConflictStrategy.CURVATURE,
 }
 
+#: The inverse: a strategy to the name the file spells it with. Used by the
+#: writer, so what is written parses back to the same value.
+_STRATEGY_NAMES: Final[dict[ConflictStrategy, str]] = {
+    strategy: name for name, strategy in _STRATEGIES.items()
+}
+
+#: The ``conflict_strategy`` names a chooser should offer, in reading order:
+#: ``Auto`` first because it is the default, then the other Merged Lands
+#: strategies, then our ``Curvature`` addition last. Public so the GUI's dropdown
+#: cannot drift from what :func:`parse_meta` accepts.
+STRATEGY_NAMES: Final[tuple[str, ...]] = tuple(_STRATEGIES)
+
+#: The ``meta_type`` values, for the same reason.
+META_TYPES: Final[tuple[str, ...]] = (META_AUTO, META_PATCH, META_MERGED_LANDS)
+
+
+def strategy_from_name(name: str) -> ConflictStrategy:
+    """Map a ``conflict_strategy`` name to its value.
+
+    Args:
+        name: One of :data:`STRATEGY_NAMES`.
+
+    Returns:
+        The strategy it spells.
+
+    Raises:
+        KeyError: If the name is not a recognised strategy.
+    """
+    return _STRATEGIES[name]
+
 
 class MetaError(Exception):
     """Raised when a sidecar exists but cannot be trusted."""
@@ -245,7 +275,7 @@ def parse_meta(document: dict[str, Any], name: str = "<meta>") -> PluginMeta:
         )
 
     meta_type = document.get("meta_type", META_AUTO)
-    if meta_type not in (META_AUTO, META_PATCH, META_MERGED_LANDS):
+    if meta_type not in META_TYPES:
         raise MetaError(f"{name} has an unknown meta_type {meta_type!r}")
 
     layers: dict[str, MergeSettings] = {}
@@ -326,6 +356,154 @@ def load_all(folder: Path, plugins: list[str]) -> dict[str, PluginMeta]:
     return {name: load_meta(folder / name) for name in plugins}
 
 
+def _strategy_name(strategy: ConflictStrategy) -> str:
+    """The file's spelling of a conflict strategy.
+
+    Args:
+        strategy: The strategy value.
+
+    Returns:
+        Its name, or ``"Auto"`` for anything unmapped.
+    """
+    return _STRATEGY_NAMES.get(strategy, "Auto")
+
+
+#: Public alias: a chooser needs to show the name of a strategy it loaded from an
+#: existing sidecar, and this is the same mapping the writer uses so the round
+#: trip is exact.
+strategy_display_name = _strategy_name
+
+
+def render_meta(meta: PluginMeta, *, explicit: bool = False) -> str:
+    """Serialise a :class:`PluginMeta` to ``.mergedlands.toml`` text.
+
+    The inverse of :func:`parse_meta`, and pinned against it: what this writes
+    parses back to an equal ``PluginMeta``.
+
+    Args:
+        meta: The settings to write.
+        explicit: When ``True``, every layer section is written out with both
+            keys even at their defaults, so a user opening the file sees the
+            full set of knobs to edit -- which is what a hand-authored patch or
+            a marker wants. When ``False``, a layer at its default (``included =
+            true``, ``conflict_strategy = "Auto"``) is omitted, matching Merged
+            Lands' own skip-default serialisation.
+
+    Returns:
+        The file body, ending in a single newline.
+    """
+    lines = [
+        f'version = "{SUPPORTED_VERSION}"',
+        f'meta_type = "{meta.meta_type}"',
+        "",
+    ]
+    for name in LAYER_NAMES:
+        settings = meta.settings_for(name)
+        is_default = settings.included and settings.conflict_strategy is ConflictStrategy.AUTO
+        if not explicit and is_default:
+            continue
+        lines.append(f"[{name}]")
+        lines.append("included = true" if settings.included else "included = false")
+        lines.append(f'conflict_strategy = "{_strategy_name(settings.conflict_strategy)}"')
+        lines.append("")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+#: A header explaining every knob, for a hand-editable template. Kept in one
+#: place so the strategy list can never drift from :data:`_STRATEGIES`.
+def _template_header() -> str:
+    """Build the explanatory comment block for a patch template.
+
+    Returns:
+        Comment lines, each terminated, listing the valid values.
+    """
+    strategies = " | ".join(_STRATEGIES)
+    layers = ", ".join(LAYER_NAMES)
+    return (
+        "# Merged Lands patch for the plugin beside this file.\n"
+        "# It controls how this plugin's landscape edits are merged.\n"
+        "#\n"
+        f"# meta_type        = {META_AUTO} | {META_PATCH} | {META_MERGED_LANDS}"
+        f"  (use {META_PATCH} for a hand-written patch)\n"
+        f"# Layers: {layers}\n"
+        "#   (height_map governs vertex normals too.)\n"
+        "# Per layer:\n"
+        "#   included          = true | false   (false drops this plugin's edits to the layer)\n"
+        f"#   conflict_strategy = {strategies}\n"
+        "# Delete a section to accept its defaults (included = true, Auto).\n"
+    )
+
+
+def write_meta(plugin: Path, meta: PluginMeta, *, explicit: bool = False, header: str = "") -> Path:
+    """Write a plugin's ``.mergedlands.toml`` from a :class:`PluginMeta`.
+
+    Args:
+        plugin: The plugin the sidecar describes.
+        meta: The settings to serialise.
+        explicit: Passed to :func:`render_meta` -- spell out every layer.
+        header: Comment text to place above the document, if any.
+
+    Returns:
+        The sidecar path written.
+
+    Raises:
+        MetaError: If the file cannot be written.
+    """
+    path = meta_path_for(plugin)
+    body = f"{header}{render_meta(meta, explicit=explicit)}"
+    try:
+        path.write_text(body, encoding="utf-8")
+    except OSError as exc:
+        raise MetaError(f"could not write {path.name}: {exc}") from exc
+    return path
+
+
+def write_settings(plugin: Path, meta: PluginMeta) -> Path:
+    """Write a hand-configured settings sidecar, header and all.
+
+    The write path the GUI editor uses: the caller has already chosen the
+    ``meta_type`` and the per-layer settings, and this spells every layer out
+    with the explanatory header so the file stays hand-editable afterwards.
+    :func:`write_patch_template` is the same call with the permissive defaults
+    filled in for a caller that has not chosen anything yet.
+
+    Args:
+        plugin: The plugin the sidecar describes.
+        meta: The settings to serialise.
+
+    Returns:
+        The sidecar path written.
+
+    Raises:
+        MetaError: If the file cannot be written.
+    """
+    return write_meta(plugin, meta, explicit=True, header=_template_header())
+
+
+def write_patch_template(plugin: Path) -> Path:
+    """Create a hand-editable ``.mergedlands.toml`` patch for a chosen plugin.
+
+    Writes a ``Patch`` sidecar with every layer spelled out at its permissive
+    default and a header listing the valid values, so a user can open it and
+    change exactly what they mean to -- rather than starting from a blank file
+    and guessing the schema. Merged Lands' advice still holds: a plugin needs no
+    sidecar until a conflict makes one necessary, so this is offered, never
+    written automatically.
+
+    Args:
+        plugin: The plugin to write a patch template beside.
+
+    Returns:
+        The sidecar path written.
+
+    Raises:
+        MetaError: If the file cannot be written.
+    """
+    layers = {name: MergeSettings() for name in LAYER_NAMES}
+    meta = PluginMeta(meta_type=META_PATCH, layers=layers)
+    return write_settings(plugin, meta)
+
+
 def write_merged_marker(plugin: Path) -> Path:
     """Mark a plugin we generated so a later run ignores it.
 
@@ -354,22 +532,27 @@ def write_merged_marker(plugin: Path) -> Path:
             logged: a merged plugin with no marker beside it is a trap for the
             next run, and the user needs to know now.
     """
-    path = meta_path_for(plugin)
-    body = (
+    header = (
         "# Written by Wraithguard Toolkit. Do not delete.\n"
         "#\n"
         "# It marks the plugin beside it as generated, so that merging again\n"
         "# ignores it instead of merging a merge. The format is Merged Lands'\n"
-        "# .mergedlands.toml.\n"
-        f'version = "{SUPPORTED_VERSION}"\n'
-        f'meta_type = "{META_MERGED_LANDS}"\n'
+        "# .mergedlands.toml. Every layer is written out and set to\n"
+        "# included = false as a belt-and-braces: meta_type = MergedLands\n"
+        "# already keeps this plugin out of a re-merge, and if that were ever\n"
+        "# missed the layers contribute nothing regardless.\n"
+    )
+    # meta_type = MergedLands is what is_previous_merge reads; the explicit
+    # included = false layers make the file self-describing instead of blank.
+    marker = PluginMeta(
+        meta_type=META_MERGED_LANDS,
+        layers={name: MergeSettings(included=False) for name in LAYER_NAMES},
     )
     try:
-        path.write_text(body, encoding="utf-8")
-    except OSError as exc:
+        return write_meta(plugin, marker, explicit=True, header=header)
+    except MetaError as exc:
         raise MetaError(
-            f"could not write {path.name}, which marks {plugin.name} as generated. "
-            "Without it a later merge would treat this plugin as a mod and merge "
+            f"could not write {meta_path_for(plugin).name}, which marks {plugin.name} as "
+            "generated. Without it a later merge would treat this plugin as a mod and merge "
             f"its terrain back into itself: {exc}"
         ) from exc
-    return path
