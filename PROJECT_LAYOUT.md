@@ -101,14 +101,7 @@ WraithguardToolkit/
 ├── License/                   This project's own MIT licence (`LICENSE`), plus
 │                               the licences of the projects it ports from.
 ├── pyproject.toml             ruff / black / pytest / mypy configuration.
-├── theme_template.json        Commented starting point for a custom GUI theme.
-└── *.md                       README, QUICKSTART, CHANGELOG, CREDITS,
-                               SMOKE_TEST; REMAINING_WORK (what a reviewer
-                               would still flag, measured); CODE_REVIEW (a
-                               running log, appended per work-block, oldest
-                               first); *_BRIEF.md retired stubs (work done;
-                               each points at its CODE_REVIEW section and
-                               can be deleted).
+└──theme_template.json        Commented starting point for a custom GUI theme.
 ```
 
 ## Running
