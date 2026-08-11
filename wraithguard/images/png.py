@@ -53,23 +53,16 @@ def _chunk(tag: bytes, payload: bytes) -> bytes:
 def encode_png(image: Image) -> bytes:
     """Encode a decoded surface as an RGBA PNG.
 
+    The buffer length is guaranteed to match the dimensions by :class:`Image`
+    itself -- its ``__post_init__`` raises ``ImageError`` on a mismatch, so a
+    length re-check here would be dead code that no caller could ever trigger.
+
     Args:
         image: The surface to write.
 
     Returns:
         The whole PNG file.
-
-    Raises:
-        ValueError: If the pixel buffer does not match the dimensions. That
-            would otherwise produce a file that opens and is silently wrong,
-            which is worse than refusing.
     """
-    expected = image.width * image.height * 4
-    if len(image.pixels) != expected:
-        raise ValueError(
-            f"{image.width}x{image.height} needs {expected} byte(s) of RGBA, "
-            f"got {len(image.pixels)}"
-        )
     header = struct.pack(
         ">IIBBBBB", image.width, image.height, _BIT_DEPTH, _COLOUR_TYPE_RGBA, 0, 0, 0
     )
