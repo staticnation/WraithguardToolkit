@@ -384,6 +384,81 @@ class TestDragListboxSelectionEscape:
             lb.destroy()
 
 
+class TestManualSubsetAdditions:
+    """Folders and plugins the scan missed can be added by hand.
+
+    The scan recognises a mod by a standard asset subfolder or a plugin file; an
+    OpenMW Lua mod with a non-standard layout, or a stray plugin, has neither. A
+    button and drag-drop let the user include one anyway; it merges into the
+    subset on the next Sort. These pin the routing (plugin vs folder) and the
+    de-duplication, without needing the widgets that only carry it in.
+    """
+
+    @staticmethod
+    def _host() -> Any:
+        """An App with just the attributes the manual-add methods touch."""
+        import queue as queue_mod
+
+        from wraithguard_toolkit_gui import App
+
+        host = App.__new__(App)
+        host._manual_plugins = []  # type: ignore[attr-defined]
+        host._manual_data_dirs = []  # type: ignore[attr-defined]
+        host.log_queue = queue_mod.Queue()  # type: ignore[attr-defined]
+        host.status_var = type("V", (), {"set": lambda _self, _s: None})()  # type: ignore[attr-defined]
+        host.sort_data_paths_var = type("B", (), {"get": lambda _self: False})()  # type: ignore[attr-defined]
+        return host
+
+    def test_a_plugin_path_is_classified_as_a_plugin(self) -> None:
+        """A dropped .esp joins the subset by basename, not as a folder."""
+        host = self._host()
+        host._add_manual_path("C:/mods/loose/MyMod.esp")
+        assert host._manual_plugins == ["MyMod.esp"]
+        assert host._manual_data_dirs == []
+
+    def test_a_directory_is_classified_as_a_data_folder(self, tmp_path: Path) -> None:
+        """A dropped folder joins the data paths, absolutised like the scan.
+
+        Args:
+            tmp_path: A real directory to add.
+        """
+        import os.path
+
+        host = self._host()
+        folder = tmp_path / "NgardeParrySounds"
+        folder.mkdir()
+        host._add_manual_path(str(folder))
+        # abspath, not resolve: match production, which must not follow symlinks.
+        assert host._manual_data_dirs == [os.path.abspath(str(folder))]  # noqa: PTH100
+        assert host._manual_plugins == []
+
+    def test_duplicates_are_ignored_case_insensitively(self, tmp_path: Path) -> None:
+        """Adding the same plugin or folder twice is a no-op the second time.
+
+        Args:
+            tmp_path: A real directory to add twice.
+        """
+        host = self._host()
+        host._add_manual_path("MyMod.esp")
+        host._add_manual_path("mymod.ESP")
+        assert host._manual_plugins == ["MyMod.esp"]
+
+        import os.path
+
+        folder = tmp_path / "Mod"
+        folder.mkdir()
+        host._add_manual_path(str(folder))
+        host._add_manual_path(str(folder))
+        assert host._manual_data_dirs == [os.path.abspath(str(folder))]  # noqa: PTH100
+
+    def test_a_path_that_is_neither_is_ignored(self) -> None:
+        """A non-plugin path that is not a real folder adds nothing."""
+        host = self._host()
+        host._add_manual_path("C:/nope/not-a-real-thing")
+        assert host._manual_plugins == []
+        assert host._manual_data_dirs == []
+
+
 class TestActionButtons:
     """Every button exists, is bound, and starts in the documented state."""
 

@@ -9,6 +9,7 @@ covered here.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,16 @@ from wraithguard.land.service import (
     _split_order,
     build_merged_lands,
     resolve_plugin,
+)
+
+# The two converter-subprocess tests below stand a shell script in for tes3conv
+# and run it. Windows' CreateProcess cannot execute a script directly (no
+# shebang, and .bat/.py are not valid argv[0]s), so there is no portable "fake
+# executable" to drop; the subprocess error/success handling is exercised on
+# POSIX, where a chmod +x script is a real executable. The code under test is
+# platform-independent -- only the stand-in is not.
+_posix_only = pytest.mark.skipif(
+    os.name != "posix", reason="needs an executable stand-in for tes3conv (POSIX script)"
 )
 
 
@@ -114,6 +125,7 @@ class TestRecordsViaReportsWhy:
         assert records == []
         assert "tes3conv" in failure
 
+    @_posix_only
     def test_a_converter_error_carries_its_message(self, tmp_path: Path) -> None:
         """tes3conv's own complaint is what the user needs to see."""
         script = tmp_path / "fake.sh"
@@ -124,6 +136,7 @@ class TestRecordsViaReportsWhy:
         assert "exited 3" in failure
         assert "bad plugin" in failure
 
+    @_posix_only
     def test_success_reports_no_failure(self, tmp_path: Path) -> None:
         """The happy path returns records and an empty reason."""
         script = tmp_path / "fake.sh"

@@ -65,6 +65,37 @@ is missing rather than the app being fine. `python -c "import tkinter; tkinter.T
 will say which. CI runs the same suite under a virtual X server and fails the
 job on any skip, for exactly this reason.
 
+### The full suite and coverage
+
+The GUI smoke run above is one file; the whole suite is worth running too, with
+coverage, because that is what the `fail_under` floor gates on:
+
+```powershell
+python -m pip install pytest-cov zstandard   # coverage is opt-in; not in addopts
+python -m pytest --cov
+```
+
+`zstandard` matters -- a couple of code paths only execute when it is installed,
+so leaving it out under-reports the number. If pytest dies mid-run with an
+INTERNALERROR about writing the data file (some mounts refuse it), set
+`COVERAGE_FILE=%TEMP%\.coverage` and re-run; that is a filesystem quirk, not a
+hung test.
+
+**Last verified full run:** Windows 11, Python 3.14.5, pytest 9.1.1 --
+**3,542 passed, 4 skipped, coverage 83.86%** (34 files at complete coverage),
+"Required test coverage of 77.0% reached." The four skips are all deliberate and
+expected: the differential
+baseline, and the two converter-subprocess tests in `test_land_service.py` that
+stand a shell script in for tes3conv -- Windows cannot execute a script as a
+subprocess, so they run on POSIX and skip here. A *fifth* skip or any failure is
+a real signal; `-rs` names each one.
+
+The floor is `fail_under = 77`, ratcheted up from 52 once the suite's honest
+number climbed (to ~54% at 3.0, ~80% mid-3.1, ~84% now). It is kept a few points
+below the measured figure
+so it rises with coverage instead of blocking the next change; raise it as the
+number climbs, never lower it to make a change pass.
+
 ### What it has already caught
 
 Not hypothetical. On its first real desktop run every test errored during

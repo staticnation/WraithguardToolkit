@@ -320,6 +320,13 @@ class TestTes3convBytecodeField:
     def test_missing_zstd_backend_explains_the_alternative(self, monkeypatch):
         """With no backend the message must name a way forward, because the
         plugin file itself stores SCDT uncompressed."""
+        # Block the whole `compression` package, not just `compression.zstd`:
+        # on Python 3.14 `from compression import zstd` resolves the already-
+        # imported submodule as an attribute of the package, so hiding only
+        # `compression.zstd` leaves the backend reachable. Nulling the parent in
+        # sys.modules makes the `from ... import` raise ImportError, which is
+        # what "no backend available" actually looks like.
+        monkeypatch.setitem(sys.modules, "compression", None)
         monkeypatch.setitem(sys.modules, "compression.zstd", None)
         monkeypatch.setitem(sys.modules, "zstandard", None)
         with pytest.raises(BytecodeDecodeError) as excinfo:
@@ -373,6 +380,13 @@ class TestListingForBytecodeField:
         assert "base64" in out
 
     def test_missing_zstd_backend_is_reported_not_raised(self, monkeypatch):
+        # Block the whole `compression` package, not just `compression.zstd`:
+        # on Python 3.14 `from compression import zstd` resolves the already-
+        # imported submodule as an attribute of the package, so hiding only
+        # `compression.zstd` leaves the backend reachable. Nulling the parent in
+        # sys.modules makes the `from ... import` raise ImportError, which is
+        # what "no backend available" actually looks like.
+        monkeypatch.setitem(sys.modules, "compression", None)
         monkeypatch.setitem(sys.modules, "compression.zstd", None)
         monkeypatch.setitem(sys.modules, "zstandard", None)
         out = listing_for_bytecode_field(base64.b64encode(ZSTD_MAGIC + b"\x00" * 8).decode())
