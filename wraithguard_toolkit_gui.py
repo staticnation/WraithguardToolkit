@@ -64,8 +64,11 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from wraithguard.land import service as land_service
-from wraithguard.patch.summary import ALL_TAGS, field_statuses
+from wraithguard.land import meta as land_meta, service as land_service
+from wraithguard.logging_setup import get_logger
+from wraithguard.patch.summary import ALL_TAGS, field_statuses, search_rows
+
+LOG = get_logger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Mapping, Sequence
@@ -215,6 +218,7 @@ from wraithguard.net import (  # noqa: E402
 )
 from wraithguard.plugins import PluginFileIndex  # noqa: E402
 from wraithguard.rules import authoring  # noqa: E402
+from wraithguard.viz.serve import publish_html_file  # noqa: E402
 
 # The cell map is coverage only and needs nothing from viz/'s page builders:
 # the conflict views are built by the Conflicts window (see
@@ -423,7 +427,16 @@ class RuleFilesPanel:
             except Exception as e:  # noqa: BLE001
                 # worker thread: must report into the dialog, never vanish silently
                 report = [f"FAILED: {e}"]
-            self.listbox.after(0, lambda: messagebox.showinfo(_("Update rules"), "\n".join(report)))
+            # This panel is not the App, so it has no _schedule_ui; guard the
+            # hand-back the same way -- a torn-down window or a headless test
+            # (no mainloop) raises rather than queuing, and there is then
+            # nothing to show.
+            try:
+                self.listbox.after(
+                    0, lambda: messagebox.showinfo(_("Update rules"), "\n".join(report))
+                )
+            except (RuntimeError, tk.TclError):
+                pass
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -862,6 +875,31 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             "dim": {"foreground": theme["dim"]},
         }
 
+    def _schedule_ui(
+        self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
+    ) -> None:
+        """Marshal a worker-thread callback onto the UI thread, without raising.
+
+        Every background worker (scan, sort, export, merge, lint, backups,
+        rule/plugin-order downloads, plugin-view judging) ends by handing its
+        result back with ``root.after(...)``. That call needs a live
+        interpreter that is actually pumping its event loop to receive a
+        cross-thread request; if the window has already been torn down (the
+        app closing while a worker is still running) or -- in headless tests
+        -- no ``mainloop()`` ever ran, it raises instead of queuing. Either
+        way there is nothing left to update, so this drops the callback
+        rather than crashing a daemon thread.
+
+        Args:
+            delay_ms: Milliseconds to wait before running ``func``.
+            func: The callable to run on the UI thread.
+            *args: Positional arguments for ``func``.
+        """
+        try:
+            self.root.after(delay_ms, func, *args)
+        except (RuntimeError, tk.TclError):
+            LOG.debug("dropped a worker callback: window is gone")
+
     def __init__(self, root: tk.Tk) -> None:
         """Build the whole application UI on ``root``."""
         self.root = root
@@ -1002,6 +1040,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             "no_predicate_warnings": self.no_predicate_warnings_var.get(),
             "create_subset_doc": self.create_subset_doc_var.get(),
             "keep_json": self.keep_json_var.get(),
+            "merged_lands_verbose": self.merged_lands_verbose_var.get(),
             "cleanup_html": self.cleanup_html_var.get(),
             "log_theme": self.log_theme_var.get(),
         }
@@ -1037,6 +1076,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             ("no_predicate_warnings", self.no_predicate_warnings_var),
             ("create_subset_doc", self.create_subset_doc_var),
             ("keep_json", self.keep_json_var),
+            ("merged_lands_verbose", self.merged_lands_verbose_var),
             ("cleanup_html", self.cleanup_html_var),
         ):
             if isinstance(d.get(k), bool):
@@ -1488,6 +1528,10 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         #: common case: the cfg's own groundcover= lines need no help.
         self.groundcover_var = tk.StringVar()
         self.keep_json_var = tk.BooleanVar(value=False)
+        #: Verbose Merged Lands log: name every plugin that carries settings and
+        #: what they are, and the full unreadable list, rather than the headline
+        #: numbers. For troubleshooting a merge; off by default.
+        self.merged_lands_verbose_var = tk.BooleanVar(value=False)
         #: Prune old generated HTML views on exit. On by default: the pages
         #: are timestamped so they accumulate, and a megabyte-per-map folder
         #: gets unusable quickly. Unchecking it means nothing is ever deleted.
@@ -1648,6 +1692,22 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                 "too); unchecked = delete it when you close the app."
             ),
         )
+        ml_verbose_chk = ttk.Checkbutton(
+            opts,
+            text=_("Verbose Merged Lands log"),
+            variable=self.merged_lands_verbose_var,
+        )
+        ml_verbose_chk.grid(row=3, column=0, sticky="w", padx=8, pady=4)
+        add_tooltip(
+            ml_verbose_chk,
+            _(
+                "Checked: a Merge Lands run also names every plugin that carries a "
+                ".mergedlands.toml and exactly what it sets (per layer: on/off and the "
+                "conflict strategy), and lists every plugin it could not read -- rather "
+                "than the headline counts. For working out why a merge did what it did.\n\n"
+                "Unchecked: the normal summary log."
+            ),
+        )
 
     def _build_action_bar(self, top: tk.Misc, row: int) -> None:
         """Build the two rows of buttons under the options.
@@ -1723,22 +1783,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             "list entry) plus exterior/interior cell lists, showing which mods touch which "
             "cells (your custom ones get a gold outline). A 'Focus on mod' dropdown dims "
             "everything one mod doesn't touch and lists its co-editors. The map is written "
-            "to cell_map.html "
+            "to a timestamped cell_map file "
             "and shown in an in-app window if pywebview or tkinterweb is installed, otherwise "
             "in your browser. Read-only.",
-            state="disabled",
-        )
-        self.mergedlands_button = _action_button(
-            row1,
-            "Merge Lands",
-            self.on_merged_lands,
-            "Build a 'Merged Lands.esp' from the sorted, enabled plugins. Where two mods "
-            "reshape different vertices of the same exterior cell, a load order keeps only "
-            "one and discards the other; this recovers both. Seams between cells are "
-            "repaired and the terrain is conditioned so every height fits the format. "
-            "WRITES A NEW PLUGIN into your Data Files -- your mods are never modified, and "
-            "deleting the merged plugin restores your previous behaviour exactly. Load it "
-            "LAST. Needs tes3conv.",
             state="disabled",
         )
         self.resource_button = _action_button(
@@ -1758,15 +1805,42 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         )
 
     def _build_tool_actions(self, row2: tk.Misc) -> None:
-        """Build the second button row: the tools that stand on their own.
+        """Build the second button row: plugin manipulation and file creation.
 
-        These do not need a computed order -- tes3cmd, Save Check and Backups
-        all work from files -- so only Lint, which reads the sorted list, starts
-        disabled.
+        The first row is the conflict/scan actions; this row is the tools that
+        change or create files -- Merge Lands writes a merged plugin, Merge
+        Settings writes a '.mergedlands.toml', tes3cmd cleans, Lint reads the
+        sorted list. Merge Lands and Lint need a computed order and so start
+        disabled; the rest work straight from files.
 
         Args:
             row2: The frame holding the second row.
         """
+        self.mergedlands_button = _action_button(
+            row2,
+            "Merge Lands",
+            self.on_merged_lands,
+            "Build a 'Merged Lands.esp' from the sorted, enabled plugins. Where two mods "
+            "reshape different vertices of the same exterior cell, a load order keeps only "
+            "one and discards the other; this recovers both. Seams between cells are "
+            "repaired and the terrain is conditioned so every height fits the format. "
+            "WRITES A NEW PLUGIN into your Data Files -- your mods are never modified, and "
+            "deleting the merged plugin restores your previous behaviour exactly. Load it "
+            "LAST. Needs tes3conv.",
+            state="disabled",
+        )
+        self.merge_settings_button = _action_button(
+            row2,
+            "Merge Settings",
+            self.on_create_merge_settings,
+            "Write a '.mergedlands.toml' beside a plugin you pick, controlling how Merge "
+            "Lands treats it: drop a layer (included = false) or force a conflict strategy "
+            "(Overwrite/Ignore/Resolve/Curvature) per layer. Created with every option "
+            "spelled out at its default for you to edit -- a plugin needs one only when a "
+            "conflict makes it necessary. This is NOT the record patch maker in the "
+            "conflict diff (which writes a patch plugin); it only writes this one settings "
+            "file and never touches the plugin itself.",
+        )
         self.lint_button = _action_button(
             row2,
             "Lint",
@@ -2250,7 +2324,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             writer.write("\nERROR: scan failed:\n" + traceback.format_exc())
             status = "Scan failed -- see log."
         finally:
-            self.root.after(0, self._scan_finished, written, mem_lines, status)
+            self._schedule_ui(0, self._scan_finished, written, mem_lines, status)
 
     def _scan_finished(
         self, written_path: str | None, mem_lines: list[str] | None, status: str
@@ -2306,7 +2380,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             writer.write("\nERROR: unexpected exception:\n" + traceback.format_exc())
             status = "Sort failed -- see log."
         finally:
-            self.root.after(0, self._sort_finished, plan, status)
+            self._schedule_ui(0, self._sort_finished, plan, status)
 
     def _cfg_snapshot(self) -> tuple[int, int] | None:
         """(mtime_ns, size) of the cfg file, for drift detection."""
@@ -2453,7 +2527,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             writer.write("\nERROR: unexpected exception:\n" + traceback.format_exc())
             status = "Export failed -- see log."
         finally:
-            self.root.after(0, self._export_finished, status)
+            self._schedule_ui(0, self._export_finished, status)
 
     def _export_finished(self, status: str) -> None:
         self.worker_running = False
@@ -2532,6 +2606,41 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         s = core.Tes3ConvSession(conv, dump_dir=str(self._tes3conv_json_dir()), keep=keep)
         self._session = s
         return s
+
+    def _ensure_conflict_session(self, conv: str | None = None) -> bool:
+        """Make the field-diff data ready without a Check Conflicts run first.
+
+        Establishes the shared tes3conv session and the plugin -> path map that
+        the field diff, tree view, patch builder and plugin view all read. Both
+        are cheap: the map is a last-wins path lookup per plugin
+        (:func:`core.plugin_paths`), and the JSON itself is still generated
+        lazily -- one plugin at a time, when a field is actually read -- so this
+        opens nothing it does not have to. It exists so those features, and
+        anything wanting field data after a Merge Lands run, do not depend on
+        the conflict scan having populated the session as a side effect.
+
+        Must be called on the UI thread: it reads the order panel and the cfg
+        entry.
+
+        Args:
+            conv: The tes3conv path, or ``None`` to locate it from the cfg.
+
+        Returns:
+            ``True`` when a session and paths are available, ``False`` when
+            tes3conv could not be found.
+        """
+        if conv is None:
+            cfg = self.cfg_var.get().strip()
+            cfg_dir = str(Path(cfg).parent) if cfg else None
+            conv = core.find_tes3conv(explicit=self._tes3conv_override, extra_dirs=[cfg_dir])
+        session = self._get_session(conv)
+        if session is None:
+            return False
+        order = self._apply_exclusions(self.order_panel.get_enabled())
+        dirs = [str(d) for d in (self._plan_scan_dirs() or [])]
+        self._conf_paths = core.plugin_paths(order, PluginFileIndex(dirs))
+        self._conf_session = session
+        return True
 
     def _plan_scan_dirs(self) -> list[str]:
         """Return every folder the scans should search for this run.
@@ -2653,6 +2762,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             self.resource_button,
         ):
             b.configure(state="disabled")
+        # Read the Tk var here, on the UI thread; the worker runs off it and must
+        # not touch a widget variable itself.
+        self._merged_lands_verbose = bool(self.merged_lands_verbose_var.get())
         self.status_var.set(_("Merging land..."))
         threading.Thread(
             target=self._merged_lands_worker,
@@ -2816,6 +2928,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                     # converted. Absent, the merge just runs slower.
                     sidecars=self._tes3conv_json_dir(),
                     report=lambda line: print("  " + line),
+                    verbose=getattr(self, "_merged_lands_verbose", False),
                 )
             status = (
                 _("Merge produced nothing to write.")
@@ -2830,7 +2943,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             writer.write("\nERROR: merge failed:\n" + traceback.format_exc())
             status = _("Merge failed -- see log.")
         finally:
-            self.root.after(0, self._merged_lands_finished, result, status)
+            self._schedule_ui(0, self._merged_lands_finished, result, status)
 
     def _merged_lands_finished(self, result: object, status: str) -> None:
         """Re-enable the UI and report where the plugin went."""
@@ -2847,27 +2960,287 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         self.status_var.set(status)
         output = getattr(result, "output", None)
         if output is not None:
+            # The merge is done and its plugins are known; make the field-diff
+            # data ready so inspecting a record does not need a separate Check
+            # Conflicts run. The tes3conv JSON is still spooled lazily, per
+            # plugin, the first time a field is actually read.
+            self._ensure_conflict_session()
+        if output is not None:
+            # The later plugin wins a contested vertex by default (Overwrite), so
+            # "settled far from intent" -- a blend outcome -- is only meaningful
+            # for the vertices a .mergedlands.toml asked to Resolve. Surface it
+            # only when there were any, rather than reporting "0 settled far" as
+            # though blending had run.
+            major = getattr(result, "major", 0)
+            detail = _(
+                "%(contested)d vertex/vertices were edited by more than one mod; "
+                "the later one in your load order won each."
+            ) % {"contested": getattr(result, "contested", 0)}
+            if major:
+                detail += " " + _(
+                    "%(major)d were blended far from a mod's intent where a "
+                    ".mergedlands.toml asked to Resolve."
+                ) % {"major": major}
             messagebox.showinfo(
                 _("Merged Lands built"),
                 _(
                     "Written to:\n%(path)s\n\n"
                     "Enable it and place it LAST in your load order.\n\n"
-                    "%(cells)d land record(s), %(textures)d land texture(s).\n"
-                    "%(contested)d contested vertex/vertices; %(major)d settled far "
-                    "from at least one mod's intent."
+                    "%(cells)d land record(s), %(textures)d land texture(s).\n%(detail)s"
                 )
                 % {
                     "path": output,
                     "cells": getattr(result, "cells_written", 0),
                     "textures": getattr(result, "textures_written", 0),
-                    "contested": getattr(result, "contested", 0),
-                    "major": getattr(result, "major", 0),
+                    "detail": detail,
                 },
             )
 
+    def on_create_merge_settings(self) -> None:
+        """Open the ``.mergedlands.toml`` editor for a plugin the user picks.
+
+        The per-plugin Merge Lands control file -- *not* the record patch maker
+        in the conflict diff, which writes a patch plugin. Needs no sort: the
+        user picks any plugin and then chooses, per layer, whether to include
+        its edits and how to resolve conflicts, in a dialog. Merge Lands still
+        runs without one, so this is offered rather than required.
+        """
+        folders = self._merged_lands_dirs()
+        picked = filedialog.askopenfilename(
+            title=_("Pick a plugin to write a .mergedlands.toml for"),
+            initialdir=str(folders[0]) if folders else "",
+            filetypes=[
+                (_("Morrowind plugins"), "*.esp *.esm *.omwaddon *.omwgame"),
+                (_("All files"), "*.*"),
+            ],
+        )
+        if not picked:
+            return
+        self._open_merge_settings_editor(Path(picked))
+
+    def _open_merge_settings_editor(self, plugin: Path) -> None:
+        """Build the per-layer ``.mergedlands.toml`` editor for one plugin.
+
+        Seeds the controls from an existing sidecar when there is one -- so this
+        edits rather than blanks it -- and falls back to a fresh ``Patch`` with
+        every layer at its permissive default.
+
+        Args:
+            plugin: The plugin the sidecar will sit beside.
+        """
+        base: land_meta.PluginMeta | None = None
+        existing = land_meta.meta_path_for(plugin)
+        if existing.is_file():
+            try:
+                base = land_meta.load_meta(plugin)
+            except land_meta.MetaError as exc:
+                messagebox.showwarning(
+                    _("Existing .mergedlands.toml could not be read"),
+                    _("%(name)s will be replaced from defaults:\n\n%(err)s")
+                    % {"name": existing.name, "err": exc},
+                )
+
+        win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
+        self._ms_win = win
+        self._ms_plugin = plugin
+        win.title(_("Merge settings: %(name)s") % {"name": plugin.name})
+        win.configure(bg=DARK["bg"])
+        win.geometry("720x640")
+        win.minsize(620, 560)
+
+        top = ttk.Frame(win, padding=10)
+        top.pack(fill="both", expand=True)
+        top.columnconfigure(0, weight=1)
+
+        ttk.Label(
+            top,
+            text=_(
+                "Choose how %(name)s's landscape edits merge. Uncheck a layer to keep this "
+                "plugin from touching it; set a strategy for how its edits resolve where they "
+                "collide with another mod. The defaults behave as if there were no file."
+            )
+            % {"name": plugin.name},
+            foreground=DARK["fg_dim"],
+            wraplength=680,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        mt_row = ttk.Frame(top)
+        mt_row.grid(row=1, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(mt_row, text=_("meta_type:")).pack(side="left")
+        self._ms_meta_type = tk.StringVar(
+            value=base.meta_type if base is not None else land_meta.META_PATCH
+        )
+        mt_combo = ttk.Combobox(
+            mt_row,
+            textvariable=self._ms_meta_type,
+            values=list(land_meta.META_TYPES),
+            state="readonly",
+            width=14,
+        )
+        mt_combo.pack(side="left", padx=(6, 0))
+        mt_combo.bind("<<ComboboxSelected>>", lambda _e: self._ms_refresh_preview())
+        add_tooltip(
+            mt_combo,
+            _(
+                "Patch = a hand-written settings file (the usual choice). Auto = default "
+                "behaviour. MergedLands marks a plugin the tool generated so a re-run ignores "
+                "it -- do not set that on an ordinary mod."
+            ),
+        )
+
+        grid = ttk.LabelFrame(top, text=_("Layers"), padding=8)
+        grid.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        grid.columnconfigure(2, weight=1)
+        ttk.Label(grid, text=_("include"), foreground=DARK["fg_dim"]).grid(row=0, column=0)
+        ttk.Label(grid, text=_("layer"), foreground=DARK["fg_dim"]).grid(
+            row=0, column=1, sticky="w"
+        )
+        ttk.Label(grid, text=_("conflict strategy"), foreground=DARK["fg_dim"]).grid(
+            row=0, column=2, sticky="w", padx=(12, 0)
+        )
+
+        # Literal _() calls so the strings are extracted for translation; keyed
+        # by the same names as land_meta.LAYER_NAMES.
+        blurbs = {
+            "height_map": _("Vertex heights -- and the normals stored with them."),
+            "vertex_colors": _("Baked vertex colours (terrain lighting)."),
+            "texture_indices": _("Which land texture paints each square."),
+            "world_map_data": _("The low-resolution world-map heightmap."),
+        }
+        self._ms_included: dict[str, tk.BooleanVar] = {}
+        self._ms_strategy: dict[str, tk.StringVar] = {}
+        self._ms_strategy_combos: dict[str, ttk.Combobox] = {}
+        for row, name in enumerate(land_meta.LAYER_NAMES, start=1):
+            settings = base.settings_for(name) if base is not None else land_meta.MergeSettings()
+            inc = tk.BooleanVar(value=settings.included)
+            strat = tk.StringVar(value=land_meta.strategy_display_name(settings.conflict_strategy))
+            self._ms_included[name] = inc
+            self._ms_strategy[name] = strat
+            ttk.Checkbutton(grid, variable=inc, command=partial(self._ms_on_include, name)).grid(
+                row=row, column=0
+            )
+            label = ttk.Label(grid, text=name)
+            label.grid(row=row, column=1, sticky="w")
+            add_tooltip(label, blurbs.get(name, ""))
+            combo = ttk.Combobox(
+                grid,
+                textvariable=strat,
+                values=list(land_meta.STRATEGY_NAMES),
+                state="readonly",
+                width=12,
+            )
+            combo.grid(row=row, column=2, sticky="w", padx=(12, 0))
+            combo.bind("<<ComboboxSelected>>", lambda _e: self._ms_refresh_preview())
+            self._ms_strategy_combos[name] = combo
+
+        ttk.Label(
+            top,
+            foreground=DARK["fg_dim"],
+            wraplength=680,
+            justify="left",
+            text=_(
+                "Auto = later plugin wins for entries it changed · Overwrite = this plugin "
+                "wins collisions · Ignore = keep the earlier edit · Resolve = blend "
+                "conflicting numbers · Curvature = structure-weighted blend (ours)."
+            ),
+        ).grid(row=3, column=0, sticky="w", pady=(0, 8))
+
+        ttk.Label(top, text=_("Preview:"), foreground=DARK["fg_dim"]).grid(
+            row=4, column=0, sticky="w"
+        )
+        preview = tk.Text(
+            top,
+            height=10,
+            wrap="none",
+            background=DARK["log_bg"],
+            foreground=DARK["fg"],
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=DARK["border"],
+        )
+        preview.grid(row=5, column=0, sticky="nsew")
+        top.rowconfigure(5, weight=1)
+        self._ms_preview = preview
+
+        btns = ttk.Frame(top)
+        btns.grid(row=6, column=0, sticky="e", pady=(8, 0))
+        ttk.Button(btns, text=_("Cancel"), command=win.destroy).pack(side="right")
+        ttk.Button(btns, text=_("Write .mergedlands.toml"), command=self._ms_write).pack(
+            side="right", padx=(0, 8)
+        )
+
+        for name in land_meta.LAYER_NAMES:
+            self._ms_on_include(name)  # sync each strategy dropdown's enabled state
+        self._ms_refresh_preview()
+
+    def _ms_on_include(self, name: str) -> None:
+        """Enable a layer's strategy dropdown only while the layer is included.
+
+        A dropped layer (``included = false``) contributes nothing, so there is
+        no collision for a strategy to resolve; greying the dropdown says so.
+
+        Args:
+            name: The layer whose checkbox changed.
+        """
+        included = self._ms_included[name].get()
+        self._ms_strategy_combos[name].configure(state="readonly" if included else "disabled")
+        self._ms_refresh_preview()
+
+    def _ms_build_meta(self) -> land_meta.PluginMeta:
+        """Assemble a :class:`PluginMeta` from the current control values.
+
+        Returns:
+            The settings the dialog currently describes.
+        """
+        layers = {
+            name: land_meta.MergeSettings(
+                included=self._ms_included[name].get(),
+                conflict_strategy=land_meta.strategy_from_name(self._ms_strategy[name].get()),
+            )
+            for name in land_meta.LAYER_NAMES
+        }
+        return land_meta.PluginMeta(meta_type=self._ms_meta_type.get(), layers=layers)
+
+    def _ms_refresh_preview(self) -> None:
+        """Redraw the read-only TOML preview from the current controls."""
+        body = land_meta.render_meta(self._ms_build_meta(), explicit=True)
+        self._ms_preview.configure(state="normal")
+        self._ms_preview.delete("1.0", "end")
+        self._ms_preview.insert("1.0", body)
+        self._ms_preview.configure(state="disabled")
+
+    def _ms_write(self) -> None:
+        """Write the sidecar from the current controls and close the editor.
+
+        The editor was seeded from any existing file, so writing over it is the
+        intended outcome and needs no second confirmation.
+        """
+        try:
+            written = land_meta.write_settings(self._ms_plugin, self._ms_build_meta())
+        except land_meta.MetaError as exc:
+            messagebox.showerror(_("Could not write .mergedlands.toml"), str(exc))
+            return
+        self.status_var.set(_("Wrote %(name)s.") % {"name": written.name})
+        self._ms_win.destroy()
+        messagebox.showinfo(
+            _("Merge settings written"),
+            _("Wrote:\n%(path)s\n\nRun Merge Lands to apply it.") % {"path": str(written)},
+        )
+
     def _cellmap_file(self) -> Path:
-        """Stable, user-findable, writable location for the generated map."""
-        return app_base_dir() / "cell_map.html"
+        """Timestamped, writable location for the generated map.
+
+        Named ``cell_map_<stamp>.html`` like the other generated views so
+        exit-time housekeeping can prune old ones (newest few kept). A map the
+        user *saves* keeps the plain ``cell_map.html`` name and is never a
+        housekeeping candidate -- the un-timestamped file is one they asked for.
+        """
+        from datetime import datetime
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005 - local clock
+        return app_base_dir() / f"cell_map_{stamp}.html"
 
     def _cellmap_worker(self, order: list[str], dirs: list[str], subset: list[str]) -> None:
         writer = QueueWriter(self.log_queue)
@@ -2935,7 +3308,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             writer.write("\nERROR: cell map failed:\n" + traceback.format_exc())
             status = "Cell map failed -- see log."
         finally:
-            self.root.after(0, self._cellmap_finished, path, status)
+            self._schedule_ui(0, self._cellmap_finished, path, status)
 
     def _cellmap_finished(self, path: str | None, status: str) -> None:
         self.worker_running = False
@@ -2967,13 +3340,13 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             return
         if force == "pywebview" and HAVE_PYWEBVIEW:
             trace("cell map: viewer = pywebview (forced)")
-            self._open_cell_map_pywebview(path)
+            self._open_cell_map_embedded(path)
             return
         # Auto: prefer pywebview (real OS webview), then tkinterweb's load_file,
         # then the browser. tkhtmlview can't draw SVG, so it's never used here.
         if HAVE_PYWEBVIEW:
             trace("cell map: viewer = pywebview (embedded)")
-            self._open_cell_map_pywebview(path)
+            self._open_cell_map_embedded(path)
         elif can_tkweb:
             trace("cell map: viewer = tkinterweb (in-app window)")
             self._show_cell_map_window(path)
@@ -2983,6 +3356,21 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             self.status_var.set(
                 status + "  (opened in browser - pip install pywebview " "for an in-app window)"
             )
+
+    def _open_cell_map_embedded(self, path: str | Path) -> None:
+        """Open the cell map in pywebview, over loopback rather than ``file://``.
+
+        The written page is served on ``127.0.0.1`` first and the webview is
+        handed that URL -- exactly what :meth:`open_html_in_app` does for the
+        other views. Some webviews (the Steam Deck's, various sandboxed ones)
+        refuse a ``file://`` page, so serving it is what makes the embedded
+        window reliable. Falls back to the file path if no loopback port binds.
+
+        Args:
+            path: The written cell-map HTML file.
+        """
+        url = self._serve_html_file(path)
+        self._open_cell_map_pywebview(url or path, "Cell Map")
 
     def _open_cell_map_pywebview(self, path: str | Path, title: str = "Cell Map") -> None:
         """Show the map in an embedded OS webview.
@@ -3036,27 +3424,51 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                 rather than written -- the 3D mesh viewer runs over loopback.
             title: Window title.
         """
-        served = is_view_url(path)
-        label = str(path) if served else Path(path).name
+        already_url = is_view_url(path)
+        file_path = None if already_url else Path(path)
         self._last_view_file = str(path)
         can_tkweb = HTMLViewer is not None and hasattr(HTMLViewer, "load_file")
+
+        # Loopback first: some platforms refuse a file:// page -- the Steam
+        # Deck's browser and various sandboxed webviews among them -- so the
+        # self-contained view is served over loopback and pywebview / the
+        # browser are handed the URL. tkinterweb is the exception: it renders a
+        # file in-process with no file:// URL involved, so it keeps the file and
+        # works even where an OS browser would not open one.
         if HAVE_PYWEBVIEW:
-            trace(f"view: pywebview for {label}")
-            self._open_cell_map_pywebview(path, title or "View")
+            url = str(path) if already_url else self._serve_html_file(path)
+            trace(f"view: pywebview for {url or file_path}")
+            self._open_cell_map_pywebview(url or path, title or "View")
             return
-        if served:
-            # tkinterweb's load_file cannot fetch a URL, and the served viewer
-            # needs real requests for its geometry. Straight to the browser
-            # rather than an in-app window that would render an empty page.
-            trace(f"view: browser for {label} (served page, tkinterweb cannot fetch)")
-            self._open_url_in_browser(str(path))
+        if can_tkweb and file_path is not None:
+            trace(f"view: tkinterweb for {file_path.name}")
+            self._show_html_window(file_path, title)
             return
-        if can_tkweb:
-            trace(f"view: tkinterweb for {label}")
-            self._show_html_window(Path(path), title)
+        url = str(path) if already_url else self._serve_html_file(path)
+        if url is not None:
+            # Last resort browser, but on loopback rather than file://.
+            trace(f"view: browser for {url} (loopback)")
+            self._open_url_in_browser(url)
             return
-        trace(f"view: browser for {label} (no pywebview/tkinterweb)")
-        self._open_file_in_browser(Path(path))
+        if file_path is not None:
+            trace(f"view: browser for {file_path.name} (file://, no loopback port)")
+            self._open_file_in_browser(file_path)
+
+    def _serve_html_file(self, path: str | Path) -> str | None:
+        """Serve a written HTML view over loopback, or ``None`` to keep the file.
+
+        Thin wrapper over :func:`wraithguard.viz.serve.publish_html_file` with
+        the shared viewer server, so a generated page is opened over loopback on
+        platforms that refuse ``file://`` and falls back to the written file
+        when no port can be bound.
+
+        Args:
+            path: The written HTML file.
+
+        Returns:
+            A ``http://127.0.0.1`` URL, or ``None`` to use the file.
+        """
+        return publish_html_file(self._viewer_server(), path)
 
     def _open_url_in_browser(self, url: str) -> None:
         """Open a URL in the user's browser.
@@ -3083,6 +3495,26 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         except (OSError, ValueError, webbrowser.Error):
             pass
 
+    def _open_html_in_browser_loopback(self, path: str | Path) -> None:
+        """Open a written HTML page in the browser, over loopback where possible.
+
+        What every in-app view's "Open in browser" button should use. ``file://``
+        is refused by some platforms (the Steam Deck's browser among them), so
+        the page is served over loopback and the browser is handed the
+        ``http://127.0.0.1`` URL; only when no port can be bound does it fall back
+        to ``file://``.
+
+        Args:
+            path: The written HTML file.
+        """
+        if not path or not Path(path).exists():
+            return
+        url = self._serve_html_file(path)
+        if url is not None:
+            self._open_url_in_browser(url)
+            return
+        self._open_file_in_browser(path)
+
     def _show_html_window(self, path: str | Path, title: str) -> None:
         """Render a page in an in-app tkinterweb window.
 
@@ -3100,7 +3532,10 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         ttk.Button(
             bar,
             text=_("Open in browser"),
-            command=lambda: self._open_file_in_browser(path),
+            # Loopback first: file:// is refused on some platforms (the Steam
+            # Deck), so the help page is served over loopback and the browser
+            # gets the URL, exactly as the cell-map window's button does.
+            command=lambda: self._open_html_in_browser_loopback(path),
         ).pack(side="left")
         ttk.Button(bar, text=_("Close"), command=win.destroy).pack(side="right")
         try:
@@ -3151,13 +3586,17 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             ).pack(anchor="w")
 
     def _open_cell_map_browser(self) -> None:
+        """Open the last cell map in the browser, over loopback where possible.
+
+        The explicit "Open in browser" button. Prefers a loopback URL for the
+        same reason :meth:`open_html_in_app` does -- file:// is refused on some
+        platforms (the Steam Deck) -- and falls back to file:// only when no
+        loopback port can be bound.
+        """
         p = getattr(self, "_last_cell_file", None)
         if not p or not Path(p).exists():
             return
-        try:
-            webbrowser.open(Path(p).resolve().as_uri())  # correct file URI on Win/Linux/macOS
-        except (OSError, ValueError, webbrowser.Error):  # as_uri on a relative path / no browser
-            pass
+        self._open_html_in_browser_loopback(p)
 
     def _save_cell_map(self) -> None:
         src = getattr(self, "_last_cell_file", None)
@@ -3845,7 +4284,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             except Exception as e:  # noqa: BLE001
                 # worker thread: must report into the dialog, never vanish silently
                 report = [f"FAILED: {e}"]
-            self.root.after(
+            self._schedule_ui(
                 0,
                 lambda: (
                     messagebox.showinfo(_("Update plugin-order.yml"), "\n".join(report)),
@@ -3997,11 +4436,38 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         trace(f"help: rendered {filename} -> {out}")
         self.open_html_in_app(out, f"{label} - Wraithguard Toolkit")
 
+    def _rule_and_yml_dirs(self) -> list[str]:
+        """Folders holding the mlox rule files and the plugin-order.yml.
+
+        The rule updater and the plugin-order.yml updater both drop a
+        timestamped ``.bak`` next to the file they replace, and those files
+        live outside the data paths -- typically in an mlox folder of their own.
+        A backup scan of the data dirs and the cfg alone therefore never sees
+        them, which is why updating rules looked like it kept no backup. These
+        folders are added to the scan so those backups show up with the rest.
+        """
+        roots: list[str] = []
+        try:
+            for path in self.rules_panel.get_paths():
+                parent = str(Path(path).parent)
+                if parent and parent != ".":
+                    roots.append(parent)
+        except Exception:  # noqa: BLE001 - a malformed row must not stop the scan
+            pass
+        yml = self.plugin_order_yml_var.get().strip()
+        if yml:
+            parent = str(Path(yml).parent)
+            if parent and parent != ".":
+                roots.append(parent)
+        return roots
+
     def on_backups(self) -> None:
         """Scan for backup files and open the restore/delete window."""
         if self.worker_running:
             return
-        dirs = self._plan_scan_dirs()
+        # De-dupe while preserving order: the rule/yml folders can coincide with
+        # a data path, and scanning one root twice would list every hit twice.
+        dirs = list(dict.fromkeys([*self._plan_scan_dirs(), *self._rule_and_yml_dirs()]))
         cfg = self.cfg_var.get().strip() or None
         if not dirs and not cfg:
             self.status_var.set(_("Set openmw.cfg (or run a Sort) so I know where to look."))
@@ -4021,7 +4487,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             found, status = [], _("Backup scan failed: %(error)s") % {"error": e}
         finally:
             self.worker_running = False
-        self.root.after(0, self._show_backups_window, found, status)
+        self._schedule_ui(0, self._show_backups_window, found, status)
 
     def _show_backups_window(self, found: Sequence[Any], status: str) -> None:
         self.status_var.set(status)
@@ -4218,7 +4684,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             writer.write("\nERROR: lint failed:\n" + traceback.format_exc())
             status = "Lint failed -- see log."
         finally:
-            self.root.after(0, self._lint_finished, status)
+            self._schedule_ui(0, self._lint_finished, status)
 
     def _lint_finished(self, status: str) -> None:
         self.worker_running = False
@@ -4267,7 +4733,11 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         if tree is None or not tree.winfo_exists():
             return
         only = self._res_subset_only.get()
-        self._res_shown = [c for c in self._all_res if c.get("involves_subset") or not only]
+        shown = [c for c in self._all_res if c.get("involves_subset") or not only]
+        query = getattr(self, "_res_search_var", None)
+        if query is not None:
+            shown = search_rows(shown, query.get(), ("path", "winner"))
+        self._res_shown = shown
         tree.delete(*tree.get_children())
         for i, c in enumerate(self._res_shown):
             star = "★" if c["involves_subset"] else ""

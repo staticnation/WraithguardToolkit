@@ -18,24 +18,37 @@ maker's preview and write button track validity.
 ### What a good run looks like
 
 ```
-collected 56 items
+collected 95 items
 
-tests\test_gui_smoke.py ........................................................                                 [100%]
+tests\test_gui_smoke.py ............................................................................................... [100%]
 
-================================================= 56 passed in 4.44s ==================================================
+================================================= 95 passed in 6.69s ==================================================
 ```
 
-Verified on Windows 11, Python 3.14.5, pytest 9.1.1 - **56 passed, 0 skipped.**
+Verified on Windows 11, Python 3.14.5, pytest 9.1.1 - **95 passed, 0 skipped.**
 
-The count is written down on purpose. A suite that quietly collects 52 instead
-of 56 has lost four checks, and nothing about a green run says so.
+The count is written down on purpose. A suite that quietly collects 91 instead
+of 95 has lost four checks, and nothing about a green run says so.
 
-The three most recent cover the mesh detail panel: that opening the resource
-window parses **no** meshes, that selecting a row parses one, and that a file
-which is not a mesh at all does not close the window. They were written in an
-environment with no `tkinter` and could not be run there, so until this run
-they were unverified - which is why the number in this file is a record of an
-actual run and not a prediction.
+The most recent additions cover this session's work. Two guard the draggable
+lists: that clicking one row after a Ctrl+A select-all collapses the selection to
+that row (the reported bug -- a full-list contiguous block used to swallow every
+click as a drag-grab), and that an actual drag still reorders the block rather
+than collapsing it. Three cover the conflict window colouring **itself** on open:
+that it starts a quiet survey when the list is not yet coloured, and skips when a
+manual summary already coloured it or the window has since closed. One checks the
+conflict list's row colours -- that a record touching one of your mods takes the
+**saturated verdict** colour (the `-mine` variant) rather than the old flat orange
+that hid whether it was losing work. Four check the **conflict highlighting** in
+the Plugin view: that `_link_all` pairs a conflict set correctly, that selecting a
+plugin highlights the ones it broadly conflicts with, that the *lost-only* toggle
+narrows that to the plugins actually losing work, and that reselecting clears the
+previous highlight. Two cover the **cell map**: that its file is named with a
+timestamp so exit-time housekeeping can prune it (a fixed `cell_map.html` never
+would), and that the embedded viewer is handed a `127.0.0.1` URL rather than a
+bare `file://` path. Some were written in an environment with no `tkinter` and
+could not be run there, so the number in this file is a record of an actual
+desktop run, not a prediction.
 
 **Zero skipped matters as much as zero failed.** A skip means that check did not
 run, and every skip left in this module is genuinely unreachable on a working
@@ -282,7 +295,7 @@ sections 2 and 5 exercise, so a re-run of both is the verification:
 | 1 | Section 2, steps 1–5 | Drag-reorder (widgets.py), rules maker, and **step 5 is the tes3cmd window** (t3.py) |
 | 2 | Section 5, steps 1–8 | The whole theming path now lives in theme.py; step 8's field diff is conflicts.py |
 | 3 | **Check Conflicts** and **Resource conflicts**, save a CSV from each window | conflicts.py's workers, windows and exports |
-| 4 | Confirm the settings file, trace log and `cell_map.html` land in the same folder as before | `app_base_dir()` moved to the package and now derives the source-run folder from its own location |
+| 4 | Confirm the settings file, trace log and the generated `cell_map_<stamp>.html` land in the same folder as before | `app_base_dir()` moved to the package and now derives the source-run folder from its own location |
 
 Also new in this pass, worth 30 seconds from a terminal:
 
@@ -297,3 +310,38 @@ Piping stdout to a file should capture a clean report with no log lines in it.
 If any window above misbehaves, the first suspect is an import the static
 checks could not see (a name resolved dynamically). Say which window and
 which action; each maps to one module.
+
+---
+
+## 7. This session's features: what a test can't judge
+
+The suite proves the wiring (see the top of this file); these three checks are
+the parts only a human on a real desktop can sign off - is it *readable*, does it
+open *where* it should, and does the folder stay tidy.
+
+### 7a. Conflict highlighting reads cleanly (Plugin view)
+
+| # | Action | What to expect |
+|---|---|---|
+| 1 | Sort, **Check Conflicts**, then **Plugin view**. Click a plugin row that has conflicts | Every plugin it conflicts with takes a **purple** (`#512e5a`) row background; the status line names how many. The clicked row keeps the blue selection. |
+| 2 | Read the highlighted rows | Text stays legible on purple for **all six** verdict colors - master blue, override green, conflict-wins amber, conflict-loses red, and the two greys. No colour disappears into the fill. This is the readability check the color was chosen for; if any row is hard to read, say which verdict. |
+| 3 | Toggle **Highlight only conflicts that lose work** off, reclick | The set widens from just the plugins losing work to *any* plugin sharing a record. Toggling back narrows it again. |
+| 4 | Click a different plugin, then a plugin with **no** conflicts | The previous purple clears on each reselect; a conflict-free plugin highlights nothing and says so. |
+
+Confirm the purple never collides with the blue selection - they must stay
+tellable apart at a glance (a highlighted row you then select shows both).
+
+### 7b. The cell map opens over loopback, not `file://`
+
+| # | Action | What to expect |
+|---|---|---|
+| 1 | Launch with `--trace`, sort, click **Cell Map** | The map opens in the in-app window as before. In the log / pywebview line the address is now `http://127.0.0.1:<port>/…`, **not** `…\cell_map.html`. The old bare-`file://` open is the regression this replaced. |
+| 2 | If `pywebview` isn't installed | It still falls back to tkinterweb, then the browser - and the browser too gets the `127.0.0.1` URL, not a file path. |
+
+### 7c. Old cell maps get tidied
+
+| # | Action | What to expect |
+|---|---|---|
+| 1 | Run **Cell Map** four or five times, then look in the app folder | One `cell_map_<stamp>.html` per run - timestamped, not overwritten. |
+| 2 | With **Tidy old HTML views** (Options) on, close the app and reopen the folder | Only the newest **3** `cell_map_*` files remain; older ones (and any `_data` folders) are gone, alongside the other pruned views. |
+| 3 | Use a map's **Save** button to write `cell_map.html` (the plain name), then repeat step 2 | That saved file is **never** touched - the un-timestamped name marks it as yours. Only the tool's own timestamped output is a candidate. |

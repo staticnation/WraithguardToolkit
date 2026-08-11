@@ -6,12 +6,15 @@ Python 3.10.12, Linux, no Tk, no network.
 **Tools:** ruff 0.16.1, black 26.5.1, mypy 1.14.1 and 1.8.0, pytest 9.1.1 +
 pytest-cov, plus the project's own `tools/` gates.
 
-> **Update — all findings resolved.** Every issue below has since been fixed
-> and re-verified. Final gate state on a clean checkout: **ruff clean, black
-> clean, mypy clean (0 errors, 109 files, on both 1.8.0 and 1.14.1), 3,202
-> passed / 3 skipped, `.pot` current, check_undefined / check_placeholders ok.**
-> See the "Resolution" section at the end for exactly what changed. The
-> narrative below is the original audit, kept as the record.
+> **Update — all findings resolved; re-verified at 3.1.3.** Every issue below
+> has since been fixed, and the gates were re-run on a clean checkout after the
+> 3.1.3 work (the Merged Lands world-map fix, the `[NearEnd]` ordering fix, the
+> backups-scan fix, and the documentation consolidation). Current gate state:
+> **ruff clean, black clean (182 files), mypy clean (0 errors, 110 files, on
+> both 1.8.0 and 1.14.1), 3,289 passed / 3 skipped, `.pot` current (640
+> messages), check_undefined / check_placeholders ok.** See the "Resolution"
+> section at the end for what the original 3.1.2 audit changed; the narrative
+> below is that audit, kept as the record.
 
 ## Bottom line
 
@@ -119,7 +122,7 @@ The code is ahead of its own prose. Concrete mismatches:
   1,271 passed, 2 skipped." All three understate reality by ~2.5×.
 - **mypy is described as green and complete when it isn't.** `README.md:735`
   ("gates all 54 shipped files"), the latest `CODE_REVIEW.md` status line
-  ("mypy (56 files)"), `TYPING_BRIEF.md` ("gates all 35 files"), and
+  ("mypy (56 files)"), the retired typing brief ("gates all 35 files"), and
   `REMAINING_WORK.md` ("Every gate passes with zero findings") all assert a
   clean mypy that a fresh checkout does not produce (30 errors; mypy actually
   checks 109 source files).
@@ -165,7 +168,7 @@ freezes findings 1 and 2 and keeps the documentation's claims true.
 4. Clear the 30 mypy errors via targeted casts/ignores (Finding 2) — restores a
    clean mypy.
 5. Refresh the drifted numbers and remove the completed §28.1 item across
-   `README.md`, `PROJECT_LAYOUT.md`, `REMAINING_WORK.md`, `TYPING_BRIEF.md`,
+   `README.md`, `PROJECT_LAYOUT.md`, `REMAINING_WORK.md`, the retired typing brief,
    `pyproject.toml`, and `CODE_REVIEW.md` (Finding 4).
 
 *No runtime defects were found. The audited version passes its own test suite
@@ -210,7 +213,7 @@ each beside its sibling rule (`ISC001`, `PLR0913`) with a rationale comment.
 1.8.0 and 1.14.1.
 
 **Finding 4 — doc numbers:** corrected across `pyproject.toml`, `README.md`,
-`PROJECT_LAYOUT.md`, `TYPING_BRIEF.md`, and `REMAINING_WORK.md` — test count
+`PROJECT_LAYOUT.md`, the retired typing brief, and `REMAINING_WORK.md` — test count
 (→ 3,202 / 3,205), mypy file count (→ 109), `.pot` message count (→ 613), skip
 count (→ 3, with the split explained), the completed §28.1 item removed, and the
 "every gate passes" status made accurate.

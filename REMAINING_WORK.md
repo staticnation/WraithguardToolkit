@@ -1,10 +1,11 @@
 # What is left: codebase and PEP conformance
 
-> **Status at 3.1.2.** All gates pass with zero findings -- pytest, ruff,
-> black, mypy (checked on 1.8.0 and 1.14.1), and the `.pot` / placeholder /
-> undefined-name checks. This document is the honest list of what a reviewer
-> would still flag, measured rather than recalled, so nobody has to re-derive
-> it. Nothing here blocks the release.
+> **Status at 3.1.3.** All gates pass with zero findings -- pytest (3,289
+> passed / 3 skipped), ruff, black, mypy (110 files, checked on 1.8.0 and
+> 1.14.1), and the `.pot` (640 messages) / placeholder / undefined-name checks.
+> This document is the honest list of what a reviewer would still flag, measured
+> rather than recalled, so nobody has to re-derive it. Nothing here blocks the
+> release.
 >
 > **The toolchain is now pinned** (`pip install -e .[dev]`, see the `dev` extra
 > in `pyproject.toml`). This was the root cause of the drift the audit found: an
@@ -24,13 +25,13 @@
 Re-run the gates before and after any change:
 
 ```bash
-python -m pytest                       # 3,205 tests: 3,202 passed, 3 skipped
+python -m pytest                       # 3,292 tests: 3,289 passed, 3 skipped
 python -m ruff check .                 # style, naming, imports, security, BLE, DTZ, D, ANN
 python -m black --check .              # formatting
-python -m mypy                         # PEP 484 -- gates all 109 shipped files
+python -m mypy                         # PEP 484 -- gates all 110 shipped files
 python tools/check_undefined.py wraithguard_toolkit_gui.py
 python tools/check_placeholders.py     # i18n %(key)s vs dict keys
-python tools/make_pot.py --check       # .pot must be current (613 messages)
+python tools/make_pot.py --check       # .pot must be current (640 messages)
 ```
 
 One skip is deliberate: `test_differential.py`'s `--update-baseline` guard, and
@@ -226,3 +227,20 @@ Everything on this list is **done** as of `CODE_REVIEW.md` §31:
 What remains is judgement, and the judgements are recorded above: the four
 functions §3 says to leave alone, the `tools/` coverage gap, and the absence of
 a translated `.mo` catalogue.
+
+---
+
+## Feature ideas, not started
+
+Not codebase debt -- product ideas raised while using the tool, parked here so
+they are not lost:
+
+- ~~**A more verbose Merged Lands run log.**~~ Done in 3.1.3: a **Verbose Merged
+  Lands log** option (and `build_merged_lands(verbose=True)`) names every plugin
+  that carries settings and exactly what each layer is set to, and lists
+  everything that could not be read, instead of the headline counts.
+- ~~**A conflict-comparison preview through the viz tools.**~~ Done in 3.1.3: a
+  **Compare strategies** button in the landscape field diff merges the cell under
+  `Overwrite`/`Resolve`/`Ignore`/`Curvature` and shows each result, plus each
+  plugin's own terrain, switchable in the 3D view -- the interactive form of the
+  original's per-cell conflict images. (`land/preview.py`, `land.merge_preview`.)

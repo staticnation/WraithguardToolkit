@@ -1518,27 +1518,17 @@ def _tes3conv_record_key(
 def _no_window_kwargs() -> dict[str, Any]:
     """Return subprocess kwargs that suppress the Windows console flash.
 
-    On Windows
-    when a windowed (GUI / auto-py-to-exe) build shells out to a console program
-    like tes3conv -- otherwise you get one popup per plugin. No-op elsewhere.
-    """
-    import subprocess
+    On Windows, when a windowed (GUI / auto-py-to-exe / ``--noconsole``) build
+    shells out to a console program like tes3conv -- otherwise you get one popup
+    per plugin. No-op elsewhere.
 
-    if os.name != "nt":
-        return {}
-    kw: dict[str, Any] = {"creationflags": 0x08000000}  # CREATE_NO_WINDOW
-    try:
-        # Windows-only API; this whole block is guarded by os.name == 'nt'
-        si = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
-        si.wShowWindow = 0  # SW_HIDE
-        kw["startupinfo"] = si
-    except AttributeError:
-        # STARTUPINFO/STARTF_USESHOWWINDOW are Windows-only attributes of
-        # subprocess; if a future//odd build lacks them we just skip the
-        # hide-the-console refinement. Nothing else in here can raise.
-        pass
-    return kw
+    Delegates to :func:`wraithguard.proc.no_window_kwargs`, the one
+    implementation the package modules also use, so the merge and patch services
+    and this script cannot drift apart on it.
+    """
+    from wraithguard.proc import no_window_kwargs
+
+    return no_window_kwargs()
 
 
 class Tes3ConvSession:
@@ -1565,8 +1555,13 @@ class Tes3ConvSession:
     def __init__(self, exe: str, dump_dir: str | None = None, keep: bool = False) -> None:
         """Open a session backed by ``exe``, spooling JSON to ``dump_dir``."""
         import tempfile
+        import threading
 
         self.exe = exe
+        # Guards _json_paths so prime() can convert plugins from several threads
+        # at once. Only the dict is locked, never the subprocess -- the whole
+        # point is to let the tes3conv processes run in parallel.
+        self._json_lock = threading.Lock()
         # keep = leave the dump on disk when cleanup() runs. Location and lifetime
         # are independent: a session can dump to a STABLE folder (so its JSON is
         # reused by later scans in the same run) yet still be cleaned up on close
@@ -1586,13 +1581,15 @@ class Tes3ConvSession:
         import subprocess
 
         key = str(path)
-        jp = self._json_paths.get(key)
+        with self._json_lock:
+            jp = self._json_paths.get(key)
         if jp and Path(jp).exists():
             return jp
         out = self.dump_dir / (Path(path).stem + ".json")
         if out.exists():
             if not self._stale(out, path):  # reuse existing JSON -- don't re-run tes3conv
-                self._json_paths[key] = str(out)
+                with self._json_lock:
+                    self._json_paths[key] = str(out)
                 trace(f"tes3conv: REUSE {out.name}")
                 return str(out)
             trace(f"tes3conv: STALE, re-convert {out.name} (plugin newer than json)")
@@ -1609,12 +1606,54 @@ class Tes3ConvSession:
                 check=True,
                 **_no_window_kwargs(),
             )
-            self._json_paths[key] = str(out)
+            with self._json_lock:
+                self._json_paths[key] = str(out)
             return str(out)
         except (OSError, subprocess.SubprocessError):
             # OSError: tes3conv missing/not executable. SubprocessError covers
             # both CalledProcessError (check=True) and TimeoutExpired.
             return None
+
+    #: Default ceiling on concurrent tes3conv processes. Each worker is a live
+    #: converter plus its output JSON, so the cap is what keeps peak memory
+    #: bounded; four is plenty to hide the per-process startup and I/O without
+    #: stacking several large conversions at once.
+    _PRIME_WORKERS: int = 4
+
+    def prime(self, paths: Iterable[str | Path], max_workers: int | None = None) -> int:
+        """Convert many plugins to on-disk JSON at once, warming the cache.
+
+        tes3conv runs as a separate process per plugin, so a bounded thread pool
+        converts several on different cores at the same time without the GIL
+        getting in the way -- the read phase of a merge or a scan spends most of
+        its wall-clock here. Each plugin writes its own ``<stem>.json`` (a unique
+        name, so parallel writes never collide) and is skipped when a fresh JSON
+        already exists, exactly as :meth:`_json_for` does one at a time.
+
+        **Bounded on purpose.** Every worker is a live tes3conv process and its
+        output held in memory; an unbounded pool would multiply peak memory by
+        the plugin count, which is how the original tool reached tens of GB. The
+        cap defaults to ``min(cpu_count, _PRIME_WORKERS)``.
+
+        Args:
+            paths: The plugin files to convert. Duplicates are collapsed.
+            max_workers: Concurrent conversions, or ``None`` for the default cap.
+                Values below 1 are treated as 1 (serial).
+
+        Returns:
+            How many of the plugins now have a usable JSON on disk.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        unique = list(dict.fromkeys(str(p) for p in paths))
+        if not unique:
+            return 0
+        cap = max_workers if max_workers else min((os.cpu_count() or 1), self._PRIME_WORKERS)
+        workers = max(1, min(cap, len(unique)))
+        if workers == 1:
+            return sum(1 for p in unique if self._json_for(p))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return sum(1 for result in pool.map(self._json_for, unique) if result)
 
     def _records(self, path: str | Path) -> list[Any]:
         import json
@@ -1768,18 +1807,29 @@ class Tes3ConvSession:
 
     def _build_sidecars(
         self, path: str | Path
-    ) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
-        """Read a plugin's full JSON once and build both sidecar caches.
+    ) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]], list[Any]]:
+        """Read a plugin's full JSON once and build every sidecar cache.
 
         Extracts the compact record-key
-        list (conflicts) and the cell list (map), writing both sidecars. Whichever
-        of record_keys()/cells() is called first pays this single read; the other
-        then hits its fresh sidecar -- so Check Conflicts + Cell Map together read
-        each big JSON once per run, not twice.
+        list (conflicts), the cell list (map), and the landscape records (Merged
+        Lands), writing all three sidecars. Whichever of record_keys()/cells()/
+        landscape_records() is called first pays this single read; the others
+        then hit their fresh sidecars -- so Check Conflicts, Cell Map and Merged
+        Lands together read each big JSON once per run, not three times.
         """
         import json
 
         records = self._records(path)  # the single big-JSON read
+        # The Landscape and LandscapeTexture records, kept whole: this is all
+        # Merged Lands needs (heights, normals, colours, texture indices, world
+        # map, and the LTEX id/name records), a few hundred KB of a plugin that
+        # may run to hundreds of MB. Written to a '<stem>.land.json' sidecar so a
+        # merge reads terrain from the cache instead of re-running the converter.
+        land = [
+            rec
+            for rec in records
+            if isinstance(rec, dict) and rec.get("type") in ("Landscape", "LandscapeTexture")
+        ]
         # A cheap first pass over the already-in-memory list (no extra I/O):
         # path grids need to know which cells are interior before they can be
         # keyed correctly, and a cell's own record can appear anywhere in the
@@ -1826,16 +1876,20 @@ class Tes3ConvSession:
                         if mm:
                             cells.append(["ext", int(mm.group(1)), int(mm.group(2))])
         stem = Path(path).stem
-        for name, payload in ((stem + ".keys.json", keys), (stem + ".cells.json", cells)):
+        for name, payload in (
+            (stem + ".keys.json", keys),
+            (stem + ".cells.json", cells),
+            (stem + ".land.json", land),
+        ):
             try:
                 with (self.dump_dir / name).open("w", encoding="utf-8") as fh:
                     json.dump({"v": self._SIDECAR_VER, "d": payload}, fh)
             except OSError:  # noqa: PERF203
                 # Per-file isolation: failing to write one sidecar must not
-                # lose the other. The cache is an optimisation, never required
+                # lose the others. The cache is an optimisation, never required
                 # for correctness, so a write failure is silently tolerated.
                 pass
-        return [tuple(x) for x in keys], [tuple(x) for x in cells]
+        return [tuple(x) for x in keys], [tuple(x) for x in cells], land
 
     def record_keys(self, path: str | Path) -> list[tuple[Any, ...]]:
         """Return a compact (rectype, rid, deleted) list for every record.
@@ -1858,6 +1912,31 @@ class Tes3ConvSession:
         """
         cached = self._load_sidecar(self.dump_dir / (Path(path).stem + ".cells.json"), path)
         return cached if cached is not None else self._build_sidecars(path)[1]
+
+    def landscape_records(self, path: str | Path) -> list[Any]:
+        """Return the Landscape and LandscapeTexture records for one plugin.
+
+        The whole records, not the compact keys -- everything Merged Lands needs
+        to merge terrain -- served from a '<stem>.land.json' sidecar and rebuilt
+        (with the other sidecars) only when the plugin changed. A merge over a
+        load order the conflict scanner has already seen therefore reads terrain
+        straight from the cache instead of re-running the converter per plugin.
+        """
+        import json
+
+        side = self.dump_dir / (Path(path).stem + ".land.json")
+        if side.exists() and not self._stale(side, path):
+            try:
+                with side.open(encoding="utf-8", errors="replace") as fh:
+                    obj = json.load(fh)
+                if isinstance(obj, dict) and obj.get("v") == self._SIDECAR_VER:
+                    data = obj.get("d")
+                    if isinstance(data, list):
+                        return data
+            except (OSError, ValueError):
+                # Unreadable or corrupt cache -> rebuild it below.
+                pass
+        return self._build_sidecars(path)[2]
 
     def dumped_dir(self) -> str:
         """Return the folder the JSON spool was written to."""
@@ -2011,6 +2090,34 @@ def batch_record_fields(
                     ordered.append(field)
         out[key] = (ordered, per)
     return out
+
+
+def plugin_paths(order: Sequence[str], index: PluginFileIndex) -> dict[str, str]:
+    """Resolve each plugin in a load order to its file path.
+
+    The plugin-name to path map the conflict window's field diff, tree view,
+    patch builder and plugin view all read. The conflict scan produces it as a
+    side effect, but it needs no scan: it is only a last-wins lookup per name
+    (see :class:`~wraithguard.plugins.PluginFileIndex`, which resolves a name a
+    later ``data=`` folder shadows to that folder). Building it on demand is
+    what lets those features open without a Check Conflicts run first -- the
+    tes3conv JSON is still generated lazily, one plugin at a time, when a field
+    is actually read.
+
+    Args:
+        order: Plugin file names, in load order.
+        index: The data-folder index to resolve names against.
+
+    Returns:
+        Plugin name to its resolved path, omitting any name the index cannot
+        find (a plugin the data folders do not hold).
+    """
+    resolved: dict[str, str] = {}
+    for name in order:
+        found = index.find(name)
+        if found is not None:
+            resolved[name] = str(found)
+    return resolved
 
 
 def _scan_touch(
@@ -2381,6 +2488,10 @@ def dump_tes3conv_json(
         return 0
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+    # Convert everything in parallel first: prime() runs the tes3conv processes
+    # concurrently (bounded), so the per-plugin loop below only reads fresh JSON
+    # instead of waiting on one conversion at a time.
+    session.prime([path for p in plugins if (path := paths.get(p))])
     n = 0
     for p in plugins:
         path = paths.get(p)

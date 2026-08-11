@@ -29,7 +29,9 @@ inside the program as well.
   package they live in, not from here.
 - `wraithguard/` - the engine itself, split by concern: rule handling, the
   load-order sort, `openmw.cfg` reading/emitting, plugin metadata, downloads,
-  compiled-script decoding, and the conflict visualisations (`viz/`, which
+  compiled-script decoding, landscape merging (`land/` - the Merged Lands port,
+  see [Merged Lands](#merged-lands-landscape-merging)), and the conflict
+  visualisations (`viz/`, which
   renders conflicts as self-contained HTML: a world conflict map, terrain
   height differences, path-grid graphs and a rotatable 3D terrain surface with
   relief shading, contours and multidirectional lighting - see
@@ -45,7 +47,7 @@ inside the program as well.
   theme (see [Theming the app](#theming-the-app)).
 - `CREDITS.md` - acknowledgements for the projects this tool ports, references,
   and depends on (mlox, plox, tes3conv, modmapper, OpenMW, MOMW, and more).
-- `CHANGELOG.md` - what changed between releases (current: **3.1**).
+- `CHANGELOG.md` - what changed between releases (current: **3.1.3**).
 - `REMAINING_WORK.md` - the honest list of what is still outstanding in the
   codebase and against PEP standards, measured rather than recalled.
 
@@ -467,6 +469,18 @@ type + editor id), the last one in the load order wins.
   the 360 MWSE / MW-Enhanced functions - calls to those are marked, because a
   script using one will not run without that runtime installed.
 - Save the full list to CSV for later.
+- **Plugin view** turns the flat list into your load order as a tree: file ->
+  record type -> record, with the record compared across every plugin that
+  defines it. A row's colour says what *that* plugin is doing to the record -
+  blue defines it first, green changes it and nothing later disagrees, amber
+  changes it and still wins, **red** changes it and something later overrides
+  that change, grey redefines it without changing anything. The whole tree
+  colours itself: opening it judges the order once in the background (carefully,
+  so a large order does not run out of memory) and the colours fill in without
+  you opening a group. The same visualisers, image/mesh viewers and patch maker
+  the flat diff has are wired into it. Selecting a plugin row also highlights, in
+  purple, every plugin it conflicts with -- a *lost/broad* toggle chooses between
+  only the records where an edit is discarded (the default) and any shared record.
 - Read-only and opt-in: it never changes the sort or your files, and it needs the
   plugin files reachable via your cfg's `data=` folders. It can be slow on a big
   list (it parses every active plugin), so it runs in the background.
@@ -609,6 +623,127 @@ Everything about the shading is a control:
 | **Contours** | Lines at a round interval chosen to put about a dozen on the cell, with the interval named in the readout. They are dropped where they would crowd close enough to merge, the way a paper map drops them. |
 
 **Reset** restores every control, not just the camera.
+
+---
+
+## Merged Lands (landscape merging)
+
+Conflict detection *tells* you two mods edited the same cell; **Merge Lands**
+does something about it. It builds one `Merged Lands.esp` that carries the
+combined terrain of your whole load order, so edits from different mods coexist
+instead of the last one winning the whole cell, and the seams between them are
+reconciled. It is a port of **Merged Lands** (David Von Derau, MIT) and its
+OpenMW fork; the function-by-function account of what is ported, checked and
+deliberately changed is in [MERGED_LANDS.md](MERGED_LANDS.md).
+
+**Running it.** Click **Merge Lands** (second button row - it is a
+file-producing action, not a read-only scan). It needs a `tes3conv` binary
+(**Set tes3conv...**) and a sort so it knows the load order. It writes
+`Merged Lands.esp` to your output folder and a `Merged Lands.mergedlands.toml`
+marker beside it; **enable the plugin and load it LAST**. A second run ignores
+its own previous output rather than merging a merge.
+
+**How a conflict is settled.** Where two mods both move the same vertex, the
+later one in the load order wins it - the same answer the engine gives, applied
+per vertex so everything they did *not* both touch still merges. This is a
+change from the original tool, which blended (averaged) contested vertices by
+default; blending every conflict synthesises a surface neither mod authored and,
+at scale, stretches the terrain, so it is now opt-in per layer (see below). The
+merge then repairs the seams across every touched cell, conditions any slope too
+steep for the format, and drops cells the load order already delivers.
+
+**Per-plugin control: `.mergedlands.toml`.** A plugin can ship a sidecar named
+`<plugin-stem>.mergedlands.toml` (e.g. `MyMod.mergedlands.toml` next to
+`MyMod.esp` or `MyMod.omwaddon`) that controls how its edits merge. Two knobs per
+landscape layer - `height_map` (heights and normals), `vertex_colors`,
+`texture_indices`, `world_map_data`:
+
+- `included = false` drops that plugin's edits to the layer entirely.
+- `conflict_strategy` decides collisions: `Overwrite` (later wins - the default),
+  `Ignore` (earlier wins), `Resolve` (blend the two, the original's behaviour),
+  `Curvature` (a structure-weighted blend, heights only), or `Auto` (the
+  default policy, which is `Overwrite`).
+
+Not sure which strategy a cell wants? In a landscape field diff, **Compare
+strategies** merges that cell under each of `Overwrite`, `Resolve`, `Ignore` and
+`Curvature` and opens the 3D terrain view with each plugin's own version and each
+strategy's result switchable in place - so you can see the choice on the terrain
+before committing to it. (It only differs where two or more plugins contest a
+vertex.) Then, rather than hand-write the sidecar, click **Merge Settings**: pick
+a plugin, set each layer with a checkbox and a dropdown, watch a live preview,
+and it writes the file for you (loading an existing sidecar so you edit rather
+than start over).
+Master files (`.esm`) are honoured too - a master builds the reference terrain
+rather than being diffed, so a layer it excludes is simply left out of the
+reference. Merged Lands' own advice holds: no plugin needs a sidecar until a
+conflict makes one necessary.
+
+**Choosing a strategy: winner, blend, or yield?** The thing to hold onto is that
+the merge only ever decides the vertices two mods *both* moved. Everything either
+mod did on its own is kept whatever you pick, so how *much* land a mod edits - its
+footprint - barely touches the result; a strategy settles only the overlap, the
+seam where two mods reshaped the exact same ground. That reframes the natural "the
+mod with the fewest land edits should win" instinct: edit count is a proxy, not
+the reason. At a contested vertex the real question is just *whose ground do you
+want to stand on there*, and that is almost always the more purpose-built edit (a
+road, a dock, a levelled town square, a quest-flattened clearing) over a broad
+procedural sweep - which tends to correlate with a small footprint but isn't
+caused by it.
+
+So your first lever is **load order, not the sidecar.** `Overwrite` (the default)
+means the later of two colliding mods wins the seam, so loading the specific mod
+*after* the broad one already hands it the contested vertices - no
+`.mergedlands.toml` needed. Reach for a sidecar only when load order cannot say
+what you mean:
+
+- **A detail mod over a big overhaul** (the common case): load it last, keep the
+  default. It wins the shared vertices; the overhaul keeps everything else.
+  Nothing to write.
+- **Two overhauls fighting over one region**, both intentional, where a hard seam
+  looks wrong: set the later one's `height_map` to `Resolve` to blend them, or
+  `Curvature` if what you are protecting is a *structural* feature - a road cut, a
+  ditch, a flat pad - that a plain average would wash out against a big bulk raise
+  or lower. Blending is opt-in because it invents terrain neither mod authored, so
+  use it only where a compromise is genuinely wanted.
+- **A foundational mod that must keep its ground** against a later mod that only
+  grazes its border: put the sidecar on the *later* mod and set the contested
+  layer to `Ignore` (earlier wins), or `included = false` to drop that layer's
+  edits entirely.
+- **A mod whose edits to one layer you don't want at all** (it recolours the
+  ground, or rewrites the world map): `included = false` on just that layer keeps
+  everything else it does.
+
+**Which mod carries the sidecar matters, too - pick the cheaper side.** A
+`conflict_strategy` is a property of the plugin it is written on: the merge reads
+it from whichever mod is being folded, so it fires wherever *that* mod's edits land
+on ground an earlier mod already touched - every one of its seams, not the single
+pair you had in mind. Change it on a mod that collides with ten others and you have
+changed all ten of those overlaps; a mod that collides with two changes only two.
+So when a contested region can be settled from either side, write the sidecar on
+the **lower-conflict** mod - you fix the seam you meant to and perturb the fewest
+other relationships. *This* is the real "smallest impact" rule: it is about a mod's
+conflict count, not its land-edit count. The Plugin view makes it visible - select
+a plugin and everything it conflicts with lights up, so you can see which side is
+the cheaper place to intervene before writing anything.
+
+**Let the terrain decide, not the arithmetic.** Once you have picked a side, find
+the cells that actually collide - Check Conflicts, or the Plugin view, where the
+mods *losing* work are marked ★ and coloured - open a landscape field diff, and
+click **Compare strategies** to see that cell rendered under each of `Overwrite`,
+`Resolve`, `Ignore` and `Curvature`, switchable in place on the 3D view. Pick the
+one that looks right, then write it with **Merge Settings**. It is faster and surer
+than counting edits, and it keeps you honest about the one place the choice
+matters: the handful of vertices two mods contest.
+
+**Reading the run.** The log names what happened - how many plugins carry
+settings and which, which were skipped and why (`a previous merge`, `every layer
+excluded`), how many cells merged, how far seam repair and the slope limiter
+moved things, and which masters the output declares. If a cell cannot be written
+it is named and skipped rather than aborting the run. Tick **Verbose Merged Lands
+log** (Options) to expand that: every settings-carrying plugin is listed with
+exactly what each layer is set to (on/off and the strategy), and everything that
+could not be read is named in full - for working out *why* a merge did what it
+did, rather than inferring it from the counts.
 
 ---
 

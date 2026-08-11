@@ -52,10 +52,22 @@ and their `LICENSE` files are included in their source folders in this repo.
   sidecar schema, which we read with the same field names and values so
   settings written for the original work here unchanged.
 
-  `MERGED_LANDS_FUNCTIONS.md` accounts for **all 191 functions** in its
+  `MERGED_LANDS.md` accounts for **all 191 functions** in its
   `src/`, names where each one lives here, and records every place we diverge
   and why. Our additions - a slope limiter, curvature-weighted resolution, and
   digest-based cleaning - are marked as ours there rather than attributed to it.
+
+- **Merged Lands, OpenMW fork** (`OpenMWMergedLands`) - MIT, retaining © 2022
+  David Von Derau; licence identical to the original's, `License/MergedLands/LICENSE`.
+  The OpenMW-oriented continuation of Merged Lands (reads `openmw.cfg`, emits
+  `.omwaddon`, app-config `merged_lands.toml`). We compared our port against it
+  file by file - the *fork comparison* section of `MERGED_LANDS.md` records the
+  result: it is a modernisation and OpenMW-integration pass, not an
+  algorithm-fix pass. From it we adopted the default texture-fallback behaviour
+  (`fallback_texture_index`: substitute the smallest valid painted texture for
+  an unresolvable index so the plugin always loads, while still reporting the
+  substitution), and it confirmed the `.mergedlands.toml` schema is unchanged
+  from the original.
 
 - **momw-configurator** - © Modding-OpenMW.com (johnnyhostile). MIT.
   We read its `cfg/custom.go` to reimplement its customization-apply logic

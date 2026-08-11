@@ -1,16 +1,273 @@
 # Changelog
 
 
+## 3.1.3
+
+### Documentation
+
+- **The four Merged Lands documents are now one `MERGED_LANDS.md`.** The
+  file-level port audit, the fidelity audit against `src`, the OpenMW-fork
+  comparison, and the generated function-by-function coverage table were four
+  separate files that cross-referenced each other; they are now one document
+  with the same content. The coverage table is still generated and still gated
+  by `tests/test_merged_lands_coverage.py` (all 191 functions accounted for).
+- **The three retired hand-off briefs were deleted.** `I18N_BRIEF.md`,
+  `TYPING_BRIEF.md`, and `THEMING_BRIEF.md` described finished 3.0 work and had
+  been stubs pointing at `CODE_REVIEW.md` for some time; their record lives in
+  §17 (i18n) and §20 (typing) and in `SMOKE_TEST.md` §5 (theming). References to
+  them were updated so nothing dangles.
+- **`AUDIT_REPORT.md` and `REMAINING_WORK.md` were refreshed to 3.1.3** with the
+  current gate numbers.
+- **`README.md` and `QUICKSTART.md` now cover Merged Lands.** The README had no
+  Merged Lands section at all despite it being the flagship of this release; it
+  now documents running it, the load-order-winner default, the
+  `.mergedlands.toml` layers and strategies, the Merge Settings editor, master
+  support, and how to read the run log. The README also describes the Plugin
+  view tree and its self-colouring, and QUICKSTART points at both. `MERGED_LANDS.md`
+  gained a "second cross-check against the OpenMW fork" section recording the
+  zero-normal and i8-saturation findings and the load-order-default decision.
+
+### Changed
+
+- **The conflict list colours itself on open -- no need to run Plugin summary
+  first.** The verdict colours (what wins, what loses, what is benign) came from a
+  survey that only ran when you opened Plugin summary or the Plugin view. The
+  conflict window now kicks that same survey quietly the moment it opens, reusing
+  the warm cache from the scan that just ran, reporting progress in the status
+  bar, and painting in paced chunks so the window stays responsive. The manual
+  **Plugin summary...** button still gives the on-demand per-mod report; this only
+  fills in the colours. The Plugin view inherits the fresh index too, so it opens
+  already coloured.
+
+### Fixed
+
+- **Select-all in a draggable list can be undone by clicking again.** In the
+  reorderable lists (plugin order, `data=` paths, the rule maker), pressing
+  Ctrl+A (Tk's `<<SelectAll>>`) selected every row and then nothing but a
+  programmatic reset -- "reset to mlox order" -- would clear it. The block-drag
+  handler returned early for any press inside a contiguous selection so it could
+  drag the whole block, and once every row is selected they *are* one contiguous
+  block, so every click was read as a drag-grab. A press that never moves is now
+  treated as the plain click it is and collapses the selection to the clicked
+  row, so clicking any row escapes a select-all. Dragging a multi-row block is
+  unaffected. (Reported by Balketh.)
+- **Records touching your own mods now show their verdict colour in the conflict
+  list, not a flat orange.** A ★ row was painted a fixed orange that won over the
+  verdict tag, so one of your records read the same whether it was losing work or
+  perfectly benign - the colour was spent marking ownership the ★ already marks.
+  Owned rows now take the verdict colour like any other, a shade brighter so they
+  still catch the eye: a more-saturated amber for benign and red for a discarded
+  edit. The ★ column alone carries ownership. The two "nothing lost" verdict greys
+  were also too faint to read (`#9a9a9a` against the dark rows) and are now a
+  legible mid-grey for every record, brighter still on your own.
+- **The cell map now opens over loopback and cleans up after itself.** It was
+  handed to the embedded webview as a bare `file://` path -- which some webviews
+  refuse -- and written to a single fixed `cell_map.html` that housekeeping
+  never touched. It is now served on `127.0.0.1` before the webview sees it (the
+  same chain the other views use) and written to a timestamped `cell_map_<stamp>.html`,
+  so exit-time tidy-up keeps the newest few and drops the rest. A map you *Save*
+  keeps the plain name and is still never a cleanup candidate.
+- **Background workers no longer crash a daemon thread when the window is gone.**
+  Every worker (scan, sort, export, merge, lint, backups, downloads, plugin-tree
+  judging) hands its result back with `root.after(...)`, which raises if the app
+  has closed while it was still running, or -- in the headless test suite -- if
+  no event loop is pumping. Those hand-backs now go through one guarded
+  marshaller that drops the callback in that case instead of raising, so a
+  closing window or a test cannot surface a `RuntimeError` from a dying thread.
+- **A hand-written `[NearEnd]` (or `[NearStart]`) rule now ends the load order
+  in the order you listed.** The tie-break among near-end plugins was their
+  existing position, so `[NearEnd] Merged Lands.esp, delta-merged.omwaddon,
+  deleted_groundcover.omwaddon` could still sort the addons ahead of the base
+  plugin they are built on. The listed order now wins, so a base plugin pinned
+  ahead of its addons loads first. This stays a soft position, not a chain: it
+  invents no edges between the listed plugins, and a real edge -- a master, an
+  `[Order]` rule -- still overrides it.
+- **The backups window now finds mlox-rule and plugin-order.yml backups.**
+  Updating rules or the plugin-order.yml keeps a timestamped `.bak` next to the
+  replaced file, but those files live outside the data paths, so the scan never
+  looked there and the backups seemed to vanish. The scan now also covers the
+  folders holding your rule files and plugin-order.yml.
+- **Merged Lands no longer paints brown squares over open water.** Underwater
+  cells rendered as brown land squares on the world map. The world map (WNAM) is
+  a low-resolution height downsample, and a non-negative value paints as brown
+  coast - so any map vertex that read as land over below-sea-level terrain
+  showed as land floating on the ocean. This came from three places, all now
+  fixed: a cell with no carried world map, a carried map that was all zeros (the
+  format's missing-value sentinel some plugins export), and - the one that kept
+  the brown appearing at `distant_seafloor` borders - ordinary rounding, where a
+  vertex in the top 64 units of water rounds up to zero. The rule now is simply
+  that a vertex whose terrain is below sea level must read as water: absent and
+  all-zero maps are derived from the merged heights, and any map is then made
+  water-safe against those heights. The correction only ever pushes a vertex
+  toward water, so real coastline and a mod's intentional deep-water (-128) map
+  are both left exactly as they are.
+- **A master's `.mergedlands.toml` is now read, reported, and applied.**
+  Settings were only loaded for mods, so a master's sidecar (a
+  `distant_seafloor_2.00.esm`, say) was silently ignored: it went uncounted in
+  the "N plugin(s) carry settings" line and had no effect. Masters build the
+  reference terrain rather than being diffed, so their settings apply there -- a
+  layer a master marks `included = false` is now dropped from the reference, and
+  a master accidentally marked as a previous merge is skipped. The run also lists
+  which plugins carry settings, so it is visible that a master's was seen.
+- **A plugin found in several `data=` folders now resolves to the one that
+  wins.** OpenMW composes a load order from many `data=` directories and a later
+  one shadows an earlier one - the *last* copy of a name is the one the game
+  loads. The toolkit resolved to the *first* it found instead, so a plugin the
+  user had overridden in a later folder (an updated `Dwemer Airship_Exterior.esp`
+  was the report) was read from the stale copy. Fixed to last-wins in both the
+  plugin index and the Merged Lands folder search, and the rest of the codebase
+  was audited for the same first/last mix-up.
+- **`momw-customizations.toml` no longer duplicates its inserts.** Data-path and
+  content inserts were emitted once per configuration block, so a customizations
+  file with more than one block repeated every inserted line (a `ktim816` report).
+  The inserts are now written against the first block only.
+- **`--noconsole` builds no longer flash console windows during Merged Lands.**
+  The tes3conv subprocesses opened a visible command window each on Windows even
+  in a windowed (`--noconsole`) build; they now run with `CREATE_NO_WINDOW`.
+- **Merged Lands no longer leaves dark/black squares near water.** A vertex
+  whose height did not move inherits the reference cell's authored normal -- but
+  a reference normal of `(0, 0, 0)` is missing data, not a lighting choice, and
+  is common in coastal and underwater cells. Inheriting it replaced a correct
+  recomputed normal with one the engine lights flat, i.e. black. The zero normal
+  is now rejected and the recomputed one kept, so those squares light correctly.
+  This matches the fix the OpenMW fork made to its own `recompute_vertex_normals`.
+- **A single out-of-range vertex can no longer abort a whole merge.** Packing a
+  merged world map, normal or vertex colour raised on any value outside its
+  byte, and that error was not caught, so one overflowing vertex on a large load
+  order aborted the entire run -- the i8 overflow the OpenMW fork reported. Those
+  values now saturate to the byte the format stores, as the fork's arithmetic
+  now does, keeping the cell instead of losing the merge.
+
+### Added
+
+- **Click a plugin in the tree to highlight what it conflicts with.** In the
+  Plugin view, selecting a plugin row now marks every plugin it shares a
+  contested record with, in purple, so a mod's collisions are visible at a
+  glance (`ktim816`'s request). A **lost/broad toggle** narrows it: *lost* (the
+  default) marks only plugins that share a record where an edit is actually
+  discarded -- the conflicts worth acting on -- and *broad* marks any shared
+  record. The mark is a row background, so a highlighted plugin keeps its own
+  verdict colour on top; purple was chosen over blue because the selection
+  highlight is already blue, and it keeps every verdict colour legible.
+- **Preview what each conflict strategy does to a cell before choosing one.**
+  A landscape field diff (or the tree view's) now has a **Compare strategies**
+  button beside *Show in 3D*: it merges that cell under `Overwrite`, `Resolve`,
+  `Ignore` and `Curvature` - with the first plugin as the base the others fold
+  onto, exactly as the real merge would - and opens the 3D terrain view carrying
+  each plugin's own version *and* the merged result for each strategy, all
+  switchable in place. Preview it, then set the strategy you want in the
+  plugin's `.mergedlands.toml` with Merge Settings. This is the interactive
+  answer to the per-cell conflict images the original tool wrote; it only
+  differs where two or more plugins actually contest a vertex.
+- **A verbose Merged Lands log for troubleshooting.** A **Verbose Merged Lands
+  log** option (Options; `build_merged_lands(verbose=True)` in the API) expands
+  the run log to name every plugin that carries a `.mergedlands.toml` and exactly
+  what each layer is set to - on/off and the conflict strategy - and to list
+  everything it could not read in full, rather than the headline counts. It
+  answers *why* a merge did what it did on a large load order instead of leaving
+  you to infer it. Off by default; the normal summary is enough for a run that
+  goes as expected.
+- **A GUI editor for `.mergedlands.toml` merge settings.** The per-plugin Merge
+  Lands control file used to be a template you edited by hand. **Merge Settings**
+  now opens a dialog: pick a plugin, then per landscape layer (`height_map`,
+  `vertex_colors`, `texture_indices`, `world_map_data`) choose whether to include
+  its edits and how to resolve conflicts (`Auto`/`Overwrite`/`Ignore`/`Resolve`/
+  `Curvature`), set the `meta_type`, and watch a live TOML preview. Opening it on
+  a plugin that already has a sidecar loads its current settings so you edit
+  rather than start over. The file it writes is still hand-editable, with the
+  explanatory header.
+- **`.mergedlands.toml` generation, full schema.** The toolkit reads and writes
+  the Merged Lands sidecar with the same field names and values the original
+  uses - `meta_type`, and per-layer `included` / `conflict_strategy` - so a
+  settings file written for either tool works in the other. The generated marker
+  beside a merged plugin spells every layer out rather than leaving a blank file.
+- **Merged Lands port refined against the OpenMW fork.** The texture fallback for
+  an index no `LTEX` defines is now on by default - the smallest valid painted
+  texture is substituted so the plugin always loads, and the substitution is
+  reported rather than hidden; a CLI run can opt out
+  (`substitute_unknown_textures=False`) for the honest pass-through. Height
+  encoding also gained NaN/inf guards so a non-finite vertex saturates to a
+  valid signed byte instead of corrupting the record.
+- **The plugin-diff tree gained the tools the flat conflict list already had.**
+  Double-click a record or field in the load-order tree to open the field/object
+  diff; the terrain visualisers (3D terrain, terrain diff, path grid), the image
+  and NIF viewers, and the record patch-maker are all wired into it and into the
+  field diff, so a conflict can be seen and patched without leaving the tree.
+- **Image and NIF viewers in the conflict windows.** A conflicting `.nif`,
+  texture or icon can be opened and compared across the plugins that provide it,
+  from the record and resource conflict views.
+- **A search box on the Check Conflicts and Resource Conflicts lists**, and
+  **sortable columns in the field-diff conflict list** - click the star, record
+  or winner header to sort, click again to reverse (both `ktim816` requests).
+- **tes3cmd frontend can now queue curated-list mods, not just yours.** "My
+  mods (last sort)" only ever filled the file list from your own custom mods -
+  curated plugins were deliberately left out, "the list's job, not yours" - so
+  cleaning or resyncing a curated plugin meant adding it by hand. A new **List
+  mods (last sort)** button fills the list with everything from the last
+  sort's active load order that is NOT one of your custom additions - the
+  complement of the existing button - resolved across the same data folders.
+
+### Changed
+
+- **The default conflict strategy is now the load-order winner, not a blend.**
+  Where two mods both move the same landscape vertex, Merged Lands used to
+  average the two edits (`Resolve`). It now takes the later plugin's edit
+  (`Overwrite`) by default - the same answer the load order would give, applied
+  per vertex so everything that is *not* contested still merges. Blending every
+  contested vertex synthesises a surface neither mod authored and, across a large
+  load order, shows up as visible stretching; the OpenMW fork changed its default
+  the same way for the same reason. **This changes merged terrain output.**
+  Nothing was removed: the magnitude-weighted blend, the curvature weighting and
+  the minor/major severity report all still run when a `.mergedlands.toml`
+  selects `Resolve` or `Curvature` for a layer - both are one click away in the
+  Merge Settings editor. If you preferred the old behaviour, set the layers you
+  care about to `Resolve` in the sidecar.
+- **In-app HTML views are served through the loopback server first.** The
+  terrain, cell-map and comparison views opened as `file://` pages, which some
+  platforms (the Steam Deck among them) will not open from disk. They are now
+  hosted through the built-in loopback server by default, falling back to a
+  `file://` page only if that is unavailable - so the same viewers work
+  everywhere, and nothing is written to a temp file that did not need to be. The
+  shipped help documents now go the same way: the help window's "Open in
+  browser" button was the last view still handing the browser a `file://` path,
+  and it now serves over loopback like the rest.
+
+### Performance
+
+- **tes3conv now converts plugins in parallel.** Reading a load order was one
+  conversion at a time; it now runs several at once through a bounded worker
+  pool (capped at the CPU count, four by default) so the read phase spends less
+  wall-clock waiting on the converter. The cap is deliberate - each worker is a
+  live tes3conv process plus its JSON, so the pool is bounded to keep peak
+  memory to a few conversions rather than the whole load order. Applies to
+  Merged Lands' read phase and the on-disk JSON dump.
+- **Merged Lands reuses the conflict scanner's cache.** A new compact
+  `<plugin>.land.json` sidecar holds just the `Landscape`/`LandscapeTexture`
+  records - everything a merge needs, a fraction of a plugin that can run to
+  hundreds of MB. When it is present and current, a merge reads terrain straight
+  from it instead of re-running the converter, so a merge that follows a
+  conflict scan barely touches tes3conv at all.
+- **The plugin tree colours the whole load order on its own, not just the
+  groups you open.** The plugin summary already judges every record per plugin;
+  those verdicts are now kept as a compact index rather than discarded, and the
+  tree colours from it. Every plugin row gets its colour - so which mods are
+  losing work is visible without expanding anything - and a group's records
+  colour instantly on expand instead of re-reading through tes3conv. And if no
+  summary has been taken yet, **opening the plugin view now starts one quietly
+  in the background** (no prompt, no report window), so the colours fill in over
+  time on their own rather than only where you click. It reads every record
+  once, carefully (digests, one pass per plugin), and paints in throttled
+  batches, so it never holds a record or freezes the UI.
+
 ## 3.1.2
 
-Everything after the 3.1.1 patch. Enough of it is new capability rather than
-repair that this may ship as 4.0 instead; the content is the same either way.
+Everything after the 3.1.1 patch. 
 
 The headline is that the conflict viewer stopped being a list. It now says what
 *kind* of conflict each record has, shows the load order as a tree you can walk
 per mod, and answers "which of my mods is losing work" with a number. Two of
 those needed a read path that was quietly quadratic, and fixing it is the other
-headline.
+headline. Also the port if Merge Lands, and a Diff Patcher.
 
 ### Added
 
@@ -221,7 +478,7 @@ headline.
   repairs the seams and then repairs them *again*, requiring the second pass to
   find nothing, and we had ported the repair but not the assertion. The toolkit
   now refuses to write a plugin with a surviving tear rather than shipping a
-  wall across a cell boundary. They are written up in `MERGED_LANDS_FUNCTIONS.md`
+  wall across a cell boundary. They are written up in `MERGED_LANDS.md`
   alongside all 191 functions and where each one lives here.
 
 
@@ -317,13 +574,6 @@ headline.
   patch drawing on three plugins repeated each warning three times. A warning
   that repeats is a warning people learn to skim.
 
-## 3.1.1
-
-A single fix, released on its own because it changed how an existing file is
-read rather than adding anything.
-
-### Fixed
-
 - **A hand-written `replace` block was carried through without explanation.**
   Importing a customizations TOML containing a `[[Customizations.replace]]`
   block regenerated the file with that block moved and unlabelled, so it
@@ -340,6 +590,16 @@ read rather than adding anything.
   choice to convert the block to an insert, or to leave it alone deliberately,
   is the user's and is informed.
 
+## 3.1.1
+
+A single fix, released on its own because it changed how an existing file is
+read rather than adding anything.
+
+### Fixed
+
+- **Customizations TOML Blocktype was being ignored on an import from TOML**
+  Fixed an issue where importing a Blocktype annotation from the customization
+  TOML would skip the blocktype.
 
 ## 3.1
 

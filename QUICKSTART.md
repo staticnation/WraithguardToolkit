@@ -51,9 +51,24 @@ python wraithguard_toolkit_gui.py
   For a **field-by-field diff**, point it at a `tes3conv` binary (**Set
   tes3conv...** in that window, or `--tes3conv`); then selecting a record shows
   each plugin's values with differing fields in red.
+- **Plugin view**: after a conflict scan, click **Plugin view** for your load
+  order as a tree - open a plugin to see what it changes and a record to compare
+  it across every plugin. The colours tell you which of your mods are *losing*
+  work; they fill in on their own (a background pass judges the order once).
+- **Merge Lands**: build one `Merged Lands.esp` that combines the landscape edits
+  of your whole load order and closes the seams between them, instead of the last
+  mod winning a whole cell. Needs a `tes3conv` binary; enable the output and load
+  it **last**. By default the later mod wins only the vertices two mods *contest*,
+  and everything else merges - so most load orders need no tuning. When a specific
+  seam looks wrong, a `.mergedlands.toml` sidecar overrides it per plugin and per
+  layer (winner / blend / yield / drop). Don't guess: open a landscape field diff,
+  click **Compare strategies** to see the cell under each option on the 3D view,
+  then write the sidecar with **Merge Settings**. The README's *Merged Lands*
+  section walks through choosing a strategy - winner vs. blend vs. smallest-impact
+  and when each fits.
 - **Cell map**: click **Cell Map** for a modmapper-style SVG heatmap of which
   mods touch which exterior/interior cells (click a cell to jump to its list row).
-  The map is written to `cell_map.html` and shown in an in-app window if
+  The map is written to a timestamped `cell_map` file and shown in an in-app window if
   `pywebview` (best) or `tkinterweb` is installed, otherwise your browser - it is
   never rendered from an in-memory string, so big load orders won't OOM.
 - **Big load orders / memory / speed**: conflict + cell-map scans run tes3conv to

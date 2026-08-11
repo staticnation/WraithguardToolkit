@@ -1067,7 +1067,7 @@ Every figure below was measured, not recalled.
 | `RUF012` - 8 mutable class attributes in the GUI | §9.1 | `ruff check --select RUF012` is clean; the rule is enabled repo-wide |
 | `mypy` advisory / crashing | §9.4 | already struck through in §9; it gates, and is clean on 28 files |
 | Module split | §8.1 | §8 carries its own COMPLETE note; 6 subpackages, 28 modules |
-| i18n string extraction | §8.4 | **partially** - plumbing, 141 marked strings, `.pot`, and `tools/make_pot.py` shipped in 3.0. The remaining 127 f-string sites are specified in `I18N_BRIEF.md` |
+| i18n string extraction | §8.4 | **partially** - plumbing, 141 marked strings, `.pot`, and `tools/make_pot.py` shipped in 3.0. The remaining 127 f-string sites are specified in the retired i18n brief |
 | **CI** | §9.3 | `.github/workflows/ci.yml` runs the full gate list (ruff, black, mypy, `check_undefined`, `make_pot --check`, pytest) on Python 3.10 and 3.13. It installs `zstandard` deliberately: without it 3 bytecode tests skip, and a skipped test proves nothing |
 | **Coverage measurement** | §8.5 | `[tool.coverage.*]` configured in `pyproject.toml`, with branch coverage and the GUI omitted (it cannot be imported without Tk, so including it would report a meaningless ~0%). CI publishes an HTML report as an artifact |
 
@@ -1102,7 +1102,7 @@ Removing it is therefore a 4.0-scoped change with a deprecation period, not
 tidy-up. Recorded so the next reader does not treat §15 as licence to delete it.
 
 **`print` → logging and the i18n f-strings touch the same lines.** The 127
-sites in `I18N_BRIEF.md` are mostly `print(f"...")` in report output; §8.3 wants
+sites in the retired i18n brief are mostly `print(f"...")` in report output; §8.3 wants
 those same calls demoted or routed through a logger. Doing them as one pass is
 substantially cheaper than two, and avoids re-litigating which output is a
 user-facing report and which is a diagnostic - a question both jobs must answer
@@ -1114,7 +1114,7 @@ identically.
    purpose: the honest number comes from the first CI run, not from a figure
    guessed at a desk. Read it off that run and set the floor slightly below,
    so it ratchets upward instead of blocking the next PR.
-2. **i18n f-strings + `print` → logging together**, per `I18N_BRIEF.md`, whose
+2. **i18n f-strings + `print` → logging together**, per the retired i18n brief, whose
    first step (a static placeholder checker) is the safety net for both.
 3. **GUI split** - the largest and most disruptive; worth having 1–2 first,
    and the coverage report will show which parts are least protected.
@@ -1141,7 +1141,7 @@ because the failure looks exactly like a hung test run.
 
 ### 2. i18n f-strings + print -> logging, as one pass (§16 items 2, §8.3/§8.4)
 
-**The checker came first**, per `I18N_BRIEF.md`'s "build this *before*
+**The checker came first**, per the retired i18n brief's "build this *before*
 converting": `tools/check_placeholders.py`, in `check_undefined.py`'s AST
 style. For every `_("...") % {...}` / `ngettext(...) % {...}` it reports
 missing keys (the runtime `KeyError`), unused keys (usually a typo'd twin),
@@ -1402,7 +1402,7 @@ within a single session, let alone across releases. Re-derive them.
 
 ### The remaining work is written down, not remembered
 
-`TYPING_BRIEF.md` is the hand-off for the last open item -- the `D`/`ANN`
+The retired typing brief was the hand-off for the last open item -- the `D`/`ANN`
 exemptions on the two legacy scripts. It records the measured scope (502
 findings, 263 of them `ANN001` argument annotations across 7,290 lines), what
 was already done so it is not redone, the per-module method that worked for
@@ -1411,7 +1411,7 @@ during that pass -- including the two most expensive: `object` as a
 placeholder annotation turns one missing hint into five new errors, and `list`
 invariance rejects the `list[str]` every caller builds.
 
-It follows `I18N_BRIEF.md`'s format deliberately. That brief was written the
+It follows the retired i18n brief's format deliberately. That brief was written the
 same way and the work landed from it in one session, along its suggested order,
 with its predicted trap firing exactly where it said it would.
 
@@ -1424,7 +1424,7 @@ wheel.
 
 ## 20. The typing pass, finished: both legacy scripts, and what mypy caught
 
-`TYPING_BRIEF.md`'s work, done along its own suggested order. Both scripts now
+The retired typing brief's work, done along its own suggested order. Both scripts now
 meet the package standard, so **every `D`/`ANN` per-file ignore and every mypy
 `ignore_errors` override is deleted** -- not relaxed, deleted. mypy gates
 **35 files**, the whole codebase.
@@ -1566,18 +1566,17 @@ only version of that claim worth making.
 
 ### Completed briefs retired
 
-`I18N_BRIEF.md`, `THEMING_BRIEF.md` and `TYPING_BRIEF.md` all said COMPLETED
+The retired i18n, theming and typing briefs all said COMPLETED
 and together ran to 562 lines of "hand this to a fresh session" instructions
 for work that is done. A hand-off note for finished work is worse than no note:
-a reader picks it up expecting a task. Each is now an ~18-line stub pointing at
-the `CODE_REVIEW.md` section that holds the real record, and the live code
-references (in `engine.py`, `check_placeholders.py`, the CI workflow and the
-placeholder tests) were redirected to those sections so nothing dangles. The
-stubs exist only to keep those references resolving and can be deleted
-outright.
-
-This log's own references to the briefs are left alone: it is append-only, and
-they were correct when written.
+a reader picks it up expecting a task. They were first reduced to ~18-line stubs
+pointing at the `CODE_REVIEW.md` section that holds the real record, with the
+live code references (in `engine.py`, `check_placeholders.py`, the CI workflow
+and the placeholder tests) redirected to those sections so nothing dangled. In
+3.1.3 the stubs were deleted outright, and this log's own mentions of them were
+changed from filenames to "the retired X brief" so nothing points at a file
+that is gone. The record they held lives on in §17 (i18n) and §20 (typing);
+theming is in `SMOKE_TEST.md` §5 and the 3.0 changelog.
 
 Their replacement is **`REMAINING_WORK.md`** -- the only forward-looking
 document, listing what a reviewer would still flag: the deliberate rule

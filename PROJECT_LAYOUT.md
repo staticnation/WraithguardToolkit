@@ -9,9 +9,8 @@ WraithguardToolkit/
 ├── *.md                          Project documentation, all at the top level:
 │                                 README, QUICKSTART, CHANGELOG, CREDITS,
 │                                 CODE_REVIEW, PROJECT_LAYOUT, MLOX_RULES,
-│                                 NIF_PROVENANCE, MERGED_LANDS_PORT and
-│                                 MERGED_LANDS_FUNCTIONS, the briefs, and
-│                                 SMOKE_TEST.
+│                                 NIF_PROVENANCE, MERGED_LANDS, AUDIT_REPORT,
+│                                 REMAINING_WORK, and SMOKE_TEST.
 ├── License/                      One folder per upstream project whose licence
 │                                 travels with code we ported or adapted.
 ├── wraithguard_toolkit.py        Engine + CLI. No GUI import; runs headless.
