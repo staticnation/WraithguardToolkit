@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 r"""Regenerate the function-by-function coverage table for the Merged Lands port.
 
-**Why this is generated rather than written.** The first version of
-``MERGED_LANDS_FUNCTIONS.md`` was written by hand, grouped related Rust
+**Why this is generated rather than written.** The first version of the
+*Function-by-function coverage* section (then a standalone
+``MERGED_LANDS_FUNCTIONS.md``, now part of ``MERGED_LANDS.md``) was written by
+hand, grouped related Rust
 functions onto one table row, and then reported the *row* count as the function
 count -- so ``land/`` was labelled 37 functions when it has 64, and forty
 functions were covered only by a group heading that never named them. A table
@@ -14,10 +16,15 @@ enclosing ``impl``/``trait`` where a name repeats). Any function in the source
 with no entry is an error, and any entry with no function is an error: the
 script fails rather than emitting a table with a hole in it.
 
-Usage::
+Usage. ``--check`` verifies the coverage map against the source and writes
+nothing (this is what CI runs). ``--out`` writes only the generated table
+sections, for pasting into the *Function-by-function coverage* part of
+``MERGED_LANDS.md`` -- it does not know about that file's hand-written prose, so
+never point ``--out`` straight at ``MERGED_LANDS.md``::
 
+    python tools/gen_merged_lands_table.py --src ../merged_lands-main/src --check
     python tools/gen_merged_lands_table.py --src ../merged_lands-main/src \\
-        --out MERGED_LANDS_FUNCTIONS.md
+        --out /tmp/merged_lands_tables.md
 
 Merged Lands is MIT (David Von Derau, 2022). See ``CREDITS.md``.
 """
@@ -716,6 +723,12 @@ MODULES: Final[dict[str, tuple[str, str]]] = {
     "service.py": (
         "ours-aux",
         "orchestration the original does inline in `main.rs`. Chooses no " "vertex values",
+    ),
+    "preview.py": (
+        "ours-aux",
+        "no counterpart -- an interactive preview of what each strategy would do "
+        "to one cell, for the GUI. Reuses `merge.merge_layer`; writes to no "
+        "output plugin, so it decides no merged vertex",
     ),
 }
 

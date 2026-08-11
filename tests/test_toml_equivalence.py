@@ -667,3 +667,54 @@ class TestWideningAnAmbiguousAnchor:
         ]
 
         assert _widen_anchor("E:\\Mods\\UvirithsLegacy\\Data Files", unquoted[0], unquoted) is None
+
+
+class TestMultipleSourceBlocks:
+    """A source TOML with more than one [[Customizations]] block.
+
+    The sorted subset's inserts are global -- this run's content and data --
+    not a property of any one source block. Emitting them once per block
+    inserted every plugin and data path once per block, which is exactly the
+    duplication a user reported in the rebuilt cfg. They now go in the first
+    block only, the way removes and groundcover appends already did.
+    """
+
+    def _toml(self, blocks: list[dict]) -> str:
+        return generate_customizations_toml(
+            final_content_order=["Base.esm", "MyMod.esp"],
+            subset_set={"MyMod.esp"},
+            original_content_values={},
+            original_data={"Customizations": blocks},
+            remove_content=["Old.esp"],
+        )
+
+    def test_a_content_insert_is_not_repeated_per_block(self) -> None:
+        """Two source blocks must still insert the plugin exactly once."""
+        toml = self._toml([{"listName": "A"}, {"listName": "B"}])
+        assert toml.count("insert = 'MyMod.esp'") == 1
+
+    def test_a_removal_is_not_repeated_per_block(self) -> None:
+        """The removes were already first-block only; keep it that way."""
+        toml = self._toml([{"listName": "A"}, {"listName": "B"}])
+        assert toml.count("'Old.esp'") == 1
+
+    def test_a_single_block_is_unchanged(self) -> None:
+        """The common case -- one block -- still emits the insert once."""
+        toml = self._toml([{"listName": "A"}])
+        assert toml.count("insert = 'MyMod.esp'") == 1
+
+    def test_per_block_replace_still_emits_per_block(self) -> None:
+        """A block's own replace/append is its property and stays per block."""
+        toml = generate_customizations_toml(
+            final_content_order=["Base.esm"],
+            subset_set=set(),
+            original_content_values={},
+            original_data={
+                "Customizations": [
+                    {"listName": "A", "replace": [{"source": "X.esp", "dest": "Y.esp"}]},
+                    {"listName": "B", "replace": [{"source": "P.esp", "dest": "Q.esp"}]},
+                ]
+            },
+        )
+        assert "source = 'X.esp'" in toml
+        assert "source = 'P.esp'" in toml

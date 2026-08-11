@@ -217,3 +217,62 @@ class TestPackNormals:
 
         normals = vertex_normals_from_heights(sloped_grid())
         assert decode_vertex_normals(pack_vertex_normals(normals)) == normals
+
+
+class TestNonFiniteGuards:
+    """A NaN or infinite vertex must never abort encoding a whole cell.
+
+    ``int(nan)``/``int(inf)`` raise and ``struct.pack('b', ...)`` rejects
+    anything outside ``[-128, 127]``. A merged or corrupt vertex can arrive
+    non-finite (a division in slope/curvature weighting, or garbage in a source
+    ``VHGT``), so the encoders clamp rather than crash -- Merged Lands'
+    ``f32_to_i8_saturating``/``i32_to_i8_saturating``, ported.
+    """
+
+    def test_a_nan_height_encodes_instead_of_raising(self) -> None:
+        """One bad vertex is treated as flat, not a lost cell."""
+        grid = flat_grid(100.0)
+        grid[10][10] = float("nan")
+        _offset, payload, _clamped = encode_vertex_heights(grid)
+        assert len(payload) == VHGT_SIZE
+
+    def test_an_infinite_height_encodes_instead_of_raising(self) -> None:
+        """``int(inf)`` would raise ``OverflowError``; it is guarded."""
+        grid = flat_grid(0.0)
+        grid[0][0] = float("inf")
+        grid[5][5] = float("-inf")
+        _offset, payload, _clamped = encode_vertex_heights(grid)
+        assert len(payload) == VHGT_SIZE
+
+    def test_normals_from_a_nan_grid_still_pack(self) -> None:
+        """A non-finite vertex must not poison a normal past a signed byte."""
+        grid = sloped_grid(8.0)
+        grid[20][20] = float("nan")
+        grid[21][20] = float("inf")
+        normals = vertex_normals_from_heights(grid)
+        # Every component is a valid signed byte -- pack proves it.
+        packed = pack_vertex_normals(normals)
+        assert len(packed) == 3 * LAND_NUM_VERTS
+        assert all(MIN_GRADIENT <= c <= MAX_GRADIENT for row in normals for t in row for c in t)
+
+    def test_signed_byte_saturation_is_exact(self) -> None:
+        """The helper clamps, maps NaN to zero, and truncates toward zero."""
+        from wraithguard.land.heights import _to_signed_byte
+
+        assert _to_signed_byte(float("nan")) == 0
+        assert _to_signed_byte(float("inf")) == MAX_GRADIENT
+        assert _to_signed_byte(float("-inf")) == MIN_GRADIENT
+        assert _to_signed_byte(200.0) == MAX_GRADIENT
+        assert _to_signed_byte(-200.0) == MIN_GRADIENT
+        assert _to_signed_byte(126.9) == 126
+        assert _to_signed_byte(-126.9) == -126
+        assert _to_signed_byte(127.0) == MAX_GRADIENT
+        assert _to_signed_byte(-128.0) == MIN_GRADIENT
+
+    def test_a_finite_grid_is_unchanged_by_the_guard(self) -> None:
+        """The guard is inert on ordinary terrain: normals are as before."""
+        grid = sloped_grid(8.0)
+        normals = vertex_normals_from_heights(grid)
+        # A plain sloped grid has a uniform interior normal; sanity-check it is
+        # a real unit-ish signed-byte vector, not the (0,0,0) a NaN would give.
+        assert normals[10][10] != (0, 0, 0)

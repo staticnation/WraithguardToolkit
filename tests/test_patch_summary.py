@@ -19,6 +19,8 @@ from wraithguard.patch.summary import (
     record_plugin_statuses,
     record_status,
     row_tag_updates,
+    search_rows,
+    sort_conflicts,
     survey,
     tally,
 )
@@ -168,6 +170,20 @@ class TestSurveyingAWholeScan:
         """Keyed by type and id, because ids collide across types."""
         got = survey([self._conflict("cuirass")], lambda _c: (KEYS, PER))
         assert got.records[("Armor", "cuirass")] is ConflictAll.CONFLICT
+
+    def test_the_per_plugin_verdicts_are_kept_as_an_index(self) -> None:
+        """The plugin tree colours from this without re-reading a record.
+
+        ``Mid.esp``'s script edit is discarded (``Last.esp`` wins), so the index
+        must record it as losing -- and ``Last.esp`` as winning -- keyed by the
+        record marker.
+        """
+        got = survey([self._conflict("cuirass")], lambda _c: (KEYS, PER))
+        verdict = got.verdicts[("Armor", "cuirass")]
+        assert verdict["Mid.esp"] is ConflictThis.CONFLICT_LOSES
+        assert verdict["Last.esp"] is ConflictThis.CONFLICT_WINS
+        # The index must agree with the tally it also feeds.
+        assert got.plugins["Mid.esp"].losing == 1
 
     def test_the_plugin_tally_accumulates_across_records(self) -> None:
         """The whole point: a per-mod number, not a per-record one."""
@@ -325,3 +341,93 @@ class TestRowTagUpdates:
     def test_no_records_paints_nothing(self) -> None:
         """An unjudged list must not touch a single row."""
         assert row_tag_updates(self._rows(), {}) == []
+
+
+class TestSearchRows:
+    """The pure filter behind the conflict and resource lists' search box."""
+
+    ROWS = [
+        {"type": "Npc", "id": "bob", "winner": "A.esp"},
+        {"type": "Armor", "id": "cuirass", "winner": "B.esp"},
+        {"type": "Cell", "id": "(-23, 24)", "winner": "A.esp"},
+    ]
+
+    def test_an_empty_query_keeps_everything(self) -> None:
+        """Clearing the box restores the whole list."""
+        assert search_rows(self.ROWS, "", ("type", "id")) == self.ROWS
+        assert search_rows(self.ROWS, "   ", ("type", "id")) == self.ROWS
+
+    def test_it_matches_any_of_the_named_fields(self) -> None:
+        """A row is kept when the query is in any searched field."""
+        assert search_rows(self.ROWS, "cuirass", ("type", "id")) == [self.ROWS[1]]
+        assert search_rows(self.ROWS, "npc", ("type", "id")) == [self.ROWS[0]]
+
+    def test_it_is_case_insensitive_and_substring(self) -> None:
+        """Typing part of a value, in any case, matches."""
+        assert search_rows(self.ROWS, "ARM", ("type",)) == [self.ROWS[1]]
+
+    def test_it_can_search_the_winner(self) -> None:
+        """The winning plugin is searchable, so 'A.esp' finds its records."""
+        found = search_rows(self.ROWS, "a.esp", ("winner",))
+        assert {r["id"] for r in found} == {"bob", "(-23, 24)"}
+
+    def test_a_field_a_row_lacks_is_simply_not_a_match(self) -> None:
+        """A missing field does not raise; the row just does not match on it."""
+        assert search_rows([{"type": "Npc"}], "bob", ("id",)) == []
+
+    def test_order_is_preserved(self) -> None:
+        """The list keeps its display order, only shorter."""
+        found = search_rows(self.ROWS, "a.esp", ("winner",))
+        assert found == [self.ROWS[0], self.ROWS[2]]
+
+
+class TestSortConflicts:
+    """Clicking a conflict-list column header sorts by it."""
+
+    ROWS = [
+        {
+            "type": "Weapon",
+            "id": "spear",
+            "plugins": ["A", "B", "C"],
+            "winner": "C.esp",
+            "involves_subset": False,
+        },
+        {
+            "type": "Armor",
+            "id": "cuirass",
+            "plugins": ["A", "B"],
+            "winner": "A.esp",
+            "involves_subset": True,
+        },
+        {"type": "Npc", "id": "bob", "plugins": ["A"], "winner": "B.esp", "involves_subset": False},
+    ]
+
+    def test_sorting_by_type_is_alphabetical(self) -> None:
+        """Type sorts case-insensitively by its text."""
+        got = [r["type"] for r in sort_conflicts(self.ROWS, "type")]
+        assert got == ["Armor", "Npc", "Weapon"]
+
+    def test_descending_reverses_it(self) -> None:
+        """A second click on the same header flips the direction."""
+        got = [r["type"] for r in sort_conflicts(self.ROWS, "type", descending=True)]
+        assert got == ["Weapon", "Npc", "Armor"]
+
+    def test_count_sorts_numerically_not_as_text(self) -> None:
+        """The plugin count is a number: 2 sorts before 10, not after."""
+        got = [len(r["plugins"]) for r in sort_conflicts(self.ROWS, "count")]
+        assert got == [1, 2, 3]
+
+    def test_custom_sorts_your_mods_together(self) -> None:
+        """The star column groups your mods, so they can be found at a glance."""
+        got = [r["involves_subset"] for r in sort_conflicts(self.ROWS, "custom", descending=True)]
+        assert got == [True, False, False]
+
+    def test_an_unknown_column_leaves_the_order_alone(self) -> None:
+        """A header with no sort key must not reshuffle the list."""
+        assert sort_conflicts(self.ROWS, "nonesuch") == self.ROWS
+
+    def test_the_input_is_not_mutated(self) -> None:
+        """Sorting returns a new list; the caller's own order is untouched."""
+        before = list(self.ROWS)
+        sort_conflicts(self.ROWS, "id")
+        assert before == self.ROWS

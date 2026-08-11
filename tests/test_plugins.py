@@ -321,3 +321,95 @@ class TestBackupScanner:
         assert kind == "preclean.bak"
         assert original is not None and Path(original).name == "Gone.esp"
         assert not Path(original).exists()
+
+
+class TestPluginFileIndexResolution:
+    """A name several data folders provide resolves to the latest one.
+
+    OpenMW lets a later ``data=`` line shadow an earlier one, so a plugin split
+    across ``00 Core`` and ``01 Patch`` must resolve to the patch copy. The
+    index once kept the first copy (``setdefault``), which fed every downstream
+    read -- tes3conv JSON, the conflict scan, Merged Lands -- the pre-patch
+    file. These pin the corrected last-wins behaviour.
+    """
+
+    def test_the_last_data_folder_wins(self, tmp_path: Path) -> None:
+        """Directories arrive in load order; the latest copy is returned."""
+        core = tmp_path / "00 Core"
+        patch = tmp_path / "01 Patch"
+        core.mkdir()
+        patch.mkdir()
+        write_plugin(core / "Dwemer Airship_Exterior.esp")
+        write_plugin(patch / "Dwemer Airship_Exterior.esp")
+
+        index = PluginFileIndex([str(core), str(patch)])
+
+        assert index.find("Dwemer Airship_Exterior.esp") == patch / "Dwemer Airship_Exterior.esp"
+
+    def test_a_single_provider_is_unaffected(self, tmp_path: Path) -> None:
+        """The common case -- one folder owns the plugin -- still resolves."""
+        core = tmp_path / "00 Core"
+        core.mkdir()
+        write_plugin(core / "Solo.esp")
+
+        index = PluginFileIndex([str(core)])
+
+        assert index.find("Solo.esp") == core / "Solo.esp"
+
+    def test_case_only_collision_still_takes_the_later_folder(self, tmp_path: Path) -> None:
+        """Last-wins holds when the two copies differ only in filename case."""
+        core = tmp_path / "00 Core"
+        patch = tmp_path / "01 Patch"
+        core.mkdir()
+        patch.mkdir()
+        write_plugin(core / "Foo.ESP")
+        write_plugin(patch / "Foo.esp")
+
+        index = PluginFileIndex([str(core), str(patch)])
+
+        assert index.find("Foo.esp") == patch / "Foo.esp"
+
+
+class TestPluginPaths:
+    """The plugin -> path map the diff/patch features read, built without a scan.
+
+    It is only a last-wins PluginFileIndex lookup per name, so establishing it
+    on demand is what lets the field diff and tree view open without first
+    running Check Conflicts.
+    """
+
+    def test_resolves_every_present_plugin(self, core, tmp_path: Path) -> None:
+        core_dir = tmp_path / "00 Core"
+        core_dir.mkdir()
+        write_plugin(core_dir / "A.esp")
+        write_plugin(core_dir / "B.esp")
+        index = PluginFileIndex([str(core_dir)])
+
+        paths = core.plugin_paths(["A.esp", "B.esp"], index)
+
+        assert set(paths) == {"A.esp", "B.esp"}
+        assert paths["A.esp"] == str(core_dir / "A.esp")
+
+    def test_omits_a_plugin_the_folders_do_not_hold(self, core, tmp_path: Path) -> None:
+        core_dir = tmp_path / "00 Core"
+        core_dir.mkdir()
+        write_plugin(core_dir / "Here.esp")
+        index = PluginFileIndex([str(core_dir)])
+
+        paths = core.plugin_paths(["Here.esp", "Gone.esp"], index)
+
+        assert set(paths) == {"Here.esp"}
+
+    def test_takes_the_last_data_folder_for_a_shared_name(self, core, tmp_path: Path) -> None:
+        """It inherits PluginFileIndex's last-wins, matching OpenMW."""
+        core_dir = tmp_path / "00 Core"
+        patch_dir = tmp_path / "01 Patch"
+        core_dir.mkdir()
+        patch_dir.mkdir()
+        write_plugin(core_dir / "Shared.esp")
+        write_plugin(patch_dir / "Shared.esp")
+        index = PluginFileIndex([str(core_dir), str(patch_dir)])
+
+        paths = core.plugin_paths(["Shared.esp"], index)
+
+        assert paths["Shared.esp"] == str(patch_dir / "Shared.esp")

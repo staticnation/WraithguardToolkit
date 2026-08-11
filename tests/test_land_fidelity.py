@@ -355,6 +355,25 @@ class TestNormalsFollowTheHeights:
         assert normals is not None
         assert normals[:3] != [99, -99, 42]
 
+    def test_a_zero_authored_normal_is_never_inherited(self) -> None:
+        """A (0,0,0) reference normal is missing data, not a lighting choice.
+
+        Inheriting it would replace a correctly-recomputed normal with one that
+        lights the vertex flat -- and the engine paints a flat-normal vertex
+        black, which is the dark square that shows up in coastal and underwater
+        cells where reference normals are most often zero. The fresh normal must
+        stand instead, and nothing is counted as preserved.
+        """
+        from wraithguard.land.pipeline import resolve_normals
+
+        outcome, reference = self._outcome(moved=False)
+        reference.cells[(0, 0)].normals = [0, 0, 0] * VERTICES
+        preserved = resolve_normals(outcome, reference)
+        normals = outcome.cells[(0, 0)].normals
+        assert normals is not None
+        assert normals[:3] == [0, 0, 127]  # recomputed flat-up, not the zero
+        assert preserved == 0
+
     def test_new_land_is_computed_from_its_own_heights(self) -> None:
         """A cell with no reference has no normals to inherit."""
         from wraithguard.land.pipeline import MergedCell, resolve_normals

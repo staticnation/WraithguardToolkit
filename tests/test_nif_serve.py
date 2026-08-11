@@ -15,7 +15,7 @@ import urllib.request
 
 import pytest
 
-from wraithguard.viz.serve import Payload, ViewerServer, payloads_for
+from wraithguard.viz.serve import Payload, ViewerServer, payloads_for, publish_html_file
 
 
 @pytest.fixture
@@ -58,6 +58,40 @@ class TestItServesWhatWasRegistered:
         """A URL to a server that is not listening is worse than an exception."""
         with pytest.raises(RuntimeError, match="not running"):
             ViewerServer().publish("x", Payload(b""))
+
+
+class TestPublishHtmlFile:
+    """Serving a written view over loopback, so no file:// URL is needed.
+
+    Some platforms (the Steam Deck's browser, sandboxed webviews) refuse a
+    file:// page, so a generated view is served over loopback by default and
+    the written file is only the fallback.
+    """
+
+    def test_a_written_view_is_served_over_loopback(self, server, tmp_path) -> None:
+        """The file's bytes come back from a real loopback fetch."""
+        page = tmp_path / "cell_map.html"
+        page.write_text("<html><body>the map</body></html>", encoding="utf-8")
+        url = publish_html_file(server, page)
+        assert url is not None
+        assert url.startswith("http://127.0.0.1:")
+        assert b"the map" in get(url)
+
+    def test_no_server_means_the_file_fallback(self, tmp_path) -> None:
+        """A ``None`` server (no port bound) returns ``None`` so the caller uses the file."""
+        page = tmp_path / "x.html"
+        page.write_text("<html></html>", encoding="utf-8")
+        assert publish_html_file(None, page) is None
+
+    def test_a_server_that_never_started_falls_back(self, tmp_path) -> None:
+        """A locked-down machine that could not bind a port keeps the file."""
+        page = tmp_path / "x.html"
+        page.write_text("<html></html>", encoding="utf-8")
+        assert publish_html_file(ViewerServer(), page) is None
+
+    def test_a_missing_file_falls_back(self, server, tmp_path) -> None:
+        """An unreadable view is reported as no-URL rather than raising."""
+        assert publish_html_file(server, tmp_path / "nope.html") is None
 
     def test_binary_payloads_survive_intact(self, server: ViewerServer) -> None:
         """Geometry is deflated binary; any text handling would corrupt it."""

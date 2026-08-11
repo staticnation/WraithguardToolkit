@@ -155,6 +155,37 @@ class TestNearHints:
         )
         assert result[-1] == "Merged Stuff.esp"
 
+    def test_nearend_keeps_the_listed_order(self):
+        """A hand-written [NearEnd] means "end in *this* order", so the block's
+        order wins over the plugins' existing positions. This is the base plugin
+        pinned ahead of the addons built on top of it (none masters the other).
+        """
+        # Input order has the addons before the base plugin -- the wrong way.
+        subset = ["Addon B.esp", "Addon A.esp", "Base.esp"]
+        masters = {s.lower(): VANILLA for s in subset}
+        result = build_and_sort(
+            BASE,
+            subset,
+            [],
+            masters,
+            nearend=["Base.esp", "Addon A.esp", "Addon B.esp"],
+        )
+        assert result[-3:] == ["Base.esp", "Addon A.esp", "Addon B.esp"]
+
+    def test_nearend_listed_order_yields_to_a_real_edge(self):
+        """The hint is a soft position; an [Order] rule is a hard edge and wins.
+        Listing B before A near the end cannot override "A before B"."""
+        subset = ["A.esp", "B.esp"]
+        masters = {s.lower(): VANILLA for s in subset}
+        result = build_and_sort(
+            BASE,
+            subset,
+            [(["A.esp", "B.esp"], 0)],
+            masters,
+            nearend=["B.esp", "A.esp"],
+        )
+        assert result.index("A.esp") < result.index("B.esp")
+
 
 class TestAnchorReporting:
     def test_anchor_out_reports_why_each_custom_moved(self):

@@ -305,6 +305,85 @@ class TestDragAndDropIsOptional:
         assert dnd_ready(tk_root), "the app's own root should support drag and drop"
 
 
+class TestDragListboxSelectionEscape:
+    """Clicking a row must always be able to reduce a multi-selection.
+
+    Reported bug: Ctrl+A (Tk's ``<<SelectAll>>``) selects every row, and then
+    nothing but a programmatic reset would clear it. The block-drag handler
+    returned ``"break"`` for any press inside a contiguous selection so it could
+    drag the whole block -- and once all rows are selected they *are* one
+    contiguous block, so every click was swallowed as a drag-grab. A press that
+    never moves is a plain click and must collapse to the clicked row.
+    """
+
+    @staticmethod
+    def _listbox(tk_root: Any) -> Any:
+        """A populated listbox whose row-at-y lookup is stubbed.
+
+        ``bbox``/``nearest`` need the widget mapped and drawn, which it is not in
+        a headless run, so ``nearest`` is stubbed to return whatever row the test
+        aims at. That isolates the selection logic under test from geometry.
+
+        Args:
+            tk_root: A live Tk root.
+
+        Returns:
+            The listbox, with ``aim_at(row)`` set to point the next press/motion.
+        """
+        from wraithguard.gui.widgets import DragReorderListbox
+
+        lb = DragReorderListbox(tk_root, selectmode="extended")
+        for i in range(6):
+            lb.insert("end", f"item{i}")
+        lb.aim_at = lambda row: setattr(lb, "nearest", lambda _y: row)  # type: ignore[attr-defined]
+        return lb
+
+    def test_clicking_a_row_after_select_all_collapses_to_it(self, tk_root: Any) -> None:
+        """The exact reported path: select all, click one row, get one row.
+
+        Args:
+            tk_root: A live Tk root.
+        """
+        lb = self._listbox(tk_root)
+        event = type("E", (), {"y": 0})()
+        try:
+            lb.selection_set(0, "end")  # what Ctrl+A / <<SelectAll>> does
+            assert len(lb.curselection()) == 6
+
+            lb.aim_at(3)  # the click lands on row 3
+            # A press inside the full-list block grabs it (returns "break")...
+            assert lb._on_press(event) == "break"
+            # ...but with no motion, release collapses to the clicked row.
+            lb._on_release(event)
+            assert list(lb.curselection()) == [3]
+        finally:
+            lb.destroy()
+
+    def test_a_press_that_moves_still_drags_the_block(self, tk_root: Any) -> None:
+        """The collapse must not defeat the feature it guards.
+
+        A press that actually moves is a reorder, not a click, so the selection
+        must follow the dragged block rather than collapse to one row.
+
+        Args:
+            tk_root: A live Tk root.
+        """
+        lb = self._listbox(tk_root)
+        event = type("E", (), {"y": 0})()
+        try:
+            lb.selection_set(0, 1)  # a two-row contiguous block
+            lb.aim_at(0)  # press on the top of the block
+            assert lb._on_press(event) == "break"
+            lb.aim_at(2)  # drag down past the block's end
+            lb._on_motion(event)
+            lb._on_release(event)
+            # The block moved and stays multi-selected; it did not collapse.
+            assert len(lb.curselection()) == 2
+            assert lb.get(1) == "item0" and lb.get(2) == "item1"
+        finally:
+            lb.destroy()
+
+
 class TestActionButtons:
     """Every button exists, is bound, and starts in the documented state."""
 
@@ -315,6 +394,11 @@ class TestActionButtons:
         "conflicts_button": True,
         "cellmap_button": True,
         "resource_button": True,
+        # Second row: plugin manipulation / file creation. Merge Lands needs a
+        # sorted order (disabled until Sort); Merge Settings writes a
+        # .mergedlands.toml for a picked plugin, so it needs no order.
+        "mergedlands_button": True,
+        "merge_settings_button": False,
         "lint_button": True,
         "tes3cmd_button": False,
         "savecheck_button": False,
@@ -579,6 +663,433 @@ class TestSecondaryWindows:
             assert nav.item(records[0], "text") == "cuirass"
         finally:
             window.destroy()
+
+    def test_the_index_colours_plugin_rows_without_opening_a_group(self, app: Any) -> None:
+        """Once a summary has judged the order, its verdict index colours every
+        plugin row on open -- no group has to be expanded, and no record is read
+        again. This is the whole point of the index scan.
+
+        Args:
+            app: The application.
+        """
+        from wraithguard.gui.pluginview import this_tag
+        from wraithguard.patch.status import ConflictThis, worst_this
+        from wraithguard.patch.summary import Survey
+
+        app._shown_conflicts = self._scan()
+        app._conf_survey = Survey(
+            verdicts={
+                ("Armor", "cuirass"): {
+                    "Base.esm": ConflictThis.MASTER,
+                    "Mod.esp": ConflictThis.CONFLICT_WINS,
+                },
+                ("Cell", "(1, 2)"): {"Mod.esp": ConflictThis.OVERRIDE_WINS},
+            }
+        )
+        app.show_plugin_view()
+        window = app._plugin_win
+        try:
+            nav = app._plugin_nav
+            # Coloured from the index at open, with no group expanded.
+            assert this_tag(ConflictThis.MASTER) in nav.item("Base.esm", "tags")
+            expected = this_tag(
+                worst_this([ConflictThis.CONFLICT_WINS, ConflictThis.OVERRIDE_WINS])
+            )
+            assert expected in nav.item("Mod.esp", "tags")
+
+            # Expanding a group colours its records from the index too, not a
+            # fresh read -- the record row takes its verdict straight across.
+            nav.focus("Mod.esp")
+            app._on_plugin_open()
+            group = next(g for g in nav.get_children("Mod.esp") if nav.item(g, "text") == "Armor")
+            nav.focus(group)
+            app._on_plugin_open()
+            row = nav.get_children(group)[0]
+            assert this_tag(ConflictThis.CONFLICT_WINS) in nav.item(row, "tags")
+        finally:
+            window.destroy()
+
+    def test_opening_the_view_starts_background_colouring(self, app: Any, monkeypatch: Any) -> None:
+        """With no summary yet, the tree kicks a quiet one so colours fill in.
+
+        Args:
+            app: The application.
+            monkeypatch: Pytest's patcher.
+        """
+        calls: list[dict[str, Any]] = []
+        monkeypatch.setattr(type(app), "_survey_conflicts", lambda _s, **kw: calls.append(kw))
+        app._conf_survey = None
+        app._conf_session = object()  # a stand-in; the survey is patched out
+        app.worker_running = False
+
+        app._start_background_colouring()
+
+        assert calls == [{"quiet": True}], "no quiet colour pass was started"
+
+    def test_background_colouring_is_skipped_when_a_survey_exists(
+        self, app: Any, monkeypatch: Any
+    ) -> None:
+        """A judged order colours from its index; it must not re-run the survey.
+
+        Args:
+            app: The application.
+            monkeypatch: Pytest's patcher.
+        """
+        from wraithguard.patch.summary import Survey
+
+        calls: list[dict[str, Any]] = []
+        monkeypatch.setattr(type(app), "_survey_conflicts", lambda _s, **kw: calls.append(kw))
+        app._conf_survey = Survey()
+        app._conf_session = object()
+        app.worker_running = False
+
+        app._start_background_colouring()
+
+        assert calls == [], "the survey was re-run despite an existing index"
+
+    def test_link_all_records_pairwise_conflicts(self) -> None:
+        """The adjacency builder links every plugin in a record to the others."""
+        from wraithguard.gui.pluginview import PluginViewMixin
+
+        adjacency: dict[str, set[str]] = {}
+        PluginViewMixin._link_all(adjacency, ["A.esp", "B.esp", "C.esp"])
+        assert adjacency["A.esp"] == {"B.esp", "C.esp"}
+        assert adjacency["B.esp"] == {"A.esp", "C.esp"}
+
+    def test_selecting_a_plugin_highlights_its_broad_conflicts(self, app: Any) -> None:
+        """Broad mode marks every plugin that shares any record with the click.
+
+        Args:
+            app: The application.
+        """
+        from wraithguard.gui.pluginview import CONFLICT_TAG
+
+        app._shown_conflicts = [
+            {"type": "Armor", "id": "cuirass", "plugins": ["A.esp", "B.esp"], "winner": "B.esp"},
+            {"type": "Weapon", "id": "sword", "plugins": ["A.esp", "C.esp"], "winner": "C.esp"},
+            {"type": "Book", "id": "tome", "plugins": ["D.esp"], "winner": "D.esp"},
+        ]
+        app._plugin_order = ["A.esp", "B.esp", "C.esp", "D.esp"]
+        app.show_plugin_view()
+        try:
+            nav = app._plugin_nav
+            app._plugin_lost_only.set(False)  # broad
+            nav.selection_set("A.esp")
+            app._on_plugin_node()
+            assert CONFLICT_TAG in nav.item("B.esp", "tags")
+            assert CONFLICT_TAG in nav.item("C.esp", "tags")
+            assert CONFLICT_TAG not in nav.item("D.esp", "tags"), "a non-conflicting plugin lit up"
+            # The selected plugin does not mark itself.
+            assert CONFLICT_TAG not in nav.item("A.esp", "tags")
+        finally:
+            app._plugin_win.destroy()
+
+    def test_lost_mode_highlights_only_records_that_lose_work(self, app: Any) -> None:
+        """Lost mode ignores benign shared records, marking only real losses.
+
+        Args:
+            app: The application.
+        """
+        from wraithguard.gui.pluginview import CONFLICT_TAG
+        from wraithguard.patch.status import ConflictThis
+        from wraithguard.patch.summary import Survey
+
+        app._shown_conflicts = [
+            {"type": "Armor", "id": "cuirass", "plugins": ["A.esp", "B.esp"], "winner": "B.esp"},
+            {"type": "Weapon", "id": "sword", "plugins": ["A.esp", "C.esp"], "winner": "C.esp"},
+        ]
+        app._plugin_order = ["A.esp", "B.esp", "C.esp"]
+        # cuirass is benign (nothing lost); sword loses A's edit to C.
+        app._conf_survey = Survey(
+            verdicts={
+                ("Armor", "cuirass"): {
+                    "A.esp": ConflictThis.OVERRIDE_WINS,
+                    "B.esp": ConflictThis.MASTER,
+                },
+                ("Weapon", "sword"): {
+                    "A.esp": ConflictThis.CONFLICT_LOSES,
+                    "C.esp": ConflictThis.CONFLICT_WINS,
+                },
+            }
+        )
+        app.show_plugin_view()
+        try:
+            nav = app._plugin_nav
+            app._plugin_lost_only.set(True)  # lost only
+            nav.selection_set("A.esp")
+            app._on_plugin_node()
+            assert CONFLICT_TAG in nav.item("C.esp", "tags"), "the losing record was not marked"
+            assert CONFLICT_TAG not in nav.item("B.esp", "tags"), "a benign record was marked"
+        finally:
+            app._plugin_win.destroy()
+
+    def test_the_highlight_clears_on_a_new_selection(self, app: Any) -> None:
+        """Only one plugin's conflicts show at a time.
+
+        Args:
+            app: The application.
+        """
+        from wraithguard.gui.pluginview import CONFLICT_TAG
+
+        app._shown_conflicts = [
+            {"type": "Armor", "id": "cuirass", "plugins": ["A.esp", "B.esp"], "winner": "B.esp"},
+            {"type": "Weapon", "id": "sword", "plugins": ["C.esp", "D.esp"], "winner": "D.esp"},
+        ]
+        app._plugin_order = ["A.esp", "B.esp", "C.esp", "D.esp"]
+        app.show_plugin_view()
+        try:
+            nav = app._plugin_nav
+            app._plugin_lost_only.set(False)
+            nav.selection_set("A.esp")
+            app._on_plugin_node()
+            assert CONFLICT_TAG in nav.item("B.esp", "tags")
+            nav.selection_set("C.esp")
+            app._on_plugin_node()
+            assert CONFLICT_TAG not in nav.item(
+                "B.esp", "tags"
+            ), "the old highlight was not cleared"
+            assert CONFLICT_TAG in nav.item("D.esp", "tags")
+        finally:
+            app._plugin_win.destroy()
+
+    def test_double_clicking_a_field_opens_its_full_value(self, app: Any, monkeypatch: Any) -> None:
+        """The tree view's detail pane reuses the conflict window's field popup.
+
+        Double-clicking a field row must open its full value across plugins --
+        the same rich view the conflict window's field diff gives -- rather than
+        leaving the reader with the truncated column text.
+
+        Args:
+            app: The application.
+            monkeypatch: Pytest's patcher.
+        """
+        app._shown_conflicts = self._scan()
+        app.show_plugin_view()
+        window = app._plugin_win
+        try:
+            detail = app._plugin_detail
+            assert detail.bind("<Double-Button-1>"), "the detail pane is not wired for double-click"
+
+            captured: dict[str, Any] = {}
+            monkeypatch.setattr(
+                app,
+                "_show_field_value",
+                lambda key, plugins, per, record_type="", record_label="": captured.update(
+                    key=key, record_type=record_type, record_label=record_label
+                ),
+            )
+            # Stash what a real _fill_plugin_detail would, then select a field row.
+            app._plugin_detail_fd = {
+                "plugins": ["Base.esm", "Mod.esp"],
+                "per": {},
+                "record_type": "Cell",
+                "record_label": "(-23, 24)",
+            }
+            detail.configure(columns=("p0", "p1"))
+            row = detail.insert("", "end", text="vertex_heights.data")
+            detail.selection_set(row)
+            app._on_plugin_detail_double()
+            assert captured.get("key") == "vertex_heights.data"
+            # The record's own type and label reach the popup, so a visualiser
+            # opened from the tree view names the right cell (task #7).
+            assert captured.get("record_type") == "Cell"
+            assert captured.get("record_label") == "(-23, 24)"
+        finally:
+            window.destroy()
+
+    def _vhgt(self, bump: tuple[tuple[int, int], float] | None = None) -> tuple[str, float]:
+        """A valid ``(vertex_heights.data, offset)`` for a flat cell, one bump.
+
+        Args:
+            bump: ``((x, y), height)`` to raise a single vertex, or ``None``.
+
+        Returns:
+            The encoded field and its offset, as they appear in a field diff.
+        """
+        from wraithguard.land.emit import encode_field
+        from wraithguard.land.heights import encode_vertex_heights
+
+        grid = [[0.0] * 65 for _ in range(65)]
+        if bump is not None:
+            (x, y), value = bump
+            grid[y][x] = value
+        offset, payload, _ = encode_vertex_heights(grid)
+        return encode_field(payload[4:]), offset
+
+    def test_compare_strategies_previews_each_on_the_terrain(
+        self, app: Any, monkeypatch: Any
+    ) -> None:
+        """The comparison opens a 3D view carrying a surface for each strategy.
+
+        Args:
+            app: The application.
+            monkeypatch: Pytest's patcher.
+        """
+        d0, o0 = self._vhgt()
+        d1, o1 = self._vhgt(((10, 10), 800.0))
+        d2, o2 = self._vhgt(((10, 10), 40.0))
+        per = {
+            "Base.esm": {"vertex_heights.data": d0, "vertex_heights.offset": o0},
+            "A.esp": {"vertex_heights.data": d1, "vertex_heights.offset": o1},
+            "B.esp": {"vertex_heights.data": d2, "vertex_heights.offset": o2},
+        }
+        captured: dict[str, Any] = {}
+        monkeypatch.setattr(
+            type(app),
+            "_open_html_view",
+            lambda _s, markup, stem, title="": captured.update(markup=markup, stem=stem),
+        )
+        app._compare_merge_strategies(["Base.esm", "A.esp", "B.esp"], per, "(0, 0)")
+        assert captured.get("stem") == "terrain"
+        assert "Merged: Overwrite" in captured["markup"]
+        assert "Merged: Resolve" in captured["markup"]
+
+    def test_compare_strategies_needs_two_editors(self, app: Any, monkeypatch: Any) -> None:
+        """One plugin editing the terrain means nothing to compare; say so.
+
+        Args:
+            app: The application.
+            monkeypatch: Pytest's patcher.
+        """
+        from wraithguard.gui import conflicts
+
+        d0, o0 = self._vhgt(((3, 3), 200.0))
+        per = {"Only.esp": {"vertex_heights.data": d0, "vertex_heights.offset": o0}}
+        told: list[str] = []
+        monkeypatch.setattr(
+            conflicts.messagebox, "showinfo", lambda title, _msg: told.append(title)
+        )
+        opened: list[str] = []
+        monkeypatch.setattr(
+            type(app), "_open_html_view", lambda _s, *a, **k: opened.append("opened")
+        )
+        app._compare_merge_strategies(["Only.esp"], per, "(0, 0)")
+        assert told, "the user was not told there was nothing to compare"
+        assert not opened, "a view opened with only one editor"
+
+    def test_a_terrain_field_offers_its_visualiser(self, app: Any, monkeypatch: Any) -> None:
+        """A contextual view button appears for a field that has one.
+
+        The tree view reaches the same field-value popup as the conflict
+        window, so a landscape or path-grid field gets its 3D/graph button
+        there too. This drives the button builder directly and confirms it
+        threads the record label a visualiser needs.
+
+        Args:
+            app: The application.
+            monkeypatch: Pytest's patcher.
+        """
+        from tkinter import ttk
+
+        bar = ttk.Frame(app.root)
+        try:
+            plugins = ["Base.esm", "Mod.esp"]
+            per = {p: {"connections": [[0, 1]], "points": [1, 2, 3]} for p in plugins}
+            before = len(bar.winfo_children())
+            app._add_field_view_buttons(bar, "connections", plugins, per, "(-23, 24)")
+            assert len(bar.winfo_children()) > before, "no visualiser button for a path-grid field"
+
+            captured: dict[str, Any] = {}
+            monkeypatch.setattr(
+                app,
+                "_visualise_field",
+                lambda key, plugins, per, record_label=None: captured.update(label=record_label),
+            )
+            button = next(w for w in bar.winfo_children() if isinstance(w, ttk.Button))
+            button.invoke()
+            assert captured.get("label") == "(-23, 24)"
+        finally:
+            bar.destroy()
+
+    def test_a_mesh_field_offers_the_3d_viewer(self, app: Any, monkeypatch: Any) -> None:
+        """A record whose field names a mesh gets the resource window's 3D viewer.
+
+        Args:
+            app: The application.
+            monkeypatch: Pytest's patcher.
+        """
+        from tkinter import ttk
+
+        bar = ttk.Frame(app.root)
+        try:
+            plugins = ["Base.esm", "Mod.esp"]
+            per = {p: {"mesh": "x\\y.nif"} for p in plugins}
+            app._add_field_view_buttons(bar, "mesh", plugins, per, "")
+            buttons = [w for w in bar.winfo_children() if isinstance(w, ttk.Button)]
+            assert buttons, "no View mesh button for a mesh field"
+
+            captured: dict[str, Any] = {}
+            monkeypatch.setattr(
+                app, "_view_field_mesh", lambda plugins, per, field: captured.update(field=field)
+            )
+            buttons[0].invoke()
+            assert captured.get("field") == "mesh"
+        finally:
+            bar.destroy()
+
+    def test_an_icon_field_offers_the_image_viewer(self, app: Any, monkeypatch: Any) -> None:
+        """A record whose field names an image gets the texture viewer.
+
+        Args:
+            app: The application.
+            monkeypatch: Pytest's patcher.
+        """
+        from tkinter import ttk
+
+        bar = ttk.Frame(app.root)
+        try:
+            plugins = ["Base.esm", "Mod.esp"]
+            per = {p: {"icon": "m\\x.dds"} for p in plugins}
+            app._add_field_view_buttons(bar, "icon", plugins, per, "")
+            buttons = [w for w in bar.winfo_children() if isinstance(w, ttk.Button)]
+            assert buttons, "no View image button for an icon field"
+
+            captured: dict[str, Any] = {}
+            monkeypatch.setattr(
+                app, "_view_field_image", lambda plugins, per, field: captured.update(field=field)
+            )
+            buttons[0].invoke()
+            assert captured.get("field") == "icon"
+        finally:
+            bar.destroy()
+
+    def test_a_field_popup_offers_the_patch_maker(self, app: Any, monkeypatch: Any) -> None:
+        """The patch maker is reachable from the shared field popup, hence the tree.
+
+        Both "Add record to patch" and "Take this field" must queue the right
+        record, and neither should appear when there is nothing to choose.
+
+        Args:
+            app: The application.
+            monkeypatch: Pytest's patcher.
+        """
+        from tkinter import ttk
+
+        bar = ttk.Frame(app.root)
+        try:
+            plugins = ["Base.esm", "Mod.esp"]
+            app._add_patch_buttons(bar, "weight", plugins, "Armor", "cuirass")
+            labels = [w.cget("text") for w in bar.winfo_children() if isinstance(w, ttk.Button)]
+            assert any("record" in t.lower() for t in labels), "no add-record button"
+            assert any("field" in t.lower() for t in labels), "no take-field button"
+
+            record: dict[str, Any] = {}
+            field: dict[str, Any] = {}
+            monkeypatch.setattr(app, "_patch_whole_record", record.update)
+            monkeypatch.setattr(app, "_patch_field", lambda c, path: field.update(c, _path=path))
+            for w in bar.winfo_children():
+                if isinstance(w, ttk.Button):
+                    w.invoke()
+            assert record.get("id") == "cuirass" and record.get("type") == "Armor"
+            assert field.get("_path") == "weight"
+
+            # Nothing to choose (one plugin) means no buttons at all.
+            solo = ttk.Frame(app.root)
+            app._add_patch_buttons(solo, "weight", ["Mod.esp"], "Armor", "cuirass")
+            assert not [w for w in solo.winfo_children() if isinstance(w, ttk.Button)]
+            solo.destroy()
+        finally:
+            bar.destroy()
 
     def test_a_large_group_is_inserted_in_batches(self, app: Any) -> None:
         """Every record is listed, none is dropped, and the window survives.
@@ -1137,6 +1648,59 @@ class TestHelpMenu:
         missing = [kind for kind in RULE_KINDS if f"[{kind}]" not in page]
         assert not missing, f"the rule guide never mentions: {missing}"
 
+    def test_open_in_browser_prefers_loopback(
+        self, app: Any, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        """The help window's 'Open in browser' serves over loopback, not file://.
+
+        file:// is refused on some platforms (the Steam Deck), so the page is
+        served over loopback and the browser gets that URL.
+
+        Args:
+            app: The application.
+            tmp_path: A scratch directory.
+            monkeypatch: Pytest's patcher.
+        """
+        page = tmp_path / "help.html"
+        page.write_text("<!DOCTYPE html><html></html>", encoding="utf-8")
+        calls: list[tuple[str, Any]] = []
+        monkeypatch.setattr(type(app), "_serve_html_file", lambda _s, _p: "http://127.0.0.1:9/x")
+        monkeypatch.setattr(
+            type(app), "_open_url_in_browser", lambda _s, u: calls.append(("url", u))
+        )
+        monkeypatch.setattr(
+            type(app), "_open_file_in_browser", lambda _s, p: calls.append(("file", p))
+        )
+
+        app._open_html_in_browser_loopback(page)
+
+        assert calls == [("url", "http://127.0.0.1:9/x")]
+
+    def test_open_in_browser_falls_back_to_file_when_no_port(
+        self, app: Any, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        """Only when no loopback port can be bound does it use file://.
+
+        Args:
+            app: The application.
+            tmp_path: A scratch directory.
+            monkeypatch: Pytest's patcher.
+        """
+        page = tmp_path / "help.html"
+        page.write_text("<!DOCTYPE html><html></html>", encoding="utf-8")
+        calls: list[tuple[str, Any]] = []
+        monkeypatch.setattr(type(app), "_serve_html_file", lambda _s, _p: None)
+        monkeypatch.setattr(
+            type(app), "_open_url_in_browser", lambda _s, u: calls.append(("url", u))
+        )
+        monkeypatch.setattr(
+            type(app), "_open_file_in_browser", lambda _s, p: calls.append(("file", p))
+        )
+
+        app._open_html_in_browser_loopback(page)
+
+        assert calls == [("file", page)]
+
 
 class TestBackupsWindow:
     """The one window that reports "nothing found" as a normal outcome."""
@@ -1171,6 +1735,115 @@ class TestBackupsWindow:
             assert second.winfo_exists()
         finally:
             second.destroy()
+
+    def test_scan_includes_the_rule_and_yml_folders(self, app: Any, tmp_path: Any) -> None:
+        """Rule/yml backups live outside the data paths, so the scan has to be
+        pointed at their folders or updating rules looks like it kept no backup.
+
+        Args:
+            app: The application.
+            tmp_path: A scratch directory.
+        """
+        rules_dir = tmp_path / "mlox"
+        yml_dir = tmp_path / "momw"
+        rules_dir.mkdir()
+        yml_dir.mkdir()
+        app.rules_panel.listbox.delete(0, "end")
+        app.rules_panel.listbox.insert("end", str(rules_dir / "mlox_user.txt"))
+        app.plugin_order_yml_var.set(str(yml_dir / "plugin-order.yml"))
+
+        roots = app._rule_and_yml_dirs()
+
+        assert str(rules_dir) in roots
+        assert str(yml_dir) in roots
+
+
+class TestMergeSettingsEditor:
+    """The .mergedlands.toml editor: pick per-layer settings, not hand-edit TOML."""
+
+    def test_it_opens_and_seeds_every_layer(self, app: Any, tmp_path: Any) -> None:
+        """The dialog builds a control for every schema layer.
+
+        Args:
+            app: The application.
+            tmp_path: A scratch directory.
+        """
+        from wraithguard.land.meta import LAYER_NAMES
+
+        plugin = tmp_path / "SomeMod.esp"
+        plugin.write_bytes(b"")
+        app._open_merge_settings_editor(plugin)
+        win = app._ms_win
+        try:
+            assert win.winfo_exists()
+            assert set(app._ms_included) == set(LAYER_NAMES)
+            assert set(app._ms_strategy) == set(LAYER_NAMES)
+        finally:
+            win.destroy()
+
+    def test_dropping_a_layer_disables_its_strategy(self, app: Any, tmp_path: Any) -> None:
+        """A dropped layer has no collision to resolve, so its dropdown greys.
+
+        Args:
+            app: The application.
+            tmp_path: A scratch directory.
+        """
+        plugin = tmp_path / "SomeMod.esp"
+        plugin.write_bytes(b"")
+        app._open_merge_settings_editor(plugin)
+        try:
+            app._ms_included["texture_indices"].set(False)
+            app._ms_on_include("texture_indices")
+            assert str(app._ms_strategy_combos["texture_indices"].cget("state")) == "disabled"
+        finally:
+            app._ms_win.destroy()
+
+    def test_writing_produces_a_sidecar_that_parses(self, app: Any, tmp_path: Any) -> None:
+        """The dialog's choices round-trip through the file.
+
+        Args:
+            app: The application.
+            tmp_path: A scratch directory.
+        """
+        from wraithguard.land.merge import ConflictStrategy
+        from wraithguard.land.meta import load_meta, meta_path_for
+
+        plugin = tmp_path / "SomeMod.esp"
+        plugin.write_bytes(b"")
+        app._open_merge_settings_editor(plugin)
+        app._ms_included["height_map"].set(False)
+        app._ms_strategy["world_map_data"].set("Overwrite")
+        app._ms_write()
+
+        assert meta_path_for(plugin).is_file()
+        meta = load_meta(plugin)
+        assert meta.settings_for("height_map").included is False
+        assert meta.settings_for("world_map_data").conflict_strategy is ConflictStrategy.OVERWRITE
+
+    def test_it_preloads_an_existing_sidecar(self, app: Any, tmp_path: Any) -> None:
+        """Opening the editor on a plugin that already has settings edits them.
+
+        Args:
+            app: The application.
+            tmp_path: A scratch directory.
+        """
+        from wraithguard.land.merge import ConflictStrategy
+        from wraithguard.land.meta import MergeSettings, PluginMeta, write_settings
+
+        plugin = tmp_path / "SomeMod.esp"
+        plugin.write_bytes(b"")
+        write_settings(
+            plugin,
+            PluginMeta(
+                meta_type="Patch",
+                layers={"vertex_colors": MergeSettings(conflict_strategy=ConflictStrategy.IGNORE)},
+            ),
+        )
+        app._open_merge_settings_editor(plugin)
+        try:
+            assert app._ms_strategy["vertex_colors"].get() == "Ignore"
+        finally:
+            app._ms_win.destroy()
 
 
 class TestFormatReferenceCoversTheSchema:
@@ -1481,6 +2154,116 @@ class TestThreeDButtonsAreReachable:
             window.destroy()
 
 
+class TestConflictListSearch:
+    """The search box narrows each list without discarding its data.
+
+    Typing filters what is shown; clearing the box restores the full list. The
+    filter itself is unit-tested in test_patch_summary.py; these pin the wiring.
+    """
+
+    def test_the_resource_list_filters_as_you_type(self, app: Any) -> None:
+        """A query narrows the loose-file list to matching paths.
+
+        Args:
+            app: The application.
+        """
+        entries = [
+            {
+                "path": "meshes/apple.nif",
+                "providers": ["A", "B"],
+                "winner": "B",
+                "involves_subset": False,
+            },
+            {
+                "path": "textures/banana.dds",
+                "providers": ["A", "B"],
+                "winner": "B",
+                "involves_subset": False,
+            },
+        ]
+        app._show_resource_window(entries, {"conflicts": 2, "dirs": 2, "files": 2})
+        window = app._res_win
+        try:
+            tree = app._res_tree
+            assert len(tree.get_children()) == 2
+            app._res_search_var.set("banana")
+            app._refill_res_tree()
+            assert len(tree.get_children()) == 1
+            assert app._res_shown[0]["path"] == "textures/banana.dds"
+            app._res_search_var.set("")
+            app._refill_res_tree()
+            assert len(tree.get_children()) == 2
+        finally:
+            window.destroy()
+
+    def test_the_conflict_list_filters_as_you_type(self, app: Any) -> None:
+        """A query narrows the record list to matching type/id/winner.
+
+        Args:
+            app: The application.
+        """
+        conflicts = [
+            {
+                "type": "Npc",
+                "id": "bob",
+                "plugins": ["A", "B"],
+                "winner": "B",
+                "involves_subset": False,
+            },
+            {
+                "type": "Armor",
+                "id": "cuirass",
+                "plugins": ["A", "B"],
+                "winner": "B",
+                "involves_subset": False,
+            },
+        ]
+        app._all_conflicts = conflicts
+        app._show_conflict_window(conflicts, {"conflicts": 2, "scanned": 2})
+        window = app._conflict_win
+        try:
+            tree = app._conf_tree
+            assert len(tree.get_children()) == 2
+            app._conf_search_var.set("cuirass")
+            app._refill_conflict_tree()
+            assert len(tree.get_children()) == 1
+            assert app._shown_conflicts[0]["id"] == "cuirass"
+            app._conf_search_var.set("")
+            app._refill_conflict_tree()
+            assert len(tree.get_children()) == 2
+        finally:
+            window.destroy()
+
+    def test_clicking_a_column_header_sorts_the_list(self, app: Any) -> None:
+        """A header click orders by that column; a second click reverses it.
+
+        Args:
+            app: The application.
+        """
+        conflicts = [
+            {
+                "type": "Weapon",
+                "id": "z",
+                "plugins": ["A", "B"],
+                "winner": "B",
+                "involves_subset": False,
+            },
+            {"type": "Armor", "id": "a", "plugins": ["A"], "winner": "A", "involves_subset": False},
+        ]
+        app._all_conflicts = conflicts
+        app._show_conflict_window(conflicts, {"conflicts": 2, "scanned": 2})
+        window = app._conflict_win
+        try:
+            app._sort_conflict_tree("type")
+            assert [c["type"] for c in app._shown_conflicts] == ["Armor", "Weapon"]
+            assert "▲" in app._conf_tree.heading("type", "text")  # ascending arrow
+            app._sort_conflict_tree("type")  # a second click reverses
+            assert [c["type"] for c in app._shown_conflicts] == ["Weapon", "Armor"]
+            assert "▼" in app._conf_tree.heading("type", "text")  # descending arrow
+        finally:
+            window.destroy()
+
+
 class TestTheViewerChainUnderstandsUrls:
     """Every other visualisation is a file; the 3D viewer is served.
 
@@ -1518,6 +2301,45 @@ class TestTheViewerChainUnderstandsUrls:
         page.write_text("<html></html>", encoding="utf-8")
         assert view_uri(page).startswith("file://")
         assert view_uri(page).endswith("page.html")
+
+    def test_the_cell_map_file_is_timestamped_and_housekept(self, app: Any) -> None:
+        """A stable ``cell_map.html`` would never be pruned; a stamped one is.
+
+        The generated map now shares the timestamped naming the other views
+        use, so exit-time housekeeping keeps the newest few and drops the rest.
+
+        Args:
+            app: The application.
+        """
+        from wraithguard.viz.housekeeping import _STAMPED, GENERATED_STEMS
+
+        name = app._cellmap_file()
+        assert name.name.startswith("cell_map_")
+        match = _STAMPED.match(name.stem)
+        assert match is not None and match.group("stem") == "cell_map"
+        assert "cell_map" in GENERATED_STEMS
+
+    def test_the_cell_map_is_embedded_over_loopback(self, app: Any, monkeypatch: Any) -> None:
+        """A ``file://`` page is refused by some webviews; loopback is not.
+
+        The embedded opener must serve the page and hand pywebview the URL,
+        exactly as the general viewer chain does -- never the bare file path.
+
+        Args:
+            app: The application.
+            monkeypatch: Patcher.
+        """
+        handed: list[str] = []
+        monkeypatch.setattr(
+            type(app), "_serve_html_file", lambda _s, _p: "http://127.0.0.1:9/cell_map.html"
+        )
+        monkeypatch.setattr(
+            type(app),
+            "_open_cell_map_pywebview",
+            lambda _s, target, _t="Cell Map": handed.append(str(target)),
+        )
+        app._open_cell_map_embedded("C:/some/cell_map_20260810_000000.html")
+        assert handed == ["http://127.0.0.1:9/cell_map.html"]
 
     def test_the_mesh_viewer_goes_through_the_in_app_chain(
         self, app: Any, tmp_path: Path, monkeypatch: Any
@@ -1565,6 +2387,59 @@ class TestTheViewerChainUnderstandsUrls:
                 server.stop()
 
 
+class TestConflictWindowAutoColours:
+    """Opening the conflict window colours it without a manual step.
+
+    The verdict colours came from a survey that only ran when Plugin summary or
+    the Plugin view was opened. The window now starts that same survey quietly on
+    open, so the colours fill in on their own. These pin the wrapper that decides
+    whether that background survey should start -- run it when the list is not yet
+    coloured, skip it when it already is or the window has since closed.
+    """
+
+    @staticmethod
+    def _host(*, coloured: bool, window_open: bool = True) -> tuple[Any, list[bool]]:
+        """A mixin instance with the survey and window state a test needs.
+
+        Args:
+            coloured: Whether a survey has already coloured the list.
+            window_open: Whether the conflict window still exists.
+
+        Returns:
+            The host and a list that records each ``_survey_conflicts`` call's
+            ``quiet`` flag, so a test can assert whether (and how) it fired.
+        """
+        from wraithguard.gui.conflicts import ConflictWindowsMixin
+        from wraithguard.patch.summary import Survey
+
+        host = ConflictWindowsMixin.__new__(ConflictWindowsMixin)
+        host._conflict_win = type(  # type: ignore[attr-defined]
+            "W", (), {"winfo_exists": staticmethod(lambda: window_open)}
+        )()
+        host._conf_survey = Survey(records={}) if coloured else None  # type: ignore[attr-defined]
+        calls: list[bool] = []
+        host._survey_conflicts = lambda *, quiet=False: calls.append(quiet)  # type: ignore[attr-defined]
+        return host, calls
+
+    def test_it_starts_a_quiet_survey_when_not_yet_coloured(self) -> None:
+        """The point of the feature: an uncoloured list surveys itself on open."""
+        host, calls = self._host(coloured=False)
+        host._auto_survey_conflicts()
+        assert calls == [True], "should start exactly one quiet survey"
+
+    def test_it_skips_when_already_coloured(self) -> None:
+        """A manual summary that beat it to the list must not trigger a re-read."""
+        host, calls = self._host(coloured=True)
+        host._auto_survey_conflicts()
+        assert calls == [], "a coloured list must not re-survey"
+
+    def test_it_skips_when_the_window_has_closed(self) -> None:
+        """A window closed before the scheduled call must not start a read."""
+        host, calls = self._host(coloured=False, window_open=False)
+        host._auto_survey_conflicts()
+        assert calls == [], "a closed window must not start a needless read"
+
+
 class TestPacedRecolour:
     """The conflict list colours itself a chunk at a time, never one long freeze.
 
@@ -1596,6 +2471,56 @@ class TestPacedRecolour:
         host._shown_conflicts = rows  # type: ignore[attr-defined]
         host.root = type("R", (), {"after": staticmethod(after)})()  # type: ignore[attr-defined]
         return host, tree
+
+    def test_owned_rows_take_a_saturated_verdict_not_a_flat_star_colour(self, tk_root: Any) -> None:
+        """A ★ row must show its verdict, brighter - not a fixed orange.
+
+        The flat ``sub`` orange used to win over the verdict tag, so a record of
+        yours read the same whether it was losing work or perfectly benign. Now
+        an owned row takes the saturated ``-mine`` variant of a chromatic verdict
+        (benign/conflict) and the plain base tag for the neutral ones.
+
+        Args:
+            tk_root: A live Tk root.
+        """
+        from tkinter import ttk
+
+        from wraithguard.gui.conflicts import ConflictWindowsMixin
+        from wraithguard.patch.status import ConflictAll
+        from wraithguard.patch.summary import Survey
+
+        tree = ttk.Treeview(tk_root, columns=("id",), show="headings")
+        # 0: mine + losing, 1: not-mine + losing, 2: mine + benign, 3: mine + agree.
+        rows = [
+            {"type": "Npc", "id": "a", "involves_subset": True},
+            {"type": "Npc", "id": "b", "involves_subset": False},
+            {"type": "Npc", "id": "c", "involves_subset": True},
+            {"type": "Npc", "id": "d", "involves_subset": True},
+        ]
+        for i in range(len(rows)):
+            tree.insert("", "end", iid=str(i), values=(rows[i]["id"],))
+        records = {
+            ("Npc", "a"): ConflictAll.CONFLICT,
+            ("Npc", "b"): ConflictAll.CONFLICT,
+            ("Npc", "c"): ConflictAll.OVERRIDE_BENIGN,
+            ("Npc", "d"): ConflictAll.NO_CONFLICT,
+        }
+        host = ConflictWindowsMixin.__new__(ConflictWindowsMixin)
+        host._conf_tree = tree  # type: ignore[attr-defined]
+        host._conf_survey = Survey(records=records)  # type: ignore[attr-defined]
+        host._shown_conflicts = rows  # type: ignore[attr-defined]
+        host.root = type("R", (), {"after": staticmethod(lambda _ms, cb: cb())})()  # type: ignore[attr-defined]
+        try:
+            host._recolour_conflict_tree()
+            assert tree.item("0", "tags") == ("status-conflict-mine",)
+            assert tree.item("1", "tags") == ("status-conflict",)
+            assert tree.item("2", "tags") == ("status-benign-mine",)
+            # Neutral verdict, but still owned -> the brighter grey, not fg_dim.
+            assert tree.item("3", "tags") == ("status-agree-mine",)
+            # The retired flat-orange tag must be gone from every row.
+            assert all("sub" not in tree.item(str(i), "tags") for i in range(len(rows)))
+        finally:
+            tree.destroy()
 
     def test_it_colours_every_row_across_several_turns(self, tk_root: Any) -> None:
         from wraithguard.gui.conflicts import RECOLOUR_CHUNK

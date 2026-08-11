@@ -10,18 +10,22 @@ from __future__ import annotations
 
 import pytest
 
-from wraithguard.land.diff import LandData
+from wraithguard.land.diff import LandData, LandscapeLayers
 from wraithguard.land.landmass import (
     CellContention,
     Landmass,
     PluginRecords,
+    _mask_layers,
     build_reference,
     plugin_differences,
     survey,
 )
+from wraithguard.land.meta import MergeSettings, PluginMeta
 from wraithguard.land.textures import (
     NO_TEXTURE,
     KnownTextures,
+    compact_textures,
+    fallback_texture_index,
     ltex_of,
     translate_indices,
     vtex_of,
@@ -197,6 +201,53 @@ class TestLandmass:
         )
         assert len(landmass) == 2
 
+    def test_a_masters_excluded_layer_is_dropped_from_the_reference(self) -> None:
+        """A master's .mergedlands.toml applies here, since it is not diffed.
+
+        A layer a master sets ``included = false`` must not enter the reference
+        -- the whole point of excluding a master like distant_seafloor. Masked
+        via _mask_layers below; here the plumbing is checked end to end.
+        """
+        layers = LandscapeLayers(
+            coords=(0, 0),
+            declared=LandData.VERTEX_HEIGHTS | LandData.WORLD_MAP,
+            heights=[0] * 4,
+            world_map=[0] * 4,
+        )
+        _mask_layers(layers, LandData.VERTEX_HEIGHTS)  # world map excluded
+        assert layers.world_map is None
+        assert not (layers.declared & LandData.WORLD_MAP)
+        assert layers.heights == [0] * 4  # an included layer is untouched
+        assert layers.declared & LandData.VERTEX_HEIGHTS
+
+    def test_a_master_marked_a_previous_merge_is_skipped(self) -> None:
+        """A merged output left in the masters must not seed the reference."""
+        metas = {"Old Merge.esm": PluginMeta(meta_type="MergedLands")}
+        landmass, _ = build_reference(
+            [
+                PluginRecords("Morrowind.esm", [self._land((0, 0))]),
+                PluginRecords("Old Merge.esm", [self._land((5, 5))]),
+            ],
+            metas=metas,
+        )
+        assert (0, 0) in landmass.cells
+        assert (5, 5) not in landmass.cells, "a previous merge seeded the reference"
+
+    def test_a_master_with_an_included_layer_is_a_no_op(self) -> None:
+        """Settings that exclude nothing leave the reference exactly as before.
+
+        The common case -- a settings file that only tweaks a mod, or none at
+        all -- must not change how the masters build.
+        """
+        metas = {
+            "Morrowind.esm": PluginMeta(layers={"world_map_data": MergeSettings(included=True)})
+        }
+        with_meta, _ = build_reference(
+            [PluginRecords("Morrowind.esm", [self._land((0, 0))])], metas=metas
+        )
+        without, _ = build_reference([PluginRecords("Morrowind.esm", [self._land((0, 0))])])
+        assert with_meta.cells.keys() == without.cells.keys()
+
     def test_an_unreadable_record_is_skipped_not_fatal(self) -> None:
         """One malformed cell must not abandon a whole load order."""
         landmass, _ = build_reference(
@@ -315,3 +366,52 @@ class TestCellContention:
             changes=[LandscapeDiff((0, 0), "a.esp"), LandscapeDiff((0, 0), "b.esp")],
         )
         assert cell.plugins == ["a.esp", "b.esp"]
+
+
+class TestUnknownTextureFallback:
+    """A merged cell can paint an index no LTEX defines (missing master).
+
+    By default the value is remapped to the fallback -- the smallest valid
+    painted texture -- so the written plugin always loads; opting out passes it
+    through as a dangling index. Either way ``unresolved`` reports it, so the
+    emit can say what it did.
+    """
+
+    def _known(self) -> KnownTextures:
+        known = KnownTextures()
+        known.observe("a.esp", [ltex("Rock", 0), ltex("Sand", 1)])
+        return known
+
+    def test_default_substitutes_the_unknown_with_the_fallback(self) -> None:
+        """Safe by default: the unknown index resolves to a real texture."""
+        known = self._known()
+        used = {vtex_of(0), vtex_of(1), 999}  # 999 has no LTEX behind it
+        mapping, kept, unresolved = compact_textures(known, used)
+        assert unresolved == [999]
+        assert mapping[999] == fallback_texture_index(mapping)
+        # The fallback is a real, kept texture index -- not a dangle.
+        assert mapping[999] in {vtex_of(t.index) for t in kept}
+
+    def test_opting_out_passes_the_unknown_through(self) -> None:
+        """A CLI caller can keep the honest dangling index instead."""
+        known = self._known()
+        used = {vtex_of(0), 999}
+        mapping, _kept, unresolved = compact_textures(known, used, substitute_unknown=False)
+        assert unresolved == [999]
+        assert 999 not in mapping
+        assert mapping.get(999, 999) == 999  # emit passes it through
+
+    def test_no_unknowns_reports_none(self) -> None:
+        """The common case: everything resolves, nothing to report."""
+        known = self._known()
+        _mapping, _kept, unresolved = compact_textures(known, {vtex_of(0), vtex_of(1)})
+        assert unresolved == []
+
+    def test_fallback_is_the_minimum_real_index(self) -> None:
+        """fallback_texture_index skips NO_TEXTURE and takes the lowest real."""
+        mapping = {NO_TEXTURE: NO_TEXTURE, 5: vtex_of(3), 6: vtex_of(0), 7: vtex_of(1)}
+        assert fallback_texture_index(mapping) == vtex_of(0)
+
+    def test_fallback_with_nothing_painted_is_no_texture(self) -> None:
+        """An empty merge has only NO_TEXTURE to fall back to."""
+        assert fallback_texture_index({NO_TEXTURE: NO_TEXTURE}) == NO_TEXTURE

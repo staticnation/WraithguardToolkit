@@ -142,12 +142,14 @@ class TestAutoStrategy:
             LandData.WORLD_MAP,
         ],
     )
-    def test_continuous_layers_resolve(self, layer: LandData) -> None:
-        """Quantities can be compromised."""
-        assert DEFAULT_STRATEGY[layer] is ConflictStrategy.RESOLVE
+    def test_every_layer_defaults_to_load_order_winner(self, layer: LandData) -> None:
+        """The default is Overwrite for every layer: the later plugin wins the
+        vertices it changed. Blending is opt-in per layer via a sidecar, because
+        averaging every contested vertex synthesises terrain neither mod wrote."""
+        assert DEFAULT_STRATEGY[layer] is ConflictStrategy.OVERWRITE
 
     def test_textures_overwrite(self) -> None:
-        """Identifiers cannot, so the default must not average them."""
+        """Identifiers cannot be averaged, so textures never default to it."""
         assert DEFAULT_STRATEGY[LandData.TEXTURES] is ConflictStrategy.OVERWRITE
 
     def test_auto_on_textures_does_not_average(self) -> None:
@@ -234,9 +236,13 @@ class TestReport:
         assert report.mergeable == 3
 
     def test_the_reported_strategy_is_the_one_used(self) -> None:
-        """AUTO is resolved before reporting, so the report is not a guess."""
+        """AUTO is resolved before reporting, so the report is not a guess.
+
+        The default AUTO resolves to the load-order winner (Overwrite), so that
+        is what the report names -- not the strategy the caller passed in.
+        """
         _, report = merge_layer(LandData.VERTEX_HEIGHTS, grid({}), grid({}))
-        assert report.strategy is ConflictStrategy.RESOLVE
+        assert report.strategy is ConflictStrategy.OVERWRITE
 
 
 class TestMultiComponent:
@@ -321,8 +327,9 @@ class TestCurvatureStrategy:
         assert merged.side == SIDE
 
     def test_it_is_not_the_default(self) -> None:
-        """AUTO must keep producing what it produced before this was added."""
-        assert DEFAULT_STRATEGY[LandData.VERTEX_HEIGHTS] is ConflictStrategy.RESOLVE
+        """CURVATURE is opt-in: the default is the load-order winner, not it."""
+        assert DEFAULT_STRATEGY[LandData.VERTEX_HEIGHTS] is not ConflictStrategy.CURVATURE
+        assert DEFAULT_STRATEGY[LandData.VERTEX_HEIGHTS] is ConflictStrategy.OVERWRITE
 
     def test_it_is_refused_on_layers_with_no_surface(self) -> None:
         """Colours have no gradient to bend, so the request is a caller error."""

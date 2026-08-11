@@ -9,24 +9,40 @@ covered here.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
+from wraithguard.land.diff import LandData
 from wraithguard.land.landmass import Landmass
-from wraithguard.land.meta import MetaError, load_meta, write_merged_marker
+from wraithguard.land.merge import ConflictStrategy
+from wraithguard.land.meta import (
+    LAYER_NAMES,
+    META_TYPES,
+    STRATEGY_NAMES,
+    MergeSettings,
+    MetaError,
+    PluginMeta,
+    load_meta,
+    parse_meta,
+    render_meta,
+    strategy_display_name,
+    strategy_from_name,
+    write_merged_marker,
+    write_meta,
+    write_patch_template,
+    write_settings,
+)
 from wraithguard.land.pipeline import MergedCell, MergeOutcome
 from wraithguard.land.service import (
     MergeServiceError,
     _contributors,
+    _describe_meta,
     _records_via,
     _split_order,
     build_merged_lands,
     resolve_plugin,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 class TestResolvePlugin:
@@ -58,15 +74,33 @@ class TestResolvePlugin:
         (good / "a.esm").write_bytes(b"")
         assert resolve_plugin("a.esm", [tmp_path / "gone", good]) is not None
 
-    def test_prefers_the_earlier_folder(self, tmp_path: Path) -> None:
-        """Search order is load order: the first data folder wins."""
-        first = tmp_path / "one"
-        second = tmp_path / "two"
-        first.mkdir()
-        second.mkdir()
-        (first / "a.esm").write_bytes(b"")
-        (second / "a.esm").write_bytes(b"")
-        assert resolve_plugin("a.esm", [first, second]) == first / "a.esm"
+    def test_the_last_data_folder_wins(self, tmp_path: Path) -> None:
+        """OpenMW resolves a shared name to the latest ``data=`` folder.
+
+        A later ``data=`` line shadows an earlier one, so a mod split across
+        ``00 Core`` and ``01 Patch`` -- both shipping ``a.esm``, patch second --
+        must resolve to the patch copy. Returning the first match read the
+        pre-patch file, which is the load-order bug this pins against.
+        """
+        core = tmp_path / "00 Core"
+        patch = tmp_path / "01 Patch"
+        core.mkdir()
+        patch.mkdir()
+        (core / "a.esm").write_bytes(b"")
+        (patch / "a.esm").write_bytes(b"")
+        # directories arrive in load order (earliest first); the patch wins.
+        assert resolve_plugin("a.esm", [core, patch]) == patch / "a.esm"
+
+    def test_case_insensitive_collision_still_takes_the_later_folder(self, tmp_path: Path) -> None:
+        """Last-wins holds even when the two copies differ only in case."""
+        core = tmp_path / "00 Core"
+        patch = tmp_path / "01 Patch"
+        core.mkdir()
+        patch.mkdir()
+        (core / "Dwemer Airship_Exterior.ESP").write_bytes(b"")
+        (patch / "Dwemer Airship_Exterior.esp").write_bytes(b"")
+        found = resolve_plugin("Dwemer Airship_Exterior.esp", [core, patch])
+        assert found == patch / "Dwemer Airship_Exterior.esp"
 
 
 class TestRecordsViaReportsWhy:
@@ -98,6 +132,34 @@ class TestRecordsViaReportsWhy:
         records, failure = _records_via(str(script), tmp_path / "a.esm", tmp_path)
         assert failure == ""
         assert records == [{"type": "Header"}]
+
+    def test_the_converter_call_suppresses_the_console_window(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A --noconsole build must not flash a window per plugin converted.
+
+        The Merged Lands run shells out to tes3conv once per landscape plugin;
+        without the no-window flags each opened a console window. The fix threads
+        ``no_window_kwargs()`` into the call -- this pins that it reaches
+        ``subprocess.run``.
+        """
+        import types
+
+        import wraithguard.land.service as svc
+
+        seen: dict[str, object] = {}
+
+        def fake_run(argv: list[str], **kwargs: object) -> types.SimpleNamespace:
+            seen.update(kwargs)
+            Path(argv[2]).write_text("[]", encoding="utf-8")  # the JSON target
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(svc, "has_landscape", lambda *_a, **_k: True)
+        monkeypatch.setattr(svc, "no_window_kwargs", lambda: {"creationflags": 0x08000000})
+        monkeypatch.setattr(svc.subprocess, "run", fake_run)
+
+        _records_via("tes3conv", tmp_path / "a.esm", tmp_path)
+        assert seen.get("creationflags") == 0x08000000
 
 
 class TestSplitOrder:
@@ -166,6 +228,140 @@ class TestTheOutputIsMarkedAsGenerated:
         plugin = tmp_path / "gone" / "Merged Lands.esp"
         with pytest.raises(MetaError, match="marks"):
             write_merged_marker(plugin)
+
+    def test_the_marker_is_no_longer_blank_inside(self, tmp_path: Path) -> None:
+        """It spells out every layer, so the file is self-describing."""
+        plugin = tmp_path / "Merged Lands.esp"
+        plugin.write_bytes(b"")
+        marker = write_merged_marker(plugin)
+        text = marker.read_text(encoding="utf-8")
+        for name in LAYER_NAMES:
+            assert f"[{name}]" in text
+        # Belt-and-braces: a marker excludes every layer.
+        meta = load_meta(plugin)
+        assert meta.is_previous_merge
+        assert meta.allowed_layers() == LandData.NONE  # nothing included
+
+
+class TestWritingSidecars:
+    """render_meta is the inverse of parse_meta, and the writers use it."""
+
+    def test_render_round_trips_through_the_parser(self, tmp_path: Path) -> None:
+        """What the writer produces must parse back to the same settings."""
+        meta = PluginMeta(
+            meta_type="Patch",
+            layers={
+                "height_map": MergeSettings(included=False),
+                "world_map_data": MergeSettings(conflict_strategy=ConflictStrategy.OVERWRITE),
+            },
+        )
+        reparsed = parse_meta(_parse(render_meta(meta), tmp_path))
+        assert reparsed.settings_for("height_map").included is False
+        assert (
+            reparsed.settings_for("world_map_data").conflict_strategy is ConflictStrategy.OVERWRITE
+        )
+
+    def test_explicit_writes_every_layer_default_omits_them(self, tmp_path: Path) -> None:
+        """Explicit is for humans; skip-default matches Merged Lands' own output."""
+        meta = PluginMeta(meta_type="Patch")
+        explicit = render_meta(meta, explicit=True)
+        minimal = render_meta(meta, explicit=False)
+        for name in LAYER_NAMES:
+            assert f"[{name}]" in explicit
+            assert f"[{name}]" not in minimal
+
+    def test_curvature_is_preserved_our_own_strategy(self, tmp_path: Path) -> None:
+        """The strategy we add beyond Merged Lands must survive a round trip."""
+        meta = PluginMeta(
+            meta_type="Patch",
+            layers={"height_map": MergeSettings(conflict_strategy=ConflictStrategy.CURVATURE)},
+        )
+        assert 'conflict_strategy = "Curvature"' in render_meta(meta)
+        reparsed = parse_meta(_parse(render_meta(meta), tmp_path))
+        assert reparsed.settings_for("height_map").conflict_strategy is ConflictStrategy.CURVATURE
+
+    def test_patch_template_is_a_full_editable_patch(self, tmp_path: Path) -> None:
+        """A template shows every knob at its default and parses cleanly."""
+        plugin = tmp_path / "SomeMod.esp"
+        plugin.write_bytes(b"")
+        sidecar = write_patch_template(plugin)
+        assert sidecar.name == "SomeMod.mergedlands.toml"
+        text = sidecar.read_text(encoding="utf-8")
+        assert "conflict_strategy" in text  # the header lists the options
+        for name in LAYER_NAMES:
+            assert f"[{name}]" in text
+        meta = load_meta(plugin)  # parses without error
+        assert meta.meta_type == "Patch"
+        assert meta.allowed_layers() != LandData.NONE  # defaults include everything
+
+    def test_write_meta_reports_an_unwritable_path(self, tmp_path: Path) -> None:
+        """A write into a missing directory fails loudly."""
+        plugin = tmp_path / "gone" / "SomeMod.esp"
+        with pytest.raises(MetaError):
+            write_meta(plugin, PluginMeta())
+
+    def test_write_settings_round_trips_gui_choices(self, tmp_path: Path) -> None:
+        """What the editor writes parses back to the same PluginMeta.
+
+        The GUI editor builds a PluginMeta from its controls and calls
+        write_settings; this pins that the chosen strategy and dropped layer
+        survive the write/read round trip and that the header is included.
+        """
+        plugin = tmp_path / "SomeMod.esp"
+        plugin.write_bytes(b"")
+        meta = PluginMeta(
+            meta_type="Patch",
+            layers={
+                "texture_indices": MergeSettings(included=False),
+                "world_map_data": MergeSettings(conflict_strategy=ConflictStrategy.OVERWRITE),
+            },
+        )
+        sidecar = write_settings(plugin, meta)
+        assert "conflict_strategy" in sidecar.read_text(encoding="utf-8")  # header present
+        reloaded = load_meta(plugin)
+        assert reloaded.meta_type == "Patch"
+        assert reloaded.settings_for("texture_indices").included is False
+        assert (
+            reloaded.settings_for("world_map_data").conflict_strategy is ConflictStrategy.OVERWRITE
+        )
+
+    def test_public_strategy_and_meta_constants_match_the_schema(self) -> None:
+        """The GUI's dropdowns read these, so they must stay in step with the
+        parser: every name round-trips through the value and back."""
+        assert set(META_TYPES) == {"Auto", "Patch", "MergedLands"}
+        assert STRATEGY_NAMES[0] == "Auto"  # the default is offered first
+        for name in STRATEGY_NAMES:
+            assert strategy_display_name(strategy_from_name(name)) == name
+
+    def test_describe_meta_names_every_layer_and_its_state(self) -> None:
+        """The verbose log line spells out on/off and the strategy per layer.
+
+        A troubleshooting log has to show *why* a plugin merged as it did, which
+        means naming each layer's setting, not just that a sidecar was present.
+        """
+        from wraithguard.land.merge import ConflictStrategy
+
+        meta = PluginMeta(
+            meta_type="Patch",
+            layers={
+                "texture_indices": MergeSettings(included=False),
+                "world_map_data": MergeSettings(conflict_strategy=ConflictStrategy.OVERWRITE),
+            },
+        )
+        line = _describe_meta(meta)
+        assert "meta_type=Patch" in line
+        assert "texture_indices: OFF/" in line  # excluded layer flagged
+        assert "world_map_data: on/Overwrite" in line  # strategy named
+        assert "height_map: on/Auto" in line  # a default layer is still shown
+
+
+def _parse(text: str, tmp_path: Path) -> dict:
+    """Parse rendered TOML back into a document, via a temp file."""
+    scratch = tmp_path / "roundtrip.mergedlands.toml"
+    scratch.write_text(text, encoding="utf-8")
+    from wraithguard.land.meta import _load_toml
+
+    return _load_toml(scratch)
 
 
 class TestDeclaredMasters:
