@@ -1,6 +1,33 @@
 # Changelog
 
 
+## 3.1.4
+
+### Fixed
+
+- **A plugin added by drag-drop or the Add plugin... button now brings its
+  folder along.** Only an explicit folder drop added a `data=` path -- dropping
+  or picking a loose plugin filed it in the subset but not the folder it lives
+  in, so nothing in `data=` paths ever pointed at it and the plugin had nowhere
+  to actually be found. A plugin drop/pick now also adds its containing folder,
+  the same way a bare folder drop already did. This invites an obvious pitfall,
+  guarded against here: a bare filename with no directory component (e.g. a
+  plugin named by itself in a subset file) has `Path(name).parent == Path(".")`,
+  which always exists -- that is no longer read as "the folder" and silently
+  added as the current working directory.
+- **A manually added `data=` folder with no anchor is now flagged instead of
+  silently going nowhere.** *Sort data= paths too* is off by default, so a
+  drag-dropped or picked folder normally has no anchor of its own -- only
+  `--sort-data-paths` can work one out. The unsorted passthrough branch had no
+  warning for that case, unlike its sorted sibling; the entry wrote to
+  `momw-customizations.toml` as `insert = "path"` with neither `before` nor
+  `after` -- valid TOML, easy to scroll past, and functionally inert. Traced
+  through `simulate_configurator_apply`: the real Configurator skips any
+  insert missing both `after` and `before`, non-fatally, so the folder never
+  reached `openmw.cfg` despite sitting right there in the file. It's now
+  flagged with `# WARNING: no anchor for this path -- pass --sort-data-paths
+  (or tick 'Sort data= paths too') to place it`.
+
 ## 3.1.3
 
 ### Documentation
