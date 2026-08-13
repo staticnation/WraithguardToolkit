@@ -9,12 +9,16 @@ covered here.
 
 from __future__ import annotations
 
-import os
+import json
+import subprocess
+import types
+from array import array
 from pathlib import Path
 
 import pytest
 
 from wraithguard.land.diff import LandData
+from wraithguard.land.emit import build_landscape_record, build_plugin
 from wraithguard.land.landmass import Landmass
 from wraithguard.land.merge import ConflictStrategy
 from wraithguard.land.meta import (
@@ -37,23 +41,64 @@ from wraithguard.land.meta import (
 from wraithguard.land.pipeline import MergedCell, MergeOutcome
 from wraithguard.land.service import (
     MergeServiceError,
+    _build_records,
     _contributors,
     _describe_meta,
+    _finish_textures,
     _records_via,
     _split_order,
+    _write,
     build_merged_lands,
     resolve_plugin,
 )
-
-# The two converter-subprocess tests below stand a shell script in for tes3conv
-# and run it. Windows' CreateProcess cannot execute a script directly (no
-# shebang, and .bat/.py are not valid argv[0]s), so there is no portable "fake
-# executable" to drop; the subprocess error/success handling is exercised on
-# POSIX, where a chmod +x script is a real executable. The code under test is
-# platform-independent -- only the stand-in is not.
-_posix_only = pytest.mark.skipif(
-    os.name != "posix", reason="needs an executable stand-in for tes3conv (POSIX script)"
+from wraithguard.land.textures import KnownTextures, vtex_of
+from wraithguard.tes3fields.landscape import (
+    LAND_SIZE,
+    TEXTURE_SIZE,
+    decode_vertex_colors,
 )
+
+# The four converter-subprocess tests below need a real tes3conv: a hand-rolled
+# shell script only stands in for it on POSIX (Windows' CreateProcess cannot
+# execute a script directly -- no shebang, and .bat/.py are not valid
+# argv[0]s), which made the subprocess boundary untested on Windows. tes3conv
+# itself is a real cross-platform binary, so running it directly works
+# identically on both -- only its *presence* on a given machine varies, which
+# is what this fixture checks and skips on.
+@pytest.fixture(scope="session")
+def real_tes3conv(core: types.ModuleType) -> str:
+    """Path to a real tes3conv executable, or skip the test.
+
+    Resolution matches what the tool itself does at runtime --
+    :func:`wraithguard_toolkit.find_tes3conv` -- so point ``MLOX_TES3CONV`` at
+    a binary, put one on ``PATH``, or drop it beside ``wraithguard_toolkit.py``.
+    """
+    found = core.find_tes3conv()
+    if not found:
+        pytest.skip("needs a real tes3conv executable (set MLOX_TES3CONV or put it on PATH)")
+    return found
+
+
+def _build_esp(converter: str, tmp_path: Path, masters: list[tuple[str, int]]) -> Path:
+    """Turn a minimal valid plugin document into a real ``.esp`` via tes3conv.
+
+    Gives the two success-path tests below genuine tes3conv output to read
+    back, rather than a hand-rolled stand-in. A header with no landscape
+    records round-trips without needing zstd, unlike an actual ``LAND``
+    record -- so this stays dependency-free.
+    """
+    document = build_plugin([], masters)
+    as_json = tmp_path / "source.json"
+    as_json.write_text(json.dumps(document), encoding="utf-8")
+    esp = tmp_path / "source.esp"
+    subprocess.run(
+        [converter, str(as_json), str(esp), "--overwrite"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return esp
 
 
 class TestResolvePlugin:
@@ -125,26 +170,48 @@ class TestRecordsViaReportsWhy:
         assert records == []
         assert "tes3conv" in failure
 
-    @_posix_only
-    def test_a_converter_error_carries_its_message(self, tmp_path: Path) -> None:
+    def test_a_converter_error_carries_its_message(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_tes3conv: str
+    ) -> None:
         """tes3conv's own complaint is what the user needs to see."""
-        script = tmp_path / "fake.sh"
-        script.write_text('#!/bin/sh\necho "bad plugin" >&2\nexit 3\n', encoding="utf-8")
-        script.chmod(0o755)
-        records, failure = _records_via(str(script), tmp_path / "a.esm", tmp_path)
-        assert records == []
-        assert "exited 3" in failure
-        assert "bad plugin" in failure
+        import wraithguard.land.service as svc
 
-    @_posix_only
-    def test_success_reports_no_failure(self, tmp_path: Path) -> None:
+        # has_landscape is a byte-scan pre-filter that runs before the
+        # converter -- our garbage plugin has no LAND/LTEX tag bytes to trip
+        # it, so without this it would short-circuit to ([], "") and tes3conv
+        # would never run at all.
+        monkeypatch.setattr(svc, "has_landscape", lambda *_a, **_k: True)
+        bad = tmp_path / "a.esm"
+        bad.write_bytes(b"not a real plugin")
+        records, failure = _records_via(real_tes3conv, bad, tmp_path)
+        assert records == []
+        assert failure.startswith("tes3conv exited")
+        assert "no message" not in failure
+
+    def test_success_reports_no_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_tes3conv: str
+    ) -> None:
         """The happy path returns records and an empty reason."""
-        script = tmp_path / "fake.sh"
-        script.write_text('#!/bin/sh\nprintf \'[{"type":"Header"}]\' > "$2"\n', encoding="utf-8")
-        script.chmod(0o755)
-        records, failure = _records_via(str(script), tmp_path / "a.esm", tmp_path)
+        import wraithguard.land.service as svc
+
+        # Same pre-filter as above: a header-only plugin (deliberately, so
+        # this needs no zstd) has no LAND/LTEX tag bytes either.
+        monkeypatch.setattr(svc, "has_landscape", lambda *_a, **_k: True)
+        source = _build_esp(real_tes3conv, tmp_path, masters=[("Morrowind.esm", 1)])
+        records, failure = _records_via(real_tes3conv, source, tmp_path)
         assert failure == ""
-        assert records == [{"type": "Header"}]
+        assert records == [
+            {
+                "type": "Header",
+                "flags": "",
+                "version": 1.3,
+                "file_type": "Esp",
+                "author": "Wraithguard Toolkit",
+                "description": "Merged landscape. Load last.",
+                "num_objects": 0,
+                "masters": [["Morrowind.esm", 1]],
+            }
+        ]
 
     def test_the_converter_call_suppresses_the_console_window(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -461,3 +528,536 @@ class TestNonPluginsAreNotMerged:
         masters, mods = _split_order(["a.esm", "b.esp", "c.omwaddon", "d.omwgame"])
         assert masters == ["a.esm", "d.omwgame"]
         assert mods == ["b.esp", "c.omwaddon"]
+
+
+def _flat_heights(value: int = 0) -> array:
+    """A flat 65x65 height grid, uniform, as MergedCell stores it."""
+    return array("i", [value] * (LAND_SIZE * LAND_SIZE))
+
+
+class TestBuildRecords:
+    """Turning merged cells into LAND records -- service._build_records.
+
+    This is the seam between the merge pipeline's flat, position-addressed
+    grids on :class:`MergedCell` and :func:`build_landscape_record`'s nested
+    rows. A reshape bug here does not raise -- it silently paints the wrong
+    texture or height at some vertex, which is why several of these decode
+    the real encoded record rather than trusting the intermediate shape.
+    """
+
+    def _outcome(self, cells: dict[tuple[int, int], MergedCell]) -> MergeOutcome:
+        outcome = MergeOutcome()
+        outcome.cells.update(cells)
+        return outcome
+
+    def test_a_fully_populated_cell_produces_one_record(self) -> None:
+        """Heights, textures, and colors together yield a record and a pending grid."""
+        cell = MergedCell(
+            coords=(1, 2),
+            heights=_flat_heights(10),
+            textures=[3] * (TEXTURE_SIZE * TEXTURE_SIZE),
+            colors=[200] * (LAND_SIZE * LAND_SIZE * 3),
+        )
+        records, pending, used, clamped = _build_records(self._outcome({(1, 2): cell}), lambda _: None)
+        assert len(records) == 1
+        assert records[0]["grid"] == [1, 2]
+        assert len(pending) == 1
+        assert used == {3}
+        assert clamped == 0
+
+    def test_a_cell_without_textures_is_not_pending(self) -> None:
+        """Nothing to compact means nothing queued for the texture pass."""
+        cell = MergedCell(coords=(0, 0), heights=_flat_heights(5))
+        records, pending, used, _clamped = _build_records(self._outcome({(0, 0): cell}), lambda _: None)
+        assert len(records) == 1
+        assert pending == []
+        assert used == set()
+
+    def test_cells_are_written_in_coordinate_order(self) -> None:
+        """Dict iteration order is insertion order, not sorted -- the output must be."""
+        cells = {
+            (5, 5): MergedCell(coords=(5, 5), heights=_flat_heights(1)),
+            (-1, 0): MergedCell(coords=(-1, 0), heights=_flat_heights(1)),
+            (0, 0): MergedCell(coords=(0, 0), heights=_flat_heights(1)),
+        }
+        records, _pending, _used, _clamped = _build_records(self._outcome(cells), lambda _: None)
+        assert [tuple(r["grid"]) for r in records] == [(-1, 0), (0, 0), (5, 5)]
+
+    def test_texture_grid_round_trips_through_the_real_encoder(self) -> None:
+        """Each flat value must land at its own vertex, not a neighbour's."""
+        flat = [(x * 7 + y * 13) % 64 for y in range(TEXTURE_SIZE) for x in range(TEXTURE_SIZE)]
+        cell = MergedCell(coords=(0, 0), heights=_flat_heights(0), textures=flat)
+        records, pending, _used, _clamped = _build_records(self._outcome({(0, 0): cell}), lambda _: None)
+        record, rows = pending[0]
+        assert record is records[0]
+        expected = [flat[y * TEXTURE_SIZE : (y + 1) * TEXTURE_SIZE] for y in range(TEXTURE_SIZE)]
+        assert rows == expected
+
+    def test_colors_are_clamped_to_the_byte_range_before_encoding(self) -> None:
+        """An out-of-range channel must not reach the encoder raw.
+
+        Checked through the real encode/decode round trip, not the
+        intermediate tuple -- a clamp that happens in Python but never makes
+        it into the packed bytes would still fail to protect the plugin.
+        """
+        flat = [128] * (LAND_SIZE * LAND_SIZE * 3)
+        flat[0], flat[1], flat[2] = -50, 999, 128  # first vertex, r/g/b
+        cell = MergedCell(coords=(0, 0), heights=_flat_heights(0), colors=flat)
+        records, _pending, _used, _clamped = _build_records(self._outcome({(0, 0): cell}), lambda _: None)
+        colors = decode_vertex_colors(records[0]["vertex_colors"]["data"])
+        assert colors[0][0] == (0, 255, 128)
+
+    def test_world_map_and_normals_reshape_to_their_own_vertex(self) -> None:
+        """The other two flat-to-nested reshapes get the same treatment as textures.
+
+        Heights are held well above sea level so sink_underwater_land (which
+        build_landscape_record applies to any world map once heights are
+        given) leaves the supplied map untouched -- otherwise a correct
+        reshape and a sea-level rewrite would be indistinguishable here.
+        """
+        from wraithguard.tes3fields.landscape import WNAM_SIZE, decode_vertex_normals, decode_world_map
+
+        world_flat = [(x + y) % 5 - 2 for y in range(WNAM_SIZE) for x in range(WNAM_SIZE)]
+        # (x, y, z) int8 triples, distinct per vertex -- a flat "straight up"
+        # normal everywhere (what a uniform-height cell would recompute to)
+        # would silently pass even a transposed or otherwise broken reshape,
+        # so each vertex needs its own value to actually pin the mapping.
+        normals_flat: list[int] = []
+        for y in range(LAND_SIZE):
+            for x in range(LAND_SIZE):
+                normals_flat.extend([x % 100, y % 100, 50])
+        cell = MergedCell(
+            coords=(0, 0),
+            heights=_flat_heights(100),
+            world_map=world_flat,
+            normals=normals_flat,
+        )
+        records, _pending, _used, _clamped = _build_records(self._outcome({(0, 0): cell}), lambda _: None)
+        decoded_map = decode_world_map(records[0]["world_map_data"]["data"])
+        expected_map = [world_flat[y * WNAM_SIZE : (y + 1) * WNAM_SIZE] for y in range(WNAM_SIZE)]
+        assert decoded_map == expected_map
+
+        decoded_normals = decode_vertex_normals(records[0]["vertex_normals"]["data"])
+        assert decoded_normals[3][7] == (7 % 100, 3 % 100, 50)
+        assert decoded_normals[40][12] == (12 % 100, 40 % 100, 50)
+
+    def test_a_cell_with_no_layers_is_skipped_and_reported(self) -> None:
+        """build_landscape_record refuses an empty cell; one bad cell must not abort the merge."""
+        cell = MergedCell(coords=(9, 9))  # heights, textures, colors all None
+        lines: list[str] = []
+        records, pending, used, clamped = _build_records(self._outcome({(9, 9): cell}), lines.append)
+        assert records == []
+        assert pending == []
+        assert used == set()
+        assert clamped == 0
+        assert any("could not be written" in line for line in lines)
+
+    def test_the_clamp_count_is_summed_and_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """_build_records aggregates and reports clamps; it does not decide them.
+
+        Which vertices clamp is build_landscape_record's job (and is pinned in
+        test_land_emit.py already) -- this only checks the bookkeeping around
+        whatever it returns.
+        """
+        import wraithguard.land.service as svc
+
+        def fake_build(coords: tuple[int, int], **_kw: object) -> tuple[dict[str, object], list[object]]:
+            return {"type": "Land", "grid": list(coords)}, [(0, 0), (1, 1)]
+
+        monkeypatch.setattr(svc, "build_landscape_record", fake_build)
+        cell = MergedCell(coords=(0, 0), heights=_flat_heights(0))
+        lines: list[str] = []
+        _records, _pending, _used, clamped = _build_records(self._outcome({(0, 0): cell}), lines.append)
+        assert clamped == 2
+        assert any("2 vertex/vertices" in line and "clamped" in line for line in lines)
+
+    def test_no_clamps_means_no_clamp_line(self) -> None:
+        """A fully representable cell should not add report noise."""
+        cell = MergedCell(coords=(0, 0), heights=_flat_heights(0))
+        lines: list[str] = []
+        _build_records(self._outcome({(0, 0): cell}), lines.append)
+        assert not any("clamped" in line for line in lines)
+
+
+class TestFinishTextures:
+    """Compacting the shared texture table -- service._finish_textures."""
+
+    def _known(self, count: int) -> KnownTextures:
+        """A shared table of ``count`` textures, sourced from ``src.esp``."""
+        known = KnownTextures()
+        known.observe(
+            "src.esp",
+            [
+                {"type": "LandscapeTexture", "id": f"T{i}", "index": i, "file_name": f"t{i}.tga"}
+                for i in range(count)
+            ],
+        )
+        return known
+
+    def test_no_pending_returns_nothing_and_reports_nothing(self) -> None:
+        """An empty pending list is a real 'no cell painted anything', not an edge case to warn about."""
+        lines: list[str] = []
+        records, sources = _finish_textures([], {0, 1, 2}, self._known(5), lines.append)
+        assert records == []
+        assert sources == []
+        assert lines == []
+
+    def test_records_get_their_compacted_grid_attached(self) -> None:
+        """The point of the function: pending records leave with real texture_indices data."""
+        known = self._known(2)
+        rows = [[0] * TEXTURE_SIZE for _ in range(TEXTURE_SIZE)]
+        record: dict[str, object] = {}
+        # `used` lives in VTEX space (vtex_of(ltex_index)), not the raw LTEX
+        # index -- compact_textures diffs against painted grid values.
+        texture_records, _sources = _finish_textures(
+            [(record, rows)], {vtex_of(0)}, known, lambda _: None
+        )
+        assert "texture_indices" in record
+        assert len(texture_records) == 1
+
+    def test_sources_are_deduplicated_and_sorted(self) -> None:
+        """Two mods contribute textures; the dependency list names each once, in order."""
+        known = KnownTextures()
+        known.observe("b.esp", [{"type": "LandscapeTexture", "id": "B", "index": 0, "file_name": "b.tga"}])
+        known.observe("a.esp", [{"type": "LandscapeTexture", "id": "A", "index": 1, "file_name": "a.tga"}])
+        rows = [[0] * TEXTURE_SIZE for _ in range(TEXTURE_SIZE)]
+        _records, sources = _finish_textures(
+            [({}, rows)], {vtex_of(0), vtex_of(1)}, known, lambda _: None
+        )
+        assert sources == ["a.esp", "b.esp"]
+
+    def test_unresolved_with_substitution_mentions_the_fallback(self) -> None:
+        """A missing master's index still loads -- the report says it was substituted."""
+        known = self._known(2)
+        rows = [[0] * TEXTURE_SIZE for _ in range(TEXTURE_SIZE)]
+        lines: list[str] = []
+        _finish_textures(
+            [({}, rows)], {vtex_of(0), vtex_of(999)}, known, lines.append, substitute_unknown=True
+        )
+        assert any("substituted with the fallback" in line for line in lines)
+
+    def test_unresolved_without_substitution_mentions_a_dangling_index(self) -> None:
+        """Opting out keeps the index honest instead of silently rewriting it."""
+        known = self._known(2)
+        rows = [[0] * TEXTURE_SIZE for _ in range(TEXTURE_SIZE)]
+        lines: list[str] = []
+        _finish_textures(
+            [({}, rows)], {vtex_of(0), vtex_of(999)}, known, lines.append, substitute_unknown=False
+        )
+        assert any("dangling index" in line for line in lines)
+
+    def test_a_malformed_texture_grid_is_reported_not_raised(self) -> None:
+        """One cell's bad grid must not abort a merge that is otherwise fine."""
+        known = self._known(1)
+        bad_rows = [[0]]  # not 16x16
+        lines: list[str] = []
+        texture_records, _sources = _finish_textures(
+            [({}, bad_rows)], {vtex_of(0)}, known, lines.append
+        )
+        assert any("texture grid could not be written" in line for line in lines)
+        # Compaction itself still ran -- the table is reported regardless.
+        assert len(texture_records) == 1
+
+
+class TestWrite:
+    """Serialising and handing off to tes3conv -- service._write."""
+
+    def test_a_missing_master_is_reported(self, tmp_path: Path) -> None:
+        """The write must not attempt to measure a master that was never found."""
+        with pytest.raises(MergeServiceError, match="cannot find master"):
+            _write([], ["ghost.esm"], [tmp_path], tmp_path / "out.esp", "tes3conv")
+
+    def test_an_unmeasurable_master_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A master that resolves but cannot be stat'd is named, not swallowed."""
+        import wraithguard.land.service as svc
+
+        class _Unstatable:
+            def stat(self) -> None:
+                raise OSError("permission denied")
+
+        monkeypatch.setattr(svc, "resolve_plugin", lambda *_a, **_k: _Unstatable())
+        with pytest.raises(MergeServiceError, match="cannot measure master"):
+            _write([], ["a.esm"], [tmp_path], tmp_path / "out.esp", "tes3conv")
+
+    def test_a_missing_converter_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No real tes3conv is needed to prove this path -- the binary just has to not exist."""
+        import wraithguard.land.service as svc
+
+        (tmp_path / "a.esm").write_bytes(b"x" * 100)
+        monkeypatch.setattr(svc, "resolve_plugin", lambda *_a, **_k: tmp_path / "a.esm")
+        with pytest.raises(MergeServiceError, match="could not be run"):
+            _write([], ["a.esm"], [tmp_path], tmp_path / "out.esp", str(tmp_path / "no-such-tes3conv"))
+
+    def test_a_nonzero_exit_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_tes3conv: str
+    ) -> None:
+        """tes3conv's own complaint is what the user needs to see, same as _records_via."""
+        import wraithguard.land.service as svc
+
+        (tmp_path / "a.esm").write_bytes(b"x" * 100)
+        monkeypatch.setattr(svc, "resolve_plugin", lambda *_a, **_k: tmp_path / "a.esm")
+        # A record type tes3conv's own schema does not know -- its rejection
+        # is what stands in for a hand-scripted "bad json" here.
+        bad_record = {"type": "NotARealRecordType", "flags": ""}
+        with pytest.raises(MergeServiceError, match="refused the merged JSON"):
+            _write([bad_record], ["a.esm"], [tmp_path], tmp_path / "out.esp", real_tes3conv)
+
+    def test_success_needs_no_return_value(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_tes3conv: str
+    ) -> None:
+        """The happy path -- nothing raised, and the output directory is created for it."""
+        import wraithguard.land.service as svc
+
+        (tmp_path / "a.esm").write_bytes(b"x" * 100)
+        monkeypatch.setattr(svc, "resolve_plugin", lambda *_a, **_k: tmp_path / "a.esm")
+        target = tmp_path / "nested" / "out.esp"
+        _write([], ["a.esm"], [tmp_path], target, real_tes3conv)
+        assert target.parent.is_dir()
+        assert target.is_file()
+
+    def test_the_console_window_is_suppressed_here_too(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The same --noconsole flash _records_via fixes applies to the write side."""
+        import types
+
+        import wraithguard.land.service as svc
+
+        seen: dict[str, object] = {}
+
+        def fake_run(argv: list[str], **kwargs: object) -> types.SimpleNamespace:
+            seen.update(kwargs)
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        (tmp_path / "a.esm").write_bytes(b"x" * 100)
+        monkeypatch.setattr(svc, "resolve_plugin", lambda *_a, **_k: tmp_path / "a.esm")
+        monkeypatch.setattr(svc, "no_window_kwargs", lambda: {"creationflags": 0x08000000})
+        monkeypatch.setattr(svc.subprocess, "run", fake_run)
+
+        _write([], ["a.esm"], [tmp_path], tmp_path / "out.esp", "tes3conv")
+        assert seen.get("creationflags") == 0x08000000
+
+
+class TestBuildMergedLandsHappyPath:
+    """End-to-end coverage for build_merged_lands' main body.
+
+    This was the largest untested block in the file: everything from
+    "reading masters" through "wrote {marker}" ran only in production. Real
+    tes3conv is the one thing not available here, so subprocess.run is
+    replaced with a fake that hands back records built through the actual
+    build_landscape_record encoder -- everything downstream of that
+    (build_reference, merge_landmass, finish, _build_records,
+    _finish_textures, _contributors, _write, write_merged_marker) is the real
+    code, unmodified. has_landscape is forced True because the plugin
+    "files" here are dummy bytes rather than real TES3 headers; its own
+    native-format sniffing is covered separately in test_land_native.py.
+    """
+
+    def _rig(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        records_by_name: dict[str, list[dict[str, object]]],
+    ) -> Path:
+        """A Data Files folder with a dummy file per name in records_by_name,
+        and tes3conv stubbed to serve exactly those records.
+        """
+        import wraithguard.land.service as svc
+
+        data_dir = tmp_path / "Data Files"
+        data_dir.mkdir()
+        for name in records_by_name:
+            # resolve_plugin and _write both need a real, non-empty file: one
+            # to find it, the other to measure it for the plugin header.
+            (data_dir / name).write_bytes(b"x" * 1000)
+
+        def fake_run(argv: list[str], **_kw: object) -> types.SimpleNamespace:
+            src = Path(argv[1])
+            dst = Path(argv[2])
+            if src.name == "merged.json":
+                # _write's own conversion call, reading the merge's own
+                # output rather than a named plugin -- nothing to look up,
+                # just prove something got "converted".
+                dst.write_bytes(b"fake esp bytes")
+                return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+            records = records_by_name.get(src.name)
+            if records is None:
+                return types.SimpleNamespace(
+                    returncode=1, stdout="", stderr=f"no fixture for {src.name}"
+                )
+            dst.write_text(json.dumps(records), encoding="utf-8")
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(svc, "has_landscape", lambda *_a, **_k: True)
+        monkeypatch.setattr(svc.subprocess, "run", fake_run)
+        return data_dir
+
+    def _land(
+        self,
+        coords: tuple[int, int],
+        heights: list[list[float]] | None = None,
+        colors: list[list[tuple[int, int, int]]] | None = None,
+    ) -> dict[str, object]:
+        """A real LAND record, via the same encoder the merge itself uses."""
+        record, _clamps = build_landscape_record(coords, heights=heights, colors=colors)
+        return record
+
+    def _conflicting_fixture(self) -> dict[str, list[dict[str, object]]]:
+        """A cell two mods edit in different, non-overlapping ways.
+
+        Neither mod alone produces the right cell -- ModHeights leaves the
+        reference's colors behind, ModColors leaves the reference's heights
+        behind -- so this needs an actual merge, not just "last mod wins",
+        and cleaning must not drop it as redundant.
+        """
+        heights_reference = [[100.0] * 65 for _ in range(65)]
+        heights_edited = [[150.0] * 65 for _ in range(65)]
+        colors_edited = [[(200, 50, 50)] * 65 for _ in range(65)]
+        return {
+            "Morrowind.esm": [self._land((0, 0), heights=heights_reference)],
+            "ModHeights.esp": [self._land((0, 0), heights=heights_edited)],
+            "ModColors.esp": [
+                self._land((0, 0), heights=heights_reference, colors=colors_edited)
+            ],
+        }
+
+    def test_two_mods_editing_different_layers_produce_one_merged_cell(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The case Merged Lands exists for: reconciling edits, not just picking one."""
+        data_dir = self._rig(tmp_path, monkeypatch, self._conflicting_fixture())
+
+        result = build_merged_lands(
+            data_files=[data_dir],
+            load_order=["Morrowind.esm", "ModHeights.esp", "ModColors.esp"],
+            converter="tes3conv",
+        )
+        assert result.output == data_dir / "Merged Lands.esp"
+        assert result.output.is_file()
+        assert result.cells_written == 1
+        assert (data_dir / "Merged Lands.mergedlands.toml").is_file()
+        assert any("declaring 3 master(s)" in line for line in result.lines)
+
+    def test_a_single_uninvolved_mod_needs_no_merge(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One mod editing one cell is exactly what the plain load order already shows.
+
+        Nothing here needs the merge tool at all, and cleaning is supposed to
+        say so rather than write a redundant patch.
+        """
+        records_by_name = {
+            "Morrowind.esm": [self._land((0, 0), heights=[[100.0] * 65 for _ in range(65)])],
+            "TestMod.esp": [self._land((0, 0), heights=[[150.0] * 65 for _ in range(65)])],
+        }
+        data_dir = self._rig(tmp_path, monkeypatch, records_by_name)
+
+        result = build_merged_lands(
+            data_files=[data_dir],
+            load_order=["Morrowind.esm", "TestMod.esp"],
+            converter="tes3conv",
+        )
+        assert result.output is None
+        assert result.cells_written == 0
+        assert any("nothing to merge" in line for line in result.lines)
+        assert not (data_dir / "Merged Lands.esp").exists()
+
+    def test_dry_run_reports_without_writing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A real conflict that WOULD be written stays unwritten under dry_run."""
+        data_dir = self._rig(tmp_path, monkeypatch, self._conflicting_fixture())
+
+        result = build_merged_lands(
+            data_files=[data_dir],
+            load_order=["Morrowind.esm", "ModHeights.esp", "ModColors.esp"],
+            converter="tes3conv",
+            dry_run=True,
+        )
+        assert result.output is None
+        assert result.cells_written == 1  # the merge itself still ran
+        assert any("dry run" in line for line in result.lines)
+        assert not (data_dir / "Merged Lands.esp").exists()
+
+    def test_a_missing_mod_is_reported_not_fatal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A load order naming an uninstalled mod must not abort the whole merge.
+
+        Unlike a missing master (TestMasterFailuresAreExplained), this is not
+        fatal: the load order may simply list something the user removed.
+        """
+        records_by_name = {
+            "Morrowind.esm": [self._land((0, 0), heights=[[100.0] * 65 for _ in range(65)])]
+        }
+        data_dir = self._rig(tmp_path, monkeypatch, records_by_name)
+
+        result = build_merged_lands(
+            data_files=[data_dir],
+            load_order=["Morrowind.esm", "ghost.esp"],
+            converter="tes3conv",
+            verbose=True,
+        )
+        assert any("ghost.esp (not found)" in line for line in result.lines)
+
+    def test_the_thread_pool_path_produces_the_same_result(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reading mods in parallel must not change what gets merged.
+
+        _READ_WORKERS is bounded by os.cpu_count(); a single-core sandbox
+        would otherwise always take the sequential generator branch and this
+        module's ThreadPoolExecutor path would never run in CI at all.
+        """
+        import wraithguard.land.service as svc
+
+        data_dir = self._rig(tmp_path, monkeypatch, self._conflicting_fixture())
+        monkeypatch.setattr(svc.os, "cpu_count", lambda: 4)
+
+        result = build_merged_lands(
+            data_files=[data_dir],
+            load_order=["Morrowind.esm", "ModHeights.esp", "ModColors.esp"],
+            converter="tes3conv",
+        )
+        assert result.cells_written == 1
+
+    def test_a_mods_settings_are_named_in_verbose_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A .mergedlands.toml sidecar is real per-plugin detail, not just a flag.
+
+        Written through write_settings and read back through the real
+        load_meta -- nothing about metas is mocked here.
+        """
+        data_dir = self._rig(tmp_path, monkeypatch, self._conflicting_fixture())
+        write_settings(
+            data_dir / "ModHeights.esp",
+            PluginMeta(layers={"world_map_data": MergeSettings(included=True)}),
+        )
+
+        result = build_merged_lands(
+            data_files=[data_dir],
+            load_order=["Morrowind.esm", "ModHeights.esp", "ModColors.esp"],
+            converter="tes3conv",
+            verbose=True,
+        )
+        assert any("carry .mergedlands.toml settings" in line for line in result.lines)
+        assert any("ModHeights.esp: meta_type=" in line for line in result.lines)
+
+    def test_an_absent_sidecar_folder_falls_back_without_failing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """sidecars is an optimisation; a stale/missing folder must not stop the merge."""
+        data_dir = self._rig(tmp_path, monkeypatch, self._conflicting_fixture())
+
+        result = build_merged_lands(
+            data_files=[data_dir],
+            load_order=["Morrowind.esm", "ModHeights.esp", "ModColors.esp"],
+            converter="tes3conv",
+            sidecars=tmp_path / "no-such-sidecar-folder",
+        )
+        assert result.cells_written == 1

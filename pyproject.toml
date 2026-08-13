@@ -56,7 +56,7 @@ wraithguard = ["py.typed"]
 # below and wraithguard.__version__ never drift apart.
 [project]
 name = "wraithguard-toolkit"
-version = "3.1.3"
+version = "3.1.5"
 description = "Sort your own Morrowind mods into a frozen MOMW load order."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -373,7 +373,7 @@ exclude_lines = [
 ]
 # The floor §8.5 asked for. Branch coverage, full suite, zstandard installed.
 # First taken at 54% (3.0, §16 reconciliation) and floored at 52. Re-measured at
-# 79.3% during the 3.1.3 audit as the suite grew, so the floor is ratcheted to
+# 79.3% during the 3.1.2 audit as the suite grew, so the floor is ratcheted to
 # 77 -- kept a couple of points below the honest number so it rises with
 # coverage instead of blocking the next PR. Raise it as the number climbs; never
 # lower it to make a PR pass.

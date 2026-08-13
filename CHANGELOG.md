@@ -1,6 +1,27 @@
 # Changelog
 
 
+## 3.1.5
+
+### Added
+
+- **A "Clear Memory" button next to Scan... forgets manually added
+  plugins/folders and any in-memory scan result.** Manual adds (drag-drop or
+  the Add plugin.../Add data folder... buttons) and an unsaved scan result are
+  the one kind of state this program holds that is genuinely invisible --
+  nothing on screen shows what has accumulated, and unlike the subset-file
+  field there is no Browse button to just point elsewhere; restarting the
+  whole program was previously the only way to be sure. It is also easy to
+  want gone specifically when switching to a different mods folder or profile
+  mid-session, since none of it is scoped to one scan -- it just keeps growing
+  until the app closes. Clear Memory asks for confirmation first, naming
+  exactly what will be lost (counts of manual plugins/folders, and whether an
+  in-memory scan result exists), no-ops with a plain status message when
+  there is nothing to clear, and leaves the subset-file field -- and
+  everything on disk -- untouched either way. (`PathField`'s `extra_button`
+  now takes a sequence of `(text, cmd, tip)` tuples instead of just one, so
+  Scan... and Clear Memory can share the row.)
+
 ## 3.1.4
 
 ### Fixed

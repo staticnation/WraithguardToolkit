@@ -1394,7 +1394,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                 "provide both and they're combined."
             ),
         )
-        PathField(
+        self.subset_file_field = PathField(
             top,
             "subset file (optional):",
             start_row + 2,
@@ -1407,13 +1407,24 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                 "customizations.toml with no existing one required."
             ),
             extra_button=(
-                "Scan...",
-                self.on_scan_mods,
-                "Scan a mods folder to build the subset: every folder that contains an "
-                "asset subfolder (meshes/textures/...) or a plugin becomes a data path "
-                "(plus its plugins), then that branch isn't descended further. Whether "
-                "the result is saved to a .txt (and loaded here) or just kept in memory "
-                "for this session is set by the 'Create subset text document' option.",
+                (
+                    "Scan...",
+                    self.on_scan_mods,
+                    "Scan a mods folder to build the subset: every folder that contains an "
+                    "asset subfolder (meshes/textures/...) or a plugin becomes a data path "
+                    "(plus its plugins), then that branch isn't descended further. Whether "
+                    "the result is saved to a .txt (and loaded here) or just kept in memory "
+                    "for this session is set by the 'Create subset text document' option.",
+                ),
+                (
+                    "Clear Memory",
+                    self._clear_scan_memory,
+                    "Forget every plugin/folder added by hand (drag-drop or the Add "
+                    "buttons below) and any scan result held only in memory (not saved "
+                    "to a .txt) -- none of that is shown anywhere on screen, and it "
+                    "otherwise keeps accumulating for the rest of the session. Does not "
+                    "touch this field or anything on disk.",
+                ),
             ),
         )
 
@@ -2513,6 +2524,54 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             )
             return
         self.status_var.set(_("Not a plugin or folder: %(path)s") % {"path": path})
+
+    def _clear_scan_memory(self) -> None:
+        """Forget manually added plugins/folders and any in-memory scan result.
+
+        These are silent, accumulating state: nothing on screen shows them
+        (they only merge into the subset on the next Sort, via
+        ``_build_subset_lines``/``manual_lines``), and unlike the subset-file
+        field there is no Browse button to just point elsewhere -- restarting
+        the whole program was the only way to be sure. A stray manual add is
+        also easy to want gone specifically when switching to a different
+        mods folder or profile mid-session, since none of this is scoped to
+        one scan: it just keeps growing until the app closes.
+
+        Does not touch the "subset file" field itself, if one is currently
+        set -- that is a normal, visible, directly-editable input, not
+        accumulated memory.
+        """
+        n_plugins = len(self._manual_plugins)
+        n_dirs = len(self._manual_data_dirs)
+        had_scan = self._scanned_subset_lines is not None
+        if not (n_plugins or n_dirs or had_scan):
+            self.status_var.set(_("Nothing to clear."))
+            return
+        parts = []
+        if n_plugins:
+            parts.append(_("%(n)d manual plugin(s)") % {"n": n_plugins})
+        if n_dirs:
+            parts.append(_("%(n)d manual data folder(s)") % {"n": n_dirs})
+        if had_scan:
+            parts.append(_("the in-memory scan result"))
+        summary = ", ".join(parts)
+        if not messagebox.askyesno(
+            _("Clear memory?"),
+            _(
+                "This forgets everything added by hand this session and any scan "
+                "result held in memory (not written to a subset file):\n\n%(summary)s"
+                "\n\nThey will no longer be included on the next Sort. This does not "
+                "touch the subset file field, remembered paths, or any file on disk. "
+                "Continue?"
+            )
+            % {"summary": summary},
+        ):
+            return
+        self._manual_plugins.clear()
+        self._manual_data_dirs.clear()
+        self._scanned_subset_lines = None
+        self.log_queue.put(f"Cleared memory: {summary}\n")
+        self.status_var.set(_("Cleared: %(summary)s") % {"summary": summary})
 
     def _record_manual(
         self,

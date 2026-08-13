@@ -410,21 +410,27 @@ class TestManualSubsetAdditions:
         return host
 
     def test_a_plugin_path_is_classified_as_a_plugin(self) -> None:
-        """A dropped .esp joins the subset by basename, not as a folder."""
+        """A dropped .esp joins the subset by basename, not as a folder.
+
+        C:/mods/loose does not exist on this (POSIX) test machine, so this
+        also happens to pin that a plugin whose folder cannot be verified
+        does not add a bogus data path -- see
+        test_a_real_plugin_folder_is_captured_too for the folder actually
+        being captured when it does exist.
+        """
         host = self._host()
         host._add_manual_path("C:/mods/loose/MyMod.esp")
         assert host._manual_plugins == ["MyMod.esp"]
         assert host._manual_data_dirs == []
 
-    def test_a_plugin_from_a_real_folder_brings_its_folder_along(self, tmp_path: Path) -> None:
-        """The point of the fix: a plugin needs a data= folder to be found in.
-
-        OpenMW resolves plugins by searching data= dirs, not from wherever
-        they were dragged from -- so the containing folder must be added too,
-        not just the bare plugin name.
+    def test_a_real_plugin_folder_is_captured_too(self, tmp_path: Path) -> None:
+        """The whole point: a plugin is useless to OpenMW without a data=
+        entry for wherever it actually lives, and basename_if_plugin()
+        throws that location away -- so it must be captured before that,
+        not left for the user to separately remember to add.
 
         Args:
-            tmp_path: A real directory to drop a plugin from.
+            tmp_path: A real directory to add a plugin from.
         """
         import os.path
 
@@ -435,16 +441,28 @@ class TestManualSubsetAdditions:
         plugin_path.write_bytes(b"")
         host._add_manual_path(str(plugin_path))
         assert host._manual_plugins == ["MyMod.esp"]
-        # abspath, not resolve: match production, which must not follow symlinks.
         assert host._manual_data_dirs == [os.path.abspath(str(folder))]  # noqa: PTH100
 
-    def test_a_bare_plugin_filename_does_not_add_the_working_directory(self) -> None:
-        """Path('MyMod.esp').parent == Path('.'), which always exists.
+    def test_two_plugins_from_the_same_folder_add_it_once(self, tmp_path: Path) -> None:
+        """The folder is shared; it must not be duplicated per plugin.
 
-        A plugin named with no directory component (a subset-file entry, or
-        drag data that lost its path) must not be treated as if its folder
-        were '.' -- that would silently add the current working directory as
-        a data= folder.
+        Args:
+            tmp_path: A real directory to add two plugins from.
+        """
+        import os.path
+
+        host = self._host()
+        folder = tmp_path / "LooseMod"
+        folder.mkdir()
+        host._add_manual_path(str(folder / "First.esp"))
+        host._add_manual_path(str(folder / "Second.esp"))
+        assert host._manual_plugins == ["First.esp", "Second.esp"]
+        assert host._manual_data_dirs == [os.path.abspath(str(folder))]  # noqa: PTH100
+
+    def test_a_bare_plugin_name_adds_no_folder(self) -> None:
+        """A folder-less name (e.g. from a subset file's plain plugin line)
+        must not be mistaken for 'the current directory is its data path'
+        -- Path('MyMod.esp').parent is '.', which always exists.
         """
         host = self._host()
         host._add_manual_path("MyMod.esp")
@@ -486,12 +504,166 @@ class TestManualSubsetAdditions:
         host._add_manual_path(str(folder))
         assert host._manual_data_dirs == [os.path.abspath(str(folder))]  # noqa: PTH100
 
+    def test_a_plugin_from_an_already_added_folder_does_not_duplicate_it(
+        self, tmp_path: Path
+    ) -> None:
+        """The common real sequence: add the mod folder, then a loose plugin
+        from inside it. The folder must not appear twice.
+
+        Args:
+            tmp_path: A real directory added once as a folder, then a plugin
+                dropped from inside it.
+        """
+        import os.path
+
+        host = self._host()
+        folder = tmp_path / "Mod"
+        folder.mkdir()
+        host._add_manual_path(str(folder))
+        host._add_manual_path(str(folder / "MyMod.esp"))
+        assert host._manual_data_dirs == [os.path.abspath(str(folder))]  # noqa: PTH100
+        assert host._manual_plugins == ["MyMod.esp"]
+
     def test_a_path_that_is_neither_is_ignored(self) -> None:
         """A non-plugin path that is not a real folder adds nothing."""
         host = self._host()
         host._add_manual_path("C:/nope/not-a-real-thing")
         assert host._manual_plugins == []
         assert host._manual_data_dirs == []
+
+
+class TestClearScanMemory:
+    """The 'Clear Memory' button next to Scan... on the subset-file row.
+
+    _manual_plugins/_manual_data_dirs (TestManualSubsetAdditions above) and an
+    in-memory scan result are the one kind of state this program holds that is
+    genuinely invisible: nothing on screen shows what has accumulated, and
+    unlike the subset-file field there is no Browse button to just point
+    elsewhere. These pin that it asks before discarding anything, correctly
+    no-ops when there is nothing to discard, names what it is about to lose,
+    and -- as important as what it clears -- leaves the subset-file field and
+    everything else alone.
+    """
+
+    @staticmethod
+    def _host(*, subset_file: str = "") -> Any:
+        """An App with just the attributes _clear_scan_memory touches."""
+        import queue as queue_mod
+
+        from wraithguard_toolkit_gui import App
+
+        host = App.__new__(App)
+        host._manual_plugins = []  # type: ignore[attr-defined]
+        host._manual_data_dirs = []  # type: ignore[attr-defined]
+        host._scanned_subset_lines = None  # type: ignore[attr-defined]
+        host.log_queue = queue_mod.Queue()  # type: ignore[attr-defined]
+        statuses: list[str] = []
+        host.status_var = type(  # type: ignore[attr-defined]
+            "V", (), {"set": lambda _self, s: statuses.append(s)}
+        )()
+        host._test_statuses = statuses  # type: ignore[attr-defined]
+        # Proof this method must never touch it: a distinct sentinel value,
+        # asserted unchanged after every clear below.
+        host.subset_file_var = type(  # type: ignore[attr-defined]
+            "V", (), {"get": lambda _self: subset_file}
+        )()
+        return host
+
+    def _confirm(self, monkeypatch: Any, *, answer: bool) -> list[tuple[str, str]]:
+        """Stub messagebox.askyesno to return ``answer``, capturing each call."""
+        import wraithguard_toolkit_gui as gui
+
+        calls: list[tuple[str, str]] = []
+
+        def fake_askyesno(title: str, message: str) -> bool:
+            calls.append((title, message))
+            return answer
+
+        monkeypatch.setattr(gui.messagebox, "askyesno", fake_askyesno)
+        return calls
+
+    def test_nothing_to_clear_does_not_prompt(self, monkeypatch: Any) -> None:
+        """An empty-state click should not interrupt with a pointless confirm."""
+        host = self._host()
+        calls = self._confirm(monkeypatch, answer=True)
+        host._clear_scan_memory()
+        assert calls == []
+        assert host._test_statuses[-1] == "Nothing to clear."
+
+    def test_declining_leaves_everything_untouched(self, monkeypatch: Any) -> None:
+        """Saying no must be exactly that -- not a slower yes."""
+        host = self._host(subset_file="C:/mods/subset.txt")
+        host._manual_plugins.append("MyMod.esp")
+        host._manual_data_dirs.append("C:/mods/Loose")
+        host._scanned_subset_lines = ["some", "lines"]
+        self._confirm(monkeypatch, answer=False)
+        host._clear_scan_memory()
+        assert host._manual_plugins == ["MyMod.esp"]
+        assert host._manual_data_dirs == ["C:/mods/Loose"]
+        assert host._scanned_subset_lines == ["some", "lines"]
+        assert host.subset_file_var.get() == "C:/mods/subset.txt"
+
+    def test_confirming_clears_manual_adds_and_the_scan_result(
+        self, monkeypatch: Any
+    ) -> None:
+        """The actual point: all three kinds of accumulated memory go together."""
+        host = self._host(subset_file="C:/mods/subset.txt")
+        host._manual_plugins.append("MyMod.esp")
+        host._manual_data_dirs.append("C:/mods/Loose")
+        host._scanned_subset_lines = ["some", "lines"]
+        self._confirm(monkeypatch, answer=True)
+        host._clear_scan_memory()
+        assert host._manual_plugins == []
+        assert host._manual_data_dirs == []
+        assert host._scanned_subset_lines is None
+        # The one thing this must never touch, confirmed even on the path
+        # that actually clears something.
+        assert host.subset_file_var.get() == "C:/mods/subset.txt"
+        assert "Cleared" in host._test_statuses[-1]
+        logged = host.log_queue.get_nowait()
+        assert "Cleared memory" in logged
+
+    def test_the_prompt_names_what_will_be_lost(self, monkeypatch: Any) -> None:
+        """A blind 'are you sure?' would not let anyone catch a mistake."""
+        host = self._host()
+        host._manual_plugins.extend(["A.esp", "B.esp"])
+        host._manual_data_dirs.append("C:/mods/Loose")
+        host._scanned_subset_lines = ["line"]
+        calls = self._confirm(monkeypatch, answer=True)
+        host._clear_scan_memory()
+        assert len(calls) == 1
+        _title, message = calls[0]
+        assert "2 manual plugin(s)" in message
+        assert "1 manual data folder(s)" in message
+        assert "in-memory scan result" in message
+
+    def test_only_the_scan_result_is_still_reported_on_its_own(
+        self, monkeypatch: Any
+    ) -> None:
+        """Manual adds and a scan result are independent; either alone must
+        still produce a sensible (non-empty, non-crashing) summary.
+        """
+        host = self._host()
+        host._scanned_subset_lines = ["line"]
+        calls = self._confirm(monkeypatch, answer=True)
+        host._clear_scan_memory()
+        assert len(calls) == 1
+        assert "manual plugin" not in calls[0][1]
+        assert "manual data folder" not in calls[0][1]
+        assert host._scanned_subset_lines is None
+
+    def test_the_button_exists_next_to_scan(self, app: Any) -> None:
+        """Logic with no way to reach it from the screen helps no one.
+
+        Args:
+            app: The application.
+        """
+        buttons = app.subset_file_field.extra_btns
+        assert len(buttons) == 2, "expected Scan... and Clear Memory next to it"
+        scan_btn, clear_btn = buttons
+        assert scan_btn.cget("text") == "Scan..."
+        assert clear_btn.cget("text") == "Clear Memory"
+        assert str(clear_btn.cget("command")).strip(), "Clear Memory has no command bound"
 
 
 class TestActionButtons:
