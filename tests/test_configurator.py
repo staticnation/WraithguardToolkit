@@ -357,3 +357,48 @@ class TestDisableCoversDataPathsToo:
         assert core.data_paths_needing_removal(["C:/mods/Curated"], self.OURS, self.IN_CFG) == [
             "C:/mods/Curated"
         ]
+
+
+class TestUnsortedDataInsertPassthrough:
+    """generate_customizations_toml's raw_data_inserts branch (--sort-data-paths
+    NOT given -- e.g. a GUI drag-and-drop with 'Sort data= paths too' left
+    unticked, its default state).
+
+    A manually added folder has no anchor syntax of its own, so `after` and
+    `before` are both None here as a matter of course, not an edge case.
+    Previously that meant the emitted insert had no before/after and nothing
+    -- not the console, not the TOML -- said so. Confirmed against
+    simulate_configurator_apply below: an anchor-less insert is not fatal,
+    but the real Configurator silently skips it, so the folder never reaches
+    openmw.cfg even though its text is sitting right there in the TOML.
+    """
+
+    def _emit(self, raw_data_inserts):
+        return generate_customizations_toml(
+            original_data=None,
+            final_content_order=[],
+            subset_set=set(),
+            original_content_values={},
+            raw_data_inserts=raw_data_inserts,
+        )
+
+    def test_an_anchorless_insert_is_visibly_flagged(self):
+        toml_text = self._emit([{"value": "C:/mods/Dropped", "after": None, "before": None}])
+        assert "insert = 'C:/mods/Dropped'" in toml_text
+        assert "# WARNING: no anchor for this path" in toml_text
+
+    def test_an_anchored_insert_is_not_flagged(self):
+        """The warning must not fire on the entries that were never broken."""
+        toml_text = self._emit([{"value": "C:/mods/Fine", "after": "data=E:/Mods/Base"}])
+        assert "after = 'data=E:/Mods/Base'" in toml_text
+        assert "WARNING" not in toml_text
+
+    def test_the_flagged_insert_is_the_one_the_real_configurator_skips(self):
+        """Closes the loop: what the emitter warns about is exactly what
+        simulate_configurator_apply (the faithful re-implementation) drops.
+        """
+        toml_text = self._emit([{"value": "C:/mods/Dropped", "after": None, "before": None}])
+        lines, errs, _notes = simulate_configurator_apply(CFG, toml_text)
+        assert lines is not None  # not fatal
+        assert "C:/mods/Dropped" not in "\n".join(lines)
+        assert any("needs insert/insertBlock plus after or before" in e for e in errs)

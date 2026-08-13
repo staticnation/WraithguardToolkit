@@ -416,6 +416,41 @@ class TestManualSubsetAdditions:
         assert host._manual_plugins == ["MyMod.esp"]
         assert host._manual_data_dirs == []
 
+    def test_a_plugin_from_a_real_folder_brings_its_folder_along(self, tmp_path: Path) -> None:
+        """The point of the fix: a plugin needs a data= folder to be found in.
+
+        OpenMW resolves plugins by searching data= dirs, not from wherever
+        they were dragged from -- so the containing folder must be added too,
+        not just the bare plugin name.
+
+        Args:
+            tmp_path: A real directory to drop a plugin from.
+        """
+        import os.path
+
+        host = self._host()
+        folder = tmp_path / "LooseMod"
+        folder.mkdir()
+        plugin_path = folder / "MyMod.esp"
+        plugin_path.write_bytes(b"")
+        host._add_manual_path(str(plugin_path))
+        assert host._manual_plugins == ["MyMod.esp"]
+        # abspath, not resolve: match production, which must not follow symlinks.
+        assert host._manual_data_dirs == [os.path.abspath(str(folder))]  # noqa: PTH100
+
+    def test_a_bare_plugin_filename_does_not_add_the_working_directory(self) -> None:
+        """Path('MyMod.esp').parent == Path('.'), which always exists.
+
+        A plugin named with no directory component (a subset-file entry, or
+        drag data that lost its path) must not be treated as if its folder
+        were '.' -- that would silently add the current working directory as
+        a data= folder.
+        """
+        host = self._host()
+        host._add_manual_path("MyMod.esp")
+        assert host._manual_plugins == ["MyMod.esp"]
+        assert host._manual_data_dirs == []
+
     def test_a_directory_is_classified_as_a_data_folder(self, tmp_path: Path) -> None:
         """A dropped folder joins the data paths, absolutised like the scan.
 
