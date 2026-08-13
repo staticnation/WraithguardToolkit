@@ -2446,8 +2446,10 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
 
         Args:
             raw: A path to a plugin file or a folder. A plugin file joins the
-                custom subset; a directory joins the data paths. Anything else is
-                reported and ignored.
+                custom subset (and its containing folder joins the data paths,
+                so the plugin has somewhere to actually be found); a directory
+                joins the data paths on its own. Anything else is reported and
+                ignored.
         """
         path = raw.strip().strip("{}").strip()
         if not path:
@@ -2462,6 +2464,36 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                 added=_("Added plugin"),
                 dupe=_("Already added"),
             )
+            # A bare content= line is useless without a data= folder that
+            # actually contains the file -- OpenMW resolves plugins by
+            # searching data= dirs, not from wherever they happened to be
+            # dragged from. basename_if_plugin() above already discarded that
+            # location, so it has to be captured here, before it's gone, same
+            # as a folder drop would record it.
+            #
+            # Only when `path` actually named a folder, though: a bare
+            # filename with no directory component (e.g. a plugin listed by
+            # name only in a subset file, or a unit test exercising just the
+            # classification) has Path(...).parent == Path('.'), which always
+            # exists -- treating that as "the folder" would silently add the
+            # current working directory as a data path.
+            has_dir_component = "/" in path or "\\" in path
+            parent = Path(path).parent
+            if has_dir_component and parent.is_dir():
+                abspath = os.path.abspath(str(parent))  # noqa: PTH100 -- match scan (no symlink resolve)
+                self._record_manual(
+                    abspath,
+                    self._manual_data_dirs,
+                    key=normalize_data_path(abspath),
+                    keyed=normalize_data_path,
+                    added=_("Added data folder"),
+                    dupe=_("Already added"),
+                    hint=(
+                        ""
+                        if self.sort_data_paths_var.get()
+                        else _("  Tick 'Sort data= paths too' to place it.")
+                    ),
+                )
             return
         p = Path(path)
         if p.is_dir():
