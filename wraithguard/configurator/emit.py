@@ -500,6 +500,18 @@ def generate_customizations_toml(
                 elif d.get("before"):
                     out.append(f"before = {toml_value(d['before'])}")
                     _anchors.append(d["before"])
+                else:
+                    # A manually added/dropped folder has no anchor syntax of
+                    # its own -- only --sort-data-paths works one out. Without
+                    # this, the block above is written with no before/after
+                    # at all: valid TOML, but momw-configurator has nothing to
+                    # place it against, and nothing here or on the console
+                    # ever said so. Mirrors the warning the sorted branch
+                    # already gives for the equivalent "no anchor found" case.
+                    out.append(
+                        "# WARNING: no anchor for this path -- pass --sort-data-paths "
+                        "(or tick 'Sort data= paths too') to place it"
+                    )
                 out.append("")
 
         # 2) CONTENT INSERTS SECOND
