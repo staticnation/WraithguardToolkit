@@ -17,7 +17,7 @@ from wraithguard.tracing import trace
 
 if TYPE_CHECKING:
     import queue
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
     from typing import TextIO
 
 # ---------------------------------------------------------------------------
@@ -199,13 +199,14 @@ class PathField:
         filetypes: tuple = (("All files", "*.*"),),
         on_drop_extra: Callable[[tuple[str, ...]], None] | None = None,
         tooltip: str | None = None,
-        extra_button: tuple | None = None,
+        extra_button: tuple | Sequence[tuple] | None = None,
     ) -> None:
         """Build the row inside ``parent`` at grid ``row``.
 
         browse_kind: 'open', 'save', or 'dir'.
         extra_button: optional (text, command, tooltip) for a button placed to
-        the right of Browse (e.g. a 'Scan...' action on the subset-file row).
+        the right of Browse (e.g. a 'Scan...' action on the subset-file row),
+        or a sequence of such tuples for more than one.
         """
         self.var = var
         label_widget = ttk.Label(parent, text=label)
@@ -226,19 +227,27 @@ class PathField:
                 var.set(path)
 
         self.extra_btn = None
+        self.extra_btns: list[ttk.Button] = []
         if extra_button:
+            # One (text, cmd, tip) tuple, or a sequence of them -- text is
+            # always a str and a spec is never one, so checking the first
+            # element tells the two shapes apart unambiguously.
+            specs = [extra_button] if isinstance(extra_button[0], str) else list(extra_button)
             # keep everything inside column 2 (a small button bar) so rows that
             # span columns 0-2 below still line up -- no stray 4th column
             btnbar = ttk.Frame(parent)
             btnbar.grid(row=row, column=2, padx=(8, 0), pady=4, sticky="e")
             browse_btn = ttk.Button(btnbar, text=_("Browse..."), command=browse)
             browse_btn.pack(side="left")
-            ex_text, ex_cmd = extra_button[0], extra_button[1]
-            ex_tip = extra_button[2] if len(extra_button) > 2 else None
-            self.extra_btn = ttk.Button(btnbar, text=ex_text, command=ex_cmd)
-            self.extra_btn.pack(side="left", padx=(6, 0))
-            if ex_tip:
-                add_tooltip(self.extra_btn, ex_tip)
+            for spec in specs:
+                ex_text, ex_cmd = spec[0], spec[1]
+                ex_tip = spec[2] if len(spec) > 2 else None
+                btn = ttk.Button(btnbar, text=ex_text, command=ex_cmd)
+                btn.pack(side="left", padx=(6, 0))
+                if ex_tip:
+                    add_tooltip(btn, ex_tip)
+                self.extra_btns.append(btn)
+            self.extra_btn = self.extra_btns[0]  # back-compat: the single-button case
         else:
             browse_btn = ttk.Button(parent, text=_("Browse..."), command=browse)
             browse_btn.grid(row=row, column=2, padx=(8, 0), pady=4)
