@@ -533,7 +533,7 @@ class TestManualSubsetAdditions:
 
 
 class TestClearScanMemory:
-    """The 'Clear Memory' button in the pinned utility row next to Help.
+    """The 'Clear Memory' button next to Scan... on the subset-file row.
 
     _manual_plugins/_manual_data_dirs (TestManualSubsetAdditions above) and an
     in-memory scan result are the one kind of state this program holds that is
@@ -652,19 +652,18 @@ class TestClearScanMemory:
         assert "manual data folder" not in calls[0][1]
         assert host._scanned_subset_lines is None
 
-    def test_the_button_exists_next_to_help_and_is_pinned(self, app: Any) -> None:
-        """Clear Memory stays beside Help, outside the scrollable controls area.
+    def test_the_button_exists_next_to_scan(self, app: Any) -> None:
+        """Logic with no way to reach it from the screen helps no one.
 
         Args:
             app: The application.
         """
-        assert app.clear_memory_button.cget("text") == "Clear Memory"
-        assert app.help_btn.cget("text") == "Help"
-        assert str(app.clear_memory_button.cget("command")).strip()
-        assert str(app.help_btn.cget("command")).strip()
-        assert str(app.clear_memory_button.cget("state")) != "disabled"
-        assert app.clear_memory_button.master is app.help_btn.master
-        assert not _is_descendant(app.clear_memory_button, _controls_content(app))
+        buttons = app.subset_file_field.extra_btns
+        assert len(buttons) == 2, "expected Scan... and Clear Memory next to it"
+        scan_btn, clear_btn = buttons
+        assert scan_btn.cget("text") == "Scan..."
+        assert clear_btn.cget("text") == "Clear Memory"
+        assert str(clear_btn.cget("command")).strip(), "Clear Memory has no command bound"
 
 
 class TestActionButtons:
@@ -686,10 +685,7 @@ class TestActionButtons:
         "tes3cmd_button": False,
         "savecheck_button": False,
         "backups_button": False,
-        # Both live in the log toolbar rather than the controls action bar,
-        # but they're plain, always-enabled buttons like the rest here.
-        "clear_memory_button": False,
-        "help_btn": False,
+        "help_button": False,
     }
 
     def test_every_button_exists(self, app: Any) -> None:
@@ -750,207 +746,14 @@ class TestControlsLayout:
     def test_the_controls_panel_uses_consecutive_rows(self, app: Any) -> None:
         """A gap means a panel went somewhere unintended.
 
-        Anchored on the scrollable frame ``_build_controls`` actually grids
-        into (see ``_controls_content``), not the canvas that wraps it.
-        Clear Memory and Help live in the log panel's own toolbar, outside
-        this stack entirely; everything gridded here is the scrollable
-        controls content.
-
         Args:
             app: The application.
         """
-        parent = _controls_content(app)
+        parent = app.sort_button.master.master.master
         rows = sorted({row for row, _column in grid_cells(parent)})
         if not rows:  # pragma: no cover - layout differs from the expected nesting
-            pytest.skip("controls frame not found")
+            pytest.skip("controls frame not found by walking up from the Sort button")
         assert rows == list(range(min(rows), max(rows) + 1)), f"gap in the control rows: {rows}"
-
-    def test_run_and_tool_actions_live_inside_scrollable_controls(self, app: Any) -> None:
-        """The large action set should scroll with the controls, not pin the bottom."""
-        expected = {
-            "sort_button",
-            "export_button",
-            "conflicts_button",
-            "cellmap_button",
-            "resource_button",
-            "mergedlands_button",
-            "merge_settings_button",
-            "lint_button",
-            "tes3cmd_button",
-            "savecheck_button",
-            "backups_button",
-        }
-        for name in expected:
-            button = getattr(app, name)
-            assert _is_descendant(button, _controls_content(app)), name
-
-    def test_only_clear_memory_and_help_are_pinned(self, app: Any) -> None:
-        """Clear Memory and Help sit in the log toolbar, not the scrollable controls.
-
-        They're not alone in that row -- Clear Log, Save Log As, the theme
-        picker and Import Theme share it too -- so this checks the invariant
-        that actually matters: wherever the two of them live, it never ends
-        up nested inside the part of the window that scrolls.
-        """
-        pinned = app.clear_memory_button.master
-        assert app.help_btn.master is pinned
-        assert not _is_descendant(pinned, _controls_content(app))
-
-class TestControlsFrameScrolls:
-    """controls_frame must never clip content again, however tight the pane.
-
-    Written after the Options panel -- the last thing gridded into
-    controls_frame -- turned out to be exactly what got clipped next on a
-    Steam Deck's 1280x800, following an earlier round of one-off fixes for
-    individual clipped sections. A structural check that a canvas exists
-    would have passed even if the canvas never actually became scrollable;
-    these size the pane down for real and confirm both that the content
-    truly would have overflowed it and that scrolling actually reaches the
-    rest, the same standard TestThreeDButtonsAreReachable holds itself to.
-    """
-
-    def test_controls_frame_wraps_a_scrollable_canvas(self, app: Any) -> None:
-        """The structural half: a canvas+scrollbar viewport, not a bare grid.
-
-        Args:
-            app: The application.
-        """
-        children = _controls_scroll_container(app).winfo_children()
-        classes = [child.winfo_class() for child in children]
-        assert "Canvas" in classes, classes
-        assert any(cls in ("TScrollbar", "Scrollbar") for cls in classes), classes
-
-    @staticmethod
-    def _sized_at_deck_resolution(fresh_app: Any) -> Any:
-        """Give ``fresh_app`` real, on-screen pixel geometry at 1280x800.
-
-        tk_root is built withdrawn deliberately ("so nothing flashes on
-        screen" -- see its docstring) and nothing in this file has needed
-        real, window-manager-allocated widths/heights before this: a
-        withdrawn root's own geometry() request does not reliably propagate
-        down to winfo_height() on its children even after update(), which is
-        exactly the pixel measurement these tests need. Callers must
-        re-withdraw when done, matching what every other test here expects
-        of tk_root between tests.
-
-        Args:
-            fresh_app: A freshly built, isolated application.
-
-        Returns:
-            The controls-panel scrolling canvas.
-        """
-        fresh_app.root.geometry("1280x800")
-        fresh_app.root.deiconify()
-        fresh_app.root.update()
-        return _controls_canvas(fresh_app)
-
-    def test_content_taller_than_the_pane_stays_reachable_by_scrolling(
-        self, fresh_app: Any
-    ) -> None:
-        """The actual point: nothing gets clipped, it gets scrolled to instead.
-
-        Args:
-            fresh_app: A freshly built, isolated application.
-        """
-        canvas = self._sized_at_deck_resolution(fresh_app)
-        try:
-            region = [int(n) for n in str(canvas.cget("scrollregion")).split()]
-            assert len(region) == 4, f"scrollregion never got set: {canvas.cget('scrollregion')!r}"
-            content_height = region[3] - region[1]
-            # The regression this guards: on a short-enough screen the pane is
-            # squeezed below the content's natural height, which is exactly
-            # the situation a plain (non-scrolling) frame would have clipped.
-            assert content_height > canvas.winfo_height(), (
-                f"content ({content_height}px) fit the pane ({canvas.winfo_height()}px) "
-                "outright -- this test needs a screen short enough to force scrolling"
-            )
-            # The production wheel handler uses ``units``.  Tk silently does
-            # nothing for unit scrolling when a canvas has yscrollincrement=0,
-            # so verify the helper actually configured a usable unit size.
-            assert int(canvas.cget("yscrollincrement")) > 0
-            before = canvas.yview()
-            canvas.yview_scroll(5, "units")
-            fresh_app.root.update()
-            after = canvas.yview()
-            assert after != before, "scrolling did not move the view at all"
-            assert after[1] > before[1], "scrolling moved the wrong way"
-        finally:
-            fresh_app.root.withdraw()
-
-    def test_a_field_still_fills_the_available_width(self, fresh_app: Any) -> None:
-        """The canvas wrapper must not turn column-weighted fields static.
-
-        _build_controls relies on ``top.columnconfigure(1, weight=1)`` for
-        entry fields (openmw.cfg, customizations.toml, ...) to stretch with
-        the window; the inner frame living inside a canvas item rather than
-        being gridded straight into its parent is exactly the kind of change
-        that quietly breaks that.
-
-        Args:
-            fresh_app: A freshly built, isolated application.
-        """
-        canvas = self._sized_at_deck_resolution(fresh_app)
-        try:
-            entry = fresh_app.subset_file_field.entry
-            # A few pixels of grid padding aside, the entry should span
-            # essentially the same width as the canvas it scrolls inside of
-            # -- not the width it would have wanted from its own text alone.
-            assert entry.winfo_width() > canvas.winfo_width() * 0.5, (
-                entry.winfo_width(),
-                canvas.winfo_width(),
-            )
-        finally:
-            fresh_app.root.withdraw()
-
-
-def _controls_canvas(app: Any) -> Any:
-    """The Canvas that scrolls the controls panel.
-
-    ``_build_widgets`` keeps only ``self.controls_window`` -- a canvas *item
-    id* (an int), not a widget -- so neither the canvas nor the frames
-    around it are reachable as ``App`` attributes. Found structurally
-    instead: walk up from a known controls-panel button until a ``Canvas``
-    ancestor turns up.
-
-    Args:
-        app: The application (or anything sharing its widget tree).
-
-    Returns:
-        The controls-panel Canvas.
-    """
-    widget = app.sort_button
-    while widget is not None:
-        if widget.winfo_class() == "Canvas":
-            return widget
-        widget = widget.master
-    raise AssertionError("no Canvas found walking up from sort_button")
-
-
-def _controls_scroll_container(app: Any) -> Any:
-    """The frame holding the controls Canvas side by side with its Scrollbar."""
-    return _controls_canvas(app).master
-
-
-def _controls_content(app: Any) -> Any:
-    """The scrollable frame ``_build_controls`` actually grids widgets into.
-
-    This is the canvas's one window-item child -- what the docstrings in
-    this file call ``controls_inner``, though nothing in the application
-    itself uses that name.
-    """
-    children = _controls_canvas(app).winfo_children()
-    assert len(children) == 1, f"expected exactly one canvas window child, got {children}"
-    return children[0]
-
-
-def _is_descendant(widget: Any, ancestor: Any) -> bool:
-    """Return whether widget is nested below ancestor in the Tk widget tree."""
-    current = widget
-    while current is not None:
-        if current is ancestor:
-            return True
-        current = getattr(current, "master", None)
-    return False
 
 
 def _grid_containers(widget: Any) -> Iterator[Any]:

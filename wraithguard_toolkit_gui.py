@@ -97,6 +97,13 @@ except ImportError:
         "On Windows/Mac's python.org installers, tkinter is included by default."
     )
 
+def resource_path(relative_path):
+    """Get absolute path to resource, works for development and PyInstaller bundles."""
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
 
 # Inline HTML rendering for the cell map is optional. tkinterweb is PREFERRED --
 # its HtmlFrame.load_file reads the map from disk (bounded memory) and renders the
@@ -208,6 +215,7 @@ from wraithguard.gui.widgets import (  # noqa: E402
     QueueWriter,
     add_tooltip,
     attach_typeahead,
+    make_scrollable_y,
 )
 from wraithguard.net import (  # noqa: E402
     PLUGIN_ORDER_URLS,
@@ -904,6 +912,14 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         """Build the whole application UI on ``root``."""
         self.root = root
         root.title("Wraithguard Toolkit")
+        # Safely attempt to load the window icon
+        try:
+            icon_path = resource_path("wraithguard_toolkit_icon.ico")
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except Exception as e:
+            # Log or silently bypass if the icon file is missing
+            print(f"Warning: Could not load window icon: {e}", file=sys.stderr)
         root.geometry("1320x900")
         root.minsize(1000, 620)
 
@@ -1150,7 +1166,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
 
     # -- layout ------------------------------------------------------------
 
-    def _paned(self, parent: tk.Misc, orient: str) -> tk.PanedWindow:
+    def _paned(self, parent: tk.Misc, orient: str, bg: str | None = None) -> tk.PanedWindow:
         """Build a themed tk.PanedWindow with a draggable grip.
 
         Plain tk, not ttk (ttk's has no visible grip), styled to
@@ -1163,9 +1179,8 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             sashwidth=8,
             sashrelief="flat",
             showhandle=False,
-            bg=DARK["bg"],
             bd=0,
-            background=DARK["border"],
+            background=bg or DARK["border"],
             sashpad=0,
         )
 
@@ -1192,6 +1207,10 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             bd=0,
             takefocus=0,
         )
+        # marks this as a pane-divider grip so theme.py's restyle walk only
+        # repaints grips to btn_bg -- without this, every plain tk.Canvas in
+        # the app (e.g. the scrolling controls_canvas) gets mistaken for one
+        grip._is_paned_grip = True  # type: ignore[attr-defined]
         if horizontal:  # three vertical lines (drag left/right)
             for x in (w // 2 - 3, w // 2, w // 2 + 3):
                 grip.create_line(x, 5, x, h - 5, fill=DARK["fg_dim"])
@@ -1279,9 +1298,66 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         right_pane = self._paned(main_pane, "vertical")
         main_pane.add(right_pane, minsize=420, width=760, stretch="always")
 
-        controls_frame = ttk.Frame(right_pane, padding=(6, 0, 0, 0))
+        # Wrap controls_frame in a container with a scrollbar
+        controls_container = ttk.Frame(right_pane)
+        controls_container.columnconfigure(0, weight=1)
+        controls_container.rowconfigure(0, weight=1)
+        right_pane.add(controls_container, minsize=360)
+
+        # Create a canvas with a scrollbar for the controls
+        #
+        # bg matches the chrome background directly. (Previously this looked
+        # up "TFrame" background from the live ttk style instead of reading
+        # DARK["bg"], on the theory that the two could drift apart -- in
+        # practice that lookup could return a stale/wrong ttk state value
+        # depending on theme, which is worse than just trusting DARK, the
+        # single source of truth every other plain-tk widget in the app
+        # already reads from.)
+        canvas_bg = DARK["bg"]
+        controls_canvas = tk.Canvas(controls_container, bg=canvas_bg, bd=0, highlightthickness=0)
+
+        controls_scroll = ttk.Scrollbar(controls_container, orient="vertical", command=controls_canvas.yview)
+        controls_canvas.configure(yscrollcommand=controls_scroll.set, yscrollincrement=24)
+        controls_scroll.grid(row=0, column=1, sticky="ns")
+        controls_canvas.grid(row=0, column=0, sticky="nsew")
+
+        # Create a frame inside the canvas for the controls
+        controls_frame = ttk.Frame(controls_canvas, padding=(6, 0, 0, 0))
         self._build_controls(controls_frame)
-        right_pane.add(controls_frame, minsize=360)
+
+        # Configure the canvas to scroll the frame
+        controls_frame.bind("<Configure>", lambda e: controls_canvas.configure(scrollregion=controls_canvas.bbox("all")))
+        self.controls_window = controls_canvas.create_window((0, 0), window=controls_frame, anchor="nw")
+        controls_canvas.bind("<Configure>", lambda e: controls_canvas.itemconfig(self.controls_window, width=e.width))
+        
+        # Bind mousewheel to scroll the canvas -- only while the pointer is
+        # actually over it. bind_all with no unbind (the previous version)
+        # hijacks the wheel for every widget in the app, permanently, the
+        # moment this frame is built. Button-4/5 are X11's wheel events (incl.
+        # Steam Deck desktop mode); they carry no `delta` at all, unlike
+        # <MouseWheel> (Windows/Mac), so both need handling. All three go
+        # through "units" scrolling, which relies on the yscrollincrement set
+        # above -- Tk silently no-ops unit scrolling when it's left at 0.
+        def _controls_wheel(event: tk.Event) -> None:
+            if event.num == 4:
+                controls_canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                controls_canvas.yview_scroll(1, "units")
+            else:
+                controls_canvas.yview_scroll(-1 * (event.delta // 120), "units")
+
+        def _bind_controls_wheel(_event: object = None) -> None:
+            controls_canvas.bind_all("<MouseWheel>", _controls_wheel)
+            controls_canvas.bind_all("<Button-4>", _controls_wheel)
+            controls_canvas.bind_all("<Button-5>", _controls_wheel)
+
+        def _unbind_controls_wheel(_event: object = None) -> None:
+            controls_canvas.unbind_all("<MouseWheel>")
+            controls_canvas.unbind_all("<Button-4>")
+            controls_canvas.unbind_all("<Button-5>")
+
+        controls_canvas.bind("<Enter>", _bind_controls_wheel)
+        controls_canvas.bind("<Leave>", _unbind_controls_wheel)
 
         log_container = ttk.Frame(right_pane, padding=(6, 6, 0, 0))
         self._build_log(log_container)
@@ -1415,17 +1491,8 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                     "(plus its plugins), then that branch isn't descended further. Whether "
                     "the result is saved to a .txt (and loaded here) or just kept in memory "
                     "for this session is set by the 'Create subset text document' option.",
-                ),
-                (
-                    "Clear Memory",
-                    self._clear_scan_memory,
-                    "Forget every plugin/folder added by hand (drag-drop or the Add "
-                    "buttons below) and any scan result held only in memory (not saved "
-                    "to a .txt) -- none of that is shown anywhere on screen, and it "
-                    "otherwise keeps accumulating for the rest of the session. Does not "
-                    "touch this field or anything on disk.",
-                ),
-            ),
+        ),
+        )
         )
 
     def _build_output_fields(self, top: tk.Misc, start_row: int) -> None:
@@ -1902,15 +1969,6 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             "(.preclean.bak, .masterfix.bak, name~1.esp, timestamped .bak / .backup "
             "copies) across the data folders, with restore/delete.",
         )
-        self.help_button = _action_button(
-            row2,
-            "Help",
-            self.on_help,
-            "Open the program's own documentation -- the Quick start (what to click, in "
-            "order) or the Read me (every option, in detail) -- rendered as a readable "
-            "page with a contents sidebar. Works offline; nothing is downloaded.",
-            pad=(12, 6),
-        )
 
     def _build_log(self, log_container: tk.Misc) -> None:
         log_container.columnconfigure(0, weight=1)
@@ -1921,7 +1979,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
 
-        self.log_text = scrolledtext.ScrolledText(
+        self.log_text = tk.Text(
             log_frame,
             wrap="word",
             font=("TkFixedFont", 10),
@@ -1935,7 +1993,16 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             highlightbackground=DARK["border"],
             highlightthickness=1,
         )
-        self.log_text.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        self.log_text.grid(row=0, column=0, sticky="nsew", padx=(6, 0), pady=6)
+
+        log_scroll = ttk.Scrollbar(
+            log_frame,
+            orient="vertical",
+            command=self.log_text.yview,
+        )
+        log_scroll.grid(row=0, column=1, sticky="ns", padx=(0, 6), pady=6)
+
+        self.log_text.configure(yscrollcommand=log_scroll.set)
         add_tooltip(
             self.log_text,
             _(
@@ -2000,6 +2067,32 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                 "syntax-highlighting or chriskempson/base16 scheme repos). Window colors "
                 "not given explicitly are derived from the background. Imported themes are "
                 "saved and appear in the dropdown from then on."
+            ),
+        )
+
+        # Add Help and Clear Memory buttons to the log panel
+        self.clear_memory_button = ttk.Button(
+            log_btns, text=_("Clear Memory"), command=self._clear_scan_memory
+        )
+        self.clear_memory_button.pack(side="left", padx=(16, 4))
+        add_tooltip(
+            self.clear_memory_button,
+            _(
+                "Forget every plugin/folder added by hand (drag-drop or the Add "
+                "buttons) and any scan result held only in memory (not saved to a .txt) -- "
+                "none of that is shown anywhere on screen, and it otherwise keeps "
+                "accumulating for the rest of the session. Does not touch any files."
+            ),
+        )
+
+        self.help_btn = ttk.Button(log_btns, text=_("Help"), command=self.on_help)
+        self.help_btn.pack(side="left", padx=(4, 0))
+        add_tooltip(
+            self.help_btn,
+            _(
+                "Open the program's own documentation -- the Quick start (what to click, in "
+                "order) or the Read me (every option, in detail) -- rendered as a readable "
+                "page with a contents sidebar. Works offline; nothing is downloaded."
             ),
         )
 
@@ -4025,9 +4118,13 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         win.title(_("New mlox rule"))
         win.configure(bg=DARK["bg"])
         win.geometry("900x760")
-        win.minsize(780, 640)
-        top = ttk.Frame(win, padding=10)
-        top.pack(fill="both", expand=True)
+        win.minsize(560, 420)
+        # The form easily outgrows a small screen (plugin list + message box +
+        # live preview all want vertical room at once), so it's built on a
+        # scrollable canvas rather than assuming the window is always tall
+        # enough -- see make_scrollable_y.
+        container, _rm_canvas, top = make_scrollable_y(win, bg=DARK["bg"])
+        container.pack(fill="both", expand=True, padx=10, pady=10)
         top.columnconfigure(1, weight=1)
 
         self._rm_build_file_row(top)
@@ -4650,6 +4747,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             fg=DARK["fg"],
             activebackground=DARK["select"],
             activeforeground=DARK["fg"],
+            bd=0,
+            relief="flat",
+            activeborderwidth=0,
         )
         for filename in HELP_DOCUMENTS:
             label = labels.get(filename, filename)
@@ -4658,7 +4758,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                 command=partial(self._open_document, label, filename),
             )
         try:
-            button = self.help_button
+            button = self.help_btn
             menu.tk_popup(button.winfo_rootx(), button.winfo_rooty() + button.winfo_height())
         finally:
             menu.grab_release()

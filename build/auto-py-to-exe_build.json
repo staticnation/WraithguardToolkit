@@ -100,6 +100,10 @@
   {
    "optionDest": "datas",
    "value": "C:/Users/l33t3/Desktop/subset sort/wraithguardtoolkit//wraithguard/viz/assets;assets/"
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/l33t3/Desktop/subset sort/WraithguardToolkit/wraithguard_toolkit_icon.ico;."
   }
  ],
  "nonPyinstallerOptions": {
