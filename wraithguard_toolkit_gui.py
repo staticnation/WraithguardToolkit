@@ -56,6 +56,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import types
 import webbrowser
@@ -912,11 +913,15 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         """Build the whole application UI on ``root``."""
         self.root = root
         root.title("Wraithguard Toolkit")
-        # Safely attempt to load the window icon
+        # Safely attempt to load the window icon. default= (not the plain
+        # positional form) is what makes every Toplevel this app opens later
+        # -- the rule maker, conflict windows, viewers, etc. -- inherit it
+        # automatically instead of falling back to Tk's generic feather icon;
+        # the positional form only sets it for this one window.
         try:
             icon_path = resource_path("wraithguard_toolkit_icon.ico")
             if os.path.exists(icon_path):
-                self.root.iconbitmap(icon_path)
+                self.root.iconbitmap(default=icon_path)
         except Exception as e:
             # Log or silently bypass if the icon file is missing
             print(f"Warning: Could not load window icon: {e}", file=sys.stderr)
@@ -5247,6 +5252,87 @@ def view_uri(target: str | Path) -> str:
     return str(target) if is_view_url(target) else Path(target).resolve().as_uri()
 
 
+def _apply_windows_icon_to_own_windows(icon_path: str, timeout: float = 8.0) -> None:
+    """Give every top-level window this *process* owns our program icon.
+
+    ``root.iconbitmap(default=...)`` covers every ``tk.Toplevel`` because
+    they all share the main process and its Tk interpreter. The pywebview
+    viewer does not: :func:`_run_pywebview_window` runs in a separate child
+    process (see ``_open_cell_map_pywebview``) so ``webview.start()`` can own
+    its own main thread, and that window is built by WinForms/WebView2, not
+    Tk, so nothing about ``root``'s icon reaches it. pywebview's own
+    ``icon=`` parameter is a documented no-op on Windows -- there it expects
+    the icon baked into the .exe at freeze time, which running from source
+    never gets.
+
+    ``WM_SETICON`` reaches the window directly instead. It is the same
+    message Explorer reads for the taskbar and title bar, and it works on
+    any Win32 window regardless of which toolkit built it -- the same
+    mechanism ``iconbitmap`` itself relies on internally. Matched by owning
+    process id rather than by window title, since a title like "View" or
+    "Cell Map" is not guaranteed unique on someone's desktop.
+
+    Windows-only; a no-op everywhere else. Runs in a background thread
+    (started just before ``webview.start()`` blocks the main thread with its
+    own GUI loop) and gives up quietly after ``timeout`` seconds if no
+    window ever appears -- a slow WebView2 start, or a backend that failed
+    before opening one.
+
+    Args:
+        icon_path: Path to the .ico file to apply.
+        timeout: Seconds to keep polling for the window before giving up.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes as ct
+        from ctypes import wintypes
+    except ImportError:  # pragma: no cover - stdlib, but never worth a crash
+        return
+
+    LR_LOADFROMFILE = 0x00000010
+    IMAGE_ICON = 1
+    WM_SETICON = 0x0080
+    ICON_SMALL = 0
+    ICON_BIG = 1
+
+    user32 = ct.windll.user32
+    try:
+        hicon_big = user32.LoadImageW(None, icon_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+        hicon_small = user32.LoadImageW(None, icon_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+    except OSError:
+        return
+    if not hicon_big and not hicon_small:
+        return
+
+    own_pid = ct.windll.kernel32.GetCurrentProcessId()
+    found: list[int] = []
+
+    @ct.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def _collect(hwnd: int, _lparam: int) -> bool:
+        if user32.IsWindowVisible(hwnd):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ct.byref(pid))
+            if pid.value == own_pid:
+                found.append(hwnd)
+        return True
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and not found:
+        try:
+            user32.EnumWindows(_collect, 0)
+        except OSError:
+            return
+        if not found:
+            time.sleep(0.2)
+
+    for hwnd in found:
+        if hicon_big:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon_big)
+        if hicon_small:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon_small)
+
+
 def _run_pywebview_window(path: str | Path, title: str = "Cell Map") -> None:
     """Open one cell-map file or served page in an OS webview, blocking until closed.
 
@@ -5278,7 +5364,35 @@ def _run_pywebview_window(path: str | Path, title: str = "Cell Map") -> None:
 
         _log(f"pywebview {getattr(webview, '__version__', '?')}: opening {path}")
         webview.create_window(title, view_uri(path), width=1050, height=760)
-        webview.start()
+
+        # A missing/unreadable icon is never worth losing the window over --
+        # kept out of the outer try so it can't be mistaken for a pywebview
+        # failure and send a perfectly good window to the browser fallback.
+        icon_path = None
+        try:
+            candidate = resource_path("wraithguard_toolkit_icon.ico")
+            if os.path.exists(candidate):
+                icon_path = candidate
+        except Exception:  # noqa: BLE001
+            _log("pywebview: icon lookup failed:\n" + traceback.format_exc())
+        if icon_path:
+            # Windows: webview.start(icon=...) is a no-op there, so reach the
+            # window directly once it exists (see _apply_windows_icon_to_own_windows).
+            threading.Thread(
+                target=_apply_windows_icon_to_own_windows, args=(icon_path,), daemon=True
+            ).start()
+
+        try:
+            # GTK/QT (Linux, incl. Steam Deck desktop mode) DO honour this at
+            # runtime, unlike Windows -- see the FAQ note in
+            # _apply_windows_icon_to_own_windows. Caught broadly, not just
+            # TypeError: an older pywebview build might reject the kwarg
+            # outright, and a GTK backend might instead choke on the file
+            # itself -- either way the window still has to open.
+            webview.start(icon=icon_path)
+        except Exception:  # noqa: BLE001
+            _log("pywebview: start(icon=...) failed, retrying without one:\n" + traceback.format_exc())
+            webview.start()
         _log("pywebview: window closed cleanly")
     except Exception:  # noqa: BLE001
         # child-process main: logs the traceback, then falls back to the browser
