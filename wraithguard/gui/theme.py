@@ -1423,17 +1423,8 @@ def _restyle_syntax_tags(widget: tk.Text) -> None:
         pass  # the widget can vanish mid-operation (window closed); cosmetic, never fatal
 
 
-def _restyle_combobox_popdown(widget: tk.Misc) -> None:
-    """Recolor a combobox's dropdown list, if it has been created.
-
-    The dropdown is a plain ``tk::Listbox`` that only reads the option
-    database when it is first built, so a live one must be reconfigured
-    directly through Tk (there is no ttk.Style route to it).
-    """
-    try:
-        popdown = str(widget.tk.call("ttk::combobox::PopdownWindow", widget))
-    except tk.TclError:
-        return
+def _apply_popdown_colors(widget: tk.Misc, popdown: str) -> None:
+    """Push the current chrome colors onto one already-existing popdown."""
     listbox_path = popdown + ".f.l"
     for opt, val in (
         ("-background", DARK["field_bg"]),
@@ -1445,6 +1436,36 @@ def _restyle_combobox_popdown(widget: tk.Misc) -> None:
             widget.tk.call(listbox_path, "configure", opt, val)
         except tk.TclError:
             pass  # the widget can vanish mid-operation (window closed); cosmetic, never fatal
+
+
+def _restyle_combobox_popdown(widget: tk.Misc) -> None:
+    """Recolor a combobox's dropdown list, if it has been created.
+
+    The dropdown is a plain ``tk::Listbox`` that only reads the option
+    database when it is first built, so a live one must be reconfigured
+    directly through Tk (there is no ttk.Style route to it). ttk::combobox
+    also re-asserts some of the popdown's own options -- notably the
+    selection colors -- itself each time the dropdown is posted, discarding
+    whatever we set here the moment it is reopened. So beyond fixing it up
+    right now, this also binds the popdown's <Map> (fired every time it is
+    shown, not just once) to reapply the colors on every future open --
+    bound only once per popdown, guarded by a marker attribute, so repeated
+    theme-switch calls to this function don't stack duplicate bindings.
+    """
+    try:
+        popdown = str(widget.tk.call("ttk::combobox::PopdownWindow", widget))
+    except tk.TclError:
+        return
+    _apply_popdown_colors(widget, popdown)
+    try:
+        popdown_widget = widget.nametowidget(popdown)
+    except (tk.TclError, KeyError):
+        return
+    if not getattr(popdown_widget, "_chrome_map_bound", False):
+        popdown_widget.bind(
+            "<Map>", lambda _e, w=widget, p=popdown: _apply_popdown_colors(w, p), add="+"
+        )
+        popdown_widget._chrome_map_bound = True  # type: ignore[attr-defined]
 
 
 def _configure_each(widget: tk.Misc, options: dict) -> None:
@@ -1484,13 +1505,19 @@ def _restyle_plain_live(w: tk.Misc) -> bool:
     elif isinstance(w, tk.Listbox):
         style_plain_widget(w)
     elif isinstance(w, tk.Canvas):
-        # the pane-divider grips: repaint the canvas and its drawn lines
-        _configure_each(w, {"bg": DARK["btn_bg"], "highlightbackground": DARK["border"]})
-        try:
-            for item in w.find_all():
-                w.itemconfigure(item, fill=DARK["fg_dim"])
-        except tk.TclError:
-            pass  # the widget can vanish mid-operation (window closed); cosmetic, never fatal
+        if getattr(w, "_is_paned_grip", False):
+            # the pane-divider grips: repaint the canvas and its drawn lines
+            _configure_each(w, {"bg": DARK["btn_bg"], "highlightbackground": DARK["border"]})
+            try:
+                for item in w.find_all():
+                    w.itemconfigure(item, fill=DARK["fg_dim"])
+            except tk.TclError:
+                pass  # the widget can vanish mid-operation (window closed); cosmetic, never fatal
+        else:
+            # any other plain canvas (e.g. the scrollable controls_canvas) is
+            # a container, not a grip -- it should match the ordinary panel
+            # background, not the grip's btn_bg
+            _configure_each(w, {"bg": DARK["bg"]})
     elif isinstance(w, tk.Scrollbar):
         # the scrollbar ScrolledText builds for itself is plain tk
         _configure_each(
@@ -1502,6 +1529,10 @@ def _restyle_plain_live(w: tk.Misc) -> bool:
                 "highlightbackground": DARK["bg"],
             },
         )
+    elif isinstance(w, tk.PanedWindow):
+        # the draggable split containers built by App._paned(); plain tk, so
+        # a ttk theme switch never reaches this on its own
+        _configure_each(w, {"background": DARK["border"]})
     elif isinstance(w, tk.Label):
         # tooltip label
         _configure_each(w, {"background": DARK["field_bg"], "foreground": DARK["fg"]})

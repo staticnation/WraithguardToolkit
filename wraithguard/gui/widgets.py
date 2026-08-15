@@ -138,6 +138,189 @@ def add_tooltip(widget: tk.Misc, text: str) -> Tooltip:
 
 
 # ---------------------------------------------------------------------------
+# scrollable containers -- for a form or toolbar row that can outgrow a small
+# window. Plain ttk has no scrollable frame, so both wrap a plain tk.Canvas
+# (which does) around an inner ttk.Frame the caller builds real content into.
+# Mirrors the pattern the main window already uses for its controls panel.
+# ---------------------------------------------------------------------------
+
+
+def make_scrollable_y(parent: tk.Misc, *, bg: str) -> tuple[ttk.Frame, tk.Canvas, ttk.Frame]:
+    """Build a vertically scrollable container for a tall form.
+
+    The caller packs/grids the returned ``container`` into place and builds
+    real content into the returned inner frame with ordinary ``grid``/
+    ``pack`` calls, exactly as if it were the direct child of ``parent``. The
+    canvas tracks the inner frame's height as its scroll region and matches
+    its own width to the container's, so content reflows on resize instead
+    of being clipped. The mouse wheel scrolls it while the pointer is over
+    it, and only then -- it doesn't hijack the wheel for the rest of the app.
+
+    Args:
+        parent: Widget to build the scrollable container into.
+        bg: Canvas background, matching the surrounding chrome so the strip
+            of canvas outside the inner frame (before it's stretched to fit)
+            never reads as a mismatched patch of color.
+
+    Returns:
+        ``(container, canvas, inner_frame)`` -- build content into
+        ``inner_frame``.
+    """
+    container = ttk.Frame(parent)
+    container.columnconfigure(0, weight=1)
+    container.rowconfigure(0, weight=1)
+    canvas = tk.Canvas(container, bg=bg, bd=0, highlightthickness=0)
+    scroll = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scroll.set, yscrollincrement=24)
+    scroll.grid(row=0, column=1, sticky="ns")
+    canvas.grid(row=0, column=0, sticky="nsew")
+
+    inner = ttk.Frame(canvas)
+    inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+    window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+    canvas.bind("<Configure>", lambda e: canvas.itemconfig(window_id, width=e.width))
+
+    def _wheel(event: tk.Event) -> None:
+        """Scroll the canvas one step per wheel notch.
+
+        Args:
+            event: The wheel event -- ``num`` 4/5 on X11 (no ``delta``),
+                ``delta`` elsewhere (Windows/Mac).
+        """
+        if event.num == 4:
+            canvas.yview_scroll(-1, "units")
+        elif event.num == 5:
+            canvas.yview_scroll(1, "units")
+        else:
+            canvas.yview_scroll(-1 * (event.delta // 120), "units")
+
+    def _bind_wheel(_event: object = None) -> None:
+        """Hook the wheel to this canvas while the pointer is over it.
+
+        Args:
+            _event: The Tk event, unused -- present because this is bound.
+        """
+        canvas.bind_all("<MouseWheel>", _wheel)
+        canvas.bind_all("<Button-4>", _wheel)
+        canvas.bind_all("<Button-5>", _wheel)
+
+    def _unbind_wheel(_event: object = None) -> None:
+        """Release the wheel binding once the pointer leaves the canvas.
+
+        Args:
+            _event: The Tk event, unused -- present because this is bound.
+        """
+        canvas.unbind_all("<MouseWheel>")
+        canvas.unbind_all("<Button-4>")
+        canvas.unbind_all("<Button-5>")
+
+    canvas.bind("<Enter>", _bind_wheel)
+    canvas.bind("<Leave>", _unbind_wheel)
+    return container, canvas, inner
+
+
+def make_scrollable_x(parent: tk.Misc, *, bg: str) -> tuple[ttk.Frame, tk.Canvas, ttk.Frame]:
+    """Build a horizontally scrollable single-row strip.
+
+    For a toolbar or option row that can hold more than a narrow window can
+    show at once. Packed children that run off the edge of a plain
+    ``ttk.Frame`` just become unreachable -- pack never wraps -- so this
+    puts them on a canvas with a horizontal scrollbar instead. The caller
+    packs/grids the returned ``container`` and builds content into the
+    inner frame with ordinary ``pack(side="left"/"right", ...)``. Unlike
+    :func:`make_scrollable_y`, the canvas's *height* tracks its content
+    (a single row should never be taller than the row itself).
+
+    The inner frame is stretched to at least the canvas's own visible
+    width, so ``side="right"`` children still pin to the actual visible
+    right edge when everything fits -- same as an ordinary packed row.
+    It's only ever allowed to grow *wider* than that, never narrower: if it
+    were simply clamped to the canvas's width, pack would fall back to
+    squeezing/clipping whatever doesn't fit, which is the exact bug this
+    helper exists to avoid. Growing past the visible width is what puts the
+    rest within a scroll instead.
+
+    Args:
+        parent: Widget to build the scrollable strip into.
+        bg: Canvas background, matching the surrounding chrome.
+
+    Returns:
+        ``(container, canvas, inner_frame)`` -- build content into
+        ``inner_frame``.
+    """
+    container = ttk.Frame(parent)
+    canvas = tk.Canvas(container, bg=bg, bd=0, highlightthickness=0)
+    scroll = ttk.Scrollbar(container, orient="horizontal", command=canvas.xview)
+    canvas.configure(xscrollcommand=scroll.set, xscrollincrement=24)
+    canvas.pack(fill="x", expand=True)
+    scroll.pack(fill="x")
+
+    inner = ttk.Frame(canvas)
+    window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+    def _resize(_event: object = None) -> None:
+        """Refit the scroll region/height, and the row's width, to content.
+
+        Args:
+            _event: The Tk event, unused -- present because this is bound.
+        """
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        # content-driven height: grows/shrinks with what's actually packed
+        # into the row, never with the (irrelevant, here) canvas width.
+        canvas.configure(height=inner.winfo_reqheight())
+        # never narrower than the canvas's own visible width (so right-side
+        # children stay pinned to the visible edge when there's room), but
+        # never narrower than the content needs either (so nothing clips) --
+        # see the docstring above for why both bounds matter.
+        canvas.itemconfig(window_id, width=max(canvas.winfo_width(), inner.winfo_reqwidth()))
+
+    inner.bind("<Configure>", _resize)
+    canvas.bind("<Configure>", _resize)
+
+    def _wheel(event: tk.Event) -> None:
+        """Scroll the canvas sideways one step per wheel notch.
+
+        Args:
+            event: The wheel event -- ``num`` 4/5 on X11 (no ``delta``),
+                ``delta`` elsewhere (Windows/Mac).
+        """
+        if event.num == 4:
+            canvas.xview_scroll(-1, "units")
+        elif event.num == 5:
+            canvas.xview_scroll(1, "units")
+        else:
+            canvas.xview_scroll(-1 * (event.delta // 120), "units")
+
+    def _bind_wheel(_event: object = None) -> None:
+        """Hook Shift+wheel to this canvas while the pointer is over it.
+
+        Args:
+            _event: The Tk event, unused -- present because this is bound.
+        """
+        # Shift+wheel is the conventional horizontal-scroll gesture, and
+        # deliberately distinct from make_scrollable_y's plain wheel -- a
+        # strip like this routinely sits right above a normal vertically
+        # scrolling tree, and both grabbing the same gesture would fight.
+        canvas.bind_all("<Shift-MouseWheel>", _wheel)
+        canvas.bind_all("<Shift-Button-4>", _wheel)
+        canvas.bind_all("<Shift-Button-5>", _wheel)
+
+    def _unbind_wheel(_event: object = None) -> None:
+        """Release the Shift+wheel binding once the pointer leaves the canvas.
+
+        Args:
+            _event: The Tk event, unused -- present because this is bound.
+        """
+        canvas.unbind_all("<Shift-MouseWheel>")
+        canvas.unbind_all("<Shift-Button-4>")
+        canvas.unbind_all("<Shift-Button-5>")
+
+    canvas.bind("<Enter>", _bind_wheel)
+    canvas.bind("<Leave>", _unbind_wheel)
+    return container, canvas, inner
+
+
+# ---------------------------------------------------------------------------
 # a stdout/stderr-compatible stream that pushes chunks into a thread-safe
 # queue instead of writing to a real terminal, so the worker thread can
 # write freely and the UI thread can drain it on its own schedule

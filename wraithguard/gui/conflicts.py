@@ -31,7 +31,7 @@ from wraithguard.gui.theme import (
     highlight_plain_text_with_html,
     style_json_syntax_tags,
 )
-from wraithguard.gui.widgets import QueueWriter, add_tooltip
+from wraithguard.gui.widgets import QueueWriter, add_tooltip, make_scrollable_x
 from wraithguard.i18n import gettext as _, ngettext
 from wraithguard.images.compare import Comparison, Verdict, compare_bytes, difference_image
 from wraithguard.images.image import ImageError
@@ -455,8 +455,13 @@ class ConflictWindowsMixin:
         win.title("Data-path Resource Conflicts")
         win.configure(bg=DARK["bg"])
         win.geometry("900x560")
-        top = ttk.Frame(win, padding=8)
-        top.pack(fill="x")
+        # A plain packed row can outgrow a narrow window -- the label alone
+        # can eat most of it -- and pack never wraps, so anything past the
+        # edge becomes unreachable. This puts the row on a horizontally
+        # scrollable strip instead; see make_scrollable_x.
+        top_container, _res_top_canvas, top = make_scrollable_x(win, bg=DARK["bg"])
+        top_container.pack(fill="x")
+        top.configure(padding=8)
         n_sub = sum(1 for c in conflicts if c.get("involves_subset"))
         ttk.Label(
             top,
@@ -472,6 +477,8 @@ class ConflictWindowsMixin:
                 "files": stats.get("files", 0),
                 "involved": n_sub,
             },
+            wraplength=420,
+            justify="left",
         ).pack(side="left")
         self._res_subset_only = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -487,7 +494,15 @@ class ConflictWindowsMixin:
         res_entry = ttk.Entry(res_search, textvariable=self._res_search_var, width=26)
         res_entry.pack(side="left")
         res_entry.bind("<KeyRelease>", lambda _e: self._refill_res_tree())
-        add_tooltip(res_entry, _("Filter by file path or winning folder."))
+        res_entry.bind("<Return>", lambda _e: self._res_search_find())
+        res_entry.bind("<Shift-Return>", lambda _e: self._res_search_find(reverse=True))
+        add_tooltip(
+            res_entry,
+            _(
+                "Filter by file path or winning folder. Enter jumps to the next "
+                "match (Shift+Enter: previous) and scrolls it into view."
+            ),
+        )
         # tree (top) and the detail panel (bottom) live in a draggable vertical
         # split, so the detail box can be resized -- grab the grip to grow it.
         body = self._paned(win, "vertical")
@@ -615,6 +630,38 @@ class ConflictWindowsMixin:
         self._res_export_texture.pack(side="left", padx=(4, 0))
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
         self._refill_res_tree()
+
+    def _res_search_find(self, *, reverse: bool = False) -> None:
+        """Jump the resource-conflict selection to the next/previous match.
+
+        The search box already filters the tree live as you type, so every
+        row visible here already matches -- Enter/Shift+Enter just walks the
+        selection through them one at a time and scrolls each into view, for
+        tabbing through many hits without reaching for the mouse. Wraps
+        around at either end.
+
+        Args:
+            reverse: Walk backward (Shift+Enter) instead of forward (Enter).
+        """
+        tree = getattr(self, "_res_tree", None)
+        if tree is None or not tree.winfo_exists():
+            return
+        children = tree.get_children("")
+        if not children:
+            return
+        current = tree.selection()
+        if current:
+            try:
+                idx = children.index(current[0])
+            except ValueError:
+                idx = -1
+            idx = (idx + (-1 if reverse else 1)) % len(children)
+        else:
+            idx = len(children) - 1 if reverse else 0
+        target = children[idx]
+        tree.selection_set(target)
+        tree.focus(target)
+        tree.see(target)
 
     def _mesh_detail(self, conflict: dict) -> list[str]:
         """Read the meshes behind one selected conflict.
@@ -1397,8 +1444,14 @@ class ConflictWindowsMixin:
         win.configure(bg=DARK["bg"])
         win.geometry("980x680")
 
-        top = ttk.Frame(win, padding=8)
-        top.pack(fill="x")
+        # Both this options row and the button row at the bottom can hold
+        # more controls than a small screen's width -- and a plain packed
+        # row never wraps, so anything past the edge just becomes
+        # unreachable. Both go on horizontally scrollable strips instead of
+        # plain frames; see make_scrollable_x.
+        top_container, _conf_top_canvas, top = make_scrollable_x(win, bg=DARK["bg"])
+        top_container.pack(fill="x")
+        top.configure(padding=8)
         n_sub = sum(1 for c in conflicts if c.get("involves_subset"))
         ttk.Label(
             top,
@@ -1412,6 +1465,8 @@ class ConflictWindowsMixin:
                 "scanned": stats.get("scanned", 0),
                 "involved": n_sub,
             },
+            wraplength=340,
+            justify="left",
         ).pack(side="left")
         self._conf_subset_only = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -1427,7 +1482,15 @@ class ConflictWindowsMixin:
         search_entry = ttk.Entry(search, textvariable=self._conf_search_var, width=26)
         search_entry.pack(side="left")
         search_entry.bind("<KeyRelease>", lambda _e: self._refill_conflict_tree())
-        add_tooltip(search_entry, _("Filter by record type, id, or winning plugin."))
+        search_entry.bind("<Return>", lambda _e: self._conf_search_find())
+        search_entry.bind("<Shift-Return>", lambda _e: self._conf_search_find(reverse=True))
+        add_tooltip(
+            search_entry,
+            _(
+                "Filter by record type, id, or winning plugin. Enter jumps to "
+                "the next match (Shift+Enter: previous) and scrolls it into view."
+            ),
+        )
         self._include_singles_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             top,
@@ -1570,8 +1633,9 @@ class ConflictWindowsMixin:
 
         tree.bind("<<TreeviewSelect>>", lambda _e: self._on_conflict_select())
 
-        btns = ttk.Frame(win, padding=8)
-        btns.pack(fill="x")
+        btns_container, _conf_btns_canvas, btns = make_scrollable_x(win, bg=DARK["bg"])
+        btns_container.pack(fill="x")
+        btns.configure(padding=8)
         ttk.Button(btns, text=_("Save report (CSV)..."), command=self._save_conflicts_csv).pack(
             side="left"
         )
@@ -3121,6 +3185,38 @@ class ConflictWindowsMixin:
         # Reapplying them here rather than at the call sites means a filter can
         # never silently un-say what the summary found.
         self._recolour_conflict_tree()
+
+    def _conf_search_find(self, *, reverse: bool = False) -> None:
+        """Jump the record-conflict selection to the next/previous match.
+
+        The search box already filters the tree live as you type, so every
+        row visible here already matches -- Enter/Shift+Enter just walks the
+        selection through them one at a time and scrolls each into view, for
+        tabbing through many hits without reaching for the mouse. Wraps
+        around at either end.
+
+        Args:
+            reverse: Walk backward (Shift+Enter) instead of forward (Enter).
+        """
+        tree = getattr(self, "_conf_tree", None)
+        if tree is None or not tree.winfo_exists():
+            return
+        children = tree.get_children("")
+        if not children:
+            return
+        current = tree.selection()
+        if current:
+            try:
+                idx = children.index(current[0])
+            except ValueError:
+                idx = -1
+            idx = (idx + (-1 if reverse else 1)) % len(children)
+        else:
+            idx = len(children) - 1 if reverse else 0
+        target = children[idx]
+        tree.selection_set(target)
+        tree.focus(target)
+        tree.see(target)
 
     def _save_conflicts_csv(self) -> None:
         """Write the record conflicts to a CSV the user chooses."""
