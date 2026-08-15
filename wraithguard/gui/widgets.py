@@ -264,6 +264,14 @@ def make_scrollable_x(parent: tk.Misc, *, bg: str) -> tuple[ttk.Frame, tk.Canvas
         Args:
             _event: The Tk event, unused -- present because this is bound.
         """
+        # Without this, a Configure firing mid-layout (e.g. while several
+        # buttons are still being packed in one at a time) can read
+        # winfo_reqheight/reqwidth before Tk has finished computing them for
+        # the row as a whole, locking in a size that's off in both directions
+        # -- the strip then renders visibly cropped (top and bottom, not
+        # just the horizontal edge) until something else happens to trigger
+        # another Configure to correct it.
+        canvas.update_idletasks()
         canvas.configure(scrollregion=canvas.bbox("all"))
         # content-driven height: grows/shrinks with what's actually packed
         # into the row, never with the (irrelevant, here) canvas width.
@@ -276,6 +284,12 @@ def make_scrollable_x(parent: tk.Misc, *, bg: str) -> tuple[ttk.Frame, tk.Canvas
 
     inner.bind("<Configure>", _resize)
     canvas.bind("<Configure>", _resize)
+    # content is added to `inner` after this function returns, so an initial
+    # pass now would just measure an empty frame -- defer one more pass to
+    # after the caller has finished building the row and Tk has processed
+    # the resulting geometry queue, so the very first paint is already
+    # correctly sized instead of waiting for an unrelated Configure to fix it.
+    container.after_idle(_resize)
 
     def _wheel(event: tk.Event) -> None:
         """Scroll the canvas sideways one step per wheel notch.

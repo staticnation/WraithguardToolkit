@@ -505,6 +505,18 @@ class ConflictWindowsMixin:
         )
         # tree (top) and the detail panel (bottom) live in a draggable vertical
         # split, so the detail box can be resized -- grab the grip to grow it.
+        #
+        # btns is built and packed *here*, with side="bottom", before body's
+        # side="top"/expand=True claims the rest of the cavity -- not where
+        # its buttons actually get added below. pack() carves cavity strictly
+        # in call order: an expand=True widget packed before a fixed-size one
+        # greedily claims space that later sibling would have needed, pushing
+        # it past the window's edge on a short window instead of just
+        # shrinking body to make room. Packing btns first from the bottom
+        # reserves its slice up front, so it's the tree/detail split that
+        # gives way on a small screen, never the controls.
+        btns = ttk.Frame(win, padding=8)
+        btns.pack(side="bottom", fill="x")
         body = self._paned(win, "vertical")
         body.pack(fill="both", expand=True, padx=8, pady=(0, 6))
 
@@ -601,8 +613,6 @@ class ConflictWindowsMixin:
             detail.configure(state="disabled")
 
         tree.bind("<<TreeviewSelect>>", on_sel)
-        btns = ttk.Frame(win, padding=8)
-        btns.pack(fill="x")
         ttk.Button(btns, text=_("Save report (CSV)..."), command=self._save_resource_csv).pack(
             side="left"
         )
@@ -1522,6 +1532,20 @@ class ConflictWindowsMixin:
             side="left", padx=(8, 0)
         )
 
+        # btns_container is built and packed *here*, with side="bottom",
+        # before panes' side="top"/expand=True claims the rest of the
+        # cavity -- not where its buttons actually get added below. pack()
+        # carves cavity strictly in call order: an expand=True widget packed
+        # before a fixed-size one greedily claims space that later sibling
+        # would have needed, pushing it past the window's edge on a short
+        # window instead of just shrinking panes to make room. Packing
+        # btns_container first from the bottom reserves its slice up front,
+        # so it's the tree/detail split that gives way on a small screen,
+        # never the buttons.
+        btns_container, _conf_btns_canvas, btns = make_scrollable_x(win, bg=DARK["bg"])
+        btns_container.pack(side="bottom", fill="x")
+        btns.configure(padding=8)
+
         panes = tk.PanedWindow(
             win,
             orient="vertical",
@@ -1633,9 +1657,6 @@ class ConflictWindowsMixin:
 
         tree.bind("<<TreeviewSelect>>", lambda _e: self._on_conflict_select())
 
-        btns_container, _conf_btns_canvas, btns = make_scrollable_x(win, bg=DARK["bg"])
-        btns_container.pack(fill="x")
-        btns.configure(padding=8)
         ttk.Button(btns, text=_("Save report (CSV)..."), command=self._save_conflicts_csv).pack(
             side="left"
         )
