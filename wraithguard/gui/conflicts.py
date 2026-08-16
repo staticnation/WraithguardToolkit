@@ -44,7 +44,7 @@ from wraithguard.nif.bsa import BsaError, normalise
 from wraithguard.nif.geometry import block_tree, world_meshes
 from wraithguard.nif.reader import NifParseError
 from wraithguard.nif.textures import TextureResolver
-from wraithguard.nif.vfs import archives_in, read_mesh
+from wraithguard.nif.vfs import archives_in, loose_index, read_mesh
 from wraithguard.nif.viewer import build_viewer_page
 from wraithguard.patch import FieldChoice, Selection
 from wraithguard.patch.status import ConflictThis
@@ -991,6 +991,14 @@ class ConflictWindowsMixin:
                     return loose.read_bytes()
             except OSError:
                 pass  # unreadable here; the archives below may still hold it
+
+            matched = loose_index(folder).get(wanted)
+            if matched is not None:
+                try:
+                    return matched.read_bytes()
+                except OSError:
+                    pass  # vanished or unreadable between indexing and now
+
             for archive in archives_in(folder):
                 try:
                     data = archive.read(wanted)

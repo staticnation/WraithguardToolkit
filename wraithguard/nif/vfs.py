@@ -38,6 +38,50 @@ LOG: Final = logging.getLogger(__name__)
 #: otherwise pay that for every one of them.
 _ARCHIVES: Final[dict[Path, list[BsaArchive]]] = {}
 
+#: Loose-file index per folder, built the first time a case-sensitive lookup
+#: in that folder misses. Windows and macOS filesystems are case-insensitive,
+#: which is why a great many mods ship a mesh whose on-disk name does not
+#: exactly match how a plugin spells it -- harmless there, and invisible to
+#: whoever packaged the mod. A case-sensitive filesystem (ext4, btrfs -- most
+#: Linux installs, including the Steam Deck) takes that literally and the
+#: file silently fails to resolve, which looks exactly like the file being
+#: absent rather than merely misspelled.
+_LOOSE_INDEX: Final[dict[Path, dict[str, Path]]] = {}
+
+
+def loose_index(folder: Path) -> dict[str, Path]:
+    """Build (once) a normalised-name to real-path map of every loose file.
+
+    Public because the case-insensitivity gap this closes is not specific to
+    meshes: anything that resolves a mod-authored VFS path against a loose
+    file on disk (icons, textures, ...) needs the same fallback, and should
+    share this cache rather than walk the same folder a second time.
+
+    Only paid for a folder that has already had a case-sensitive miss, and
+    only once per folder thereafter -- a full ``Data Files`` tree can hold
+    tens of thousands of files.
+
+    Args:
+        folder: The data folder.
+
+    Returns:
+        Every file beneath ``folder``, keyed by :func:`normalise` of its path
+        relative to ``folder``.
+    """
+    cached = _LOOSE_INDEX.get(folder)
+    if cached is not None:
+        return cached
+
+    index: dict[str, Path] = {}
+    try:
+        for item in folder.rglob("*"):
+            if item.is_file():
+                index[normalise(str(item.relative_to(folder)))] = item
+    except OSError as exc:
+        LOG.debug("cannot index loose files in %s: %s", folder, exc)
+    _LOOSE_INDEX[folder] = index
+    return index
+
 
 def archives_in(folder: Path) -> list[BsaArchive]:
     """Open every ``.bsa`` in a data folder.
@@ -84,12 +128,13 @@ def _opened(path: Path) -> BsaArchive | None:
 
 
 def forget_archives() -> None:
-    """Drop the archive cache.
+    """Drop the archive and loose-file caches.
 
     For a caller that has rescanned, or a test that does not want one case's
     archives visible to the next.
     """
     _ARCHIVES.clear()
+    _LOOSE_INDEX.clear()
 
 
 def read_mesh(folder: Path, path: str, *, geometry: bool = True) -> NifFile:
@@ -115,6 +160,11 @@ def read_mesh(folder: Path, path: str, *, geometry: bool = True) -> NifFile:
         return read_nif(loose, geometry=geometry)
 
     wanted = normalise(path)
+
+    matched = loose_index(folder).get(wanted)
+    if matched is not None:
+        return read_nif(matched, geometry=geometry)
+
     for archive in archives_in(folder):
         try:
             data = archive.read(wanted)
