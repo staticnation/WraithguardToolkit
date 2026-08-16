@@ -22,6 +22,98 @@
   now takes a sequence of `(text, cmd, tip)` tuples instead of just one, so
   Scan... and Clear Memory can share the row.)
 
+### Fixed
+
+- **The program icon now shows up on Linux, Steam Deck's Desktop Mode
+  included, instead of Tk's generic icon.** `root.iconbitmap(default=...)`
+  works on Windows because Tk special-cases `.ico` loading there; on
+  X11/Wayland it only understands the legacy XBM format, so the call was a
+  silent no-op on every KWin/GNOME desktop, wrapped in a bare `except` that
+  never surfaced the failure. The main window and every `Toplevel` it opens
+  now also go through `iconphoto()`, the mechanism real window managers honour
+  via `_NET_WM_ICON` -- fed from the largest PNG frame already embedded in the
+  `.ico` (every icon built for Vista or later carries one), so no second icon
+  asset has to be kept in sync with the first.
+- **The cell map and mesh viewer windows now carry the program icon too,
+  instead of the default Python icon.** Those are pywebview windows, not Tk,
+  and pywebview opens them in a separate child process that `root`'s icon
+  setting never reaches. On Windows the icon is now pushed onto that
+  process's own window via `WM_SETICON` (the same mechanism `iconbitmap` uses
+  internally), matched by PID rather than title since "Cell Map" / "View"
+  aren't guaranteed unique on someone's desktop. On Linux/GTK,
+  `webview.start(icon=...)` is honoured directly -- it's a documented no-op on
+  Windows, which is why the two platforms needed separate fixes.
+- **The mesh viewer now finds plugin-added meshes on Linux, including Steam
+  Deck.** `wraithguard/nif/vfs.py` resolved a loose mesh with a raw
+  `(folder / path).is_file()` check, which matches a reference like
+  `Mesh\Foo_Bar.NIF` against a same-named-but-different-case file on
+  Windows/macOS's case-insensitive filesystems, but not on Steam Deck's
+  case-sensitive one -- and mismatched case in a mesh path is extremely
+  common, since nobody modding on Windows over the last twenty years had a
+  reason to match it exactly. The failure was silent: the mesh got dropped
+  from the `sides` list before the viewer page was ever built, so a plugin
+  overriding a base-game mesh showed only the one copy packed in
+  `Morrowind.bsa` (already case-normalized, since BSA lookups go through a
+  different path) instead of every version there was to step through.
+  `read_mesh` now falls back to a cached, case-insensitive index of loose
+  files, mirroring the pattern `textures.py` already used correctly.
+- **The mlox rule maker window now scrolls instead of clipping its content**
+  on small screens.
+- **The TES3 record conflict window no longer swallows its "include other
+  mods" / "include my mods' non-conflicting records" options, or its bottom
+  action buttons, on small screens** such as Steam Deck's Desktop Mode.
+- **The mouse wheel now scrolls the controls panel.** `controls_canvas` never
+  had `yscrollincrement` set, so `yview_scroll(n, "units")` -- what all three
+  wheel bindings (`<MouseWheel>`, `<Button-4>`, `<Button-5>`) call -- was
+  silently a no-op; only dragging the scrollbar itself worked, since that goes
+  through `yview_moveto` instead. Fixed by setting `yscrollincrement=24`.
+- **The Linux binary build works again.** PyInstaller doesn't support two Qt
+  bindings packages in one frozen app, and both PyQt6 (pulled in
+  transitively by `pywebview[qt]`) and an explicitly installed PySide6 were
+  present -- PyInstaller's hook selected PyQt6 first, then aborted when the
+  `--collect-all PySide6` step ran. PySide6 is dropped; PyQt6, what
+  `webview.platforms.qt` actually uses on Linux, is the sole Qt backend.
+- **The Linux binary no longer depends on the host already having Qt's
+  runtime libraries installed.** `libnss3`, `libnspr4`, `libasound2t64`,
+  `libpulse0`, `libxkbfile1`, and `libxtst6` -- needed by QtWebEngine for
+  certs, audio, and input handling, but missing from a minimal system like
+  Steam Deck's -- are now bundled into the one-file binary via the build
+  image's apt packages, closing most of the `Library not found` warnings the
+  freeze reported.
+
+### Changed
+
+- **The Linux binary is smaller and freer of unrelated library warnings.**
+  Tracing actual pywebview usage confirmed it's exactly two calls --
+  `webview.create_window(...)` and `webview.start(icon=...)`, no `js_api`,
+  tray icon, or anything QML-backed anywhere in the codebase -- so several Qt
+  submodules PyInstaller's `QtWebEngineWidgets` hook pulls in defensively are
+  dead weight for this app. `QtQml`, `QtQuick`, `QtPositioning`, `QtDBus`,
+  `QtMultimedia`, and `QtTextToSpeech` (plus the leftover `PySide6`,
+  `PySide2`, and `shiboken6`) are now excluded from the freeze.
+
+### Internal
+
+- **`test_gui_smoke.py` re-synced with the scrollable-controls refactor.**
+  Several widgets it referenced had moved off `self` or been renamed --
+  `help_button` -> `help_btn`; `controls_frame` / `controls_inner` are now
+  reached through helpers that walk the widget tree, since the Canvas's
+  window-item child and its containing frame were never stored as attributes
+  -- and `clear_memory_btn` is now assigned to `self.clear_memory_button`
+  like every other action-bar button, instead of staying an unreachable
+  local. One real bug came out of this pass rather than a stale test: the
+  `yscrollincrement` fix above.
+- **`tests/test_land_service.py` gained 23 tests**, taking
+  `wraithguard/land/service.py` from 31% to 84% file coverage: `_build_records`,
+  `_finish_textures`, and `_write` fully closed, plus `build_merged_lands`
+  itself -- the hardest piece, exercised by stubbing only `subprocess.run` so
+  no real `tes3conv` binary is needed while everything downstream
+  (`build_reference`, `merge_landmass`, `finish`, `write_merged_marker`) runs
+  unmodified. Covers a genuine two-mod merge, a single-mod no-op that gets
+  cleaned as redundant, `dry_run`, a missing load-order file, the
+  `ThreadPoolExecutor` path, and a real `.mergedlands.toml` sidecar
+  round-tripped through `load_meta`. Project-wide coverage: 84.92%.
+
 ## 3.1.4
 
 ### Fixed

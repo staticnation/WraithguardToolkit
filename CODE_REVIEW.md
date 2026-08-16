@@ -24,6 +24,7 @@
 > | §37 (audit of the session's own work) | 1,822 |
 > | §39 (geometry, a 3D viewer, and a loopback server) | 1,916 |
 > | §43 (colour, escapes, and the coverage floor) | **3,442** (3,438 passed, 4 skipped; coverage 80.5%) |
+> | §44 (two icon systems, a case-sensitive filesystem, and a Linux build that finally ships) | **3,648** (3,646 passed, 2 skipped: `test_differential` deliberate baseline skip, `test_viz_pages` symlinks not permitted; coverage 86.77%, floor 77%) |
 >
 > The same applies to tooling versions, file layouts, message counts and line
 > counts. For the current state of anything, check the code, `CHANGELOG.md`, or
@@ -4070,3 +4071,174 @@ anything, which is the entire job of a floor. It was raised to 77 -- a couple of
 points below the honest figure, the same discipline it was set with -- so it
 tracks the number up instead of rubber-stamping a large regression. Never
 lowered to make a change pass; raised to keep meaning what it says.
+
+## §44 Two icon systems, a case-sensitive filesystem, and a Linux build that finally ships
+
+Steam Deck testing surfaced two real defects that Windows use never could,
+both of them accidents of a platform Windows simply doesn't have: a
+case-sensitive filesystem, and a window manager that doesn't special-case
+`.ico`. Neither was findable by reading the code -- it looked correct on the
+only platform it had ever run against.
+
+### One window manager reads `.ico`, and Tk let the assumption stand
+
+`root.iconbitmap(default=icon_path)` looked platform-agnostic and, on the only
+platform it had ever run on, behaved that way -- Windows is where Tk
+special-cases `.ico` loading, so the call just worked and there was never a
+reason to question it. On X11/Wayland (Steam Deck's Desktop Mode runs KWin) it
+only understands the legacy XBM bitmap format; the call either raises
+`TclError` or silently does nothing depending on the Tk build, and it was
+wrapped in a bare `except Exception: print(..., file=sys.stderr)` -- invisible
+in a `--windowed` build with no console. The window just fell back to Tk's
+generic feather icon, which reads exactly like "the icon doesn't work" and
+nothing more specific than that.
+
+The fix goes through `iconphoto()` instead -- the mechanism `_NET_WM_ICON`
+actually specifies, honoured by every real window manager including KWin --
+but it wants a `PhotoImage`, and Tk's built-in image formats stop at
+GIF/PPM/PNG, never `.ico`. Rather than ship a second icon asset to keep in
+sync with the first, `_icon_photo_image()` reads the `.ico` container directly
+and pulls out its largest PNG-encoded frame: any icon built for Vista or later
+carries at least one, since PNG compression is required once a frame exceeds
+classic BMP's 256x256 limit. `.ico` was only ever a container format; the
+extension just hides that. `iconbitmap(default=...)` stays for Windows,
+`iconphoto(True, ...)` runs alongside it everywhere else, and the resulting
+`PhotoImage` is kept as `self._icon_photo` -- Tk drops a `PhotoImage`'s pixels
+the moment nothing in Python still references it, even though the window
+keeps pointing at it, so a local-only reference would have let the icon go
+blank the instant `__init__` returned.
+
+### The same bug, twice, because pywebview isn't Tk
+
+The cell map and mesh viewer windows kept the plain Python icon after that
+fix landed, and the reason is structural rather than a miss: those are
+pywebview windows, opened in a separate child process (`_run_pywebview_window`
+re-invokes the script with `--show-map` so `webview.start()` can own its own
+main thread) and built by WinForms/WebView2 or GTK, not by Tk at all --
+`root`'s icon setting has no path to reach a window Tk never created.
+`webview.start(icon=...)` is a documented no-op on Windows -- it expects the
+icon baked into the `.exe` at freeze time, which is meaningless running from
+source -- but is honoured on Linux's GTK/Qt backend, so the fix splits by
+platform. Linux gets `icon=` passed straight through. Windows gets a
+purpose-built `_apply_windows_icon_to_own_windows()` that loads the `.ico` via
+`LoadImageW`, finds the child process's own window by matching **PID** rather
+than title ("Cell Map" / "View" aren't guaranteed unique on someone's
+desktop), and pushes the icon in with `WM_SETICON` -- the same message
+Explorer reads for the taskbar, and the same mechanism `iconbitmap` uses
+internally. It runs on a background thread started just before
+`webview.start()` blocks, polls for up to 8 seconds, and gives up quietly;
+icon lookup is wrapped separately from window creation so a missing or bad
+`.ico` can never be mistaken for an actual pywebview failure and needlessly
+bounce the view out to the browser fallback.
+
+### A raw `.is_file()` check, and the filesystem that finally disagreed with it
+
+The more interesting bug: on Steam Deck, the mesh viewer showed one checkbox
+for a cell with three plugins overriding its mesh, where there should have
+been three to step through. `wraithguard/nif/vfs.py`'s `read_mesh` resolved a
+loose file with `(folder / path).is_file()` -- a plugin referencing
+`Mesh\Foo_Bar.NIF` finds a file actually named `foo_bar.nif` without
+complaint on Windows or macOS's case-insensitive filesystems, and fails that
+exact check on Steam Deck's case-sensitive one. Mismatched case in a mesh path
+is unremarkable in Morrowind modding; nobody building mods on Windows over the
+last twenty years has had a reason to match it exactly. The failure was an
+`OSError`, caught and dropped silently -- the mesh never reached
+`_view_field_mesh`'s `sides` list, so the viewer page was built with one
+entry instead of three. The base-game copy loaded because it lives in
+`Morrowind.bsa`, and BSA lookups were already case-normalized through
+`normalise()`; only the loose-file path had the gap.
+
+Worth noting: `textures.py` already gets this right, pre-building a
+lower-cased, slash-normalized index of every loose file up front. That the two
+modules diverged on the identical problem is its own small lesson -- a pattern
+established once in one file doesn't propagate to a sibling file on its own --
+and the fix here is exactly that pattern, applied where it was missing: a
+cached, case-insensitive index as a fallback between the exact-match check and
+the archive search, preserving loose-over-archived priority.
+
+### Two small-screen fixes, made by hand
+
+The mlox rule maker window now scrolls instead of clipping its content, and
+the TES3 record conflict window no longer swallows its "include other mods" /
+"include my mods' non-conflicting records" options or its bottom action
+buttons on a small screen -- both packing-order problems in frames sized to
+assume more vertical room than Steam Deck's display gives them.
+
+### A wheel binding that never worked, found by fixing a test instead of writing one
+
+Re-syncing `test_gui_smoke.py` to the scrollable-controls refactor -- `help_button`
+renamed to `help_btn`; `controls_frame` and the Canvas's scrollable content,
+neither ever stored on `self`, now reached through helpers that walk the
+widget tree instead -- turned up a real defect rather than the stale attribute
+references it went looking for: `controls_canvas` never had `yscrollincrement`
+set, so `yview_scroll(n, "units")`, what all three wheel bindings call, was
+silently a no-op. Dragging the scrollbar itself worked fine, since that goes
+through `yview_moveto` instead -- which is exactly why nobody had noticed the
+wheel doing nothing. Fixed by setting `yscrollincrement=24`. `clear_memory_btn`,
+a bare local never assigned to `self`, is now `self.clear_memory_button` like
+every other action-bar button, closing the one gap the sync pass couldn't
+paper over with a widget-tree search.
+
+### The Linux binary, fixed in the order the failures actually appeared
+
+Three separate problems, each only visible once the previous one stopped
+hiding it:
+
+1. **The build failed outright.** PyInstaller does not support two Qt bindings
+   packages in one frozen app, and both were present: `pywebview[qt]` pulls in
+   PyQt6 as the actual Linux backend behind `webview.platforms.qt`, while the
+   Dockerfile also explicitly installed PySide6 and told PyInstaller to
+   `--collect-all` it. The freeze hook picked PyQt6 first, then aborted hitting
+   PySide6 through the explicit collection. PySide6 is dropped; PyQt6 stays,
+   since that's what the app's own Qt usage already resolves to. (The
+   Dockerfile CMD regenerates the `.spec` file from the `.py` script on every
+   build, so the fix had to go in `Dockerfile.wraithguard` -- a hand-edited
+   `.spec` would not have survived the next run.)
+2. **The binary built but couldn't be trusted on a bare system.** `libnss3`,
+   `libnspr4`, `libasound.so.2`, `libpulse.so.0`, `libxkbfile.so.1`, and
+   `libXtst.so.6` -- QtWebEngine's runtime dependencies for certs, audio, and
+   input handling -- were absent from a minimal system like Steam Deck's, and
+   PyInstaller doesn't fail a build over a library it can't resolve at freeze
+   time, it just warns. Now bundled by adding the equivalent apt packages to
+   the Docker build image. `libtiff.so.5` was left alone on purpose: Ubuntu
+   24.04 only ships `.so.6`, and it turned out not to matter anyway -- the
+   app's texture handling is entirely home-rolled decoders (`targa.py` and,
+   presumably, a DDS counterpart) that never route through Qt's `QImage`
+   machinery, so `libqtiff.so`, the only thing that warning was ever about, is
+   dead weight the app never touches regardless of whether it's present.
+   (Confirmed separately: TIFF only ever mattered for old Morrowind
+   Construction Set map exports, not anything this app reads at runtime.)
+3. **The binary was carrying Qt modules the app never calls.** Tracing actual
+   pywebview usage down to the two calls it makes -- `webview.create_window(...)`
+   and `webview.start(icon=...)`, no `js_api`, no tray icon, nothing
+   QML-backed -- confirmed against a full grep of the codebase that `QtQml`,
+   `QtQuick`, `QtPositioning`, `QtDBus`, `QtMultimedia`, and `QtTextToSpeech`
+   are only present because `QtWebEngineWidgets`' PyInstaller hook pulls them
+   in defensively, not because anything here calls them. Excluding them
+   shrinks the binary and, as a side effect, quiets several of the
+   `Library not found` warnings from step 2 -- `libpulse.so.0` turned out to be
+   a dependency of the now-excluded `QtMultimedia`/`QtTextToSpeech`/
+   `QtSpatialAudio`, not of anything the app's WebGL viewer actually needs.
+
+### Coverage: the file the numbers already pointed at
+
+A full-suite coverage report (3,549 passed, 4 skipped, 83.86%) showed two
+files accounting for 58% of every missed statement project-wide;
+`wraithguard/land/service.py` was the sharper of the two by percentage, at
+31%, with its misses sitting in long contiguous blocks rather than scattered
+edge cases -- the signature of whole functions never exercised at all, not an
+untested branch here or there. `tests/test_land_service.py` gained 23 tests
+across two passes, closing `_build_records`, `_finish_textures`, and `_write`
+outright, and finally `build_merged_lands` itself, the hardest piece: rather
+than mocking the orchestration, only `subprocess.run` is stubbed, so no real
+`tes3conv` binary is needed while everything downstream runs unmodified
+against records built by the real encoder. File coverage: 31% to 84%. One real
+defect turned up along the way and stayed a footnote rather than a fix:
+`_compress()` needs `zstandard`, or Python 3.14's stdlib `zstd`, or every
+write fails -- invisible on the project's Python 3.14 CI, worth knowing if
+anyone ever runs the suite on an older interpreter.
+
+Gate state on the latest full run: **3,646 passed, 2 skipped**
+(`test_differential`'s deliberate baseline skip; `test_viz_pages` for symlinks
+not permitted in that environment), **coverage 86.77%** against the 77% floor.
+`CHANGELOG.md`'s 3.1.5 entry has the user-facing side of all of the above.

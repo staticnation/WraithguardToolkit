@@ -53,6 +53,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import struct
 import subprocess
 import sys
 import threading
@@ -105,6 +106,75 @@ def resource_path(relative_path):
     except Exception:
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
+
+
+def _icon_photo_image(ico_path: str) -> "tk.PhotoImage | None":
+    """Extract the largest PNG-encoded frame from a .ico file as a PhotoImage.
+
+    Tk's own ``iconbitmap`` only understands X11's legacy XBM format on
+    Linux -- a Windows .ico there is silently ignored (or raises, depending
+    on the Tk build), which is why the window/taskbar icon never shows up on
+    Steam Deck even though the identical call works on Windows, where Tk has
+    special-cased .ico loading. ``iconphoto`` is the cross-platform
+    mechanism -- ICCCM ``_NET_WM_ICON`` on X11/Wayland, honoured by every
+    real window manager including KWin (Steam Deck's Desktop Mode) -- but it
+    needs a ``PhotoImage``, and Tk's built-in image formats are GIF/PGM/PPM
+    and PNG (8.6+), never ICO.
+
+    Rather than shipping a second icon asset to keep in sync with the first,
+    this reads the .ico container directly: any icon built for Vista or
+    later carries at least one PNG-compressed frame (required once a size
+    exceeds classic BMP's 256x256 limit), so the same file already holds
+    everything ``iconphoto`` needs. ``.ico`` is only ever a container format;
+    the extension just hides that.
+
+    Args:
+        ico_path: Path to the .ico file.
+
+    Returns:
+        A PhotoImage built from the largest PNG frame found, or ``None`` when
+        the file is missing, unreadable, or holds no PNG-encoded frame (an
+        icon built only from classic BMP/DIB entries -- rare, but possible
+        for one authored a very long time ago).
+    """
+    try:
+        with open(ico_path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+
+    if len(data) < 6:
+        return None
+    reserved, kind, count = struct.unpack_from("<HHH", data, 0)
+    if reserved != 0 or kind != 1 or count == 0:
+        return None  # not an ICONDIR at all
+
+    best: tuple[int, int, int] | None = None  # (area, size, offset)
+    for i in range(count):
+        entry_off = 6 + i * 16
+        if entry_off + 16 > len(data):
+            break
+        width, height, _colors, _reserved, _planes, _bitcount, size, offset = struct.unpack_from(
+            "<BBBBHHII", data, entry_off
+        )
+        # 0 means 256 in the ICONDIRENTRY format, not zero.
+        w = width or 256
+        h = height or 256
+        if size < 8 or offset + size > len(data):
+            continue
+        if data[offset : offset + 8] != b"\x89PNG\r\n\x1a\n":
+            continue  # a classic BMP/DIB frame -- Tk cannot load this directly
+        area = w * h
+        if best is None or area > best[0]:
+            best = (area, size, offset)
+
+    if best is None:
+        return None
+    _area, size, offset = best
+    try:
+        return tk.PhotoImage(data=data[offset : offset + size])
+    except tk.TclError:
+        return None
 
 # Inline HTML rendering for the cell map is optional. tkinterweb is PREFERRED --
 # its HtmlFrame.load_file reads the map from disk (bounded memory) and renders the
@@ -921,7 +991,25 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         try:
             icon_path = resource_path("wraithguard_toolkit_icon.ico")
             if os.path.exists(icon_path):
-                self.root.iconbitmap(default=icon_path)
+                # Windows: Tk special-cases .ico loading here, and this is the
+                # only call that also sets the taskbar icon there.
+                try:
+                    self.root.iconbitmap(default=icon_path)
+                except tk.TclError:
+                    pass  # expected on Linux -- iconbitmap there is XBM-only
+                # Linux, incl. Steam Deck's Desktop Mode: iconbitmap's .ico
+                # attempt above is silently a no-op, so this is what actually
+                # puts an icon on the window and in the taskbar there.
+                # default=True mirrors iconbitmap's default= above: every
+                # Toplevel this app opens later inherits it too.
+                photo = _icon_photo_image(icon_path)
+                if photo is not None:
+                    self.root.iconphoto(True, photo)
+                    # Tk drops a PhotoImage's pixels once nothing in Python
+                    # still references it, even though the window keeps
+                    # pointing at it -- a local-only reference here would let
+                    # the icon go blank the moment __init__ returns.
+                    self._icon_photo = photo
         except Exception as e:
             # Log or silently bypass if the icon file is missing
             print(f"Warning: Could not load window icon: {e}", file=sys.stderr)
