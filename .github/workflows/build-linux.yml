@@ -13,7 +13,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write # create/attach to a Release on tag builds
 
 concurrency:
   group: build-linux-${{ github.ref }}
@@ -41,3 +41,15 @@ jobs:
           path: dist/wraithguard_toolkit_gui
           if-no-files-found: error
           retention-days: 14
+
+      - name: Attach to the release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: cp dist/wraithguard_toolkit_gui dist/wraithguard-toolkit-linux-x86_64
+
+      - name: Publish the release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/wraithguard-toolkit-linux-x86_64
+          fail_on_unmatched_files: true
+          generate_release_notes: true
