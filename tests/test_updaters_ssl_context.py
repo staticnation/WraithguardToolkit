@@ -64,6 +64,12 @@ class TestVerifyContext:
     def test_fetch_url_bytes_passes_the_context_through_to_urlopen(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Only meaningful with certifi installed: without it _verify_context()
+        # returns None and fetch_url_bytes correctly passes context=None, so the
+        # "context is not None" assertion below would (wrongly) fail. The three
+        # sibling tests skip the same way; this one was missing it, which only
+        # showed once CI ran on a certifi-less Linux.
+        pytest.importorskip("certifi")
         captured: dict[str, object] = {}
 
         class _FakeResponse:

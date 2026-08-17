@@ -127,9 +127,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends python3-tk tk xvfb
 
       - name: Install tooling
+        # pytest-timeout so a smoke test that hangs headless (a modal dialog with
+        # no one to click it, a window that never returns) fails with a stack
+        # dump after the timeout instead of blocking the whole job for hours.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest
+          python -m pip install pytest pytest-timeout
 
       - name: GUI smoke tests (headless)
         # Run once, keep the output, then insist the tests actually ran. That
@@ -139,8 +142,12 @@ jobs:
         run: |
           set -o pipefail
           xvfb-run -a python -m pytest tests/test_gui_smoke.py -v -rs \
+            --timeout=60 --timeout-method=thread \
             | tee result.txt
-          if grep -qiE "skipped|no tests ran" result.txt; then
-            echo "::error::GUI smoke tests skipped -- Tk or the display is missing, so nothing was verified."
+          # Insist something actually ran (Tk + display present). A few skips are
+          # fine; zero passes means the display or Tk is missing and nothing was
+          # verified.
+          if ! grep -qE "[1-9][0-9]* passed" result.txt; then
+            echo "::error::GUI smoke tests did not run -- Tk or the display is missing, so nothing was verified."
             exit 1
           fi
