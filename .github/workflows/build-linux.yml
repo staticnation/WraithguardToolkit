@@ -1,0 +1,43 @@
+# Autobuild the Linux binary and upload it as an artifact.
+#
+# This reuses the project's own Dockerfile.wraithguard verbatim -- the tested
+# Linux build -- rather than re-listing its apt/pip deps here (which would drift
+# from it). The image installs the toolchain; the container runs PyInstaller
+# against the checked-out source mounted at /src and writes dist/ back out.
+
+name: Build Linux app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with the project's Dockerfile
+        run: |
+          docker build -f Dockerfile.wraithguard -t wraithguard-build .
+          docker run --rm -v "${{ github.workspace }}:/src" wraithguard-build
+          # PyInstaller wrote build/ and dist/ as root inside the container;
+          # hand them back to the runner user so upload-artifact can read them.
+          sudo chown -R "$(id -u):$(id -g)" build dist || true
+          ls -lh dist/
+
+      - name: Upload the Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: wraithguard-toolkit-linux-x86_64
+          path: dist/wraithguard_toolkit_gui
+          if-no-files-found: error
+          retention-days: 14

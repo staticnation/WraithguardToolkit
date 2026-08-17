@@ -1,0 +1,82 @@
+# Autobuild the Windows .exe and upload it as an artifact.
+#
+# The Windows `.spec` is no longer in the repo (it is a build artifact, gitignored
+# and deleted), so this drives PyInstaller directly with the flags that spec
+# used: pywebview's Qt backend plus pythonnet/clr bundled together (PyInstaller
+# packs both; pywebview picks whichever backend is present at runtime), a .ico
+# icon, and a single-file windowed .exe.
+
+name: Build Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build dependencies
+        # Mirrors wraithguard_toolkit_gui.spec: pywebview[qt] + pythonnet/clr.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller "pywebview[qt]" pythonnet tkinterweb tkinterdnd2 PyYAML zstandard certifi
+
+      - name: Build the .exe
+        # bash (present on Windows runners) keeps the multiline command readable;
+        # PyInstaller still uses ';' as the --add-data separator on Windows.
+        shell: bash
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed \
+            --name wraithguard_toolkit_gui \
+            --icon wraithguard_toolkit_icon.ico \
+            --collect-submodules wraithguard \
+            --collect-all webview \
+            --collect-all clr_loader \
+            --collect-all pythonnet \
+            --collect-all certifi \
+            --hidden-import clr \
+            --hidden-import webview.platforms.qt \
+            --hidden-import tkinterweb \
+            --exclude-module PySide6 \
+            --exclude-module PySide2 \
+            --exclude-module shiboken6 \
+            --exclude-module PyQt6.QtQml \
+            --exclude-module PyQt6.QtQuick \
+            --exclude-module PyQt6.QtQuickWidgets \
+            --exclude-module PyQt6.QtQuick3D \
+            --exclude-module PyQt6.QtPositioning \
+            --exclude-module PyQt6.QtDBus \
+            --exclude-module PyQt6.QtMultimedia \
+            --exclude-module PyQt6.QtSpatialAudio \
+            --exclude-module PyQt6.QtTextToSpeech \
+            --add-data "wraithguard_toolkit.py;." \
+            --add-data "README.md;." \
+            --add-data "QUICKSTART.md;." \
+            --add-data "MLOX_RULES.md;." \
+            --add-data "wraithguard_toolkit_icon.ico;." \
+            --add-data "wraithguard/viz/assets;assets" \
+            wraithguard_toolkit_gui.py
+
+      - name: Upload the .exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: wraithguard-toolkit-windows-x86_64
+          path: dist/wraithguard_toolkit_gui.exe
+          if-no-files-found: error
+          retention-days: 14
