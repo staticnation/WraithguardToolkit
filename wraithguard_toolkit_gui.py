@@ -53,7 +53,6 @@ from __future__ import annotations
 import json
 import os
 import queue
-import struct
 import subprocess
 import sys
 import threading
@@ -66,6 +65,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from wraithguard.images.ico import largest_png_frame
 from wraithguard.land import meta as land_meta, service as land_service
 from wraithguard.logging_setup import get_logger
 from wraithguard.patch.summary import ALL_TAGS, field_statuses, search_rows
@@ -91,7 +91,7 @@ except ImportError:  # pragma: no cover - only when wraithguard/ is absent
 
 try:
     import tkinter as tk
-    from tkinter import filedialog, messagebox, scrolledtext, ttk
+    from tkinter import filedialog, messagebox, ttk
 except ImportError:
     sys.exit(
         "tkinter isn't available in this Python install.\n"
@@ -99,82 +99,51 @@ except ImportError:
         "On Windows/Mac's python.org installers, tkinter is included by default."
     )
 
-def resource_path(relative_path):
+
+def resource_path(relative_path: str) -> str:
     """Get absolute path to resource, works for development and PyInstaller bundles."""
     try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, relative_path)
+        base_path = sys._MEIPASS  # type: ignore[attr-defined]  # set only in a PyInstaller bundle
+    except Exception:  # noqa: BLE001 -- _MEIPASS absent unless bundled
+        # os.path, not pathlib, on purpose: this runs during window init and must
+        # never raise. os.path.abspath is a pure string op; Path.resolve() hits
+        # the filesystem -- it follows symlinks (breaking the icon when the script
+        # is reached via a link) and can raise on some Windows paths, which the
+        # caller's broad except then swallows, leaving every window icon-less.
+        base_path = os.path.dirname(os.path.abspath(__file__))  # noqa: PTH120, PTH100
+    return os.path.join(base_path, relative_path)  # noqa: PTH118
 
 
 def _icon_photo_image(ico_path: str) -> "tk.PhotoImage | None":
-    """Extract the largest PNG-encoded frame from a .ico file as a PhotoImage.
+    """Load the .ico's largest PNG frame as a Tk PhotoImage.
 
-    Tk's own ``iconbitmap`` only understands X11's legacy XBM format on
-    Linux -- a Windows .ico there is silently ignored (or raises, depending
-    on the Tk build), which is why the window/taskbar icon never shows up on
-    Steam Deck even though the identical call works on Windows, where Tk has
-    special-cased .ico loading. ``iconphoto`` is the cross-platform
-    mechanism -- ICCCM ``_NET_WM_ICON`` on X11/Wayland, honoured by every
-    real window manager including KWin (Steam Deck's Desktop Mode) -- but it
-    needs a ``PhotoImage``, and Tk's built-in image formats are GIF/PGM/PPM
-    and PNG (8.6+), never ICO.
-
-    Rather than shipping a second icon asset to keep in sync with the first,
-    this reads the .ico container directly: any icon built for Vista or
-    later carries at least one PNG-compressed frame (required once a size
-    exceeds classic BMP's 256x256 limit), so the same file already holds
-    everything ``iconphoto`` needs. ``.ico`` is only ever a container format;
-    the extension just hides that.
+    The byte-level parsing lives in :mod:`wraithguard.images.ico` -- it has
+    no tkinter dependency, so it is covered by the hermetic test suite,
+    unlike this module. See that module's docstring for *why* this exists at
+    all: Tk's ``iconbitmap`` only loads a real .ico on Windows.
 
     Args:
         ico_path: Path to the .ico file.
 
     Returns:
         A PhotoImage built from the largest PNG frame found, or ``None`` when
-        the file is missing, unreadable, or holds no PNG-encoded frame (an
-        icon built only from classic BMP/DIB entries -- rare, but possible
-        for one authored a very long time ago).
+        the file is missing, unreadable, holds no PNG-encoded frame, or Tk
+        itself rejects the bytes.
     """
     try:
-        with open(ico_path, "rb") as fh:
+        with Path(ico_path).open("rb") as fh:
             data = fh.read()
     except OSError:
         return None
 
-    if len(data) < 6:
+    png_bytes = largest_png_frame(data)
+    if png_bytes is None:
         return None
-    reserved, kind, count = struct.unpack_from("<HHH", data, 0)
-    if reserved != 0 or kind != 1 or count == 0:
-        return None  # not an ICONDIR at all
-
-    best: tuple[int, int, int] | None = None  # (area, size, offset)
-    for i in range(count):
-        entry_off = 6 + i * 16
-        if entry_off + 16 > len(data):
-            break
-        width, height, _colors, _reserved, _planes, _bitcount, size, offset = struct.unpack_from(
-            "<BBBBHHII", data, entry_off
-        )
-        # 0 means 256 in the ICONDIRENTRY format, not zero.
-        w = width or 256
-        h = height or 256
-        if size < 8 or offset + size > len(data):
-            continue
-        if data[offset : offset + 8] != b"\x89PNG\r\n\x1a\n":
-            continue  # a classic BMP/DIB frame -- Tk cannot load this directly
-        area = w * h
-        if best is None or area > best[0]:
-            best = (area, size, offset)
-
-    if best is None:
-        return None
-    _area, size, offset = best
     try:
-        return tk.PhotoImage(data=data[offset : offset + size])
+        return tk.PhotoImage(data=png_bytes)
     except tk.TclError:
         return None
+
 
 # Inline HTML rendering for the cell map is optional. tkinterweb is PREFERRED --
 # its HtmlFrame.load_file reads the map from disk (bounded memory) and renders the
@@ -258,6 +227,7 @@ from wraithguard.gui import (  # noqa: E402
     HELP_DOCUMENTS,
     TkinterDnD,
     app_base_dir,
+    case_insensitive_filetypes,
     dnd_ready,
     doc_path,
     register_drop_target,
@@ -528,7 +498,9 @@ class RuleFilesPanel:
     def add_files(self) -> None:
         """Prompt for rule files and append them to the list."""
         paths = filedialog.askopenfilenames(
-            filetypes=(("mlox rule files", "*.txt"), ("All files", "*.*"))
+            filetypes=case_insensitive_filetypes(
+                (("mlox rule files", "*.txt"), ("All files", "*.*"))
+            ),
         )
         for p in paths:
             self.listbox.insert("end", p)
@@ -991,25 +963,32 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         try:
             icon_path = resource_path("wraithguard_toolkit_icon.ico")
             if os.path.exists(icon_path):
-                # Windows: Tk special-cases .ico loading here, and this is the
-                # only call that also sets the taskbar icon there.
+                # Windows: Tk special-cases .ico loading here, and this is
+                # the only call that also sets the taskbar icon there. When
+                # it succeeds, this IS the icon -- iconphoto below must not
+                # also run and potentially override a perfectly good result
+                # with whatever Tk's separate PNG-decode path produces.
+                iconbitmap_ok = True
                 try:
                     self.root.iconbitmap(default=icon_path)
                 except tk.TclError:
-                    pass  # expected on Linux -- iconbitmap there is XBM-only
-                # Linux, incl. Steam Deck's Desktop Mode: iconbitmap's .ico
-                # attempt above is silently a no-op, so this is what actually
-                # puts an icon on the window and in the taskbar there.
-                # default=True mirrors iconbitmap's default= above: every
-                # Toplevel this app opens later inherits it too.
-                photo = _icon_photo_image(icon_path)
-                if photo is not None:
-                    self.root.iconphoto(True, photo)
-                    # Tk drops a PhotoImage's pixels once nothing in Python
-                    # still references it, even though the window keeps
-                    # pointing at it -- a local-only reference here would let
-                    # the icon go blank the moment __init__ returns.
-                    self._icon_photo = photo
+                    iconbitmap_ok = False  # expected on Linux -- XBM-only there
+                if not iconbitmap_ok:
+                    # Linux, incl. Steam Deck's Desktop Mode: iconbitmap's
+                    # .ico attempt above is silently a no-op, so this is what
+                    # actually puts an icon on the window and in the
+                    # taskbar there. default=True mirrors iconbitmap's
+                    # default= above: every Toplevel this app opens later
+                    # inherits it too.
+                    photo = _icon_photo_image(icon_path)
+                    if photo is not None:
+                        self.root.iconphoto(True, photo)
+                        # Tk drops a PhotoImage's pixels once nothing in
+                        # Python still references it, even though the window
+                        # keeps pointing at it -- a local-only reference here
+                        # would let the icon go blank the moment __init__
+                        # returns.
+                        self._icon_photo = photo
         except Exception as e:
             # Log or silently bypass if the icon file is missing
             print(f"Warning: Could not load window icon: {e}", file=sys.stderr)
@@ -1409,7 +1388,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         canvas_bg = DARK["bg"]
         controls_canvas = tk.Canvas(controls_container, bg=canvas_bg, bd=0, highlightthickness=0)
 
-        controls_scroll = ttk.Scrollbar(controls_container, orient="vertical", command=controls_canvas.yview)
+        controls_scroll = ttk.Scrollbar(
+            controls_container, orient="vertical", command=controls_canvas.yview
+        )
         controls_canvas.configure(yscrollcommand=controls_scroll.set, yscrollincrement=24)
         controls_scroll.grid(row=0, column=1, sticky="ns")
         controls_canvas.grid(row=0, column=0, sticky="nsew")
@@ -1419,10 +1400,17 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         self._build_controls(controls_frame)
 
         # Configure the canvas to scroll the frame
-        controls_frame.bind("<Configure>", lambda e: controls_canvas.configure(scrollregion=controls_canvas.bbox("all")))
-        self.controls_window = controls_canvas.create_window((0, 0), window=controls_frame, anchor="nw")
-        controls_canvas.bind("<Configure>", lambda e: controls_canvas.itemconfig(self.controls_window, width=e.width))
-        
+        controls_frame.bind(
+            "<Configure>",
+            lambda e: controls_canvas.configure(scrollregion=controls_canvas.bbox("all")),
+        )
+        self.controls_window = controls_canvas.create_window(
+            (0, 0), window=controls_frame, anchor="nw"
+        )
+        controls_canvas.bind(
+            "<Configure>", lambda e: controls_canvas.itemconfig(self.controls_window, width=e.width)
+        )
+
         # Bind mousewheel to scroll the canvas -- only while the pointer is
         # actually over it. bind_all with no unbind (the previous version)
         # hijacks the wheel for every widget in the app, permanently, the
@@ -1545,7 +1533,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             "openmw.cfg:",
             start_row,
             self.cfg_var,
-            filetypes=(("openmw.cfg", "*.cfg"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes((("openmw.cfg", "*.cfg"), ("All files", "*.*"))),
             tooltip=_(
                 "Required. The openmw.cfg to read the current content= and data= order "
                 "from, and (if 'Write openmw.cfg directly' is checked) to patch."
@@ -1556,7 +1544,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             "customizations.toml:",
             start_row + 1,
             self.customizations_var,
-            filetypes=(("TOML files", "*.toml"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes((("TOML files", "*.toml"), ("All files", "*.*"))),
             tooltip=_(
                 "A momw-configurator/umo customizations TOML to pull the plugin/data-path "
                 "subset from automatically. Optional if you provide a subset file instead -- "
@@ -1568,7 +1556,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             "subset file (optional):",
             start_row + 2,
             self.subset_file_var,
-            filetypes=(("Text/TOML", "*.txt *.toml"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes(
+                (("Text/TOML", "*.txt *.toml"), ("All files", "*.*"))
+            ),
             tooltip=_(
                 "A plain text file (one plugin filename or data folder path per line, "
                 "'#' comments allowed) or a minimal TOML with subset=[...]/data=[...]. "
@@ -1584,8 +1574,8 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                     "(plus its plugins), then that branch isn't descended further. Whether "
                     "the result is saved to a .txt (and loaded here) or just kept in memory "
                     "for this session is set by the 'Create subset text document' option.",
-        ),
-        )
+                ),
+            ),
         )
 
     def _build_output_fields(self, top: tk.Misc, start_row: int) -> None:
@@ -1607,7 +1597,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             start_row,
             self.emit_toml_var,
             browse_kind="save",
-            filetypes=(("TOML files", "*.toml"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes((("TOML files", "*.toml"), ("All files", "*.*"))),
             tooltip=_(
                 "Where to write a corrected customizations.toml (sorted insert blocks, "
                 "re-anchored). Disabled when 'write directly back' below is checked."
@@ -1639,7 +1629,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             "plugin-order.yml (optional):",
             start_row + 2,
             self.plugin_order_yml_var,
-            filetypes=(("YAML files", "*.yml *.yaml"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes(
+                (("YAML files", "*.yml *.yaml"), ("All files", "*.*"))
+            ),
             tooltip=_(
                 "MOMW's plugin-order.yml (source of truth for which plugins belong to which "
                 "curated list). With the list name above set, curated plugins for that list "
@@ -2283,7 +2275,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
     def _import_log_theme(self) -> None:
         path = filedialog.askopenfilename(
             title=_("Import syntax highlighting theme"),
-            filetypes=(("Theme files", "*.json *.yaml *.yml"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes(
+                (("Theme files", "*.json *.yaml *.yml"), ("All files", "*.*"))
+            ),
         )
         if not path:
             return
@@ -2413,7 +2407,8 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
     def save_log(self) -> None:
         """Write the log panel's contents to a file the user picks."""
         path = filedialog.asksaveasfilename(
-            defaultextension=".log", filetypes=(("Log files", "*.log"), ("All files", "*.*"))
+            defaultextension=".log",
+            filetypes=case_insensitive_filetypes((("Log files", "*.log"), ("All files", "*.*"))),
         )
         if not path:
             return
@@ -2508,7 +2503,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                 title=_("Save generated subset file as"),
                 defaultextension=".txt",
                 initialfile="mod_scan_results.txt",
-                filetypes=(("Text files", "*.txt"), ("All files", "*.*")),
+                filetypes=case_insensitive_filetypes(
+                    (("Text files", "*.txt"), ("All files", "*.*"))
+                ),
             )
             if not out:
                 return
@@ -2630,9 +2627,11 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         """Choose one or more plugins to add via a file dialog."""
         picked = filedialog.askopenfilenames(
             title=_("Select plugin(s) to add"),
-            filetypes=(
-                (_("Plugins"), "*.esp *.esm *.omwaddon *.omwgame *.omwscripts"),
-                (_("All files"), "*.*"),
+            filetypes=case_insensitive_filetypes(
+                (
+                    (_("Plugins"), "*.esp *.esm *.omwaddon *.omwgame *.omwscripts"),
+                    (_("All files"), "*.*"),
+                )
             ),
         )
         for path in self.root.tk.splitlist(picked):
@@ -2677,7 +2676,11 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             has_dir_component = "/" in path or "\\" in path
             parent = Path(path).parent
             if has_dir_component and parent.is_dir():
-                abspath = os.path.abspath(str(parent))  # noqa: PTH100 -- match scan (no symlink resolve)
+                # abspath, not resolve(): a data folder is often an MO2 junction
+                # or a symlinked mod dir, and it must be recorded as the user
+                # gave it, not followed to its target -- resolve() would change
+                # the path shown and the dedup key. See CODE_REVIEW.md.
+                abspath = os.path.abspath(str(parent))  # noqa: PTH100
                 self._record_manual(
                     abspath,
                     self._manual_data_dirs,
@@ -3461,10 +3464,12 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         picked = filedialog.askopenfilename(
             title=_("Pick a plugin to write a .mergedlands.toml for"),
             initialdir=str(folders[0]) if folders else "",
-            filetypes=[
-                (_("Morrowind plugins"), "*.esp *.esm *.omwaddon *.omwgame"),
-                (_("All files"), "*.*"),
-            ],
+            filetypes=case_insensitive_filetypes(
+                (
+                    (_("Morrowind plugins"), "*.esp *.esm *.omwaddon *.omwgame"),
+                    (_("All files"), "*.*"),
+                )
+            ),
         )
         if not picked:
             return
@@ -4058,7 +4063,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             title=_("Save cell map"),
             defaultextension=".html",
             initialfile="cell_map.html",
-            filetypes=(("HTML files", "*.html"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes((("HTML files", "*.html"), ("All files", "*.*"))),
         )
         if not out:
             return
@@ -4627,7 +4632,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
             title=_("Personal rules file"),
             initialfile="mlox_my_rules.txt",
             defaultextension=".txt",
-            filetypes=(("Rules", "*.txt"),),
+            filetypes=case_insensitive_filetypes((("Rules", "*.txt"),)),
         )
         trace_first_fire("rules-maker Browse...")
         trace(f"[smoke] rules-maker Browse: {'chose ' + chosen if chosen else 'cancelled'}")
@@ -4767,7 +4772,9 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         p = filedialog.askopenfilename(
             title=_("Choose an OpenMW save"),
             initialdir=str(start if start.is_dir() else (self._cfg_dir() or ".")),
-            filetypes=(("OpenMW saves", "*.omwsave"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes(
+                (("OpenMW saves", "*.omwsave"), ("All files", "*.*"))
+            ),
         )
         if not p:
             return
@@ -5378,11 +5385,12 @@ def _apply_windows_icon_to_own_windows(icon_path: str, timeout: float = 8.0) -> 
     except ImportError:  # pragma: no cover - stdlib, but never worth a crash
         return
 
-    LR_LOADFROMFILE = 0x00000010
-    IMAGE_ICON = 1
-    WM_SETICON = 0x0080
-    ICON_SMALL = 0
-    ICON_BIG = 1
+    # Win32 API constants: uppercase mirrors the names in <winuser.h> on purpose.
+    LR_LOADFROMFILE = 0x00000010  # noqa: N806
+    IMAGE_ICON = 1  # noqa: N806
+    WM_SETICON = 0x0080  # noqa: N806
+    ICON_SMALL = 0  # noqa: N806
+    ICON_BIG = 1  # noqa: N806
 
     user32 = ct.windll.user32
     try:
@@ -5459,7 +5467,7 @@ def _run_pywebview_window(path: str | Path, title: str = "Cell Map") -> None:
         icon_path = None
         try:
             candidate = resource_path("wraithguard_toolkit_icon.ico")
-            if os.path.exists(candidate):
+            if Path(candidate).exists():
                 icon_path = candidate
         except Exception:  # noqa: BLE001
             _log("pywebview: icon lookup failed:\n" + traceback.format_exc())
@@ -5479,7 +5487,10 @@ def _run_pywebview_window(path: str | Path, title: str = "Cell Map") -> None:
             # itself -- either way the window still has to open.
             webview.start(icon=icon_path)
         except Exception:  # noqa: BLE001
-            _log("pywebview: start(icon=...) failed, retrying without one:\n" + traceback.format_exc())
+            _log(
+                "pywebview: start(icon=...) failed, retrying without one:\n"
+                + traceback.format_exc()
+            )
             webview.start()
         _log("pywebview: window closed cleanly")
     except Exception:  # noqa: BLE001

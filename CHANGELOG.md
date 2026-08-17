@@ -5,6 +5,46 @@
 
 ### Added
 
+- **Conflict status now shows as colour the xEdit way -- a coloured row, not
+  just coloured text.** In the field-comparison panes (the plugin view's detail
+  tree and the Check Conflicts field list), a field's overall status now colours
+  its whole **row** -- a dark green tint with green text where every plugin
+  agrees, dark amber for a benign override, dark red where an edit is being
+  discarded -- the same dark-tint-with-bright-text look xEdit's own dark theme
+  uses, and the colour language every modder already reads (see the STEP
+  guide's legend). The plugin tree and the
+  record list keep colouring their **text** (what each plugin does), now in the
+  same Material-Design family, so the two axes -- "what this plugin does" and
+  "what happens to the record overall" -- stay visually distinct. The palette
+  (`wraithguard/gui/conflict_colors.py`) is the Material dark set from a
+  community edit of xEdit's `xEdit.ini`; only the colour values were used, no
+  xEdit code (see CREDITS.md). The "these plugins conflict with the one you
+  clicked" highlight is unchanged: it sits on the plugin tree, which stays
+  text-coloured, so its dark background still layers cleanly behind.
+
+- **A "Read as dialogue" button in the field-diff window turns a DIAL/INFO
+  record into the line an NPC actually says -- to whom, and under what
+  conditions -- instead of raw subrecords.** A dialogue conflict was one of the
+  least legible things the diff could show: an INFO record is a packed `DATA`
+  struct, a list of `SCVR` filter conditions each encoded as a two-digit
+  function code paired with a separate `INTV`/`FLTV` number, and a handful of
+  one- and two-letter speaker filters (`ONAM`/`RNAM`/`CNAM`/`FNAM`/`ANAM`), so
+  the table told you *that* two mods disagreed about a topic without telling you
+  *what either of them says*. The button (shown only for `DialogueInfo` and
+  `Dialogue` records) renders each plugin's version in turn as, e.g., `Actor:
+  Fargoth` / `- If disposition is at least 50` / `- If Player Axe Skill >= 1` /
+  `Response: "..."`, with journal entries read as quest-index states and the
+  negated-identity filters collapsed to plain "is / is not a member of faction
+  X" sentences. The decoder (`wraithguard/tes3fields/dialogue.py`) reads the
+  exact shape tes3conv emits -- the enum *names* (`filter_type="Function"`,
+  `comparison="GreaterEqual"`) and the adjacently-tagged `value`
+  (`{"type": "Integer", "data": 1}`), both confirmed by round-tripping real
+  records through tes3conv -- and the condition phrasing is adapted from
+  Morrowind Dialog Explorer (MIT, Sophie Kirschner; see CREDITS.md), while the
+  filter-function labels follow the `tes3` crate's own names so they match the
+  JSON exactly. The result script is syntax-highlighted (keywords, strings,
+  numbers, comments) with a small mwscript lexer also ported from MWDE.
+
 - **A "Clear Memory" button next to Scan... forgets manually added
   plugins/folders and any in-memory scan result.** Manual adds (drag-drop or
   the Add plugin.../Add data folder... buttons) and an unsaved scan result are
@@ -24,6 +64,36 @@
 
 ### Fixed
 
+- **The dialogue topic-order analysis now accounts for deleted responses.**
+  When it works out which lines a patch shifts in a topic (position is
+  priority, so a shift is a line someone may start or stop hearing), a response
+  a later plugin *deletes* -- the `DELETED` object flag -- is now taken out of
+  the topic instead of being counted as if it were still there. Removing it
+  closes the gap behind it, so the survivors' new positions are reported
+  correctly; re-adding the id later inserts it fresh, as the engine does. (A
+  deleted mid-chain line does not re-orphan responses that named it as their
+  predecessor -- a rare enough edge that the resolver leaves them put.)
+- **Browse dialogs now show upper-case file extensions on Linux, Steam Deck
+  included, without having to switch the type dropdown to "All files".**
+  Every "Add plugin...", "Add data folder...", executable-locator and export
+  dialog filters by extension, and Tk's own file dialog -- the one used on
+  Linux, since Windows and macOS get their native dialogs -- matches those
+  `filetypes` globs case-sensitively. So a filter of `*.esp *.esm` silently hid
+  `Mod.ESP` / `Mod.ESM`, and all-caps plugin extensions are the *norm* after
+  twenty years of Morrowind mods authored on case-insensitive Windows, where
+  the case was never something anyone had to get right. Picking a plugin meant
+  knowing to drop the filter to "All files" first. Every extension-filtered
+  Browse in the app (plugins, the tes3cmd / tes3conv executables, and the
+  .cfg/.toml/.yml/.json/.csv/.html/.log dialogs) now runs its filters through a
+  helper that rewrites each glob to a case-insensitive character-class form --
+  `*.esp` becomes `*.[eE][sS][pP]` -- which Tk's matcher honours. It keys off
+  `sys.platform`, so it covers Linux under both X11 and Wayland (Tk runs under
+  XWayland there and uses the same dialog); the native Windows and macOS
+  dialogs are already case-insensitive and reject those classes, so on them the
+  filters are left exactly as they were. The app's own glob fields -- the
+  conflict-scan exclude patterns and the groundcover/grass declarations -- were
+  already case-insensitive (they lower-case both sides before matching), so
+  only the Tk dialog filters needed this.
 - **The program icon now shows up on Linux, Steam Deck's Desktop Mode
   included, instead of Tk's generic icon.** `root.iconbitmap(default=...)`
   works on Windows because Tk special-cases `.ico` loading there; on
@@ -57,6 +127,16 @@
   different path) instead of every version there was to step through.
   `read_mesh` now falls back to a cached, case-insensitive index of loose
   files, mirroring the pattern `textures.py` already used correctly.
+- **The Check Conflicts field comparison now finds plugin-added icons and
+  textures on Linux, including Steam Deck, not just the file already packed
+  in an archive.** The same raw `(folder / path).is_file()` gap fixed above
+  for meshes had an independent copy in `wraithguard/gui/conflicts.py`'s
+  `_read_vfs_bytes`, which resolves the icon/texture shown when
+  double-clicking a conflicting record in the comparison viewer -- it never
+  went through `vfs.py`'s fix, so a case-mismatched loose icon or texture
+  still silently dropped out of the comparison. Now shares `read_mesh`'s
+  cached `loose_index()` (made public for this reason) instead of
+  duplicating the lookup, so the two viewers can't drift out of sync again.
 - **The mlox rule maker window now scrolls instead of clipping its content**
   on small screens.
 - **The TES3 record conflict window no longer swallows its "include other
@@ -80,6 +160,24 @@
   Steam Deck's -- are now bundled into the one-file binary via the build
   image's apt packages, closing most of the `Library not found` warnings the
   freeze reported.
+- **"Update plugin-order.yml" and "Update mlox rules" no longer fail with
+  `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate` on
+  Steam Deck.** Both share one choke point, `fetch_url_bytes()`, which opened
+  every HTTPS request with no explicit SSL context -- leaving OpenSSL to find
+  a trust store through its own compiled-in default paths (`/etc/ssl/certs`
+  and similar). A source checkout on an ordinary desktop Linux has those; a
+  PyInstaller-frozen build doesn't reliably, and SteamOS's read-only,
+  non-standard root makes it worse. The failure wasn't a bad cert on one
+  host -- it was every HTTPS request failing identically, because nothing
+  ever found a trust store to check against at all. Fixed by pinning an
+  explicit `ssl.SSLContext` to `certifi`'s own CA bundle
+  (`certifi.where()`), bundled independently of any filesystem-specific
+  path; falls back to the old default-context behaviour if `certifi` isn't
+  installed, so a plain source checkout is unaffected. `certifi` is now in
+  `Dockerfile.wraithguard`'s pip install list and gets its own
+  `--collect-all` alongside the other explicit collects, so `cacert.pem`
+  actually ships in the frozen binary rather than the fix silently
+  no-oping there.
 
 ### Changed
 

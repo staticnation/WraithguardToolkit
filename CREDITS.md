@@ -94,6 +94,22 @@ and their `LICENSE` files are included in their source folders in this repo.
   real compiled scripts** rather than taken from anyone's source - an opcode's
   numeric value is a fact about the game's own data files. `tools/gen_opcodes.py`
   regenerates the table and documents each derivation.
+- **Morrowind Dialog Explorer (MWDE)** - © 2018 Sophie Kirschner
+  ([pineapplemachine.com/files/mwde](https://pineapplemachine.com/files/mwde)).
+  MIT. The **"Read as dialogue"** view (`wraithguard/tes3fields/dialogue.py`)
+  turns a DIAL/INFO record into the line an NPC says, to whom, and under what
+  conditions. The condition phrasing - the mapping from a SCVR filter's
+  type/function/comparison to an English "If ..." line, the boolean special
+  cases ("is not dead", "is a member of faction X"), the speaker-context
+  assembly - and the result-script token lexer (`script_tokens`, from MWDE's
+  `src/syntax_highlight.py`) are adapted from MWDE's `src/info_string.py`,
+  retargeted from its raw-subrecord model onto the enum names tes3conv emits.
+  The **function labels themselves** follow the `tes3` crate's own
+  `FilterFunction` names (prettified) rather than MWDE's table, so they stay in
+  step with the JSON the tool actually reads. MWDE's wider record/field schema
+  (`record_types.py`, `sub_record_field_types.py`) was reviewed but not ported:
+  our `tes3fields/schema.py` already covers a superset of its records, and its
+  byte-level field readers duplicate what tes3conv/our native reader do.
 
 ## abot's tes3cmd scripts (idea credited, no code used)
 
@@ -133,6 +149,16 @@ reference your scripts at all, say the word and it is done.
   distributed with it; **no code was copied**. We credit it for the field-level
   record-diff *approach* that inspired our field comparison view. All rights
   remain with its author.
+- **xEdit / TES5Edit / SSEEdit** - © the xEdit team. **MPL 1.1; no code copied.**
+  Our conflict-colour convention -- a record's overall status colours the row
+  **background**, what one plugin does colours the **text** -- is xEdit's, the
+  one every modder already reads (green = no conflict, yellow = benign override,
+  red = a losing edit; see the STEP guide's colour legend). The specific hues in
+  `wraithguard/gui/conflict_colors.py` are the Material-Design values from a
+  community *Material dark-mode edit of xEdit's `xEdit.ini`* (its
+  `[ColorConflictThis]`/`[ColorConflictAll]` sections, Delphi `TColor` integers
+  we decoded to `#RRGGBB`). Only the colour **values and the scheme** were
+  taken -- data, not code. Material Design is Google's, under Apache-2.0.
 
 ## The NIF reader, and why it is written rather than imported
 
