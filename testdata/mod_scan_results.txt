@@ -1,0 +1,1609 @@
+E:\OpenMW\Mods\custom\umo\ABlasphemersBlizzardOpenMW\ABlasphemersBlizzard\Data Files
+A Blasphemer's Blizzard.omwscripts
+A Blasphemer's Blizzard.ESP
+
+E:\OpenMW\Mods\custom\umo\AftertheBlight\CrownEditionAtB\00 Core (Required)
+After the Blight.esp
+
+E:\OpenMW\Mods\custom\umo\AftertheBlight\CrownEditionAtB\01 The Rise of the Tribe Unmourned Integration (Optional)
+AtB-TRotTU Integration.esp
+
+E:\OpenMW\Mods\custom\umo\AftertheBlight\CrownEditionAtB\02 Normals for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\AftertheBlight\CrownEditionAtB\03 Glowing Daedric Weapons & Armor Patch
+
+E:\OpenMW\Mods\custom\umo\AnimatedLanternsandSignsOpenMW\AnimatedLanternsAndSigns
+AnimatedLanterns.omwaddon
+AnimatedLanterns.omwscripts
+
+E:\OpenMW\Mods\custom\umo\ArrowStickOpenMW\ArrowStick
+ArrowStick.omwscripts
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaAnArmigersTale\Arvesa - An Armigers Tale
+Arvesa - An Armigers Tale.ESP
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaAnArmigersTale\Arvesa - An Armiger's Tale
+Arvesa - An Armigers Tale.ESP
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\01 Better Bodies Nude
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\02 Better Bodies
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\03 Bodies Reimagined
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\04 Bodies Reimagined Nude
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\05 Roberts Bodies
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\06 Roberts Bodies Vanilla Underwear
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\07 VSBR
+
+E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\08 VSBR Nude
+
+E:\OpenMW\Mods\custom\umo\BackpathExtended\BackpathExtended
+Backpath Extended.esp
+
+E:\OpenMW\Mods\custom\umo\BardcraftOpenMW\Bardcraft
+Bardcraft.ESP
+Bardcraft.omwscripts
+
+E:\OpenMW\Mods\custom\umo\BasicChargenAlternateStart\BasicChargenCompleteEdition
+Basic Chargen.esp
+
+E:\OpenMW\Mods\custom\umo\BoethiahsQuestStarter\BoethiahsQuestStarter
+Boethiah's Quest Starter.esp
+
+E:\OpenMW\Mods\custom\umo\BullseyeMarksmanOverhaulOpenMW\Bullseye
+Bullseye.omwscripts
+BullseyeGMSTs.omwaddon
+
+E:\OpenMW\Mods\custom\umo\CamonnaTongPuppetMaster\CamonnaTong\00 Core (Required)
+Camonna Tong.esp
+
+E:\OpenMW\Mods\custom\umo\CamonnaTongPuppetMaster\CamonnaTong\01 Tamriel Rebuilt Patch (Optional)
+CT-TR Patch.esp
+
+E:\OpenMW\Mods\custom\umo\CamonnaTongPuppetMaster\CamonnaTong\02 Normals for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\CamonnaTongPuppetMaster\CamonnaTong\03 Dura gra-Bol's House Reclaimed Patch (Optional)
+CT-Dura Patch.esp
+
+E:\OpenMW\Mods\custom\umo\CasimirsLegacy\CasimirsLegacy\00 Core (Required)
+Casimir's Legacy.esp
+
+E:\OpenMW\Mods\custom\umo\CasimirsLegacy\CasimirsLegacy\01 Normal Maps for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\CustomBGsupportforUIExtenders\CustomBGSupportForUIExtenders
+
+E:\OpenMW\Mods\custom\umo\DevilishBriberyOverhaul\DevilishBriberyOverhaul\Data Files
+Devilish Bribery Overhaul.ESP
+
+E:\OpenMW\Mods\custom\umo\DevilishGuarRidingOpenMW\DevilishGuarRidingOpenMW\Devilish Guar Riding OpenMW
+Devilish Guar Riding OpenMW.ESP
+
+E:\OpenMW\Mods\custom\umo\DevilishHorseRidingOpenMW\DevilishHorseRiding\Data Files
+Devilish Horse Riding.ESP
+
+E:\OpenMW\Mods\custom\umo\DevilishRockyRedMountain\DevilishRockyRedMountain
+DevilishRockyRedMountain.esp
+
+E:\OpenMW\Mods\custom\umo\DevilishRockyWestGash\DevilishRockyWestGash\Data Files
+Rocky_WG_Base_1.1.esp
+
+E:\OpenMW\Mods\custom\umo\DevilishSkyRenderRiding\DevilishSkyRenderRiding\Data Files
+Devilish Sky Render Riding.esp
+
+E:\OpenMW\Mods\custom\umo\DevilishSpinesOfMadness\DevilishSpinesofMadness
+Spines of Madness 1.13.esp
+
+E:\OpenMW\Mods\custom\umo\DevilishThuumOpenMW_bak
+Devilish Thuum.ESP
+Devilish Thuum.omwscripts
+
+E:\OpenMW\Mods\custom\umo\DevilishTouchofMadnessOpenMW\DevilishTouchOfMadness
+Devilish Touch of Madness.ESP
+Devilish Touch of Madness.omwscripts
+
+E:\OpenMW\Mods\custom\umo\DevilishWabbajackOpenMW\DevilishWabbajack
+Develish Wabbajack.omwscripts
+Devilish Wabbajack.esp
+
+E:\OpenMW\Mods\custom\umo\DevilishWerebeastOverhaulOpenMW049\DevilishWerebeastOverhaul\Data Files
+Devilish_Werewolf_Overhaul.ESP
+Devilish_Werewolf_Overhaul.omwscripts
+
+E:\OpenMW\Mods\custom\umo\EyeoftheNeedle\EyeOfTheNeedle\Data Files
+EyeoftheNeedle.ESP
+
+E:\OpenMW\Mods\custom\umo\FreetheSlaves\FreetheSlaves
+FreeTheSlaves!.esp
+
+E:\OpenMW\Mods\custom\umo\FriendsandFrens\FriendsandFrens\00 Core
+Friends & Frens - base.esm
+
+E:\OpenMW\Mods\custom\umo\FriendsandFrens\FriendsandFrens\01 Vvardenfell
+Friends & Frens - Vvardenfell.ESP
+
+E:\OpenMW\Mods\custom\umo\FriendsandFrens\FriendsandFrens\02 Mainland
+Friends & Frens - TR.ESP
+
+E:\OpenMW\Mods\custom\umo\FriendsandFrens\FriendsandFrens\03 Prim & Proper addon for Vv
+Friends & Frens - Prim & Proper.esp
+
+E:\OpenMW\Mods\custom\umo\FriendsandFrens\FriendsandFrens\04 Bantam Guar
+Friends & Frens - Bantam Guar.esp
+
+E:\OpenMW\Mods\custom\umo\FriendsandFrens\FriendsandFrens\05 CS needed Your Custom Companion
+Friends & Frens - Custom.esp
+
+E:\OpenMW\Mods\custom\umo\GodofWormsSuccession\GodofWorms\00 Core (Required)
+God of Worms.esp
+
+E:\OpenMW\Mods\custom\umo\GodofWormsSuccession\GodofWorms\01 Normals for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\GodofWormsSuccession\GodofWorms\02 Glass Glowset Patch (Optional)
+
+E:\OpenMW\Mods\custom\umo\GodofWormsSuccession\GodofWorms\03 Glowing Daedric Armor Patch (Optional)
+
+E:\OpenMW\Mods\custom\umo\GodofWormsSuccession\GodofWorms\04 Mines and Caverns Patch (Optional)
+GoW-MaC Patch.esp
+
+E:\OpenMW\Mods\custom\umo\GoodCitizensHandOverSkooma\GoodCitizensHandOverSkooma
+Good Citizens Hand Over Skooma.esp
+
+E:\OpenMW\Mods\custom\umo\GreaterMournholdBazaar\GreaterMournholdBazaar
+Greater Mournhold Bazaar.esp
+
+E:\OpenMW\Mods\custom\umo\HaulingAcarryweightskillmodforOpenMW\HaulingSkill
+Hauling.omwscripts
+
+E:\OpenMW\Mods\custom\umo\ImprovedTelvanniCouncilHouseinSadrithMora\Option5ImprovedTelvanniCouncil4kSpinningSphere\Option 2 Improved Telvanni Council House 4k Textures-52270-1-1-1675549119 (2)\Data Files
+Clean_Improved Telvanni Council House.esp
+
+E:\OpenMW\Mods\custom\umo\IncantationAspellcraftingskillmodforOpenMW\Incantation\Incantation
+Incantation.esp
+Incantation.omwscripts
+Incantation.omwscripts.esp
+
+E:\OpenMW\Mods\custom\umo\InventoryExtenderOpenMW\InventoryExtender
+InventoryExtender.omwscripts
+
+E:\OpenMW\Mods\custom\umo\MaggotsandGraverobbers\MaggotsAndGraverobbers
+MaG - MaC Patch.esp
+Maggots and Graverobbers.esp
+
+E:\OpenMW\Mods\custom\umo\MainQuestRevised\MainQuestRevised
+Main Quest Revised.esp
+MQR - TR Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MAiqOverhaulLiaryesIdiotno\LiaryesIdiotno
+Liar yes Idiot no.ESP
+
+E:\OpenMW\Mods\custom\umo\MarkgranForestMaarGanForest\MarkgranForest\Markgran Forest (Maar Gan Forest)\Data Files
+Markgran Forest.esp
+
+E:\OpenMW\Mods\custom\umo\MasterTrainers\MasterTrainers
+Master Trainers.esp
+
+E:\OpenMW\Mods\custom\umo\MeditationAmagickaregenerationskillforOpenMW\MeditationSkill
+Meditation.omwscripts
+
+E:\OpenMW\Mods\custom\umo\MoragTongPolished\MoragTongPolished\00 Core (Required)
+Morag Tong Polished.esp
+
+E:\OpenMW\Mods\custom\umo\MoragTongPolished\MoragTongPolished\01 Tamriel Rebuilt Patch (Optional)
+MTP - TR Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MoragTongPolished\MoragTongPolished\02 Normals for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\MoragTongPolished\MoragTongPolished\03 Web of Mephala Patch (Optional)
+MTP - WoM Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MoragTongPolished\RubbermansBlackHandsDagger
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\00 Core (Required)
+Crown Disputed Chapters.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\01 Decorated Shrines (Optional) (DSO Incompatible)
+Decorated Shrines of Mehrunes Dagon.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\02 Crown Document Analysis Patch (Optional)
+CDC - CDA Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\03 Tamriel Rebuilt Patch (Optional)
+CDC - TR Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\04 Normals for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\05 Glass Glowset Patch (Optional)
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\06 Glowing Daedric Armor Patch (Optional)
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\07 Mines and Caverns Patch (Optional)
+CDC - MaC Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\08 Maar Gan Town of Pilgrimage Patch (Optional)
+CDC - MGToP Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownDisputedChapters\09 Dura gra-Bol's House Reclaimed Patch (Optional)
+CDC - Dura Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownNerevarineAccount\00 Core (Required)
+Crown Nerevarine Account.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownNerevarineAccount\01 Tamriel Rebuilt Patch (Optional)
+CNA - TR Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownNerevarineAccount\02 Normals for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownNerevarineAccount\03 Glowing Daedric Patch (Optional)
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownNerevarineAccount\04 Mamaea Awakened Patch (Optional)
+CNA - MA Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\CrownNerevarineAccount\05 The Unhatched Patch (Optional)
+CNA - TheUnhatched Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\FateofMorrowind\00 Core (Required)
+Fate of Morrowind.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\FateofMorrowind\01 Normal Maps for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\00 Core (Required)
+Morrowind Extended Cut.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\01 Fate of Morrowind (Optional)
+Fate of Morrowind.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\02 Decorated Shrines (Optional) (DSO Incompatible)
+Decorated Shrines of Mehrunes Dagon.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\03 Tamriel Rebuilt Patch (Optional)
+MEC - TR Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\04 Normals for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\05 Glass Glowset Patch (Optional)
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\06 Glowing Daedric Patch (Optional)
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\07 Mines and Caverns Patch (Optional)
+MEC - MaC Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\08 Maar Gan Town of Pilgrimage Patch (Optional)
+MEC - MGToP Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\09 Dura gra-Bol's House Reclaimed Patch (Optional)
+MEC - Dura Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\10 Web of Mephala Patch (Optional)
+MEC - WoM Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\11 Mamaea Awakened Patch (Optional)
+MEC - MA Patch.esp
+
+E:\OpenMW\Mods\custom\umo\MorrowindExtendedCut\MorrowindExtendedCut\12 The Unhatched Patch (Optional)
+MEC - TheUnhatched Patch.esp
+
+E:\OpenMW\Mods\custom\umo\NGardeActiveBlockandParryOpenMW\NGarde\NGarde
+ngarde.omwaddon
+ngarde.omwscripts
+ngardencgdescription.omwaddon
+
+E:\OpenMW\Mods\custom\umo\NGardeActiveBlockandParryOpenMW\NgardeCreatureFlagsMustBeMergedOmwaddon
+ngardecreatureflags_must_be_merged.omwaddon
+
+E:\OpenMW\Mods\custom\umo\OfBeadandFeatherCustomPotionSorter\OBaFbottlesandicons
+
+E:\OpenMW\Mods\custom\umo\OfBeadandFeatherCustomPotionSorter\abitsmallerthanvanillameshes
+Visible Rings.omwscripts
+
+E:\OpenMW\Mods\custom\umo\OfBeadandFeatherCustomPotionSorter\OBaFscripts
+OfBeadAndFeather.omwscripts
+
+E:\OpenMW\Mods\custom\umo\OfBonesandBarbariansAnAldRuhnBlacksmith\OfBonesandBarbarians\00 Core Files
+Of_Bones_and_Barbarians.ESP
+
+E:\OpenMW\Mods\custom\umo\OfBonesandBarbariansAnAldRuhnBlacksmith\OfBonesandBarbarians\01 City of Ash
+Of_Bones_and_Barbarians.ESP
+
+E:\OpenMW\Mods\custom\umo\OfBonesandBarbariansAnAldRuhnBlacksmith\OfBonesandBarbarians\02 Seat of Power
+Of_Bones_and_Barbarians.ESP
+
+E:\OpenMW\Mods\custom\umo\OfBonesandBarbariansAnAldRuhnBlacksmith\OfBonesandBarbarians\03 AldRuhn Nwahs and Mushrooms
+Of_Bones_and_Barbarians.ESP
+
+E:\OpenMW\Mods\custom\umo\OfDungeonsandAbodes\OfDungeonsandAbodesVersion10\Of Dungeons and Abodes
+Of Dungeons and Abodes.esp
+
+E:\OpenMW\Mods\custom\umo\OfGemsandGeodesanAldRuhnCollector\OfGemsandGeodes\01 Main files
+Of Gems and Geodes.ESP
+
+E:\OpenMW\Mods\custom\umo\OfGemsandGeodesanAldRuhnCollector\OfGemsandGeodes\02 City of Ash patch
+Of Gems and Geodes.ESP
+
+E:\OpenMW\Mods\custom\umo\OfGemsandGeodesanAldRuhnCollector\OfGemsandGeodes\03 HD Icon
+
+E:\OpenMW\Mods\custom\umo\OfJusticeandInnocence\OfJusticeandInnocence131\Of Justice and Innocence 1.31
+Of Justice and Innocence.esp
+OJAI - Framerate Version.esp
+
+E:\OpenMW\Mods\custom\umo\OfMelodiesandMoonlightASadrithMoraArtist\OfMelodiesandMoonlight\Melodies and Moonlight
+Melodies and Moonlight.esp
+
+E:\OpenMW\Mods\custom\umo\OfMemoriesandMementosAnOldMersLife\OfMemoriesandMementos\Data Files
+Of Memories and Mementos.ESP
+
+E:\OpenMW\Mods\custom\umo\OfMurkandMusselsASadrithMoraShop
+Of_Murk_and_Mussels.esp
+
+E:\OpenMW\Mods\custom\umo\OfMuskandMerASadrithMoraTale\OfMuskandMerASadrithMoraTaleV10\Data Files
+Of Musk and Mer A Sadrith Mora Tale.esp
+
+E:\OpenMW\Mods\custom\umo\OfPestilenceandPurificationAnimalDiseaseCuringandMoreOpenMW\OfPestilenceAndPurification\Of Pestilence and Purification
+OfPestilenceAndPurification.omwaddon
+OfPestilenceAndPurification.omwscripts
+
+E:\OpenMW\Mods\custom\umo\OfPillowsandPeril\OfPillowsandPeril
+Of Pillows and Peril.ESP
+
+E:\OpenMW\Mods\custom\umo\OpenMWImpactEffects\OpenMWImpactEffects
+Impact Effects.omwscripts
+
+E:\OpenMW\Mods\custom\umo\PeopleofPelagiad\PeopleofPelagiad\[1] Vanilla
+People of Pelagiad.ESP
+
+E:\OpenMW\Mods\custom\umo\PeopleofPelagiad\PeopleofPelagiad\[2] AM Merged
+People of Pelagiad.ESP
+
+E:\OpenMW\Mods\custom\umo\QuestmanModernQuestJournalOpenMW\Questman11
+questman.omwscripts
+
+E:\OpenMW\Mods\custom\umo\ReadMeLibraryofVivecOverhaul\LibraryofVivecOverhaulFull
+Library of Vivec Overhaul - Full.esp
+
+E:\OpenMW\Mods\custom\umo\ReadMeLibraryofVivecOverhaul\LibraryofVivecOverhaulQuestOnly
+Library of Vivec Overhaul - QuestOnly.esp
+
+E:\OpenMW\Mods\custom\umo\RedayniaRestored\RedayniaRestored\Data Files
+Redaynia Restored.ESP
+
+E:\OpenMW\Mods\custom\umo\RedayniaVillage\RedayniaVillageCompatibilityVersion\Redaynia Village Compatibility Version 1-13
+Redaynia Village.esp
+
+E:\OpenMW\Mods\custom\umo\RedMountainReborn\RedMountainReborn\00 - Red Mountain Reborn
+RedMountainReborn.esp
+
+E:\OpenMW\Mods\custom\umo\RedMountainReborn\RedMountainReborn\01a - Greater Dwemer Ruins Patch
+DN-GDRv1.2.1.esp
+
+E:\OpenMW\Mods\custom\umo\RedMountainReborn\RedMountainReborn\01b - Greater Dwemer Ruins + TOTSP Patch
+DN-GDRv1.2.1.esp
+
+E:\OpenMW\Mods\custom\umo\RedMountainReborn\RedMountainReborn\02 - RR Ghostgate Fortress Patch
+RR_Ghost_Gate_Fortress_Eng.ESP
+
+E:\OpenMW\Mods\custom\umo\RedMountainReborn\RedMountainReborn\03 - Foyada Mamaea + RR Ghostgate Patch
+Foyada Mamaea Overhaul.ESP
+
+E:\OpenMW\Mods\custom\umo\RedMountainReborn\RedMountainReborn\04 - Kogoruhn Expanded Patch
+KogoruhnExpanded.esp
+
+E:\OpenMW\Mods\custom\umo\RedMountainReborn\RedMountainReborn\05 - Illuminated Order
+Illuminated Order v2.0 - Lore Friendly.ESP
+
+E:\OpenMW\Mods\custom\umo\ReligionsElaborated\ReligionsElaborated
+Religions Elaborated.esp
+
+E:\OpenMW\Mods\custom\umo\RoleplayOptionsforGreatHouseHlaalu\RPHouseHlaalu
+RP House Hlaalu.esp
+
+E:\OpenMW\Mods\custom\umo\samsopenmwheightmapsforRockyWestGashDevilishRedMountainandSpinesofMadness\SamsopenmwheightmapsforRockyWestGashetc\sams height maps and normals for rocky west gash and rocky red mountain
+
+E:\OpenMW\Mods\custom\umo\ServiceRefusalExpanded\ServiceRefusalExpanded
+Service Refusal Expanded.esp
+
+E:\OpenMW\Mods\custom\umo\SetBonus\OpenMWSetBonus\OpenMW_SetBonus
+setbonus.omwscripts
+
+E:\OpenMW\Mods\custom\umo\SetBonus\OpenMWSetBonus\OpenMW_SetBonusFlags
+SetBonusFlags.omwscripts
+
+E:\OpenMW\Mods\custom\umo\SetBonus\OpenMWSetBonus\OpenMW_SetBonusRebalance
+setbonus_rebalance.omwscripts
+
+E:\OpenMW\Mods\custom\umo\SetBonus\OpenMWSetBonus\OpenMW_SetBonus_Example
+setbonus_example.omwscripts
+
+E:\OpenMW\Mods\custom\umo\SeydaNeenCensusandExciseOfficeWindowFix\SeydaNeenCensusAndExciseWindowFix
+Seyda Neen Census and Excise Window Fix.ESP
+
+E:\OpenMW\Mods\custom\umo\SkillFrameworkOpenMW\SkillFramework
+SkillFramework.omwscripts
+
+E:\OpenMW\Mods\custom\umo\SkyrimInspiredLockpicking\SkyrimLockpicking\Skyrim Lockpicking
+Skyrim Lockpicking.omwaddon
+Skyrim Lockpicking.omwscripts
+
+E:\OpenMW\Mods\custom\umo\SothaSilExpanded\SothaSilExpanded31\SothaSilExpanded3_1
+GDR_MasterFile.esm
+Sotha Sil Expanded.ESP
+
+E:\OpenMW\Mods\custom\umo\Stargazer\Stargazer\Stargazer
+Stargazer - Telescopes Cyrodiil.omwaddon
+Stargazer - Telescopes.omwaddon
+Stargazer.omwaddon
+Stargazer.omwscripts
+
+E:\OpenMW\Mods\custom\umo\StormriderExpandedFurnished\StormriderExpandedFurnished
+stormrider_expanded_furnished.omwaddon
+
+E:\OpenMW\Mods\custom\umo\StormriderExpandedLands\StormriderExpandedLands\00 Core Tamriel Rebuilt
+Stormrider.esp
+
+E:\OpenMW\Mods\custom\umo\StormriderExpandedLands\StormriderExpandedLands\01 Cyrodiil (Add-On, not compatible with OEMS)
+Stormrider_Cyrodiil.ESP
+
+E:\OpenMW\Mods\custom\umo\StormriderExpandedLands\StormriderExpandedLands\03 Old Ebonheart Merchant Swap (Add-On, not compatible with Cyrodiil)
+Stormrider_OEmerchant.ESP
+
+E:\OpenMW\Mods\custom\umo\StormriderExpandedLands\StormriderExpandedLands\04 Core Vanilla (Alternative Core, not compatible with Add-Ons)
+Stormrider_Vanilla.esp
+
+E:\OpenMW\Mods\custom\umo\StormriderExpandedLands\StormriderExpandedLands\05 Telvanni Sea Beacons (Optional, compatible with everything)
+TelvanniSeaBeacons.ESP
+
+E:\OpenMW\Mods\custom\umo\StormriderExpandedOpenMW\StormriderExpanded14\Stormrider Expanded\Data Files
+Stormrider Expanded.omwaddon
+
+E:\OpenMW\Mods\custom\umo\TheBeaconofStRilms\RilmsBeacon
+BeaconOfstRilms.ESP
+
+E:\OpenMW\Mods\custom\umo\TheBeaconofStRilms\RilmsBeaconBCOMRedMountainReborn
+BeaconOfstRilmsBCOMReborn.ESP
+
+E:\OpenMW\Mods\custom\umo\TheBeaconsofMamaea\TheBeaconsofMamaea\data files
+The Beacons of Mamaea.ESP
+
+E:\OpenMW\Mods\custom\umo\TheCrownAct\TheCrownAct\00 Core (Required)
+The Crown Act.esp
+
+E:\OpenMW\Mods\custom\umo\TheCrownAct\TheCrownAct\01 Normals for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\TheCrownAct\TheCrownAct\02 Mamaea Awakened Patch (Optional)
+TCA-MA Patch.esp
+
+E:\OpenMW\Mods\custom\umo\TheCrownAct\TheCrownAct\03 The Unhatched Patch (Optional)
+TCA-TheUnhatched Patch.esp
+
+E:\OpenMW\Mods\custom\umo\TheDarkBrotherhoodAttacks\TheDarkBrotherhoodAttacks
+The Dark Brotherhood Attacks.esp
+
+E:\OpenMW\Mods\custom\umo\TheReclamationofHasimminusMine\ReclaimingHasimminus\Data Files
+ReclaimingHasimminus.esp
+
+E:\OpenMW\Mods\custom\umo\TheRiseoftheTribeUnmourned\CrownEditionTRotTU\00 Core (Required)
+The Rise of the Tribe Unmourned.esp
+
+E:\OpenMW\Mods\custom\umo\TheRiseoftheTribeUnmourned\CrownEditionTRotTU\01 Normals for OpenMW (Optional)
+
+E:\OpenMW\Mods\custom\umo\TheStonewoodpassreworked\TheStoneWoodPassReworked\00 Core
+Better Landscapes Stonewood Pass (RP Edit).esp
+
+E:\OpenMW\Mods\custom\umo\TheStonewoodpassreworked\TheStoneWoodPassReworked\01 OAAB - Foyada Mamaea Overhaul (patch)
+SWP - Foyada Mamaea Overhaul Patch.ESP
+
+E:\OpenMW\Mods\custom\umo\TheStonewoodpassreworked\TheStoneWoodPassReworked\02 Caldera Mine Expansion - Simplified and Bug Free
+SWP - Caldera Mine Patch.ESP
+
+E:\OpenMW\Mods\custom\umo\TheStonewoodpassreworked\TheStoneWoodPassReworked\03 Traveling Merchants (esp replacer)
+TravelingMerchants_v2_3.esp
+
+E:\OpenMW\Mods\custom\umo\TheStonewoodpassreworked\TheStoneWoodPassReworked\04 Riders
+riders.ESP
+
+E:\OpenMW\Mods\custom\umo\TheStonewoodpassreworked\TheStoneWoodPassReworked\04 Riders - to use with OAAB Grazelands
+riders.ESP
+
+E:\OpenMW\Mods\custom\umo\TheWarfortheVvardenfellBrotherhood\VvardenfellBrotherhood\00 Core (Required)
+Vvardenfell Brotherhood.esp
+
+E:\OpenMW\Mods\custom\umo\TheWarfortheVvardenfellBrotherhood\VvardenfellBrotherhood\01 Decorated Shrines (Optional) (DSO Incompatible)
+Decorated Shrines of Mehrunes Dagon.esp
+
+E:\OpenMW\Mods\custom\umo\TheWarfortheVvardenfellBrotherhood\VvardenfellBrotherhood\02 Tamriel Rebuilt Patch (Optional)
+VB - TR Patch.esp
+
+E:\OpenMW\Mods\custom\umo\TheWarfortheVvardenfellBrotherhood\VvardenfellBrotherhood\03 Morag Tong Polished Integration (Optional)
+VB - MTP Integration Patch.esp
+
+E:\OpenMW\Mods\custom\umo\TheWarfortheVvardenfellBrotherhood\VvardenfellBrotherhood\04 Glowing Daedric Armor Patch (Optional)
+
+E:\OpenMW\Mods\custom\umo\TheWarfortheVvardenfellBrotherhood\VvardenfellBrotherhood\05 Maar Gan Town of Pilgrimage Patch (Optional)
+VB - MGToP Patch.esp
+
+E:\OpenMW\Mods\custom\umo\TheWarfortheVvardenfellBrotherhood\VvardenfellBrotherhood\06 Mines and Caverns Patch (Optional)
+VB - MaC Patch.esp
+
+E:\OpenMW\Mods\custom\umo\Thirtysix\Thirtysix
+Thirty-six.esp
+
+E:\OpenMW\Mods\custom\umo\TRIslands
+TR_Islands_v0012.esp
+
+E:\OpenMW\Mods\custom\umo\UnderMassersGaze\UnderMassersGaze\00 Core
+TTD_UnderMassersGaze.esp
+
+E:\OpenMW\Mods\custom\umo\UnderMassersGaze\UnderMassersGaze\01 Normal Maps for OpenMW
+
+E:\OpenMW\Mods\custom\umo\UnderMassersGaze\UnderMassersGaze\03 Patch SSQN MWSE
+
+E:\OpenMW\Mods\custom\umo\UnderMassersGaze\UnderMassersGaze\04 Patch SSQN OpenMw
+
+E:\OpenMW\Mods\custom\umo\ValleyoftheWindOverhaul\ValleyoftheWindOverhaul\Valley of the Wind Overhaul
+Valley of the Wind Overhaul.esp
+
+E:\OpenMW\Mods\custom\umo\VivecsFateTheAshlanderHeresy20\VivecsFateTheAshlanderHeresey\00 Content (Required)
+
+E:\OpenMW\Mods\custom\umo\VivecsFateTheAshlanderHeresy20\VivecsFateTheAshlanderHeresey\01 Director's Cut (Choose One)
+Vivec's Fate.esp
+
+E:\OpenMW\Mods\custom\umo\VivecsFateTheAshlanderHeresy20\VivecsFateTheAshlanderHeresey\02 Trimmed (Choose One)
+Vivec's Fate.esp
+
+E:\OpenMW\Mods\custom\umo\VivecsFateTheAshlanderHeresy20\VivecsFateTheAshlanderHeresey\03 Trimmed + BCoM (Choose One)
+Vivec's Fate.esp
+
+E:\OpenMW\Mods\custom\umo\VivecsFateTheAshlanderHeresy20\VivecsFateTheAshlanderHeresey\04 Trimmed + BCoM + AM (Choose One)
+Vivec's Fate.esp
+
+E:\OpenMW\Mods\custom\umo\VivecsFateTheAshlanderHeresy20\VivecsFateTheAshlanderHeresey\05 Delayed After Tribunal (Optional - Load After)
+Vivec's Fate Delayed.esp
+
+E:\OpenMW\Mods\custom\umo\YulMarsheeandtheVisageofMzund\YulMarsheeandtheVisageofMzund\00 Core
+Yul Marshee and the Visage of Mzund.ESP
+
+E:\OpenMW\Mods\custom\umo\YulMarsheeandtheVisageofMzund\YulMarsheeandtheVisageofMzund\01 HD Textures
+
+E:\OpenMW\Mods\custom\umo\AldRedayniaExtendedv1pt3
+Ald Redaynia Extended COM.esp
+Ald Redaynia Extended.esp
+
+E:\OpenMW\Mods\custom\umo\AnotherMarkgranForest\AnotherMarkgranForest
+ForestMaarGan.ESP
+
+E:\OpenMW\Mods\custom\umo\AshfrontRuinedRedaynia\AshfrontRuinedRedaynia\00 Core
+Ashfront - Ruined Redaynia.esp
+
+E:\OpenMW\Mods\custom\umo\AshfrontRuinedRedaynia\AshfrontRuinedRedaynia\01 GITD Patch
+
+E:\OpenMW\Mods\custom\umo\AshfrontRuinedRedaynia\AshfrontRuinedRedaynia\02 Grass Patch
+Ashfront Sheogorad - Grass.esp
+
+E:\OpenMW\Mods\custom\umo\BCOMRockyWestGash\BCOMRockyWestGash\00 Core
+BCOM Rocky West Gash.esp
+
+E:\OpenMW\Mods\custom\umo\BCOMRockyWestGash\BCOMRockyWestGash\01 Stratified Rocks
+
+E:\OpenMW\Mods\custom\umo\BCOMRockyWestGash\BCOMRockyWestGash\01 Vanilla Friendly Rocks
+
+E:\OpenMW\Mods\custom\umo\DevilishThuumOpenMW\DevilishThuum
+Devilish Thuum.ESP
+Devilish Thuum.omwscripts
+
+E:\OpenMW\Mods\custom\umo\MaarGanTownofPilgrimage\MaarGan\00 Core
+RP_Maar_Gan.ESP
+
+E:\OpenMW\Mods\custom\umo\MaarGanTownofPilgrimage\MaarGan\01 Ashlander Addon
+RP_Maar_Gan_Ashlander_Addon.ESP
+
+E:\OpenMW\Mods\custom\umo\MaarGanTownofPilgrimage\MaarGan\02 Magic Rock of Maar Gan
+The_magic_rock_of_Maar_Gan.ESP
+
+E:\OpenMW\Mods\custom\umo\MagicWindowExtenderOpenMW\MagicWindowExtender
+MagicWindowExtender.omwscripts
+removeSpellFix.omwaddon
+
+E:\OpenMW\Mods\custom\umo\MarkgranPilgrimageRockyRedMountainRebornMegapatch\RMRDRRMAMGFMGTOPpatch
+DevilishRockyRedMountain.esp
+ForestMaarGan.ESP
+RMR-DRRM-MGTOP-AMGF-patch.ESP
+
+E:\OpenMW\Mods\custom\umo\MementoMoriRMRBCoMpatch\MementoMoriRMRBCoM
+Memento Mori.ESP
+RedMountainReborn.esp
+
+E:\OpenMW\Mods\custom\umo\OfMurkandMusselsASadrithMoraTrader\OfMurkandMusselsASadrithMoraShop14\Data Files
+Of_Murk_and_Mussels.esp
+
+E:\OpenMW\Mods\custom\umo\RedMountainRebornDevilishRockyRedMountainOAABGrazelandspatch\thepatch
+RMRDevil_Grazelandspatch.ESP
+
+E:\OpenMW\Mods\custom\umo\SneakisGoodNowOpenMW\SneakIsGoodNow
+SneakIsGoodNow.omwaddon
+SneakIsGoodNow.omwscripts
+
+E:\OpenMW\Mods\custom\umo\YulMarsheeandtheVisageofMzundOpenMWPatch\YulMarsheeAndTheVisageOfMzundOpenMWPatch
+Yul Marshee and the Visage of Mzund.omwaddon
+Yul Marshee and the Visage of Mzund.omwscripts
+
+E:\OpenMW\Mods\custom\umo\AesthesiaGroundcoverReworkedNoMushroomsOpenMW\NoMushroomsAsesthesiaGroundcoverReworkedOpenMW\Aesthesia Groundcover Reworked
+AesAdGrass_AC.esp
+AesAdGrass_AI.esp
+AesAdGrass_AL.esp
+AesAdGrass_BC.esp
+AesAdGrass_WG.esp
+AesGrass_GL.esp
+AesGrass_SV.esp
+
+E:\OpenMW\Mods\custom\umo\AesthesiaWestGashGroundcoverforBeautifulCitiesofMorrowindandStonewoodPass\AesthesiaGrassforRPOverhaulsv14
+MROV_Grass_WG-BCoM-SWP.esp
+
+E:\OpenMW\Mods\custom\umo\BathsofVvardenfell\BoV279\00 Core
+BoV.esm
+
+E:\OpenMW\Mods\custom\umo\BathsofVvardenfell\BoV279\01 Addon
+BoV_addon.esp
+
+E:\OpenMW\Mods\custom\umo\BathsofVvardenfell\BoV279\02 Addon patch - Vality's Bitter Coast
+BoV_ValitysBC_patch.esp
+
+E:\OpenMW\Mods\custom\umo\BathsofVvardenfell\BoV279\03 Odai Lifeblood of Balmora Patch
+BoV_OLoB Patch.esp
+
+E:\OpenMW\Mods\custom\umo\BathsofVvardenfell\BoV279\04 Sheogorad Groves of the North Patch
+BoV_SGotN Patch.esp
+
+E:\OpenMW\Mods\custom\umo\BathsofVvardenfell\BoV279\05 Normal Maps
+
+E:\OpenMW\Mods\custom\umo\BathsofVvardenfell\BoV279\06 S3maphore addon
+
+E:\OpenMW\Mods\custom\umo\BathsofVvardenfell\BoV279\07 PATCH fix - water height_banner fix
+BoV_patchfix_water_height.esp
+
+E:\OpenMW\Mods\custom\umo\BattleExpOpenMW\BattleExp
+BattleExp.omwaddon
+BattleExp.omwscripts
+
+E:\OpenMW\Mods\custom\umo\BensSkyshipsOpenMW\BensSkyships\BensMods_Skyships
+Skyships.esp
+Skyships.omwscripts
+
+E:\OpenMW\Mods\custom\umo\DaggerfallClimbingChimClimbingSkillFrameworkRemix\ChimClimbingSkillRemix\patch
+
+E:\OpenMW\Mods\custom\umo\DrData\DrData
+Dr_Data.esm
+
+E:\OpenMW\Mods\custom\umo\EntertainersExpanded\EntertainersExpanded
+Entertainers Expanded.esp
+
+E:\OpenMW\Mods\custom\umo\EvasionCustomDodgingSkillOpenMW\Evasion\Evasion!
+Evasion.omwscripts
+
+E:\OpenMW\Mods\custom\umo\FinishedMorrowind\03FINISHEDMORROWINDGRAPHICSANDSOUND
+Finished Morrowind - GRAPHICS AND SOUND.ESP
+
+E:\OpenMW\Mods\custom\umo\FinishedMorrowind\04FINISHEDMORROWINDINCONSISTENCIES
+Finished Morrowind - INCONSISTENCIES - Part 1.ESP
+Finished Morrowind - INCONSISTENCIES - Part 2 - Service Refusal for Contraband.esp
+Finished Morrowind - INCONSISTENCIES - Part 3 - Hospitality Papers for Sadrith Mora.esp
+
+E:\OpenMW\Mods\custom\umo\FinishedMorrowind\FinishedMorrowindHDTextures
+
+E:\OpenMW\Mods\custom\umo\FishWithFishingPolesExpansion\FishWithFishingPolesExpansion\00 Fish Expansion Core
+Fishing-Expansion.esp
+
+E:\OpenMW\Mods\custom\umo\FishWithFishingPolesExpansion\FishWithFishingPolesExpansion\01 Fatigue Alternative Detection
+Fishing-Expansion.esp
+
+E:\OpenMW\Mods\custom\umo\FishWithFishingPolesOpenMWIntegrations\FishWithFishingPolesOpenMWIntegrations
+FishWithFishingPoles.omwscripts
+
+E:\OpenMW\Mods\custom\umo\FlexTagTheTaggingFrameworkThatHOLDS\Flextag
+FlexTag.esp
+
+E:\OpenMW\Mods\custom\umo\FollowerDetectionUtilOpenMW\FollowerDetectionUtil
+FollowerDetectionUtil.omwscripts
+
+E:\OpenMW\Mods\custom\umo\GalleoRacesRedonePluginless\GalleoRacesRedonePluginlessv10\Data Files
+
+E:\OpenMW\Mods\custom\umo\H3lpYours3lfOpenMWHelperInterfaces\H3Main
+H3lp Yours3lf.esp
+
+E:\OpenMW\Mods\custom\umo\HiddenPowersOpenMW\HiddenPowers
+Hidden Powers - Races of Tamriel.omwaddon
+Hidden Powers - Races Refined.omwaddon
+HiddenPowers.omwscripts
+The Firmament - Birthsigns Refined.omwaddon
+
+E:\OpenMW\Mods\custom\umo\HiRezArmorsNativeStyles\MainFile\Hirez Armors- Native Styles
+
+E:\OpenMW\Mods\custom\umo\ImprovedArgonians\ImprovedArgonians
+Improved Argonians.esp
+
+E:\OpenMW\Mods\custom\umo\ImprovedArgoniansHairstylesforGalleoRacesRedone\ImprovedArgoniansHairstylesforGalleoRacesRedone10
+
+E:\OpenMW\Mods\custom\umo\LDMRacistServiceRefusal\LDMRacistServiceRefusal
+LDM - Racist Service Refusal.ESP
+
+E:\OpenMW\Mods\custom\umo\LightofEarendilsStarandUniqueJewelryPuristVersion\UniqueJewelryforPurists\Unique Jewelry (Purist Version) - Full Bundle\Data Files
+Unique Jewelry (Purist Version) & Light of Earendils Star.ESP
+Unique Jewelry (Purist Version).ESP
+
+E:\OpenMW\Mods\custom\umo\LightofEarendilsStarandUniqueJewelryPuristVersion\UniqueJewelryPuristVersionandLightofEarendilsStar\Unique Jewelry (Purist Version) and Light of Earendil's Star\Data Files
+Unique Jewelry (Purist Version) & Light of Earendils Star.ESP
+
+E:\OpenMW\Mods\custom\umo\MakeAProfitOpenMW051\MakeAProfit\Make A Profit
+IncreaseServicePrices.omwaddon
+Make A Profit.omwaddon
+Make A Profit.omwscripts
+
+E:\OpenMW\Mods\custom\umo\ModTestingZone\ModTestingZone
+ModTestingZone.ESP
+
+E:\OpenMW\Mods\custom\umo\MorrowindDefinitiveMenuAnimation\MDMA
+
+E:\OpenMW\Mods\custom\umo\MorrowSwimAsimpleaquaticsskillmodforOpenMW\MorroswimAquaticsskillmod\Swimming
+BetterSwimmingSounds.esp
+Swimming.esp
+Swimming.omwscripts
+
+E:\OpenMW\Mods\custom\umo\NastierCamonnaTong\NastierCtong12\Nasty Camonna Tong
+Nasty Camonna Tong.esp
+
+E:\OpenMW\Mods\custom\umo\OAABSaplingsWestGashforBeautifulCitiesofMorrowindandStonewoodPass\OAABSaplingsWGBCoMandSWP
+OAAB_Saplings_WG-BCoM+SWP.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OdaiLifebloodofBalmora\00 Core
+Odai - Lifeblood of Balmora.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OdaiLifebloodofBalmora\01 Addon - Dialogue
+OLOB - Dialogue.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OdaiLifebloodofBalmora\02 Addon - Mill
+OLOB - Water MiIl.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OdaiLifebloodofBalmora\03 Addon - Merchants
+OLOB - Merchants.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OdaiLifebloodofBalmora\04 Mages Guild
+OLOB - Stav MG.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OdaiLifebloodofBalmora\04 Mages Guild Tower
+OLOB - Stav MG.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OdaiLifebloodofBalmora\05 Rocky West Gash stratified
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OdaiLifebloodofBalmora\06 Patch for Purists
+OLOB - Patch for Purists.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OdaiLifebloodofBalmora\07 - Eastern Path
+OLOB - Eastern Path.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBGrass\01 Aesthesia
+AesAdGrass_AI.ESP
+AesAdGrass_AL.ESP
+AesAdGrass_BC.ESP
+AesAdGrass_Odai.esp
+AesAdGrass_WG.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBGrass\01 Fantasia
+FGM_AI.ESP
+FGM_AI_flowerfields.ESP
+FGM_AL.ESP
+FGM_BC.ESP
+FGM_Odai.esp
+FGM_River.esp
+FGM_WG.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBGrass\01 Lush Synthesis
+lush3_ai.ESP
+lush3_ai_flowerfields.ESP
+lush3_al.ESP
+lush3_bc.ESP
+lush3_odai.esp
+lush3_odai_water.esp
+lush3_wg.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBGrass\01 Lush Synthesis - BCOM
+lush3_ai.ESP
+lush3_ai_flowerfields.ESP
+lush3_al.ESP
+lush3_bc.ESP
+lush3_odai.esp
+lush3_odai_water.esp
+lush3_wg.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBGrass\01 Remiros
+Rem_AC.esp
+Rem_AI.ESP
+Rem_AL.ESP
+Rem_BC.ESP
+Rem_Odai.esp
+Rem_WG.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\01 Adanumuran Reclaimed
+Adanumuran Reclaimed.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\02 Apartments of Morrowind
+Apartments of Morrowind.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\03 Ashlander Traders Remastered
+Ashlander Traders Remastered.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\04 Balmora Gravemarket
+Balmora Gravemarket.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\05 Balmora High Town Bell
+Balmora High Town Bell.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\06 Balmora Outskirts
+Balmora Outskirts.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\07 Balmora Temple Redone
+BalmoraTempleRedone.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\08 Balmora Temple Redone - Purist
+BalmoraTempleRedonePurist.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\09 Balmora Temple Redone - Reintegrated
+BalmoraTempleRedoneReintegrated.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\10 BalmoraTemple Questline
+BalmoraTemplequestsv1.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\11 Blackjack
+Blackjack.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\12 Blue Kanet
+Blue Kanet.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\13 Blue Kanet Bountiful
+Bountiful_Blue_Kanet.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\14 Caius Rooftop Renovations
+Caius' rooftop renovations (Tapetenklaus Edit).esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\15 Camonna Tong
+Camonna Tong - OLOB Patch.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\16 Children Of Morrowind
+CoM - OLOB Patch.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\17 Dura Gra-Bol's House Reclaimed
+Dura Gra-Bol's House Reclaimed - OLOB.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\18 Foods of Tamriel Addon
+Foods of Tamriel Balmora Shop Addon.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\19 Forgotten Wastes 2.4
+va_forgottenwastes.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\20 Forgotten Wastes 2.4 for Aldruhn Architecture
+va_forgottenwastesBCOM.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\21 Graht Swamp Trees
+GMST OLOB.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\22 Hla Odai
+Hla Odai.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\23 Holidays Across Tamriel
+Holidays Across Tamriel - Vvardenfell - RR Holamayan mod.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\24 Illuminated Order Improved
+Illuminated Order Improved.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\25 Imperial Bank
+Imperial Bank - OLOB patch.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\26 Imperial Cult Expansion
+imperialcultexpansionv1.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\27 Join the Dissident Priests
+Join the Dissident Priests.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\28 Leeches Always Bite Twice
+Leeches.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\29 Mid Mushroom Overhaul
+Mid Mushroom Overhaul.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\30 MoonlightOnTheOdaiRiver
+MoonlightOnTheOdaiRiver.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\31 More Alien Bitter Coast
+Bitter Coast.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\32 OAAB Junipers Twinlamps
+OAAB Brother Junipers Twin Lamps.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\33 OAAB Saplings
+OAAB Saplings - OLOB Patch.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\34 Path To Balmora
+Little_Landscape_-_Path_to_Balmora.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\35 Path To Balmora Purist
+Little_Landscape_-_Path_to_Balmora_Purist.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\36 PR Perfect Scum
+PR Perfect Scum.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\37 Realistic Repair Addon
+Realistic_Repair_Add-on.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\38 Rocky WG Devillish
+Rocky_WG_Base_1.1.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\39 Seedier 8 Plates
+Even Seedier Eight Plates.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\40 South Wall - Atmospheric
+South Wall - Atmospheric.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\41 South Wall - Thieves Guild Hideout
+South Wall - Thieves Guild Hideout.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\42 St Meris Rest Luce Edition
+St Meris Rest - Luce Edition.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\43 Leggings for Beast Races by Adul - Brujoloco Edition
+adulbybrujolocomerged.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\44 Tea Merchants Ashfall Addon
+Tea Merchants.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\45 Vality's Ascadian Isles
+Vality's Ascadian Isles Addon.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\46 Vality's Bitter Coast
+Valitys_Bitter_Coast_Addon.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\47 Water Life
+Water Life Patch - OLOB.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\48 Wishmaster
+Wishmaster Clavicus Vile Questline.esp
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\49 Immersive Morrowind
+Immersive Morrowind.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\50 Stav's Boxes Mages Guild Overhaul
+Stav_MaGAO.ESP
+
+E:\OpenMW\Mods\custom\umo\OdaiLifebloodofBalmora\OLOBPatches\51 Stav's Boxes Mages Guild Overhaul no vivec
+Stav_MaGAO.esp
+
+E:\OpenMW\Mods\custom\umo\OpenMWAbilitiesAreModifiers\AbilitiesAreModifiers\AbilitiesAreModifiers
+AbilitiesAreModifiers.omwscripts
+
+E:\OpenMW\Mods\custom\umo\OpenMWArmorRequirements\ArmorRequirements
+Armor Requirements.omwaddon
+Armor Requirements.omwscripts
+
+E:\OpenMW\Mods\custom\umo\OPENMWChimClimbing\mAIN\chim_climbing
+Chim_Climbing.omwscripts
+
+E:\OpenMW\Mods\custom\umo\OpenMWWeaponRequirements\WeaponRequirements
+Weapon Requirements.omwaddon
+Weapon Requirements.omwscripts
+
+E:\OpenMW\Mods\custom\umo\PeterBittsSmallMods\CollisionFix
+
+E:\OpenMW\Mods\custom\umo\PeterBittsSmallMods\FireshieldIconFix
+
+E:\OpenMW\Mods\custom\umo\PeterBittsSmallMods\GondolierDestinations
+PB_GondolierDestinations.esp
+
+E:\OpenMW\Mods\custom\umo\PeterBittsSmallMods\ScrollandPotionIcons
+PB_ScrollPotionIcons.esp
+
+E:\OpenMW\Mods\custom\umo\PeterBittsSmallMods\SecretApperatus
+PB_SecretApperatus.esp
+
+E:\OpenMW\Mods\custom\umo\PeterBittsSmallMods\SmallerPotions
+PB_SmallerPotions.esp
+
+E:\OpenMW\Mods\custom\umo\Rubic0nOpenMWLuaGoVroom\LuaJITWindowsX64\benchmarks
+
+E:\OpenMW\Mods\custom\umo\SheogoradGrovesoftheNorth\SheogoradGrovesoftheNorth
+Gotn_Ryt_Full_Grass.esp
+Sheogorad - Groves of the North.esp
+
+E:\OpenMW\Mods\custom\umo\SmartPotionHotkeysOpenMW\SmartPotionHotkeys\Smart Potion Hotkeys
+SmartPotionHotkeys.omwscripts
+
+E:\OpenMW\Mods\custom\umo\StaticSwitchingSystem\SSSCore\static_switching_system
+Static Switching System.esp
+
+E:\OpenMW\Mods\custom\umo\StatsWindowExtenderOpenMW\StatsWindowExtender
+StatsWindow.ESP
+StatsWindow.omwscripts
+
+E:\OpenMW\Mods\custom\umo\StavesCustomCombatSkillOpenMW\Staves\Staves!
+Staves.omwscripts
+
+E:\OpenMW\Mods\custom\umo\StonewoodPassWaterLanterns\StonewoodLanterns
+DM_StonewoodLanterns.ESP
+
+E:\OpenMW\Mods\custom\umo\SunsDuskNeedsandSurvivalOpenMW\SunsDuskSurvivalandNeeds\Sun's Dusk
+Sun's Dusk Cooking.omwaddon
+Sun's Dusk.omwaddon
+Sun's Dusk.omwscripts
+
+E:\OpenMW\Mods\custom\umo\TheArcaneAcademyofVenarius\AAVMain\Hermit-Mansion-MMM-2023-main
+AAV.omwscripts
+the_Arcane_Academy_of_Venarius.esm
+
+E:\OpenMW\Mods\custom\umo\TheDreamistheDoor\TheDreamistheDoor
+The Dream is the Door.ESP
+
+E:\OpenMW\Mods\custom\umo\ThePublicans\ThePublicans\00 Core
+The Publicans.ESP
+
+E:\OpenMW\Mods\custom\umo\ThePublicans\ThePublicans\01 Delightful Earthly Delights
+The Publicans - Delightful Earthly Delights.ESP
+
+E:\OpenMW\Mods\custom\umo\ThePublicans\ThePublicans\02 LGNPC Patch
+The Publicans - LGNPC Patch.ESP
+
+E:\OpenMW\Mods\custom\umo\ThrowingCustomCombatSkillOpenMW\Throwing\Throwing!
+Throwing.omwscripts
+
+E:\OpenMW\Mods\custom\umo\ToxicologyCustomPoisoningSkillOpenMW\Toxicology\Toxicology!
+Toxicology.omwscripts
+
+E:\OpenMW\Mods\custom\umo\UltimateLevelingOpenMW\UltimateLeveling\UltimateLeveling
+UltimateLeveling.omwaddon
+UltimateLeveling.omwscripts
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\00 adamantium armor
+adamantiumarmor.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\00 adamantium armor compatibility
+adamantiumarmor.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\000 MANUAL INSTALL ONLY USE THIS FOLDER 000
+Siege at Firemoth.esp
+UMOPP_BetterArmorPatch.esp
+Unofficial Morrowind Official Plugins Patched.ESP
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\01 area effect arrows
+AreaEffectArrows.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\02 bitter coast sounds
+bcsounds.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\03 entertainers
+entertainers.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\04 helm of tohan
+EBQ_Artifact.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\05 lefemm armor
+LeFemmArmor.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\05 lefemm armor compatibility
+LeFemmArmor.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\06 master index
+master_index.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\07 siege at firemoth
+Siege at Firemoth.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\07 siege at firemoth compatibility
+Siege at Firemoth.esp
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\08 UMOPP Merged\00 AIO Core
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\08 UMOPP Merged\00 UMOPP AIO
+Unofficial Morrowind Official Plugins Patched.ESP
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\08 UMOPP Merged\01 UMOPP AIO No Firemoth
+Unofficial Morrowind Official Plugins Patched.ESP
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\08 UMOPP Merged\10 UMOPP AIO Compatibility
+Unofficial Morrowind Official Plugins Patched.ESP
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\08 UMOPP Merged\11 UMOPP AIO Compatibility No Firemoth
+Unofficial Morrowind Official Plugins Patched.ESP
+
+E:\OpenMW\Mods\custom\umo\UnofficialMorrowindOfficialPluginsPatched\UnofficialMorrowindOfficialPluginsPatched\10 better armor patch
+UMOPP_BetterArmorPatch.esp
+
+E:\OpenMW\Mods\custom\umo\Varioustweaksandfixes\NewBeastBodiesv33CleanPluginless
+
+E:\OpenMW\Mods\custom\umo\VurtsArgoniansRetexture\ImprovedArgoniansRetexture
+
+E:\OpenMW\Mods\custom\umo\VurtsArgoniansRetexture\NormalandspecularmapsforOpenMW
+
+E:\OpenMW\Mods\custom\umo\VurtsArgoniansRetexture\TamrielRebuiltArgonianHeadsRetexture\Data Files
+
+E:\OpenMW\Mods\custom\umo\WeysArgonians\WeyNewArgonians175
+Wey_New_Argonians.ESP
+
+E:\OpenMW\Mods\custom\umo\FMBPGreetService\FinishedMorrowindCOREPATCHPart4MoreAudioDialogueforServiceNPCs
+Finished Morrowind - CORE PATCH - Part 4 - More Audio Dialogue for Service NPCs.ESP
+
+E:\OpenMW\Mods\custom\umo\FMBPMichaelMichaelMichael\FMBPMichaelMichaelMichael
+
+E:\OpenMW\Mods\custom\umo\FMGSUniqueItemsCompilation\FMUniqueItemsCompilation\Data Files
+FM - Unique Items v1.0.ESP
+
+E:\OpenMW\Mods\custom\umo\FMIAthynandShardie\FMIAthynandShardie
+FMI_Athyn_And_Shardie.ESP
+
+E:\OpenMW\Mods\custom\umo\FMIBelladonnaUniqueandDeadly\UniqueAndDeadlyBelladonna
+Unique_and_Deadly_Belladonna.ESP
+
+E:\OpenMW\Mods\custom\umo\FMICurrentCouncilors\FMICurrentCouncilors
+FMI_Current_Councilors.ESP
+
+E:\OpenMW\Mods\custom\umo\FMIDiseaseDescriptions\FMIDiseaseDescriptions
+FMI_Disease_Descriptions.ESP
+
+E:\OpenMW\Mods\custom\umo\FMIHospitalityPapersExpanded\HospitalityPapersExpanded\Hospitality Papers Expanded 2.7\Data Files
+Hospitality_Papers_Expanded_v2.7.esp
+
+E:\OpenMW\Mods\custom\umo\FMIHospitalityPapersExpanded\OpenMWTelvanniWindowFix\OpenMW Telvanni Window Fix\Data Files
+
+E:\OpenMW\Mods\custom\umo\FMIMisc\FMIMisc
+FMI_Misc.ESP
+
+E:\OpenMW\Mods\custom\umo\FMIMisc\HoraceHoratiosTemple
+HoraceHoratiosTemple.ESP
+
+E:\OpenMW\Mods\custom\umo\FMINicetoMeetYou\FMINicetoMeetYou\FMI - Nice to Meet You 1.2
+FMI_Nice_to_Meet_You.ESP
+
+E:\OpenMW\Mods\custom\umo\FMINotAllDunmer\FMINotAllDunmer
+FMI_#NotAllDunmer.ESP
+
+E:\OpenMW\Mods\custom\umo\FMITheRoleTheyWeretoPlay\TheRoleTheyWereToPlay
+
+E:\OpenMW\Mods\custom\umo\FMIUniqueLoreFriendlyCaveRats\UniqueCaveRats20HD
+Unique_CaveRats.ESP
+
+E:\OpenMW\Mods\custom\umo\FoldedinPort\FoldedinPort\Data Files
+Folded in Port.ESP
+
+E:\OpenMW\Mods\custom\umo\HaveYouSeentheMuffinMod\HaveYouSeentheMuffinMod\Data Files
+Have You Seen the Muffin Mod.ESP
+
+E:\OpenMW\Mods\custom\umo\PoodlesLittleModHole\EntertainersExpandedPSEDIT
+Entertainers Expanded_PS_Edit.esp
+
+E:\OpenMW\Mods\custom\umo\PoodlesLittleModHole\SeedyPlatesShelfRemovalService
+Even Seedier Eight Plates - Entertainers Compatible.ESP
+
+E:\OpenMW\Mods\custom\umo\PoodlesPiddlyPointer\bashlykkazanVersion\bashlykkazan Version\Data Files
+
+E:\OpenMW\Mods\custom\umo\ScummyScum\ScummyScumandVanillyPads\Scummy Scum\Data Files
+
+E:\OpenMW\Mods\custom\umo\ScumRetexture\ScumRetexture12Alternative1
+
+E:\OpenMW\Mods\custom\umo\SorkvildtheRavenEvermore\PSRavenPatch\Sorkvild The Raven (Evermore) 1.5.4\Data Files
+The Raven 1.5.4.esp
+
+E:\OpenMW\Mods\custom\umo\SorkvildtheRavenEvermore\TowerMeshFix\Tower Mesh Fixed\Data Files
+
+E:\OpenMW\Mods\custom\umo\TheRaven\TheRaven\The Raven
+The Raven.esp
+
+E:\OpenMW\Mods\custom\umo\AFFAWilhemTopicFixOpenMWonly\AFFAWilFix
+AFFA_Wilhelm.omwaddon
+
+E:\OpenMW\Mods\custom\umo\AhnassiTheOhmesMonk\AhnassiTheOhmesMonk\data files
+Ahnassi - The Ohmes Monk.ESP
+
+E:\OpenMW\Mods\custom\umo\AURAOpenMW\AURAOpenMW091FULL
+aura_openmw.omwscripts
+
+E:\OpenMW\Mods\custom\umo\AyleidRemnantsRedone\AyleidRemnantsRedone
+DM_AyleidRemnants.ESP
+
+E:\OpenMW\Mods\custom\umo\AzurasCoastRedone\AzurasCoastRedone
+RockyAzurasCoast.ESP
+
+E:\OpenMW\Mods\custom\umo\BardCharacterBackgroundforBardcraftOpenMW\BardBackground\Bard Background
+BardBackground.omwscripts
+
+E:\OpenMW\Mods\custom\umo\BeastBootsForOpenMW\DregaccioBeastBootsOpenMWCore
+Dregaccio Beast Boots OpenMW - Core.esp
+Dregaccio Beast Boots OpenMW - Core.omwscripts
+
+E:\OpenMW\Mods\custom\umo\BeastBootsForOpenMW\DregaccioBeastBootsOpenMWTRAddon
+Dregaccio Beast Boots OpenMW - TR Addon.esp
+Dregaccio Beast Boots OpenMW - TR Addon.omwscripts
+
+E:\OpenMW\Mods\custom\umo\BetterBodies32BetterBeasts\BetterBodies32BetterBeasts\Better Bodies 3.2 (Better Beasts)\00 Better Bodies
+Better Bodies.esp
+
+E:\OpenMW\Mods\custom\umo\BetterBodies32BetterBeasts\BetterBodies32BetterBeasts\Better Bodies 3.2 (Better Beasts)\01 Nude
+
+E:\OpenMW\Mods\custom\umo\BetterBodies32BetterBeasts\BetterElvenBodies\00 Underwear\00 Elves
+
+E:\OpenMW\Mods\custom\umo\BetterBodies32BetterBeasts\BetterElvenBodies\00 Underwear\01 Orsimer
+
+E:\OpenMW\Mods\custom\umo\BetterBodies32BetterBeasts\BetterElvenBodies\00 Underwear\02 Breton
+
+E:\OpenMW\Mods\custom\umo\BetterBodies32BetterBeasts\BetterElvenBodies\01 Nude\00 Elves
+
+E:\OpenMW\Mods\custom\umo\BetterBodies32BetterBeasts\BetterElvenBodies\01 Nude\01 Orsimer
+
+E:\OpenMW\Mods\custom\umo\BetterBodies32BetterBeasts\BetterElvenBodies\01 Nude\02 Breton
+
+E:\OpenMW\Mods\custom\umo\Betterbodies32BetterBeastsTrianglefix\BetterBodies32BetterBeastsTriangleFix\Better Bodies 3.2 (Better Beasts) Triangle fix 1.4\00 Better Bodies
+
+E:\OpenMW\Mods\custom\umo\BizKuitzBlissfulMindAlfiqScholarCompanion\BizKuitzBlissfulMindAlfiqScholarCompanion\data files
+Biz'Kuitz - Blissful Mind.esp
+
+E:\OpenMW\Mods\custom\umo\BonesaintArmorGhostgateRevision\BonesaintArmor
+Bonesaint Armor.ESP
+
+E:\OpenMW\Mods\custom\umo\CharacterTraitsFrameworkOpenMW\CharacterTraitsFramework
+CharacterTraitsFramework.omwscripts
+
+E:\OpenMW\Mods\custom\umo\ChronokinesisOpenMW\OpenmwChronokinesis
+chronokinesis_poly.omwscripts
+
+E:\OpenMW\Mods\custom\umo\ColdBloodedInnateAquaticAbilitiesforArgoniansandVampiresOpenMW\ColdBlooded\Cold Blooded
+Cold Blooded.esp
+ColdBlooded.omwscripts
+
+E:\OpenMW\Mods\custom\umo\CommunityTraitsPortedOpenMW\Frana5usBackgrounds\Frana5u's Backgrounds
+CharacterTraits_Frana5usBackgrounds.omwaddon
+CharacterTraits_Frana5usBackgrounds.omwscripts
+
+E:\OpenMW\Mods\custom\umo\CommunityTraitsPortedOpenMW\MerlordsBackgrounds\Merlord's Backgrounds
+CharacterTraits_MerlordBackgrounds.omwaddon
+CharacterTraits_MerlordBackgrounds.omwscripts
+
+E:\OpenMW\Mods\custom\umo\CommunityTraitsPortedOpenMW\MTRBeliefs\MTR Beliefs
+CharacterTraits_mtrBeliefs.omwaddon
+CharacterTraits_mtrBeliefs.omwscripts
+
+E:\OpenMW\Mods\custom\umo\CommunityTraitsPortedOpenMW\MTRCultures\MTR Cultures
+CharacterTraits_mtrCultures.omwaddon
+CharacterTraits_mtrCultures.omwscripts
+CharacterTraits_mtrCulturesExpansion.omwscripts
+
+E:\OpenMW\Mods\custom\umo\CommunityTraitsPortedOpenMW\MTRLineages\MTR Lineages
+CharacterTraits_mtrLineages.omwaddon
+CharacterTraits_mtrLineages.omwscripts
+
+E:\OpenMW\Mods\custom\umo\CommunityTraitsPortedOpenMW\OblivionBackgrounds\Oblivion Backgrounds
+CharacterTraits_OblivionBackgrounds.omwaddon
+CharacterTraits_OblivionBackgrounds.omwscripts
+
+E:\OpenMW\Mods\custom\umo\CommunityTraitsPortedOpenMW\SagesBackgrounds\Sage's Backgrounds
+CharacterTraits_SagesBackgrounds.omwaddon
+CharacterTraits_SagesBackgrounds.omwscripts
+
+E:\OpenMW\Mods\custom\umo\CommunityTraitsPortedOpenMW\TheWretchedAndTheWeird\The Wretched and the Weird
+CharacterTraits_WretchedAndWeird.omwaddon
+CharacterTraits_WretchedAndWeird.omwscripts
+
+E:\OpenMW\Mods\custom\umo\CompleteWaterShadersandPBRforOpenMW051\CompleteWaterShadersPBR\vfs
+
+E:\OpenMW\Mods\custom\umo\CustomSSSandPBRforGalleoRacesRedone\PBRForGalleoRacesRedone\PBR for GalleoRacesRedone
+
+E:\OpenMW\Mods\custom\umo\DaedricShrineOverhaulFULL\Mainfiles\Daedric Shrine Overhaul\Daedric Shrine Overhaul Full
+Daedric Shrine Overhaul FULL.esp
+
+E:\OpenMW\Mods\custom\umo\DaedricShrineOverhaulFULL\VvardenfellBrotherhoodespreplacer
+Vvardenfell Brotherhood.esp
+
+E:\OpenMW\Mods\custom\umo\DaedricTravelNetwork\DaedricTravelNetwork
+daedric travel network.esp
+
+E:\OpenMW\Mods\custom\umo\darkbrotherhoodarmormeshadjustments\DBArmorRefit\DB armor refit
+
+E:\OpenMW\Mods\custom\umo\DivineDragon\DivineDragon\Divine Dragon - Version 1.1\Data Files
+Divine Dragon.ESP
+
+E:\OpenMW\Mods\custom\umo\DivineDragon\DivineDragon\Divine Dragon - Version 1.1\Optional\Data Files
+
+E:\OpenMW\Mods\custom\umo\DreamwalkingAVaerminaShrineAddon\DreamwalkingAVaerminaShrineAddon\data files
+Dreamwalking - A Vaermina Shrine Addon.ESP
+
+E:\OpenMW\Mods\custom\umo\DremoraVariety\DremoraVariety\Data Files
+
+E:\OpenMW\Mods\custom\umo\Effigy\Theeffigy\Data Files
+va_theeffigy.ESP
+
+E:\OpenMW\Mods\custom\umo\EternalFlame\EternalFlamev11
+eternalflame.omwscripts
+
+E:\OpenMW\Mods\custom\umo\FloatScriptFix\FloatFix\Data Files
+float_fix1.ESP
+
+E:\OpenMW\Mods\custom\umo\HeldLightBoost\HeldLightBoost100\Held Light Boost
+Held Light Boost.omwscripts
+
+E:\OpenMW\Mods\custom\umo\ImbuementSkill\ImbuementSkill\Imbuement!
+Imbuement.omwscripts
+
+E:\OpenMW\Mods\custom\umo\IndorilBonesaintArmor\BonesaintArmor\Bonesaint
+Bonesaint Armor.ESP
+
+E:\OpenMW\Mods\custom\umo\IndorilBonesaintArmor\BonesaintArmorBCOMpatch
+Bonesaint Armor.ESP
+
+E:\OpenMW\Mods\custom\umo\IntotheVoidCompanionandQuests\IntoTheVoid
+Sabrina.esp
+
+E:\OpenMW\Mods\custom\umo\JewelcraftingOpenMW051\Jewelcrafting
+Jewelcrafting.omwscripts
+
+E:\OpenMW\Mods\custom\umo\KnightsofTamrielCombine\KnightsOfTamrielCombine\Data Files
+Knights_of_Tamriel_Combine.esp
+
+E:\OpenMW\Mods\custom\umo\LUSTLuxuryUpgradeSexyTransport\LUST\00 Core
+LUST.ESP
+
+E:\OpenMW\Mods\custom\umo\LUSTLuxuryUpgradeSexyTransport\LUST\01 HD version
+
+E:\OpenMW\Mods\custom\umo\LUSTLuxuryUpgradeSexyTransport\LUST\02 NormalMaps OpenMW
+
+E:\OpenMW\Mods\custom\umo\LUSTLuxuryUpgradeSexyTransport\LUST\03 BcoM version
+LUST.ESP
+
+E:\OpenMW\Mods\custom\umo\LUSTLuxuryUpgradeSexyTransport\LUST\04 Alternative cover
+
+E:\OpenMW\Mods\custom\umo\LUSTLuxuryUpgradeSexyTransport\LUST\05 Alternative Cover HD
+
+E:\OpenMW\Mods\custom\umo\LUSTLuxuryUpgradeSexyTransport\LUST\06 LUST for immersive travel
+
+E:\OpenMW\Mods\custom\umo\MarbledZafirbelBay\Update
+Marbled Zafirbel Bay.ESP
+
+E:\OpenMW\Mods\custom\umo\MeritsofServiceOpenMW\MeritsofService
+MeritsOfService.omwscripts
+
+E:\OpenMW\Mods\custom\umo\MiscellaneousMissionsofMolagMar\MiscellaneousMissionsOfMolagMar
+Miscellaneous Missions of Molag Mar.esp
+
+E:\OpenMW\Mods\custom\umo\MolagAmurMountains\MolagAmurMountainsGraveOfUvirith\DM_GraveofUvirith
+DM_GraveOfUvirith.ESP
+
+E:\OpenMW\Mods\custom\umo\MolagAmurMountains\MolagAmurMountainsKalinterEdit
+DM_AshlandsMountains.ESP
+
+E:\OpenMW\Mods\custom\umo\MolagAmurMountains\MolagAmurMountainsV14
+DM_AshlandsMountains.ESP
+
+E:\OpenMW\Mods\custom\umo\MolagMarOutskirtsBonesaintsTemple\MolagMarOutskirtsBonesaintGuardians
+Molag Mar Outskirts - Bonesaint Guardians.ESP
+
+E:\OpenMW\Mods\custom\umo\MoreDoorstoOblivion\MoreDoors
+moredoors.esp
+
+E:\OpenMW\Mods\custom\umo\NarsiscosmeticdetailsTamrielRebuilt\NarsisCOSMETICskriak1\NarsisCOSMETICskriak1
+NarsisCOSMETICskriak1.ESP
+
+E:\OpenMW\Mods\custom\umo\NaturalWildlife\NaturalWildlife101\Natural Wildlife
+Natural Wildlife.omwscripts
+
+E:\OpenMW\Mods\custom\umo\NGastaPasta\NGastaPasta\00 Core
+N'Gasta Pasta.esp
+
+E:\OpenMW\Mods\custom\umo\ObjectInsightTooltipOpenMW\ObjectInsightTooltipOpenMW
+Object Insight Tooltip.omwscripts
+
+E:\OpenMW\Mods\custom\umo\OpenMWAlchemyRedone\TPAAlchemyRedone\TPA_Alchemy_Redone
+TPA_Alchemy_Redone.omwscripts
+
+E:\OpenMW\Mods\custom\umo\OpenMWExtraTouchesforCraftingFramework\TPACFExtraTouches\TPA_CF_ExtraTouches
+
+E:\OpenMW\Mods\custom\umo\OpenMWInteractionsAnimated\InteractionsAnimated
+Interactions Animated.omwscripts
+
+E:\OpenMW\Mods\custom\umo\OpenMWLUAUnleashedDiscordRichPresenceImprovedPerformanceUnlockedSandbox\Opimizedscripts\omw
+
+E:\OpenMW\Mods\custom\umo\RadiantQuestsofMorrowind\RadiantQuests\radiant quests
+radiant quests.esp
+
+E:\OpenMW\Mods\custom\umo\RefinedAlchemy\RefinedAlchemy100\Refined Alchemy
+refined_alchemy.omwscripts
+
+E:\OpenMW\Mods\custom\umo\RiseofHouseTelvanni20\RiseofHouseTelvanni20
+ROHT_2_0_8.ESP
+
+E:\OpenMW\Mods\custom\umo\RiseofHouseTelvanni20BCoMPatch\RoHTBCoMPatch
+RoHT BCoM patch.omwaddon
+
+E:\OpenMW\Mods\custom\umo\SkyrimInspiredLockpickingforController\SkyrimLockpickingForController\Skyrim Lockpicking for Controller
+Skyrim Lockpicking.omwaddon
+Skyrim Lockpicking.omwscripts
+
+E:\OpenMW\Mods\custom\umo\SlyNerevarineTightropeWalkingOpenMW\SlyNerevarine\Sly Nerevarine
+Sly_Nerevarine.omwscripts
+
+E:\OpenMW\Mods\custom\umo\SouthofEbonheart\SouthOfEbonheart
+Ebonheart outskirt + lighthouse district (NO Windows Glow).esp
+
+E:\OpenMW\Mods\custom\umo\SpellTomesMagicBooksofMorrowindtoStudyandCastto\SpellTomesofMorrowindtoStudyandCastto\00 Core
+SpellTomes.esp
+
+E:\OpenMW\Mods\custom\umo\SpellTomesMagicBooksofMorrowindtoStudyandCastto\SpellTomesofMorrowindtoStudyandCastto\01 OpenMW
+SpellTomes.omwscripts
+
+E:\OpenMW\Mods\custom\umo\SpellTomesMagicBooksofMorrowindtoStudyandCastto\SpellTomesofMorrowindtoStudyandCastto\02 WARES
+SpellTomes for WARES.esp
+
+E:\OpenMW\Mods\custom\umo\SpellTomesMagicBooksofMorrowindtoStudyandCastto\SpellTomesofMorrowindtoStudyandCastto\03 Conjuration and Restoration fix
+SpellTomes Conjuration Fix.esp
+
+E:\OpenMW\Mods\custom\umo\SpellTomesMagicBooksofMorrowindtoStudyandCastto\SpellTomesofMorrowindtoStudyandCastto\04 Desaturated Textures
+
+E:\OpenMW\Mods\custom\umo\StaticsAshlanderTurbans\SAT
+turban-Wares Purist.esp
+turban-Wares.esp
+turban.esp
+
+E:\OpenMW\Mods\custom\umo\SunsDuskAddonTheUltimateThermometerIconEXTurbo\UTIEX\Sun's Dusk - Add-on - The Ultimate Thermometer Icon EX Turbo 1.0
+
+E:\OpenMW\Mods\custom\umo\TallDungeons\DaedricBeacons11
+DaedricBeacons.ESP
+
+E:\OpenMW\Mods\custom\umo\TallDungeons\DwemerTowers
+DwemerTall.ESP
+
+E:\OpenMW\Mods\custom\umo\TamrielDataNormalsParallaxPBR\DiffuseFullRes\Diffuse (Full Res)
+
+E:\OpenMW\Mods\custom\umo\TamrielDataNormalsParallaxPBR\NormalsHalfRes\Normals (Half Res)
+
+E:\OpenMW\Mods\custom\umo\TamrielDataNormalsParallaxPBR\PerformanceSpecularQuarterRes\Performance Specular (Quarter Res)
+
+E:\OpenMW\Mods\custom\umo\TamrielRebuiltMuseumofArtifacts\TamrielRebuiltMuseumofArtifacts\TR_MuseumOfArtifacts\Data Files
+TR_MuseumofArtifacts.esp
+
+E:\OpenMW\Mods\custom\umo\TeleportationMagicOpenMW051\TeleportationMagic\Teleportation Magic
+Teleportation Magic.omwscripts
+
+E:\OpenMW\Mods\custom\umo\TheVanishingAshchirpsAQuestMod\TheVanishingAshchirpsv103\00 Core
+The Vanishing Ash-Chirps.ESP
+
+E:\OpenMW\Mods\custom\umo\TheVanishingAshchirpsAQuestMod\TheVanishingAshchirpsv103\01 SSQN Addon
+
+E:\OpenMW\Mods\custom\umo\VanillaVoicesUnlocked\VanillaVoicesUnlockedTribunal
+Vanilla Voices Unlocked - Tribunal.esp
+
+E:\OpenMW\Mods\custom\umo\VurtsAshlandsOverhaul\AshtreesLessBranchyVanillaStyleTrees\Data Files
+
+E:\OpenMW\Mods\custom\umo\VurtsAshlandsOverhaul\VurtsAshlandsOverhaulv12\Data Files
+Vurt's Ashlands Overhaul.esp
+
+E:\OpenMW\Mods\custom\umo\VurtsDremoraVarietyforOpenMW\VurtsDremoraVarietyforOpenMW
+DremoraVariety.omwscripts
+
+E:\OpenMW\Mods\custom\umo\WeaponPoisoningOpenMW\WeaponPoisoning
+WeaponPoisoning.omwaddon
+WeaponPoisoning.omwscripts
+
+E:\OpenMW\Mods\custom\umo\WearaShirt\WearAShirt
+Wear_a_shirt.ESP
+
+E:\OpenMW\Mods\custom\umo\ArmorTrainingOpenMW\ArmorTrainingOpenMW101\Armor Training OpenMW 1.0.1
+armortraining.omwscripts
+
+E:\OpenMW\Mods\custom\umo\EradicatoroftheWingedMenaceOpenMW\Eradicator
+Eradicator.omwscripts
+
+E:\OpenMW\Mods\custom\umo\FailedSpellProgressOpenMW\FailedSpellProgressOpenMW101\Failed_Spell_Progress_OpenMW_1.0.2\Failed Spell Progress OpenMW 1.0.2
+failedspellprogress.omwscripts
+
+E:\OpenMW\Mods\custom\umo\IronandSteelCompleteedition\IronAndSteel\Iron and Steel\Data Files
+Iron and Steel.esp
+
+E:\OpenMW\Mods\custom\umo\KatyasPatchesandmodrecommendations\11MountAssarnibibiEnhancedforBCOM
+Mount Assarnibibi Enhanced for BCOM.ESP
+
+E:\OpenMW\Mods\custom\umo\KatyasPatchesandmodrecommendations\6MasterIndexReduxFancyFolmspatchforBCOM11
+MasterIndexRedux.esp
+
+E:\OpenMW\Mods\custom\umo\NewMackomHairsforReachmen\NewMackomHairsForReachmen\NewMackomHairsForReachmen
+NewMKHairsReachmen.omwaddon
+
+E:\OpenMW\Mods\custom\umo\RandomNameGeneratorOpenMW\RandomNameGenerator
+RandomNameGenerator.omwaddon
+RandomNameGenerator.omwscripts
+
+E:\OpenMW\Mods\custom\umo\WewillgotomountAssarnibibi\WWGTMA\00 Core
+WWGTMA.ESP
+
+E:\OpenMW\Mods\custom\umo\WewillgotomountAssarnibibi\WWGTMA\01 Vanilla Version
+WWGTMA.ESP
+
+E:\OpenMW\Mods\custom\umo\ArvesaTamrielRebuilt\ArvesaTamrielRebuilt\Arvesa - Tamriel Rebuilt
+Arvesa - Tamriel Rebuilt.ESP
+
+E:\OpenMW\Mods\custom\umo\BathsofProjectTamriel\BathsofProjectCyrodiil
+BoPC.esp
+
+E:\OpenMW\Mods\custom\umo\BathsofProjectTamriel\BathsofSkyrimHomeoftheNords
+BoSHotN.ESP
+
+E:\OpenMW\Mods\custom\umo\BathsofTamrielRebuilt\BathsofTamrielRebuilt
+BoTR.esp
+
+E:\OpenMW\Mods\custom\umo\BetterBodiesLyithdonea\LyithdoneaBetterBodiesUnderwear
+Lyithdonea - Better Bodies.ESP
+
+E:\OpenMW\Mods\custom\umo\BoonsandBurdensOpenMWBackgroundPack\BoonsAndBurdens
+CharacterTraits_BoonsAndBurdens.omwaddon
+CharacterTraits_BoonsAndBurdens.omwscripts
+
+E:\OpenMW\Mods\custom\umo\EveningStarFaithsofMorrowindOpenMW051\EveningStarReligionsofMorrowind\Evening Star
+Evening Star.omwaddon
+Evening Star.omwscripts
+
+E:\OpenMW\Mods\custom\umo\LyithdoneaTheAzurianIsles\MDAzurianIsles\00 Core
+MD_Azurian Isles.esm
+
+E:\OpenMW\Mods\custom\umo\LyithdoneaTheAzurianIsles\MDAzurianIsles\01 OpenMW Addons
+
+E:\OpenMW\Mods\custom\umo\LyithdoneaTheAzurianIsles\MDAzurianIsles\02 Splash Art
+
+E:\OpenMW\Mods\custom\umo\LyithdoneaTheAzurianIsles\MDAzurianIsles\03 OpenMW Footsteps
+
+E:\OpenMW\Mods\custom\umo\ModsMackommedandBetterBodiesLyithdoneaTheAzurianIsles\ModsMackommedLyithdonea
+Lyithdonea - Better Bodies.ESP
+
+E:\OpenMW\Mods\custom\umo\ModsMackommedTribeUnmourned\ModsMackommedTrubeUnmourned
+
+E:\OpenMW\Mods\custom\umo\SolstheimCastleMovedandImprovedforTOTSPOpenMW\SolstheimCastleMovedAndImprovedTOTSP\Solstheim Castle Moved and Improved (TOTSP) (OpenMW)
+SolstheimCastle.esp
+SolstheimCastleGrass.esp
+
+E:\OpenMW\Mods\custom\umo\SothaSilExpanded31iLikeGothMommysTweaksandPatches\SothaSilExpanded31ILikeGothMommysTweaks
+Sotha Sil Expanded - Increased Merchant Gold.ESP
+Sotha Sil Expanded - NPCs do not get disabled.ESP
+Sotha Sil Expanded - Reduced Light Brightness.ESP
+Sotha Sil Expanded - The City Lives & Lab Fixes.ESP
+Sotha Sil Expanded - The Corprusarium Experience Patch.ESP
+
+E:\OpenMW\Mods\custom\umo\TheTribeUnmourned\TTU12\The Tribe Unmourned
+The Tribe Unmourned (GHD).esp
+The Tribe Unmourned.esp
+
+E:\OpenMW\Mods\custom\umo\BalmoraTempleRedone\BalmoraTempleRedone
+BalmoraTempleRedone.ESP
+
+E:\OpenMW\Mods\custom\umo\BalmoraTempleRedoneReintegrated\BalmoraTempleRedoneReintegrated
+BalmoraTempleRedone.ESP
+
+E:\OpenMW\Mods\custom\umo\BeyondtheFirmament\BeyondtheFirmament\Beyond the Firmament
+Beyond the Firmament.esp
+
+E:\OpenMW\Mods\custom\umo\CloakedIndorilArmor\CloakedIndorilArmor\Data Files
+CloakedIndorilArmor.ESP
+
+E:\OpenMW\Mods\custom\umo\FantasiaGrassMod\FantasiaGrassModv2SeaofGrassEdition
+
+E:\OpenMW\Mods\custom\umo\ImperialBattlemageArmory\ImperialBattlemageArmory\Imperial Battlemage Armory-55247-1-03-1727119959\Imperial Battlemage Armory
+Imperial Battlemage Armory.ESP
+
+E:\OpenMW\Mods\custom\umo\NoForeheadForkforMacKomsAltmer\NoForeheadForkforAltmer
+
+E:\OpenMW\Mods\custom\umo\SermonsandPreachersontheMainland\MainlandPreachers
+Mainland Preaching.omwaddon
+
+E:\OpenMW\Mods\custom\umo\SermonsandPreachersVanillaedit\SermonsandPreachersvanillaedit\Sermons and Preachers (Vanilla edit)\Data Files
+sermons_preachers_RandomTemplesOnly.ESP
+
+E:\OpenMW\Mods\custom\umo\SloadsoftheMainlandTRAddon\SloadsoftheMainland
+Sloads of the Mainland - TR addon.esp
+
+E:\OpenMW\Mods\custom\umo\TamrielRebuiltBorder\SeamSmootherForTotSP\Data Files
+TR_MainlandBorder_SeamSmoother.ESP
+
+E:\OpenMW\Mods\custom\umo\KoranaMorrowindModsCOMPLETE\SolstheimCastle
+Clean SCastle_Halvart_Beauty.esp
+Clean SCastle_LoKKen_Patch.esp
+Clean Solstheim_Castle_v1.1.esp
+

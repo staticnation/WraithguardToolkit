@@ -1,0 +1,46 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# --- Tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Build output ---
+build/*/
+dist/
+*.spec
+*.exe
+
+# --- Runtime artefacts written next to the app ---
+# Traces, scan caches and generated reports are per-run, never source.
+*.log
+cell_map.html
+tes3conv_json/
+tes3cmd_staging/
+output/
+wraithguard_toolkit_settings.json
+log_themes.json
+
+# --- Backups made by this tool and by the tools it drives ---
+*.bak
+*.bak-*
+*.backup.*
+*.preclean.bak
+*.masterfix.bak
+*~[0-9].esp
+*~[0-9].esm
+
+# --- Compiled translation catalogues (built from .po) ---
+locale/**/*.mo
+
+# Sampled game assets, copied in by tools/check_nif_layouts.py --collect.
+# Real Morrowind meshes: useful locally, not ours to redistribute.
+NifCorpus/samples/
+nif_report.json

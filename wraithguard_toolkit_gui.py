@@ -114,7 +114,7 @@ def resource_path(relative_path: str) -> str:
     return os.path.join(base_path, relative_path)  # noqa: PTH118
 
 
-def _icon_photo_image(ico_path: str) -> "tk.PhotoImage | None":
+def _icon_photo_image(ico_path: str) -> tk.PhotoImage | None:
     """Load the .ico's largest PNG frame as a Tk PhotoImage.
 
     The byte-level parsing lives in :mod:`wraithguard.images.ico` -- it has
@@ -962,7 +962,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
         # the positional form only sets it for this one window.
         try:
             icon_path = resource_path("wraithguard_toolkit_icon.ico")
-            if os.path.exists(icon_path):
+            if os.path.exists(icon_path):  # noqa: PTH110 -- pairs with resource_path's abspath
                 # Windows: Tk special-cases .ico loading here, and this is
                 # the only call that also sets the taskbar icon there. When
                 # it succeeds, this IS the icon -- iconphoto below must not
@@ -989,7 +989,7 @@ class App(Tes3cmdMixin, ConflictWindowsMixin, PatchBuilderMixin, PluginViewMixin
                         # would let the icon go blank the moment __init__
                         # returns.
                         self._icon_photo = photo
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- window icon is cosmetic; never block launch
             # Log or silently bypass if the icon file is missing
             print(f"Warning: Could not load window icon: {e}", file=sys.stderr)
         root.geometry("1320x900")

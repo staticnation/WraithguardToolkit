@@ -373,8 +373,10 @@ exclude_lines = [
 ]
 # The floor §8.5 asked for. Branch coverage, full suite, zstandard installed.
 # First taken at 54% (3.0, §16 reconciliation) and floored at 52. Re-measured at
-# 79.3% during the 3.1.2 audit as the suite grew, so the floor is ratcheted to
-# 77 -- kept a couple of points below the honest number so it rises with
-# coverage instead of blocking the next PR. Raise it as the number climbs; never
-# lower it to make a PR pass.
-fail_under = 77
+# 79.3% during the 3.1.2 audit, floored at 77; then the suite grew again (the
+# dialogue decoder, xEdit colours, the cross-platform _records_via tests) and
+# the honest number is now 93.4% with a real tes3conv, ~93.2% on CI without one
+# (the full-merge tests are tes3conv-gated and skip there). Floored at 90 -- a
+# few points below the CI number so it ratchets with coverage rather than
+# blocking the next PR. Raise it as the number climbs; never lower it to pass.
+fail_under = 90

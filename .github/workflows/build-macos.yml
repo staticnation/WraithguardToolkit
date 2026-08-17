@@ -1,0 +1,136 @@
+# Autobuild the macOS .app with PyInstaller and upload it as an artifact.
+#
+# Builds both architectures: macos-13 (Intel/x86_64) and macos-14 (Apple
+# Silicon/arm64). Each runner builds natively for its own arch.
+#
+# The dependency list and PyInstaller flags follow Dockerfile.wraithguard (the
+# Linux build), adapted for macOS: pywebview uses the native Cocoa/WebKit
+# backend here, so the Windows/Linux-only bits (`clr`, `pythonnet`, the Qt
+# backend and its PyQt submodules) are dropped. The Windows `.spec` is not used
+# -- it hard-codes `/src` paths and a `.ico` icon (macOS wants `.icns`).
+#
+# The build is UNSIGNED (no Apple Developer cert in CI). First launch: right-
+# click -> Open, or clear quarantine: `xattr -dr com.apple.quarantine <app>`.
+# Add codesign + notarization steps here once a certificate is available.
+
+name: Build macOS app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13 # Intel
+            arch: x86_64
+          - runner: macos-14 # Apple Silicon
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # setup-python's macOS build bundles Tcl/Tk, so tkinter works without
+          # a system Python. 3.12 has mature PyInstaller support.
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build dependencies
+        # Mirrors Dockerfile.wraithguard's pip set, with pywebview's Cocoa backend
+        # in place of its `[qt]` extra (no Qt/.NET on macOS). Pillow is extra --
+        # it is only needed to make the .icns app icon, which the Linux build,
+        # keeping its .ico, does not. Note: no `pip install .`; like the
+        # Dockerfile, PyInstaller builds straight from the checked-out source.
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --no-cache-dir \
+            pyinstaller pywebview tkinterweb tkinterdnd2 PyYAML zstandard certifi pillow
+
+      - name: Make the .icns app icon from the .ico
+        # PyInstaller wants a .icns on macOS. Build one from the largest frame of
+        # the shipped .ico via Pillow + the system iconutil. Best-effort: a
+        # failure here must not sink the build, so the next step falls back to
+        # PyInstaller's default icon.
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import subprocess
+          from pathlib import Path
+          from PIL import Image
+
+          src = Image.open("wraithguard_toolkit_icon.ico").convert("RGBA")
+          iconset = Path("icon.iconset")
+          iconset.mkdir(exist_ok=True)
+          for size in (16, 32, 128, 256, 512):
+              src.resize((size, size), Image.LANCZOS).save(iconset / f"icon_{size}x{size}.png")
+              src.resize((size * 2, size * 2), Image.LANCZOS).save(
+                  iconset / f"icon_{size}x{size}@2x.png"
+              )
+          subprocess.run(
+              ["iconutil", "-c", "icns", "icon.iconset", "-o", "wraithguard_toolkit_icon.icns"],
+              check=True,
+          )
+          PY
+
+      - name: Build the .app
+        # Flags follow the Dockerfile, adapted for macOS:
+        #  * --windowed with no --onefile -> a proper onedir .app bundle (the
+        #    macOS norm; onefile re-extracts to a temp dir on every launch).
+        #  * Cocoa webview instead of the Qt platform + clr/pythonnet .NET bits.
+        #  * --add-data uses ':' on macOS (';' on Windows); viz assets -> "assets"
+        #    to match the frozen lookup in wraithguard/viz/library.py.
+        run: |
+          ICON=""
+          if [ -f wraithguard_toolkit_icon.icns ]; then
+            ICON="--icon=wraithguard_toolkit_icon.icns"
+          fi
+          pyinstaller --noconfirm --clean --windowed \
+            --name "Wraithguard Toolkit" \
+            $ICON \
+            --collect-submodules wraithguard \
+            --collect-all webview \
+            --collect-all certifi \
+            --hidden-import webview.platforms.cocoa \
+            --hidden-import tkinterweb \
+            --exclude-module PySide6 \
+            --exclude-module PySide2 \
+            --exclude-module shiboken6 \
+            --exclude-module PyQt5 \
+            --exclude-module PyQt6 \
+            --add-data "wraithguard_toolkit.py:." \
+            --add-data "README.md:." \
+            --add-data "QUICKSTART.md:." \
+            --add-data "MLOX_RULES.md:." \
+            --add-data "wraithguard_toolkit_icon.ico:." \
+            --add-data "wraithguard/viz/assets:assets" \
+            wraithguard_toolkit_gui.py
+
+      - name: Zip the .app
+        # A .app is a directory; upload-artifact would flatten it and lose the
+        # executable bit. ditto preserves the bundle structure and permissions.
+        run: |
+          cd dist
+          ditto -c -k --keepParent "Wraithguard Toolkit.app" \
+            "Wraithguard-Toolkit-macos-${{ matrix.arch }}.zip"
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: wraithguard-toolkit-macos-${{ matrix.arch }}
+          path: dist/Wraithguard-Toolkit-macos-${{ matrix.arch }}.zip
+          if-no-files-found: error
+          retention-days: 14

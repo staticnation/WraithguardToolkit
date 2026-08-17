@@ -1,0 +1,230 @@
+[[Customizations]]
+listName = 'total-overhaul'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\InventoryExtenderOpenMW\InventoryExtender'
+after = 'E:\OpenMW\Morrowind\Data Files'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\CustomBGsupportforUIExtenders\CustomBGSupportForUIExtenders'
+after = 'E:\OpenMW\Mods\custom\umo\InventoryExtenderOpenMW\InventoryExtender'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\SetBonus\OpenMWSetBonus\OpenMW_SetBonus'
+after = 'E:\OpenMW\Mods\custom\umo\CustomBGsupportforUIExtenders\CustomBGSupportForUIExtenders'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\SetBonus\OpenMWSetBonus\OpenMW_SetBonusRebalance'
+after = 'E:\OpenMW\Mods\custom\umo\SetBonus\OpenMWSetBonus\OpenMW_SetBonus'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\SkillFrameworkOpenMW\SkillFramework'
+after = 'E:\OpenMW\Mods\custom\umo\SetBonus\OpenMWSetBonus\OpenMW_SetBonusRebalance'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\BardcraftOpenMW\Bardcraft'
+after = 'E:\OpenMW\Mods\custom\umo\SkillFrameworkOpenMW\SkillFramework'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\HaulingAcarryweightskillmodforOpenMW\HaulingSkill'
+after = 'E:\OpenMW\Mods\custom\umo\BardcraftOpenMW\Bardcraft'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\IncantationAspellcraftingskillmodforOpenMW\Incantation\Incantation'
+after = 'E:\OpenMW\Mods\custom\umo\HaulingAcarryweightskillmodforOpenMW\HaulingSkill'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\MeditationAmagickaregenerationskillforOpenMW\MeditationSkill'
+after = 'E:\OpenMW\Mods\custom\umo\IncantationAspellcraftingskillmodforOpenMW\Incantation\Incantation'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\Stargazer\Stargazer\Stargazer'
+after = 'E:\OpenMW\Mods\custom\umo\MeditationAmagickaregenerationskillforOpenMW\MeditationSkill'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\StormriderExpandedOpenMW\StormriderExpanded14\Stormrider Expanded\Data Files'
+after = 'E:\OpenMW\Mods\custom\umo\Stargazer\Stargazer\Stargazer'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\StormriderExpandedFurnished\StormriderExpandedFurnished'
+after = 'E:\OpenMW\Mods\custom\umo\StormriderExpandedOpenMW\StormriderExpanded14\Stormrider Expanded\Data Files'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaAnArmigersTale\Arvesa - An Armigers Tale'
+after = 'E:\OpenMW\Mods\custom\umo\StormriderExpandedFurnished\StormriderExpandedFurnished'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\02 Better Bodies'
+after = 'E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaAnArmigersTale\Arvesa - An Armigers Tale'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\ArrowStickOpenMW\ArrowStick'
+after = 'E:\OpenMW\Mods\custom\umo\ArvesaAnArmigersTale\ArvesaBodyOptions\Arvesa - Body Options\02 Better Bodies'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\BullseyeMarksmanOverhaulOpenMW\Bullseye'
+after = 'E:\OpenMW\Mods\custom\umo\ArrowStickOpenMW\ArrowStick'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\NGardeActiveBlockandParryOpenMW\NGarde\NGarde'
+after = 'E:\OpenMW\Mods\custom\umo\BullseyeMarksmanOverhaulOpenMW\Bullseye'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\NGardeActiveBlockandParryOpenMW\NgardeCreatureFlagsMustBeMergedOmwaddon'
+after = 'E:\OpenMW\Mods\custom\umo\NGardeActiveBlockandParryOpenMW\NGarde\NGarde'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\SkyrimInspiredLockpicking\SkyrimLockpicking\Skyrim Lockpicking'
+after = 'E:\OpenMW\Mods\custom\umo\NGardeActiveBlockandParryOpenMW\NgardeCreatureFlagsMustBeMergedOmwaddon'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\DevilishRockyWestGash\DevilishRockyWestGash\Data Files'
+after = 'E:\OpenMW\Mods\custom\umo\SkyrimInspiredLockpicking\SkyrimLockpicking\Skyrim Lockpicking'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\samsopenmwheightmapsforRockyWestGashDevilishRedMountainandSpinesofMadness\SamsopenmwheightmapsforRockyWestGashetc\sams height maps and normals for rocky west gash and rocky red mountain'
+after = 'E:\OpenMW\Mods\custom\umo\DevilishRockyWestGash\DevilishRockyWestGash\Data Files'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\ValleyoftheWindOverhaul\ValleyoftheWindOverhaul\Valley of the Wind Overhaul'
+after = 'E:\OpenMW\Mods\custom\umo\samsopenmwheightmapsforRockyWestGashDevilishRedMountainandSpinesofMadness\SamsopenmwheightmapsforRockyWestGashetc\sams height maps and normals for rocky west gash and rocky red mountain'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\EyeoftheNeedle\EyeOfTheNeedle\Data Files'
+after = 'E:\OpenMW\Mods\custom\umo\ValleyoftheWindOverhaul\ValleyoftheWindOverhaul\Valley of the Wind Overhaul'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\GreaterMournholdBazaar\GreaterMournholdBazaar'
+after = 'E:\OpenMW\Mods\custom\umo\EyeoftheNeedle\EyeOfTheNeedle\Data Files'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\MarkgranForestMaarGanForest\MarkgranForest\Markgran Forest (Maar Gan Forest)\Data Files'
+after = 'E:\OpenMW\Mods\custom\umo\GreaterMournholdBazaar\GreaterMournholdBazaar'
+
+[[Customizations.insert]]
+insert = 'E:\OpenMW\Mods\custom\umo\TRIslands'
+after = 'E:\OpenMW\Mods\custom\umo\MarkgranForestMaarGanForest\MarkgranForest\Markgran Forest (Maar Gan Forest)\Data Files'
+
+[[Customizations.insert]]
+insert = 'InventoryExtender.omwscripts'
+after = 'OAAB - Tombs and Towers.esm'
+
+[[Customizations.insert]]
+insert = 'setbonus.omwscripts'
+after = 'InventoryExtender.omwscripts'
+
+[[Customizations.insert]]
+insert = 'setbonus_rebalance.omwscripts'
+after = 'setbonus.omwscripts'
+
+[[Customizations.insert]]
+insert = 'SkillFramework.omwscripts'
+after = 'setbonus_rebalance.omwscripts'
+
+[[Customizations.insert]]
+insert = 'Bardcraft.ESP'
+after = 'SkillFramework.omwscripts'
+
+[[Customizations.insert]]
+insert = 'Bardcraft.omwscripts'
+after = 'Bardcraft.ESP'
+
+[[Customizations.insert]]
+insert = 'Hauling.omwscripts'
+after = 'Bardcraft.omwscripts'
+
+[[Customizations.insert]]
+insert = 'Incantation.esp'
+after = 'Hauling.omwscripts'
+
+[[Customizations.insert]]
+insert = 'Incantation.omwscripts'
+after = 'Incantation.esp'
+
+[[Customizations.insert]]
+insert = 'Meditation.omwscripts'
+after = 'Incantation.omwscripts'
+
+[[Customizations.insert]]
+insert = 'Stargazer.omwaddon'
+after = 'Meditation.omwscripts'
+
+[[Customizations.insert]]
+insert = 'Stargazer - Telescopes.omwaddon'
+after = 'Stargazer.omwaddon'
+
+[[Customizations.insert]]
+insert = 'Stargazer - Telescopes Cyrodiil.omwaddon'
+after = 'Stargazer - Telescopes.omwaddon'
+
+[[Customizations.insert]]
+insert = 'Stormrider Expanded.omwaddon'
+after = 'Stargazer - Telescopes Cyrodiil.omwaddon'
+
+[[Customizations.insert]]
+insert = 'stormrider_expanded_furnished.omwaddon'
+after = 'Stormrider Expanded.omwaddon'
+
+[[Customizations.insert]]
+insert = 'Arvesa - An Armigers Tale.ESP'
+after = 'stormrider_expanded_furnished.omwaddon'
+
+[[Customizations.insert]]
+insert = 'ArrowStick.omwscripts'
+after = 'Arvesa - An Armigers Tale.ESP'
+
+[[Customizations.insert]]
+insert = 'BullseyeGMSTs.omwaddon'
+after = 'ArrowStick.omwscripts'
+
+[[Customizations.insert]]
+insert = 'Bullseye.omwscripts'
+after = 'BullseyeGMSTs.omwaddon'
+
+[[Customizations.insert]]
+insert = 'Skyrim Lockpicking.omwaddon'
+after = 'Bullseye.omwscripts'
+
+[[Customizations.insert]]
+insert = 'Skyrim Lockpicking.omwscripts'
+after = 'Skyrim Lockpicking.omwaddon'
+
+[[Customizations.insert]]
+insert = 'Rocky_WG_Base_1.1.esp'
+after = 'Skyrim Lockpicking.omwscripts'
+
+[[Customizations.insert]]
+insert = 'Valley of the Wind Overhaul.esp'
+after = 'Rocky_WG_Base_1.1.esp'
+
+[[Customizations.insert]]
+insert = 'EyeoftheNeedle.ESP'
+after = 'Valley of the Wind Overhaul.esp'
+
+[[Customizations.insert]]
+insert = 'Greater Mournhold Bazaar.esp'
+after = 'EyeoftheNeedle.ESP'
+
+[[Customizations.insert]]
+insert = 'Markgran Forest.esp'
+after = 'Greater Mournhold Bazaar.esp'
+
+[[Customizations.insert]]
+insert = 'TR_Islands_v0012.esp'
+after = 'Markgran Forest.esp'
+
+[[Customizations.insert]]
+insert = 'ngarde.omwaddon'
+after = 'ncg.omwscripts'
+
+[[Customizations.insert]]
+insert = 'ngardencgdescription.omwaddon'
+after = 'ngarde.omwaddon'
+
+[[Customizations.insert]]
+insert = 'ngarde.omwscripts'
+after = 'ngardencgdescription.omwaddon'
+
+[[Customizations.insert]]
+insert = 'ngardecreatureflags_must_be_merged.omwaddon'
+after = 'ngarde.omwscripts'

@@ -5,6 +5,12 @@
 
 ### Added
 
+- **A macOS app build.** A GitHub Actions workflow (`build-macos.yml`) now
+  autobuilds `Wraithguard Toolkit.app` with PyInstaller on every `v*` tag (and
+  on demand) and uploads it as an artifact, so Mac users get a real `.app`
+  rather than having to run from source. It is unsigned for now (right-click ->
+  Open the first time, or clear the quarantine flag); code-signing hooks can be
+  added when a certificate is available.
 - **Conflict status now shows as colour the xEdit way -- a coloured row, not
   just coloured text.** In the field-comparison panes (the plugin view's detail
   tree and the Check Conflicts field list), a field's overall status now colours
@@ -64,6 +70,19 @@
 
 ### Fixed
 
+- **The window icon no longer clashes with itself on Windows, and no longer
+  vanishes from every window when the app is run through a symlink.** Two
+  separate bugs: (1) on Windows, `iconbitmap(default=...)` already sets a crisp
+  taskbar/titlebar icon, but the follow-up `iconphoto()` call then overrode it
+  with Tk's own PNG-decode of the same file -- `iconphoto` is now only a
+  *fallback*, used when `iconbitmap` fails (i.e. on Linux); (2) a refactor had
+  changed the resource-path lookup from `os.path.abspath` to `Path.resolve()`,
+  which follows symlinks and can raise on some Windows paths -- and since the
+  whole icon setup sits under a broad `except`, any such raise silently left
+  *every* window icon-less. Reverted to `os.path.abspath` (a pure string op that
+  cannot fail), and the same `abspath`-not-`resolve()` rule -- already documented
+  for MO2 junctions and symlinked mod folders -- was re-applied to the
+  "Add data folder" path it had also slipped into.
 - **The dialogue topic-order analysis now accounts for deleted responses.**
   When it works out which lines a patch shifts in a topic (position is
   priority, so a shift is a line someone may start or stop hearing), a response
