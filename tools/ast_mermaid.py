@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-ast_mermaid.py - generate Mermaid flowcharts from Python source using the `ast` module.
+"""ast_mermaid.py - generate Mermaid flowcharts from Python source using the `ast` module.
 
 Four diagram types, all emitted as Mermaid `flowchart` blocks in a single Markdown report,
 a self-contained HTML page, or to stdout:
@@ -67,28 +66,30 @@ NOISE_CALL_NAMES = {"_", "gettext", "ngettext", "pgettext", "npgettext"}
 # Small shared helpers
 # --------------------------------------------------------------------------- #
 
+
 def sid(name: str) -> str:
     """Sanitize an arbitrary string into a valid, unique-enough Mermaid node id."""
     return "n_" + re.sub(r"[^0-9a-zA-Z_]", "_", name)
 
 
-def esc(text) -> str:
+def esc(text: object) -> str:
     """Escape text for safe use inside a quoted Mermaid label."""
     if text is None:
         return ""
     text = str(text)
     text = text.replace("\\", "\\\\")
     text = text.replace('"', "#quot;")
-    text = text.replace("\n", "<br/>")
-    return text
+    return text.replace("\n", "<br/>")
 
 
 def truncate(text: str, n: int = 60) -> str:
+    """Trim `text` to at most `n` characters, marking any cut with an ellipsis."""
     text = text.strip()
     return text if len(text) <= n else text[: n - 1] + "..."
 
 
-def safe_parse(path: Path):
+def safe_parse(path: Path) -> ast.Module | None:
+    """Parse `path` to an AST, or warn and return None on a SyntaxError."""
     try:
         return ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
     except SyntaxError as e:
@@ -96,21 +97,24 @@ def safe_parse(path: Path):
         return None
 
 
-def node_text(node) -> str:
+def node_text(node: ast.AST) -> str:
+    """Unparse an AST node to source, falling back to its type name."""
     try:
         return ast.unparse(node)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- odd nodes; type name stands in
         return type(node).__name__
 
 
-def stmt_preview(stmt) -> str:
-    """Like node_text, but nested defs show only their signature - their body is a
-    separate scope, not part of this function's control flow."""
+def stmt_preview(stmt: ast.stmt) -> str:
+    """Like node_text, but nested defs show only their signature.
+
+    Their body is a separate scope, not part of this function's control flow.
+    """
     if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
         prefix = "async def" if isinstance(stmt, ast.AsyncFunctionDef) else "def"
         try:
             args = ast.unparse(stmt.args)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- unparse can fail on odd args; "..." is a safe stand-in
             args = "..."
         return f"{prefix} {stmt.name}({args}): ..."
     if isinstance(stmt, ast.ClassDef):
@@ -122,7 +126,9 @@ def stmt_preview(stmt) -> str:
 # File discovery / module naming
 # --------------------------------------------------------------------------- #
 
-def discover(path: Path, excludes: list[str]):
+
+def discover(path: Path, excludes: list[str]) -> tuple[list[Path], Path]:
+    """Find the .py files under `path`, plus the root to name modules against."""
     if path.is_file():
         return [path], path.parent
     if not path.is_dir():
@@ -141,6 +147,7 @@ def discover(path: Path, excludes: list[str]):
 
 
 def module_name_for(f: Path, scan_root: Path) -> str:
+    """Derive a dotted module name for `f` relative to `scan_root`."""
     rel = f.relative_to(scan_root)
     parts = list(rel.with_suffix("").parts)
     if parts and parts[-1] == "__init__":
@@ -148,9 +155,11 @@ def module_name_for(f: Path, scan_root: Path) -> str:
     return ".".join(parts) if parts else f.stem
 
 
-def index_modules(files: list[Path], scan_root: Path):
-    """dotted module name -> file, and dotted module name -> its containing package
-    (used as the base for resolving relative imports)."""
+def index_modules(files: list[Path], scan_root: Path) -> tuple[dict[str, Path], dict[str, str]]:
+    """Map each dotted module name to its file and to its containing package.
+
+    The package map is used as the base for resolving relative imports.
+    """
     mod_to_file, pkg_of = {}, {}
     for f in files:
         mod = module_name_for(f, scan_root)
@@ -166,7 +175,9 @@ def index_modules(files: list[Path], scan_root: Path):
 # deps: module import graph
 # --------------------------------------------------------------------------- #
 
+
 def resolve_absolute(name: str, known: set) -> str | None:
+    """Match a dotted import name to the longest known module prefix, or None."""
     if not name:
         return None
     parts = name.split(".")
@@ -178,6 +189,7 @@ def resolve_absolute(name: str, known: set) -> str | None:
 
 
 def resolve_relative_base(pkg: str, level: int) -> str:
+    """Walk `level` dots up from package `pkg` to the base a relative import targets."""
     parts = pkg.split(".") if pkg else []
     up = level - 1
     if up > 0:
@@ -185,7 +197,10 @@ def resolve_relative_base(pkg: str, level: int) -> str:
     return ".".join(parts)
 
 
-def build_deps_edges(files: list[Path], scan_root: Path, include_external: bool):
+def build_deps_edges(
+    files: list[Path], scan_root: Path, include_external: bool
+) -> tuple[dict[str, Path], set[tuple[str, str]]]:
+    """Build the (module, imported-module) edge set for the deps graph."""
     mod_to_file, pkg_of = index_modules(files, scan_root)
     known = set(mod_to_file)
     edges = set()
@@ -222,7 +237,9 @@ def build_deps_edges(files: list[Path], scan_root: Path, include_external: bool)
                         edges.add((mod, "EXTERNAL:" + base.split(".")[0]))
                 else:
                     base = resolve_relative_base(pkg, node.level)
-                    full = f"{base}.{node.module}" if (base and node.module) else (node.module or base)
+                    full = (
+                        f"{base}.{node.module}" if (base and node.module) else (node.module or base)
+                    )
                     matched = False
                     if full in known and full != mod:
                         edges.add((mod, full))
@@ -238,9 +255,11 @@ def build_deps_edges(files: list[Path], scan_root: Path, include_external: bool)
 
 
 def render_deps_mermaid(mod_to_file: dict, edges: set, direction: str) -> str:
-    """Single combined diagram - everything, all packages, all files. Fine for small
-    scopes; for a real project this is generally too big to read (or even to render -
-    Mermaid has its own size ceiling). Used only for --combine-deps."""
+    """Render one combined deps diagram: every package and file on a single canvas.
+
+    Fine for small scopes; for a real project this is generally too big to read (or
+    even to render - Mermaid has its own size ceiling). Used only for --combine-deps.
+    """
     lines = [f"flowchart {direction}"]
     groups = defaultdict(list)
     for mod in mod_to_file:
@@ -257,7 +276,7 @@ def render_deps_mermaid(mod_to_file: dict, edges: set, direction: str) -> str:
     ext_declared = set()
     for a, b in sorted(edges):
         if b.startswith("EXTERNAL:"):
-            name = b[len("EXTERNAL:"):]
+            name = b[len("EXTERNAL:") :]
             if name not in ext_declared:
                 lines.append(f'  {sid(b)}(("{esc(name)}")):::external')
                 ext_declared.add(name)
@@ -270,19 +289,21 @@ def render_deps_mermaid(mod_to_file: dict, edges: set, direction: str) -> str:
 
 
 def package_of(mod: str) -> str:
+    """Return the top-level package of a dotted module name."""
     return mod.rsplit(".", 1)[0] if "." in mod else "(top level)"
 
 
 def render_package_summary_mermaid(packages: set, pkg_edges: set, direction: str) -> str:
-    """One node per top-level package, one edge per package-pair that has ANY import
-    between them. This is the small, always-readable big-picture view."""
+    """Render one node per package and one edge per importing package-pair.
+
+    This is the small, always-readable big-picture view.
+    """
     lines = [f"flowchart {direction}"]
-    for p in sorted(packages):
-        lines.append(f'  {sid(p)}["{esc(p)}"]')
+    lines.extend(f'  {sid(p)}["{esc(p)}"]' for p in sorted(packages))
     ext_declared = set()
     for a, b in sorted(pkg_edges):
         if b.startswith("EXTERNAL:"):
-            name = b[len("EXTERNAL:"):]
+            name = b[len("EXTERNAL:") :]
             if name not in ext_declared:
                 lines.append(f'  {sid(b)}(("{esc(name)}")):::external')
                 ext_declared.add(name)
@@ -295,9 +316,11 @@ def render_package_summary_mermaid(packages: set, pkg_edges: set, direction: str
 
 
 def render_deps_detail_mermaid(mods_in_pkg: set, edges_detail: set, direction: str) -> str:
-    """One package's files in full detail; imports into other packages are collapsed to
-    a single stub node per target package (not one node per foreign file), which is what
-    keeps this bounded regardless of overall project size."""
+    """Render one package's files in full detail.
+
+    Imports into other packages are collapsed to a single stub node per target package
+    (not one node per foreign file), which keeps this bounded regardless of project size.
+    """
     lines = [f"flowchart {direction}"]
     for mod in sorted(mods_in_pkg):
         leaf = mod.rsplit(".", 1)[-1]
@@ -307,14 +330,14 @@ def render_deps_detail_mermaid(mods_in_pkg: set, edges_detail: set, direction: s
     has_ext = has_pkg = False
     for a, b in sorted(edges_detail):
         if b.startswith("PKG:"):
-            pkg = b[len("PKG:"):]
+            pkg = b[len("PKG:") :]
             if b not in declared:
                 lines.append(f'  {sid(b)}[["{esc(pkg)}"]]:::pkglink')
                 declared.add(b)
                 has_pkg = True
             lines.append(f"  {sid(a)} --> {sid(b)}")
         elif b.startswith("EXTERNAL:"):
-            name = b[len("EXTERNAL:"):]
+            name = b[len("EXTERNAL:") :]
             if b not in declared:
                 lines.append(f'  {sid(b)}(("{esc(name)}")):::external')
                 declared.add(b)
@@ -329,9 +352,14 @@ def render_deps_detail_mermaid(mods_in_pkg: set, edges_detail: set, direction: s
     return "\n".join(lines)
 
 
-def build_deps_sections(files: list[Path], scan_root: Path, direction: str, include_external: bool):
-    """Default deps output: a package-overview diagram plus one detail diagram per
-    top-level package, instead of one giant everything-diagram."""
+def build_deps_sections(
+    files: list[Path], scan_root: Path, direction: str, include_external: bool
+) -> list[tuple[str, str]]:
+    """Build the default deps output as titled diagram sections.
+
+    A package-overview diagram plus one detail diagram per top-level package, instead of
+    one giant everything-diagram.
+    """
     mod_to_file, edges = build_deps_edges(files, scan_root, include_external)
     if len(mod_to_file) < 2:
         return []
@@ -350,8 +378,12 @@ def build_deps_sections(files: list[Path], scan_root: Path, direction: str, incl
             pb = package_of(b)
             if pa != pb:
                 pkg_edges.add((pa, pb))
-        sections.append(("Package Dependencies (overview)",
-                          render_package_summary_mermaid(packages, pkg_edges, direction)))
+        sections.append(
+            (
+                "Package Dependencies (overview)",
+                render_package_summary_mermaid(packages, pkg_edges, direction),
+            )
+        )
 
     by_pkg = defaultdict(set)
     for m in mod_to_file:
@@ -363,9 +395,7 @@ def build_deps_sections(files: list[Path], scan_root: Path, direction: str, incl
         for a, b in edges:
             if a not in mods_in_pkg:
                 continue
-            if b.startswith("EXTERNAL:"):
-                edges_detail.add((a, b))
-            elif b in mods_in_pkg:
+            if b.startswith("EXTERNAL:") or b in mods_in_pkg:
                 edges_detail.add((a, b))
             else:
                 edges_detail.add((a, "PKG:" + package_of(b)))
@@ -375,7 +405,10 @@ def build_deps_sections(files: list[Path], scan_root: Path, direction: str, incl
     return sections
 
 
-def build_deps_mermaid(files, scan_root, direction, include_external):
+def build_deps_mermaid(
+    files: list[Path], scan_root: Path, direction: str, include_external: bool
+) -> str | None:
+    """Build the combined single-diagram deps output, or None if too few files."""
     if len(files) < 2:
         return None
     mod_to_file, edges = build_deps_edges(files, scan_root, include_external)
@@ -386,8 +419,13 @@ def build_deps_mermaid(files, scan_root, direction, include_external):
 # classes: inheritance graph
 # --------------------------------------------------------------------------- #
 
-def _gather_classes(files: list[Path], scan_root: Path):
-    nodes, module_of, raw_edges = {}, {}, []
+
+def _gather_classes(
+    files: list[Path], scan_root: Path
+) -> tuple[dict[str, str], dict[str, str], list[tuple[str, str]]]:
+    nodes: dict[str, str] = {}
+    module_of: dict[str, str] = {}
+    raw_edges: list[tuple[str, str]] = []
     for f in files:
         tree = safe_parse(f)
         if tree is None:
@@ -398,15 +436,16 @@ def _gather_classes(files: list[Path], scan_root: Path):
                 cid = f"{mod}.{node.name}"
                 nodes[cid] = node.name
                 module_of[cid] = mod
-                for base in node.bases:
-                    raw_edges.append((cid, node_text(base)))
+                raw_edges.extend((cid, node_text(base)) for base in node.bases)
     return nodes, module_of, raw_edges
 
 
-def build_classes_mermaid(files: list[Path], scan_root: Path, direction: str):
-    """Single combined diagram - every class in the project on one canvas. Used only
-    for --combine-classes; for any real-sized project, build_classes_sections (the
-    per-package split) below is what actually stays readable."""
+def build_classes_mermaid(files: list[Path], scan_root: Path, direction: str) -> str | None:
+    """Render every class in the project on one combined canvas.
+
+    Used only for --combine-classes; for any real-sized project, build_classes_sections
+    (the per-package split) below is what actually stays readable.
+    """
     nodes, module_of, raw_edges = _gather_classes(files, scan_root)
     if not nodes:
         return None
@@ -421,8 +460,7 @@ def build_classes_mermaid(files: list[Path], scan_root: Path, direction: str):
         groups[mod].append(cid)
     for i, (mod, cids) in enumerate(sorted(groups.items())):
         lines.append(f'  subgraph SG{i}["{esc(mod)}"]')
-        for cid in sorted(cids):
-            lines.append(f'    {sid(cid)}["{esc(nodes[cid])}"]')
+        lines.extend(f'    {sid(cid)}["{esc(nodes[cid])}"]' for cid in sorted(cids))
         lines.append("  end")
 
     ext_declared = set()
@@ -442,10 +480,14 @@ def build_classes_mermaid(files: list[Path], scan_root: Path, direction: str):
     return "\n".join(lines)
 
 
-def build_classes_sections(files: list[Path], scan_root: Path, direction: str):
-    """Default classes output: one diagram per top-level package. A class that extends
-    a base defined in a different package links to a small stub node rather than
-    pulling that whole other package's classes into the same canvas."""
+def build_classes_sections(
+    files: list[Path], scan_root: Path, direction: str
+) -> list[tuple[str, str]]:
+    """Build the default classes output: one diagram per top-level package.
+
+    A class that extends a base defined in a different package links to a small stub
+    node rather than pulling that whole other package's classes into the same canvas.
+    """
     nodes, module_of, raw_edges = _gather_classes(files, scan_root)
     if not nodes:
         return []
@@ -463,8 +505,7 @@ def build_classes_sections(files: list[Path], scan_root: Path, direction: str):
     for pkg in sorted(by_pkg):
         cids_in_pkg = set(by_pkg[pkg])
         lines = [f"flowchart {direction}"]
-        for cid in sorted(cids_in_pkg):
-            lines.append(f'  {sid(cid)}["{esc(nodes[cid])}"]')
+        lines.extend(f'  {sid(cid)}["{esc(nodes[cid])}"]' for cid in sorted(cids_in_pkg))
 
         declared = set()
         has_ext = has_other_pkg = False
@@ -481,7 +522,9 @@ def build_classes_sections(files: list[Path], scan_root: Path, direction: str):
                     key = "PKGCLS:" + target
                     if key not in declared:
                         other_pkg = module_of[target]
-                        lines.append(f'  {sid(key)}[["{esc(nodes[target])} ({esc(other_pkg)})"]]:::pkglink')
+                        lines.append(
+                            f'  {sid(key)}[["{esc(nodes[target])} ({esc(other_pkg)})"]]:::pkglink'
+                        )
                         declared.add(key)
                         has_other_pkg = True
                     lines.append(f"  {sid(cid)} -.->|extends| {sid(key)}")
@@ -493,7 +536,9 @@ def build_classes_sections(files: list[Path], scan_root: Path, direction: str):
                     has_ext = True
                 lines.append(f"  {sid(cid)} -.->|extends| {sid(key)}")
         if has_ext:
-            lines.append("  classDef external fill:#eee,stroke:#999,stroke-dasharray: 3 3,color:#222")
+            lines.append(
+                "  classDef external fill:#eee,stroke:#999,stroke-dasharray: 3 3,color:#222"
+            )
         if has_other_pkg:
             lines.append("  classDef pkglink fill:#dde,stroke:#668,color:#222")
         title = f"Class Hierarchy - {pkg}" if multi_pkg else "Class Hierarchy"
@@ -505,14 +550,20 @@ def build_classes_sections(files: list[Path], scan_root: Path, direction: str):
 # calls: function/method call graph (per file)
 # --------------------------------------------------------------------------- #
 
+
 class CallGraphVisitor(ast.NodeVisitor):
-    def __init__(self):
+    """Collect defined functions/methods and the calls between them in one module."""
+
+    def __init__(self) -> None:
+        """Start with empty scope stacks and edge collections."""
         self.class_stack: list[str] = []
         self.func_stack: list[str] = []
         self.defined: set[str] = set()
         self.class_of: dict[str, str | None] = {}
         self.calls: set[tuple[str, str]] = set()
-        self.raw_bare_calls: list[tuple[str, str]] = []  # (caller_qualname, bare_name), resolved after full traversal
+        self.raw_bare_calls: list[tuple[str, str]] = (
+            []
+        )  # (caller_qualname, bare_name), resolved after full traversal
 
     def _qualname(self, name: str) -> str:
         if self.func_stack:
@@ -521,28 +572,34 @@ class CallGraphVisitor(ast.NodeVisitor):
             return self.class_stack[-1] + "." + name
         return name
 
-    def visit_ClassDef(self, node: ast.ClassDef):
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        """Enter a class scope, visit its body, then leave."""
         self.class_stack.append(node.name)
         for stmt in node.body:
             self.visit(stmt)
         self.class_stack.pop()
 
-    def visit_FunctionDef(self, node):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        """Record a function definition and descend into its body."""
         self._func(node)
 
-    def visit_AsyncFunctionDef(self, node):
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        """Record an async function definition and descend into its body."""
         self._func(node)
 
-    def _func(self, node):
+    def _func(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         qn = self._qualname(node.name)
         self.defined.add(qn)
-        self.class_of[qn] = self.class_stack[-1] if (self.class_stack and not self.func_stack) else None
+        self.class_of[qn] = (
+            self.class_stack[-1] if (self.class_stack and not self.func_stack) else None
+        )
         self.func_stack.append(qn)
         for stmt in node.body:
             self.visit(stmt)
         self.func_stack.pop()
 
-    def visit_Call(self, node: ast.Call):
+    def visit_Call(self, node: ast.Call) -> None:
+        """Record a call edge for bare-name and self/cls method calls."""
         if self.func_stack:
             caller = self.func_stack[-1]
             func = node.func
@@ -550,18 +607,25 @@ class CallGraphVisitor(ast.NodeVisitor):
                 # Resolved after traversal finishes, once `defined` covers forward-declared
                 # siblings/nested defs too - see resolve_bare_calls().
                 self.raw_bare_calls.append((caller, func.id))
-            elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id in ("self", "cls"):
+            elif (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id in ("self", "cls")
+            ):
                 cls = self.class_stack[-1] if self.class_stack else None
                 callee = f"{cls}.{func.attr}" if cls else func.attr
                 self.calls.add((caller, callee))
         self.generic_visit(node)
 
 
-def resolve_bare_calls(raw_bare_calls, defined: set) -> set:
-    """A bare `name()` call could refer to: a function nested inside the caller itself,
-    a sibling in any enclosing scope, or a module-level function - checked in that order,
-    matching Python's actual lexical scoping. Falls back to the bare name (shown as
-    external) if nothing in `defined` matches."""
+def resolve_bare_calls(raw_bare_calls: list[tuple[str, str]], defined: set) -> set:
+    """Resolve each bare `name()` call to the definition it lexically refers to.
+
+    A bare call could refer to a function nested inside the caller itself, a sibling in
+    any enclosing scope, or a module-level function - checked in that order, matching
+    Python's actual lexical scoping. Falls back to the bare name (shown as external) if
+    nothing in `defined` matches.
+    """
     resolved = set()
     for caller, name in raw_bare_calls:
         chain = caller.split("::")
@@ -576,13 +640,18 @@ def resolve_bare_calls(raw_bare_calls, defined: set) -> set:
     return resolved
 
 
-def _render_call_nodes(lines, defined, class_of, prefix=""):
+def _render_call_nodes(
+    lines: list[str],
+    defined: set[str],
+    class_of: dict[str, str | None],
+    prefix: str = "",
+) -> None:
     by_class = defaultdict(list)
     free = []
     for qn in sorted(defined):
         cls = class_of.get(qn)
         (by_class[cls] if cls else free).append(qn)
-    for i, (cls, funcs) in enumerate(sorted(by_class.items())):
+    for _i, (cls, funcs) in enumerate(sorted(by_class.items())):
         lines.append(f'  subgraph {sid(prefix + "cls_" + cls)}["{esc(cls)}"]')
         for qn in funcs:
             label = qn.split("::")[-1]
@@ -593,11 +662,16 @@ def _render_call_nodes(lines, defined, class_of, prefix=""):
         lines.append(f'  {sid(prefix + qn)}["{esc(label)}"]')
 
 
-def build_calls_mermaid_for_file(f: Path, direction: str, include_builtins: bool):
-    """Returns a list of (title_suffix, text, n_funcs) - normally one entry, more than
-    one only if the file's call graph was too big for a single diagram (typically one
-    exceptionally large class) and got split into labeled parts with stub links between
-    them, the same pattern used for cross-package links elsewhere in this file."""
+def build_calls_mermaid_for_file(
+    f: Path, direction: str, include_builtins: bool
+) -> list[tuple[str | None, str, int]]:
+    """Build the per-file call graph as a list of (title_suffix, text, n_funcs).
+
+    Normally one entry; more than one only if the file's call graph was too big for a
+    single diagram (typically one exceptionally large class) and got split into labeled
+    parts with stub links between them, the same pattern used for cross-package links
+    elsewhere in this file.
+    """
     tree = safe_parse(f)
     if tree is None:
         return []
@@ -610,19 +684,26 @@ def build_calls_mermaid_for_file(f: Path, direction: str, include_builtins: bool
     chunks = _split_into_chunks(v.defined, v.class_of)
     results = []
     for label, members in chunks:
-        text = _render_calls_chunk(members, v.defined, all_calls, v.class_of, direction, include_builtins)
+        text = _render_calls_chunk(
+            members, v.defined, all_calls, v.class_of, direction, include_builtins
+        )
         results.append((label, text, len(members)))
     return results
 
 
-MAX_CHUNK_NODES = 20  # split a file's call graph if any single class/free-function group exceeds this
+MAX_CHUNK_NODES = (
+    20  # split a file's call graph if any single class/free-function group exceeds this
+)
 
 
-def _split_into_chunks(defined: set, class_of: dict):
-    """Group qualnames by class (methods of the same class stay together), splitting
-    any class - or the free-function group - into labeled parts if it's bigger than
-    MAX_CHUNK_NODES. Returns [(label_or_None, [qualnames]), ...]; a single-element
-    result means no splitting was needed."""
+def _split_into_chunks(defined: set, class_of: dict) -> list[tuple[str | None, list[str]]]:
+    """Group qualnames by class, splitting any oversized group into labeled parts.
+
+    Methods of the same class stay together; any class - or the free-function group -
+    bigger than MAX_CHUNK_NODES is split into labeled parts. Returns
+    [(label_or_None, [qualnames]), ...]; a single-element result means no split was
+    needed.
+    """
     by_class = defaultdict(list)
     free = []
     for qn in sorted(defined):
@@ -636,7 +717,7 @@ def _split_into_chunks(defined: set, class_of: dict):
         else:
             n_parts = math.ceil(len(funcs) / MAX_CHUNK_NODES)
             for i in range(n_parts):
-                part = funcs[i * MAX_CHUNK_NODES:(i + 1) * MAX_CHUNK_NODES]
+                part = funcs[i * MAX_CHUNK_NODES : (i + 1) * MAX_CHUNK_NODES]
                 chunks.append((f"{cls}, part {i + 1}/{n_parts}", part))
     if free:
         if len(free) <= MAX_CHUNK_NODES:
@@ -644,13 +725,14 @@ def _split_into_chunks(defined: set, class_of: dict):
         else:
             n_parts = math.ceil(len(free) / MAX_CHUNK_NODES)
             for i in range(n_parts):
-                part = free[i * MAX_CHUNK_NODES:(i + 1) * MAX_CHUNK_NODES]
+                part = free[i * MAX_CHUNK_NODES : (i + 1) * MAX_CHUNK_NODES]
                 chunks.append((f"module-level, part {i + 1}/{n_parts}", part))
     return chunks
 
 
-def _render_calls_chunk(members: list, defined: set, calls: set, class_of: dict,
-                         direction: str, include_builtins: bool) -> str:
+def _render_calls_chunk(
+    members: list, defined: set, calls: set, class_of: dict, direction: str, include_builtins: bool
+) -> str:
     members_set = set(members)
     lines = [f"flowchart {direction}"]
     by_class = defaultdict(list)
@@ -660,11 +742,9 @@ def _render_calls_chunk(members: list, defined: set, calls: set, class_of: dict,
         (by_class[cls] if cls else free).append(qn)
     for cls, funcs in sorted(by_class.items()):
         lines.append(f'  subgraph {sid("cls_" + cls)}["{esc(cls)}"]')
-        for qn in funcs:
-            lines.append(f'    {sid(qn)}["{esc(qn.split("::")[-1])}"]')
+        lines.extend(f'    {sid(qn)}["{esc(qn.split("::")[-1])}"]' for qn in funcs)
         lines.append("  end")
-    for qn in free:
-        lines.append(f'  {sid(qn)}["{esc(qn.split("::")[-1])}"]')
+    lines.extend(f'  {sid(qn)}["{esc(qn.split("::")[-1])}"]' for qn in free)
 
     declared = set()
     has_ext = has_other = False
@@ -699,12 +779,15 @@ def _render_calls_chunk(members: list, defined: set, calls: set, class_of: dict,
     return "\n".join(lines)
 
 
-def build_calls_mermaid_combined(files: list[Path], scan_root: Path, direction: str, include_builtins: bool):
+def build_calls_mermaid_combined(
+    files: list[Path], scan_root: Path, direction: str, include_builtins: bool
+) -> str:
+    """Merge every file's call graph into one diagram, grouped by module."""
     lines = [f"flowchart {direction}"]
     all_defined = set()
     all_calls = set()
     all_class_of = {}
-    for i, f in enumerate(files):
+    for _i, f in enumerate(files):
         tree = safe_parse(f)
         if tree is None:
             continue
@@ -749,6 +832,7 @@ def build_calls_mermaid_combined(files: list[Path], scan_root: Path, direction: 
 # cfg: real control-flow flowchart for one function
 # --------------------------------------------------------------------------- #
 
+
 class CFGBuilder:
     """Builds a control-flow graph from a single function's AST body.
 
@@ -758,7 +842,8 @@ class CFGBuilder:
     unreachable and are dropped.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Start with just the Start and End stadium nodes and no edges."""
         self.nodes: dict[str, tuple[str, str]] = {}
         self.edges: list[tuple[str, str, str | None]] = []
         self._n = 0
@@ -776,31 +861,36 @@ class CFGBuilder:
         self.nodes[nid] = (shape, label)
         return nid
 
-    def _connect(self, cur, node_id):
+    def _connect(self, cur: list[tuple[str, str | None]], node_id: str) -> None:
         for src, label in cur:
             self.edges.append((src, node_id, label))
 
-    def _exc_node(self):
+    def _exc_node(self) -> str:
         if self._exc_id is None:
             self._exc_id = self._add("stadium", "Exception")
         return self._exc_id
 
-    def build(self, func):
-        cur = [(self.start_id, None)]
+    def build(
+        self, func: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> tuple[dict[str, tuple[str, str]], list[tuple[str, str, str | None]]]:
+        """Build and return the (nodes, edges) control-flow graph for `func`."""
+        cur: list[tuple[str, str | None]] = [(self.start_id, None)]
         cur = self._body(func.body, cur)
         for src, label in cur:
             self.edges.append((src, self.end_id, label))
         return self.nodes, self.edges
 
-    def _body(self, stmts, cur):
+    def _body(
+        self, stmts: list[ast.stmt], cur: list[tuple[str, str | None]]
+    ) -> list[tuple[str, str | None]]:
         buf: list[str] = []
 
-        def flush():
+        def flush() -> None:
             nonlocal cur, buf
             if buf:
                 # Real "\n" here, not "<br/>" - escaping (incl. the <br/> conversion)
                 # happens once, at render time, same as every other label in this file.
-                label = "\n".join(truncate(l) for l in buf)
+                label = "\n".join(truncate(line) for line in buf)
                 nid = self._add("rect", label)
                 self._connect(cur, nid)
                 cur = [(nid, None)]
@@ -815,12 +905,16 @@ class CFGBuilder:
                 cond = self._add("diamond", node_text(stmt.test))
                 self._connect(cur, cond)
                 true_exits = self._body(stmt.body, [(cond, "yes")])
-                false_exits = self._body(stmt.orelse, [(cond, "no")]) if stmt.orelse else [(cond, "no")]
+                false_exits = (
+                    self._body(stmt.orelse, [(cond, "no")]) if stmt.orelse else [(cond, "no")]
+                )
                 cur = true_exits + false_exits
 
             elif isinstance(stmt, (ast.For, ast.AsyncFor)):
                 flush()
-                cond = self._add("diamond", f"for {node_text(stmt.target)} in {node_text(stmt.iter)}")
+                cond = self._add(
+                    "diamond", f"for {node_text(stmt.target)} in {node_text(stmt.iter)}"
+                )
                 self._connect(cur, cond)
                 self.loop_stack.append({"continue": cond, "breaks": []})
                 body_exits = self._body(stmt.body, [(cond, "next item")])
@@ -886,7 +980,9 @@ class CFGBuilder:
                     for src, _ in entry:
                         self.edges.append((src, h_node, "on exc"))
                     handler_exits += self._body(h.body, [(h_node, None)])
-                combined = (self._body(stmt.orelse, try_exits) if stmt.orelse else try_exits) + handler_exits
+                combined = (
+                    self._body(stmt.orelse, try_exits) if stmt.orelse else try_exits
+                ) + handler_exits
                 cur = self._body(stmt.finalbody, combined) if stmt.finalbody else combined
 
             elif isinstance(stmt, (ast.With, ast.AsyncWith)):
@@ -902,7 +998,7 @@ class CFGBuilder:
                     banner = self._add("rect", f"match {node_text(stmt.subject)}")
                     self._connect(cur, banner)
                     cur = self._match_cases(stmt.cases, [(banner, None)])
-                except Exception:
+                except Exception:  # noqa: BLE001 -- match support varies; use a stub
                     nid = self._add("rect", "match ...")
                     self._connect(cur, nid)
                     cur = [(nid, None)]
@@ -913,13 +1009,15 @@ class CFGBuilder:
         flush()
         return cur
 
-    def _match_cases(self, cases, cur):
+    def _match_cases(
+        self, cases: list[ast.match_case], cur: list[tuple[str, str | None]]
+    ) -> list[tuple[str, str | None]]:
         if not cases:
             return cur
         case = cases[0]
         try:
             pat = "case " + node_text(case.pattern)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- odd patterns; "case ..." stands in
             pat = "case ..."
         if case.guard is not None:
             pat += f" if {node_text(case.guard)}"
@@ -931,6 +1029,7 @@ class CFGBuilder:
 
 
 def render_cfg_mermaid(nodes: dict, edges: list, direction: str) -> str:
+    """Render a control-flow graph's nodes and edges as a Mermaid flowchart."""
     lines = [f"flowchart {direction}"]
     for nid, (shape, label) in nodes.items():
         text = esc(label)
@@ -948,7 +1047,8 @@ def render_cfg_mermaid(nodes: dict, edges: list, direction: str) -> str:
     return "\n".join(lines)
 
 
-def find_function(file: Path, qualname: str):
+def find_function(file: Path, qualname: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
+    """Locate the `func` or `Class.method` named by `qualname` in `file`."""
     tree = safe_parse(file)
     if tree is None:
         raise SystemExit(f"Could not parse {file}")
@@ -963,7 +1063,10 @@ def find_function(file: Path, qualname: str):
         for node in tree.body:
             if isinstance(node, ast.ClassDef) and node.name == cls_name:
                 for sub in node.body:
-                    if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and sub.name == meth_name:
+                    if (
+                        isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and sub.name == meth_name
+                    ):
                         return sub
         raise SystemExit(f"Method '{qualname}' not found in {file}")
     raise SystemExit("--cfg qualname must be 'func' or 'Class.method'")
@@ -973,7 +1076,9 @@ def find_function(file: Path, qualname: str):
 # --list-functions
 # --------------------------------------------------------------------------- #
 
-def list_functions(files: list[Path]):
+
+def list_functions(files: list[Path]) -> None:
+    """Print `file:qualname` for every function and method across `files`."""
     for f in files:
         tree = safe_parse(f)
         if tree is None:
@@ -991,7 +1096,9 @@ def list_functions(files: list[Path]):
 # Output: markdown, html, images
 # --------------------------------------------------------------------------- #
 
+
 def render_markdown(sections: list[tuple[str, str]]) -> str:
+    """Render the diagram sections as a Markdown report of ```mermaid blocks."""
     parts = ["# AST -> Mermaid Flowcharts", ""]
     for title, body in sections:
         parts.append(f"## {title}")
@@ -1115,7 +1222,7 @@ def render_html(sections: list[tuple[str, str]]) -> str:
         t = html.escape(title)
         cards.append(
             f'<section class="card" data-title="{t}">\n'
-            f'  <h2>{t}\n'
+            f"  <h2>{t}\n"
             f'    <span class="btns">\n'
             f"      <button onclick=\"saveSvg(this.closest('.card'),'{slug}')\">SVG</button>\n"
             f"      <button onclick=\"savePng(this.closest('.card'),'{slug}')\">PNG</button>\n"
@@ -1124,10 +1231,8 @@ def render_html(sections: list[tuple[str, str]]) -> str:
             f'  <div class="diagram"><pre class="mermaid">{html.escape(body)}</pre></div>\n'
             f"</section>"
         )
-    return (
-        _HTML_PAGE
-        .replace("__COUNT__", str(len(sections)))
-        .replace("__CARDS__", "\n".join(cards))
+    return _HTML_PAGE.replace("__COUNT__", str(len(sections))).replace(
+        "__CARDS__", "\n".join(cards)
     )
 
 
@@ -1158,12 +1263,16 @@ def write_images(sections: list[tuple[str, str]], out_dir: str, image_format: st
         dst = out / f"{name}.{image_format}"
         src = None
         try:
-            with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False, encoding="utf-8") as tf:
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".mmd", delete=False, encoding="utf-8"
+            ) as tf:
                 tf.write(body)
                 src = tf.name
-            proc = subprocess.run(
+            proc = subprocess.run(  # noqa: S603 -- argv built from shutil.which('mmdc') and our own temp paths
                 [mmdc, "-i", src, "-o", str(dst)],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
+                check=False,
             )
             if proc.returncode == 0:
                 written += 1
@@ -1184,7 +1293,9 @@ def write_images(sections: list[tuple[str, str]], out_dir: str, image_format: st
 # CLI
 # --------------------------------------------------------------------------- #
 
-def main():
+
+def main() -> None:
+    """Parse CLI args, build the requested diagrams, and emit the report."""
     # On Windows, stdout/stderr default to the console's legacy codepage (often cp1252)
     # rather than UTF-8 -- fine for plain ASCII, but section titles use "-" (em dash),
     # which cp1252 happily encodes as a single 0x97 byte instead of UTF-8's 3-byte
@@ -1198,7 +1309,7 @@ def main():
         if hasattr(_stream, "reconfigure"):
             try:
                 _stream.reconfigure(encoding="utf-8")
-            except Exception:
+            except Exception:  # noqa: BLE001 -- best-effort; console default is fine
                 pass
 
     ap = argparse.ArgumentParser(
@@ -1207,39 +1318,88 @@ def main():
         epilog=__doc__,
     )
     ap.add_argument("path", help="File or directory to analyze")
-    ap.add_argument("--graphs", default="deps,classes",
-                     help="Comma-separated: deps,calls,classes,all (default: deps,classes)")
-    ap.add_argument("--cfg", action="append", default=[], metavar="FILE:QUALNAME",
-                     help="Control-flow flowchart for one function, e.g. "
-                          "pkg/mod.py:ClassName.method or pkg/mod.py:func. Repeatable.")
-    ap.add_argument("--list-functions", action="store_true",
-                     help="Print 'file:qualname' for every function/method in scope, then exit "
-                          "(use this to find valid --cfg targets)")
-    ap.add_argument("-o", "--output", help="Write the report here instead of stdout "
-                                           "(format inferred from a .md/.html extension)")
-    ap.add_argument("--format", choices=["md", "html"], default=None,
-                     help="Report format. Default: inferred from -o's extension, else md.")
-    ap.add_argument("--images", metavar="DIR",
-                     help="Also render each diagram to an image file in DIR via mermaid-cli "
-                          "(mmdc). Skipped with a note if mmdc is not installed.")
-    ap.add_argument("--image-format", choices=["png", "svg", "pdf"], default="png",
-                     help="Image format for --images (default: png)")
+    ap.add_argument(
+        "--graphs",
+        default="deps,classes",
+        help="Comma-separated: deps,calls,classes,all (default: deps,classes)",
+    )
+    ap.add_argument(
+        "--cfg",
+        action="append",
+        default=[],
+        metavar="FILE:QUALNAME",
+        help="Control-flow flowchart for one function, e.g. "
+        "pkg/mod.py:ClassName.method or pkg/mod.py:func. Repeatable.",
+    )
+    ap.add_argument(
+        "--list-functions",
+        action="store_true",
+        help="Print 'file:qualname' for every function/method in scope, then exit "
+        "(use this to find valid --cfg targets)",
+    )
+    ap.add_argument(
+        "-o",
+        "--output",
+        help="Write the report here instead of stdout "
+        "(format inferred from a .md/.html extension)",
+    )
+    ap.add_argument(
+        "--format",
+        choices=["md", "html"],
+        default=None,
+        help="Report format. Default: inferred from -o's extension, else md.",
+    )
+    ap.add_argument(
+        "--images",
+        metavar="DIR",
+        help="Also render each diagram to an image file in DIR via mermaid-cli "
+        "(mmdc). Skipped with a note if mmdc is not installed.",
+    )
+    ap.add_argument(
+        "--image-format",
+        choices=["png", "svg", "pdf"],
+        default="png",
+        help="Image format for --images (default: png)",
+    )
     ap.add_argument("--direction", default="TD", choices=["TD", "LR", "BT", "RL"])
-    ap.add_argument("--exclude", action="append", default=[],
-                     help="Glob pattern to exclude, matched against path relative to the "
-                          "scanned root and against filename (repeatable)")
-    ap.add_argument("--include-external", action="store_true",
-                     help="Show unresolved/external imports as extra nodes in the deps graph")
-    ap.add_argument("--include-builtins", action="store_true",
-                     help="Include calls to builtins (len, str, print, ...) in call graphs")
-    ap.add_argument("--combine-deps", action="store_true",
-                     help="Merge all packages into a single deps diagram instead of one overview + one per package")
-    ap.add_argument("--combine-classes", action="store_true",
-                     help="Merge all packages into a single class-hierarchy diagram instead of one per package")
-    ap.add_argument("--combine-calls", action="store_true",
-                     help="Merge all per-file call graphs into a single diagram")
-    ap.add_argument("--min-funcs", type=int, default=2,
-                     help="Skip per-file call graphs with fewer than N functions (default: 2)")
+    ap.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help="Glob pattern to exclude, matched against path relative to the "
+        "scanned root and against filename (repeatable)",
+    )
+    ap.add_argument(
+        "--include-external",
+        action="store_true",
+        help="Show unresolved/external imports as extra nodes in the deps graph",
+    )
+    ap.add_argument(
+        "--include-builtins",
+        action="store_true",
+        help="Include calls to builtins (len, str, print, ...) in call graphs",
+    )
+    ap.add_argument(
+        "--combine-deps",
+        action="store_true",
+        help="Merge all packages into a single deps diagram instead of one overview + one per package",
+    )
+    ap.add_argument(
+        "--combine-classes",
+        action="store_true",
+        help="Merge all packages into a single class-hierarchy diagram instead of one per package",
+    )
+    ap.add_argument(
+        "--combine-calls",
+        action="store_true",
+        help="Merge all per-file call graphs into a single diagram",
+    )
+    ap.add_argument(
+        "--min-funcs",
+        type=int,
+        default=2,
+        help="Skip per-file call graphs with fewer than N functions (default: 2)",
+    )
     args = ap.parse_args()
 
     path = Path(args.path).resolve()
@@ -1257,19 +1417,27 @@ def main():
 
     sections: list[tuple[str, str]] = []
 
-    def add_section(title, text):
+    def add_section(title: str, text: str | None) -> None:
         if text is None:
             return
         if len(text) > 10000:
-            print(f"warning: '{title}' is {len(text):,} chars - some Mermaid renderers cap around "
-                  f"here. Consider --exclude to narrow scope if it fails to render.", file=sys.stderr)
+            print(
+                f"warning: '{title}' is {len(text):,} chars - some Mermaid renderers cap around "
+                f"here. Consider --exclude to narrow scope if it fails to render.",
+                file=sys.stderr,
+            )
         sections.append((title, text))
 
     if "deps" in graphs:
         if args.combine_deps:
-            add_section("Module Dependencies", build_deps_mermaid(files, scan_root, args.direction, args.include_external))
+            add_section(
+                "Module Dependencies",
+                build_deps_mermaid(files, scan_root, args.direction, args.include_external),
+            )
         else:
-            for title, text in build_deps_sections(files, scan_root, args.direction, args.include_external):
+            for title, text in build_deps_sections(
+                files, scan_root, args.direction, args.include_external
+            ):
                 add_section(title, text)
         if len(files) < 2:
             print("note: deps graph needs more than one file in scope, skipping", file=sys.stderr)
@@ -1283,12 +1451,20 @@ def main():
 
     if "calls" in graphs:
         if args.combine_calls:
-            add_section("Call Graph (combined)",
-                         build_calls_mermaid_combined(files, scan_root, args.direction, args.include_builtins))
+            add_section(
+                "Call Graph (combined)",
+                build_calls_mermaid_combined(
+                    files, scan_root, args.direction, args.include_builtins
+                ),
+            )
         else:
             for f in files:
-                rel = f.relative_to(scan_root) if scan_root in f.parents or f == scan_root else f.name
-                for label, text, n_funcs in build_calls_mermaid_for_file(f, args.direction, args.include_builtins):
+                rel = (
+                    f.relative_to(scan_root) if scan_root in f.parents or f == scan_root else f.name
+                )
+                for label, text, n_funcs in build_calls_mermaid_for_file(
+                    f, args.direction, args.include_builtins
+                ):
                     if n_funcs < args.min_funcs:
                         continue
                     title = f"Call Graph - {rel}" + (f" ({label})" if label else "")
