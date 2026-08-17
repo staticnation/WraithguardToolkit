@@ -142,7 +142,7 @@ jobs:
         run: |
           set -o pipefail
           xvfb-run -a python -m pytest tests/test_gui_smoke.py -v -rs \
-            --timeout=60 --timeout-method=thread \
+            --timeout=60 --timeout-method=signal \
             | tee result.txt
           # Insist something actually ran (Tk + display present). A few skips are
           # fine; zero passes means the display or Tk is missing and nothing was

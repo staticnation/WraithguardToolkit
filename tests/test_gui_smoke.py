@@ -46,6 +46,27 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+@pytest.fixture(autouse=True)
+def _no_blocking_dialogs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub Tk's modal dialogs so a smoke test can never block on one.
+
+    A real ``messagebox``/``ask*`` pops a modal that waits for a click. That is
+    a manual "OK" when running locally and a hard hang under headless ``xvfb``
+    in CI, where nothing ever clicks it. The informational ones return their
+    usual ``"ok"``; the questions default to the conservative "no". A test that
+    cares about a specific dialog still overrides these with its own
+    ``monkeypatch`` inside the test body, which takes precedence.
+    """
+    import tkinter.messagebox as mb
+
+    monkeypatch.setattr(mb, "showinfo", lambda *a, **k: "ok", raising=False)
+    monkeypatch.setattr(mb, "showwarning", lambda *a, **k: "ok", raising=False)
+    monkeypatch.setattr(mb, "showerror", lambda *a, **k: "ok", raising=False)
+    monkeypatch.setattr(mb, "askyesno", lambda *a, **k: False, raising=False)
+    monkeypatch.setattr(mb, "askokcancel", lambda *a, **k: False, raising=False)
+    monkeypatch.setattr(mb, "askyesnocancel", lambda *a, **k: False, raising=False)
+
+
 @pytest.fixture(scope="module")
 def tk_root() -> Iterator[Any]:
     """A real Tk root window, built the way the application builds its own.
