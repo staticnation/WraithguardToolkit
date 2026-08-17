@@ -603,9 +603,7 @@ class TestClearScanMemory:
         assert host._scanned_subset_lines == ["some", "lines"]
         assert host.subset_file_var.get() == "C:/mods/subset.txt"
 
-    def test_confirming_clears_manual_adds_and_the_scan_result(
-        self, monkeypatch: Any
-    ) -> None:
+    def test_confirming_clears_manual_adds_and_the_scan_result(self, monkeypatch: Any) -> None:
         """The actual point: all three kinds of accumulated memory go together."""
         host = self._host(subset_file="C:/mods/subset.txt")
         host._manual_plugins.append("MyMod.esp")
@@ -637,9 +635,7 @@ class TestClearScanMemory:
         assert "1 manual data folder(s)" in message
         assert "in-memory scan result" in message
 
-    def test_only_the_scan_result_is_still_reported_on_its_own(
-        self, monkeypatch: Any
-    ) -> None:
+    def test_only_the_scan_result_is_still_reported_on_its_own(self, monkeypatch: Any) -> None:
         """Manual adds and a scan result are independent; either alone must
         still produce a sensible (non-empty, non-crashing) summary.
         """
@@ -795,6 +791,7 @@ class TestControlsLayout:
         pinned = app.clear_memory_button.master
         assert app.help_btn.master is pinned
         assert not _is_descendant(pinned, _controls_content(app))
+
 
 class TestControlsFrameScrolls:
     """controls_frame must never clip content again, however tight the pane.

@@ -58,6 +58,7 @@ from wraithguard.tes3fields.landscape import (
     decode_vertex_colors,
 )
 
+
 # The four converter-subprocess tests below need a real tes3conv: a hand-rolled
 # shell script only stands in for it on POSIX (Windows' CreateProcess cannot
 # execute a script directly -- no shebang, and .bat/.py are not valid
@@ -91,7 +92,7 @@ def _build_esp(converter: str, tmp_path: Path, masters: list[tuple[str, int]]) -
     as_json = tmp_path / "source.json"
     as_json.write_text(json.dumps(document), encoding="utf-8")
     esp = tmp_path / "source.esp"
-    subprocess.run(
+    subprocess.run(  # noqa: S603 -- fixed argv, a test-built tes3conv command
         [converter, str(as_json), str(esp), "--overwrite"],
         capture_output=True,
         text=True,
@@ -558,7 +559,9 @@ class TestBuildRecords:
             textures=[3] * (TEXTURE_SIZE * TEXTURE_SIZE),
             colors=[200] * (LAND_SIZE * LAND_SIZE * 3),
         )
-        records, pending, used, clamped = _build_records(self._outcome({(1, 2): cell}), lambda _: None)
+        records, pending, used, clamped = _build_records(
+            self._outcome({(1, 2): cell}), lambda _: None
+        )
         assert len(records) == 1
         assert records[0]["grid"] == [1, 2]
         assert len(pending) == 1
@@ -568,7 +571,9 @@ class TestBuildRecords:
     def test_a_cell_without_textures_is_not_pending(self) -> None:
         """Nothing to compact means nothing queued for the texture pass."""
         cell = MergedCell(coords=(0, 0), heights=_flat_heights(5))
-        records, pending, used, _clamped = _build_records(self._outcome({(0, 0): cell}), lambda _: None)
+        records, pending, used, _clamped = _build_records(
+            self._outcome({(0, 0): cell}), lambda _: None
+        )
         assert len(records) == 1
         assert pending == []
         assert used == set()
@@ -587,7 +592,9 @@ class TestBuildRecords:
         """Each flat value must land at its own vertex, not a neighbour's."""
         flat = [(x * 7 + y * 13) % 64 for y in range(TEXTURE_SIZE) for x in range(TEXTURE_SIZE)]
         cell = MergedCell(coords=(0, 0), heights=_flat_heights(0), textures=flat)
-        records, pending, _used, _clamped = _build_records(self._outcome({(0, 0): cell}), lambda _: None)
+        records, pending, _used, _clamped = _build_records(
+            self._outcome({(0, 0): cell}), lambda _: None
+        )
         record, rows = pending[0]
         assert record is records[0]
         expected = [flat[y * TEXTURE_SIZE : (y + 1) * TEXTURE_SIZE] for y in range(TEXTURE_SIZE)]
@@ -603,7 +610,9 @@ class TestBuildRecords:
         flat = [128] * (LAND_SIZE * LAND_SIZE * 3)
         flat[0], flat[1], flat[2] = -50, 999, 128  # first vertex, r/g/b
         cell = MergedCell(coords=(0, 0), heights=_flat_heights(0), colors=flat)
-        records, _pending, _used, _clamped = _build_records(self._outcome({(0, 0): cell}), lambda _: None)
+        records, _pending, _used, _clamped = _build_records(
+            self._outcome({(0, 0): cell}), lambda _: None
+        )
         colors = decode_vertex_colors(records[0]["vertex_colors"]["data"])
         assert colors[0][0] == (0, 255, 128)
 
@@ -615,7 +624,11 @@ class TestBuildRecords:
         given) leaves the supplied map untouched -- otherwise a correct
         reshape and a sea-level rewrite would be indistinguishable here.
         """
-        from wraithguard.tes3fields.landscape import WNAM_SIZE, decode_vertex_normals, decode_world_map
+        from wraithguard.tes3fields.landscape import (
+            WNAM_SIZE,
+            decode_vertex_normals,
+            decode_world_map,
+        )
 
         world_flat = [(x + y) % 5 - 2 for y in range(WNAM_SIZE) for x in range(WNAM_SIZE)]
         # (x, y, z) int8 triples, distinct per vertex -- a flat "straight up"
@@ -632,7 +645,9 @@ class TestBuildRecords:
             world_map=world_flat,
             normals=normals_flat,
         )
-        records, _pending, _used, _clamped = _build_records(self._outcome({(0, 0): cell}), lambda _: None)
+        records, _pending, _used, _clamped = _build_records(
+            self._outcome({(0, 0): cell}), lambda _: None
+        )
         decoded_map = decode_world_map(records[0]["world_map_data"]["data"])
         expected_map = [world_flat[y * WNAM_SIZE : (y + 1) * WNAM_SIZE] for y in range(WNAM_SIZE)]
         assert decoded_map == expected_map
@@ -645,7 +660,9 @@ class TestBuildRecords:
         """build_landscape_record refuses an empty cell; one bad cell must not abort the merge."""
         cell = MergedCell(coords=(9, 9))  # heights, textures, colors all None
         lines: list[str] = []
-        records, pending, used, clamped = _build_records(self._outcome({(9, 9): cell}), lines.append)
+        records, pending, used, clamped = _build_records(
+            self._outcome({(9, 9): cell}), lines.append
+        )
         assert records == []
         assert pending == []
         assert used == set()
@@ -661,13 +678,17 @@ class TestBuildRecords:
         """
         import wraithguard.land.service as svc
 
-        def fake_build(coords: tuple[int, int], **_kw: object) -> tuple[dict[str, object], list[object]]:
+        def fake_build(
+            coords: tuple[int, int], **_kw: object
+        ) -> tuple[dict[str, object], list[object]]:
             return {"type": "Land", "grid": list(coords)}, [(0, 0), (1, 1)]
 
         monkeypatch.setattr(svc, "build_landscape_record", fake_build)
         cell = MergedCell(coords=(0, 0), heights=_flat_heights(0))
         lines: list[str] = []
-        _records, _pending, _used, clamped = _build_records(self._outcome({(0, 0): cell}), lines.append)
+        _records, _pending, _used, clamped = _build_records(
+            self._outcome({(0, 0): cell}), lines.append
+        )
         assert clamped == 2
         assert any("2 vertex/vertices" in line and "clamped" in line for line in lines)
 
@@ -718,8 +739,12 @@ class TestFinishTextures:
     def test_sources_are_deduplicated_and_sorted(self) -> None:
         """Two mods contribute textures; the dependency list names each once, in order."""
         known = KnownTextures()
-        known.observe("b.esp", [{"type": "LandscapeTexture", "id": "B", "index": 0, "file_name": "b.tga"}])
-        known.observe("a.esp", [{"type": "LandscapeTexture", "id": "A", "index": 1, "file_name": "a.tga"}])
+        known.observe(
+            "b.esp", [{"type": "LandscapeTexture", "id": "B", "index": 0, "file_name": "b.tga"}]
+        )
+        known.observe(
+            "a.esp", [{"type": "LandscapeTexture", "id": "A", "index": 1, "file_name": "a.tga"}]
+        )
         rows = [[0] * TEXTURE_SIZE for _ in range(TEXTURE_SIZE)]
         _records, sources = _finish_textures(
             [({}, rows)], {vtex_of(0), vtex_of(1)}, known, lambda _: None
@@ -790,7 +815,9 @@ class TestWrite:
         (tmp_path / "a.esm").write_bytes(b"x" * 100)
         monkeypatch.setattr(svc, "resolve_plugin", lambda *_a, **_k: tmp_path / "a.esm")
         with pytest.raises(MergeServiceError, match="could not be run"):
-            _write([], ["a.esm"], [tmp_path], tmp_path / "out.esp", str(tmp_path / "no-such-tes3conv"))
+            _write(
+                [], ["a.esm"], [tmp_path], tmp_path / "out.esp", str(tmp_path / "no-such-tes3conv")
+            )
 
     def test_a_nonzero_exit_is_reported(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, real_tes3conv: str
@@ -920,9 +947,7 @@ class TestBuildMergedLandsHappyPath:
         return {
             "Morrowind.esm": [self._land((0, 0), heights=heights_reference)],
             "ModHeights.esp": [self._land((0, 0), heights=heights_edited)],
-            "ModColors.esp": [
-                self._land((0, 0), heights=heights_reference, colors=colors_edited)
-            ],
+            "ModColors.esp": [self._land((0, 0), heights=heights_reference, colors=colors_edited)],
         }
 
     def test_two_mods_editing_different_layers_produce_one_merged_cell(

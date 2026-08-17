@@ -90,9 +90,7 @@ class TestMissingMasters:
         ]
 
     def test_no_index_marks_every_master_missing(self, core: Any, tmp_path: Path) -> None:
-        plugin = write_plugin(
-            tmp_path / "MyMod.esp", masters=("Morrowind.esm", "Tribunal.esm")
-        )
+        plugin = write_plugin(tmp_path / "MyMod.esp", masters=("Morrowind.esm", "Tribunal.esm"))
         staging = tmp_path / "staging"
 
         staged, missing = core.stage_for_tes3cmd(staging, plugin, None)
@@ -198,7 +196,7 @@ class TestHardlinkFallback:
 
         monkeypatch.setattr(os, "link", always_fails)
 
-        staged, missing = core.stage_for_tes3cmd(staging, plugin, index)
+        _staged, missing = core.stage_for_tes3cmd(staging, plugin, index)
 
         assert missing == []
         dest = staging / "Data Files" / "Morrowind.esm"

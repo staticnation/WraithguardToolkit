@@ -9,12 +9,25 @@ scope so the tests run headless in CI.
 from __future__ import annotations
 
 import importlib.util
+import os
 import struct
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+
+# --- Auto-resolve Tcl/Tk paths for Python 3.14 on Windows ---
+if "TCL_LIBRARY" not in os.environ:
+    tcl_dir = Path(sys.base_prefix) / "tcl"
+    if tcl_dir.exists():
+        tcl_versions = list(tcl_dir.glob("tcl8.*"))
+        tk_versions = list(tcl_dir.glob("tk8.*"))
+        if tcl_versions:
+            os.environ["TCL_LIBRARY"] = tcl_versions[0].as_posix()
+        if tk_versions:
+            os.environ["TK_LIBRARY"] = tk_versions[0].as_posix()
+# ------------------------------------------------------------
 
 if TYPE_CHECKING:
     import types

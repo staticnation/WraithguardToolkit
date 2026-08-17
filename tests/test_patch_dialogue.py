@@ -307,3 +307,60 @@ class TestWhatAPatchMovesAcrossAWholeLoadOrder:
         assert backward == []
         # Mod last had pushed x below y, so carrying it moves both.
         assert forward == [("rumours", "x", 2, 1), ("rumours", "y", 1, 2)]
+
+
+class TestDeletion:
+    """A later plugin deleting a response takes it out of the topic."""
+
+    def test_a_deleted_response_is_removed(self) -> None:
+        """The response is gone, and the survivors close up behind it."""
+        order = topic_order(
+            [
+                Response("a"),
+                Response("b", prev="a"),
+                Response("c", prev="b"),
+                Response("b", prev="a", deleted=True),
+            ]
+        )
+        assert keys(order) == ["a", "c"]
+
+    def test_deleting_shifts_the_survivors_up(self) -> None:
+        """Deletion is a move for everything after it -- position is priority."""
+        before = topic_order([Response("a"), Response("b", prev="a"), Response("c", prev="b")])
+        after = topic_order(
+            [
+                Response("a"),
+                Response("b", prev="a"),
+                Response("c", prev="b"),
+                Response("b", prev="a", deleted=True),
+            ]
+        )
+        assert moved(before, after) == [("c", 3, 2)]
+
+    def test_deleting_something_absent_is_a_no_op(self) -> None:
+        """A tombstone for a response never seen removes nothing."""
+        order = topic_order([Response("a"), Response("ghost", deleted=True)])
+        assert keys(order) == ["a"]
+
+    def test_a_later_plugin_can_re_add_a_deleted_response(self) -> None:
+        """Once deleted, the id is free to be inserted fresh."""
+        order = topic_order(
+            [
+                Response("a"),
+                Response("b", prev="a"),
+                Response("b", prev="a", deleted=True),
+                Response("b", prev=""),
+            ]
+        )
+        assert keys(order) == ["b", "a"]
+
+    def test_the_deleted_flag_is_read_from_the_record(self) -> None:
+        """responses_by_topic reads the DELETED object flag from tes3conv JSON."""
+        records: list[dict[str, Any]] = [
+            {"type": "Dialogue", "id": "topic"},
+            {"type": "DialogueInfo", "id": "gone", "prev_id": "", "flags": "DELETED"},
+            {"type": "DialogueInfo", "id": "kept", "prev_id": "", "flags": ""},
+        ]
+        found = responses_by_topic(records, "Mod.esp")
+        by_key = {response.key: response.deleted for response in found["topic"]}
+        assert by_key == {"gone": True, "kept": False}

@@ -74,7 +74,7 @@ def _real_esp(converter: str, tmp_path: Path, name: str, masters: list[tuple[str
     as_json = tmp_path / f"{name}.src.json"
     as_json.write_text(json.dumps(document), encoding="utf-8")
     esp = tmp_path / name
-    subprocess.run(
+    subprocess.run(  # noqa: S603 -- fixed argv, a test-built tes3conv command
         [converter, str(as_json), str(esp), "--overwrite"],
         capture_output=True,
         text=True,
@@ -200,7 +200,7 @@ class TestRecordSubsetStreamingBranch:
     def _install_fake_ijson(
         monkeypatch: pytest.MonkeyPatch, *, break_after: int | None = None
     ) -> None:
-        def items(fh: Any, _prefix: str, use_float: bool = True) -> Any:  # noqa: ARG001
+        def items(fh: Any, _prefix: str, use_float: bool = True) -> Any:
             data = json.load(fh)
             for i, item in enumerate(data):
                 if break_after is not None and i >= break_after:
