@@ -1465,7 +1465,7 @@ def _restyle_combobox_popdown(widget: tk.Misc) -> None:
         popdown_widget.bind(
             "<Map>", lambda _e, w=widget, p=popdown: _apply_popdown_colors(w, p), add="+"
         )
-        popdown_widget._chrome_map_bound = True  # type: ignore[attr-defined]
+        popdown_widget._chrome_map_bound = True
 
 
 def _configure_each(widget: tk.Misc, options: dict) -> None:

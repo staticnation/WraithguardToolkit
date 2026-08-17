@@ -108,6 +108,48 @@ def doc_path(filename: str) -> Path | None:
     return found
 
 
+def _ci_pattern(patterns: str) -> str:
+    """Rewrite a space-separated glob pattern to be case-insensitive.
+
+    Each alphabetic character becomes a ``[aA]`` class -- ``*.esp`` turns into
+    ``*.[eE][sS][pP]`` -- which Tk's ``string match`` honours. Non-alphabetic
+    characters (``*``, ``.``, digits) are left as they are.
+    """
+    return " ".join(
+        "".join(f"[{c.lower()}{c.upper()}]" if c.isalpha() else c for c in token)
+        for token in patterns.split()
+    )
+
+
+def case_insensitive_filetypes(
+    filetypes: tuple[tuple[str, str], ...],
+) -> tuple[tuple[str, str], ...]:
+    """Make ``filedialog`` extension filters case-insensitive on X11 (Linux).
+
+    Tk's own file dialog -- the one used on Linux, including the Steam Deck --
+    matches the ``filetypes`` extension globs case-sensitively, so a filter of
+    ``*.esp`` hides ``Mod.ESP`` until the user switches to "All files". That
+    bites hard on the Deck, where Morrowind plugins are routinely upper-case.
+
+    Windows and macOS use their native dialogs, which are already
+    case-insensitive AND do not understand ``[eE]``-style glob classes, so on
+    those platforms the filters are returned unchanged. Only on X11 are they
+    rewritten via :func:`_ci_pattern`.
+
+    Args:
+        filetypes: A ``filedialog`` ``filetypes`` sequence of
+            ``(label, patterns)`` pairs, where ``patterns`` is a
+            space-separated glob string such as ``"*.esp *.esm"``.
+
+    Returns:
+        The filters, rewritten to be case-insensitive on X11 and untouched
+        elsewhere.
+    """
+    if sys.platform in ("win32", "darwin"):
+        return filetypes
+    return tuple((label, _ci_pattern(patterns)) for label, patterns in filetypes)
+
+
 # Drag-and-drop is optional -- the GUI degrades gracefully to Browse-only.
 # Probed HERE, once, so the main module and the widgets share one answer.
 try:

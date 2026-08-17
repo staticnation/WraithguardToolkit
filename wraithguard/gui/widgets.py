@@ -10,7 +10,11 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from typing import TYPE_CHECKING, Any, cast
 
-from wraithguard.gui import register_drop_target, trace_first_fire
+from wraithguard.gui import (
+    case_insensitive_filetypes,
+    register_drop_target,
+    trace_first_fire,
+)
 from wraithguard.gui.theme import DARK
 from wraithguard.i18n import gettext as _
 from wraithguard.tracing import trace
@@ -412,14 +416,18 @@ class PathField:
         entry.grid(row=row, column=1, sticky="ew", pady=4)
         self.entry = entry
 
+        ci_filetypes = case_insensitive_filetypes(filetypes)
+
         def browse() -> None:
             """Ask for a path with the dialog this field was configured for."""
             if browse_kind == "save":
-                path = filedialog.asksaveasfilename(filetypes=filetypes, defaultextension=".toml")
+                path = filedialog.asksaveasfilename(
+                    filetypes=ci_filetypes, defaultextension=".toml"
+                )
             elif browse_kind == "dir":
                 path = filedialog.askdirectory()
             else:
-                path = filedialog.askopenfilename(filetypes=filetypes)
+                path = filedialog.askopenfilename(filetypes=ci_filetypes)
             if path:
                 var.set(path)
 
@@ -437,8 +445,12 @@ class PathField:
             browse_btn = ttk.Button(btnbar, text=_("Browse..."), command=browse)
             browse_btn.pack(side="left")
             for spec in specs:
-                ex_text, ex_cmd = spec[0], spec[1]
-                ex_tip = spec[2] if len(spec) > 2 else None
+                # `specs` is a union of a bare tuple and a sequence of tuples, so
+                # each element widens to `Any | tuple`; narrow it to a plain tuple
+                # of fields (text, command, optional tooltip) before unpacking.
+                fields = cast("tuple[Any, ...]", spec)
+                ex_text, ex_cmd = fields[0], fields[1]
+                ex_tip = fields[2] if len(fields) > 2 else None
                 btn = ttk.Button(btnbar, text=ex_text, command=ex_cmd)
                 btn.pack(side="left", padx=(6, 0))
                 if ex_tip:

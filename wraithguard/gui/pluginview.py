@@ -45,12 +45,13 @@ from tkinter import ttk
 from typing import TYPE_CHECKING, Any, Final
 
 import wraithguard_toolkit as core
+from wraithguard.gui.conflict_colors import THIS_TEXT, all_colors, this_text
 from wraithguard.gui.theme import DARK, apply_titlebar_theme
 from wraithguard.gui.widgets import add_tooltip
 from wraithguard.i18n import gettext as _
 from wraithguard.logging_setup import get_logger
 from wraithguard.patch.align import align, alignable, label_for
-from wraithguard.patch.status import ABSENT, ConflictAll, ConflictThis, worst_this
+from wraithguard.patch.status import ABSENT, ConflictThis, worst_this
 from wraithguard.patch.summary import (
     ALL_TAGS,
     Branch,
@@ -105,29 +106,6 @@ SEP: Final = "\x00"
 
 #: Marks a node whose children have not been built yet.
 PENDING: Final = "pending"
-
-#: Text colour per :class:`~wraithguard.patch.status.ConflictThis`. What *this*
-#: plugin is doing to the records beneath it.
-THIS_COLOUR: Final[dict[ConflictThis, str]] = {
-    ConflictThis.UNKNOWN: DARK["fg"],
-    ConflictThis.IGNORED: DARK["fg_dim"],
-    ConflictThis.DELETED: DARK["fg_dim"],
-    ConflictThis.IDENTICAL_TO_MASTER: DARK["fg_dim"],
-    ConflictThis.MASTER: "#9ecbff",
-    ConflictThis.OVERRIDE_WINS: "#7ddc9a",
-    ConflictThis.CONFLICT_WINS: "#e8c07d",
-    ConflictThis.CONFLICT_LOSES: "#ff6b6b",
-}
-
-#: Row colour per :class:`~wraithguard.patch.status.ConflictAll`, for the
-#: record and entry rows in the detail pane.
-ALL_COLOUR: Final[dict[ConflictAll, str]] = {
-    ConflictAll.UNKNOWN: DARK["fg"],
-    ConflictAll.ONLY_ONE: DARK["fg_dim"],
-    ConflictAll.NO_CONFLICT: DARK["fg_dim"],
-    ConflictAll.OVERRIDE_BENIGN: "#e8c07d",
-    ConflictAll.CONFLICT: "#ff6b6b",
-}
 
 
 def this_tag(status: ConflictThis) -> str:
@@ -238,13 +216,24 @@ class PluginViewMixin:
         self._plugin_detail = detail
         panes.add(right, weight=2)
 
+        # xEdit's convention (see conflict_colors): what one plugin does is the
+        # text colour, and a record/field's overall status is the row
+        # background. The nav tree carries per-plugin rows, so it takes the
+        # text colours; the detail tree carries per-field rows judged across all
+        # plugins, so those get the coloured backgrounds.
         for tree in (nav, detail):
-            for status, colour in THIS_COLOUR.items():
-                tree.tag_configure(this_tag(status), foreground=colour)
+            for status in THIS_TEXT:
+                tree.tag_configure(this_tag(status), foreground=this_text(status))
             tree.tag_configure("dim", foreground=DARK["fg_dim"])
             for value, (name, _why) in ALL_TAGS.items():
-                tree.tag_configure(name, foreground=ALL_COLOUR.get(value, DARK["fg"]))
-        # The conflict highlight only ever lands on plugin rows in the nav.
+                bg, fg = all_colors(value)
+                if bg is not None:
+                    tree.tag_configure(name, background=bg, foreground=fg)
+                else:
+                    tree.tag_configure(name, foreground=fg)
+        # The conflict highlight only ever lands on plugin rows in the nav,
+        # which carry no verdict background -- so its dark background layers
+        # cleanly behind the row's verdict text colour (see CONFLICT_BG).
         nav.tag_configure(CONFLICT_TAG, background=CONFLICT_BG)
 
         nav.bind("<<TreeviewSelect>>", lambda _e: self._on_plugin_node())

@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import wraithguard_toolkit as core
-from wraithguard.gui import app_base_dir, trace_first_fire
+from wraithguard.gui import app_base_dir, case_insensitive_filetypes, trace_first_fire
 from wraithguard.gui.theme import DARK, apply_titlebar_theme, style_plain_widget
 from wraithguard.gui.widgets import QueueWriter, add_tooltip, attach_typeahead
 from wraithguard.i18n import gettext as _, ngettext
@@ -108,7 +108,9 @@ class Tes3cmdMixin:
             """Ask for the tes3cmd executable and put it in the field."""
             p = filedialog.askopenfilename(
                 title=_("Locate tes3cmd"),
-                filetypes=(("tes3cmd", "tes3cmd*"), ("Executables", "*.exe"), ("All files", "*.*")),
+                filetypes=case_insensitive_filetypes(
+                    (("tes3cmd", "tes3cmd*"), ("Executables", "*.exe"), ("All files", "*.*"))
+                ),
             )
             if p:
                 self._t3_path_var.set(p)
@@ -348,7 +350,9 @@ class Tes3cmdMixin:
         """Add plugins to the file list from a file dialog."""
         ps = filedialog.askopenfilenames(
             title=_("Choose plugin file(s)"),
-            filetypes=(("TES3 plugins", "*.esp *.esm *.omwaddon *.omwgame"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes(
+                (("TES3 plugins", "*.esp *.esm *.omwaddon *.omwgame"), ("All files", "*.*"))
+            ),
         )
         if ps:
             have = {str(p).lower() for p in self._t3_files}

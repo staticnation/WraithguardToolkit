@@ -21,7 +21,12 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import wraithguard_toolkit as core
-from wraithguard.gui import app_base_dir
+from wraithguard.gui import app_base_dir, case_insensitive_filetypes
+from wraithguard.gui.conflict_colors import (
+    ALL_TEXT_MINE,
+    all_bg_by_tag,
+    all_text_by_tag,
+)
 from wraithguard.gui.theme import (
     DARK,
     THEME_PRESETS,
@@ -57,6 +62,12 @@ from wraithguard.patch.summary import (
     survey,
 )
 from wraithguard.plugins import PluginFileIndex
+from wraithguard.tes3fields.dialogue import (
+    DIAL_TYPE,
+    INFO_TYPE,
+    describe_record,
+    script_tokens,
+)
 from wraithguard.viz.library import ViewerError, three_source
 from wraithguard.viz.serve import Payload, ViewerServer
 
@@ -1077,7 +1088,7 @@ class ConflictWindowsMixin:
             title=_("Export the 3D view"),
             defaultextension=".html",
             initialfile=f"{Path(path).stem}_3d.html",
-            filetypes=(("HTML files", "*.html"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes((("HTML files", "*.html"), ("All files", "*.*"))),
         )
         if not target:
             return
@@ -1399,7 +1410,7 @@ class ConflictWindowsMixin:
             title=_("Export the texture comparison"),
             defaultextension=".html",
             initialfile=f"{Path(path).stem}_compare.html",
-            filetypes=(("HTML files", "*.html"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes((("HTML files", "*.html"), ("All files", "*.*"))),
         )
         if not target:
             return
@@ -1430,7 +1441,7 @@ class ConflictWindowsMixin:
             title=_("Save resource conflicts"),
             defaultextension=".csv",
             initialfile="resource_conflicts.csv",
-            filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes((("CSV files", "*.csv"), ("All files", "*.*"))),
         )
         if not path:
             return
@@ -1591,23 +1602,18 @@ class ConflictWindowsMixin:
         topf.columnconfigure(0, weight=1)
         # Filled in by the plugin summary. Until it runs the list says only
         # that these records conflict, which is what it has always said.
-        tree.tag_configure("status-unknown", foreground=DARK["fg"])
-        # The two "nothing lost" verdicts. Dimmer than a real conflict so they
-        # recede, but not fg_dim (#9a9a9a), which is too faint to read against
-        # the dark rows -- a legible mid-grey that still sits back from amber/red.
-        tree.tag_configure("status-only-one", foreground="#b8b8b8")
-        tree.tag_configure("status-agree", foreground="#b8b8b8")
-        tree.tag_configure("status-benign", foreground="#e8c07d")
-        tree.tag_configure("status-conflict", foreground="#ff6b6b")
+        # Text-coloured by verdict, in the xEdit Material family (conflict_colors).
+        # The record list is a long flat list, so it stays foreground-coloured
+        # rather than taking the field panes' coloured backgrounds.
+        for _name, _colour in all_text_by_tag().items():
+            tree.tag_configure(_name, foreground=_colour)
         # Owned (★) rows take the same verdict, a shade brighter so they still
         # catch the eye. The star carries ownership; the colour is free to carry
-        # the verdict, which the old flat orange used to mask. The chromatic
-        # verdicts get a more-saturated amber/red; the two "nothing lost" greys
-        # are lifted off fg_dim so your rows do not fade out. See MINE_STATUS_TAGS.
-        tree.tag_configure("status-benign-mine", foreground="#ffb454")
-        tree.tag_configure("status-conflict-mine", foreground="#ff4d4d")
-        tree.tag_configure("status-only-one-mine", foreground="#d0d0d0")
-        tree.tag_configure("status-agree-mine", foreground="#d0d0d0")
+        # the verdict. See MINE_STATUS_TAGS.
+        for _status, (_name, _why) in ALL_TAGS.items():
+            _mine = ALL_TEXT_MINE.get(_status)
+            if _mine is not None:
+                tree.tag_configure(f"{_name}-mine", foreground=_mine)
         self._conf_tree = tree
         panes.add(topf, minsize=150, stretch="always")
 
@@ -1634,12 +1640,15 @@ class ConflictWindowsMixin:
         ftree.tag_configure("diff", foreground="#ff6b6b")
         # Four outcomes, not two. The names and their meanings live in
         # wraithguard.patch.summary.ALL_TAGS so the wording can be tested
-        # without a display; only the colours are chosen here.
-        ftree.tag_configure("status-unknown", foreground=DARK["fg_dim"])
-        ftree.tag_configure("status-only-one", foreground=DARK["fg_dim"])
-        ftree.tag_configure("status-agree", foreground=DARK["fg"])
-        ftree.tag_configure("status-benign", foreground="#e8c07d")
-        ftree.tag_configure("status-conflict", foreground="#ff6b6b")
+        # without a display. Here the field pane takes the xEdit Material
+        # *backgrounds* (conflict_colors): a field's overall status colours its
+        # whole row -- green agree, amber benign, red conflict -- with a
+        # contrast-picked text colour on top.
+        for _name, (_bg, _fg) in all_bg_by_tag().items():
+            if _bg is not None:
+                ftree.tag_configure(_name, background=_bg, foreground=_fg)
+            else:
+                ftree.tag_configure(_name, foreground=_fg)
         ftree.bind("<Double-Button-1>", lambda _e: self._show_field_detail())
         add_tooltip(
             ftree,
@@ -2588,6 +2597,114 @@ class ConflictWindowsMixin:
             ),
         )
 
+    def _add_dialogue_button(
+        self,
+        bar: ttk.Frame,
+        plugins: Sequence[str],
+        per: Mapping[str, Mapping[str, Any]],
+        record_type: str,
+    ) -> None:
+        """Offer a readable rendering of a DIAL/INFO record, per plugin.
+
+        Only for dialogue records, where the raw subrecord diff (packed DATA,
+        SCVR function codes, one-letter speaker filters) is unreadable and a
+        conflict tells you nothing about *what an NPC says and when*.
+
+        Args:
+            bar: The detail window's button row.
+            plugins: The plugins defining the record, in load order.
+            per: Plugin name to that plugin's field values.
+            record_type: tes3conv's ``"type"`` value for the record.
+        """
+        if record_type not in (INFO_TYPE, DIAL_TYPE):
+            return
+        button = ttk.Button(
+            bar,
+            text=_("Read as dialogue..."),
+            command=lambda: self._show_dialogue_view(plugins, per, record_type),
+        )
+        button.pack(side="left", padx=(12, 0))
+        add_tooltip(
+            button,
+            _(
+                "Show this record as the line an NPC says -- to whom, and under what "
+                "conditions -- instead of raw subrecords. Each plugin's version is "
+                "rendered in turn, so you can read what a conflict actually changes."
+            ),
+        )
+
+    def _show_dialogue_view(
+        self,
+        plugins: Sequence[str],
+        per: Mapping[str, Mapping[str, Any]],
+        record_type: str,
+    ) -> None:
+        """Open a window rendering the record as readable dialogue, per plugin.
+
+        Args:
+            plugins: The plugins defining the record, in load order.
+            per: Plugin name to that plugin's field values, from which each
+                plugin's record is reconstructed for :func:`describe_record`.
+            record_type: tes3conv's ``"type"`` value for the record.
+        """
+        theme = self._resolve_theme(self.log_theme_var.get()) or THEME_PRESETS["Dark (default)"]
+        colors = _json_syntax_colors(theme)
+        win = tk.Toplevel(self.root)
+        apply_titlebar_theme(win)
+        win.title(_("Dialogue"))
+        win.configure(bg=DARK["bg"])
+        win.geometry("900x600")
+        widget = scrolledtext.ScrolledText(
+            win,
+            wrap="word",
+            font=("TkFixedFont", 10),
+            bg=DARK["log_bg"],
+            fg=DARK["fg"],
+            insertbackground=DARK["fg"],
+        )
+        widget.pack(fill="both", expand=True, padx=8, pady=8)
+        # Structure tags plus the mwscript token kinds script_tokens() emits, so
+        # the result script reads as highlighted source rather than a flat line.
+        widget.tag_configure(
+            "dlg_header", foreground=str(theme["section"]), font=("TkFixedFont", 10, "bold")
+        )
+        script_tags = {
+            "keyword": colors["keyword"],
+            "string": colors["string"],
+            "number": colors["number"],
+            "operator": colors["punct"],
+            "comment": theme.get("comment", theme["dim"]),
+        }
+        for kind, colour in script_tags.items():
+            widget.tag_configure(f"dlg_{kind}", foreground=str(colour))
+
+        any_shown = False
+        for plugin in plugins:
+            fields = per.get(plugin)
+            if not fields:
+                continue
+            rendered = describe_record({"type": record_type, **dict(fields)})
+            if not rendered:
+                continue
+            any_shown = True
+            widget.insert("end", f"== {plugin} ==\n", ("dlg_header",))
+            body, sep, script = rendered.partition("\nResult: ")
+            for line in body.split("\n"):
+                if line.startswith("Response: "):
+                    widget.insert("end", "Response: ")
+                    widget.insert("end", line[len("Response: ") :] + "\n", ("dlg_string",))
+                else:
+                    widget.insert("end", line + "\n")
+            if sep:
+                widget.insert("end", "Result: ")
+                for kind, token in script_tokens(script):
+                    widget.insert("end", token, (f"dlg_{kind}",) if kind != "text" else ())
+                widget.insert("end", "\n")
+            widget.insert("end", "\n")
+        if not any_shown:
+            widget.insert("1.0", _("(no dialogue content)"))
+        widget.configure(state="disabled")
+
     def _show_format_reference(self, record_type: str) -> None:
         """Open a window with the record type's documented layout.
 
@@ -2952,6 +3069,7 @@ class ConflictWindowsMixin:
         )
         self._add_field_view_buttons(bar, key, plugins, per, record_label)
         self._add_patch_buttons(bar, key, plugins, record_type, record_label)
+        self._add_dialogue_button(bar, plugins, per, record_type)
         self._add_format_reference_button(bar, record_type)
         ttk.Label(
             bar,
@@ -3255,7 +3373,7 @@ class ConflictWindowsMixin:
             title=_("Save conflict report"),
             defaultextension=".csv",
             initialfile="tes3_conflicts.csv",
-            filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
+            filetypes=case_insensitive_filetypes((("CSV files", "*.csv"), ("All files", "*.*"))),
         )
         if not path:
             return

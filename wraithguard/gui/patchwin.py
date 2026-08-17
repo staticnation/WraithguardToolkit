@@ -25,6 +25,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import TYPE_CHECKING, Any, Final
 
+from wraithguard.gui import case_insensitive_filetypes
 from wraithguard.gui.theme import DARK, apply_titlebar_theme
 from wraithguard.gui.widgets import add_tooltip
 from wraithguard.i18n import gettext as _
@@ -419,6 +420,8 @@ class PatchBuilderMixin:
             title=_("Write the patch as"),
             initialfile=DEFAULT_NAME,
             defaultextension=".esp",
-            filetypes=[(_("Morrowind plugin"), "*.esp"), (_("All files"), "*.*")],
+            filetypes=case_insensitive_filetypes(
+                ((_("Morrowind plugin"), "*.esp"), (_("All files"), "*.*"))
+            ),
         )
         return Path(picked) if picked else None
