@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Final
 from wraithguard.momw import parse_plugin_order_yml
 
 if TYPE_CHECKING:
+    import ssl
     from collections.abc import Sequence
 
 #: Where MOMW publishes ``plugin-order.yml``. Two URLs because the raw path
@@ -54,6 +55,35 @@ RULES_REPO: Final = "DanaePlays/mlox-rules"
 
 #: Template for one rule file. ``{name}`` is the filename.
 RULES_URL_TEMPLATE: Final = "https://raw.githubusercontent.com/" + RULES_REPO + "/main/{name}"
+
+
+def _verify_context() -> ssl.SSLContext | None:
+    """Build an SSL context pinned to certifi's CA bundle, when available.
+
+    ``urlopen`` with no explicit context asks OpenSSL to load the *system*
+    trust store, which ``ssl.create_default_context()`` resolves through
+    OpenSSL's own compiled-in default paths (``/etc/ssl/certs`` and
+    similar). A source checkout on a normal desktop Linux has those. A
+    PyInstaller-frozen build does not reliably: the interpreter it bundles
+    can be linked against an OpenSSL whose compiled-in defaults point
+    nowhere useful once unpacked outside the machine it was built on, and
+    SteamOS's read-only, non-standard root makes this worse rather than
+    better. The failure mode isn't a bad cert on one host -- it's every
+    HTTPS request failing identically with ``CERTIFICATE_VERIFY_FAILED:
+    unable to get local issuer certificate``, because nothing ever finds a
+    trust store to check against at all.
+
+    Returns ``None`` -- falling back to urlopen's own default context -- if
+    ``certifi`` isn't installed, so a source checkout without it still
+    behaves exactly as before.
+    """
+    try:
+        import ssl
+
+        import certifi
+    except ImportError:
+        return None
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 def fetch_url_bytes(url: str, timeout: int = 30, max_bytes: int = MAX_DOWNLOAD_BYTES) -> bytes:
@@ -84,7 +114,9 @@ def fetch_url_bytes(url: str, timeout: int = 30, max_bytes: int = MAX_DOWNLOAD_B
     # Read one byte more than the cap so an exactly-at-limit body still fits
     # while anything larger is detected rather than silently truncated.
     # S310: the scheme is checked against ALLOWED_URL_SCHEMES immediately above.
-    with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
+    with urllib.request.urlopen(  # noqa: S310
+        url, timeout=timeout, context=_verify_context()
+    ) as response:
         data = response.read(max_bytes + 1)
     if len(data) > max_bytes:
         raise ValueError(f"response larger than the {max_bytes:,}-byte limit")

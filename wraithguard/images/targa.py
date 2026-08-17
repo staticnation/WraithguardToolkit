@@ -218,23 +218,23 @@ def read_tga(data: bytes) -> Image:
     """
     if len(data) < _HEADER_SIZE:
         raise TargaError("too short to be a Targa image")
-    try:
-        (
-            id_length,
-            has_map,
-            image_type,
-            _map_first,
-            map_length,
-            map_depth,
-            _x_origin,
-            _y_origin,
-            width,
-            height,
-            depth,
-            descriptor,
-        ) = struct.unpack_from("<BBBHHBHHHHBB", data, 0)
-    except struct.error as exc:
-        raise TargaError(f"Targa header is truncated: {exc}") from exc
+    # The length check above guarantees the 18 header bytes the format below
+    # unpacks, so struct.unpack_from cannot come up short -- no redundant
+    # truncation guard is needed here.
+    (
+        id_length,
+        has_map,
+        image_type,
+        _map_first,
+        map_length,
+        map_depth,
+        _x_origin,
+        _y_origin,
+        width,
+        height,
+        depth,
+        descriptor,
+    ) = struct.unpack_from("<BBBHHBHHHHBB", data, 0)
 
     if width <= 0 or height <= 0:
         raise TargaError(f"implausible dimensions {width}x{height}")

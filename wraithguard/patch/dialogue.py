@@ -15,7 +15,14 @@ engine follows is simple and the data to follow it is all present.
 * ``prev_id`` naming something not yet seen means **the end of the topic** --
   the engine has nowhere else to put it;
 * seen before, this is an override: update it, and if ``prev_id`` changed,
-  move it.
+  move it;
+* flagged ``DELETED``, this is a deletion: take the response out of the topic
+  (a later plugin re-adding the id inserts it fresh). Removing a response shifts
+  everything after it up a place, which -- since position is priority -- is a
+  line somebody may start hearing that they did not before. Note the resolver
+  does not re-orphan responses that named the deleted line as their
+  predecessor; deleting a mid-chain line is an edge rare enough to leave its
+  dependents where they were rather than guess.
 
 That third rule is the whole hazard, and it is why an author who inserts a line
 in the middle of a topic also drags the neighbouring responses into their
@@ -44,11 +51,14 @@ class Response:
         key: The response's id, unique within its topic.
         prev: What it says it follows. Empty means the top of the topic.
         plugin: The file this definition came from.
+        deleted: Whether this definition is a deletion (the ``DELETED`` object
+            flag). A later plugin deleting a response removes it from the topic.
     """
 
     key: str
     prev: str = ""
     plugin: str = ""
+    deleted: bool = False
 
 
 @dataclass(slots=True)
@@ -82,6 +92,16 @@ def topic_order(responses: Iterable[Response]) -> list[Placed]:
 
     for response in responses:
         existing = at.get(response.key)
+        if response.deleted:
+            # A later plugin deleting this response takes it out of the topic.
+            # If it was never placed, the deletion is a tombstone with nothing
+            # to remove. Dropping it from `at` too means a still-later plugin
+            # re-adding the id is treated as a fresh insertion, as the engine
+            # would.
+            if existing is not None:
+                order.remove(existing)
+                del at[response.key]
+            continue
         if existing is not None:
             if response.plugin:
                 existing.plugins.append(response.plugin)
@@ -190,6 +210,7 @@ def responses_by_topic(
                     key=str(record.get("id") or ""),
                     prev=str(record.get("prev_id") or ""),
                     plugin=plugin,
+                    deleted="DELETED" in str(record.get("flags") or "").upper(),
                 )
             )
     return found
