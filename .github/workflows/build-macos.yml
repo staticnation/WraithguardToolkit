@@ -59,7 +59,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install --no-cache-dir \
-            pyinstaller pywebview tkinterweb tkinterdnd2 PyYAML zstandard certifi pillow
+            pyinstaller pywebview tkinterweb tkinterdnd2 PyYAML zstandard ijson certifi pillow
 
       - name: Make the .icns app icon from the .ico
         # PyInstaller wants a .icns on macOS. Build one from the largest frame of
