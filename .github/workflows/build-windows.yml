@@ -1,10 +1,13 @@
-# Autobuild the Windows .exe and upload it as an artifact.
+# Autobuild the Windows .exe (two variants) and upload them as artifacts.
 #
-# The Windows `.spec` is no longer in the repo (it is a build artifact, gitignored
-# and deleted), so this drives PyInstaller directly with the flags that spec
-# used: pywebview's Qt backend plus pythonnet/clr bundled together (PyInstaller
-# packs both; pywebview picks whichever backend is present at runtime), a .ico
-# icon, and a single-file windowed .exe.
+# Two backends for pywebview's in-app viewer, so users can pick:
+#   * edgechromium (default) -- small (~40 MB); uses the WebView2 runtime that
+#     ships with Windows 10/11. This is what the local auto-py-to-exe build made.
+#   * qt -- larger (~180 MB) but self-contained; bundles its own Qt WebEngine, so
+#     it works on machines where WebView2 has been removed.
+# Both are built from the same flags the old `.spec` used (the spec itself is a
+# gitignored build artifact, no longer in the repo): a single-file windowed .exe,
+# the .ico icon, and pythonnet/clr for the EdgeChromium backend.
 
 name: Build Windows app
 
@@ -22,7 +25,18 @@ concurrency:
 
 jobs:
   build:
+    name: build (${{ matrix.backend }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: edgechromium # small; needs the WebView2 runtime on the target machine
+            pip: pywebview
+            suffix: ""
+          - backend: qt # larger, self-contained; for machines without WebView2
+            pip: pywebview[qt]
+            suffix: "-qt"
     steps:
       - uses: actions/checkout@v4
 
@@ -32,18 +46,18 @@ jobs:
           cache: pip
 
       - name: Install build dependencies
-        # pywebview WITHOUT the [qt] extra: on Windows pywebview uses the
-        # EdgeChromium backend via pythonnet/clr, which is small. The [qt] extra
-        # drags in PyQt6 + QtWebEngine (~140 MB) that the local auto-py-to-exe
-        # build never had -- that was the 180 MB vs 41 MB difference. (Linux
-        # needs [qt]; that lives in Dockerfile.wraithguard, not here.)
+        # ${{ matrix.pip }} is "pywebview" or "pywebview[qt]". The [qt] extra pulls
+        # PyQt6 + QtWebEngine (~140 MB); without it pywebview uses the small
+        # EdgeChromium backend via pythonnet/clr.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller pywebview pythonnet tkinterweb tkinterdnd2 PyYAML zstandard certifi
+          python -m pip install pyinstaller "${{ matrix.pip }}" pythonnet tkinterweb tkinterdnd2 PyYAML zstandard certifi
 
       - name: Build the .exe
         # bash (present on Windows runners) keeps the multiline command readable;
-        # PyInstaller still uses ';' as the --add-data separator on Windows.
+        # PyInstaller still uses ';' as the --add-data separator on Windows. The
+        # webview.platforms.qt hidden import is harmless on the edgechromium build
+        # (PyQt6 absent -> a "not found" warning, no Qt bundled).
         shell: bash
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed \
@@ -76,24 +90,21 @@ jobs:
             --add-data "wraithguard_toolkit_icon.ico;." \
             --add-data "wraithguard/viz/assets;assets" \
             wraithguard_toolkit_gui.py
+          mv "dist/wraithguard_toolkit_gui.exe" \
+             "dist/wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}.exe"
 
       - name: Upload the .exe
         uses: actions/upload-artifact@v4
         with:
-          name: wraithguard-toolkit-windows-x86_64
-          path: dist/wraithguard_toolkit_gui.exe
+          name: wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}
+          path: dist/wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}.exe
           if-no-files-found: error
           retention-days: 14
 
       - name: Attach to the release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: cp dist/wraithguard_toolkit_gui.exe dist/wraithguard-toolkit-windows-x86_64.exe
-
-      - name: Publish the release asset
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/wraithguard-toolkit-windows-x86_64.exe
+          files: dist/wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}.exe
           fail_on_unmatched_files: true
           generate_release_notes: true
