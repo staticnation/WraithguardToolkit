@@ -33,9 +33,11 @@ jobs:
         include:
           - backend: edgechromium # small; needs the WebView2 runtime on the target machine
             pip: pywebview
+            platform: webview.platforms.edgechromium
             suffix: ""
           - backend: qt # larger, self-contained; for machines without WebView2
             pip: pywebview[qt]
+            platform: webview.platforms.qt
             suffix: "-qt"
     steps:
       - uses: actions/checkout@v4
@@ -56,8 +58,10 @@ jobs:
       - name: Build the .exe
         # bash (present on Windows runners) keeps the multiline command readable;
         # PyInstaller still uses ';' as the --add-data separator on Windows. The
-        # webview.platforms.qt hidden import is harmless on the edgechromium build
-        # (PyQt6 absent -> a "not found" warning, no Qt bundled).
+        # platform hidden import is per-variant (${{ matrix.platform }}) so
+        # PyInstaller traces the right backend's runtime -- this is what the local
+        # auto-py-to-exe build hinted (webview.platforms.edgechromium), and
+        # getting it wrong is what produced a too-small, deps-missing .exe.
         shell: bash
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed \
@@ -69,7 +73,7 @@ jobs:
             --collect-all pythonnet \
             --collect-all certifi \
             --hidden-import clr \
-            --hidden-import webview.platforms.qt \
+            --hidden-import ${{ matrix.platform }} \
             --hidden-import tkinterweb \
             --exclude-module PySide6 \
             --exclude-module PySide2 \
