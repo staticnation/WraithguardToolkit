@@ -64,7 +64,7 @@ jobs:
         # getting it wrong is what produced a too-small, deps-missing .exe.
         shell: bash
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed \
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --noupx \
             --name wraithguard_toolkit_gui \
             --icon wraithguard_toolkit_icon.ico \
             --collect-submodules wraithguard \
