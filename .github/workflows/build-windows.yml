@@ -35,10 +35,24 @@ jobs:
             pip: pywebview==6.2.1
             platform: webview.platforms.edgechromium
             suffix: ""
+            # No QtWebEngine on this leg -- PyQt6 isn't even installed.
+            webengine_extra: ""
           - backend: qt # larger, self-contained; for machines without WebView2
             pip: pywebview[qt]==6.2.1
             platform: webview.platforms.qt
             suffix: "-qt"
+            # pywebview's qt backend imports PyQt6.QtWebEngineWidgets inside a
+            # try/except fallback (PyQt6, then PySide6) rather than a plain
+            # top-level import, so PyInstaller's analyzer doesn't reliably
+            # discover it through --hidden-import webview.platforms.qt alone.
+            # Without this, the QWebEngineView widget gets created but
+            # PyInstaller's PyQt6.QtWebEngineWidgets hook never runs, so the
+            # helper process (Qt6WebEngineProcess.exe), its .pak resources,
+            # translations, and generated qt.conf never get bundled -- the
+            # view stays blank white with no renderer backing it, even with
+            # GPU rendering forced off. --hidden-import guarantees the module
+            # is seen; --collect-all is what actually pulls the hook's output in.
+            webengine_extra: "--hidden-import PyQt6.QtWebEngineWidgets --collect-all PyQt6.QtWebEngineWidgets"
     steps:
       - uses: actions/checkout@v4
 
@@ -51,9 +65,14 @@ jobs:
         # ${{ matrix.pip }} is "pywebview" or "pywebview[qt]". The [qt] extra pulls
         # PyQt6 + QtWebEngine (~140 MB); without it pywebview uses the small
         # EdgeChromium backend via pythonnet/clr.
+        # pillow: not an app import (the shipped code uses neither PIL nor numpy),
+        # but tkinterweb -- the second-choice in-app viewer -- renders images and
+        # SVG through Pillow. The local auto-py-to-exe build had it installed, so
+        # its bundle carried PIL; installing it here keeps the CI .exe's viewer at
+        # parity instead of silently dropping tkinterweb's image support.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller "${{ matrix.pip }}" pythonnet==3.1.0 tkinterweb tkinterdnd2 PyYAML zstandard ijson certifi
+          python -m pip install pyinstaller "${{ matrix.pip }}" pythonnet==3.1.0 tkinterweb tkinterdnd2 PyYAML zstandard ijson certifi pillow
 
       - name: Build the .exe
         # bash (present on Windows runners) keeps the multiline command readable;
@@ -62,6 +81,9 @@ jobs:
         # PyInstaller traces the right backend's runtime -- this is what the local
         # auto-py-to-exe build hinted (webview.platforms.edgechromium), and
         # getting it wrong is what produced a too-small, deps-missing .exe.
+        # ${{ matrix.webengine_extra }} is empty on the edgechromium leg (that
+        # line collapses to a no-op continuation) and forces in the QtWebEngine
+        # hook's output on the qt leg -- see the matrix comment above.
         shell: bash
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed --noupx \
@@ -74,6 +96,7 @@ jobs:
             --collect-all certifi \
             --hidden-import clr \
             --hidden-import ${{ matrix.platform }} \
+            ${{ matrix.webengine_extra }} \
             --hidden-import tkinterweb \
             --exclude-module PySide6 \
             --exclude-module PySide2 \
@@ -111,4 +134,8 @@ jobs:
         with:
           files: dist/wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}.exe
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          # No generate_release_notes here: this step runs once per matrix backend
+          # (edgechromium + qt), and each softprops call with it set regenerates
+          # and appends a "Full Changelog" block to the shared release. Exactly one
+          # job owns the notes -- the single-run Linux build -- so the release gets
+          # one changelog, not five. This step only uploads its .exe.
