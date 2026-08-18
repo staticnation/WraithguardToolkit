@@ -32,11 +32,11 @@ jobs:
       matrix:
         include:
           - backend: edgechromium # small; needs the WebView2 runtime on the target machine
-            pip: pywebview
+            pip: pywebview==6.2.1
             platform: webview.platforms.edgechromium
             suffix: ""
           - backend: qt # larger, self-contained; for machines without WebView2
-            pip: pywebview[qt]
+            pip: pywebview[qt]==6.2.1
             platform: webview.platforms.qt
             suffix: "-qt"
     steps:
@@ -53,7 +53,7 @@ jobs:
         # EdgeChromium backend via pythonnet/clr.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller "${{ matrix.pip }}" pythonnet tkinterweb tkinterdnd2 PyYAML zstandard certifi
+          python -m pip install pyinstaller "${{ matrix.pip }}" pythonnet==3.1.0 tkinterweb tkinterdnd2 PyYAML zstandard certifi
 
       - name: Build the .exe
         # bash (present on Windows runners) keeps the multiline command readable;
