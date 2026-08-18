@@ -1,7 +1,8 @@
 # Autobuild the macOS .app with PyInstaller and upload it as an artifact.
 #
-# Builds both architectures: macos-13 (Intel/x86_64) and macos-14 (Apple
-# Silicon/arm64). Each runner builds natively for its own arch.
+# Builds both architectures: macos-15-intel (Intel/x86_64) and macos-14 (Apple
+# Silicon/arm64). Each runner builds natively for its own arch. (macos-13, the
+# old Intel runner, was retired by GitHub.)
 #
 # The dependency list and PyInstaller flags follow Dockerfile.wraithguard (the
 # Linux build), adapted for macOS: pywebview uses the native Cocoa/WebKit
@@ -35,7 +36,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13 # Intel
+          - runner: macos-15-intel # Intel
             arch: x86_64
           - runner: macos-14 # Apple Silicon
             arch: arm64
