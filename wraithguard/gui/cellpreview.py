@@ -198,6 +198,7 @@ class CellPreviewMixin:
             return
 
         def work() -> None:
+            """Parse every plugin into the cache off the UI thread; never raise."""
             try:
                 cache = self._plugin_parse_cache()
                 resolved = core.plugin_paths(order, PluginFileIndex(dirs))
