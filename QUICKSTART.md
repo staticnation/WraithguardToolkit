@@ -78,6 +78,11 @@ python wraithguard_toolkit_gui.py
   The map is written to a timestamped `cell_map` file and shown in an in-app window if
   `pywebview` (best) or `tkinterweb` is installed, otherwise your browser - it is
   never rendered from an in-memory string, so big load orders won't OOM.
+- **Cell preview**: click **Cell Preview** to walk a single cell in 3D and check
+  it for conflicts without loading the game. Pick an interior by name or an
+  exterior by grid; every reference resolves to its winning object across the load
+  order, and exteriors also draw their terrain, water and (optionally) the eight
+  neighbouring cells under a Morrowind sky with time-of-day and weather. Read-only.
 - **Big load orders / memory / speed**: conflict + cell-map scans run tes3conv to
   disk, reading one plugin at a time (bounded memory) instead of holding every
   plugin's records in RAM. The first scan also caches a tiny per-plugin sidecar,

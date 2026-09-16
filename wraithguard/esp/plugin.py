@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from wraithguard.esp.io import EspError, Reader, Writer
-from wraithguard.esp.record import read_record, write_record
+from wraithguard.esp.record import read_or_skip_record, read_record, write_record
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -71,6 +71,30 @@ def read_plugin(data: bytes) -> list[Record]:
     records: list[Record] = []
     while not reader.at_end:
         records.append(read_record(reader))
+    return records
+
+
+def read_plugin_filtered(data: bytes, keep: frozenset[bytes]) -> list[Record]:
+    """Read only the records whose tag is in ``keep``, skipping the rest cheaply.
+
+    Same as :func:`read_plugin` but every record not in ``keep`` is passed over
+    without parsing its body -- for a caller that needs a few record types out of
+    a big plugin, this is the difference between parsing every record and parsing
+    the ones it will use.
+
+    Args:
+        data: The bytes of a plugin file.
+        keep: The record tags to parse; all others are skipped.
+
+    Returns:
+        The kept records, in file order.
+    """
+    reader = Reader(data)
+    records: list[Record] = []
+    while not reader.at_end:
+        record = read_or_skip_record(reader, keep)
+        if record is not None:
+            records.append(record)
     return records
 
 

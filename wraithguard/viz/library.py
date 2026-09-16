@@ -14,15 +14,22 @@ one is a "page" in the sense the rest of this package is -- see the package
 docstring for where the pure-renderer guarantee does and does not reach.
 
 **Why three.js is embedded as a classic script.** Modern three.js ships ESM
-only, split across ``three.module.min.js`` and ``three.core.min.js``, and **ES
-module scripts do not load from ``file://``** -- the origin is ``null`` and the
-CORS check fails. Every page built here is written to disk or served and then
-opened in a browser, so a module build cannot work regardless of how it is
-packaged. The CommonJS build is a single self-contained file with no
-``require()`` of its own, so it runs as an ordinary script behind a
-three-line ``exports`` shim. That was verified rather than assumed: the shim
-was exercised and used to build a real ``BufferGeometry`` with computed
-normals before any of this was written.
+only, split across ``three.module.js`` and ``three.core.js``, and **ES module
+scripts do not load from ``file://``** -- the origin is ``null`` and the CORS
+check fails. Every page built here is written to disk or served and then opened
+in a browser, so a module build cannot work regardless of how it is packaged. A
+single CommonJS file with no ``require()`` of its own runs as an ordinary script
+behind a three-line ``exports`` shim, which is what these pages need. That was
+verified rather than assumed: the shim was exercised and used to build a real
+``BufferGeometry`` with computed normals before any of this was written.
+
+**Where that file comes from.** Through r185 three.js shipped exactly such a
+file as ``build/three.cjs`` and it was vendored unmodified. r186 removed it (it
+is now a stub that calls ``require()`` on the ESM module), so the vendored
+``assets/three.cjs`` is now built from upstream's unmodified ESM sources by
+``tools/build_three_cjs.py`` -- esbuild concatenating the module graph into one
+``module.exports``, packaging only. The shim below does not care which era
+produced the file; both are a CommonJS module assigning to ``exports``.
 """
 
 from __future__ import annotations

@@ -47,7 +47,7 @@ inside the program as well.
   theme (see [Theming the app](#theming-the-app)).
 - `CREDITS.md` - acknowledgements for the projects this tool ports, references,
   and depends on (mlox, plox, tes3conv, modmapper, OpenMW, MOMW, and more).
-- `CHANGELOG.md` - what changed between releases (current: **4.0.1**).
+- `CHANGELOG.md` - what changed between releases (current: **4.0.2**).
 - `CODE_REVIEW.md` - the running engineering log: defects found, and the
   reasoning behind decisions that look odd (including linter suggestions
   deliberately refused because following them would introduce bugs).
@@ -773,6 +773,35 @@ Everything about the shading is a control:
 | **Contours** | Lines at a round interval chosen to put about a dozen on the cell, with the interval named in the readout. They are dropped where they would crowd close enough to merge, the way a paper map drops them. |
 
 **Reset** restores every control, not just the camera.
+
+### Cell preview (walk a cell in 3D)
+
+Click **Cell Preview** (after a Sort) to place a whole cell's objects in the 3D
+viewer and look at it the way the game would build it -- the point being to check
+a cell for conflicts *without* loading the game. Pick an interior cell by name or
+an exterior cell by its grid; every reference is resolved to its winning object
+and world position across the sorted load order, so what you see is what would
+load. Alongside the view, an audit prints what the load order does to the cell:
+references a later plugin overrode, deleted or moved, and any meshes it could not
+find.
+
+An exterior cell draws more than its statics. It lays down the **terrain**,
+textured with its blended landscape textures (they cross-fade at cell boundaries
+the way Morrowind paints them); floats **animated water** where the ground drops
+below sea level; and, behind a toggle, pulls in the **eight neighbouring cells**
+so you can see how the cell meets its surroundings. It all sits under a
+**Morrowind sky** with a time-of-day control, a weather selector (each weather
+brings its own sky), and a night starfield.
+
+Drag to orbit, scroll to zoom, or **fly with WASD**. A right-hand panel (hideable,
+with accordion menus) fine-tunes the water, sky, time of day and lighting, and
+each object category can be isolated or soloed to pick one kind of thing out of a
+crowded cell. **Click a mesh** for an `ori`-style readout in the left panel: the
+object's id, which plugins define it and which place it here (in load order, the
+last winning), and its winning model and texture path -- the provenance you would
+otherwise drop into the in-game console to read. The view is read-only -- it changes nothing on disk. Like the other
+served pages it needs a real viewer (`pywebview`, or your browser) because the
+geometry and textures stream in as blobs.
 
 ---
 

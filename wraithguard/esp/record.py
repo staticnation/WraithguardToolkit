@@ -136,6 +136,35 @@ def read_record(reader: Reader) -> Record:
     return cls.load(body, flags)
 
 
+def read_or_skip_record(reader: Reader, keep: frozenset[bytes]) -> Record | None:
+    """Read one record if its tag is in ``keep``, else skip its body and return ``None``.
+
+    ``bound`` advances the reader past the record's bytes whether or not they are
+    parsed, so an unwanted record costs only its header read -- no subrecord loop
+    and no object built. A caller that needs a handful of record types out of a
+    large plugin (a cell preview wants ``CELL``/``LAND``/``LTEX`` and the objects
+    a cell can place, not every dialogue and script) reads it far faster this way.
+
+    Args:
+        reader: A reader positioned at a record header.
+        keep: The tags to actually parse; every other record is skipped.
+
+    Returns:
+        The parsed record when its tag is in ``keep``, else ``None``.
+    """
+    tag = reader.tag()
+    size = reader.u32()
+    reader.u32()  # padding
+    body = reader.bound(4 + size)  # advances the reader regardless of what follows
+    if tag not in keep:
+        return None
+    flags = ObjectFlags(body.u32())
+    cls = REGISTRY.get(tag)
+    if cls is None:
+        return UnknownRecord(tag, flags, body.raw(body.remaining))
+    return cls.load(body, flags)
+
+
 def write_record(writer: Writer, record: Record) -> None:
     """Write one record -- header then body -- to ``writer``.
 

@@ -1,6 +1,96 @@
 # Changelog
 
 
+## 4.0.2
+
+The Cell Preview that shipped as a prototype in 4.0.1 grows into a full feature.
+An exterior cell no longer arrives as bare statics floating in the void: it now
+draws its terrain with the same blended landscape textures the game paints,
+animated water, and -- behind a toggle -- its eight neighbouring cells, all under
+a Morrowind sky you can move through the day and weather. The headline fix is
+quieter but more important: with a large landmass mod loaded, a cell could be
+painted with the *wrong* ground textures. That is corrected, and the view is now
+the intended way to check a cell for conflicts without loading the game.
+
+### Added
+
+- **Terrain, textured the way the game paints it.** An exterior cell's `LAND`
+  height grid is drawn as a surface and split into one blended layer per land
+  texture, so the textures cross-fade at cell boundaries rather than cutting hard
+  at the seams -- reconstructed from `VTEX` coverage, since the file stores no
+  per-vertex alpha.
+
+- **Animated water.** A custom WebGL shader: layered Simplex-noise ripples with a
+  low swell, depth-based colour and refraction through a render target, a Fresnel
+  sky reflection and sun glint, and a full-screen underwater pass when the camera
+  drops below the surface. The caustics are drawn as a moving net of thin
+  *lines* -- the crest of each ripple ridge traced as a filament, rather than
+  filled blobs -- on both the seabed seen through the surface and the underwater
+  view. It is throttled to 25 fps and the refraction pass is cached and
+  half-resolution, so the effect does not cost the frame rate.
+
+- **Adjacent cells.** An exterior preview can include the eight neighbouring
+  cells -- their statics, terrain and water -- behind a toggle, so you can see how
+  a cell meets its surroundings. The audit still reports only the picked cell.
+
+- **A Morrowind sky, time of day and weather.** The view sits under the game's
+  own sky textures with a sun that moves with a time-of-day control, a weather
+  selector that swaps in each weather's sky (clear, cloudy, foggy, overcast,
+  stormy, ashstorm, blight, snow), and a night starfield that fades in after dark.
+
+- **Fly the camera with WASD**, in addition to drag-to-orbit.
+
+- **An "ori"-style readout on click.** Clicking a mesh names the object and shows,
+  in the left panel, which plugins define its record and which place it in this
+  cell (in load order, the last of each being the winner), its winning model, and
+  its winning texture path -- the load order provenance you would otherwise open
+  the console in-game to read.
+
+- **Block-compressed textures go straight to the GPU.** A DXT1/3/5 (S3TC) texture
+  -- the largest and most numerous kind in a collection -- is now handed to the
+  viewer as its raw compressed blocks and uploaded without a CPU decode, on the
+  paths that decode textures up front (the single-mesh conflict view). The DDS
+  block extraction is in `wraithguard.images.dds_passthrough`; the page falls back
+  to the existing decode for anything a desktop GPU cannot take directly (BC7,
+  BC4/BC5, uncompressed), so it only ever removes work, never a texture. The cell
+  viewer's on-demand texture streaming is unchanged.
+
+- **A reworked cell-viewer interface.** A cell-info and audit panel replaces the
+  old shape list, the toolbar declutters into collapsible panels, each object
+  category can be isolated or soloed, and a right-hand panel (hideable, with
+  accordion menus) fine-tunes water, sky, time of day and lighting -- including a
+  **caustic-width** control for the line thickness and an **underwater clarity**
+  control for how far the murk lets you see.
+
+### Fixed
+
+- **Landscape textures now resolve per plugin.** Land-texture (`LTEX`) indices
+  are numbered per plugin -- every plugin counts its own textures from zero -- so
+  a large landmass mod such as Tamriel Rebuilt reuses the same indices as vanilla.
+  The previous code built one global index table, letting that mod's textures
+  bleed over vanilla cells: Seyda Neen could come up painted with the wrong
+  ground. Each `LAND` now resolves its `VTEX` indices against its own plugin and
+  that plugin's masters only, exactly as the engine's `(index, plugin)` lookup
+  does.
+
+- **Blended terrain no longer muddies where three textures meet.** Each land
+  texture is a full-cell layer faded in over the opaque base. Fading each upper
+  layer in at its raw coverage let the base show through wherever those layers did
+  not add up to full opacity, so any seam shared by three or more textures came
+  out muddy. Each layer's alpha is now its coverage over the *cumulative* coverage
+  of itself and every layer beneath it, which composites to give every texture
+  exactly its own coverage and keeps the base to where it belongs.
+
+### Changed
+
+- **three.js updated to r186.** Upstream dropped its self-contained CommonJS
+  build, so the vendored library is now produced by bundling the ESM release to
+  CommonJS with esbuild (`tools/build_three_cjs.py`).
+
+- **Cell Preview is no longer marked a prototype** in its button tooltip or its
+  documentation, now that terrain, water and adjacent cells are in.
+
+
 ## 4.0.1
 
 The data-path support added in 4.0.0 read MOMW's `data-path-order.yml` seed and

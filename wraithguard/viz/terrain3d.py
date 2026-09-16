@@ -719,7 +719,7 @@ def build_terrain_3d(
                 [
                     ("hypsometric", _("Hypsometric")),
                     ("rainbow", _("Rainbow")),
-                    ("grey", _("Greyscale")),
+                    ("grey", _("Grayscale")),
                 ],
             ),
             slider("tint", _("Tint %:"), 0, 100, round(_TINT_ALPHA * 100)),

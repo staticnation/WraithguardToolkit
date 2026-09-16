@@ -23,6 +23,7 @@ import pytest
 
 from wraithguard.images import (
     BitmapError,
+    CompressedTexture,
     DdsError,
     Image,
     ImageError,
@@ -32,6 +33,7 @@ from wraithguard.images import (
     browser_image,
     classify,
     comparable,
+    dds_passthrough,
     detect,
     encode_png,
     read_bmp,
@@ -194,6 +196,38 @@ class TestBc1:
         red, _green, _blue, alpha = image.pixel(0, 0)
         assert alpha == 255
         assert 0 < red < 255
+
+
+class TestMipmapDownscaling:
+    """Decoding a smaller mip instead of the full surface when a cap is given."""
+
+    @staticmethod
+    def _two_level() -> bytes:
+        """A DXT1 DDS: 8x8 white at level 0, 4x4 black at level 1, mipcount 2."""
+        surface = bc1_block(WHITE_565, WHITE_565, 0) * 4 + bc1_block(BLACK_565, BLACK_565, 0)
+        raw = bytearray(dds(b"DXT1", 8, 8, surface))
+        struct.pack_into("<I", raw, 4 + 24, 2)  # dwMipMapCount
+        return bytes(raw)
+
+    def test_without_a_cap_the_full_surface_is_decoded(self) -> None:
+        image = read_dds(self._two_level())
+        assert (image.width, image.height) == (8, 8)
+        assert image.pixel(0, 0) == (255, 255, 255, 255)  # level 0 is white
+
+    def test_a_cap_decodes_the_matching_smaller_mip(self) -> None:
+        image = read_dds(self._two_level(), max_dimension=4)
+        assert (image.width, image.height) == (4, 4)
+        assert image.pixel(0, 0) == (0, 0, 0, 255)  # level 1 is black
+
+    def test_a_cap_at_or_above_the_top_keeps_the_full_surface(self) -> None:
+        image = read_dds(self._two_level(), max_dimension=16)
+        assert (image.width, image.height) == (8, 8)
+
+    def test_a_file_with_no_mip_chain_ignores_the_cap(self) -> None:
+        # The plain builder writes no mip count, so there is nothing to skip into.
+        no_mips = dds(b"DXT1", 8, 8, bc1_block(WHITE_565, WHITE_565, 0) * 4)
+        image = read_dds(no_mips, max_dimension=4)
+        assert (image.width, image.height) == (8, 8)
 
 
 class TestBc2AndBc3Alpha:
@@ -885,3 +919,80 @@ class TestTextureRoleClassification:
     def test_classify_honours_a_non_diffuse_slot_over_a_bare_name(self) -> None:
         """A slot the engine reads wins over a name that carries no opinion."""
         assert classify("tx.dds", slot="glow") is TextureRole.GLOW
+
+
+def _with_mipcount(raw: bytes, mipcount: int) -> bytes:
+    """A copy of a DDS file with its mip-count field set (offset 4 + 24)."""
+    patched = bytearray(raw)
+    struct.pack_into("<I", patched, 4 + 24, mipcount)
+    return bytes(patched)
+
+
+class TestDdsPassthrough:
+    """Block-compressed surfaces handed to the GPU without a CPU decode."""
+
+    def test_dxt1_passes_its_block_through_unchanged(self) -> None:
+        block = bc1_block(0xFFFF, 0x0000, 0)  # one 8-byte DXT1 block
+        ct = dds_passthrough(dds(b"DXT1", 4, 4, block))
+        assert isinstance(ct, CompressedTexture)
+        assert ct.format == "dxt1" and (ct.width, ct.height) == (4, 4)
+        assert ct.levels == [(4, 4, 8)]
+        assert ct.data == block  # not a byte touched
+
+    def test_dxt3_and_dxt5_are_recognised_as_16_byte_block_formats(self) -> None:
+        assert dds_passthrough(dds(b"DXT3", 4, 4, bytes(16))).format == "dxt3"
+        assert dds_passthrough(dds(b"DXT5", 4, 4, bytes(16))).format == "dxt5"
+
+    def test_bc7_via_the_dx10_header_passes_through(self) -> None:
+        ct = dds_passthrough(dx10_dds(98, 4, 4, bytes(16)))  # DXGI 98 = BC7_UNORM
+        assert ct is not None and ct.format == "bc7" and ct.levels == [(4, 4, 16)]
+
+    def test_a_dx10_dxt1_spelling_passes_through_as_dxt1(self) -> None:
+        ct = dds_passthrough(dx10_dds(71, 4, 4, bytes(8)))  # DXGI 71 = BC1_UNORM
+        assert ct is not None and ct.format == "dxt1"
+
+    def test_uncompressed_surfaces_return_none(self) -> None:
+        raw = dds(b"\x00\x00\x00\x00", 2, 2, bytes(2 * 2 * 4), pf_flags=0x40)
+        assert dds_passthrough(raw) is None
+
+    def test_bc4_and_bc5_masks_are_left_to_the_cpu_decoder(self) -> None:
+        assert dds_passthrough(dds(b"ATI2", 4, 4, bytes(16))) is None  # BC5
+        assert dds_passthrough(dds(b"BC4U", 4, 4, bytes(8))) is None
+
+    def test_a_non_dds_is_none(self) -> None:
+        assert dds_passthrough(b"not a dds file at all, really") is None
+
+    def test_a_refused_dx10_format_is_none(self) -> None:
+        assert dds_passthrough(dx10_dds(95, 4, 4, bytes(16))) is None  # BC6H, refused
+
+    def test_the_whole_mip_chain_is_carried_largest_first(self) -> None:
+        # 8x8 DXT1: level 0 = 4 blocks * 8 = 32 bytes, then 4x4, 2x2, 1x1 = 8 each.
+        l0, l1, l2, l3 = b"\x10" * 32, b"\x11" * 8, b"\x12" * 8, b"\x13" * 8
+        raw = _with_mipcount(dds(b"DXT1", 8, 8, l0 + l1 + l2 + l3), 4)
+        ct = dds_passthrough(raw)
+        assert ct is not None
+        assert ct.levels == [(8, 8, 32), (4, 4, 8), (2, 2, 8), (1, 1, 8)]
+        assert ct.data == l0 + l1 + l2 + l3
+
+    def test_a_truncated_chain_keeps_only_the_whole_levels(self) -> None:
+        # The header claims three levels but only level 0 (32 bytes) is present.
+        raw = _with_mipcount(dds(b"DXT1", 8, 8, b"\x10" * 32), 3)
+        ct = dds_passthrough(raw)
+        assert ct is not None and ct.levels == [(8, 8, 32)]
+
+    def test_a_surface_too_short_for_even_level_0_is_none(self) -> None:
+        assert dds_passthrough(dds(b"DXT1", 8, 8, b"\x10" * 10)) is None  # needs 32
+
+    def test_implausible_dimensions_are_rejected(self) -> None:
+        raw = bytearray(dds(b"DXT1", 4, 4, bytes(8)))
+        struct.pack_into("<I", raw, 4 + 12, 1 << 20)  # width field, past the guard
+        assert dds_passthrough(bytes(raw)) is None
+
+    def test_a_wrong_header_size_is_none(self) -> None:
+        raw = bytearray(dds(b"DXT1", 4, 4, bytes(8)))
+        struct.pack_into("<I", raw, 4, 100)  # header claims 100 bytes, not 124
+        assert dds_passthrough(bytes(raw)) is None
+
+    def test_an_implausible_pixel_count_is_none(self) -> None:
+        # Each side is within the per-dimension guard, but the product is not.
+        assert dds_passthrough(dds(b"DXT1", 16384, 8192, b"")) is None

@@ -18,7 +18,7 @@ derived from the child links rather than trusted.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Final
 
 from wraithguard.logging_setup import get_logger
@@ -46,10 +46,33 @@ _NODE_TYPES: frozenset[str] = frozenset(
 #: Block types that carry drawable geometry.
 _SHAPE_TYPES: frozenset[str] = frozenset({"NiTriShape"})
 
+#: Block types that mean the file is a particle *emitter* -- mist and fog volumes,
+#: glowbug swarms, dust, steam. A cell viewer wants these as their own category:
+#: their whole purpose is an effect the player barely sees, so they clutter a
+#: conflict check and are the first thing to toggle off. Covers the emitter node,
+#: the particle geometry variants, and the controllers that drive them, so a file
+#: is caught whether or not it also carries a visible placeholder shape.
+_PARTICLE_TYPES: frozenset[str] = frozenset(
+    {
+        "NiBSParticleNode",
+        "NiParticles",
+        "NiAutoNormalParticles",
+        "NiRotatingParticles",
+        "NiParticleSystem",
+        "NiParticleSystemController",
+        "NiBSPArrayController",
+    }
+)
+
 #: How deep the walk may go before it concludes the graph has a cycle. NIF
 #: children are links by index and nothing in the format forbids a loop, so a
 #: hostile or broken file could otherwise spin forever.
 _MAX_DEPTH: int = 64
+
+#: ``NiAVObject`` flag bit that hides a block from the render (OpenMW's
+#: ``Flag_Hidden``). The engine keeps it for collision but never draws it, so a
+#: viewer that wants to match the game treats it exactly like a collision node.
+_HIDDEN_FLAG: Final[int] = 0x1
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +221,21 @@ class Mesh:
             sets this and not that.
         alpha_threshold: The cutout reference, normalised to 0-1 from the
             byte the file stores. Only meaningful when :attr:`alpha_test`.
+        emitter: Whether the shape's file is a particle emitter (mist, fog,
+            glowbugs, dust). Set on every shape of a file that carries any
+            particle block, so the cell viewer can group these under one
+            "Emitter" toggle rather than leaving them scattered among the
+            statics they are recorded as.
+        water: Whether the shape is a cell's water surface (see
+            :func:`wraithguard.scene.water.water_mesh`). The viewer draws these
+            with an animated water shader rather than a flat translucent quad;
+            nothing a real NIF produces sets this.
+        blend_layer: For a terrain texture *layer*, its paint order (0 is the
+            base, drawn opaque; higher layers are drawn over it, faded in by the
+            per-vertex alpha in :attr:`vertex_colors`). ``-1`` for everything
+            else. This is how the viewer reproduces Morrowind's soft texture
+            boundaries: one layer per land texture, composited in order, rather
+            than a single hard-edged splat. Nothing a real NIF produces sets this.
     """
 
     name: str
@@ -219,6 +257,9 @@ class Mesh:
     alpha_blend: bool = False
     alpha_test: bool = False
     alpha_threshold: float = 0.0
+    emitter: bool = False
+    water: bool = False
+    blend_layer: int = -1
 
 
 def _transform_of(block: Block) -> Transform:
@@ -294,8 +335,8 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
             index: The block to visit.
             parent: The accumulated transform of everything above it.
             depth: How far down the graph this is, for the depth guard.
-            collision: Whether an ancestor marked this branch as collision
-                geometry, which is not drawn.
+            collision: Whether an ancestor marked this branch as invisible
+                geometry (a collision node, or a hidden flag), which is not drawn.
         """
         block = by_index.get(index)
         if block is None or depth > _MAX_DEPTH or index in seen:
@@ -304,11 +345,17 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
             return
         seen.add(index)
         here = parent.then(_transform_of(block))
-        # RootCollisionNode marks everything under it as physics-only geometry
-        # -- never drawn by the game, whatever a NiTriShape inside it looks
-        # like. Once set, it stays set for the rest of the branch: a shape
-        # three levels under a collision node is still collision geometry.
-        collision = collision or block.type_name in COLLISION_HINT
+        # Two ways a branch is invisible in game, both inherited by everything
+        # under it. RootCollisionNode marks physics-only geometry. The hidden
+        # flag (``NiAVObject`` flag ``0x1``, OpenMW's ``Flag_Hidden``) marks the
+        # collision-only and barrier meshes that carry ordinary NiTriShapes the
+        # engine simply does not draw -- invisible rugs, ship-launch walls. Both
+        # are folded into ``collision`` so the one toggle reveals either.
+        collision = (
+            collision
+            or block.type_name in COLLISION_HINT
+            or bool(int(block.fields.get("flags", 0)) & _HIDDEN_FLAG)
+        )
         if block.type_name in _SHAPE_TYPES:
             mesh = _shape_to_mesh(block, here, by_index, collision)
             if mesh is not None:
@@ -320,6 +367,13 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
 
     for root in find_roots(parsed):
         walk(root, Transform(), 0, False)
+    # A file that carries any particle block is an emitter; tag every shape it
+    # produced so the cell viewer can categorise the whole object at once. Done
+    # file-wide rather than per-branch because a mist or glowbug file is *about*
+    # its emitter -- its one visible ring or box belongs with the effect, not
+    # with the architecture it is recorded alongside.
+    if any(block.type_name in _PARTICLE_TYPES for block in parsed.blocks):
+        meshes = [replace(mesh, emitter=True) for mesh in meshes]
     return meshes
 
 

@@ -26,7 +26,12 @@ from wraithguard.nif.textures import TextureResolver
 
 if TYPE_CHECKING:
     from pathlib import Path
-from wraithguard.nif.viewer import ViewerError, build_viewer_page, three_source
+from wraithguard.nif.viewer import (
+    ViewerError,
+    build_cell_viewer_page,
+    build_viewer_page,
+    three_source,
+)
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -78,7 +83,10 @@ class TestTheLibraryIsThere:
     def test_the_vendored_build_is_readable(self) -> None:
         """It ships inside the package, so a checkout must find it."""
         source = three_source()
-        assert "exports.Scene" in source
+        # The esbuild bundle exports the module's names through a CommonJS export
+        # map (``Scene: () => Scene``) rather than upstream's old ``exports.Scene =``,
+        # so the marker is the map entry -- either way, Scene must reach the page.
+        assert "Scene: () => Scene" in source
         assert "REVISION" in source
 
     def test_it_is_the_commonjs_build_not_the_module_one(self) -> None:
@@ -90,7 +98,7 @@ class TestTheLibraryIsThere:
         browser while looking perfectly correct in the source.
         """
         source = three_source()
-        assert "exports." in source
+        assert "module.exports" in source
         assert 'from"./three.core' not in source
         assert "import{" not in source[:2000]
 
@@ -263,7 +271,7 @@ class TestServedAndStandaloneShareOneBuilder:
         # still fails if a future change inlines it. Room is left above the
         # current size so that adding a control does not look like a
         # regression in something this test does not measure.
-        assert len(page) < 100_000, "a served page should be kilobytes, not megabytes"
+        assert len(page) < 130_000, "a served page should be kilobytes, not megabytes"
 
     @pytest.mark.parametrize("served", [False, True])
     def test_the_shim_wraps_the_library_in_both_modes(self, served: bool) -> None:
@@ -292,13 +300,13 @@ class TestServedAndStandaloneShareOneBuilder:
         epilogue = page.index("var THREE = module.exports;")
         assert prologue < epilogue, "the shim must open before it closes"
         # ...and the library has to sit between them, or the order is useless.
-        marker = "http://127.0.0.1:1/three.js" if served else "exports.Scene"
+        marker = "http://127.0.0.1:1/three.js" if served else "Scene: () => Scene"
         assert prologue < page.index(marker) < epilogue
 
     def test_the_standalone_page_still_inlines_everything(self) -> None:
         """A negative control: the export must not quietly become a stub."""
         page = build_viewer_page([("only", [TRIANGLE])])
-        assert "exports.Scene" in page
+        assert "Scene: () => Scene" in page
         assert "<script src=" not in page
 
     def test_both_modes_render_through_the_same_code(self) -> None:
@@ -337,7 +345,7 @@ class TestFramingOrder:
         """The ordering *is* the fix; nothing else about it matters."""
         page = build_viewer_page([("only", [TRIANGLE])])
         rotate = page.index("group.rotation.x = -Math.PI / 2")
-        measure = page.index("box.expandByObject(g)")
+        measure = page.index("box.expandByObject(o)")
         assert rotate < measure, "bounds measured before the rotation that changes them"
 
     def test_the_centring_is_applied_to_a_parent(self) -> None:
@@ -387,7 +395,12 @@ class TestOneViewportWithToggles:
         just the same -- and the comparison would show nothing.
         """
         page = build_viewer_page([("a", [TRIANGLE]), ("b", [TRIANGLE])])
-        assert "groups.forEach(function (g) { box.expandByObject(g); });" in page
+        # Framing unions every group's bounds (plain meshes via expandByObject,
+        # instanced groups via each instance's transformed box) with no
+        # visibility gate -- so a toggle never re-fits the camera.
+        assert "groups.forEach(function (g) {" in page
+        assert "box.expandByObject(o)" in page
+        assert "box.union(_ibox)" in page
         assert "if (!groups[i].visible) return;" in page  # stats do respect it
 
     def test_the_stats_follow_what_is_shown(self) -> None:
@@ -420,6 +433,22 @@ class TestTexturesReachThePage:
             texture="tx_rock.dds",
         )
 
+    @staticmethod
+    def _png_dds() -> bytes:
+        """A 4x4 uncompressed RGBA DDS -- decoded to a PNG, not passed through."""
+        from tests.test_images import dds
+
+        pixels = bytes([10, 20, 30, 255]) * 16
+        return dds(
+            b"\x00\x00\x00\x00",
+            4,
+            4,
+            pixels,
+            pf_flags=0x41,
+            bit_count=32,
+            masks=(0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000),
+        )
+
     def test_uvs_are_sent_when_there_is_one_per_vertex(self) -> None:
         """A partial set would make three.js index past the attribute's end."""
         mesh = payload(build_viewer_page([("only", [self._uv_mesh()])]))[0]["meshes"][0]
@@ -447,18 +476,76 @@ class TestTexturesReachThePage:
         assert mesh["positions"] is not None
 
     def test_a_resolved_texture_becomes_a_png_in_the_page(self, tmp_path: Path) -> None:
-        """The whole pipeline: reference, VFS lookup, DDS decode, PNG."""
-        from tests.test_images import bc1_block, dds
+        """The whole pipeline: reference, VFS lookup, DDS decode, PNG.
 
+        Uncompressed here so it takes the decode path; a block-compressed texture
+        is passed through instead -- covered separately below.
+        """
         folder = tmp_path / "Mod"
         target = folder / "textures" / "tx_rock.dds"
         target.parent.mkdir(parents=True)
-        target.write_bytes(dds(b"DXT1", 4, 4, bc1_block(0xFFFF, 0xFFFF, 0)))
+        target.write_bytes(self._png_dds())
         page = build_viewer_page([("only", [self._uv_mesh()])], resolver=TextureResolver([folder]))
         image = payload(page)[0]["meshes"][0]["image"]
         assert image is not None
         assert image["url"].startswith("data:image/png;base64,")
         assert base64.b64decode(image["url"].split(",", 1)[1]).startswith(PNG_SIGNATURE)
+
+    def test_a_block_compressed_texture_is_passed_through_to_the_gpu(self, tmp_path: Path) -> None:
+        """A DXT (S3TC) texture reaches the page as its raw blocks, not a decode."""
+        from tests.test_images import bc1_block, dds
+
+        folder = tmp_path / "Mod"
+        target = folder / "textures" / "tx_rock.dds"
+        target.parent.mkdir(parents=True)
+        block = bc1_block(0xFFFF, 0xFFFF, 0)
+        target.write_bytes(dds(b"DXT1", 4, 4, block))
+        page = build_viewer_page([("only", [self._uv_mesh()])], resolver=TextureResolver([folder]))
+        image = payload(page)[0]["meshes"][0]["image"]
+        assert image is not None
+        assert image["compressed"] == "dxt1"
+        assert image["cw"] == "4" and image["ch"] == "4"
+        assert image["levels"] == "4,4,8"
+        # The blocks are carried verbatim (base64), never decoded to a PNG.
+        assert base64.b64decode(image["b64"]) == block
+
+    def test_a_texture_is_decoded_once_per_resolver_across_builds(self, tmp_path: Path) -> None:
+        """The resolver memoises decoded textures, so re-previews are cheap.
+
+        DDS decoding dominates a cell's build; a resolver reused across previews
+        must decode each texture only once, not once per preview.
+        """
+        folder = tmp_path / "Mod"
+        target = folder / "textures" / "tx_rock.dds"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(self._png_dds())  # uncompressed, so it takes the decode path
+        resolver = TextureResolver([folder])
+        decodes = {"n": 0}
+        import wraithguard.nif.viewer as viewer_mod
+
+        real = viewer_mod.browser_image
+
+        def counting(raw: bytes, max_dimension: int | None = None) -> tuple[bytes, str]:
+            decodes["n"] += 1
+            return real(raw, max_dimension)
+
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr(viewer_mod, "browser_image", counting)
+        try:
+            build_viewer_page([("a", [self._uv_mesh()])], resolver=resolver)
+            build_viewer_page([("b", [self._uv_mesh()])], resolver=resolver)
+        finally:
+            monkey.undo()
+        assert decodes["n"] == 1, "the texture was decoded again on the second build"
+
+    def test_a_texture_that_resolves_to_nothing_leaves_the_mesh_untextured(
+        self, tmp_path: Path
+    ) -> None:
+        """A resolver present but the file absent: no bytes, no image, still a view."""
+        folder = tmp_path / "Mod"
+        (folder / "textures").mkdir(parents=True)  # empty: tx_rock.dds is not there
+        page = build_viewer_page([("only", [self._uv_mesh()])], resolver=TextureResolver([folder]))
+        assert payload(page)[0]["meshes"][0]["image"] is None
 
     def test_an_undecodable_texture_leaves_the_mesh_untextured(self, tmp_path: Path) -> None:
         """BC7 is unsupported and broken files are common; neither may fail the view."""
@@ -481,13 +568,13 @@ class TestTexturesReachThePage:
         page = build_viewer_page(
             [("a", [mesh, mesh]), ("b", [mesh])], resolver=TextureResolver([folder])
         )
-        urls = {
-            entry["image"]["url"]
+        blobs = {
+            entry["image"]["b64"]
             for scene in payload(page)
             for entry in scene["meshes"]
             if entry["image"]
         }
-        assert len(urls) == 1, "the same texture produced more than one payload"
+        assert len(blobs) == 1, "the same texture produced more than one payload"
 
     def test_a_texture_shared_by_many_meshes_is_carried_once_in_the_page(
         self, tmp_path: Path
@@ -509,9 +596,9 @@ class TestTexturesReachThePage:
 
         image = payload(page)[0]["meshes"][0]["image"]
         assert image is not None
-        # The PNG data URL is long and unique; it must appear exactly once in the
+        # The texture blob is long and unique; it must appear exactly once in the
         # whole document even though 50 meshes draw it.
-        assert page.count(image["url"]) == 1
+        assert page.count(image["b64"]) == 1
 
 
 class TestMaterialsReachThePage:
@@ -811,3 +898,267 @@ class TestTheCompositeOrderIsPinned:
             tmp_path,
         )
         assert "#ifdef USE_MAP" in page
+
+
+class TestSingleSidedFlag:
+    """Morrowind is backface-culled; a cell must render one-sided to see in."""
+
+    def test_the_item_viewer_stays_two_sided(self) -> None:
+        assert "var singleSided = false;" in build_viewer_page([("only", [TRIANGLE])])
+
+    def test_the_cell_viewer_is_single_sided(self) -> None:
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], _identity())])
+        assert "var singleSided = true;" in page
+
+    def test_the_page_carries_the_instanced_mesh_branch(self) -> None:
+        # The one-sidedness is nothing without the instancing branch it ships for.
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], _identity())])
+        assert "new THREE.InstancedMesh" in page
+
+    def test_the_page_frames_dynamically_and_can_focus(self) -> None:
+        # A cell is thousands of units across: the far plane must track the scene,
+        # and framing must be able to key on focus objects (the terrain).
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], _identity())])
+        assert "camera.far = Math.max(radius" in page
+        assert "userData.focus" in page
+
+    def test_the_page_can_identify_a_clicked_shape(self) -> None:
+        # Clicking a mesh names it, so an object can be found in the view itself.
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], _identity())])
+        assert "new THREE.Raycaster" in page
+        assert 'id="picked"' in page
+
+
+def _identity() -> list[float]:
+    """A single identity instance matrix (column-major 4x4)."""
+    return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+
+
+class TestCellViewerPage:
+    """The instanced cell page: one model, many placements, textures shared."""
+
+    def test_each_group_mesh_carries_its_instance_count_and_blob(self) -> None:
+        # Two placements of one model: one payload mesh, two instances.
+        two = [
+            *_identity(),
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 5.0, 0.0, 0.0, 1.0,
+        ]  # fmt: skip
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], two)])
+        mesh = payload(page)[0]["meshes"][0]
+        assert mesh["instanceCount"] == 2
+        assert mesh["instances"] is not None  # a fetchable/inline geometry blob
+
+    def test_the_matrix_blob_decodes_to_the_instance_transforms(self) -> None:
+        moved = [
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 7.0, 8.0, 9.0, 1.0,
+        ]  # fmt: skip
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], moved)])
+        blob = payload(page)[0]["meshes"][0]["instances"]
+        floats = struct.unpack("<16f", zlib.decompress(base64.b64decode(blob["b64"])))
+        assert floats[12:15] == (7.0, 8.0, 9.0)  # the translation column
+
+    def test_a_group_with_no_instances_is_dropped(self) -> None:
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], [])])
+        assert payload(page)[0]["meshes"] == []
+
+    def test_the_cell_base_colour_is_white_not_a_side_colour(self) -> None:
+        # A side colour would tint every untextured mesh; a cell needs white.
+        assert (
+            payload(build_cell_viewer_page("Cell", [([TRIANGLE], _identity())]))[0]["color"]
+            == "#ffffff"
+        )
+
+    def test_focus_indices_mark_only_those_groups(self) -> None:
+        # Two groups; only group 1 is the focus (an exterior's terrain).
+        page = build_cell_viewer_page(
+            "Cell", [([TRIANGLE], _identity()), ([TRIANGLE], _identity())], focus_indices={1}
+        )
+        meshes = payload(page)[0]["meshes"]
+        assert meshes[0].get("focus") is None
+        assert meshes[1].get("focus") is True
+
+    def test_no_focus_indices_marks_nothing(self) -> None:
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], _identity())])
+        assert payload(page)[0]["meshes"][0].get("focus") is None
+
+    def test_adjacent_flags_mark_only_those_groups(self) -> None:
+        # Group 0 is the picked cell; group 1 is a neighbour.
+        page = build_cell_viewer_page(
+            "Cell",
+            [([TRIANGLE], _identity()), ([TRIANGLE], _identity())],
+            adjacent_flags=[False, True],
+        )
+        meshes = payload(page)[0]["meshes"]
+        assert meshes[0].get("adjacent") is None
+        assert meshes[1].get("adjacent") is True
+
+    def test_no_adjacent_flags_leaves_the_toggle_out(self) -> None:
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], _identity())])
+        assert payload(page)[0]["meshes"][0].get("adjacent") is None
+
+    def test_object_info_is_embedded_for_the_ori_readout(self) -> None:
+        page = build_cell_viewer_page(
+            "Cell",
+            [([TRIANGLE], _identity())],
+            object_info={
+                "rock": {
+                    "id": "rock",
+                    "type": "Static",
+                    "model": "rock.nif",
+                    "definedBy": ["Base.esm", "Mod.esp"],
+                    "placedBy": ["Base.esm"],
+                }
+            },
+        )
+        assert "var objectInfo =" in page
+        assert '"definedBy":["Base.esm","Mod.esp"]' in page
+        assert '"model":"rock.nif"' in page
+
+    def test_without_object_info_the_map_is_null(self) -> None:
+        page = build_cell_viewer_page("Cell", [([TRIANGLE], _identity())])
+        assert "var objectInfo = null" in page
+
+    def test_ref_ids_and_record_types_travel_with_a_group(self) -> None:
+        page = build_cell_viewer_page(
+            "Cell",
+            [([TRIANGLE], _identity())],
+            ref_ids=[["ref_a", "ref_b"]],
+            record_types=["Static"],
+        )
+        mesh = payload(page)[0]["meshes"][0]
+        assert mesh["refIds"] == ["ref_a", "ref_b"]
+        assert mesh["recordType"] == "Static"
+
+    def test_a_group_whose_meshes_all_drop_is_skipped(self) -> None:
+        # A placed group (real matrices) whose only mesh has no triangles adds no
+        # scene entry -- the group is skipped rather than emitting an empty draw.
+        page = build_cell_viewer_page("Cell", [([Mesh(name="empty")], _identity())])
+        assert payload(page)[0]["meshes"] == []
+
+    def test_a_blend_layer_ships_four_colour_components(self) -> None:
+        # A terrain blend layer carries a per-vertex coverage alpha, so its colour
+        # attribute is RGBA (itemSize 4); an ordinary coloured mesh stays RGB (3).
+        layer = Mesh(
+            name="layer",
+            vertices=TRIANGLE.vertices,
+            triangles=TRIANGLE.triangles,
+            uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+            texture="tx_ground.dds",
+            vertex_colors=[(1.0, 1.0, 1.0, 0.0), (1.0, 1.0, 1.0, 0.5), (1.0, 1.0, 1.0, 1.0)],
+            blend_layer=0,
+        )
+        plain = Mesh(
+            name="plain",
+            vertices=TRIANGLE.vertices,
+            triangles=TRIANGLE.triangles,
+            vertex_colors=[(1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 1.0), (0.0, 0.0, 1.0, 1.0)],
+        )
+        meshes = payload(
+            build_cell_viewer_page("Cell", [([layer], _identity()), ([plain], _identity())])
+        )[0]["meshes"]
+        assert meshes[0]["colorItems"] == 4  # the blend layer keeps its alpha
+        assert meshes[1]["colorItems"] == 3  # the plain mesh drops it
+
+    def test_a_published_sibling_texture_is_deferred_not_decoded(self, tmp_path: Path) -> None:
+        # A normal-map sibling sitting beside the diffuse is handed to the publish
+        # callback like the diffuse, so it too is served lazily rather than decoded.
+        from tests.test_images import bc1_block, dds
+
+        folder = tmp_path / "Mod"
+        textures = folder / "textures"
+        textures.mkdir(parents=True)
+        block = bc1_block(0xFFFF, 0xFFFF, 0)
+        (textures / "tx_rock.dds").write_bytes(dds(b"DXT1", 4, 4, block))
+        (textures / "tx_rock_n.dds").write_bytes(dds(b"DXT1", 4, 4, block))  # normal-map sibling
+        uv = Mesh(
+            name="tri",
+            vertices=TRIANGLE.vertices,
+            triangles=TRIANGLE.triangles,
+            uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+            texture="tx_rock.dds",
+        )
+        published: list[str] = []
+
+        def publish(resolved: object) -> dict[str, str]:
+            published.append(getattr(resolved, "reference", "?"))
+            return {"url": f"lazy://{len(published)}"}
+
+        page = build_cell_viewer_page(
+            "Cell",
+            [([uv], _identity())],
+            resolver=TextureResolver([folder]),
+            publish_texture=publish,
+        )
+        mesh = payload(page)[0]["meshes"][0]
+        assert (mesh.get("extras") or {}).get("_n") is not None  # the sibling reached the page
+        assert any("tx_rock_n" in ref for ref in published)  # via the publish callback
+
+    def test_publish_texture_defers_the_decode(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With a publish callback, textures are not decoded at build time.
+
+        The whole point of lazy serving: the page carries a URL and the DDS
+        decode happens later, on fetch, not while assembling the page.
+        """
+        from tests.test_images import bc1_block, dds
+
+        folder = tmp_path / "Mod"
+        target = folder / "textures" / "tx_rock.dds"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(dds(b"DXT1", 4, 4, bc1_block(0xFFFF, 0xFFFF, 0)))
+        uv = Mesh(
+            name="tri",
+            vertices=TRIANGLE.vertices,
+            triangles=TRIANGLE.triangles,
+            uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+            texture="tx_rock.dds",
+        )
+        import wraithguard.nif.viewer as viewer_mod
+
+        decodes = {"n": 0}
+        real = viewer_mod.browser_image
+        monkeypatch.setattr(
+            viewer_mod,
+            "browser_image",
+            lambda raw: (decodes.__setitem__("n", decodes["n"] + 1), real(raw))[1],
+        )
+        published: list[str] = []
+
+        def publish(resolved: object) -> dict[str, str]:
+            published.append(getattr(resolved, "reference", "?"))
+            return {"url": "lazy://tx_rock"}
+
+        page = build_cell_viewer_page(
+            "Cell",
+            [([uv], _identity())],
+            resolver=TextureResolver([folder]),
+            publish_texture=publish,
+        )
+        mesh = payload(page)[0]["meshes"][0]
+        assert mesh["image"] == {"url": "lazy://tx_rock"}
+        assert decodes["n"] == 0, "no texture was decoded while building the page"
+        assert published, "the texture was handed to the publish callback"
+
+    def test_a_texture_shared_across_groups_is_carried_once(self, tmp_path: Path) -> None:
+        from tests.test_images import bc1_block, dds
+
+        folder = tmp_path / "Mod"
+        target = folder / "textures" / "tx_rock.dds"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(dds(b"DXT1", 4, 4, bc1_block(0xFFFF, 0xFFFF, 0)))
+        uv = Mesh(
+            name="tri",
+            vertices=TRIANGLE.vertices,
+            triangles=TRIANGLE.triangles,
+            uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+            texture="tx_rock.dds",
+        )
+        page = build_cell_viewer_page(
+            "Cell",
+            [([uv], _identity()), ([uv], _identity())],
+            resolver=TextureResolver([folder]),
+        )
+        image = payload(page)[0]["meshes"][0]["image"]
+        assert image is not None
+        assert page.count(image["b64"]) == 1  # deduped across both groups (passthrough blocks)

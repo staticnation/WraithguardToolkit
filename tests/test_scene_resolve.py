@@ -13,10 +13,25 @@ from types import SimpleNamespace
 from wraithguard.esp.records.reference import Reference
 from wraithguard.esp.records.static_ import Static
 from wraithguard.scene.resolve import (
+    _type_name,
     build_model_index,
     reference_transform,
     resolve_cell,
 )
+
+
+class TestTypeName:
+    def test_a_known_tag_maps_to_its_friendly_name(self) -> None:
+        assert _type_name(SimpleNamespace(TAG=b"MISC")) == "Item"
+
+    def test_an_unmapped_tag_decodes_to_itself(self) -> None:
+        assert _type_name(SimpleNamespace(TAG=b"DOOR")) == "Door"
+
+    def test_a_blank_tag_is_other(self) -> None:
+        assert _type_name(SimpleNamespace(TAG=b"    ")) == "Other"
+
+    def test_a_non_bytes_tag_is_other(self) -> None:
+        assert _type_name(SimpleNamespace(TAG="STAT")) == "Other"
 
 
 def _layer(name: str, refs: list[Reference], masters: list[str] | None = None):
@@ -45,6 +60,17 @@ class TestReferenceTransform:
         assert math.isclose(y, -1.0, abs_tol=1e-9)
         assert math.isclose(z, 0.0, abs_tol=1e-9)
         assert math.isclose(math.hypot(x, y, z), 1.0, abs_tol=1e-9)
+
+    def test_the_compose_order_matches_openmw_z_first(self) -> None:
+        # rx = rz = +90 deg. OpenMW composes Rx(-x).Ry(-y).Rz(-z), i.e. Z first:
+        # (1,0,0) --Rz(-90)--> (0,-1,0) --Rx(-90)--> (0,0,1).
+        # The reversed order (X first) would give (0,-1,0) instead, which is the
+        # tilted-object bug. Pinning this keeps the order from flipping back.
+        t = reference_transform((0.0, 0.0, 0.0), (math.pi / 2, 0.0, math.pi / 2), None)
+        x, y, z = t.apply((1.0, 0.0, 0.0))
+        assert math.isclose(x, 0.0, abs_tol=1e-9)
+        assert math.isclose(y, 0.0, abs_tol=1e-9)
+        assert math.isclose(z, 1.0, abs_tol=1e-9)
 
 
 class TestModelIndex:
@@ -95,6 +121,14 @@ class TestResolveCell:
     def test_an_editor_marker_is_classified(self) -> None:
         refs = [Reference(id="marker", mast_index=0, refr_index=1)]
         placements, audit = resolve_cell([_layer("Mod.esp", refs)], self._INDEX)
+        assert placements[0].kind == "editor_marker" and audit.editor_markers == 1
+
+    def test_a_box_editor_marker_is_classified(self) -> None:
+        # EditorMarker_box_01.nif (CharGen collision / spawn boxes) is a marker
+        # too, and a plain filename set misses it -- the prefix match catches it.
+        index = build_model_index([Static(id="box", mesh="e\\EditorMarker_box_01.NIF")])
+        refs = [Reference(id="box", mast_index=0, refr_index=1)]
+        placements, audit = resolve_cell([_layer("Mod.esp", refs)], index)
         assert placements[0].kind == "editor_marker" and audit.editor_markers == 1
 
     def test_a_later_plugin_overrides_a_masters_reference(self) -> None:

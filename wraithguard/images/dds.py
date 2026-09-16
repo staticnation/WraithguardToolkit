@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import math
 import struct
+from dataclasses import dataclass
 from typing import Final
 
 from wraithguard.images import bc7
@@ -490,16 +491,67 @@ def _resolve_dx10(data: bytes) -> tuple[bytes, int]:
     return fourcc, start + _DX10_SIZE
 
 
-def read_dds(data: bytes) -> Image:
+def _unit_bytes(fourcc: bytes, pf_flags: int, bit_count: int) -> tuple[bool, int]:
+    """Whether a surface is block-compressed, and its block or pixel size.
+
+    Args:
+        fourcc: The (already DX10-resolved) compression tag.
+        pf_flags: The pixel-format flags.
+        bit_count: Bits per pixel for an uncompressed surface.
+
+    Returns:
+        ``(compressed, unit_bytes)`` -- ``unit_bytes`` is the size of one 4x4
+        block when compressed, else one pixel.
+    """
+    if pf_flags & _DDPF_FOURCC:
+        if fourcc == _DX10:
+            return True, 16  # BC7: one 16-byte block per 4x4
+        block = _BLOCK_BYTES.get(fourcc)
+        if block is not None:
+            return True, block
+    return False, max(1, bit_count // 8)
+
+
+def _level_bytes(width: int, height: int, *, compressed: bool, unit: int) -> int:
+    """The byte size of one mip level at ``width`` x ``height``."""
+    if compressed:
+        return max(1, (width + 3) // 4) * max(1, (height + 3) // 4) * unit
+    return width * height * unit
+
+
+def _choose_level(width: int, height: int, mipcount: int, max_dim: int) -> int:
+    """The largest mip level whose longest side is within ``max_dim``.
+
+    Args:
+        width: Top-level width.
+        height: Top-level height.
+        mipcount: How many levels the file stores.
+        max_dim: The longest side to allow.
+
+    Returns:
+        A level index in ``[0, mipcount)``; the smallest available level if even
+        that is larger than ``max_dim``.
+    """
+    for level in range(mipcount):
+        if max(1, width >> level, height >> level) <= max_dim:
+            return level
+    return mipcount - 1
+
+
+def read_dds(data: bytes, max_dimension: int | None = None) -> Image:
     """Decode a DDS texture.
 
     Args:
         data: The whole file.
+        max_dimension: When set and the file stores mipmaps, decode the largest
+            mip whose longest side is within this many pixels instead of the full
+            surface -- a 2048px diffuse becomes a 1024px decode, a quarter of the
+            work and a quarter of the memory, which is what makes a whole cell's
+            textures affordable. Omitted (the default), the top surface is used,
+            so a conflict comparison still judges the image at full resolution.
 
     Returns:
-        The top-level surface. Mipmaps are ignored: a conflict is judged on the
-        image itself, and decoding chains nobody looks at wastes the time this
-        module exists to save.
+        The chosen surface as RGBA. Mip chains below the chosen level are ignored.
 
     Raises:
         DdsError: If the file is not a DDS, is truncated, or uses a format this
@@ -510,6 +562,7 @@ def read_dds(data: bytes) -> Image:
         raise DdsError("not a DDS file: missing the 'DDS ' magic")
     try:
         size, _flags, height, width = struct.unpack_from("<IIII", data, 4)
+        (mipcount,) = struct.unpack_from("<I", data, 4 + 24)
         if size != _HEADER_SIZE:
             raise DdsError(f"DDS header claims {size} bytes, expected {_HEADER_SIZE}")
         if not 0 < width <= _MAX_DIMENSION or not 0 < height <= _MAX_DIMENSION:
@@ -522,6 +575,20 @@ def read_dds(data: bytes) -> Image:
         start = 4 + _HEADER_SIZE
         if pf_flags & _DDPF_FOURCC and fourcc == _DX10:
             fourcc, start = _resolve_dx10(data)
+        # Skip to a smaller mip when asked and there is a chain to skip into.
+        if max_dimension and mipcount > 1 and max(width, height) > max_dimension:
+            compressed, unit = _unit_bytes(fourcc, pf_flags, bit_count)
+            level = _choose_level(width, height, mipcount, max_dimension)
+            offset = sum(
+                _level_bytes(
+                    max(1, width >> k), max(1, height >> k), compressed=compressed, unit=unit
+                )
+                for k in range(level)
+            )
+            if start + offset < len(data):  # a corrupt chain falls back to level 0
+                start += offset
+                width = max(1, width >> level)
+                height = max(1, height >> level)
         surface = data[start:]
 
         if pf_flags & _DDPF_FOURCC:
@@ -573,3 +640,102 @@ def _decode_compressed(
         return _decode_blocks(surface, width, height, fourcc), fourcc.decode("ascii", "replace")
     readable = fourcc.decode("ascii", "replace").strip("\x00")
     raise DdsError(f"unsupported texture compression {readable!r}")
+
+
+#: Block-compressed formats a browser can upload straight to the GPU, mapped to
+#: the short label the viewer's JS turns into a WebGL internal format. These are
+#: the S3TC (DXT1/3/5) and BPTC (BC7) formats behind the common
+#: ``WEBGL_compressed_texture_s3tc`` / ``EXT_texture_compression_bptc``
+#: extensions. BC4/BC5 (the single- and two-channel normal, height and gloss
+#: masks) need RGTC plus channel reconstruction the fixed pipeline cannot do, so
+#: they keep the CPU decoder; uncompressed surfaces have nothing to pass through.
+_GPU_FORMATS: Final[dict[bytes, str]] = {
+    b"DXT1": "dxt1",
+    b"DXT3": "dxt3",
+    b"DXT5": "dxt5",
+    _DX10: "bc7",  # BC7, resolved from the DX10 extension header
+}
+
+
+@dataclass(frozen=True)
+class CompressedTexture:
+    """A block-compressed DDS surface ready to hand straight to the GPU.
+
+    No decode has happened: the block bytes are exactly as the file stored them,
+    for :func:`~wraithguard.nif.viewer` to upload through a ``THREE.CompressedTexture``.
+
+    Attributes:
+        format: The GPU format label -- ``"dxt1"``, ``"dxt3"``, ``"dxt5"`` or
+            ``"bc7"`` -- naming the WebGL internal format to upload as.
+        width: The top mip level's width in pixels.
+        height: The top mip level's height in pixels.
+        levels: ``(width, height, byte_length)`` per mip level, largest first, for
+            the whole chain the file actually stores (a truncated chain stops at
+            the last whole level).
+        data: The mip levels' block bytes, concatenated in ``levels`` order.
+    """
+
+    format: str
+    width: int
+    height: int
+    levels: list[tuple[int, int, int]]
+    data: bytes
+
+
+def dds_passthrough(data: bytes) -> CompressedTexture | None:
+    """Describe a DDS for direct GPU upload, or ``None`` to fall back to a decode.
+
+    The block-compressed formats a browser can upload without decoding (S3TC and
+    BPTC -- see :data:`_GPU_FORMATS`) are the largest, most numerous textures in a
+    collection, so handing their blocks straight to the GPU skips the CPU decode
+    entirely. This reads only the header and slices the mip chain; it never
+    touches a block.
+
+    Args:
+        data: The whole DDS file.
+
+    Returns:
+        A :class:`CompressedTexture` when the surface is a GPU-uploadable
+        block format, else ``None`` -- for an uncompressed surface, BC4/BC5, a
+        format this does not pass through, or a file too malformed to trust. The
+        caller then decodes with :func:`read_dds` exactly as before, so a ``None``
+        is a fallback, never a failure.
+    """
+    if len(data) < 4 + _HEADER_SIZE or not data.startswith(MAGIC):
+        return None
+    try:
+        size, _flags, height, width = struct.unpack_from("<IIII", data, 4)
+        (mipcount,) = struct.unpack_from("<I", data, 4 + 24)
+        pf_flags, fourcc = struct.unpack_from("<I4s", data, 4 + 76)
+        if size != _HEADER_SIZE:
+            return None
+        if not 0 < width <= _MAX_DIMENSION or not 0 < height <= _MAX_DIMENSION:
+            return None
+        if width * height > _MAX_PIXELS:
+            return None
+        if not pf_flags & _DDPF_FOURCC:
+            return None  # uncompressed: nothing to pass through
+        start = 4 + _HEADER_SIZE
+        if fourcc == _DX10:
+            fourcc, start = _resolve_dx10(data)  # raises DdsError on a refused/odd format
+    except (struct.error, DdsError):
+        return None
+    label = _GPU_FORMATS.get(fourcc)
+    if label is None:
+        return None
+    unit = 16 if fourcc == _DX10 else _BLOCK_BYTES[fourcc]
+    levels: list[tuple[int, int, int]] = []
+    payload = bytearray()
+    offset = start
+    for level in range(max(1, mipcount)):
+        lw = max(1, width >> level)
+        lh = max(1, height >> level)
+        length = _level_bytes(lw, lh, compressed=True, unit=unit)
+        if offset + length > len(data):
+            break  # a truncated chain: keep the whole levels we have
+        payload += data[offset : offset + length]
+        levels.append((lw, lh, length))
+        offset += length
+    if not levels:
+        return None  # not even the top level is whole -- let the decoder report it
+    return CompressedTexture(label, width, height, levels, bytes(payload))

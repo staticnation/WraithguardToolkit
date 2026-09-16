@@ -31,8 +31,12 @@ minisign.key
 # Traces, scan caches and generated reports are per-run, never source.
 *.log
 cell_map.html
+cell_map_*.html
 tes3conv_json/
 tes3cmd_staging/
+# The cell preview's parsed-plugin cache -- per-machine, per-load-order binary
+# sidecars written beside the app, exactly like the tes3conv spool above.
+plugin_cache/
 output/
 wraithguard_toolkit_settings.json
 log_themes.json

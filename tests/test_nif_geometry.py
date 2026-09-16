@@ -64,6 +64,7 @@ def av_body(
     scale: float = 1.0,
     children: tuple[int, ...] = (),
     properties: tuple[int, ...] = (),
+    flags: int = 0,
     tail: bytes = b"",
 ) -> bytes:
     """A scene-object body, optionally with children.
@@ -75,12 +76,13 @@ def av_body(
         scale: Its scale.
         children: Child block indices; makes this a node.
         properties: Property block indices.
+        flags: The ``NiAVObject`` flags (bit ``0x1`` hides the block).
         tail: Extra bytes after the node lists.
 
     Returns:
         The body bytes.
     """
-    body = text(name) + struct.pack("<iiH", -1, -1, 0)
+    body = text(name) + struct.pack("<iiH", -1, -1, flags)
     body += struct.pack("<3f", *translation)
     body += struct.pack("<9f", *rotation)
     body += struct.pack("<f", scale)
@@ -196,6 +198,65 @@ class TestWorldPlacement:
         meshes = world_meshes(parsed)
         assert len(meshes) == 1, parsed.stopped_reason
         assert meshes[0].vertices[0][0] == 10.0
+
+    def test_a_shape_in_a_particle_file_is_tagged_an_emitter(self) -> None:
+        """Any block of a particle type marks every shape the file produces.
+
+        A mist or glowbug NIF is *about* its emitter; the whole file is tagged so
+        the cell viewer can categorise and toggle such effects as one.
+        """
+        parsed = read_nif_bytes(
+            nif(
+                ("NiBSParticleNode", av_body("root", children=(1,))),  # a particle node
+                ("NiTriShape", av_body("shape", tail=struct.pack("<ii", 2, -1))),
+                ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ),
+            geometry=True,
+        )
+        meshes = world_meshes(parsed)
+        assert len(meshes) == 1 and meshes[0].emitter is True
+
+    def test_a_hidden_shape_is_marked_collision(self) -> None:
+        """Flag 0x1 hides a block in game; the viewer treats it like collision.
+
+        This is how Morrowind's invisible meshes -- collision-only rugs, the
+        ship-launch barrier walls -- are hidden: ordinary geometry with the
+        hidden flag set, which the engine keeps for physics but never draws.
+        """
+        parsed = read_nif_bytes(
+            nif(
+                ("NiNode", av_body("root", children=(1,))),
+                ("NiTriShape", av_body("shape", flags=1, tail=struct.pack("<ii", 2, -1))),
+                ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ),
+            geometry=True,
+        )
+        meshes = world_meshes(parsed)
+        assert len(meshes) == 1 and meshes[0].collision is True
+
+    def test_a_hidden_node_hides_its_children(self) -> None:
+        """The flag is inherited: a hidden parent hides the shapes beneath it."""
+        parsed = read_nif_bytes(
+            nif(
+                ("NiNode", av_body("root", flags=1, children=(1,))),
+                ("NiTriShape", av_body("shape", tail=struct.pack("<ii", 2, -1))),
+                ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ),
+            geometry=True,
+        )
+        assert world_meshes(parsed)[0].collision is True
+
+    def test_a_visible_shape_is_not_collision(self) -> None:
+        """The negative control: no hidden flag, no collision flag."""
+        parsed = read_nif_bytes(
+            nif(
+                ("NiNode", av_body("root", children=(1,))),
+                ("NiTriShape", av_body("shape", tail=struct.pack("<ii", 2, -1))),
+                ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ),
+            geometry=True,
+        )
+        assert world_meshes(parsed)[0].collision is False
 
     def test_roots_are_derived_not_assumed(self) -> None:
         """Block 0 is conventionally the root; convention is not evidence.

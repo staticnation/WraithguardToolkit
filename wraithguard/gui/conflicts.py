@@ -2091,7 +2091,7 @@ class ConflictWindowsMixin:
         self._survey_total = len(rows)
         self._survey_seen = 0
         self.status_var.set(
-            _("Colouring the load order (%(count)d record(s))...") % {"count": len(rows)}
+            _("Coloring the load order (%(count)d record(s))...") % {"count": len(rows)}
             if quiet
             else _("Judging %(count)d conflict(s)...") % {"count": len(rows)}
         )
@@ -2172,7 +2172,7 @@ class ConflictWindowsMixin:
         if callable(colour_tree):
             colour_tree()
         self.status_var.set(
-            _("Coloured %(count)d record(s) across the load order.") % {"count": len(found.records)}
+            _("Colored %(count)d record(s) across the load order.") % {"count": len(found.records)}
             if quiet
             else _("Judged %(count)d record(s); %(losers)d plugin(s) losing work.")
             % {"count": len(found.records), "losers": len(found.losing_plugins)}

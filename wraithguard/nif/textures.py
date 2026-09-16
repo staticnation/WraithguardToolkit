@@ -125,6 +125,12 @@ class TextureResolver:
         # slash-normalised, which is what makes lookups case-insensitive
         # without a second pass per query.
         self._index: dict[str, list[Path]] = {}
+        # Decoded (reference -> PNG bytes + MIME, or None) memo. DDS decoding is
+        # pure-Python and slow -- seconds per texture at cell scale -- and a
+        # collection reuses the same wall and crate textures across cell after
+        # cell, so decoding each one once per session (this resolver is reused)
+        # is the single biggest win when previewing many cells in a row.
+        self._decode_cache: dict[str, tuple[bytes, str] | None] = {}
         self._build()
         self._open_archives(archives)
 

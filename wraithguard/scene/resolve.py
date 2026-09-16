@@ -20,7 +20,7 @@ cell; it is isolated in :func:`reference_transform` behind named constants.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from wraithguard.nif.geometry import Transform
@@ -55,6 +55,17 @@ EDITOR_MARKER_MESHES: frozenset[str] = frozenset(
     }
 )
 
+#: Basename prefixes for the marker family. Catches the box variants a plain set
+#: misses -- ``EditorMarker_box_01.nif`` (CharGen collision, spawn boxes) and any
+#: ``marker_*`` -- so a mesh never drawn in game is not drawn here either.
+_EDITOR_MARKER_PREFIXES: tuple[str, ...] = ("editormarker", "marker_")
+
+
+def _is_editor_marker(model: str) -> bool:
+    """Whether a resolved mesh path is an editor marker (never drawn in game)."""
+    basename = model.rsplit("\\", 1)[-1].rsplit("/", 1)[-1].lower()
+    return basename in EDITOR_MARKER_MESHES or basename.startswith(_EDITOR_MARKER_PREFIXES)
+
 
 # --------------------------------------------------------------------------- #
 # reference transform
@@ -86,11 +97,17 @@ def reference_transform(
 ) -> Transform:
     """A reference's world transform in the mesh (NIF) coordinate frame.
 
-    Morrowind stores a reference rotation as three Euler angles in radians. This
-    composes them as ``Rz(-z) . Ry(-y) . Rx(-x)`` -- negated angles, X applied
-    first -- which is OpenMW's convention, then attaches the uniform scale and
-    the translation. Composing three tested rotation Transforms rather than
-    hand-writing the 3x3 keeps the one calibratable thing (order/sign) readable.
+    Morrowind stores a reference rotation as three Euler angles in radians.
+    OpenMW composes them (for a non-actor) as
+    ``Quat(rx, -X) * Quat(ry, -Y) * Quat(rz, -Z)`` -- negated angles, and the
+    matrix applied to a vertex runs **Z first, then Y, then X**. Composing the
+    three tested rotation Transforms in that same order reproduces it, then the
+    uniform scale and translation are attached.
+
+    The order matters and is easy to get backwards: for a pure yaw (only ``rz``)
+    every order gives the same matrix, so most objects look right either way --
+    but anything with pitch or roll composes differently, which is exactly the
+    tilted-building symptom a wrong order produces.
 
     Args:
         translation: The reference position ``(x, y, z)``.
@@ -102,7 +119,9 @@ def reference_transform(
         world-space vertices to place that object.
     """
     rx, ry, rz = rotation
-    rot = _rot_z(-rz).then(_rot_y(-ry)).then(_rot_x(-rx))
+    # Rx(-rx) . Ry(-ry) . Rz(-rz): `then` composes parent . child, so this chain
+    # applies Rz innermost (first), matching OpenMW's quaternion product above.
+    rot = _rot_x(-rx).then(_rot_y(-ry)).then(_rot_z(-rz))
     return Transform(
         rotation=rot.rotation,
         scale=scale if scale else 1.0,
@@ -115,23 +134,67 @@ def reference_transform(
 # --------------------------------------------------------------------------- #
 
 
+#: Record tag -> a friendly type name, for the viewer's per-type visibility
+#: toggles. An unlisted tag falls back to its raw four-character code, so a type
+#: this does not name still gets its own toggle rather than vanishing into one.
+#:
+#: The categories are chosen for the viewer's actual job -- checking a cell for
+#: conflicts without loading the game -- not for cataloguing inventory. So the
+#: things a modder toggles to read a cell get their own name (architecture,
+#: lights, doors, containers, activators), while every carry-able item collapses
+#: into one "Item": a placed gold coin, an iron dagger and a common shirt are all
+#: just loot on a shelf here, and one toggle for the lot beats a dozen that each
+#: hide a handful of clutter. Emitters (mist, glowbugs) and terrain/water get
+#: their categories elsewhere -- from the mesh and the scene builder -- because
+#: the record tag alone does not distinguish a fog emitter from any other static.
+_TYPE_NAMES: dict[bytes, str] = {
+    b"STAT": "Static",
+    b"LIGH": "Light",
+    b"DOOR": "Door",
+    b"CONT": "Container",
+    b"ACTI": "Activator",
+    b"WEAP": "Item",
+    b"ARMO": "Item",
+    b"CLOT": "Item",
+    b"BOOK": "Item",
+    b"INGR": "Item",
+    b"ALCH": "Item",
+    b"APPA": "Item",
+    b"LOCK": "Item",
+    b"PROB": "Item",
+    b"REPA": "Item",
+    b"MISC": "Item",
+}
+
+
+def _type_name(record: object) -> str:
+    """A friendly type name for a record, from its four-character tag."""
+    tag = getattr(record, "TAG", b"")
+    if not isinstance(tag, bytes):
+        return "Other"
+    return _TYPE_NAMES.get(tag, tag.decode("ascii", "replace").strip() or "Other")
+
+
 @dataclass(frozen=True)
 class ModelIndex:
-    """The winning mesh per object id, and which ids are actors.
+    """The winning mesh per object id, its type, and which ids are actors.
 
     Attributes:
         meshes: ``{id_lower: mesh_path}`` for every object that carries a mesh,
             the last plugin in load order winning.
         actor_ids: ``id_lower`` for ``NPC_``/``CREA`` records, whose references a
             preview skips even though they have a mesh.
+        types: ``{id_lower: type_name}`` -- the friendly record type (Static,
+            Light, Activator, ...) behind each id, for the viewer's type toggles.
     """
 
     meshes: dict[str, str]
     actor_ids: frozenset[str]
+    types: dict[str, str] = field(default_factory=dict)
 
 
 def build_model_index(records: Iterable[object]) -> ModelIndex:
-    """Index object records to their winning mesh, and note the actors.
+    """Index object records to their winning mesh and type, and note the actors.
 
     Args:
         records: Every plugin's records, concatenated in load order (so a later
@@ -142,6 +205,7 @@ def build_model_index(records: Iterable[object]) -> ModelIndex:
     """
     meshes: dict[str, str] = {}
     actor_ids: set[str] = set()
+    types: dict[str, str] = {}
     for record in records:
         rid = getattr(record, "id", "")
         if not rid:
@@ -153,7 +217,8 @@ def build_model_index(records: Iterable[object]) -> ModelIndex:
         mesh = getattr(record, "mesh", "")
         if mesh:
             meshes[key] = mesh
-    return ModelIndex(meshes=meshes, actor_ids=frozenset(actor_ids))
+            types[key] = _type_name(record)
+    return ModelIndex(meshes=meshes, actor_ids=frozenset(actor_ids), types=types)
 
 
 # --------------------------------------------------------------------------- #
@@ -172,12 +237,15 @@ class Placement:
         kind: One of ``"placed"`` (has a mesh to draw), ``"no_mesh_record"`` (the
             id resolves to no object, or an object with no mesh), ``"editor_marker"``
             or ``"actor"``.
+        record_type: The friendly record type (Static, Light, Activator, ...) for
+            the viewer's per-type visibility toggles; ``""`` when unknown.
     """
 
     ref_id: str
     model: str
     transform: Transform
     kind: str
+    record_type: str = ""
 
 
 @dataclass
@@ -292,11 +360,19 @@ def resolve_cell(
             if not model:
                 kind = "no_mesh_record"
                 audit.no_mesh_record += 1
-            elif model.rsplit("\\", 1)[-1].rsplit("/", 1)[-1].lower() in EDITOR_MARKER_MESHES:
+            elif _is_editor_marker(model):
                 kind = "editor_marker"
                 audit.editor_markers += 1
             else:
                 kind = "placed"
                 audit.placed += 1
-        placements.append(Placement(ref_id=ref.id, model=model, transform=transform, kind=kind))
+        placements.append(
+            Placement(
+                ref_id=ref.id,
+                model=model,
+                transform=transform,
+                kind=kind,
+                record_type=model_index.types.get(key, ""),
+            )
+        )
     return placements, audit

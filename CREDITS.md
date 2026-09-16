@@ -181,23 +181,54 @@ accident:
 
 ## three.js - bundled, not merely referenced
 
-`wraithguard/nif/assets/three.cjs` is **three.js r185, unmodified**, MIT
-licensed, with its licence text beside it as `three-LICENSE.txt`. It is the
-first third-party *source* this project ships, as distinct from the Python
-packages PyInstaller already collects, so it is called out here rather than
-left to be discovered in a build.
+`wraithguard/viz/assets/three.cjs` is **three.js r186**, MIT licensed, with its
+licence text beside it as `three-LICENSE.txt`. It is the first third-party
+*source* this project ships, as distinct from the Python packages PyInstaller
+already collects, so it is called out here rather than left to be discovered in
+a build.
 
-It is the **CommonJS** build, which looks like an odd choice until the
-constraint is stated: modern three.js ships ESM only, split across
-`three.module.min.js` and `three.core.min.js`, and **ES module scripts do not
-load from `file://`** - the origin is `null` and the CORS check fails. The
-viewer pages are written to disk and opened in a browser, so no ESM packaging
-can work. The CJS build is one self-contained file with no `require()` of its
-own and runs as a classic script behind a three-line shim.
+It is a **CommonJS** file, which looks like an odd choice until the constraint
+is stated: modern three.js ships ESM only, split across `three.module.js` and
+`three.core.js`, and **ES module scripts do not load from `file://`** - the
+origin is `null` and the CORS check fails. The viewer pages are written to disk
+and opened in a browser, so no ESM packaging can work. A single CommonJS file
+with no `require()` of its own runs as a classic script behind a three-line
+shim, which is what these pages need.
+
+Through r185 three.js shipped exactly such a file as `build/three.cjs` and we
+vendored it unmodified. **r186 removed it** - `build/three.cjs` is now a stub
+that `require()`s the ESM module - so the vendored file is no longer upstream's
+own build. It is built by `tools/build_three_cjs.py`, which concatenates
+upstream's unmodified `three.module.js` graph into one `module.exports` with
+esbuild: packaging only, no minify and no source transform. The provenance is
+therefore a command anyone can rerun, not a binary to take on trust.
 
 The orbit controls in the page are ours, not three.js's `OrbitControls.js`,
 because that imports the bare specifier `'three'` and would pull ESM back into
 a page built specifically to avoid it.
+
+## Cell viewer water shader - inspired by, not ported from
+
+The cell viewer's water is our own GLSL, but its look is guided by the **Enhanced
+Water Shader for MGE XE 2.0 (Blue Water)** (Morrowind Nexus mod 45432), whose
+permission is "do what you want as long as you give proper credit to the original
+authors." Credit therefore to **vtastek** (peak fix, improved caustics, sewer
+wave optimisation), **phal** and **harnlarnm** (original foam code), **abot**
+(sewer wave port), and **Hrnchamd** (MGE XE and the underwater light-ray effect).
+What we took is the *approach and the numbers*, not the code: the ripple-normal
+scales (its close normals tile at 427 world units, its far at 2900), and the
+deep-water colour, which agrees with OpenMW's own `Water_UnderwaterColor`
+(12, 30, 37). The MGE shader is HLSL built on MGE's reflection, refraction and
+depth render targets, none of which this on-demand viewer has; our surface
+reconstructs the same feel from a Fresnel sky reflection and per-pixel ripples
+instead. The underwater rays and caustics likewise adapt Hrnchamd's technique to
+a screen-space pass rather than copy it.
+
+The wave surface's ripples are **2D simplex noise** by **Ian McEwan / Ashima
+Arts** and **Stefan Gustavson** (the `webgl-noise` project), MIT licensed. The
+`snoise`/`permute`/`mod289` functions in the water shader are that
+implementation, reproduced verbatim as the licence permits; the layering,
+directional stretch and domain warp around it are ours.
 
 `wraithguard/nif/bsa.py` reads Morrowind's archives, and is ours for the same
 reasons again. **bethesda-structs** (MIT, Stephen Bunn) via **BSAFileExtractor**

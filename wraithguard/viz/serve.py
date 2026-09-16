@@ -122,6 +122,19 @@ class PublishSession:
         """
         return self.server.register_post(f"{self.prefix}/{key}", handler)
 
+    def register_lazy(self, key: str, producer: Callable[[], Payload | None]) -> str:
+        """Register a lazily-produced payload within this session's namespace.
+
+        Args:
+            key: The payload's name within this session.
+            producer: Called once on first fetch, returning the payload or
+                ``None`` for a 404.
+
+        Returns:
+            The URL that serves it.
+        """
+        return self.server.register_lazy(f"{self.prefix}/{key}", producer)
+
 
 class ViewerServer:
     """Serves a small set of in-memory payloads on loopback.
@@ -134,6 +147,7 @@ class ViewerServer:
     def __init__(self) -> None:
         """Create a server. Nothing listens until :meth:`start`."""
         self._payloads: dict[str, Payload] = {}
+        self._lazy: dict[str, Callable[[], Payload | None]] = {}
         self._post_handlers: dict[str, Callable[[bytes], Payload]] = {}
         self._token = secrets.token_urlsafe(24)
         self._server: ThreadingHTTPServer | None = None
@@ -196,22 +210,68 @@ class ViewerServer:
         """
         return PublishSession(self, f"{kind}-{secrets.token_hex(8)}")
 
+    def register_lazy(self, key: str, producer: Callable[[], Payload | None]) -> str:
+        """Register a payload produced on first fetch, not up front.
+
+        For bytes that are expensive to make and may never be asked for -- a
+        cell's textures, each a slow DDS decode, most of which the camera never
+        frames before the window is closed. The producer runs the first time the
+        key is fetched; its result is then cached like any other payload, so a
+        second fetch is instant. This is what lets the cell page open on its
+        geometry immediately and have textures decode and stream in on demand.
+
+        Args:
+            key: The name to reach it at, same namespace as :meth:`publish`.
+            producer: Called (once) with no arguments on first fetch, returning
+                the payload, or ``None`` to answer 404 (an undecodable texture).
+
+        Returns:
+            An absolute URL including the session token.
+
+        Raises:
+            RuntimeError: If the server is not running.
+        """
+        if self._server is None:
+            raise RuntimeError("the viewer server is not running")
+        with self._lock:
+            self._lazy[key] = producer
+        return f"http://{_HOST}:{self.port}/{key}?t={self._token}"
+
     def fetch(self, key: str, token: str) -> Payload | None:
         """Look up a payload, checking the token first.
+
+        A key registered with :meth:`register_lazy` has its producer run on the
+        first fetch and the result cached, so later fetches are as cheap as any
+        other payload.
 
         Args:
             key: The registered name.
             token: The token from the request.
 
         Returns:
-            The payload, or ``None`` when the token is wrong or the key is
-            unknown. The two are deliberately indistinguishable to a caller:
-            saying "wrong token" would confirm the key exists.
+            The payload, or ``None`` when the token is wrong, the key is
+            unknown, or a lazy producer declined. Unknown and wrong-token are
+            deliberately indistinguishable: saying "wrong token" would confirm
+            the key exists.
         """
         if not secrets.compare_digest(token, self._token):
             return None
         with self._lock:
-            return self._payloads.get(key)
+            payload = self._payloads.get(key)
+            if payload is not None:
+                return payload
+            producer = self._lazy.get(key)
+        if producer is None:
+            return None
+        # Produced outside the lock: a DDS decode is slow, and holding the lock
+        # would serialise every texture fetch behind one decode. A rare double
+        # decode if two fetches race the same key is harmless.
+        produced = producer()
+        if produced is None:
+            return None
+        with self._lock:
+            self._payloads[key] = produced
+        return produced
 
     def register_post(self, key: str, handler: Callable[[bytes], Payload]) -> str:
         """Register a handler that turns a POST body into a response payload.
@@ -298,6 +358,7 @@ class ViewerServer:
             thread.join(timeout=_SHUTDOWN_TIMEOUT)
         with self._lock:
             self._payloads.clear()
+            self._lazy.clear()
             self._post_handlers.clear()
         LOG.info("viewer server stopped")
 
@@ -359,7 +420,16 @@ def _make_handler(owner: ViewerServer) -> type[BaseHTTPRequestHandler]:
             parsed = urlparse(self.path)
             key = parsed.path.lstrip("/")
             token = (parse_qs(parsed.query).get("t") or [""])[0]
-            payload = owner.fetch(key, token)
+            try:
+                payload = owner.fetch(key, token)
+            except Exception as exc:  # noqa: BLE001 - a lazy producer must not drop the socket
+                # A raising producer (a texture that will not decode) becomes a
+                # clean 500, not a reset connection -- which on a keep-alive
+                # connection would fail every *other* request queued on it too,
+                # geometry included, and surface as "Failed to fetch".
+                LOG.debug("viewer GET handler failed for %s: %s", key, exc)
+                self.send_error(500)
+                return
             if payload is None:
                 self.send_error(404)
                 return

@@ -383,6 +383,37 @@ class TestPublishRequiresARunningServer:
         assert out == b"HI"
 
 
+class TestLazyPayloads:
+    """Payloads produced on first fetch -- how a cell's textures decode on demand."""
+
+    def test_a_lazy_payload_is_produced_once_then_cached(self, server: ViewerServer) -> None:
+        """The producer runs on the first fetch and the result is cached after."""
+        calls = {"n": 0}
+
+        def producer() -> Payload:
+            calls["n"] += 1
+            return Payload(b"decoded", "image/png")
+
+        url = server.register_lazy("t0.png", producer)
+        assert get(url) == b"decoded"
+        assert get(url) == b"decoded"
+        assert calls["n"] == 1, "the producer must run once, then serve from cache"
+
+    def test_a_lazy_producer_that_declines_is_404(self, server: ViewerServer) -> None:
+        """A texture that will not decode answers 404, not a broken image."""
+        url = server.register_lazy("t1.png", lambda: None)
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            get(url)
+        assert caught.value.code == 404
+
+    def test_a_session_namespaces_a_lazy_key(self, server: ViewerServer) -> None:
+        """A publish session registers lazy payloads under its own prefix."""
+        session = server.publish_session("cell")
+        url = session.register_lazy("t0.png", lambda: Payload(b"x", "image/png"))
+        assert "cell-" in url
+        assert get(url) == b"x"
+
+
 class TestPayloadBundle:
     """The convenience that assembles one session."""
 

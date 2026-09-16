@@ -23,13 +23,15 @@ Loose files win over archived ones, as they do in OpenMW and in Morrowind.
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from wraithguard.nif.bsa import BsaArchive, BsaError, normalise
-from wraithguard.nif.reader import NifFile, read_nif, read_nif_bytes
+from wraithguard.nif.reader import NifFile, NifParseError, read_nif, read_nif_bytes
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Iterator, Sequence
 
 LOG: Final = logging.getLogger(__name__)
 
@@ -177,6 +179,79 @@ def read_mesh_bytes(folder: Path, path: str) -> bytes:
         "installed with only some of its files, or an archive is missing, "
         "this is where that shows up."
     )
+
+
+def _iter_files(root: Path) -> Iterator[Path]:
+    """Every file beneath ``root`` (via ``os.walk``, faster than ``rglob``)."""
+    if not root.is_dir():
+        return
+    for dirpath, _dirs, files in os.walk(root):
+        base = Path(dirpath)
+        for name in files:
+            yield base / name
+
+
+class MeshVfs:
+    """A merged ``meshes/`` index across data folders: one lookup, not a probe.
+
+    :func:`read_mesh` resolves one folder; the cell preview needs every mesh in a
+    load order and used to probe all data folders per mesh -- hundreds of meshes
+    times ~1500 folders, tens of seconds of ``stat`` calls even with the loose
+    caches warm. This walks each folder's ``meshes/`` subtree (and its archives)
+    exactly once and records the winner per path, so resolving a mesh afterwards
+    is a single dict lookup.
+
+    The precedence matches the game and :func:`read_mesh`: a later data folder
+    wins over an earlier one, and within a folder a loose file wins over an
+    archived one. Built earliest-folder-first with plain overwrite -- archives
+    before loose within each folder -- which yields exactly that ordering.
+    """
+
+    def __init__(self, dirs: Sequence[Path]) -> None:
+        """Index every ``meshes/`` path across ``dirs`` (in load order).
+
+        Args:
+            dirs: The data folders, earliest first (the resolved data-path order).
+        """
+        #: normalised ``meshes/...`` path -> its winning source (a loose ``Path``
+        #: or the :class:`~wraithguard.nif.bsa.BsaArchive` that holds it).
+        self._index: dict[str, Path | BsaArchive] = {}
+        for folder in dirs:
+            for archive in archives_in(folder):
+                for name in archive.names:
+                    if name.startswith("meshes/"):
+                        self._index[name] = archive
+            root = folder / "meshes"
+            for path in _iter_files(root):
+                key = normalise("meshes/" + path.relative_to(root).as_posix())
+                self._index[key] = path  # loose beats an archive in the same folder
+
+    def __len__(self) -> int:
+        """How many distinct mesh paths are indexed."""
+        return len(self._index)
+
+    def read(self, vfs_path: str, *, geometry: bool = True) -> NifFile | None:
+        """Read the winning mesh for ``vfs_path``, or ``None`` if unresolved.
+
+        Args:
+            vfs_path: A ``meshes/...`` path, any case or separator.
+            geometry: Keep vertices and triangles (on for a viewer).
+
+        Returns:
+            The parsed NIF, or ``None`` when no folder provides it or its bytes
+            do not parse -- one bad mesh must not sink a whole cell.
+        """
+        source = self._index.get(normalise(vfs_path))
+        if source is None:
+            return None
+        try:
+            if isinstance(source, Path):
+                return read_nif(source, geometry=geometry)
+            data = source.read(normalise(vfs_path))
+            return read_nif_bytes(data, geometry=geometry) if data is not None else None
+        except (OSError, NifParseError, BsaError) as exc:
+            LOG.debug("cannot read %s: %s", vfs_path, exc)
+            return None
 
 
 def read_mesh(folder: Path, path: str, *, geometry: bool = True) -> NifFile:

@@ -143,11 +143,14 @@ def detect(data: bytes) -> ImageFormat:
     return ImageFormat.UNKNOWN
 
 
-def read_image(data: bytes) -> Image:
+def read_image(data: bytes, max_dimension: int | None = None) -> Image:
     """Decode any supported texture to RGBA.
 
     Args:
         data: The whole file.
+        max_dimension: A hint to decode a smaller surface when the format stores
+            one (a DDS mip chain); honoured only for DDS, ignored for formats
+            without mipmaps. Omitted, the full surface is decoded.
 
     Returns:
         The decoded surface.
@@ -159,7 +162,7 @@ def read_image(data: bytes) -> Image:
     """
     kind = detect(data)
     if kind is ImageFormat.DDS:
-        return read_dds(data)
+        return read_dds(data, max_dimension)
     if kind is ImageFormat.BMP:
         return read_bmp(data)
     if kind is ImageFormat.TGA:
@@ -175,7 +178,7 @@ def read_image(data: bytes) -> Image:
     raise ImageError("unrecognised image format")
 
 
-def browser_image(data: bytes) -> tuple[bytes, str]:
+def browser_image(data: bytes, max_dimension: int | None = None) -> tuple[bytes, str]:
     """Return bytes a browser can display, and their MIME type.
 
     A PNG is handed back exactly as it arrived. Decoding one only to re-encode
@@ -191,6 +194,11 @@ def browser_image(data: bytes) -> tuple[bytes, str]:
 
     Args:
         data: The whole file.
+        max_dimension: When set, a DDS with mipmaps is decoded at the largest mip
+            within this many pixels rather than full size -- far cheaper for a
+            cell's many textures. A PNG passthrough is unaffected (it is not
+            re-encoded), so the cap applies to the formats this decodes, chiefly
+            DDS, which is what the game and its mods overwhelmingly ship.
 
     Returns:
         The payload and its MIME type.
@@ -203,7 +211,7 @@ def browser_image(data: bytes) -> tuple[bytes, str]:
         LOG.debug("passing a PNG through untouched (%d bytes)", len(data))
         return data, _MIME[kind]
     try:
-        return encode_png(read_image(data)), "image/png"
+        return encode_png(read_image(data, max_dimension)), "image/png"
     except ImageError:
         if kind.browser_native:
             LOG.info("%s did not decode; handing it to the browser instead", kind.value)

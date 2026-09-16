@@ -2109,12 +2109,14 @@ class App(
             row1,
             "Cell Preview",
             self.on_cell_preview,
-            "PROTOTYPE: place a cell's objects in the 3D mesh viewer. Pick an interior cell "
+            "Place a cell's objects in the 3D mesh viewer. Pick an interior cell "
             "by name or an exterior cell by grid; every reference is resolved to its winning "
             "object and world position across the sorted load order, the placed meshes are "
             "drawn (textured), and an audit prints what the load order does to the "
             "cell -- references a later plugin overrode, deleted or moved, and any meshes not "
-            "found. Read-only. Terrain, water and adjacent cells are not in yet.",
+            "found. Exterior cells also draw the terrain with its blended landscape textures, "
+            "animated water, and the eight neighboring cells behind a toggle, under a Morrowind "
+            "sky with time-of-day and weather controls; fly the camera with WASD. Read-only.",
             state="disabled",
         )
 
@@ -3090,6 +3092,10 @@ class App(
         self.mergedlands_button.configure(state="normal" if have_data else "disabled")
         self.resource_button.configure(state="normal" if have_data else "disabled")
         self.lint_button.configure(state="normal" if have_data else "disabled")
+        # Warm the cell-preview parse cache in the background now that the load
+        # order is known, so the first Cell Preview after a Sort is quick.
+        if have_data:
+            self.prewarm_cell_preview()
 
     def on_export(self) -> None:
         """Run step 2: write the plan out, in a worker."""
@@ -3769,7 +3775,7 @@ class App(
         # by the same names as land_meta.LAYER_NAMES.
         blurbs = {
             "height_map": _("Vertex heights -- and the normals stored with them."),
-            "vertex_colors": _("Baked vertex colours (terrain lighting)."),
+            "vertex_colors": _("Baked vertex colors (terrain lighting)."),
             "texture_indices": _("Which land texture paints each square."),
             "world_map_data": _("The low-resolution world-map heightmap."),
         }
