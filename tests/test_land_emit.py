@@ -413,15 +413,19 @@ class TestEmitEdgeBranches:
     def test_compress_falls_back_to_the_zstandard_backend(self, monkeypatch) -> None:
         """When the stdlib zstd is unavailable, the third-party backend is used."""
         import sys
+        import types
 
         from wraithguard.land.emit import _compress
 
-        # Force `from compression import zstd` to raise ImportError so the
-        # function takes its pre-3.14 path.
+        # Force the stdlib import to fail and provide a tiny fake third-party
+        # module so this branch is tested without making zstandard a CI dependency.
+        zstandard = types.ModuleType("zstandard")
+        compressor = types.SimpleNamespace(compress=lambda raw: b"THIRDPARTY:" + raw)
+        zstandard.ZstdCompressor = lambda: compressor  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, "compression", None)
-        out = _compress(b"merged landscape bytes " * 20)
-        assert isinstance(out, bytes)
-        assert out  # a real zstd frame from the zstandard backend
+        monkeypatch.setitem(sys.modules, "zstandard", zstandard)
+
+        assert _compress(b"payload") == b"THIRDPARTY:payload"
 
     def test_compress_uses_the_stdlib_backend_when_present(self, monkeypatch) -> None:
         """On Python 3.14+ the ``compression.zstd`` stdlib module is preferred."""

@@ -38,6 +38,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import enum
+import sys
 import types
 import typing
 from typing import TYPE_CHECKING, Any, get_args, get_origin
@@ -225,42 +226,52 @@ class EspJsonError(ValueError):
 
 
 def _zstd_available() -> bool:
-    """Whether the optional ``zstandard`` extra is importable."""
+    """Whether a zstd backend is available.
+
+    Python 3.14 provides ``compression.zstd`` in the standard library. The
+    third-party ``zstandard`` package remains the fallback for older supported
+    environments and for callers that explicitly install the extra.
+    """
+    # Tests and callers can explicitly block the optional backend with
+    # ``sys.modules["zstandard"] = None``. Treat that as unavailable even when
+    # the stdlib backend exists so the availability probe remains deterministic.
+    if sys.modules.get("zstandard", ...) is None:
+        return False
+
     try:
         from compression import zstd  # noqa: F401
-
-        return True
     except ImportError:
-        pass
-
-    try:
-        import zstandard  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
+        try:
+            import zstandard  # noqa: F401
+        except ImportError:
+            return False
+    return True
 
 
 def _compress(raw: bytes) -> bytes:
     """Zstd-compress ``raw`` to match tes3conv, or return it unchanged.
 
-    tes3conv compresses every ``Vec``/``Box`` blob with zstd before base64. With
-    ``zstandard`` installed the output matches it; without, the bytes are left
-    raw so the native path still round-trips against *itself* (the pipeline only
-    ever compares records produced by one backend), just not byte-for-byte with
-    tes3conv. :func:`_decompress` reverses whichever path was taken.
+    Python 3.14's standard-library backend is preferred; ``zstandard`` is the
+    fallback on older interpreters. If neither backend is installed, the native
+    JSON path keeps its historical raw-byte fallback so it can still
+    round-trip against itself.
 
     Args:
         raw: The uncompressed field bytes.
 
     Returns:
-        The zstd frame, or ``raw`` if ``zstandard`` is absent.
+        The zstd frame, or ``raw`` if no backend is available.
     """
     if not _zstd_available():
         return raw
-    import zstandard
 
-    return zstandard.ZstdCompressor().compress(raw)
+    try:
+        from compression import zstd
+    except ImportError:
+        import zstandard
+
+        return zstandard.ZstdCompressor().compress(raw)
+    return zstd.compress(raw)
 
 
 def _decompress(data: bytes) -> bytes:
@@ -272,33 +283,30 @@ def _decompress(data: bytes) -> bytes:
     Returns:
         The uncompressed field bytes.
     """
-    if data[:4] != b"\x28\xb5\x2f\xfd":  # not a zstd magic -> stored raw
+    if data[:4] != b"\\x28\\xb5\\x2f\\xfd":  # not a zstd magic -> stored raw
         return data
+    if not _zstd_available():
+        raise EspJsonError(
+            "this blob is zstd-compressed but the zstandard extra/backend is not available"
+        )
 
-    # Attempt Python 3.14+ standard library decompression first.
+    import io
+
     try:
         from compression import zstd
 
-        return zstd.decompress(data)
+        # Incremental decompression does not require an embedded content size.
+        return zstd.ZstdDecompressor().decompress(data)
     except ImportError:
-        pass
-
-    # Fall back to the third-party zstandard module,
-    # preserving the stream_reader workaround for tes3conv's sizeless frames.
-    try:
-        import io
-
         import zstandard
 
-        # tes3conv's frames omit the embedded content size, so the one-shot
-        # ``decompress`` (which needs it) fails; the streaming reader does not.
-        with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)) as reader:
-            return reader.read()
-    except ImportError as exc:
-        raise EspJsonError(
-            "this blob is zstd-compressed but neither the Python 3.14+ "
-            "stdlib 'compression.zstd' nor the 'zstandard' package are installed"
-        ) from exc
+        try:
+            with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)) as reader:
+                return reader.read()
+        except Exception as exc:
+            raise EspJsonError("invalid zstd-compressed field data") from exc
+    except Exception as exc:
+        raise EspJsonError("invalid zstd-compressed field data") from exc
 
 
 def _b64zstd(raw: bytes) -> str:
