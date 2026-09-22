@@ -283,7 +283,7 @@ def _decompress(data: bytes) -> bytes:
     Returns:
         The uncompressed field bytes.
     """
-    if data[:4] != b"\\x28\\xb5\\x2f\\xfd":  # not a zstd magic -> stored raw
+    if data[:4] != b"\x28\xb5\x2f\xfd":  # not a zstd magic -> stored raw
         return data
     if not _zstd_available():
         raise EspJsonError(
@@ -303,9 +303,9 @@ def _decompress(data: bytes) -> bytes:
         try:
             with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)) as reader:
                 return reader.read()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - translate backend errors at our API boundary
             raise EspJsonError("invalid zstd-compressed field data") from exc
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - translate backend errors at our API boundary
         raise EspJsonError("invalid zstd-compressed field data") from exc
 
 
