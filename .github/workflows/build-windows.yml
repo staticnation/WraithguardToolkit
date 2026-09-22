@@ -1,13 +1,19 @@
-# Autobuild the Windows .exe (two variants) and upload them as artifacts.
+# Autobuild the Windows .exe and upload it as an artifact.
 #
-# Two backends for pywebview's in-app viewer, so users can pick:
-#   * edgechromium (default) -- small (~40 MB); uses the WebView2 runtime that
-#     ships with Windows 10/11. This is what the local auto-py-to-exe build made.
-#   * qt -- larger (~180 MB) but self-contained; bundles its own Qt WebEngine, so
-#     it works on machines where WebView2 has been removed.
-# Both are built from the same flags the old `.spec` used (the spec itself is a
-# gitignored build artifact, no longer in the repo): a single-file windowed .exe,
-# the .ico icon, and pythonnet/clr for the EdgeChromium backend.
+# Previously this built two variants -- an "edgechromium" leg (pywebview's
+# small WebView2 backend) and a "qt" leg (pywebview's PyQt6 backend, for
+# machines without WebView2). Both are gone: the in-app viewer window is now
+# wraithguard-viewer, a standalone Rust/Tauri binary (see viewer-shell/),
+# built here and bundled into the .exe as a data file. It uses WebView2 on
+# Windows, same as the old edgechromium leg -- Windows 10 1803+/11 all ship
+# it by default, the same assumption the app already made for its previous
+# default build -- so there is now exactly one Windows build, and it is
+# entirely free-threaded (3.14t): nothing left in the dependency graph (no
+# PyQt6/sip, no pythonnet/clr -- both were only ever there for pywebview)
+# blocks it. If a no-WebView2 fallback ever becomes a real requirement again,
+# Tauri's installer bundler can auto-provision the WebView2 runtime; a raw
+# `cargo build` binary like this one cannot, so that would mean switching
+# viewer-shell over to `tauri build` rather than reintroducing a second leg.
 
 name: Build Windows app
 
@@ -31,54 +37,40 @@ concurrency:
 
 jobs:
   build:
-    name: build (${{ matrix.backend }})
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - backend: edgechromium # small; needs the WebView2 runtime on the target machine
-            pip: pywebview==6.2.1
-            platform: webview.platforms.edgechromium
-            suffix: ""
-            # No QtWebEngine on this leg -- PyQt6 isn't even installed.
-            webengine_extra: ""
-            # This leg IS the EdgeChromium backend, so no override -- let
-            # pywebview pick its Windows default.
-            runtime_hook_extra: ""
-          - backend: qt # larger, self-contained; for machines without WebView2
-            pip: pywebview[qt]==6.2.1
-            platform: webview.platforms.qt
-            suffix: "-qt"
-            # pywebview's qt backend imports PyQt6.QtWebEngineWidgets inside a
-            # try/except fallback (PyQt6, then PySide6) rather than a plain
-            # top-level import, so PyInstaller's analyzer doesn't reliably
-            # discover it through --hidden-import webview.platforms.qt alone.
-            # Without this, the QWebEngineView widget gets created but
-            # PyInstaller's PyQt6.QtWebEngineWidgets hook never runs, so the
-            # helper process (Qt6WebEngineProcess.exe), its .pak resources,
-            # translations, and generated qt.conf never get bundled -- the
-            # view stays blank white with no renderer backing it, even with
-            # GPU rendering forced off. --hidden-import guarantees the module
-            # is seen; --collect-all is what actually pulls the hook's output in.
-            webengine_extra: "--hidden-import PyQt6.QtWebEngineWidgets --collect-all PyQt6.QtWebEngineWidgets"
-            # pywebview prefers EdgeChromium whenever clr/pythonnet imports, which
-            # it does in this build too (the edgechromium stack is bundled). On a
-            # WebView2-removed machine -- exactly who this -qt build is for -- it
-            # would still pick edgechromium and render blank, never using Qt. This
-            # runtime hook pins PYWEBVIEW_GUI=qt (and disables QtWebEngine's sandbox
-            # for the --onefile temp extraction) before the app imports webview.
-            runtime_hook_extra: "--runtime-hook packaging/pyi_rth_pywebview_qt.py"
     steps:
       - uses: actions/checkout@v4
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            viewer-shell/target
+          key: cargo-windows-${{ hashFiles('viewer-shell/Cargo.lock') }}
+
+      - name: Build the viewer shell
+        # wraithguard-viewer.exe -- the native window the app spawns to show
+        # cell maps / the NIF viewer / conflict views. See viewer-shell/src/main.rs.
+        # Icon copied in first: tauri-build wants it present at compile time,
+        # and keeping one copy of the .ico in the repo root (rather than a
+        # second copy checked into viewer-shell/) is the whole reason this is
+        # a build step instead of a committed file -- see viewer-shell/icons/README.md.
+        shell: bash
+        run: |
+          cp wraithguard_toolkit_icon.ico viewer-shell/icons/wraithguard_toolkit_icon.ico
+          cd viewer-shell
+          cargo build --release
+          ls -lh target/release/wraithguard-viewer.exe
+
       - uses: actions/setup-python@v5
         with:
-          # Free-threaded (GIL-free) Python 3.14 -- the `3.14t` build the app
-          # ships. PyInstaller freezes whichever interpreter runs it, so the
-          # bundled .exe is free-threaded too. Some wheels (PyQt6/QtWebEngine,
-          # pythonnet) may not yet publish a `cp314t` build and can fall back to a
-          # source build here; that is expected while the ecosystem catches up.
+          # Free-threaded (GIL-free) Python 3.14t. PyInstaller freezes whichever
+          # interpreter runs it, so the bundled .exe is free-threaded too.
+          # Nothing left in this build's dependency graph is gated on it --
+          # see the header comment above.
           python-version: "3.14t"
           allow-prereleases: true
           cache: pip
@@ -91,58 +83,34 @@ jobs:
           python -c "import sys; assert not sys._is_gil_enabled(), 'GIL is enabled -- not a free-threaded build'; print('free-threaded OK')"
 
       - name: Install build dependencies
-        # ${{ matrix.pip }} is "pywebview" or "pywebview[qt]". The [qt] extra pulls
-        # PyQt6 + QtWebEngine (~140 MB); without it pywebview uses the small
-        # EdgeChromium backend via pythonnet/clr.
+        # No pywebview, no pythonnet/clr, no PyQt6 -- all three were only ever
+        # there for the old in-process viewer; wraithguard-viewer replaces
+        # them entirely and needs nothing from pip.
         # Deliberately no pillow/numpy: the shipped app imports neither (only the
         # tools/ scripts do). The local auto-py-to-exe build happened to have them
         # installed, so its bundle was ~20 MB heavier; leaving them out keeps the
         # .exe lean. tkinterweb can use PIL for image rendering, but it is only the
-        # fallback viewer -- pywebview (EdgeChromium) is the primary and works
+        # fallback viewer -- the embedded native viewer is the primary and works
         # without it, as the 20 MB build confirmed.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller "${{ matrix.pip }}" pythonnet==3.1.0 tkinterweb tkinterdnd2 PyYAML ijson certifi
+          python -m pip install pyinstaller tkinterweb tkinterdnd2 PyYAML ijson certifi
 
       - name: Build the .exe
         # bash (present on Windows runners) keeps the multiline command readable;
-        # PyInstaller still uses ';' as the --add-data separator on Windows. The
-        # platform hidden import is per-variant (${{ matrix.platform }}) so
-        # PyInstaller traces the right backend's runtime -- this is what the local
-        # auto-py-to-exe build hinted (webview.platforms.edgechromium), and
-        # getting it wrong is what produced a too-small, deps-missing .exe.
-        # ${{ matrix.webengine_extra }} is empty on the edgechromium leg (that
-        # line collapses to a no-op continuation) and forces in the QtWebEngine
-        # hook's output on the qt leg -- see the matrix comment above.
-        # ${{ matrix.runtime_hook_extra }} is likewise empty on edgechromium and,
-        # on the qt leg, injects the runtime hook that pins pywebview to Qt.
+        # PyInstaller still uses ';' as the --add-data/--add-binary separator on
+        # Windows. --add-binary (not --add-data) for the viewer: it's a PE
+        # executable, not a data file, and lands at "." so resource_path()'s
+        # join with "wraithguard-viewer.exe" finds it directly in _MEIPASS root.
         shell: bash
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed --noupx \
             --name wraithguard_toolkit_gui \
             --icon wraithguard_toolkit_icon.ico \
             --collect-submodules wraithguard \
-            --collect-all webview \
-            --collect-all clr_loader \
-            --collect-all pythonnet \
             --collect-all certifi \
-            --hidden-import clr \
-            --hidden-import ${{ matrix.platform }} \
-            ${{ matrix.webengine_extra }} \
-            ${{ matrix.runtime_hook_extra }} \
             --hidden-import tkinterweb \
-            --exclude-module PySide6 \
-            --exclude-module PySide2 \
-            --exclude-module shiboken6 \
-            --exclude-module PyQt6.QtQml \
-            --exclude-module PyQt6.QtQuick \
-            --exclude-module PyQt6.QtQuickWidgets \
-            --exclude-module PyQt6.QtQuick3D \
-            --exclude-module PyQt6.QtPositioning \
-            --exclude-module PyQt6.QtDBus \
-            --exclude-module PyQt6.QtMultimedia \
-            --exclude-module PyQt6.QtSpatialAudio \
-            --exclude-module PyQt6.QtTextToSpeech \
+            --add-binary "viewer-shell/target/release/wraithguard-viewer.exe;." \
             --add-data "wraithguard_toolkit.py;." \
             --add-data "README.md;." \
             --add-data "QUICKSTART.md;." \
@@ -151,13 +119,13 @@ jobs:
             --add-data "wraithguard/viz/assets;assets" \
             wraithguard_toolkit_gui.py
           mv "dist/wraithguard_toolkit_gui.exe" \
-             "dist/wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}.exe"
+             "dist/wraithguard-toolkit-windows-x86_64.exe"
 
       - name: Upload the .exe
         uses: actions/upload-artifact@v4
         with:
-          name: wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}
-          path: dist/wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}.exe
+          name: wraithguard-toolkit-windows-x86_64
+          path: dist/wraithguard-toolkit-windows-x86_64.exe
           if-no-files-found: error
           retention-days: 14
 
@@ -170,7 +138,7 @@ jobs:
           MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
         run: |
           python -m pip install py-minisign==0.21.1
-          python tools/sign_release.py "dist/wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}.exe"
+          python tools/sign_release.py "dist/wraithguard-toolkit-windows-x86_64.exe"
 
       - name: Attach to the release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
@@ -180,11 +148,9 @@ jobs:
           # fail_on_unmatched_files is off; the .exe is always produced by the
           # build step above (which fails the job if it is not).
           files: |
-            dist/wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}.exe
-            dist/wraithguard-toolkit-windows-x86_64${{ matrix.suffix }}.exe.minisig
+            dist/wraithguard-toolkit-windows-x86_64.exe
+            dist/wraithguard-toolkit-windows-x86_64.exe.minisig
           fail_on_unmatched_files: false
-          # No generate_release_notes here: this step runs once per matrix backend
-          # (edgechromium + qt), and each softprops call with it set regenerates
-          # and appends a "Full Changelog" block to the shared release. Exactly one
-          # job owns the notes -- the single-run Linux build -- so the release gets
-          # one changelog, not five. This step only uploads its .exe.
+          # No generate_release_notes here: the Linux build is the sole owner
+          # of the release notes (see its own workflow comment) so the
+          # release gets one changelog, not several.

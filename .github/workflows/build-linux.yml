@@ -10,7 +10,11 @@ name: Build Linux app
 on:
   workflow_dispatch:
   push:
+    # A `v*` tag cuts a release (Release/sign steps are tag-gated). A `build/**`
+    # branch is a dry run: it builds and uploads the binary as an artifact but
+    # attaches nothing, to prove the free-threaded Docker build works first.
     tags: ["v*"]
+    branches: ["build/**"]
 
 permissions:
   contents: write # create/attach to a Release on tag builds

@@ -175,18 +175,23 @@ except Exception as _exc:  # noqa: BLE001
         VIEWER_IMPORT_ERRORS["tkhtmlview"] = f"{type(_exc2).__name__}: {_exc2}"
         HTMLViewer = None
 
-# pywebview is the BEST in-app option: it hosts the OS webview (Edge WebView2 /
-# WebKit), so it renders the SVG map + tabs exactly like a browser. It's launched
-# in a separate process (webview.start() wants the main thread), so it doesn't
-# fight tkinter's mainloop. Detected here; used first if present.
+# The Tauri viewer shell is the BEST in-app option: it's a real native
+# webview (WebView2 / WebKit), so it renders the SVG map + tabs exactly like
+# a browser. It's a separate binary, not a Python import, and it's always
+# launched in its own process (see _open_cell_map_pywebview) so it doesn't
+# fight tkinter's mainloop. Detected here by presence on disk, not by
+# import; used first if present. The name HAVE_PYWEBVIEW is kept (rather
+# than renamed) to minimise the diff against callers that branch on it --
+# it now means "the embedded native viewer is available" regardless of
+# which binary provides it.
 try:
-    import webview as _webview_probe  # real import: reliable under PyInstaller, unlike find_spec
-
-    HAVE_PYWEBVIEW = True
-    del _webview_probe
+    _viewer_name = "wraithguard-viewer.exe" if os.name == "nt" else "wraithguard-viewer"
+    HAVE_PYWEBVIEW = os.path.exists(resource_path(_viewer_name))  # noqa: PTH110
+    del _viewer_name
 except Exception as _exc3:  # noqa: BLE001
-    # optional 3rd-party import; a broken install must not kill startup
-    VIEWER_IMPORT_ERRORS["pywebview"] = f"{type(_exc3).__name__}: {_exc3}"
+    # resource_path() must never raise, but a broken install must not kill
+    # startup even if it somehow does
+    VIEWER_IMPORT_ERRORS["wraithguard-viewer"] = f"{type(_exc3).__name__}: {_exc3}"
     HAVE_PYWEBVIEW = False
 
 
@@ -4008,8 +4013,9 @@ class App(
             return
         self._last_cell_file = path
         # Optional override: MLOX_MAP_VIEWER = pywebview | tkinterweb | browser.
-        # Handy when pywebview is installed but its backend is broken (e.g. its
-        # WebView2/pythonnet backend on a too-new Python) -- force tkinterweb/browser.
+        # ("pywebview" selects the embedded native viewer -- see HAVE_PYWEBVIEW.)
+        # Handy when the viewer binary is present but broken on this machine --
+        # force tkinterweb/browser instead.
         force = (os.environ.get("MLOX_MAP_VIEWER") or "").strip().lower()
         can_tkweb = HTMLViewer is not None and hasattr(HTMLViewer, "load_file")
         if force == "browser":
@@ -4055,48 +4061,45 @@ class App(
         self._open_cell_map_pywebview(url or path, "Cell Map")
 
     def _open_cell_map_pywebview(self, path: str | Path, title: str = "Cell Map") -> None:
-        """Show the map in an embedded OS webview.
+        """Show the map in an embedded native window (the Tauri viewer shell).
 
-        Re-invokes this executable with
-        --show-map in a SEPARATE process (webview.start() needs its own main
-        thread). Frozen-safe: a built .exe re-runs the .exe; from source we re-run
-        the script -- never 'python -c', which a frozen exe can't do.
+        Spawns ``wraithguard-viewer`` -- a small standalone binary, not a
+        Python process -- pointed at the URL. Replaces the old pywebview
+        child process (see git history: it re-invoked this script with
+        ``--show-map`` and called ``webview.create_window``/``webview.start()``
+        there). That approach needed its OWN process because pywebview's
+        Qt/pythonnet backends aren't free-threading-safe and ``webview.start()``
+        wants the main thread; this one needs its own process only because
+        it's a different binary entirely. Nothing here touches a Python
+        interpreter, so there's no GIL/free-threading concern to work around
+        any more -- contrast with the removed ``PYTHON_GIL=1`` child_env line
+        this function used to set.
         """
         # A URL is passed through untouched; only a real path is absolutised.
         # abspath() on "http://127.0.0.1:1/x" produces a nonsense local path,
         # which the child would then fail to open for reasons that look
         # nothing like the actual cause.
         ap = str(path) if is_view_url(path) else os.path.abspath(path)  # noqa: PTH100
-        # IMPORTANT: only CREATE_NO_WINDOW here (suppresses a console flash) -- do
-        # NOT use the SW_HIDE startupinfo from _no_window_kwargs(): that STARTUPINFO
-        # is inherited by the child's FIRST window, which would hide the WebView2
-        # cell-map window itself (it spawns but never shows). That was the bug.
+        url = ap if is_view_url(ap) else view_uri(ap)
+        # IMPORTANT: only CREATE_NO_WINDOW here (suppresses a console flash) --
+        # do NOT use the SW_HIDE startupinfo from _no_window_kwargs(): that
+        # STARTUPINFO is inherited by the child's FIRST window, which would
+        # hide the viewer window itself (it spawns but never shows). That was
+        # the bug with the old pywebview child; the same caution still
+        # applies to this one.
         nw = {"creationflags": 0x08000000} if os.name == "nt" else {}
-        # pywebview's OS-webview backends -- pythonnet/clr (Edge WebView2) on
-        # Windows, Qt WebEngine on Linux -- are not free-threading-safe yet, and
-        # crash or misbehave under a GIL-free interpreter. This child process is
-        # the only one that touches them, so re-enable the GIL *for it alone* with
-        # PYTHON_GIL=1 (supported by the free-threaded build); the main app keeps
-        # running GIL-free. A no-op on a GIL build, so it is set only when this
-        # process is actually free-threaded.
-        child_env = dict(os.environ)
-        if not getattr(sys, "_is_gil_enabled", lambda: True)():
-            child_env["PYTHON_GIL"] = "1"
+        viewer_name = "wraithguard-viewer.exe" if os.name == "nt" else "wraithguard-viewer"
+        viewer_bin = resource_path(viewer_name)
+        if not os.path.exists(viewer_bin):  # noqa: PTH110 -- pairs with resource_path's abspath
+            trace(f"cell map: viewer binary not found at {viewer_bin}")
+            self._open_cell_map_browser()
+            return
+        cmd = [viewer_bin, url, title]
         try:
-            if getattr(sys, "frozen", False):
-                cmd = [sys.executable, "--show-map", ap, title]
-            else:
-                cmd = [
-                    sys.executable,
-                    os.path.abspath(__file__),  # noqa: PTH100
-                    "--show-map",
-                    ap,
-                    title,
-                ]
-            trace(f"cell map: launching pywebview child: {cmd}")
-            subprocess.Popen(cmd, env=child_env, **nw)  # type: ignore[call-overload]
+            trace(f"cell map: launching viewer: {cmd}")
+            subprocess.Popen(cmd, **nw)  # type: ignore[call-overload]
         except (OSError, ValueError):  # Popen: missing exe or bad argv
-            trace("cell map: pywebview child launch FAILED:\n" + traceback.format_exc())
+            trace("cell map: viewer launch FAILED:\n" + traceback.format_exc())
             self._open_cell_map_browser()
 
     def open_html_in_app(self, path: str | Path, title: str) -> None:
@@ -5686,172 +5689,8 @@ def view_uri(target: str | Path) -> str:
     return str(target) if is_view_url(target) else Path(target).resolve().as_uri()
 
 
-def _apply_windows_icon_to_own_windows(icon_path: str, timeout: float = 8.0) -> None:
-    """Give every top-level window this *process* owns our program icon.
-
-    ``root.iconbitmap(default=...)`` covers every ``tk.Toplevel`` because
-    they all share the main process and its Tk interpreter. The pywebview
-    viewer does not: :func:`_run_pywebview_window` runs in a separate child
-    process (see ``_open_cell_map_pywebview``) so ``webview.start()`` can own
-    its own main thread, and that window is built by WinForms/WebView2, not
-    Tk, so nothing about ``root``'s icon reaches it. pywebview's own
-    ``icon=`` parameter is a documented no-op on Windows -- there it expects
-    the icon baked into the .exe at freeze time, which running from source
-    never gets.
-
-    ``WM_SETICON`` reaches the window directly instead. It is the same
-    message Explorer reads for the taskbar and title bar, and it works on
-    any Win32 window regardless of which toolkit built it -- the same
-    mechanism ``iconbitmap`` itself relies on internally. Matched by owning
-    process id rather than by window title, since a title like "View" or
-    "Cell Map" is not guaranteed unique on someone's desktop.
-
-    Windows-only; a no-op everywhere else. Runs in a background thread
-    (started just before ``webview.start()`` blocks the main thread with its
-    own GUI loop) and gives up quietly after ``timeout`` seconds if no
-    window ever appears -- a slow WebView2 start, or a backend that failed
-    before opening one.
-
-    Args:
-        icon_path: Path to the .ico file to apply.
-        timeout: Seconds to keep polling for the window before giving up.
-    """
-    if sys.platform != "win32":
-        return
-    try:
-        import ctypes as ct
-        from ctypes import wintypes
-    except ImportError:  # pragma: no cover - stdlib, but never worth a crash
-        return
-
-    # Win32 API constants: uppercase mirrors the names in <winuser.h> on purpose.
-    LR_LOADFROMFILE = 0x00000010  # noqa: N806
-    IMAGE_ICON = 1  # noqa: N806
-    WM_SETICON = 0x0080  # noqa: N806
-    ICON_SMALL = 0  # noqa: N806
-    ICON_BIG = 1  # noqa: N806
-
-    user32 = ct.windll.user32
-    try:
-        hicon_big = user32.LoadImageW(None, icon_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
-        hicon_small = user32.LoadImageW(None, icon_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
-    except OSError:
-        return
-    if not hicon_big and not hicon_small:
-        return
-
-    own_pid = ct.windll.kernel32.GetCurrentProcessId()
-    found: list[int] = []
-
-    @ct.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    def _collect(hwnd: int, _lparam: int) -> bool:
-        if user32.IsWindowVisible(hwnd):
-            pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ct.byref(pid))
-            if pid.value == own_pid:
-                found.append(hwnd)
-        return True
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline and not found:
-        try:
-            user32.EnumWindows(_collect, 0)
-        except OSError:
-            return
-        if not found:
-            time.sleep(0.2)
-
-    for hwnd in found:
-        if hicon_big:
-            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon_big)
-        if hicon_small:
-            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon_small)
-
-
-def _run_pywebview_window(path: str | Path, title: str = "Cell Map") -> None:
-    """Open one cell-map file or served page in an OS webview, blocking until closed.
-
-    Invoked in a child process (see _open_cell_map_pywebview) so webview.start() owns
-    its own main thread, cleanly, without disturbing the tkinter app. Always writes its
-    outcome to cell_map_viewer.log next to the app so a failed backend (e.g. pywebview's
-    WebView2/pythonnet backend on an unsupported Python) is visible instead of silently
-    falling back to the browser.
-    """
-    try:
-        logf = str(app_base_dir() / "cell_map_viewer.log")
-    except (OSError, RuntimeError):  # app_base_dir may fall back to Path.home()
-        logf = None
-
-    def _log(msg: str) -> None:
-        if not logf:
-            return
-        try:
-            from datetime import datetime as _dt
-
-            with Path(logf).open("a", encoding="utf-8") as fh:
-                # Local clock: read alongside the GUI's own log panel.
-                fh.write(f"{_dt.now():%Y-%m-%d %H:%M:%S}  {msg}\n")  # noqa: DTZ005
-        except OSError:  # appending to the viewer log
-            pass
-
-    try:
-        import webview
-
-        _log(f"pywebview {getattr(webview, '__version__', '?')}: opening {path}")
-        webview.create_window(title, view_uri(path), width=1050, height=760)
-
-        # A missing/unreadable icon is never worth losing the window over --
-        # kept out of the outer try so it can't be mistaken for a pywebview
-        # failure and send a perfectly good window to the browser fallback.
-        icon_path = None
-        try:
-            candidate = resource_path("wraithguard_toolkit_icon.ico")
-            if Path(candidate).exists():
-                icon_path = candidate
-        except Exception:  # noqa: BLE001
-            _log("pywebview: icon lookup failed:\n" + traceback.format_exc())
-        if icon_path:
-            # Windows: webview.start(icon=...) is a no-op there, so reach the
-            # window directly once it exists (see _apply_windows_icon_to_own_windows).
-            threading.Thread(
-                target=_apply_windows_icon_to_own_windows, args=(icon_path,), daemon=True
-            ).start()
-
-        try:
-            # GTK/QT (Linux, incl. Steam Deck desktop mode) DO honour this at
-            # runtime, unlike Windows -- see the FAQ note in
-            # _apply_windows_icon_to_own_windows. Caught broadly, not just
-            # TypeError: an older pywebview build might reject the kwarg
-            # outright, and a GTK backend might instead choke on the file
-            # itself -- either way the window still has to open.
-            webview.start(icon=icon_path)
-        except Exception:  # noqa: BLE001
-            _log(
-                "pywebview: start(icon=...) failed, retrying without one:\n"
-                + traceback.format_exc()
-            )
-            webview.start()
-        _log("pywebview: window closed cleanly")
-    except Exception:  # noqa: BLE001
-        # child-process main: logs the traceback, then falls back to the browser
-        import traceback as _tb
-
-        _log("pywebview FAILED -- falling back to browser:\n" + _tb.format_exc())
-        try:
-            webbrowser.open(view_uri(path))
-        except (OSError, ValueError, webbrowser.Error):  # as_uri on a relative path / no browser
-            pass
-
-
 def main() -> None:
     """Parse arguments and start the GUI."""
-    # Re-entry used by the pywebview viewer child process. Works whether we're run
-    # from source (python gui.py --show-map X) or frozen (App.exe --show-map X),
-    # because it never spawns "python -c" (a frozen exe is not a Python interpreter).
-    if len(sys.argv) >= 3 and sys.argv[1] == "--show-map":
-        # The title is optional so an older invocation still works.
-        _run_pywebview_window(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "Cell Map")
-        return
     import argparse
 
     ap = argparse.ArgumentParser(description="Wraithguard Toolkit (GUI)")

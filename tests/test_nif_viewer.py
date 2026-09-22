@@ -712,7 +712,10 @@ class TestGlowMaps:
         # The "white windows" fix: a bright emissive with no glow map must not blow
         # a textured face white; it is honoured only on an untextured, glow-less shape.
         page = build_viewer_page([("only", [TRIANGLE])])
-        assert "if (fromFile.emissive && !m.glow && !m.image) material.emissive = fromFile.emissive;" in page
+        assert (
+            "if (fromFile.emissive && !m.glow && !m.image) material.emissive = fromFile.emissive;"
+            in page
+        )
 
 
 class TestThePerShapeList:

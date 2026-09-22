@@ -1,0 +1,22 @@
+[package]
+name = "wraithguard-viewer"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal single-purpose webview shell: opens one native window pointed at a URL. Replaces pywebview as the child-process viewer spawned by wraithguard_toolkit_gui.py -- no Python interpreter involved, so it carries none of PyQt6/sip's free-threading limitations."
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[[bin]]
+name = "wraithguard-viewer"
+path = "src/main.rs"
+
+# Release builds: this ships inside the PyInstaller bundle, so keep it small.
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"

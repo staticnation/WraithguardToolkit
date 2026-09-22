@@ -212,7 +212,10 @@ class TestWorldPlacement:
         quarter = (0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
         parsed = read_nif_bytes(
             nif(
-                ("NiNode", av_body("root", translation=(10.0, 0.0, 0.0), rotation=quarter, children=(1,))),
+                (
+                    "NiNode",
+                    av_body("root", translation=(10.0, 0.0, 0.0), rotation=quarter, children=(1,)),
+                ),
                 ("NiTriShape", av_body("shape", tail=struct.pack("<ii", 2, -1))),
                 ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
             ),

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "wraithguard-viewer",
+  "version": "0.1.0",
+  "identifier": "dev.wraithguard.viewer",
+  "build": {
+    "frontendDist": "dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/wraithguard_toolkit_icon.ico"
+    ]
+  }
+}
