@@ -303,9 +303,9 @@ def _decompress(data: bytes) -> bytes:
         try:
             with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)) as reader:
                 return reader.read()
-        except Exception as exc:  # noqa: BLE001 - translate backend errors at our API boundary
+        except Exception as exc:
             raise EspJsonError("invalid zstd-compressed field data") from exc
-    except Exception as exc:  # noqa: BLE001 - translate backend errors at our API boundary
+    except Exception as exc:
         raise EspJsonError("invalid zstd-compressed field data") from exc
 
 
