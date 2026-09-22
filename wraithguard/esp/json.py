@@ -272,6 +272,8 @@ def _decompress(data: bytes) -> bytes:
     """
     if data[:4] != b"\x28\xb5\x2f\xfd":  # not a zstd magic -> stored raw
         return data
+
+    # Attempt Python 3.14+ standard library decompression first.
     try:
         from compression import zstd
         return zstd.decompress(data)
@@ -279,14 +281,15 @@ def _decompress(data: bytes) -> bytes:
         pass
 
     # Fall back to the third-party zstandard module,
-    # preserving the stream_reader workaround for tes3conv's sizeless frames.   
+    # preserving the stream_reader workaround for tes3conv's sizeless frames.
     try:
         import io
+
         import zstandard
 
         # tes3conv's frames omit the embedded content size, so the one-shot
         # ``decompress`` (which needs it) fails; the streaming reader does not.
-    with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)) as reader:
+        with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)) as reader:
             return reader.read()
     except ImportError as exc:
         raise EspJsonError(
