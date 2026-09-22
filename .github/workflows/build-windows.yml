@@ -74,8 +74,21 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # Free-threaded (GIL-free) Python 3.14 -- the `3.14t` build the app
+          # ships. PyInstaller freezes whichever interpreter runs it, so the
+          # bundled .exe is free-threaded too. Some wheels (PyQt6/QtWebEngine,
+          # pythonnet) may not yet publish a `cp314t` build and can fall back to a
+          # source build here; that is expected while the ecosystem catches up.
+          python-version: "3.14t"
+          allow-prereleases: true
           cache: pip
+
+      - name: Verify the free-threaded build
+        # Freeze the wrong interpreter and the shipped .exe silently keeps the
+        # GIL. Fail here, before the ~10-minute PyInstaller build, if so.
+        run: |
+          python --version
+          python -c "import sys; assert not sys._is_gil_enabled(), 'GIL is enabled -- not a free-threaded build'; print('free-threaded OK')"
 
       - name: Install build dependencies
         # ${{ matrix.pip }} is "pywebview" or "pywebview[qt]". The [qt] extra pulls
@@ -89,7 +102,7 @@ jobs:
         # without it, as the 20 MB build confirmed.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller "${{ matrix.pip }}" pythonnet==3.1.0 tkinterweb tkinterdnd2 PyYAML zstandard ijson certifi
+          python -m pip install pyinstaller "${{ matrix.pip }}" pythonnet==3.1.0 tkinterweb tkinterdnd2 PyYAML ijson certifi
 
       - name: Build the .exe
         # bash (present on Windows runners) keeps the multiline command readable;

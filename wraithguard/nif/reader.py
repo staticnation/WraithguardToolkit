@@ -356,7 +356,9 @@ def _printable(text: str, limit: int = 32) -> str:
     return f'"{escaped}{suffix}" ({len(text)} chars)'
 
 
-def read_nif_bytes(data: bytes, *, geometry: bool = False, retain: bool = False) -> NifFile:
+def read_nif_bytes(
+    data: bytes, *, geometry: bool = False, retain: bool = False, animation: bool = False
+) -> NifFile:
     """Parse a NIF from memory.
 
     Args:
@@ -368,6 +370,11 @@ def read_nif_bytes(data: bytes, *, geometry: bool = False, retain: bool = False)
         retain: Keep each block's body bytes and the file header, so
             :func:`write_nif` can reproduce the file exactly. Off by default,
             for the same reason as ``geometry``: the scan does not need them.
+        animation: Keep the *values* of each animation key group (keyframe
+            rotation/translation/scale, UV offset/tiling, visibility, colour)
+            as decoded companions, not just their counts. Off by default: only
+            a viewer that plays the animation needs them, and it is the same
+            trade as ``geometry``.
 
     Returns:
         What could be read, including where it stopped.
@@ -429,7 +436,7 @@ def read_nif_bytes(data: bytes, *, geometry: bool = False, retain: bool = False)
             )
         start = cursor.pos
         try:
-            fields = _read_block(cursor, layout, geometry=geometry)
+            fields = _read_block(cursor, layout, geometry=geometry, animation=animation)
         except NifMalformedError as exc:
             return NifFile(
                 version, block_count, blocks, type_name, str(exc), stopped_malformed=True
@@ -442,7 +449,9 @@ def read_nif_bytes(data: bytes, *, geometry: bool = False, retain: bool = False)
     return NifFile(version, block_count, blocks, header=header, footer=footer)
 
 
-def read_nif(path: str | Path, *, geometry: bool = False, retain: bool = False) -> NifFile:
+def read_nif(
+    path: str | Path, *, geometry: bool = False, retain: bool = False, animation: bool = False
+) -> NifFile:
     """Parse a NIF from disk.
 
     Args:
@@ -451,6 +460,7 @@ def read_nif(path: str | Path, *, geometry: bool = False, retain: bool = False) 
             :func:`read_nif_bytes`.
         retain: Keep the bytes :func:`write_nif` needs; see
             :func:`read_nif_bytes`.
+        animation: Keep the animation key values; see :func:`read_nif_bytes`.
 
     Returns:
         What could be read.
@@ -464,7 +474,7 @@ def read_nif(path: str | Path, *, geometry: bool = False, retain: bool = False) 
         data = _Path(path).read_bytes()
     except OSError as exc:
         raise NifParseError(f"cannot read {path}: {exc}") from exc
-    return read_nif_bytes(data, geometry=geometry, retain=retain)
+    return read_nif_bytes(data, geometry=geometry, retain=retain, animation=animation)
 
 
 def write_nif(nif_file: NifFile) -> bytes:
@@ -552,7 +562,7 @@ def field_spans(type_name: str, raw: bytes) -> dict[str, tuple[int, int]]:
 
 
 def _read_block(
-    cursor: _Cursor, layout: Sequence[Field], *, geometry: bool = False
+    cursor: _Cursor, layout: Sequence[Field], *, geometry: bool = False, animation: bool = False
 ) -> dict[str, Any]:
     """Read one block's fields in layout order.
 
@@ -561,6 +571,8 @@ def _read_block(
         layout: The block's field list.
         geometry: Also decode and keep the bulk data, for a caller that needs
             coordinates rather than counts. See :func:`_decode_retained`.
+        animation: Also decode and keep animation key values as companions.
+            See :func:`_decode_animation`.
 
     Returns:
         Field name to value.
@@ -582,6 +594,10 @@ def _read_block(
             extra = _decode_retained(kind, cursor.data, start, cursor.pos)
             if extra is not None:
                 fields[f"{name}{_RETAINED_SUFFIX[kind]}"] = extra
+        if animation and kind in _ANIMATION_SUFFIX:
+            fields[f"{name}{_ANIMATION_SUFFIX[kind]}"] = _decode_animation(
+                kind, cursor.data, start, cursor.pos, fields
+            )
     return fields
 
 
@@ -666,6 +682,200 @@ def _triples(data: bytes, start: int, count: int) -> list[tuple[float, float, fl
         return []
     flat = struct.unpack_from(f"<{count * 3}f", data, start)
     return [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat), 3)]
+
+
+#: Companion field suffix for each retained animation-key kind. Like
+#: :data:`_RETAINED_SUFFIX`, the count stays under the original name and the
+#: decoded values arrive under ``name + suffix`` -- so a report that already
+#: reads these blocks for their counts is untouched, and only a caller that
+#: asked for ``animation=True`` pays for (or sees) the values.
+_ANIMATION_SUFFIX: Final[dict[str, str]] = {
+    "float_key_group": "_values",
+    "vector_key_group": "_values",
+    "color_key_group": "_values",
+    "vis_key_array": "_values",
+    "keyframe_data": "_values",
+    "morph_array": "_values",
+}
+
+#: How many value floats ride behind the leading time in one key, by key-group
+#: kind. The interpolation mode changes the key's *width* (linear carries only
+#: the value, Bézier adds two tangents, TCB adds tension/continuity/bias) but
+#: never the value's position: it is always the floats right after the time.
+#: Widths are confirmed against es3 (MIT) -- ``NiFloatData``/``NiPosData``/
+#: ``NiRotData``/``NiColorData`` -- and match this reader's own skip tables.
+_KEY_VALUE_FLOATS: Final[dict[str, int]] = {
+    "float_key_group": 1,
+    "vector_key_group": 3,
+    "color_key_group": 4,
+}
+
+
+def _decode_key_group(
+    data: bytes, offset: int, widths: dict[int, int], value_floats: int
+) -> tuple[list[tuple[float, Any]], int]:
+    """Decode one ``count, mode, keys`` group, returning its keys and the new offset.
+
+    Args:
+        data: The whole file.
+        offset: Where the group's key count begins.
+        widths: Bytes per key by interpolation mode (the reader's own tables).
+        value_floats: How many value floats follow the time in each key (1 for a
+            scalar, 3 for a vector, 4 for a colour or quaternion).
+
+    Returns:
+        ``(keys, new_offset)``. Each key is ``(time, value)`` -- ``value`` a
+        float when ``value_floats`` is 1, else a tuple. An empty group (no keys)
+        returns ``([], offset + 4)``: the mode word is only present when there
+        are keys.
+    """
+    (count,) = struct.unpack_from("<I", data, offset)
+    offset += 4
+    if not count:
+        return [], offset
+    (mode,) = struct.unpack_from("<I", data, offset)
+    offset += 4
+    width = widths[int(mode)]
+    keys: list[tuple[float, Any]] = []
+    for i in range(count):
+        base = offset + i * width
+        floats = struct.unpack_from(f"<{1 + value_floats}f", data, base)
+        value: Any = floats[1] if value_floats == 1 else tuple(floats[1:])
+        keys.append((floats[0], value))
+    return keys, offset + count * width
+
+
+def _decode_keyframe(data: bytes, offset: int) -> dict[str, Any]:
+    """Decode a ``NiKeyframeData`` body: rotation, translation and scale keys.
+
+    Rotation is the branch that changes shape: mode 4 (EULER) stores an axis
+    order and three per-axis float groups instead of quaternion keys, so those
+    come back under ``euler`` with the order under ``euler_axis_order``. Every
+    quaternion key is ``(time, (w, x, y, z))`` -- the ``w``-first order es3's
+    ``NiRotData`` documents.
+
+    Args:
+        data: The whole file.
+        offset: Where the ``NiKeyframeData`` body begins.
+
+    Returns:
+        ``{"rotation": ..., "translation": [...], "scale": [...]}``. ``rotation``
+        is a list of quaternion keys, or a dict with ``euler_axis_order`` and
+        ``euler`` (three float-key lists) when the file used euler rotation.
+    """
+    rotation: Any = []
+    (rot_count,) = struct.unpack_from("<I", data, offset)
+    offset += 4
+    if rot_count:
+        (mode,) = struct.unpack_from("<I", data, offset)
+        offset += 4
+        if int(mode) == 4:  # euler: an axis-order int, then three float groups
+            (axis_order,) = struct.unpack_from("<i", data, offset)
+            offset += 4
+            euler: list[list[tuple[float, Any]]] = []
+            for _axis in range(3):
+                keys, offset = _decode_key_group(data, offset, _FLOAT_KEY_WIDTHS, 1)
+                euler.append(keys)
+            rotation = {"euler_axis_order": axis_order, "euler": euler}
+        else:
+            width = _QUAT_KEY_WIDTHS[int(mode)]
+            quats: list[tuple[float, Any]] = []
+            for i in range(rot_count):
+                base = offset + i * width
+                floats = struct.unpack_from("<5f", data, base)  # time, w, x, y, z
+                quats.append((floats[0], (floats[1], floats[2], floats[3], floats[4])))
+            rotation = quats
+            offset += rot_count * width
+    translation, offset = _decode_key_group(data, offset, _VECTOR_KEY_WIDTHS, 3)
+    scale, offset = _decode_key_group(data, offset, _FLOAT_KEY_WIDTHS, 1)
+    return {"rotation": rotation, "translation": translation, "scale": scale}
+
+
+def _decode_morphs(data: bytes, offset: int, num_morphs: int, num_vertices: int) -> list[dict]:
+    """Decode a ``NiMorphData`` morph table: each target's weights and vertices.
+
+    Unlike the generic key groups, a morph target's key group always writes its
+    interpolation word (even with zero keys), and each target is followed by a
+    *complete* vertex set of ``num_vertices`` positions. Target 0 is the base
+    pose; targets 1..N are the delta offsets a viewer blends by weight.
+
+    Args:
+        data: The whole file.
+        offset: Where the morph table begins.
+        num_morphs: How many targets.
+        num_vertices: Vertices per target.
+
+    Returns:
+        One dict per target: ``{"weights": [(time, weight), ...], "vertices":
+        [(x, y, z), ...]}``.
+    """
+    targets: list[dict] = []
+    for _ in range(max(0, num_morphs)):
+        (count,) = struct.unpack_from("<I", data, offset)
+        offset += 4
+        (mode,) = struct.unpack_from("<I", data, offset)  # always written here
+        offset += 4
+        weights: list[tuple[float, float]] = []
+        if count:
+            width = _FLOAT_KEY_WIDTHS[int(mode)]
+            for i in range(count):
+                time, weight = struct.unpack_from("<2f", data, offset + i * width)
+                weights.append((time, weight))
+            offset += count * width
+        flat = struct.unpack_from(f"<{num_vertices * 3}f", data, offset) if num_vertices else ()
+        vertices = [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat), 3)]
+        offset += num_vertices * 12
+        targets.append({"weights": weights, "vertices": vertices})
+    return targets
+
+
+def _decode_animation(
+    kind: str, data: bytes, start: int, end: int, fields: dict[str, Any]
+) -> Any:  # noqa: ANN401
+    """Decode an animation key group's *values* from the span it consumed.
+
+    Every animation kind is self-describing within its own span -- a key count,
+    then (when non-zero) an interpolation mode, then the keys -- which is what
+    lets this decode from ``[start, end)`` alone rather than re-reading the file.
+    The morph table is the exception: it needs the target and vertex counts read
+    earlier in the block, so ``fields`` is passed for it.
+
+    Args:
+        kind: The field kind (a key of :data:`_ANIMATION_SUFFIX`).
+        data: The whole file.
+        start: Where the field began.
+        end: Where it ended.
+        fields: The block's fields read so far (for ``morph_array``'s counts).
+
+    Returns:
+        For a key group, a list of ``(time, value)`` keys. For ``keyframe_data``,
+        the rotation/translation/scale dict. For ``vis_key_array``, a list of
+        ``(time, visible)`` pairs. For ``morph_array``, the target dicts.
+    """
+    if kind == "morph_array":
+        return _decode_morphs(
+            data,
+            start,
+            int(fields.get("num_morphs", 0) or 0),
+            int(fields.get("num_vertices", 0) or 0),
+        )
+    if kind == "keyframe_data":
+        return _decode_keyframe(data, start)
+    if kind == "vis_key_array":
+        (count,) = struct.unpack_from("<I", data, start)
+        keys: list[tuple[float, bool]] = []
+        for i in range(count):
+            base = start + 4 + i * 5  # float time + one visibility byte
+            (time,) = struct.unpack_from("<f", data, base)
+            keys.append((time, data[base + 4] != 0))
+        return keys
+    value_floats = _KEY_VALUE_FLOATS[kind]
+    widths = (
+        _COLOR_KEY_WIDTHS
+        if kind == "color_key_group"
+        else (_VECTOR_KEY_WIDTHS if kind == "vector_key_group" else _FLOAT_KEY_WIDTHS)
+    )
+    return _decode_key_group(data, start, widths, value_floats)[0]
 
 
 def _read_field(

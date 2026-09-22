@@ -23,6 +23,8 @@ game, not for editing it.
 from __future__ import annotations
 
 import itertools
+import os
+import sys
 import threading
 import time
 import traceback
@@ -37,7 +39,8 @@ from wraithguard.gui import app_base_dir
 from wraithguard.gui.theme import DARK, apply_titlebar_theme
 from wraithguard.gui.widgets import QueueWriter, RadioButton, ToggleSwitch
 from wraithguard.i18n import gettext as _
-from wraithguard.nif.geometry import world_meshes
+from wraithguard.nif.geometry import model_shapes
+from wraithguard.nif.kf import load_kf
 from wraithguard.nif.textures import TextureResolver
 from wraithguard.nif.vfs import MeshVfs
 from wraithguard.nif.viewer import build_cell_viewer_page, texture_bytes
@@ -62,6 +65,11 @@ if TYPE_CHECKING:
     from wraithguard.nif.geometry import Mesh
     from wraithguard.nif.textures import Resolved
     from wraithguard.viz.serve import ViewerServer
+
+#: Cache-miss sentinel, so a genuinely cached ``None`` (a model that would not
+#: parse) is told apart from a model not yet seen -- both of which a plain
+#: ``dict.get`` returns as ``None``.
+_MISS: object = object()
 
 #: OpenMW's binary content files -- the ones made of TES3 records. A load order
 #: also lists ``.omwscripts`` (a plain-text list of Lua scripts, not records),
@@ -112,6 +120,15 @@ class CellPreviewMixin:
     #: the merged ``meshes/`` index is built once and reused across previews so a
     #: mesh is a dict lookup, not a probe of every data folder.
     _cell_mesh_vfs_cache: tuple[tuple[str, ...], MeshVfs] | None = None
+
+    #: Parsed, world-space meshes per model, reused across cell previews of the
+    #: same load order: ``(dirs_key, {model -> meshes or None})``. Browsing cell
+    #: to cell re-places the same rocks, flora and architecture, and parsing a NIF
+    #: is pure-Python and the single largest cost of a build -- so the second cell
+    #: that uses a model takes it from here instead of re-reading and re-walking
+    #: it. Keyed by the folder set so a load-order change drops the stale entries;
+    #: the meshes are model-space and immutable, so sharing them is safe.
+    _cell_parsed_mesh_cache: tuple[tuple[str, ...], dict[str, list[Mesh] | None]] | None = None
 
     #: Parsed plugins, reused across previews and (via sidecars) across launches,
     #: so a repeat preview re-parses only files that changed. Built lazily.
@@ -466,14 +483,58 @@ class CellPreviewMixin:
                 mesh_vfs = self._cached_mesh_vfs(dir_paths)
                 print(f"  mesh index ready in {clock() - mark:.1f}s ({len(mesh_vfs)} meshes)")
 
+                # Parsed meshes persist across previews of the same load order.
+                # A change to the folder set (a new mesh_key) drops the cache, so
+                # a stale parse never survives a load-order edit.
+                cached_parses = self._cell_parsed_mesh_cache
+                if cached_parses is None or cached_parses[0] != mesh_key:
+                    cached_parses = (mesh_key, {})
+                    self._cell_parsed_mesh_cache = cached_parses
+                parsed_cache = cached_parses[1]
+                # The cache is read and written from the parse thread pool below,
+                # so it needs a lock. A parse may run twice for one model under a
+                # race (both threads miss, both parse) -- harmless: the result is
+                # identical and the second write just overwrites the first.
+                cache_lock = threading.Lock()
+
                 def load_mesh(model: str) -> list[Mesh] | None:
-                    """Resolve a model path through the merged mesh index."""
-                    parsed = mesh_vfs.read(f"meshes/{model}")
-                    return world_meshes(parsed) if parsed is not None else None
+                    """Resolve a model path, reusing an earlier preview's parse (thread-safe)."""
+                    with cache_lock:
+                        hit = parsed_cache.get(model, _MISS)
+                    if hit is not _MISS:
+                        return hit  # type: ignore[return-value]
+                    parsed = mesh_vfs.read(f"meshes/{model}", animation=True)
+                    # A sibling .kf holds external node animation (banners flap,
+                    # signs swing). Morrowind names it either after the mesh or
+                    # with an ``x`` prefix -- try both, and bind it by node name.
+                    kf_tracks: dict | None = None
+                    if parsed is not None:
+                        directory, _, base = model.rpartition("/")
+                        stem = base[:-4] if base.lower().endswith(".nif") else base
+                        prefix = f"meshes/{directory}/" if directory else "meshes/"
+                        for candidate in (f"{prefix}x{stem}.kf", f"{prefix}{stem}.kf"):
+                            kf_nif = mesh_vfs.read(candidate, animation=True)
+                            if kf_nif is not None:
+                                kf_tracks = load_kf(kf_nif) or None
+                                if kf_tracks:
+                                    break
+                    # Model space (local vertices + node_world), not baked: the
+                    # viewer folds node_world into each instance matrix, which is
+                    # what lets a node animate. See UNBAKE_MIGRATION.md.
+                    meshes = model_shapes(parsed, kf_tracks) if parsed is not None else None
+                    with cache_lock:
+                        parsed_cache[model] = meshes
+                    return meshes
+
+                # Parse the cell's unique models in parallel -- but only when the
+                # interpreter is free-threaded (PEP 703). Under the GIL, threads
+                # just add overhead to CPU-bound parsing, so stay serial.
+                free_threaded = not getattr(sys, "_is_gil_enabled", lambda: True)()
+                workers = (os.cpu_count() or 1) if free_threaded else 1
 
                 mark = clock()
                 placements, audit, cell = preview_cell_instanced(
-                    plugins, key, load_mesh, include_adjacent=adjacent
+                    plugins, key, load_mesh, include_adjacent=adjacent, workers=workers
                 )
                 print(f"  resolved cell in {clock() - mark:.1f}s")
                 self._print_audit(audit, cell, len(placements))
@@ -496,6 +557,7 @@ class CellPreviewMixin:
                 ref_ids = [group.ref_ids for group in cell.groups]
                 record_types = [group.record_type for group in cell.groups]
                 adjacent_flags = [group.adjacent for group in cell.groups]
+                skirt_alone_flags = [group.skirt_alone for group in cell.groups]
                 # The audit numbers, for the viewer's cell-info panel (the same
                 # figures the log prints, but shown in the page's side panel).
                 cell_info = {
@@ -591,6 +653,7 @@ class CellPreviewMixin:
                         ref_ids=ref_ids,
                         record_types=record_types,
                         adjacent_flags=adjacent_flags,
+                        skirt_alone_flags=skirt_alone_flags,
                         sky_texture_url=sky_url,
                         sky_textures=sky_textures,
                         star_texture_url=star_url,
@@ -614,6 +677,7 @@ class CellPreviewMixin:
                         ref_ids=ref_ids,
                         record_types=record_types,
                         adjacent_flags=adjacent_flags,
+                        skirt_alone_flags=skirt_alone_flags,
                         cell_info=cell_info,
                         object_info=object_info,
                     )

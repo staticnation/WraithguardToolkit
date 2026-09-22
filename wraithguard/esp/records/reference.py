@@ -82,7 +82,7 @@ class Reference:
                 self.owner_faction = reader.string()
             elif tag == b"INDX":
                 expect_size(reader, "REFR", "INDX", 4)
-                self.owner_faction_rank = reader.u32()
+                self.owner_faction_rank = reader.i32()  # signed: -1 means "no set rank"
             elif tag == b"XSOL":
                 self.soul = reader.string()
             elif tag == b"XCHG":
@@ -144,7 +144,7 @@ class Reference:
         _put_opt(writer, b"ANAM", self.owner)
         _put_opt(writer, b"BNAM", self.owner_global)
         _put_opt(writer, b"CNAM", self.owner_faction)
-        _put_opt_u32(writer, b"INDX", self.owner_faction_rank)
+        _put_opt_i32(writer, b"INDX", self.owner_faction_rank)
         _put_opt(writer, b"XSOL", self.soul)
         _put_opt_u32(writer, b"XCHG", self.charge_left)
         _put_opt_i32(writer, b"INTV", self.health_left)

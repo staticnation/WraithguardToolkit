@@ -239,6 +239,7 @@ from wraithguard.gui.conflicts import ConflictWindowsMixin  # noqa: E402
 from wraithguard.gui.journalview import JournalViewMixin  # noqa: E402
 from wraithguard.gui.patchwin import PatchBuilderMixin  # noqa: E402
 from wraithguard.gui.pluginview import PluginViewMixin  # noqa: E402
+from wraithguard.gui.removemaster import RemoveMasterMixin  # noqa: E402
 from wraithguard.gui.t3 import Tes3cmdMixin  # noqa: E402
 from wraithguard.gui.theme import (  # noqa: E402
     _THEME_REQUIRED,
@@ -972,6 +973,7 @@ _LEAD_PAD = (0, 6)  # identical on all four so the divider lands at the same x
 
 class App(
     Tes3cmdMixin,
+    RemoveMasterMixin,
     ConflictWindowsMixin,
     JournalViewMixin,
     PatchBuilderMixin,
@@ -2202,13 +2204,22 @@ class App(
             "Modifying commands keep backups. (No multipatch: OpenMW setups use "
             "delta-plugin for merged lists.)",
         )
+        self.remove_master_button = _action_button(
+            row2,
+            "Remove Master",
+            self.on_remove_master_window,
+            "Strip a master from a plugin's header (references into it are dropped, later "
+            "master indices shift). The fix for a plugin OpenMW won't load because it "
+            "lists a master that's been renamed, merged into another file, or replaced by "
+            "loose files / a pluginless version. Keeps a one-time .premaster.bak.",
+        )
         self.backups_button = _action_button(
             row2,
             "Backups",
             self.on_backups,
             "List every backup left behind by this tool, tes3cmd and the Configurator "
-            "(.preclean.bak, .masterfix.bak, name~1.esp, timestamped .bak / .backup "
-            "copies) across the data folders, with restore/delete.",
+            "(.preclean.bak, .masterfix.bak, .premaster.bak, name~1.esp, timestamped "
+            ".bak / .backup copies) across the data folders, with restore/delete.",
         )
 
     def _build_log(self, log_container: tk.Misc) -> None:
@@ -4061,6 +4072,16 @@ class App(
         # is inherited by the child's FIRST window, which would hide the WebView2
         # cell-map window itself (it spawns but never shows). That was the bug.
         nw = {"creationflags": 0x08000000} if os.name == "nt" else {}
+        # pywebview's OS-webview backends -- pythonnet/clr (Edge WebView2) on
+        # Windows, Qt WebEngine on Linux -- are not free-threading-safe yet, and
+        # crash or misbehave under a GIL-free interpreter. This child process is
+        # the only one that touches them, so re-enable the GIL *for it alone* with
+        # PYTHON_GIL=1 (supported by the free-threaded build); the main app keeps
+        # running GIL-free. A no-op on a GIL build, so it is set only when this
+        # process is actually free-threaded.
+        child_env = dict(os.environ)
+        if not getattr(sys, "_is_gil_enabled", lambda: True)():
+            child_env["PYTHON_GIL"] = "1"
         try:
             if getattr(sys, "frozen", False):
                 cmd = [sys.executable, "--show-map", ap, title]
@@ -4073,7 +4094,7 @@ class App(
                     title,
                 ]
             trace(f"cell map: launching pywebview child: {cmd}")
-            subprocess.Popen(cmd, **nw)  # type: ignore[call-overload]
+            subprocess.Popen(cmd, env=child_env, **nw)  # type: ignore[call-overload]
         except (OSError, ValueError):  # Popen: missing exe or bad argv
             trace("cell map: pywebview child launch FAILED:\n" + traceback.format_exc())
             self._open_cell_map_browser()
@@ -5488,11 +5509,20 @@ class App(
             "tes3cmd's own sync writes empty sizes on OpenMW multi-folder setups)",
         ),
         ("header", "header -- show author / description / masters (read-only)"),
+        (
+            "custom",
+            "custom -- run any tes3cmd command (type it in 'command', e.g. "
+            "'dump --type CELL' or 'fixcells'); runs in a staged Data Files with "
+            "the plugin's masters so tes3cmd sees the full VFS; the plugin is "
+            "appended; a modifying command's changes are copied back with a backup",
+        ),
         # NO multipatch: it needs the ENTIRE load order in one flat Data Files
         # dir, which can't be faked safely for a multi-GB OpenMW setup -- and
         # OpenMW/MOMW users get merged leveled lists from delta-plugin instead.
     )
-    T3_MODIFIES: ClassVar[set[str]] = {"clean", "sync"}
+    # "custom" may or may not modify (the user's command decides), so it is treated
+    # as modifying: it confirms first and copies back only when bytes changed.
+    T3_MODIFIES: ClassVar[set[str]] = {"clean", "sync", "custom"}
     # NEVER cleaned, no exceptions: cleaning the vanilla masters -- even a
     # careful GMST-preserving clean -- rewrites record bytes that other
     # content depends on byte-for-byte, and causes in-game failures.

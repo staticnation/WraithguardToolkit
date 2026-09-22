@@ -230,12 +230,15 @@ class MeshVfs:
         """How many distinct mesh paths are indexed."""
         return len(self._index)
 
-    def read(self, vfs_path: str, *, geometry: bool = True) -> NifFile | None:
+    def read(
+        self, vfs_path: str, *, geometry: bool = True, animation: bool = False
+    ) -> NifFile | None:
         """Read the winning mesh for ``vfs_path``, or ``None`` if unresolved.
 
         Args:
             vfs_path: A ``meshes/...`` path, any case or separator.
             geometry: Keep vertices and triangles (on for a viewer).
+            animation: Keep animation key values (for a viewer that plays them).
 
         Returns:
             The parsed NIF, or ``None`` when no folder provides it or its bytes
@@ -246,15 +249,21 @@ class MeshVfs:
             return None
         try:
             if isinstance(source, Path):
-                return read_nif(source, geometry=geometry)
+                return read_nif(source, geometry=geometry, animation=animation)
             data = source.read(normalise(vfs_path))
-            return read_nif_bytes(data, geometry=geometry) if data is not None else None
+            return (
+                read_nif_bytes(data, geometry=geometry, animation=animation)
+                if data is not None
+                else None
+            )
         except (OSError, NifParseError, BsaError) as exc:
             LOG.debug("cannot read %s: %s", vfs_path, exc)
             return None
 
 
-def read_mesh(folder: Path, path: str, *, geometry: bool = True) -> NifFile:
+def read_mesh(
+    folder: Path, path: str, *, geometry: bool = True, animation: bool = False
+) -> NifFile:
     """Read one mesh from a data folder, loose or archived.
 
     Args:
@@ -262,6 +271,8 @@ def read_mesh(folder: Path, path: str, *, geometry: bool = True) -> NifFile:
         path: The mesh's path within that folder, with either separator and in
             any case.
         geometry: Keep vertices and triangles. On for a viewer, off for a scan.
+        animation: Keep animation key values (for a viewer that plays them). Off
+            by default; see :func:`wraithguard.nif.reader.read_nif_bytes`.
 
     Returns:
         The parsed NIF.
@@ -274,13 +285,13 @@ def read_mesh(folder: Path, path: str, *, geometry: bool = True) -> NifFile:
     """
     loose = folder / path
     if loose.is_file():
-        return read_nif(loose, geometry=geometry)
+        return read_nif(loose, geometry=geometry, animation=animation)
 
     wanted = normalise(path)
 
     matched = loose_index(folder).get(wanted)
     if matched is not None:
-        return read_nif(matched, geometry=geometry)
+        return read_nif(matched, geometry=geometry, animation=animation)
 
     for archive in archives_in(folder):
         try:
@@ -289,7 +300,7 @@ def read_mesh(folder: Path, path: str, *, geometry: bool = True) -> NifFile:
             LOG.warning("cannot read %s from %s: %s", path, archive.path.name, exc)
             continue
         if data is not None:
-            return read_nif_bytes(data, geometry=geometry)
+            return read_nif_bytes(data, geometry=geometry, animation=animation)
 
     raise OSError(
         f"{path} is not in {folder} nor in any .bsa there. If the mod was "

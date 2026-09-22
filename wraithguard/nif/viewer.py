@@ -54,7 +54,14 @@ from wraithguard.viz.library import EXTRA_SLOTS_JS
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from wraithguard.nif.geometry import Mesh, TreeNode
+    from wraithguard.nif.geometry import (
+        Mesh,
+        MorphAnimation,
+        Transform,
+        TransformAnimation,
+        TreeNode,
+        UVAnimation,
+    )
     from wraithguard.nif.textures import Resolved, TextureResolver
 
 LOG = get_logger(__name__)
@@ -263,7 +270,9 @@ def _mesh_payload(
     decoded: dict[str, dict[str, str] | None] = cache if cache is not None else {}
     payload: list[dict[str, object]] = []
     for mesh in meshes:
-        if not mesh.triangles:
+        # A particle cloud has no triangles but is still drawn (as points); a
+        # surface with no triangles is nothing to draw.
+        if not mesh.triangles and not mesh.points:
             continue
         positions: list[float] = []
         for vertex in mesh.vertices:
@@ -405,9 +414,130 @@ def _mesh_payload(
                 "alphaThreshold": mesh.alpha_threshold,
                 "vertexCount": len(mesh.vertices),
                 "triangleCount": len(mesh.triangles),
+                # A scrolling/scaling texture animation, or None. Each channel is
+                # a list of [time, value] keys; the page slides the material's UV
+                # offset and tiling from these on its clock.
+                "uvAnim": _uv_anim_payload(mesh.uv_anim),
+                # A node keyframe animation (sway/spin/slide), or None. Carries
+                # the parent/rest matrices and the rotation/translation/scale
+                # keys; the page applies the delta as a per-frame matrix.
+                "transformAnim": _transform_anim_payload(mesh.transform_anim),
+                # A visibility animation (blink on/off), or None: [[time, 0|1], ...].
+                "visAnim": (
+                    [[time, int(visible)] for time, visible in mesh.vis_anim]
+                    if mesh.vis_anim
+                    else None
+                ),
+                # The shape's node transform as a 4x4, folded by the page into the
+                # instance matrix. Identity on a baked mesh (the transform is in
+                # the vertices already), so this changes nothing there.
+                "nodeWorld": _mat4_cols(mesh.node_world),
+                # A vertex-morph animation (cloth ripple), or None. The page
+                # blends the delta targets over the base each frame on the CPU.
+                "morphAnim": _morph_anim_payload(mesh.morph_anim),
+                # A particle cloud (mist, glowbugs): drawn as points, not a
+                # surface, and drifted on the clock.
+                "points": mesh.points,
             }
         )
     return payload
+
+
+def _morph_anim_payload(morph_anim: MorphAnimation | None) -> dict[str, object] | None:
+    """Serialise a :class:`~wraithguard.nif.geometry.MorphAnimation` for the page.
+
+    Args:
+        morph_anim: The shape's vertex-morph animation, or ``None``.
+
+    Returns:
+        A dict of ``targets`` (each ``{"weights": [[t, w], ...], "deltas":
+        [dx, dy, dz, ...]}`` -- deltas flattened to match the position buffer's
+        layout), or ``None``. Morph meshes are low-poly cloth, so plain JSON is
+        small enough and avoids the async buffer plumbing.
+    """
+    if morph_anim is None:
+        return None
+    return {
+        "targets": [
+            {
+                "weights": [[time, weight] for time, weight in target.weights],
+                "deltas": [component for delta in target.deltas for component in delta],
+            }
+            for target in morph_anim.targets
+        ]
+    }
+
+
+def _mat4_cols(transform: Transform) -> list[float]:
+    """A :class:`~wraithguard.nif.geometry.Transform` as a column-major 4x4.
+
+    The 16 floats a ``THREE.Matrix4`` reads: rotation scaled into the upper-left
+    3x3, translation in the last column, laid out column by column. Local to the
+    viewer (rather than importing the scene layer's twin) so ``nif`` does not
+    depend on ``scene``.
+
+    Args:
+        transform: The transform to lay out.
+
+    Returns:
+        Sixteen floats, column-major.
+    """
+    r = transform.rotation
+    s = transform.scale
+    tx, ty, tz = transform.translation
+    return [
+        r[0][0] * s, r[1][0] * s, r[2][0] * s, 0.0,
+        r[0][1] * s, r[1][1] * s, r[2][1] * s, 0.0,
+        r[0][2] * s, r[1][2] * s, r[2][2] * s, 0.0,
+        tx, ty, tz, 1.0,
+    ]  # fmt: skip
+
+
+def _transform_anim_payload(anim: TransformAnimation | None) -> dict[str, object] | None:
+    """Serialise a :class:`~wraithguard.nif.geometry.TransformAnimation` for the page.
+
+    Args:
+        anim: The node keyframe animation, or ``None``.
+
+    Returns:
+        A dict with the ``parent``/``rest`` matrices and the ``rotation``
+        (``[t, w, x, y, z]``), ``translation`` (``[t, x, y, z]``) and ``scale``
+        (``[t, v]``) key lists, or ``None`` when there is no animation. Empty key
+        lists are kept so the page can fall back to the rest value per channel.
+    """
+    if anim is None:
+        return None
+    return {
+        "parent": _mat4_cols(anim.parent),
+        "rest": _mat4_cols(anim.rest),
+        "rotation": [[time, w, x, y, z] for time, (w, x, y, z) in anim.rotation],
+        "translation": [[time, x, y, z] for time, (x, y, z) in anim.translation],
+        "scale": [[time, value] for time, value in anim.scale],
+    }
+
+
+def _uv_anim_payload(uv_anim: UVAnimation | None) -> dict[str, list[list[float]]] | None:
+    """Serialise a :class:`~wraithguard.nif.geometry.UVAnimation` for the page.
+
+    Args:
+        uv_anim: The shape's UV animation, or ``None``.
+
+    Returns:
+        A dict of the four channels (each ``[[time, value], ...]``), or ``None``
+        when there is no animation. Only non-empty channels are included, so the
+        payload stays small for the common single-channel scroll.
+    """
+    if uv_anim is None:
+        return None
+    channels = {
+        "uOffset": uv_anim.u_offset,
+        "vOffset": uv_anim.v_offset,
+        "uTiling": uv_anim.u_tiling,
+        "vTiling": uv_anim.v_tiling,
+    }
+    return {
+        name: [[time, value] for time, value in keys] for name, keys in channels.items() if keys
+    }
 
 
 #: The single-blob texture slots on a mesh payload (``decals`` is a list and
@@ -559,6 +689,7 @@ def build_cell_viewer_page(
     ref_ids: list[list[str]] | None = None,
     record_types: list[str] | None = None,
     adjacent_flags: list[bool] | None = None,
+    skirt_alone_flags: list[bool] | None = None,
     sky_texture_url: str = "",
     sky_textures: Mapping[str, str] | None = None,
     star_texture_url: str = "",
@@ -603,6 +734,10 @@ def build_cell_viewer_page(
             than the picked one, one per group. When any are set, the viewer
             offers an "Adjacent cells" toggle that shows or hides them together;
             they start hidden so the opening view is the picked cell alone.
+        skirt_alone_flags: Whether each group is the picked cell's lone-cell skirt,
+            one per group. The viewer shows these only while neighbours are hidden,
+            so the plinth wraps the single cell then and the block-perimeter skirt
+            (an ``adjacent`` group) takes over when neighbours are shown.
         sky_texture_url: A Morrowind sky texture for the water to reflect and the
             scene to sit against, or ``""`` for a plain gradient sky. Only used
             when the cell has water to reflect it.
@@ -630,6 +765,7 @@ def build_cell_viewer_page(
     per_group_ids = ref_ids or []
     per_group_types = record_types or []
     per_group_adjacent = adjacent_flags or []
+    per_group_skirt_alone = skirt_alone_flags or []
     shared_textures: dict[str, dict[str, str] | None] = {}
     meshes: list[dict[str, object]] = []
     for index, (base_meshes, matrices) in enumerate(groups):
@@ -648,6 +784,9 @@ def build_cell_viewer_page(
         group_ids = per_group_ids[index] if index < len(per_group_ids) else None
         group_type = per_group_types[index] if index < len(per_group_types) else ""
         is_adjacent = per_group_adjacent[index] if index < len(per_group_adjacent) else False
+        is_skirt_alone = (
+            per_group_skirt_alone[index] if index < len(per_group_skirt_alone) else False
+        )
         for entry in entries:
             entry["instances"] = instances
             entry["instanceCount"] = count
@@ -659,6 +798,8 @@ def build_cell_viewer_page(
                 entry["focus"] = True
             if is_adjacent:
                 entry["adjacent"] = True
+            if is_skirt_alone:
+                entry["skirtAlone"] = True
         meshes.extend(entries)
     # White, not a side colour: the coloured sides exist to tell two compared
     # meshes apart, but a cell is one scene, and that tint multiplies into every
@@ -1096,12 +1237,20 @@ __LIBRARY_BLOCK__
     // in the picker, so it is visible from the off, with a toggle to hide it.
     var adjacentOn = true;
     function applyVisibility() {
+      // Neighbours are "on screen" only when some exist and the toggle is on. The
+      // lone-cell skirt (the picked cell's full plinth) shows exactly when they are
+      // not, handing the outer edge over to the block-perimeter skirt when they are.
+      var adjacentActive = anyAdjacent && adjacentOn;
       scene.traverse(function (o) {
         if (!o.isMesh) return;
         var typeOk = typeStates[o.userData.recordType || ""] !== false;
         var colOk = !o.userData.collision || collisionOn;
         var adjOk = !o.userData.adjacent || adjacentOn;
-        o.visible = typeOk && colOk && adjOk;
+        var skirtOk = !o.userData.skirtAlone || !adjacentActive;
+        // A visibility animation blinks the shape off for stretches; it composes
+        // with the toggles rather than overriding them (a hidden type stays hidden).
+        var visOk = o.userData.visHidden !== true;
+        o.visible = typeOk && colOk && adjOk && skirtOk && visOk;
       });
       // What the water refracts changed, so its cached target is stale.
       viewDirty = true;
@@ -1300,6 +1449,242 @@ __EXTRA_SLOTS__
     // water, which then stays on-demand and skips the extra render pass.
     var waterMaterials = [];
     var waterMeshes = [];
+    // Whether clock-driven animation (water, UV, sway, blink, morph) plays. A
+    // "Play" checkbox drives it; the loop keeps its rAF alive while paused so it
+    // can resume. animLoopStarted guards against starting the loop twice.
+    var animateOn = true;
+    var animLoopStarted = false;
+    // Textures that scroll or scale on the clock (a NIF NiUVController): each
+    // entry is {tex, anim} where anim carries the offset/tiling key channels.
+    // Non-empty here (like waterMaterials) is what keeps the animation loop
+    // running for a scene that has no water.
+    var uvAnimated = [];
+    // Advance a UV animation channel's [[t, v], ...] keys to time ``t`` seconds,
+    // looping over the channel's own span. Linear between keys, clamped to the
+    // ends; returns ``dflt`` when the channel has no keys.
+    function sampleUvKeys(keys, t, dflt) {
+      if (!keys || !keys.length) return dflt;
+      if (keys.length === 1) return keys[0][1];
+      var span = keys[keys.length - 1][0];
+      var localT = span > 0 ? (t % span) : 0;
+      for (var i = 1; i < keys.length; i++) {
+        if (localT <= keys[i][0]) {
+          var a = keys[i - 1], b = keys[i];
+          var dt = b[0] - a[0];
+          var f = dt > 0 ? (localT - a[0]) / dt : 0;
+          return a[1] + (b[1] - a[1]) * f;
+        }
+      }
+      return keys[keys.length - 1][1];
+    }
+    // Set every scrolling texture's offset/repeat for time ``seconds``.
+    function advanceUvAnimations(seconds) {
+      for (var i = 0; i < uvAnimated.length; i++) {
+        var a = uvAnimated[i].anim, tex = uvAnimated[i].tex;
+        // NIF V grows downward but the UVs were flipped to (u, 1 - v) on load,
+        // so a positive V scroll in the file is a negative offset here.
+        tex.offset.set(
+          sampleUvKeys(a.uOffset, seconds, 0),
+          -sampleUvKeys(a.vOffset, seconds, 0));
+        tex.repeat.set(
+          sampleUvKeys(a.uTiling, seconds, 1),
+          sampleUvKeys(a.vTiling, seconds, 1));
+      }
+    }
+
+    // Meshes that blink on and off on the clock (a NIF NiVisController). Each
+    // entry is {obj, keys}; the loop sets obj.userData.visHidden and re-applies
+    // the visibility toggles so the blink composes with them rather than fighting.
+    var visAnimated = [];
+    // The visibility of a key list [[t, 0|1], ...] at time t: the last key at or
+    // before t (a step, not a ramp), looping over the list's own span.
+    function visibleAtKeys(keys, t) {
+      if (!keys || !keys.length) return true;
+      var span = keys[keys.length - 1][0];
+      var lt = span > 0 ? (t % span) : 0;
+      var vis = keys[0][1];
+      for (var i = 0; i < keys.length; i++) {
+        if (keys[i][0] <= lt) vis = keys[i][1]; else break;
+      }
+      return vis !== 0;
+    }
+    function advanceVisAnimations(t) {
+      for (var i = 0; i < visAnimated.length; i++) {
+        visAnimated[i].obj.userData.visHidden = !visibleAtKeys(visAnimated[i].keys, t);
+      }
+      if (visAnimated.length) applyVisibility();  // recompose with the toggles
+    }
+
+    // Cloth that ripples by vertex morph (a NIF NiGeomMorpherController). Each
+    // entry is {posAttr, base, targets}: the base pose kept pristine, the live
+    // position attribute rewritten each frame as base + sum(weight_t * delta_t).
+    var morphAnimated = [];
+    // A morph weight track [[t, w], ...] at time t, looping over its own span.
+    function sampleMorphWeight(keys, t) {
+      if (!keys || !keys.length) return 0;
+      if (keys.length === 1) return keys[0][1];
+      var span = keys[keys.length - 1][0];
+      var lt = span > 0 ? (t % span) : 0;
+      for (var i = 1; i < keys.length; i++) {
+        if (lt <= keys[i][0]) {
+          var a = keys[i - 1], b = keys[i], dt = b[0] - a[0], f = dt > 0 ? (lt - a[0]) / dt : 0;
+          return a[1] + (b[1] - a[1]) * f;
+        }
+      }
+      return keys[keys.length - 1][1];
+    }
+    function advanceMorphAnimations(t) {
+      for (var e = 0; e < morphAnimated.length; e++) {
+        var m = morphAnimated[e], arr = m.posAttr.array, base = m.base, n = base.length;
+        for (var i = 0; i < n; i++) arr[i] = base[i];  // start from the base pose
+        for (var ti = 0; ti < m.targets.length; ti++) {
+          var w = sampleMorphWeight(m.targets[ti].weights, t);
+          if (w === 0) continue;
+          var d = m.targets[ti].deltas;
+          for (var j = 0; j < n; j++) arr[j] += w * d[j];  // base + weight * delta
+        }
+        m.posAttr.needsUpdate = true;
+      }
+    }
+
+    // Particle clouds (mist, glowbugs) that drift on the clock. Each entry is
+    // {attr, base}: the point positions rewritten each frame as a slow swirl
+    // around the emitter's own particle positions.
+    var pointsAnimated = [];
+    function advancePointsAnimations(t) {
+      for (var e = 0; e < pointsAnimated.length; e++) {
+        var p = pointsAnimated[e], arr = p.attr.array, base = p.base, n = base.length;
+        for (var i = 0; i < n; i += 3) {
+          var bx = base[i], by = base[i + 1], bz = base[i + 2];
+          // A gentle, per-particle swirl -- amplitudes in game units, phases from
+          // the particle's own position so neighbours do not move in lockstep.
+          arr[i] = bx + 10.0 * Math.sin(t * 0.5 + by * 0.03);
+          arr[i + 1] = by + 7.0 * Math.sin(t * 0.7 + bx * 0.03);
+          arr[i + 2] = bz + 10.0 * Math.cos(t * 0.5 + bx * 0.03);
+        }
+        p.attr.needsUpdate = true;
+      }
+    }
+
+    // Nodes that sway/spin/slide on the clock (a NIF NiKeyframeController). Each
+    // entry precomputes the fixed parts of its delta; ``base`` (an instanced
+    // group's per-instance matrices) is set for a group, absent for a lone mesh.
+    var xformAnimated = [];
+    var _xfL = new THREE.Matrix4();     // the animated local transform L(t)
+    var _xfDelta = new THREE.Matrix4(); // parent * L(t) * (parent * rest)^-1
+    var _xfIm = new THREE.Matrix4();    // one instance's base matrix
+    var _xfOut = new THREE.Matrix4();   // base * delta for that instance
+    var _xfPos = new THREE.Vector3(), _xfScl = new THREE.Vector3();
+    var _xfQ = new THREE.Quaternion();
+    // Linearly interpolate a vec3 key list [[t,x,y,z],...] to time t (looping
+    // over its own span), into ``out``; ``rest`` when the channel has no keys.
+    function sampleVec3(keys, t, rest, out) {
+      if (!keys || !keys.length) return out.copy(rest);
+      var span = keys[keys.length - 1][0];
+      var lt = span > 0 ? (t % span) : 0;
+      for (var i = 1; i < keys.length; i++) {
+        if (lt <= keys[i][0]) {
+          var a = keys[i - 1], b = keys[i], dt = b[0] - a[0], f = dt > 0 ? (lt - a[0]) / dt : 0;
+          return out.set(
+            a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[3] + (b[3] - a[3]) * f);
+        }
+      }
+      var last = keys[keys.length - 1];
+      return out.set(last[1], last[2], last[3]);
+    }
+    // Slerp a quaternion key list [[t,w,x,y,z],...] (NIF w-first order) to time t,
+    // into ``out``; ``rest`` when the channel has no keys.
+    function sampleQuat(keys, t, rest, out) {
+      if (!keys || !keys.length) return out.copy(rest);
+      var span = keys[keys.length - 1][0];
+      var lt = span > 0 ? (t % span) : 0;
+      function set(o, k) { return o.set(k[2], k[3], k[4], k[1]); }  // NIF (w,x,y,z) -> THREE (x,y,z,w)
+      for (var i = 1; i < keys.length; i++) {
+        if (lt <= keys[i][0]) {
+          var a = keys[i - 1], b = keys[i], dt = b[0] - a[0], f = dt > 0 ? (lt - a[0]) / dt : 0;
+          set(out, a);
+          var qb = set(_xfQ, b);
+          return out.slerp(qb, f);
+        }
+      }
+      return set(out, keys[keys.length - 1]);
+    }
+    function sampleScalar(keys, t, rest) {
+      if (!keys || !keys.length) return rest;
+      var span = keys[keys.length - 1][0];
+      var lt = span > 0 ? (t % span) : 0;
+      for (var i = 1; i < keys.length; i++) {
+        if (lt <= keys[i][0]) {
+          var a = keys[i - 1], b = keys[i], dt = b[0] - a[0], f = dt > 0 ? (lt - a[0]) / dt : 0;
+          return a[1] + (b[1] - a[1]) * f;
+        }
+      }
+      return keys[keys.length - 1][1];
+    }
+    // Set every animated node's matrix (or its group's instance matrices) for t.
+    function advanceXformAnimations(seconds) {
+      for (var i = 0; i < xformAnimated.length; i++) {
+        var e = xformAnimated[i], a = e.anim;
+        sampleVec3(a.translation, seconds, e.restP, _xfPos);
+        sampleQuat(a.rotation, seconds, e.restQ, _xfQ);
+        var s = sampleScalar(a.scale, seconds, e.restS);
+        _xfScl.set(s, s, s);
+        _xfL.compose(_xfPos, _xfQ, _xfScl);
+        _xfDelta.multiplyMatrices(e.parentM, _xfL).multiply(e.invParentRest);
+        // Fold the shape's node transform in: the delta acts on model-space
+        // vertices, so the frame matrix is delta(t) * nodeWorld. Identity (and a
+        // no-op) for a baked mesh.
+        if (e.nodeWorld) _xfDelta.multiply(e.nodeWorld);
+        if (e.base) {
+          for (var k = 0; k < e.obj.count; k++) {
+            _xfIm.fromArray(e.base, k * 16);
+            _xfOut.multiplyMatrices(_xfIm, _xfDelta);
+            e.obj.setMatrixAt(k, _xfOut);
+          }
+          e.obj.instanceMatrix.needsUpdate = true;
+        } else {
+          e.obj.matrix.copy(_xfDelta);
+        }
+      }
+    }
+    // Register a drawn mesh's node animation, precomputing its fixed matrices.
+    function registerXformAnim(drawn, spec) {
+      var pM = new THREE.Matrix4().fromArray(spec.parent);
+      var rM = new THREE.Matrix4().fromArray(spec.rest);
+      var invPR = new THREE.Matrix4().multiplyMatrices(pM, rM).invert();
+      var rP = new THREE.Vector3(), rQ = new THREE.Quaternion(), rS = new THREE.Vector3();
+      rM.decompose(rP, rQ, rS);
+      var entry = {obj: drawn, anim: spec, parentM: pM, invParentRest: invPR,
+                   restP: rP, restQ: rQ, restS: rS.x, nodeWorld: drawn.nodeWorldMat || null};
+      if (drawn.isInstancedMesh) entry.base = drawn.instanceBase;
+      else drawn.matrixAutoUpdate = false;  // we drive .matrix directly each frame
+      xformAnimated.push(entry);
+    }
+    // Whether the fancy water shader (surface reflection/refraction/caustics and
+    // the underwater pass) is on. Off falls the surface back to a plain blue tint
+    // and skips the underwater effect -- a lighter, simpler look, and a fallback
+    // if the shader misbehaves on a given GPU. Distinct from hiding water entirely.
+    var waterShaderOn = true;
+    // The plain fallback surface, shared by every water plane while the shader is
+    // off: a flat translucent blue, matching the shader's own no-compile fallback.
+    var simpleWaterMaterial = null;
+    function getSimpleWaterMaterial() {
+      if (!simpleWaterMaterial) {
+        simpleWaterMaterial = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(0.16, 0.34, 0.52),
+          transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, fog: false
+        });
+      }
+      return simpleWaterMaterial;
+    }
+    // Swap each water plane between its shader material and the plain tint.
+    function applyWaterShader() {
+      for (var i = 0; i < waterMeshes.length; i++) {
+        var mesh = waterMeshes[i];
+        mesh.material = waterShaderOn ? mesh.userData.shaderMat : getSimpleWaterMaterial();
+      }
+      viewDirty = true;
+    }
     // The refraction pass: the scene rendered without the water, so the water
     // shader can read what lies beneath it (colour) and how deep it is (depth)
     // to tint by depth, refract the bottom, and lay caustics on it. Built lazily
@@ -1749,6 +2134,38 @@ __EXTRA_SLOTS__
       spec.meshes.forEach(function (m) {
         var g = new THREE.BufferGeometry();
         g.setAttribute("position", new THREE.BufferAttribute(m.positions, 3));
+        // A particle cloud: draw the emitter's particle positions as drifting
+        // points (mist, glowbugs) instead of a surface. No index, uv or normals.
+        if (m.points) {
+          var pmat = new THREE.PointsMaterial({
+            size: 14, sizeAttenuation: true, transparent: true, opacity: 0.5,
+            depthWrite: false, blending: THREE.AdditiveBlending, color: 0xdfe8f0
+          });
+          var ptex = (m.image && textured) ? makeSlotTexture(m.image, true) : null;
+          if (ptex) { pmat.map = ptex; }
+          var pNodeWorld = m.nodeWorld ? new THREE.Matrix4().fromArray(m.nodeWorld) : null;
+          var pCount = (m.instances && m.instanceCount) ? m.instanceCount : 1;
+          for (var pi = 0; pi < pCount; pi++) {
+            var pts = new THREE.Points(g, pmat);
+            var pm = new THREE.Matrix4();
+            if (m.instances) pm.fromArray(m.instances, pi * 16);
+            if (pNodeWorld) pm.multiply(pNodeWorld);
+            pts.applyMatrix4(pm);
+            pts.frustumCulled = false;
+            pts.name = m.name || "particles";
+            pts.userData.refIds = m.refIds || null;
+            pts.userData.recordType = m.recordType || "Emitter";
+            pts.userData.collision = !!m.collision;
+            pts.userData.focus = !!m.focus;
+            pts.userData.adjacent = !!m.adjacent;
+            if (m.recordType) typesInScene[m.recordType] = true;
+            if (m.collision) pts.visible = false;
+            group.userData.shapes.push({object: pts, spec: m});
+          }
+          // Drift is on the shared geometry, so register it once (not per copy).
+          pointsAnimated.push({attr: g.getAttribute("position"), base: m.positions.slice()});
+          return;
+        }
         g.setIndex(new THREE.BufferAttribute(m.indices, 1));
         if (m.uvs) g.setAttribute("uv", new THREE.BufferAttribute(m.uvs, 2));
         // Vertex colors are three floats each, already 0-1 in the file. They
@@ -1766,7 +2183,8 @@ __EXTRA_SLOTS__
         // none of which (base map, alpha toggles, normal maps) applies to it.
         if (m.water) {
           var waterMat = makeWaterMaterial();
-          var drawnW = new THREE.Mesh(g, waterMat);
+          var drawnW = new THREE.Mesh(g, waterShaderOn ? waterMat : getSimpleWaterMaterial());
+          drawnW.userData.shaderMat = waterMat;  // restored when the shader is toggled on
           waterMaterials.push(waterMat);
           waterMeshes.push(drawnW);
           // The water plane's extent is the cell, so origin-centred frustum
@@ -1819,10 +2237,15 @@ __EXTRA_SLOTS__
           material.side = THREE.FrontSide;
         }
         if (m.colors) material.vertexColors = true;
-        // Emissive is the material's own glow color, and it combines with the
-        // glow *map* by multiplication -- so setting it here is correct
-        // whether or not a glow texture also arrives.
-        if (fromFile.emissive) material.emissive = fromFile.emissive;
+        // Emissive is the material's own glow colour. When the shape carries a
+        // glow *map* it is set to white in the glow block below, so the map carries
+        // the colour and restricts the glow to the lit parts. Without a glow map a
+        // bright emissive on a *textured* surface is almost always a window/glass
+        // material whose (missing here) glow map was meant to mask it -- applying
+        // it full blows the whole face white (the "white windows" bug). So a lone
+        // emissive is honoured only on an untextured shape with no glow slot at
+        // all, where it is a deliberate flat self-illumination (a glow effect).
+        if (fromFile.emissive && !m.glow && !m.image) material.emissive = fromFile.emissive;
         if (fromFile.blend) { material.transparent = true; material.opacity = fromFile.opacity; }
         if (fromFile.test) material.alphaTest = fromFile.threshold;
         if (m.image && m.uvs && textured) {
@@ -1885,6 +2308,16 @@ __EXTRA_SLOTS__
         var glowTex = null;
         if (m.glow && m.uvs && textured) {
           glowTex = makeSlotTexture(m.glow, true);
+          if (glowTex) {
+            // Bind the glow map to the material *now*, not only when the toggle is
+            // clicked. Without this, a self-illuminated object emits its whole
+            // surface at the material's emissive colour (flat white) until the
+            // toggle finally attaches the map that was meant to restrict the glow
+            // to the lit parts. Emissive is set white so the map carries the glow
+            // colour; the map arrives async and re-uploads onto this bound slot.
+            material.emissiveMap = glowTex;
+            material.emissive = new THREE.Color(0xffffff);
+          }
         }
         // The dark and detail slots both multiply into the base color --
         // Morrowind applies detail first, then dark -- and gloss modulates
@@ -1928,17 +2361,29 @@ __EXTRA_SLOTS__
           });
         }
         var drawn;
+        // The shape's node transform, folded into each instance matrix rather
+        // than into the vertices (the vertices are the shape's own local space
+        // now -- UNBAKE_MIGRATION.md). Identity for a baked mesh (standalone
+        // viewer), where it changes nothing.
+        var nodeWorldMat = m.nodeWorld ? new THREE.Matrix4().fromArray(m.nodeWorld) : null;
         if (m.instances && m.instanceCount) {
           // One InstancedMesh for the whole group: the model drawn once, placed
           // by a matrix per instance. isMesh stays true, so every control and
           // toggle below treats it exactly like a plain mesh.
           drawn = new THREE.InstancedMesh(g, material, m.instanceCount);
-          var _im = new THREE.Matrix4();
+          var _im = new THREE.Matrix4(), _iw = new THREE.Matrix4();
           for (var _k = 0; _k < m.instanceCount; _k++) {
             _im.fromArray(m.instances, _k * 16);
-            drawn.setMatrixAt(_k, _im);
+            // instance = placement * nodeWorld: folds the shape's node transform
+            // in here instead of into its vertices.
+            if (nodeWorldMat) _iw.multiplyMatrices(_im, nodeWorldMat); else _iw.copy(_im);
+            drawn.setMatrixAt(_k, _iw);
           }
           drawn.instanceMatrix.needsUpdate = true;
+          // The base placements and the node transform, kept so a node animation
+          // can rebuild each instance's matrix as placement * delta(t) * nodeWorld.
+          drawn.instanceBase = m.instances;
+          drawn.nodeWorldMat = nodeWorldMat;
           // Frustum culling uses the geometry's origin-centred bounds, which is
           // wrong once instances are scattered across a cell -- it would cull
           // objects that are plainly on screen. The cell is bounded, so drop it.
@@ -1947,6 +2392,35 @@ __EXTRA_SLOTS__
           drawn = new THREE.Mesh(g, material);
         }
         drawn.userData.map = material.map || null;
+        // A scrolling/scaling texture animation from the file: the material's
+        // diffuse map must wrap (so an offset past the edge repeats) and joins
+        // the clock-driven list the animation loop advances.
+        if (m.uvAnim && material.map) {
+          material.map.wrapS = material.map.wrapT = THREE.RepeatWrapping;
+          material.map.needsUpdate = true;
+          uvAnimated.push({tex: material.map, anim: m.uvAnim});
+        }
+        // A node keyframe animation (sway/spin/slide) plays as a per-frame
+        // matrix delta -- on the lone mesh's matrix, or on each instance's.
+        if (m.transformAnim) registerXformAnim(drawn, m.transformAnim);
+        // A visibility animation blinks the whole shape on and off.
+        if (m.visAnim) visAnimated.push({obj: drawn, keys: m.visAnim});
+        // A vertex-morph animation ripples the cloth: keep the base pose and
+        // rewrite the shared position attribute each frame. Deltas must match the
+        // vertex count; a mismatch (a dirty mesh) simply does not register.
+        if (m.morphAnim && m.positions && drawn.geometry) {
+          var posAttr = drawn.geometry.getAttribute("position");
+          var ok = posAttr && m.morphAnim.targets.every(function (tt) {
+            return tt.deltas.length === posAttr.array.length;
+          });
+          if (ok) {
+            morphAnimated.push({
+              posAttr: posAttr,
+              base: m.positions.slice(),  // pristine copy of the un-morphed pose
+              targets: m.morphAnim.targets
+            });
+          }
+        }
         drawn.userData.normalMap = normalTex;
         drawn.userData.bumpMap = bumpTex;
         drawn.userData.specularMap = specTex;
@@ -1964,6 +2438,7 @@ __EXTRA_SLOTS__
         drawn.userData.collision = !!m.collision;
         drawn.userData.focus = !!m.focus;
         drawn.userData.adjacent = !!m.adjacent;  // a neighbouring cell's geometry
+        drawn.userData.skirtAlone = !!m.skirtAlone;  // lone-cell skirt: hide when neighbours show
         // Terrain blend layers: the base (layer 0) is opaque; every higher layer
         // is faded in over it by its per-vertex coverage alpha, so it must be
         // transparent, must not write depth (or it would occlude the layers
@@ -2581,18 +3056,18 @@ __EXTRA_SLOTS__
     if (anyGlowMaps && !cellMode) {
       var glowBox = document.createElement("input");
       glowBox.type = "checkbox"; glowBox.id = "glow";
+      glowBox.checked = true;  // glow is bound at creation, so start on and in sync
       var glowCtl = document.createElement("span");
-      glowCtl.className = "ctl off";
+      glowCtl.className = "ctl";
       var glowLabel = document.createElement("label");
       glowLabel.htmlFor = "glow";
       glowLabel.textContent = "Glow maps";
       glowCtl.appendChild(glowBox); glowCtl.appendChild(glowLabel);
       controls.appendChild(glowCtl);
       glowBox.addEventListener("change", function () {
-        // Off by default like every other optional map here, so the
-        // starting view is the plain textured mesh and every extra is
-        // something you switch on rather than something you notice you
-        // have to switch off.
+        // On by default: self-illumination is base-game rendering (lamps, lava,
+        // glowing eyes), and the map is already bound at creation. This toggle
+        // lets you switch it off; unlike the other optional maps, glow starts on.
         scene.traverse(function (o) {
           if (!o.isMesh || !o.userData.glowMap) return;
           o.material.emissiveMap = glowBox.checked ? o.userData.glowMap : null;
@@ -2871,6 +3346,19 @@ __EXTRA_SLOTS__
         bodyDiv.appendChild(row);
         return rng;
       }
+      function rpCheckbox(bodyDiv, label, checked, onChange) {
+        var row = document.createElement("div");
+        row.className = "row";
+        var lab = document.createElement("label");
+        lab.textContent = label;
+        var box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = checked;
+        box.addEventListener("change", function () { onChange(box.checked); draw(); });
+        row.appendChild(lab); row.appendChild(box);
+        bodyDiv.appendChild(row);
+        return box;
+      }
       function setWaterUniform(name, val) {
         for (var wi = 0; wi < waterMaterials.length; wi++) {
           waterMaterials[wi].uniforms[name].value = val;
@@ -2903,8 +3391,27 @@ __EXTRA_SLOTS__
           function (v) { applyTimeOfDay(v); });
       }
 
+      // Play/pause for everything clock-driven (water, scrolling banners, sway,
+      // blink, cloth ripple). Only offered when the scene actually has some.
+      if (hasAnimation()) {
+        var gAnim = rpGroup("Animation", true);
+        rpCheckbox(gAnim, "Play", true, function (on) {
+          animateOn = on;
+          startAnimLoop();  // ensure the loop is running (no-op if already)
+          if (!on) draw();  // settle on the current frame while paused
+        });
+      }
+
       if (waterMaterials.length) {
         var gWater = rpGroup("Water", true);
+        // Turns the fancy surface + underwater shaders off, falling the water back
+        // to a plain blue tint (and skipping the heavy refraction/underwater passes
+        // -- a lighter option on weak GPUs). Hiding water entirely is a separate
+        // toggle (the "Water" record-type checkbox up top).
+        rpCheckbox(gWater, "Water shader", true, function (on) {
+          waterShaderOn = on;
+          applyWaterShader();
+        });
         rpSlider(gWater, "Wave height", 0, 2.5, 1.0, 0.05,
           function (v) { setWaterUniform("uWaveScale", v); });
         rpSlider(gWater, "Chop / detail", 0, 16, 8.0, 0.5,
@@ -3030,7 +3537,10 @@ __EXTRA_SLOTS__
       sceneRT.depthTexture = new THREE.DepthTexture(w, h);
     }
     function draw() {
-      if (!waterMaterials.length) { renderer.render(scene, camera); return; }
+      // No water, or the fancy shader is off: a single plain render. The water
+      // planes (now the simple tint) draw with the rest, and the refraction and
+      // underwater passes are skipped entirely.
+      if (!waterMaterials.length || !waterShaderOn) { renderer.render(scene, camera); return; }
       ensureRefractRT();
       var sz = renderer.getDrawingBufferSize(new THREE.Vector2());
       // Refresh the refraction target only when the camera has moved: the scene
@@ -3219,27 +3729,46 @@ __EXTRA_SLOTS__
     // display rate, but the scene is only re-drawn every 40 ms, which is plenty
     // for water and leaves the GPU free for texture streaming and camera work
     // (dragging draws directly, so it stays smooth).
-    if (waterMaterials.length) {
+    // Whether the scene has anything clock-driven to play at all.
+    function hasAnimation() {
+      return !!(waterMaterials.length || uvAnimated.length || xformAnimated.length
+                || visAnimated.length || morphAnimated.length || pointsAnimated.length);
+    }
+    // Start the animation loop once. Hoisted (a function declaration), so the
+    // "Play" checkbox built earlier can call it. Throttled to 25 fps -- Morrowind's
+    // own water tick. The rAF stays scheduled even while paused, so toggling Play
+    // resumes it without a restart.
+    function startAnimLoop() {
+      if (animLoopStarted || !hasAnimation()) return;
+      animLoopStarted = true;
       var nowMs = function () {
         return (typeof performance !== "undefined" ? performance.now() : Date.now());
       };
-      var waterStart = nowMs();
-      var waterFrameMs = 1000 / 25;
-      var lastWaterDraw = -1e9;
-      var tickWater = function () {
-        var now = nowMs();
-        if (now - lastWaterDraw >= waterFrameMs) {
-          lastWaterDraw = now;
-          var seconds = (now - waterStart) / 1000;
-          for (var wi = 0; wi < waterMaterials.length; wi++) {
-            waterMaterials[wi].uniforms.uTime.value = seconds;
+      var animStart = nowMs();
+      var animFrameMs = 1000 / 25;
+      var lastAnimDraw = -1e9;
+      var tickAnim = function () {
+        if (animateOn) {
+          var now = nowMs();
+          if (now - lastAnimDraw >= animFrameMs) {
+            lastAnimDraw = now;
+            var seconds = (now - animStart) / 1000;
+            for (var wi = 0; wi < waterMaterials.length; wi++) {
+              waterMaterials[wi].uniforms.uTime.value = seconds;
+            }
+            advanceUvAnimations(seconds);
+            advanceXformAnimations(seconds);
+            advanceVisAnimations(seconds);
+            advanceMorphAnimations(seconds);
+            advancePointsAnimations(seconds);
+            draw();
           }
-          draw();
         }
-        requestAnimationFrame(tickWater);
+        requestAnimationFrame(tickAnim);
       };
-      requestAnimationFrame(tickWater);
+      requestAnimationFrame(tickAnim);
     }
+    startAnimLoop();
   }
 })();
 </script>

@@ -76,6 +76,13 @@ _NOT_PLUGINS: Final[tuple[str, ...]] = (".omwscripts",)
 #: conversions.
 _READ_WORKERS: Final = 4
 
+#: The only record types the land merge consumes (see :mod:`wraithguard.land`'s
+#: ``landmass``, ``cells`` and ``textures``). Every plugin is filtered to these the
+#: moment it is read, so a content mod's tens of thousands of statics, NPCs, scripts
+#: and dialogue are freed at once rather than held for a whole load order -- the
+#: peak-memory spike that was killing the process on low-RAM machines (Steam Deck).
+_MERGE_RECORD_TYPES: Final[frozenset[str]] = frozenset({"Landscape", "LandscapeTexture", "Cell"})
+
 #: How progress is reported. Called with one line at a time.
 Report = "Callable[[str], None]"
 
@@ -485,6 +492,12 @@ def build_merged_lands(
             records, failure = _records_via(converter, path, scratch, sidecars)
             if failure:
                 records, failure = _records_natively(path, failure)
+            # Keep only the terrain records the merge actually uses, and drop the
+            # rest now -- a content mod decodes to tens of thousands of records the
+            # merge never touches, and holding them all for the whole load order is
+            # what exhausted memory (and hard-killed the process) on the Steam Deck.
+            if records:
+                records = [r for r in records if r.get("type") in _MERGE_RECORD_TYPES]
             return name, records, failure
 
         # Convert in parallel, bounded so peak memory stays a few conversions,

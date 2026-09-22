@@ -82,6 +82,27 @@ def test_a_repeatedly_missing_model_is_recorded_once() -> None:
     assert scene.missing_models == ["gone.nif"]
 
 
+def test_parallel_workers_match_the_serial_build() -> None:
+    """Warming the parse on a thread pool must produce the identical cell."""
+    placements = [
+        _placed("rock.nif", (1.0, 0.0, 0.0)),
+        _placed("crate.nif", (2.0, 0.0, 0.0)),
+        _placed("rock.nif", (3.0, 0.0, 0.0)),  # repeat -> one group, two instances
+        _placed("gone.nif", (4.0, 0.0, 0.0)),  # unloadable -> missing
+    ]
+
+    def loader(model: str) -> list[Mesh] | None:
+        return None if model == "gone.nif" else [_mesh()]
+
+    serial = build_instanced(placements, loader, workers=1)
+    parallel = build_instanced(placements, loader, workers=4)
+
+    assert [g.model for g in parallel.groups] == [g.model for g in serial.groups]
+    assert [g.matrices for g in parallel.groups] == [g.matrices for g in serial.groups]
+    assert parallel.drawn == serial.drawn
+    assert parallel.missing_models == serial.missing_models
+
+
 class TestMatrix4Columns:
     """The column-major 4x4 a THREE.Matrix4 / InstancedMesh expects."""
 

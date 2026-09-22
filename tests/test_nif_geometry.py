@@ -199,6 +199,52 @@ class TestWorldPlacement:
         assert len(meshes) == 1, parsed.stopped_reason
         assert meshes[0].vertices[0][0] == 10.0
 
+    def test_the_root_nodes_own_rotation_is_ignored(self) -> None:
+        """Morrowind places by the reference rotation, not a rotated root node.
+
+        A rotation baked into the file's root is not honoured by the engine, so
+        the viewer must not bake it either -- doing so turned every such object,
+        rotating architecture corners 90 degrees from where the CS draws them
+        (``in_velothilarge_corner_01`` in Balmora, Temple). Only the root's
+        *rotation* is dropped: its translation is a legitimate offset and stays.
+        """
+        # A 90-degree turn about Z on the root: (1,0,0) -> (0,1,0) if applied.
+        quarter = (0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+        parsed = read_nif_bytes(
+            nif(
+                ("NiNode", av_body("root", translation=(10.0, 0.0, 0.0), rotation=quarter, children=(1,))),
+                ("NiTriShape", av_body("shape", tail=struct.pack("<ii", 2, -1))),
+                ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ),
+            geometry=True,
+        )
+        meshes = world_meshes(parsed)
+        assert len(meshes) == 1, parsed.stopped_reason
+        # SQUARE[1] is (1,0,0). Turn ignored -> x stays 1 (+10 offset), y stays 0.
+        assert meshes[0].vertices[1] == (11.0, 0.0, 0.0)
+
+    def test_a_child_nodes_rotation_is_still_applied(self) -> None:
+        """The root exception must not spread: a rotation below the root counts.
+
+        Guards the fix against over-reach -- only the root's own rotation is
+        dropped, so an intermediate node's turn still orients its subtree.
+        """
+        quarter = (0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+        parsed = read_nif_bytes(
+            nif(
+                ("NiNode", av_body("root", children=(1,))),
+                ("NiNode", av_body("mid", rotation=quarter, children=(2,))),
+                ("NiTriShape", av_body("shape", tail=struct.pack("<ii", 3, -1))),
+                ("NiTriShapeData", shape_data(SQUARE, ONE_TRIANGLE)),
+            ),
+            geometry=True,
+        )
+        meshes = world_meshes(parsed)
+        assert len(meshes) == 1, parsed.stopped_reason
+        # SQUARE[1] is (1,0,0). The mid node's turn applies -> (0,1,0).
+        x, y, z = meshes[0].vertices[1]
+        assert round(x, 5) == 0.0 and round(y, 5) == 1.0 and round(z, 5) == 0.0
+
     def test_a_shape_in_a_particle_file_is_tagged_an_emitter(self) -> None:
         """Any block of a particle type marks every shape the file produces.
 

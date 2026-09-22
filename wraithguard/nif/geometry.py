@@ -19,7 +19,7 @@ derived from the child links rather than trusted.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from wraithguard.logging_setup import get_logger
 from wraithguard.nif.report import COLLISION_NODES as COLLISION_HINT, normalise_texture
@@ -40,11 +40,28 @@ _NODE_TYPES: frozenset[str] = frozenset(
         "NiBillboardNode",
         "NiSwitchNode",
         "NiLODNode",
+        # A collision *switch* toggles collision on its children but they are
+        # still drawable geometry -- it holds a full child list, so the walk must
+        # recurse into it or every shape beneath it (common in vanilla meshes) is
+        # silently lost. Not in COLLISION_NODES: its children are visible.
+        "NiCollisionSwitch",
     }
 )
 
+#: Node types under which a ``NiTriShape`` is *particle* geometry, not a surface:
+#: its vertices are particle positions the viewer draws as a drifting point cloud
+#: (Morrowind mist and steam are usually a trishape under one of these, driven by
+#: a particle controller, rather than a ``NiParticles`` block).
+_PARTICLE_NODE_TYPES: frozenset[str] = frozenset({"NiBSParticleNode"})
+
 #: Block types that carry drawable geometry.
 _SHAPE_TYPES: frozenset[str] = frozenset({"NiTriShape"})
+
+#: Particle-geometry blocks: their ``data`` block holds particle positions we
+#: draw as a point cloud (mist, glowbugs, dust) rather than a surface.
+_PARTICLE_GEOM_TYPES: frozenset[str] = frozenset(
+    {"NiParticles", "NiAutoNormalParticles", "NiRotatingParticles"}
+)
 
 #: Block types that mean the file is a particle *emitter* -- mist and fog volumes,
 #: glowbug swarms, dust, steam. A cell viewer wants these as their own category:
@@ -148,6 +165,113 @@ _ALPHA_BLEND_MASK: Final[int] = 0x0001
 #: Bit that enables alpha testing -- a cutout rather than a fade. Independent
 #: of blending, and the distinction matters: foliage sets this one alone.
 _ALPHA_TEST_MASK: Final[int] = 0x0200
+
+
+#: One animation key: its time in seconds and its value.
+AnimKey = tuple[float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class UVAnimation:
+    """A shape's scrolling/scaling texture animation (a ``NiUVController``).
+
+    Morrowind animates a texture by sliding or stretching its coordinates over
+    time rather than moving the geometry -- banners, force fields, conveyor
+    belts, some water. Each field is that channel's ``(time, value)`` keys, empty
+    when the channel does not animate. The viewer advances the material's UV
+    offset and tiling from these on its clock.
+
+    Attributes:
+        u_offset: Horizontal scroll keys (added to U).
+        v_offset: Vertical scroll keys (added to V).
+        u_tiling: Horizontal repeat keys (multiplies U).
+        v_tiling: Vertical repeat keys (multiplies V).
+    """
+
+    u_offset: tuple[AnimKey, ...] = ()
+    v_offset: tuple[AnimKey, ...] = ()
+    u_tiling: tuple[AnimKey, ...] = ()
+    v_tiling: tuple[AnimKey, ...] = ()
+
+    def is_empty(self) -> bool:
+        """Whether no channel carries any key (so there is nothing to animate)."""
+        return not (self.u_offset or self.v_offset or self.u_tiling or self.v_tiling)
+
+
+#: A rotation key: its time and a ``(w, x, y, z)`` quaternion.
+QuatKey = tuple[float, tuple[float, float, float, float]]
+#: A translation key: its time and an ``(x, y, z)`` offset.
+Vec3Key = tuple[float, tuple[float, float, float]]
+#: A visibility key: its time and whether the shape is shown from then on.
+VisKey = tuple[float, bool]
+
+
+@dataclass(frozen=True, slots=True)
+class TransformAnimation:
+    """A node's keyframe animation (a ``NiKeyframeController``), as a matrix delta.
+
+    Morrowind sways a banner, swings a sign or spins a fan by animating a node's
+    own transform over time. The shape's vertices are already baked to their rest
+    world position here, so the viewer plays this without un-baking: each frame it
+    builds the animated local transform ``L(t)`` from these keys (falling back to
+    the rest value on any channel with no keys) and applies the delta
+    ``parent · L(t) · (parent · rest)⁻¹`` -- the identity at rest, so a static
+    frame is unchanged.
+
+    Attributes:
+        parent: The composed transform above the animated node (its rest frame's
+            parent), in the file's root space.
+        rest: The node's own local transform at rest.
+        rotation: ``(time, quaternion)`` keys, empty when the node does not rotate
+            (or stores rotation as euler keys, which this does not yet play).
+        translation: ``(time, offset)`` keys, empty when it does not translate.
+        scale: ``(time, factor)`` keys, empty when it does not scale.
+    """
+
+    parent: Transform
+    rest: Transform
+    rotation: tuple[QuatKey, ...] = ()
+    translation: tuple[Vec3Key, ...] = ()
+    scale: tuple[AnimKey, ...] = ()
+
+    def is_empty(self) -> bool:
+        """Whether no channel carries any key (so there is nothing to animate)."""
+        return not (self.rotation or self.translation or self.scale)
+
+
+@dataclass(frozen=True, slots=True)
+class MorphTarget:
+    """One morph target of a ``NiGeomMorpherController``: a weight track + offsets.
+
+    Attributes:
+        weights: ``(time, weight)`` keys driving how much of this target blends in.
+        deltas: A per-vertex offset added to the base pose, scaled by the weight.
+            One entry per shape vertex, in order.
+    """
+
+    weights: tuple[AnimKey, ...]
+    deltas: tuple[tuple[float, float, float], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MorphAnimation:
+    """A shape's vertex-morph animation (a ``NiGeomMorpherController``).
+
+    Hanging cloth -- banners, tapestries, flags -- ripples by blending the base
+    geometry with morph targets over time: ``vertex = base + Σ weightᵢ(t)·deltaᵢ``,
+    the blend OpenMW applies. Target 0 (the base pose) is the shape's own
+    geometry and is not repeated here; :attr:`targets` are the delta targets
+    1..N.
+
+    Attributes:
+        targets: The delta morph targets, each with its own weight track.
+    """
+
+    targets: tuple[MorphTarget, ...]
+
+    def is_empty(self) -> bool:
+        """Whether no target carries any weight key (so nothing animates)."""
+        return not any(target.weights for target in self.targets)
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +384,35 @@ class Mesh:
     emitter: bool = False
     water: bool = False
     blend_layer: int = -1
+    points: bool = False
+    """Whether this mesh is a *particle cloud* rather than a surface: its
+    :attr:`vertices` are particle positions and :attr:`triangles` is empty, so the
+    viewer draws them as ``THREE.Points`` (mist, glowbugs, dust) instead of a
+    surface. Set by :func:`model_shapes` for a ``NiParticles`` block."""
+    uv_anim: UVAnimation | None = None
+    """The scrolling/scaling texture animation driving this shape, or ``None``
+    when it has none. Populated only when the file was parsed with
+    ``animation=True``; the geometry/conflict paths leave it ``None``."""
+    transform_anim: TransformAnimation | None = None
+    """The node keyframe animation (sway/spin/slide) driving this shape, or
+    ``None``. Applied by the viewer as a per-frame matrix delta, so the baked
+    rest vertices are untouched. Populated only when parsed with
+    ``animation=True``."""
+    vis_anim: tuple[VisKey, ...] | None = None
+    """The visibility animation (a ``NiVisController``) that blinks this shape on
+    and off over time, or ``None``. Each key is ``(time, visible)``. Populated
+    only when parsed with ``animation=True``."""
+    morph_anim: MorphAnimation | None = None
+    """The vertex-morph animation (a ``NiGeomMorpherController``) rippling this
+    shape's cloth, or ``None``. The viewer blends the targets over the base each
+    frame. Populated only when parsed with ``animation=True``."""
+    node_world: Transform = field(default_factory=Transform)
+    """The shape's node-chain transform, composed to the file's root. Identity
+    on a *baked* mesh (:func:`world_meshes`), where the transform is already in
+    :attr:`vertices`; the rest composition on a *model-space* shape
+    (:func:`model_shapes`), where the vertices are the shape's own local
+    coordinates and the viewer folds this into the instance matrix instead. This
+    is the seam of the un-baking migration -- see ``UNBAKE_MIGRATION.md``."""
 
 
 def _transform_of(block: Block) -> Transform:
@@ -291,6 +444,260 @@ def _transform_of(block: Block) -> Transform:
     )
 
 
+#: How many controllers deep a chain may run before the walk concludes it loops.
+#: Controllers link to one another by index and nothing forbids a cycle.
+_MAX_CONTROLLER_CHAIN: Final[int] = 64
+
+#: The identity transform, for the "already baked / directly built" fast path in
+#: :func:`bake_mesh` -- a mesh whose ``node_world`` is this needs no baking.
+_IDENTITY: Final[Transform] = Transform()
+
+
+def _keys_of(data: Block, field_name: str) -> tuple[AnimKey, ...]:
+    """Read a retained float key list off a data block as ``(time, value)`` keys.
+
+    Args:
+        data: The ``NiUVData`` (or similar) block.
+        field_name: The companion field, e.g. ``"u_keys_values"``.
+
+    Returns:
+        The keys, or empty when the field is absent (the file was parsed without
+        ``animation=True``, or the channel has no keys).
+    """
+    values = data.fields.get(field_name)
+    if not isinstance(values, list):
+        return ()
+    return tuple((float(time), float(value)) for time, value in values)
+
+
+def _uv_animation_of(block: Block, by_index: dict[int, Block]) -> UVAnimation | None:
+    """Find the ``NiUVController`` driving a block, if any, as a :class:`UVAnimation`.
+
+    Walks the block's controller chain (``controller`` then each
+    ``next_controller``) for a ``NiUVController``, follows its ``data`` link to
+    the ``NiUVData``, and reads the retained key channels.
+
+    Args:
+        block: A node or shape that may own controllers.
+        by_index: Every parsed block, by index.
+
+    Returns:
+        The animation, or ``None`` when there is no UV controller or it carries
+        no keys (or the file was parsed without ``animation=True``).
+    """
+    controller_index = block.link("controller")
+    seen: set[int] = set()
+    depth = 0
+    while controller_index >= 0 and depth < _MAX_CONTROLLER_CHAIN:
+        if controller_index in seen:
+            break
+        seen.add(controller_index)
+        controller = by_index.get(controller_index)
+        if controller is None:
+            break
+        if controller.type_name == "NiUVController":
+            data = by_index.get(controller.link("data"))
+            if data is not None:
+                animation = UVAnimation(
+                    u_offset=_keys_of(data, "u_keys_values"),
+                    v_offset=_keys_of(data, "v_keys_values"),
+                    u_tiling=_keys_of(data, "u_scale_keys_values"),
+                    v_tiling=_keys_of(data, "v_scale_keys_values"),
+                )
+                return None if animation.is_empty() else animation
+        controller_index = controller.link("next_controller")
+        depth += 1
+    return None
+
+
+def _vis_animation_of(block: Block, by_index: dict[int, Block]) -> tuple[VisKey, ...] | None:
+    """Find the ``NiVisController`` blinking a block, if any, as visibility keys.
+
+    Walks the block's controller chain for a ``NiVisController``, follows its
+    ``data`` link to the ``NiVisData``, and reads the retained visibility keys.
+
+    Args:
+        block: A node or shape that may own controllers.
+        by_index: Every parsed block, by index.
+
+    Returns:
+        ``(time, visible)`` keys, or ``None`` when there is no visibility
+        controller or it carries no keys (or the file was parsed without
+        ``animation=True``).
+    """
+    controller_index = block.link("controller")
+    seen: set[int] = set()
+    depth = 0
+    while controller_index >= 0 and depth < _MAX_CONTROLLER_CHAIN:
+        if controller_index in seen:
+            break
+        seen.add(controller_index)
+        controller = by_index.get(controller_index)
+        if controller is None:
+            break
+        if controller.type_name == "NiVisController":
+            data = by_index.get(controller.link("data"))
+            keys = data.fields.get("vis_keys_values") if data is not None else None
+            if isinstance(keys, list) and keys:
+                return tuple((float(time), bool(visible)) for time, visible in keys)
+        controller_index = controller.link("next_controller")
+        depth += 1
+    return None
+
+
+def _morph_animation_of(
+    block: Block, by_index: dict[int, Block], vertex_count: int
+) -> MorphAnimation | None:
+    """Find the ``NiGeomMorpherController`` morphing a shape, as a :class:`MorphAnimation`.
+
+    Walks the shape's controller chain for a ``NiGeomMorpherController``, follows
+    its ``data`` link to the ``NiMorphData``, and reads the retained morph
+    targets. Target 0 is the base pose (the shape's own geometry); targets 1..N
+    are the deltas the viewer blends by weight.
+
+    Args:
+        block: The shape that may own the controller.
+        by_index: Every parsed block, by index.
+        vertex_count: The shape's vertex count; a target whose vertex count
+            disagrees is a mismatch and the whole morph is skipped rather than
+            blended wrong.
+
+    Returns:
+        The animation, or ``None`` when there is no morph controller, it has
+        fewer than two targets, a target's vertex count disagrees, or no target
+        carries weight keys (or the file was parsed without ``animation=True``).
+    """
+    controller_index = block.link("controller")
+    seen: set[int] = set()
+    depth = 0
+    while controller_index >= 0 and depth < _MAX_CONTROLLER_CHAIN:
+        if controller_index in seen:
+            break
+        seen.add(controller_index)
+        controller = by_index.get(controller_index)
+        if controller is None:
+            break
+        if controller.type_name == "NiGeomMorpherController":
+            data = by_index.get(controller.link("data"))
+            morphs = data.fields.get("morphs_values") if data is not None else None
+            if isinstance(morphs, list) and len(morphs) >= 2:
+                targets: list[MorphTarget] = []
+                for target in morphs[1:]:  # target 0 is the base pose
+                    verts = target.get("vertices") or []
+                    if len(verts) != vertex_count:
+                        return None  # count mismatch: skip, safer than a wrong blend
+                    targets.append(
+                        MorphTarget(
+                            weights=tuple(
+                                (float(t), float(w)) for t, w in target.get("weights") or []
+                            ),
+                            deltas=tuple((float(v[0]), float(v[1]), float(v[2])) for v in verts),
+                        )
+                    )
+                animation = MorphAnimation(targets=tuple(targets))
+                return None if animation.is_empty() else animation
+        controller_index = controller.link("next_controller")
+        depth += 1
+    return None
+
+
+def _transform_animation_of(
+    block: Block, by_index: dict[int, Block], parent: Transform, rest: Transform
+) -> TransformAnimation | None:
+    """Find the ``NiKeyframeController`` driving a node, as a :class:`TransformAnimation`.
+
+    Walks the node's controller chain for a ``NiKeyframeController``, follows its
+    ``data`` link to the ``NiKeyframeData``, and reads the retained rotation,
+    translation and scale keys.
+
+    Args:
+        block: The node that may own the controller.
+        by_index: Every parsed block, by index.
+        parent: The composed transform above this node (its rest frame's parent).
+        rest: This node's own local transform.
+
+    Returns:
+        The animation, or ``None`` when there is no keyframe controller or it
+        carries no playable keys (or the file was parsed without
+        ``animation=True``). Rotation stored as euler keys is treated as no
+        rotation for now -- translation and scale still play.
+    """
+    controller_index = block.link("controller")
+    seen: set[int] = set()
+    depth = 0
+    while controller_index >= 0 and depth < _MAX_CONTROLLER_CHAIN:
+        if controller_index in seen:
+            break
+        seen.add(controller_index)
+        controller = by_index.get(controller_index)
+        if controller is None:
+            break
+        if controller.type_name == "NiKeyframeController":
+            data = by_index.get(controller.link("data"))
+            keys = data.fields.get("keyframe_data_values") if data is not None else None
+            if isinstance(keys, dict):
+                return _transform_anim_from_track(keys, parent, rest)
+        controller_index = controller.link("next_controller")
+        depth += 1
+    return None
+
+
+def _transform_anim_from_track(
+    track: dict[str, object], parent: Transform, rest: Transform
+) -> TransformAnimation | None:
+    """Build a :class:`TransformAnimation` from a keyframe track, or ``None`` if empty.
+
+    Shared by the embedded ``NiKeyframeController`` path and the external ``.kf``
+    binding: both hold the same ``{rotation, translation, scale}`` track and want
+    the same delta built from ``parent``/``rest``.
+
+    Args:
+        track: The keyframe data (``keyframe_data_values``).
+        parent: The composed transform above the animated node.
+        rest: The node's own local transform.
+
+    Returns:
+        The animation, or ``None`` when no channel carries a playable key.
+    """
+    animation = TransformAnimation(
+        parent=parent,
+        rest=rest,
+        rotation=_quat_keys(track.get("rotation")),
+        translation=_vec3_keys(track.get("translation")),
+        scale=_scalar_keys(track.get("scale")),
+    )
+    return None if animation.is_empty() else animation
+
+
+def _quat_keys(value: object) -> tuple[QuatKey, ...]:
+    """Coerce retained rotation keys to ``(time, (w, x, y, z))``, or empty.
+
+    A ``dict`` here is euler rotation, which is not yet played, so it yields no
+    keys (translation and scale still animate).
+    """
+    if not isinstance(value, list):
+        return ()
+    out: list[QuatKey] = []
+    for time, quat in value:
+        w, x, y, z = quat
+        out.append((float(time), (float(w), float(x), float(y), float(z))))
+    return tuple(out)
+
+
+def _vec3_keys(value: object) -> tuple[Vec3Key, ...]:
+    """Coerce retained translation keys to ``(time, (x, y, z))``, or empty."""
+    if not isinstance(value, list):
+        return ()
+    return tuple((float(time), (float(v[0]), float(v[1]), float(v[2]))) for time, v in value)
+
+
+def _scalar_keys(value: object) -> tuple[AnimKey, ...]:
+    """Coerce retained scalar keys to ``(time, value)``, or empty."""
+    if not isinstance(value, list):
+        return ()
+    return tuple((float(time), float(v)) for time, v in value)
+
+
 def find_roots(parsed: NifFile) -> list[int]:
     """Find the blocks that nothing claims as a child.
 
@@ -308,22 +715,42 @@ def find_roots(parsed: NifFile) -> list[int]:
     return [b.index for b in parsed.blocks if b.index not in claimed]
 
 
-def world_meshes(parsed: NifFile) -> list[Mesh]:
-    """Collect every drawable shape, with vertices in world space.
+def model_shapes(parsed: NifFile, kf_tracks: dict[str, dict[str, Any]] | None = None) -> list[Mesh]:
+    """Collect every drawable shape in the file's own model space.
+
+    Each shape's vertices stay in its local coordinates and its composed node
+    transform is carried in :attr:`Mesh.node_world`, ready for the viewer to fold
+    into a per-instance matrix (or to animate). :func:`world_meshes` is the baked
+    view of the same shapes, for callers that want flat world space. See
+    ``UNBAKE_MIGRATION.md`` for why the two exist.
 
     Args:
         parsed: A file parsed with ``geometry=True``. Parsed without it the
             vertex arrays are absent and the result is empty, which is honest:
             the data was never read.
+        kf_tracks: An external ``.kf`` file's ``{node name: keyframe track}`` map
+            (from :func:`wraithguard.nif.kf.load_kf`), bound to nodes by name as
+            though each named node carried the controller itself. ``None`` for a
+            model with no keyframe file.
 
     Returns:
-        One :class:`Mesh` per shape that has geometry.
+        One :class:`Mesh` per shape that has geometry, in model space.
     """
     by_index = {block.index: block for block in parsed.blocks}
+    kf_tracks = kf_tracks or {}
     meshes: list[Mesh] = []
     seen: set[int] = set()
 
-    def walk(index: int, parent: Transform, depth: int, collision: bool) -> None:
+    def walk(
+        index: int,
+        parent: Transform,
+        depth: int,
+        collision: bool,
+        uv_anim: UVAnimation | None = None,
+        xform_anim: TransformAnimation | None = None,
+        vis_anim: tuple[VisKey, ...] | None = None,
+        in_particle: bool = False,
+    ) -> None:
         """Visit one block and its children, accumulating world transforms.
 
         A NIF is a graph rather than a tree: a block can be referenced twice,
@@ -331,12 +758,34 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
         are what stop this recursing forever on a file that is merely wrong
         rather than malicious.
 
+        The root node's *own rotation* is ignored (``depth == 0``). Morrowind
+        orients a placed object by its reference rotation alone and does not
+        honour a rotation baked into the file's root node -- which is why mesh
+        authors are told to leave the root unrotated. Some meshes (and mod
+        replacers) ship a rotated root anyway; baking it in turned every such
+        object, most visibly rotating architecture corners 90 degrees away from
+        where the Construction Set draws them. The root's translation and scale
+        are kept (a root offset is a legitimate placement), and children are
+        always placed relative to the root, so only the root's own rotation is
+        dropped, never a child's.
+
         Args:
             index: The block to visit.
             parent: The accumulated transform of everything above it.
             depth: How far down the graph this is, for the depth guard.
             collision: Whether an ancestor marked this branch as invisible
                 geometry (a collision node, or a hidden flag), which is not drawn.
+            uv_anim: The scrolling-texture animation inherited from an ancestor
+                node's ``NiUVController``, or ``None``. A controller found on this
+                block replaces it for this block and everything below.
+            xform_anim: The node keyframe animation inherited from an ancestor's
+                ``NiKeyframeController``, or ``None``. A controller found on this
+                node replaces it for this node and everything below.
+            vis_anim: The visibility animation inherited from an ancestor's
+                ``NiVisController``, or ``None``. A controller found on this node
+                replaces it for this node and everything below.
+            in_particle: Whether an ancestor is a particle node, so a shape here
+                is particle geometry (drawn as points), not a surface.
         """
         block = by_index.get(index)
         if block is None or depth > _MAX_DEPTH or index in seen:
@@ -344,7 +793,11 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
                 LOG.warning("scene graph deeper than %d at block %d; stopping", _MAX_DEPTH, index)
             return
         seen.add(index)
-        here = parent.then(_transform_of(block))
+        own = _transform_of(block)
+        if depth == 0:
+            # Drop the root's own rotation but keep its translation and scale.
+            own = Transform(scale=own.scale, translation=own.translation)
+        here = parent.then(own)
         # Two ways a branch is invisible in game, both inherited by everything
         # under it. RootCollisionNode marks physics-only geometry. The hidden
         # flag (``NiAVObject`` flag ``0x1``, OpenMW's ``Flag_Hidden``) marks the
@@ -356,14 +809,56 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
             or block.type_name in COLLISION_HINT
             or bool(int(block.fields.get("flags", 0)) & _HIDDEN_FLAG)
         )
+        # A UV controller on this node drives every shape beneath it; one on the
+        # shape itself wins over an inherited one. Inheriting down the branch is
+        # how a controller on a parent node reaches the child NiTriShape.
+        uv_anim = _uv_animation_of(block, by_index) or uv_anim
+        # A keyframe controller likewise drives its whole subtree; its delta is
+        # built from where the node sits (``parent``) and its rest local (``own``).
+        # Innermost wins -- the nearest animated ancestor is the one applied. An
+        # external .kf binds by node name and is treated as if the node carried
+        # the controller (the model's own controller still wins if it has one).
+        block_name = _name_of(block)
+        kf_track = kf_tracks.get(block_name) if block_name else None
+        xform_anim = (
+            _transform_animation_of(block, by_index, parent, own)
+            or (_transform_anim_from_track(kf_track, parent, own) if kf_track else None)
+            or xform_anim
+        )
+        vis_anim = _vis_animation_of(block, by_index) or vis_anim
+        # A shape anywhere under a particle node is the emitter's particle
+        # geometry, drawn as a point cloud rather than a surface.
+        in_particle = in_particle or block.type_name in _PARTICLE_NODE_TYPES
         if block.type_name in _SHAPE_TYPES:
-            mesh = _shape_to_mesh(block, here, by_index, collision)
+            mesh = _shape_to_mesh(
+                block,
+                here,
+                by_index,
+                collision,
+                uv_anim,
+                xform_anim,
+                vis_anim,
+                as_points=in_particle,
+            )
             if mesh is not None:
                 meshes.append(mesh)
+        if block.type_name in _PARTICLE_GEOM_TYPES:
+            cloud = _particles_to_mesh(block, here, by_index, collision)
+            if cloud is not None:
+                meshes.append(cloud)
         if block.type_name in _NODE_TYPES:
             for child in block.fields.get("children_links") or []:
                 if child >= 0:
-                    walk(int(child), here, depth + 1, collision)
+                    walk(
+                        int(child),
+                        here,
+                        depth + 1,
+                        collision,
+                        uv_anim,
+                        xform_anim,
+                        vis_anim,
+                        in_particle,
+                    )
 
     for root in find_roots(parsed):
         walk(root, Transform(), 0, False)
@@ -377,16 +872,70 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
     return meshes
 
 
+def bake_mesh(mesh: Mesh) -> Mesh:
+    """Fold a model-space shape's ``node_world`` into its vertices.
+
+    Args:
+        mesh: A shape from :func:`model_shapes` (or an already-baked mesh, whose
+            ``node_world`` is the identity and which is returned unchanged).
+
+    Returns:
+        The shape with world-space vertices and an identity ``node_world``.
+    """
+    if mesh.node_world == _IDENTITY:
+        return mesh  # already baked, or a directly-built (terrain/water) mesh
+    world = mesh.node_world
+    return replace(
+        mesh,
+        vertices=[world.apply(v) for v in mesh.vertices],
+        node_world=Transform(),
+    )
+
+
+def world_meshes(parsed: NifFile) -> list[Mesh]:
+    """Collect every drawable shape, with vertices baked into world space.
+
+    The baked view of :func:`model_shapes`: each shape's ``node_world`` is applied
+    to its vertices, so callers that want flat world-space triangle soup (bounds,
+    the conflict diff, the current viewer path) are unchanged. New code that can
+    keep the hierarchy should prefer :func:`model_shapes` -- see
+    ``UNBAKE_MIGRATION.md``.
+
+    Args:
+        parsed: A file parsed with ``geometry=True``.
+
+    Returns:
+        One :class:`Mesh` per shape that has geometry, in world space.
+    """
+    return [bake_mesh(mesh) for mesh in model_shapes(parsed)]
+
+
 def _shape_to_mesh(
-    block: Block, world: Transform, by_index: dict[int, Block], collision: bool = False
+    block: Block,
+    world: Transform,
+    by_index: dict[int, Block],
+    collision: bool = False,
+    uv_anim: UVAnimation | None = None,
+    xform_anim: TransformAnimation | None = None,
+    vis_anim: tuple[VisKey, ...] | None = None,
+    *,
+    as_points: bool = False,
 ) -> Mesh | None:
     """Build one mesh from a shape and its data block.
 
     Args:
         block: The ``NiTriShape``.
-        world: Its composed world transform.
+        world: Its composed node transform, stored as ``node_world`` rather than
+            applied -- the vertices stay in the shape's own local space.
         by_index: Every parsed block, by index.
         collision: Whether this shape sits under a ``RootCollisionNode``.
+        uv_anim: The scrolling-texture animation inherited for this shape, or
+            ``None``.
+        xform_anim: The node keyframe animation inherited for this shape, or
+            ``None``.
+        vis_anim: The visibility animation inherited for this shape, or ``None``.
+        as_points: Whether to build this as a particle point cloud (``points``
+            set, filed under Emitter) rather than a drawn surface.
 
     Returns:
         The mesh, or ``None`` when its data block was not reached or carries no
@@ -404,10 +953,18 @@ def _shape_to_mesh(
     uvs = (data.fields.get("uv_sets_uv") or [])[: len(vertices)]
     diffuse, emissive, opacity = _material(block, by_index)
     blend, test, threshold = _alpha(block, by_index)
+    # The vertex-morph controller lives on the shape itself (it targets this
+    # geometry), so it is read here rather than inherited down the branch.
+    morph_anim = _morph_animation_of(block, by_index, len(vertices))
+    # Vertices are kept in the shape's *own local* space and the composed node
+    # transform is carried in ``node_world``; :func:`world_meshes` bakes it in for
+    # the callers that still want flat world space. Un-baking is what lets a node
+    # animate and a particle emitter stay a live node -- see UNBAKE_MIGRATION.md.
     return Mesh(
         name=_name_of(block),
-        vertices=[world.apply(v) for v in vertices],
-        triangles=list(triangles),
+        vertices=[(float(v[0]), float(v[1]), float(v[2])) for v in vertices],
+        # A particle cloud is drawn as points, so it drops its surface topology.
+        triangles=[] if as_points else list(triangles),
         uvs=[(float(u), float(v)) for u, v in uvs],
         texture=_texture_slot(block, by_index, "base"),
         glow=_texture_slot(block, by_index, "glow"),
@@ -424,6 +981,52 @@ def _shape_to_mesh(
         alpha_blend=blend,
         alpha_test=test,
         alpha_threshold=threshold,
+        uv_anim=uv_anim,
+        transform_anim=xform_anim,
+        vis_anim=vis_anim,
+        morph_anim=morph_anim,
+        node_world=world,
+        # Under a particle node this shape's vertices are particles: draw them as
+        # a drifting point cloud, and file it under the Emitter category.
+        points=as_points,
+        emitter=as_points,
+    )
+
+
+def _particles_to_mesh(
+    block: Block, world: Transform, by_index: dict[int, Block], collision: bool
+) -> Mesh | None:
+    """Build a point-cloud mesh from a particle block's data.
+
+    A ``NiParticles``/``NiAutoNormalParticles`` names a data block whose vertices
+    are the particle positions. Those become a :class:`Mesh` with ``points=True``
+    and no triangles, in the shape's local space with the node transform in
+    ``node_world`` -- the viewer draws it as drifting points (mist, glowbugs).
+
+    Args:
+        block: The particle-geometry block.
+        world: Its composed node transform (kept in ``node_world``).
+        by_index: Every parsed block, by index.
+        collision: Whether an ancestor marked this branch invisible.
+
+    Returns:
+        The point-cloud mesh, or ``None`` when its data or positions are absent.
+    """
+    data = by_index.get(block.link("data"))
+    if data is None:
+        return None
+    positions = data.fields.get("vertices_xyz")
+    if not positions:
+        return None
+    return Mesh(
+        name=_name_of(block),
+        vertices=[(float(p[0]), float(p[1]), float(p[2])) for p in positions],
+        triangles=[],
+        texture=_texture_slot(block, by_index, "base"),
+        collision=collision,
+        points=True,
+        emitter=True,
+        node_world=world,
     )
 
 

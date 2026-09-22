@@ -410,6 +410,20 @@ class TestBackupScanner:
         assert original is not None and Path(original).name == "Gone.esp"
         assert not Path(original).exists()
 
+    def test_premaster_and_custom_backups_are_recognised(self, core, tmp_path):
+        """The remove-master and tes3cmd-custom backups show up with their originals."""
+        (tmp_path / "Mod.esp.premaster.bak").write_text("x")
+        (tmp_path / "Other.esp.precustom.bak").write_text("x")
+        (tmp_path / "Third.esp.pretes3cmd.bak").write_text("x")
+
+        found = {kind: Path(orig).name for _p, orig, kind in core.scan_backups([str(tmp_path)])}
+
+        assert found == {
+            "premaster.bak": "Mod.esp",
+            "precustom.bak": "Other.esp",
+            "pretes3cmd.bak": "Third.esp",
+        }
+
 
 class TestPluginFileIndexResolution:
     """A name several data folders provide resolves to the latest one.

@@ -24,6 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from wraithguard.nif.geometry import bake_mesh
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
@@ -85,9 +87,27 @@ def build_scene(
                 missing.append(placement.model)
             continue
         transform = placement.transform
-        out.extend(
-            replace(mesh, vertices=[transform.apply(v) for v in mesh.vertices]) for mesh in base
-        )
+        for mesh in base:
+            # This flat path bakes to world space: fold the shape's own node
+            # transform in first (a no-op on an already-baked mesh), then the
+            # placement. A node animation's delta is built from parent/rest, so
+            # prefix the placement onto ``parent`` to keep it correct in the baked
+            # frame -- the instanced path leaves vertices in model space instead.
+            baked = bake_mesh(mesh)
+            out.append(
+                replace(
+                    baked,
+                    vertices=[transform.apply(v) for v in baked.vertices],
+                    transform_anim=(
+                        replace(
+                            baked.transform_anim,
+                            parent=transform.then(baked.transform_anim.parent),
+                        )
+                        if baked.transform_anim is not None
+                        else None
+                    ),
+                )
+            )
         drawn += 1
     return BuiltScene(meshes=out, drawn=drawn, missing_models=missing)
 
@@ -152,6 +172,13 @@ class InstancedGroup:
     being previewed. Adjacent cells give the picked cell its context -- a merge
     seam or a floater reads against the ground next door -- but are drawn behind
     a toggle and never framed on, so the camera still lands in the picked cell."""
+    skirt_alone: bool = False
+    """Whether this group is the focused cell's *lone-cell* skirt: the plinth that
+    wraps the picked cell when its neighbours are hidden. The viewer shows it only
+    while the "Adjacent cells" toggle is off, handing over to the block-perimeter
+    skirt (an ``adjacent`` group) when neighbours are shown, so the skirt always
+    hugs the outer edge of whatever is on screen rather than walling off a shared
+    seam."""
 
     @property
     def count(self) -> int:
@@ -202,6 +229,8 @@ def _group_type(record_type: str, meshes: Sequence[Mesh]) -> str:
 def build_instanced(
     placements: Sequence[Placement],
     load_mesh: Callable[[str], list[Mesh] | None],
+    *,
+    workers: int = 1,
 ) -> InstancedCell:
     """Group placements by model for instanced drawing (no vertex baking).
 
@@ -216,6 +245,9 @@ def build_instanced(
         placements: The cell's placements, from
             :func:`wraithguard.scene.resolve.resolve_cell`.
         load_mesh: Resolves a model path to its model-space meshes, or ``None``.
+        workers: Threads to parse the unique models on. ``>1`` parses them
+            concurrently up front (worth it only on a free-threaded interpreter,
+            and ``load_mesh`` must then be thread-safe); ``1`` is the serial parse.
 
     Returns:
         An :class:`InstancedCell`.
@@ -225,6 +257,19 @@ def build_instanced(
     order: list[str] = []
     drawn = 0
     missing: list[str] = []
+    # Parsing a model's NIF is the single largest cost of a build and each model
+    # is independent, so with more than one worker the unique models are parsed on
+    # a thread pool up front. This only pays off on a free-threaded interpreter
+    # (Gardenfell's start-up win, PEP 703); under the GIL the caller passes
+    # workers=1 and this is the same serial parse as before. ``load_mesh`` must be
+    # thread-safe when workers > 1 (the cell previewer's cache guards itself).
+    if workers > 1:
+        unique = list(dict.fromkeys(p.model for p in placements if p.kind == "placed" and p.model))
+        if unique:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=min(workers, len(unique))) as pool:
+                cache.update(zip(unique, pool.map(load_mesh, unique), strict=True))
     for placement in placements:
         if placement.kind != "placed" or not placement.model:
             continue

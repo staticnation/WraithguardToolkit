@@ -49,7 +49,16 @@ from wraithguard.nif.edit import (
     translate_all_vertices,
     translate_vertices,
 )
-from wraithguard.nif.geometry import Mesh, Transform, bounds, find_roots, world_meshes
+from wraithguard.nif.geometry import (
+    Mesh,
+    Transform,
+    bake_mesh,
+    bounds,
+    find_roots,
+    model_shapes,
+    world_meshes,
+)
+from wraithguard.nif.kf import load_kf
 from wraithguard.nif.reader import (
     ACCEPTED_VERSIONS,
     NIF_VERSION_MORROWIND,
@@ -92,6 +101,7 @@ __all__ = [
     "Structure",
     "Transform",
     "apply_edits",
+    "bake_mesh",
     "block_layout",
     "bounds",
     "compare",
@@ -99,6 +109,8 @@ __all__ = [
     "field_views",
     "file_digest",
     "find_roots",
+    "load_kf",
+    "model_shapes",
     "normalise_texture",
     "read_nif",
     "read_nif_bytes",

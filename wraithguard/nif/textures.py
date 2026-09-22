@@ -5,10 +5,13 @@ bytes on disk is not a path join, for four reasons that all bite in practice:
 
 * **The reference is relative to ``textures/``**, not to the mesh. Meshes live
   under ``meshes/`` and never say so.
-* **The extension is frequently wrong.** Morrowind falls back from ``.tga`` to
-  ``.dds``, and mod authors rely on it: a mesh exported in 2003 referencing a
-  ``.tga`` is routinely shipped with only a ``.dds`` beside it. Refusing to
-  substitute would leave a large share of real meshes untextured.
+* **The extension is frequently wrong, and ``.dds`` wins.** A mesh exported in
+  2003 names a ``.tga``, but Bethesda converted the shipped textures to ``.dds``
+  (keeping the ``.tga`` references), and DDS replacers drop a ``.dds`` beside the
+  vanilla file. So the engine resolves ``.dds`` *first* whatever the reference
+  says, and only falls back to the named extension -- the order OpenMW's
+  ``correctTexturePath`` uses. Trying the named extension first would pick a
+  stale ``.tga`` over the ``.dds`` that actually loads.
 * **Case is not preserved.** These paths were written on Windows and are read
   on machines where case matters.
 * **The texture may not be in the same mod as the mesh.** It is resolved
@@ -274,11 +277,20 @@ class TextureResolver:
         if not cleaned:
             return Resolved(reference)
         # A reference may or may not already include the textures/ prefix.
-        candidates = [cleaned]
+        bases = [cleaned]
         if cleaned.startswith(f"{_TEXTURE_ROOT}/"):
-            candidates.append(cleaned[len(_TEXTURE_ROOT) + 1 :])
-        for key in list(candidates):
+            bases.append(cleaned[len(_TEXTURE_ROOT) + 1 :])
+        # ``.dds`` is tried before the referenced extension, whatever it says.
+        # Bethesda converted the BSA textures from ``.tga`` to ``.dds`` but left
+        # the references naming ``.tga``, and DDS replacers ship a ``.dds`` beside
+        # (or instead of) a ``.tga``; the engine resolves ``.dds`` first for both
+        # reasons (OpenMW's ``correctTexturePath``, which passes ``ext=".dds"``).
+        # Only then the named extension, then the remaining formats.
+        candidates: list[str] = []
+        for key in bases:
             stem = key.rsplit(".", 1)[0] if "." in key else key
+            candidates.append(f"{stem}.dds")
+            candidates.append(key)
             candidates.extend(f"{stem}{suffix}" for suffix in _FALLBACK_SUFFIXES)
         seen: set[str] = set()
         wanted_suffix = cleaned.rsplit(".", 1)[-1] if "." in cleaned else ""

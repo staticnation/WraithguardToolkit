@@ -31,6 +31,7 @@ packages = [
     "wraithguard.gui",
     "wraithguard.images",
     "wraithguard.land",
+    "wraithguard.merge",
     "wraithguard.mwscript",
     "wraithguard.net",
     "wraithguard.nif",
@@ -58,10 +59,17 @@ wraithguard = ["py.typed"]
 # below and wraithguard.__version__ never drift apart.
 [project]
 name = "wraithguard-toolkit"
-version = "4.0.2"
+version = "4.1.0"
 description = "Sort your own Morrowind mods into a frozen MOMW load order."
 readme = "README.md"
-requires-python = ">=3.10"
+# Free-threaded Python 3.14 (the GIL-free `3.14t` build) is the target now: the
+# app is packaged with its own interpreter, so requiring the newest one costs a
+# shipped-with build, not a user upgrade, and it lets the mesh read and the merge
+# run on a real thread pool (PEP 703) instead of one core. `>=3.14` is the
+# floor a plain `pip install` sees; the *free-threaded* build is what the
+# packaged binaries and CI use -- a build variant, not a version the metadata can
+# pin, so it is enforced in CI rather than here.
+requires-python = ">=3.14"
 # PEP 639: an SPDX expression, not the deprecated table/classifier forms.
 # The licence *text* still ships, via license-files.
 license = "MIT"
@@ -69,8 +77,7 @@ license-files = ["License/LICENSE"]
 keywords = ["morrowind", "openmw", "mlox", "momw", "load-order"]
 classifiers = [
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Games/Entertainment",
     "Typing :: Typed",
 ]
@@ -83,7 +90,9 @@ yaml = ["PyYAML"]          # faster plugin-order.yml parsing
 dnd = ["tkinterdnd2"]       # drag-and-drop into the GUI
 webview = ["pywebview"]     # in-app viewer, first choice: a real OS webview
 html = ["tkinterweb"]       # in-app viewer, second choice: renders SVG, load_file
-zstd = ["zstandard"]        # tes3conv bytecode on Python < 3.14
+zstd = ["zstandard"]        # tes3conv bytecode; now redundant -- 3.14's stdlib
+                            # `compression.zstd` covers it, so this extra is a
+                            # no-op fallback kept only so the name still resolves
 # Streaming JSON for the diff/patch reader. Without it the field-level readers
 # fall back to a whole-file parse per plugin (same records, old peak memory);
 # with it they stream and keep only the wanted records, so peak memory reading

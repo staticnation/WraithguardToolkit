@@ -271,7 +271,7 @@ class TestServedAndStandaloneShareOneBuilder:
         # still fails if a future change inlines it. Room is left above the
         # current size so that adding a control does not look like a
         # regression in something this test does not measure.
-        assert len(page) < 130_000, "a served page should be kilobytes, not megabytes"
+        assert len(page) < 160_000, "a served page should be kilobytes, not megabytes"
 
     @pytest.mark.parametrize("served", [False, True])
     def test_the_shim_wraps_the_library_in_both_modes(self, served: bool) -> None:
@@ -693,6 +693,26 @@ class TestMaterialsReachThePage:
         """A negative control, so the attribute means something when present."""
         page = build_viewer_page([("side", [self._shape("plain")])])
         assert payload(page)[0]["meshes"][0]["colors"] is None
+
+
+class TestGlowMaps:
+    """Glow (self-illumination) maps must show without a toggle click.
+
+    The bug: a self-illuminated object emitted its whole surface at the material's
+    emissive colour (flat white) because the glow map that restricts the glow was
+    only bound when the toggle was clicked. It must bind at creation and start on.
+    """
+
+    def test_the_glow_map_binds_at_creation_and_the_toggle_starts_on(self) -> None:
+        page = build_viewer_page([("only", [TRIANGLE])])
+        assert "material.emissiveMap = glowTex;" in page  # bound at creation, not only on toggle
+        assert "glowBox.checked = true;" in page  # toggle reflects the on-by-default state
+
+    def test_a_lone_emissive_is_not_applied_to_a_textured_shape(self) -> None:
+        # The "white windows" fix: a bright emissive with no glow map must not blow
+        # a textured face white; it is honoured only on an untextured, glow-less shape.
+        page = build_viewer_page([("only", [TRIANGLE])])
+        assert "if (fromFile.emissive && !m.glow && !m.image) material.emissive = fromFile.emissive;" in page
 
 
 class TestThePerShapeList:

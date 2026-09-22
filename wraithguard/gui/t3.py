@@ -192,15 +192,17 @@ class Tes3cmdMixin:
             )
         xf = ttk.Frame(cf)
         xf.grid(row=len(self.T3_COMMANDS), column=0, sticky="ew", padx=8, pady=(4, 6))
-        ttk.Label(xf, text=_("extra arguments:")).pack(side="left")
+        ttk.Label(xf, text=_("command / extra arguments:")).pack(side="left")
         self._t3_extra_var = tk.StringVar()
         xent = ttk.Entry(xf, textvariable=self._t3_extra_var, width=48)
         xent.pack(side="left", padx=6, fill="x", expand=True)
         add_tooltip(
             xent,
             _(
-                "Optional extra tes3cmd switches, e.g. --instances for clean, "
-                "--author/--description for header. Passed through verbatim."
+                "For clean/header: optional extra switches (e.g. --instances, "
+                "--author/--description), passed through verbatim.\n"
+                "For 'custom': the WHOLE tes3cmd command, e.g. 'dump --type CELL' or "
+                "'fixcells' -- the plugin is appended and it runs staged with its masters."
             ),
         )
 
@@ -479,6 +481,34 @@ class Tes3cmdMixin:
                 parent=self._t3_win,
             ):
                 return
+        elif cmd == "custom":
+            if not extra:
+                messagebox.showinfo(
+                    _("tes3cmd"),
+                    _(
+                        "Type a tes3cmd command in the 'command' field first, "
+                        "e.g. 'dump --type CELL' or 'fixcells'."
+                    ),
+                    parent=self._t3_win,
+                )
+                return
+            if not messagebox.askyesno(
+                _("tes3cmd custom"),
+                ngettext(
+                    "Run 'tes3cmd %(cmd)s' on %(count)d plugin?\n\nEach is staged into a "
+                    "private 'Data Files' with its masters so tes3cmd sees the full VFS; if the "
+                    "command changes a plugin, the result is copied back and a one-time "
+                    ".precustom.bak of the original is kept.",
+                    "Run 'tes3cmd %(cmd)s' on %(count)d plugins?\n\nEach is staged into a "
+                    "private 'Data Files' with its masters so tes3cmd sees the full VFS; if the "
+                    "command changes a plugin, the result is copied back and a one-time "
+                    ".precustom.bak of the original is kept.",
+                    len(files),
+                )
+                % {"cmd": " ".join(extra), "count": len(files)},
+                parent=self._t3_win,
+            ):
+                return
         self.worker_running = True
         self._t3_run_btn.configure(state="disabled")
         self.sort_button.configure(state="disabled")
@@ -508,10 +538,26 @@ class Tes3cmdMixin:
 
         writer = QueueWriter(self.log_queue)
         ok = fail = skipped = changed = 0
+        # tokens: the full tes3cmd sub-command + options.
+        # is_staged: whether we run in a private VFS-aware "Data Files" (plugin +
+        #   its masters) and copy the result back, or run in place read-only.
+        # bak_suffix: name of the one-time backup made before a copy-back.
         # clean: --replace makes tes3cmd overwrite its input (we work on a
         # staged COPY and copy back ourselves); --hide-backups keeps its own
-        # backup clutter inside the disposable staging dir
-        sub = {"clean": ["clean", "--replace", "--hide-backups"], "header": ["header"]}[cmd]
+        # backup clutter inside the disposable staging dir. custom: the user's
+        # whole command, staged so masters resolve like the game's VFS.
+        if cmd == "clean":
+            tokens = ["clean", "--replace", "--hide-backups", *extra]
+            is_staged = True
+            bak_suffix = ".preclean.bak"
+        elif cmd == "custom":
+            tokens = list(extra)
+            is_staged = True
+            bak_suffix = ".precustom.bak"
+        else:  # header
+            tokens = ["header", *extra]
+            is_staged = False
+            bak_suffix = ".pretes3cmd.bak"
 
         def _run_t3(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
             """Run one tes3cmd invocation and hand back its result.
@@ -546,14 +592,14 @@ class Tes3cmdMixin:
             with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 print("\n" + "=" * 70)
                 print(
-                    f" TES3CMD {' '.join(sub).upper()}"
-                    + (" (staged, VFS-aware)" if cmd == "clean" else "")
+                    f" TES3CMD {' '.join(tokens).upper()}"
+                    + (" (staged, VFS-aware)" if is_staged else "")
                 )
                 print("=" * 70)
                 print(_("  Engine: %(command)s") % {"command": " ".join(argv)})
                 index = None
                 staging = None
-                if cmd == "clean":
+                if is_staged:
                     dirs = self._plan_scan_dirs()
                     dirs += [str(Path(f).parent) for f in files]
                     index = PluginFileIndex(list(dict.fromkeys(dirs)))
@@ -561,10 +607,10 @@ class Tes3cmdMixin:
                     print(_("  Staging dir: %(path)s") % {"path": staging})
                 for f in files:
                     name = Path(f).name
-                    print(f"\n--- {' '.join(sub)}: {f}")
+                    print(f"\n--- {' '.join(tokens)}: {f}")
                     try:
-                        if cmd == "header":
-                            r = _run_t3(argv + sub + extra + [name], Path(f).parent)
+                        if not is_staged:
+                            r = _run_t3(argv + tokens + [name], Path(f).parent)
                             print(
                                 ((r.stdout or "") + (("\n" + r.stderr) if r.stderr else "")).strip()
                                 or "(no output)"
@@ -572,8 +618,8 @@ class Tes3cmdMixin:
                             ok += 1 if r.returncode == 0 else 0
                             fail += 0 if r.returncode == 0 else 1
                             continue
-                        # clean: stage plugin + masters, run there, copy back
-                        assert staging is not None  # set on the clean path  # noqa: S101
+                        # staged: stage plugin + masters, run there, copy back
+                        assert staging is not None  # set on the staged path  # noqa: S101
                         staged, missing = core.stage_for_tes3cmd(staging, f, index)
                         if staged is None:
                             skipped += 1
@@ -584,14 +630,14 @@ class Tes3cmdMixin:
                             print(
                                 _(
                                     "  SKIPPED: master(s) not found in any data folder: "
-                                    "%(names)s -- cleaning without the masters "
+                                    "%(names)s -- running without the masters "
                                     "present gives wrong results."
                                 )
                                 % {"names": ", ".join(missing)}
                             )
                             continue
                         before = staged.read_bytes()
-                        r = _run_t3(argv + sub + extra + [staged.name], staged.parent)
+                        r = _run_t3(argv + tokens + [staged.name], staged.parent)
                         print(
                             ((r.stdout or "") + (("\n" + r.stderr) if r.stderr else "")).strip()
                             or "(no output)"
@@ -606,21 +652,30 @@ class Tes3cmdMixin:
                         after = staged.read_bytes()
                         if after == before:
                             ok += 1
-                            print(_("  no changes -- already clean"))
+                            print(
+                                _("  no changes -- already clean")
+                                if cmd == "clean"
+                                else _("  no changes (plugin left untouched)")
+                            )
                             continue
-                        # copy the cleaned result back over the original,
+                        # copy the modified result back over the original,
                         # keeping a one-time backup of the original
                         import shutil as _sh
 
-                        bak = Path(f).with_name(name + ".preclean.bak")
+                        bak = Path(f).with_name(name + bak_suffix)
                         if not bak.exists():
                             _sh.copy2(f, bak)
                         Path(f).write_bytes(after)
                         ok += 1
                         changed += 1
                         print(
-                            _("  cleaned: %(before)d -> %(after)d bytes (backup: %(backup)s)")
-                            % {"before": len(before), "after": len(after), "backup": bak.name}
+                            _("  %(verb)s: %(before)d -> %(after)d bytes (backup: %(backup)s)")
+                            % {
+                                "verb": _("cleaned") if cmd == "clean" else _("modified"),
+                                "before": len(before),
+                                "after": len(after),
+                                "backup": bak.name,
+                            }
                         )
                     except Exception as e:  # noqa: BLE001
                         # per-file isolation: one unclean plugin must not abort the batch
@@ -633,6 +688,19 @@ class Tes3cmdMixin:
                 ) % {
                     "changed": changed,
                     "clean": ok - changed,
+                    "skipped": skipped,
+                    "failed": fail,
+                }
+                if changed:
+                    status += _("  Re-run '1. Sort' to refresh checks.")
+            elif cmd == "custom":
+                status = _(
+                    "tes3cmd %(cmd)s: %(changed)d modified, %(ok)d unchanged, "
+                    "%(skipped)d skipped (missing masters), %(failed)d failed."
+                ) % {
+                    "cmd": " ".join(extra),
+                    "changed": changed,
+                    "ok": ok - changed,
                     "skipped": skipped,
                     "failed": fail,
                 }

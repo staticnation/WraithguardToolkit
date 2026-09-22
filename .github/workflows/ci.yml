@@ -30,13 +30,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Every version `requires-python = ">=3.10"` promises. Testing only the
-        # two ends was a reasonable economy while there was no version-conditional
-        # code, but it was an *assumption* about 3.11 and 3.12 rather than a
-        # measurement, and the promise is made to anyone who pip-installs this.
-        # Four short jobs are cheap; a bug reported on the one interpreter nobody
-        # ran is not.
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        # The target is free-threaded (GIL-free) Python 3.14 -- the `3.14t` build
+        # -- which the packaged binaries ship. The standard `3.14` (with the GIL)
+        # is tested alongside it so a data race the GIL happens to paper over is
+        # caught by the free-threaded run, and code that assumes free-threading is
+        # caught by the GIL run. Older versions are no longer supported
+        # (`requires-python = ">=3.14"`): the app carries its own interpreter, so
+        # the floor is a build choice, not a user burden.
+        python-version: ["3.14", "3.14t"]
 
     steps:
       - uses: actions/checkout@v4
@@ -44,15 +45,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          # setup-python resolves the `t` (free-threaded) builds from its version
+          # manifest; allow-prereleases keeps that resolution working across the
+          # 3.14.x line so `3.14t` never silently falls back to a GIL build.
+          allow-prereleases: true
           cache: pip
 
+      - name: Verify the interpreter is what we asked for
+        # A silent fall-back from `3.14t` to a GIL build would make the whole
+        # free-threading premise untested. sys._is_gil_enabled() must be False on
+        # the `t` leg (and True on the plain 3.14 leg); print both either way.
+        run: |
+          python --version
+          python -c "import sys, sysconfig; \
+            print('GIL enabled:', sys._is_gil_enabled()); \
+            print('Py_GIL_DISABLED:', sysconfig.get_config_var('Py_GIL_DISABLED'))"
+
       - name: Install tooling
-        # zstandard is an optional extra, but without it 3 tes3conv bytecode
-        # tests skip -- and a skipped test proves nothing. Install it so CI
-        # exercises the full suite rather than a quiet subset.
+        # No zstandard: Python 3.14's stdlib `compression.zstd` covers the
+        # tes3conv bytecode tests, and the C extension has no free-threaded
+        # wheel yet -- installing it would force a source build on `3.14t` for
+        # nothing. ruff and black are Rust binaries and black is pure Python, so
+        # the whole toolchain is free-threading-safe.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ruff black mypy pytest pytest-cov zstandard
+          python -m pip install ruff black mypy pytest pytest-cov
 
       - name: ruff (PEP 8, naming, imports, security, blind-except)
         run: python -m ruff check .
@@ -92,8 +109,9 @@ jobs:
         run: python -m pytest --cov --cov-report=term --cov-report=html
 
       - name: Upload coverage HTML
-        # Only from one interpreter -- two identical artifacts help nobody.
-        if: matrix.python-version == '3.13' && always()
+        # Only from one interpreter -- two identical artifacts help nobody. The
+        # free-threaded build is the one that matters, so keep its report.
+        if: matrix.python-version == '3.14t' && always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-html
@@ -118,7 +136,13 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          # The standard (GIL) 3.14 build here, not `3.14t`: Tk's free-threaded
+          # support is still experimental, and this job checks that the *window
+          # builds*, not the interpreter variant. The packaged app runs the GUI on
+          # `3.14t`; that path is exercised by the manual SMOKE_TEST.md run and the
+          # pywebview viewer, not by a headless Tk job.
+          python-version: "3.14"
+          allow-prereleases: true
           cache: pip
 
       - name: Install Tk and a virtual display
@@ -129,13 +153,12 @@ jobs:
       - name: Install tooling
         # pytest-timeout so a smoke test that hangs headless (a modal dialog with
         # no one to click it, a window that never returns) fails with a stack
-        # dump after the timeout instead of blocking the whole job for hours.
-        # zstandard for the terrain-comparison smoke tests: they encode a merged
-        # landscape field, which needs zstd (stdlib only on Python 3.14+), same
-        # reason the gates job installs it.
+        # dump after the timeout instead of blocking the whole job for hours. No
+        # zstandard: 3.14's stdlib `compression.zstd` covers the terrain-comparison
+        # smoke tests.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pytest-timeout zstandard
+          python -m pip install pytest pytest-timeout
 
       - name: GUI smoke tests (headless)
         # Run once, keep the output, then insist the tests actually ran. That

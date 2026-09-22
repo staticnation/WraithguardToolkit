@@ -66,6 +66,26 @@ class TestReferencesAreNotPaths:
         assert found.found
         assert found.substituted
 
+    def test_dds_wins_when_both_it_and_the_tga_exist(self, tmp_path: Path) -> None:
+        """DDS is resolved first, whatever extension the reference names.
+
+        A DDS replacer ships ``.dds`` beside the vanilla ``.tga``; the engine
+        (OpenMW's ``correctTexturePath``) resolves ``.dds`` first, so trying the
+        referenced ``.tga`` first would pick the file the game does not load.
+        """
+        make_texture(tmp_path / "Mod", "tx_rock.tga", b"tga")
+        make_texture(tmp_path / "Mod", "tx_rock.dds", b"dds")
+        found = TextureResolver([tmp_path / "Mod"]).resolve("tx_rock.tga")
+        assert found.path.name == "tx_rock.dds"
+        assert found.substituted
+
+    def test_tga_is_used_when_no_dds_exists(self, tmp_path: Path) -> None:
+        """With only the named ``.tga`` present, that is what resolves."""
+        make_texture(tmp_path / "Mod", "tx_rock.tga", b"tga")
+        found = TextureResolver([tmp_path / "Mod"]).resolve("tx_rock.tga")
+        assert found.path.name == "tx_rock.tga"
+        assert not found.substituted
+
     def test_substituted_means_the_extension_changed(self, tmp_path: Path) -> None:
         """And nothing else.
 

@@ -433,17 +433,23 @@ def _make_handler(owner: ViewerServer) -> type[BaseHTTPRequestHandler]:
             if payload is None:
                 self.send_error(404)
                 return
-            self.send_response(200)
-            self.send_header("Content-Type", payload.content_type)
-            self.send_header("Content-Length", str(len(payload.body)))
-            # Nothing here should ever be framed by another page, and the
-            # content types are fixed at registration, so sniffing can only
-            # produce a surprise.
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(payload.body)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", payload.content_type)
+                self.send_header("Content-Length", str(len(payload.body)))
+                # Nothing here should ever be framed by another page, and the
+                # content types are fixed at registration, so sniffing can only
+                # produce a surprise.
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(payload.body)
+            except (ConnectionError, TimeoutError) as exc:
+                # The browser dropped the request -- a reload, a navigation away,
+                # or closing the preview mid-stream. Normal and not our problem;
+                # swallow it so it does not spew a traceback per aborted fetch.
+                LOG.debug("viewer GET connection closed for %s: %s", key, exc)
 
         def do_POST(self) -> None:
             """Run a registered POST handler, or 404/400."""

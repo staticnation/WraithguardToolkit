@@ -21,8 +21,17 @@ from wraithguard.land.heights import HeightEncodeError
 from wraithguard.nif.geometry import Transform
 from wraithguard.scene.build import InstancedGroup, build_instanced, build_scene, matrix4_columns
 from wraithguard.scene.resolve import ACTOR_TAGS, build_model_index, resolve_cell
-from wraithguard.scene.terrain import has_terrain, landscape_textures, terrain_blend_meshes
-from wraithguard.scene.water import SEA_LEVEL, water_mesh
+from wraithguard.scene.terrain import (
+    ALL_EDGES,
+    EDGE_NEIGHBOUR,
+    SKIRT_DROP,
+    cell_texture_grid,
+    has_terrain,
+    landscape_textures,
+    terrain_blend_meshes,
+    terrain_skirt_mesh,
+)
+from wraithguard.scene.water import SEA_LEVEL, water_mesh, water_skirt_mesh
 from wraithguard.tes3fields.landscape import LAND_CELL_UNITS
 
 if TYPE_CHECKING:
@@ -224,6 +233,11 @@ _ADJACENT_OFFSETS: tuple[tuple[int, int], ...] = (
     (-1, -1), (0, -1), (1, -1),
 )  # fmt: skip
 
+#: What :func:`_add_terrain` records per built cell for the skirt pass: the
+#: landscape, its resolved texture paths, whether it dips below sea level, and the
+#: cell's lowest vertex height (so a block of skirts can share one flat base).
+_Ground = tuple[Landscape, dict[int, str], bool, float]
+
 
 def preview_cell_instanced(
     plugins: Sequence[LoadedPlugin],
@@ -231,6 +245,7 @@ def preview_cell_instanced(
     load_mesh: Callable[[str], list[Mesh] | None],
     *,
     include_adjacent: bool = False,
+    workers: int = 1,
 ) -> tuple[list[Placement], CellAudit, InstancedCell]:
     """Resolve a cell and assemble it for *instanced* drawing.
 
@@ -249,6 +264,9 @@ def preview_cell_instanced(
             ``adjacent`` and never framed on -- the camera still lands in the
             picked cell -- so the viewer can draw them behind a toggle. Ignored
             for an interior, which has no grid neighbours.
+        workers: How many threads to parse the cell's unique models on. ``>1``
+            parses them concurrently (worth it only on a free-threaded
+            interpreter); ``load_mesh`` must then be thread-safe.
 
     Returns:
         ``(placements, audit, instanced_cell)`` -- the placements and audit are
@@ -258,11 +276,18 @@ def preview_cell_instanced(
     model_index = build_model_index(record for plugin in plugins for record in plugin.records)
     layers = cell_layers(plugins, key)
     placements, audit = resolve_cell(layers, model_index)
-    cell = build_instanced(placements, load_mesh)
+    cell = build_instanced(placements, load_mesh, workers=workers)
     if key.grid is not None:
-        _add_terrain(cell, plugins, key.grid)
+        ground: dict[tuple[int, int], _Ground] = {}
+        # Resolved neighbour texture grids, shared across every cell's terrain so a
+        # grid is decoded once however many cells border it (cross-cell blending).
+        tex_cache: dict[tuple[int, int], list[list[str]] | None] = {}
+        _add_terrain(cell, plugins, key.grid, ground=ground, tex_cache=tex_cache)
         if include_adjacent:
-            _add_adjacent_cells(cell, plugins, key.grid, model_index, load_mesh)
+            _add_adjacent_cells(
+                cell, plugins, key.grid, model_index, load_mesh, ground=ground, tex_cache=tex_cache
+            )
+        _add_exterior_skirts(cell, key.grid, ground, include_adjacent=include_adjacent)
     else:
         _add_interior_water(cell, layers, placements)
     return placements, audit, cell
@@ -274,6 +299,9 @@ def _add_adjacent_cells(
     grid: tuple[int, int],
     model_index: ModelIndex,
     load_mesh: Callable[[str], list[Mesh] | None],
+    *,
+    ground: dict[tuple[int, int], _Ground] | None = None,
+    tex_cache: dict[tuple[int, int], list[list[str]] | None] | None = None,
 ) -> None:
     """Append the eight neighbouring exterior cells as context, mutating ``cell``.
 
@@ -290,6 +318,10 @@ def _add_adjacent_cells(
         model_index: The load order's model index, reused across neighbours
             rather than rebuilt eight times.
         load_mesh: Resolves a model path to its model-space meshes.
+        ground: When given, each neighbour's terrain records
+            ``grid -> (land, texture_paths, has_water)`` into it for the skirt pass.
+        tex_cache: Shared cache of resolved neighbour texture grids, for cross-cell
+            blending (see :func:`_add_terrain`).
     """
     gx, gy = grid
     for dx, dy in _ADJACENT_OFFSETS:
@@ -302,7 +334,9 @@ def _add_adjacent_cells(
         # cell), so including it just widens the view to the whole 3x3 the user
         # asked for, rather than leaving eight cells off-screen around a centred
         # one. Only strays among the *statics* are kept out of the framing.
-        _add_terrain(neighbour, plugins, neighbour_grid, focus=True)
+        _add_terrain(
+            neighbour, plugins, neighbour_grid, focus=True, ground=ground, tex_cache=tex_cache
+        )
         for group in neighbour.groups:
             group.adjacent = True
             cell.groups.append(group)
@@ -349,16 +383,49 @@ def _add_interior_water(
     x1 = (max(xs) if xs else pad) + pad
     y1 = (max(ys) if ys else pad) + pad
     _append_water(cell, height, x0, y0, x1, y1)
+    # An interior is a single cell, so its water gets a full skirt around all four
+    # edges (it has no neighbours to share an edge with).
+    _append_skirt(cell, water_skirt_mesh(height, x0, y0, x1, y1), "Water")
 
 
 def _append_water(
     cell: InstancedCell, height: float, x0: float, y0: float, x1: float, y1: float
 ) -> None:
-    """Append a water plane group (drawn once, at identity, not framed on)."""
+    """Append a water plane group (drawn once, at identity, not framed on).
+
+    The edge skirt is added separately (see :func:`_add_exterior_skirts` and
+    :func:`_add_interior_water`), so it can wrap the outer perimeter of whatever
+    is on screen rather than every cell's boundary.
+    """
     mesh = water_mesh(height, x0, y0, x1, y1)
     identity = list(matrix4_columns(Transform()))
     cell.groups.append(
         InstancedGroup(model=mesh.name, meshes=[mesh], matrices=identity, record_type="Water")
+    )
+    cell.drawn += 1
+
+
+def _append_skirt(
+    cell: InstancedCell,
+    mesh: Mesh,
+    record_type: str,
+    *,
+    adjacent: bool = False,
+    skirt_alone: bool = False,
+) -> None:
+    """Append a skirt mesh as its own group (drawn once, at identity, not framed on)."""
+    if not mesh.triangles:
+        return
+    identity = list(matrix4_columns(Transform()))
+    cell.groups.append(
+        InstancedGroup(
+            model=mesh.name,
+            meshes=[mesh],
+            matrices=identity,
+            record_type=record_type,
+            adjacent=adjacent,
+            skirt_alone=skirt_alone,
+        )
     )
     cell.drawn += 1
 
@@ -429,12 +496,56 @@ def _landscape_textures(plugins: Sequence[LoadedPlugin], owner: LoadedPlugin) ->
     return landscape_textures(scope)
 
 
+def _resolve_cell_tex(
+    plugins: Sequence[LoadedPlugin],
+    grid: tuple[int, int],
+    cache: dict[tuple[int, int], list[list[str]] | None],
+) -> list[list[str]] | None:
+    """The 16x16 land-texture grid for one exterior grid, cached, or ``None``.
+
+    Resolves the winning ``LAND`` and its owner's ``LTEX`` map (the same
+    per-plugin scoping :func:`_add_terrain` uses), so a neighbour's textures blend
+    against the numbering they were authored in.
+    """
+    if grid in cache:
+        return cache[grid]
+    grid_tex: list[list[str]] | None = None
+    found = _winning_landscape(plugins, grid)
+    if found is not None:
+        land, owner = found
+        if has_terrain(land):
+            grid_tex = cell_texture_grid(land, _landscape_textures(plugins, owner))
+    cache[grid] = grid_tex
+    return grid_tex
+
+
+def _neighbour_texture_grids(
+    plugins: Sequence[LoadedPlugin],
+    grid: tuple[int, int],
+    cache: dict[tuple[int, int], list[list[str]] | None],
+) -> dict[tuple[int, int], list[list[str]]]:
+    """The eight surrounding cells' texture grids, keyed by ``(dx, dy)`` offset.
+
+    Absent (no terrain) neighbours are omitted; the blend then repeats this cell's
+    own edge on that side.
+    """
+    gx, gy = grid
+    result: dict[tuple[int, int], list[list[str]]] = {}
+    for dx, dy in _ADJACENT_OFFSETS:
+        neighbour = _resolve_cell_tex(plugins, (gx + dx, gy + dy), cache)
+        if neighbour is not None:
+            result[(dx, dy)] = neighbour
+    return result
+
+
 def _add_terrain(
     cell: InstancedCell,
     plugins: Sequence[LoadedPlugin],
     grid: tuple[int, int],
     *,
     focus: bool = True,
+    ground: dict[tuple[int, int], _Ground] | None = None,
+    tex_cache: dict[tuple[int, int], list[list[str]] | None] | None = None,
 ) -> None:
     """Append the exterior cell's terrain to a built scene, if it has any.
 
@@ -452,6 +563,12 @@ def _add_terrain(
         focus: Whether the camera should frame on this terrain. True for the
             picked cell (the camera lands in it); False for a neighbour, which is
             context and must not pull the view off the picked cell.
+        ground: When given, records ``grid -> (land, texture_paths, has_water)``
+            for every cell that got terrain, so the skirt pass can wrap the outer
+            perimeter without decoding the heights a second time.
+        tex_cache: When given, the eight neighbours' texture grids are resolved
+            (through it, cached per grid) and fed to the blend so the terrain
+            textures blend across the cell seam instead of clamping at it.
     """
     found = _winning_landscape(plugins, grid)
     if found is None:
@@ -462,11 +579,14 @@ def _add_terrain(
     # Resolve this LAND's texture indices against its own plugin + masters, not a
     # global table -- LTEX indices collide across plugins (see _landscape_textures).
     texture_paths = _landscape_textures(plugins, owner)
+    neighbours = (
+        _neighbour_texture_grids(plugins, grid, tex_cache) if tex_cache is not None else None
+    )
     try:
-        meshes = terrain_blend_meshes(land, texture_paths)
+        meshes = terrain_blend_meshes(land, texture_paths, neighbours)
+        if not meshes:
+            return
     except (HeightEncodeError, struct.error):
-        return
-    if not meshes:
         return
     identity = list(matrix4_columns(Transform()))
     gx, gy = grid
@@ -484,7 +604,9 @@ def _add_terrain(
     # dry inland cell would just hang under the terrain, so it is added only when
     # some vertex is below sea level (a coast, a river mouth, a swamp). Every
     # sub-mesh shares the cell's vertex grid, so the first one carries them all.
-    if any(vertex[2] < SEA_LEVEL for vertex in meshes[0].vertices):
+    heights = [vertex[2] for vertex in meshes[0].vertices]
+    has_water = any(z < SEA_LEVEL for z in heights)
+    if has_water:
         _append_water(
             cell,
             SEA_LEVEL,
@@ -493,3 +615,68 @@ def _add_terrain(
             (gx + 1) * LAND_CELL_UNITS,
             (gy + 1) * LAND_CELL_UNITS,
         )
+    if ground is not None:
+        ground[grid] = (land, texture_paths, has_water, min(heights))
+
+
+def _neighbour(grid: tuple[int, int], edge: str) -> tuple[int, int]:
+    """The grid on the far side of one of a cell's edges."""
+    dx, dy = EDGE_NEIGHBOUR[edge]
+    return (grid[0] + dx, grid[1] + dy)
+
+
+def _add_exterior_skirts(
+    cell: InstancedCell,
+    focused_grid: tuple[int, int],
+    ground: dict[tuple[int, int], _Ground],
+    *,
+    include_adjacent: bool,
+) -> None:
+    """Skirt the outer perimeter of the drawn terrain -- the one cell or the block.
+
+    Two skirts are built so the plinth always hugs whatever is on screen: the
+    picked cell's *full* skirt, shown only while neighbours are hidden; and, when
+    neighbours were built, a *block* skirt that walls only the outer edges of the
+    whole drawn block (an edge whose neighbour is also drawn is internal and left
+    open), shown while neighbours are visible. The viewer swaps between them with
+    the "Adjacent cells" toggle (see :attr:`InstancedGroup.skirt_alone`).
+
+    Only terrain is skirted here. An exterior cell's sea plane spans exactly the
+    cell, so its edge sits flush against the (opaque, taller) land skirt already --
+    a water skirt there would only z-fight it. Interiors, which have no land skirt,
+    get their water skirt in :func:`_add_interior_water`.
+
+    Every skirt shares one flat ``bottom`` (the lowest point of the drawn terrain,
+    less :data:`~wraithguard.scene.terrain.SKIRT_DROP`), so a block of plinths sits
+    on one base rather than each dropping to its own uneven depth.
+
+    Args:
+        cell: The scene to add to, mutated in place.
+        focused_grid: The picked exterior cell's ``(x, y)``.
+        ground: ``grid -> (land, texture_paths, has_water, min_z)`` for every drawn
+            cell.
+        include_adjacent: Whether neighbouring cells were built.
+    """
+    if not ground:
+        return
+    terrain_grids = set(ground)
+    bottom = min(min_z for (_land, _tex, _water, min_z) in ground.values()) - SKIRT_DROP
+
+    # The lone-cell skirt: the picked cell's full plinth, shown when neighbours are
+    # hidden (or there are none). Always added so toggling neighbours off restores it.
+    focused = ground.get(focused_grid)
+    if focused is not None:
+        land, _texture_paths, _has_water, _min_z = focused
+        skirt = terrain_skirt_mesh(land, bottom=bottom)
+        _append_skirt(cell, skirt, "Terrain", skirt_alone=True)
+
+    if not include_adjacent:
+        return
+
+    # The block skirt: only the outer edges of the whole drawn block, tagged
+    # adjacent so it shows exactly when the neighbours do.
+    for g, (land, _texture_paths, _has_water, _min_z) in ground.items():
+        t_edges = tuple(e for e in ALL_EDGES if _neighbour(g, e) not in terrain_grids)
+        if t_edges:
+            skirt = terrain_skirt_mesh(land, edges=t_edges, bottom=bottom)
+            _append_skirt(cell, skirt, "Terrain", adjacent=True)

@@ -36,6 +36,14 @@ from wraithguard.esp.json import (
     record_from_json,
     record_to_json,
 )
+from wraithguard.esp.masters import (
+    RemoveMasterReport,
+    RenameMasterReport,
+    remove_master,
+    remove_master_from_bytes,
+    rename_master,
+    rename_master_in_bytes,
+)
 from wraithguard.esp.plugin import read_header, read_plugin, write_plugin
 from wraithguard.esp.record import Record, UnknownRecord
 from wraithguard.esp.records import (
@@ -190,6 +198,8 @@ __all__ = [
     "Record",
     "Reference",
     "Region",
+    "RemoveMasterReport",
+    "RenameMasterReport",
     "RepairItem",
     "RepairItemData",
     "Script",
@@ -214,5 +224,9 @@ __all__ = [
     "read_plugin",
     "record_from_json",
     "record_to_json",
+    "remove_master",
+    "remove_master_from_bytes",
+    "rename_master",
+    "rename_master_in_bytes",
     "write_plugin",
 ]

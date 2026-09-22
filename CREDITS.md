@@ -42,6 +42,14 @@ and their `LICENSE` files are included in their source folders in this repo.
 - **tes3conv** - © 2025 Greatness7. MIT.
   Converts Morrowind plugins ↔ JSON. Used (optionally, if present on PATH) as the
   exact record-identification and field-diff engine behind Check Conflicts.
+- **tes3** ([`Greatness7/tes3`](https://github.com/Greatness7/tes3)) - © Greatness7. MIT.
+  The Rust library of TES3 record and NIF block types. Our `wraithguard/esp/`
+  record layer is a **port of its `libs/esp/src/types`** - the record framing,
+  every subrecord reader/writer, the object flags and enums, and the reference
+  master/object index packing - so a plugin round-trips byte-for-byte. Its
+  `libs/nif` types were the second-implementation cross-check for our NIF reader
+  (see the NIF section below), and its `NiAVObject`/`Matrix3` conventions were
+  what we verified the cell previewer's transforms against.
 - **Merged Lands** - © 2022 David Von Derau. MIT. Licence text vendored at
   `License/MergedLands/LICENSE`.
   A Rust tool that merges the landscape changes a load order would otherwise
@@ -149,6 +157,21 @@ reference your scripts at all, say the word and it is done.
   distributed with it; **no code was copied**. We credit it for the field-level
   record-diff *approach* that inspired our field comparison view. All rights
   remain with its author.
+- **Gardenfell / GrassForge** - © 2026 Robin Hjelte. **MIT** (except its MGE XE
+  shader parts, which are not used here); shared privately with us to draw on.
+  Its Rust engine is largely native/GPU micro-optimisation that does not port to
+  a Python + three.js tool, but two things came across:
+  - Its start-up discipline -- *read a thing once and reuse it rather than
+    re-reading it every pass* -- prompted the cell previewer's parsed-mesh cache
+    (`_cell_parsed_mesh_cache`) and, once we moved to free-threaded Python, the
+    parallel model parse in `build_instanced` (its "read the mesh superset on the
+    pool while the merge runs"). The code is our own; the approach is Gardenfell's.
+  - Its tiny hand-crafted animation test NIFs (`morph.nif`, `anim.nif`,
+    `uvsets.nif`, `particle_move.nif`, `flap.nif`/`.kf`) are vendored under
+    `tests/fixtures/gardenfell_anim/` (MIT) and used to test our animation
+    extraction against real NIF bytes. They immediately caught two of our bugs --
+    geometry lost under a `NiCollisionSwitch`, and a particle `NiTriShape` drawn
+    as a surface -- which is exactly what a second corpus is for.
 - **xEdit / TES5Edit / SSEEdit** - © the xEdit team. **MPL 1.1; no code copied.**
   Our conflict-colour convention -- a record's overall status colours the row
   **background**, what one plugin does colours the **text** -- is xEdit's, the
@@ -308,7 +331,11 @@ the credit is one of gratitude and correctness.
 
 - **OpenMW** - GPLv3. The engine that makes modern Morrowind modding possible.
   Referenced for `openmw.cfg` semantics, the `.omwaddon`/`.omwscripts` Lua
-  formats, and VFS (`data=`) resolution rules.
+  formats, and VFS (`data=`) resolution rules. Also read for the *math* two
+  animation controllers apply -- `NiUVController`'s offset/tiling and
+  `NiGeomMorpherController`'s `base + Σ weightᵢ·deltaᵢ` vertex blend
+  (`components/nifosg/controller.cpp`) -- which is format behaviour, not code:
+  our cell-viewer playback is an independent implementation.
 - **Mod Organizer 2** - GPLv3. Referenced for the "Data" loose-file conflict
   concept behind our data-path (VFS) resource conflict checker.
 - **MWSE** - © NullCascade, Merzasphor, Greatness7 and contributors. **GPLv2.**
@@ -347,6 +374,21 @@ the credit is one of gratitude and correctness.
   small explicit table in the generator, each with its evidence.
 - **MGE XE** - GPLv3. Referenced alongside MWSE for the same cross-check; no
   source copied.
+- **Wrye Mash** (Polemos fork) - © 2017-2021 Polemos, based on Yacoby
+  (2011-2016), Melchor (2009-2011) and Wrye (2005-2009). **GPLv2-or-later.**
+  Wrye Mash popularised the *features* of removing a master from a plugin and
+  re-pointing one at a renamed file ("Change to.."), and we read its `mosh.py`
+  (`FileRefs.remap` / `remapObject`, and the masters editor's `GetMaps`) to
+  confirm the behaviour a good implementation must have: to remove, drop the
+  master, shift every later master's index down one, and drop references that
+  pointed into it; to rename, swap only the header entry and its recorded size,
+  leaving references alone. **No Wrye Mash source was copied.** The index
+  arithmetic itself is dictated by the TES3 file format - a reference packs its
+  master index in the top byte of its `FRMR` word - and our `wraithguard/esp/`
+  `remove_master` / `rename_master` are independent implementations over our own
+  tes3-derived `Reference` model, sharing the same math our (public-domain)
+  `merge_to_master` port already uses for master remapping. So no copyleft
+  obligations attach; the credit is one of gratitude and correctness.
 
 ## Curated data & tooling
 
@@ -423,6 +465,38 @@ Four things are ported from yampt's C++, with its permission by licence:
 Verified rather than assumed: the port reproduces the file order of all 4,111
 topics and 36,735 responses in Morrowind.esm, Tribunal.esm and Bloodmoon.esm
 exactly, from the `prev_id` chain alone.
+
+## merge_to_master - whole-plugin merging (public domain)
+
+**merge_to_master** ([`Greatness7/merge_to_master`](https://github.com/Greatness7/merge_to_master))
+- © Greatness7, released as **public domain**: asked about its licence, the
+author said to "consider it public domain (do whatever you want)." We take that
+at its word and record it here so the grant is not lost.
+
+`wraithguard/merge/` is a **port of it**, function by function:
+
+- the `PluginData` bucketing (objects keyed by identity, cells split into
+  interiors/exteriors each holding cell + landscape + path grid, dialogue grouped
+  into topics with ordered responses), from `types/plugin.rs` and `types/cells.rs`;
+- the merge rules - last-plugin-wins objects, unioned cell references, latest
+  landscape/path grid, dialogue responses spliced in linked-list order - from
+  `traits/merge_objects.rs`;
+- the `INFO` ordering with its position-hint index, from `types/dialogue.rs`
+  (including the rule that a response whose `prev_id` is not yet present goes to
+  the end);
+- master-index and land-texture-index remapping, from `traits/remap_masters.rs`,
+  `traits/remap_textures.rs` and the `Header` helpers in `traits/extensions.rs`;
+- deleted-object removal with the full reference-cleaning graph (which field of
+  which record points at which object type) and ignored-object stripping, from
+  `traits/remove_deleted.rs` and `traits/remove_ignored.rs`;
+- `merge_plugins` and `merge_load_order` with their options (remove-deleted,
+  apply-moved-references, remove-duplicate-references), from `merge_plugins.rs`.
+
+The parallel `par_merge_load_order` is deliberately **not** ported - our build is
+single-process by design. Verified rather than assumed: our merge reproduces the
+original tool's own `Expect.esm` fixtures object-for-object across its dialogue-
+ordering, deletion and cell-rename cases (`tests/test_merge_golden.py`), and its
+`get_index_remap` unit cases pass unchanged.
 
 ## Runtime & optional libraries
 

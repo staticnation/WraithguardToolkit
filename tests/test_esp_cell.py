@@ -15,6 +15,7 @@ import pytest
 
 from wraithguard.esp import Cell, Reference, read_plugin, write_plugin
 from wraithguard.esp.flags import CellFlags, ObjectFlags
+from wraithguard.esp.io import EspError
 
 
 def _sub(tag: bytes, body: bytes) -> bytes:
@@ -81,6 +82,52 @@ class TestCell:
         assert cell.references[1].temporary is True
         assert cell.references[1].translation == pytest.approx((1.0, 2.0, 3.0))
         assert write_plugin([cell]) == original
+
+    def test_references_after_nam0_are_temporary_past_the_stated_count(self) -> None:
+        # A dirty plugin whose NAM0 count understates the temporary refs: every
+        # reference after NAM0 is temporary regardless -- the boundary is what
+        # matters, not the number (matches tes3's move away from the count).
+        refs = (
+            _ref(0, 1, "persistent_ref")
+            + _sub(b"NAM0", struct.pack("<I", 1))  # claims 1, but two follow
+            + _ref(0, 2, "temp_a")
+            + _ref(0, 3, "temp_b")
+        )
+        body = (
+            _string_sub(b"NAME", "Dirty Cell")
+            + _sub(b"DATA", struct.pack("<Iii", int(CellFlags.IS_INTERIOR), 0, 0))
+            + refs
+        )
+        (cell,) = read_plugin(_record(b"CELL", body))
+        assert [r.temporary for r in cell.references] == [False, True, True]
+
+    def test_an_ambi_smaller_than_16_bytes_is_rejected(self) -> None:
+        body = (
+            _string_sub(b"NAME", "Bad AMBI")
+            + _sub(b"DATA", struct.pack("<Iii", int(CellFlags.IS_INTERIOR), 0, 0))
+            + _sub(b"AMBI", bytes(12))  # 12 < 16
+        )
+        with pytest.raises(EspError):
+            read_plugin(_record(b"CELL", body))
+
+    def test_owner_faction_rank_is_signed(self) -> None:
+        # -1 (0xFFFFFFFF) means "no set rank"; it must read as -1, not 4294967295,
+        # and survive a write/read round-trip.
+        refs = _ref(
+            0,
+            1,
+            "com_chest_01",
+            _string_sub(b"ANAM", "fighters_guild") + _sub(b"INDX", struct.pack("<i", -1)),
+        )
+        body = (
+            _string_sub(b"NAME", "Rank Cell")
+            + _sub(b"DATA", struct.pack("<Iii", int(CellFlags.IS_INTERIOR), 0, 0))
+            + refs
+        )
+        (cell,) = read_plugin(_record(b"CELL", body))
+        assert cell.references[0].owner_faction_rank == -1
+        (again,) = read_plugin(write_plugin([cell]))
+        assert again.references[0].owner_faction_rank == -1
 
     def test_exterior_cell_with_region_and_moved_ref_round_trips(self) -> None:
         moved = (

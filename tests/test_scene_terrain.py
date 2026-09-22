@@ -21,18 +21,22 @@ from wraithguard.scene.cellview import (
     preview_cell_instanced,
 )
 from wraithguard.scene.terrain import (
+    SKIRT_TEXTURE,
     _cell_textures,
     _corner_weights,
     _deswizzled_vtex,
+    _extended_texture_grid,
     _texture_at,
     _vertex_texture_weights,
+    cell_texture_grid,
     has_terrain,
     landscape_textures,
     terrain_blend_meshes,
     terrain_mesh,
     terrain_meshes,
+    terrain_skirt_mesh,
 )
-from wraithguard.scene.water import SEA_LEVEL, water_mesh
+from wraithguard.scene.water import SEA_LEVEL, water_mesh, water_skirt_mesh
 from wraithguard.tes3fields.landscape import LAND_CELL_UNITS, LAND_NUM_VERTS, LAND_SIZE
 
 _HEIGHTS = LandscapeFlags.USES_VERTEX_HEIGHTS_AND_NORMALS
@@ -262,9 +266,10 @@ class TestTerrainBlend:
         meshes = terrain_blend_meshes(land, _THREE_PATHS)
         assert len(meshes) == 3
         cell_tex = _cell_textures(_deswizzled_vtex(land.texture_indices), _THREE_PATHS)
+        extended = _extended_texture_grid(cell_tex, None)
         for vertex in range(LAND_NUM_VERTS):
             row, col = divmod(vertex, LAND_SIZE)
-            weights = _vertex_texture_weights(cell_tex, row, col)
+            weights = _vertex_texture_weights(extended, row, col)
             # Front-to-back "over": each layer contributes alpha * (light still
             # getting through from above), and dims what reaches the layers below.
             contrib: dict[str, float] = {}
@@ -299,18 +304,42 @@ class TestTerrainHelpers:
         # Unpainted grid resolves to all "".
         assert _cell_textures(_deswizzled_vtex(_vtex([0] * 256)), {5: "x"})[0][0] == ""
 
-    def test_corner_weights_clamp_at_both_edges(self) -> None:
-        # The south/west edge samples cannot fall below cell 0...
-        low0, high0, _f0 = _corner_weights(0)
-        assert low0 == 0 and high0 == 0
-        # ...nor the north/east edge above the last cell.
-        low64, high64, _f64 = _corner_weights(64)
-        assert low64 == 15 and high64 == 15
+    def test_corner_weights_reach_past_the_edge(self) -> None:
+        # The edge samples reach the cell *beyond* the boundary (-1 / 16), which the
+        # caller pulls from the neighbour so the blend crosses the seam.
+        assert _corner_weights(0)[:2] == (-1, 0)
+        assert _corner_weights(64)[:2] == (15, 16)
 
     def test_vertex_texture_weights_sum_to_one(self) -> None:
         cell_tex = _cell_textures(_deswizzled_vtex(_two_texture_land().texture_indices), _TWO_PATHS)
-        weights = _vertex_texture_weights(cell_tex, 32, 32)  # near the seam
+        extended = _extended_texture_grid(cell_tex, None)
+        weights = _vertex_texture_weights(extended, 32, 32)  # near the seam
         assert abs(sum(weights.values()) - 1.0) < 1e-6
+
+    def test_cell_texture_grid_resolves_or_returns_none(self) -> None:
+        land = _flat_land((0, 0), flags=_HEIGHTS | _TEXTURES)
+        land.texture_indices = _vtex([6] * 256)  # value 6 -> LTEX index 5
+        grid = cell_texture_grid(land, {5: "g.dds"})
+        assert grid is not None and grid[0][0] == "g.dds"
+        # No textures flag -> nothing to blend against.
+        assert cell_texture_grid(_flat_land((0, 0)), {5: "g.dds"}) is None
+
+    def test_extended_grid_pulls_its_border_from_neighbours(self) -> None:
+        own = [["own"] * 16 for _ in range(16)]
+        south = [["south"] * 16 for _ in range(16)]  # the (0, -1) neighbour
+        ext = _extended_texture_grid(own, {(0, -1): south})
+        assert ext[1][1] == "own"  # interior unchanged
+        assert ext[0][1] == "south"  # row -1 (south of row 0) comes from the neighbour
+        # A missing neighbour repeats the cell's own edge instead.
+        assert _extended_texture_grid(own, None)[0][1] == "own"
+
+    def test_an_edge_vertex_blends_toward_the_neighbour(self) -> None:
+        own = _cell_textures(_deswizzled_vtex(_vtex([6] * 256)), {5: "own.dds"})
+        south = _cell_textures(_deswizzled_vtex(_vtex([3] * 256)), {2: "south.dds"})
+        alone = _vertex_texture_weights(_extended_texture_grid(own, None), 0, 32)
+        blended = _vertex_texture_weights(_extended_texture_grid(own, {(0, -1): south}), 0, 32)
+        assert "south.dds" not in alone  # clamps to own edge with no neighbour
+        assert blended.get("south.dds", 0.0) > 0.0  # crosses the seam toward it
 
 
 class TestFindLandscape:
@@ -475,3 +504,74 @@ class TestInteriorWater:
         plugin = LoadedPlugin("A.esp", [], [_interior_cell("dry")])
         _p, _a, cell = preview_cell_instanced([plugin], CellKey(interior="dry"), lambda _p: None)
         assert not any(g.model == "water" for g in cell.groups)
+
+
+class TestTerrainSkirt:
+    def test_the_skirt_walls_hang_below_the_terrain(self) -> None:
+        skirt = terrain_skirt_mesh(_flat_land((0, 0)))  # flat at z=0
+        assert skirt.name == "terrain_skirt_0_0"
+        assert skirt.vertices
+        # A wall from the flat top (z=0) straight down to a common bottom.
+        assert {round(v[2], 3) for v in skirt.vertices} == {0.0, -1024.0}
+        # Each edge segment is a quad (4 vertices, 2 triangles).
+        assert len(skirt.triangles) == len(skirt.vertices) // 4 * 2
+
+    def test_the_skirt_bottom_tracks_a_raised_grid(self) -> None:
+        skirt = terrain_skirt_mesh(_flat_land((0, 0), offset=10.0))  # heights = 80
+        assert {round(v[2], 3) for v in skirt.vertices} == {80.0, 80.0 - 1024.0}
+
+    def test_the_skirt_uses_the_default_land_texture(self) -> None:
+        skirt = terrain_skirt_mesh(_flat_land((0, 0)))
+        assert skirt.texture == SKIRT_TEXTURE
+        assert len(skirt.uvs) == len(skirt.vertices)
+
+    def test_the_skirt_is_unshaded(self) -> None:
+        # No vertex colours: the plinth is drawn at the texture's full brightness.
+        land = _flat_land(
+            (0, 0), flags=_HEIGHTS | _COLORS, vclr=bytes([200, 200, 200]) * LAND_NUM_VERTS
+        )
+        assert terrain_skirt_mesh(land).vertex_colors == []
+
+    def test_only_the_requested_edges_are_walled(self) -> None:
+        full = terrain_skirt_mesh(_flat_land((0, 0)))
+        one = terrain_skirt_mesh(_flat_land((0, 0)), edges=("south",))
+        assert len(one.vertices) == len(full.vertices) // 4  # one of four edges
+
+    def test_an_exterior_preview_includes_a_terrain_skirt(self) -> None:
+        plugin = LoadedPlugin("A.esp", [], [_flat_land((4, 2))])
+        _p, _a, cell = preview_cell_instanced([plugin], CellKey(grid=(4, 2)), lambda _p: None)
+        skirts = [g for g in cell.groups if g.model.startswith("terrain_skirt")]
+        assert skirts
+        # A lone cell's skirt shows when its (absent) neighbours are hidden.
+        assert all(g.skirt_alone for g in skirts)
+
+    def test_a_block_skirts_only_its_outer_perimeter(self) -> None:
+        lands = [_flat_land((x, y)) for x in (-1, 0, 1) for y in (-1, 0, 1)]
+        plugin = LoadedPlugin("A.esp", [], lands)
+        _p, _a, cell = preview_cell_instanced(
+            [plugin], CellKey(grid=(0, 0)), lambda _p: None, include_adjacent=True
+        )
+        # The focused cell still gets a full lone skirt (for when neighbours hide).
+        assert any(g.model == "terrain_skirt_0_0" and g.skirt_alone for g in cell.groups)
+        # The block skirt (shown with neighbours) walls only outer edges: the
+        # fully-surrounded centre contributes none, the outer ring does.
+        assert not any(g.model == "terrain_skirt_0_0" and g.adjacent for g in cell.groups)
+        assert any(g.model.startswith("terrain_skirt") and g.adjacent for g in cell.groups)
+
+
+class TestWaterSkirt:
+    def test_the_walls_hang_below_the_surface(self) -> None:
+        skirt = water_skirt_mesh(100.0, 0.0, 0.0, 10.0, 20.0)
+        assert {round(v[2], 3) for v in skirt.vertices} == {100.0, 100.0 - 1024.0}
+        # Four edge walls, each a quad; a plain translucent surface, not the plane.
+        assert len(skirt.vertices) == 16 and len(skirt.triangles) == 8
+        assert skirt.alpha_blend is True and skirt.water is False
+
+    def test_only_the_requested_edges_are_walled(self) -> None:
+        one = water_skirt_mesh(0.0, 0.0, 0.0, 10.0, 10.0, edges=("north",))
+        assert len(one.vertices) == 4 and len(one.triangles) == 2
+
+    def test_a_water_preview_includes_a_skirt(self) -> None:
+        plugin = LoadedPlugin("A.esp", [], [_interior_cell("pool", water=250.0)])
+        _p, _a, cell = preview_cell_instanced([plugin], CellKey(interior="pool"), lambda _p: None)
+        assert any(g.model == "water_skirt" for g in cell.groups)

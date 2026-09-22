@@ -112,7 +112,11 @@ class Cell(Record):
     def load(cls, reader: Reader, flags: ObjectFlags) -> Cell:
         """Read the cell header and its references."""
         self = cls(flags=flags)
-        num_temp_refs = 0
+        # NAM0 marks where the persistent references end and the temporary ones
+        # begin; every reference after it is temporary. Tracked as a boundary flag
+        # rather than counting down NAM0's number, which a dirty plugin can under-
+        # or over-state -- matching tes3's move away from the count.
+        temp_section = False
         pending_moved: tuple[int, int] | None = None
         while not reader.at_end:
             tag = reader.tag()
@@ -131,11 +135,14 @@ class Cell(Record):
                 self.water_height = reader.f32()
             elif tag == b"AMBI":
                 size = reader.u32()
+                if size < _AMBI_SIZE:
+                    raise EspError(f"CELL: AMBI size {size} is below {_AMBI_SIZE}")
                 self.atmosphere_data = AtmosphereData.load(reader)
                 reader.skip(size - _AMBI_SIZE)  # some editors pad this subrecord
             elif tag == b"NAM0":
                 expect_size(reader, "CELL", "NAM0", 4)
-                num_temp_refs = reader.i32()
+                reader.i32()  # the temp-ref count; the boundary is what matters, not the number
+                temp_section = True
             elif tag == b"MVRF":
                 expect_size(reader, "CELL", "MVRF", _MVRF_SIZE)
                 reader.u32()  # packed index; reconstructed from the reference on save
@@ -150,8 +157,7 @@ class Cell(Record):
                 reference = Reference.load(reader)
                 reference.mast_index = mast_index
                 reference.refr_index = refr_index
-                reference.temporary = num_temp_refs > 0
-                num_temp_refs -= 1
+                reference.temporary = temp_section
                 reference.moved_cell = pending_moved
                 pending_moved = None
                 self.references.append(reference)

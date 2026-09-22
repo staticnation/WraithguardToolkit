@@ -50,10 +50,20 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          # setup-python's macOS build bundles Tcl/Tk, so tkinter works without
-          # a system Python. 3.12 has mature PyInstaller support.
-          python-version: "3.12"
+          # Free-threaded Python 3.14 (`3.14t`), the build the app ships;
+          # setup-python's macOS build bundles Tcl/Tk. Some wheels may not yet
+          # publish a `cp314t` build and can source-build here while the ecosystem
+          # catches up.
+          python-version: "3.14t"
+          allow-prereleases: true
           cache: pip
+
+      - name: Verify the free-threaded build
+        # Fail before the heavy PyInstaller build if setup-python fell back to a
+        # GIL interpreter -- otherwise the shipped app is not free-threaded.
+        run: |
+          python --version
+          python -c "import sys; assert not sys._is_gil_enabled(), 'GIL is enabled -- not a free-threaded build'; print('free-threaded OK')"
 
       - name: Install build dependencies
         # Mirrors Dockerfile.wraithguard's pip set, with pywebview's Cocoa backend
@@ -64,7 +74,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install --no-cache-dir \
-            pyinstaller pywebview tkinterweb tkinterdnd2 PyYAML zstandard ijson certifi pillow
+            pyinstaller pywebview tkinterweb tkinterdnd2 PyYAML ijson certifi pillow
 
       - name: Make the .icns app icon from the .ico
         # PyInstaller wants a .icns on macOS. Build one from the largest frame of

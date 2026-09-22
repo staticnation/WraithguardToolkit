@@ -4022,6 +4022,9 @@ def check_savegame_against_order(
 BACKUP_PATTERNS = (
     ".preclean.bak",  # ours: original before a staged tes3cmd clean
     ".masterfix.bak",  # ours: original before a master-size resync
+    ".precustom.bak",  # ours: original before a staged tes3cmd custom command
+    ".pretes3cmd.bak",  # ours: original before a non-staged tes3cmd command
+    ".premaster.bak",  # ours: original before a master was removed or renamed
 )
 
 

@@ -35,6 +35,7 @@ look.
 
 from __future__ import annotations
 
+import itertools
 import math
 import struct
 from collections import Counter
@@ -65,6 +66,20 @@ _SPACING = LAND_CELL_UNITS / (LAND_SIZE - 1)
 #: is the natural rate. A calibration point -- the *rate* only decides how coarse
 #: the ground reads, not which texture goes where.
 _UV_SCALE = 1.0 / 4.0
+
+#: How far below the lowest edge vertex the terrain skirt hangs, in world units.
+#: A cell is 8192 units across; ~1024 reads as a solid plinth without dominating.
+SKIRT_DROP = 1024.0
+
+#: UV units per world unit, so the skirt's texture tiles at the same scale as the
+#: cell surface (whose grid UVs step ``_UV_SCALE`` every ``_SPACING`` units).
+_SKIRT_UV = _UV_SCALE / _SPACING
+
+#: The texture the skirt is painted with -- Morrowind's default land texture, so
+#: every plinth reads as the same neutral ground regardless of what the cell
+#: paints on top. Resolved like any base texture (``.dds`` preferred, ``.tga``
+#: fallback), and ignored in favour of the vertex colours if it cannot be found.
+SKIRT_TEXTURE = "_land_default.dds"
 
 #: Quads per ``VTEX`` cell along one edge. 64 quads span the cell and ``VTEX`` is
 #: 16x16, so each painted texture cell covers a 4x4 block of quads.
@@ -401,22 +416,26 @@ def _corner_weights(vertex: int) -> tuple[int, int, float]:
     on that one) and only ramps within roughly one cell of a boundary -- the soft
     transition Morrowind draws, rather than a gradient across every cell.
 
+    The indices are **not** clamped to 0..15: a vertex on the cell's outer edge
+    falls between cell 0 (or 15) and the cell *beyond* the boundary (-1 or 16). The
+    caller samples that out-of-range cell from the neighbouring cell's edge (see
+    :func:`_extended_texture_grid`), so the blend crosses the cell seam instead of
+    stopping dead at it.
+
     Args:
         vertex: The vertex's row or column index (0..64).
 
     Returns:
-        ``(cell_low, cell_high, frac)``: the two ``VTEX`` cell indices (clamped to
-        0..15) this vertex falls between, and the 0..1 blend toward the high one.
+        ``(cell_low, cell_high, frac)``: the two ``VTEX`` cell indices this vertex
+        falls between (each in -1..16) and the 0..1 blend toward the high one.
     """
     coord = (vertex - 2) / 4.0
     low = math.floor(coord)
     frac = coord - low
-    cell_low = min(max(low, 0), TEXTURE_SIZE - 1)
-    cell_high = min(max(low + 1, 0), TEXTURE_SIZE - 1)
-    return cell_low, cell_high, frac
+    return low, low + 1, frac
 
 
-def _vertex_texture_weights(cell_tex: list[list[str]], row: int, col: int) -> dict[str, float]:
+def _vertex_texture_weights(extended: list[list[str]], row: int, col: int) -> dict[str, float]:
     """The blend weight of each land texture at one vertex, summing to 1.
 
     Bilinearly samples the four ``VTEX`` cells around the vertex (see
@@ -426,7 +445,10 @@ def _vertex_texture_weights(cell_tex: list[list[str]], row: int, col: int) -> di
     the soft edge. Unpainted corners collect under ``""``.
 
     Args:
-        cell_tex: The 16x16 resolved texture grid from :func:`_cell_textures`.
+        extended: The 18x18 texture grid from :func:`_extended_texture_grid` -- the
+            cell's own 16x16 plus a one-cell border from its neighbours, so an
+            edge vertex blends across the cell seam. Cell index ``c`` (``-1..16``)
+            is stored at ``extended[c + 1]``.
         row: The vertex's row (0..64).
         col: The vertex's column (0..64).
 
@@ -444,13 +466,81 @@ def _vertex_texture_weights(cell_tex: list[list[str]], row: int, col: int) -> di
     )
     weights: dict[str, float] = {}
     for cx, cy, weight in corners:
-        texture = cell_tex[cy][cx]
+        texture = extended[cy + 1][cx + 1]  # +1: the border cell -1 sits at index 0
         weights[texture] = weights.get(texture, 0.0) + weight
     return weights
 
 
+def cell_texture_grid(
+    land: Landscape, texture_paths: Mapping[int, str] | None
+) -> list[list[str]] | None:
+    """The cell's 16x16 resolved land-texture grid, or ``None`` if it has none.
+
+    A small public wrapper so a caller (the cell view) can build a neighbour's
+    texture grid to feed :func:`terrain_blend_meshes` for cross-cell blending.
+
+    Args:
+        land: The neighbour's landscape record.
+        texture_paths: That landscape owner's ``LTEX`` index -> file map.
+
+    Returns:
+        The 16x16 grid (``""`` where unpainted/unresolved), or ``None`` when the
+        cell paints no textures or carries no ``VTEX``.
+    """
+    if texture_paths is None or LandscapeFlags.USES_TEXTURES not in land.landscape_flags:
+        return None
+    grid = _deswizzled_vtex(land.texture_indices)
+    if not grid:
+        return None
+    return _cell_textures(grid, texture_paths)
+
+
+def _extended_texture_grid(
+    cell_tex: list[list[str]],
+    neighbours: Mapping[tuple[int, int], list[list[str]]] | None,
+) -> list[list[str]]:
+    """The cell's 16x16 texture grid with a one-cell border from its neighbours.
+
+    Returns an 18x18 grid indexed so that ``VTEX`` cell ``c`` (``-1..16``) lives
+    at ``[c + 1]``. The interior is the cell's own grid; the border ring is the
+    adjacent edge (or corner) cell of the neighbour on that side, which is what
+    lets an edge vertex's blend reach across the cell seam. A missing neighbour
+    (no terrain there, or not resolved) falls back to repeating the cell's own
+    edge, which reproduces the old hard-clamped edge -- no seam-crossing, but no
+    artifact either.
+
+    Args:
+        cell_tex: The cell's own 16x16 resolved texture grid.
+        neighbours: ``(dx, dy) -> 16x16 grid`` for the eight surrounding cells
+            (``dy`` positive north, matching the vertex grid), any subset present.
+
+    Returns:
+        An 18x18 grid of texture files.
+    """
+    n = TEXTURE_SIZE
+    neigh = neighbours or {}
+    ext = [["" for _ in range(n + 2)] for _ in range(n + 2)]
+    for er in range(n + 2):
+        cr = er - 1
+        for ec in range(n + 2):
+            cc = ec - 1
+            if 0 <= cr < n and 0 <= cc < n:
+                ext[er][ec] = cell_tex[cr][cc]
+                continue
+            dx = -1 if cc < 0 else (1 if cc >= n else 0)
+            dy = -1 if cr < 0 else (1 if cr >= n else 0)
+            grid = neigh.get((dx, dy))
+            if grid is not None:
+                ext[er][ec] = grid[cr % n][cc % n]
+            else:
+                ext[er][ec] = cell_tex[min(max(cr, 0), n - 1)][min(max(cc, 0), n - 1)]
+    return ext
+
+
 def terrain_blend_meshes(
-    land: Landscape, texture_paths: Mapping[int, str] | None = None
+    land: Landscape,
+    texture_paths: Mapping[int, str] | None = None,
+    neighbours: Mapping[tuple[int, int], list[list[str]]] | None = None,
 ) -> list[Mesh]:
     """Build blended terrain layers, one per land texture, soft at the seams.
 
@@ -479,6 +569,10 @@ def terrain_blend_meshes(
     Args:
         land: The cell's landscape record (call :func:`has_terrain` first).
         texture_paths: ``LTEX`` index -> texture file, or ``None`` for untextured.
+        neighbours: ``(dx, dy) -> 16x16 texture grid`` for the surrounding cells
+            (from :func:`cell_texture_grid`), so edge vertices blend across the cell
+            seam toward the neighbour's texture. ``None`` clamps at the edge as
+            before -- correct for a genuinely isolated cell.
 
     Returns:
         One :class:`~wraithguard.nif.geometry.Mesh` per land texture, each the
@@ -496,18 +590,9 @@ def terrain_blend_meshes(
     if not grid:
         return [terrain_mesh(land, texture_paths)]
     cell_tex = _cell_textures(grid, texture_paths)
-
-    # Order the layers most-used first, so the base (drawn opaque underneath) is
-    # the texture that covers the most ground -- the fewest seams to blend over.
-    counts: Counter[str] = Counter()
-    for line in cell_tex:
-        for texture in line:
-            if texture:
-                counts[texture] += 1
-    layers = [texture for texture, _n in counts.most_common()]
-    if len(layers) <= 1:
-        # Nothing to blend: one opaque textured (or plain) mesh.
-        return [terrain_mesh(land, texture_paths)]
+    # A one-cell border from the neighbours, so an edge vertex's blend crosses the
+    # cell seam toward the neighbour's texture instead of clamping to this cell's.
+    extended = _extended_texture_grid(cell_tex, neighbours)
 
     gx, gy = land.grid
     vertices = _height_vertices(land)
@@ -516,10 +601,24 @@ def terrain_blend_meshes(
 
     # Per-vertex, the coverage weight of every layer at that vertex.
     per_vertex = [
-        _vertex_texture_weights(cell_tex, row, col)
+        _vertex_texture_weights(extended, row, col)
         for row in range(LAND_SIZE)
         for col in range(LAND_SIZE)
     ]
+
+    # Order the layers most-covered first, so the base (drawn opaque underneath) is
+    # the texture over the most ground -- the fewest seams to blend over. Totalled
+    # from the per-vertex weights (not raw cell counts) so a neighbour's texture
+    # that only bleeds in at the shared edge still earns its own thin layer.
+    totals: dict[str, float] = {}
+    for weights in per_vertex:
+        for texture, weight in weights.items():
+            if texture:
+                totals[texture] = totals.get(texture, 0.0) + weight
+    layers = sorted(totals, key=lambda texture: -totals[texture])
+    if len(layers) <= 1:
+        # Nothing to blend: one opaque textured (or plain) mesh.
+        return [terrain_mesh(land, texture_paths)]
     triangles: list[tuple[int, int, int]] = []
     for row in range(LAND_SIZE - 1):
         for col in range(LAND_SIZE - 1):
@@ -561,3 +660,103 @@ def terrain_blend_meshes(
             )
         )
     return meshes
+
+
+#: The four cell edges, and the neighbouring grid offset each one faces. Used to
+#: skirt only a block's *outer* edges: an edge whose neighbour is also drawn is
+#: internal and left open.
+EDGE_NEIGHBOUR: dict[str, tuple[int, int]] = {
+    "south": (0, -1),
+    "north": (0, 1),
+    "east": (1, 0),
+    "west": (-1, 0),
+}
+
+#: The four edges in a stable order.
+ALL_EDGES: tuple[str, ...] = ("south", "east", "north", "west")
+
+
+def _edge_indices(edge: str) -> list[int]:
+    """Row-major grid indices along one cell edge, in a consistent direction."""
+    n = LAND_SIZE
+    if edge == "south":
+        return list(range(n))  # row 0, west to east
+    if edge == "east":
+        return [r * n + (n - 1) for r in range(n)]  # col 64, south to north
+    if edge == "north":
+        return [(n - 1) * n + c for c in range(n - 1, -1, -1)]  # row 64, east to west
+    return [r * n for r in range(n - 1, -1, -1)]  # col 0, north to south
+
+
+def terrain_skirt_mesh(
+    land: Landscape,
+    *,
+    edges: tuple[str, ...] = ALL_EDGES,
+    drop: float = SKIRT_DROP,
+    bottom: float | None = None,
+) -> Mesh:
+    """A vertical wall down the cell's terrain edges, so it does not look afloat.
+
+    The named edges are dropped straight down to a common bottom a little below
+    the lowest point, forming a plinth. Painted with :data:`SKIRT_TEXTURE` (tiled
+    at the surface's scale) at full brightness -- no vertex shading, so the wall
+    reads as an even band of ground.
+
+    Args:
+        land: The cell's landscape record (call :func:`has_terrain` first).
+        edges: Which of ``south``/``east``/``north``/``west`` to wall -- all four
+            for a lone cell, only the outer ones for a cell inside a drawn block.
+        drop: How far below this cell's lowest edge vertex the skirt hangs, when
+            ``bottom`` is not given.
+        bottom: An explicit world-z for the skirt's base. Pass a value shared
+            across a block of cells so their plinths line up on one flat base
+            instead of each dropping to its own depth.
+
+    Returns:
+        A :class:`~wraithguard.nif.geometry.Mesh` of the requested edge walls, at
+        the cell's world origin.
+
+    Raises:
+        HeightEncodeError: If the height grid is malformed.
+        struct.error: If the height bytes are the wrong length.
+    """
+    gx, gy = land.grid
+    grid = _height_vertices(land)
+    if bottom is None:
+        bottom = min(vertex[2] for vertex in grid) - drop
+
+    vertices: list[tuple[float, float, float]] = []
+    triangles: list[tuple[int, int, int]] = []
+    uvs: list[tuple[float, float]] = []
+    distance = 0.0
+    for edge in edges:
+        for start, end in itertools.pairwise(_edge_indices(edge)):
+            top_a, top_b = grid[start], grid[end]
+            segment = math.hypot(top_b[0] - top_a[0], top_b[1] - top_a[1])
+            u0, u1 = distance * _SKIRT_UV, (distance + segment) * _SKIRT_UV
+            distance += segment
+            base = len(vertices)
+            vertices.extend(
+                [top_a, top_b, (top_b[0], top_b[1], bottom), (top_a[0], top_a[1], bottom)]
+            )
+            uvs.extend(
+                [
+                    (u0, (top_a[2] - bottom) * _SKIRT_UV),
+                    (u1, (top_b[2] - bottom) * _SKIRT_UV),
+                    (u1, 0.0),
+                    (u0, 0.0),
+                ]
+            )
+            triangles.append((base, base + 1, base + 2))
+            triangles.append((base, base + 2, base + 3))
+
+    return Mesh(
+        name=f"terrain_skirt_{gx}_{gy}",
+        vertices=vertices,
+        triangles=triangles,
+        uvs=uvs,
+        # The plinth reads as a consistent band of ground rather than whatever the
+        # cell's top texture happens to be. The viewer resolves this like any base
+        # texture (DDS-first). No vertex colours -- the wall is drawn unshaded.
+        texture=SKIRT_TEXTURE,
+    )

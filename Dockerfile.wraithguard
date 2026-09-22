@@ -1,4 +1,16 @@
-FROM ubuntu:24.04
+# Free-threaded (GIL-free) Python 3.14 -- the `3.14t` build the app ships. The
+# official Docker image *is* free-threaded Python, so `python`/`pip` here are the
+# target interpreter; no apt python3/-dev/-venv (those would be Debian's stock,
+# GIL-bearing Python and the wrong ABI for the wheels below). The `-slim` base is
+# Debian bookworm, so the runtime libraries below use Debian names (notably
+# `libasound2`, not Ubuntu 24.04's t64-renamed `libasound2t64`).
+#
+# NOTE (free-threading, still settling): PyQt6/QtWebEngine and tkinterdnd2 may not
+# yet publish a `cp314t` wheel; pip will source-build or fail on this base while
+# the ecosystem catches up. `python3-tk` is apt'd for Tk (the fallback viewer),
+# and `python3-gi` is deliberately *not* installed -- it targets Debian's system
+# Python, not this one; the Linux viewer uses pywebview's Qt backend, not GTK/gi.
+FROM python:3.14t-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -6,13 +18,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-dev \
-    python3-venv \
     python3-tk \
-    python3-gi \
-    python3-gi-cairo \
-    gir1.2-gtk-3.0 \
+    tk \
     libzstd-dev \
     build-essential \
     file \
@@ -32,16 +39,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libdbus-1-3 \
     libnss3 \
     libnspr4 \
-    libasound2t64 \
+    libasound2 \
     libpulse0 \
     libxkbfile1 \
     libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m venv /opt/wraithguard-venv
+# Fail early if the base is somehow not free-threaded, before the heavy pip build.
+RUN python -c "import sys; assert not sys._is_gil_enabled(), 'GIL is enabled -- not a free-threaded base image'; print('free-threaded OK')"
+
+RUN python -m venv /opt/wraithguard-venv
 
 ENV PATH="/opt/wraithguard-venv/bin:${PATH}"
 
+# No zstandard: Python 3.14's stdlib `compression.zstd` covers the tes3conv
+# bytecode path, and the C extension has no free-threaded wheel yet.
 RUN python -m pip install --upgrade \
         pip \
         setuptools \
@@ -53,7 +65,6 @@ RUN python -m pip install --upgrade \
         tkinterweb \
         tkinterdnd2 \
         PyYAML \
-        zstandard \
         ijson \
         certifi
 

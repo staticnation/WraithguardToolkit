@@ -784,7 +784,7 @@ class ConflictWindowsMixin:
         trees: list[list] = []
         for provider in conflict["providers"]:
             folder = Path(str(provider))
-            parsed = read_mesh(folder, path)
+            parsed = read_mesh(folder, path, animation=True)
             sides.append((f"{folder.name} / {path}", world_meshes(parsed)))
             trees.append(block_tree(parsed))
         return sides, trees
@@ -1002,7 +1002,7 @@ class ConflictWindowsMixin:
         """
         for folder in reversed(list(dirs)):
             try:
-                return read_mesh(folder, vfs_path)
+                return read_mesh(folder, vfs_path, animation=True)
             except OSError:
                 continue  # not in this folder -- try the one before it
             except NifParseError:
@@ -1203,7 +1203,7 @@ class ConflictWindowsMixin:
             messagebox.showerror(_("Cannot edit this mesh"), _("Its file could not be read."))
             return
         try:
-            parsed = read_nif_bytes(data, retain=True, geometry=True)
+            parsed = read_nif_bytes(data, retain=True, geometry=True, animation=True)
         except NifParseError as exc:
             messagebox.showerror(_("Cannot edit this mesh"), str(exc))
             return
