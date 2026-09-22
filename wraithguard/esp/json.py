@@ -228,12 +228,14 @@ def _zstd_available() -> bool:
     """Whether the optional ``zstandard`` extra is importable."""
     try:
         from compression import zstd  # noqa: F401
+
         return True
     except ImportError:
         pass
 
     try:
         import zstandard  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -276,6 +278,7 @@ def _decompress(data: bytes) -> bytes:
     # Attempt Python 3.14+ standard library decompression first.
     try:
         from compression import zstd
+
         return zstd.decompress(data)
     except ImportError:
         pass
