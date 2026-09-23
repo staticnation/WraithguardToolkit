@@ -1,30 +1,22 @@
 """Assemble a cell's placements into geometry the mesh viewer can draw.
 
-Two strategies, both here:
-
-* :func:`build_scene` *bakes* each placement's transform into a copy of its
-  model's world-space meshes -- one flat mesh list the standalone viewer renders
-  like a single NIF. Simple, but a copy per placement: fine for a single item,
-  ruinous for a cell that reuses a crate three hundred times.
-* :func:`build_instanced` groups placements by model -- each unique model loaded
-  once, plus a matrix per placement (:func:`matrix4_columns`) -- for
-  ``THREE.InstancedMesh``. One crate mesh and three hundred matrices instead of
-  three hundred crates: the difference between a cell that opens and one that
-  exhausts memory. This is the path the cell viewer uses.
+The cell viewer uses :func:`build_instanced` to group placements by model:
+each unique model is loaded once, plus a matrix per placement
+(:func:`matrix4_columns`) for ``THREE.InstancedMesh``. One crate mesh and three
+hundred matrices instead of three hundred crates: the difference between a cell
+that opens and one that exhausts memory.
 
 Mesh loading is injected as a callable, so this stays pure and unit-tested: the
 caller supplies a loader that resolves a model path across the data folders (see
 :func:`wraithguard.nif.vfs.read_mesh`) and returns its
-:func:`~wraithguard.nif.geometry.world_meshes`, or ``None`` when it cannot be
+:func:`~wraithguard.nif.geometry.model_shapes`, or ``None`` when it cannot be
 read -- one unreadable mesh must not sink the whole cell.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
-
-from wraithguard.nif.geometry import bake_mesh
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -32,84 +24,9 @@ if TYPE_CHECKING:
     from wraithguard.nif.geometry import Mesh, Transform
     from wraithguard.scene.resolve import Placement
 
-#: A model loader: model path (e.g. ``"f/flora_tree_01.nif"``) -> its world
+#: A model loader: model path (e.g. ``"f/flora_tree_01.nif"``) -> its model-space
 #: meshes, or ``None`` when the mesh cannot be found or read.
 MeshLoader = "Callable[[str], list[Mesh] | None]"
-
-
-@dataclass
-class BuiltScene:
-    """A cell assembled for the viewer.
-
-    Attributes:
-        meshes: Every placed object's meshes, transformed into cell space and
-            ready for :func:`~wraithguard.nif.viewer.build_viewer_page`.
-        drawn: How many placements contributed geometry.
-        missing_models: Model paths that could not be loaded, de-duplicated in
-            first-seen order -- the "N meshes not found" line.
-    """
-
-    meshes: list[Mesh] = field(default_factory=list)
-    drawn: int = 0
-    missing_models: list[str] = field(default_factory=list)
-
-
-def build_scene(
-    placements: Sequence[Placement],
-    load_mesh: Callable[[str], list[Mesh] | None],
-) -> BuiltScene:
-    """Bake every placed reference into world-space meshes for the viewer.
-
-    Each model is loaded at most once (repeats are common -- a cell reuses the
-    same rock or crate many times) and re-baked per placement. Non-drawable
-    placements (``no_mesh_record``/``editor_marker``/``actor``) are skipped.
-
-    Args:
-        placements: The cell's placements, from
-            :func:`wraithguard.scene.resolve.resolve_cell`.
-        load_mesh: Resolves a model path to its world meshes, or ``None``.
-
-    Returns:
-        A :class:`BuiltScene`.
-    """
-    cache: dict[str, list[Mesh] | None] = {}
-    out: list[Mesh] = []
-    drawn = 0
-    missing: list[str] = []
-    for placement in placements:
-        if placement.kind != "placed" or not placement.model:
-            continue
-        if placement.model not in cache:
-            cache[placement.model] = load_mesh(placement.model)
-        base = cache[placement.model]
-        if base is None:
-            if placement.model not in missing:
-                missing.append(placement.model)
-            continue
-        transform = placement.transform
-        for mesh in base:
-            # This flat path bakes to world space: fold the shape's own node
-            # transform in first (a no-op on an already-baked mesh), then the
-            # placement. A node animation's delta is built from parent/rest, so
-            # prefix the placement onto ``parent`` to keep it correct in the baked
-            # frame -- the instanced path leaves vertices in model space instead.
-            baked = bake_mesh(mesh)
-            out.append(
-                replace(
-                    baked,
-                    vertices=[transform.apply(v) for v in baked.vertices],
-                    transform_anim=(
-                        replace(
-                            baked.transform_anim,
-                            parent=transform.then(baked.transform_anim.parent),
-                        )
-                        if baked.transform_anim is not None
-                        else None
-                    ),
-                )
-            )
-        drawn += 1
-    return BuiltScene(meshes=out, drawn=drawn, missing_models=missing)
 
 
 def matrix4_columns(transform: Transform) -> tuple[float, ...]:
@@ -234,8 +151,7 @@ def build_instanced(
 ) -> InstancedCell:
     """Group placements by model for instanced drawing (no vertex baking).
 
-    Unlike :func:`build_scene`, which bakes each placement's transform into a
-    copy of its model's vertices, this loads every unique model once and records
+    This loads every unique model once and records
     the per-placement transforms as matrices. A cell that places the same crate
     three hundred times then carries one crate mesh and three hundred matrices,
     not three hundred crates -- the difference between a page that opens and one

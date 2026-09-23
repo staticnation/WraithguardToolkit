@@ -35,7 +35,13 @@ from wraithguard.images.compare import (
     compare_images,
     difference_image,
 )
-from wraithguard.images.dds import CompressedTexture, DdsError, dds_passthrough, read_dds
+from wraithguard.images.dds import (
+    CompressedTexture,
+    DdsError,
+    dds_passthrough,
+    dds_passthrough_info,
+    read_dds,
+)
 from wraithguard.images.image import Image, ImageError
 from wraithguard.images.png import encode_png
 from wraithguard.images.reader import ImageFormat, browser_image, detect, read_image
@@ -59,6 +65,7 @@ __all__ = [
     "compare_bytes",
     "compare_images",
     "dds_passthrough",
+    "dds_passthrough_info",
     "detect",
     "difference_image",
     "encode_png",

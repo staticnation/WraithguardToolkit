@@ -34,6 +34,7 @@ from wraithguard.images import (
     classify,
     comparable,
     dds_passthrough,
+    dds_passthrough_info,
     detect,
     encode_png,
     read_bmp,
@@ -930,6 +931,16 @@ def _with_mipcount(raw: bytes, mipcount: int) -> bytes:
 
 class TestDdsPassthrough:
     """Block-compressed surfaces handed to the GPU without a CPU decode."""
+
+    def test_pass_through_info_only_needs_the_header(self) -> None:
+        """The lazy viewer can classify a DXT texture without reading its blocks."""
+        raw = dds(b"DXT1", 4, 4, bc1_block(WHITE_565, WHITE_565, 0))
+        info = dds_passthrough_info(raw[:128])
+        assert info is not None
+        assert info.format == "dxt1"
+        assert info.width == 4 and info.height == 4
+        assert info.levels == [(4, 4, 8)]
+        assert info.data == b""
 
     def test_dxt1_passes_its_block_through_unchanged(self) -> None:
         block = bc1_block(0xFFFF, 0x0000, 0)  # one 8-byte DXT1 block

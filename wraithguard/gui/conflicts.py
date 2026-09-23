@@ -57,7 +57,7 @@ from wraithguard.nif.edit import (
     apply_edits,
     field_views,
 )
-from wraithguard.nif.geometry import block_tree, world_meshes
+from wraithguard.nif.geometry import block_tree, model_shapes
 from wraithguard.nif.reader import NifParseError, read_nif_bytes
 from wraithguard.nif.textures import TextureResolver
 from wraithguard.nif.vfs import archives_in, loose_index, read_mesh, read_mesh_bytes
@@ -785,7 +785,7 @@ class ConflictWindowsMixin:
         for provider in conflict["providers"]:
             folder = Path(str(provider))
             parsed = read_mesh(folder, path, animation=True)
-            sides.append((f"{folder.name} / {path}", world_meshes(parsed)))
+            sides.append((f"{folder.name} / {path}", model_shapes(parsed)))
             trees.append(block_tree(parsed))
         return sides, trees
 
@@ -1033,7 +1033,7 @@ class ConflictWindowsMixin:
             parsed = self._read_mesh_anywhere(dirs, f"meshes/{value}")
             if parsed is None:
                 continue
-            sides.append((f"{plugin} / {value}", world_meshes(parsed)))
+            sides.append((f"{plugin} / {value}", model_shapes(parsed)))
             trees.append(block_tree(parsed))
             values.append(value)
         if not sides:
@@ -1213,7 +1213,7 @@ class ConflictWindowsMixin:
                 _("This mesh does not parse completely, so an edit cannot be written back safely."),
             )
             return
-        sides = [(f"{winner.name} / {path}", world_meshes(parsed))]
+        sides = [(f"{winner.name} / {path}", model_shapes(parsed))]
         trees = [block_tree(parsed)]
         self._serve_mesh_view(
             sides,

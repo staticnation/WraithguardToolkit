@@ -1,5 +1,24 @@
 # Un-baking migration: model-space geometry + per-shape instancing
 
+## Current status
+
+Stages 1 and 2 are complete. `model_shapes()` retains local vertices plus
+`node_world`, `build_instanced()` folds the node transform into instance
+matrix composition, and the cell preview no longer uses the old per-placement
+`build_scene()` bake path. Animated nodes now use the direct
+`placement · above · L(t) · below` representation; the old inverse-rest delta
+has been removed from both the Python payload and the JavaScript render loop.
+
+The free-threaded parse optimization is also live:
+`build_instanced(..., workers=N)` warms unique model parses concurrently, and the
+cell preview enables it only on a GIL-free interpreter. The old baked builder
+has been removed rather than retained as a second hot path.
+
+Stage 3/4 are now effectively complete for the application hot path: terrain
+and water construct their own geometry, the cell and resource viewers consume
+model-space meshes, and the only intentional world-space bake remains the
+one-off conflict comparison helper.
+
 ## Why
 
 `world_meshes` composes each shape's node-chain transform and **bakes it into the
@@ -115,10 +134,36 @@ say so (`baked_world_meshes`), so no future code reaches for it by habit.
   node's chain, a small fraction; a handful of `Matrix4` multiplies at 25 fps.
 - **Memory:** geometry is shared across instances (local, uploaded once) instead
   of pre-transformed per model; strictly ≤ today.
-- **On free-threaded 3.13+ (PEP 703):** with the hierarchy no longer baked, the
-  per-model parse is still the build's cost — a separate follow-up can parse the
-  mesh superset on a thread pool (Gardenfell's start-up win), which the GIL no
-  longer blocks. Independent of this migration; noted so it is not forgotten.
+- **On free-threaded 3.13+ (PEP 703):** the per-model parse now runs on a thread
+  pool when the caller supplies multiple workers. Wraithguard's cell preview
+  enables that path only for a GIL-free interpreter, so the normal GIL build
+  does not pay thread-pool overhead. The approach is independent of the
+  un-baking representation and is credited to Gardenfell in `CREDITS.md`.
+
+### Asset-loading follow-up
+
+The Gardenfell/GrassForge "read once and reuse" approach is now applied to the
+viewer asset path in places that previously did repeat work:
+
+- The merged mesh VFS and the texture resolver share the same opened BSA index,
+  so the archive tables are parsed once rather than once per subsystem.
+- Texture resolution and auxiliary-map discovery are cached, and decoded texture
+  results are keyed by the actual provider rather than the spelling of the mesh
+  reference.
+- The cell viewer probes DDS headers without reading the mip payload. DXT1/3/5
+  textures are then served as their original compressed blocks and uploaded via
+  `THREE.CompressedTexture`, avoiding Python DDS decode plus PNG encode entirely.
+- Compressed texture payloads are cached by source, so a later cell preview can
+  reuse the same blocks instead of rereading the archive or loose file.
+- Served cell previews now send packed geometry and instance matrices as loopback
+  binary blobs instead of base64-inlining them in the HTML. Standalone exports keep
+  the inline path, while the in-app/server path gets a small document and parallel
+  binary fetches.
+
+These changes target Wraithguard's actual loading costs without copying
+Gardenfell's Rust/GPU implementation. There is not a controlled same-corpus,
+same-hardware benchmark in this checkout, so the migration deliberately does not
+claim numerical parity with Gardenfell.
 
 ## Risks and how each is contained
 

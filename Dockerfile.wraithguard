@@ -24,11 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /viewer-shell
 COPY viewer-shell/ .
-# tauri-build wants the icon present at compile time; kept as one copy in
-# the repo root rather than duplicated into viewer-shell/ -- see
-# viewer-shell/icons/README.md.
-COPY wraithguard_toolkit_icon.ico icons/wraithguard_toolkit_icon.ico
-RUN cargo build --release && \
+# The shell uses its committed PNG icon directly; keeping the Rust build
+# independent of the root ICO also avoids platform-specific ICO decoding.
+RUN cargo check --manifest-path check/Cargo.toml && \
+    cargo build --release && \
     ls -lh target/release/wraithguard-viewer
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@
   "bundle": {
     "active": false,
     "icon": [
-      "icons/wraithguard_toolkit_icon.ico"
+      "icons/icon.png"
     ]
   }
 }

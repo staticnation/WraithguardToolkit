@@ -1,8 +1,7 @@
-"""Tests for ``wraithguard.scene.build`` -- baking placements into meshes.
+"""Tests for ``wraithguard.scene.build`` -- model-space instanced assembly.
 
 The mesh loader is injected, so no NIF/VFS IO: a fake loader returns known
-meshes and we check the reference transform is baked into the vertices and that
-each model is loaded once however many times it is placed.
+model-space meshes and we check grouping, placement matrices, and concurrency.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ import math
 from dataclasses import replace
 
 from wraithguard.nif.geometry import Mesh, Transform
-from wraithguard.scene.build import build_instanced, build_scene, matrix4_columns
+from wraithguard.scene.build import build_instanced, matrix4_columns
 from wraithguard.scene.resolve import Placement, reference_transform
 
 
@@ -28,45 +27,6 @@ def _placed(model: str, translation: tuple[float, float, float]) -> Placement:
     )
 
 
-def test_the_reference_transform_is_baked_into_vertices() -> None:
-    scene = build_scene([_placed("rock.nif", (10.0, 0.0, 0.0))], lambda _p: [_mesh()])
-    assert scene.drawn == 1
-    assert scene.meshes[0].vertices == [(11.0, 0.0, 0.0)]  # 1 + 10
-
-
-def test_a_repeated_model_is_loaded_once() -> None:
-    calls: list[str] = []
-
-    def loader(path: str) -> list[Mesh]:
-        calls.append(path)
-        return [_mesh()]
-
-    placements = [_placed("rock.nif", (0.0, 0.0, 0.0)), _placed("rock.nif", (5.0, 0.0, 0.0))]
-    scene = build_scene(placements, loader)
-    assert calls == ["rock.nif"]  # cached: one load for two placements
-    assert scene.drawn == 2
-    assert len(scene.meshes) == 2
-
-
-def test_an_unloadable_model_is_recorded_not_fatal() -> None:
-    scene = build_scene([_placed("gone.nif", (0.0, 0.0, 0.0))], lambda _p: None)
-    assert scene.drawn == 0
-    assert scene.missing_models == ["gone.nif"]
-    assert scene.meshes == []
-
-
-def test_non_drawable_and_empty_model_placements_are_skipped() -> None:
-    called: list[str] = []
-    placements = [
-        Placement(ref_id="a", model="", transform=Transform(), kind="no_mesh_record"),
-        Placement(ref_id="b", model="x.nif", transform=Transform(), kind="actor"),
-        Placement(ref_id="c", model="", transform=Transform(), kind="placed"),
-    ]
-    scene = build_scene(placements, lambda p: called.append(p) or [_mesh()])
-    assert called == []  # nothing drawable, so the loader is never touched
-    assert scene.drawn == 0
-
-
 def _placed_typed(model: str, record_type: str) -> Placement:
     """A placed reference carrying a record type (for group categorisation)."""
     return Placement(
@@ -78,7 +38,7 @@ def test_a_repeatedly_missing_model_is_recorded_once() -> None:
     # The same unloadable model placed twice must not list twice (the second hit
     # takes the "already recorded" branch).
     placements = [_placed("gone.nif", (0.0, 0.0, 0.0)), _placed("gone.nif", (5.0, 0.0, 0.0))]
-    scene = build_scene(placements, lambda _p: None)
+    scene = build_instanced(placements, lambda _p: None)
     assert scene.missing_models == ["gone.nif"]
 
 

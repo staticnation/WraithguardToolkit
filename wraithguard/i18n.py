@@ -64,10 +64,13 @@ def _detect_language() -> str:
         if value:
             # "de_DE.UTF-8:en" -> "de_DE"
             return value.split(":")[0].split(".")[0]
-    try:
-        system_language, _encoding = locale.getlocale(locale.LC_MESSAGES)
-    except (AttributeError, ValueError):
+    category = getattr(locale, "LC_MESSAGES", None)
+    if category is None:
         # LC_MESSAGES does not exist on Windows.
+        return DEFAULT_LANGUAGE
+    try:
+        system_language, _encoding = locale.getlocale(category)
+    except ValueError:
         system_language = None
     return system_language or DEFAULT_LANGUAGE
 

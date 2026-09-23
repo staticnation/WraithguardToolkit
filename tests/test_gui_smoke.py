@@ -3067,6 +3067,57 @@ class TestTheViewerChainUnderstandsUrls:
         app._open_cell_map_embedded("C:/some/cell_map_20260810_000000.html")
         assert handed == ["http://127.0.0.1:9/cell_map.html"]
 
+    def test_a_dead_on_arrival_viewer_falls_back_to_the_browser(
+        self, app: Any, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """WebView2 missing (or removed on purpose) makes the viewer exit at once; catch it.
+
+        ``wraithguard-viewer`` exits non-zero right away when it cannot create
+        its native webview -- most commonly a machine with no WebView2,
+        including one where a person removed it deliberately along with Edge.
+        The old code only treated a failed *launch* (``Popen`` itself raising)
+        as a reason to fall back; a process that launches fine and dies a
+        moment later went unnoticed, so those users got neither a viewer nor
+        a fallback -- just silence. This pins the fix: a fast non-zero exit
+        routes to the browser the same way a missing binary already does.
+
+        Args:
+            app: The application.
+            tmp_path: Temporary directory.
+            monkeypatch: Patcher.
+        """
+        import time
+
+        fake_viewer = tmp_path / "wraithguard-viewer"
+        fake_viewer.write_text("stand-in for the real binary; only needs to exist")
+        monkeypatch.setattr("wraithguard_toolkit_gui.resource_path", lambda _name: str(fake_viewer))
+
+        class _DeadOnArrival:
+            """Fake Popen handle: already exited, non-zero, the moment it's polled."""
+
+            def poll(self) -> int | None:
+                return 1
+
+        monkeypatch.setattr(
+            "wraithguard_toolkit_gui.subprocess.Popen", lambda *_a, **_k: _DeadOnArrival()
+        )
+        called: list[str] = []
+        monkeypatch.setattr(
+            type(app), "_open_cell_map_browser", lambda _s: called.append("browser")
+        )
+
+        app._open_cell_map_pywebview("http://127.0.0.1:9/cell_map.html", "Cell Map")
+
+        # The check is genuinely deferred via self._schedule_ui (root.after),
+        # same-thread here -- so pumping the real loop for a bit delivers it,
+        # same idiom _open_journal_view uses below for a cross-thread after().
+        deadline = time.monotonic() + 2.0
+        while not called and time.monotonic() < deadline:
+            app.root.update()
+            time.sleep(0.05)
+
+        assert called == ["browser"]
+
     def test_the_mesh_viewer_goes_through_the_in_app_chain(
         self, app: Any, tmp_path: Path, monkeypatch: Any
     ) -> None:

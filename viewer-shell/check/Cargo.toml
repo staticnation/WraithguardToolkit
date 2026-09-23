@@ -1,0 +1,10 @@
+[package]
+name = "wraithguard-viewer-check"
+version = "0.1.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+description = "Compile-check the viewer shell without pulling Tauri's native dependency tree."
+
+[lib]
+path = "src/lib.rs"

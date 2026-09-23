@@ -208,28 +208,29 @@ VisKey = tuple[float, bool]
 
 @dataclass(frozen=True, slots=True)
 class TransformAnimation:
-    """A node's keyframe animation (a ``NiKeyframeController``), as a matrix delta.
+    """A node's keyframe animation as a direct scene-graph composition.
 
-    Morrowind sways a banner, swings a sign or spins a fan by animating a node's
-    own transform over time. The shape's vertices are already baked to their rest
-    world position here, so the viewer plays this without un-baking: each frame it
-    builds the animated local transform ``L(t)`` from these keys (falling back to
-    the rest value on any channel with no keys) and applies the delta
-    ``parent · L(t) · (parent · rest)⁻¹`` -- the identity at rest, so a static
-    frame is unchanged.
+    The shape stays in model space, so an animated node can be evaluated exactly
+    where it lives in the hierarchy: ``nodeWorld(t) = above · L(t) · below``.
+    ``above`` is the composed rest transform before the animated node, ``rest``
+    is that node's own local rest transform (used for channels with no keys),
+    and ``below`` is the composed child chain from that node to the shape. This
+    avoids reconstructing an animation delta and avoids an inverse matrix on every
+    animated shape and frame.
 
     Attributes:
-        parent: The composed transform above the animated node (its rest frame's
-            parent), in the file's root space.
+        above: The composed transform above the animated node, in model space.
         rest: The node's own local transform at rest.
+        below: The composed child chain from the animated node to the shape.
         rotation: ``(time, quaternion)`` keys, empty when the node does not rotate
             (or stores rotation as euler keys, which this does not yet play).
         translation: ``(time, offset)`` keys, empty when it does not translate.
         scale: ``(time, factor)`` keys, empty when it does not scale.
     """
 
-    parent: Transform
+    above: Transform
     rest: Transform
+    below: Transform = Transform()
     rotation: tuple[QuatKey, ...] = ()
     translation: tuple[Vec3Key, ...] = ()
     scale: tuple[AnimKey, ...] = ()
@@ -276,11 +277,12 @@ class MorphAnimation:
 
 @dataclass(frozen=True, slots=True)
 class Mesh:
-    """One drawable shape, in world coordinates.
+    """One drawable shape. Model-space NIF shapes retain their node transform separately.
 
     Attributes:
         name: The shape's name, as the exporter wrote it.
-        vertices: World-space positions.
+        vertices: Shape-local positions for :func:`model_shapes`; world-space positions
+            for the explicit baked :func:`world_meshes` compatibility view.
         triangles: Index triples into :attr:`vertices`.
         uvs: Texture coordinates, one per vertex, empty when the shape has
             none. Only the first UV set is kept: Morrowind draws from it, and
@@ -395,9 +397,8 @@ class Mesh:
     ``animation=True``; the geometry/conflict paths leave it ``None``."""
     transform_anim: TransformAnimation | None = None
     """The node keyframe animation (sway/spin/slide) driving this shape, or
-    ``None``. Applied by the viewer as a per-frame matrix delta, so the baked
-    rest vertices are untouched. Populated only when parsed with
-    ``animation=True``."""
+    ``None``. The viewer composes its direct ``above · L(t) · below`` transform
+    into the instance matrix. Populated only when parsed with ``animation=True``."""
     vis_anim: tuple[VisKey, ...] | None = None
     """The visibility animation (a ``NiVisController``) that blinks this shape on
     and off over time, or ``None``. Each key is ``(time, visible)``. Populated
@@ -602,7 +603,7 @@ def _morph_animation_of(
 
 
 def _transform_animation_of(
-    block: Block, by_index: dict[int, Block], parent: Transform, rest: Transform
+    block: Block, by_index: dict[int, Block], above: Transform, rest: Transform
 ) -> TransformAnimation | None:
     """Find the ``NiKeyframeController`` driving a node, as a :class:`TransformAnimation`.
 
@@ -613,7 +614,7 @@ def _transform_animation_of(
     Args:
         block: The node that may own the controller.
         by_index: Every parsed block, by index.
-        parent: The composed transform above this node (its rest frame's parent).
+        above: The composed transform above this node (its rest frame's parent).
         rest: This node's own local transform.
 
     Returns:
@@ -636,31 +637,31 @@ def _transform_animation_of(
             data = by_index.get(controller.link("data"))
             keys = data.fields.get("keyframe_data_values") if data is not None else None
             if isinstance(keys, dict):
-                return _transform_anim_from_track(keys, parent, rest)
+                return _transform_anim_from_track(keys, above, rest)
         controller_index = controller.link("next_controller")
         depth += 1
     return None
 
 
 def _transform_anim_from_track(
-    track: dict[str, object], parent: Transform, rest: Transform
+    track: dict[str, object], above: Transform, rest: Transform
 ) -> TransformAnimation | None:
     """Build a :class:`TransformAnimation` from a keyframe track, or ``None`` if empty.
 
     Shared by the embedded ``NiKeyframeController`` path and the external ``.kf``
     binding: both hold the same ``{rotation, translation, scale}`` track and want
-    the same delta built from ``parent``/``rest``.
+    the same direct ``above · L(t) · below`` representation.
 
     Args:
         track: The keyframe data (``keyframe_data_values``).
-        parent: The composed transform above the animated node.
+        above: The composed transform above the animated node.
         rest: The node's own local transform.
 
     Returns:
         The animation, or ``None`` when no channel carries a playable key.
     """
     animation = TransformAnimation(
-        parent=parent,
+        above=above,
         rest=rest,
         rotation=_quat_keys(track.get("rotation")),
         translation=_vec3_keys(track.get("translation")),
@@ -748,6 +749,7 @@ def model_shapes(parsed: NifFile, kf_tracks: dict[str, dict[str, Any]] | None = 
         collision: bool,
         uv_anim: UVAnimation | None = None,
         xform_anim: TransformAnimation | None = None,
+        xform_below: Transform | None = None,
         vis_anim: tuple[VisKey, ...] | None = None,
         in_particle: bool = False,
     ) -> None:
@@ -781,6 +783,9 @@ def model_shapes(parsed: NifFile, kf_tracks: dict[str, dict[str, Any]] | None = 
             xform_anim: The node keyframe animation inherited from an ancestor's
                 ``NiKeyframeController``, or ``None``. A controller found on this
                 node replaces it for this node and everything below.
+            xform_below: The accumulated child transform from the active animated
+                node to the current block. It resets when a nearer animation is
+                found on the current node.
             vis_anim: The visibility animation inherited from an ancestor's
                 ``NiVisController``, or ``None``. A controller found on this node
                 replaces it for this node and everything below.
@@ -788,6 +793,8 @@ def model_shapes(parsed: NifFile, kf_tracks: dict[str, dict[str, Any]] | None = 
                 is particle geometry (drawn as points), not a surface.
         """
         block = by_index.get(index)
+        if xform_below is None:
+            xform_below = Transform()
         if block is None or depth > _MAX_DEPTH or index in seen:
             if depth > _MAX_DEPTH:
                 LOG.warning("scene graph deeper than %d at block %d; stopping", _MAX_DEPTH, index)
@@ -813,18 +820,21 @@ def model_shapes(parsed: NifFile, kf_tracks: dict[str, dict[str, Any]] | None = 
         # shape itself wins over an inherited one. Inheriting down the branch is
         # how a controller on a parent node reaches the child NiTriShape.
         uv_anim = _uv_animation_of(block, by_index) or uv_anim
-        # A keyframe controller likewise drives its whole subtree; its delta is
-        # built from where the node sits (``parent``) and its rest local (``own``).
-        # Innermost wins -- the nearest animated ancestor is the one applied. An
-        # external .kf binds by node name and is treated as if the node carried
-        # the controller (the model's own controller still wins if it has one).
+        # A keyframe controller drives its whole subtree. Keep the animation as
+        # the direct scene-graph split ``above · L(t) · below``: an inner
+        # controller replaces an inherited one; otherwise this block becomes one
+        # more link in the inherited animation's ``below`` chain.
         block_name = _name_of(block)
         kf_track = kf_tracks.get(block_name) if block_name else None
-        xform_anim = (
-            _transform_animation_of(block, by_index, parent, own)
-            or (_transform_anim_from_track(kf_track, parent, own) if kf_track else None)
-            or xform_anim
+        local_xform_anim = _transform_animation_of(block, by_index, parent, own) or (
+            _transform_anim_from_track(kf_track, parent, own) if kf_track else None
         )
+        if local_xform_anim is not None:
+            xform_anim = local_xform_anim
+            xform_below = Transform()
+        elif xform_anim is not None:
+            xform_below = xform_below.then(own)
+            xform_anim = replace(xform_anim, below=xform_below)
         vis_anim = _vis_animation_of(block, by_index) or vis_anim
         # A shape anywhere under a particle node is the emitter's particle
         # geometry, drawn as a point cloud rather than a surface.
@@ -856,6 +866,7 @@ def model_shapes(parsed: NifFile, kf_tracks: dict[str, dict[str, Any]] | None = 
                         collision,
                         uv_anim,
                         xform_anim,
+                        xform_below,
                         vis_anim,
                         in_particle,
                     )

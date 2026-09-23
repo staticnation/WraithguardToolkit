@@ -367,16 +367,15 @@ class TestTextureResolverResilience:
 
     def test_an_unreadable_texture_folder_is_skipped(self, tmp_path: Path, monkeypatch) -> None:
         """An OSError while walking a data folder is logged, not fatal."""
-        from pathlib import Path
-
+        import wraithguard.nif.textures as tx
         from wraithguard.nif.textures import TextureResolver
 
         make_texture(tmp_path / "Mod", "a.dds")
 
-        def _boom(self, *a, **k):
+        def _boom(*a, **k):
             raise OSError("simulated unreadable mount")
 
-        monkeypatch.setattr(Path, "rglob", _boom)
+        monkeypatch.setattr(tx.os, "walk", _boom)
         # Construction must still succeed with an empty index.
         resolver = TextureResolver([tmp_path / "Mod"])
         assert not resolver.resolve("a.dds").found
@@ -396,12 +395,52 @@ class TestTextureResolverResilience:
         monkeypatch.setattr(Path, "iterdir", _boom)
         assert _texture_root(folder) is None
 
+    def test_dds_probe_does_not_read_the_texture_payload(self, tmp_path: Path, monkeypatch) -> None:
+        """GPU passthrough classification reads only the DDS header."""
+        from tests.test_images import bc1_block, dds
+
+        folder = tmp_path / "Mod"
+        make_texture(folder, "tx.dds", dds(b"DXT1", 4, 4, bc1_block(0xFFFF, 0xFFFF, 0)))
+        resolver = TextureResolver([folder])
+        found = resolver.resolve("tx.dds")
+
+        def _should_not_read(_resolved):
+            raise AssertionError("dds_info should not read the complete texture")
+
+        monkeypatch.setattr(resolver, "read", _should_not_read)
+        info = resolver.dds_info(found)
+        assert info is not None
+        assert info.format == "dxt1"
+
     def test_resolve_collapses_doubled_separators(self, tmp_path: Path) -> None:
         """A reference with ``//`` resolves to the same file as one without."""
         from wraithguard.nif.textures import TextureResolver
 
         make_texture(tmp_path / "Mod", "bm/tx.dds")
         assert TextureResolver([tmp_path / "Mod"]).resolve("bm//tx.dds").found
+
+    def test_compressed_texture_bytes_are_cached_by_source(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A repeated cell preview does not reread the same DXT payload."""
+        from tests.test_images import bc1_block, dds
+
+        folder = tmp_path / "Mod"
+        make_texture(folder, "tx.dds", dds(b"DXT1", 4, 4, bc1_block(0xFFFF, 0xFFFF, 0)))
+        resolver = TextureResolver([folder])
+        found = resolver.resolve("tx.dds")
+        calls = {"n": 0}
+        real = resolver.read
+
+        def counted(resolved):
+            calls["n"] += 1
+            return real(resolved)
+
+        monkeypatch.setattr(resolver, "read", counted)
+        first = resolver.read_compressed(found)
+        second = resolver.read_compressed(found)
+        assert first is not None and second is first
+        assert calls["n"] == 1
 
     def test_read_skips_an_archive_that_errors_or_misses(self, tmp_path: Path) -> None:
         """A BsaError is skipped, a miss (None) moves on, and all-fail yields None."""

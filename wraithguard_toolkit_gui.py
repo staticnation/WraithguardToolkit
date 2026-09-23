@@ -4096,10 +4096,26 @@ class App(
         cmd = [viewer_bin, url, title]
         try:
             trace(f"cell map: launching viewer: {cmd}")
-            subprocess.Popen(cmd, **nw)  # type: ignore[call-overload]
+            proc = subprocess.Popen(cmd, **nw)  # type: ignore[call-overload]
         except (OSError, ValueError):  # Popen: missing exe or bad argv
             trace("cell map: viewer launch FAILED:\n" + traceback.format_exc())
             self._open_cell_map_browser()
+            return
+
+        def _check_viewer_alive() -> None:
+            # A real webview window stays open until the user closes it. Exiting
+            # non-zero this fast means webview init failed on this machine --
+            # most commonly WebView2 missing or deliberately removed -- so fall
+            # back exactly the way viewer-shell's own main.rs comment assumes we
+            # do. No prompt, no reinstall attempt: the browser fallback already
+            # renders everything (three.js included) with no WebView2 involved,
+            # so it is the right destination for that machine, not a downgrade.
+            rc = proc.poll()
+            if rc is not None and rc != 0:
+                trace(f"cell map: viewer exited immediately (code {rc}) -- falling back")
+                self._open_cell_map_browser()
+
+        self._schedule_ui(700, _check_viewer_alive)
 
     def open_html_in_app(self, path: str | Path, title: str) -> None:
         """Show a generated HTML page in-app, falling back the same way the map does.
