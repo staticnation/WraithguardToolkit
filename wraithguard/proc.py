@@ -35,10 +35,9 @@ def no_window_kwargs() -> dict[str, Any]:
     kw: dict[str, Any] = {"creationflags": 0x08000000}  # CREATE_NO_WINDOW
     try:
         # Windows-only API; the whole block is guarded by os.name == "nt".
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
         si.wShowWindow = 0  # SW_HIDE
-        kw["startupinfo"] = si
     except AttributeError:
         # A build without STARTUPINFO/STARTF_USESHOWWINDOW still gets
         # CREATE_NO_WINDOW, which is the part that matters; skip the refinement.
