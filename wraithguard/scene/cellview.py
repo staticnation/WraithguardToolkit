@@ -3,7 +3,7 @@
 Ties the pieces together without any IO: given every plugin's parsed records (in
 load order), it lists the cells present, finds one cell's per-plugin layers, and
 runs :func:`~wraithguard.scene.resolve.resolve_cell` +
-:func:`~wraithguard.scene.build.build_scene`. The caller reads plugin bytes
+:func:`~wraithguard.scene.build.build_instanced`. The caller reads plugin bytes
 (:func:`wraithguard.esp.plugin.read_plugin` / ``read_header``) and supplies the
 mesh loader; everything here is pure and unit-tested.
 """
@@ -19,7 +19,7 @@ from wraithguard.esp.records.cell import Cell
 from wraithguard.esp.records.landscape import Landscape
 from wraithguard.land.heights import HeightEncodeError
 from wraithguard.nif.geometry import Transform
-from wraithguard.scene.build import InstancedGroup, build_instanced, build_scene, matrix4_columns
+from wraithguard.scene.build import InstancedGroup, build_instanced, matrix4_columns
 from wraithguard.scene.resolve import ACTOR_TAGS, build_model_index, resolve_cell
 from wraithguard.scene.terrain import (
     ALL_EDGES,
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from wraithguard.nif.geometry import Mesh
-    from wraithguard.scene.build import BuiltScene, InstancedCell
+    from wraithguard.scene.build import InstancedCell
     from wraithguard.scene.resolve import CellAudit, ModelIndex, Placement
 
 
@@ -202,29 +202,6 @@ def object_provenance(
     }
 
 
-def preview_cell(
-    plugins: Sequence[LoadedPlugin],
-    key: CellKey,
-    load_mesh: Callable[[str], list[Mesh] | None],
-) -> tuple[list[Placement], CellAudit, BuiltScene]:
-    """Resolve a cell and assemble its scene.
-
-    Args:
-        plugins: The parsed load order.
-        key: The cell to preview.
-        load_mesh: Resolves a model path to its world meshes (see
-            :func:`wraithguard.scene.build.build_scene`).
-
-    Returns:
-        ``(placements, audit, scene)``.
-    """
-    model_index = build_model_index(record for plugin in plugins for record in plugin.records)
-    layers = cell_layers(plugins, key)
-    placements, audit = resolve_cell(layers, model_index)
-    scene = build_scene(placements, load_mesh)
-    return placements, audit, scene
-
-
 #: The eight grid offsets around a cell, in reading order (row by row, skipping
 #: the centre). An exterior cell's neighbours; an interior has none.
 _ADJACENT_OFFSETS: tuple[tuple[int, int], ...] = (
@@ -249,8 +226,8 @@ def preview_cell_instanced(
 ) -> tuple[list[Placement], CellAudit, InstancedCell]:
     """Resolve a cell and assemble it for *instanced* drawing.
 
-    Same resolution as :func:`preview_cell`, but the scene is grouped by model
-    (see :func:`wraithguard.scene.build.build_instanced`) instead of baked, so a
+    The scene is grouped by model (see
+    :func:`wraithguard.scene.build.build_instanced`) instead of baked, so a
     cell that reuses meshes hundreds of times stays small enough to serve and
     render.
 

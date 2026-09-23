@@ -21,7 +21,6 @@ from wraithguard.scene.cellview import (
     cell_layers,
     list_cells,
     object_provenance,
-    preview_cell,
     preview_cell_instanced,
 )
 
@@ -89,23 +88,6 @@ class TestCellLayers:
         layers = cell_layers(plugins, CellKey(interior="cave"))
         assert [name for name, _m, _c in layers] == ["A.esp", "B.esp", "C.esp"]
         assert [c for _n, _m, c in layers] == [cave_a, None, cave_b]
-
-
-class TestPreviewCell:
-    def test_end_to_end_resolves_and_builds(self) -> None:
-        # A plugin defines a static with a mesh and places one reference to it.
-        cell = _interior("Cave", refs=[Reference(id="rock", mast_index=0, refr_index=1)])
-        plugin = LoadedPlugin("A.esp", [], [Static(id="rock", mesh="rock.nif"), cell])
-        loaded: list[str] = []
-
-        def load_mesh(path: str) -> list[Mesh]:
-            loaded.append(path)
-            return [Mesh(name="s", vertices=[(0.0, 0.0, 0.0)], triangles=[(0, 0, 0)])]
-
-        placements, audit, scene = preview_cell([plugin], CellKey(interior="cave"), load_mesh)
-        assert audit.references == 1 and audit.placed == 1
-        assert [p.kind for p in placements] == ["placed"]
-        assert loaded == ["rock.nif"] and scene.drawn == 1
 
 
 def _rock_mesh(_path: str) -> list[Mesh]:

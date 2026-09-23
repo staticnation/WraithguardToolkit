@@ -1571,7 +1571,7 @@ __EXTRA_SLOTS__
     // group's per-instance matrices) is set for a group, absent for a lone mesh.
     var xformAnimated = [];
     var _xfL = new THREE.Matrix4();     // the animated local transform L(t)
-    var _xfDelta = new THREE.Matrix4(); // parent * L(t) * (parent * rest)^-1
+    var _xfDelta = new THREE.Matrix4(); // parent * L(t) * below (see registerXformAnim)
     var _xfIm = new THREE.Matrix4();    // one instance's base matrix
     var _xfOut = new THREE.Matrix4();   // base * delta for that instance
     var _xfPos = new THREE.Vector3(), _xfScl = new THREE.Vector3();
@@ -1630,11 +1630,11 @@ __EXTRA_SLOTS__
         var s = sampleScalar(a.scale, seconds, e.restS);
         _xfScl.set(s, s, s);
         _xfL.compose(_xfPos, _xfQ, _xfScl);
-        _xfDelta.multiplyMatrices(e.parentM, _xfL).multiply(e.invParentRest);
-        // Fold the shape's node transform in: the delta acts on model-space
-        // vertices, so the frame matrix is delta(t) * nodeWorld. Identity (and a
-        // no-op) for a baked mesh.
-        if (e.nodeWorld) _xfDelta.multiply(e.nodeWorld);
+        // Direct form: above * L(t) * below. No per-frame inverse and no
+        // separate nodeWorld fold -- `below` already carries both (parent*rest)^-1
+        // and the shape's own node transform, folded once at registration (see
+        // registerXformAnim), not every frame.
+        _xfDelta.multiplyMatrices(e.parentM, _xfL).multiply(e.below);
         if (e.base) {
           for (var k = 0; k < e.obj.count; k++) {
             _xfIm.fromArray(e.base, k * 16);
@@ -1651,11 +1651,18 @@ __EXTRA_SLOTS__
     function registerXformAnim(drawn, spec) {
       var pM = new THREE.Matrix4().fromArray(spec.parent);
       var rM = new THREE.Matrix4().fromArray(spec.rest);
-      var invPR = new THREE.Matrix4().multiplyMatrices(pM, rM).invert();
+      // below = (parent*rest)^-1 * nodeWorld -- everything between the animated
+      // node and this shape, as one fixed matrix. The inverse is computed here,
+      // once per shape at registration, and never again: previously it was
+      // stored as invParentRest and re-multiplied into a fresh delta every
+      // frame; folding nodeWorld in now instead means the frame loop above has
+      // nothing left to invert or cancel.
+      var below = new THREE.Matrix4().multiplyMatrices(pM, rM).invert();
+      if (drawn.nodeWorldMat) below.multiply(drawn.nodeWorldMat);
       var rP = new THREE.Vector3(), rQ = new THREE.Quaternion(), rS = new THREE.Vector3();
       rM.decompose(rP, rQ, rS);
-      var entry = {obj: drawn, anim: spec, parentM: pM, invParentRest: invPR,
-                   restP: rP, restQ: rQ, restS: rS.x, nodeWorld: drawn.nodeWorldMat || null};
+      var entry = {obj: drawn, anim: spec, parentM: pM, below: below,
+                   restP: rP, restQ: rQ, restS: rS.x};
       if (drawn.isInstancedMesh) entry.base = drawn.instanceBase;
       else drawn.matrixAutoUpdate = false;  // we drive .matrix directly each frame
       xformAnimated.push(entry);

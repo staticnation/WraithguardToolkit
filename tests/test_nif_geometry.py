@@ -18,7 +18,6 @@ from wraithguard.nif.geometry import (
     Transform,
     _triple,
     block_tree,
-    bounds,
     find_roots,
     world_meshes,
 )
@@ -347,25 +346,6 @@ class TestWorldPlacement:
             geometry=True,
         )
         assert world_meshes(parsed) == []
-
-
-class TestBounds:
-    """A viewer needs to frame the thing before it can show it."""
-
-    def test_bounds_span_every_vertex(self) -> None:
-        """Across meshes, not just within one."""
-        low, high = bounds(
-            [
-                Mesh("a", [(0.0, 0.0, 0.0), (1.0, 2.0, 3.0)]),
-                Mesh("b", [(-5.0, 0.0, 0.0)]),
-            ]
-        )
-        assert low == (-5.0, 0.0, 0.0)
-        assert high == (1.0, 2.0, 3.0)
-
-    def test_empty_bounds_are_the_origin_not_an_error(self) -> None:
-        """So a caller never has to special-case a mesh it could not read."""
-        assert bounds([]) == ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
 
 
 class TestBlockTree:

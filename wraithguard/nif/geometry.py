@@ -896,10 +896,10 @@ def world_meshes(parsed: NifFile) -> list[Mesh]:
     """Collect every drawable shape, with vertices baked into world space.
 
     The baked view of :func:`model_shapes`: each shape's ``node_world`` is applied
-    to its vertices, so callers that want flat world-space triangle soup (bounds,
-    the conflict diff, the current viewer path) are unchanged. New code that can
-    keep the hierarchy should prefer :func:`model_shapes` -- see
-    ``UNBAKE_MIGRATION.md``.
+    to its vertices, so callers that want flat world-space triangle soup (the
+    conflict diff; ``tools/check_textures.py``'s texture audit) are unchanged.
+    New code that can keep the hierarchy should prefer :func:`model_shapes` --
+    see ``UNBAKE_MIGRATION.md``.
 
     Args:
         parsed: A file parsed with ``geometry=True``.
@@ -1331,23 +1331,4 @@ def block_tree(parsed: NifFile) -> list[TreeNode]:
     return trees
 
 
-def bounds(meshes: list[Mesh]) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
-    """Axis-aligned bounds of a whole mesh set.
 
-    A viewer needs this before it can frame anything, and it is cheap once the
-    vertices are already in world space.
-
-    Args:
-        meshes: The meshes to measure.
-
-    Returns:
-        Minimum and maximum corners. Both are the origin when there is nothing
-        to measure, so a caller never has to special-case an empty file.
-    """
-    points = [v for mesh in meshes for v in mesh.vertices]
-    if not points:
-        return ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
-    return (
-        (min(p[0] for p in points), min(p[1] for p in points), min(p[2] for p in points)),
-        (max(p[0] for p in points), max(p[1] for p in points), max(p[2] for p in points)),
-    )
