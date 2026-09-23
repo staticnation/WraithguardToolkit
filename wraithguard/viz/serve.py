@@ -415,6 +415,36 @@ def _make_handler(owner: ViewerServer) -> type[BaseHTTPRequestHandler]:
 
         protocol_version = "HTTP/1.1"
 
+        @staticmethod
+        def _cors_headers() -> tuple[tuple[str, str], ...]:
+            """Headers needed when the native viewer uses a non-loopback origin.
+
+            The payloads remain protected by the per-server token in the URL;
+            these headers only allow an already-authorized viewer page to fetch
+            those payloads from the loopback listener.  The private-network
+            permission is needed by Chromium/WebView2 when it treats localhost
+            as a more-private address than the page origin.
+            """
+            return (
+                ("Access-Control-Allow-Origin", "*"),
+                ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                ("Access-Control-Allow-Headers", "Content-Type"),
+                ("Access-Control-Allow-Private-Network", "true"),
+            )
+
+        def _send_cors(self) -> None:
+            """Add the loopback fetch headers to the current response."""
+            for name, value in self._cors_headers():
+                self.send_header(name, value)
+
+        def do_OPTIONS(self) -> None:
+            """Answer browser preflight requests for loopback fetches."""
+            self.send_response(204)
+            self._send_cors()
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
         def do_GET(self) -> None:
             """Answer a GET, or 404."""
             parsed = urlparse(self.path)
@@ -428,13 +458,20 @@ def _make_handler(owner: ViewerServer) -> type[BaseHTTPRequestHandler]:
                 # connection would fail every *other* request queued on it too,
                 # geometry included, and surface as "Failed to fetch".
                 LOG.debug("viewer GET handler failed for %s: %s", key, exc)
-                self.send_error(500)
+                self.send_response(500)
+                self._send_cors()
+                self.send_header("Content-Length", "0")
+                self.end_headers()
                 return
             if payload is None:
-                self.send_error(404)
+                self.send_response(404)
+                self._send_cors()
+                self.send_header("Content-Length", "0")
+                self.end_headers()
                 return
             try:
                 self.send_response(200)
+                self._send_cors()
                 self.send_header("Content-Type", payload.content_type)
                 self.send_header("Content-Length", str(len(payload.body)))
                 # Nothing here should ever be framed by another page, and the
@@ -462,7 +499,10 @@ def _make_handler(owner: ViewerServer) -> type[BaseHTTPRequestHandler]:
                 self.send_error(400)
                 return
             if length < 0 or length > _MAX_POST_BYTES:
-                self.send_error(413)
+                self.send_response(413)
+                self._send_cors()
+                self.send_header("Content-Length", "0")
+                self.end_headers()
                 return
             body = self.rfile.read(length)
             try:
@@ -472,9 +512,13 @@ def _make_handler(owner: ViewerServer) -> type[BaseHTTPRequestHandler]:
                 self._reply_bad_request(str(exc))
                 return
             if payload is None:
-                self.send_error(404)
+                self.send_response(404)
+                self._send_cors()
+                self.send_header("Content-Length", "0")
+                self.end_headers()
                 return
             self.send_response(200)
+            self._send_cors()
             self.send_header("Content-Type", payload.content_type)
             self.send_header("Content-Length", str(len(payload.body)))
             if payload.filename:
@@ -496,6 +540,7 @@ def _make_handler(owner: ViewerServer) -> type[BaseHTTPRequestHandler]:
             """
             body = message.encode("utf-8", errors="replace")
             self.send_response(400)
+            self._send_cors()
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("X-Content-Type-Options", "nosniff")
