@@ -14,7 +14,6 @@ import math
 import struct
 
 from wraithguard.nif.geometry import (
-    Mesh,
     Transform,
     _triple,
     block_tree,

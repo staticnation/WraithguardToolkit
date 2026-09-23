@@ -1329,6 +1329,3 @@ def block_tree(parsed: NifFile) -> list[TreeNode]:
         if b.index not in seen
     )
     return trees
-
-
-
