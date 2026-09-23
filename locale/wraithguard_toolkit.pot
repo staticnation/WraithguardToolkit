@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.1.2\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-23 01:32\n"
+"POT-Creation-Date: 2026-09-23 02:11\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -114,69 +114,69 @@ msgstr ""
 msgid "\n  Nothing to draw -- no placed meshes were found for this cell."
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:711
+#: wraithguard/gui/cellpreview.py:717
 msgid "Cell preview ready (%(drawn)d object(s) drawn)."
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:714
+#: wraithguard/gui/cellpreview.py:720
 msgid "Cell preview failed -- see log."
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:722
+#: wraithguard/gui/cellpreview.py:728
 #: wraithguard/gui/cellpreview.py:566
 msgid "references"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:723
+#: wraithguard/gui/cellpreview.py:729
 #: wraithguard/gui/cellpreview.py:567
 msgid "placed"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:724
+#: wraithguard/gui/cellpreview.py:730
 #: wraithguard/gui/cellpreview.py:568
 msgid "no mesh record"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:725
+#: wraithguard/gui/cellpreview.py:731
 #: wraithguard/gui/cellpreview.py:569
 msgid "editor markers"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:726
+#: wraithguard/gui/cellpreview.py:732
 #: wraithguard/gui/cellpreview.py:570
 msgid "actors skipped"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:727
+#: wraithguard/gui/cellpreview.py:733
 #: wraithguard/gui/cellpreview.py:571
 msgid "overridden by later"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:728
+#: wraithguard/gui/cellpreview.py:734
 #: wraithguard/gui/cellpreview.py:572
 msgid "deleted by later"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:729
+#: wraithguard/gui/cellpreview.py:735
 #: wraithguard/gui/cellpreview.py:573
 msgid "moved"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:730
+#: wraithguard/gui/cellpreview.py:736
 #: wraithguard/gui/cellpreview.py:574
 msgid "meshes drawn"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:731
+#: wraithguard/gui/cellpreview.py:737
 #: wraithguard/gui/cellpreview.py:575
 msgid "meshes not found"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:736
+#: wraithguard/gui/cellpreview.py:742
 msgid "    missing mesh: %(model)s"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:763
+#: wraithguard/gui/cellpreview.py:769
 #: wraithguard/gui/cellpreview.py:582
 msgid "Cell preview: %(label)s"
 msgstr ""
