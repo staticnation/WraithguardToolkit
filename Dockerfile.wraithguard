@@ -99,7 +99,7 @@ CMD ["/bin/bash", "-lc", "\
     set -Eeuo pipefail; \
     rm -rf /src/build/wraithguard_toolkit_gui; \
     rm -f /src/dist/wraithguard_toolkit_gui; \
-    python -m PyInstaller \
+    /opt/wraithguard-venv/bin/python -m PyInstaller \
         --noconfirm \
         --onefile \
         --windowed \
