@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "dev.wraithguard.viewer",
   "build": {
-    "frontendDist": "dist"
+    "frontendDist": null
   },
   "app": {
     "windows": [],
