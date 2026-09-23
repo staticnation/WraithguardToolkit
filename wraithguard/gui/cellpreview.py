@@ -589,19 +589,16 @@ class CellPreviewMixin:
                 if server is not None:
                     print("  serving cell over loopback...")
                     session = server.publish_session("cell")
-                    blob_counter = itertools.count()
                     tex_urls: dict[str, dict[str, str]] = {}
                     tex_counter = itertools.count()
 
-                    def publish_blob(blob: bytes, content_type: str = "") -> dict[str, str]:
-                        """Publish packed geometry over loopback instead of base64-inlining it."""
-                        kind = content_type or "application/octet-stream"
-                        suffix = "png" if content_type.startswith("image/") else "bin"
-                        key = f"g{next(blob_counter)}.{suffix}"
-                        return {"url": session.publish(key, Payload(blob, kind))}
-
                     def publish_texture(resolved: Resolved) -> dict[str, str] | None:
-                        """Register a texture for first-use fetching, avoiding CPU DDS decode when possible."""
+                        """Register a texture to decode on first fetch, not now.
+
+                        Returns a URL whose bytes the server produces (a DDS
+                        decode) only when the browser asks for it, deduped per
+                        texture so the page opens on geometry and textures stream.
+                        """
                         if not resolved.found or resolver is None:
                             return None
                         hit = tex_urls.get(resolved.reference)
@@ -609,43 +606,16 @@ class CellPreviewMixin:
                             return hit
 
                         cap = None if _ATLAS_HINT in resolved.reference else _CELL_TEXTURE_MAX_DIM
-                        compressed_info = resolver.dds_info(resolved)
-                        if compressed_info is not None:
 
-                            def producer_compressed(
-                                res: Resolved = resolved,
-                            ) -> Payload | None:
-                                """Fetch the original DXT blocks; never decode them to pixels."""
-                                compressed = resolver.read_compressed(res)
-                                if compressed is None:
-                                    return None
-                                return Payload(compressed.data, "application/octet-stream")
+                        def producer(
+                            res: Resolved = resolved, cap: int | None = cap
+                        ) -> Payload | None:
+                            """Decode the texture on demand (resolver-cached, mip-capped)."""
+                            shown = texture_bytes(res, resolver, cap)
+                            return Payload(shown[0], shown[1]) if shown else None
 
-                            url = session.register_lazy(
-                                f"t{next(tex_counter)}.bin", producer_compressed
-                            )
-                            made = {
-                                "url": url,
-                                "compressed": compressed_info.format,
-                                "cw": str(compressed_info.width),
-                                "ch": str(compressed_info.height),
-                                "levels": ";".join(
-                                    f"{w},{h},{n}" for w, h, n in compressed_info.levels
-                                ),
-                            }
-                        else:
-
-                            def producer_decoded(
-                                res: Resolved = resolved, cap: int | None = cap
-                            ) -> Payload | None:
-                                """Decode the texture on demand (resolver-cached, mip-capped)."""
-                                shown = texture_bytes(res, resolver, cap)
-                                return Payload(shown[0], shown[1]) if shown else None
-
-                            url = session.register_lazy(
-                                f"t{next(tex_counter)}.png", producer_decoded
-                            )
-                            made = {"url": url}
+                        url = session.register_lazy(f"t{next(tex_counter)}.png", producer)
+                        made = {"url": url}
                         tex_urls[resolved.reference] = made
                         return made
 
@@ -674,7 +644,6 @@ class CellPreviewMixin:
                     page = build_cell_viewer_page(
                         label,
                         groups,
-                        sink=publish_blob,
                         library_url=self._three_js_url(server),
                         resolver=resolver,
                         title=title,

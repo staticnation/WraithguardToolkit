@@ -682,59 +682,6 @@ class CompressedTexture:
     data: bytes
 
 
-def dds_passthrough_info(data: bytes) -> CompressedTexture | None:
-    """Describe a GPU-uploadable DDS from its header alone.
-
-    Unlike :func:`dds_passthrough`, this never inspects the mip payload. It is
-    intended for lazy viewers that need to tell the browser whether a texture
-    can be uploaded as compressed blocks before the first request for those
-    blocks. A later full read still runs :func:`dds_passthrough`, so a truncated
-    texture cannot silently be treated as valid data.
-
-    Args:
-        data: At least the DDS header, including the DX10 extension when used.
-
-    Returns:
-        A metadata-only :class:`CompressedTexture`, or ``None`` when the header
-        is not a supported GPU-compressed surface. The returned ``data`` is
-        always empty.
-    """
-    if len(data) < 4 + _HEADER_SIZE or not data.startswith(MAGIC):
-        return None
-    try:
-        size, _flags, height, width = struct.unpack_from("<IIII", data, 4)
-        (mipcount,) = struct.unpack_from("<I", data, 4 + 24)
-        pf_flags, fourcc = struct.unpack_from("<I4s", data, 4 + 76)
-        if size != _HEADER_SIZE:
-            return None
-        if not 0 < width <= _MAX_DIMENSION or not 0 < height <= _MAX_DIMENSION:
-            return None
-        if width * height > _MAX_PIXELS or not pf_flags & _DDPF_FOURCC:
-            return None
-        if fourcc == _DX10:
-            fourcc, _ = _resolve_dx10(data)
-    except (struct.error, DdsError):
-        return None
-    label = _GPU_FORMATS.get(fourcc)
-    if label is None:
-        return None
-    unit = 16 if fourcc == _DX10 else _BLOCK_BYTES[fourcc]
-    levels = [
-        (
-            max(1, width >> level),
-            max(1, height >> level),
-            _level_bytes(
-                max(1, width >> level),
-                max(1, height >> level),
-                compressed=True,
-                unit=unit,
-            ),
-        )
-        for level in range(max(1, mipcount))
-    ]
-    return CompressedTexture(label, width, height, levels, b"")
-
-
 def dds_passthrough(data: bytes) -> CompressedTexture | None:
     """Describe a DDS for direct GPU upload, or ``None`` to fall back to a decode.
 

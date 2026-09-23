@@ -44,4 +44,4 @@ __all__ = [
     "setup_logging",
 ]
 
-__version__ = "4.1.2"
+__version__ = "4.1.0"

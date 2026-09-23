@@ -59,7 +59,7 @@ wraithguard = ["py.typed"]
 # below and wraithguard.__version__ never drift apart.
 [project]
 name = "wraithguard-toolkit"
-version = "4.1.2"
+version = "4.1.0"
 description = "Sort your own Morrowind mods into a frozen MOMW load order."
 readme = "README.md"
 # Free-threaded Python 3.14 (the GIL-free `3.14t` build) is the target now: the

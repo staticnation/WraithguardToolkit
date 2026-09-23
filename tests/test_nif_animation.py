@@ -21,7 +21,6 @@ from wraithguard.nif.geometry import (
     Transform,
     TransformAnimation,
     UVAnimation,
-    model_shapes,
     world_meshes,
 )
 from wraithguard.nif.reader import (
@@ -320,7 +319,7 @@ def test_viewer_page_embeds_uv_animation_and_loop() -> None:
 
 
 def test_world_meshes_attaches_transform_animation_from_node_controller() -> None:
-    """A NiKeyframeController on a node reaches its child shape with above/rest/below."""
+    """A NiKeyframeController on a node reaches its child shape with parent/rest."""
     blocks = [
         Block(0, "NiNode", _identity_node(children=[1])),
         Block(1, "NiNode", _identity_node(children=[2], controller=3)),
@@ -351,84 +350,25 @@ def test_world_meshes_attaches_transform_animation_from_node_controller() -> Non
     assert len(meshes) == 1
     anim = meshes[0].transform_anim
     assert anim is not None
-    assert anim.above == Transform()  # identity above the animated node
+    assert anim.parent == Transform()  # identity above the animated node
     assert anim.rest == Transform()  # the node's own transform is identity here
-    assert anim.below == Transform()  # the shape itself has no extra transform
     assert anim.rotation == ((0.0, (1.0, 0.0, 0.0, 0.0)),)
     assert anim.translation == ((0.0, (0.0, 0.0, 0.0)), (1.0, (0.0, 0.0, 90.0)))
     assert anim.scale == ()
 
 
-def test_transform_anim_carries_descendant_chain_in_below() -> None:
-    """An animated ancestor is split from its child chain without an inverse."""
-
-    def node(children, *, translation=(0.0, 0.0, 0.0), controller=-1):
-        return {
-            "children_links": children,
-            "controller": controller,
-            "rotation_m3": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-            "translation_xyz": translation,
-            "scale": 1.0,
-        }
-
-    blocks = [
-        Block(0, "NiNode", node([1], translation=(10.0, 0.0, 0.0))),
-        Block(1, "NiNode", node([2], translation=(2.0, 0.0, 0.0), controller=3)),
-        Block(
-            2,
-            "NiTriShape",
-            {
-                **node([], translation=(0.0, 5.0, 0.0)),
-                "data": 5,
-                "properties_links": [],
-                "controller": -1,
-            },
-        ),
-        Block(3, "NiKeyframeController", {"data": 4, "next_controller": -1}),
-        Block(
-            4,
-            "NiKeyframeData",
-            {
-                "keyframe_data_values": {
-                    "rotation": [],
-                    "translation": [(0.0, (2.0, 0.0, 0.0)), (1.0, (4.0, 0.0, 0.0))],
-                    "scale": [],
-                }
-            },
-        ),
-        Block(
-            5,
-            "NiTriShapeData",
-            {
-                "vertices_xyz": [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
-                "triangles_indices": [(0, 1, 2)],
-            },
-        ),
-    ]
-    meshes = model_shapes(NifFile(_VERSION, len(blocks), blocks))
-    assert len(meshes) == 1
-    anim = meshes[0].transform_anim
-    assert anim is not None
-    # Root is above the animated node; the child's local transform is below it.
-    assert anim.above.translation == (10.0, 0.0, 0.0)
-    assert anim.rest.translation == (2.0, 0.0, 0.0)
-    assert anim.below.translation == (0.0, 5.0, 0.0)
-
-
 def test_transform_anim_payload_serialises_matrices_and_keys() -> None:
-    """The payload carries the direct above/rest/below split and key channels."""
+    """The payload carries parent/rest as 4x4 columns and the key channels."""
     anim = TransformAnimation(
-        above=Transform(),
+        parent=Transform(),
         rest=Transform(),
-        below=Transform(translation=(3.0, 4.0, 5.0)),
         translation=((0.0, (0.0, 0.0, 0.0)), (1.0, (0.0, 0.0, 90.0))),
     )
     out = _transform_anim_payload(anim)
     assert out is not None
     identity = [1.0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
-    assert out["above"] == identity
+    assert out["parent"] == identity
     assert out["rest"] == identity
-    assert out["below"] == [1.0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 3.0, 4.0, 5.0, 1]
     assert out["translation"] == [[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 90.0]]
     assert out["rotation"] == []
     assert out["scale"] == []
@@ -442,9 +382,8 @@ def test_viewer_page_embeds_transform_animation_and_loop() -> None:
         vertices=[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
         triangles=[(0, 1, 2)],
         transform_anim=TransformAnimation(
-            above=Transform(),
+            parent=Transform(),
             rest=Transform(),
-            below=Transform(),
             rotation=((0.0, (1.0, 0.0, 0.0, 0.0)), (1.0, (0.0, 0.0, 0.0, 1.0))),
         ),
     )

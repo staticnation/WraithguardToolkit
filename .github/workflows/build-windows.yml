@@ -54,11 +54,13 @@ jobs:
       - name: Build the viewer shell
         # wraithguard-viewer.exe -- the native window the app spawns to show
         # cell maps / the NIF viewer / conflict views. See viewer-shell/src/main.rs.
-        # The shell keeps a PNG icon in viewer-shell/icons so Tauri does not
-        # depend on platform-specific ICO decoding during the Linux/Windows build.
+        # Icon copied in first: tauri-build wants it present at compile time,
+        # and keeping one copy of the .ico in the repo root (rather than a
+        # second copy checked into viewer-shell/) is the whole reason this is
+        # a build step instead of a committed file -- see viewer-shell/icons/README.md.
         shell: bash
         run: |
-          cargo check --manifest-path viewer-shell/check/Cargo.toml
+          cp wraithguard_toolkit_icon.ico viewer-shell/icons/wraithguard_toolkit_icon.ico
           cd viewer-shell
           cargo build --release
           ls -lh target/release/wraithguard-viewer.exe

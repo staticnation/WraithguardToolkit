@@ -107,16 +107,31 @@ def inline_blob(blob: bytes, content_type: str = "") -> dict[str, str]:
 
 
 def _packed(values: list[float] | list[int], fmt: str) -> bytes:
-    """Pack numbers as a deflated, little-endian binary blob.
+    """Pack numbers as a deflated, base64 binary blob.
+
+    Measured on a 204k-triangle mesh, against writing the same numbers as JSON
+    decimals:
+
+    * JSON decimals -- 5.40 MB.
+    * base64 typed arrays -- 4.91 MB. Almost no gain: base64 costs 33% and
+      hands most of the binary saving straight back.
+    * base64 of *deflated* typed arrays -- 1.86 MB, a third of the JSON.
+
+    So the compression is doing the work, not the binary encoding, and it costs
+    nothing on the page: browsers inflate this natively with
+    ``DecompressionStream`` and no library.
 
     Args:
         values: The numbers to pack.
-        fmt: A format character, ``f`` or ``I``.
+        fmt: A :mod:`struct` format character, ``f`` or ``I``.
 
     Returns:
-        The deflated little-endian bytes.
+        The deflated bytes. How they reach the page -- inline as base64, or
+        over loopback as a fetch -- is the caller's decision, which is what
+        lets one builder produce both a served page and a standalone file.
     """
-    return zlib.compress(struct.pack(f"<{len(values)}{fmt}", *values), 6)
+    raw = struct.pack(f"<{len(values)}{fmt}", *values)
+    return zlib.compress(raw, 6)
 
 
 def texture_bytes(
@@ -153,14 +168,8 @@ def texture_bytes(
     # texture recurs across meshes and across cells, so decode each once. Read
     # via getattr so any resolver-shaped double (the tests use several) still
     # works -- it simply decodes every time, which is only a test's concern.
-    cache: dict[object, tuple[bytes, str] | None] | None = getattr(resolver, "_decode_cache", None)
-    if resolved.path is not None:
-        source_key: object = ("path", str(resolved.path))
-    elif resolved.archived_name:
-        source_key = ("archive", str(resolved.archive or ""), resolved.archived_name)
-    else:
-        source_key = ("missing", resolved.reference.lower())
-    key = (source_key, max_dimension or 0)
+    cache: dict[str, tuple[bytes, str] | None] | None = getattr(resolver, "_decode_cache", None)
+    key = f"{resolved.reference}@{max_dimension or 0}"
     if cache is not None and key in cache:
         return cache[key]
     raw = resolver.read(resolved)
@@ -410,8 +419,8 @@ def _mesh_payload(
                 # offset and tiling from these on its clock.
                 "uvAnim": _uv_anim_payload(mesh.uv_anim),
                 # A node keyframe animation (sway/spin/slide), or None. Carries
-                # the direct above/rest/below scene-graph split and the
-                # rotation/translation/scale keys.
+                # the parent/rest matrices and the rotation/translation/scale
+                # keys; the page applies the delta as a per-frame matrix.
                 "transformAnim": _transform_anim_payload(mesh.transform_anim),
                 # A visibility animation (blink on/off), or None: [[time, 0|1], ...].
                 "visAnim": (
@@ -491,17 +500,16 @@ def _transform_anim_payload(anim: TransformAnimation | None) -> dict[str, object
         anim: The node keyframe animation, or ``None``.
 
     Returns:
-        A dict with the ``above``/``rest``/``below`` matrices and the
-        ``rotation`` (``[t, w, x, y, z]``), ``translation`` (``[t, x, y, z]``) and ``scale``
+        A dict with the ``parent``/``rest`` matrices and the ``rotation``
+        (``[t, w, x, y, z]``), ``translation`` (``[t, x, y, z]``) and ``scale``
         (``[t, v]``) key lists, or ``None`` when there is no animation. Empty key
         lists are kept so the page can fall back to the rest value per channel.
     """
     if anim is None:
         return None
     return {
-        "above": _mat4_cols(anim.above),
+        "parent": _mat4_cols(anim.parent),
         "rest": _mat4_cols(anim.rest),
-        "below": _mat4_cols(anim.below),
         "rotation": [[time, w, x, y, z] for time, (w, x, y, z) in anim.rotation],
         "translation": [[time, x, y, z] for time, (x, y, z) in anim.translation],
         "scale": [[time, value] for time, value in anim.scale],
@@ -1562,9 +1570,10 @@ __EXTRA_SLOTS__
     // entry precomputes the fixed parts of its delta; ``base`` (an instanced
     // group's per-instance matrices) is set for a group, absent for a lone mesh.
     var xformAnimated = [];
-    var _xfL = new THREE.Matrix4();       // the animated local transform L(t)
-    var _xfPlacement = new THREE.Matrix4(); // one instance's placement matrix
-    var _xfOut = new THREE.Matrix4();     // placement * above * L(t) * below
+    var _xfL = new THREE.Matrix4();     // the animated local transform L(t)
+    var _xfDelta = new THREE.Matrix4(); // parent * L(t) * (parent * rest)^-1
+    var _xfIm = new THREE.Matrix4();    // one instance's base matrix
+    var _xfOut = new THREE.Matrix4();   // base * delta for that instance
     var _xfPos = new THREE.Vector3(), _xfScl = new THREE.Vector3();
     var _xfQ = new THREE.Quaternion();
     // Linearly interpolate a vec3 key list [[t,x,y,z],...] to time t (looping
@@ -1621,33 +1630,32 @@ __EXTRA_SLOTS__
         var s = sampleScalar(a.scale, seconds, e.restS);
         _xfScl.set(s, s, s);
         _xfL.compose(_xfPos, _xfQ, _xfScl);
-        // The geometry is model-space, so evaluate the animated node directly
-        // in its scene-graph position: placement * above * L(t) * below. There
-        // is deliberately no inverse-rest delta and no nodeWorld multiplication
-        // here; those were only needed while vertices had already been baked.
+        _xfDelta.multiplyMatrices(e.parentM, _xfL).multiply(e.invParentRest);
+        // Fold the shape's node transform in: the delta acts on model-space
+        // vertices, so the frame matrix is delta(t) * nodeWorld. Identity (and a
+        // no-op) for a baked mesh.
+        if (e.nodeWorld) _xfDelta.multiply(e.nodeWorld);
         if (e.base) {
           for (var k = 0; k < e.obj.count; k++) {
-            _xfPlacement.fromArray(e.base, k * 16);
-            _xfOut.multiplyMatrices(_xfPlacement, e.aboveM);
-            _xfOut.multiply(_xfL).multiply(e.belowM);
+            _xfIm.fromArray(e.base, k * 16);
+            _xfOut.multiplyMatrices(_xfIm, _xfDelta);
             e.obj.setMatrixAt(k, _xfOut);
           }
           e.obj.instanceMatrix.needsUpdate = true;
         } else {
-          _xfOut.multiplyMatrices(e.aboveM, _xfL).multiply(e.belowM);
-          e.obj.matrix.copy(_xfOut);
+          e.obj.matrix.copy(_xfDelta);
         }
       }
     }
     // Register a drawn mesh's node animation, precomputing its fixed matrices.
     function registerXformAnim(drawn, spec) {
-      var aboveM = new THREE.Matrix4().fromArray(spec.above);
-      var restM = new THREE.Matrix4().fromArray(spec.rest);
-      var belowM = new THREE.Matrix4().fromArray(spec.below);
+      var pM = new THREE.Matrix4().fromArray(spec.parent);
+      var rM = new THREE.Matrix4().fromArray(spec.rest);
+      var invPR = new THREE.Matrix4().multiplyMatrices(pM, rM).invert();
       var rP = new THREE.Vector3(), rQ = new THREE.Quaternion(), rS = new THREE.Vector3();
-      restM.decompose(rP, rQ, rS);
-      var entry = {obj: drawn, anim: spec, aboveM: aboveM, belowM: belowM,
-                   restP: rP, restQ: rQ, restS: rS.x};
+      rM.decompose(rP, rQ, rS);
+      var entry = {obj: drawn, anim: spec, parentM: pM, invParentRest: invPR,
+                   restP: rP, restQ: rQ, restS: rS.x, nodeWorld: drawn.nodeWorldMat || null};
       if (drawn.isInstancedMesh) entry.base = drawn.instanceBase;
       else drawn.matrixAutoUpdate = false;  // we drive .matrix directly each frame
       xformAnimated.push(entry);
@@ -2372,19 +2380,16 @@ __EXTRA_SLOTS__
             drawn.setMatrixAt(_k, _iw);
           }
           drawn.instanceMatrix.needsUpdate = true;
-          // Keep the raw placement matrices so an animated node can replace the
-          // static shape matrix with placement * above * L(t) * below each frame.
+          // The base placements and the node transform, kept so a node animation
+          // can rebuild each instance's matrix as placement * delta(t) * nodeWorld.
           drawn.instanceBase = m.instances;
+          drawn.nodeWorldMat = nodeWorldMat;
           // Frustum culling uses the geometry's origin-centred bounds, which is
           // wrong once instances are scattered across a cell -- it would cull
           // objects that are plainly on screen. The cell is bounded, so drop it.
           drawn.frustumCulled = false;
         } else {
           drawn = new THREE.Mesh(g, material);
-          if (nodeWorldMat) {
-            drawn.matrixAutoUpdate = false;
-            drawn.matrix.copy(nodeWorldMat);
-          }
         }
         drawn.userData.map = material.map || null;
         // A scrolling/scaling texture animation from the file: the material's
@@ -2395,8 +2400,8 @@ __EXTRA_SLOTS__
           material.map.needsUpdate = true;
           uvAnimated.push({tex: material.map, anim: m.uvAnim});
         }
-        // A node keyframe animation (sway/spin/slide) plays by rebuilding the
-        // direct placement * above * L(t) * below matrix each frame.
+        // A node keyframe animation (sway/spin/slide) plays as a per-frame
+        // matrix delta -- on the lone mesh's matrix, or on each instance's.
         if (m.transformAnim) registerXformAnim(drawn, m.transformAnim);
         // A visibility animation blinks the whole shape on and off.
         if (m.visAnim) visAnimated.push({obj: drawn, keys: m.visAnim});

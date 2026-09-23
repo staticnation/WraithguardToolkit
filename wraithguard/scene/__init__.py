@@ -15,9 +15,11 @@ load order.
 from __future__ import annotations
 
 from wraithguard.scene.build import (
+    BuiltScene,
     InstancedCell,
     InstancedGroup,
     build_instanced,
+    build_scene,
     matrix4_columns,
 )
 from wraithguard.scene.cellview import (
@@ -30,6 +32,7 @@ from wraithguard.scene.cellview import (
     find_landscape,
     list_cells,
     object_provenance,
+    preview_cell,
     preview_cell_instanced,
 )
 from wraithguard.scene.plugincache import PREVIEW_RECORD_TAGS, PluginParseCache
@@ -53,6 +56,7 @@ from wraithguard.scene.water import SEA_LEVEL, water_mesh
 __all__ = [
     "PREVIEW_RECORD_TAGS",
     "SEA_LEVEL",
+    "BuiltScene",
     "CellAudit",
     "CellChoice",
     "CellKey",
@@ -64,6 +68,7 @@ __all__ = [
     "PluginParseCache",
     "build_instanced",
     "build_model_index",
+    "build_scene",
     "cell_key",
     "cell_label",
     "cell_layers",
@@ -73,6 +78,7 @@ __all__ = [
     "list_cells",
     "matrix4_columns",
     "object_provenance",
+    "preview_cell",
     "preview_cell_instanced",
     "reference_transform",
     "resolve_cell",

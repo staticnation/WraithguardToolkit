@@ -176,42 +176,6 @@ class BsaArchive:
             raise BsaError(f"{self.path.name} is malformed: {exc}") from exc
         LOG.debug("indexed %d file(s) in %s", len(self._entries), self.path.name)
 
-    def read_prefix(self, name: str, length: int) -> bytes | None:
-        """Read only the first ``length`` bytes of one archived file.
-
-        This is used for file headers that can be classified without pulling a
-        whole texture out of an archive. Morrowind's BSA stores the file offset
-        and byte count directly, so a header probe is one seek + small read.
-
-        Args:
-            name: The stored path.
-            length: Maximum number of bytes to return.
-
-        Returns:
-            Up to ``length`` bytes, or ``None`` when the entry is absent.
-
-        Raises:
-            BsaError: If the archive is truncated where the requested prefix
-                should be.
-        """
-        if length <= 0:
-            return b""
-        entry = self._entries.get(normalise(name))
-        if entry is None:
-            return None
-        try:
-            with self.path.open("rb") as handle:
-                handle.seek(entry.offset)
-                data = handle.read(min(entry.size, length))
-        except OSError as exc:
-            raise BsaError(f"cannot read {name} from {self.path}: {exc}") from exc
-        if len(data) != min(entry.size, length):
-            raise BsaError(
-                f"{name} runs past the end of {self.path.name}: "
-                f"wanted {min(entry.size, length)} byte(s), got {len(data)}"
-            )
-        return data
-
     def read(self, name: str) -> bytes | None:
         """Read one file out of the archive.
 

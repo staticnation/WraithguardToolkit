@@ -37,15 +37,12 @@ with anything.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path  # noqa: TC003 -- used at runtime, not only in annotations
 from typing import Final
 
-from wraithguard.images.dds import CompressedTexture, dds_passthrough, dds_passthrough_info
 from wraithguard.logging_setup import get_logger
 from wraithguard.nif.bsa import BsaArchive, BsaError
-from wraithguard.nif.vfs import archives_in
 
 LOG = get_logger(__name__)
 
@@ -136,15 +133,7 @@ class TextureResolver:
         # collection reuses the same wall and crate textures across cell after
         # cell, so decoding each one once per session (this resolver is reused)
         # is the single biggest win when previewing many cells in a row.
-        self._decode_cache: dict[tuple[object, int], tuple[bytes, str] | None] = {}
-        # Candidate resolution is repeated for auxiliary maps and for meshes
-        # sharing a texture. Cache the VFS answer, not only the decoded pixels.
-        self._resolve_cache: dict[str, Resolved] = {}
-        self._siblings_cache: dict[str, dict[str, Resolved]] = {}
-        # Header-only DDS probes let the cell viewer decide on GPU passthrough
-        # without reading or decoding the whole texture during page creation.
-        self._dds_info_cache: dict[object, CompressedTexture | None] = {}
-        self._compressed_cache: dict[object, CompressedTexture | None] = {}
+        self._decode_cache: dict[str, tuple[bytes, str] | None] = {}
         self._build()
         self._open_archives(archives)
 
@@ -156,19 +145,15 @@ class TextureResolver:
             if root is None:
                 continue
             try:
-                # os.walk avoids constructing a Path object for every directory
-                # entry just to test it; on large mod collections this index is a
-                # measurable part of first-view startup.
-                for dirpath, _dirs, files in os.walk(root):
-                    base = Path(dirpath)
-                    for name in files:
-                        path = base / name
-                        indexed += 1
-                        if indexed > _MAX_INDEXED:
-                            LOG.warning("stopped indexing textures at %d files", _MAX_INDEXED)
-                            return
-                        key = path.relative_to(root).as_posix().lower()
-                        self._index.setdefault(key, []).append(path)
+                for path in root.rglob("*"):
+                    if not path.is_file():
+                        continue
+                    indexed += 1
+                    if indexed > _MAX_INDEXED:
+                        LOG.warning("stopped indexing textures at %d files", _MAX_INDEXED)
+                        return
+                    key = path.relative_to(root).as_posix().lower()
+                    self._index.setdefault(key, []).append(path)
             except OSError as exc:
                 LOG.warning("cannot index textures under %s: %s", root, exc)
         LOG.debug("indexed %d texture(s) across %d folder(s)", indexed, len(self._dirs))
@@ -179,13 +164,8 @@ class TextureResolver:
         Args:
             archives: Explicit paths, or ``None`` to look in the data folders.
         """
-        if archives is None:
-            # MeshVfs already opened and indexed these same BSA tables. Reuse
-            # those objects so the first viewer does not parse every archive
-            # twice, and later viewers do not reopen them at all.
-            self._archives = [archive for folder in self._dirs for archive in archives_in(folder)]
-            return
-        for path in archives:
+        candidates = list(archives) if archives is not None else self._find_archives()
+        for path in candidates:
             try:
                 self._archives.append(BsaArchive(path))
             except BsaError as exc:  # noqa: PERF203 -- one bad archive must not stop the rest
@@ -198,6 +178,21 @@ class TextureResolver:
                 len(self._archives),
                 sum(len(a) for a in self._archives),
             )
+
+    def _find_archives(self) -> list[Path]:
+        """Look for ``.bsa`` files in the data folders.
+
+        Returns:
+            Archive paths in load order.
+        """
+        found: list[Path] = []
+        for folder in self._dirs:
+            try:
+                if folder.is_dir():
+                    found.extend(sorted(p for p in folder.iterdir() if p.suffix.lower() == ".bsa"))
+            except OSError as exc:  # noqa: PERF203 -- one bad folder is not the rest
+                LOG.debug("cannot list %s: %s", folder, exc)
+        return found
 
     def read(self, resolved: Resolved) -> bytes | None:
         """Read a resolved texture's bytes, from disk or from an archive.
@@ -215,83 +210,11 @@ class TextureResolver:
                 LOG.warning("cannot read %s: %s", resolved.path, exc)
                 return None
         if resolved.archived_name:
-            archives = (
-                [archive for archive in self._archives if archive.path == resolved.archive]
-                if resolved.archive is not None
-                else list(reversed(self._archives))
-            )
-            for archive in archives:
+            for archive in reversed(self._archives):
                 try:
                     data = archive.read(resolved.archived_name)
                 except BsaError as exc:
                     LOG.warning("cannot read from %s: %s", archive.path.name, exc)
-                    continue
-                if data is not None:
-                    return data
-        return None
-
-    @staticmethod
-    def _source_key(resolved: Resolved) -> object:
-        """Stable identity for the actual file behind a resolved reference."""
-        if resolved.path is not None:
-            return ("path", str(resolved.path))
-        if resolved.archived_name:
-            return ("archive", str(resolved.archive or ""), resolved.archived_name)
-        return ("missing", resolved.reference.lower())
-
-    def dds_info(self, resolved: Resolved) -> CompressedTexture | None:
-        """Probe a resolved DDS header without reading its mip payload."""
-        if not resolved.found:
-            return None
-        key = self._source_key(resolved)
-        if key in self._dds_info_cache:
-            return self._dds_info_cache[key]
-        info = dds_passthrough_info(self.read_prefix(resolved, 148) or b"")
-        # The generic viewer only has S3TC in its compressed path today. BC7
-        # remains on the decoder until an appropriate WebGL extension is wired.
-        if info is not None and info.format not in {"dxt1", "dxt3", "dxt5"}:
-            info = None
-        self._dds_info_cache[key] = info
-        return info
-
-    def read_compressed(self, resolved: Resolved) -> CompressedTexture | None:
-        """Read a GPU-uploadable DDS without decoding its blocks."""
-        if not resolved.found:
-            return None
-        key = self._source_key(resolved)
-        if key in self._compressed_cache:
-            return self._compressed_cache[key]
-        raw = self.read(resolved)
-        info = dds_passthrough(raw) if raw is not None else None
-        if info is not None and info.format not in {"dxt1", "dxt3", "dxt5"}:
-            info = None
-        self._compressed_cache[key] = info
-        return info
-
-    def read_prefix(self, resolved: Resolved, length: int) -> bytes | None:
-        """Read only a small prefix from the source behind ``resolved``."""
-        if not resolved.found:
-            return None
-        if resolved.path is not None:
-            try:
-                with resolved.path.open("rb") as handle:
-                    return handle.read(length)
-            except OSError as exc:
-                LOG.warning("cannot read %s: %s", resolved.path, exc)
-                return None
-        if resolved.archived_name:
-            for archive in reversed(self._archives):
-                if resolved.archive is not None and archive.path != resolved.archive:
-                    continue
-                try:
-                    data = archive.read_prefix(resolved.archived_name, length)
-                except BsaError as exc:
-                    LOG.warning(
-                        "cannot read %s from %s: %s",
-                        resolved.archived_name,
-                        archive.path.name,
-                        exc,
-                    )
                     continue
                 if data is not None:
                     return data
@@ -322,10 +245,6 @@ class TextureResolver:
         cleaned = reference.strip().replace("\\", "/")
         if not cleaned:
             return {}
-        cache_key = cleaned.lower()
-        cached = self._siblings_cache.get(cache_key)
-        if cached is not None:
-            return cached
         stem, _, suffix = cleaned.rpartition(".")
         if not stem:
             stem, suffix = cleaned, "dds"
@@ -336,7 +255,6 @@ class TextureResolver:
                 found[extra] = resolved
         if found:
             LOG.debug("%s has auxiliary map(s): %s", reference, ", ".join(found))
-        self._siblings_cache[cache_key] = found
         return found
 
     def resolve(self, reference: str) -> Resolved:
@@ -358,9 +276,6 @@ class TextureResolver:
             cleaned = cleaned.replace("//", "/")
         if not cleaned:
             return Resolved(reference)
-        cached = self._resolve_cache.get(cleaned)
-        if cached is not None:
-            return cached
         # A reference may or may not already include the textures/ prefix.
         bases = [cleaned]
         if cleaned.startswith(f"{_TEXTURE_ROOT}/"):
@@ -386,7 +301,7 @@ class TextureResolver:
             providers = self._index.get(key)
             if providers:
                 found_suffix = key.rsplit(".", 1)[-1] if "." in key else ""
-                resolved = Resolved(
+                return Resolved(
                     reference=reference,
                     # Last provider wins, which is the VFS rule the rest of the
                     # tool already applies.
@@ -399,8 +314,6 @@ class TextureResolver:
                     # from the name.
                     substituted=found_suffix != wanted_suffix,
                 )
-                self._resolve_cache[cleaned] = resolved
-                return resolved
         # Nothing loose provides it, so try the archives -- the order the
         # engine itself uses.
         for key in candidates:
@@ -410,17 +323,13 @@ class TextureResolver:
                     # every candidate that misses as well as the one that hits.
                     if stored in archive:
                         found_suffix = key.rsplit(".", 1)[-1] if "." in key else ""
-                        resolved = Resolved(
+                        return Resolved(
                             reference=reference,
                             archived_name=stored,
                             archive=archive.path,
                             substituted=found_suffix != wanted_suffix,
                         )
-                        self._resolve_cache[cleaned] = resolved
-                        return resolved
-        resolved = Resolved(reference)
-        self._resolve_cache[cleaned] = resolved
-        return resolved
+        return Resolved(reference)
 
 
 def _texture_root(folder: Path) -> Path | None:

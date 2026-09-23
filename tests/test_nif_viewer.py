@@ -556,40 +556,6 @@ class TestTexturesReachThePage:
         page = build_viewer_page([("only", [self._uv_mesh()])], resolver=TextureResolver([folder]))
         assert payload(page)[0]["meshes"][0]["image"] is None
 
-    def test_texture_aliases_share_the_same_decoded_source(self, tmp_path: Path) -> None:
-        """``textures/foo`` and ``foo`` must not decode the same source twice."""
-        folder = tmp_path / "Mod"
-        target = folder / "textures" / "tx_rock.dds"
-        target.parent.mkdir(parents=True)
-        target.write_bytes(self._png_dds())
-        resolver = TextureResolver([folder])
-        decodes = {"n": 0}
-        import wraithguard.nif.viewer as viewer_mod
-
-        real = viewer_mod.browser_image
-
-        def counting(raw: bytes, max_dimension: int | None = None):
-            decodes["n"] += 1
-            return real(raw, max_dimension)
-
-        monkey = pytest.MonkeyPatch()
-        monkey.setattr(viewer_mod, "browser_image", counting)
-        try:
-            meshes = [
-                self._uv_mesh(),
-                Mesh(
-                    name="alias",
-                    vertices=self._uv_mesh().vertices,
-                    triangles=self._uv_mesh().triangles,
-                    uvs=self._uv_mesh().uvs,
-                    texture="textures/tx_rock.dds",
-                ),
-            ]
-            build_viewer_page([("only", meshes)], resolver=resolver)
-        finally:
-            monkey.undo()
-        assert decodes["n"] == 1
-
     def test_one_texture_shared_by_two_sides_is_decoded_once(self, tmp_path: Path) -> None:
         """A 2048px image decoded per shape would dominate opening a view."""
         from tests.test_images import bc1_block, dds
@@ -1004,21 +970,6 @@ class TestCellViewerPage:
         mesh = payload(page)[0]["meshes"][0]
         assert mesh["instanceCount"] == 2
         assert mesh["instances"] is not None  # a fetchable/inline geometry blob
-
-    def test_a_served_sink_turns_geometry_into_urls(self) -> None:
-        published: list[bytes] = []
-
-        def sink(blob: bytes, _content_type: str = "") -> dict[str, str]:
-            published.append(blob)
-            return {"url": f"http://127.0.0.1/g{len(published)}.bin"}
-
-        page = build_cell_viewer_page("Cell", [([TRIANGLE], _identity())], sink=sink)
-        mesh = payload(page)[0]["meshes"][0]
-        assert mesh["positions"]["url"].endswith(".bin")
-        assert mesh["indices"]["url"].endswith(".bin")
-        assert mesh["instances"]["url"].endswith(".bin")
-        assert '"b64"' not in page
-        assert len(published) >= 3
 
     def test_the_matrix_blob_decodes_to_the_instance_transforms(self) -> None:
         moved = [
