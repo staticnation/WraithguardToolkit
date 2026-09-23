@@ -10,6 +10,8 @@ property than "traversal is blocked".
 from __future__ import annotations
 
 import socket
+import threading
+import time
 import urllib.error
 import urllib.request
 from typing import TYPE_CHECKING
@@ -411,6 +413,98 @@ class TestLazyPayloads:
         session = server.publish_session("cell")
         url = session.register_lazy("t0.png", lambda: Payload(b"x", "image/png"))
         assert "cell-" in url
+        assert get(url) == b"x"
+
+
+class TestPrewarm:
+    """Decoding lazy payloads ahead of the browser asking for them."""
+
+    def test_prewarm_decodes_before_any_fetch(self, server: ViewerServer) -> None:
+        """A key's producer has already run once prewarm's background thread joins."""
+        calls = {"n": 0}
+
+        def producer() -> Payload:
+            calls["n"] += 1
+            return Payload(b"decoded", "image/png")
+
+        key = "t0.png"
+        url = server.register_lazy(key, producer)
+        server.prewarm([key], workers=1)
+        deadline = time.monotonic() + 5
+        while calls["n"] == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert calls["n"] == 1, "prewarm must have run the producer without being fetched"
+        # And a real fetch afterwards is the cached result, not a second decode.
+        assert get(url) == b"decoded"
+        assert calls["n"] == 1
+
+    def test_prewarm_with_workers_runs_them_in_parallel(self, server: ViewerServer) -> None:
+        """workers>1 decodes distinct keys concurrently, not one after another."""
+        started = threading.Event()
+        release = threading.Event()
+        first_in = {"v": False}
+
+        def blocking_producer() -> Payload:
+            first_in["v"] = True
+            started.set()
+            release.wait(timeout=5)
+            return Payload(b"a", "image/png")
+
+        def quick_producer() -> Payload:
+            # Only reachable concurrently with the blocker above: on a single
+            # worker this producer would never run until release fires, so
+            # this proves two workers were actually live at once.
+            assert started.wait(timeout=5), "the blocking producer never started"
+            return Payload(b"b", "image/png")
+
+        server.register_lazy("t0.png", blocking_producer)
+        key_b_url = server.register_lazy("t1.png", quick_producer)
+        server.prewarm(["t0.png", "t1.png"], workers=2)
+        assert get(key_b_url) == b"b"
+        release.set()
+
+    def test_prewarm_of_zero_keys_is_a_no_op(self, server: ViewerServer) -> None:
+        """No keys means no thread spawned, no error either."""
+        server.prewarm([], workers=4)  # must simply return
+
+    def test_a_failing_producer_does_not_stop_the_others_from_prewarming(
+        self, server: ViewerServer
+    ) -> None:
+        """One bad texture must not sink the rest of the prewarm pass."""
+
+        def bad_producer() -> Payload:
+            raise ValueError("simulated decode failure")
+
+        good_calls = {"n": 0}
+
+        def good_producer() -> Payload:
+            good_calls["n"] += 1
+            return Payload(b"ok", "image/png")
+
+        server.register_lazy("bad.png", bad_producer)
+        good_url = server.register_lazy("good.png", good_producer)
+        server.prewarm(["bad.png", "good.png"], workers=2)
+        deadline = time.monotonic() + 5
+        while good_calls["n"] == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert good_calls["n"] == 1, "a failing producer must not prevent its sibling from running"
+        assert get(good_url) == b"ok"
+
+    def test_a_session_prewarm_uses_its_own_prefix(self, server: ViewerServer) -> None:
+        """PublishSession.prewarm() must warm the prefixed key, not the bare one."""
+        session = server.publish_session("cell")
+        calls = {"n": 0}
+
+        def producer() -> Payload:
+            calls["n"] += 1
+            return Payload(b"x", "image/png")
+
+        url = session.register_lazy("t0.png", producer)
+        session.prewarm(["t0.png"], workers=1)  # bare key, as passed to register_lazy
+        deadline = time.monotonic() + 5
+        while calls["n"] == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert calls["n"] == 1
         assert get(url) == b"x"
 
 

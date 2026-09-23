@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import secrets
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -38,7 +39,7 @@ from urllib.parse import parse_qs, urlparse
 from wraithguard.logging_setup import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
 LOG = get_logger(__name__)
 
@@ -134,6 +135,16 @@ class PublishSession:
             The URL that serves it.
         """
         return self.server.register_lazy(f"{self.prefix}/{key}", producer)
+
+    def prewarm(self, keys: Sequence[str], *, workers: int = 1) -> None:
+        """Prewarm a set of this session's own :meth:`register_lazy` keys.
+
+        Args:
+            keys: Short keys within this session (as passed to
+                :meth:`register_lazy`, not yet prefixed).
+            workers: See :meth:`ViewerServer.prewarm`.
+        """
+        self.server.prewarm([f"{self.prefix}/{key}" for key in keys], workers=workers)
 
 
 class ViewerServer:
@@ -272,6 +283,90 @@ class ViewerServer:
         with self._lock:
             self._payloads[key] = produced
         return produced
+
+    def prewarm(self, keys: Sequence[str], *, workers: int = 1) -> None:
+        """Run a set of :meth:`register_lazy` producers ahead of the browser asking.
+
+        A lazy payload (a cell's textures, mainly) decodes on first fetch so the
+        page opens on its geometry immediately rather than blocking on every
+        texture up front. That is the right call for *when* to decode, but not
+        for *how many at once*: once the browser is asking, it asks at most
+        ~6 keys at a time (a per-origin connection cap browsers impose, not
+        anything this server controls), so on a machine with more cores than
+        that, most of them sit idle during a cell's slower texture decodes
+        (BC7 especially -- see :mod:`wraithguard.images.bc7`). This runs ahead
+        of that cap: every producer for ``keys`` is invoked through
+        :meth:`fetch` (so a result lands in the exact same cache a real
+        request would fill) from a worker pool sized by the caller, not capped
+        at 6.
+
+        Fire-and-forget: spawns one daemon thread that dispatches the fetches
+        and returns immediately -- this must never block page construction,
+        since it is a pure optimisation, not something the page depends on. A
+        key the browser also requests before this finishes is not a race to
+        worry about: :meth:`fetch` already documents that a key decoded twice
+        under contention is harmless, only wasted work, and only ever for the
+        one key two callers happened to hit at once.
+
+        Args:
+            keys: The full (session-prefixed) keys to warm, as returned by
+                :meth:`register_lazy` / :meth:`PublishSession.register_lazy`.
+            workers: How many producers to run at once. 1 (the default) still
+                runs entirely on the one background thread this spawns --
+                off the request path, just serial -- so passing 1 is safe
+                and correct on a GIL build, not merely a smaller version of
+                the parallel case. Pass more only when the caller has already
+                confirmed the interpreter is genuinely free-threaded (the
+                same ``sys._is_gil_enabled()`` gate :func:`build_instanced`
+                uses): under the GIL, extra threads would not decode any
+                faster, only add scheduling overhead for no return.
+        """
+        if not keys:
+            return
+        token = self._token
+
+        def _fetch_and_log(key: str) -> None:
+            """Fetch one key, logging (never raising) if its producer fails.
+
+            fetch()/texture_bytes() already catch broadly around a bad texture
+            (a decode failure must not sink the real request that eventually
+            asks for it); this is only a last-resort net for anything that
+            still somehow escapes that, so it is never silent, but it is also
+            never the user's problem -- prewarming failing outright still
+            leaves every key servable the normal way, on request. Shared by
+            both branches below so neither one bad key nor its ordering can
+            take a sibling down with it: a plain serial loop with no guard
+            here would silently abandon every key after the one that raised.
+
+            Args:
+                key: The registered key to fetch.
+            """
+            try:
+                self.fetch(key, token)
+            except Exception:
+                LOG.debug("texture prewarm failed", exc_info=True)
+
+        def _run() -> None:
+            """Run every producer, serially or across a pool, off the request path."""
+            if workers <= 1:
+                for key in keys:
+                    _fetch_and_log(key)
+                return
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                # Submitted and resolved individually -- not via pool.map(),
+                # whose result iterator cancels every still-pending future the
+                # moment any single .result() raises during iteration. A
+                # producer that raises essentially instantly (as one does in
+                # tests) would very reliably beat a slower sibling's task to
+                # actually starting and take it down too via that
+                # cancellation: the opposite of what this pass promises.
+                # _fetch_and_log never lets an exception escape, so
+                # .result() here never raises and nothing can cascade.
+                futures = [pool.submit(_fetch_and_log, key) for key in keys]
+                for future in futures:
+                    future.result()
+
+        threading.Thread(target=_run, name="wraithguard-prewarm", daemon=True).start()
 
     def register_post(self, key: str, handler: Callable[[bytes], Payload]) -> str:
         """Register a handler that turns a POST body into a response payload.
