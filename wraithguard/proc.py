@@ -32,12 +32,12 @@ def no_window_kwargs() -> dict[str, Any]:
     """
     if os.name != "nt":
         return {}
-    
+
     kw: dict[str, Any] = {"creationflags": 0x08000000}  # CREATE_NO_WINDOW
-    
+
     startupinfo_cls = getattr(subprocess, "STARTUPINFO", None)
     flag = getattr(subprocess, "STARTF_USESHOWWINDOW", None)
-    
+
     if startupinfo_cls is not None and flag is not None:
         try:
             si = startupinfo_cls()
@@ -48,5 +48,5 @@ def no_window_kwargs() -> dict[str, Any]:
             # A build or mock missing expected attributes falls back cleanly
             # to CREATE_NO_WINDOW alone.
             pass
-            
+
     return kw
