@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.1.2\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-23 12:43\n"
+"POT-Creation-Date: 2026-09-23 19:58\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -48,48 +48,60 @@ msgid "WARNING: remove entry '%(entry)s' matches %(count)d openmw.cfg lines -- m
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:190
+#: wraithguard/viz/cellpreview.py:190
 msgid "Building cell preview..."
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:245
+#: wraithguard/viz/cellpreview.py:245
 msgid "Cell to preview"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:263
+#: wraithguard/viz/cellpreview.py:263
 msgid "Interior cell"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:266
+#: wraithguard/viz/cellpreview.py:266
 msgid "Name:"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:269
+#: wraithguard/viz/cellpreview.py:269
 msgid "Exterior cell"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:272
+#: wraithguard/viz/cellpreview.py:272
 msgid "Grid X, Y:"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:281
+#: wraithguard/viz/cellpreview.py:281
 msgid "Include adjacent cells (8 neighbours)"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:298
 #: wraithguard/gui/cellpreview.py:310
+#: wraithguard/viz/cellpreview.py:298
+#: wraithguard/viz/cellpreview.py:310
 msgid "Which cell?"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:299
+#: wraithguard/viz/cellpreview.py:299
 msgid "Enter an interior cell name, or pick a grid."
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:311
+#: wraithguard/viz/cellpreview.py:311
 msgid "Enter whole numbers for the grid X and Y (negatives are fine)."
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:324
 #: wraithguard/gui/removemaster.py:96
+#: wraithguard/viz/cellpreview.py:324
 #: wraithguard_toolkit_gui.py:4696
 msgid "Preview"
 msgstr ""
@@ -98,86 +110,115 @@ msgstr ""
 #: wraithguard/gui/conflicts.py:2501
 #: wraithguard/gui/conflicts.py:2782
 #: wraithguard/gui/pluginview.py:1287
+#: wraithguard/viz/cellpreview.py:325
 #: wraithguard_toolkit_gui.py:3854
 msgid "Cancel"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:370
+#: wraithguard/viz/cellpreview.py:370
 msgid "  skipped %(name)s: %(error)s"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:471
+#: wraithguard/viz/cellpreview.py:471
 msgid " CELL PREVIEW: %(label)s"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:542
+#: wraithguard/viz/cellpreview.py:542
 msgid "\n  Nothing to draw -- no placed meshes were found for this cell."
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:686
+#: wraithguard/viz/cellpreview.py:699
 msgid "Cell preview ready (%(drawn)d object(s) drawn)."
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:689
+#: wraithguard/viz/cellpreview.py:702
 msgid "Cell preview failed -- see log."
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:697
 #: wraithguard/gui/cellpreview.py:566
+#: wraithguard/viz/cellpreview.py:710
+#: wraithguard/viz/cellpreview.py:566
 msgid "references"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:698
 #: wraithguard/gui/cellpreview.py:567
+#: wraithguard/viz/cellpreview.py:711
+#: wraithguard/viz/cellpreview.py:567
 msgid "placed"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:699
 #: wraithguard/gui/cellpreview.py:568
+#: wraithguard/viz/cellpreview.py:712
+#: wraithguard/viz/cellpreview.py:568
 msgid "no mesh record"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:700
 #: wraithguard/gui/cellpreview.py:569
+#: wraithguard/viz/cellpreview.py:713
+#: wraithguard/viz/cellpreview.py:569
 msgid "editor markers"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:701
 #: wraithguard/gui/cellpreview.py:570
+#: wraithguard/viz/cellpreview.py:714
+#: wraithguard/viz/cellpreview.py:570
 msgid "actors skipped"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:702
 #: wraithguard/gui/cellpreview.py:571
+#: wraithguard/viz/cellpreview.py:715
+#: wraithguard/viz/cellpreview.py:571
 msgid "overridden by later"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:703
 #: wraithguard/gui/cellpreview.py:572
+#: wraithguard/viz/cellpreview.py:716
+#: wraithguard/viz/cellpreview.py:572
 msgid "deleted by later"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:704
 #: wraithguard/gui/cellpreview.py:573
+#: wraithguard/viz/cellpreview.py:717
+#: wraithguard/viz/cellpreview.py:573
 msgid "moved"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:705
 #: wraithguard/gui/cellpreview.py:574
+#: wraithguard/viz/cellpreview.py:718
+#: wraithguard/viz/cellpreview.py:574
 msgid "meshes drawn"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:706
 #: wraithguard/gui/cellpreview.py:575
+#: wraithguard/viz/cellpreview.py:719
+#: wraithguard/viz/cellpreview.py:575
 msgid "meshes not found"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:711
+#: wraithguard/viz/cellpreview.py:724
 msgid "    missing mesh: %(model)s"
 msgstr ""
 
 #: wraithguard/gui/cellpreview.py:738
 #: wraithguard/gui/cellpreview.py:582
+#: wraithguard/viz/cellpreview.py:751
+#: wraithguard/viz/cellpreview.py:582
 msgid "Cell preview: %(label)s"
 msgstr ""
 
