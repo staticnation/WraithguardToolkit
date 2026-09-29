@@ -1,0 +1,13 @@
+[package]
+name = "viewcore"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+description = "Cell viewer engine: VFS/BSA, load order, ESP/ESM world, NIF meshes, DDS/TGA textures, terrain, sky and weather, for the Wraithguard cell viewer."
+
+[dependencies]
+# greatness7's TES3 crates (MIT OR Apache-2.0): archives, plugins and meshes are read with
+# them. The engine's own code builds the world and the drawing from what they read.
+tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["bsa", "esp", "nif"] }
+bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }

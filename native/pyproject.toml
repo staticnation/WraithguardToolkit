@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
+
+[project]
+name = "wraithguard-native"
+version = "0.1.0"
+description = "Wraithguard Toolkit's Rust backend (greatness7's tes3 crates)"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[tool.maturin]
+module-name = "wraithguard_native"
+features = ["pyo3/extension-module"]

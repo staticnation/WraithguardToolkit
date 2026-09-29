@@ -95,13 +95,6 @@ class TestLandscape:
         (land,) = read_plugin(original)
         assert write_plugin([land]) == original
 
-    def test_bad_block_size_is_refused(self) -> None:
-        from wraithguard.esp import EspError
-
-        body = _sub(b"INTV", struct.pack("<ii", 0, 0)) + _sub(b"VNML", bytes(100))
-        with pytest.raises(EspError, match="VNML size"):
-            read_plugin(_record(b"LAND", body))
-
     def test_unexpected_tag_and_deletion(self) -> None:
         from wraithguard.esp import EspError
 

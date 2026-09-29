@@ -1,6 +1,121 @@
 # Changelog
 
 
+## 4.2.0
+
+Game files are now read and written by greatness7's `tes3` crates, in process,
+through a Rust module (`wraithguard_native`). tes3conv is no longer needed for
+anything, and no JSON is written or parsed along the way.
+
+### Changed
+
+- **Plugins, meshes and archives are read by the `tes3` crates.** The conflict
+  scan, cell map, field diff, plugin and journal views get each plugin's records
+  straight from Rust, parsing only the record types a feature asks for. The JSON
+  spool, its sidecar files and the `ijson` streaming are gone; each plugin's record
+  keys and cells are kept in memory until the file changes. Checked identical to
+  the old path on 721 plugins.
+- **Merged Lands' number crunching runs in Rust.** The per-vertex work -- the
+  relative grids, the per-vertex merge in every strategy, the slope limiter,
+  vertex normals and height decoding -- moved to the Rust module. The settings,
+  strategies, reports and UI stay in Python, and the result is the same to the
+  byte. On a 4,000-cell landmass plus two mods: **54 s to 6.8 s**, and peak memory
+  from **1.55 GB to 0.68 GB** (the decoded landscape is held as typed arrays).
+- **Textures decode in Rust.** The DDS block decoders (DXT1-5, BC4, BC5, BC7),
+  uncompressed DDS, Targa and the texture-comparison loops moved to the Rust
+  module; header parsing and error messages stay the same. A 2048px texture now
+  decodes in 25-70 ms instead of 2-12 s (BC7 was the slowest), so texture
+  conflicts and the cell viewer's texture fallback no longer stall. Pixel-for-pixel
+  identical to the Python decoders on random blocks of every format and mode and
+  on 160 real textures.
+- **The load-order lint reads plugins in Rust.** The per-record scan behind
+  `--lint` (evil GMSTs, fog-bug interiors, interior path grids, header gaps,
+  masters, Tribunal/Bloodmoon-only script calls) moved to the Rust module; the
+  warnings, their wording and order are unchanged. About 10x faster on the scan
+  itself, and identical output to the Python on every edge case and a real load
+  order.
+- **Conflict keys are computed in Rust.** The conflict scan and cell map get each
+  plugin's `(type, id, deleted)` keys and cells straight from the Rust reader,
+  without turning every record into Python objects first. Identical keys on 721
+  plugins.
+- **The Patch Builder and Merged Lands write their plugins through the crate**
+  (byte-identical to the old writer on the same 721 plugins).
+- **tes3conv is a fallback only**, used when the Rust module is missing. The
+  *Set tes3conv...* button and the *Keep tes3conv JSON dump* option show only
+  then. *Dump tes3conv JSON* is now *Dump records as JSON* and still writes
+  tes3conv-format files.
+- **The cell viewer's engine** reads archives, meshes and plugins with the same
+  crates, falling back to its own tolerant readers for a file the crate refuses.
+  38 meshes the old reader could only partly read now draw whole.
+- **Water**: one shader, MGE XE's, now carrying the shore surf and shallows
+  caustics, the Vivec and Molag Mar sewer waves (a switch), and **Water hue** /
+  **Water colour** sliders in place of the fixed water styles. Its waves are
+  varied by a slow noise field so they no longer repeat tile by tile.
+- **Cell map colours** run yellow to red, at the old translucency.
+
+### Added
+
+- **The mesh viewer** in the viewer shell: one, side-by-side or overlaid copies,
+  per-map toggles, alpha override, collision shapes, and the NIF block tree with a
+  field editor. Normal maps in Cell Preview behind a setting.
+- **Flip-book visibility animation** (`NiVisController`): lightning bolts and
+  similar effects that switch shapes on and off now animate.
+
+### Fixed
+
+- A NaN or infinite float in a plugin no longer blocks editing that record: it
+  round-trips as itself.
+
+### Removed
+
+- The Cell Preview's leftover grass generation and scatter code, and the
+  statistics rows that reported on it. Groundcover is still displayed.
+- The Python ports of the tes3 crates' plugin, mesh and archive readers and
+  writers, the conflict session's JSON spool and sidecar files, and the
+  alternative water styles (their surf and sewer waves now live in the one shader).
+
+### Build
+
+- The Rust module is built and bundled by every build: Windows (both variants),
+  Linux (the AppImage), macOS and the Docker build. The macOS build now also
+  builds and bundles the viewer, which it was missing.
+- The Docker build freezes free-threaded Python 3.14t, as the release builds do.
+- A `.dockerignore` keeps the cargo build folders out of the Docker context.
+- `PREFLIGHT.md`: the checks to run before pushing, and the push, test-build,
+  release and rebuild sequences.
+
+## 4.1.2
+
+- **The un-bake migration** (`UNBAKE_MIGRATION.md`): Cell Preview meshes stay in
+  their own model space with their node hierarchy, and each unique model is drawn
+  once with one transform per placement (instancing), rather than every placement
+  baked into world-space vertices.
+- A stub of the viewer shell (`viewer-shell/check`) so its URL mode compiles in CI
+  without Tauri's native dependencies.
+- Fixes: cross-platform mypy errors on the Windows subprocess attributes, the
+  icon, the `.pot` template, and the loopback server; 4.1.1's revert undone.
+
+## 4.1.1
+
+- **The viewer window is `wraithguard-viewer`**, a small Tauri binary built from
+  `viewer-shell/`, in place of pywebview (and its Qt / pythonnet backends). The
+  Windows, Linux and macOS builds build and bundle it.
+- Fixes: the Linux icon, the zstandard fallback in the JSON codec, and the Docker
+  build's viewer path.
+
+## 4.1.0
+
+- **Whole-plugin merging** (`wraithguard/merge/`), a port of Greatness7's
+  `merge_to_master`: folds a plugin or a load order into one master, with
+  last-plugin-wins objects, unioned cell references, dialogue kept in order, and
+  master and texture indices remapped.
+- **Remove / Rename Master**: preview what removing a master from a plugin would
+  drop, remove it (keeping a one-time `.premaster.bak`), or rename it.
+- **Viewer animations**: UV scrolling, keyframed nodes, visibility, morph targets,
+  particles, and `.kf` animation files beside a mesh.
+- The un-bake migration plan (`UNBAKE_MIGRATION.md`).
+- The builds freeze free-threaded Python 3.14t, and CI tests both 3.14 and 3.14t.
+
 ## 4.0.2
 
 The Cell Preview that shipped as a prototype in 4.0.1 grows into a full feature.

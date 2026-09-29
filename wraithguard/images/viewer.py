@@ -688,8 +688,7 @@ def build_compare_page(
 ) -> str:
     """Build a page comparing two textures.
 
-    Two shapes from one template, the same split
-    :func:`~wraithguard.nif.viewer.build_viewer_page` uses: given a
+    Two shapes from one template: given a
     ``library_url`` this produces a **served page** that fetches three.js;
     otherwise it inlines the library itself, the same way it inlines every
     other blob when ``sink`` is omitted.
@@ -747,8 +746,8 @@ def build_compare_page(
 def _inline_library() -> str:
     """Load the vendored three.js build for a standalone page, if it is there.
 
-    :func:`~wraithguard.nif.viewer.build_viewer_page` calls
-    :func:`~wraithguard.viz.library.three_source` directly and lets
+    The old three.js mesh viewer called
+    :func:`~wraithguard.viz.library.three_source` directly and let
     :class:`~wraithguard.viz.library.ViewerError` propagate, because a mesh
     genuinely cannot be shown without a 3D engine -- there is no fallback
     rendering path to degrade to. This page is not that page: side by side

@@ -764,7 +764,7 @@ class TestCellPreviewWiring:
         Args:
             app: The application.
         """
-        for name in ("on_cell_preview", "_ask_cell", "_load_order_plugins", "_cellpreview_worker"):
+        for name in ("on_cell_preview", "_open_cell_viewer", "_on_open_cell_request"):
             assert callable(getattr(app, name)), f"missing cell-preview method: {name}"
 
 
@@ -2810,7 +2810,7 @@ class TestThreeDButtonsAreReachable:
             "identical": False,
         }
 
-    def test_both_buttons_exist_in_the_resource_window(self, app: Any) -> None:
+    def test_the_view_button_exists_in_the_resource_window(self, app: Any) -> None:
         """A feature nobody can find is indistinguishable from one that is absent.
 
         Args:
@@ -2825,8 +2825,9 @@ class TestThreeDButtonsAreReachable:
                 for child in frame.winfo_children()
                 if child.winfo_class() == "TButton"
             }
-            assert any("3D" in label for label in labels), labels
-            assert any("Export" in label and "3D" in label for label in labels), labels
+            # "View in 3D" opens the viewer's mesh viewer; the old "Export 3D" went
+            # with the three.js viewer it exported to.
+            assert "View in 3D" in labels, labels
         finally:
             window.destroy()
 
@@ -2840,7 +2841,7 @@ class TestThreeDButtonsAreReachable:
         window = app._res_win
         try:
             assert str(app._res_view3d.cget("state")) == "disabled"
-            assert str(app._res_export3d.cget("state")) == "disabled"
+            assert str(app._res_edit_mesh.cget("state")) == "disabled"
         finally:
             window.destroy()
 
@@ -2858,7 +2859,7 @@ class TestThreeDButtonsAreReachable:
             tree.event_generate("<<TreeviewSelect>>")
             app.root.update_idletasks()
             assert str(app._res_view3d.cget("state")) == "normal"
-            assert str(app._res_export3d.cget("state")) == "normal"
+            assert str(app._res_edit_mesh.cget("state")) == "normal"
         finally:
             window.destroy()
 
@@ -3118,10 +3119,10 @@ class TestTheViewerChainUnderstandsUrls:
 
         assert called == ["browser"]
 
-    def test_the_mesh_viewer_goes_through_the_in_app_chain(
+    def test_the_mesh_viewer_opens_each_copy_in_the_viewer_shell(
         self, app: Any, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        """Not straight to the browser, which is what it did first.
+        """Each mod's own file goes to the viewer shell's mesh viewer, labelled by mod.
 
         Args:
             app: The application.
@@ -3144,24 +3145,23 @@ class TestTheViewerChainUnderstandsUrls:
         }
         app._show_resource_window([conflict], {"conflicts": 1})
         window = app._res_win
-        opened: list[tuple[str, str]] = []
+        opened: list[list[dict[str, object]]] = []
         monkeypatch.setattr(
-            app, "open_html_in_app", lambda target, title: opened.append((str(target), title))
+            app, "_open_cell_viewer", lambda cell=None, meshes=None: opened.append(meshes) or True
         )
-        monkeypatch.setattr("webbrowser.open", lambda _u: opened.append(("BROWSER", "")))
         try:
             tree = app._res_tree
             tree.selection_set(tree.get_children()[0])
             tree.event_generate("<<TreeviewSelect>>")
             app.root.update_idletasks()
             app._open_mesh_viewer()
-            assert opened, "nothing was opened"
-            assert opened[0][0] != "BROWSER", "the viewer bypassed the in-app chain"
+            assert len(opened) == 1
+            meshes = opened[0]
+            assert [m["label"] for m in meshes] == ["ModA", "ModB"]
+            assert all(Path(str(m["path"])).is_file() for m in meshes)
+            assert all("edit" not in m for m in meshes)  # a comparison is read-only
         finally:
             window.destroy()
-            server = getattr(app, "_mesh_server", None)
-            if server is not None:
-                server.stop()
 
 
 class TestConflictWindowAutoColours:

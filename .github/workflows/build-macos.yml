@@ -4,11 +4,10 @@
 # Silicon/arm64). Each runner builds natively for its own arch. (macos-13, the
 # old Intel runner, was retired by GitHub.)
 #
-# The dependency list and PyInstaller flags follow Dockerfile.wraithguard (the
-# Linux build), adapted for macOS: pywebview uses the native Cocoa/WebKit
-# backend here, so the Windows/Linux-only bits (`clr`, `pythonnet`, the Qt
-# backend and its PyQt submodules) are dropped. The Windows `.spec` is not used
-# -- it hard-codes `/src` paths and a `.ico` icon (macOS wants `.icns`).
+# The steps follow the Windows and Linux builds: the viewer shell
+# (wraithguard-viewer, Tauri on the system WKWebView - no extra runtime) is built
+# with cargo and bundled beside the app, and the Rust backend (native/, greatness7's
+# tes3 crates) is built into the free-threaded interpreter PyInstaller freezes.
 #
 # The build is UNSIGNED (no Apple Developer cert in CI). First launch: right-
 # click -> Open, or clear quarantine: `xattr -dr com.apple.quarantine <app>`.
@@ -52,6 +51,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            viewer-shell/target
+          key: cargo-macos-${{ matrix.arch }}-${{ hashFiles('viewer-shell/Cargo.lock') }}
+
+      - name: Build the viewer shell
+        # The icon is copied in first: tauri-build wants it at compile time (see
+        # viewer-shell/icons/README.md).
+        run: |
+          cp wraithguard_toolkit_icon.ico viewer-shell/icons/wraithguard_toolkit_icon.ico
+          cd viewer-shell
+          cargo build --release
+          ls -lh target/release/wraithguard-viewer
+
       - uses: actions/setup-python@v5
         with:
           # Free-threaded Python 3.14 (`3.14t`), the build the app ships;
@@ -70,15 +88,17 @@ jobs:
           python -c "import sys; assert not sys._is_gil_enabled(), 'GIL is enabled -- not a free-threaded build'; print('free-threaded OK')"
 
       - name: Install build dependencies
-        # Mirrors Dockerfile.wraithguard's pip set, with pywebview's Cocoa backend
-        # in place of its `[qt]` extra (no Qt/.NET on macOS). Pillow is extra --
-        # it is only needed to make the .icns app icon, which the Linux build,
-        # keeping its .ico, does not. Note: no `pip install .`; like the
-        # Dockerfile, PyInstaller builds straight from the checked-out source.
+        # The Windows/Linux pip set. No pywebview: the viewer shell replaces the
+        # old in-process viewer. Pillow is extra -- only to make the .icns app
+        # icon, and excluded from the bundle. No `pip install .`; PyInstaller
+        # builds straight from the checked-out source.
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install --no-cache-dir \
-            pyinstaller pywebview tkinterweb tkinterdnd2 PyYAML ijson certifi pillow
+            pyinstaller tkinterweb tkinterdnd2 PyYAML ijson certifi pillow
+
+      - name: Build the Rust backend (native/, greatness7's tes3 crates)
+        run: python -m pip install ./native
 
       - name: Make the .icns app icon from the .ico
         # PyInstaller wants a .icns on macOS. Build one from the largest frame of
@@ -122,15 +142,11 @@ jobs:
             --name "Wraithguard Toolkit" \
             $ICON \
             --collect-submodules wraithguard \
-            --collect-all webview \
+            --hidden-import wraithguard_native \
             --collect-all certifi \
-            --hidden-import webview.platforms.cocoa \
             --hidden-import tkinterweb \
-            --exclude-module PySide6 \
-            --exclude-module PySide2 \
-            --exclude-module shiboken6 \
-            --exclude-module PyQt5 \
-            --exclude-module PyQt6 \
+            --exclude-module PIL \
+            --add-binary "viewer-shell/target/release/wraithguard-viewer:." \
             --add-data "wraithguard_toolkit.py:." \
             --add-data "README.md:." \
             --add-data "QUICKSTART.md:." \

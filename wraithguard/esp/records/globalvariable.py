@@ -13,22 +13,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 from wraithguard.esp.enums import GlobalType
 from wraithguard.esp.flags import ObjectFlags
-from wraithguard.esp.io import EspError
 from wraithguard.esp.record import Record, register
-from wraithguard.esp.records._common import (
-    expect_size,
-    put_string,
-    read_dele,
-    unexpected,
-    write_dele,
-)
-
-if TYPE_CHECKING:
-    from wraithguard.esp.io import Reader, Writer
 
 _I32 = (-(2**31), 2**31 - 1)
 _I16 = (-(2**15), 2**15 - 1)
@@ -70,36 +59,3 @@ class GlobalVariable(Record):
     id: str = ""
     global_type: GlobalType = field(default_factory=lambda: GlobalType.Float)
     value: float | int = 0.0
-
-    @classmethod
-    def load(cls, reader: Reader, flags: ObjectFlags) -> GlobalVariable:
-        """Read the subrecords; ``FNAM`` (type) is always followed by ``FLTV``."""
-        self = cls(flags=flags)
-        while not reader.at_end:
-            tag = reader.tag()
-            if tag == b"NAME":
-                self.id = reader.string()
-            elif tag == b"FNAM":
-                expect_size(reader, "GLOB", "FNAM", 1)
-                self.global_type = GlobalType(reader.u8())
-                fltv = reader.tag()
-                if fltv != b"FLTV":
-                    raise EspError(f"GLOB: expected FLTV after FNAM, got {fltv!r}")
-                expect_size(reader, "GLOB", "FLTV", 4)
-                self.value = _decode(self.global_type, reader.f32())
-            elif tag == b"DELE":
-                self.flags = read_dele(reader, self.flags)
-            else:
-                raise unexpected("GLOB", tag)
-        return self
-
-    def save(self, writer: Writer) -> None:
-        """Write ``NAME``, the type byte in ``FNAM``, and the value as an ``f32``."""
-        put_string(writer, b"NAME", self.id)
-        writer.tag(b"FNAM")
-        writer.u32(1)
-        writer.u8(int(self.global_type))
-        writer.tag(b"FLTV")
-        writer.u32(4)
-        writer.f32(float(self.value))
-        write_dele(writer, self.flags)

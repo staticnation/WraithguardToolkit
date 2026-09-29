@@ -35,6 +35,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Final
 
+import wraithguard_native as _native
+
 from wraithguard.images.image import Image, ImageError
 from wraithguard.images.reader import read_image
 from wraithguard.images.roles import TextureRole, classify, comparable
@@ -49,7 +51,7 @@ LOG = get_logger(__name__)
 _SAME: Final[int] = 2
 
 #: A ceiling on pixels compared. Difference images are for looking at, and a
-#: pair of 4096-square textures is 16 million pixels per side in pure Python.
+#: pair of 4096-square textures is 16 million pixels per side.
 _MAX_COMPARE: Final[int] = 16 << 20
 
 
@@ -257,22 +259,8 @@ def _measure(left: bytes, right: bytes) -> tuple[int, int, int]:
         Pixels that changed beyond the requantisation threshold, the largest
         single-channel difference, and the summed absolute difference.
     """
-    changed = 0
-    worst = 0
-    total = 0
-    for start in range(0, len(left), 4):
-        biggest = 0
-        for offset in range(4):
-            gap = left[start + offset] - right[start + offset]
-            if gap < 0:
-                gap = -gap
-            total += gap
-            if gap > biggest:  # noqa: PLR1730 -- a call per channel, per pixel
-                biggest = gap
-        if biggest > _SAME:
-            changed += 1
-        if biggest > worst:  # noqa: PLR1730 -- hot loop; max() costs a call
-            worst = biggest
+    # The loop is native (native/src/img.rs, image_measure); same arithmetic.
+    changed, worst, total = _native.image_measure(left, right, _SAME)
     return changed, worst, total
 
 
@@ -305,29 +293,11 @@ def difference_image(left: Image, right: Image, *, amplify: int = 4) -> Image:
         raise ImageError(
             f"cannot difference {left.width}x{left.height} against " f"{right.width}x{right.height}"
         )
-    out = bytearray(len(left.pixels))
-    first, second = left.pixels, right.pixels
-    for index in range(0, len(first), 4):
-        for offset in range(3):
-            gap = first[index + offset] - second[index + offset]
-            if gap < 0:
-                gap = -gap
-            scaled = gap * amplify
-            out[index + offset] = 255 if scaled > 255 else scaled
-        # Alpha differences matter -- a changed cutout mask is a real change --
-        # but showing them *as* alpha would make the difference invisible. They
-        # are folded into the visible channels instead.
-        alpha_gap = first[index + 3] - second[index + 3]
-        if alpha_gap < 0:
-            alpha_gap = -alpha_gap
-        if alpha_gap:
-            scaled = alpha_gap * amplify
-            capped = 255 if scaled > 255 else scaled
-            for offset in range(3):
-                if capped > out[index + offset]:  # noqa: PLR1730 -- hot loop
-                    out[index + offset] = capped
-        out[index + 3] = 255
-    return Image(left.width, left.height, bytes(out))
+    # Alpha differences matter -- a changed cutout mask is a real change -- but
+    # showing them *as* alpha would make the difference invisible, so they are
+    # folded into the visible channels. The loop is native (image_difference).
+    out = _native.image_difference(left.pixels, right.pixels, max(0, amplify))
+    return Image(left.width, left.height, out)
 
 
 def digest(data: bytes) -> str:

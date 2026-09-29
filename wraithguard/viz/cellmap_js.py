@@ -53,6 +53,9 @@ CELLMAP_CSS: Final[str] = """
  .focusbar{margin-top:10px;}
  .focusbar select{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:5px;
    max-width:420px;}
+ button.op{background:#20242a;color:#e8905a;border:1px solid #3a3a3a;border-radius:3px;
+   padding:0 6px;cursor:pointer;font-size:10px;margin-right:4px;}
+ button.op:hover{background:#8a3a12;color:#fff;}
  .focusbar button{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:5px 10px;
    margin-left:6px;cursor:pointer;}
  #focusinfo{margin-top:4px;max-width:900px;}
@@ -65,6 +68,15 @@ function show(n){
     document.getElementById('t'+i).className=i==n?'tab on':'tab';
     document.getElementById('b'+i).className=i==n?'on':'';
   }
+}
+// Open a cell in Wraithguard's Cell Preview: a cell's double-click, or the list rows'
+// play buttons. Asks the app through its loopback server (the page's own token), so it
+// works when Wraithguard opened this map, and says so when the file was opened by hand.
+function openPreview(spec){
+  var t=new URLSearchParams(location.search).get('t');
+  if(!t){ alert('Open this map from Wraithguard to launch Cell Preview from it.'); return; }
+  fetch('/wg_open_cell?t='+encodeURIComponent(t),{method:'POST',body:spec})
+    .catch(function(){ alert('Wraithguard is not answering - is it still open?'); });
 }
 function jump(a){
   show(1);

@@ -152,11 +152,12 @@ class JournalViewMixin:
 
         if self._conf_session is None and not self._ensure_conflict_session():
             messagebox.showwarning(
-                _("tes3conv needed"),
+                _("No plugin reader"),
                 _(
-                    "Reading journal stages needs tes3conv, which does the binary "
-                    "decoding.\n\nUse 'Set tes3conv...' in the Conflicts window to "
-                    "point at it."
+                    "Reading journal stages needs the built-in plugin reader "
+                    "(wraithguard_native), which this build does not have. Reinstall "
+                    "Wraithguard, or use 'Set tes3conv...' in the Conflicts window to "
+                    "point at a tes3conv binary instead."
                 ),
             )
             return

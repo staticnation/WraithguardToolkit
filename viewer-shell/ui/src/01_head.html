@@ -1,0 +1,2344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gardenfell - Morrowind Groundcover Studio</title>
+<style>
+:root,[data-theme="gardenfell"]{
+  /* Gardenfell Green — the Boron-derived warm palette, deliberately no blue anywhere */
+  /* Round 18cg: the second selector is not a second theme. The palette below *is* the
+     window with no theme chosen, and it is also **Gardenfell Green** — Boron Olive as the
+     deck called it, renamed at Robin's word in 18cj — the first entry in the picker — and that entry's row has to wear its own colours while the window is wearing
+     somebody else's. Declaring the block twice would be two places to change an accent
+     in; naming it twice is one. A profile with no `theme` stays exactly that: nothing on
+     `body`, these values inherited from `html`, and `[data-theme="gardenfell"]` never used
+     except by the one row in the list. */
+  --bg:#151515;   --bg2:#191919;  --bg3:#202020;  --bg4:#252525;
+  --line:#2c2c28; --line2:#3a3a34;
+  --tx:#fbffe7;   --tx2:#b0b3a2;  --tx3:#86897c;
+  --ac:#99ad6a;   --ac2:#7d9152;  --acd:#222a1a;   /* olive — sage, suits grass */
+  --warn:#ffcc00;                                   /* gold */
+  --err:#cf6a4c;                                    /* terracotta, cosier than red */
+  --del:#e0553f;                                    /* and the one place that wants an
+                                                       actual red: deleting a rule */
+  --info:#a16f95;  --info2:#815977;                 /* mauve — stands in for blue, and
+                                                       its darker sibling, which is to
+                                                       `--info` what `--ac2` is to `--ac`:
+                                                       the outline drawn around something
+                                                       wearing the fill. */
+  --hot:#ffa078;                                    /* salmon */
+  --grow:#6f9f4a;                                   /* leaf green, a few degrees off the
+                                                       olive accent rather than across
+                                                       the wheel from it. It was a cooler
+                                                       #5a9c74, which read as mint beside
+                                                       everything else here — Robin: "a
+                                                       bit too minty / cold of a green".
+                                                       Still a mark on the ground rather
+                                                       than a light shining out of it. */
+  --num:#d9764f;                                    /* terracotta, echoes Boron's own number colour */
+  --mono:'Consolas','SF Mono',Menlo,'DejaVu Sans Mono',monospace;
+
+  /* ---- the theme contract — round 18cg ------------------------------------------
+     A colour theme is a block of these properties and nothing else: every rule below
+     reads them, so a theme that states the block gets the whole window. The blocks live
+     at the foot of this file under `[data-theme="…"]`, and the page puts the chosen code
+     on `body`.
+
+     Three of them exist only because a theme needs them:
+
+     `--on-ac`  the text that sits *on* the accent. Near-black is right on olive, ember,
+                spore and coin gold and wrong on Redoran's oxide red, where it has to be
+                near-white — and no mix of the other tokens gets there reliably.
+     `--bloom`  the panel light (round 18ce), as a percentage of the accent mixed into the
+                top bar's ground. **A theme may set it to 0%**, and Redoran Bone does:
+                nine percent of oxide in a #EFE9D8 band is below the threshold at which
+                anything is visible, so on a pale ground the light is not a soft light but
+                an absent one. Robin: "For the Redoran Bone, remove the glow. Keep it in
+                the rest."
+     `--r-*`    the corner radii (round 18cf), two steps sharper than they were. `.pill`
+                is deliberately **not** in the scale — see the note on it below. */
+  --on-ac:#14170d;
+  --bloom:9%; --bloom-band:7%;
+  --r-ctl:2px; --r-fld:2px; --r-box:3px;
+  /* Round 18ed, Robin: the two panel feet and the viewport's bar must "line up
+     exactly". One height for all three, stated once, so a change to any of them
+     cannot leave the bottom of the window ragged again. */
+  --foot-h:40px;
+
+  /* ---- the colours a theme assigns that are not the accent — round 18cj -----------
+     Robin: "We should categorize some colors as styles so that they can be changed with
+     the different themes."
+
+     Each of these was a hex literal somewhere below, which meant a theme could not reach
+     it and the four palettes were wearing the default's hues in those places. They are
+     stated here, so a theme states four lines and gets the lot; everything below derives
+     its border, its ground and its hover from them by `color-mix`, which is why a theme
+     never has to name a dark ground that only works on a dark theme.
+
+     `--conn-*` are the three ways in — Robin, round 18ad: "make the 'Data Files' folder
+     glyph and button Yellow, keep MO2 green, and make the OpenMW our salmon orange". The
+     hues are *identities*, so what a theme changes is how that identity is spelled in its
+     own register, and all three must stay apart from each other.
+
+     `--orbit` is orbit navigation: the viewport's scheme button while it is in orbit, and
+     the pivot ball and its stamp on the ground, which the renderer takes from here
+     (`orbitCol`). It was `--hot` — **a paint colour** — so the pivot and the "no grass"
+     brush were the same salmon by accident rather than on purpose.
+
+     **What a theme has to get right about it** (round 18cm, Robin: "The Orbit color when I
+     chose it was meant to contrast with the WASD control scheme colors enough to show them
+     as separate modes"): the WASD scheme wears the *accent*, so orbit must be a colour the
+     accent is not. Measured in CIELAB against each accent, the four palettes read ΔE 50
+     (this one), 66, 59 and 76; Velothi and Redoran were 10 and 11 before 18cm, which is to
+     say the same colour twice. Telvanni's 77 is the one Robin named as right, so that is the
+     mark to aim at rather than any particular hue.
+
+     The mauve is `--info`, which was already a token; what 18cj did was make the eleven
+     places that hand-picked a shade of it derive from it instead. And `--hot` and `--grow`
+     are still nobody's to change: see the note under this block. */
+  --conn-data:#ffcc00; --conn-mo2:#99ad6a; --conn-omw:#ffa078;
+  --orbit:#ffa078;
+
+  /* ---- `--vp-back`: the viewport's backdrop with the atmosphere off — round 18dd -------
+     Robin: "The dark background color in the viewport when Atmosphere is turned off,
+     feels like a warm gray. [...] Let the Gardenfell Green one be the same as it is now,
+     and same for Of Ash and Blight, Redoran Bone and Hlaalu Clay. Adapt it a little for
+     Telvanni Bio and The Firmament. I only want the exterior cell backdrop gray in the
+     viewport when the atmosphere is toggled off to be themed. All other settings for the
+     viewport should always be the same no matter what theme is active." And: "Important
+     to read the backdrop of the viewport as darker than the UI though, also for the
+     Firmament."
+
+     The renderer reads it like `--orbit` (`backCol`, 06_gl.js) and clears the exterior to
+     it when there is no sky, and fades the far ground and the water's stand-in sky into
+     it, because those are the backdrop by construction. It is **deliberately not set
+     here**: a theme that names none gets the renderer's own grey, rgb(21,21,20), to the
+     bit rather than a hex rounded to it, so the four palettes that keep the old backdrop
+     keep it exactly. Only Telvanni Bio and The Firmament set one, and each sits below its
+     own `--bg`, so the viewport reads as a window into somewhere darker than the chrome
+     around it in every theme (`t_theme` measures it). Nothing else in the viewport is a
+     theme's to move: the atmosphere, a room's fog, the light, and the two dims. */
+}
+
+/* =================================================================================
+   THE PAINT COLOURS ARE NOT PART OF A THEME.
+   Robin: "I don't want to ever change the painted colors for Grass or No Grass no matter
+   what color theme is chosen, so make sure those stay the same."
+
+   Right, and it is not only taste: the *ground* those two tools paint is drawn by the
+   renderer from its own literals — `#c25a2e` for "no grass" and `#6f9f4a` for "grass
+   here" (`18_cellpreview.js`, `tintPalette`) — because a paint colour is data about the
+   scene rather than a colour in the chrome. A theme that moved `--hot` or `--grow` would
+   move the tool's dot and leave the paint it lays down where it was, which is the exact
+   bug round 18ae fixed: one paint, two brightnesses.
+
+   So `--hot` and `--grow` are declared in `:root` above and **must never appear in a
+   theme block**. Nothing enforces that but this comment and `t_config`'s check, which
+   reads every theme block and fails if either name is in one.
+   ================================================================================= */
+*{box-sizing:border-box;margin:0;padding:0}
+/* Round 17L, Robin: "Make it so that no element is selectable by using Tab so we never
+   get the white outline on stuff." Tab is swallowed in `11_events.js` so the focus never
+   walks, and the ring goes here so nothing can draw one even when a click or the script
+   puts the focus somewhere (a field being typed into still shows its own lit border —
+   `.fld:focus` — which is the app's own way of saying where the caret is). */
+*:focus, *:focus-visible{outline:none}
+/* `hidden` means hidden, whatever display the element's own rule says. Without this a
+   rule like `#vptools{display:flex}` outranks the attribute's UA default and the
+   element stays on screen while the page believes it is down — round 4 item 2: the
+   viewport toggles "removed" a round earlier were exactly this, hidden in the DOM and
+   visible on the glass. */
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--tx); overflow:hidden;
+  font:13px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select,textarea{font:inherit;color:inherit}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--line2) 72%,var(--tx) 28%)}
+
+/* =================================================================================
+   THE THEMES — round 18cg.
+
+   One block each, and the block is the whole theme: every rule in this file reads the
+   properties in it. Declared on `[data-theme="…"]` rather than on `body[data-theme]` so
+   the same blocks paint the picker's own preview rows — a row carrying
+   `data-theme="velothi"` *is* a scrap of Velothi, which is what makes the list a set of
+   previews rather than a set of words.
+
+   **Neither `--hot` nor `--grow` appears below.** They are the paint colours, they belong
+   to the scene rather than to the chrome, and the note above `:root` says why at length.
+   `t_config` fails if one ever turns up here.
+
+   The four are the deck's directions (`claude/theming-plan.md`), transcribed from the
+   study rather than re-picked: `gardenfell-five-palettes.html`.
+   ================================================================================= */
+[data-theme="velothi"]{
+  /* Ember on ashfall. The easiest ground a corner light will ever have. */
+  --bg:#14120f; --bg2:#191713; --bg3:#221f1a; --bg4:#2b2720;
+  --line:#2b2720; --line2:#3d382e;
+  --tx:#ede4d0; --tx2:#a8a092; --tx3:#7a7365;
+  --ac:#c8763c; --ac2:#93542a; --acd:#2a1c11; --on-ac:#17100a;
+  --warn:#d9a83c; --err:#c0553a; --del:#c0553a; --num:#e0a55e;
+  --info:#a98bb0; --info2:#876f8d;
+  --conn-data:#d9a83c; --conn-mo2:#94ab5e; --conn-omw:#d2694a;
+  /* Round 18co: **an olive green**, at Robin's word — "for the Velothi Ash, I expect the
+     orbit navigation color to be a olive green of some kind." 18cm had put a lilac here and
+     reasoned that green was unavailable because `--conn-mo2` owns it in every palette; the
+     reasoning was sound about the *button* and wrong about the window, because the connect
+     buttons live in the top bar and orbit lives in the viewport, and the two are never in
+     one glance. Chosen a step lighter and yellower than Velothi's own `#94ab5e` MO2 button
+     (ΔE 11) so the two are still told apart where a screenshot puts them together, and
+     bright enough to read on the dark glass. ΔE 51 from the ember accent, which is the
+     claim `t_theme` actually pins. */
+  --orbit:#b0c46a;
+}
+[data-theme="redoran"]{
+  /* Oxide on vellum, and the only pale theme: `--tx` is the dark one here and every
+     derived hover, danger button and warn box follows it without being told.
+     **`--bloom:0%`** — Robin: "For the Redoran Bone, remove the glow. Keep it in the
+     rest." Nine percent of oxide mixed into a #efe9d8 band is below the threshold at
+     which anything is visible at all, so what a pale ground gets is not a soft light but
+     an absent one. If a light theme ever wants a light, it wants the gradient inverted —
+     a faint shade at the bottom right — which is a different idea and not this one. */
+  --bg:#f5f0e2; --bg2:#efe9d8; --bg3:#e6dfcb; --bg4:#dcd3bc;
+  --line:#cfc6ae; --line2:#b9ae93;
+  --tx:#241f1a; --tx2:#5a5348; --tx3:#867c6c;
+  --ac:#a8452c; --ac2:#8a3620; --acd:#eeddd4; --on-ac:#fbf4ec;
+  --warn:#8a6a1c; --err:#9b2f1c; --del:#9b2f1c; --num:#8a4a1e;
+  --info:#6b4a72; --info2:#563b5b;
+  --conn-data:#8a6a1c; --conn-mo2:#4f7a3f; --conn-omw:#b8603a;
+  /* Round 18co: **a golden yellow**, at Robin's word — "I expect a different color for the
+     Redoran Bone Orbit navigation mode color. Something like a golden yellow or so instead."
+     The plum 18cm chose measured well against the accent (ΔE 59) and was nobody's idea of a
+     Redoran colour; gold is, and Redoran's own `--conn-data` is a gold already. That one is
+     `#8a6a1c`, picked dark because it sits on *vellum*; this sits on the dark glass, so it
+     has to be bright, which is also what puts ΔE 43 between them. Bright rather than deep
+     for a second reason: the glass lifts this theme's `--warn` to `#c9a23f`, and a deep gold
+     landed ΔE 11 from it. This is 21 — still the closest pair in the palette, and the one
+     caveat on the colour. It is not the pair `t_theme` guards, which is orbit against the
+     accent (54 on the body, 46 against the accent the glass lifts), because the accent is
+     what the *other* nav mode wears and two modes looking alike is the failure that
+     matters. */
+  --orbit:#f0c63a;
+  --bloom:0%; --bloom-band:0%;
+}
+/* =================================================================================
+   THE GLASS — round 18cg, and the one thing rendering Redoran taught that describing it
+   did not.
+
+   Parts of this window are not panels. The viewport is a photograph of Morrowind, and a
+   mesh or texture tile is a thumbnail rendered on black; the chrome that sits *on* those
+   — the statistics box, the viewport buttons, the legend, the hint, the compass, the busy
+   card, a tile's caption strip — is a HUD, and its ground is hard-coded dark
+   (`rgba(21,21,21,.88)` and friends) because the picture behind it is dark whatever the
+   window is wearing.
+
+   Four of the five themes never notice: their own neutrals *are* dark, so `--tx` over that
+   ground is the light text it needs to be. The light one notices immediately — near-black
+   text on a near-black ground, which is what the first render of it showed: the statistics
+   box was a grey rectangle with nothing legible in it.
+
+   So the glass keeps a dark neutral family, and this is the light theme restating it for
+   the places where the window is a picture. **Only the neutrals**: the accent stays
+   Redoran's, so the theme still shows through on the glass, and only `--ac` is lifted two
+   steps, because oxide red on near-black is about 2.6:1 and these are 10px labels.
+
+   A future light theme has to do the same; `t_theme.js` is what will say so, by reading
+   the text colour inside `#vpwrap` under every theme and failing if it is dark.
+   ================================================================================= */
+[data-theme="redoran"] #vpwrap,
+[data-theme="redoran"] .meshtile,
+[data-theme="redoran"] .textile{
+  --tx:#f2ece0; --tx2:#b8ad9c; --tx3:#8c8274;
+  --bg:#191713; --bg2:#1f1c17; --bg3:#26221b; --bg4:#2e2921;
+  --line:#3a3128; --line2:#4d4335;
+  --ac:#c9613f; --ac2:#a3492c; --acd:#2a1c14;
+  /* The two signal colours are lifted for the same reason the accent is, and no further:
+     a tile's ✕ and a missing-rule label are 10px on near-black. */
+  --err:#c9563a; --warn:#c9a23f;
+  /* And the inherited text, which the tokens alone do not reach: `color` inherits as a
+     *computed* value, so `body{color:var(--tx)}` had already resolved to near-black before
+     this block was ever consulted. The statistics box fixed itself because it names
+     `var(--tx3)` in its own rule; a viewport button carries no colour of its own and read
+     the one it inherited, which is why the first attempt left "Grid" and "Recentre"
+     invisible on a dark ground. */
+  color:var(--tx);
+}
+[data-theme="telvanni"]{
+  /* Spore green on aubergine: the one palette whose accent is already a light source. */
+  --bg:#17121a; --bg2:#1c1620; --bg3:#2a2028; --bg4:#332734;
+  --line:#312638; --line2:#453450;
+  --tx:#f2ede4; --tx2:#b0a5b3; --tx3:#7d7285;
+  --ac:#8fd46a; --ac2:#5e9443; --acd:#1e2a19; --on-ac:#12190e;
+  --warn:#d9a54b; --err:#c9566f; --del:#c9566f; --num:#d9a54b;
+  --info:#b98fc4; --info2:#94729d;
+  --conn-data:#d9a54b; --conn-mo2:#8fd46a; --conn-omw:#d97a5a;
+  --orbit:#d97a5a;
+  /* Round 18dd: the backdrop a step under the aubergine (L* 4.4 against `--bg`'s 6.2),
+     with the same violet lean, so the viewport is the dark of the room the panels are
+     the walls of rather than a warm grey let into them. */
+  --vp-back:#110e14;
+}
+[data-theme="hlaalu"]{
+  /* Yellow clay and trade: a plastered Hlaalu room by lamplight, the warmest and most
+     yellow of the darks, with coin gold as the accent. The one idea in it that is not a
+     hue: `--num` is *brighter* than `--ac`, where every other theme sets it a step below,
+     so a figure is the first thing the eye lands on rather than the last. A merchant's
+     window puts the number first. (It reaches the number fields and the counts, which
+     read `--num`; the slider readouts take `--tx2` and are unchanged, which is a decision
+     about the program rather than about a palette.) */
+  --bg:#17130c; --bg2:#1d180f; --bg3:#251e13; --bg4:#2f2617;
+  --line:#2e2617; --line2:#453a22;
+  --tx:#f6edd6; --tx2:#b6a583; --tx3:#86775c;
+  --ac:#cfa43a; --ac2:#9e7a22; --acd:#2b2010; --on-ac:#17120a;
+  --warn:#e8b93f; --err:#c0503a; --del:#c0503a; --num:#f0ce62;
+  --info:#b08bb0; --info2:#8d6f8d;
+  --conn-data:#f0ce62; --conn-mo2:#8fa85a; --conn-omw:#d2694a;
+  /* Round 18co: **an orange**, at Robin's word — "For Hlaalu, I think an orange color of
+     some kind works better too." The hardest of the three: this palette's accent *is* coin
+     gold, so every orange starts adjacent to it, and the `t_theme` floor is ΔE 40. The
+     oranges that read as orange rather than as red measured 29–36 and would have failed it;
+     a pumpkin, pushed far enough toward vermilion, is 44. Its nearest neighbours are the
+     OpenMW button's red-orange (`#d2694a`, ΔE 28) and `--err` (30) — both further off than
+     the plum this replaces was from nothing, and neither of them a navigation mode. */
+  --orbit:#ef6a1c;
+}
+[data-theme="firmament"]{
+  /* The Firmament — round 18db, deepened in 18dc. Robin: "another theme that uses almost
+     exclusively dark grays. I want it to be a calm and quiet theme, called The Firmament
+     and be based on stars in the night sky", then a picture of the two moons to take from,
+     then: "objects that previously had color to also be black or gray etc. Darker than the
+     other themes, but not pitch black. Lower contrast between elements. These are the
+     moons Masser and Secunda, which can be nice as highlights [...] the dark areas can be
+     a bit deeper and maybe cooler."
+
+     So the greys are the sky, deeper than any other theme's (L* 3 to 11 where the darks
+     sit at 5 to 14) with a blue cast (b* about −4), the text a step dimmer than elsewhere
+     (L* 86 rather than 91) and the lines closer to their ground - lower contrast
+     everywhere, on purpose. Everything that carries a hue in the other themes is a grey
+     here: the three ways in are a warm grey, a green-grey and a rust-grey, told apart by
+     temperature rather than by hue; a warning is a pale warm grey; the numbers a shade
+     warmer than the text; `--info` the nebula's blue greyed to a slate. The two moons are
+     the only lights: Secunda is the accent (`--on-ac` is the sky), and Masser's rust is
+     kept for the two places that want a highlight - errors and the delete button, deep,
+     and orbit navigation, bright (ΔE 46 from the accent; the floor is 40). The bloom is
+     four percent: starlight, not a lamp. */
+  --bg:#080b11; --bg2:#0b0f15; --bg3:#11151c; --bg4:#171c24;
+  --line:#1c2229; --line2:#29303a;
+  --tx:#d1d7dd; --tx2:#8b929a; --tx3:#60676f;
+  --ac:#b8bfc5; --ac2:#838b93; --acd:#171c22; --on-ac:#090c11;
+  --warn:#b9b1a2; --err:#b0654f; --del:#b0654f; --num:#c3bdb2;
+  --info:#7d8998; --info2:#5f6a77;
+  --conn-data:#b3ac9d; --conn-mo2:#8d9891; --conn-omw:#a67b6b;
+  --orbit:#c97d5f;
+  --bloom:4%; --bloom-band:3%;
+  /* Round 18dd: the deepest backdrop of the six, the blue-black under the sky the panels
+     are (L* 1.6 against `--bg`'s 3.0) - not black, and still cooler than the old grey by
+     the same lean as the chrome. Robin: "the Firmament's cool blacks make the viewport
+     background too warm in contrast." */
+  --vp-back:#04060a;
+}
+
+/* =================================================================================
+   THE THEME PICKER — round 18cg.
+   Robin: "add a section in the settings menu that is called Theme, where we have a drop
+   down list where all these themes are listed and can be picked. Their own entries in the
+   drop down list should be like a small preview of the theme itself."
+
+   Which rules out a `<select>`: an `<option>` cannot be styled on Windows — the platform
+   draws that list, not the page — so a preview inside one is not something the browser
+   will render. This is a button and a list, with `role="listbox"` and arrow keys.
+   The rows are the shape the rule picker's already are (`.rprow` — a list you click down);
+   what is added here is the keyboard a listbox owes: arrows to move, Enter to take,
+   Escape to leave.
+
+   **Each row wears its own theme.** A row carries `data-theme="velothi"`, so the theme
+   blocks above paint it: its ground is that theme's `--bg2`, its name is in that theme's
+   `--tx`, and the strip beside it is that theme's accent, number and delete colours. The
+   preview is not a picture of the theme — it is a scrap of it.
+   ================================================================================= */
+.thpick{position:relative;flex:1 1 auto;min-width:0}
+.thbtn{width:100%;justify-content:flex-start;gap:9px}
+.thbtn .thcar{margin-left:auto;font-size:9px;color:var(--tx3)}
+.thsw{display:inline-flex;flex:0 0 auto;border:1px solid var(--line2);overflow:hidden;
+  border-radius:1px}
+.thsw i{display:block;width:10px;height:12px}
+.thlist{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:60;padding:4px;
+  background:var(--bg2);border:1px solid var(--line2);border-radius:var(--r-box);
+  box-shadow:0 12px 30px rgba(0,0,0,.45);max-height:300px;overflow:auto}
+.thopt{display:flex;align-items:center;gap:10px;padding:8px 9px;cursor:pointer;
+  border:1px solid transparent;border-radius:var(--r-ctl);
+  background:var(--bg2);color:var(--tx)}
+.thopt + .thopt{margin-top:3px}
+.thopt:hover{border-color:var(--line2)}
+.thopt.on{box-shadow:inset 2px 0 0 var(--ac)}
+/* Where the arrow keys are. Nothing in this program is focusable (Tab is swallowed), so
+   the keyboard's place in the list is a class the page puts there rather than a focus
+   ring the browser draws — `Themes.onKey` moves it. */
+.thopt.at{border-color:var(--ac2)}
+.thopt .thn{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+/* Mono, because the only thing that ever lands in it is a *code*: the theme a profile
+   from some later version names, which this build has no block for and can only spell. */
+.thopt .thtag{font-size:10px;font-family:var(--mono);color:var(--tx3);white-space:nowrap}
+/* The swatch strip: accent, number, delete. Three tokens rather than eleven — the row's
+   own ground and text are already the theme's, so what is left to show is what it does
+   with the three colours that mean something. */
+.thopt .thsw i:nth-child(1){background:var(--ac)}
+.thopt .thsw i:nth-child(2){background:var(--num)}
+.thopt .thsw i:nth-child(3){background:var(--del)}
+/* Opening upward, for the one case the drop cannot take: the row scrolled near the foot
+   of the dialogue with nothing below it to scroll into view. `Themes.place()` decides. */
+.thlist.up{top:auto;bottom:calc(100% + 4px)}
+/* The row's own miniature: a bar in the theme's top-bar colour with its accent in the
+   corner, which is the one thing the strip of flat swatches cannot show — whether the
+   light is there at all. Redoran's is flat, and that is the preview doing its job. */
+.thmini{flex:0 0 46px;height:16px;border:1px solid var(--line2);border-radius:1px;
+  background:var(--bg)}
+/* **Flat, as of round 18ck, and the window's ground rather than the panel's.** It carried
+   the panel bloom, and at the panel's own 9% over 46 pixels that was a blank rectangle — so
+   18cj ran it at three times strength to make the corner read as a corner. Robin, on the
+   shipped build: "we should remove the gradient from the preview, as it's almost not seen
+   in the actual theme."
+
+   He is right, and the multiplier is what made it wrong: a preview showing a light three
+   times louder than the window shows it is not previewing the window.
+
+   Which leaves what the swatch is *for*. Flat `--bg2` would have been an outlined box the
+   exact colour of the row it sits in — the row is already the panel ground — so it shows
+   `--bg` instead: the window's own ground, a step further from the text, and the one value
+   in a palette that a row of panel colour cannot show you. The accent, the number colour
+   and the delete red are in the strip at the other end, and whether the light is there is a
+   question the row answers by *being* the theme rather than by drawing a picture of it. */
+
+/* ---------- layout ---------- */
+#app{display:flex;flex-direction:column;height:100%}
+/* Round 18ce: **the light, and it is the only light.** One accent gradient entering the
+   window's top-left corner at `--bloom`, and a fainter one on each section band at
+   `--bloom-band` so the two corners agree. Robin: "Try only glow in the panel, not around
+   any buttons or other elements" — so there is no halo on a button, the status dot, a
+   toggle knob, a slider grip, the selected rule row or its diamond, and the ones that
+   used to have one had it taken away rather than turned down.
+   `--bloom:0%` turns it off for a theme whose ground is too pale to catch it. */
+#topbar{
+  display:flex;align-items:center;gap:8px;padding:0 12px;height:46px;
+  background:var(--bg2);border-bottom:1px solid var(--line);flex:0 0 auto;
+  background-image:radial-gradient(60% 300% at 0% 0%,
+    color-mix(in srgb,var(--ac) var(--bloom),transparent) 0%, transparent 72%);
+}
+/* Fixed basis, not content-sized: the separator after the tagline then stands at
+   12 (top-bar pad) + 289 + 6 (margin) + 3 (its own) = 310px — exactly the left
+   column's border, whatever font the machine draws the tagline in. Round 4 item 8:
+   "make the column wider so it matches up where the divider is". */
+#brand{display:flex;align-items:baseline;gap:8px;margin-right:6px;user-select:none;
+  flex:0 0 289px;min-width:0}
+#brand b{font-size:15px;letter-spacing:.2px}
+#brand b span{color:var(--ac)}
+#brand i{font-style:normal;font-size:10.5px;color:var(--tx3);letter-spacing:.4px;text-transform:uppercase}
+.tbsep{width:1px;height:22px;background:var(--line);margin:0 3px}
+/* Round 18dr: the window buttons at the bar's right end, inside the shell only. The
+   bar's 12px padding is given back so they sit flush in the corner, the way the system's
+   own would. Windows' convention for the close button's hover is kept. `.restore` is the
+   two-square glyph, shown while the window is maximised (the `max` class on the bar). */
+/* Round 18dy. Robin: "The minimize, maximize and close button in the top right corner,
+   gets hidden when the window is made narrower, making it hard to control the actual
+   window. It would be great if they stayed visiable all the time, and that the Export.esp
+   button and the rest of the elements got hidden under those elements (getting behind the
+   background color around where the divider is placed when the window is resized to get
+   narrower)." So the three buttons come out of the flow and stand against the right edge,
+   on the bar's own ground, with the divider in front of them and a short fade before it;
+   the bar clips, and the row of buttons slides under them as the window narrows. The
+   right padding keeps them clear of the buttons at a normal width, and only exists while
+   the shell shows them - in a browser tab there are no window buttons and the bar is as
+   it was. */
+#topbar{position:relative}
+#topbar:has(#winctl:not([hidden])){overflow:hidden;padding-right:160px}
+#winctl{display:flex;position:absolute;right:0;top:0;bottom:0;z-index:3;background:var(--bg2)}
+#winctl::before{content:'';position:absolute;right:100%;top:0;bottom:0;width:22px;
+  background:linear-gradient(to right,transparent,var(--bg2))}
+#winctl[hidden]{display:none}
+#wcSep{position:absolute;right:138px;top:50%;transform:translateY(-50%);margin:0;z-index:4}
+.wc{width:46px;border:0;border-radius:0;background:transparent;color:var(--tx2);display:flex;align-items:center;justify-content:center;cursor:default;padding:0}
+.wc:hover{background:color-mix(in srgb,var(--tx) 10%,transparent);color:var(--tx)}
+.wc:active{background:color-mix(in srgb,var(--tx) 6%,transparent)}
+.wc.close:hover{background:#c42b1c;color:#fff}
+.wc.close:active{background:#b3261a}
+.wc .restore{display:none}
+#topbar.max .wc .restore{display:inline}
+#topbar.max .wc .max{display:none}
+/* Round 18ds: the bar stays the window's handle while a dialogue or the busy card dims
+   the program. `#tbShade` is a clear strip the bar's size that shows only then - over the
+   dialogues (150), the busy card (300) and a question (350), under the tooltip (400). It
+   is transparent: the dimming is the dimmers' own, showing through; what the strip adds
+   is a target for the shell's drag (its `data-tauri-drag-region`) and a lid over the
+   buttons, which no click reaches. Shown by the page's state alone, so no dialogue has to
+   remember it. */
+#tbShade{display:none;position:fixed;left:0;top:0;right:0;height:46px;z-index:360;background:transparent}
+body:has(.modal:not([hidden])) #tbShade, body:has(#busy.overall:not([hidden])) #tbShade{display:block}
+#main{display:flex;flex:1;min-height:0}
+.col{display:flex;flex-direction:column;min-height:0;background:var(--bg2)}
+#left{width:310px;flex:0 0 310px;border-right:1px solid var(--line)}
+/* Round 9 item 5: the cog's own strip along the bottom of the left column, outside the
+   scroll so it stays put however far down the column you are. */
+#leftFoot{display:flex;align-items:center;gap:8px;padding:0 8px;height:var(--foot-h);
+  border-top:1px solid var(--line);background:var(--bg2);flex:0 0 auto}
+/* The cog and the word are one button (round 11 item 1). The glyph is a size up from the
+   glyph buttons that do one thing each, because this one carries the whole of Settings. */
+#btnSettings{display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 8px;font-size:12px}
+#btnSettings .cog{font-size:16px;line-height:1}
+#right{width:396px;flex:0 0 396px;border-left:1px solid var(--line)}
+/* Round 18ed, Robin: "I want the right bottom corner to be like the left bottom corner:
+   it's own section at the bottom of the panel". Built like #leftFoot and for the same
+   reason - outside the scroll, so the rules being written to and the button that writes
+   the plugin sit in the corner however far down the column you have read. */
+#rightFoot{display:flex;align-items:center;gap:8px;padding:0 8px;height:var(--foot-h);
+  border-top:1px solid var(--line);background:var(--bg2);flex:0 0 auto;min-width:0}
+/* Sized to the left column's foot rather than to the top bar the buttons came from, so
+   the two strips read as one pair across the bottom of the window. */
+#rightFoot .btn{padding:4px 10px;font-size:12px}
+/* The name gets a fixed slot rather than as much room as it wants: the two buttons keep
+   their places whatever a set is called, and `fitMiddle` (09_ui.js) elides the name from
+   the middle to fit it, keeping both ends. The CSS ellipsis is the backstop for a pill
+   written before it is on screen, where nothing can be measured. */
+#rightFoot #cfgName{max-width:150px;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+#center{flex:1;min-width:0;background:var(--bg);position:relative;display:flex;flex-direction:column}
+.colscroll{overflow-y:auto;overflow-x:hidden;flex:1;min-height:0}
+
+/* ---------- buttons ---------- */
+/* `.btn` sets a display, which outranks the UA `[hidden]` rule — so a button
+   hidden with the attribute stays visible. Restated here rather than relying on
+   every caller remembering to set style.display. */
+.btn[hidden]{display:none}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:var(--r-ctl);
+  background:var(--bg4);border:1px solid var(--line2);font-size:12.5px;
+  white-space:nowrap;transition:background .12s,border-color .12s;
+}
+/* Derived, not stated (18cg): a hover is "this button, a step toward the text colour",
+   and `#2e2e29` only means that against a #252525 ground. */
+.btn:hover{background:color-mix(in srgb,var(--bg4) 86%,var(--tx) 14%);
+  border-color:color-mix(in srgb,var(--line2) 72%,var(--tx) 28%)}
+.btn:active{background:color-mix(in srgb,var(--bg4) 88%,var(--bg) 12%)}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.btn[disabled]:hover{background:var(--bg4);border-color:var(--line2)}
+/* Round 18ax: a greyed field says so - a creature card's tilt picker, shown off and
+   not for turning. Browsers draw a disabled select barely differently on a dark ground. */
+.fld:disabled{opacity:.45;cursor:not-allowed}
+.btn.pri{background:var(--ac2);border-color:var(--ac);color:var(--on-ac);font-weight:600}
+.btn.pri:hover{background:var(--ac)}
+.btn.sm{padding:3px 8px;font-size:11.5px}
+/* Round 9 item 7: a button whose label is data — the loaded cell carries a name and a
+   grid position, and the long ones grew past the left column's edge. `wide` takes the
+   column's whole width whatever the label says, and a label too long for it ends in an
+   ellipsis rather than pushing the layout around. Block, not the inline-flex the other
+   buttons use, because text-overflow needs a text box to trim. */
+.btn.wide{display:block;width:100%;min-width:0;text-align:center;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn.ic{padding:4px 7px}
+.btn.live{background:var(--acd);border-color:var(--ac2);
+  color:color-mix(in srgb,var(--ac) 58%,var(--tx));font-weight:600}
+.btn.live:hover{background:color-mix(in srgb,var(--acd) 72%,var(--ac) 28%);
+  border-color:var(--ac)}
+/* The live one wears a dot after its label. Round 18aa: it stays — the symbol Robin wanted
+   gone was the emoji *before* the words, left in his wording file from before these buttons
+   were drawn, and the file has gone with it. This one is the only thing that says which of
+   the three is the one being read. */
+.btn.live::after{content:"●";margin-left:6px;font-size:9px;color:var(--ac);vertical-align:1px}
+/* Round 18ad: the three ways in, told apart by colour. Robin: "make the 'Data Files'
+   folder glyph and button Yellow, keep MO2 green, and make the OpenMW our salmon orange."
+   Three buttons that do the same shape of thing to three different setups, and a hue is
+   quicker to find in a toolbar than a word is - the marks were already three drawings, and
+   this is the same distinction said twice.
+
+   `--tint` is the hue, `--tintd` the muted border it wears at rest, `--tintbg` the ground
+   it takes when it is the live one. Everything below reads those three, so a fourth kind of
+   install would be three declarations and nothing else. */
+/* Round 18cj: the hue is the theme's (`--conn-*`) and the other two are derived from it,
+   so a palette states three colours rather than nine — and the two it no longer states are
+   the two that were wrong on a pale ground. The percentages are the ones the accent's own
+   pair works out to: `--ac2` is about a third of the accent toward the window, `--acd`
+   about a tenth of it into the panel. */
+#btnFolder{--tint:var(--conn-data)}
+#btnMO2   {--tint:var(--conn-mo2)}
+#btnOMW   {--tint:var(--conn-omw)}
+#btnFolder,#btnMO2,#btnOMW{--ico:var(--tint);
+  --tintd:color-mix(in srgb,var(--tint) 34%,var(--bg));
+  --tintbg:color-mix(in srgb,var(--tint) 11%,var(--bg2));
+  border-color:var(--tintd)}
+#btnFolder .lbl,#btnMO2 .lbl,#btnOMW .lbl{color:var(--tint)}
+#btnFolder:hover,#btnMO2:hover,#btnOMW:hover{border-color:var(--tint)}
+/* And the live one wears its own colour rather than the olive every live button used to
+   take - the point of the hue is lost if the three agree the moment one is chosen. */
+#btnFolder.live,#btnMO2.live,#btnOMW.live{background:var(--tintbg);border-color:var(--tint)}
+#btnFolder.live::after,#btnMO2.live::after,#btnOMW.live::after{color:var(--tint)}
+#introBtns{display:flex;flex-direction:column;gap:7px;margin-bottom:12px}
+#introBtns .btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+  text-align:left;padding:9px 12px;line-height:1.35}
+#introBtns .btn small{font-weight:400;font-size:11px;color:var(--tx3)}
+#introBtns .btn.pri small{color:color-mix(in srgb,var(--on-ac) 78%,var(--ac) 22%)}
+.btn.dim{background:transparent;border-color:transparent;color:var(--tx2)}
+.btn.dim:hover{background:var(--bg4);color:var(--tx)}
+/* The three buttons at the foot of the Exclusions section — add a ban, copy or paste
+   the list, push it to every rule. Robin: "Differentiate [them] from the + buttons
+   above." They sat a long scroll below the + buttons that add grass slots, in the same
+   grey, so "+ Add ban" read as one more way to add a mesh. Mauve: the one accent in the
+   palette that is neither the olive things that commit nor the terracotta things that
+   warn, so it says "different kind of action" without saying "careful". */
+/* Round 18cj: the mauve family, derived from `--info` rather than hand-picked eleven
+   times over. Robin asked for "the Mauve color for Paint only rules, and for Clear in view,
+   Clear all, Clear all stored mesh data, and same with the mauve colored buttons in the mesh
+   editor view port" to be a theme's to set — they all read this one token now. */
+.btn.ban{background:color-mix(in srgb,var(--info) 16%,var(--bg2));
+  border-color:color-mix(in srgb,var(--info) 40%,var(--bg));
+  color:color-mix(in srgb,var(--info) 42%,var(--tx))}
+.btn.ban:hover{background:color-mix(in srgb,var(--info) 26%,var(--bg2));border-color:var(--info)}
+.btn.ban:active{background:color-mix(in srgb,var(--info) 12%,var(--bg))}
+/* A button that cannot be taken back by clicking again. Terracotta rather than a fire
+   engine, like every other warning here — the point is that the eye stops on it, not that
+   it shouts. Used for "clear every painted cell", and it is asked twice. */
+.btn.danger{background:color-mix(in srgb,var(--bg4) 74%,var(--del) 26%);
+  border-color:color-mix(in srgb,var(--del) 52%,var(--bg4));
+  color:color-mix(in srgb,var(--del) 62%,var(--tx))}
+.btn.danger:hover{background:color-mix(in srgb,var(--bg4) 62%,var(--del) 38%);
+  border-color:var(--err)}
+.btn.danger:active{background:color-mix(in srgb,var(--bg4) 82%,var(--del) 18%)}
+/* The row those three sit in: their own line, ruled off from the per-texture suggestion
+   chips above, which are a different kind of thing — a shortcut for one ground texture
+   against three actions on the whole list. */
+.banacts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+         margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+/* The paint tools.
+   The one in use is filled rather than merely outlined. `.on` was a class the stylesheet
+   had no answer for, so the tool you were holding looked exactly like the two you were
+   not — Robin: "Make the active tool (paint or erase) be highlighted when in use." Each
+   carries a dot in the colour it lays on the ground, so the button and the mark it makes
+   are recognisably the same thing, and the eraser's is grey because it lays none. */
+.btn.tool{position:relative;padding-left:20px;padding-right:8px}
+/* Three buttons will not sit beside a 118px label in this column, and a row that wraps
+   put the eraser on a line of its own looking like an afterthought. So the label goes
+   above them and the three share the full width. */
+.btn.tool::before{content:"";position:absolute;left:8px;top:50%;width:8px;height:8px;
+  margin-top:-4px;border-radius:50%;background:var(--sw);box-shadow:0 0 0 1px rgba(0,0,0,.55)}
+.btn.tool.bare{--sw:var(--hot)}
+.btn.tool.grow{--sw:var(--grow)}
+.btn.tool.rub{--sw:var(--tx3)}
+/* Round 18cj: **the selected ground is a mix of the tool's own colour into the panel**,
+   not a hand-picked dark. Robin: "Redoran Bone theme has too dark paint buttons when the
+   paint is selected" — `#3b2418` and `#1f2c15` are fine against #191919 and are nearly
+   black against vellum. The colour the tool lays is untouched, as it must be; what follows
+   the theme is the ground it is laid on. */
+.btn.tool.on{border-color:var(--sw);color:var(--tx);font-weight:600;
+  box-shadow:inset 0 0 0 1px var(--sw);
+  background:color-mix(in srgb,var(--sw) 16%,var(--bg2))}
+/* A rule colour wears its own dot, and one that names a rule the loaded set does not have
+   is dimmed rather than hidden — the paint is still yours, it is simply waiting.
+   `rulesw`, not `swatch`: `.swatch` is already the 34-pixel square in the ground-texture
+   list, and a button wearing it came out 34 pixels wide showing "S_" of S_grass. */
+/* The clipping goes on the label inside, not on the button: a `.btn` is an inline-flex
+   box, and `overflow:hidden` on a flex container lets it collapse to its padding — which
+   is what a swatch did, showing "S_" of a rule called S_grass in a row with room to
+   spare. */
+.btn.tool.rulesw{max-width:170px}
+.btn.tool.rulesw>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.btn.tool.rulesw.on{border-color:var(--sw);color:var(--tx);font-weight:600;
+  box-shadow:inset 0 0 0 1px var(--sw)}
+.btn.tool.rulesw.lost{opacity:.55;font-style:italic}
+/* Round 15: the rule behind the colour is switched off - struck through, amber edge. */
+.btn.tool.rulesw.off{text-decoration:line-through;box-shadow:inset 0 0 0 1px var(--warn)}
+/* Round 18au: a colour being dragged to another layer. The button it came from goes
+   faint until it lands or comes back; the row under the pointer says it will take it;
+   and the thing in the hand is a copy of the button hanging from the pointer by a short
+   string, swung by the physics in `swatchDrag` (11_events.js) - Robin: "When I hold it,
+   I want it to dangle a bit from my mouse in a satisfying physical way." */
+/* Round 18av: the export dialogue's dependency block, and the object picker's rows. */
+.depbox{border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:4px 0 10px;background:var(--bg3)}
+.depbox .exhead{margin-bottom:6px}
+.deprow{display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid var(--line);font-size:11.5px}
+.deprow:first-child{border-top:0}
+.deprow .id{font-family:var(--mono);flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deprow .kind{color:var(--tx3);flex:0 0 auto}
+.deprow .how{flex:1;min-width:0;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deprow .how.copy{color:color-mix(in srgb,var(--warn) 58%,var(--tx2) 42%)}
+.deprow .how.missing{color:var(--warn)}
+.deprow select.fld{flex:0 1 220px;min-width:120px}
+.deplist{font-size:11px;color:var(--tx3);margin:2px 0 4px 18px}
+.objrow{display:flex;align-items:center;gap:8px;padding:4px 6px;border-top:1px solid var(--line);cursor:pointer;font-size:11.5px}
+.objrow:hover{background:var(--bg2)}
+.objrow .id{font-family:var(--mono);flex:0 0 220px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.objrow .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx2)}
+.objrow .kind{flex:0 0 auto;color:var(--tx3)}
+.objrow .from{flex:0 0 auto;color:var(--tx3);font-size:11px}
+.objkinds{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}
+.btn.tool.rulesw.lifted{opacity:.3}
+.player.drop{border-color:var(--ac);box-shadow:inset 0 0 0 1px var(--ac)}
+.player.dropno{border-color:var(--warn);box-shadow:inset 0 0 0 1px var(--warn)}
+#swDrag{position:fixed;left:0;top:0;z-index:180;pointer-events:none;transform-origin:50% 0;
+  will-change:transform;filter:drop-shadow(0 4px 6px rgba(0,0,0,.45))}
+#swDrag .string{display:block;width:1px;height:16px;margin:0 auto;background:var(--tx2);opacity:.8}
+#swDrag .btn.tool.rulesw{display:inline-flex;opacity:1;cursor:grabbing}
+#swDrag.back{transition:transform .22s cubic-bezier(.2,.8,.3,1)}
+/* Paint mode. The viewport says so itself rather than only the button that started it:
+   the right mouse button does something different while this is on, and the place that
+   has to warn you is the place you are about to click. */
+#vpwrap.painting::after{content:"";position:absolute;inset:0;pointer-events:none;
+  border:2px solid var(--hot);border-radius:2px;z-index:5;
+  box-shadow:inset 0 0 24px rgba(255,160,120,.12)}
+#vpwrap.painting canvas{cursor:crosshair}
+/* Round 18r: the cursor while the head is turning. It was the pointer lock's doing until
+   the browser started announcing itself ("If you want to see the cursor, press ESC");
+   this is the half of the lock anyone could see, and it says nothing. */
+canvas.nocursor{cursor:none!important}
+/* Round 17i, Robin: "I don't like the white outline that comes with something having
+   focus sometimes (like the viewport when I am using WASD navigation mode to move)."
+   Round 17L took the ring off everything (see `*:focus` at the top); this line stays as
+   the one that named the reason. */
+#gl:focus, #gl:focus-visible{outline:none}
+/* Round 17h: and while the right button is held in the WASD scheme, the same border in
+   green — you are flying, the keys are the camera's, and the viewport says so. It sits
+   after the painting rule so it wins while both are true (Robin: "If the painting mode
+   one is active, the navigation border should override it while navigating").
+
+   Round 18ae: in the theme's olive, not `--grow`. That green is the *leaf* colour, a few
+   degrees off the olive and chosen to read as growing grass in the legend and on the
+   swatches; borrowed for a border it read as a fourth green in a window that already has
+   three, and looked like a colour nobody picked. Nothing about "the keys are the
+   camera's" is about grass, so it takes `--ac` like every other piece of chrome. */
+#vpwrap.flying::after{content:"";position:absolute;inset:0;pointer-events:none;
+  border:2px solid var(--ac);border-radius:2px;z-index:6;
+  box-shadow:inset 0 0 24px rgba(153,173,106,.14)}
+
+/* ---------- panels ---------- */
+.phead{
+  display:flex;align-items:center;gap:7px;padding:9px 12px;
+  background:var(--bg3);border-bottom:1px solid var(--line);
+  font-size:11px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--tx2);
+  position:sticky;top:0;z-index:5;
+  /* Wrapping rather than overflowing. A heading gains and loses things — the rule count
+     appears when the list is folded — and a row that cannot wrap answers that by pushing
+     whatever is at the end out past the edge of the column, where it cannot be clicked. */
+  flex-wrap:wrap;
+}
+.phead .sp{flex:1}
+/* A run of buttons that breaks as one thing. Without it the heading wraps between them
+   and the second button stands alone under the first, which reads as a lesser thing
+   rather than the other half of the same choice. */
+.phead .btnrow{display:flex;align-items:center;gap:6px}
+/* And it is the count that goes to the new line, not the buttons.
+ *
+ * Robin: "When I collapse the Rules section, the '128 rules' element pushes the buttons
+ * off the column to the right. Make it so the '128 rules' is moved down to a new line
+ * instead when it appears."
+ *
+ * `order` rather than moving it in the markup: it reads as part of the heading — Rules,
+ * and how many — so it belongs beside the title in the document and below it on screen.
+ * `flex-basis:100%` is what makes it take a line of its own rather than trailing after
+ * the buttons on the second row, and it is on the *wrapper* because a flex item that is
+ * told to be a whole line wide stretches — the pill would have become a bar across the
+ * column instead of a pill. */
+.phead .pillrow{order:1;flex-basis:100%;margin-top:6px}
+.sect{border-bottom:1px solid var(--line)}
+/* The same lighter band the Rules heading wears.
+ *
+ * Robin: "Make the headlines for Grass Rules [Global], Preview, Generation etc. have a bit
+ * lighter background, similar to RULES to make them separate better from the contents
+ * inside them." They were bare text on the column's own background, so with several
+ * sections open the left column read as one long run of rows with occasional bold words
+ * in it — the heading and the settings under it looked like the same kind of thing.
+ *
+ * A rule the band has to keep: a *closed* section is a heading with nothing under it, and
+ * the border below it would draw a line under a band with no body, so the band carries its
+ * own bottom edge only while the section is open. */
+.sect>.sh{
+  display:flex;align-items:center;gap:7px;padding:8px 12px;cursor:pointer;user-select:none;
+  font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--tx2);
+  background:var(--bg3);
+  background-image:radial-gradient(44% 240% at 0% 0%,
+    color-mix(in srgb,var(--ac) var(--bloom-band),transparent) 0%, transparent 78%);
+}
+.sect:not(.closed)>.sh{border-bottom:1px solid var(--line)}
+.sect>.sh .sp{flex:1}
+/* A mode still running behind a folded section. Lit rather than outlined, because it is
+   reporting a state and not offering an action you might or might not take — and it is the
+   way out of that state, so it has to be the thing your eye lands on in the row. */
+.btn.sm.shbadge{padding:2px 8px;font-size:10.5px;letter-spacing:.2px;text-transform:none;
+  background:var(--ac2);border-color:var(--ac);color:var(--on-ac);font-weight:700}
+.btn.sm.shbadge:hover{background:var(--ac);border-color:var(--ac)}
+.sect>.sh:hover{color:var(--tx);background:var(--bg4)}
+/* A section inside a section. Same markup and the same caret, so it folds the way
+   everything else in the column folds — but no band and no rules above and below it, or a
+   pane would look like it had been cut in half. */
+.sect.sub{border-bottom:none;margin-top:10px}
+.sect.sub>.sh{background:none;padding:6px 0;font-size:11px}
+.sect.sub:not(.closed)>.sh{border-bottom:none}
+.sect.sub>.sh:hover{background:none;color:var(--tx)}
+.sect.sub>.sbody{padding:2px 0 0}
+.pill.sm{font-size:10px;padding:1px 7px}
+.sect>.sh .caret{font-size:9px;color:var(--tx3);transition:transform .15s;display:inline-block}
+.sect.closed>.sh .caret{transform:rotate(-90deg)}
+.sect.closed>.sbody{display:none}
+/* A little more air at the top now that a band sits above it, so the first row is not
+   pressed against the heading's edge. */
+.sbody{padding:9px 12px 12px}
+
+/* ---------- form rows ---------- */
+/* Same trap as `.btn` above, and it caught us twice: a class that sets `display`
+   outranks the UA `[hidden]` rule, so a `.row` hidden with the attribute stays on
+   screen. The region filter looked like it did nothing for exactly this reason — the
+   rows were `hidden` and still rendered. Restated, and `t_export` now asks what
+   *renders* rather than reading the property back. */
+.row[hidden]{display:none}
+.row{display:flex;align-items:center;gap:8px;margin:7px 0}
+.row>label{flex:0 0 118px;font-size:12px;color:var(--tx2);display:flex;align-items:center;gap:4px}
+.row>label.w{flex-basis:150px}
+/* Round 17: a row another switch has taken over - greyed, and its slider inert. */
+.row.dim{opacity:.42}
+.row.dim input[type=range]{pointer-events:none}
+/* The paint tools: three buttons will not sit beside a 118px label in this column, and a
+   row that wraps put the eraser on a line of its own looking like an afterthought. So the
+   label goes above them and the three share the full width. It has to be stated *after*
+   `.row`, not up with the other paint rules — same specificity, and the later one wins,
+   which is how this first shipped as a centred label with a hand's width of empty panel
+   under it (`.row .ctl` is `flex:1`, and in a column that grows downwards). */
+.row.toolrow{flex-direction:column;align-items:flex-start;gap:5px}
+.row.toolrow>label{flex:none}
+.row.toolrow>.ctl{flex:none;width:100%}
+/* And the buttons keep their own width and wrap instead of being squeezed: a swatch
+   named for a rule is only useful if you can read which rule. */
+.row.toolrow .btn{flex:0 0 auto}
+.row .ctl{flex:1;min-width:0;display:flex;align-items:center;gap:6px}
+.fld{
+  width:100%;padding:5px 8px;border-radius:var(--r-fld);background:var(--bg);
+  border:1px solid var(--line2);font-size:12.5px;font-family:var(--mono);
+}
+/* A focused field steps *away* from the panel, which on a pale theme means lighter and
+   on a dark one darker — so it is a mix with the text colour's opposite rather than a
+   literal #101010. */
+.fld:focus{outline:none;border-color:var(--ac2);
+  background:color-mix(in srgb,var(--bg) 92%,var(--tx3) 8%)}
+.fld.num{font-variant-numeric:tabular-nums;color:var(--num)}
+/* Round 18k: number fields scrub - press and drag sideways to change them (see `Scrub`
+   in 09_ui.js) - so the spinner arrows are gone and the cursor says what a drag will
+   do. With the caret in the field it is a text field again. */
+.fld.num::-webkit-outer-spin-button,.fld.num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.fld.num{-moz-appearance:textfield;appearance:textfield;cursor:ew-resize}
+.fld.num:focus{cursor:text}
+.fld.num.scrub{border-color:var(--ac2);background:color-mix(in srgb,var(--bg) 88%,var(--tx3) 12%)}
+body.scrubbing,body.scrubbing *{cursor:ew-resize!important;user-select:none}
+.fld.bad{border-color:var(--err)}
+select.fld{font-family:inherit;cursor:pointer}
+.hint{font-size:11px;color:var(--tx3);margin:2px 0 8px;line-height:1.45}
+.hint code{font-family:var(--mono);color:var(--tx2);font-size:10.5px}
+
+/* range + number pair */
+/* min-width:0 on both (round 15): a range input's intrinsic width is 129px and a flex
+   item's default min-width is its content, so every slider row was 30px wider than the
+   column and its value sat under the scrollbar - Robin: "the time of day number doesn't
+   show". */
+.rng{display:flex;align-items:center;gap:7px;flex:1;min-width:0}
+/* ===============================================================================
+   THE SLIDERS ARE NATIVE AGAIN — round 18cl.
+
+   Robin, having lived with them: "After trying the diamond handle for the sliders, I am
+   not too fond of it. Lets change back to the old sliders in all areas so they match the
+   toggle buttons." Which is the same judgement that sent the diamond *toggle* back in 18ch,
+   one control later — and it settles §Decided item 1 of the theming plan the other way: the
+   45° motif lives on the rule list's marks and the selection bar, and not on anything you
+   drag.
+
+   So this is `accent-color` and nothing else, exactly as it was before 18cg. Worth knowing
+   what that buys, because two rounds of work went into replacing it: the browser draws the
+   thumb *and* the filled part of the rail to the left of it, from the value, with no script
+   at all. Styling the thumb is what turned that off, which is why 18cg had to light the
+   rail itself (`--p`, a delegated listener, a mutation observer) and why 18cj then had to
+   chase the three paths that write a value without firing an event. All of that went with
+   this rule: the native control has no such failure mode, because nothing is duplicating
+   what it already knows.
+   =============================================================================== */
+.rng input[type=range]{flex:1;width:0;min-width:0;accent-color:var(--ac);height:16px}
+/* Wraithguard: the water hue slider shows the hues it picks from. */
+.rng input[type=range].hue{appearance:none;-webkit-appearance:none;height:8px;border-radius:4px;
+  background:linear-gradient(90deg,#f00,#ff0 16.7%,#0f0 33.3%,#0ff 50%,#00f 66.7%,#f0f 83.3%,#f00)}
+.rng input[type=range].hue::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;
+  background:#fff;border:1px solid #0008}
+/* ===============================================================================
+   THE RAIL IS THE THEME'S — round 18co, and it amends the block above rather than
+   undoing it.
+
+   Robin: "The backgrounds for the sliders (the gray outline and the background of the not
+   filled portion) has the same styling in the different themes. I think the general feel for
+   the contrast of colors etc. is OK in Gardenfell Green, but in general I want it to be
+   tinted a bit by the different themes as well."
+
+   **What was measured before anything was written**, because 18cl's lesson said taking part
+   of a native control means taking all of it and that had to be tested rather than assumed.
+   Rendered at 3× and sampled pixel by pixel: `border`, `outline`, `box-shadow` and
+   `border-radius` on `::-webkit-slider-runnable-track` draw *nothing at all* while the track
+   keeps its own background; `background:none`, `background:transparent` and
+   `background-color:rgba(0,0,0,0)` change nothing either, so there is no seam to tint
+   through; a `background` on the input itself is covered by an opaque track; and
+   `color-scheme:dark` moves neither the trough nor the ring. The moment the track is given
+   any non-transparent background, the filled part goes with it. `appearance:base` with
+   `::slider-track` and `::slider-fill` — the modern way to own the rail and still let the
+   browser draw the fill from the value — is not in Chromium 141 and so is not in the
+   WebView2 this ships on. **There is no partial answer. The rail is all or nothing.**
+
+   Two things the measuring turned up that were not being looked for:
+
+   1. **The trough is not a fixed grey — the browser derives it from `accent-color`**, and
+      from its lightness alone. A light accent gets a dark trough (59,59,59) and a dark one
+      gets a near-white trough (239,239,239). Four themes have light accents. **Redoran
+      Bone's oxide is dark**, so its sliders had a cool near-white trough on a warm cream
+      panel — 1.0:1 in luminance, invisible, the rail reading as a red bar floating in a
+      hairline. So "leave it native" was not the no-change option it looked like: the pale
+      theme was already wrong, and wrong in a way no amount of native could fix.
+   2. **The native rail, read off the screen, is already written in Gardenfell Green's own
+      palette.** The trough sampled (59,59,59) and `--line2` is `#3a3a34` = (58,58,52); the
+      1px ring sampled (133,133,133) and `--tx3` is `#86897c` = (134,137,124). Within a
+      pixel value of each other. So this is not a new look at all — it is the same look,
+      restated in tokens, which is exactly why Robin's "the feel in Gardenfell Green is OK"
+      survives it and every other theme gets its own line and its own muted grey for free.
+
+   The thumb is **left to the browser**: `accent-color` still draws it, round, from the
+   value, and nothing here names `::-webkit-slider-thumb`. That is the difference from 18cg,
+   which drew a diamond and was sent back — the control keeps the shape Robin chose in 18cl
+   and only the rail behind it changes. The 6px inset in `--p` is where a 12px thumb's
+   *centre* travels to: measured, the browser puts it at exactly 50% of the input's width at
+   half value, so the fill has to stop under the middle of the thumb rather than at the
+   value's own percentage. `litTracks()` in `11_events.js` keeps `--p` honest; the note there
+   says how, and why it is not the three-write-paths chase 18cj had to do.
+   =============================================================================== */
+.rng input[type=range]::-webkit-slider-runnable-track,
+#vpbar input[type=range]::-webkit-slider-runnable-track{
+  height:8px;border-radius:4px;box-sizing:border-box;
+  background:linear-gradient(90deg,
+    var(--ac) 0 var(--p,0%), var(--line2) var(--p,0%) 100%);
+  box-shadow:inset 0 0 0 1px var(--tx3);
+}
+/* **The one thing the thumb is told, and the only reason it is told anything.** Styling the
+   track moves the browser's own thumb down by just under four pixels — measured at 4×: the
+   rail's centre stays at 7.88 and the thumb's drops to 11.62 — because the thumb is laid out
+   against the track's box and that box now has a height of its own. A margin on the *track*
+   moves the rail and takes the thumb with it, so it cannot close the gap; a margin on the
+   thumb can, and `margin-top:-4px` lands it at 7.88, which is native to the pixel.
+
+   A bare `margin-top` is the whole of it. `accent-color` is turned off by `appearance:none`
+   on the thumb, not by a declaration that only moves it — measured, the thumb still comes
+   out the accent's own round dot — so this buys the geometry without taking on the drawing,
+   and the slider is the one Robin asked for in 18cl with a themed rail behind it. */
+.rng input[type=range]::-webkit-slider-thumb,
+#vpbar input[type=range]::-webkit-slider-thumb{margin-top:-4px}
+/* The speed slider is the same rail stood on end. `direction:rtl` in `vertical-lr` is what
+   puts its larger values at the top (round 17c), so the fill runs `to top` and `--p` is
+   measured down the height rather than across the width. */
+#vpSpeedBar::-webkit-slider-runnable-track{
+  width:8px;border-radius:4px;box-sizing:border-box;
+  background:linear-gradient(to top,
+    var(--ac) 0 var(--p,0%), var(--line2) var(--p,0%) 100%);
+  box-shadow:inset 0 0 0 1px var(--tx3);
+}
+/* The same four pixels, on the other axis: measured off the rendered bar, the rail's centre
+   sat at x 35.5 and the thumb's at 39. Physical `margin-left` rather than a logical property,
+   because this control is `vertical-lr` with `direction:rtl` and the correction is about
+   where the browser puts the box, not about which end the values run from. */
+#vpSpeedBar::-webkit-slider-thumb{margin-left:-4px}
+/* `.textile .tinset` is not in either list on purpose: its track is the tile behind it and
+   it carries `background:transparent` so the picture shows through, which is a rail that
+   *wants* the browser's own drawing. */
+/* Round 18cm: **a reading never wraps.** Robin, on the grass-distance slider: "Changing it
+   changes the label to add a decimal '1 cells' to '1.5 cells' and that makes it break a line
+   and the whole section jitters as I drag the handle." The slot is 54px and "1.5 cells" is
+   about 57, so the span wrapped to a second line, the row grew by a line, and everything
+   under it moved — once per drag step. Two halves to that: nothing in a 54px slot may wrap,
+   which is this line; and a reading that wants more than the slot goes *above* the track
+   instead (`.rng.stack`, round 17h) — which is what that slider does now, at Robin's word:
+   "We can use the same shape here. Keep the '1 cells' format for text, and show the text
+   above the slider instead." */
+.rng .val{flex:0 0 54px;text-align:right;font-family:var(--mono);font-size:11.5px;
+  color:var(--tx2);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Round 17h: a button that belongs to the slider above it — "⌃ Just above the water"
+   under Ground height, "↺ Reset to install" under Fog density. It sits inside the same
+   `.rng`, so it starts where the track starts, and an empty `.val` beside it holds the
+   reading's 54px, so it ends where the track ends: exactly the slider's width, and the
+   two read as one control rather than as a button that happens to be nearby. */
+.row.under{margin-top:-2px}
+.rng>.btn.wide{flex:1;width:0;min-width:0;justify-content:center}
+/* A reading too wide for the 54px slot — "1.5× ≈ 640" — stacks instead: its own line,
+   centred over the track it describes, so the pair still read as one control. */
+.rng.stack{flex-direction:column;align-items:stretch;gap:1px}
+.rng.stack .val{flex:none;width:auto;text-align:center;white-space:nowrap}
+/* Round 18cm: **and the track has to be told it is in a column now.** Robin: "The 'How near
+   counts' slider is broken. It was before a slider of wider width, and the text on top."
+   It was 0 pixels wide, and had been since round 15 gave every slider `flex:1;width:0` to
+   stop a row 30px wider than its column: in a *column* flex container that basis is the
+   height, and `width:0` is an explicit cross-size, which `align-items:stretch` is not
+   allowed to override. So the stacked ones state the opposite pair — no growing along the
+   column, and a width the stretch can have. (He put it down to the diamond sliders; those
+   changed the thumb and never the box, and this was waiting underneath.) */
+.rng.stack input[type=range]{flex:none;width:auto}
+
+/* switch */
+.sw{position:relative;width:34px;height:18px;flex:0 0 34px;cursor:pointer}
+/* `input[type=checkbox]` rather than `input`: the tick boxes further down draw themselves
+   at 14px square, and that rule carries exactly this selector's specificity. Same weight
+   means source order decides, and source order is not a thing to leave a hidden control's
+   size resting on — the attribute takes this one a class ahead and settles it. */
+.sw input[type=checkbox]{opacity:0;width:0;height:0;position:absolute}
+/* The transition names its properties rather than saying "all". A bare `transition:.15s`
+   animates every animated property, `opacity` included — so a switch going disabled faded
+   over 150ms instead of being dim, and in a build that produces no frames (headless, and a
+   window nobody is looking at) it never got there at all: the computed opacity stayed at
+   its start value for ever. What is meant to animate is the track colour and the knob
+   sliding; a control that is not yours to touch should say so at once. */
+/* ===============================================================================
+   THE PILL TOGGLE, AND THE SLIDE THAT CAME OUT OF THE DIAMOND — round 18ch.
+
+   **The diamond toggle is out.** Robin, on the shipped 18cg build: "I don't think the
+   diamond toggles work that well. Lets bring back the old ones, but I like this animation,
+   so see if we can get that on the toggle buttons instead." So this is the pill exactly as
+   it was — 34px, a 9px capsule, a round 12px knob, `--tx3` off and `--ac` on — wearing the
+   travel the diamond was carrying: a back-out curve over 220ms, the knob passing its stop
+   by about a pixel and a half and coming back, with the track's colour crossing faster so
+   it has finished when the knob stops (§Decided item 9).
+
+   **The diamond slider handles stay.** They are a different control and he named only the
+   toggles; `.rng input[type=range]` below is untouched.
+
+   **The travel is `transform`, not `left`, and that is not only tidiness.** The diamond had
+   to animate `left`, because it was already spending `transform` on being a diamond — and
+   `left` on an absolutely positioned pseudo-element relayouts it every frame, on the main
+   thread, which is the thread a rescatter is about to take. A `translateX` neither
+   relayouts nor needs that thread once it is running. Coming back to the pill gives the
+   animation back the cheaper property, so the travel is *more* likely to be seen than the
+   diamond's was, not less. The 16px it travels is 34 − 2 (the borders) − 12 (the knob) − 2·2
+   (the seats), and the overshoot is ~1.4px of it, which stays inside the rail.
+   =============================================================================== */
+.sw .tr{position:absolute;inset:0;background:var(--bg4);border:1px solid var(--line2);
+  border-radius:9px;transition:background-color .18s, border-color .18s}
+.sw .tr:before{content:'';position:absolute;width:12px;height:12px;left:2px;top:2px;
+  background:var(--tx3);border-radius:50%;
+  transition:transform .22s cubic-bezier(.34,1.56,.64,1), background-color .18s}
+.sw input:checked+.tr{background:var(--acd);border-color:var(--ac2)}
+.sw input:checked+.tr:before{transform:translateX(16px);background:var(--ac)}
+
+/* ---------- tick boxes ---------- */
+/* Round 18cn. Robin: "There are some areas of the program that currently have check boxes
+   that can be ticked and unticked, and we have the 'dash in a check box' to show the
+   'checked by requirement' in the load order. These are currently not styled with the
+   themes. I want them to be styled with the theme in a nice way."
+
+   They were the browser's own: a bright blue square with a white box in it, the same in
+   every theme, because nothing in this sheet had ever named a checkbox. Rendered beside a
+   Redoran Bone panel and beside a Gardenfell Green one they were the same foreign blue
+   both times — the one control in the window that had not heard about the theme.
+
+   Two ways to fix that. `accent-color:var(--ac)` is one line and lets the platform keep
+   drawing: the blue becomes olive, or oxide, and the job is done. It was tried and it is
+   not what "in a nice way" means here — the platform draws a *filled* box with a white
+   tick, which is a solid accent block wherever it lands, and this window's own idiom for
+   a thing that is on is the toggle pill: a dark accent ground, an `--ac2` edge, and the
+   accent spent on the small moving part. Five ticked plugins in a load order should read
+   as five quiet marks, not five bright chips. So these are drawn, in the pill's language,
+   and the numbers are the pill's numbers — the same `--bg4`/`--line2` off state, the same
+   `--acd`/`--ac2` on state, the same .18s on both colours.
+
+   **The control underneath is untouched.** `appearance:none` takes away the painting and
+   nothing else: it is still `<input type="checkbox">`, it still answers space, it still
+   announces itself, and `indeterminate` is still the real property — which matters most
+   for the dash, because that is the whole reason `14_plugins.js` sets the property instead
+   of drawing a glyph (its own note says so). `:indeterminate` is a CSS pseudo-class, so
+   the drawn dash follows the property with nothing keeping the two in step by hand.
+
+   The pill's hidden input is spared by an attribute selector up at `.sw input[type=…]`;
+   see the note there for why that is not left to source order. */
+input[type=checkbox]{
+  appearance:none;-webkit-appearance:none;
+  position:relative;flex:0 0 auto;margin:0;
+  width:14px;height:14px;box-sizing:border-box;
+  border:1px solid var(--line2);border-radius:var(--r-box);
+  background:var(--bg4);cursor:pointer;
+  transition:background-color .18s, border-color .18s;
+}
+input[type=checkbox]:not(:disabled):hover{border-color:var(--ac2)}
+input[type=checkbox]:checked,
+input[type=checkbox]:indeterminate{background:var(--acd);border-color:var(--ac2)}
+/* The tick: two borders of a box, rotated. Drawn rather than typed — a `✓` is whatever
+   the font in force happens to have, and at twelve pixels inside a fourteen-pixel square
+   that is the difference between a mark and a smudge. `::after` on a checkbox works once
+   `appearance:none` has made it an ordinary box; it is how every drawn checkbox on the
+   web is drawn. */
+input[type=checkbox]:checked::after{
+  content:'';position:absolute;left:3.5px;top:1px;
+  width:4px;height:7px;box-sizing:border-box;
+  border:solid var(--ac);border-width:0 2px 2px 0;
+  transform:rotate(40deg);
+}
+/* And the dash — "ticked because something else needs it". The ground and the edge are the
+   ticked ones, because it *is* ticked; only the mark differs, which is exactly the
+   distinction the state carries. Deliberately not the mixed pill's treatment (`--line2`
+   ground, an em-dash): that one means "some of these, some of those" and has no business
+   looking like this one. */
+input[type=checkbox]:indeterminate::after{
+  content:'';position:absolute;left:2px;top:5px;
+  width:8px;height:2px;border-radius:1px;background:var(--ac);
+}
+/* **No focus ring, deliberately.** A drawn control usually owes the keyboard a ring of its
+   own once the platform stops painting one, and a `:focus-visible` outline was written here
+   on exactly that principle — then `t_input` failed on "no control anywhere draws a focus
+   outline", which is round 17L at Robin's word: "Make it so that no element is selectable by
+   using Tab so we never get the white outline on stuff." Tab is swallowed window-wide, so
+   there is no keyboard focus for a ring to mark, and the general principle does not apply to
+   a program that has been told this. If tabbing ever comes back, every drawn control wants
+   its ring at the same time, and `t_input`'s claim is the place that will say so. */
+input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
+
+/* ---------- selector list ---------- */
+#selList{padding:5px 6px}
+.sel{
+  display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:var(--r-ctl);
+  cursor:pointer;margin-bottom:2px;border:1px solid transparent;
+  /* Round 18ce: the selection arrives rather than appearing. Named properties, not `all`:
+     a bare transition here would also animate the rule dot's colour, and the mark that
+     says "this one" should land at once. */
+  transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease;
+}
+.sel:hover{background:var(--bg3)}
+/* Round 18ce: **the bar, not the border.** Robin sent two crops of the row and asked for
+   "these kind of selection for the rules, but without the glow" — so the accent ground it
+   already had, a 2px accent bar down the left edge, the dot filled rather than hollow, the
+   count in the accent, and no halo. The bar is an inset `box-shadow` rather than a real
+   border: a 2px border on the left would push every name across by two pixels as the
+   selection moved down the list, which reads as a jitter.
+
+   Round 18cn: **and the border after all** — "Lets add an outline on selecting a grass
+   rule, I think it's even more clear than it is now." Not a reversal of the line above:
+   the bar stays, and what arrives beside it is the 1px border every row has been carrying
+   transparently since the list was written. Colouring a border that is already in the box
+   model moves nothing — which is the whole reason the 2px *left* rule was refused and a
+   1px ring around all four sides is not. `--ac2` rather than `--ac`, because the bar is
+   the loud mark and an outline that shouts as loudly as it competes with it. */
+.sel.on{background:var(--acd);border-color:var(--ac2);box-shadow:inset 2px 0 0 var(--ac)}
+.sel.on .qual{color:var(--ac)}
+/* The text column: name and scope on one line, the rule's note on a second when it has
+   one (round 11 item 7). The column takes the width the name used to, so the buttons on
+   the right stay where the hand expects them. */
+.sel .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.sel .line{display:flex;align-items:baseline;gap:7px;min-width:0}
+.sel .nm{flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sel .note{font-size:10.5px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
+.sel.noted{padding-top:7px;padding-bottom:7px}
+.sel.on .nm{color:color-mix(in srgb,var(--ac) 58%,var(--tx))}
+.sel .qual{font-size:10px;color:var(--tx3);font-family:var(--mono)}
+/* A seedling, for the Grass Rules button. Drawn rather than borrowed from a font:
+   there is no grass in an emoji set that is not a whole potted plant, and a button in a
+   toolbar wants a mark the size of the text beside it.
+   Round 18aw: filled, from a seedling reference Robin sent - a leaning stem, a broad leaf
+   to the left, a taller one to the right - and chosen from seven candidates
+   (`probe_tuft*.html`) as "F2": the leaves start as wide as the stem and the stem runs up
+   into them, so nothing pinches at the join. The outline it replaces was the same olive
+   as strokes. */
+.tuft{display:inline-block;width:12px;height:12px;vertical-align:-1px;
+  background:no-repeat center/contain url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'>\
+<path d='M5.8 11.7C5.2 10.0 5.6 8.2 6.7 6.2' fill='none' stroke='%2399ad6a' stroke-width='1.8' stroke-linecap='round'/>\
+<g fill='%2399ad6a'>\
+<path d='M7.5 6.6C6.0 7.8 2.8 7.6 0.9 5.1 2.3 2.3 5.4 2.6 6.4 5.3 6.8 5.8 7.2 6.2 7.5 6.6z'/>\
+<path d='M5.9 6.6C6.0 3.7 8.3 1.4 11.1 1.0 11.5 4.1 9.6 6.8 7.2 7.1 6.7 7.0 6.3 6.9 5.9 6.6z'/>\
+</g></svg>")}
+/* Round 18z: the top bar's marks. Robin: "I would like you to present me some svg glyphs
+   instead of emojis" — an emoji is whatever font the machine happens to have, at whatever
+   size that font thinks, and 📁🗂🜂⬢ were four different weights sitting in one row. These
+   are drawn, in the family the tuft above already set: one stroke weight, no fill, round
+   caps, and the olive that says "a mark of this program's own" rather than the label's
+   white. Chosen with Robin over three passes; the two Connect buttons that name other
+   projects wear marks of ours saying what the button *does*, because a project's logo is
+   its own to license and not ours to redraw.
+   Sized 13 against the tuft's 11: these are outlines rather than a silhouette, and an
+   outline needs the extra pixel to keep its middle. */
+/* Round 18ad: painted through a mask rather than drawn as a picture, so the colour is
+   CSS's to decide and one drawing serves every place a mark appears. The folder is olive
+   in the settings dialogue and gold on the button that connects a Data Files folder; baked
+   into the data URI that would be two copies of the same drawing, and the second one would
+   drift from the first the first time either was touched. A mask takes the SVG's alpha and
+   fills it with `--ico`, so the drawings below carry a colour only because a file has to
+   say something - nothing reads it. */
+.ico{display:inline-block;width:13px;height:13px;vertical-align:-2px;flex:0 0 auto;
+  /* Round 18cj: **the accent by default.** Robin: "The green glyphs for edit a mesh,
+     folder in the settings dialogue, Start painting should all change color depending on
+     theme to fit their new context. The Grass rules symbol should always stay green
+     however." These are masks, so the colour is this one declaration; the Grass Rules
+     seedling is not one — it is a full-colour drawing with its greens baked in, which is
+     exactly why it stays green without being told to. */
+  background-color:var(--ico,var(--ac));
+  -webkit-mask:no-repeat center/contain;mask:no-repeat center/contain}
+/* A folder — the plainest of the three sources, and the one that stays legible smallest. */
+.ic-folder{-webkit-mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2399ad6a'\
+ stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M2.2 12.4V4.6c0-.6.4-1 1-1h3.1l1.6 2h5.9c.6 0 1 .4 1 1v5.8c0 .6-.4 1-1 1H3.2c-.6 0-1-.4-1-1z'/>\
+</svg>");mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2399ad6a'\
+ stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M2.2 12.4V4.6c0-.6.4-1 1-1h3.1l1.6 2h5.9c.6 0 1 .4 1 1v5.8c0 .6-.4 1-1 1H3.2c-.6 0-1-.4-1-1z'/>\
+</svg>")}
+/* Stacked plates: a load order, which is what MO2 hands over. */
+.ic-stack{-webkit-mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2399ad6a'\
+ stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M8 2.2 13.8 5.1 8 8 2.2 5.1z'/><path d='M2.2 7.7 8 10.6l5.8-2.9'/>\
+<path d='M2.2 10.3 8 13.2l5.8-2.9'/></svg>");mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2399ad6a'\
+ stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M8 2.2 13.8 5.1 8 8 2.2 5.1z'/><path d='M2.2 7.7 8 10.6l5.8-2.9'/>\
+<path d='M2.2 10.3 8 13.2l5.8-2.9'/></svg>")}
+/* A config file with a prompt in it: this button really is "find openmw.cfg". */
+.ic-cfg{-webkit-mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2399ad6a'\
+ stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M4 2.4h5.2l3 3v8.2c0 .5-.4.9-.9.9H4c-.5 0-.9-.4-.9-.9V3.3c0-.5.4-.9.9-.9z'/>\
+<path d='M9.2 2.4v3h3'/><path d='M6 9.1l1.7 1.7L6 12.5'/><path d='M9 12.5h2.2'/></svg>");mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2399ad6a'\
+ stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M4 2.4h5.2l3 3v8.2c0 .5-.4.9-.9.9H4c-.5 0-.9-.4-.9-.9V3.3c0-.5.4-.9.9-.9z'/>\
+<path d='M9.2 2.4v3h3'/><path d='M6 9.1l1.7 1.7L6 12.5'/><path d='M9 12.5h2.2'/></svg>")}
+/* The plugin, with the arrow cut *through* it rather than drawn on it: what shows in the
+   hole is the button itself, so it stays right when the olive lightens under the pointer.
+   Dark ink, because this one rides the primary button and olive on olive is nothing. The
+   arrow sits half a step below the box's centre — Robin's eye, and he was right: an arrow
+   with a heavy head reads high when it is centred by arithmetic. */
+.ic-esp{width:14px;height:14px;--ico:var(--on-ac);-webkit-mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>\
+<path fill='%2314170d' fill-rule='evenodd' d='M8 1.5 14.1 5v7L8 15.5 1.9 12V5zM8 4.55 4.7 8.45h1.9v3.6h2.8v-3.6h1.9z'/>\
+</svg>");mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>\
+<path fill='%2314170d' fill-rule='evenodd' d='M8 1.5 14.1 5v7L8 15.5 1.9 12V5zM8 4.55 4.7 8.45h1.9v3.6h2.8v-3.6h1.9z'/>\
+</svg>")}
+/* Round 18bc: the painting pair. A **palette** while painting is off and a **check mark**
+   while it is on, swapped by `11_events.js` as the button toggles — the glyph used to be a
+   `✎` and a `✓` baked into the two labels, and a pen is what every other button in the app
+   means "edit" with. Robin, choosing from five proposed pairs: "I like the palette (option
+   D) for the Start Painting button"; and of the stop half, after seeing six crossed-out
+   palettes, "Lets keep the 'Painting — click to stop' glyph simple, and keep a check mark
+   for it, no palette involved." Masks, so the colour is CSS's: olive at rest, and dark ink
+   on the lit green button, where olive on olive would be nothing — the same reasoning, and
+   the same `#14170d`, as `.ic-esp` above. */
+.ic-palette{-webkit-mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2399ad6a'\
+ stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M8 1.5c3.7 0 6.7 2.5 6.7 5.6 0 1.9-1.5 2.7-2.9 2.7h-1.2c-1.1 0-2 .8-2 1.8 0 .4.1.7.1 1 0 .8-.6 1.4-1.5 1.4-3.7 0-6.7-3-6.7-6.7S4.3 1.5 8 1.5z'/>\
+<circle cx='5.2' cy='5.5' r='1.05' fill='%2399ad6a' stroke='none'/>\
+<circle cx='8.6' cy='4.4' r='1.05' fill='%2399ad6a' stroke='none'/>\
+<circle cx='11.4' cy='6.3' r='1.05' fill='%2399ad6a' stroke='none'/>\
+<circle cx='4.3' cy='9.3' r='1.05' fill='%2399ad6a' stroke='none'/></svg>");mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2399ad6a'\
+ stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M8 1.5c3.7 0 6.7 2.5 6.7 5.6 0 1.9-1.5 2.7-2.9 2.7h-1.2c-1.1 0-2 .8-2 1.8 0 .4.1.7.1 1 0 .8-.6 1.4-1.5 1.4-3.7 0-6.7-3-6.7-6.7S4.3 1.5 8 1.5z'/>\
+<circle cx='5.2' cy='5.5' r='1.05' fill='%2399ad6a' stroke='none'/>\
+<circle cx='8.6' cy='4.4' r='1.05' fill='%2399ad6a' stroke='none'/>\
+<circle cx='11.4' cy='6.3' r='1.05' fill='%2399ad6a' stroke='none'/>\
+<circle cx='4.3' cy='9.3' r='1.05' fill='%2399ad6a' stroke='none'/></svg>")}
+.ic-done{width:14px;height:14px;--ico:var(--on-ac);-webkit-mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2314170d'\
+ stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M2.9 8.7 6.3 12.1 13.1 4.3'/></svg>");mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2314170d'\
+ stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>\
+<path d='M2.9 8.7 6.3 12.1 13.1 4.3'/></svg>")}
+/* A wireframe rock, for the Edit a mesh buttons — same species as the tuft above:
+   drawn, so it renders identically whatever fonts a machine has. */
+/* Round 18cm: **a mask, like the rest of the drawn marks.** Robin: "The glyph in 'Edit a
+   mesh' button, no matter if in the click an object dialogue, or the left panel, should also
+   be possible to recolor, and follow the accent color."
+
+   It was a `background-image` with `stroke='%2399ad6a'` baked into it, so it stayed olive in
+   every palette while the Start painting palette beside it followed the accent — the same
+   distinction 18cj drew between the masked glyphs and the Grass Rules seedling, except that
+   this one is a single-colour drawing and so has no reason to be on the wrong side of it.
+   The stroke colour in the data URI is now irrelevant: a mask reads alpha, not hue. */
+.meshgl{display:inline-block;width:12px;height:12px;vertical-align:-1px;
+  background-color:var(--ico,var(--ac));
+  -webkit-mask:no-repeat center/contain;mask:no-repeat center/contain;
+  -webkit-mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'>\
+<g fill='none' stroke='%23fff' stroke-width='1.1' stroke-linejoin='round'>\
+<path d='M1 9.5 L4 2 L10.8 4.5 L8.5 10.5 Z'/>\
+<path d='M4 2 L8.5 10.5 M1 9.5 L10.8 4.5'/></g></svg>");
+  mask-image:url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'>\
+<g fill='none' stroke='%23fff' stroke-width='1.1' stroke-linejoin='round'>\
+<path d='M1 9.5 L4 2 L10.8 4.5 L8.5 10.5 Z'/>\
+<path d='M4 2 L8.5 10.5 M1 9.5 L10.8 4.5'/></g></svg>")}
+/* Round 17y: the door button in the object dialogue - green, with an open door drawn the
+   same way: a frame and a leaf swung out. Robin: "Make that button green, and put a simple
+   open door glyph in the button." 18a: the theme's green, not another one - the same
+   --ac2/--ac pair and dark ink as .btn.pri, which is what "Back to preview" wears. */
+.btn.door{background:var(--ac2);border-color:var(--ac);color:var(--on-ac);font-weight:600}
+.btn.door:hover{background:var(--ac)}
+/* Round 18an: "→ Balmora, Guild of Mages" beside the door button. Centred on the button's
+   line; `hidden` still hides it, since nothing here sets a display. */
+.doorto{font-size:12px;color:var(--tx2);align-self:center;white-space:nowrap}
+.doorgl{display:inline-block;width:12px;height:12px;vertical-align:-1px;margin-right:4px;
+  background:no-repeat center/contain url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'>\
+<g fill='none' stroke='%2314170d' stroke-width='1.2' stroke-linejoin='round'>\
+<path d='M2 1.5 H8.5 V11 H2 Z'/>\
+<path d='M8.5 1.5 L11 3 V11 L8.5 11' fill='%2314170d' fill-opacity='.35'/>\
+<circle cx='4.2' cy='6.5' r='.6' fill='%2314170d'/></g></svg>")}
+/* Round 18cj: **a diamond, a size up from the dot.** Robin: "instead of a dot before the
+   grass rules, I want a diamond that is a little bit bigger than the dot is now." 7px
+   square turned 45° — the same shape the slider handles and the selection marker wear, so
+   the list joins the motif rather than being the one round thing left in it. `flex-basis`
+   is the 7px the box takes; the rotation happens inside it and needs no room, because a
+   square's diagonal only reaches past its own edge diagonally. */
+/* Round 18cj turned the dot into a diamond — "instead of a dot before the grass rules, I
+   want a diamond that is a little bit bigger than the dot is now" — and went from a 6px
+   circle to a 7px square on its corner. Round 18cn takes the square back to six: rotating
+   it is what made it bigger, not the pixel that was added to it. A square's diagonal is
+   its side times 1.41, so a 6px diamond already stands 8.5px tall where the old circle
+   stood 6 — the 7 read as 9.9 and crowded the name beside it. Robin, having lived with it:
+   "make the diamonds next to grass rules slightly smaller." */
+.sel .dot{width:6px;height:6px;border-radius:0;transform:rotate(45deg);
+  background:var(--line2);flex:0 0 6px}
+.sel .dot.live{background:var(--ac)}
+.sel .dot.off{background:var(--err)}
+.sel.unk{box-shadow:inset 2px 0 0 var(--err)}
+/* Rules that belong to no ground: mauve, which is this palette's stand-in for blue and
+   is used nowhere else in the left column, so the two kinds of rule are told apart at a
+   glance rather than by reading. Grouped as well as coloured — see `renderSelList`. */
+.sel.paint .nm{color:var(--info)}
+.sel.paint .dot{background:color-mix(in srgb,var(--info) 42%,var(--bg))}
+.sel.paint .dot.live{background:var(--info)}
+/* Round 18ci: **selected the same way a texture rule is, in its own colour.** Robin: "I
+   want the bolded line to the left of the selected area to be Mauve as the paint only
+   rules are, and I don't want the outline, so it looks more like the grass texture rules,
+   but with its own color."
+
+   It had both halves wrong at once: the bar came from `.sel.on` and so was *olive* on a
+   mauve row, and the mauve was spent on a border instead — a rule wearing another rule's
+   mark with an outline around it. Now it is the same three statements `.sel.on` makes, with
+   `--info` where the accent goes, and the two shades derived rather than picked: the ground
+   is the mix `--acd` is of the accent, and the name is the same 58% mix the texture rules
+   use. Which also means a theme reaches them — the hand-picked `#2a1f27` and `#c79cbb` were
+   a dark-theme pair, and on Redoran Bone they were a black block in a pale list. */
+/* Round 18cn: the outline reaches this one too, in its own colour — `--info2` is to the
+   mauve what `--ac2` is to the accent, declared by each theme rather than mixed here, so a
+   pale theme darkens it where a dark theme lightens. The "I don't want the outline" above
+   was about a *mismatched* outline on a mauve row; this is the same ring the texture rules
+   now wear, in the colour this row already owns. */
+.sel.paint.on{background:color-mix(in srgb,var(--info) 14%,var(--bg2));
+  border-color:var(--info2);box-shadow:inset 2px 0 0 var(--info)}
+.sel.paint.on .nm{color:color-mix(in srgb,var(--info) 58%,var(--tx))}
+.sel.paint.on .qual{color:var(--info)}
+/* A group heading, and the switch that folds its rules away.
+   The whole row is the target rather than the caret alone: it is a heading nobody clicks
+   for any other reason, and a 9-pixel glyph is not something to ask anyone to hit. */
+.selgroup{display:flex;align-items:center;gap:6px;
+  font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--tx3);
+  padding:8px 8px 3px;user-select:none;cursor:pointer}
+.selgroup:hover{color:var(--tx2)}
+.selgroup .sp{flex:1}
+.selgroup .caret{font-size:8px;transition:transform .15s;display:inline-block}
+.selgroup.shut .caret{transform:rotate(-90deg)}
+/* The count, which is only filled in while the group is shut — the rest of the time the
+   rows are the count. Not `.pill`: this heading is nine and a half pixels tall and a
+   bordered capsule beside it reads as a second, louder thing. */
+.selgroup .gn{font-size:9.5px;color:var(--tx3);text-transform:none;letter-spacing:.2px}
+/* A group with nothing in it is still a heading — it says where a rule of that kind would
+   go — but it is not something to fold, so it does not offer a caret to click. Dimmed
+   rather than hidden, for the same reason it is there at all. */
+.selgroup.none{opacity:.55;cursor:default}
+.selgroup.none:hover{color:var(--tx3)}
+.selgroup.none .caret{visibility:hidden}
+.selgroup+.sel{margin-top:0}
+.selgroup.inview .gname{color:var(--ac)}
+/* Delete and duplicate.
+   They were `--tx3` at font-size 13 with no target of their own: two grey marks the same
+   colour as the scope text beside them, on a row you had to already be hovering to see at
+   all. Deleting a rule is the one irreversible thing this list does, so the cross reads as
+   what it is — red, and the size of a thing you are meant to be able to hit. Both get a
+   square to land on rather than two pixels of glyph.
+
+   **`line-height:0` on the cross, not 1.** A flex box centres the *line box*, and a line
+   box carries the font's descender space below the glyph — so `×`, which has no descender,
+   came out sitting low in its square as if it were a letter on a baseline. Zeroing the
+   line height collapses the box onto the glyph and the flex centring then lands on the
+   mark itself. It is a symbol, not a letter. */
+.sel .del,.sel .dup,.sel .pwr,.btn.ic.delx{
+  line-height:0;width:20px;height:20px;flex:0 0 20px;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;border-radius:4px;
+  background:none;border:0;cursor:pointer;transition:background .12s,color .12s}
+.sel .del,.sel .dup,.sel .pwr{opacity:0}
+/* Round 15: the power glyph beside copy and delete, and a switched-off rule at a glance -
+   dimmed, its name struck through, its dot hollow. */
+.sel .pwr{font-size:13px;color:var(--tx2)}
+.sel .pwr:hover{color:var(--tx);background:var(--line2)}
+.sel:hover .pwr,.sel.on .pwr{opacity:1}
+.sel.disabled .pwr{opacity:1;color:var(--warn)}
+.sel.disabled .nm{text-decoration:line-through;color:var(--tx3)}
+.sel.disabled .txt{opacity:.6}
+/* Hollow, at 1.2px rather than 1.5: the diamond lost a pixel in 18cn and 1.5px walls on
+   a 6px box leave a 3px void, which is more wall than hole and stops reading as hollow. */
+.sel.disabled .dot{background:none;box-shadow:inset 0 0 0 1.2px var(--warn)}
+/* Round 17f: the Enabled button lives in the panel's head next to Duplicate and wears
+   the same `btn sm`; off, it goes amber so a switched-off rule still says so. */
+#btnRuleOn.off{color:var(--warn);border-color:rgba(214,158,60,.55);background:rgba(214,158,60,.12)}
+.sel .dup{font-size:13px;color:var(--tx2)}
+.sel .del,.btn.ic.delx{color:var(--del)}
+/* The cross is drawn, not typed — see `DEL_MARK`. A replaced element in a flex box is
+   centred by its own geometry, so where it sits no longer depends on which font the
+   machine happens to have. */
+.delsvg{display:block;width:20px;height:20px}
+.sel:hover .del,.sel:hover .dup,.sel.on .del,.sel.on .dup{opacity:1}
+.sel .del:hover,.btn.ic.delx:hover{color:#fff;background:var(--del)}
+.sel .dup:hover{color:var(--tx);background:var(--line2)}
+.empty{padding:22px 14px;text-align:center;color:var(--tx3);font-size:12px;line-height:1.6}
+/* Round 9a item 3: a row in the rule picker. */
+.rprow:hover{background:var(--bg4)}
+.rprow.on{background:var(--acd)}
+
+/* ---------- paint layers ---------- */
+/* A layer is a name, an eye, a cross and the colours on it. Boxed rather than merely
+   spaced, because the strip of colours below a heading has to read as belonging to it —
+   two unboxed layers next to each other look like one long strip with a label in the
+   middle of it. The layer being worked on wears the accent border, the same as the
+   selected rule in the left list does, so "which one am I on" has one answer everywhere. */
+/* All the layers in one box.
+ *
+ * Robin: "I want to encapsulate all layers in a container, with a bit darker background,
+ * to clearly separate them from the rest of the elements. The + Paint rule and + Layer
+ * should be outside of that container, and the same is true for the description just below
+ * the layers." Which is the right cut: the two buttons *make* layers and the hint explains
+ * them, so neither is one — a box that swallowed them would say a person's layers included
+ * a paragraph of prose.
+ *
+ * Empty it disappears entirely. A blank sunken rectangle before the palette has loaded
+ * would read as a layer that failed to draw. */
+#paintLayers{background:var(--bg);border:1px solid var(--line);border-radius:7px;
+  padding:7px 7px 1px;margin:2px 0 8px}
+#paintLayers:empty{display:none;padding:0;border:0;margin:0}
+/* Round 18q: the same ground as a grass card (`.slot`). Robin: "The background for the
+   canopies cards and the layer cards are a bit dark. Make those backgrounds the same
+   color as the Grass mesh cards." They are the same kind of thing - one entry in a list
+   you edit - and two shades of it read as two kinds. */
+.player{border:1px solid var(--line);border-radius:6px;padding:6px 7px;margin-bottom:6px;
+  background:var(--bg3)}
+.player.on{border-color:var(--ac2);background:var(--acd)}
+.plhead{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.plname{flex:1;min-width:0;font-size:11.5px;color:var(--tx2);cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.player.on .plname{color:color-mix(in srgb,var(--ac) 58%,var(--tx));font-weight:600}
+.plcount{font-size:10px;color:var(--tx3);white-space:nowrap}
+.plrename{flex:1;min-width:0;font-size:11.5px;padding:2px 6px}
+/* Both marks are drawn rather than typed — see `OVER_MARK` and friends in 03_core.js. A
+   replaced element in a flex box is centred by its own geometry, so neither depends any
+   more on where a fallback font happens to put an arrow inside its line box. Each pair is
+   one drawing in two states, so a row does not change shape as either is toggled. */
+.glyphsvg{display:block;width:20px;height:20px}
+.btn.ic.plover{line-height:0;width:20px;height:20px;flex:0 0 20px;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;font-size:12px;
+  color:var(--info);border-radius:4px}
+.btn.ic.plover.add{color:var(--ac)}
+.btn.ic.plover:hover{background:var(--line2);color:var(--tx)}
+.btn.ic.pleye{line-height:0;width:20px;height:20px;flex:0 0 20px;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;font-size:12px;
+  color:var(--ac);border-radius:4px}
+.btn.ic.pleye.off{color:var(--tx3)}
+.btn.ic.pleye:hover{background:var(--line2);color:var(--tx)}
+.plstrip{display:flex;flex-wrap:wrap;gap:5px}
+/* Round 18k: a canopy is a layer-shaped container whose strip is a column of patterns
+   rather than a row of colours. The name is a field, editable in place. */
+.player.canopy input.plname{cursor:text;padding:2px 6px;background:var(--bg);border:1px solid var(--line2);
+  border-radius:4px;font-family:inherit;color:var(--tx)}
+.player.canopy input.plname:focus{outline:none;border-color:var(--ac2)}
+.canopypats{flex-direction:column;align-items:stretch;gap:4px}
+.patrow{display:flex;gap:6px;align-items:center}
+.patrow .fld{font-size:11.5px;padding:3px 7px;font-family:var(--mono)}
+
+/* Start painting: the one control in the section that changes what the mouse does.
+ *
+ * Robin: "Make the 'Start painting' button bigger and more clear." It was an ordinary
+ * `.btn` in a column of ordinary `.btn`s, so the switch that changes what your right mouse
+ * button does looked exactly like the button that adds a layer. Full width, taller, and
+ * lit while it is on — the same olive the active tool wears, so "I am in paint mode" reads
+ * the same way everywhere. */
+#paintMode,#staticPick{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  width:100%;padding:11px 12px;margin:2px 0 0;
+  font-size:12.5px;font-weight:700;letter-spacing:.3px;
+  border-radius:7px;
+}
+/* The ordinary hover, restated because the ID selectors above would otherwise leave
+   these two with no hover of their own. **Not `.pri`**, though (round 18bc): an ID beats
+   `.btn.pri:hover`, so while painting the lit green button went *grey* under the pointer
+   instead of brighter green, which is the one button in the app whose hover contradicted
+   every other button of the same styling. Robin: "I want it to be the brighter green when
+   I hover it so that it mirrors the other buttons of the same style." */
+/* Round 18cj: the same derived hover every other button has. Robin: "The Start painting
+   and Edit a mesh buttons becomes super dark on hover in Redoran Bone skin" — these two
+   restated `.btn:hover`'s old literals, and a literal that means "a step lighter" on a
+   dark ground means "a step darker than the text" on a pale one. */
+#paintMode:not(.pri):hover,#staticPick:not(.pri):hover{
+  background:color-mix(in srgb,var(--bg4) 86%,var(--tx) 14%);
+  border-color:color-mix(in srgb,var(--line2) 72%,var(--tx) 28%)}
+/* A label's buttons on their own line beneath it — round 4 item 9's shape for the
+   statics-rules and profile pairs. */
+.btnline{display:flex;gap:5px;flex-wrap:wrap;margin:2px 0 4px}
+
+/* ---------- several rules at once ---------- */
+/* A row in the selection but not the one whose identity the panel shows. Marked on the
+   left edge rather than by its background, so it reads as "also held" instead of as a
+   second, competing "current". */
+.sel.msel{background:var(--bg3);box-shadow:inset 3px 0 0 var(--ac2)}
+.sel.msel.on{background:var(--acd);box-shadow:inset 3px 0 0 var(--ac)}
+.sel.paint.msel{box-shadow:inset 3px 0 0 var(--info)}
+.bulkbar{display:flex;align-items:center;gap:8px;padding:7px 10px;margin-bottom:8px;
+  background:var(--acd);border:1px solid var(--ac2);border-radius:6px}
+.bulkcount{font-weight:600;color:color-mix(in srgb,var(--ac) 58%,var(--tx));font-size:11.5px}
+.bulknote{flex:1;font-size:11px;color:var(--tx2)}
+.bulklist{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+.bulkone{font-family:var(--mono);font-size:10.5px;color:var(--tx2);background:var(--bg3);
+  border:1px solid var(--line);border-radius:4px;padding:2px 6px}
+.bulkone.paint{color:var(--info);border-color:color-mix(in srgb,var(--info) 40%,var(--bg))}
+/* A field the selected rules do not agree about. The em-dash is the placeholder, so it
+   disappears the moment you type — which is also the moment it stops being true. */
+.fld.mixed{color:var(--tx3)}
+.fld.mixed::placeholder{color:var(--tx2);opacity:1}
+.val.mixed{color:var(--tx2)}
+.sw.mixed .tr{background:var(--line2);position:relative}
+/* The dash the mixed state draws is centred on the *rail*, which the 6px inset moved. */
+.sw.mixed .tr::after{inset:0}
+.sw.mixed .tr::after{content:"—";position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;font-size:10px;color:var(--tx2)}
+/* Stands where a grass card would, so the panel keeps its shape when the selection
+   changes rather than jumping up the page. */
+.slotmixed{display:flex;align-items:center;justify-content:center;text-align:center;
+  min-height:76px;color:var(--tx3);font-size:11.5px;line-height:1.5;padding:10px 14px}
+
+/* ---------- the rule picker ---------- */
+.rprow{display:flex;gap:10px;align-items:center;padding:6px 9px;cursor:pointer;
+  border-bottom:1px solid var(--line)}
+.rprow:hover{background:var(--bg3)}
+.rpnm{flex:1 1 50%;font-family:var(--mono);font-size:11.5px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.rpnm.paint{color:var(--info)}
+.rpmeta{flex:0 1 auto;font-size:10.5px;color:var(--tx3);white-space:nowrap}
+.tag.paintonly{color:var(--info);border-color:color-mix(in srgb,var(--info) 40%,var(--bg))}
+
+/* ---------- slots ---------- */
+/* Round 18cm: **a little more air, and the light.** Robin: "Make the spacing between grass
+   cards a tiny bit wider, and add the 9px glow on each of the cards too. This is the only
+   other place I want it in the tool except where it is already implemented. Skip it for the
+   Redoran theme though."
+
+   The gradient is the one `#topbar` and `.sect>.sh` wear, at the same `--bloom` — so
+   Redoran skips it by construction rather than by exception: its `--bloom` is 0% (18cg),
+   which mixes the accent to nothing and leaves the card flat. A card is a tenth of the top
+   bar's area, and the corner still reads at that size because the gradient's own extent is
+   in percentages of the box rather than in pixels. */
+.slot{
+  background:var(--bg3);border:1px solid var(--line);border-radius:6px;
+  padding:8px 9px;margin-bottom:10px;
+  background-image:radial-gradient(84% 300% at 0% 0%,
+    color-mix(in srgb,var(--ac) var(--bloom),transparent) 0%, transparent 76%);
+}
+.slot.miss{border-color:color-mix(in srgb,var(--err) 44%,var(--bg))}
+.slot.fill{border-color:color-mix(in srgb,var(--warn) 28%,var(--bg))}
+.slothead{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+.slothead .ix{
+  font-family:var(--mono);font-size:10px;color:var(--tx3);background:var(--bg);
+  padding:1px 5px;border-radius:3px;border:1px solid var(--line2);flex:0 0 auto;
+}
+.slothead .pct{
+  font-family:var(--mono);font-size:11px;color:var(--ac);flex:0 0 auto;
+  font-variant-numeric:tabular-nums;
+}
+.slothead .sp{flex:1}
+/* Round 18q: the card's own name, between its number and its share. As wide as what is
+   in it (`fitName` sets the ch width), so an unnamed card leaves the percentage where it
+   has always been and a named one takes only the room it needs. */
+.slothead .cardname{
+  flex:0 0 auto;min-width:4ch;font-size:11px;padding:1px 5px;
+  background:var(--bg);border:1px solid var(--line2);border-radius:3px;color:var(--tx2);
+}
+.slothead .cardname:focus{outline:none;border-color:var(--ac2);color:var(--tx)}
+.slothead .cardname::placeholder{color:var(--tx3)}
+/* And its two folded sections. The same caret and the same manners as the left column's
+   sections, at the card's scale. */
+.cardsec{margin-top:6px;border-top:1px solid var(--line)}
+.cardsh{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;
+  padding:5px 0 4px;font-size:11px;color:var(--tx2)}
+.cardsh:hover{color:var(--tx)}
+.cardsh .caret{font-size:9px;color:var(--tx3);transition:transform .12s}
+.cardsec.closed .cardsh .caret{transform:rotate(-90deg)}
+/* Round 18ax: the "2 set" on a folded section as a small olive pill rather than grey
+   mono - Robin: "Highlight a little stronger that sets are edited within the collapsed
+   section [...] make that message pop a little bit more". */
+.cardsn{margin-left:auto;font-size:10px;font-weight:600;color:var(--ac);font-family:var(--mono);
+  background:var(--acd);border:1px solid var(--ac2);border-radius:9px;padding:0 6px;line-height:15px}
+.cardsec.closed .cardsb{display:none}
+/* The picture is a render of the mesh now rather than a swatch of its first texture, so
+   it is worth a few more pixels: at 34 square a grass tuft was a green smear. */
+.swatch{
+  width:46px;height:46px;flex:0 0 46px;border-radius:4px;border:1px solid var(--line2);
+  background:#0a0c0f center/contain no-repeat;image-rendering:auto;
+}
+/* A mesh the install does not have. The card already said "missing" in a small red
+   tag, which is easy to miss in a column of eight cards; the swatch is the part of a
+   card the eye lands on, so that is where the warning goes. */
+.swatch.missing{
+  background:color-mix(in srgb,var(--err) 18%,var(--bg));
+  border-color:color-mix(in srgb,var(--err) 50%,var(--bg));
+  color:color-mix(in srgb,var(--err) 52%,var(--tx));
+  display:flex; align-items:center; justify-content:center;
+  font-size:17px; line-height:1;
+}
+/* Where the warnings list just took you. Two seconds, then it fades: long enough to
+   find the card among eight, short enough not to become part of how the card looks. */
+.slot.flash{animation:slotflash 4s ease-out 1}
+@keyframes slotflash{
+  0%,55%{box-shadow:0 0 0 2px var(--hot) inset; background:rgba(255,160,120,.10)}
+  100%{box-shadow:none; background:transparent}
+}
+/* And the rule row itself, for the same reason one step earlier: the dialogue closes, the
+   panel changes behind it, and without a mark there is nothing to tell you *which* of
+   thirty rows the tool just took you to. Three quick pulses rather than one long fade —
+   a row is small and a single soft glow on one reads as a hover. */
+.sel.flash{animation:selflash 3.2s ease-out 1}
+/* A field the warnings list took you to. Same three pulses as the row, so the two read as
+   one gesture — "this rule, and this field in it" — rather than as two separate alarms. */
+.fld.flash,input.fld.flash{animation:selflash 3.2s ease-out 1;position:relative}
+@keyframes selflash{
+  0%,15%  {box-shadow:0 0 0 2px var(--hot) inset}
+  30%,45% {box-shadow:0 0 0 0 transparent}
+  60%,75% {box-shadow:0 0 0 2px var(--hot) inset}
+  100%    {box-shadow:0 0 0 0 transparent}
+}
+/* The ground-texture list, folded away. `#selList` is hidden and the caret turns, the
+   same as a section heading — this is the same gesture on a list that happens to live
+   above the sections rather than among them. */
+#left.folded #selList{display:none}
+#btnFoldSel{transition:transform .12s}
+#left.folded #btnFoldSel{transform:rotate(-90deg)}
+.slotgrid{display:flex;gap:7px;align-items:flex-start}
+.slotgrid .fields{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.mini{display:flex;align-items:center;gap:5px}
+.mini span{font-size:10.5px;color:var(--tx3);flex:0 0 auto}
+.mini .fld{padding:3px 6px;font-size:11.5px}
+.tag{
+  font-size:9.5px;padding:1px 5px;border-radius:3px;text-transform:uppercase;
+  letter-spacing:.4px;font-weight:700;flex:0 0 auto;
+}
+.tag.ok{background:var(--acd);color:var(--ac)}
+.tag.err{background:color-mix(in srgb,var(--err) 18%,var(--bg2));color:var(--err)}
+.tag.warn{background:color-mix(in srgb,var(--warn) 18%,var(--bg2));color:var(--warn)}
+.tag.info{background:color-mix(in srgb,var(--info) 18%,var(--bg2));color:var(--info)}
+
+/* ---------- bans ---------- */
+.ban{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.ban .fld{font-size:11.5px;padding:4px 7px}
+.ban .off{flex:0 0 74px}
+
+/* ---------- viewport ---------- */
+#vpwrap{flex:1;position:relative;min-height:0}
+#gl{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
+#gl:active{cursor:grabbing}
+#vpover{position:absolute;inset:0;pointer-events:none}
+/* Section headings inside the object dialogue. It answers two subjects now — what grass
+   does around a thing, and what paint is on it — and a run of controls with no break in
+   it read as one long question. Robin: "maybe with a different color in the background
+   across the entire row, to more clearly label the two areas" — so each heading is a
+   band across the dialogue's full width (the negative margins undo `.mbody`'s padding),
+   not a rule under some small caps. */
+.axsec{margin:16px -16px 10px;padding:7px 16px;font-size:12px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.8px;color:var(--tx);
+  background:var(--bg3);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.axsec:first-of-type{margin-top:12px}
+/* The status line in the dialogue's foot: what the last action did. It wore the accent
+   colour for a day and Robin asked for the quiet hint voice back — the position beside
+   Close is what makes it findable; the colour was shouting. */
+#axDone{flex:1;text-align:left;font-size:11px;color:var(--tx3);
+  line-height:1.45;align-self:center;min-height:16px}
+#stats{
+  position:absolute;left:12px;top:12px;background:rgba(21,21,21,.88);
+  border:1px solid var(--line);border-radius:6px;padding:9px 11px;
+  font-family:var(--mono);font-size:11px;line-height:1.65;pointer-events:auto;
+  backdrop-filter:blur(6px);min-width:190px;max-width:320px;
+}
+/* Label left, value right, and the gap between them is a rule rather than a hope:
+   the value used to float right, and a float overlaps the flow it floated out of the
+   moment label plus value outgrew the row — which is what overlapping text in this box
+   was. Flex cannot overlap; a value too big for its row pushes the box wider, up to
+   the max above, and the strings that can genuinely run long are middle-trimmed with
+   the whole of them in the row's tooltip (`midTrim`). */
+#stats div{display:flex;gap:12px;align-items:baseline}
+#stats div[hidden]{display:none}  /* the flex line above would otherwise outrank [hidden] */
+#stats .k{color:var(--tx3);white-space:nowrap}
+#stats .v{color:var(--tx);margin-left:auto;font-variant-numeric:tabular-nums;
+  text-align:right;overflow-wrap:anywhere}
+#stats .v.g{color:var(--ac)}
+#stats .v.w{color:var(--warn)}
+#stats .v.e{color:var(--err)}
+#stats hr{border:none;border-top:1px solid var(--line);margin:6px 0}
+#stats .ttl{color:var(--tx2);font-size:10px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+/* Round 18cy: the visit history's arrows on the heading row, and the star on the cell row.
+   The arrows sit at the row's far end; a disabled one is dimmed rather than hidden, so the
+   row keeps its shape whichever way there is to go. The star stands at the name's side -
+   the value's own auto margin moves to it, so the two read as one thing. */
+#stats .hist{margin-left:auto;display:flex;gap:3px;align-items:center}
+#stats .hist[hidden],#stats .fav[hidden]{display:none}   /* the flex above would outrank [hidden] */
+#stats .hist button{font:inherit;font-size:9px;line-height:1;padding:2px 5px;background:transparent;
+  border:1px solid var(--line);border-radius:4px;color:var(--tx2);cursor:pointer}
+#stats .hist button:not(:disabled):hover{color:var(--tx);border-color:var(--tx3)}
+#stats .hist button:disabled{opacity:.35;cursor:default}
+/* Round 18cz: closer to the name - the row's 12px gap is for label and value, and the star
+   is part of the value; a negative margin takes most of it back. Robin: "the star is a bit
+   too far away from the name". */
+#stats .fav{margin-left:auto;margin-right:-8px;cursor:pointer;font-size:13px;line-height:1;padding:0 1px;user-select:none;color:var(--tx3)}
+#stats .fav[data-on="1"]{color:var(--warn)}   /* the map's own star colour */
+#stats .fav+.v{margin-left:0}
+/* The inspected mesh's panels — its textures, and its retextures under them — standing
+   where the cell stats box stands otherwise: the two never show together, because
+   inspecting a mesh is what hides the stats. The wrapper is the column; each panel
+   scrolls for itself when the pair outgrows the viewport. */
+#inspanels{
+  position:absolute;left:12px;top:12px;width:238px;display:flex;flex-direction:column;
+  gap:10px;max-height:calc(100% - 96px);pointer-events:none;
+}
+#meshHead,#texPanel,#retexPanel,#avoidPanel{
+  background:rgba(21,21,21,.88);
+  border:1px solid var(--line);border-radius:6px;padding:9px 11px;
+  pointer-events:auto;backdrop-filter:blur(6px);
+  overflow:auto;min-height:0;flex:0 1 auto;
+}
+#meshHead,#avoidPanel{flex:0 0 auto;overflow:hidden}
+/* Round 5: the lock as a corner glyph — open or shut is the state, at a glance. It
+   wears the warn colour while shut, because a locked setup is the thing every
+   refused edit will be about. */
+/* Round 18ad: bigger, and it says which state it is in. Robin: "Make the lock button a bit
+   bigger in the mesh editing mode, and write next to the symbol 'Locked' 'Unlocked' for the
+   two states." A shackle that moves by two pixels is a fine thing to *recognise* and a poor
+   thing to read the first time; the word settles it, and the glyph keeps saying it at a
+   glance once you know. */
+#meshLockBtn{position:absolute;right:12px;top:12px;z-index:25;pointer-events:auto;
+  display:flex;align-items:center;gap:8px;line-height:1;
+  padding:8px 12px;border-radius:9px;cursor:pointer;color:var(--tx);font-size:12.5px;
+  background:rgba(21,21,21,.88);border:1px solid var(--line);backdrop-filter:blur(6px)}
+#meshLockBtn .mlg{display:flex;line-height:0}
+#meshLockBtn:hover{border-color:var(--ac)}
+/* Round 17k: Recentre, under the lock, where the cell's stack would be. The lock is
+   26px of glyph in 9px of padding, so this clears it and keeps the stack's own gap.
+   18a: the navigation button takes that slot and Recentre moves one button down, so the
+   editor's corner reads lock, scheme, recentre - the cell's stack in miniature. */
+/* Round 18z: the glyph is drawn now, so the gold reaches it as well as the border - the
+   shackle and the frame say the same thing in shape and in colour. */
+/* Round 18ad: and a thicker ring while it is shut. As a second border it would move the
+   button a pixel at every toggle; as a shadow the ring doubles and nothing else does. */
+#meshLockBtn.locked{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 20%,var(--bg2));
+  color:var(--warn);box-shadow:0 0 0 1.5px var(--warn)}
+/* Round 6 item 2: while the setup is locked, the editor's edit controls stand down.
+   `.held` dims and disarms a control the lock refuses — the tiles keep their hover
+   and their right-click grid, because *finding* other meshes is not an edit. */
+.textile .trule.held,.textile .tinset:disabled{opacity:.45}
+.textile .trulex.held{opacity:.4;cursor:default}
+.textile .trulex.held:hover{background:none}
+#texPanel .ttl,#retexPanel .ttl{color:var(--tx2);font-size:10px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+#texGrid,#retexGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+#retexPanel .hint{margin-top:7px}
+/* One mesh as a tile: picture, name strip, and the top strip a decision reads.
+   Worn by the retextures panel and by the install-wide texture grid dialogue. */
+.meshtile{position:relative;border:1px solid var(--line);border-radius:5px;cursor:pointer;
+  background-size:cover;background-position:center;aspect-ratio:1/1;overflow:hidden;
+  background-color:#2a2a2a}
+.meshtile:hover{border-color:var(--ac)}
+.meshtile.on{border-color:var(--ac);box-shadow:0 0 0 2px var(--ac) inset}
+.meshtile.lk{cursor:not-allowed;opacity:.72}
+.meshtile .tname{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.62);
+  font-size:10px;padding:2px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meshtile .tbadge{position:absolute;left:0;right:0;top:0;background:rgba(0,0,0,.62);
+  font-size:10px;padding:2px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The first install scan reads thousands of files; this is what stands in for the
+   answer while it does — a line of counted progress and a fill bar (round 3: "it
+   takes a long time to do so with no feedback"). */
+.loadwrap{display:flex;flex-direction:column;gap:7px;align-items:stretch;padding:14px 8px}
+.loadbar{height:6px;border:1px solid var(--line);border-radius:4px;overflow:hidden;
+  background:rgba(0,0,0,.3)}
+.loadbar>div{height:100%;width:0%;background:var(--ac);transition:width .25s}
+/* Round 17k: before the count is known, a stripe that travels rather than a bar sitting
+   at nothing — "working, and I do not yet know how much of it". */
+.loadbar>div.indet{width:36%;transition:none;
+  background:linear-gradient(90deg,transparent,var(--ac),transparent);
+  animation:indetslide 1.1s linear infinite}
+@keyframes indetslide{from{transform:translateX(-100%)}to{transform:translateX(320%)}}
+/* The give/take pair on a retexture tile — over the picture, under the name strip. */
+.meshtile .tcopy{position:absolute;right:3px;bottom:18px;display:flex;gap:3px}
+.meshtile .tcopy button{border:1px solid var(--line);background:rgba(0,0,0,.62);
+  color:var(--tx);border-radius:4px;font-size:11px;line-height:1;padding:3px 5px;cursor:pointer}
+.meshtile .tcopy button:hover{border-color:var(--ac);color:var(--ac)}
+.textile{position:relative;border:1px solid var(--line);border-radius:5px;cursor:pointer;
+  background-size:cover;background-position:center;aspect-ratio:1/1;overflow:hidden;
+  background-color:#2a2a2a}
+.textile:hover{border-color:var(--ac)}
+.textile .tname{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.62);
+  font-size:10px;padding:2px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.textile .trule{position:absolute;left:0;right:0;top:0;background:rgba(0,0,0,.62);
+  font-size:10px;padding:2px 4px;color:var(--ac);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.textile .trule.miss{color:var(--warn)}
+/* The way off the tile (round 4 item 1): a red ✕ at the rule strip's right end. The
+   strip leaves it room so a long rule name never sits under it. */
+.textile .trule{padding-right:16px}
+.textile .trulex{position:absolute;right:2px;top:1px;padding:1px 4px;color:var(--err);
+  cursor:pointer;font-size:10px;border-radius:3px}
+.textile .trulex:hover{background:rgba(255,80,80,.22)}
+/* Item 7's reach slider, over the picture and above the name strip. Its track is the
+   tile, so it stays readable at tile size; the thumb carries the accent. */
+.textile .tinset{position:absolute;left:3px;right:3px;bottom:17px;width:calc(100% - 6px);
+  margin:0;height:12px;cursor:ew-resize;accent-color:var(--ac);background:transparent}
+.textile .tinset:disabled{cursor:not-allowed;opacity:.5}
+#texPanel .hint{margin-top:7px}
+/* One rule for both stacks (round 18m): the cell's and the mesh editor's are the same
+   column of the same buttons, so a change to one cannot leave the other looking older. */
+#vptools,#meshTools{
+  position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:6px;
+  pointer-events:auto;align-items:flex-end;
+}
+/* Round 18l: the editor's stack starts under the lock, where Recentre used to. After the
+   shared rule above, so its `top` wins. */
+/* 18ad: the lock grew a word and two pixels of glyph, so this drops to clear it. */
+#meshTools{top:68px;z-index:25}
+#meshTools[hidden]{display:none}
+.vpbtn{
+  background:rgba(21,21,21,.88);border:1px solid var(--line);border-radius:5px;
+  padding:5px 9px;font-size:11.5px;backdrop-filter:blur(6px);
+}
+.vpbtn:hover{background:rgba(45,45,42,.96)}
+.vpbtn.on{background:var(--acd);border-color:var(--ac2);color:var(--ac)}
+/* Round 18bd (C4): a direction in the copy-setup dialogue whose source mesh has nothing
+   set up on it. Robin: "gray out that specific choice for meshes that have no data." Not
+   `disabled`, because it is still worth clicking — the flip is how you see what the other
+   direction would carry, and the note under the pair says why this one cannot go. */
+.vpbtn.off{color:var(--tx3);border-color:var(--line);background:var(--bg3)}
+.vpbtn.off.on{color:var(--tx3);border-color:var(--line2);background:var(--bg4)}
+/* Round 17i: the navigation button says which scheme is on in the colours of the two
+   things it is like — Orbit in the "No grass" tool's salmon, WASD in the ordinary
+   toggled-on olive. Robin asked for exactly that pair; everything else about the button
+   is the plain `.vpbtn`. */
+/* Round 18cj: orbit navigation has a colour of its own (`--orbit`) rather than borrowing
+   the "no grass" paint's salmon, which is what `--hot` is. Robin: "The orbit pivot, and the
+   navigation mode button's orbit state color in the viewport should also have a color
+   assigned to the theme." The pivot ball and its stamp on the ground read the same token —
+   the renderer is handed it by `Themes.tellRenderer`. */
+#tbNav.orbit,#meshNav.orbit{background:color-mix(in srgb,var(--orbit) 18%,var(--bg2));
+  border-color:var(--orbit);color:var(--orbit)}
+#tbNav.wasd,#meshNav.wasd{background:var(--acd);border-color:var(--ac2);color:var(--ac)}
+select.vpbtn{color:var(--tx2);max-width:190px}
+/* Round 17: the flying camera's speed bar - the right edge, mid height, always up
+   while the WASD scheme is on. A range input stood on end. */
+#vpSpeed{
+  position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  background:rgba(21,21,21,.86);border:1px solid var(--line);border-radius:6px;
+  padding:7px 5px;pointer-events:auto;backdrop-filter:blur(6px);
+}
+#vpSpeed[hidden]{display:none}
+#vpSpeed .spv{font-size:10.5px;font-family:var(--mono);color:var(--tx);min-width:40px;text-align:center}
+#vpSpeed .spl{font-size:9.5px;color:var(--tx3);letter-spacing:.4px;text-transform:uppercase}
+#vpSpeedBar{
+  writing-mode:vertical-lr;direction:rtl;width:18px;height:150px;margin:2px 0;
+  accent-color:var(--ac);cursor:ns-resize;   /* the same slider as every other one (round 17c) */
+}
+#vpSpeed .sppop{
+  position:absolute;right:52px;top:50%;transform:translateY(-50%);
+  font-size:13px;font-family:var(--mono);color:var(--ac);background:rgba(21,21,21,.92);
+  border:1px solid var(--ac2);border-radius:6px;padding:4px 9px;white-space:nowrap;pointer-events:none;
+}
+#vpSpeed .sppop[hidden]{display:none}
+#busy{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:14px;background:rgba(21,21,21,.72);backdrop-filter:blur(3px);
+  pointer-events:auto;z-index:20;
+}
+#busy[hidden]{display:none}
+/* Round 18bo. Robin: "The progress bar and button for exporting a .esp isn't shown on top
+   of the Export groundcover .esp dialogue. I think it should lie on top of the export
+   dialogue, and darken the export dialogue out as long as the export progress bar is
+   open."
+
+   The card is `position:absolute` inside the viewport pane at z-index 20, which is right
+   when the thing it is covering *is* the viewport — the left column stays legible and you
+   can see what is being loaded behind it. A dialogue is `position:fixed` at z-index 150, so
+   the card was underneath it and off to one side: the export ran with its own progress bar
+   hidden behind the dialogue that started it.
+
+   So when the work was started from a dialogue, the card goes over the whole window
+   instead. Between the toasts (200) and the tooltip (400), because a card that blocks the
+   window should cover a message about something else, and nothing should cover the
+   tooltip. `Busy.show` decides which of the two it is by looking for an open dialogue —
+   the card does not need to be told, and cannot be told wrong. */
+#busy.overall{position:fixed;z-index:300}
+/* Round 18bo. Robin: "clicking 'Cancel export' makes the confirmation dialogue pop up
+   blurred out and darkened behind the Generating plugin, instead of on top of it, making it
+   impossible to click." Mine, from raising the card over dialogues an hour earlier — the
+   card's whole job is to be in front of the window, and the question the card itself asks
+   is part of that window.
+
+   So the layers are stated once, here, in the order they have to be in:
+     dialogues 150  ·  toasts 200  ·  the busy card 300  ·  a question 350  ·  tooltip 400
+   A question is always on top, because it is the only thing on screen that can be answered
+   and there is nothing it would make sense to bury it under. Not conditional on a card
+   being up: a rule that holds sometimes is a rule somebody has to remember. */
+#mChoice{z-index:350}
+#busy .card{
+  background:var(--bg2);border:1px solid var(--line2);border-radius:9px;
+  padding:18px 22px;min-width:340px;box-shadow:0 16px 48px rgba(0,0,0,.5);
+}
+#busy .lbl{font-size:12.5px;color:var(--tx);margin-bottom:4px}
+#busy .sub{font-size:11px;color:var(--tx3);font-family:var(--mono);margin-bottom:11px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#busy .track{height:6px;background:var(--bg);border-radius:3px;overflow:hidden;border:1px solid var(--line)}
+#busy .fill{height:100%;background:var(--ac2);width:0%;transition:width .18s ease-out}
+#busy .fill.indet{
+  width:35%;background:linear-gradient(90deg,transparent,var(--ac2),transparent);
+  animation:sweep 1.1s ease-in-out infinite;
+}
+@keyframes sweep{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
+/* Round 18bo: the clock and the percentage share one row across the bar's width. */
+#busyFoot{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:5px}
+#busyTime{font-size:10.5px;color:var(--tx3);font-family:var(--mono);
+  /* Tabular figures: a clock whose digits change width jitters the whole row once a
+     second, which reads as the window stuttering rather than as time passing. */
+  font-variant-numeric:tabular-nums}
+#busy .pct{font-size:10.5px;color:var(--tx3);font-family:var(--mono);text-align:right;
+  font-variant-numeric:tabular-nums}
+/* Round 18bn: the Cancel that sits under the bar. Centred under it rather than beside
+   the percentage, so it reads as a way out of the whole card and not as a label. */
+#busyStop{margin-top:11px;text-align:center}
+#vphint{
+  position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+  font-size:11px;color:var(--tx3);background:rgba(21,21,21,.84);
+  padding:4px 12px;border-radius:12px;backdrop-filter:blur(6px);white-space:nowrap;
+}
+/* The legend, lower right. Deliberately quiet: the viewport is the thing being looked at
+   and this is a key to it, so it sits at the same weight as the control hint opposite and
+   disappears the moment nothing on the ground is marked. */
+/* Round 18l: in the mesh editor the bottom-right corner is the destructive pair's, so
+   the legend stands above them - `placeLegend` measures the pair and sets `bottom`. */
+#legend{
+  position:absolute;right:12px;bottom:14px;background:rgba(21,21,21,.86);
+  border:1px solid var(--line);border-radius:6px;padding:7px 10px;
+  font-size:10.5px;line-height:1.55;color:var(--tx2);backdrop-filter:blur(6px);
+  max-width:270px;pointer-events:none;
+}
+#legend[hidden]{display:none}
+#legend .lgrow{display:flex;align-items:center;gap:7px;white-space:nowrap}
+#legend .lgsw{width:9px;height:9px;flex:0 0 9px;border-radius:2px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.55)}
+#legend .lgnote{color:var(--tx3);overflow:hidden;text-overflow:ellipsis}
+#noctx{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:14px;text-align:center;padding:40px;
+  background:rgba(12,15,20,.92);
+}
+/* an id selector outranks the UA [hidden] rule, so hidden must be restated here
+   or this overlay stays laid out on top of the canvas and eats every pointer event */
+#noctx[hidden]{display:none}
+#noctx .big{font-size:15px;color:var(--tx2)}
+/* The empty simplified viewport. No backdrop — there is nothing behind it to cover, and
+   a panel over an empty scene would look like something failed. Pointer-events off: the
+   camera still orbits an empty world, which is less alarming than a viewport that has
+   stopped responding. */
+#vpempty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:40px;pointer-events:none}
+#vpempty[hidden]{display:none}
+#vpempty .big{font-size:15px;color:var(--tx2)}
+#noctx .sm{font-size:12.5px;color:var(--tx3);max-width:430px;line-height:1.65}
+/* Round 18ed: the bar is the viewport's own foot, ending where the right column begins,
+   and each side column carries its own strip at its bottom instead. */
+#vpbar{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:0 12px;
+  /* The same height as the two panel feet (18ed): the three strips are one line across
+     the bottom of the window, and their top borders meet. */
+  height:var(--foot-h);
+  background:var(--bg2);border-top:1px solid var(--line);
+  /* No wrapping: the bar is one line across the viewport, and a long ground note gives
+     way before the status does (its own ellipsis, below). */
+  flex-wrap:nowrap;overflow:hidden;
+}
+#vpbar>.grp:first-child{min-width:0}
+#vpbar>.grp:first-child>span{overflow:hidden;text-overflow:ellipsis}
+#vpbar .grp{display:flex;align-items:center;gap:6px}
+#vpbar .grp>span{font-size:11px;color:var(--tx3);white-space:nowrap}
+#vpbar .fld{width:auto;padding:3px 6px;font-size:11.5px}
+/* `accent-color` is gone from here: styling the thumb above turns it off, and a property
+   that cannot apply is a property that misleads whoever reads this next. */
+#vpbar input[type=range]{width:96px;accent-color:var(--ac)}
+#vpbar .vsep{width:1px;height:18px;background:var(--line)}
+#vpbar .gi{font-size:11px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
+/* What the window is doing, at the right-hand end of the bottom bar. The message keeps
+   a fixed slot and the track keeps its space when there is nothing to show, so neither
+   makes the bar jump about every time a rescatter starts and stops. */
+#vpStatus{flex:0 0 auto;gap:8px}
+#vpStatus .msg{font-size:11px;white-space:nowrap;text-align:right;
+  min-width:190px;overflow:hidden;text-overflow:ellipsis;color:var(--tx3)}
+#vpStatus .msg.work{color:var(--ac)}
+#vpStatus .msg.wait{color:var(--warn)}
+#vpStatus .track{width:110px;height:5px;border-radius:3px;background:var(--bg);
+  border:1px solid var(--line);overflow:hidden;visibility:hidden}
+#vpStatus .track.on{visibility:visible}
+#vpStatus .fill{height:100%;width:0%;background:var(--ac2);transition:width .16s ease-out}
+#vpStatus .fill.indet{width:35%;background:linear-gradient(90deg,transparent,var(--ac2),transparent);
+  animation:sweep 1.1s ease-in-out infinite}
+
+/* ---------- toast / status ---------- */
+/* Round 9 item 4: the messages in the corner. They were small, brief and gone —
+   Robin: "bigger, and more descriptive. Let them linger a bit longer." So: more room
+   for a sentence that says what happened rather than a word that names it, a longer
+   stay, and — where the message is about a place in the program — a line saying it can
+   be clicked, which takes you there. */
+#toasts{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:8px;z-index:200;align-items:flex-end;
+  pointer-events:none}
+/* The stack itself takes no clicks — it lies over the viewport, and a corner of it that
+   swallowed a drag would be worse than no messages. Each message takes its own. */
+#toasts>*{pointer-events:auto}
+.toast{
+  background:var(--bg3);border:1px solid var(--line2);border-left:3px solid var(--info);
+  border-radius:6px;padding:11px 15px;font-size:13px;line-height:1.45;max-width:470px;
+  box-shadow:0 6px 22px rgba(0,0,0,.45);animation:tin .16s ease-out;
+}
+.toast.ok{border-left-color:var(--ac)}
+.toast.warn{border-left-color:var(--warn)}
+.toast.err{border-left-color:var(--err)}
+/* A message that knows where its subject is. The cue is a line rather than a button:
+   the whole message is the target, and a button inside it would invite the eye to aim
+   at something the size of a word. */
+.toast.go{cursor:pointer}
+.toast.go:hover{background:var(--bg4);border-color:color-mix(in srgb,var(--line2) 72%,var(--tx) 28%)}
+.toast .tgo{margin-top:5px;font-size:11.5px;color:var(--ac);display:flex;gap:5px;align-items:center}
+.toast.go:hover .tgo{color:var(--tx)}
+@keyframes tin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+#folderState{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--tx3);min-width:0}
+#folderState .d{width:7px;height:7px;border-radius:50%;background:var(--err);flex:0 0 7px}
+#folderState.ok .d{background:var(--ac)}
+#folderState .p{font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+
+/* ---------- modal ---------- */
+.modal{position:fixed;inset:0;background:rgba(10,10,9,.72);display:flex;align-items:center;justify-content:center;z-index:150;backdrop-filter:blur(2px)}
+.modal[hidden]{display:none}
+.mbox{background:var(--bg2);border:1px solid var(--line2);border-radius:9px;width:min(860px,92vw);max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.65)}
+.mhead{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.mhead b{font-size:14px;flex:1}
+.mbody{padding:14px 16px;overflow:auto;flex:1;min-height:0}
+/* A section heading inside a dialogue (round 17h). Robin: "In the Settings dialogue,
+   make the different section headers more clear, with a differentiated bit lighter
+   background. Mimic how headlines look in the left most column (except the expand /
+   collapse feature)." So: the same band, the same small uppercase lettering and the same
+   edges as `.sect>.sh` — reaching the dialogue's own edges rather than floating inside
+   its padding, which is what makes a heading look like a heading and not like a bold
+   line of the section above it. No caret: there is nothing to fold here. */
+.mbody>.mhead2{
+  display:flex;align-items:center;gap:7px;padding:8px 16px;
+  margin:16px -16px 10px;
+  font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--tx2);
+  background:var(--bg3);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+}
+/* The first one sits against the dialogue's own head, so it needs no gap above it and no
+   second line where the head already drew one. */
+.mbody>.mhead2:first-child{margin-top:-14px;border-top:0}
+.mfoot{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line)}
+/* Which rules go in an exported copy. Its own block above the file it is about to
+   write, so the list and the preview of the result read top to bottom in the order the
+   decision is made. Bounded height: a set of a hundred and thirty rules must not push the
+   .toml itself off the screen, which is the other half of what this dialogue is for. */
+.expsec{
+  background:var(--sunk);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;margin-bottom:12px;
+}
+/* Said once for both exporters. The grass rules and the mesh setups are two different
+   things to send somebody, but choosing which of them travel is one act and has to look
+   like one — Robin, of the statics exporter: "make it work exactly like the export copy
+   of grass rules dialogue instead". A second copy of these rules is a second thing to
+   forget to change. */
+.explist{max-height:220px;overflow:auto;border-top:1px solid var(--line);padding-top:4px}
+.explist .exgroup{
+  font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--tx3);
+  padding:9px 2px 3px;user-select:none;display:flex;gap:8px;align-items:baseline;
+}
+.explist .exgroup .n{text-transform:none;letter-spacing:.2px}
+.explist label{
+  display:flex;align-items:center;gap:8px;padding:3px 2px;cursor:pointer;border-radius:4px;
+}
+.explist label:hover{background:var(--bg3)}
+.explist .nm{flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.explist label.paint .nm{color:color-mix(in srgb,var(--info) 42%,var(--tx))}
+.explist .sub{flex:0 0 auto;font-size:10.5px;color:var(--tx3)}
+/* A section heading inside an `.expsec`, with its count on the right. The Advanced scope
+   stacks three lists in one dialogue and they have to be tellable apart at a glance. */
+.exhead{
+  display:flex;gap:8px;align-items:baseline;justify-content:space-between;
+  font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--tx2);
+  margin:0 0 6px;user-select:none;
+}
+.exhead .n{text-transform:none;letter-spacing:.2px;color:var(--tx3)}
+/* The three Advanced lists are shorter than the exporter's one: three of them at 220px
+   would put the Generate button a long way below the fold. */
+#espAdvBox .explist{max-height:150px}
+/* A row nothing can be exported from: no loaded rule reaches that ground. Dimmed rather
+   than hidden, because "there is nothing here for your rules" is an answer and an absent
+   row is not one — and the Edited cells chip is there for anybody who wants them gone. */
+.explist label.off{opacity:.45}
+.explist label.off .nm{font-style:italic}
+.exout{
+  width:100%;height:52vh;background:var(--bg);border:1px solid var(--line2);border-radius:6px;
+  padding:11px;font-family:var(--mono);font-size:11.5px;line-height:1.55;resize:none;white-space:pre;
+}
+/* Round 18cf: **10px, and not in the radius scale.** Robin: "Pills stay round by the way,
+   as you say they have a deliberate meaning, and I don't think we should change that." It
+   is the one radius in the file doing a job rather than a style — on an 18px-tall element a
+   capsule is a shape, and it is how a *reading* is told apart from a *control*. Every pill
+   in this program reports; none of them offers. Do not fold it into `--r-ctl`. */
+.pill{font-size:11px;color:var(--tx3);background:var(--bg3);border:1px solid var(--line);padding:2px 8px;border-radius:10px}
+/* Derived from `--warn` so a theme carries it: the three literals it had only meant
+   "a warm band" against a near-black ground. */
+.warnbox{background:color-mix(in srgb,var(--bg3) 80%,var(--warn) 20%);
+  border:1px solid color-mix(in srgb,var(--warn) 32%,var(--bg4));
+  border-radius:var(--r-box);padding:9px 11px;font-size:11.5px;
+  color:color-mix(in srgb,var(--warn) 38%,var(--tx));line-height:1.6;margin-bottom:10px}
+.warnbox b{color:var(--warn)}
+/* The list inside a problem box, and the row that offers the rest of it. Opened, the list
+   gets a ceiling and scrolls: a hundred warnings must not push the .toml itself off the
+   screen, which is the thing the dialogue is actually for. */
+/* A rule switch's name in the simplified preview. A button, because it does something —
+   it opens the rule — and looking like plain text next to a switch that also does
+   something would leave you guessing which half of the row you are aiming at. */
+/* ---------- the asset picker, in two views ---------- */
+/* A row is a row and a tile is a tile, but both are `.brow`, so picking, starring and the
+   selected background are written once and the view only decides the shape. */
+.brow{display:flex;align-items:center;gap:8px;padding:5px 9px;cursor:pointer;
+  border-bottom:1px solid var(--line)}
+.brow:hover{background:var(--bg3)}
+.brow.picked{background:var(--acd)}
+.bpath{flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#brList.grid,#ltList.grid,#opList.grid{display:grid;gap:8px;padding:9px;
+  grid-template-columns:repeat(auto-fill,minmax(116px,1fr))}
+#brList.grid .brow,#ltList.grid .brow,#opList.grid .brow{
+  flex-direction:column;align-items:stretch;gap:3px;position:relative;
+  padding:7px;border:1px solid var(--line);border-radius:7px;background:var(--bg2)}
+#brList.grid .brow:hover,#ltList.grid .brow:hover,#opList.grid .brow:hover{border-color:var(--line2)}
+#brList.grid .brow.picked{border-color:var(--ac2)}
+/* The picture, and what stands in when there is none.
+ *
+ * Not every mesh has one: a collision-only shape, a marker, or anything whose parts name
+ * no texture has nothing to show. A tile that just stayed dark would be indistinguishable
+ * from one still loading, so `.none` wears a faint check — the conventional "nothing
+ * here", quiet enough not to compete with the tiles that do have a picture. */
+/* The live one. It *replaces* the still picture rather than covering it: the canvas is
+   transparent everywhere the mesh is not, so leaving the still one behind showed two
+   copies of the same object, one of them frozen at the angle it was drawn at. The tile's
+   background is put by when the first live frame is already in the canvas and given back
+   when the pointer leaves, so neither swap blinks. `pointer-events:none` so the canvas is
+   not what gets clicked. */
+.bspin{position:absolute;inset:0;width:100%;height:100%;border-radius:5px;
+  pointer-events:none}
+/* The way out of a viewport mode: bottom-left, bigger than the toggles top-right,
+   because leaving is the thing you look for when you are done and it should not be a
+   hunt. Same accent as other primary actions. */
+/* The destructive pair, opposite the exit and dressed apart from everything else —
+   mauve, Robin's colour for "this deletes something". */
+.btn.mauve{background:color-mix(in srgb,var(--info) 30%,var(--bg2));
+  border-color:color-mix(in srgb,var(--info) 56%,var(--bg));
+  color:color-mix(in srgb,var(--info) 24%,var(--tx))}
+.btn.mauve:hover{background:color-mix(in srgb,var(--info) 42%,var(--bg2));
+  border-color:color-mix(in srgb,var(--info) 76%,var(--bg))}
+#vpDanger{position:absolute;right:16px;bottom:16px;z-index:30;display:flex;
+  flex-direction:column;gap:8px;align-items:flex-end;pointer-events:auto}
+/* Inside the stack the exit geometry is kept but not the absolute corner. */
+#vpDanger .vpdanger{position:static}
+.btn.mauve:disabled{opacity:.45;cursor:not-allowed}
+/* The ways out, stacked bottom-left: the mesh editor has two and everywhere else has
+   one. Mirrors #vpDanger opposite it, down to keeping the button geometry and dropping
+   the absolute corner inside the stack. */
+#vpLeave{position:absolute;left:16px;bottom:16px;z-index:30;display:flex;
+  flex-direction:column;gap:8px;align-items:flex-start;pointer-events:auto}
+#vpLeave .vpexit{position:static}
+/* A switch that is not yours to touch looks like one. `disabled` on the input alone
+   changed nothing visible — the track is a sibling span and knows nothing about it —
+   which is why the mesh editor's avoidance switch stayed bright under a lock while
+   refusing every click. Robin: "Gray out the Obstacle avoidance toggle in the Mesh
+   editor when the mesh is locked." */
+.sw input:disabled+.tr{opacity:.4}
+.sw:has(input:disabled){cursor:not-allowed}
+.vpexit{position:absolute;left:16px;bottom:16px;z-index:30;
+  font-size:16px;font-weight:600;padding:12px 22px;border-radius:8px;
+  box-shadow:0 3px 14px rgba(0,0,0,.42);
+  /* It lives inside #vpover, whose pointer-events:none is inherited — without this the
+     button is a picture of a button: visible, hit-tested straight through to whatever
+     sits behind it. Robin: "not clickable, and thus do nothing". */
+  pointer-events:auto}
+/* "Paint on statics too", while a room forces it on: still shown, clearly not yours to
+   touch. The checkbox is disabled underneath — that is what makes it non-interactive.
+   No pointer-events:none here: it also swallowed the hover, so the "Always on in
+   interiors" tooltip never showed, which was the one thing left explaining the state. */
+#paintStaticsRow.forced{opacity:.55}
+/* Round 17y: any row a room takes out of reach - the Atmosphere switch, forced off. */
+.row.forced{opacity:.55}
+.bthumb{position:relative;width:100%;aspect-ratio:1;border-radius:5px;border:1px solid var(--line);
+  background-color:var(--bg);background-size:cover;background-position:center;
+  background-image:none;
+  image-rendering:pixelated}
+.bthumb.none{background-image:
+  linear-gradient(45deg,var(--bg2) 25%,transparent 25%,transparent 75%,var(--bg2) 75%),
+  linear-gradient(45deg,var(--bg2) 25%,transparent 25%,transparent 75%,var(--bg2) 75%);
+  background-size:14px 14px;background-position:0 0,7px 7px}
+.bname{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Round 18bg: "No visuals", written across the tile of a record with nothing to draw —
+   Robin: "If the object misses something to render completely, write a message in the
+   grid square". The checkerboard behind it already says "nothing here"; the words say
+   *why* nothing is there, which on an object picker is a real answer rather than a
+   failure: a leveled list whose creatures share no mesh, a record whose model the install
+   does not ship, an activator that is a trigger box. Sized to fit the narrowest tile. */
+.bnovis{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:4px;font-size:10px;line-height:1.25;color:var(--tx3);
+  pointer-events:none}
+.bdir{font-family:var(--mono);font-size:9.5px;color:var(--tx3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* In a tile the star floats over the corner of the picture; in a row it sits at the end
+   of the line, which is what `.fav`'s own inline style already does. */
+#brList.grid .fav,#ltList.grid .fav,#opList.grid .fav{position:absolute;top:9px;right:9px;
+  background:rgba(0,0,0,.55);border-radius:4px}
+.prule{
+  flex:1;min-width:0;display:flex;align-items:baseline;gap:7px;
+  background:none;border:0;padding:2px 4px;margin:0;border-radius:4px;
+  font:inherit;text-align:left;cursor:pointer;color:var(--tx);
+  overflow:hidden;
+}
+.prule:hover{background:var(--bg3);color:var(--ac)}
+.prule .pn{font-family:var(--mono);font-size:11px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prule .ps{flex:0 1 auto;font-size:10.5px;color:var(--tx3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prule.off .pn,.prule.off .ps{color:var(--tx3)}
+.problems{margin-top:5px}
+.problems.all{max-height:230px;overflow:auto;padding-right:4px}
+.problem{padding:1px 0}
+.morerow{display:flex;align-items:center;gap:9px;margin-top:7px}
+.morerow span{flex:1;color:var(--tx3);font-size:11px}
+.okbox{background:color-mix(in srgb,var(--ac) 12%,var(--bg2));
+  border:1px solid color-mix(in srgb,var(--ac) 28%,var(--bg));border-radius:6px;
+  padding:9px 11px;font-size:11.5px;color:color-mix(in srgb,var(--ac) 45%,var(--tx));
+  line-height:1.6;margin-bottom:10px}
+.logline{font-family:var(--mono);font-size:11px;padding:2px 0;color:var(--tx2)}
+.logline.e{color:var(--err)}
+.logline.w{color:var(--warn)}
+.logline.warn{color:var(--warn)}
+
+/* ---------- Round 18ay: the compass ----------
+   Robin: "I like the compass from D of the redesigns. Lets add ONLY that from the D
+   alternative, but place it under the Recentre button in the top right corner of the
+   view port. Make sure it always points to North relative to the orientation of the
+   camera in the viewport." The rose is D's drawing; it sits at the foot of each tool
+   stack (the cell's and the mesh editor's), and turns with the camera's azimuth, which
+   the renderer reports every frame the camera moves (`Renderer._tellNorth`). The needle
+   points to +Y, the game's north, as it lies on the screen.
+
+   Round 18az: the turn is an SVG `rotate` on the rose's own group (written by
+   `App.R.onNorth` in 11_events.js), not a CSS transform. A CSS transform (with a
+   drop-shadow filter beside it) had the browser rasterise the rose once at its 42 px and
+   turn the *bitmap*, and a one-pixel ring turned as a bitmap is a stair of pixels -
+   Robin: "It looks a bit pixly now." Turned inside the SVG it is drawn from the paths at
+   every angle, and the ring stays a line. Round 18ba: the softness the CSS transition
+   gave is back, done by hand - `onNorth` eases the drawn angle towards the camera's over
+   a few frames.
+
+   No light on it (18ba): the lantern glow went from the whole sheet - Robin: "It feels a
+   bit too inconsistently applied and I think it's safer to remove it and revert back to
+   the style that we had before." */
+/* Round 18cj: **the rose is coloured from here, not from its own attributes.** Robin: "The
+   compass should change color with the rest of the theme." Inline SVG, so a CSS property
+   reaches it where a `fill="#99ad6a"` attribute could not be a variable — the four parts
+   carry classes now and the drawing itself states no colour at all. The letter keeps its
+   outline in the ground colour, which is what makes it readable over the ring it sits on;
+   inside `#vpwrap` that ground is the glass's dark one in every theme. */
+.compass .ring{stroke:var(--ac)}
+.compass .pt{fill:var(--ac)}
+.compass .n{fill:color-mix(in srgb,var(--ac) 58%,var(--tx))}
+.compass .nl{fill:var(--tx);stroke:var(--bg)}
+.compass{
+  width:48px;height:48px;border-radius:50%;pointer-events:auto;cursor:default;
+  background:rgba(21,21,21,.72);border:1px solid var(--line);backdrop-filter:blur(6px);
+  display:flex;align-items:center;justify-content:center;margin-top:2px;
+}
+.compass svg{width:42px;height:42px;display:block}
+
+/* ---------- Round 18ay: the tooltip ----------
+   Robin: "I want the tooltips as scroll notes." `Tip` (30_tip.js) shows `#tip` for any
+   element with a `title`, after the pause a native tooltip takes, and the browser's own
+   yellow box never comes. Same words - the `title` is the note - so every keyed tooltip
+   is still keyed.
+
+   What it looks like has been through three rounds. 18ay: a serif parchment note with
+   clipped corners and hairlines. 18az: the page's own font, lighter. 18ba, Robin: "more
+   like the current theming, which means, rounded corners, no horizontal lines. Then I
+   want on top of that something that makes them contrast a bit more, like being a bit
+   lighter. Keep it simple." So: the app's corners and font, a ground two steps lighter
+   than the panels and a border a step lighter than theirs, and nothing else. */
+#tip{
+  position:fixed;left:0;top:0;z-index:400;pointer-events:none;
+  /* Round 18cj: a step away from the panel, whichever way the theme runs. Robin:
+     "Redoran Bone theme has almost unreadable tooltips" — the ground was `#2f2f2a`, a
+     step *lighter* than a dark panel, and the text is `--tx`, which on a pale theme is
+     near-black: near-black on near-black. Derived, it is lighter than the panel on a dark
+     theme and darker on a pale one, and the text is legible on both by construction. */
+  max-width:340px;color:var(--tx);
+  background:color-mix(in srgb,var(--bg4) 94%,var(--tx) 6%);
+  font-size:12.5px;line-height:1.45;padding:7px 11px;
+  border:1px solid color-mix(in srgb,var(--line2) 62%,var(--tx) 38%);
+  border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.55);
+  display:none;
+  white-space:pre-line;overflow-wrap:break-word;
+}
+#tip.show{display:block}
+
+/* ---------- the cell picker's map (round 18cp, 31_cellmap.js) ---------- */
+/* The dialogue grows for the map — Robin: "Let the picker grow in Map mode" — because a
+   world is wider than a list and the list's 860px showed forty-five cells across, about
+   Vvardenfell and a third of a Tamriel Rebuilt. A height as well as a width: the list
+   sized itself by its rows and a map has no rows, so without one the box would be as tall
+   as its buttons. */
+#mCell.map .mbox{width:min(1500px,94vw);height:86vh}
+#mCell.map .mbody{overflow:hidden}
+#cellMap{flex:1;min-height:0;position:relative;overflow:hidden;
+  border:1px solid var(--line);border-radius:6px;background:#234a68}
+#cellMap[hidden]{display:none}
+#cellMap canvas{display:block;cursor:crosshair}
+/* The two ways of looking, joined into one control — the same face the kind buttons
+   beside it wear, with the middle edge shared so the pair reads as one thing. */
+#cellView{display:inline-flex}
+#cellView .btn{border-radius:0}
+#cellView .btn:first-child{border-radius:var(--r-ctl) 0 0 var(--r-ctl)}
+#cellView .btn:last-child{border-radius:0 var(--r-ctl) var(--r-ctl) 0;margin-left:-1px}
+#mCell .vsep{width:1px;height:18px;background:var(--line2);margin:0 4px}
+/* The note under the pointer: `#tip`'s own colours, because it is the same kind of thing
+   — a title, read off a cell rather than an element — placed inside the map's box rather
+   than on the window, so it stays with the map when the dialogue moves. */
+#cellMap .maptip{position:absolute;left:0;top:0;pointer-events:none;z-index:2;
+  max-width:300px;color:var(--tx);
+  background:color-mix(in srgb,var(--bg4) 94%,var(--tx) 6%);
+  font-size:12px;line-height:1.45;padding:6px 10px;
+  border:1px solid color-mix(in srgb,var(--line2) 62%,var(--tx) 38%);
+  border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.55);white-space:pre-line}
+#cellMap .maptip[hidden]{display:none}
+/* What the map has to say while it is being read, or when it cannot be: over the glass
+   at the foot of the map, in the viewport's own HUD colours. */
+#cellMap .mapnote{position:absolute;left:10px;bottom:8px;z-index:2;pointer-events:none;
+  font-size:11.5px;color:#f2ece0;background:rgba(21,21,21,.78);
+  padding:4px 9px;border-radius:5px;border:1px solid rgba(255,255,255,.12)}
+#cellMap .mapnote[hidden]{display:none}
+</style>
+</head>

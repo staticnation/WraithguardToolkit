@@ -164,17 +164,18 @@ class TestMain:
     def test_a_valid_mesh_contributes_its_texture_references(
         self, tmp_path: Path, capsys, monkeypatch
     ) -> None:
-        """A parseable mesh's shape textures are traced; the reader is faked here."""
+        """A readable mesh's textures are traced; the summary is faked here."""
         import types as _types
 
         _folder_with_texture(tmp_path)
         mesh = tmp_path / "m.nif"
         mesh.write_bytes(b"NetImmerse")
-        monkeypatch.setattr(check_textures, "read_nif_bytes", lambda *_a, **_k: object())
         monkeypatch.setattr(
             check_textures,
-            "world_meshes",
-            lambda _parsed: [_types.SimpleNamespace(texture="textures/tx_test.dds")],
+            "summarise",
+            lambda _data: _types.SimpleNamespace(
+                shapes=[object()], textures=["textures/tx_test.dds"]
+            ),
         )
         assert main([str(tmp_path), "--mesh", str(mesh)]) == 0
         out = capsys.readouterr().out
@@ -190,11 +191,12 @@ class TestMain:
         _folder_with_texture(tmp_path)
         (tmp_path / "meshes").mkdir()
         (tmp_path / "meshes" / "m.nif").write_bytes(b"NetImmerse")
-        monkeypatch.setattr(check_textures, "read_nif_bytes", lambda *_a, **_k: object())
         monkeypatch.setattr(
             check_textures,
-            "world_meshes",
-            lambda _parsed: [_types.SimpleNamespace(texture="textures/tx_test.dds")],
+            "summarise",
+            lambda _data: _types.SimpleNamespace(
+                shapes=[object()], textures=["textures/tx_test.dds"]
+            ),
         )
         assert main([str(tmp_path), "--mesh", "meshes/m.nif"]) == 0
         assert "meshes/m.nif: 1 shape(s)" in capsys.readouterr().out

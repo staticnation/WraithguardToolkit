@@ -73,18 +73,16 @@ def test_an_implausible_name_fails_even_with_right_magic(tmp_path, capsys) -> No
     assert "not plausible paths: 1" in capsys.readouterr().out
 
 
-def test_a_file_truncated_past_the_index_is_counted_unreadable(tmp_path, capsys) -> None:
-    """A consistent index whose data runs past the file end fails as unreadable.
+def test_a_file_truncated_past_the_index_is_refused(tmp_path, capsys) -> None:
+    """An archive whose data runs past the file end is refused when opened.
 
-    The index parses (it lives at the front), so the archive opens; the read of
-    the truncated payload is where it goes wrong -- exactly the split between a
-    plausible index and wrong data the tool is built to surface.
+    greatness7's reader (``tes3::bsa``) checks every file's range against the
+    archive's length while reading the index, so a truncated archive never opens.
     """
     archive = tmp_path / "cut.bsa"
     build_bsa(archive, {"tex/a.dds": _dds(b"\x00" * 32)})
     archive.write_bytes(archive.read_bytes()[:-20])  # lop off the tail of the data
-    assert main([str(archive)]) == 1
-    assert "1 unreadable" in capsys.readouterr().out
+    assert main([str(archive)]) == 2
 
 
 def test_the_sample_flag_limits_how_many_are_extracted(tmp_path, capsys) -> None:

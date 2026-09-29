@@ -1,0 +1,38 @@
+# wraithguard_native: the toolkit's Rust backend, a Python extension module on
+# greatness7's tes3 crates (https://github.com/Greatness7/tes3, MIT OR Apache-2.0).
+# It replaces the pure-Python ports of those crates in wraithguard/ one piece at a
+# time; each piece keeps its Python API, so callers do not change.
+#
+# Built with maturin (`pip install ./native`, see README.md here); the workflows do
+# that before PyInstaller. Free-threaded Python (3.14t) is supported: the module
+# declares it does not need the GIL.
+[package]
+name = "wraithguard-native"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[lib]
+name = "wraithguard_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = "0.26"
+tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["bsa", "esp", "nif", "serde", "serde-zstd"] }
+serde_json = "1"
+# serde values straight into Python objects: records reach Python as dicts in the
+# tes3conv schema without being written out as JSON text and parsed back.
+pythonize = "0.26"
+# The shortest decimal for an f32, as serde_json writes it (it uses ryu).
+ryu = "1"
+# The crate's record framing (Reader/Writer), for writing one record at a time.
+bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
+base64 = "0.22"
+regex = "1"
+memmap2 = "0.9"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

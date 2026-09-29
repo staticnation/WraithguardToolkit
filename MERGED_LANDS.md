@@ -41,7 +41,7 @@ not exist yet.
 | `merge/ignore_strategy.rs` | 46 | **ported** | `ConflictStrategy.IGNORE` |
 | `repair/seam_detection.rs` | 338 | **ported** | `land/seams.py` — corners then edges |
 | `io/save_to_plugin.rs` | 298 | **ported** | `land/emit.py` |
-| `io/parsed_plugins.rs` | 350 | **replaced** | We read `tes3conv` JSON rather than parsing TES3 |
+| `io/parsed_plugins.rs` | 350 | **replaced** | `land/native.py` reads the `LAND`/`LTEX` records in process (tes3conv only as a fallback) |
 | `repair/cleaning.rs` | 176 | **ported** | `land/cleaning.py` + `compact_textures` |
 | `io/meta_schema.rs` | 95 | **ported** | `land/meta.py` — `.mergedlands.toml` |
 | `main.rs` (merge flow) | 808 | **ported** | `land/pipeline.py` — the six steps in order |
@@ -49,10 +49,20 @@ not exist yet.
 | `io/save_to_image.rs` | 359 | **ported** | `land/conflict_image.py` — `--conflicts-dir` |
 | `repair/debugging.rs` | 79 | **ported** | `land/debug_colors.py` — `--add-debug-vertex-colors` |
 
+**The numeric core is Rust (4.2.0).** The per-vertex work of this port -- the
+relative grids of `land/diff.py`, the per-vertex loop of `land/merge.py`'s
+`merge_layer` in every strategy, `land/slope.py`'s limiter, the vertex normals of
+`land/heights.py` and `land/pipeline.py`, and the `VHGT` decoder -- runs in the Rust
+module (`native/src/land.rs`), step for step as the Python did, including Python's
+rounding. Everything that decides what happens stays in Python.
+`tests/test_land_native_parity.py` keeps the replaced Python as the reference, and a
+full run wrote the byte-identical plugin.
+
 **Every file is now ported.** The two entries marked *replaced* and *implicit*
 are behaviour that exists here in a different shape, not behaviour that is
-missing: plugin parsing goes through `tes3conv` rather than a TES3 reader of our
-own, and Rust's `RelativeTo`/`RoundTo` traits are what Python integers already
+missing: plugin parsing is `land/native.py`'s reader of the two record types the
+merge uses (keeping which subrecords are present, which the merge needs), with the
+merged plugin written by greatness7's `tes3` crate, and Rust's `RelativeTo`/`RoundTo` traits are what Python integers already
 do.
 
 ## The structural bug the audit found

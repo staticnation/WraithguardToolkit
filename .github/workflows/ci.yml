@@ -71,6 +71,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install ruff black mypy pytest pytest-cov
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust backend (native/, greatness7's tes3 crates)
+        # Its own tests, then built and installed into this interpreter (3.14 and
+        # 3.14t each get their own build), since wraithguard imports it.
+        run: |
+          cargo test --manifest-path native/Cargo.toml
+          python -m pip install ./native
+
       - name: ruff (PEP 8, naming, imports, security, blind-except)
         run: python -m ruff check .
 
@@ -119,6 +128,39 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  cell-viewer:
+    # The cell viewer, checked without Tauri's native tree (no WebKitGTK on the runner
+    # needed): the engine's tests, the command layer compiled against a Tauri stub
+    # (check-commands), the shell's URL mode against its stub (check), and the page
+    # booted against the real commands.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: viewcore tests
+        run: cargo test --manifest-path viewer-shell/viewcore/Cargo.toml
+      - name: command layer compiles
+        run: cargo build --manifest-path viewer-shell/check-commands/Cargo.toml
+      - name: shell URL mode compiles
+        run: cargo build --manifest-path viewer-shell/check/Cargo.toml
+      # The page itself, booted in jsdom against the real command bodies (the headless
+      # `wg-view-serve` engine): connects the fixture setup, loads a cell, opens ORI on
+      # an object, and fails on any page error.
+      - name: headless engine
+        run: cargo build --release --manifest-path viewer-shell/check-commands/Cargo.toml --bin wg-view-serve
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: cell viewer boots
+        working-directory: viewer-shell/ui/tests
+        run: |
+          npm install --no-audit --no-fund
+          node boot.js
+      # And the mesh viewer: files only (no cell work), both copies drawn, normal map found.
+      - name: mesh viewer boots
+        working-directory: viewer-shell/ui/tests
+        run: WG_MESH_VIEW=1 node boot.js
+
   gui-smoke:
     # The GUI is the one part of this project the gate list above cannot see:
     # it needs Tk, which the hermetic suite deliberately does not have, so it is
@@ -159,6 +201,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest pytest-timeout
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust backend
+        run: python -m pip install ./native
 
       - name: GUI smoke tests (headless)
         # Run once, keep the output, then insist the tests actually ran. That

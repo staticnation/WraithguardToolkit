@@ -14,14 +14,13 @@ import json
 import threading
 import tkinter as tk
 import traceback
-import webbrowser
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import wraithguard_toolkit as core
-from wraithguard.gui import app_base_dir, case_insensitive_filetypes, rtl
+from wraithguard.gui import app_base_dir, case_insensitive_filetypes, open_in_browser, rtl
 from wraithguard.gui.conflict_colors import (
     ALL_TEXT_MINE,
     all_bg_by_tag,
@@ -52,16 +51,10 @@ from wraithguard.images.viewer import Maps, build_compare_page
 from wraithguard.logging_setup import get_logger
 from wraithguard.nif import MeshAnalyser
 from wraithguard.nif.bsa import BsaError, normalise
-from wraithguard.nif.edit import (
-    NifEditError,
-    apply_edits,
-    field_views,
-)
-from wraithguard.nif.geometry import block_tree, world_meshes
-from wraithguard.nif.reader import NifParseError, read_nif_bytes
+from wraithguard.nif.edit import apply_edits
+from wraithguard.nif.inspect import inspect_mesh
 from wraithguard.nif.textures import TextureResolver
-from wraithguard.nif.vfs import archives_in, loose_index, read_mesh, read_mesh_bytes
-from wraithguard.nif.viewer import build_viewer_page
+from wraithguard.nif.vfs import archives_in, loose_index, read_mesh_bytes
 from wraithguard.patch import (
     FieldChoice,
     FieldValue,
@@ -222,27 +215,6 @@ def _as_float(value: object) -> float:
         return 0.0
 
 
-def _json_field_value(value: object) -> object:
-    """A field value reduced to something the editor page can show and edit.
-
-    Scalars and strings pass through (the inspector edits them); a float is
-    rounded so the box does not fill with binary noise; the packed bytes the
-    reader keeps for a compound (a matrix, an embedded run) become a short
-    ``"<N bytes>"`` note, since those are read-only in the panel anyway.
-
-    Args:
-        value: The raw field value from :class:`~wraithguard.nif.edit.FieldView`.
-
-    Returns:
-        A JSON-friendly stand-in.
-    """
-    if isinstance(value, bytes):
-        return f"<{len(value)} bytes>"
-    if isinstance(value, float):
-        return round(value, 6)
-    return value
-
-
 class ConflictWindowsMixin:
     """The conflict/resource windows and their workers (mixed into ``App``)."""
 
@@ -304,7 +276,7 @@ class ConflictWindowsMixin:
         def _apply_exclusions(self, names: list[str]) -> list[str]: ...
         def _attach_hamburger_grip(self, widget: tk.Misc, orient: str) -> None: ...
         def _disassemble_bytecode_field(
-            self, value: str, source_text: str | None
+            self, value: str | bytes, source_text: str | None
         ) -> str | None: ...
         def _get_session(self, conv: str | None) -> core.Tes3ConvSession | None: ...
         def _is_custom(self, name: str) -> bool: ...
@@ -366,7 +338,9 @@ class ConflictWindowsMixin:
                 print("\n" + "=" * 70)
                 print(_(" TES3 RECORD CONFLICTS (read-only)"))
                 print("=" * 70)
-                if session:
+                if isinstance(session, core.NativeEspSession):
+                    print(_("  Engine: native esp reader -- field-level diffs available."))
+                elif session:
                     print(
                         _("  Engine: tes3conv (%(path)s) -- field-level diffs available.")
                         % {"path": conv}
@@ -658,7 +632,7 @@ class ConflictWindowsMixin:
             # clicked, it knows exactly.
             lines.extend(self._mesh_detail(c))
             is_mesh = str(c.get("path", "")).lower().endswith(".nif")
-            for name in ("_res_view3d", "_res_export3d", "_res_edit_mesh"):
+            for name in ("_res_view3d", "_res_edit_mesh"):
                 button = getattr(self, name, None)
                 if button is not None:
                     button.configure(state="normal" if is_mesh else "disabled")
@@ -683,10 +657,6 @@ class ConflictWindowsMixin:
             btns, text=_("View in 3D"), command=self._open_mesh_viewer, state="disabled"
         )
         self._res_view3d.pack(side="left", padx=(8, 0))
-        self._res_export3d = ttk.Button(
-            btns, text=_("Export 3D file..."), command=self._export_mesh_viewer, state="disabled"
-        )
-        self._res_export3d.pack(side="left", padx=(4, 0))
         self._res_edit_mesh = ttk.Button(
             btns, text=_("Edit mesh..."), command=self._edit_mesh_viewer, state="disabled"
         )
@@ -763,59 +733,6 @@ class ConflictWindowsMixin:
         except OSError as exc:
             return [_("Could not read the meshes: %(error)s") % {"error": exc}]
 
-    def _mesh_sides(self, conflict: dict) -> tuple[list[tuple[str, list]], list[list]]:
-        """Read every provider of a mesh conflict.
-
-        Args:
-            conflict: The selected conflict entry.
-
-        Returns:
-            ``(label, meshes)`` pairs and the matching block trees. Both come
-            from one parse per provider -- reading each file twice to get the
-            geometry and then the structure would double the cost of opening
-            a view for no reason.
-
-        Raises:
-            NifParseError: If a mesh cannot be parsed.
-            OSError: If one cannot be read.
-        """
-        path = str(conflict.get("path", ""))
-        sides: list[tuple[str, list]] = []
-        trees: list[list] = []
-        for provider in conflict["providers"]:
-            folder = Path(str(provider))
-            parsed = read_mesh(folder, path, animation=True)
-            sides.append((f"{folder.name} / {path}", world_meshes(parsed)))
-            trees.append(block_tree(parsed))
-        return sides, trees
-
-    def _texture_resolver(self, conflict: dict) -> TextureResolver | None:
-        """Build a texture index for the folders this scan covered.
-
-        Textures are resolved across *all* the data folders, not just the one
-        providing the mesh: a mesh in one mod routinely draws with a texture
-        another mod ships, and resolving only within its own folder would show
-        half a mod collection untextured.
-
-        Args:
-            conflict: The selected conflict, for its providers.
-
-        Returns:
-            A resolver, or ``None`` when there is nothing to index.
-        """
-        dirs = [Path(str(d)) for d in (self._plan_scan_dirs() or [])]
-        if not dirs:
-            dirs = [Path(str(p)) for p in conflict.get("providers", [])]
-        if not dirs:
-            return None
-        cached = getattr(self, "_texture_index", None)
-        key = tuple(str(d) for d in dirs)
-        if cached is not None and cached[0] == key:
-            return cached[1]
-        resolver = TextureResolver(dirs)
-        self._texture_index = (key, resolver)
-        return resolver
-
     def _selected_mesh_conflict(self) -> dict | None:
         """The selected row, when it is a mesh.
 
@@ -853,6 +770,10 @@ class ConflictWindowsMixin:
             except OSError as exc:
                 LOG_GUI.warning("no loopback port for the viewer: %s", exc)
                 return None
+            # The cell map's "open in Cell Preview" (see CellPreviewMixin).
+            hook = getattr(self, "_on_open_cell_request", None)
+            if hook is not None:
+                server.register_post("wg_open_cell", hook)
         return server
 
     def _three_js_url(self, server: ViewerServer) -> str:
@@ -875,147 +796,81 @@ class ConflictWindowsMixin:
         )
 
     def _open_mesh_viewer(self) -> None:
-        """Show the selected mesh conflict in 3D.
-
-        Served over loopback when a port can be bound: the page is a few
-        kilobytes and three.js is fetched once and cached, instead of a
-        multi-megabyte document rebuilt per view. Falls back to the standalone
-        page, which is the same builder with the bytes carried inline.
-        """
+        """Show the selected mesh conflict in the mesh viewer, each mod's copy side by side."""
         conflict = self._selected_mesh_conflict()
         if conflict is None:
             return
         path = str(conflict.get("path", ""))
-        try:
-            sides, trees = self._mesh_sides(conflict)
-        except (NifParseError, OSError) as exc:
-            messagebox.showerror(_("Cannot show this mesh"), str(exc))
-            return
-        self._serve_mesh_view(
-            sides,
-            trees,
-            path,
-            self._texture_resolver(conflict),
-            _("Opened the 3D view for %(path)s") % {"path": path},
-        )
+        entries: list[dict[str, object]] = []
+        for provider in conflict.get("providers") or []:
+            folder = Path(str(provider))
+            found = next(
+                (f for f in (folder / path, folder / "meshes" / path) if f.is_file()), None
+            )
+            try:
+                data: bytes | None = read_mesh_bytes(folder, path)
+            except OSError:
+                data = None
+            entries.append(
+                {
+                    "path": str(found) if found else path,
+                    "label": folder.name or str(provider),
+                    "data": data,
+                }
+            )
+        if self._show_meshes(entries):
+            self.status_var.set(_("Opened the 3D view for %(path)s") % {"path": path})
 
-    def _serve_mesh_view(
-        self,
-        sides: list[tuple[str, list]],
-        trees: list[list],
-        title: str,
-        resolver: TextureResolver | None,
-        status_note: str = "",
-        *,
-        edit_source: bytes | None = None,
-    ) -> None:
-        """Serve a 3D mesh view over loopback, standalone-file as fallback.
+    def _show_meshes(
+        self, entries: Sequence[Mapping[str, object]], *, editable: bool = False
+    ) -> bool:
+        """Open meshes in the viewer shell's mesh viewer, with their block trees.
 
-        The shared core behind the resource window's mesh viewer and the field
-        diff's "View mesh": both build the same ``(label, meshes)`` sides and
-        want the same served page. Served over loopback when a port can be
-        bound (a few-KB page plus three.js fetched once); otherwise the same
-        builder writes a standalone page with the bytes carried inline.
+        Each entry is ``{"path", "label", "data"}``: ``path`` a load-order path or one
+        mod's own file on disk (what the viewer draws), ``data`` the same file's bytes
+        (what the block panel shows) or None. With ``editable`` and exactly one mesh
+        that parses whole, the panel edits its fields and saves an edited copy through
+        a handler on the loopback server.
 
         Args:
-            sides: ``(label, meshes)`` per provider or plugin, in order.
-            trees: The block tree for each side, in the same order.
-            title: The page title -- a VFS path or a field name.
-            resolver: Texture resolver for the meshes, or ``None``.
-            status_note: A status-bar line to set on success, if any.
-            edit_source: The mesh's original bytes to make the view editable,
-                or ``None`` for a read-only view. Only honoured on the loopback
-                path -- a standalone page has no server to save through.
-        """
-        try:
-            server = self._viewer_server()
-            if server is None:
-                self._open_html_view(
-                    build_viewer_page(sides, title=title, trees=trees, resolver=resolver),
-                    "mesh_view",
-                    _("Mesh view"),
-                )
-                if status_note:
-                    self.status_var.set(status_note)
-                return
-            session = server.publish_session("mesh")
-            counter = itertools.count()
-
-            def sink(blob: bytes, content_type: str = "") -> dict[str, str]:
-                """Spool one embedded asset over loopback for the served page.
-
-                Args:
-                    blob: The bytes to publish.
-                    content_type: Its MIME type, which picks the extension.
-
-                Returns:
-                    What the page should use to reference it.
-                """
-                kind = content_type or "application/octet-stream"
-                suffix = "png" if content_type.startswith("image/") else "bin"
-                key = f"g{next(counter)}.{suffix}"
-                return {"url": session.publish(key, Payload(blob, kind))}
-
-            edit_config = (
-                self._register_mesh_editor(session, edit_source, title)
-                if edit_source is not None
-                else None
-            )
-            page = build_viewer_page(
-                sides,
-                title=title,
-                sink=sink,
-                library_url=self._three_js_url(server),
-                trees=trees,
-                resolver=resolver,
-                edit=edit_config,
-            )
-            url = session.publish("index.html", Payload(page.encode("utf-8"), "text/html"))
-        except (ViewerError, NifParseError, OSError) as exc:
-            messagebox.showerror(_("Cannot show this mesh"), str(exc))
-            return
-        # Through the same chain as every other visualisation -- now loopback
-        # first. The one viewer it cannot use is tkinterweb, whose load_file
-        # cannot fetch, and this page needs real requests for its geometry.
-        opener = getattr(self, "open_html_in_app", None)
-        if callable(opener):
-            opener(url, _("Mesh view"))
-        else:  # pragma: no cover - only if the mixin is used outside App
-            webbrowser.open(url)
-        if status_note:
-            self.status_var.set(status_note)
-
-    def _read_mesh_anywhere(self, dirs: Sequence[Path], vfs_path: str) -> Any:  # noqa: ANN401
-        """Read a mesh from whichever data folder holds it, later folders first.
-
-        OpenMW resolves a VFS path to the *last* data folder that provides it
-        (loose or archived), so the search runs the folders in reverse and
-        returns the first hit -- the winner the game would load.
-
-        Args:
-            dirs: The data folders, in load order (earliest first).
-            vfs_path: The mesh's VFS path, e.g. ``meshes/x/y.nif``.
+            entries: The meshes, in the order the viewer lists them.
+            editable: Whether to offer editing.
 
         Returns:
-            The parsed :class:`~wraithguard.nif.reader.NifFile`, or ``None``
-            when no folder holds a readable copy.
+            Whether the viewer launched.
         """
-        for folder in reversed(list(dirs)):
-            try:
-                return read_mesh(folder, vfs_path, animation=True)
-            except OSError:
-                continue  # not in this folder -- try the one before it
-            except NifParseError:
-                continue  # found but unreadable -- an earlier copy may parse
-        return None
+        meshes: list[dict[str, object]] = []
+        for entry in entries:
+            mesh: dict[str, object] = {"path": str(entry["path"]), "label": str(entry["label"])}
+            data = entry.get("data")
+            if isinstance(data, bytes):
+                inspected = inspect_mesh(data)
+                if inspected is not None:
+                    mesh["inspect"] = inspected
+            meshes.append(mesh)
+        if editable and len(meshes) == 1:
+            data = entries[0].get("data")
+            panel = meshes[0].get("inspect")
+            if isinstance(data, bytes) and isinstance(panel, dict) and panel.get("complete"):
+                server = self._viewer_server()
+                if server is not None:
+                    meshes[0]["edit"] = self._register_mesh_editor(
+                        server.publish_session("mesh"), data, str(entries[0]["path"])
+                    )
+        opener = getattr(self, "_open_cell_viewer", None)
+        if opener is not None and opener(meshes=meshes):
+            return True
+        messagebox.showerror(
+            _("Cannot show this mesh"),
+            _("The mesh viewer (wraithguard-viewer) could not be started."),
+        )
+        return False
 
     def _view_field_mesh(self, plugins: Sequence[str], per: Mapping[str, Any], field: str) -> None:
-        """Open the mesh(es) a record's mesh field names, in 3D, one per plugin.
+        """Open the mesh(es) a record's mesh field names, one per plugin, in the mesh viewer.
 
-        The same 3D viewer the resource-conflict window uses, but sided by the
-        plugins that define this record rather than by the folders providing
-        one file -- so a record whose plugins point at different meshes shows
-        them side by side.
+        Sided by the plugins that define the record, so plugins pointing at different
+        meshes show side by side. A single mesh opens editable.
 
         Args:
             plugins: The plugins defining the record, in load order.
@@ -1023,20 +878,17 @@ class ConflictWindowsMixin:
             field: The mesh field's flattened name (``"mesh"``).
         """
         dirs = [Path(str(d)) for d in (self._plan_scan_dirs() or [])]
-        sides: list[tuple[str, list]] = []
-        trees: list[list] = []
-        values: list[str] = []
+        entries: list[dict[str, object]] = []
         for plugin in plugins:
             value = (per.get(plugin) or {}).get(field)
             if not isinstance(value, str) or not value:
                 continue
-            parsed = self._read_mesh_anywhere(dirs, f"meshes/{value}")
-            if parsed is None:
+            vfs_path = f"meshes/{value}"
+            data = self._read_vfs_bytes(dirs, vfs_path)
+            if data is None:
                 continue
-            sides.append((f"{plugin} / {value}", world_meshes(parsed)))
-            trees.append(block_tree(parsed))
-            values.append(value)
-        if not sides:
+            entries.append({"path": vfs_path, "label": f"{plugin} / {value}", "data": data})
+        if not entries:
             messagebox.showinfo(
                 _("No mesh to show"),
                 _(
@@ -1045,13 +897,7 @@ class ConflictWindowsMixin:
                 ),
             )
             return
-        resolver = TextureResolver(dirs) if dirs else None
-        # A single mesh can be edited; a side-by-side comparison of two different
-        # meshes cannot -- the inspector's block indices belong to one tree, so
-        # editing stays off when there is more than one side, exactly as the
-        # resource window keeps its "View in 3D" comparison read-only.
-        edit_source = self._read_vfs_bytes(dirs, f"meshes/{values[0]}") if len(sides) == 1 else None
-        self._serve_mesh_view(sides, trees, field, resolver, edit_source=edit_source)
+        self._show_meshes(entries, editable=len(entries) == 1)
 
     def _read_vfs_bytes(self, dirs: Sequence[Path], vfs_path: str) -> bytes | None:
         """Read a file from whichever data folder holds it, later folders first.
@@ -1148,130 +994,56 @@ class ConflictWindowsMixin:
             right_value,
         )
 
-    def _export_mesh_viewer(self) -> None:
-        """Write the selected mesh conflict as one standalone HTML file.
-
-        The served page is smaller and quicker; this one survives being moved,
-        kept or sent to someone, which the served page cannot.
-        """
-        conflict = self._selected_mesh_conflict()
-        if conflict is None:
-            return
-        path = str(conflict.get("path", ""))
-        target = filedialog.asksaveasfilename(
-            title=_("Export the 3D view"),
-            defaultextension=".html",
-            initialfile=f"{Path(path).stem}_3d.html",
-            filetypes=case_insensitive_filetypes((("HTML files", "*.html"), ("All files", "*.*"))),
-        )
-        if not target:
-            return
-        try:
-            sides, trees = self._mesh_sides(conflict)
-            page = build_viewer_page(
-                sides, title=path, trees=trees, resolver=self._texture_resolver(conflict)
-            )
-            Path(target).write_text(page, encoding="utf-8")
-        except (ViewerError, NifParseError, OSError) as exc:
-            messagebox.showerror(_("Export failed"), str(exc))
-            return
-        self.status_var.set(_("Exported: %(path)s") % {"path": target})
-
     def _edit_mesh_viewer(self) -> None:
-        """Open the selected mesh in the 3D view with the field editor enabled.
+        """Open the winning copy of the selected mesh in the mesh viewer, editable.
 
-        Serves the winning mesh -- the file the game would load -- as an
-        editable view: its block tree becomes selectable, each block's fields
-        show in an inspector, and a Save downloads the edited ``.nif``. The edit
-        needs the loopback server (a standalone page has no way to save); when a
-        port cannot be bound the same view opens read-only, without the editor.
+        The file the game would load: its block tree is selectable, each block's
+        fields show in the panel, and Save writes an edited copy where you choose.
         """
         conflict = self._selected_mesh_conflict()
         if conflict is None:
             return
         path = str(conflict.get("path", ""))
-        data: bytes | None = None
-        winner: Path | None = None
-        for folder in reversed([Path(str(provider)) for provider in conflict.get("providers", [])]):
+        for folder in reversed([Path(str(p)) for p in conflict.get("providers", [])]):
             try:
                 data = read_mesh_bytes(folder, path)
-                winner = folder
-                break
             except OSError:
                 continue
-        if data is None or winner is None:
-            messagebox.showerror(_("Cannot edit this mesh"), _("Its file could not be read."))
-            return
-        try:
-            parsed = read_nif_bytes(data, retain=True, geometry=True, animation=True)
-        except NifParseError as exc:
-            messagebox.showerror(_("Cannot edit this mesh"), str(exc))
-            return
-        if not parsed.complete:
-            messagebox.showerror(
-                _("Cannot edit this mesh"),
-                _("This mesh does not parse completely, so an edit cannot be written back safely."),
+            found = next(
+                (f for f in (folder / path, folder / "meshes" / path) if f.is_file()), None
             )
+            entry = {"path": str(found) if found else path, "label": folder.name, "data": data}
+            if self._show_meshes([entry], editable=True):
+                self.status_var.set(_("Editing %(path)s") % {"path": path})
             return
-        sides = [(f"{winner.name} / {path}", world_meshes(parsed))]
-        trees = [block_tree(parsed)]
-        self._serve_mesh_view(
-            sides,
-            trees,
-            path,
-            self._texture_resolver(conflict),
-            _("Editing %(path)s") % {"path": path},
-            edit_source=data,
-        )
+        messagebox.showerror(_("Cannot edit this mesh"), _("Its file could not be read."))
 
     def _register_mesh_editor(
         self, session: PublishSession, data: bytes, title: str
-    ) -> dict[str, object] | None:
-        """Describe a mesh's blocks for the inspector and register its save handler.
+    ) -> dict[str, str]:
+        """Register the POST handler the mesh viewer's Save reaches.
 
-        Builds the ``edit`` payload :func:`build_viewer_page` turns into an
-        editor -- every block's fields, each marked editable or not -- and
-        registers the POST handler the Save button reaches: it applies the
-        posted edits to the original bytes and hands the result back as a
-        download. Returns ``None`` (no editor) when the mesh does not parse
-        whole, matching the guard the caller already made.
+        It applies the posted edits (``{"edits": [...]}``, see
+        :func:`~wraithguard.nif.edit.apply_edits`) to the original bytes and answers
+        with the edited file; the viewer writes it where the user chose.
 
         Args:
             session: The publish session this view owns.
             data: The original mesh bytes, edits are applied against these.
-            title: The mesh's path, used for the download's default name.
+            title: The mesh's path, for the default file name.
 
         Returns:
-            The ``edit`` mapping for :func:`build_viewer_page`, or ``None``.
+            ``{"url", "filename"}`` for the viewer.
         """
-        nif = read_nif_bytes(data, retain=True)
-        if not nif.complete:
-            return None
-        blocks: dict[int, dict[str, object]] = {}
-        for index, block in enumerate(nif.blocks):
-            try:
-                fields: list[dict[str, object]] = [
-                    {
-                        "name": view.name,
-                        "kind": view.kind,
-                        "value": _json_field_value(view.value),
-                        "editable": view.editable,
-                    }
-                    for view in field_views(block)
-                ]
-            except NifEditError:
-                fields = []
-            blocks[index] = {"type": block.type_name, "fields": fields}
         filename = Path(title).name or "edited.nif"
 
         def apply_handler(body: bytes) -> Payload:
-            """Apply the posted edits to the source mesh, returning it to download."""
+            """Apply the posted edits to the source mesh and return the result."""
             request = json.loads(body)
             edited = apply_edits(data, request.get("edits", []))
             return Payload(edited, "application/octet-stream", filename)
 
-        url = session.register_post("apply", apply_handler)
-        return {"url": url, "filename": filename, "blocks": blocks}
+        return {"url": session.register_post("apply", apply_handler), "filename": filename}
 
     def _selected_texture_conflict(self) -> dict | None:
         """The selected row, when it is a texture with something to compare.
@@ -1341,7 +1113,7 @@ class ConflictWindowsMixin:
         """Find one provider's own auxiliary maps for a texture.
 
         A resolver scoped to just this one folder, not the shared
-        multi-folder one :meth:`_texture_resolver` builds for the mesh view.
+        multi-folder one.
         That one answers "what would actually load" across every data folder,
         merged -- right for a single 3D scene, wrong here: a side-by-side
         comparison wants each side's *own* normal/specular map, even when a
@@ -1395,7 +1167,7 @@ class ConflictWindowsMixin:
         Shared by :meth:`_open_texture_viewer` and :meth:`_export_texture_viewer`
         so reading both files, comparing them and building a difference image
         happens once regardless of which one a person reaches for -- the same
-        split :meth:`_mesh_sides` already makes for the mesh viewer.
+        split the mesh viewer makes.
 
         Args:
             conflict: The selected conflict entry.
@@ -1561,14 +1333,14 @@ class ConflictWindowsMixin:
         if callable(opener):
             opener(url, _("Texture comparison"))
         else:  # pragma: no cover - only if the mixin is used outside App
-            webbrowser.open(url)
+            open_in_browser(url)
         if status_note:
             self.status_var.set(status_note)
 
     def _export_texture_viewer(self) -> None:
         """Write the selected texture comparison as one standalone HTML file.
 
-        Mirrors :meth:`_export_mesh_viewer`: the served page is smaller and
+        The served page is smaller and
         quicker to open, this one survives being moved, kept or sent to
         someone, which the served page cannot.
         """
@@ -1708,18 +1480,25 @@ class ConflictWindowsMixin:
         engine = (stats or {}).get("engine", "builtin")
         bar = ttk.Frame(win, padding=(8, 0))
         bar.pack(fill="x")
+        fields_on = engine in ("native", "tes3conv")
         ttk.Label(
             bar,
-            foreground=(DARK["fg_dim"] if engine == "tes3conv" else "#ffb454"),
+            foreground=(DARK["fg_dim"] if fields_on else "#ffb454"),
             text=(
-                "Field-level diffs: ON (tes3conv)."
-                if engine == "tes3conv"
-                else "Field-level diffs: OFF - record-level only. Set a tes3conv binary, then re-check."
+                _("Field-level diffs: ON (%(engine)s).")
+                % {"engine": _("built-in reader") if engine == "native" else "tes3conv"}
+                if fields_on
+                else _(
+                    "Field-level diffs: OFF - record-level only. Install the built-in "
+                    "reader (wraithguard_native) or set a tes3conv binary, then re-check."
+                )
             ),
         ).pack(side="left")
-        ttk.Button(bar, text=_("Set tes3conv..."), command=self._set_tes3conv).pack(
-            side="left", padx=(8, 0)
-        )
+        # tes3conv is only a fallback for a build without the built-in reader.
+        if not core.native_backend():
+            ttk.Button(bar, text=_("Set tes3conv..."), command=self._set_tes3conv).pack(
+                side="left", padx=(8, 0)
+            )
 
         # btns_container is built and packed *here*, with side="bottom",
         # before panes' side="top"/expand=True claims the rest of the
@@ -1959,7 +1738,7 @@ class ConflictWindowsMixin:
         )
         if self._conf_session is not None:
             ttk.Button(
-                btns, text=_("Dump tes3conv JSON..."), command=self._dump_conflict_json
+                btns, text=_("Dump records as JSON..."), command=self._dump_conflict_json
             ).pack(side="left", padx=(8, 0))
 
         ttk.Button(btns, text=_("Close"), command=win.destroy).pack(side="right")
@@ -2879,7 +2658,7 @@ class ConflictWindowsMixin:
             if callable(opener):
                 opener(path, title or stem)
             else:  # pragma: no cover - only if the mixin is used outside App
-                webbrowser.open(path.as_uri())
+                open_in_browser(path.as_uri())
         except Exception as exc:  # noqa: BLE001 - a viewer failure is non-fatal
             # The file exists either way, so tell the user where it is rather
             # than losing the work to a viewer that would not launch.
@@ -3436,7 +3215,7 @@ class ConflictWindowsMixin:
         """Write the tes3conv JSON for every scanned plugin to a chosen folder."""
         if self._conf_session is None or not self._conf_paths:
             return
-        folder = filedialog.askdirectory(title=_("Dump tes3conv JSON to folder"))
+        folder = filedialog.askdirectory(title=_("Dump records as JSON to folder"))
         if not folder:
             return
         try:
@@ -3594,13 +3373,16 @@ class ConflictWindowsMixin:
             # every script edit look like a total rewrite. Disassemble instead.
             is_listing = False
             listing = None
-            if is_plain_string and key == "bytecode":
+            # The packed fields come from the native reader as raw bytes (from
+            # tes3conv as base64 text); the decoders take either.
+            is_blob = is_plain_string or isinstance(val, bytes)
+            if is_blob and key == "bytecode":
                 listing = self._disassemble_bytecode_field(val, per[p].get("text"))
-            elif is_plain_string and key == "variables" and variables_text_for_field:
+            elif is_blob and key == "variables" and variables_text_for_field:
                 # Same base64+zstd wrapping as bytecode; shown as names so the
                 # diff says WHICH locals changed, not just that the blob did.
                 listing = variables_text_for_field(val)
-            elif is_plain_string and text_for_field is not None:
+            elif is_blob and text_for_field is not None:
                 # Landscape grids and path-grid edges are base64 too, and just
                 # as unreadable: one moved vertex changes the whole string.
                 # The whole record is passed because some of these fields only

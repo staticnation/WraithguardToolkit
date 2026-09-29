@@ -1,0 +1,613 @@
+<body>
+<div id="app">
+
+  <!-- Round 18dr: the top bar is the window's title bar. The shell's window is
+       undecorated (src-tauri/tauri.conf.json, decorations false) - Robin: "I don't like
+       that the top bar is fully white. Can we set the color of it to the same as our
+       themes backgrounds, or incorporate it more into the program anyhow? [...] how
+       Claude windows app, and Visual Studio Code look, where the top bar is just fully
+       integrated into the actual program." So the bar's own ground is what the window
+       wears, the empty parts of it drag the window (data-tauri-drag-region, set on the
+       bar and on its inert children at start-up), a double-click on them maximises, and
+       the three window buttons stand at its right end, shown only inside the shell. -->
+  <div id="topbar" data-tauri-drag-region>
+    <div id="brand" data-tauri-drag-region><img id="brandIcon" src="__WG_ICON__" alt="" data-tauri-drag-region><b data-tauri-drag-region>Wraith<span data-tauri-drag-region>guard</span></b><i data-tauri-drag-region>Cell Preview</i></div>
+    <div class="tbsep"></div>
+    
+    
+    
+    <div id="folderState"><span class="d"></span><span class="p" data-tx="top.no_folder">no folder</span></div>
+    <!-- Round 14: the report had two doors — the folder state, which the top bar squeezes
+         to a seven-pixel dot, and the stats box in the viewport — and Robin could not
+         find either. A button, shown once an install is connected. -->
+    <button class="btn dim" id="btnReport" data-tx="top.report" data-txt="top.report_title" title="What was read: the plugin load order with each plugin's masters, the archives opened, the meshes and textures found, and anything that could not be read." hidden>Report</button>
+    <div class="tbsep"></div>
+    <!-- "New config" used to sit here. Grass Rules are a managed set now, so a new one
+         is made in the picker beside the others rather than by clearing what is open —
+         which was the one action in the tool that could lose work outright. -->
+    <input type="file" id="fileIni" accept=".ini,.txt,.toml" multiple hidden>
+    <input type="file" id="fileToml" accept=".toml" hidden>
+    <div style="flex:1"></div>
+    <button class="pill" id="unmatched" hidden style="color:var(--err);border-color:#5a3f30;cursor:pointer"></button>
+    <!-- Everything about the grass rules, gathered against the button that exports them.
+         Connecting an install is a thing you do once at the start and lives at the far
+         left; the rules are what you work on and what you finish with, so they belong
+         together at the finishing end. -->
+    <!-- Round 18ds: a divider between the last of the program's buttons and the window's
+         own, shown with them. -->
+    <div class="tbsep" id="wcSep" hidden></div>
+    <div id="winctl" hidden>
+      <button class="wc" id="wcMin" data-txt="win.minimize" title="Minimise"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button class="wc" id="wcMax" data-txt="win.maximize" title="Maximise"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path class="max" d="M0.5 0.5h9v9h-9z" fill="none" stroke="currentColor" stroke-width="1"/><path class="restore" d="M2.5 2.5v-2h7v7h-2M0.5 2.5h7v7h-7z" fill="none" stroke="currentColor" stroke-width="1"/></svg></button>
+      <button class="wc close" id="wcClose" data-txt="win.close" title="Close"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" stroke="currentColor" stroke-width="1.1"/></svg></button>
+    </div>
+  </div>
+  <!-- Round 18ds. Robin: "Only thing not working is moving the window when there is a
+       full darkening of the program due to a dialogue being popped up on the screen (like
+       loading the install, or exporting an .esp). It would be great if the top bar area was
+       still grabable [...] the buttons shouldn't get clicked, but grabbing the window at
+       any point in the top bar even when blurred out should make it possible to move the
+       window as if it was not." A clear strip the size of the bar, over every dimmer
+       (01_head.html says when it shows): it takes the pointer, so nothing under it can be
+       clicked, and it carries the drag attribute, so the shell moves the window from it. -->
+  <div id="tbShade" data-tauri-drag-region></div>
+
+  <div id="main">
+
+    <!-- ============ LEFT ============ -->
+    <div class="col" id="left">
+      <div class="colscroll">
+        
+
+
+        <!-- ── what you are looking at ──────────────────────────────────────
+             Nothing in this section changes the generated plugin. Controls that
+             only mean something in one mode live in that mode's pane. -->
+        <div class="sect closed" id="secCell">
+          <div class="sh"><span class="caret">▼</span><span data-tx="preview.title">Preview</span></div>
+          <div class="sbody">
+            <div class="hint" data-tx="preview.hint" data-txt="preview.hint_title" title="Nothing here reaches the generated plugin — only what you are shown and how it is lit.">Changes only what you see, never the plugin.</div>
+            <!-- The viewer only shows real cells; the mode select stays (hidden) because the
+                 preview code reads it. -->
+            <div class="row" hidden><label data-tx="preview.mode">Mode</label><div class="ctl">
+              <select class="fld" id="pvMode">
+                <option value="cell" selected data-tx="preview.mode_cell">Real cell</option>
+              </select></div></div>
+            <!-- Which cell, directly under which mode.
+                 Robin: "Put the cell field directly under Mode in the Preview section."
+                 Right: choosing Real cell and then choosing a cell is one thought, and the
+                 row used to be four settings further down, at the top of a pane that only
+                 appears once the mode is already switched.
+
+                 A labelled row like its neighbours. It spent one round as a headline across
+                 the top of the pane, which Robin asked for and then asked back: made large
+                 it stopped reading as the thing you *click*. `syncCellButton` writes the
+                 flat label into it when the two spans are not there, which is why this can
+                 be plain markup.
+
+                 Hidden in Simplified, like everything else that only means something once a
+                 real cell is loaded — a control that cannot do anything invites you to use
+                 it and wonder why nothing happened. -->
+            <div id="cellRow" hidden>
+              <div class="row"><label data-tx="preview.cell">Cell</label><div class="ctl">
+                <button class="btn sm wide" id="cellPick" data-txt="preview.cell_title"
+                        title="Choose a cell to load">&lt;none&gt;</button></div></div>
+              <!-- Wraithguard (40_wg_modhl.js): outline everything a plugin put in the loaded cells. -->
+              <div class="row"><label title="Outline every object in the loaded cells that this plugin placed (or last changed). The list is the plugins with objects here, most first.">Highlight mod</label><div class="ctl">
+                <select class="fld" id="p_modhl"><option value="">None</option></select></div></div>
+            </div>
+            <div class="hint" id="pvModeHint" data-tx="preview.mode_hint_start">Simplified previews a synthetic patch: instant, and
+              enough for judging density and clustering.</div>
+            <!-- Round 18f, Robin: "I want a toggle just above Brightness which toggles on and
+                 off Unlit mode in the viewport. Call it Unlit and default to OFF." Every
+                 surface at its texture: no sun, no ambient, no lamps; fog and the rest stay. -->
+            <div class="row"><label data-tx="preview.unlit" data-txt="preview.unlit_title" title="Draw every surface at its texture, with no sun, ambient or lamps on it - the colours as they are painted. The fog stays. Preview only.">Unlit</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_unlit"><span class="tr"></span></label></div></div>
+            <div class="row"><label data-tx="preview.bright">Brightness</label><div class="ctl"><div class="rng">
+              <input type="range" id="pvBright" min="40" max="220" step="5" value="140">
+              <span class="val" id="pvBrightV">140</span></div></div></div>
+            <!-- Round 13: the game clock places the sun and picks the ramp's colours,
+                 and the weather names which ramp. "Sun height" went with the old sky. -->
+            <div class="row"><label data-tx="preview.hour" data-txt="preview.hour_title" title="The game hour. Sunrise and sunset are read from your Morrowind.ini, and the sun follows the game's own arc.">Time of day</label><div class="ctl"><div class="rng">
+              <input type="range" id="p_hour" min="0" max="24" step="0.0833333" value="15">
+              <span class="val" id="p_hourV">15:00</span></div></div></div>
+            <!-- Round 17s: the clock runs on its own, so a sunset can be watched rather
+                 than scrubbed. Off by default — a preview that moves while you are trying
+                 to look at a blade of grass is worse than one that does not — and the
+                 speed only appears once it is on. -->
+            <div class="row"><label data-tx="preview.timeflow" data-txt="preview.timeflow_title" title="Let the clock run, so the light changes while you watch. Off, the time of day is only what the slider says.">Time passes</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_flow"><span class="tr"></span></label></div></div>
+            <div class="row" id="flowRow" hidden><label data-tx="preview.timescale" data-txt="preview.timescale_title" title="How fast the clock runs: game minutes per real second. The clouds drift at this pace too — 20 is the game's own — whether or not the clock is running.">Time scale</label><div class="ctl"><div class="rng">
+              <input type="range" id="p_flowk" min="1" max="120" step="1" value="20">
+              <span class="val" id="p_flowkV">20</span></div></div></div>
+            <!-- Round 17s: and whether the cell's lamps burn at all. The hours are Robin's
+                 own rule (18:00 to 07:00); this is the switch that says whether to keep
+                 them, ignore them, or drop the lamps altogether. -->
+            <div class="row"><label data-tx="preview.lights" data-txt="preview.lights_title" title="Whether the cell's lamps are lit. Night time is the game hour rule: on from 18:00 to 07:00. A lamp's glass and flame follow its light.">Lights</label><div class="ctl">
+              <select class="fld" id="p_lights">
+                <option value="night" selected data-tx="preview.lights_night">Night time</option>
+                <option value="always" data-tx="preview.lights_always">Always</option>
+                <option value="off" data-tx="preview.lights_off">Off</option>
+              </select></div></div>
+            <!-- Round 12 item 4, moved up under the clock in round 15. The atmosphere:
+                 the game's sky and light by the hour. Off is the plain dark backdrop and
+                 the flat fog, and the two rows that only mean anything under a sky - the
+                 weather and the fog density - fold away with it. -->
+            <div class="row"><label data-tx="preview.sky" data-txt="preview.sky_title" title="The game's sky, sun and haze for the hour and weather, drawn MGE XE's way. Off is the plain backdrop and the flat fog.">Atmosphere</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_sky"><span class="tr"></span></label></div></div>
+            <div id="skyPane">
+            <!-- Round 14: where the sky's colours came from — the install's ini or
+                 openmw.cfg, Weather Adjuster's preset for the region, MGE.ini's fog —
+                 so a plain, an OpenMW and a modded install each say what they read. -->
+            <div class="hint" id="p_skySrc" style="margin:-2px 0 8px"></div>
+            <!-- Round 15 item 3: how thick the atmosphere's haze is. 100 is MGE's own
+                 distances for the weather; the flat fog of the plain backdrop is untouched. -->
+            <div class="row"><label data-tx="preview.fogd" data-txt="preview.fogd_title" title="How thick the haze is. 100 is MGE XE's own distance for this weather; less clears the air, more closes it in. Under the water it scales the game's underwater distances the same way, so their ratio stays the install's. Only the atmosphere's fog — the plain backdrop's is not touched.">Fog density</label><div class="ctl"><div class="rng">
+              <input type="range" id="p_fogd" min="25" max="300" step="5" value="100">
+              <span class="val" id="p_fogdV">100</span></div></div></div>
+            <!-- Round 17h: back to whatever the install itself says the fog is - 100,
+                 which is the distances read from mge3\MGE.ini (or MGE XE's own numbers
+                 when there is none, which is every OpenMW install). The button says
+                 which, and where they came from, rather than only moving the slider.
+                 Under the slider and the width of it, the way "Just above the water"
+                 sits under Ground height. -->
+            <div class="row under"><label></label><div class="ctl"><div class="rng">
+              <button class="btn sm wide" id="p_fogdReset" data-txt="preview.fogd_reset_title"
+                      title="Put the haze back to what your install says: MGE XE's own distances for the weather, read from mge3\MGE.ini when you have one." data-tx="preview.fogd_reset2">↺ Reset</button><span class="val"></span></div></div></div>
+            <!-- Round 16: MGE XE's sunshafts (Sunshafts.fx) - the light rays from the sun
+                 through whatever stands against the sky. Only under the atmosphere, off
+                 unless asked for: it costs a few full-screen passes a frame. -->
+            <div class="row"><label data-tx="preview.shafts" data-txt="preview.shafts_title" title="MGE XE's sunshafts: rays of the sun's light streaming past whatever stands against the sky, as its Sunshafts.fx shader draws them. Turn to face the sun to see them. Costs a few full-screen passes a frame.">Sunshafts</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_shafts"><span class="tr"></span></label></div></div>
+            <!-- Round 17w: the meshes' own particle systems - a waterfall's mist, a torch's
+                 flame and smoke, a candle's flicker - run from the NIF's numbers. On by
+                 default; the switch is for a machine that would rather not, and for
+                 measuring without them. -->
+            <div class="row"><label data-tx="preview.particles" data-txt="preview.particles_title" title="The particle systems the meshes carry — a waterfall's mist, a torch's flame and smoke, a candle's flicker — run as the game runs them. A lamp's follow the Lights rule. Preview only.">Particles</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_particles" checked><span class="tr"></span></label></div></div>
+            </div>
+            <div class="row"><label data-tx="preview.fog">Fog</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_fog" checked><span class="tr"></span></label></div></div>
+            <!-- Round 14: the grass lit and cut out the way MGE XE's own grass shader
+                 does it (XE Mod Grass.fx): wrap lighting with a little backlight, a
+                 fixed alpha cutout softened by coverage, the mesh's vertex colours
+                 ignored. Off draws the blades by the plain rules the objects get. -->
+            <div class="row"><label data-tx="preview.mge" data-txt="preview.mge_title" title="The blades lit and cut out as MGE XE's grass shader does it: light wrapping round the blade with a little glow from behind, a soft-edged cutout, and the mesh's vertex colours ignored as MGE ignores them. Off draws them by the plain rules the placed objects get.">MGE grass light</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_mge" checked><span class="tr"></span></label></div></div>
+            <!-- Round 15 items 8-10: the water as MGE XE draws it - reflection, refraction,
+                 the sun's glint, MGE's own waves when the install has them. -->
+            <div class="row"><label data-tx="preview.mgew" data-txt="preview.mgew_title" title="The water as MGE XE's water shader draws it: the sky and the shore reflected, the bottom seen through the shallows, the sun's glint, and MGE's own waves when your install has its water_NRM texture. Off is the plain translucent sheet.">MGE water</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_mgew"><span class="tr"></span></label></div></div>
+            <!-- Wraithguard: a colour over MGE XE's water - its hue, and how much of it: at
+                 0 the colour layer is fully transparent (MGE XE's own water), at 100 it is
+                 opaque. -->
+            <div class="row wtint" id="rowWHue"><label title="The hue of the colour laid over the water.">Water hue</label><div class="ctl"><div class="rng">
+              <input type="range" id="p_whue" min="0" max="360" step="1" value="190" class="hue">
+              <span class="val" id="p_whueV">190</span></div></div></div>
+            <div class="row wtint" id="rowWTint"><label title="How much of the water hue shows. All the way left the colour is fully transparent and the water is MGE XE's own; all the way right it is opaque.">Water colour</label><div class="ctl"><div class="rng">
+              <input type="range" id="p_wtint" min="0" max="100" step="1" value="0">
+              <span class="val" id="p_wtintV">0</span></div></div></div>
+            <!-- The sewer waves of Vivec and Molag Mar (mod 45432), in MGE XE's water. -->
+            <div class="row wtint" id="rowSewers"><label title="Rings spreading on the water from the sewer outlets of Vivec and Molag Mar, from the 'Enhanced Water Shader for MGE XE 2.0' mod.">Sewer waves</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_sewers" checked><span class="tr"></span></label></div></div>
+            <!-- Round 18dt: the water seen from under it, as the game shows it - its fog
+                 (the install's own rule and numbers), the surface from beneath, the wobble
+                 and the light rays (the caustics in a room) of MGE XE's Underwater Effects
+                 shaders. On by default; off draws the frame as if the eye were in the air.
+                 Robin: "make the underwater effects fully toggleable in the preview
+                 settings."
+
+                 Round 18dy: and it sits under MGE water, because it is that water seen
+                 from the other side. Robin: "The Underwater effects should be
+                 automatically off when MGE water is turned off. Hide the option when the
+                 MGE water is not toggled on." The row hides with the switch above it and
+                 the effect stands down with it, whatever this one remembers. -->
+            <div class="row" id="rowUnder"><label data-tx="preview.under" data-txt="preview.under_title" title="What the game shows with the eye under the water: its underwater fog, in the install's own colour and distances, the surface seen from beneath, and the wobble and light rays (in a room, the caustics) of MGE XE's Underwater Effects shaders. Off, the frame is drawn as if the eye were in the air. Preview only.">Underwater effects</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_under" checked><span class="tr"></span></label></div></div>
+            <!-- Round 18a: screen-space ambient occlusion (29_ssao.js) - the creases and
+                 corners of the picture darkened from the depth buffer. An image effect on
+                 the preview alone; off unless asked for, since it is three full-screen
+                 passes a frame. Robin: "Add a SSAO image effect to the viewport that is
+                 toggleable under preview settings." -->
+            <div class="row"><label data-tx="preview.ssao" data-txt="preview.ssao_title" title="Ambient occlusion, from the picture's own depth: where a rock meets the ground, where walls turn and under the eaves, the ambient light is dimmed for the sky those places cannot see. Preview only; costs three full-screen passes a frame.">Ambient occlusion</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_ssao"><span class="tr"></span></label></div></div>
+            <!-- Wraithguard: which ambient occlusion - MGE's SSAO HQ, or SSGI (HBAO with
+                 screen-space global illumination: nearby lit surfaces bounce their colour into
+                 the shade). One or the other. -->
+            <div class="row" id="rowAoMode"><label title="SSAO: the corners and creases darkened. SSGI: the same, and the colour of nearby lit surfaces bounced into the shade - heavier on the GPU.">Occlusion mode</label><div class="ctl">
+              <select class="fld" id="p_aomode"><option value="ssao">SSAO</option><option value="ssgi">SSGI</option></select></div></div>
+            <!-- Round 18do: FXAA over the finished frame (33_fxaa.js), the shader Robin's
+                 game runs last in its chain, on top of the multisampling the frame already
+                 has. Off unless asked for; a profile that never stored it takes the
+                 install's chain's answer, as the occlusion does. -->
+            <div class="row"><label data-tx="preview.fxaa" data-txt="preview.fxaa_title" title="Fast approximate anti-aliasing over the finished picture - the FXAA shader MGE XE runs last in its chain - on top of the multisampling the preview already has. Smooths the edges the multisampling leaves, at some softness. Preview only.">FXAA</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_fxaa"><span class="tr"></span></label></div></div>
+            <!-- Round 18dy: the depth of field (36_dof.js), a port of the Depth of Field.fx
+                 Robin's chain runs second from last. The switch is the eye's own blur -
+                 what is not at the middle of the screen's distance goes soft. Its other
+                 half, the distance blur in fog conditions, runs under the water whatever
+                 this says: the shader's fog term is nought wherever the fog starts at a
+                 positive distance, and only the water's starts behind the eye. Robin:
+                 "Add the DOF as a toggle, but I always want the underwater blur in fog no
+                 matter if the other behaviors for DOF is active or not." -->
+            <div class="row"><label data-tx="preview.dof" data-txt="preview.dof_title" title="Depth of field, as MGE XE's Depth of Field.fx draws it: an eye focused on whatever is at the middle of the screen, with what is nearer or further going soft. The same shader's distance blur in fog runs under the water whether this is on or off, because that is where the fog starts behind the eye. Preview only.">Depth of field</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_dof"><span class="tr"></span></label></div></div>
+            <!-- Round 18ee, Robin: "Lets see if we can also get shadows into the renderer.
+                 Only shadows from the sun, and never cast by grass. Only from statics, the
+                 terrain, and moving activators." MGE XE's own shadow system, at its
+                 numbers (37_shadow.js). Starts on when the install says the game has them
+                 on, like the post shaders. -->
+            <div class="row"><label data-tx="preview.shadows" data-txt="preview.shadows_title" title="The sun's shadows, as MGE XE draws them: two cascades near the camera, softened, fading out with the fog. Cast by the terrain, the placed objects and whatever moves among them, and never by grass - a shadow map cannot resolve a blade, and the game does not cast from grass either. Preview only.">Sun shadows</label><div class="ctl">
+              <label class="sw"><input type="checkbox" id="p_shadows"><span class="tr"></span></label></div></div>
+            <!-- Round 11 item 11. The ground tint is the viewport's own idea - a blade
+                 coloured by the ground it stands on at its base, its own colour by the
+                 tip - and changes nothing in the plugin, which is why it lives here with
+                 the lighting. Vertex colours (the record's VCLR on the land, a shape's
+                 own colours on a mesh) are always drawn, as the game draws them - the
+                 switch that turned them off went in round 15, with Blend textures. -->
+            <!-- Round 12 item 6: wind in the grass. Zero is still; the preview only. -->
+            <div class="row" id="windRow"><label data-tx="preview.wind" data-txt="preview.wind_title" title="How hard the grass sways. Preview only: nothing in the plugin moves. Zero is still.">Wind</label><div class="ctl"><div class="rng">
+              <input type="range" id="p_wind" min="0" max="100" step="5" value="25">
+              <span class="val" id="p_windV">25</span></div></div></div>
+            <div class="row"><label data-tx="preview.tint" data-txt="preview.tint_title" title="How much of the ground's colour a blade takes at its base, fading to its own colour at the tip. Preview only: a placed blade carries no colour.">Ground tint</label><div class="ctl"><div class="rng">
+              <input type="range" id="p_tint" min="0" max="100" step="5" value="100">
+              <span class="val" id="p_tintV">100</span></div></div></div>
+            <!-- Round 18cn: Grass distance used to sit here, between Ground tint and the
+                 panes. It has two homes now - under Patch size in Simplified, under Texture
+                 detail in Real cell - and the row itself moves between them rather than
+                 being written out twice. Robin: "Move the Grass distance slider to sit
+                 beneath the Patch size in the simplified preview, and beneath the texture
+                 detail in the Full cell preview." See `App.placeGrassFar`. -->
+            <!-- "Random yaw" used to sit here. It turned the *preview's* blades off the
+                 rotation the engine had already given them, so the window showed an
+                 arrangement the exported plugin would never contain. The viewport draws
+                 the engine's own yaw now, which is the only one there has ever been. -->
+
+            <!-- simplified mode only: there is no real landscape to read, so these
+                 stand in for one. In cell mode they would do nothing. -->
+            
+
+            <!-- real cell only -->
+            <div id="cellPane" hidden>
+              <!-- Round 15 item 7: how many rings of neighbours load with the cell. A
+                   switch until then (the eight around it, or none). -->
+              <div class="row"><label data-tx="preview.adjacent" data-txt="preview.adjacent_title" title="How far out from the chosen cell the landscape and its objects are loaded. More cells is more to read and more to draw.">Adjacent cells</label><div class="ctl">
+                <select class="fld" id="pvAdjacent">
+                  <option value="0" selected data-tx="preview.adjacent_0">this cell only</option>
+                  <option value="1" data-tx="preview.adjacent_1">1 ring · 9 cells</option>
+                  <option value="2" data-tx="preview.adjacent_2">2 rings · 25 cells</option>
+                  <option value="3" data-tx="preview.adjacent_3">3 rings · 49 cells</option>
+                </select></div></div>
+              <!-- Round 16b: the longest side a texture is loaded at. A texture pack's
+                   4096² file arrives as its own 2048² mip - the same pixels, a fifth of the
+                   bytes through the shell and onto the GPU; the game's own textures are
+                   smaller than any of these and are not touched. -->
+              <div class="row"><label data-tx="preview.texdetail" data-txt="preview.texdetail_title" title="The largest size a texture is loaded at. Bigger files arrive as their own smaller mip - the same picture, far fewer bytes to move and to keep on the GPU. Full is the file's own size. The game's own textures are 512 or smaller and are never touched.">Texture detail</label><div class="ctl">
+                <select class="fld" id="pvTexDetail">
+                  <option value="0" data-tx="preview.texdetail_full">full size</option>
+                  <option value="4096" data-tx="preview.texdetail_4096">up to 4096</option>
+                  <option value="2048" selected data-tx="preview.texdetail_2048">up to 2048</option>
+                  <option value="1024" data-tx="preview.texdetail_1024">up to 1024</option>
+                  <option value="512" data-tx="preview.texdetail_512">up to 512</option>
+                </select></div></div>
+              <!-- And where it parks in Real cell. Empty in the markup: the row is one element
+                   and it starts in the other slot. -->
+              <div id="grassfarSlotCell"><div class="row" id="grassfarRow"><label data-tx="preview.grassfar" data-txt="preview.grassfar_title" title="How far from the camera grass is drawn, in cells. The blades shrink away over the last stretch rather than popping out. Preview only — the plugin still gets every blade. Off draws the lot, which is slow with many cells loaded.">Grass distance</label><div class="ctl"><div class="rng stack">
+                <!-- Round 18cm: the reading above the track, like How near counts — "1.5 cells"
+                     does not fit the 54px slot and wrapped, which moved every row under it on
+                     every step of a drag. Robin: "show the text above the slider instead". -->
+                <span class="val" id="p_grassfarV">Off</span>
+                <input type="range" id="p_grassfar" min="0" max="8" step="0.5" value="0"></div></div></div></div>
+              <!-- "Draw statics" used to sit here. A cell without its rocks and buildings
+                   is not a cell anybody wants to look at — the whole reason to load one is
+                   to see grass against the things it grows around — and the switch's only
+                   other effect was to invite the belief that hiding an object stopped
+                   grass avoiding it. Objects are always drawn. -->
+              <!-- "Blend textures" went in round 15: the soft edges are always drawn. -->
+              <button class="btn sm" id="cellReload" data-tx="preview.reload">↻ Reload cell</button>
+              <div class="hint" id="cellStatus" style="margin-top:8px" data-tx="cell.status_pick">Pick a cell.</div>
+              <!-- Folds away. Robin: "sometimes it's very long" — a cell with a dozen
+                   land textures pushes everything under it off the column, and the list is
+                   a thing you consult rather than a thing you watch. The same `.sect`
+                   markup the column's own sections use, so the caret behaves the way every
+                   other caret in the window does; `.sub` only tones the band down, because
+                   this one sits *inside* a section rather than beside them. -->
+              <div class="sect sub" id="secCellTex">
+                <div class="sh"><span class="caret">▼</span><span data-tx="preview.cell_textures">Ground textures in cell</span>
+                  <span class="sp"></span><span class="pill sm" id="cellTexCount"></span></div>
+                <div class="sbody">
+                  <div id="cellTexList"></div>
+                </div>
+              </div>
+              <!-- "Objects by plugin" used to sit here: every plugin that supplied
+                   anything to this cell, with a count each. It filled a section of the
+                   column to answer a question nobody asks. Who placed a given object is
+                   worth knowing, and that is asked by right-clicking the object — the
+                   never-avoid dialogue names the plugin. -->
+            </div>
+          </div>
+        </div>
+
+
+
+
+      </div>
+      <!-- Round 9 item 5: the cog, in the corner it is looked for in. Outside the
+           scroll, so it is where it was however far down the column you are. -->
+      <!-- One button, glyph and word together (round 11 item 1) — a glyph beside a label
+           that was not part of it read as two things. -->
+      <div id="leftFoot">
+        <!-- No data-txt on the button: its hover is written by Settings.show() (the
+             folder the files are in), and a wording pass that lands after it would put
+             the built-in sentence back over the real answer. -->
+        <button class="btn dim" id="btnSettings" data-txt="settings.foot_title"
+                title="Settings"><span class="cog">⚙</span><span data-tx="settings.foot">Settings</span></button>
+        <span id="settingsWhere" hidden></span>
+      </div>
+    </div>
+
+    <!-- ============ CENTER ============ -->
+    <div id="center">
+      <div id="vpwrap">
+        <canvas id="gl"></canvas>
+        <!-- Round 9a item 2: the messages sit in the viewport's own corner rather than
+           the window's. The eye is on the scene while you work, and a message a whole
+           right column away from it was one you found later. -->
+      <div id="toasts"></div>
+      <div id="vpover">
+          <div id="stats"></div>
+          <div id="vptools">
+            <!-- Round 17h, Robin: a second place to change the scheme, at the top of
+                 the toggles. It says which scheme is on rather than what pressing it
+                 does: "Orbit navigation" means orbit is what you have, and pressing it
+                 makes it say "WASD navigation" and selects that. The Settings picker
+                 stays; the two are kept in step by `syncNav`. -->
+            <button class="vpbtn orbit" id="tbNav" data-txt="vp.nav_title" title="Which way the mouse moves the camera. Orbit: the right button orbits, the left picks and paints. WASD: hold the right button to look and fly with W A S D. Press to swap." data-tx="vp.nav_orbit">Orbit navigation</button>
+            <button class="vpbtn" id="tbGrid" data-tx="vp.grid">Grid</button>
+            <button class="vpbtn on" id="tbEmpty" data-txt="vp.empty_title" title="Show a marker at every position an empty/placeholder or object-ID slot won" data-tx="vp.empty">Empty positions</button>
+            <button class="vpbtn on" id="tbCull" data-txt="vp.cull_title" title="Shade what the steepest-slope and ground-height limits are keeping grass off. Click cycles: off, terrain only, terrain and statics.">Highlight culling</button>
+            <button class="vpbtn on" id="tbHiTex" data-txt="vp.hitex_title" title="Hovering a ground texture — in the left column or in this cell's list — lights up the ground it covers" data-tx="vp.hitex">Highlight texture</button>
+            <button class="vpbtn on" id="tbHiSlot" data-txt="vp.hislot_title" title="Hovering a grass slot lights up every instance it placed and dims the rest" data-tx="vp.hislot">Highlight slot</button>
+            <button class="vpbtn on" id="tbHiObj" data-txt="vp.hiobj_title" title="Pointing at an object in the viewport lights it up, and hovering a never-avoid pattern lights up everything it matches" data-tx="vp.hiobj">Highlight objects</button>
+            <button class="vpbtn on" id="tbArrows" data-txt="vp.arrows_title" title="Show the four arrows that step the view one cell in each direction" data-tx="vp.arrows">⤢ Cell arrows</button>
+            <button class="vpbtn" id="tbRecentre" data-txt="vp.recentre_title" title="Point the camera back at the middle of what is loaded" data-tx="vp.recentre">⌖ Recentre</button>
+            <!-- Wraithguard: back to the cell map from inside a cell (38_wg_viewport.js). -->
+            <button class="vpbtn" id="tbMap" title="Open the cell map: choose another cell, with the mods touching each (key: §)">▦ Cell map</button>
+            <!-- Round 18ay, Robin: "I like the compass from D of the redesigns. Lets add ONLY
+                 that from the D alternative, but place it under the Recentre button in the
+                 top right corner of the view port. Make sure it always points to North
+                 relative to the orientation of the camera in the viewport." The rose's
+                 group is turned by an SVG rotate that `App.R.onNorth` (11_events.js) writes
+                 from the renderer's `_tellNorth`. -->
+            <div class="compass" id="tbCompass" data-txt="vp.compass_title" title="North, as the camera sees it: the needle points to the game's +Y however the view is turned"><svg viewBox="0 0 44 44" aria-hidden="true"><g class="rose"><g class="ring" fill="none" stroke-width="1.2" opacity=".85"><circle cx="22" cy="22" r="16"/><circle cx="22" cy="22" r="2.5"/></g><g class="pt" opacity=".38"><path d="M22 41 19 25 22 22 25 25z"/><path d="M3 22 19 19 22 22 19 25z"/><path d="M41 22 25 25 22 22 25 19z"/></g><path class="n" d="M22 3 25.2 19 22 22 18.8 19z"/><text class="nl" x="22" y="9.4" font-size="7.5" font-weight="700" text-anchor="middle" font-family="serif" stroke-width="2" style="paint-order:stroke">N</text></g></svg></div>
+          </div>
+          <!-- Round 17: the flying camera's speed, on the right edge at mid height. Always
+               up while that scheme is on; the wheel moves it and it can be dragged. -->
+          <div id="vpSpeed" hidden>
+            <div class="spv" id="vpSpeedV">1500</div>
+            <input type="range" id="vpSpeedBar" min="0" max="100" step="1" value="50" data-txt="vp.speed_title" title="Flying speed, units a second — the wheel changes it too">
+            <div class="spl" data-tx="vp.speed">speed</div>
+            <div class="sppop" id="vpSpeedPop" hidden></div>
+          </div>
+          <!-- The mouse line. Script-owned: `syncVpHint` writes it from one of the three
+               templates below, and it carries no `data-tx` of its own — a key and a
+               script-set textContent on one element make the first relabel become the
+               "default" and eat the wording it replaced. -->
+          <div id="vphint" data-tx="vp.orbit_pick2">click an object for ORI · Shift+click a door to go through · right-drag to orbit · middle-drag to pan · wheel to zoom · CTRL+Wheel to move pivot</div>
+          <!-- The three wordings, each catalogued, each hidden: templates, not displays.
+               Ordinary (a click picks a placed object), painting (the left button is a
+               brush), and plain (nothing to pick — the mesh editor and the Simplified
+               patch). Round 17h swapped the buttons here: the left picks and paints, the
+               right orbits, which is what the WASD scheme already did with its own two. -->
+          <span id="vphintPick" data-tx="vp.orbit_pick2" hidden>click an object for ORI · Shift+click a door to go through · right-drag to orbit · middle-drag to pan · wheel to zoom · CTRL+Wheel to move pivot</span>
+          <span id="vphintPaint" data-tx="vp.orbit_paint2" hidden>left-drag to paint · right-drag to orbit · middle-drag to pan · wheel to zoom · CTRL+Wheel to move pivot</span>
+          <!-- And the line where there is nothing to pick: the mesh editor (a pick there
+               is about a placement, and the editor holds a mesh rather than one) and the
+               Simplified patch (invented ground, with nothing placed on it to click).
+               Promising a pick that does not happen is the kind of wrong sentence that
+               gets believed. -->
+          <span id="vphintPlain" data-tx="vp.orbit_plain2" hidden>right-drag to orbit · middle-drag to pan · wheel to zoom · CTRL+Wheel to move pivot</span>
+          <!-- Round 17: the same three, for the WASD scheme. Round 18d, Robin: "Remove the
+               'middle-drag to pan' [...] from all the navigation hint[s] at the bottom of
+               the viewport when in WASD navigation mode (all states)." The button still
+               pans; the line no longer says so. -->
+          <span id="vphintWasd" data-tx="vp.wasd_pick" hidden>click an object for ORI · Shift+click a door to go through · hold right button + W A S D (E up, Q down) to fly · wheel sets speed</span>
+          <span id="vphintWasdPaint" data-tx="vp.wasd_paint" hidden>left-drag to paint · hold right button + W A S D (E up, Q down) to fly · wheel sets speed</span>
+          <span id="vphintWasdPlain" data-tx="vp.wasd_plain" hidden>hold right button + W A S D (E up, Q down) to fly · wheel sets speed</span>
+          <span id="vphintWasdFly" data-tx="vp.wasd_fly" hidden>move the mouse to look · W A S D to move · E up · Q down · wheel sets speed · release to stop</span>
+          <!-- What the colours on the ground mean. Built from the renderer's own state
+               (`legendItems`), so it can only ever name a colour that is actually being
+               drawn — and it is not there at all when nothing is marked. -->
+          <div id="legend" hidden></div>
+        </div>
+        <div id="busy" hidden><div class="card">
+          <div class="lbl" id="busyLbl" data-tx="vp.busy">Working…</div>
+          <div class="sub" id="busySub"></div>
+          <div class="track"><div class="fill" id="busyFill"></div></div>
+          <!-- Round 18bo. Robin: "to the far left side aligned with the loading bar on the
+               same row as the percentage, I would like a timer counting up [...] so there is
+               feedback on how long the process has been going on." One row under the bar,
+               the clock at its left end and the percentage at its right, both against the
+               bar's own width. -->
+          <div id="busyFoot"><span id="busyTime"></span><span class="pct" id="busyPct"></span></div>
+          <!-- Round 18bn. Robin: "make a 'Cancel export' button by that loading bar".
+               By the bar rather than in the export dialogue, because the bar is what is
+               in front of you while it runs. Hidden unless the work in hand is one that
+               can actually be stopped; `Busy.show` is told so. -->
+          <div id="busyStop" hidden><button class="btn" id="busyStopBtn" data-tx="busy.cancel">Cancel export</button></div>
+        </div></div>
+        <div id="noctx" hidden></div>
+        <!-- Nothing to preview. The simplified patch shows one rule's grass on invented
+             ground, so with no rule chosen there is nothing for it to be about — and a
+             bare hillside with no grass on it reads as a rule that places nothing rather
+             than as no rule at all. Robin asked for it to say so and draw nothing. -->
+        <div id="vpempty" hidden><div class="big" data-tx="vp.pick_rule">Choose a rule to preview</div></div>
+      </div>
+      <!-- Round 18ed. Robin: "keep the bottom panel with the loading bar aligned with the
+           viewport". So the bar is the viewport's own foot again: it begins where the left
+           column ends and stops where the right one begins, and it carries what the
+           viewport is doing - the ground note at one end, the window's work at the other.
+           What you press when you are done with the scene moved to the right column's own
+           foot (#rightFoot), the mirror of the Settings row at the foot of the left. -->
+      <div id="vpbar">
+        <div class="grp"><span id="vpGroundInfo" class="gi"></span></div>
+        <span style="flex:1 1 auto"></span>
+        <!-- What the window is doing, and how far through it is. The full-screen busy card
+             is for the heavy loads that really do stop you working; this is for everything
+             else, and above all for rescattering, which is the wait people meet most and
+             the one that used to happen with nothing on screen to say so. -->
+        <div class="grp" id="vpStatus">
+          <span class="msg" id="vpStatusMsg" data-tx="vp.status_idle">Idle</span>
+          <div class="track" id="vpStatusBar"><div class="fill" id="vpStatusFill"></div></div>
+        </div>
+      </div>
+    </div>
+
+    </div>
+
+  </div>
+</div>
+
+
+<!-- The "connect anyway?" gate used to be here. Grass rules are a saved set now,
+     written as you work, so connecting a different install cannot lose anything and
+     there is nothing to confirm. A confirmation people learn to click through is
+     worse than none: it trains them past the ones that matter. -->
+
+
+
+
+<!-- MO2 setup -->
+
+
+
+
+
+<!-- Settings. One thing in it today — where the .toml files live (round 9 item 5) —
+     and it is a dialogue rather than another section in the left column because it is
+     about the program rather than about the work. -->
+<div class="modal" id="mSettings" hidden>
+  <div class="mbox" style="max-width:600px">
+    <div class="mhead"><b data-tx="settings.title">Settings</b><span style="flex:1"></span>
+      <button class="btn dim ic" id="mSettingsX">✕</button></div>
+    <div class="mbody">
+      <!-- Round 18aq (wording-plan.md, phase 2): the language. Packs are
+           gardenfell.<code>.toml files in languages\ under where the files are kept
+           (round 18as: beside the program, or the folder chosen below, so they move with
+           the rest); the choice is saved in the profile, so a shared profile carries it
+           and a pack the machine lacks is said at start-up. Filled by Lang.fill(). -->
+      <!-- Round 18at, Robin: under a pack the headline is the pack's word followed by the
+           English word in parentheses — "Språk (language)" — "to make it easy to find the
+           menu if a user accidentally picks a language they don't understand". Lang.fill()
+           writes it; the English part is never translated, which is the point of it. -->
+      <div class="mhead2" id="setLangHead" data-tx="settings.language">Language</div>
+      <div class="row"><label data-tx="settings.language_pick">Chosen language</label><div class="ctl">
+        <select id="setLang" class="fld" data-txt="settings.language_title"
+                title="The language the program speaks. English is built in; anything else is a pack somebody made and put in the languages folder"></select>
+      </div></div>
+      <div class="btnline">
+        <button class="btn sm" id="setLangReload" data-txt="settings.lang_reload_title"
+                title="Look in the languages folder again, after dropping a pack in" data-tx="settings.lang_reload">↻ Look again</button>
+        <button class="btn sm" id="setLangUpdate" data-txt="settings.lang_update_title"
+                title="Bring the chosen pack up to date with this version of the cell viewer: every translation kept, new strings added empty with their English above, the old file kept under backups" data-tx="settings.lang_update">⇪ Refresh this pack</button>
+        <button class="btn sm" id="setLangCreate" data-txt="settings.lang_create_title"
+                title="Start a translation: a gardenfell.&lt;code&gt;.toml in the languages folder with every string listed, its English above and an empty value to fill in" data-tx="settings.lang_create">✎ Create new language file</button>
+        <!-- Round 18as, Robin: "a button on the same row … right aligned, that opens the
+             file explorer in that folder". margin-left:auto rather than a spacer, so it
+             stays on the right when the row wraps. -->
+        <button class="btn sm" id="setLangOpen" style="margin-left:auto" data-txt="settings.lang_open_title"
+                title="Show the languages folder in your file browser" data-tx="settings.lang_open">Open languages folder</button>
+      </div>
+      <div class="hint" id="setLangNote" style="margin:8px 0 16px"></div>
+      <!-- Round 17b: how the mouse moves the view, and how softly it turns. Robin
+           asked for these here rather than in the viewport. Saved with the profile. -->
+      <div class="mhead2" data-tx="settings.nav">Viewport navigation</div>
+      <div class="hint" style="margin:0 0 8px" data-tx="settings.nav_hint2">Orbit navigation: the left button clicks objects and paints, the right button orbits,
+        middle-drag pans and the wheel zooms.
+        WASD on Right mouse button: hold the right button to look around where you stand and fly with W A S D (E up, Q down), the wheel setting the speed;
+        the left button clicks objects and paints, and never orbits.</div>
+      <div class="row"><label data-tx="settings.nav_scheme">Scheme</label><div class="ctl">
+        <select class="fld" id="setNav">
+          <option value="orbit" selected data-tx="settings.nav_orbit">Orbit navigation</option>
+          <option value="wasd" data-tx="settings.nav_wasd">WASD on Right mouse button</option>
+        </select></div></div>
+      <!-- Round 17c: Robin's own camera smoothing, from his MWSE mod - the view lags the
+           mouse and catches up at this rate. WASD scheme only; hidden under Orbit. -->
+      <!-- Round 18ag: how far the head turns per inch of mouse. The bar's middle is the
+           rate every earlier round turned at; a quarter of it at the left end, four times
+           at the right, on a log scale so a step feels the same anywhere along it. Shown
+           as a percentage of that rate. WASD scheme only; hidden under Orbit. -->
+      <div class="row" id="setSensRow"><label data-tx="settings.sens" data-txt="settings.sens_title" title="How far the view turns for a given movement of the mouse while the right button is held. The middle is the default rate; the left end a quarter of it, the right end four times. WASD scheme only.">Mouse sensitivity</label><div class="ctl"><div class="rng">
+        <input type="range" id="setSens" min="0" max="100" step="1" value="50">
+        <span class="val" id="setSensV">100%</span></div></div></div>
+      <div class="row" id="setSmoothRow"><label data-tx="settings.smooth_rot" data-txt="settings.smooth_rot_title" title="How fast the view catches up with the mouse while the right button is held: the turn lags behind and closes in at this rate. Low is smooth and slow, 100 is nearly direct. WASD scheme only.">Camera rotation smoothing</label><div class="ctl"><div class="rng">
+        <input type="range" id="setSmooth" min="1" max="100" step="1" value="35">
+        <span class="val" id="setSmoothV">35</span></div></div></div>
+      <!-- Round 17g: the same lag on the orbit camera's turn. Orbit scheme only. -->
+      <div class="row" id="setOrbitSmoothRotRow"><label data-tx="settings.smooth_orbit_rot" data-txt="settings.smooth_orbit_rot_title" title="How fast the view catches up with the mouse while you drag the orbit round: the turn lags behind and closes in at this rate. Low is smooth and slow, 100 is nearly direct. Orbit scheme only.">Camera rotation smoothing</label><div class="ctl"><div class="rng">
+        <input type="range" id="setOrbitSmoothRot" min="1" max="100" step="1" value="30">
+        <span class="val" id="setOrbitSmoothRotV">30</span></div></div></div>
+      <!-- Round 17f: the same easing on the orbit camera - how fast the pivot and the
+           zoom follow a pan or the wheel. Orbit scheme only. -->
+      <div class="row" id="setOrbitSmoothRow"><label data-tx="settings.smooth_orbit" data-txt="settings.smooth_orbit_title" title="How fast the camera follows a pan or the wheel: the view closes on where you put it at this rate. Low is a soft, gliding move; 100 is instant. Orbit scheme only.">Camera position smoothing</label><div class="ctl"><div class="rng">
+        <input type="range" id="setOrbitSmooth" min="1" max="100" step="1" value="40">
+        <span class="val" id="setOrbitSmoothV">40</span></div></div></div>
+      <!-- Round 17d: the same easing for the flight - how fast the speed follows the keys. -->
+      <div class="row" id="setMoveSmoothRow"><label data-tx="settings.smooth_pos" data-txt="settings.smooth_pos_title" title="How fast the flying camera gets going and stops when a key is pressed or let go: the speed closes on what the keys ask for at this rate. Low is a soft, slow start and stop; 100 is nearly instant. WASD scheme only.">Camera position smoothing</label><div class="ctl"><div class="rng">
+        <input type="range" id="setMoveSmooth" min="1" max="100" step="1" value="12">
+        <span class="val" id="setMoveSmoothV">12</span></div></div></div>
+      <!-- Wraithguard (38_wg_viewport.js): zoom to cursor in orbit, and a frame-rate cap.
+           Drawing also stops by itself while the window is minimized or a dialogue covers
+           most of the viewport. Saved in the viewer profile. -->
+      <div class="row"><label title="Orbit navigation: the mouse wheel zooms towards the point under the pointer instead of the middle of the view. On by default.">Zoom to cursor (orbit)</label><div class="ctl">
+        <label class="sw"><input type="checkbox" id="setZoomCursor" checked><span class="tr"></span></label></div></div>
+      <div class="row"><label title="Cells drawn with the OpenMW-style normal (_n, _nh) and specular (_spec) maps your mods ship beside their textures. Off by default: the game without shaders draws neither, and reading them costs a little load time. The mesh viewer always has them, with a switch per map.">Normal and specular maps (cells)</label><div class="ctl">
+        <label class="sw"><input type="checkbox" id="setNrmMaps"><span class="tr"></span></label></div></div>
+      <div class="mhead2">Performance</div>
+      <div class="row"><label title="The most frames drawn per second. Lower saves power and keeps the machine cool; Off draws as fast as the screen refreshes. The view also stops drawing while the window is minimized or a dialogue covers most of it.">Frame rate cap</label><div class="ctl">
+        <select class="fld" id="setFpsCap">
+          <option value="0">Off</option><option value="30">30</option><option value="60">60</option>
+          <option value="90">90</option><option value="120">120</option><option value="144">144</option>
+        </select></div></div>
+      <!-- Round 18cg: the colour theme. Robin: "add a section in the settings menu that is
+           called Theme, where we have a drop down list where all these themes are listed
+           and can be picked. Their own entries in the drop down list should be like a small
+           preview of the theme itself." A button and a listbox rather than a `<select>`,
+           because an `<option>` is drawn by Windows and cannot carry a preview. Filled by
+           `Themes.fill()`; the choice is saved in the profile beside the language, so a
+           shared profile carries it.
+           Round 18cm: **last in the dialogue**, under the navigation settings. Robin: "Put
+           the Themes section at the very bottom of the settings page, below the navigation
+           modes." It is the one section that changes nothing about what the program does,
+           and the one you set once — so it sits below the things you come here to change. -->
+      <div class="mhead2" data-tx="settings.theme">Theme</div>
+      <div class="row"><label data-tx="settings.theme_pick">Chosen theme</label><div class="ctl">
+        <div class="thpick" id="setTheme">
+          <button class="btn thbtn" id="setThemeBtn" type="button" aria-haspopup="listbox"
+                  aria-expanded="false" data-txt="settings.theme_title"
+                  title="The colours the window wears. Saved in the profile.">
+            <span class="thmini"></span><span class="thn">—</span><span class="thcar">▾</span>
+          </button>
+          <div class="thlist" id="setThemeList" role="listbox"
+               aria-label="Colour themes" hidden></div>
+        </div>
+      </div></div>
+      <div class="hint" data-tx="settings.theme_note" style="margin:8px 0 16px">The paint
+        colours for Grass and No Grass never change with the theme.</div>
+    </div>
+    <div class="mfoot"><span style="flex:1"></span>
+      <button class="btn" id="mSettingsClose" data-tx="settings.close">Close</button></div>
+  </div>
+</div>
+
+
+
+
+<!-- asset report modal -->
+<div class="modal" id="mLog" hidden>
+  <div class="mbox">
+    <div class="mhead"><b id="mLogTitle" data-tx="report.title">Load order &amp; asset report</b><span style="flex:1"></span><button class="btn sm" id="mLogCopy" data-txt="report.copyall_title" title="Copy the whole report to the clipboard" data-tx="report.copyall">Copy all</button><button class="btn dim ic" id="mLogX">✕</button></div>
+    <div class="mbody"><div id="logBody"></div></div>
+    <div class="mfoot"><button class="btn" id="mLogX2" data-tx="report.close">Close</button></div>
+  </div>
+</div>

@@ -81,14 +81,12 @@ INTERNALERROR about writing the data file (some mounts refuse it), set
 `COVERAGE_FILE=%TEMP%\.coverage` and re-run; that is a filesystem quirk, not a
 hung test.
 
-**Last verified full run:** Windows 11, Python 3.14.5, pytest 9.1.1 --
-**3,542 passed, 4 skipped, coverage 83.86%** (34 files at complete coverage),
-"Required test coverage of 77.0% reached." The four skips are all deliberate and
-expected: the differential
-baseline, and the two converter-subprocess tests in `test_land_service.py` that
-stand a shell script in for tes3conv -- Windows cannot execute a script as a
-subprocess, so they run on POSIX and skip here. A *fifth* skip or any failure is
-a real signal; `-rs` names each one.
+**Last verified full run (4.2.0):** Windows 11, free-threaded Python 3.14t in its
+own venv (see `PREFLIGHT.md`) -- **7,189 passed, 19 skipped**. The skips are
+deliberate: the differential baseline, tests that need a real tes3conv binary
+(now only a fallback), and converter-subprocess tests that stand a shell script
+in for tes3conv, which Windows cannot run. `-rs` names each one; a skip that is
+not one of those, or any failure, is a real signal.
 
 The floor is `fail_under = 77`, ratcheted up from 52 once the suite's honest
 number climbed (to ~54% at 3.0, ~80% mid-3.1, ~84% now). It is kept a few points
@@ -371,7 +369,7 @@ tellable apart at a glance (a highlighted row you then select shows both).
 | # | Action | What to expect |
 |---|---|---|
 | 1 | Launch with `--trace`, sort, click **Cell Map** | The map opens in the in-app window as before. In the log / pywebview line the address is now `http://127.0.0.1:<port>/…`, **not** `…\cell_map.html`. The old bare-`file://` open is the regression this replaced. |
-| 2 | If `pywebview` isn't installed | It still falls back to tkinterweb, then the browser - and the browser too gets the `127.0.0.1` URL, not a file path. |
+| 2 | If the viewer (`wraithguard-viewer`) isn't bundled | It still falls back to tkinterweb, then the browser - and the browser too gets the `127.0.0.1` URL, not a file path. (The log's `pywebview=` key reports whether the viewer was found.) |
 
 ### 7c. Old cell maps get tidied
 
@@ -380,3 +378,24 @@ tellable apart at a glance (a highlighted row you then select shows both).
 | 1 | Run **Cell Map** four or five times, then look in the app folder | One `cell_map_<stamp>.html` per run - timestamped, not overwritten. |
 | 2 | With **Tidy old HTML views** (Options) on, close the app and reopen the folder | Only the newest **3** `cell_map_*` files remain; older ones (and any `_data` folders) are gone, alongside the other pruned views. |
 | 3 | Use a map's **Save** button to write `cell_map.html` (the plain name), then repeat step 2 | That saved file is **never** touched - the un-timestamped name marks it as yours. Only the tool's own timestamped output is a candidate. |
+
+## 8. 4.2.0: the Rust backend and the viewer
+
+The automated suite covers the readers, writers and the viewer's engine; these are
+the things only a look can judge. Run them on the built app, not from source.
+
+| # | Action | What to expect |
+|---|---|---|
+| 1 | Sort, then **Check Conflicts** | The Conflicts window says **Field-level diffs: ON (built-in reader)**, and there is no *Set tes3conv...* button. Selecting a record shows the side-by-side diff. |
+| 2 | In the diff, pick a landscape record, then a script record | The landscape fields draw as grids, the script's bytecode as a disassembly, not as long base64 strings. |
+| 3 | **Check Conflicts** again, then **Cell Map** | Both are near-instant the second time. No `tes3conv_json` folder appears beside the app. |
+| 4 | Queue a record in the Patch Builder and build the patch | The patch is written; load it in the game or a plugin viewer. |
+| 5 | **Merge Lands** on your load order | `Merged Lands.esp` is written, and the log says nothing about tes3conv. |
+| 6 | **Cell Preview** on a coastal cell (Seyda Neen) | Water with surf at the shore. Move **Water hue** and **Water colour**: hard left is plain MGE XE water, hard right an opaque colour. Nearby waves should not repeat in a visible grid. |
+| 7 | **Cell Preview** in Vivec, with **Sewer waves** on, then off | Rings spread from the sewer outlets while it is on, and stop when it is off. |
+| 8 | Look at an animated effect: a lightning mesh or flames | The bolt flickers from shape to shape rather than showing every frame at once. |
+| 9 | Switch navigation to WASD (Tab), hold the right mouse button, press W/A/S/D/E/Q | The camera flies. Release the button and it stops. |
+| 10 | **View in 3D** on a mesh conflict | The mesh viewer opens on the files alone (no cell loading first), with the block tree beside it. |
+| 11 | Windows `-webview2.zip` build, on a machine without WebView2 | Cell Preview and the cell map still open. |
+| 12 | Linux AppImage on a Steam Deck (desktop mode) | The app starts, and Cell Preview opens. |
+

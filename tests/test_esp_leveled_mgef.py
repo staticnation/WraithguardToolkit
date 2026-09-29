@@ -73,16 +73,6 @@ class TestLeveledItem:
         assert levi.items == []
         assert write_plugin([levi]) == original
 
-    def test_level_without_item_is_refused(self) -> None:
-        body = (
-            _string_sub(b"NAME", "bad")
-            + _sub(b"DATA", struct.pack("<I", 0))
-            + _sub(b"NNAM", struct.pack("<B", 0))
-            + _sub(b"INTV", struct.pack("<H", 3))
-        )
-        with pytest.raises(EspError, match="INTV level without"):
-            read_plugin(_record(b"LEVI", body))
-
     def test_unexpected_tag_and_deletion(self) -> None:
         with pytest.raises(EspError, match="Unexpected Tag: LEVI"):
             read_plugin(
@@ -116,16 +106,6 @@ class TestLeveledCreature:
         assert isinstance(levc, LeveledCreature)
         assert levc.creatures == [("rat", 1)]
         assert write_plugin([levc]) == original
-
-    def test_level_without_creature_is_refused(self) -> None:
-        body = (
-            _string_sub(b"NAME", "bad")
-            + _sub(b"DATA", struct.pack("<I", 0))
-            + _sub(b"NNAM", struct.pack("<B", 0))
-            + _sub(b"INTV", struct.pack("<H", 3))
-        )
-        with pytest.raises(EspError, match="INTV level without"):
-            read_plugin(_record(b"LEVC", body))
 
     def test_unexpected_tag_is_refused(self) -> None:
         with pytest.raises(EspError, match="Unexpected Tag: LEVC"):

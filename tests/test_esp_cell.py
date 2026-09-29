@@ -245,18 +245,6 @@ class TestCell:
         assert cell.references == []
         assert write_plugin([cell]) == original
 
-    def test_bad_mvrf_without_cndt_is_refused(self) -> None:
-        from wraithguard.esp import EspError
-
-        body = (
-            _string_sub(b"NAME", "x")
-            + _sub(b"DATA", struct.pack("<Iii", 0, 0, 0))
-            + _sub(b"MVRF", struct.pack("<I", 0))
-            + _string_sub(b"NAME", "zzz")
-        )
-        with pytest.raises(EspError, match="expected CNDT"):
-            read_plugin(_record(b"CELL", body))
-
     def test_unexpected_tag_is_refused(self) -> None:
         from wraithguard.esp import EspError
 
@@ -320,16 +308,6 @@ class TestReferenceEdges:
         assert cell.references[0].scale == pytest.approx(1.0)
         assert cell.references[0].object_count == 1
         assert write_plugin([cell]) == original
-
-    def test_plugin_reference_omits_default_scale_and_count(self) -> None:
-        from wraithguard.esp import Writer
-
-        # A plugin (mast_index 0) reference drops a default scale and stack count.
-        writer = Writer()
-        Reference(id="x", scale=1.0, object_count=1, mast_index=0).save(writer)
-        written = writer.getvalue()
-        assert b"XSCL" not in written
-        assert b"NAM9" not in written
 
     def test_non_finite_transforms_and_scale_are_sanitised(self) -> None:
         inf = struct.pack("<f", float("inf"))

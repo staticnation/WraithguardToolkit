@@ -1,0 +1,19 @@
+# The Linux builder copies only viewer-shell/ and native/ into its images and mounts
+# the project at run time, so the build context needs nothing else - above all not
+# the multi-GB cargo target folders, which made `docker build` send gigabytes.
+**/target/
+.git/
+.venv/
+.venv-t/
+venv/
+build/
+dist/
+output/
+htmlcov/
+tes3conv_json/
+plugin_cache/
+**/__pycache__/
+**/node_modules/
+viewer-shell.zip
+*.html
+*.log

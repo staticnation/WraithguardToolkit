@@ -4,7 +4,7 @@
 executed, and both were invisible to a suite that checked the pages by
 substring:
 
-* ``wraithguard/nif/viewer.py`` held its page in a **non-raw** Python string, so
+* the old mesh viewer (``wraithguard/nif/viewer.py``, since removed) held its page in a **non-raw** Python string, so
   the eleven ``\\n`` sequences in its shader assembly became real newlines,
   landing inside JavaScript string literals. The whole page was a syntax error
   and the viewer rendered nothing.
@@ -40,8 +40,6 @@ import pytest
 
 from wraithguard.images import Image, compare_images, difference_image, encode_png
 from wraithguard.images.viewer import build_compare_page
-from wraithguard.nif.geometry import Mesh
-from wraithguard.nif.viewer import build_viewer_page
 
 #: Node is a developer convenience here, not a dependency of the project.
 _NODE = shutil.which("node")
@@ -100,36 +98,6 @@ def assert_parses(page: str) -> None:
             check=False,
         )
     assert result.returncode == 0, f"generated JavaScript does not parse:\n{result.stderr}"
-
-
-TRIANGLE = Mesh(
-    name="t",
-    vertices=[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
-    triangles=[(0, 1, 2)],
-    uvs=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
-)
-
-
-class TestTheMeshViewerParses:
-    """Both shapes of the page, because they differ in how the library arrives."""
-
-    def test_served(self) -> None:
-        """The library is fetched, so only our own script is inline."""
-        assert_parses(
-            build_viewer_page(
-                [("side", [TRIANGLE])],
-                sink=lambda _b, _t="": {"url": "http://127.0.0.1:1/g.bin"},
-                library_url="http://127.0.0.1:1/three.js",
-            )
-        )
-
-    def test_standalone(self) -> None:
-        """The library is inlined, so the whole document is one file.
-
-        This is the shape the export produces, and the one nobody runs during
-        development -- which is precisely why it is worth parsing.
-        """
-        assert_parses(build_viewer_page([("side", [TRIANGLE])]))
 
 
 class TestTheTextureComparisonParses:

@@ -149,13 +149,6 @@ class TestDataItems:
         assert item.data.uses == 25
         assert write_plugin([item]) == original
 
-    def test_wrong_data_size_is_refused(self) -> None:
-        from wraithguard.esp import EspError
-
-        bad = _string_sub(b"NAME", "x") + b"LKDT" + struct.pack("<I", 8) + b"\x00" * 8
-        with pytest.raises(EspError, match="LKDT size"):
-            read_plugin(_record(b"LOCK", bad))
-
     @pytest.mark.parametrize(
         ("tag", "prefix"),
         [

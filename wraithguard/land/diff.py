@@ -13,34 +13,35 @@ each plugin applied, and a flag per vertex saying whether that delta is
 non-zero. The flags are the useful part -- two mods conflict only where both
 flags are set, and everywhere else the merge is unambiguous.
 
-**Storage, and why it looks like this.** The toolkit has no third-party
-dependencies (``pyproject.toml`` declares ``dependencies = []``) and ships as a
-frozen binary, so there is no NumPy to lean on. A cell is 65x65 vertices across
-up to five layers, and a large load order has thousands of modified cells; a
-nested list of per-vertex tuples would allocate tens of millions of small
-objects. Grids here are therefore *flat* lists of machine integers with
-multi-component values interleaved, which keeps allocation proportional to
-layers rather than vertices. The cost is that indexing is arithmetic instead of
-``grid[y][x]``, so it is confined to :meth:`RelativeGrid.offset_of` and the
-handful of methods that call it.
+**Storage, and why it looks like this.** A cell is 65x65 vertices across up to
+five layers, and a large load order has thousands of modified cells. Grids are
+therefore *flat* with multi-component values interleaved, and
+:class:`RelativeGrid` itself is Rust (``native/src/land.rs``): the per-vertex
+work of building, comparing and merging grids runs there, with the same methods
+and results the Python class had, so nothing that uses a grid changed.
 """
 
 from __future__ import annotations
 
+from array import array
 from dataclasses import dataclass, field
 from enum import IntFlag
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+import wraithguard_native as _native
+from wraithguard_native import RelativeGrid
 
 from wraithguard.tes3fields.landscape import (
+    LAND_NUM_VERTS,
     LAND_SIZE,
     TEXTURE_SIZE,
     WNAM_SIZE,
+    _payload,
     decode_texture_indices,
-    decode_vertex_colors,
-    decode_vertex_heights,
-    decode_vertex_normals,
-    decode_world_map,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 #: Side of the world-map grid, re-exported so callers need one import.
@@ -143,272 +144,13 @@ def parse_landscape_flags(value: str | None) -> LandData:
     return flags
 
 
-class RelativeGrid:
-    """A reference grid plus the deltas one plugin applied to it.
-
-    Values are stored flat and interleaved: a 65x65 grid of three-component
-    normals is one list of 12,675 integers. See the module docstring for why.
-
-    Attributes:
-        side: Vertices per edge.
-        components: Values per vertex -- 1 for heights, 3 for normals.
-    """
-
-    __slots__ = ("_changed", "_delta", "_reference", "components", "side")
-
-    def __init__(self, reference: list[int], side: int, components: int = 1) -> None:
-        """Wrap a reference grid with an all-zero set of deltas.
-
-        Args:
-            reference: Flat, interleaved reference values.
-            side: Vertices per edge.
-            components: Values per vertex.
-
-        Raises:
-            ValueError: If the list length does not match ``side`` and
-                ``components``.
-        """
-        expected = side * side * components
-        if len(reference) != expected:
-            raise ValueError(
-                f"expected {expected} values for a {side}x{side} grid of "
-                f"{components}-component values, got {len(reference)}"
-            )
-        self._reference = reference
-        self._delta = [0] * expected
-        # One flag per *vertex*, not per component: a normal whose x moved has
-        # moved, and asking the question per component would make every
-        # conflict test three times as long for no extra information.
-        self._changed = [False] * (side * side)
-        self.side = side
-        self.components = components
-
-    @classmethod
-    def from_difference(
-        cls, reference: list[int], plugin: list[int], side: int, components: int = 1
-    ) -> RelativeGrid:
-        """Build the difference of a plugin's grid against a reference.
-
-        Args:
-            reference: The reference values.
-            plugin: The plugin's values.
-            side: Vertices per edge.
-            components: Values per vertex.
-
-        Returns:
-            A grid whose deltas reproduce ``plugin`` when applied.
-
-        Raises:
-            ValueError: If either list is the wrong length.
-        """
-        grid = cls(reference, side, components)
-        if len(plugin) != len(reference):
-            raise ValueError(
-                f"plugin grid has {len(plugin)} values, reference has {len(reference)}"
-            )
-        changed = grid._changed
-        delta = grid._delta
-        count = components
-        for index, (was, now) in enumerate(zip(reference, plugin)):
-            if was != now:
-                delta[index] = now - was
-                changed[index // count] = True
-        return grid
-
-    def offset_of(self, x: int, y: int, component: int = 0) -> int:
-        """Index of one component of one vertex in the flat storage.
-
-        Args:
-            x: Column.
-            y: Row.
-            component: Which component of the vertex.
-
-        Returns:
-            The flat index.
-        """
-        return (y * self.side + x) * self.components + component
-
-    def value_at(self, x: int, y: int, component: int = 0) -> int:
-        """The plugin's value at a vertex: reference plus delta.
-
-        Args:
-            x: Column.
-            y: Row.
-            component: Which component.
-
-        Returns:
-            The resulting value.
-        """
-        index = self.offset_of(x, y, component)
-        return self._reference[index] + self._delta[index]
-
-    def delta_at(self, x: int, y: int, component: int = 0) -> int:
-        """The delta at a vertex.
-
-        Args:
-            x: Column.
-            y: Row.
-            component: Which component.
-
-        Returns:
-            The delta, zero when unchanged.
-        """
-        return self._delta[self.offset_of(x, y, component)]
-
-    def has_difference(self, x: int, y: int) -> bool:
-        """Whether this plugin moved a vertex at all.
-
-        Args:
-            x: Column.
-            y: Row.
-
-        Returns:
-            ``True`` when any component of the vertex changed.
-        """
-        return self._changed[y * self.side + x]
-
-    def set_value(self, x: int, y: int, values: tuple[int, ...]) -> None:
-        """Set every component of a vertex, recomputing its delta.
-
-        Args:
-            x: Column.
-            y: Row.
-            values: One value per component.
-
-        Raises:
-            ValueError: If the wrong number of components is supplied.
-        """
-        if len(values) != self.components:
-            raise ValueError(f"expected {self.components} component(s), got {len(values)}")
-        changed = False
-        for component, value in enumerate(values):
-            index = self.offset_of(x, y, component)
-            delta = value - self._reference[index]
-            self._delta[index] = delta
-            changed = changed or delta != 0
-        self._changed[y * self.side + x] = changed
-
-    def deltas_at(self, x: int, y: int) -> tuple[int, ...]:
-        """Every component's delta at a vertex.
-
-        Args:
-            x: Column.
-            y: Row.
-
-        Returns:
-            One delta per component.
-        """
-        start = (y * self.side + x) * self.components
-        return tuple(self._delta[start : start + self.components])
-
-    def set_deltas(self, x: int, y: int, deltas: tuple[int, ...]) -> None:
-        """Set a vertex's deltas directly, without going via a value.
-
-        Merging works in deltas rather than values -- two plugins' edits are
-        combined as *changes* against a shared reference, and converting each
-        back to an absolute value first would lose exactly the information the
-        merge needs.
-
-        Args:
-            x: Column.
-            y: Row.
-            deltas: One delta per component.
-
-        Raises:
-            ValueError: If the wrong number of components is supplied.
-        """
-        if len(deltas) != self.components:
-            raise ValueError(f"expected {self.components} delta(s), got {len(deltas)}")
-        start = (y * self.side + x) * self.components
-        changed = False
-        for offset, delta in enumerate(deltas):
-            self._delta[start + offset] = delta
-            changed = changed or delta != 0
-        self._changed[y * self.side + x] = changed
-
-    def to_flat_reference(self) -> list[int]:
-        """A copy of the reference values, with no deltas applied.
-
-        Returns:
-            The reference grid, safe for another :class:`RelativeGrid` to own.
-        """
-        return list(self._reference)
-
-    def clear(self, x: int, y: int) -> None:
-        """Discard a vertex's delta, returning it to the reference.
-
-        Args:
-            x: Column.
-            y: Row.
-        """
-        for component in range(self.components):
-            self._delta[self.offset_of(x, y, component)] = 0
-        self._changed[y * self.side + x] = False
-
-    @property
-    def is_modified(self) -> bool:
-        """Whether the plugin changed anything in this grid."""
-        return any(self._changed)
-
-    @property
-    def num_differences(self) -> int:
-        """How many vertices the plugin moved."""
-        return sum(self._changed)
-
-    def changed_vertices(self) -> list[tuple[int, int]]:
-        """Every vertex this plugin moved.
-
-        Returns:
-            ``(x, y)`` pairs, row-major.
-        """
-        side = self.side
-        return [(index % side, index // side) for index, moved in enumerate(self._changed) if moved]
-
-    def to_flat(self) -> list[int]:
-        """The plugin's grid as flat values.
-
-        Returns:
-            Reference plus delta, component by component.
-        """
-        return [was + delta for was, delta in zip(self._reference, self._delta)]
-
-    def to_rows(self) -> list[list[int]]:
-        """The grid as rows, for single-component grids.
-
-        Returns:
-            ``side`` rows of ``side`` values.
-
-        Raises:
-            ValueError: If the grid has more than one component per vertex.
-        """
-        if self.components != 1:
-            raise ValueError("to_rows is only meaningful for single-component grids")
-        flat = self.to_flat()
-        return [flat[y * self.side : (y + 1) * self.side] for y in range(self.side)]
-
-
-def _flatten(rows: list[list[int]] | list[list[float]]) -> list[int]:
-    """Flatten a grid of scalars to a list of ints.
-
-    Args:
-        rows: The grid.
-
-    Returns:
-        Row-major values.
-    """
-    return [int(value) for row in rows for value in row]
-
-
-def _flatten_triples(rows: list[list[tuple[int, int, int]]]) -> list[int]:
-    """Flatten a grid of triples, interleaved.
-
-    Args:
-        rows: The grid.
-
-    Returns:
-        Row-major, component-interleaved values.
-    """
-    return [component for row in rows for triple in row for component in triple]
+#: A reference grid plus the deltas one plugin applied to it, in Rust
+#: (``native/src/land.rs``). Methods: ``from_difference``, ``offset_of``,
+#: ``value_at``, ``delta_at``, ``has_difference``, ``set_value``, ``deltas_at``,
+#: ``set_deltas``, ``to_flat_reference``, ``clear``, ``is_modified``,
+#: ``num_differences``, ``changed_vertices``, ``to_flat``, ``to_rows``, and the
+#: ``side`` and ``components`` attributes.
+# (imported at the top of the module from wraithguard_native)
 
 
 @dataclass(slots=True)
@@ -421,6 +163,11 @@ class LandscapeLayers:
     every vertex colour to black" are different claims and merging them the
     same way would be a bug.
 
+    Decoded grids are typed arrays (``array("i")`` heights, ``array("b")``
+    normals and world map, ``array("B")`` colours): the reference landmass holds
+    every master cell at once, and as Python lists of ints a large one ran to
+    gigabytes. Anything built by hand may use plain lists.
+
     Attributes:
         coords: The cell's exterior grid coordinates.
         declared: The layers the record's flags claim it holds.
@@ -428,19 +175,19 @@ class LandscapeLayers:
 
     coords: tuple[int, int]
     declared: LandData
-    heights: list[int] | None = None
-    normals: list[int] | None = None
-    world_map: list[int] | None = None
-    colors: list[int] | None = None
+    heights: Sequence[int] | None = None
+    normals: Sequence[int] | None = None
+    world_map: Sequence[int] | None = None
+    colors: Sequence[int] | None = None
     textures: list[int] | None = None
 
     @classmethod
     def from_record(cls, record: dict[str, object]) -> LandscapeLayers:
         """Decode a ``Landscape`` record as tes3conv writes it.
 
-        Every grid arrives base64-encoded with a zstd frame underneath;
-        :mod:`wraithguard.tes3fields.landscape` already handles both and is
-        reused here rather than reimplemented.
+        A grid arrives as raw bytes (the Rust reader), or base64 with a zstd
+        frame underneath (tes3conv); ``_payload`` takes either. Heights are
+        decoded in Rust; the other layers are plain byte arrays.
 
         Args:
             record: One decoded JSON record with ``type == "Landscape"``.
@@ -463,27 +210,32 @@ class LandscapeLayers:
         heights = record.get("vertex_heights")
         if isinstance(heights, dict) and heights.get("data"):
             offset = heights.get("offset", 0.0)
-            layers.heights = _flatten(
-                decode_vertex_heights(
-                    heights["data"], float(offset) if isinstance(offset, (int, float)) else 0.0
-                )
+            raw = _payload(heights["data"], LAND_NUM_VERTS, "VHGT height data")
+            layers.heights = array(
+                "i",
+                _native.decode_heights(
+                    raw, float(offset) if isinstance(offset, (int, float)) else 0.0
+                ),
             )
 
         normals = record.get("vertex_normals")
         if isinstance(normals, dict) and normals.get("data"):
-            layers.normals = _flatten_triples(decode_vertex_normals(normals["data"]))
+            raw = _payload(normals["data"], 3 * LAND_NUM_VERTS, "VNML normals")
+            layers.normals = array("b", raw[: 3 * LAND_NUM_VERTS])
 
         world_map = record.get("world_map_data")
         if isinstance(world_map, dict) and world_map.get("data"):
-            layers.world_map = _flatten(decode_world_map(world_map["data"]))
+            raw = _payload(world_map["data"], WNAM_SIZE * WNAM_SIZE, "WNAM world map data")
+            layers.world_map = array("b", raw[: WNAM_SIZE * WNAM_SIZE])
 
         colors = record.get("vertex_colors")
         if isinstance(colors, dict) and colors.get("data"):
-            layers.colors = _flatten_triples(decode_vertex_colors(colors["data"]))
+            raw = _payload(colors["data"], 3 * LAND_NUM_VERTS, "VCLR colors")
+            layers.colors = array("B", raw[: 3 * LAND_NUM_VERTS])
 
         textures = record.get("texture_indices")
         if isinstance(textures, dict) and textures.get("data"):
-            layers.textures = _flatten(decode_texture_indices(textures["data"]))
+            layers.textures = [v for row in decode_texture_indices(textures["data"]) for v in row]
 
         return layers
 

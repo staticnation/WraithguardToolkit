@@ -29,15 +29,20 @@ HEADER = b"NetImmerse File Format, Version 4.0.0.2\n"
 
 
 def mesh(blocks: int = 0) -> bytes:
-    """A parseable NIF with no blocks.
+    """A readable NIF: empty for 0, else that many nodes (so two sizes differ).
 
     Args:
-        blocks: The block count to declare.
+        blocks: How many ``NiNode`` blocks.
 
     Returns:
         The file bytes.
     """
-    return HEADER + struct.pack("<II", 0x04000002, blocks)
+    out = [HEADER, struct.pack("<II", 0x04000002, blocks)]
+    for i in range(blocks):
+        out.append(_text("NiNode"))
+        out.append(_av_body(f"n{i}"))
+    out.append(struct.pack("<I", 1 if blocks else 0) + (struct.pack("<i", 0) if blocks else b""))
+    return b"".join(out)
 
 
 def _text(value: str) -> bytes:
@@ -80,6 +85,7 @@ def mesh_with_collision(has_collision: bool) -> bytes:
     for type_name, body in blocks:
         out.append(_text(type_name))
         out.append(body)
+    out.append(struct.pack("<Ii", 1, 0))  # the root list: block 0
     return b"".join(out)
 
 
@@ -128,6 +134,7 @@ def mesh_with_everything(has_collision: bool) -> bytes:
     for type_name, body in blocks:
         out.append(_text(type_name))
         out.append(body)
+    out.append(struct.pack("<Ii", 1, 0))  # the root list: block 0
     return b"".join(out)
 
 
@@ -371,9 +378,11 @@ class TestOnDemandDetail:
         truncated = HEADER + struct.pack("<II", 0x04000002, 5)
         entry = two_providers(tmp_path, "meshes/a.nif", truncated, mesh(0))
         lines = describe_mesh_detail(MeshAnalyser(), entry)
-        partial = [line for line in lines if "PARTIAL" in line]
-        assert partial, lines
-        assert all("no collision" not in line for line in partial)
+        # The crate reads a file whole or not at all: the truncated side is
+        # "could not read", never a summary that claims an absence.
+        unread = [line for line in lines if "could not read" in line]
+        assert unread, lines
+        assert all("no collision" not in line for line in unread)
 
     def test_no_providers_at_all_reads_nothing(self, tmp_path: Path) -> None:
         """A malformed entry (no providers) is treated like a non-mesh selection, not a crash."""

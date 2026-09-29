@@ -35,6 +35,8 @@ import math
 import struct
 from typing import Final
 
+import wraithguard_native as _native
+
 from wraithguard.tes3fields.landscape import (
     HEIGHT_SCALE,
     LAND_NUM_VERTS,
@@ -264,43 +266,9 @@ def vertex_normals_from_heights(rows: list[list[float]]) -> list[list[tuple[int,
         HeightEncodeError: If the grid is not 65x65.
     """
     _check_grid(rows)
-    scale = float(HEIGHT_SCALE)
-    step = 128.0 / scale
-    limit = LAND_SIZE - 1
-    normals: list[list[tuple[int, int, int]]] = []
-
-    for y in range(LAND_SIZE):
-        # Reuse the last interior vertex on the far edge rather than sampling
-        # past it. The alternative -- wrapping, or a zero normal -- produces a
-        # visible lighting seam along the north and east borders of every cell.
-        fy = y - 1 if y == limit else y
-        row: list[tuple[int, int, int]] = []
-        for x in range(LAND_SIZE):
-            fx = x - 1 if x == limit else x
-
-            # _finite_height keeps a non-finite vertex from poisoning the whole
-            # normal (nan propagates through the cross product and length).
-            here = _finite_height(rows[fy][fx]) / scale
-            east = _finite_height(rows[fy][fx + 1]) / scale
-            north = _finite_height(rows[fy + 1][fx]) / scale
-
-            # v1 runs east, v2 runs north; their cross product faces up.
-            nx = -(east - here) * step
-            ny = -(north - here) * step
-            nz = step * step
-
-            length = (nx * nx + ny * ny + nz * nz) ** 0.5
-            if length == 0.0:  # pragma: no cover - degenerate only if step were zero; guard anyway
-                row.append((0, 0, 127))
-                continue
-            unit = length / 127.0
-            # Saturating: a component that rounds to +-128 (or a non-finite one)
-            # must not raise in pack_vertex_normals -- clamp, keep the cell.
-            row.append(
-                (_to_signed_byte(nx / unit), _to_signed_byte(ny / unit), _to_signed_byte(nz / unit))
-            )
-        normals.append(row)
-    return normals
+    # Computed in Rust (native/src/land.rs), step for step as described above --
+    # including `** 0.5` for the length and the saturating byte conversion.
+    return _native.vertex_normals_from_heights(rows)
 
 
 def pack_vertex_normals(normals: list[list[tuple[int, int, int]]]) -> bytes:

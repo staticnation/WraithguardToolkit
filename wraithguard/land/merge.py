@@ -58,7 +58,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Final
 
-from wraithguard.land.curvature import structure_introduced
+import wraithguard_native as _native
+
 from wraithguard.land.diff import LandData, RelativeGrid
 
 
@@ -123,7 +124,7 @@ _BIAS: Final = 1.5
 #: competitive with a shift eight times its size. Chosen to be assertive
 #: enough to matter and mild enough that magnitude still dominates when
 #: neither edit has structure.
-_CURVATURE_FACTOR: Final = 8.0
+_CURVATURE_FACTOR: Final = 8.0  # the same value is used by merge_grids in native/src/land.rs
 
 #: Layers :attr:`ConflictStrategy.CURVATURE` can be applied to. Structure is a
 #: property of a height surface; a colour or an index has no gradient to bend.
@@ -261,22 +262,6 @@ def weighted_delta(
     return int(blended), severity
 
 
-def _rows_of(grid: RelativeGrid, *, applied: bool) -> list[list[float]]:
-    """Read a single-component grid back as rows of world-unit heights.
-
-    Args:
-        grid: The differences.
-        applied: ``True`` for the plugin's terrain, ``False`` for the
-            reference it was measured against.
-
-    Returns:
-        Rows of heights.
-    """
-    flat = grid.to_flat() if applied else grid.to_flat_reference()
-    side = grid.side
-    return [[float(v) for v in flat[y * side : (y + 1) * side]] for y in range(side)]
-
-
 def _resolve_for(layer: LandData, strategy: ConflictStrategy) -> ConflictStrategy:
     """Turn ``AUTO`` into the strategy a layer should use.
 
@@ -342,74 +327,25 @@ def merge_layer(
 
     chosen = _resolve_for(layer, strategy)
     thresholds = params if params is not None else ConflictParams()
-    merged = RelativeGrid(first.to_flat_reference(), first.side, first.components)
-    report = MergeReport(strategy=chosen)
-
-    # Curvature weighting needs each side's *terrain*, not just its deltas,
-    # because structure is a property of the surface. Reconstructed once here
-    # rather than per contested vertex.
-    surfaces: tuple[list[list[float]], list[list[float]], list[list[float]]] | None = None
-    if chosen is ConflictStrategy.CURVATURE:
-        surfaces = (
-            _rows_of(first, applied=False),
-            _rows_of(first, applied=True),
-            _rows_of(second, applied=True),
-        )
-
-    for y in range(first.side):
-        for x in range(first.side):
-            moved_one = first.has_difference(x, y)
-            moved_two = second.has_difference(x, y)
-
-            if not moved_one and not moved_two:
-                continue
-            if moved_one and not moved_two:
-                report.taken_from_one += 1
-                merged.set_deltas(x, y, first.deltas_at(x, y))
-                continue
-            if moved_two and not moved_one:
-                report.taken_from_two += 1
-                merged.set_deltas(x, y, second.deltas_at(x, y))
-                continue
-
-            report.contested += 1
-            if chosen is ConflictStrategy.OVERWRITE:
-                merged.set_deltas(x, y, second.deltas_at(x, y))
-                continue
-            if chosen is ConflictStrategy.IGNORE:
-                merged.set_deltas(x, y, first.deltas_at(x, y))
-                continue
-
-            blended: list[int] = []
-            worst = Severity.MINOR
-            deltas_one = first.deltas_at(x, y)
-            deltas_two = second.deltas_at(x, y)
-
-            if surfaces is not None:
-                reference, terrain_one, terrain_two = surfaces
-                # Weight by magnitude *scaled* by introduced structure, not by
-                # structure alone: two edits that both add no structure still
-                # have to be told apart, and magnitude is the only signal left.
-                added_one = structure_introduced(reference, terrain_one, x, y)
-                added_two = structure_introduced(reference, terrain_two, x, y)
-                weight_one = abs(deltas_one[0]) * (1.0 + added_one * _CURVATURE_FACTOR)
-                weight_two = abs(deltas_two[0]) * (1.0 + added_two * _CURVATURE_FACTOR)
-                value, severity = weighted_delta(
-                    deltas_one[0], deltas_two[0], weight_one, weight_two, thresholds
-                )
-                blended.append(value)
-                worst = severity
-            else:
-                for one, two in zip(deltas_one, deltas_two):
-                    value, severity = average_delta(one, two, thresholds)
-                    blended.append(value)
-                    if severity is Severity.MAJOR:
-                        worst = Severity.MAJOR
-            merged.set_deltas(x, y, tuple(blended))
-            if worst is Severity.MAJOR:
-                report.major += 1
-                report.major_vertices.append((x, y))
-            else:
-                report.minor += 1
-
+    # The per-vertex loop runs in Rust (native/src/land.rs, ``merge_grids``): the
+    # same cases in the same order as the functions above -- one side moved, both
+    # moved and the strategy decides, with average_delta / weighted_delta and the
+    # curvature weighting for a blend.
+    merged, one, two, contested, minor, major, major_vertices = _native.merge_grids(
+        first,
+        second,
+        chosen.value,
+        thresholds.minor_threshold_pct,
+        thresholds.minor_threshold_min,
+        thresholds.minor_threshold_max,
+    )
+    report = MergeReport(
+        strategy=chosen,
+        taken_from_one=one,
+        taken_from_two=two,
+        contested=contested,
+        minor=minor,
+        major=major,
+        major_vertices=list(major_vertices),
+    )
     return merged, report

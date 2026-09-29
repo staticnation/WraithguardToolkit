@@ -38,7 +38,7 @@ def minimal_nif(*, version: int = 0x04000002, blocks: int = 0) -> bytes:
     Returns:
         The file bytes.
     """
-    return HEADER + struct.pack("<II", version, blocks)
+    return HEADER + struct.pack("<II", version, blocks) + (b"\0" * 4 if blocks == 0 else b"")
 
 
 def write(path: Path, data: bytes) -> Path:

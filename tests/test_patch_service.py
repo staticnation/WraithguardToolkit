@@ -357,6 +357,19 @@ class TestDryRunVsRealWrite:
         assert out.stat().st_size > 0
         assert any("wrote" in line for line in result.lines)
 
+    def test_with_no_converter_the_rust_backend_writes_it(self, tmp_path: Path) -> None:
+        pytest.importorskip("wraithguard_native")
+        from wraithguard.esp import read_plugin
+
+        selections = [Selection("Castle.esp", "Cell", "(7, 22)")]
+        out = tmp_path / "out.esp"
+
+        result = build_record_patch(selections, SOURCES, PATCH, SIZES, "", out)
+
+        assert result.output == out
+        types = [type(r).__name__ for r in read_plugin(out.read_bytes())]
+        assert types == ["Header", "Cell"]
+
     def test_a_missing_converter_binary_is_reported_not_a_traceback(self, tmp_path: Path) -> None:
         selections = [Selection("Castle.esp", "GameSetting", "sCastleName")]
 

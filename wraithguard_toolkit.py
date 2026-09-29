@@ -112,13 +112,14 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fnmatch
+import functools
 import os
 import re
 import struct
 from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any
 
 # ---------------------------------------------------------------------------
 # mlox-exact plugin filename matching (ported from mlox's
@@ -180,6 +181,8 @@ if TYPE_CHECKING:
         Set as AbstractSet,
     )
     from contextlib import AbstractContextManager
+
+    from wraithguard_native import PluginLinter
 
 # ---------------------------------------------------------------------------
 # mlox [VER]/[SIZE]/[DESC] predicate functions (ported from mlox's ruleParser).
@@ -1005,13 +1008,6 @@ _BLOODMOON_FUNCS = (
     "TurnMoonWhite",
     "UndoWerewolf",
 )
-# mirror tes3lint's per-line matching: ignore comment text after ';'
-_RE_TB_FUN = re.compile(
-    r"^[^;\n]*?\b(" + "|".join(_TRIBUNAL_FUNCS) + r")\b", re.IGNORECASE | re.MULTILINE
-)
-_RE_BM_FUN = re.compile(
-    r"^[^;\n]*?\b(" + "|".join(_BLOODMOON_FUNCS) + r")\b", re.IGNORECASE | re.MULTILINE
-)
 
 _LINT_SKIP = {
     "morrowind.esm",
@@ -1046,169 +1042,6 @@ def _iter_subrecords(body: bytes) -> Iterator[tuple[bytes, bytes]]:
         (sz,) = struct.unpack_from("<I", body, i + 4)
         yield tag, body[i + 8 : i + 8 + sz]
         i += 8 + sz
-
-
-def _lint_zstr(b: bytes) -> str:
-    return b.split(b"\x00", 1)[0].decode("latin-1", "replace").strip()
-
-
-class _CellFacts(NamedTuple):
-    """What one ``CELL`` record contributes to the lint.
-
-    Attributes:
-        name: The cell's display name, as written.
-        cell_id: Its lower-cased name, or ``""`` when it is unnamed or on the
-            skip list -- meaning it is not a candidate for the pathgrid check.
-        fog_bug: Whether it trips the black-void bug: interior, not
-            behave-like-exterior, fog density exactly zero.
-    """
-
-    name: str
-    cell_id: str
-    fog_bug: bool
-
-
-def _lint_expansion_calls(body: bytes, tag: bytes) -> tuple[set[str], set[str]]:
-    """Find Tribunal and Bloodmoon function calls in one script or dialogue result.
-
-    Args:
-        body: The record body.
-        tag: Its record tag. ``SCPT`` carries source text in ``SCTX``, ``INFO``
-            in ``BNAM``.
-
-    Returns:
-        The Tribunal and Bloodmoon function names found.
-    """
-    want = b"SCTX" if tag == b"SCPT" else b"BNAM"
-    tribunal: set[str] = set()
-    bloodmoon: set[str] = set()
-    for subtag, data in _iter_subrecords(body):
-        if subtag == want and data:
-            text = data.decode("latin-1", "replace")
-            tribunal.update(match.group(1) for match in _RE_TB_FUN.finditer(text))
-            bloodmoon.update(match.group(1) for match in _RE_BM_FUN.finditer(text))
-    return tribunal, bloodmoon
-
-
-def _lint_masters(body: bytes) -> set[str]:
-    """Read a plugin header's declared masters.
-
-    Args:
-        body: The ``TES3`` record body.
-
-    Returns:
-        Lower-cased master filenames.
-    """
-    return {
-        _lint_zstr(data).lower() for subtag, data in _iter_subrecords(body) if subtag == b"MAST"
-    }
-
-
-def _lint_header_gaps(body: bytes) -> list[str]:
-    """Report which of author and description a header leaves blank.
-
-    Args:
-        body: The ``TES3`` record body.
-
-    Returns:
-        The missing field names in report order. Only the first ``HEDR`` is
-        considered, since the format allows exactly one.
-    """
-    for subtag, data in _iter_subrecords(body):
-        if subtag == b"HEDR" and len(data) >= 296:
-            fields = (("author", _lint_zstr(data[8:40])), ("description", _lint_zstr(data[40:296])))
-            return [word for word, value in fields if not value]
-    return []
-
-
-def _lint_evil_gmst(body: bytes) -> str | None:
-    """Identify an evil GMST: one whose name *and* value match the known table.
-
-    Both must match. A plugin that deliberately changes a game setting is doing
-    its job; what this catches is a stale expansion default copied in wholesale
-    by an old Construction Set.
-
-    Args:
-        body: The ``GMST`` record body.
-
-    Returns:
-        The setting's lower-cased name, or ``None``.
-    """
-    name: str | None = None
-    value_tag: str | None = None
-    value = b""
-    for subtag, data in _iter_subrecords(body):
-        if subtag == b"NAME":
-            name = _lint_zstr(data).lower()
-        elif subtag in (b"STRV", b"INTV", b"FLTV"):
-            value_tag, value = subtag.decode(), data
-    known = _EVIL_GMSTS.get(name) if name else None
-    if known and value_tag == known[0] and value.rstrip(b"\x00") == known[1].rstrip(b"\x00"):
-        return name
-    return None
-
-
-def _lint_cell(body: bytes) -> _CellFacts | None:
-    """Extract the interior-cell facts the lint needs.
-
-    Args:
-        body: The ``CELL`` record body.
-
-    Returns:
-        The facts, or ``None`` for an exterior cell or one whose ``DATA`` is
-        too short to read -- neither is a finding.
-    """
-    name = ""
-    data: bytes | None = None
-    ambience: bytes | None = None
-    for subtag, payload in _iter_subrecords(body):
-        if subtag == b"NAME":
-            name = _lint_zstr(payload)
-        elif subtag == b"DATA" and data is None:
-            data = payload
-        elif subtag == b"AMBI":
-            ambience = payload
-    if data is None or len(data) < 12:
-        return None
-    (flags,) = struct.unpack_from("<I", data, 0)
-    if not flags & 1:
-        return None  # exterior
-    cell_id = name.lower()
-    fog_bug = False
-    if not flags & 128:  # not behave-like-exterior
-        if ambience is not None and len(ambience) == 16:
-            (fog,) = struct.unpack_from("<f", ambience, 12)
-        else:
-            (fog,) = struct.unpack_from("<f", data, 8)
-        fog_bug = fog == 0.0
-    return _CellFacts(
-        name=name,
-        cell_id="" if cell_id in _LINT_SKIP_CELLS else cell_id,
-        fog_bug=fog_bug,
-    )
-
-
-def _lint_interior_pathgrid(body: bytes) -> str | None:
-    """Identify the interior cell a path grid belongs to.
-
-    Args:
-        body: The ``PGRD`` record body.
-
-    Returns:
-        The cell's lower-cased name, or ``None`` for an exterior path grid.
-        Interiors are the ones carrying grid ``(0, 0)``.
-    """
-    name = ""
-    grid_x: int | None = None
-    grid_y: int | None = None
-    for subtag, data in _iter_subrecords(body):
-        if subtag == b"NAME":
-            name = _lint_zstr(data)
-        elif subtag == b"DATA" and len(data) >= 8:
-            grid_x, grid_y = struct.unpack_from("<ii", data, 0)
-    if grid_x == 0 and grid_y == 0 and name:  # interiors carry grid (0,0)
-        return name.lower()
-    return None
 
 
 def _lint_twin_warnings(
@@ -1265,6 +1098,26 @@ def _lint_twin_warnings(
                     )
                     break
     return warnings
+
+
+@functools.cache
+def _plugin_linter() -> PluginLinter:
+    """The Rust record scanner behind the lint, built once from the tables above.
+
+    ``PluginLinter`` (``native/src/lint.rs``) is a port of the Python ``_lint_*``
+    helpers that used to be here: one pass over a plugin's raw records returning
+    its header gaps, interior cells and fog, interior path grids, evil GMSTs,
+    masters and expansion-only script calls. The wording of every warning, the
+    load-order-wide accumulators and the skip lists stay here.
+
+    Returns:
+        The shared ``PluginLinter``.
+    """
+    import wraithguard_native
+
+    return wraithguard_native.PluginLinter(
+        _EVIL_GMSTS, list(_TRIBUNAL_FUNCS), list(_BLOODMOON_FUNCS), set(_LINT_SKIP_CELLS)
+    )
 
 
 def lint_plugins(
@@ -1388,44 +1241,27 @@ def _lint_one_plugin(
         The warnings this plugin earns on its own.
     """
     warnings: list[str] = []
-    evil_gmsts: list[str] = []
-    masters: set[str] = set()
-    tribunal: set[str] = set()
-    bloodmoon: set[str] = set()
-
-    for tag, body in _iter_tes3_records(raw):
-        if is_custom and tag in (b"SCPT", b"INFO"):
-            found_tribunal, found_bloodmoon = _lint_expansion_calls(body, tag)
-            tribunal |= found_tribunal
-            bloodmoon |= found_bloodmoon
-        elif tag == b"TES3":
-            masters |= _lint_masters(body)
-            missing = _lint_header_gaps(body) if is_custom else []
-            if missing:
-                warnings.append(
-                    f"[HEADER] '{plugin}'{tagfor(plugin)}: header has no "
-                    f"{' and no '.join(missing)}."
-                )
-        elif tag == b"GMST":
-            evil = _lint_evil_gmst(body)
-            if evil:
-                evil_gmsts.append(evil)
-        elif tag == b"CELL":
-            cell = _lint_cell(body)
-            if cell is None:
-                continue
-            if cell.cell_id and cell.cell_id not in interior_first:
-                interior_first[cell.cell_id] = (plugin, cell.name)
-            if cell.fog_bug:
-                warnings.append(
-                    f"[FOGBUG] '{plugin}'{tagfor(plugin)}: interior cell '{cell.name}' has fog "
-                    f"density 0.0 -- renders as a black void on some GPUs. Fix by "
-                    f"setting any nonzero fog density on the cell."
-                )
-        elif tag == b"PGRD":
-            interior = _lint_interior_pathgrid(body)
-            if interior:
-                pathgrids.add(interior)
+    facts = _plugin_linter().scan(raw, is_custom)
+    for event in facts["events"]:
+        if event[0] == "header":
+            warnings.append(
+                f"[HEADER] '{plugin}'{tagfor(plugin)}: header has no {' and no '.join(event[1])}."
+            )
+            continue
+        _kind, name, cell_id, fog_bug = event
+        if cell_id and cell_id not in interior_first:
+            interior_first[cell_id] = (plugin, name)
+        if fog_bug:
+            warnings.append(
+                f"[FOGBUG] '{plugin}'{tagfor(plugin)}: interior cell '{name}' has fog "
+                f"density 0.0 -- renders as a black void on some GPUs. Fix by "
+                f"setting any nonzero fog density on the cell."
+            )
+    pathgrids.update(facts["pathgrids"])
+    evil_gmsts: list[str] = facts["evil_gmsts"]
+    masters = set(facts["masters"])
+    tribunal = set(facts["tribunal"])
+    bloodmoon = set(facts["bloodmoon"])
 
     if evil_gmsts:
         warnings.append(
@@ -1587,6 +1423,68 @@ def _no_window_kwargs() -> dict[str, Any]:
     from wraithguard.proc import no_window_kwargs
 
     return no_window_kwargs()
+
+
+def _keys_and_cells(records: list[Any]) -> tuple[list[list[Any]], list[list[Any]]]:
+    """The compact record keys and the cell list of one plugin's records.
+
+    ``(rectype, rid, deleted)`` per record (first wins; an ``.omwaddon``'s Lua scripts
+    as ``("LuaScript", path)``), and ``("ext", gx, gy)`` / ``("int", name, None)`` per
+    CELL -- what conflict detection and the cell map need, from the records as
+    :func:`_tes3conv_record_key` keys them.
+
+    Args:
+        records: One plugin's records in the tes3conv schema.
+
+    Returns:
+        The key list and the cell list, as lists (the sidecar files' shape).
+    """
+    # A cheap first pass over the already-in-memory list (no extra I/O):
+    # path grids need to know which cells are interior before they can be
+    # keyed correctly, and a cell's own record can appear anywhere in the
+    # file relative to its path grid's.
+    interior_cells = _interior_cell_names(records)
+
+    keys: list[list[Any]] = []
+    cells: list[list[Any]] = []
+    seen: set[Any] = set()
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        # Lua scripts declared by an .omwaddon LuaScriptsCfg (keyless record)
+        if str(rec.get("type", "")).lower().replace("_", "") in ("luascriptscfg", "lual"):
+            for s in rec.get("scripts") or rec.get("mScripts") or []:
+                sp = (
+                    s.get("script_path") or s.get("path") or s.get("mScriptPath")
+                    if isinstance(s, dict)
+                    else (s if isinstance(s, str) else None)
+                )
+                if sp:
+                    lk = ("LuaScript", str(sp).replace("\\", "/").lower().lstrip("/"))
+                    if lk not in seen:
+                        seen.add(lk)
+                        keys.append([lk[0], lk[1], False])
+        k = _tes3conv_record_key(rec, interior_cells)
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        rtype, rid = k
+        keys.append([rtype, rid, _rec_deleted(rec)])
+        if str(rtype).lower() == "cell":
+            name = str(rec.get("id") or rec.get("name") or rid)
+            if name.lower() in interior_cells:
+                cells.append(["int", name, None])
+            else:
+                _raw_data = rec.get("data")
+                data = _raw_data if isinstance(_raw_data, dict) else {}
+                grid = data.get("grid") or rec.get("grid")
+                if isinstance(grid, (list, tuple)) and len(grid) >= 2:
+                    cells.append(["ext", int(grid[0]), int(grid[1])])
+                else:
+                    mm = re.match(r"^\((-?\d+), (-?\d+)\)$", str(rid))
+                    if mm:
+                        cells.append(["ext", int(mm.group(1)), int(mm.group(2))])
+    return keys, cells
 
 
 class Tes3ConvSession:
@@ -1892,51 +1790,7 @@ class Tes3ConvSession:
             for rec in records
             if isinstance(rec, dict) and rec.get("type") in ("Landscape", "LandscapeTexture")
         ]
-        # A cheap first pass over the already-in-memory list (no extra I/O):
-        # path grids need to know which cells are interior before they can be
-        # keyed correctly, and a cell's own record can appear anywhere in the
-        # file relative to its path grid's.
-        interior_cells = _interior_cell_names(records)
-
-        keys: list[list[Any]] = []
-        cells: list[list[Any]] = []
-        seen: set[Any] = set()
-        for rec in records:
-            if not isinstance(rec, dict):
-                continue
-            # Lua scripts declared by an .omwaddon LuaScriptsCfg (keyless record)
-            if str(rec.get("type", "")).lower().replace("_", "") in ("luascriptscfg", "lual"):
-                for s in rec.get("scripts") or rec.get("mScripts") or []:
-                    sp = (
-                        s.get("script_path") or s.get("path") or s.get("mScriptPath")
-                        if isinstance(s, dict)
-                        else (s if isinstance(s, str) else None)
-                    )
-                    if sp:
-                        lk = ("LuaScript", str(sp).replace("\\", "/").lower().lstrip("/"))
-                        if lk not in seen:
-                            seen.add(lk)
-                            keys.append([lk[0], lk[1], False])
-            k = _tes3conv_record_key(rec, interior_cells)
-            if not k or k in seen:
-                continue
-            seen.add(k)
-            rtype, rid = k
-            keys.append([rtype, rid, _rec_deleted(rec)])
-            if str(rtype).lower() == "cell":
-                name = str(rec.get("id") or rec.get("name") or rid)
-                if name.lower() in interior_cells:
-                    cells.append(["int", name, None])
-                else:
-                    _raw_data = rec.get("data")
-                    data = _raw_data if isinstance(_raw_data, dict) else {}
-                    grid = data.get("grid") or rec.get("grid")
-                    if isinstance(grid, (list, tuple)) and len(grid) >= 2:
-                        cells.append(["ext", int(grid[0]), int(grid[1])])
-                    else:
-                        mm = re.match(r"^\((-?\d+), (-?\d+)\)$", str(rid))
-                        if mm:
-                            cells.append(["ext", int(mm.group(1)), int(mm.group(2))])
+        keys, cells = _keys_and_cells(records)
         stem = Path(path).stem
         for name, payload in (
             (stem + ".keys.json", keys),
@@ -2017,82 +1871,218 @@ class Tes3ConvSession:
 
 
 class NativeEspSession(Tes3ConvSession):
-    """A :class:`Tes3ConvSession` that converts plugins in-process, without tes3conv.
+    """A :class:`Tes3ConvSession` read in process by the Rust backend, with no JSON.
 
-    The parent is built entirely on one primitive -- :meth:`_json_for`, which
-    turns a plugin into an on-disk JSON file -- so a native backend overrides only
-    that: it reads the plugin with :mod:`wraithguard.esp` and writes the same
-    ``tes3conv``-schema JSON (:func:`wraithguard.esp.plugin_to_json`, whose output
-    is verified byte-for-byte against ``tes3conv``). Every higher method --
-    ``record_map``, ``record_subset``, ``cells``, ``landscape_records``, the
-    sidecars, the ``ijson`` streaming -- then works unchanged, reading that file.
+    ``wraithguard_native.plugin_records`` (``native/src/esp.rs``) parses a plugin
+    with greatness7's ``tes3::esp`` and hands the records straight to Python as
+    dicts in the tes3conv schema -- the same values ``json.load`` gave for the
+    spooled JSON, checked equal across 721 plugins -- without writing or parsing
+    any JSON. So nothing is spooled and there are no sidecar files:
 
-    This is the fallback that makes ``tes3conv`` optional: with it, record- and
-    field-level conflict detection, the cell map and Merged Lands all run on the
-    built-in reader alone. ``tes3conv`` stays the default when it is present -- it
-    is the community's trusted converter and its zstd framing is canonical -- but
-    its absence no longer reduces conflict detection to bare record counts.
+    * :meth:`record_keys` and :meth:`cells` parse the plugin once in *light* mode
+      (references, landscape data, path grid points and script bodies left out,
+      the parts no key needs) and keep the small result in memory, per plugin,
+      until the plugin changes on disk.
+    * :meth:`record_subset` parses only the record types asked for.
+    * :meth:`landscape_records` parses only LAND and LTEX.
+    * :meth:`records` and :meth:`record_map` parse the whole plugin, as before.
+
+    Memory stays bounded the way the sidecars bounded it: the parse happens in
+    Rust, and only the records a caller asks for become Python objects.
+
+    Record types the crate does not model (OpenMW-only tags) are skipped rather
+    than failing the file; a malformed record fails the file, which then reads as
+    empty, as a failed conversion always has.
     """
 
     engine_name = "native"
 
     def __init__(self, dump_dir: str | None = None, keep: bool = False) -> None:
-        """Open a native session, spooling JSON to ``dump_dir`` (a temp dir if None).
+        """Open a native session.
 
         Args:
-            dump_dir: Where to write the ``.json`` spool, or ``None`` for a temp
-                dir removed on :meth:`cleanup`.
-            keep: Leave the dump in place on cleanup even if it is a temp dir.
+            dump_dir: Where :func:`dump_tes3conv_json` writes, or ``None`` for a temp
+                dir removed on :meth:`cleanup`. Nothing else is written there.
+            keep: Leave that folder in place on cleanup even if it is a temp dir.
         """
+        import threading
+
         super().__init__(exe="", dump_dir=dump_dir, keep=keep)
+        self._memo_lock = threading.Lock()
+        #: plugin path -> (its (mtime_ns, size) when read, keys, cells)
+        self._memo: dict[
+            str, tuple[tuple[int, int], list[tuple[Any, ...]], list[tuple[Any, ...]]]
+        ] = {}
 
-    def _json_for(self, path: str | Path) -> str | None:
-        """Convert one plugin to on-disk JSON in process, reusing a fresh cache.
+    @staticmethod
+    def _tags_by_type() -> dict[str, bytes]:
+        """The record tag of each tes3conv ``type`` name (``"Npc"`` -> ``b"NPC_"``)."""
+        import wraithguard.esp.records  # noqa: F401 - registers every record class
+        from wraithguard.esp.record import REGISTRY
 
-        Mirrors the parent's cache and staleness handling exactly; only the
-        conversion differs -- :func:`wraithguard.esp.read_plugin` plus
-        :func:`wraithguard.esp.record_to_json` in place of a subprocess. Records
-        the built-in reader does not model (OpenMW-only tags, which come back as
-        ``UnknownRecord``) are skipped rather than failing the file, so a plugin
-        ``tes3conv`` would refuse outright still yields its ordinary records.
+        return {cls.__name__: tag for tag, cls in REGISTRY.items()}
+
+    def _parse(
+        self, path: str | Path, keep: Iterable[bytes] | None = None, light: bool = False
+    ) -> list[Any]:
+        """The plugin's records as tes3conv-schema dicts, or ``[]`` if unreadable."""
+        import wraithguard_native
+
+        try:
+            data = Path(path).read_bytes()
+            return wraithguard_native.plugin_records(
+                data, list(keep) if keep is not None else None, light
+            )
+        except (OSError, ValueError):
+            # OSError: unreadable/vanished plugin. ValueError: malformed plugin
+            # bytes. Either reads as "no records", as a failed conversion did.
+            return []
+
+    def _records(self, path: str | Path) -> list[Any]:
+        trace(f"native esp: READ {Path(path).name}")
+        return self._parse(path)
+
+    def _keys_cells(self, path: str | Path) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
+        """The plugin's record keys and cells, from memory while the file is unchanged."""
+        key = str(path)
+        try:
+            st = Path(path).stat()
+            stamp = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return [], []
+        with self._memo_lock:
+            hit = self._memo.get(key)
+        if hit is not None and hit[0] == stamp:
+            return hit[1], hit[2]
+        out = self._native_keys(path)
+        with self._memo_lock:
+            self._memo[key] = (stamp, out[0], out[1])
+        return out
+
+    @staticmethod
+    def _native_keys(
+        path: str | Path,
+    ) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
+        """The keys and cells computed in Rust (``plugin_keys``), or empty if unreadable.
+
+        Computed there from the same fields, by the same rules, as
+        :func:`_keys_and_cells` - checked identical on 721 plugins - but without
+        turning every record of the plugin into Python objects first.
+        """
+        import wraithguard_native
+
+        try:
+            keys, cells = wraithguard_native.plugin_keys(Path(path).read_bytes())
+        except (OSError, ValueError):
+            return [], []
+        return list(keys), list(cells)
+
+    def record_keys(self, path: str | Path) -> list[tuple[Any, ...]]:
+        """Return a compact ``(rectype, rid, deleted)`` list for every record."""
+        return self._keys_cells(path)[0]
+
+    def cells(self, path: str | Path) -> list[tuple[Any, ...]]:
+        """Return ``("ext", gx, gy)`` / ``("int", name, None)`` for the cells it touches."""
+        return self._keys_cells(path)[1]
+
+    def record_subset(
+        self, path: str | Path, wanted: AbstractSet[tuple[str, str]]
+    ) -> dict[tuple[str, str], Any]:
+        """Return ``{(rectype, rid): record}`` for just the ``wanted`` keys.
+
+        Only the record types named in ``wanted`` are parsed at all.
 
         Args:
-            path: The plugin file to convert.
+            path: The plugin file.
+            wanted: The ``(rectype, rid)`` keys to keep.
 
         Returns:
-            The path to the JSON on disk, or ``None`` if the plugin could not be
-            read.
+            Those of the ``wanted`` records that exist, keyed as
+            :func:`_tes3conv_record_key` keys them.
         """
-        import json as _json
+        want = set(wanted)
+        if not want:
+            return {}
+        by_type = self._tags_by_type()
+        tags = {by_type[t] for t, _ in want if t in by_type}
+        if not tags:
+            return {}
+        interior = {
+            str(name).lower() for kind, name, *_ in self.cells(path) if kind == "int" and name
+        }
+        out: dict[tuple[str, str], Any] = {}
+        for rec in self._parse(path, keep=tags):
+            k = _tes3conv_record_key(rec, interior)
+            if k in want and k not in out:
+                out[k] = rec
+        return out
 
-        from wraithguard.esp import EspError, UnknownRecord, read_plugin, record_to_json
+    def landscape_records(self, path: str | Path) -> list[Any]:
+        """Return the Landscape and LandscapeTexture records for one plugin."""
+        return self._parse(path, keep=(b"LAND", b"LTEX"))
 
-        key = str(path)
-        with self._json_lock:
-            jp = self._json_paths.get(key)
-        if jp and Path(jp).exists():
-            return jp
-        out = self.dump_dir / (Path(path).stem + ".json")
-        if out.exists() and not self._stale(out, path):
-            with self._json_lock:
-                self._json_paths[key] = str(out)
-            trace(f"native esp: REUSE {out.name}")
-            return str(out)
-        try:
-            trace(f"native esp: CONVERT {Path(path).name} -> {out.name}")
-            records = read_plugin(Path(path).read_bytes())
-            objs = [record_to_json(r) for r in records if not isinstance(r, UnknownRecord)]
-            with out.open("w", encoding="utf-8") as fh:
-                _json.dump(objs, fh)
-        except (OSError, EspError, ValueError):
-            # OSError: unreadable/vanished plugin or dump. EspError: malformed
-            # plugin bytes. ValueError covers EspJsonError (a record with no JSON
-            # form). Any of them means "no JSON for this plugin", as a failed
-            # tes3conv run returns None.
-            return None
-        with self._json_lock:
-            self._json_paths[key] = str(out)
-        return str(out)
+    def prime(self, paths: Iterable[str | Path], max_workers: int | None = None) -> int:
+        """Read many plugins' keys and cells at once, on several threads.
+
+        The Rust parse lets go of the interpreter, so plugins parse in parallel.
+
+        Args:
+            paths: The plugin files. Duplicates are collapsed.
+            max_workers: Concurrent reads, or ``None`` for the CPU count (up to 8).
+
+        Returns:
+            How many of the plugins could be read.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        unique = list(dict.fromkeys(str(p) for p in paths))
+        if not unique:
+            return 0
+        workers = max(1, min(max_workers or min(os.cpu_count() or 1, 8), len(unique)))
+
+        def one(p: str) -> bool:
+            return Path(p).is_file() and bool(self._keys_cells(p)[0])
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return sum(1 for ok in pool.map(one, unique) if ok)
+
+
+def native_backend() -> bool:
+    """Whether the Rust backend (``wraithguard_native``) is installed.
+
+    With it, plugins are read and written in process -- no tes3conv, no JSON.
+
+    Returns:
+        ``True`` when the module imports.
+    """
+    try:
+        import wraithguard_native  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def open_record_session(
+    conv: str | None, dump_dir: str | None = None, keep: bool = False
+) -> Tes3ConvSession | None:
+    """The session the conflict tools read plugins through.
+
+    The Rust backend (:class:`NativeEspSession`) whenever it is installed -- it
+    reads in process, with no JSON on disk. ``tes3conv`` (``conv``) only when the
+    backend is missing; ``None`` when neither is available.
+
+    Args:
+        conv: A tes3conv executable, or ``None``.
+        dump_dir: The folder :func:`dump_tes3conv_json` writes to (tes3conv also
+            spools there).
+        keep: Leave that folder in place on cleanup.
+
+    Returns:
+        The session, or ``None``.
+    """
+    if not native_backend():
+        return Tes3ConvSession(conv, dump_dir=dump_dir, keep=keep) if conv else None
+    return NativeEspSession(dump_dir=dump_dir, keep=keep)
 
 
 def diff_record_fields(
@@ -2611,6 +2601,26 @@ def filter_plugins(
     return kept, excl
 
 
+def _json_value(value: object) -> object:
+    """What ``json.dumps`` cannot write, as tes3conv writes it.
+
+    The native reader hands the packed number arrays (landscape grids, script
+    bytecode and variables, path grid connections) over as raw bytes; tes3conv's
+    JSON holds them as base64 of their zstd compression, so a dump does too.
+
+    Args:
+        value: A value ``json.dumps`` refused.
+
+    Returns:
+        The base64 text for bytes, else ``str(value)``.
+    """
+    if isinstance(value, bytes | bytearray):
+        from wraithguard.esp.json import _b64zstd
+
+        return _b64zstd(bytes(value))
+    return str(value)
+
+
 def dump_tes3conv_json(
     session: Tes3ConvSession | None,
     plugins: Sequence[str],
@@ -2641,7 +2651,8 @@ def dump_tes3conv_json(
         try:
             recs = session._records(path)
             (outdir / (Path(p).stem + ".json")).write_text(
-                json.dumps(recs, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
+                json.dumps(recs, indent=2, ensure_ascii=False, default=_json_value),
+                encoding="utf-8",
             )
             n += 1
         except OSError:
@@ -3491,20 +3502,20 @@ def backup_file(path: Path, no_backup: bool) -> None:
     print(_("Backup written: %(path)s") % {"path": backup})
 
 
-def write_cfg(
-    path: Path,
+def splice_cfg_lines(
     lines: Sequence[str],
     segments: Sequence[tuple[Sequence[int], Sequence[str]]],
-    dry_run: bool,
-    no_backup: bool,
-) -> None:
-    """Write the cfg back with the rebuilt content= / data= segments.
+) -> list[str]:
+    """Return the cfg lines with the rebuilt content= / data= segments spliced in.
 
-    segments:
+    Args:
+        lines: The cfg as read, one string per line.
+        segments: (positions, new_lines) pairs. Each segment's block of original lines
+            is replaced (at the position of its first line) with new_lines; other lines
+            are left completely untouched. A segment with no positions is appended.
 
-    list of (positions, new_lines) pairs. Each segment's block of original lines gets
-    replaced (at the position of its first line) with new_lines; other lines are left
-    completely untouched.
+    Returns:
+        The new lines, in order.
     """
     replace_at: dict[int, Sequence[str]] = {}
     skip: set[int] = set()
@@ -3526,6 +3537,26 @@ def write_cfg(
             continue
         new_lines_out.append(line)
     new_lines_out.extend(trailing_extra)
+    return new_lines_out
+
+
+def write_cfg(
+    path: Path,
+    lines: Sequence[str],
+    segments: Sequence[tuple[Sequence[int], Sequence[str]]],
+    dry_run: bool,
+    no_backup: bool,
+) -> None:
+    """Write the cfg back with the rebuilt content= / data= segments.
+
+    Args:
+        path: The cfg to write.
+        lines: The cfg as read.
+        segments: See :func:`splice_cfg_lines`.
+        dry_run: Print instead of writing.
+        no_backup: Skip the backup copy.
+    """
+    new_lines_out = splice_cfg_lines(lines, segments)
 
     if dry_run:
         print(_("\n--- DRY RUN: no files written ---"))
@@ -3555,6 +3586,7 @@ def write_cfg(
 from wraithguard.configurator import (
     curated_covers,
     extract_data_path_value,
+    format_data_line,
     generate_customizations_toml,
     infer_data_path_anchors,
     insert_data_paths,
@@ -4413,10 +4445,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--tes3conv",
         type=Path,
-        help="Path to a tes3conv executable. With --check-conflicts this switches the "
-        "conflict engine to tes3conv (exact record ids for every type; enables the "
-        "GUI's field-level diffs). Auto-detected from PATH / $MLOX_TES3CONV / next to "
-        "this script if not given; the built-in parser is used if none is found.",
+        help="Path to a tes3conv executable - a fallback only, for a build without the "
+        "built-in reader (wraithguard_native), which reads and writes plugins in process "
+        "and is always used when installed. Auto-detected from PATH / $MLOX_TES3CONV / "
+        "next to this script if not given.",
     )
     ap.add_argument(
         "--cell-map",
@@ -4471,10 +4503,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--json-dump-dir",
         type=Path,
-        help="When using tes3conv for --check-conflicts/--cell-map, write (and KEEP) the "
-        "per-plugin JSON conversions in this folder. tes3conv output is always spooled "
-        "to disk and read one plugin at a time (bounded memory); by default that spool "
-        "is a temp dir removed on exit -- give this to keep it (or to reuse it).",
+        help="Only with the tes3conv fallback (no built-in reader): write (and KEEP) its "
+        "per-plugin JSON conversions in this folder instead of a temp dir removed on "
+        "exit. The built-in reader writes no JSON.",
     )
     ap.add_argument(
         "-v",
@@ -5291,14 +5322,15 @@ def _conflict_and_cellmap_scans(
             extra_dirs=[str(args.cfg.parent) if args.cfg else None],
         )
         _dump = getattr(args, "json_dump_dir", None)
-        csession = (
-            Tes3ConvSession(conv, dump_dir=str(_dump) if _dump else None, keep=bool(_dump))
-            if conv
-            # No tes3conv on the system: the built-in reader converts in process,
-            # so field-level conflicts, the cell map and Merged Lands still work.
-            else NativeEspSession(dump_dir=str(_dump) if _dump else None, keep=bool(_dump))
-        )  # disk-backed, shared across both scans
-        if csession and _dump:
+        # The Rust backend when installed; tes3conv only without it.
+        csession = open_record_session(
+            conv, dump_dir=str(_dump) if _dump else None, keep=bool(_dump)
+        )
+        if (
+            isinstance(csession, Tes3ConvSession)
+            and not isinstance(csession, NativeEspSession)
+            and _dump
+        ):
             print(_("  Keeping tes3conv JSON dump in: %(path)s") % {"path": csession.dumped_dir()})
 
         if want_conflicts:
@@ -5307,7 +5339,13 @@ def _conflict_and_cellmap_scans(
                 _("  Engine: %(engine)s")
                 % {
                     "engine": (
-                        f"tes3conv ({conv})" if conv else _("native esp reader (field-level)")
+                        _("native esp reader (field-level)")
+                        if isinstance(csession, NativeEspSession)
+                        else (
+                            f"tes3conv ({conv})"
+                            if csession
+                            else _("built-in parser (record-level)")
+                        )
                     )
                 }
             )
@@ -5352,7 +5390,8 @@ def _conflict_and_cellmap_scans(
             except OSError as e:
                 _LOG.error(_("could not write cell map: %(error)s"), {"error": e})
 
-        csession.cleanup()  # drop the temp JSON spool (no-op if --json-dump-dir kept it)
+        if csession is not None:
+            csession.cleanup()  # drop the temp dump folder (kept with --json-dump-dir)
     return conflicts
 
 
@@ -5825,6 +5864,97 @@ def compute_plan(args: argparse.Namespace) -> dict:
     }
 
 
+def cfg_segments(
+    plan: dict,
+    final_order: list | None = None,
+    data_order: list | None = None,
+) -> tuple[list[str], list, list | None]:
+    """Work out the cfg edits a plan makes, for a given (possibly hand-adjusted) order.
+
+    Args:
+        plan: A computed plan.
+        final_order: Enabled plugins in order; None uses the plan's own.
+        data_order: Enabled raw data= lines in order; None uses the plan's own.
+
+    Returns:
+        (lines, segments, data_result): the cfg lines with any new groundcover
+        declarations appended, the content=/data= segments to splice in (see
+        :func:`splice_cfg_lines`), and the data_result in the order being written.
+    """
+    final_order = final_order if final_order is not None else plan["final_order"]
+    data_result = plan["data_result"]
+    # New groundcover declarations go in as their own lines. Appended to the
+    # end rather than spliced into an existing groundcover section: appending
+    # cannot shift any index, and every content=/data= position in `segments`
+    # is an index into these same lines. Placement does not matter to OpenMW --
+    # only the order of groundcover lines relative to each other does, and
+    # appending preserves that.
+    new_groundcover = list(plan.get("new_groundcover") or [])
+    plan_lines = list(plan["lines"])
+    if new_groundcover:
+        existing = {name.lower() for name in read_groundcover_names(plan_lines)}
+        additions = [f"groundcover={n}" for n in new_groundcover if n.lower() not in existing]
+        if additions:
+            plan_lines.extend(additions)
+
+    if data_order is not None and data_result is not None:
+        lookup = {line: (is_new, value) for line, is_new, value in data_result}
+        data_result = [(line, *lookup.get(line, (False, None))) for line in data_order]
+
+    segments = []
+    if final_order:
+        segments.append((plan["content_positions"], [f"content={n}" for n in final_order]))
+    if data_result is not None:
+        segments.append((plan["data_positions"], [line for line, _, _ in data_result]))
+    return plan_lines, segments, data_result
+
+
+def render_cfg_lines(
+    plan: dict,
+    final_order: list | None = None,
+    data_order: list | None = None,
+) -> list[str]:
+    """The openmw.cfg a plan would write, without writing it.
+
+    What Export would put on disk for this order, used to hand the cell viewer the setup
+    as it stands in the sort panels before anything is committed.
+
+    Args:
+        plan: A computed plan.
+        final_order: Enabled plugins in order; None uses the plan's own.
+        data_order: Enabled raw data= lines in order; None uses the plan's own.
+
+    Returns:
+        The cfg's lines.
+    """
+    lines, segments, _written = cfg_segments(plan, final_order, data_order)
+    return splice_cfg_lines(lines, segments)
+
+
+def viewer_setup_cfg(lines: Sequence[str], cfg_dir: Path) -> list[str]:
+    """Make a rendered cfg stand on its own for the cell viewer.
+
+    The viewer is handed a copy of the cfg in another folder, and OpenMW reads a
+    relative ``data=`` path against the folder the cfg is in, so each relative path is
+    made absolute against the real cfg's folder. Everything else is kept as it is.
+
+    Args:
+        lines: The cfg lines (e.g. from :func:`render_cfg_lines`).
+        cfg_dir: The folder of the real openmw.cfg.
+
+    Returns:
+        The lines, with every ``data=`` path absolute.
+    """
+    out: list[str] = []
+    for line in lines:
+        value = extract_data_path_value(line)
+        if value is not None and not Path(value).is_absolute():
+            out.append(format_data_line(str((cfg_dir / value).resolve()), quoted=True))
+        else:
+            out.append(line)
+    return out
+
+
 def write_plan(
     args: argparse.Namespace,
     plan: dict,
@@ -5901,29 +6031,8 @@ def write_plan(
         for d in remove_data:
             print(f"  removeData: {d}")
 
-    # New groundcover declarations go in as their own lines. Appended to the
-    # end rather than spliced into an existing groundcover section: appending
-    # cannot shift any index, and every content=/data= position in `segments`
-    # is an index into these same lines. Placement does not matter to OpenMW --
-    # only the order of groundcover lines relative to each other does, and
-    # appending preserves that.
     new_groundcover = list(plan.get("new_groundcover") or [])
-    plan_lines = list(plan["lines"])
-    if new_groundcover:
-        existing = {name.lower() for name in read_groundcover_names(plan_lines)}
-        additions = [f"groundcover={n}" for n in new_groundcover if n.lower() not in existing]
-        if additions:
-            plan_lines.extend(additions)
-
-    if data_order is not None and data_result is not None:
-        lookup = {line: (is_new, value) for line, is_new, value in data_result}
-        data_result = [(line, *lookup.get(line, (False, None))) for line in data_order]
-
-    segments = []
-    if final_order:
-        segments.append((plan["content_positions"], [f"content={n}" for n in final_order]))
-    if data_result is not None:
-        segments.append((plan["data_positions"], [line for line, _, _ in data_result]))
+    plan_lines, segments, data_result = cfg_segments(plan, final_order, data_order)
 
     if final_order and final_order != plan["final_order"]:
         _subsection("content= order being exported (manually adjusted)")

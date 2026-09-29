@@ -33,8 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from wraithguard.images import ImageError, browser_image, detect, read_image
 from wraithguard.images.roles import classify
 from wraithguard.nif.bsa import BsaArchive, BsaError
-from wraithguard.nif.geometry import world_meshes
-from wraithguard.nif.reader import NifParseError, read_nif_bytes
+from wraithguard.nif.report import NifParseError, summarise
 from wraithguard.nif.textures import TextureResolver
 
 #: How many textures to report in full before summarising.
@@ -166,14 +165,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"could not find mesh {args.mesh}")
             return 2
         try:
-            # Geometry is needed: without it the shapes carry no texture.
-            parsed = read_nif_bytes(data, geometry=True)
+            structure = summarise(data)
         except NifParseError as exc:
             print(f"could not parse {args.mesh}: {exc}")
             return 2
-        meshes = world_meshes(parsed)
-        print(f"{args.mesh}: {len(meshes)} shape(s)")
-        references.extend(sorted({m.texture for m in meshes if m.texture}))
+        print(f"{args.mesh}: {len(structure.shapes)} shape(s)")
+        references.extend(sorted(set(structure.textures)))
 
     if not references:
         # Nothing named, so sample the archives -- which is the case that

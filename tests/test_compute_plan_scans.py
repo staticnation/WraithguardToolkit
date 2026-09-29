@@ -415,7 +415,13 @@ class TestCellMapScan:
         assert len(plan["conflicts"]) == 1
         assert out.exists()
 
-    def test_json_dump_dir_prints_where_it_kept_the_dump(self, tmp_path: Path) -> None:
+    def test_json_dump_dir_prints_where_it_kept_the_dump(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Only the tes3conv fallback spools JSON (the built-in reader writes none),
+        # so this runs the scan as a build without the built-in reader would.
+        monkeypatch.setattr(core, "native_backend", lambda: False)
+        monkeypatch.setattr(core, "find_tes3conv", lambda **_k: "tes3conv")
         data = tmp_path / "Data Files"
         data.mkdir()
         write_plugin(data / "Morrowind.esm")

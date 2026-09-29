@@ -2,21 +2,36 @@
 name = "wraithguard-viewer"
 version = "0.1.0"
 edition = "2021"
-description = "Minimal single-purpose webview shell: opens one native window pointed at a URL. Replaces pywebview as the child-process viewer spawned by wraithguard_toolkit_gui.py -- no Python interpreter involved, so it carries none of PyQt6/sip's free-threading limitations."
+description = "Native webview shell: opens one window pointed at a URL, or runs the built-in cell viewer (--cell-viewer). Replaces pywebview as the child-process viewer spawned by wraithguard_toolkit_gui.py -- no Python interpreter involved, so it carries none of PyQt6/sip's free-threading limitations."
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# Cell-viewer mode (src/cellviewer): the engine, the page's file dialogs, and the
+# command layer's argument types.
+viewcore = { path = "viewcore" }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(wg_check)"] }
 
 [[bin]]
 name = "wraithguard-viewer"
 path = "src/main.rs"
 
-# Release builds: this ships inside the PyInstaller bundle, so keep it small.
+# Release builds. opt-level 3, not "z": the cell viewer's engine (mesh/texture
+# decoding, terrain, load order) runs in this binary and size-optimising it costs
+# far more in load time than it saves in bytes.
 [profile.release]
-opt-level = "z"
+opt-level = 3
+codegen-units = 1
 lto = true
 strip = true
-panic = "abort"
+# Unwind, not abort: greatness7's tes3 crates panic on some malformed files, and the
+# engine catches that (viewcore nif::from_crate) and reads the file its own way instead.
+# Under "abort" one broken mesh in a load order would close the viewer.
+panic = "unwind"

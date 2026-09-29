@@ -38,6 +38,8 @@ from array import array
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
+import wraithguard_native as _native
+
 from wraithguard.land.cleaning import (
     CellDigest,
     CleaningReport,
@@ -45,7 +47,6 @@ from wraithguard.land.cleaning import (
     digest,
 )
 from wraithguard.land.diff import ALL_LAYERS, LandData, RelativeGrid
-from wraithguard.land.heights import vertex_normals_from_heights
 from wraithguard.land.landmass import plugin_differences
 from wraithguard.land.merge import ConflictStrategy, merge_layer
 from wraithguard.land.seams import SeamReport, find_tears, repair_seams
@@ -353,35 +354,16 @@ def resolve_normals(outcome: MergeOutcome, reference: Landmass) -> int:
     for coords, cell in outcome.cells.items():
         if cell.heights is None:
             continue
-        rows = [
-            [float(v) for v in cell.heights[y * LAND_SIZE : (y + 1) * LAND_SIZE]]
-            for y in range(LAND_SIZE)
-        ]
-        computed = vertex_normals_from_heights(rows)
-
         layers = reference.get(coords)
         original = layers.normals if layers is not None else None
         base = layers.heights if layers is not None else None
-        if original is not None and base is not None and len(base) == len(cell.heights):
-            for y in range(LAND_SIZE):
-                for x in range(LAND_SIZE):
-                    index = y * LAND_SIZE + x
-                    if cell.heights[index] != base[index]:
-                        continue
-                    start = index * 3
-                    inherited = (
-                        original[start],
-                        original[start + 1],
-                        original[start + 2],
-                    )
-                    if inherited == (0, 0, 0):
-                        # Missing data, not a lighting choice: keep the fresh
-                        # normal rather than paint the vertex flat/black.
-                        continue
-                    computed[y][x] = inherited
-                    preserved += 1
-
-        cell.normals = [c for row in computed for triple in row for c in triple]
+        if original is None or base is None or len(base) != len(cell.heights):
+            original = base = None
+        # Recomputed and inherited in Rust (native/src/land.rs,
+        # ``resolve_cell_normals``), by the rule above.
+        normals, kept = _native.resolve_cell_normals(list(cell.heights), original, base)
+        cell.normals = normals
+        preserved += kept
 
     if preserved:
         _log.info("kept %d hand-authored normal(s) where the height did not move", preserved)

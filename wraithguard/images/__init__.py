@@ -35,7 +35,13 @@ from wraithguard.images.compare import (
     compare_images,
     difference_image,
 )
-from wraithguard.images.dds import CompressedTexture, DdsError, dds_passthrough, read_dds
+from wraithguard.images.dds import (
+    GPU_PASSTHROUGH_FORMATS,
+    CompressedTexture,
+    DdsError,
+    dds_passthrough,
+    read_dds,
+)
 from wraithguard.images.image import Image, ImageError
 from wraithguard.images.png import encode_png
 from wraithguard.images.reader import ImageFormat, browser_image, detect, read_image
@@ -43,6 +49,7 @@ from wraithguard.images.roles import TextureRole, classify, comparable
 from wraithguard.images.targa import TargaError, read_tga
 
 __all__ = [
+    "GPU_PASSTHROUGH_FORMATS",
     "BitmapError",
     "Comparison",
     "CompressedTexture",

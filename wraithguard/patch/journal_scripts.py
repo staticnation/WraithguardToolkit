@@ -528,8 +528,9 @@ def _calls_in_bytecode(bytecode: object, source_text: str | None) -> list[tuple[
     viewer already gives this data (see ``listing_for_bytecode_field``).
 
     Args:
-        bytecode: The record's ``bytecode`` field, expected to be the base64
-            text tes3conv writes. Anything else yields nothing.
+        bytecode: The record's ``bytecode`` field: the raw bytes the native
+            reader gives, or the base64 text tes3conv writes. Anything else yields
+            nothing.
         source_text: The record's own source, if any, passed through to
             :func:`~wraithguard.mwscript.disassembler.disassemble` to narrow
             which opcode values are trusted.
@@ -537,7 +538,7 @@ def _calls_in_bytecode(bytecode: object, source_text: str | None) -> list[tuple[
     Returns:
         ``(function, quest, index)`` tuples.
     """
-    if not isinstance(bytecode, str) or not bytecode:
+    if not isinstance(bytecode, str | bytes) or not bytecode:
         return []
     try:
         data = decode_bytecode_field(bytecode)

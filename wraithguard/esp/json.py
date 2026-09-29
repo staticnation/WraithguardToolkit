@@ -314,8 +314,14 @@ def _b64zstd(raw: bytes) -> str:
     return base64.standard_b64encode(_compress(raw)).decode("ascii")
 
 
-def _unb64zstd(text: str) -> bytes:
-    """Decode a tes3conv base64 blob back to the raw field bytes."""
+def _unb64zstd(text: str | bytes) -> bytes:
+    """Decode a tes3conv base64 blob back to the raw field bytes.
+
+    The native reader (``plugin_records``) hands these fields over already as the
+    raw bytes, so ``bytes`` pass straight through.
+    """
+    if isinstance(text, bytes | bytearray):
+        return bytes(text)
     return _decompress(base64.standard_b64decode(text))
 
 
@@ -443,6 +449,13 @@ def _struct_to_json(obj: Any) -> dict[str, Any]:  # noqa: ANN401 - any record or
         elif name == "ClassData" and fname == "skills":
             for label, skill in zip(_CLASS_SKILL_NAMES, value, strict=False):
                 out[label] = _enum_name(skill)
+        elif name == "RaceData" and fname == "skill_bonuses":
+            # The crate's SkillBonuses: named skill_N / bonus_N pairs, not an array.
+            out["skill_bonuses"] = {
+                k: v
+                for i, (skill, bonus) in enumerate(value)
+                for k, v in ((f"skill_{i}", _enum_name(skill)), (f"bonus_{i}", bonus))
+            }
         elif fname in vec_blobs:
             out[renames.get(fname) or _wire_name(fname)] = _b64zstd(
                 _pack_vec(value, vec_blobs[fname])
@@ -593,6 +606,17 @@ def _struct_from_json(cls: type, obj: dict[str, Any]) -> Any:  # noqa: ANN401 - 
             kwargs["skills"] = tuple(
                 _enum_member(SkillId, obj[label]) for label in _CLASS_SKILL_NAMES if label in obj
             )
+            continue
+        if name == "RaceData" and fname == "skill_bonuses":
+            sb = obj.get("skill_bonuses")
+            if isinstance(sb, dict):
+                n = sum(1 for k in sb if k.startswith("skill_"))
+                kwargs["skill_bonuses"] = tuple(
+                    (_enum_member(SkillId, sb[f"skill_{i}"]), int(sb[f"bonus_{i}"]))
+                    for i in range(n)
+                )
+            elif sb is not None:  # the older crate's [[skill, bonus], ...]
+                kwargs["skill_bonuses"] = tuple((_enum_member(SkillId, s), int(b)) for s, b in sb)
             continue
         if fname == "ai_packages" and name in ("Npc", "Creature"):
             kwargs["ai_packages"] = [_ai_package_from_json(e) for e in obj.get("ai_packages", [])]

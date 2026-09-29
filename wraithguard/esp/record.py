@@ -1,47 +1,29 @@
-"""The record framing that sits above the byte layer, and the record registry.
+"""The record base class and registry.
 
-A plugin is a flat sequence of records; a record is a sixteen-byte header then a
-body of subrecords. The header is four fields: the four-byte record ``tag``, a
-``u32`` giving the body's size, a ``u32`` the format leaves as padding (always
-written zero, as the crate does), and the record's :class:`ObjectFlags` as a
-``u32``. The body that the size measures is the subrecords -- the flags word,
-though it sits in the header slot, is written by the record itself, so the size
-is exactly the subrecords and nothing else.
-
-:func:`read_record` reads one header, hands the record a reader *bounded* to its
-body so its subrecord loop stops at the record's end, and dispatches on the tag
-to the class that knows that record. :func:`write_record` writes the header with
-a placeholder size, lets the record write its subrecords, then fills the size in
-now that it is known.
-
-A tag with no class yet is not an error and not a loss: it becomes an
-:class:`UnknownRecord` holding its bytes verbatim, so a plugin round-trips
-whole while records are still being ported one at a time. This is the same
-resilience :mod:`wraithguard.land.native` relies on -- a file is never refused
-over a record it does not model.
+Every record type is a dataclass here (``wraithguard.esp.records``): the objects the
+toolkit reads, compares, merges and writes. Reading and writing the bytes is
+greatness7's ``tes3::esp`` (see :mod:`wraithguard.esp.plugin`); the records cross
+as tes3conv-schema JSON through :mod:`wraithguard.esp.json`, which finds each class
+by name in :data:`REGISTRY`. A record the crate does not model is an
+:class:`UnknownRecord` holding its bytes, so a plugin still round-trips whole.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar
+from abc import ABC
+from typing import ClassVar
 
 from wraithguard.esp.flags import ObjectFlags
 
-if TYPE_CHECKING:
-    from wraithguard.esp.io import Reader, Writer
-
-#: Tag (four bytes) -> the record class that reads and writes it. Populated by
+#: Tag (four bytes) -> the record class for it. Populated by
 #: :func:`register`, which each record module applies to its class.
 REGISTRY: dict[bytes, type[Record]] = {}
 
 
 class Record(ABC):
-    """One TES3 record: its object flags, and how it reads and writes its body.
+    """One TES3 record: its four-byte tag, its object flags and its fields.
 
-    A subclass sets :attr:`TAG`, is (by convention) a dataclass of the record's
-    fields, and implements :meth:`load`/:meth:`save` over the *subrecords* only
-    -- the header, including the flags word, is the framing's job.
+    Each subclass is a dataclass of the record's fields.
     """
 
     #: The record's four-byte tag, e.g. ``b"WEAP"``.
@@ -55,24 +37,6 @@ class Record(ABC):
         """The tag to write for this record (its class :attr:`TAG`)."""
         return self.TAG
 
-    @classmethod
-    @abstractmethod
-    def load(cls, reader: Reader, flags: ObjectFlags) -> Record:
-        """Read this record's subrecords from ``reader`` (bounded to its body).
-
-        Args:
-            reader: A reader over exactly this record's body, positioned just
-                after the flags word.
-            flags: The object flags already read from the header.
-
-        Returns:
-            The parsed record.
-        """
-
-    @abstractmethod
-    def save(self, writer: Writer) -> None:
-        """Write this record's subrecords (not its header) to ``writer``."""
-
 
 def register(cls: type[Record]) -> type[Record]:
     """Register a record class under its :attr:`~Record.TAG`. Use as a decorator."""
@@ -81,11 +45,10 @@ def register(cls: type[Record]) -> type[Record]:
 
 
 class UnknownRecord(Record):
-    """A record whose tag has no class yet, kept as raw bytes so it round-trips.
+    """A record type the crate does not model, kept as raw bytes.
 
-    Its body (the subrecords after the flags word) is held verbatim and written
-    back unchanged, so a plugin containing records not yet ported still reads and
-    writes losslessly.
+    OpenMW's ``LUAL`` and the like: the body (the subrecords after the flags word)
+    is written back unchanged.
     """
 
     TAG = b"\x00\x00\x00\x00"
@@ -101,82 +64,6 @@ class UnknownRecord(Record):
         """The original tag this record was read under."""
         return self._tag
 
-    @classmethod
-    def load(cls, reader: Reader, flags: ObjectFlags) -> UnknownRecord:
-        """Not used -- unknown records are built directly by :func:`read_record`."""
-        raise NotImplementedError
-
-    def save(self, writer: Writer) -> None:
-        """Write the held body bytes back verbatim."""
-        writer.raw(self.body)
-
     def __repr__(self) -> str:
         """A short, tag-and-size summary."""
         return f"UnknownRecord({self._tag!r}, {len(self.body)} bytes)"
-
-
-def read_record(reader: Reader) -> Record:
-    """Read one record -- header then body -- from ``reader``.
-
-    Args:
-        reader: A reader positioned at a record header.
-
-    Returns:
-        The record: a registered class if the tag is known, else an
-        :class:`UnknownRecord` holding its bytes.
-    """
-    tag = reader.tag()
-    size = reader.u32()
-    reader.u32()  # padding: the format's third header word, always zero
-    body = reader.bound(4 + size)  # the flags word plus the subrecords
-    flags = ObjectFlags(body.u32())
-    cls = REGISTRY.get(tag)
-    if cls is None:
-        return UnknownRecord(tag, flags, body.raw(body.remaining))
-    return cls.load(body, flags)
-
-
-def read_or_skip_record(reader: Reader, keep: frozenset[bytes]) -> Record | None:
-    """Read one record if its tag is in ``keep``, else skip its body and return ``None``.
-
-    ``bound`` advances the reader past the record's bytes whether or not they are
-    parsed, so an unwanted record costs only its header read -- no subrecord loop
-    and no object built. A caller that needs a handful of record types out of a
-    large plugin (a cell preview wants ``CELL``/``LAND``/``LTEX`` and the objects
-    a cell can place, not every dialogue and script) reads it far faster this way.
-
-    Args:
-        reader: A reader positioned at a record header.
-        keep: The tags to actually parse; every other record is skipped.
-
-    Returns:
-        The parsed record when its tag is in ``keep``, else ``None``.
-    """
-    tag = reader.tag()
-    size = reader.u32()
-    reader.u32()  # padding
-    body = reader.bound(4 + size)  # advances the reader regardless of what follows
-    if tag not in keep:
-        return None
-    flags = ObjectFlags(body.u32())
-    cls = REGISTRY.get(tag)
-    if cls is None:
-        return UnknownRecord(tag, flags, body.raw(body.remaining))
-    return cls.load(body, flags)
-
-
-def write_record(writer: Writer, record: Record) -> None:
-    """Write one record -- header then body -- to ``writer``.
-
-    Args:
-        writer: The destination.
-        record: The record to write.
-    """
-    writer.tag(record.wire_tag)
-    size_at = writer.mark()
-    writer.u32(0)  # size placeholder, filled in below
-    writer.u32(0)  # padding word
-    body_at = writer.mark()
-    writer.u32(int(record.flags))
-    record.save(writer)
-    writer.patch_u32(size_at, len(writer) - body_at - 4)  # less the flags word

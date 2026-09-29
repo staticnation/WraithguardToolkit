@@ -1,34 +1,18 @@
-"""A pure-Python reader and writer for TES3 plugin files.
+"""TES3 plugins as record objects, read and written by greatness7's tes3 crate.
 
-**Why this exists.** The toolkit's authoritative plugin reader is ``tes3conv``,
-a console program it shells out to. That works, but it is a subprocess and a
-binary to locate and bundle, it spawns a window on Windows, and it refuses a
-whole file on one record it does not know (OpenMW's ``LUAL``, for one, which is
-why :mod:`wraithguard.land.native` exists). A library that reads and writes the
-format *in process* removes the subprocess, and -- record by record -- lets the
-tool understand plugins itself, now and in the future.
-
-**What it is.** A faithful port of the `tes3` Rust crate's ``esp`` library
-(``libs/esp`` in the checkout beside this repo). The wire format is the crate's,
-verified against it: little-endian primitives, four-byte tags, length-prefixed
-Windows-1252 strings, and the record/subrecord framing
-:mod:`wraithguard.esp.io` documents. Each record type is a small class that
-mirrors one ``types/*.rs`` file -- its fields, and the exact tag-dispatch its
-``Load``/``Save`` perform -- so a value read and written back is byte-for-byte
-what it was.
-
-**Shape.** :func:`read_plugin` turns bytes into a list of record objects;
-:func:`write_plugin` turns them back. :mod:`wraithguard.esp.io` is the binary
-layer everything is built on; :mod:`wraithguard.esp.enums` and
-:mod:`wraithguard.esp.flags` are the crate's enum and bitflags tables, generated
-from its source so a variant is spelled and valued exactly as the engine reads
-it. Records are ported incrementally; a tag with no class yet is preserved
-verbatim rather than lost, so the reader is always safe to run.
+:func:`read_plugin` turns a plugin's bytes into a list of record objects (the
+dataclasses in :mod:`wraithguard.esp.records`); :func:`write_plugin` turns them
+back. The bytes are the crate's (``tes3::esp``, through ``wraithguard_native``);
+the objects are built from, and turned back into, tes3conv-schema JSON by
+:mod:`wraithguard.esp.json`. :mod:`wraithguard.esp.enums` and
+:mod:`wraithguard.esp.flags` are the crate's enum and bitflags tables. A record type
+the crate does not model is kept as an :class:`UnknownRecord` with its raw bytes,
+so reading and writing a plugin never loses one.
 """
 
 from __future__ import annotations
 
-from wraithguard.esp.io import EspError, Reader, Writer
+from wraithguard.esp.io import EspError
 from wraithguard.esp.json import (
     EspJsonError,
     plugin_from_json,
@@ -194,7 +178,6 @@ __all__ = [
     "ProbeData",
     "Race",
     "RaceData",
-    "Reader",
     "Record",
     "Reference",
     "Region",
@@ -217,7 +200,6 @@ __all__ = [
     "Weapon",
     "WeaponData",
     "WeatherChances",
-    "Writer",
     "plugin_from_json",
     "plugin_to_json",
     "read_header",

@@ -27,7 +27,7 @@ from typing import Final
 
 import pytest
 
-from wraithguard.nif.vfs import archives_in, forget_archives, loose_index, read_mesh
+from wraithguard.nif.vfs import archives_in, forget_archives, loose_index, read_mesh_bytes
 
 #: The version word a Morrowind archive starts with.
 TES3_BSA_VERSION: Final = 0x100
@@ -96,7 +96,7 @@ class TestALooseFileIsFoundRegardlessOfCase:
         real = tmp_path / "meshes" / "x" / "Foo_Bar.NIF"
         real.parent.mkdir(parents=True)
         real.write_bytes(MINIMAL_NIF)
-        assert read_mesh(tmp_path, "meshes/x/foo_bar.nif") is not None
+        assert read_mesh_bytes(tmp_path, "meshes/x/foo_bar.nif") is not None
 
     def test_backslashes_and_case_both_differ(self, tmp_path: Path) -> None:
         """The exact spelling a NIF field tends to carry: Windows separators,
@@ -104,7 +104,7 @@ class TestALooseFileIsFoundRegardlessOfCase:
         real = tmp_path / "meshes" / "x" / "Foo_Bar.NIF"
         real.parent.mkdir(parents=True)
         real.write_bytes(MINIMAL_NIF)
-        assert read_mesh(tmp_path, "Meshes\\X\\FOO_BAR.nif") is not None
+        assert read_mesh_bytes(tmp_path, "Meshes\\X\\FOO_BAR.nif") is not None
 
     def test_an_exact_case_match_never_touches_the_index(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -119,7 +119,7 @@ class TestALooseFileIsFoundRegardlessOfCase:
             raise AssertionError("loose_index() was called for an exact-case match")
 
         monkeypatch.setattr("wraithguard.nif.vfs.loose_index", _must_not_be_called)
-        assert read_mesh(tmp_path, "meshes/x.nif") is not None
+        assert read_mesh_bytes(tmp_path, "meshes/x.nif") is not None
 
     def test_a_loose_case_insensitive_match_still_wins_over_an_archive(
         self, tmp_path: Path
@@ -131,19 +131,19 @@ class TestALooseFileIsFoundRegardlessOfCase:
         real.parent.mkdir(parents=True)
         real.write_bytes(MINIMAL_NIF)
         build_bsa(tmp_path / "Morrowind.bsa", {"meshes\\x.nif": b"not a nif at all"})
-        assert read_mesh(tmp_path, "meshes/X.NIF") is not None
+        assert read_mesh_bytes(tmp_path, "meshes/X.NIF") is not None
 
     def test_no_loose_match_still_falls_through_to_archives(self, tmp_path: Path) -> None:
         """The fallback must not swallow a file that only exists in a BSA."""
         build_bsa(tmp_path / "Morrowind.bsa", {"meshes\\only_archived.nif": MINIMAL_NIF})
-        assert read_mesh(tmp_path, "meshes/only_archived.nif") is not None
+        assert read_mesh_bytes(tmp_path, "meshes/only_archived.nif") is not None
 
     def test_a_genuinely_missing_mesh_still_raises(self, tmp_path: Path) -> None:
         """Indexing the folder must not turn a real miss into a false hit."""
         (tmp_path / "meshes").mkdir()
         (tmp_path / "meshes" / "unrelated.nif").write_bytes(MINIMAL_NIF)
         with pytest.raises(OSError, match=r"nor in any \.bsa"):
-            read_mesh(tmp_path, "meshes/missing.nif")
+            read_mesh_bytes(tmp_path, "meshes/missing.nif")
 
 
 class TestTheLooseIndexItself:
@@ -205,7 +205,7 @@ class TestAnArchiveReadCanStillFailAfterBeingFound:
             lie_about_size="meshes\\x.nif",
         )
         with pytest.raises(OSError, match=r"nor in any \.bsa"):
-            read_mesh(tmp_path, "meshes/x.nif")
+            read_mesh_bytes(tmp_path, "meshes/x.nif")
 
     def test_a_good_archive_after_a_truncated_one_is_still_found(self, tmp_path: Path) -> None:
         """Sorted archive order means the broken one is tried first; this
@@ -216,7 +216,7 @@ class TestAnArchiveReadCanStillFailAfterBeingFound:
             lie_about_size="meshes\\x.nif",
         )
         build_bsa(tmp_path / "Zzz_Good.bsa", {"meshes\\x.nif": MINIMAL_NIF})
-        assert read_mesh(tmp_path, "meshes/x.nif") is not None
+        assert read_mesh_bytes(tmp_path, "meshes/x.nif") is not None
 
 
 class TestArchivesInAbsorbsAListingError:

@@ -1,24 +1,34 @@
-# Autobuild the Windows .exe and upload it as an artifact.
+# Autobuild the Windows builds and upload them as artifacts.
 #
-# Previously this built two variants -- an "edgechromium" leg (pywebview's
-# small WebView2 backend) and a "qt" leg (pywebview's PyQt6 backend, for
-# machines without WebView2). Both are gone: the in-app viewer window is now
-# wraithguard-viewer, a standalone Rust/Tauri binary (see viewer-shell/),
-# built here and bundled into the .exe as a data file. It uses WebView2 on
-# Windows, same as the old edgechromium leg -- Windows 10 1803+/11 all ship
-# it by default, the same assumption the app already made for its previous
-# default build -- so there is now exactly one Windows build, and it is
-# entirely free-threaded (3.14t): nothing left in the dependency graph (no
-# PyQt6/sip, no pythonnet/clr -- both were only ever there for pywebview)
-# blocks it. If a no-WebView2 fallback ever becomes a real requirement again,
-# Tauri's installer bundler can auto-provision the WebView2 runtime; a raw
-# `cargo build` binary like this one cannot, so that would mean switching
-# viewer-shell over to `tauri build` rather than reintroducing a second leg.
+# The in-app viewer window is wraithguard-viewer, a standalone Rust/Tauri binary
+# (see viewer-shell/), built here and bundled with the app. It draws with WebView2.
+# Two variants:
+#
+#   system    one .exe; uses the WebView2 runtime Windows 10/11 ship with. Small.
+#   webview2  a zipped folder that carries its own WebView2 (the Fixed Version
+#             runtime - Chromium) in webview2/, for machines without the system
+#             runtime: WebView2 removed along with Edge, or a Windows install that
+#             never had it (LTSC, stripped images). wraithguard/viewer_launch.py
+#             points the viewer at it (WEBVIEW2_BROWSER_EXECUTABLE_FOLDER). A folder,
+#             not a one-file .exe, because a one-file build would unpack the ~250 MB
+#             runtime on every start.
+#
+# The Fixed Version runtime is downloaded from Microsoft
+# (https://developer.microsoft.com/microsoft-edge/webview2/ -> Fixed Version, x64,
+# a .cab). Its download links change with every release, so the link is a repository
+# variable, WEBVIEW2_FIXED_URL (or the manual run's input); the webview2 variant is
+# built only when one is set. Note: Rust's Windows target needs Windows 10 or later,
+# so neither variant runs on Windows 7/8.1 whatever WebView2 it carries.
 
 name: Build Windows app
 
 on:
   workflow_dispatch:
+    inputs:
+      webview2_url:
+        description: "WebView2 Fixed Version runtime .cab URL (x64) for the bundled-WebView2 build; empty = the WEBVIEW2_FIXED_URL variable"
+        required: false
+        default: ""
   push:
     tags: ["v*"]
 
@@ -38,6 +48,13 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The bundled-WebView2 variant only when there is a runtime to bundle.
+        variant: ${{ fromJSON((inputs.webview2_url != '' || vars.WEBVIEW2_FIXED_URL != '') && '["system","webview2"]' || '["system"]') }}
+    env:
+      WEBVIEW2_URL: ${{ inputs.webview2_url != '' && inputs.webview2_url || vars.WEBVIEW2_FIXED_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -96,18 +113,25 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pyinstaller tkinterweb tkinterdnd2 PyYAML ijson certifi
 
+      - name: Build the Rust backend (native/, greatness7's tes3 crates)
+        # Into the free-threaded interpreter PyInstaller freezes; PyInstaller then
+        # bundles the extension module by following wraithguard's imports.
+        run: python -m pip install ./native
+
       - name: Build the .exe
         # bash (present on Windows runners) keeps the multiline command readable;
         # PyInstaller still uses ';' as the --add-data/--add-binary separator on
         # Windows. --add-binary (not --add-data) for the viewer: it's a PE
-        # executable, not a data file, and lands at "." so resource_path()'s
-        # join with "wraithguard-viewer.exe" finds it directly in _MEIPASS root.
+        # executable, not a data file, and lands at "." so the viewer is found
+        # directly in _MEIPASS (wraithguard/viewer_launch.py).
         shell: bash
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --noupx \
+          if [ "${{ matrix.variant }}" = "webview2" ]; then MODE=--onedir; else MODE=--onefile; fi
+          python -m PyInstaller --noconfirm --clean $MODE --windowed --noupx \
             --name wraithguard_toolkit_gui \
             --icon wraithguard_toolkit_icon.ico \
             --collect-submodules wraithguard \
+            --hidden-import wraithguard_native \
             --collect-all certifi \
             --hidden-import tkinterweb \
             --add-binary "viewer-shell/target/release/wraithguard-viewer.exe;." \
@@ -118,38 +142,60 @@ jobs:
             --add-data "wraithguard_toolkit_icon.ico;." \
             --add-data "wraithguard/viz/assets;assets" \
             wraithguard_toolkit_gui.py
-          mv "dist/wraithguard_toolkit_gui.exe" \
-             "dist/wraithguard-toolkit-windows-x86_64.exe"
 
-      - name: Upload the .exe
+      - name: Name the system build
+        if: matrix.variant == 'system'
+        shell: bash
+        run: |
+          mv "dist/wraithguard_toolkit_gui.exe" "dist/wraithguard-toolkit-windows-x86_64.exe"
+          echo "ASSET=dist/wraithguard-toolkit-windows-x86_64.exe" >> "$GITHUB_ENV"
+
+      - name: Bundle the WebView2 runtime
+        if: matrix.variant == 'webview2'
+        # The .cab holds one folder, Microsoft.WebView2.FixedVersionRuntime.<ver>.x64,
+        # which goes in webview2\ beside the .exe as it is.
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri $env:WEBVIEW2_URL -OutFile webview2.cab
+          $dest = "dist/wraithguard_toolkit_gui/webview2"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          expand.exe webview2.cab -F:* $dest | Out-Null
+          $exe = Get-ChildItem -Path $dest -Recurse -Filter msedgewebview2.exe | Select-Object -First 1
+          if (-not $exe) { throw "no msedgewebview2.exe in the downloaded runtime" }
+          Write-Host "bundled WebView2: $($exe.DirectoryName)"
+          Compress-Archive -Path "dist/wraithguard_toolkit_gui/*" -DestinationPath "dist/wraithguard-toolkit-windows-x86_64-webview2.zip"
+          "ASSET=dist/wraithguard-toolkit-windows-x86_64-webview2.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload the build
         uses: actions/upload-artifact@v4
         with:
-          name: wraithguard-toolkit-windows-x86_64
-          path: dist/wraithguard-toolkit-windows-x86_64.exe
+          name: wraithguard-toolkit-windows-x86_64-${{ matrix.variant }}
+          path: ${{ env.ASSET }}
           if-no-files-found: error
           retention-days: 14
 
       # Sign the artifact with minisign (pure-Python, no C/Rust toolchain) so the
       # download can be verified. Skipped, not failed, when the signing secret is
       # not configured yet, so a release can still go out unsigned during setup.
-      - name: Sign the .exe (tag builds only)
+      - name: Sign the build (tag builds only)
         if: ${{ startsWith(github.ref, 'refs/tags/') && env.MINISIGN_SECRET_KEY != '' }}
         env:
           MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        shell: bash
         run: |
           python -m pip install py-minisign==0.21.1
-          python tools/sign_release.py "dist/wraithguard-toolkit-windows-x86_64.exe"
+          python tools/sign_release.py "$ASSET"
 
       - name: Attach to the release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           # The .minisig line matches nothing when signing was skipped, so
-          # fail_on_unmatched_files is off; the .exe is always produced by the
+          # fail_on_unmatched_files is off; the build is always produced by the
           # build step above (which fails the job if it is not).
           files: |
-            dist/wraithguard-toolkit-windows-x86_64.exe
-            dist/wraithguard-toolkit-windows-x86_64.exe.minisig
+            ${{ env.ASSET }}
+            ${{ env.ASSET }}.minisig
           fail_on_unmatched_files: false
           # No generate_release_notes here: the Linux build is the sole owner
           # of the release notes (see its own workflow comment) so the

@@ -27,8 +27,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from wraithguard.logging_setup import get_logger
-from wraithguard.nif.reader import NifParseError, read_nif
-from wraithguard.nif.report import compare, summarise
+from wraithguard.nif.report import NifParseError, compare, summarise
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -202,19 +201,12 @@ class MeshAnalyser:
                 self.cache_hits += 1
                 return cached
         try:
-            result = summarise(read_nif(path))
-        except NifParseError as exc:
+            result = summarise(path.read_bytes())
+        except (NifParseError, OSError) as exc:
             # Expected, not exceptional: mod folders contain meshes for other
-            # games and other engine versions, and a path can turn out to be a
-            # folder. This is a finding about the file, so it is returned
-            # rather than raised.
-            #
-            # There is deliberately no ``except OSError`` beside this one.
-            # ``read_nif`` already converts an unreadable path into a
-            # ``NifParseError``, so such a handler could never run -- it was
-            # here, and an audit found it only because coverage could not reach
-            # it. A handler for an impossible case is worse than none: it
-            # advertises a failure mode that does not exist.
+            # games and other engine versions, a download can be truncated, and a
+            # path can turn out to be a folder. This is a finding about the file,
+            # so it is returned rather than raised.
             LOG.debug("cannot read %s: %s", path, exc)
             outcome: Structure | str = str(exc)
         else:

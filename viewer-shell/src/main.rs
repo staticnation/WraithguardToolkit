@@ -16,11 +16,23 @@
 // GIL-free (3.14t) or not, and it makes no difference to this binary.
 //
 // Usage: wraithguard-viewer <url> [title] [width] [height]
+//        wraithguard-viewer --cell-viewer [--openmw-cfg <path>] [--cell x,y|int:Name] [--title <t>]
+//          (the built-in cell viewer; see src/cellviewer)
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+// The stub compile-check crate (check/) models only the URL mode; the command
+// bodies are compiled separately by check-commands/. The real build compiles both.
+#[cfg(not(wg_check))]
+mod cellviewer;
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
+    #[cfg(not(wg_check))]
+    if args.get(1).map(String::as_str) == Some("--cell-viewer") {
+        std::process::exit(cellviewer::run(&args[2..]));
+    }
 
     let url_arg = match args.get(1) {
         Some(u) => u.clone(),

@@ -955,9 +955,19 @@ class TestDdsPassthrough:
         raw = dds(b"\x00\x00\x00\x00", 2, 2, bytes(2 * 2 * 4), pf_flags=0x40)
         assert dds_passthrough(raw) is None
 
-    def test_bc4_and_bc5_masks_are_left_to_the_cpu_decoder(self) -> None:
-        assert dds_passthrough(dds(b"ATI2", 4, 4, bytes(16))) is None  # BC5
-        assert dds_passthrough(dds(b"BC4U", 4, 4, bytes(8))) is None
+    def test_bc4_and_bc5_masks_pass_through_too(self) -> None:
+        """BC4/BC5 need no CPU decode either: three.js reconstructs a normal
+        map's Z on the GPU for a "packed RG" format, and already samples a
+        bump map's one channel -- see the comment on ``_GPU_FORMATS``."""
+        bc5 = dds_passthrough(dds(b"ATI2", 4, 4, bytes(16)))
+        assert bc5 is not None
+        assert bc5.format == "bc5"
+        assert bc5.levels == [(4, 4, 16)]
+
+        bc4 = dds_passthrough(dds(b"BC4U", 4, 4, bytes(8)))
+        assert bc4 is not None
+        assert bc4.format == "bc4"
+        assert bc4.levels == [(4, 4, 8)]
 
     def test_a_non_dds_is_none(self) -> None:
         assert dds_passthrough(b"not a dds file at all, really") is None

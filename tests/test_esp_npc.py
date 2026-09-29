@@ -149,13 +149,6 @@ class TestNpc:
         assert NpcFlags.AUTO_CALCULATE in npc.npc_flags
         assert write_plugin([npc]) == original
 
-    def test_bad_npdt_size_is_refused(self) -> None:
-        from wraithguard.esp import EspError
-
-        body = _string_sub(b"NAME", "x") + _sub(b"NPDT", struct.pack("<h", 0))
-        with pytest.raises(EspError, match="NPDT size"):
-            read_plugin(_record(b"NPC_", body))
-
     def test_unexpected_tag_and_deletion(self) -> None:
         from wraithguard.esp import EspError
 

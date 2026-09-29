@@ -64,7 +64,8 @@ scratch output are deliberately left outside it.
 WraithguardToolkit/
 ├── *.md                          Docs at the top level: README, QUICKSTART,
 │                                 CHANGELOG, CREDITS, CODE_REVIEW, MLOX_RULES,
-│                                 NIF_PROVENANCE, MERGED_LANDS, SMOKE_TEST.
+│                                 NIF_PROVENANCE, MERGED_LANDS, SMOKE_TEST,
+│                                 PREFLIGHT, UNBAKE_MIGRATION.
 ├── License/                      This project's MIT licence (`LICENSE`), plus
 │                                 one file per upstream project whose licence
 │                                 travels with code ported or adapted here.
@@ -114,9 +115,9 @@ WraithguardToolkit/
 └── theme_template.json           Commented starting point for a custom theme.
 ```
 
-Only the standard library is required to run. Optional extras (`tkinterdnd2`,
-`PyYAML`, `pywebview`/`tkinterweb`, `tomli` on Python < 3.11) each enable one
-feature and degrade gracefully when missing. Kept *outside* this folder because
+The standard library and the Rust module (`native/`) are required to run.
+Optional extras (`tkinterdnd2`, `PyYAML`, `tkinterweb`, `tomli` on Python < 3.11)
+each enable one feature and degrade gracefully when missing. Kept *outside* this folder because
 none of it is needed to build or run: the reference sources read while porting
 (credited in `CREDITS.md`), the third-party Perl/`tes3cmd` tools the app drives,
 and run output (logs, `cell_map.html`, `resource_conflicts.csv`, the packaged
@@ -126,9 +127,15 @@ and run output (logs, `cell_map.html`, `resource_conflicts.csv`, the packaged
 
 ## Requirements & setup (Windows, Linux, macOS)
 
-Pure Python + tkinter, so it runs on all three platforms.
+Python + tkinter, with a Rust module for reading and writing game files, so it
+runs on all three platforms.
 
 - **Python 3.10+** (3.11+ gets `tomllib` for free; on 3.10 install `tomli`).
+- **The built-in reader, `wraithguard_native`** (`native/`) - greatness7's `tes3`
+  crates, as a Python module: it reads and writes plugins, meshes and `.bsa`
+  archives in process. The release builds carry it. From source, install it once
+  with a Rust toolchain (1.88+): `pip install ./native` (on Windows,
+  `py -3.14t -m pip install ./native`).
 - **tkinter** - bundled with the python.org installers on Windows and macOS. On
   Linux, install it from your package manager, e.g. Debian/Ubuntu:
   `sudo apt install python3-tk`.
@@ -139,10 +146,9 @@ Pure Python + tkinter, so it runs on all three platforms.
   - `pip install PyYAML` - faster/robust `plugin-order.yml` parsing. Without it,
     a built-in parser is used automatically.
   - `pip install tomli` - only on Python < 3.11, for reading TOML.
-  - `pip install pywebview` - shows the cell map in an in-app window (uses the OS
-    webview, so the SVG heatmap and tabs render exactly like a browser).
-    `tkinterweb` also works as a lighter fallback; without either, the map opens
-    in your default browser.
+  - `pip install tkinterweb` - shows the cell map in an in-app window when the
+    viewer (`wraithguard-viewer`, see Packaging) is not built; without either, the
+    map opens in your default browser.
 
 Install optional deps on an externally-managed Python with
 `pip install ... --break-system-packages` if needed.
@@ -154,37 +160,27 @@ frozen, is a temp extraction dir that's wiped on exit), so your settings and
 outputs survive the build:
 
 - `wraithguard_toolkit_settings.json`, `wraithguard_toolkit_trace.log`, `cell_map.html`,
-  and the `tes3conv_json/` spool are written **next to the `.exe`**. If that
+  and (only with the tes3conv fallback) the `tes3conv_json/` spool are written
+  **next to the `.exe`**. If that
   folder isn't writable (e.g. installed under `Program Files`), they fall back to
   a per-user data dir (`%APPDATA%\MloxSubsetSort` on Windows,
   `~/Library/Application Support/MloxSubsetSort` on macOS,
   `~/.config/MloxSubsetSort` on Linux).
-- The in-app cell-map viewer re-invokes the same executable with `--show-map`, so
-  pywebview works from the frozen build too (no bundled Python interpreter
-  needed). **But the library must actually be inside the exe** - if it isn't, the
-  map falls back to the browser.
+- **Two things must be bundled that PyInstaller cannot find by itself**: the Rust
+  module (`--hidden-import wraithguard_native`, after `pip install ./native` into the
+  interpreter PyInstaller runs) and the viewer, `wraithguard-viewer`, built from
+  `viewer-shell/` with `cargo build --release` and added beside the app
+  (`--add-binary "viewer-shell/target/release/wraithguard-viewer.exe;."` on Windows,
+  `:.` elsewhere). The release workflows in `.github/workflows/` are the reference
+  build for each platform; copy their PyInstaller line.
 
-**Bundling the embedded (pywebview) cell-map viewer.** In your build environment,
-`pip install pywebview`, then tell PyInstaller / auto-py-to-exe to collect it and
-its Windows backend. In auto-py-to-exe, add under *Advanced → hidden-import* and
-*--collect-all*, or on the PyInstaller command line:
-
-```
-pyinstaller --noconsole --collect-all webview --collect-all clr_loader \
-    --hidden-import clr --hidden-import webview.platforms.edgechromium \
-    wraithguard_toolkit_gui.py
-```
-
-pywebview on Windows uses the Edge **WebView2** runtime (present on Windows 11 and
-most updated Windows 10; otherwise install the free "Evergreen" runtime from
-Microsoft). To confirm what the build actually sees, run the exe with `--trace`
-and open the log: the `viewers: ... pywebview=True/False` line and the
-`cell map: viewer = ...` line tell you which path it took.
-
-If you'd rather avoid the WebView2 dependency, bundle **tkinterweb** instead
-(`pip install tkinterweb`; `--collect-all tkinterweb`). It renders the SVG map in
-a real in-app window (the tab buttons need a full browser, so use *Open in
-browser* for those). Without either library, the map opens in your browser.
+The viewer (cell map, Cell Preview, mesh viewer, conflict views) draws with the
+system webview: **WebView2** on Windows (present on Windows 11 and updated Windows
+10; the `-webview2.zip` release carries its own for machines without it),
+**WebKitGTK** on Linux (the AppImage carries it), **WKWebView** on macOS. Without
+the viewer, the cell map falls back to **tkinterweb** if installed, then to your
+browser. To see which path a build took, run it with `--trace` and read the
+`viewers:` and `cell map: viewer = ...` lines in the log.
 
 **One data folder must be added by hand: the 3D viewer library.** PyInstaller
 follows imports, not data, so the vendored three.js build under
@@ -195,9 +191,8 @@ automatically. Map it into the build:
 --add-data "wraithguard/viz/assets;assets"
 ```
 
-Without it the app runs normally and the **View in 3D** button reports that the
-library was not shipped - deliberately a clear message rather than a blank
-window. You do **not** need to add `wraithguard/` or `locale/` by hand:
+Without it the app runs normally and the texture comparison's lit overlay
+falls back to its CSS view. You do **not** need to add `wraithguard/` or `locale/` by hand:
 PyInstaller collects the package by following the import graph, and `locale/` is
 a developer directory (no `.mo` catalogues ship yet). Verify any build from the
 Log panel's first line - a build stamp `Wraithguard Toolkit <version> --
@@ -303,19 +298,18 @@ row covers tes3cmd (clean / resync / header, VFS-safe), Save Check (verify an
 backups left by this tool, tes3cmd, and the Configurator).
 
 **Resource Conflicts shows meshes in 3D.** Select a conflicting `.nif` and
-press **View in 3D**: one viewport with a checkbox per provider, so the camera
-never moves as you switch between them - the whole point, since a view that
-re-frames itself is comparing two different pictures. A node tree on the left
-lists what the render cannot show: collision nodes, controllers, particle
-systems, and any block nothing references. Drag to orbit, wheel to zoom, and
-**Textures** turns texturing off when you want to compare shape alone.
+press **View in 3D**: the viewer's mesh viewer opens with each mod's own copy,
+listed by mod - one at a time, or side by side - drawn by the same renderer as
+Cell Preview, with textures resolved through your current setup. Beside it, the
+shown mesh's block tree (with collision, controllers, particle systems and
+unreferenced blocks named), and the selected block's fields.
 
-It opens in the same in-app viewer as the other visualisations (pywebview),
-falling back to your browser. It is served from a small local server on `127.0.0.1` - nothing leaves
-your machine, the address is not reachable from the network, and every request
-carries a one-off token for that session. **Export 3D file...** writes the same
-view as a single self-contained HTML file you can keep or send to someone; that
-is also what you get automatically if the app cannot open a local port.
+**Edit mesh...** opens the winning copy editable: the panel's editable fields
+take input, and **Save edited .nif...** writes an edited copy where you choose
+(the original is never touched). A mesh a record field names opens the same way
+from the field diff's **View mesh**. Saving goes through a small local server on
+`127.0.0.1` - nothing leaves your machine, and every request carries a one-off
+token for that session.
 
 **Resource Conflicts reads meshes.** A conflict list can tell you which mod
 wins a file; it cannot tell you the winner is a low-poly stand-in with no
@@ -636,22 +630,22 @@ keyed by their script path - whether declared in an `.omwscripts` file or in an
 `.omwaddon`'s `LuaScriptsCfg` - so two mods attaching the same script path show up
 as a conflict.
 
-**Two engines, both full-featured:**
+**The engine is the built-in reader** (`wraithguard_native`, greatness7's
+`tes3::esp` - the crate [`tes3conv`](https://github.com/Greatness7/tes3conv) is
+built on). It parses every TES3 record type in process and hands the records to
+Python directly - no subprocess, no JSON written or parsed, nothing spooled to
+disk - and gives both record-level detection (which plugins touch the same
+record) *and* the field-by-field diff. The records have tes3conv's field names
+and layout, so the comparison reads exactly as it would over tes3conv's JSON.
+Only the record types a feature asks for are parsed, and each plugin's record keys
+and cells are kept in memory while the file is unchanged, so repeat scans are
+fast and memory stays bounded on 900+ plugins. (Scripts are keyed by name,
+interior cells by name, exterior cells / landscape by grid, and Lua scripts by
+path.)
 
-- **Built-in (default, no dependencies)** - a native in-process reader that
-  parses every TES3 record type and gives you both record-level detection (which
-  plugins touch the same record) *and* the field-by-field diff. It reproduces
-  `tes3conv`'s exact JSON schema, so the Conflicts window's field comparison,
-  the cell map and Merged Lands all work with nothing installed. (Handles scripts
-  by name, interior cells by name, exterior cells / landscape by grid, and Lua
-  scripts by path.)
-- **tes3conv (optional, preferred when present)** - the community's trusted
-  converter. When a [`tes3conv`](https://github.com/Greatness7/tes3conv) binary is
-  found it is used instead of the native reader, and it is still what does the
-  binary *encoding* for Merged Lands. Point the tool at it via the **Set
-  tes3conv...** button, the `--tes3conv` CLI flag, `$MLOX_TES3CONV`, your `PATH`,
-  or by dropping the binary next to the script. Installing `zstandard` makes the
-  native reader's landscape/script output byte-identical to tes3conv's.
+**tes3conv is a fallback only**, for a build without the built-in reader: the
+**Set tes3conv...** button (shown only then), the `--tes3conv` CLI flag,
+`$MLOX_TES3CONV`, your `PATH`, or the binary dropped next to the script.
 
 The field-by-field comparison shows each plugin's value side by side, differing
 fields in red, last column wins - the same JSON approach TES3 Conflictsolver
@@ -675,28 +669,22 @@ install.
 - **Exclude field** (Options) - comma-separated glob patterns to skip in the
   Conflict / Cell-map / Resource scans, e.g. `s3lightfixes*, *delta*, *grass*`.
   Great for "touches-everything" mods that swamp the results. Saved with settings.
-- **Settings are remembered** - your paths, rule files, options, tes3conv path,
-  and exclude patterns are saved to `wraithguard_toolkit_settings.json` on close and
+- **Settings are remembered** - your paths, rule files, options, the tes3conv
+  fallback's path, and exclude patterns are saved to `wraithguard_toolkit_settings.json` on close and
   reloaded next launch.
-- **Dump tes3conv JSON** - in the Conflicts window (tes3conv mode), export the
-  per-plugin JSON for every scanned plugin to a folder you pick.
-- **Keep tes3conv JSON dump** (Options) - tes3conv conversions are always spooled
-  to a `tes3conv_json` folder next to the tool and read one plugin at a time
-  (bounded memory, even on 900+ plugins). Within a run the spool is reused, so
-  **Check Conflicts followed by Cell Map won't re-run tes3conv** - a plugin is
-  only re-converted if it changed (checked by modified-time). This box only
-  decides what happens on exit: checked = keep the folder (reused next launch
-  too); unchecked = delete it on close. CLI: `--json-dump-dir FOLDER` keeps it.
-- **Scan caching (fast repeats).** The first Check Conflicts / Cell Map reads each
-  plugin's JSON once and writes two tiny per-plugin sidecars next to it -
-  `*.keys.json` (record ids, for conflict detection) and `*.cells.json` (cells
-  touched, for the map) - in a single pass, so running both features reads each
-  big JSON only once per run. Every scan after that reads those few-KB sidecars
-  instead of re-parsing the multi-MB JSON, so **repeat Check Conflicts and Cell
-  Map runs are near-instant**. Sidecars are mtime-invalidated per plugin (an
-  edited mod rebuilds only its own), live in the same `tes3conv_json` folder, and
-  follow the same keep/cleanup rule. The on-click field diff still reads the full
-  record on demand, so accuracy is unchanged.
+- **Dump records as JSON** - in the Conflicts window, export every scanned
+  plugin's records to a folder you pick, as tes3conv-format JSON (the packed
+  landscape, script and path-grid arrays as tes3conv writes them), so the files
+  can be read by tes3conv or anything built for its output.
+- **Scan caching (fast repeats).** Each plugin's record keys (for conflict
+  detection) and the cells it touches (for the map) are read once and kept in
+  memory until the plugin file changes, so **Check Conflicts followed by Cell
+  Map reads each plugin once**, and repeats are near-instant. The on-click field
+  diff reads only the records it shows, on demand.
+- **Keep tes3conv JSON dump** (Options; shown only with the tes3conv fallback) -
+  tes3conv's conversions are spooled to a `tes3conv_json` folder next to the tool;
+  checked keeps the folder on exit, unchecked deletes it. CLI: `--json-dump-dir
+  FOLDER`.
 - The **field comparison** shows list fields (e.g. `references`) as a count;
   **double-click a field row** to see the full value per plugin, pretty-printed.
   Your custom mods are flagged with a **★** in the column headers (and shown in
@@ -723,8 +711,8 @@ install.
   record carries its source text, that is used to suppress false positives: an
   opcode value that happens to occur inside expression data is only decoded if
   the script really calls that function.
-- The **Cell map** is written to `cell_map.html` and shown in an in-app window if
-  `pywebview` (best) or `tkinterweb` is installed, otherwise in your browser; the
+- The **Cell map** is written to `cell_map.html` and shown in the viewer's window
+  (or with `tkinterweb`, or in your browser, without it); the
   window has **Save HTML** / **Open in browser**.
 
 ### Cell map (which mods touch which cells)
@@ -743,8 +731,8 @@ their own color, then 6-10, 11-15, and so on. The differences that matter are
 crowded at the bottom of the range - one, two and three mods in a cell are
 different situations, while 23 and 24 are not - so the legend beside the map is
 its key, with one swatch per band. It writes `cell_map.html` and opens it in an
-in-app window (with `pywebview`/`tkinterweb`) or your browser, changes nothing,
-and works with either engine (tes3conv gives the most exact cell identification).
+in-app window (the viewer, or `tkinterweb`) or your browser, and changes
+nothing.
 
 ### The 3D terrain view
 
@@ -776,32 +764,35 @@ Everything about the shading is a control:
 
 ### Cell preview (walk a cell in 3D)
 
-Click **Cell Preview** (after a Sort) to place a whole cell's objects in the 3D
-viewer and look at it the way the game would build it -- the point being to check
-a cell for conflicts *without* loading the game. Pick an interior cell by name or
-an exterior cell by its grid; every reference is resolved to its winning object
-and world position across the sorted load order, so what you see is what would
-load. Alongside the view, an audit prints what the load order does to the cell:
-references a later plugin overrode, deleted or moved, and any meshes it could not
-find.
+Click **Cell Preview** (after a Sort) to open the viewer (`wraithguard-viewer`,
+beside the tool) on the load order as the sort panels hold it now -- the point
+being to check a cell for conflicts *without* loading the game. Pick a cell from
+the list or from the **cell map** (heat-coloured by how many plugins touch each
+cell, with your own mods ringed); every reference is resolved to its winning
+object and position across the load order, so what you see is what would load.
+The statistics box says what the load order did to the cell: references a later
+plugin overrode, deleted or moved, and any meshes it could not find.
 
-An exterior cell draws more than its statics. It lays down the **terrain**,
-textured with its blended landscape textures (they cross-fade at cell boundaries
-the way Morrowind paints them); floats **animated water** where the ground drops
-below sea level; and, behind a toggle, pulls in the **eight neighbouring cells**
-so you can see how the cell meets its surroundings. It all sits under a
-**Morrowind sky** with a time-of-day control, a weather selector (each weather
-brings its own sky), and a night starfield.
+An exterior draws its **terrain** with the blended landscape textures, its
+neighbouring cells, and **groundcover** from your groundcover plugins, under a
+Morrowind sky with time of day and weather. The **water** is MGE XE's water
+shader, with shore surf and caustics in the shallows, sewer waves off Vivec and
+Molag Mar, and a **Water hue** / **Water colour** pair of sliders to tint it (hard
+left is MGE XE's own water, hard right an opaque colour). Meshes animate as in
+the game: keyframed nodes, flip-book visibility (lightning, flames), scrolling
+textures, morph targets, skinned creatures and particles.
 
-Drag to orbit, scroll to zoom, or **fly with WASD**. A right-hand panel (hideable,
-with accordion menus) fine-tunes the water, sky, time of day and lighting, and
-each object category can be isolated or soloed to pick one kind of thing out of a
-crowded cell. **Click a mesh** for an `ori`-style readout in the left panel: the
-object's id, which plugins define it and which place it here (in load order, the
-last winning), and its winning model and texture path -- the provenance you would
-otherwise drop into the in-game console to read. The view is read-only -- it changes nothing on disk. Like the other
-served pages it needs a real viewer (`pywebview`, or your browser) because the
-geometry and textures stream in as blobs.
+**Click an object** for an `ori`-style readout: its id, which plugins define it
+and which place it here (in load order, the last winning), and the mesh and
+textures it uses with the folder each one comes from. **Shift+click a door** to
+go through it. Navigation is **orbit** (right-drag to turn, middle-drag to pan,
+wheel to zoom) or **WASD**: hold the right mouse button to look and move with
+W/A/S/D, E/Q for up/down. Tab or the navigation button switches between them.
+
+The same viewer is the **mesh viewer** (View in 3D from the conflict and resource
+views): one mod's copy, two side by side or overlaid, with per-map toggles, an
+alpha override, collision shapes, and the NIF block tree with a field editor.
+Everything is read-only unless you save an edited mesh.
 
 ---
 
@@ -818,8 +809,8 @@ deliberately changed is in [MERGED_LANDS.md](MERGED_LANDS.md).
 **Running it.** Click **Merge Lands** (second button row - it is a
 file-producing action, not a read-only scan). It needs only a sort so it knows
 the load order - the built-in reader and writer handle the terrain and the
-binary encoding, so no `tes3conv` is required (it is used for the encoding when
-present). It writes
+binary encoding, with no external tool (tes3conv is used only in a build without
+the built-in reader). It writes
 `Merged Lands.esp` to your output folder and a `Merged Lands.mergedlands.toml`
 marker beside it; **enable the plugin and load it LAST**. A second run ignores
 its own previous output rather than merging a merge.
@@ -966,8 +957,8 @@ Key flags:
 | `--check-conflicts` | Scan active plugins for TES3 record-level conflicts. |
 | `--conflicts-out` | Write the conflict list to a CSV (with `--check-conflicts`). |
 | `--conflicts-subset-only` | Only report conflicts involving your custom mods. |
-| `--tes3conv` | Path to tes3conv (preferred engine when present; field-level diffs work without it). |
-| `--json-dump-dir` | Keep the per-plugin tes3conv JSON spool in this folder (reused between runs). |
+| `--tes3conv` | Path to tes3conv - a fallback, used only without the built-in reader. |
+| `--json-dump-dir` | With the tes3conv fallback: keep its per-plugin JSON spool in this folder. |
 | `--resource-conflicts` | Scan `data=` folders for loose-file (VFS) conflicts. |
 | `--resources-out` | Write the resource-conflict list to a CSV. |
 | `--lint` | tes3lint-style checks (evil GMSTs, fog bug, missing pathgrids, expansion deps, twins, headers). |
@@ -1066,7 +1057,7 @@ live setup; it computes and reports, and writes only where you point it.
 | Sort data= paths | `Sort data= paths too` | `--sort-data-paths` | via the written output |
 | plugin-order.yml checks | `plugin-order.yml` panel | `--plugin-order-yml F --list-name N` | read-only |
 | Record conflicts | `Conflicts` | `--check-conflicts` | read-only (CSV via `--conflicts-out`) |
-| Field-level diffs | conflict diff viewer | built-in (`--tes3conv` optional) | read-only |
+| Field-level diffs | conflict diff viewer | built-in | read-only |
 | Patch Builder | `Patch Builder...` | (GUI only) | writes a new patch plugin |
 | Resource (VFS) conflicts | `Resource Conflicts` | `--resource-conflicts` | read-only (CSV via `--resources-out`) |
 | Cell map | `Cell Map` | `--cell-map FILE` | writes an HTML file |
@@ -1076,7 +1067,7 @@ live setup; it computes and reports, and writes only where you point it.
 | Master check / resync | `Resync master sizes` | (part of the sort) | edits master sizes in output |
 | tes3cmd frontend | `tes3cmd` | (GUI only) | drives tes3cmd (cleaning writes) |
 | Merged Lands | `Merged Lands` | `tools/build_merged_lands.py` | writes `Merged Lands.esp` |
-| 3D terrain view | `Show in 3D` | (GUI only) | read-only (`Export 3D file` writes) |
+| 3D terrain view | `Show in 3D` | (GUI only) | read-only |
 | Texture comparison | `Show difference` | (GUI only) | read-only (`Export comparison` writes) |
 | Update rules | `Update Rules...` | (manual, or use `plox`) | downloads rule files |
 | Rule maker | `New Rule...` | (GUI only) | writes your personal rules file |
@@ -1169,17 +1160,13 @@ order. PyYAML is used if installed, otherwise a built-in parser.
 
 `--check-conflicts` (GUI `Conflicts`) scans the active plugins for TES3
 record-level conflicts - two or more plugins defining the same record, where the
-last in load order wins. Two engines back it:
-
-- The **built-in native reader** needs nothing. It parses every record type,
-  gives exact record ids, and drives the **field-level diff viewer** on its own -
-  it reproduces tes3conv's JSON schema in process, so tes3conv is optional.
-- **tes3conv** (`--tes3conv`, or `Set tes3conv...`) is used in preference when
-  present (the community's trusted converter), including for Merged Lands'
-  binary encoding - though the built-in writer encodes a byte-compatible plugin
-  when it is absent, so nothing here requires it. With either backend the diff
-  viewer shows the side-by-side of what each plugin sets on a shared record, down
-  to compiled script bytecode, landscape fields and path-grid edges.
+last in load order wins. The **built-in reader** (`wraithguard_native`, on
+greatness7's `tes3` crates) parses every record type in process, gives exact
+record ids, and drives the **field-level diff viewer**: the side-by-side of what
+each plugin sets on a shared record, down to compiled script bytecode, landscape
+fields and path-grid edges. The Patch Builder and Merged Lands write their
+plugins through the same crate. tes3conv (`--tes3conv`, or `Set tes3conv...`) is
+a fallback only, for a build without the built-in reader.
 
 Scope and cost controls: `--conflicts-subset-only` reports only conflicts that
 involve your mods (skips base-vs-base), `--exclude 'pattern*'` drops noisy mods
@@ -1246,7 +1233,7 @@ exactly what each layer is set to. The CLI generator is `tools/build_merged_land
 multidirectional lighting - hand-rolled on a canvas, no library, so it works in
 the frozen build. Layers include raw height, baked vertex colours (terrain
 lighting), the low-res world-map heightmap, and which land texture paints each
-square. `Export 3D file` saves it. `Show difference` compares two textures
+square. `Show difference` compares two textures
 side by side (a normal map is never compared against a diffuse - the tool
 classifies each texture's role first); `Export comparison` saves that.
 
@@ -1264,13 +1251,14 @@ checks tells you which of *your* mods tes3cmd thinks are dirty.
   - the first thing to enable when a run does something you cannot explain.
 - `-v` shows progress on stderr, `-vv` per-item detail; the report itself always
   goes to stdout, so `-vv` never pollutes a piped result.
-- `--json-dump-dir DIR` keeps the per-plugin tes3conv JSON conversions (normally
-  a temp dir wiped on exit) so you can inspect exactly what the conflict engine
-  read, or reuse them across runs.
+- To inspect exactly what the conflict engine read, use **Dump records as JSON**
+  in the Conflicts window. With the tes3conv fallback, `--json-dump-dir DIR`
+  keeps its per-plugin conversions (normally a temp dir wiped on exit).
 
 ### Where files land
 
-Settings, the trace log, `cell_map.html` and the tes3conv JSON spool are written
+Settings, the trace log, `cell_map.html` and (with the tes3conv fallback) its
+JSON spool are written
 next to the executable, falling back to a per-user data dir if that folder is not
 writable (see Packaging, above). Backups sit beside the file they copy. Nothing
 is written next to a frozen build's temp `__file__`, so your outputs survive an
@@ -1292,20 +1280,42 @@ exe rebuild.
 
 ## Developing
 
-Only the standard library is needed to *run* the tool. The checks below need
+**Before pushing, see [PREFLIGHT.md](PREFLIGHT.md)**: the checks CI runs, in
+order, how to push a change, a test build and a release, and how to redo a failed
+build.
+
+Besides the standard library, running the tool needs the built-in reader
+(`pip install ./native`, which needs a Rust toolchain; see Requirements). The
+checks below need
 `ruff`, `black`, `mypy` and `pytest`; `pip install -e .[dev]` installs them at
 the exact versions these standards are measured against (see the `dev` extra in
 `pyproject.toml`), so the gates don't drift as the tools add new rules.
 
+On Windows the regular and the free-threaded Python 3.14 (`py -3.14` and
+`py -3.14t`) share one `site-packages`, so compiled modules built for one break the
+other - `wraithguard_native` built for 3.14t will not import in 3.14, and a GIL-only
+C extension (such as `cryptography`) can crash 3.14t outright. Give each its own
+virtual environment:
+
+```powershell
+py -3.14t -m venv .venv-t
+.venv-t\Scripts\python -m pip install -e .[dev] ./native
+.venv-t\Scripts\python -m pytest
+```
+
+(and the same with `py -3.14` into `.venv` for the regular build).
+
 ```bash
-python -m pytest                # the full suite (5,500+ tests): no network, no Tk, no real mods
+python -m pytest                # the full suite (7,000+ tests): no network, no Tk, no real mods
                                 # (the GUI smoke set skips without Tk; CI runs it under xvfb)
 python -m ruff check .          # PEP 8 style, naming, import order, security, perf
 python -m black --check .       # formatting
-python -m mypy                  # PEP 484 types; gates all 178 shipped files
+python -m mypy                  # PEP 484 types (on Windows add --platform linux, as CI runs)
 python tools/check_undefined.py wraithguard_toolkit_gui.py
 python tools/check_placeholders.py   # i18n %(key)s placeholders vs their dicts
 python tools/make_pot.py --check     # the .pot template must be current
+cargo test --manifest-path native/Cargo.toml                 # the built-in reader
+cargo test --manifest-path viewer-shell/viewcore/Cargo.toml  # the viewer's engine
 ```
 
 All of these are expected to pass with zero findings (CI runs exactly this

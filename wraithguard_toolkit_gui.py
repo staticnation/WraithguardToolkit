@@ -58,7 +58,6 @@ import sys
 import threading
 import traceback
 import types
-import webbrowser
 from contextlib import redirect_stderr, redirect_stdout
 from functools import partial
 from pathlib import Path
@@ -184,9 +183,9 @@ except Exception as _exc:  # noqa: BLE001
 # it now means "the embedded native viewer is available" regardless of
 # which binary provides it.
 try:
-    _viewer_name = "wraithguard-viewer.exe" if os.name == "nt" else "wraithguard-viewer"
-    HAVE_PYWEBVIEW = os.path.exists(resource_path(_viewer_name))  # noqa: PTH110
-    del _viewer_name
+    from wraithguard.viewer_launch import viewer_binary
+
+    HAVE_PYWEBVIEW = viewer_binary() is not None
 except Exception as _exc3:  # noqa: BLE001
     # resource_path() must never raise, but a broken install must not kill
     # startup even if it somehow does
@@ -234,6 +233,7 @@ from wraithguard.gui import (  # noqa: E402
     case_insensitive_filetypes,
     dnd_ready,
     doc_path,
+    open_in_browser,
     register_drop_target,
     rtl,
     trace_first_fire,
@@ -1966,7 +1966,9 @@ class App(
             variable=self.keep_json_var,
             command=self._on_keep_json_toggle,
         )
-        keep_json_chk.grid(row=3, column=1, sticky="w", padx=8, pady=4)
+        # Only the tes3conv fallback spools JSON; the built-in reader writes none.
+        if not core.native_backend():
+            keep_json_chk.grid(row=3, column=1, sticky="w", padx=8, pady=4)
         cleanup_chk = ToggleSwitch(
             opts,
             text=_("Tidy old HTML views"),
@@ -3107,10 +3109,6 @@ class App(
         self.mergedlands_button.configure(state="normal" if have_data else "disabled")
         self.resource_button.configure(state="normal" if have_data else "disabled")
         self.lint_button.configure(state="normal" if have_data else "disabled")
-        # Warm the cell-preview parse cache in the background now that the load
-        # order is known, so the first Cell Preview after a Sort is quick.
-        if have_data:
-            self.prewarm_cell_preview()
 
     def on_export(self) -> None:
         """Run step 2: write the plan out, in a worker."""
@@ -3256,25 +3254,26 @@ class App(
             else f"tes3conv JSON dump ({dest}) will be removed on close."
         )
 
-    def _get_session(self, conv: str | None) -> core.Tes3ConvSession:
+    def _get_session(self, conv: str | None) -> core.Tes3ConvSession | None:
         """Return the shared disk-backed conflict session, creating it if needed.
 
-        When ``conv`` names a tes3conv executable that is the backend; otherwise
-        the built-in reader is (:class:`core.NativeEspSession`), so field-level
-        conflicts, the cell map and Merged Lands work with no tes3conv installed.
-        Either way it is reused across scans, always dumping to the same
-        'tes3conv_json' folder -- so every plugin is converted at most once per run
-        (Check Conflicts then Cell Map reuse the JSON). A cached JSON is re-used
-        only if it's newer than its plugin (mtime check in core), so an edited
-        plugin still re-converts. The 'Keep tes3conv JSON dump' option only
-        controls whether that folder is removed on close. Called from a worker
-        thread; self._keep_json is snapshotted on the main thread.
+        The Rust backend (:class:`core.NativeEspSession`) whenever it is installed:
+        it reads plugins in process and keeps each one's record keys and cells in
+        memory while the file is unchanged, with no JSON on disk. ``conv`` (a
+        tes3conv executable) is used only when the backend is missing. The session
+        is reused across scans. Called from a worker thread; self._keep_json is
+        snapshotted on the main thread.
         """
         keep = bool(getattr(self, "_keep_json", False))
         s = getattr(self, "_session", None)
-        # Reuse the current session when it is the same engine: the same tes3conv
-        # exe, or the native reader when there is no tes3conv.
-        same = (getattr(s, "exe", None) == conv) if conv else isinstance(s, core.NativeEspSession)
+        # The Rust backend when installed; tes3conv only without it. Reuse the
+        # current session when it is the same engine.
+        native = core.native_backend()
+        same = (
+            isinstance(s, core.NativeEspSession)
+            if native
+            else (not isinstance(s, core.NativeEspSession) and getattr(s, "exe", None) == conv)
+        )
         if s is not None and same:
             s.keep = keep  # same dump folder -> just track keep
             return s
@@ -3284,12 +3283,7 @@ class App(
             except Exception:  # noqa: BLE001
                 # retiring a replaced engine session; failure must not block the new one
                 pass
-        dump = str(self._tes3conv_json_dir())
-        s = (
-            core.Tes3ConvSession(conv, dump_dir=dump, keep=keep)
-            if conv
-            else core.NativeEspSession(dump_dir=dump, keep=keep)
-        )
+        s = core.open_record_session(conv, dump_dir=str(self._tes3conv_json_dir()), keep=keep)
         self._session = s
         return s
 
@@ -3388,10 +3382,13 @@ class App(
         cfg_dir = (
             str(Path(self.cfg_var.get().strip()).parent) if self.cfg_var.get().strip() else None
         )
-        # tes3conv is used for the binary encoding when present, but the built-in
-        # writer encodes a byte-compatible plugin without it, so a merge no longer
-        # requires it -- conv may be None here and the service reads/writes natively.
-        conv = core.find_tes3conv(explicit=self._tes3conv_override, extra_dirs=[cfg_dir])
+        # The Rust backend reads the terrain and writes the merged plugin in process;
+        # tes3conv is only used when that backend is not installed.
+        conv = (
+            None
+            if core.native_backend()
+            else core.find_tes3conv(explicit=self._tes3conv_override, extra_dirs=[cfg_dir])
+        )
 
         folders = self._merged_lands_dirs()
         chosen = self._merged_lands_target(folders, order)
@@ -3605,10 +3602,10 @@ class App(
                     load_order=order,
                     converter=converter,
                     output=target,
-                    # The conflict scanner's record-key sidecars say which
-                    # plugins have terrain, so the ~90% that do not are never
-                    # converted. Absent, the merge just runs slower.
-                    sidecars=self._tes3conv_json_dir(),
+                    # A tes3conv session's record-key sidecars say which plugins
+                    # have terrain, so the ~90% that do not are never converted.
+                    # The native reader writes none and needs none.
+                    sidecars=None if converter is None else self._tes3conv_json_dir(),
                     report=lambda line: print("  " + line),
                     verbose=getattr(self, "_merged_lands_verbose", False),
                 )
@@ -3946,7 +3943,13 @@ class App(
                 print("=" * 70)
                 print(
                     _("  Engine: %(engine)s")
-                    % {"engine": "tes3conv" if conv else _("native esp reader")}
+                    % {
+                        "engine": (
+                            _("native esp reader")
+                            if isinstance(session, core.NativeEspSession)
+                            else "tes3conv"
+                        )
+                    }
                 )
                 cov = core.build_cell_coverage(order, index, subset_names=subset, session=session)
                 trace(
@@ -4086,17 +4089,19 @@ class App(
         # hide the viewer window itself (it spawns but never shows). That was
         # the bug with the old pywebview child; the same caution still
         # applies to this one.
-        nw = {"creationflags": 0x08000000} if os.name == "nt" else {}
-        viewer_name = "wraithguard-viewer.exe" if os.name == "nt" else "wraithguard-viewer"
-        viewer_bin = resource_path(viewer_name)
-        if not os.path.exists(viewer_bin):  # noqa: PTH110 -- pairs with resource_path's abspath
-            trace(f"cell map: viewer binary not found at {viewer_bin}")
+        # (wraithguard.viewer_launch: where the viewer is and what it needs -- the
+        # AppImage's bundled WebKit, the bundled WebView2 runtime, CREATE_NO_WINDOW.)
+        from wraithguard.viewer_launch import viewer_binary, viewer_popen_kwargs
+
+        viewer_bin = viewer_binary()
+        if viewer_bin is None:
+            trace("cell map: viewer binary not found")
             self._open_cell_map_browser()
             return
         cmd = [viewer_bin, url, title]
         try:
             trace(f"cell map: launching viewer: {cmd}")
-            proc = subprocess.Popen(cmd, **nw)  # type: ignore[call-overload]
+            proc = subprocess.Popen(cmd, **viewer_popen_kwargs())  # type: ignore[call-overload]
         except (OSError, ValueError):  # Popen: missing exe or bad argv
             trace("cell map: viewer launch FAILED:\n" + traceback.format_exc())
             self._open_cell_map_browser()
@@ -4186,10 +4191,7 @@ class App(
         Args:
             url: The address to open.
         """
-        try:
-            webbrowser.open(url)
-        except webbrowser.Error:
-            trace(f"view: browser refused {url}")
+        open_in_browser(url)
 
     def _open_file_in_browser(self, path: str | Path) -> None:
         """Open any local file in the user's browser.
@@ -4201,8 +4203,8 @@ class App(
         if not target.exists():
             return
         try:
-            webbrowser.open(target.resolve().as_uri())
-        except (OSError, ValueError, webbrowser.Error):
+            open_in_browser(target.resolve().as_uri())
+        except (OSError, ValueError):
             pass
 
     def _open_html_in_browser_loopback(self, path: str | Path) -> None:
@@ -5662,7 +5664,9 @@ class App(
             ftree.insert("", "end", values=["(no fields / identical)"] + [""] * len(plugins))
 
     @staticmethod
-    def _disassemble_bytecode_field(value: str, source_text: str | None = None) -> str | None:
+    def _disassemble_bytecode_field(
+        value: str | bytes, source_text: str | None = None
+    ) -> str | None:
         """Disassembly text for a tes3conv 'bytecode' field, or None.
 
         Thin delegation: the logic lives in wraithguard.mwscript so it can be

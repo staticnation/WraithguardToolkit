@@ -1,7 +1,9 @@
 """Structural coverage of the BC7 decoder's per-mode branches.
 
 Pixel correctness across the mode and partition tables is established by
-``tools/check_bc7.py`` against an independent decoder; these tests only walk the
+``tools/check_bc7.py`` against an independent decoder, and by
+``test_images_native_parity.py`` against the Python decoder the Rust one
+replaced; these tests only walk the
 code paths -- each mode's parity style, subset count, the mode-4 index selector
 and rotation, and the size guards -- with minimal blocks whose mode bit selects
 the path. The assertions check that a full 16-pixel block comes back, not its
@@ -14,8 +16,6 @@ import pytest
 
 from wraithguard.images.bc7 import (
     BLOCK_BYTES,
-    _anchors,
-    _unquantise,
     decode_block,
     decode_surface,
 )
@@ -25,20 +25,6 @@ from wraithguard.images.image import ImageError
 def _block(low_byte: int) -> bytes:
     """A 16-byte BC7 block whose only set bits are in the low byte."""
     return bytes([low_byte]) + bytes(BLOCK_BYTES - 1)
-
-
-def test_unquantise_replicates_bits_below_a_full_byte() -> None:
-    """A sub-8-bit value is bit-replicated up to a full byte."""
-    assert _unquantise(0xFF, 8) == 0xFF  # already 8 bits, returned as-is
-    assert _unquantise(0b11111, 5) == 0xFF  # 5 ones replicate to all ones
-    assert _unquantise(0, 5) == 0
-
-
-def test_anchors_for_two_and_three_subsets() -> None:
-    """The anchor helper returns one index per subset."""
-    assert _anchors(1, 0) == (0,)
-    assert len(_anchors(2, 0)) == 2
-    assert len(_anchors(3, 0)) == 3
 
 
 class TestModePaths:

@@ -30,7 +30,7 @@ to get a generated page in front of a user, which is the same job
 viewer and the texture comparison rather than for a page built in this
 package. Reached directly (``wraithguard.viz.serve``, ``wraithguard.viz.library``)
 rather than through this module, the same way :mod:`wraithguard.nif` leaves
-:mod:`~wraithguard.nif.viewer` and :mod:`~wraithguard.nif.textures` off its
+:mod:`~wraithguard.nif.textures` off its
 own curated export list without those modules being any less real.
 """
 

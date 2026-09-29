@@ -1,0 +1,75 @@
+<!-- Wraithguard: inserted before </head> by build.rs (and by tests/boot.js).
+
+     The Wraithguard theme and the viewer's own pieces of chrome. The theme block below is
+     Wraithguard's stock dark palette; at launch the shell hands the page Wraithguard's
+     *current* palette (`__WG_VIEW__.theme`, its `DARK` dict) and Themes.wraithguard()
+     rewrites this block from it, so the viewer wears whatever the toolkit is wearing.
+     Everything else is derived from those few colours with color-mix, the way the
+     page's own themes derive theirs. -->
+<style id="wg-theme">
+[data-theme="wraithguard"]{
+  --wg-bg:#1e1e1e; --wg-bg2:#252526; --wg-field:#2d2d30; --wg-border:#3f3f46;
+  --wg-fg:#e6e6e6; --wg-fg-dim:#9a9a9a; --wg-select:#094771;
+  --wg-btn:#3a3a3d; --wg-btn-active:#4a4a4e; --wg-accent:#3794ff; --wg-on-accent:#1b1b1b;
+  --wg-log:#141414;
+
+  --bg:var(--wg-log); --bg2:var(--wg-bg); --bg3:var(--wg-bg2); --bg4:var(--wg-field);
+  --line:var(--wg-border); --line2:var(--wg-btn-active);
+  --tx:var(--wg-fg); --tx2:color-mix(in srgb,var(--wg-fg) 55%,var(--wg-fg-dim)); --tx3:var(--wg-fg-dim);
+  --ac:var(--wg-accent); --ac2:color-mix(in srgb,var(--wg-accent) 70%,var(--wg-bg));
+  --acd:color-mix(in srgb,var(--wg-accent) 16%,var(--wg-bg)); --on-ac:var(--wg-on-accent);
+  --info:color-mix(in srgb,var(--wg-select) 55%,var(--wg-fg)); --info2:var(--wg-select);
+  --orbit:var(--wg-accent);
+  /* Wraithguard's brass, for the few places that want a warm counterpoint (the brand). */
+  --wg-brass:#c9a227;
+  --bloom:6%; --bloom-band:5%;
+  --r-ctl:3px; --r-fld:3px; --r-box:5px;
+}
+</style>
+<style id="wg-viewer">
+#brand{align-items:center!important;gap:8px}
+#brand img{width:22px;height:22px;image-rendering:auto;filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
+#brand b{font-size:14px;letter-spacing:.3px}
+#brand b span{color:inherit}
+#left{width:280px!important;flex:0 0 280px!important}
+
+/* ORI, the object inspector (24_ori.js). */
+.ori{position:absolute;top:44px;left:12px;width:360px;max-height:calc(100% - 90px);overflow:auto;
+  background:color-mix(in srgb,var(--bg2) 94%,transparent);border:1px solid var(--line2);
+  border-radius:var(--r-box,6px);box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:30;font-size:12px;
+  backdrop-filter:blur(6px)}
+.ori .orihead{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);
+  border-left:3px solid var(--ac)}
+.ori .oribody{padding:6px 10px 10px}
+.ori .orirow{display:flex;gap:8px;padding:3px 0}
+.ori .orirow .k{flex:0 0 96px;color:var(--tx3)}
+.ori .orirow .v{flex:1;min-width:0;overflow-wrap:anywhere}
+.ori .orisec{margin:10px 0 3px;font-weight:600;color:var(--ac);font-size:11px;letter-spacing:.4px;text-transform:uppercase}
+.ori .from{color:var(--tx3);font-size:11px}
+.ori .tag{font-family:var(--mono);font-size:10.5px;color:var(--tx3)}
+.ori a.orimod{font-family:var(--mono);color:var(--ac);cursor:pointer;text-decoration:none;border-bottom:1px dotted var(--ac2)}
+/* The mesh viewer: the cell side's controls have nothing to act on. */
+body.wgMeshMode :is(#cellRow,#cellPane,#secCellTex,#pvModeHint,#grassfarRow,#tbMap,#tbArrows,#tbEmpty,#tbHiTex,#tbHiSlot,#noctx,#vpempty){display:none!important}
+.mvSeg{gap:4px!important;flex-wrap:wrap}
+.mvSeg .btn.on{background:var(--ac2);color:var(--tx1,#fff)}
+.mvShape{padding:3px 4px;border-radius:3px;cursor:pointer}
+.mvShape:hover{background:var(--bg3,rgba(255,255,255,.06))}
+.mvShape.on{outline:1px solid var(--ac)}
+.mvShape span{color:var(--tx3);font-size:11px}
+.nifTree{font-family:var(--mono);font-size:11px;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:4px;padding:4px 2px}
+.nifTree ul{list-style:none;margin:0;padding-left:12px}
+.nifTree>ul{padding-left:2px}
+.nifTree .nb{cursor:pointer;white-space:nowrap;padding:1px 4px;border-radius:3px}
+.nifTree .nb:hover{background:var(--bg3,rgba(255,255,255,.06))}
+.nifTree .nb.sel{background:var(--ac2);color:var(--tx1,#fff)}
+.nifTree .ix{color:var(--tx3)}
+.nifTree .nm{color:var(--ac)}
+.nifTree .no{color:var(--tx3);font-style:italic}
+#mvFields .orirow .k{flex:0 0 130px;font-family:var(--mono);font-size:11px}
+#mvFields input.nf{flex:1;min-width:0;font-family:var(--mono);font-size:11px}
+#mvFields input.bad{outline:1px solid #d9534f}
+#mvFields .orirow.dirty .k{color:var(--ac)}
+#mvFields .orirow.dirty .k::after{content:" \25CF"}
+.ori a.orimod:hover{border-bottom-style:solid}
+</style>
+<script>document.title='Wraithguard - Cell Preview';</script>

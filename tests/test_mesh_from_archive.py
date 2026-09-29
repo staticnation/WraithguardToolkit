@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Final
 import pytest
 
 from wraithguard.nif.bsa import BsaArchive, BsaError
-from wraithguard.nif.vfs import archives_in, forget_archives, read_mesh, read_mesh_bytes
+from wraithguard.nif.vfs import archives_in, forget_archives, read_mesh_bytes
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,15 +34,15 @@ TES3_BSA_VERSION: Final = 0x100
 #: A NIF small enough to build by hand but real enough to parse: the header
 #: line, version 4.0.0.2, and a block count of zero.
 MINIMAL_NIF: Final = b"NetImmerse File Format, Version 4.0.0.2\n" + struct.pack(
-    "<II", 0x04000002, 0
+    "<III", 0x04000002, 0, 0
 )
 
 
 def build_bsa(path: Path, files: dict[str, bytes]) -> None:
     """Write a Morrowind ``.bsa`` holding ``files``.
 
-    Built to the layout :meth:`~wraithguard.nif.bsa.BsaArchive._read_index`
-    parses rather than mocked, so this exercises the real reader.
+    Built to the Morrowind archive layout rather than mocked, so this
+    exercises the real reader.
 
     Args:
         path: Where to write.
@@ -140,7 +140,7 @@ class TestTheArchiveIsTried:
             tmp_path / "Morrowind.bsa",
             {"meshes\\b\\b_n_argonian_m_head_02.nif": MINIMAL_NIF},
         )
-        parsed = read_mesh(tmp_path, "meshes/b/b_n_argonian_m_head_02.nif")
+        parsed = read_mesh_bytes(tmp_path, "meshes/b/b_n_argonian_m_head_02.nif")
         assert parsed is not None
 
     def test_a_loose_file_still_wins(self, tmp_path: Path) -> None:
@@ -149,29 +149,29 @@ class TestTheArchiveIsTried:
         loose.parent.mkdir(parents=True)
         loose.write_bytes(MINIMAL_NIF)
         build_bsa(tmp_path / "Morrowind.bsa", {"meshes\\x.nif": b"not a nif at all"})
-        assert read_mesh(tmp_path, "meshes/x.nif") is not None
+        assert read_mesh_bytes(tmp_path, "meshes/x.nif") is not None
 
     def test_separators_and_case_do_not_matter(self, tmp_path: Path) -> None:
         """Archives store backslashes; conflict paths may use either."""
         build_bsa(tmp_path / "Morrowind.bsa", {"Meshes\\B\\Head.NIF": MINIMAL_NIF})
-        assert read_mesh(tmp_path, "meshes/b/head.nif") is not None
+        assert read_mesh_bytes(tmp_path, "meshes/b/head.nif") is not None
 
     def test_a_mesh_in_neither_place_says_both_were_tried(self, tmp_path: Path) -> None:
         """The old message blamed the path; this one says what was searched."""
         build_bsa(tmp_path / "Morrowind.bsa", {"meshes\\other.nif": MINIMAL_NIF})
         with pytest.raises(OSError, match=r"nor in any \.bsa"):
-            read_mesh(tmp_path, "meshes/missing.nif")
+            read_mesh_bytes(tmp_path, "meshes/missing.nif")
 
     def test_a_corrupt_archive_does_not_hide_a_good_one(self, tmp_path: Path) -> None:
         """One bad .bsa in a folder must not lose the rest."""
         (tmp_path / "Broken.bsa").write_bytes(b"nonsense")
         build_bsa(tmp_path / "Morrowind.bsa", {"meshes\\x.nif": MINIMAL_NIF})
-        assert read_mesh(tmp_path, "meshes/x.nif") is not None
+        assert read_mesh_bytes(tmp_path, "meshes/x.nif") is not None
 
     def test_a_folder_with_no_archives_is_not_an_error(self, tmp_path: Path) -> None:
         """It just means the mesh really is missing."""
         with pytest.raises(OSError):
-            read_mesh(tmp_path, "meshes/x.nif")
+            read_mesh_bytes(tmp_path, "meshes/x.nif")
 
     def test_archives_are_opened_once_per_folder(self, tmp_path: Path) -> None:
         """Indexing a real Morrowind.bsa is not free; several providers would

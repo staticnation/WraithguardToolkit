@@ -1,4 +1,9 @@
 # syntax=docker/dockerfile:1
+#
+# A local container build. Its binary carries wraithguard-viewer as a bare ELF, so the
+# viewer needs WebKitGTK 4.1 installed on the machine that runs it. The released Linux
+# build is the AppImage (packaging/linux/build-appimage.sh, .github/workflows/
+# build-linux.yml), which ships WebKitGTK with it and runs on a Steam Deck.
 
 # ---------------------------------------------------------------------------
 # Stage 1: build wraithguard-viewer, the Rust/Tauri binary that replaced
@@ -32,47 +37,48 @@ RUN cargo build --release && \
     ls -lh target/release/wraithguard-viewer
 
 # ---------------------------------------------------------------------------
-# Stage 2: the Python build, as before.
+# Stage 2: the Python build, on free-threaded Python 3.14 (3.14t) -- the same
+# interpreter the Windows, Linux and macOS release builds freeze.
 # ---------------------------------------------------------------------------
-# GIL-enabled Python 3.14 for now, NOT free-threaded -- this stays true
-# regardless of the viewer swap below. `python:3.14t-slim` was never a real
-# tag on Docker Hub's official `library/python` image -- there is no
-# free-threaded variant published there. Track official 3.14t base image
-# availability separately from the viewer work; nothing in this stage is
-# blocked on PyQt6/sip any more (see the viewer-shell change), so once an
-# official free-threaded base exists, switching to it should be a plain
-# FROM-line swap.
-#
-# `python3-tk` is apt'd for Tk (the fallback viewer), and `python3-gi` is
-# deliberately *not* installed -- wraithguard-viewer is a standalone Rust
-# binary, not a Python GTK binding, so it never touches this interpreter.
-FROM python:3.14-slim-bookworm
+# Docker Hub's official `python` image publishes no free-threaded variant, so the
+# interpreter comes from uv, which installs python-build-standalone's 3.14t (with
+# tkinter and its own Tcl/Tk) onto a plain Debian base.
+FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV UV_PYTHON_INSTALL_DIR=/opt/python
 
-# Runtime (not -dev) libraries for wraithguard-viewer, plus Tk for the
-# fallback viewer. The old Qt/QtWebEngine/pythonnet runtime deps (libegl1,
-# libxcb-*, libnss3, libasound2, etc.) are gone along with PyQt6 itself --
-# webkit2gtk needs none of them.
+# Runtime (not -dev) libraries for wraithguard-viewer, the X11 libraries Tk loads,
+# and a C toolchain for the Rust backend's build scripts (zstd).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-tk \
-    tk \
-    libzstd-dev \
     build-essential \
     file \
     ca-certificates \
+    libx11-6 \
+    libxext6 \
+    libxft2 \
+    libxrender1 \
+    libxss1 \
+    libfontconfig1 \
     libwebkit2gtk-4.1-0 \
     libgtk-3-0 \
     libayatana-appindicator3-1 \
     librsvg2-2 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m venv /opt/wraithguard-venv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+RUN uv python install 3.14t && \
+    uv venv --seed --python 3.14t /opt/wraithguard-venv
 
 ENV PATH="/opt/wraithguard-venv/bin:${PATH}"
+
+# Fail here, not after a long PyInstaller run, if this is not a free-threaded
+# interpreter -- the shipped binary would silently keep the GIL.
+RUN python -c "import sys; assert not sys._is_gil_enabled(), 'GIL is enabled -- not a free-threaded build'; print(sys.version, 'free-threaded OK')"
 
 # No zstandard: Python 3.14's stdlib `compression.zstd` already covers the
 # tes3conv bytecode path, so the third-party C extension isn't needed.
@@ -90,6 +96,15 @@ RUN python -m pip install --upgrade \
         PyYAML \
         ijson \
         certifi
+
+# The Rust backend (native/, on greatness7's tes3 crates), built for this
+# interpreter. The toolchain is only needed for this step, so it is removed after.
+COPY native/ /tmp/native/
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal && \
+    PATH="/root/.cargo/bin:${PATH}" python -m pip install --no-cache-dir /tmp/native && \
+    rm -rf /root/.rustup /root/.cargo /tmp/native && \
+    apt-get purge -y curl && rm -rf /var/lib/apt/lists/*
 
 COPY --from=viewer-builder /viewer-shell/target/release/wraithguard-viewer /opt/wraithguard-viewer
 
@@ -110,6 +125,7 @@ CMD ["/bin/bash", "-lc", "\
         --hidden-import tkinterweb \
         --add-binary /opt/wraithguard-viewer:. \
         --collect-submodules wraithguard \
+        --hidden-import wraithguard_native \
         --add-data /src/wraithguard_toolkit.py:. \
         --add-data /src/README.md:. \
         --add-data /src/QUICKSTART.md:. \

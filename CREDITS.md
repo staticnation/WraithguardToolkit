@@ -43,13 +43,17 @@ and their `LICENSE` files are included in their source folders in this repo.
   Converts Morrowind plugins ↔ JSON. Used (optionally, if present on PATH) as the
   exact record-identification and field-diff engine behind Check Conflicts.
 - **tes3** ([`Greatness7/tes3`](https://github.com/Greatness7/tes3)) - © Greatness7. MIT.
-  The Rust library of TES3 record and NIF block types. Our `wraithguard/esp/`
-  record layer is a **port of its `libs/esp/src/types`** - the record framing,
-  every subrecord reader/writer, the object flags and enums, and the reference
-  master/object index packing - so a plugin round-trips byte-for-byte. Its
-  `libs/nif` types were the second-implementation cross-check for our NIF reader
-  (see the NIF section below), and its `NiAVObject`/`Matrix3` conventions were
-  what we verified the cell previewer's transforms against.
+  The Rust library of TES3 record and NIF block types, and now a dependency:
+  `native/` (the `wraithguard_native` Python module) reads and writes plugins on
+  `tes3::esp`, reads meshes on `tes3::nif` (the Resource Conflicts summary, the
+  mesh viewer's block panel and field editor), and reads `.bsa` archives on
+  `tes3::bsa`. Our `wraithguard/esp/` keeps its record dataclasses - modelled on
+  `libs/esp/src/types`, with the crate's enums and flags - as the objects the
+  toolkit works with, built from the crate's JSON. The Python ports of its record
+  readers and writers, and our own NIF reader (below), have been retired. The cell
+  viewer's engine (`viewer-shell/viewcore`) also reads archives, meshes and the
+  plugin records its world is built from with the crate, and falls back to its own
+  readers only for a file or record the crate refuses.
 - **Merged Lands** - © 2022 David Von Derau. MIT. Licence text vendored at
   `License/MergedLands/LICENSE`.
   A Rust tool that merges the landscape changes a load order would otherwise
@@ -172,6 +176,17 @@ reference your scripts at all, say the word and it is done.
     extraction against real NIF bytes. They immediately caught two of our bugs --
     geometry lost under a `NiCollisionSwitch`, and a particle `NiTriShape` drawn
     as a surface -- which is exactly what a second corpus is for.
+  - **Cell Preview is its viewer, brought into this repo.** Its engine is
+    `viewer-shell/viewcore` (MIT, Robin's notice kept), its Tauri command layer
+    is `viewer-shell/src/cellviewer/commands.rs` (MIT), and its page is
+    `viewer-shell/ui` -- **GPL-2.0**, because the renderer carries MGE XE shader
+    ports (shadows, fog/tonemap, water, sunshafts, underwater, SSAO). The page is
+    a separate frontend loaded into the webview, so that silo does not reach the
+    MIT code. See `viewer-shell/ui/LICENSE`, `License/Gardenfell`, `License/MGE-XE`.
+    Stripped to a viewer: grass generation, painting, the statics setup, ESP
+    export, and the profile/rules managers are gone from the page, the commands
+    and the engine. It opens Wraithguard's own setup (the sort panels' current
+    state), and adds an ORI object inspector and `groundcover=` loading of our own.
 - **xEdit / TES5Edit / SSEEdit** - © the xEdit team. **MPL 1.1; no code copied.**
   Our conflict-colour convention -- a record's overall status colours the row
   **background**, what one plugin does colours the **text** -- is xEdit's, the
@@ -184,6 +199,9 @@ reference your scripts at all, say the word and it is done.
   taken -- data, not code. Material Design is Google's, under Apache-2.0.
 
 ## The NIF reader, and why it is written rather than imported
+
+*Retired: meshes are now read by greatness7's `tes3::nif` (see **tes3** above). This
+section and `NIF_PROVENANCE.md` are kept as the record of the reader that was.*
 
 `wraithguard/nif/` reads Morrowind meshes with our own code. That is a licence
 decision, taken deliberately and recorded here so it is not revisited by
@@ -230,28 +248,16 @@ The orbit controls in the page are ours, not three.js's `OrbitControls.js`,
 because that imports the bare specifier `'three'` and would pull ESM back into
 a page built specifically to avoid it.
 
-## Cell viewer water shader - inspired by, not ported from
+## Cell viewer water: wave randomness
 
-The cell viewer's water is our own GLSL, but its look is guided by the **Enhanced
-Water Shader for MGE XE 2.0 (Blue Water)** (Morrowind Nexus mod 45432), whose
-permission is "do what you want as long as you give proper credit to the original
-authors." Credit therefore to **vtastek** (peak fix, improved caustics, sewer
-wave optimisation), **phal** and **harnlarnm** (original foam code), **abot**
-(sewer wave port), and **Hrnchamd** (MGE XE and the underwater light-ray effect).
-What we took is the *approach and the numbers*, not the code: the ripple-normal
-scales (its close normals tile at 427 world units, its far at 2900), and the
-deep-water colour, which agrees with OpenMW's own `Water_UnderwaterColor`
-(12, 30, 37). The MGE shader is HLSL built on MGE's reflection, refraction and
-depth render targets, none of which this on-demand viewer has; our surface
-reconstructs the same feel from a Fresnel sky reflection and per-pixel ripples
-instead. The underwater rays and caustics likewise adapt Hrnchamd's technique to
-a screen-space pass rather than copy it.
-
-The wave surface's ripples are **2D simplex noise** by **Ian McEwan / Ashima
-Arts** and **Stefan Gustavson** (the `webgl-noise` project), MIT licensed. The
-`snoise`/`permute`/`mod289` functions in the water shader are that
-implementation, reproduced verbatim as the licence permits; the layering,
-directional stretch and domain warp around it are ours.
+The cell viewer's water is MGE XE's water shader, ported (see Gardenfell above and `License/MGE-XE`). To keep its
+waves from repeating tile by tile, a slow **2D simplex noise** field bends where the
+wave texture is read, puts stretches of water out of step with each other, and varies
+the wave strength a little (`viewer-shell/ui/src/26_water.js`, `waterNormal`). The
+`snoise`/`wgPermute`/`wgMod289` functions are **Ian McEwan / Ashima Arts** and
+**Stefan Gustavson**'s implementation from the `webgl-noise` project, MIT licensed,
+reproduced as the licence permits (`License/webgl-noise/LICENSE`). The technique, a
+noise-driven domain warp, is the one the retired three.js water used.
 
 `wraithguard/nif/bsa.py` reads Morrowind's archives, and is ours for the same
 reasons again. **bethesda-structs** (MIT, Stephen Bunn) via **BSAFileExtractor**
@@ -527,3 +533,22 @@ ideas, not code.*
 *Attribution is something we would rather over-do than get wrong. If anything
 here is inaccurate - a name, a licence, a claim about what we derived from
 whom - please tell us and it will be corrected.*
+
+## Water shader with foam on shore (Nexus Mods, Morrowind mod 56186)
+
+The cell viewer's water carries this mod's shore foam (the surf) and procedural
+caustics in the shallows (`viewer-shell/ui/src/26_water.js`), ported from its
+`water.frag` - the author's own foam and caustics functions only, not the OpenMW
+water shader they sit in. Used under the mod's
+permission: "Feel free to use this shader as a resource for your own projects but
+for the fog part you must ask Epoch." The fog is not used.
+
+## Enhanced Water Shader for MGE XE 2.0 Green-Blue (Nexus Mods, Morrowind mod 45432)
+
+The cell viewer's sewer waves - the rings spreading from the sewer outlets of Vivec
+and Molag Mar, added to MGE XE's close wave normals - are this shader's, ported to
+GLSL in `viewer-shell/ui/src/26_water.js` (`sewerWaves`): its outlet positions and
+ring formula. Credits as its readme gives them: its author; vtastek (sewer wave
+optimisations); phal and harnlarnm (sewer waves); abot (sewer waves port); built on
+MGE XE's water shader. Permission: "You can do with this shader what you want as
+long as you give proper credit to the original authors and me."

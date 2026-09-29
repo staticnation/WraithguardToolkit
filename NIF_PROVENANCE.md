@@ -1,5 +1,8 @@
 # How the NIF reader was written, and where every fact in it came from
 
+*The reader this describes has been retired: Wraithguard now reads meshes with
+greatness7's `tes3::nif` (`native/src/nif.rs`). Kept as the record.*
+
 This document exists so that the origin of `wraithguard/nif/` can be examined
 by someone who did not write it, including someone who assumes the worst. It
 records what was consulted, what was deliberately not consulted, what method

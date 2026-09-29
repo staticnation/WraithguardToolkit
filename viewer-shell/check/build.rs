@@ -6,6 +6,10 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("checked.rs");
 
     println!("cargo:rerun-if-changed={}", source.display());
+    // Declare the cfg so rustc does not warn that it is unknown (unexpected_cfgs).
+    println!("cargo:rustc-check-cfg=cfg(wg_check)");
+    // Skip the cell-viewer module: it needs Tauri surface the stub doesn't model.
+    println!("cargo:rustc-cfg=wg_check");
 
     match std::fs::read_to_string(&source) {
         Ok(text) => std::fs::write(&out, text).unwrap(),

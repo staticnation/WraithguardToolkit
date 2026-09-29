@@ -38,7 +38,6 @@ packages = [
     "wraithguard.patch",
     "wraithguard.plugins",
     "wraithguard.rules",
-    "wraithguard.scene",
     "wraithguard.sort",
     "wraithguard.tes3fields",
     "wraithguard.viz",
@@ -59,7 +58,7 @@ wraithguard = ["py.typed"]
 # below and wraithguard.__version__ never drift apart.
 [project]
 name = "wraithguard-toolkit"
-version = "4.1.2"
+version = "4.2.0"
 description = "Sort your own Morrowind mods into a frozen MOMW load order."
 readme = "README.md"
 # Free-threaded Python 3.14 (the GIL-free `3.14t` build) is the target now: the
@@ -236,6 +235,10 @@ ignore = [
 # scripts: full typing, PEP 257 docstrings with Args/Returns/Raises, and no
 # silent excepts. New code goes here; see CODE_REVIEW.md for the migration plan.
 "wraithguard/*" = []
+# The record dataclasses: wraithguard/esp/json.py resolves their type hints at
+# runtime (typing.get_type_hints), so the types they name must be real imports.
+"wraithguard/esp/record.py" = ["TC001"]
+"wraithguard/esp/records/*" = ["TC001"]
 # The tests keep their D/ANN exemption: assert is the point there, and
 # docstrings on parametrised cases would be noise. Both shipped scripts now
 # meet the full standard, so only their genuinely-specific exemptions remain.
@@ -347,6 +350,10 @@ ignore_missing_imports = true
 # `Sequence` that the body concatenated and an int-typed dict holding floats.
 # A wrong type hint is worse than none, because it gets believed.
 files = ["wraithguard", "wraithguard_toolkit.py", "wraithguard_toolkit_gui.py"]
+# The Rust module's stubs come from the repo, not from whatever build happens
+# to be installed: an older wraithguard_native in the running Python would
+# otherwise make every new native function "not an attribute".
+mypy_path = "native"
 check_untyped_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true

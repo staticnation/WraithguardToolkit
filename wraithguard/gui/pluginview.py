@@ -847,7 +847,7 @@ class PluginViewMixin:
             # _ensure_conflict_session). The JSON is still spooled lazily.
             self._ensure_conflict_session()
         if self._conf_session is None:
-            detail.insert("", "end", text=_("(set a tes3conv binary to compare fields)"))
+            detail.insert("", "end", text=_("(no plugin reader: fields cannot be compared)"))
             return
         read = self.read_fields_now(conflict)
         if read is None:
@@ -1026,7 +1026,13 @@ class PluginViewMixin:
         if self._conf_session is None:
             self._ensure_conflict_session()
         if self._conf_session is None:
-            messagebox.showinfo(_("No field data"), _("Set a tes3conv binary to compare fields."))
+            messagebox.showinfo(
+                _("No field data"),
+                _(
+                    "Comparing fields needs the built-in plugin reader "
+                    "(wraithguard_native) or a tes3conv binary."
+                ),
+            )
             return
         branch = self._plugin_branches.get(plugin)
         markers = (

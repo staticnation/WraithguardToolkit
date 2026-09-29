@@ -134,39 +134,6 @@ class TestDialogueInfo:
             assert info.quest_state == state
             assert write_plugin([info]) == original
 
-    def test_filter_value_without_scvr_is_refused(self) -> None:
-        from wraithguard.esp import EspError
-
-        body = (
-            _string_sub(b"INAM", "x")
-            + _string_sub(b"PNAM", "")
-            + _string_sub(b"NNAM", "")
-            + _data()
-            + _sub(b"FLTV", struct.pack("<f", 1.0))
-        )
-        with pytest.raises(EspError, match="filter value without"):
-            read_plugin(_record(b"INFO", body))
-
-    def test_invalid_filter_index_is_refused(self) -> None:
-        from wraithguard.esp import EspError
-
-        body = (
-            _string_sub(b"INAM", "x")
-            + _string_sub(b"PNAM", "")
-            + _string_sub(b"NNAM", "")
-            + _data()
-            + _sub(b"SCVR", struct.pack("<BBHB", 0x10, 0, 0, 0) + b"id")  # index byte < '0'
-        )
-        with pytest.raises(EspError, match="invalid filter index"):
-            read_plugin(_record(b"INFO", body))
-
-    def test_unencodable_filter_id_is_refused(self) -> None:
-        from wraithguard.esp import EspError, Writer
-        from wraithguard.esp.records.dialogueinfo import Filter
-
-        with pytest.raises(EspError, match="unencodable filter id"):
-            Filter(id="☃").save(Writer())  # snowman, not in Windows-1252
-
     def test_unexpected_tag_and_deletion(self) -> None:
         from wraithguard.esp import EspError
 

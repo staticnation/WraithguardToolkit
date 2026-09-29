@@ -1,0 +1,23 @@
+#!/bin/sh
+# Wraithguard's AppImage entry point.
+#
+# Starts the toolkit (a PyInstaller folder build under opt/wraithguard) and tells it
+# where its viewer shell is (WRAITHGUARD_VIEWER) and which folder the viewer must start
+# in (WRAITHGUARD_VIEWER_CWD): the bundled libwebkit2gtk finds its helper processes
+# relative to that folder (see build-appimage.sh), so the viewer runs on a machine with
+# no WebKitGTK of its own - a Steam Deck. wraithguard/viewer_launch.py does the rest.
+set -e
+HERE="$(dirname "$(readlink -f "$0")")"
+export APPDIR="${APPDIR:-$HERE}"
+
+# linuxdeploy's GTK plugin hooks: GTK modules, GIO, GDK-pixbuf loaders, schemas.
+if [ -d "$APPDIR/apprun-hooks" ]; then
+  for hook in "$APPDIR"/apprun-hooks/*.sh; do
+    [ -f "$hook" ] && . "$hook"
+  done
+fi
+
+export WRAITHGUARD_VIEWER="$APPDIR/usr/bin/wraithguard-viewer"
+export WRAITHGUARD_VIEWER_CWD="$APPDIR/usr"
+
+exec "$APPDIR/opt/wraithguard/wraithguard_toolkit_gui" "$@"

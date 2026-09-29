@@ -13,12 +13,8 @@ misalign every field after it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 from wraithguard.esp.enums import AttributeId2, EffectId2, EffectRange, SkillId2
-
-if TYPE_CHECKING:
-    from wraithguard.esp.io import Reader, Writer
 
 #: The size of an ``ENAM`` effect subrecord, in bytes.
 EFFECT_SIZE = 24
@@ -36,28 +32,3 @@ class Effect:
     duration: int = 0
     min_magnitude: int = 0
     max_magnitude: int = 0
-
-    @classmethod
-    def load(cls, reader: Reader) -> Effect:
-        """Read the 24-byte effect; the id/skill/attribute widths are 2/1/1."""
-        return cls(
-            magic_effect=EffectId2(reader.i16()),
-            skill=SkillId2(reader.i8()),
-            attribute=AttributeId2(reader.i8()),
-            range=EffectRange(reader.u32()),
-            area=reader.u32(),
-            duration=reader.u32(),
-            min_magnitude=reader.u32(),
-            max_magnitude=reader.u32(),
-        )
-
-    def save(self, writer: Writer) -> None:
-        """Write the 24-byte effect in field order."""
-        writer.i16(int(self.magic_effect))
-        writer.i8(int(self.skill))
-        writer.i8(int(self.attribute))
-        writer.u32(int(self.range))
-        writer.u32(self.area)
-        writer.u32(self.duration)
-        writer.u32(self.min_magnitude)
-        writer.u32(self.max_magnitude)

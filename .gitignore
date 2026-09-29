@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv-t/
 venv/
 
 # --- Tooling caches ---
@@ -62,3 +63,22 @@ locale/**/*.mo
 # Real Morrowind meshes: useful locally, not ours to redistribute.
 NifCorpus/samples/
 nif_report.json
+
+# Cell viewer page, assembled by viewer-shell/build.rs from viewer-shell/ui.
+viewer-shell/ui-dist/
+viewer-shell/gen/
+viewer-shell/target/
+viewer-shell/**/target/
+# The Rust backend's cargo output (pip install ./native builds here).
+native/target/
+viewer-shell/icons/wraithguard_toolkit_icon.ico
+viewer-shell/ui/tests/node_modules/
+
+# The cell viewer's per-user files, written beside the app at run time.
+wraithguard_cellviewer.profile.json
+wraithguard_cellviewer.profile.toml
+wraithguard_cellviewer_extra.json
+wraithguard_cellviewer_setup.cfg
+
+# A local archive of viewer-shell/, not part of the source.
+viewer-shell.zip

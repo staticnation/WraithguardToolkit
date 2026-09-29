@@ -1,9 +1,14 @@
-# Autobuild the Linux binary and upload it as an artifact.
+# Build the Linux AppImage and upload it as an artifact (and a release asset on tags).
 #
-# This reuses the project's own Dockerfile.wraithguard verbatim -- the tested
-# Linux build -- rather than re-listing its apt/pip deps here (which would drift
-# from it). The image installs the toolchain; the container runs PyInstaller
-# against the checked-out source mounted at /src and writes dist/ back out.
+# One self-contained AppImage: the toolkit, its viewer shell, and WebKitGTK with its
+# whole dependency tree (packaging/linux/build-appimage.sh), so it runs on machines
+# with no WebKitGTK of their own - the Steam Deck's SteamOS ships none. The earlier
+# Docker build copied the viewer into the PyInstaller bundle as a bare ELF with none
+# of the ~70 shared libraries it needs, which is why it could not start on a Deck.
+#
+# Built on Ubuntu 22.04 on purpose: an AppImage runs where the build machine's glibc
+# runs, and 22.04's 2.35 is older than any current SteamOS; it also has
+# libwebkit2gtk-4.1 (Tauri v2's WebKit).
 
 name: Build Linux app
 
@@ -11,8 +16,8 @@ on:
   workflow_dispatch:
   push:
     # A `v*` tag cuts a release (Release/sign steps are tag-gated). A `build/**`
-    # branch is a dry run: it builds and uploads the binary as an artifact but
-    # attaches nothing, to prove the free-threaded Docker build works first.
+    # branch is a dry run: it builds and uploads the AppImage as an artifact but
+    # attaches nothing.
     tags: ["v*"]
     branches: ["build/**"]
 
@@ -30,50 +35,125 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build with the project's Dockerfile
+      - name: System packages
+        # Tauri v2's Linux build prerequisites (webkit2gtk-4.1), Tk for the toolkit,
+        # and what the AppImage step uses (file for linuxdeploy, wget).
         run: |
-          docker build -f Dockerfile.wraithguard -t wraithguard-build .
-          docker run --rm -v "${{ github.workspace }}:/src" wraithguard-build
-          # PyInstaller wrote build/ and dist/ as root inside the container;
-          # hand them back to the runner user so upload-artifact can read them.
-          sudo chown -R "$(id -u):$(id -g)" build dist || true
-          ls -lh dist/
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev pkg-config build-essential \
+            file wget tk-dev
 
-      - name: Upload the Linux binary
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            viewer-shell/target
+          key: cargo-linux-${{ hashFiles('viewer-shell/Cargo.lock') }}
+
+      - name: Build the viewer shell
+        run: |
+          cd viewer-shell
+          cargo build --release
+          ls -lh target/release/wraithguard-viewer
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14t"
+          allow-prereleases: true
+          cache: pip
+
+      - name: Verify the free-threaded build
+        run: |
+          python --version
+          python -c "import sys; assert not sys._is_gil_enabled(), 'GIL is enabled -- not a free-threaded build'; print('free-threaded OK')"
+
+      - name: Install build dependencies
+        # Pillow only for the AppImage icon (build time); the app does not import it.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller tkinterweb tkinterdnd2 PyYAML ijson certifi pillow
+
+      - name: Build the Rust backend (native/, greatness7's tes3 crates)
+        run: python -m pip install ./native
+
+      - name: Build the toolkit (PyInstaller, one folder)
+        # --onedir, not --onefile: the AppImage is the single file, and a onefile
+        # inside it would unpack itself to /tmp on every start. The viewer is not
+        # added here - it lives in the AppImage beside its WebKit (AppRun names it).
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --windowed \
+            --name wraithguard_toolkit_gui \
+            --icon wraithguard_toolkit_icon.ico \
+            --collect-submodules wraithguard \
+            --hidden-import wraithguard_native \
+            --collect-all certifi \
+            --hidden-import tkinterweb \
+            --add-data "wraithguard_toolkit.py:." \
+            --add-data "README.md:." \
+            --add-data "QUICKSTART.md:." \
+            --add-data "MLOX_RULES.md:." \
+            --add-data "wraithguard_toolkit_icon.ico:." \
+            --add-data "wraithguard/viz/assets:assets" \
+            wraithguard_toolkit_gui.py
+
+      - name: Build the AppImage
+        run: bash packaging/linux/build-appimage.sh
+
+      - name: Check it is self-contained
+        # The viewer's libraries must all resolve inside the AppImage: anything
+        # ldd finds only on the host is something a Steam Deck will not have.
+        run: |
+          cd dist
+          ./Wraithguard-x86_64.AppImage --appimage-extract >/dev/null
+          deps=$(LD_LIBRARY_PATH= ldd squashfs-root/usr/bin/wraithguard-viewer)
+          echo "$deps"
+          ! echo "$deps" | grep -q 'not found'
+          # The host has WebKit installed too, so "found" is not enough: these must be
+          # the AppImage's own copies.
+          for lib in libwebkit2gtk-4.1 libjavascriptcoregtk-4.1 libgtk-3 libsoup-3; do
+            echo "$deps" | grep "$lib" | grep -q squashfs-root || { echo "$lib resolves outside the AppImage"; exit 1; }
+          done
+          test -x squashfs-root/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitWebProcess
+          rm -rf squashfs-root
+
+      - name: Upload the AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: wraithguard-toolkit-linux-x86_64
-          path: dist/wraithguard_toolkit_gui
+          name: wraithguard-toolkit-linux-x86_64-appimage
+          path: dist/Wraithguard-x86_64.AppImage
           if-no-files-found: error
           retention-days: 14
 
-      - name: Attach to the release (tag builds only)
+      - name: Name it for the release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
-        run: cp dist/wraithguard_toolkit_gui dist/wraithguard-toolkit-linux-x86_64
+        run: cp dist/Wraithguard-x86_64.AppImage dist/wraithguard-toolkit-linux-x86_64.AppImage
 
       # Sign with minisign (pure-Python) so the download can be verified. Skipped,
       # not failed, when the signing secret is not configured yet.
-      - name: Sign the binary (tag builds only)
+      - name: Sign the AppImage (tag builds only)
         if: ${{ startsWith(github.ref, 'refs/tags/') && env.MINISIGN_SECRET_KEY != '' }}
         env:
           MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
         run: |
           python -m pip install py-minisign==0.21.1
-          python tools/sign_release.py dist/wraithguard-toolkit-linux-x86_64
+          python tools/sign_release.py dist/wraithguard-toolkit-linux-x86_64.AppImage
 
       - name: Publish the release asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          # The .minisig line matches nothing when signing was skipped, so
-          # fail_on_unmatched_files is off; the binary is always produced above.
           files: |
-            dist/wraithguard-toolkit-linux-x86_64
-            dist/wraithguard-toolkit-linux-x86_64.minisig
+            dist/wraithguard-toolkit-linux-x86_64.AppImage
+            dist/wraithguard-toolkit-linux-x86_64.AppImage.minisig
           fail_on_unmatched_files: false
           # This single-run job is the sole owner of the release notes: the Windows
           # and macOS build steps deliberately omit generate_release_notes because

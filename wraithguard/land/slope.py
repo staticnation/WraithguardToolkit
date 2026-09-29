@@ -63,14 +63,14 @@ vanilla is a visible seam across the world.
 from __future__ import annotations
 
 import logging
+from array import array
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final
+from typing import Final
+
+import wraithguard_native as _native
 
 from wraithguard.land.curvature import curvature_at
 from wraithguard.tes3fields.landscape import HEIGHT_SCALE, LAND_SIZE
-
-if TYPE_CHECKING:
-    from array import array
 
 _log: Final = logging.getLogger(__name__)
 
@@ -321,62 +321,28 @@ def limit_slopes(
     if not cells:
         return report
 
-    structure: dict[Coords, list[float]] = {}
-    if use_curvature:
-        structure = {coords: _structure_map(grid) for coords, grid in cells.items()}
-    flat = [0.0] * (LAND_SIZE * LAND_SIZE)
-    # Sorted once, not once per pass. The order exists to make the result
-    # deterministic -- a vertex moved by two neighbours must be moved in the
-    # same sequence every run -- and no pass adds or removes a cell, only
-    # mutates the grids behind them. On a real load order this was 24 sorts of
-    # 17,560 tuples to produce the same list 24 times.
-    in_order = sorted(cells)
+    # The sweep runs in Rust (native/src/land.rs, ``limit_slopes``): the same
+    # pairs, in the same cell order, with the same twin handling, pinning and
+    # split as the functions above. The arrays are handed over and written back.
+    grids = {coords: list(grid) for coords, grid in cells.items()}
+    moved, adjusted, pinned, worst, passes, settled, touched = _native.limit_slopes(
+        grids, limit, MAX_PASSES, set(authoritative), use_curvature
+    )
+    for coords, values in moved.items():
+        cells[coords][:] = array("i", values)
+    report.adjusted = adjusted
+    report.pinned = pinned
+    report.worst_excess = worst
+    report.passes = passes
+    report.cells_touched = set(touched)
 
-    for attempt in range(1, MAX_PASSES + 1):
-        report.passes = attempt
-        excessive = 0
-
-        for coords in in_order:
-            grid = cells[coords]
-            shape = structure.get(coords, flat)
-
-            for (ax, ay), (bx, by) in _PAIRS:
-                first = ax + ay * LAND_SIZE
-                second = bx + by * LAND_SIZE
-                step = grid[second] - grid[first]
-                if -limit <= step <= limit:
-                    continue
-
-                excessive += 1
-                excess = abs(step) - limit
-                report.worst_excess = max(report.worst_excess, excess)
-                # If only one end can move it has to absorb the whole excess,
-                # otherwise the step never closes and the sweep spins.
-                movable_a = _is_movable(cells, coords, ax, ay, authoritative)
-                movable_b = _is_movable(cells, coords, bx, by, authoritative)
-                if movable_a and movable_b:
-                    share_a, share_b = _split(shape[first], shape[second], excess)
-                elif movable_a:
-                    share_a, share_b = excess, 0
-                elif movable_b:
-                    share_a, share_b = 0, excess
-                else:
-                    report.pinned += 1
-                    continue
-
-                # Close the gap from both ends. The signs are opposite so the
-                # step shrinks rather than the whole cell drifting.
-                direction = 1 if step > 0 else -1
-                _shift(cells, coords, ax, ay, direction * share_a, report)
-                _shift(cells, coords, bx, by, -direction * share_b, report)
-
-        if excessive == 0:
-            _log.info(
-                "slope limiter: converged after %d pass(es), %d adjustment(s)",
-                attempt,
-                report.adjusted,
-            )
-            return report
+    if settled:
+        _log.info(
+            "slope limiter: converged after %d pass(es), %d adjustment(s)",
+            passes,
+            report.adjusted,
+        )
+        return report
 
     # The sweep targets a slightly stricter limit than the encoder enforces, so
     # running out of passes does not necessarily mean the terrain is
@@ -411,10 +377,4 @@ def count_unencodable(cells: dict[Coords, array[int]], limit: int = MAX_STEP) ->
     Returns:
         The number of over-limit steps.
     """
-    total = 0
-    for grid in cells.values():
-        for (ax, ay), (bx, by) in _PAIRS:
-            step = grid[bx + by * LAND_SIZE] - grid[ax + ay * LAND_SIZE]
-            if step > limit or step < -limit:
-                total += 1
-    return total
+    return int(_native.count_unencodable([list(grid) for grid in cells.values()], limit))

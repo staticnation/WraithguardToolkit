@@ -17,10 +17,8 @@ import pytest
 
 from wraithguard.esp import (
     EspError,
-    Reader,
     UnknownRecord,
     Weapon,
-    Writer,
     read_plugin,
     write_plugin,
 )
@@ -76,33 +74,6 @@ def _sample_wpdt() -> bytes:
     )
 
 
-class TestByteLayer:
-    def test_string_round_trips_with_null_terminator(self) -> None:
-        writer = Writer()
-        writer.string("Daedric Dagger")
-        raw = writer.getvalue()
-        # length prefix includes the terminator
-        assert struct.unpack_from("<I", raw)[0] == len("Daedric Dagger") + 1
-        assert Reader(raw).string() == "Daedric Dagger"
-
-    def test_empty_string_is_length_one_and_a_null(self) -> None:
-        writer = Writer()
-        writer.string("")
-        assert writer.getvalue() == struct.pack("<I", 1) + b"\x00"
-        assert Reader(writer.getvalue()).string() == ""
-
-    def test_reading_past_the_end_raises(self) -> None:
-        with pytest.raises(EspError, match="past end"):
-            Reader(b"\x01\x02").u32()
-
-    def test_bound_stops_a_reader_at_the_slice(self) -> None:
-        reader = Reader(b"AAAA" + b"BBBB")
-        inner = reader.bound(4)
-        assert inner.raw(4) == b"AAAA"
-        assert inner.at_end
-        assert reader.raw(4) == b"BBBB"
-
-
 class TestWeaponRecord:
     def test_reads_fields_and_data(self) -> None:
         body = (
@@ -148,11 +119,6 @@ class TestWeaponRecord:
         (weapon,) = read_plugin(original)
         assert weapon.mesh == "" and weapon.name == ""
         assert write_plugin([weapon]) == original
-
-    def test_wrong_wpdt_size_is_refused(self) -> None:
-        bad = _string_sub(b"NAME", "x") + b"WPDT" + struct.pack("<I", 16) + b"\x00" * 16
-        with pytest.raises(EspError, match="WPDT size"):
-            read_plugin(_weapon_record(bad))
 
     def test_deleted_flag_and_dele_subrecord_round_trip(self) -> None:
         body = (

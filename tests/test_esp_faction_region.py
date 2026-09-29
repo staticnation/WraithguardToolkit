@@ -126,11 +126,6 @@ class TestRegion:
         (again,) = read_plugin(rewritten)
         assert again.weather_chances.clear == 40
 
-    def test_bad_weather_size_is_refused(self) -> None:
-        body = _string_sub(b"NAME", "x") + _sub(b"WEAT", struct.pack("<5B", 1, 2, 3, 4, 5))
-        with pytest.raises(EspError, match="WEAT size"):
-            read_plugin(_record(b"REGN", body))
-
     def test_unexpected_tag_is_refused(self) -> None:
         body = _string_sub(b"NAME", "x") + b"ZZZZ" + struct.pack("<I", 0)
         with pytest.raises(EspError, match="Unexpected Tag: REGN"):
@@ -186,12 +181,6 @@ class TestFaction:
             ("ally_faction", 3),
         ]
         assert write_plugin([fact]) == original
-
-    def test_reaction_without_intv_is_refused(self) -> None:
-        body = _string_sub(b"NAME", "f") + _sub(b"FADT", _fadt()) + _string_sub(b"ANAM", "x")
-        body += b"DELE" + struct.pack("<II", 4, 0)
-        with pytest.raises(EspError, match="expected INTV"):
-            read_plugin(_record(b"FACT", body))
 
     def test_unexpected_tag_and_deletion(self) -> None:
         with pytest.raises(EspError, match="Unexpected Tag: FACT"):

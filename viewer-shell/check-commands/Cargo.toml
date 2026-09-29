@@ -1,0 +1,11 @@
+# Compiles viewer-shell/src/cellviewer/commands.rs against viewcore with the Tauri
+# surface stubbed (src/stub.rs), so the command bodies are checked on any machine
+# without Tauri's native dependency tree. Adapted from Gardenfell's gdn_tauri_check.
+[package]
+name = "wraithguard-viewer-check-commands"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+viewcore = { path = "../viewcore" }

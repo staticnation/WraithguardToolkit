@@ -16,16 +16,19 @@ say is whether that matters, and the answers that decide it are all structural:
   controllers simply stops moving.
 
 None of that needs geometry, materials or a renderer, which is why this reads a
-structure rather than drawing anything.
+structure rather than drawing anything. The reading is greatness7's ``tes3::nif``
+(``wraithguard_native.nif_summary``, ``native/src/nif.rs``).
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from wraithguard.nif.reader import Block, NifFile
+
+class NifParseError(Exception):
+    """A mesh could not be read: not a Morrowind NIF, truncated, or malformed."""
+
 
 #: Block types that exist to carry collision geometry. Presence is the whole
 #: signal: Morrowind has no collision flag, it has a node whose name says so.
@@ -147,59 +150,32 @@ def texture_key(path: str) -> str:
     return key.rsplit(".", 1)[0] if "." in key.rsplit("/", 1)[-1] else key
 
 
-def summarise(parsed: NifFile) -> Structure:
-    """Reduce parsed blocks to a structure summary.
+def summarise(data: bytes) -> Structure:
+    """What a mesh contains, read by the crate.
 
     Args:
-        parsed: The result of reading one file.
+        data: The ``.nif`` bytes.
 
     Returns:
-        What the mesh contains.
+        Its structure.
+
+    Raises:
+        NifParseError: If the crate cannot read the file (the reason is the message).
     """
-    by_index = {block.index: block for block in parsed.blocks}
-    shapes = [
-        _shape_of(block, by_index) for block in parsed.blocks if block.type_name == "NiTriShape"
-    ]
-    textures: list[str] = []
-    for block in parsed.blocks:
-        if block.type_name != "NiSourceTexture":
-            continue
-        reference = block.fields.get("external_or_internal")
-        if isinstance(reference, str) and reference.strip():
-            normalised = normalise_texture(reference)
-            if normalised not in textures:
-                textures.append(normalised)
+    from wraithguard.nif.bsa import _native  # the Rust backend
+
+    r = json.loads(_native.nif_summary(bytes(data)))
+    if r["stopped_reason"]:
+        raise NifParseError(r["stopped_reason"])
     return Structure(
-        shapes=shapes,
-        textures=textures,
-        has_collision=any(b.type_name in COLLISION_NODES for b in parsed.blocks),
-        has_animation=any(b.type_name.endswith(CONTROLLER_SUFFIX) for b in parsed.blocks),
-        node_count=sum(1 for b in parsed.blocks if b.type_name.endswith("Node")),
-        blocks_read=len(parsed.blocks),
-        blocks_declared=parsed.block_count,
-        stopped_reason=parsed.stopped_reason,
+        shapes=[Shape(s["name"], int(s["vertices"]), int(s["triangles"])) for s in r["shapes"]],
+        textures=list(r["textures"]),
+        has_collision=bool(r["has_collision"]),
+        has_animation=bool(r["has_animation"]),
+        node_count=int(r["node_count"]),
+        blocks_read=int(r["blocks_read"]),
+        blocks_declared=int(r["blocks_declared"]),
     )
-
-
-def _shape_of(block: Block, by_index: dict[int, Block]) -> Shape:
-    """Pair a shape with the counts held in its data block.
-
-    Args:
-        block: The ``NiTriShape``.
-        by_index: Every parsed block, by index.
-
-    Returns:
-        The shape. Counts are zero when its data block was not reached, which
-        is honest rather than convenient: a shape whose data is missing has an
-        unknown size, not an empty one.
-    """
-    data = by_index.get(block.link("data"))
-    vertices = triangles = 0
-    if data is not None and data.type_name == "NiTriShapeData":
-        vertices = int(data.fields.get("num_vertices") or 0)
-        triangles = int(data.fields.get("triangles") or 0)
-    name = block.fields.get("name")
-    return Shape(name if isinstance(name, str) else "", vertices, triangles)
 
 
 @dataclass(frozen=True, slots=True)

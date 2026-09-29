@@ -14,12 +14,47 @@ relocation debt).
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 from wraithguard.tracing import trace
 
 _APP_DIR = None
+
+
+def open_in_browser(target: str) -> None:
+    """Open a URL or local page in the user's browser, crash-safely on Windows.
+
+    ``webbrowser.open()`` (and the ``os.startfile()`` it calls under the hood
+    on Windows) reaches ``ShellExecuteW`` through a ``Py_BEGIN_ALLOW_THREADS``
+    block. Under the free-threaded build (``py -3.14t``) the GIL
+    release/reacquire around that blocking Win32 call has been seen to come
+    back with no active thread state, which aborts the *whole interpreter*
+    with a fatal error -- one no ``try/except`` can catch, since it never
+    reaches Python's exception machinery at all. Windows' own shell ``start``
+    verb via :mod:`subprocess` reaches the same ``ShellExecute`` without going
+    through that code path, so it is used first there; :func:`webbrowser.open`
+    remains the way in on every other platform, and the fallback if the shell
+    call itself fails to even launch.
+
+    Args:
+        target: A URL, or a local path/URI to open.
+    """
+    if sys.platform == "win32":
+        try:
+            # The empty "" is the window-title argument `start` expects before
+            # the target; shell=True is what makes `start` itself resolve,
+            # since it is a cmd.exe builtin, not an .exe on PATH.
+            subprocess.Popen(["start", "", target], shell=True, close_fds=True)  # noqa: S602, S607
+            return
+        except OSError:
+            trace(f"view: shell 'start' failed for {target}, falling back")
+    try:
+        webbrowser.open(target)
+    except webbrowser.Error:
+        trace(f"view: browser refused {target}")
 
 
 def app_base_dir() -> Path:

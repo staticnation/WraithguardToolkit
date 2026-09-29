@@ -126,12 +126,6 @@ class TestHeader:
         assert header.masters == [("Morrowind.esm", 79837557), ("Tribunal.esm", 4565686)]
         assert write_plugin([header]) == original
 
-    def test_master_without_data_is_refused(self) -> None:
-        body = _sub(b"HEDR", _hedr(1.3, 0, "", "", 0)) + _string_sub(b"MAST", "x")
-        body += b"ZZZZ" + struct.pack("<I", 0)
-        with pytest.raises(EspError, match="expected DATA"):
-            read_plugin(_record(b"TES3", body))
-
     def test_unexpected_tag_is_refused(self) -> None:
         body = _sub(b"HEDR", _hedr(1.3, 0, "", "", 0)) + b"ZZZZ" + struct.pack("<I", 0)
         with pytest.raises(EspError, match="Unexpected Tag: TES3"):

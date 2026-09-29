@@ -2,11 +2,9 @@
 
 This lives in :mod:`wraithguard.viz` alongside the conflict-map, height-delta,
 pathgrid and terrain renderers because it solves the same problem one level
-down. None of those four needs a 3D engine, but two other pages do -- the mesh
-viewer in :mod:`wraithguard.nif.viewer` and the texture comparison's WebGL
-wipe in :mod:`wraithguard.images.viewer` -- and a second consumer is what
-turned "load one file" from something worth inlining into
-:mod:`~wraithguard.nif.viewer` into a concern worth naming on its own.
+down. None of those four needs a 3D engine; the texture comparison's WebGL
+wipe in :mod:`wraithguard.images.viewer` does. (The mesh viewer and Cell
+Preview are the viewer shell's now, and need none of this.)
 :mod:`~wraithguard.viz.serve` exists for the adjacent reason of publishing
 this same build once per session instead of re-embedding it in every
 document, and the two belong together for that reason, not because either

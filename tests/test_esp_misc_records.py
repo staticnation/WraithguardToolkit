@@ -180,12 +180,6 @@ class TestGlobalVariable:
         with pytest.raises(EspError, match="Unexpected Tag: GLOB"):
             read_plugin(_record(b"GLOB", body))
 
-    def test_missing_fltv_is_refused(self) -> None:
-        body = _string_sub(b"NAME", "bad") + _sub(b"FNAM", struct.pack("<B", int(GlobalType.Float)))
-        body += b"DELE" + struct.pack("<II", 4, 0)  # something other than FLTV
-        with pytest.raises(EspError, match="expected FLTV"):
-            read_plugin(_record(b"GLOB", body))
-
     def test_deleted_global_round_trips(self) -> None:
         body = (
             _string_sub(b"NAME", "gone")

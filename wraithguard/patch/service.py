@@ -109,7 +109,8 @@ def build_record_patch(
             declares its masters in. Order *is* meaning here: ``mast_index``
             values are positions in that list.
         sizes: Each master's size in bytes, for the header.
-        converter: Path to ``tes3conv``, which does the binary encoding.
+        converter: Path to ``tes3conv``, which does the binary encoding, or ``""``
+            for the Rust backend.
         output: Where to write.
         carried: An earlier build of *this same* patch, decoded, header
             included -- pass this to append rather than replace. Every record
@@ -287,17 +288,30 @@ def _masters_for(
 
 
 def _write(document: Sequence[Mapping[str, Any]], target: Path, converter: str) -> None:
-    """Serialise the records and let tes3conv encode them.
+    """Encode the records into the plugin at ``target``.
+
+    With no ``converter`` (the native session's case), the Rust backend writes it:
+    the records are built into record objects and :func:`~wraithguard.esp.write_plugin`
+    encodes them, as the Merged Lands writer does. With a tes3conv executable, the
+    records go to it as JSON.
 
     Args:
         document: The header and records.
         target: The plugin to write.
-        converter: The tes3conv executable.
+        converter: The tes3conv executable, or ``""`` to encode natively.
 
     Raises:
-        PatchServiceError: If the conversion fails.
+        PatchServiceError: If the encoding fails.
     """
     target.parent.mkdir(parents=True, exist_ok=True)
+    if not converter:
+        from wraithguard.esp import EspError, plugin_from_json, write_plugin
+
+        try:
+            target.write_bytes(write_plugin(plugin_from_json([dict(r) for r in document])))
+        except (OSError, EspError, ValueError, KeyError, TypeError) as exc:
+            raise PatchServiceError(f"could not encode the patch natively: {exc}") from exc
+        return
     with tempfile.TemporaryDirectory() as scratch:
         as_json = Path(scratch) / "patch.json"
         as_json.write_text(json.dumps(list(document)), encoding="utf-8")

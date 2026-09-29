@@ -341,8 +341,12 @@ class PatchBuilderMixin:
         # reads that map directly rather than re-resolving paths itself.
         if not self._ensure_conflict_session():
             messagebox.showerror(
-                _("tes3conv not found"),
-                _("Cannot measure master sizes without tes3conv. Set its path and try again."),
+                _("No plugin reader"),
+                _(
+                    "Cannot read the plugins without the built-in reader "
+                    "(wraithguard_native) or a tes3conv binary. Reinstall Wraithguard, "
+                    "or set a tes3conv path in the Conflicts window, and try again."
+                ),
             )
             return
         order = self._apply_exclusions(self.order_panel.get_enabled())

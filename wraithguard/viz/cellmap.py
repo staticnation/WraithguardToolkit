@@ -174,7 +174,8 @@ def _svg_grid(
             f'<rect x="{px}" y="{py}" width="{CELL_MAP_CELL_PX}" '
             f'height="{CELL_MAP_CELL_PX}" fill="{coverage_heat(len(mods), worst)}"'
             f'{stroke} class="cell" data-t="{_escape(tip)}" data-m="{_modattr(mods)}" '
-            f"onclick=\"jump('{_anchor(gx, gy)}')\"></rect>"
+            f"onclick=\"jump('{_anchor(gx, gy)}')\" "
+            f"ondblclick=\"openPreview('{gx},{gy}')\"></rect>"
         )
     svg = (
         f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
@@ -201,7 +202,9 @@ def _exterior_rows(
         cls = ' class="cust"' if custom else ""
         rows.append(
             f'<tr id="{_anchor(gx, gy)}"{cls} data-m="{_modattr(mods)}">'
-            f"<td>({gx}, {gy})</td><td>{len(mods)}</td>"
+            f'<td><button class="op" title="Open in Cell Preview" '
+            f"onclick=\"openPreview('{gx},{gy}')\">&#9654;</button> ({gx}, {gy})</td>"
+            f"<td>{len(mods)}</td>"
             f'<td>{_escape(", ".join(mods))}</td></tr>'
         )
     return "".join(rows) or "<tr><td colspan=3 class=sub>None.</td></tr>"
@@ -222,7 +225,9 @@ def _interior_rows(interior: Mapping[str, Sequence[str]], subset_lower: set[str]
         custom = any(m.lower() in subset_lower for m in mods)
         cls = ' class="cust"' if custom else ""
         rows.append(
-            f'<tr{cls} data-m="{_modattr(mods)}"><td>{_escape(name)}</td>'
+            f'<tr{cls} data-m="{_modattr(mods)}"><td><button class="op" '
+            f'title="Open in Cell Preview" data-c="int:{_escape(name)}" '
+            f'onclick="openPreview(this.dataset.c)">&#9654;</button> {_escape(name)}</td>'
             f"<td>{len(mods)}</td><td>{_escape(', '.join(mods))}</td></tr>"
         )
     return "".join(rows) or "<tr><td colspan=3 class=sub>None.</td></tr>"

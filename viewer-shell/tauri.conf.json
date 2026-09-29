@@ -4,13 +4,14 @@
   "version": "0.1.0",
   "identifier": "dev.wraithguard.viewer",
   "build": {
-    "frontendDist": null
+    "frontendDist": "ui-dist"
   },
   "app": {
     "windows": [],
     "security": {
       "csp": null
-    }
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": false,

@@ -1,25 +1,16 @@
 """The native conflict session (:class:`wraithguard_toolkit.NativeEspSession`).
 
-This is the fallback that makes ``tes3conv`` optional: a
-:class:`~wraithguard_toolkit.Tes3ConvSession` that converts plugins in process
-with the built-in reader instead of shelling out. Because the parent funnels
-every method through ``_json_for``, overriding only that gives a drop-in whose
-``record_keys`` / ``cells`` / ``record_map`` / ``landscape_records`` all work --
-so these build a plugin with the esp *writer*, then read it back through the
-native session with no ``tes3conv`` anywhere, and check each surface the
-conflict scan, cell map and Merged Lands depend on.
-
-The parity with a *real* ``tes3conv`` session (identical record keys, cells and
-landscape records on multi-thousand-record plugins) was checked during
-development against the binary; it cannot run in the hermetic suite, so what is
-pinned here is that the native path is self-consistent and wired correctly.
+The session the conflict scan, cell map, field diff and Merged Lands read through:
+the Rust backend hands each plugin's records to Python as tes3conv-schema dicts, with
+no JSON written or parsed and no sidecar files. These build a plugin with the esp
+*writer*, read it back through the session, and check each surface the callers
+depend on.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import wraithguard.esp as esp_module
 import wraithguard_toolkit as core
 from wraithguard.esp import (
     Cell,
@@ -93,30 +84,73 @@ class TestNativeSession:
         land = session.landscape_records(_plugin(tmp_path / "mine.esp"))
         assert any(r.get("type") == "Landscape" for r in land)
 
-    def test_a_cached_json_is_reused(self, tmp_path: Path) -> None:
-        """The second read hits the on-disk spool, as the tes3conv session does."""
-        session = core.NativeEspSession(dump_dir=str(tmp_path), keep=True)
+    def test_nothing_is_written_to_disk(self, tmp_path: Path) -> None:
+        """No JSON spool and no sidecars: the records never leave memory."""
+        out = tmp_path / "spool"
+        session = core.NativeEspSession(dump_dir=str(out), keep=True)
         path = _plugin(tmp_path / "mine.esp")
-        first = session.records(path)
-        assert (tmp_path / "mine.json").is_file()
-        assert session.records(path) == first
+        session.records(path)
+        session.record_keys(path)
+        session.cells(path)
+        session.landscape_records(path)
+        assert list(out.iterdir()) == []
 
-    def test_a_json_already_on_disk_from_a_prior_run_is_reused_without_reconverting(
+    def test_keys_are_read_once_while_the_plugin_is_unchanged(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A fresh session (empty in-memory cache) still finds a valid spool file on disk."""
+        """Keys and cells come from memory until the plugin changes on disk."""
+        session = core.NativeEspSession(dump_dir=str(tmp_path / "s"), keep=True)
         path = _plugin(tmp_path / "mine.esp")
-        core.NativeEspSession(dump_dir=str(tmp_path), keep=True).records(path)  # writes mine.json
-        assert (tmp_path / "mine.json").is_file()
+        first = session.record_keys(path)
+        calls: list[object] = []
+        real = session._parse
+        monkeypatch.setattr(session, "_parse", lambda *a, **k: calls.append(a) or real(*a, **k))
+        assert session.record_keys(path) == first
+        assert session.cells(path)
+        assert calls == []
 
-        def _boom(*_a: object, **_k: object) -> None:
-            raise AssertionError("re-read the plugin instead of reusing the on-disk JSON")
+    def test_a_subset_parses_only_what_is_asked_for(self, tmp_path: Path) -> None:
+        """``record_subset`` returns exactly the wanted records, keyed as the map keys them."""
+        session = core.NativeEspSession(dump_dir=str(tmp_path / "s"), keep=True)
+        path = _plugin(tmp_path / "mine.esp")
+        got = session.record_subset(path, {("Weapon", "the_sword"), ("Weapon", "nope")})
+        assert list(got) == [("Weapon", "the_sword")]
+        assert got[("Weapon", "the_sword")] == session.record_map(path)[("Weapon", "the_sword")]
 
-        monkeypatch.setattr(esp_module, "read_plugin", _boom)
-        fresh_session = core.NativeEspSession(dump_dir=str(tmp_path), keep=True)
-        records = fresh_session.records(path)
+    def test_values_have_the_json_shapes(self, tmp_path: Path) -> None:
+        """Lists, not tuples, and an f32 as its shortest decimal - as json.load gave."""
+        session = core.NativeEspSession(dump_dir=str(tmp_path / "s"), keep=True)
+        gmst = session.record_map(_plugin(tmp_path / "mine.esp"))[("GameSetting", "fJumpBase")]
+        land = session.landscape_records(str(tmp_path / "mine.esp"))
+        header = session.records(str(tmp_path / "mine.esp"))[0]
+        assert gmst["value"] == {"type": "Float", "data": 1.5}
+        assert header["version"] == 1.3  # the f32 1.3, not 1.2999999523162842
+        assert isinstance(next(r for r in land if r["type"] == "Landscape")["grid"], list)
 
-        assert any(r.get("type") == "Header" for r in records)
+    def test_rust_keys_match_the_python_keys(self, tmp_path: Path) -> None:
+        """``plugin_keys`` gives exactly what ``_keys_and_cells`` gives over the records."""
+        import wraithguard_native
+
+        path = _plugin(tmp_path / "mine.esp")
+        data = (tmp_path / "mine.esp").read_bytes()
+        keys, cells = core._keys_and_cells(wraithguard_native.plugin_records(data, None, True))
+        rust_keys, rust_cells = wraithguard_native.plugin_keys(data)
+        assert list(rust_keys) == [tuple(k) for k in keys]
+        assert list(rust_cells) == [tuple(c) for c in cells]
+        session = core.NativeEspSession(dump_dir=str(tmp_path / "s"), keep=True)
+        assert session.record_keys(path) == list(rust_keys)
+
+    def test_packed_arrays_arrive_as_raw_bytes(self, tmp_path: Path) -> None:
+        """Landscape grids come unpacked - bytes, not zstd'd base64 - and still decode."""
+        from wraithguard.tes3fields.landscape import decode_vertex_heights
+
+        session = core.NativeEspSession(dump_dir=str(tmp_path / "s"), keep=True)
+        land = session.landscape_records(_plugin(tmp_path / "mine.esp"))
+        rec = next(r for r in land if r["type"] == "Landscape")
+        heights = rec["vertex_heights"]["data"]
+        assert isinstance(heights, bytes)
+        assert len(heights) == 65 * 65
+        assert len(decode_vertex_heights(heights)) == 65
 
     def test_an_unreadable_plugin_returns_no_records(self, tmp_path: Path) -> None:
         """A file that isn't a valid plugin at all fails read_plugin, not a crash."""

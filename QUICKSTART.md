@@ -51,9 +51,8 @@ python wraithguard_toolkit_gui.py
 - **Check conflicts**: click **Check Conflicts** to scan for TES3 record-level
   conflicts (two plugins editing the same record; last one wins). Results show
   in the log and a dedicated window - ones involving your mods are marked ★.
-  For a **field-by-field diff**, point it at a `tes3conv` binary (**Set
-  tes3conv...** in that window, or `--tes3conv`); then selecting a record shows
-  each plugin's values with differing fields in red.
+  Selecting a record shows a **field-by-field diff**: each plugin's values, with
+  differing fields in red.
 - **Plugin view**: after a conflict scan, click **Plugin view** for your load
   order as a tree - open a plugin to see what it changes and a record to compare
   it across every plugin. The colours tell you which of your mods are *losing*
@@ -64,7 +63,7 @@ python wraithguard_toolkit_gui.py
   it defines.
 - **Merge Lands**: build one `Merged Lands.esp` that combines the landscape edits
   of your whole load order and closes the seams between them, instead of the last
-  mod winning a whole cell. Needs a `tes3conv` binary; enable the output and load
+  mod winning a whole cell. Enable the output and load
   it **last**. By default the later mod wins only the vertices two mods *contest*,
   and everything else merges - so most load orders need no tuning. When a specific
   seam looks wrong, a `.mergedlands.toml` sidecar overrides it per plugin and per
@@ -75,21 +74,21 @@ python wraithguard_toolkit_gui.py
   and when each fits.
 - **Cell map**: click **Cell Map** for a modmapper-style SVG heatmap of which
   mods touch which exterior/interior cells (click a cell to jump to its list row).
-  The map is written to a timestamped `cell_map` file and shown in an in-app window if
-  `pywebview` (best) or `tkinterweb` is installed, otherwise your browser - it is
+  The map is written to a timestamped `cell_map` file and shown in the viewer's
+  window (or with `tkinterweb`, or in your browser, without the viewer) - it is
   never rendered from an in-memory string, so big load orders won't OOM.
-- **Cell preview**: click **Cell Preview** to walk a single cell in 3D and check
-  it for conflicts without loading the game. Pick an interior by name or an
-  exterior by grid; every reference resolves to its winning object across the load
-  order, and exteriors also draw their terrain, water and (optionally) the eight
-  neighbouring cells under a Morrowind sky with time-of-day and weather. Read-only.
-- **Big load orders / memory / speed**: conflict + cell-map scans run tes3conv to
-  disk, reading one plugin at a time (bounded memory) instead of holding every
-  plugin's records in RAM. The first scan also caches a tiny per-plugin sidecar,
-  so **repeat Check Conflicts and Cell Map runs are near-instant** (a mod is only
-  re-read if it changed). Tick **Keep tes3conv JSON dump** (Options) to keep the
-  `tes3conv_json` folder (and its caches) between launches; leave it off to remove
-  it on close. (CLI: `--json-dump-dir FOLDER`.)
+- **Cell preview**: click **Cell Preview** to look around a cell in 3D and check
+  it for conflicts without loading the game. Pick a cell from the list or the cell
+  map; every reference resolves to its winning object across the load order, and
+  exteriors also draw their terrain, groundcover, water and neighbouring cells
+  under a Morrowind sky with time-of-day and weather. Click an object for its
+  `ori`-style readout; Shift+click a door to go through it. Orbit with the right
+  mouse button, or switch to WASD (Tab) and hold the right button to fly.
+- **Big load orders / memory / speed**: plugins are read by the built-in reader
+  (Rust, in process), which parses only what a feature asks for and hands Python
+  just those records, so memory stays bounded on 900+ plugins. Each plugin's
+  record keys and cells are kept in memory until the file changes, so **repeat
+  Check Conflicts and Cell Map runs are near-instant**.
 
 ### Then apply it
 
