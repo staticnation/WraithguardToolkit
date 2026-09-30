@@ -120,13 +120,18 @@ jobs:
           for lib in libwebkit2gtk-4.1 libjavascriptcoregtk-4.1 libgtk-3 libsoup-3; do
             echo "$deps" | grep "$lib" | grep -q squashfs-root || { echo "$lib resolves outside the AppImage"; exit 1; }
           done
-          test -x squashfs-root/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitWebProcess
+          # Every check says what failed: a bare `test` ends the step with no reason.
+          test -x squashfs-root/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitWebProcess \
+            || { echo "WebKitWebProcess missing:"; ls -la squashfs-root/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/ || true; exit 1; }
           # ...and the graphics stack must be the host's (the Deck's EGL_BAD_PARAMETER),
           # started through the launcher that retries without it.
           stray=$(find squashfs-root/usr/lib \( -name 'libEGL*.so*' -o -name 'libGL*.so*' -o -name 'libgbm.so*' -o -name 'libdrm*.so*' -o -name 'libwayland-*.so*' \) -print)
           [ -z "$stray" ] || { echo "graphics libraries bundled: $stray"; exit 1; }
-          test -x squashfs-root/usr/bin/wraithguard-viewer-run
-          grep -q wraithguard-viewer-run squashfs-root/AppRun
+          test -x squashfs-root/usr/bin/wraithguard-viewer-run \
+            || { echo "launcher missing or not executable:"; ls -la squashfs-root/usr/bin/; exit 1; }
+          grep -q wraithguard-viewer-run squashfs-root/AppRun \
+            || { echo "AppRun does not start the launcher:"; ls -la squashfs-root/AppRun*; head -40 squashfs-root/AppRun || true; exit 1; }
+          echo "self-contained: OK"
           rm -rf squashfs-root
 
       - name: Upload the AppImage
