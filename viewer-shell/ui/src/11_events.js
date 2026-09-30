@@ -3,7 +3,6 @@
    Wiring
    ===================================================================================== */
 function refreshAll(){
-  refreshUnmatched();
   schedulePreview();
 }
 
@@ -289,15 +288,20 @@ function boot(){
      asked for and what the shader does on its own - its fog term is nought wherever the
      fog starts at a positive distance. */
   { const e=$('#p_dof'); if(e){ const apply=()=>{ if(App.R){ App.R.opts.dof=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
+  { const e=$('#p_bloom'); if(e){ const apply=()=>{ if(App.R){ App.R.opts.bloom=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }   // Wraithguard: 42_wg_bloom.js
 /* Round 18ee: the sun's shadows. Applied at wiring time as well, because the switch may
    already carry an install's answer by the time the renderer exists. */
 { const e=$('#p_shadows'); if(e){ const apply=()=>{ if(App.R){ App.R.opts.shadows=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
+{ const e=$('#p_shadowres'); if(e){ const apply=()=>{ if(App.R){ App.R.opts.shadowRes=+e.value||0; App.R.dirty=true; } }; e.onchange=apply; e.oninput=apply; apply(); } }
   // Round 18dt: the underwater effects, on unless switched off.
   { const e=$('#p_under'); if(e){ const apply=()=>{ if(App.R){ App.R.opts.underwater=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
   // Round 18f: the Unlit switch.
   { const e=$('#p_unlit'); if(e) e.onchange=()=>{ if(App.R){ App.R.opts.unlit=e.checked; App.R.dirty=true; } if(typeof PrevSettings==='object' && PrevSettings.touch) PrevSettings.touch(); }; }
   // Round 16: the sunshafts, inside the atmosphere pane - they need its sky.
   $('#p_shafts').onchange=()=>{ if(App.R){ App.R.opts.sunshafts=$('#p_shafts').checked; App.R.dirty=true; } };
+  // Wraithguard: NPCs, creatures and spawn points - a change of what the scene holds.
+  { const e=$('#p_actors'); if(e) e.onchange=()=>{ App.showActors=e.checked; if(typeof schedulePreview==='function') schedulePreview(); }; }
+  { const e=$('#p_npcdrawn'); if(e) e.onchange=()=>{ App.npcDrawn=e.checked; if(typeof schedulePreview==='function') schedulePreview(); }; }
   // Round 17w: the meshes' particle systems, on by default.
   { const e=$('#p_particles');
     /* Round 18q: and the nocturnal moths, which are an effect on a lamp rather than a
@@ -374,6 +378,13 @@ function boot(){
   lightSlider('#p_whue','#p_whueV',v=>{ if(App.R) App.R.opts.waterHue=v; });
   lightSlider('#p_wtint','#p_wtintV',v=>{ if(App.R) App.R.opts.waterTint=v/100; });
   { const e=$('#p_sewers'); if(e) e.onchange=()=>{ if(App.R){ App.R.opts.sewerWaves=e.checked; App.R.dirty=true; } }; }
+  // Wraithguard: MGE XE's water settings, driven here (26_water.js, 35_underwater.js).
+  { const e=$('#p_waves'); if(e){ const f=()=>{ if(App.R){ App.R.opts.waves=e.checked; App.R.dirty=true; } }; e.onchange=f; f(); } }
+  lightSlider('#p_wheight','#p_wheightV',v=>{ if(App.R) App.R.opts.waveHeight=v; });
+  lightSlider('#p_caust','#p_caustV',v=>{ if(App.R) App.R.opts.caustics=v; });
+  { const e=$('#p_weather'); if(e){ const f=()=>{ if(typeof Sky==='object'){ Sky.weather=e.value||'Clear'; } if(App.R){ App.R.opts.weather=e.value||'Clear'; App.R.dirty=true; } if(typeof Sky==='object' && Sky.showSources) Sky.showSources(); }; e.onchange=f; e.oninput=f; f(); } }   // Wraithguard: the weathers
+  { const e=$('#p_wdepth'); if(e){ const f=()=>{ if(App.R){ App.R.opts.waterDepth=e.checked; App.R.dirty=true; } }; e.onchange=f; f(); } }   // Wonders of Water
+  { const e=$('#p_wblur'); if(e){ const f=()=>{ if(App.R){ App.R.opts.reflBlur=e.checked; App.R.dirty=true; } }; e.onchange=f; f(); } }
   /* Round 17h, Robin: "Add a reset fog to install density button by the fog density
      slider, that sets the fog to what the install says." The slider is a multiplier on
      the distances the install gives, so the install's own answer is 100; the button puts
@@ -405,7 +416,12 @@ function boot(){
   { const e=$('#p_hour');
     App.hour=+e.value;
     const apply=()=>{ $('#p_hourV').textContent=Sky.clock(App.hour);
-                      if(App.R){ App.R.opts.hour=App.hour; App.R.dirty=true; } };
+                      if(App.R){ App.R.opts.hour=App.hour; App.R.dirty=true; }
+                      /* Wraithguard: night falls or breaks - the NPCs take out or put away
+                         their torches, which is a different NPC to the engine. */
+                      const night=typeof npcNightHour==='function' && npcNightHour();
+                      if(App._npcNight!=null && night!==App._npcNight && App.showActors!==false && typeof schedulePreview==='function') schedulePreview();
+                      App._npcNight=night; };
     /* Rounded to the five minutes the slider steps in. `step="0.0833333"` is an inexact
        twelfth, so the browser snaps 17:30 to 17.499993 and a profile would remember that
        instead of half past five. The step is what the thumb moves in; this is what the
@@ -676,7 +692,6 @@ function boot(){
   App.reword=()=>{
     const run=f=>{ try{ if(typeof f==='function') f(); }catch(e){ console.warn('reword:',e); } };
     run(typeof syncCellButton==='function'? syncCellButton : null);
-    run(typeof refreshUnmatched==='function'? refreshUnmatched : null);
     run(syncVpHint); run(syncNav);
     run(typeof Profiles==='object' && Profiles.showName? ()=>Profiles.showName() : null);
     run(typeof Settings==='object' && Settings.show? ()=>Settings.show() : null);
@@ -1532,8 +1547,13 @@ async function openWraithguardSetup(){
   // Real-cell mode is the only one; running its handler shows the cell controls.
   const ms=$('#pvMode');
   if(ms){ ms.value='cell'; if(ms.onchange) ms.onchange(); }
-  if(want.cell){ App.cellSel=want.cell; syncCellButton(); schedulePreview(); }
+  // Wraithguard: a record from its conflict viewer, found where it stands (45_wg_nav.js).
+  if(want.cell && want.cell.kind==='find' && typeof WgNav==='object') WgNav.go('find:'+want.cell.tag+':'+want.cell.id);
+  else if(want.cell && want.cell.kind==='plugin' && typeof WgNav==='object') WgNav.go('plugin:'+want.cell.name);
+  else if(want.cell){ App.cellSel=want.cell; syncCellButton(); schedulePreview(); }
   else openCellPicker();
+  // And whatever else it asks this window to show while it stays open.
+  if(typeof WgNav==='object') WgNav.poll();
 }
 
 async function start(){
@@ -1570,6 +1590,7 @@ async function start(){
   if(typeof wireSettings==='function') wireSettings();
   if(typeof WgViewport==='object') WgViewport.bind();
   if(typeof WgModHl==='object') WgModHl.bind();
+  if(typeof WgTools==='object') WgTools.bind();   // the review, landscape, overlay and link tools
 
   Engine.call('cpu_threads').then(n=>{
     const el=$('#folderState .p');

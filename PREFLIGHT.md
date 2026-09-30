@@ -153,7 +153,7 @@ git status
 
 - **New files** (`??`) you meant to add? New source files are easy to miss. `git add -A` takes everything.
 - **Nothing that should not go in**: build output, logs, `cell_map_*.html`, your
-  settings, `minisign.key`. `.gitignore` covers these; if something like that
+  settings, any `*.key`. `.gitignore` covers these; if something like that
   shows up, add it to `.gitignore` rather than committing it.
 - **Lockfiles**: after changing a `Cargo.toml`, commit the `Cargo.lock` next to it.
   `native/`, `viewer-shell/`, `viewer-shell/viewcore/` and
@@ -209,8 +209,8 @@ git push -u origin build/test --force-with-lease
    Actions**):
    - `WEBVIEW2_FIXED_URL` (variable): the WebView2 Fixed Version `.cab` link.
      Refresh it now and then; Microsoft replaces it with each runtime release.
-   - `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` (secrets): without them the
-     builds go out unsigned.
+   - `MINISIGN_SECRET_KEY` / `MINISIGN_PASSWORD`: no longer used (signing is
+     retired) and can be deleted.
 4. **Commit, push, and tag:**
 
    ```powershell

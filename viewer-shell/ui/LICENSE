@@ -29,9 +29,18 @@ with the credit its own header gives:
   * Underwater Effects.fx and Underwater Interior Effects.fx - Hrnchamd:
     35_underwater.js.
   * SSAO HQ.fx - "based on ssao v09 by Knu", shipped with MGE XE: 29_ssao.js.
+  * Bloom Fine.fx - Hrnchamd, v2: 42_wg_bloom.js.
+  * XE Mod Sky.fx (MGE XE 0.16.0) - the sky's ordered dither: 06_gl.js.
   * Depth of Field.fx - "v12 by Knu, tweaked by peachykeen": 36_dof.js.
+  * XE Mod Water.fx's dynamic ripples (the displaced WaterVS, and the radial water
+    mesh from distantinit.cpp initWater) and FILTER_WATER_REFLECTION: 26_water.js.
+  * The precipitation ripples (renderwater.cpp simulateDynamicWaves, XE Main.fx
+    WaveStepPS, XE Mod Water.fx's sampRain): 43_wg_rain.js.
+  * assets/water_NRM.dds - MGE XE's wave volume (textures/MGE/water_NRM.dds), shipped
+    unmodified beside the page for installs that do not have it (OpenMW).
   * FXAA.fx (33_fxaa.js) - FXAA 3.11 by Timothy Lottes, NVIDIA, under NVIDIA's
-    notice in the original header; ported to MGE XE by J. Boettcher (as its
+    BSD-3 licence (../../License/FXAA/LICENSE, from the FXAA 3.11 header NVIDIA
+    publishes in its GameWorks samples); ported to MGE XE by J. Boettcher (as its
     header says) and posted for MGE XE by Hrnchamd (GPL-2.0, as the other MGE XE
     shaders).
   * SSGI.fx (the SSGI mode in 29_ssao.js) - an MGE XE post shader (HBAO + SSGI):
@@ -44,8 +53,11 @@ Provenance of the rest:
   * Robin's permission for the SSAO port: "Totally OK to use code in the SSAO
     shader I sent you."
   * Modules 23_viewer_profile.js, 24_ori.js, 38_wg_viewport.js,
-    39_wg_coverage.js, 40_wg_modhl.js, 41_wg_meshview.js and viewer_only.html:
-    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
+    39_wg_coverage.js, 40_wg_modhl.js, 41_wg_meshview.js, 42_wg_bloom.js, 43_wg_rain.js,
+    44_wg_precip.js, 45_wg_nav.js, 46_wg_tfh.js and viewer_only.html:
+    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page. 42_wg_bloom.js
+    and 43_wg_rain.js likewise, for their ports of Hrnchamd's Bloom Fine and MGE XE's
+    rain ripples.
   * The shore foam and caustics in 26_water.js: ported from "OpenMW Water Shader
     Enhanced (OWSE)" by Vegetto (Nexus Mods, Morrowind mod 56186), its author's own
     functions only, under
@@ -60,8 +72,11 @@ Provenance of the rest:
     Hrnchamd (MGE XE) - under its permission: "You can do
     with this shader what you want as long as you give proper credit to the original
     authors and me."
-  * The simplex noise in 26_water.js (snoise): webgl-noise, Copyright (C) 2011 Ashima
-    Arts and (C) 2011-2016 Stefan Gustavson, MIT (see ../../License/webgl-noise/LICENSE).
+  * The weather-driven wave height and caustics (25_sky.js), still water in interiors
+    (26_water.js) and the underwater fog by depth (06_gl.js), behind the Preview's
+    "Wonders of Water" switch: the rules of "Wonders of Water" by
+    NullCascade (Nexus Mods, Morrowind mod 52815), MIT (see
+    ../../License/Wonders-of-Water/LICENSE).
 
 The engine behind the page (../viewcore) and the command layer
 (../src/cellviewer) are MIT.

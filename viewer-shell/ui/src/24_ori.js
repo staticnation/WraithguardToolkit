@@ -7,8 +7,58 @@
    reference and the cell it stands in, the plugin that created it and every plugin that
    changed it, the plugins that define its base record, and the data folder or archive
    its mesh and each texture resolve from. The engine answers (`ori` in the shell).
+
+   Wraithguard: and the game's Toggle Full Help, and more - the reference's owner (an NPC,
+   or a faction and the rank that may take it), the global that makes it owned, its lock,
+   key and trap, soul, charge, uses and count; the base record's script, and a
+   container's contents or an actor's inventory, spells, race, class and faction; and, on
+   request, an actor's dialogue across the load order - its topics, how many lines of its
+   own each plugin gives it, and the quests those lines touch. The contents of a container
+   belong to whoever owns the container, as in the game.
+
+   Every record named here opens in Wraithguard's conflict viewer when the viewer was
+   started from Wraithguard (the "Conflicts" buttons, and the ids themselves): the page
+   asks the shell (`wg_open_record`) to post `{tag, id}` to the URL Wraithguard handed
+   over in the launch's extra file (`links.openRecord`).
    Copyright (c) 2026 StaticNation.
    ===================================================================================== */
+/** Wraithguard: the inspector's and the full help's sections as accordions. Every
+    `.orisec` heading among `root`'s children becomes the summary of a <details> holding
+    what follows it, up to the next heading; whether each is open is remembered by panel
+    and title (for the session, and in the page's storage when it has one), so a section
+    closed on one object stays closed on the next. */
+const OriAcc={
+  _open:null,
+  state(){
+    if(this._open) return this._open;
+    let s={};
+    try{ s=JSON.parse(localStorage.getItem('wg.oriAcc')||'{}')||{}; }catch(_){ s={}; }
+    return (this._open=s);
+  },
+  save(){ try{ localStorage.setItem('wg.oriAcc', JSON.stringify(this._open||{})); }catch(_){} },
+  apply(root, panel){
+    if(!root) return;
+    const st=this.state();
+    const kids=[...root.children];
+    for(let i=0;i<kids.length;i++){
+      const h=kids[i];
+      if(!h.classList || !h.classList.contains('orisec')) continue;
+      const det=document.createElement('details');
+      det.className='oriacc';
+      const key=panel+':'+h.textContent.trim();
+      det.open = st[key]!==false;
+      const sum=document.createElement('summary');
+      sum.className='orisec';
+      sum.innerHTML=h.innerHTML;
+      det.appendChild(sum);
+      root.insertBefore(det,h);
+      h.remove();
+      for(let j=i+1;j<kids.length && !(kids[j].classList && kids[j].classList.contains('orisec'));j++) det.appendChild(kids[j]);
+      det.addEventListener('toggle',()=>{ st[key]=det.open; this.save(); });
+    }
+  },
+};
+
 const Ori={
   el:null,
   _ask:0,
@@ -43,6 +93,7 @@ const Ori={
 
   hide(){
     if(this.el) this.el.hidden=true;
+    if(typeof Tfh==='object') Tfh.hide();
     // The object's own highlight goes; a highlighted mod's stays.
     if(typeof WgModHl==='object' && WgModHl.active()) WgModHl.apply();
     else if(App.R) App.R.setStaticHighlight(null);
@@ -58,6 +109,7 @@ const Ori={
     const body=d.querySelector('#oriBody');
     body.innerHTML='<div class="hint">…</div>';
     if(App.R) App.R.setStaticHighlight([hit]);
+    if(typeof Tfh==='object') Tfh.loading(hit);
     let r;
     try{ r=await Engine.call('ori',{key:hit.refKey, model:hit.model||''}); }
     catch(e){ if(ask===this._ask) body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return; }
@@ -65,12 +117,45 @@ const Ori={
     body.innerHTML=this.render(r);
     const go=body.querySelector('#oriDoorGo');
     if(go) go.onclick=()=>{ this.hide(); goThroughDoor(hit); };
+    this.wire(body, r);
+    // Wraithguard: each asset's providers, a compare of the loose versions, Where used.
+    if(typeof WgTools==='object') WgTools.decorateOri(body, r);
+    OriAcc.apply(body,'ori');
+    // The full help - owner, contents, inventory, dialogue - on the right (46_wg_tfh.js).
+    if(typeof Tfh==='object') Tfh.show(r, hit);
     // A plugin's name highlights everything it placed in the loaded cells (40_wg_modhl.js).
     body.querySelectorAll('[data-mod]').forEach(b=>{
       b.onclick=()=>{ if(typeof WgModHl==='object') WgModHl.choose(b.dataset.mod===WgModHl.mod? '' : b.dataset.mod); };
     });
   },
 
+  /** Wraithguard's conflict viewer link, when the viewer was started from Wraithguard. */
+  recordLink(){ return (((window.__WG_VIEW__||{}).extra||{}).links||{}).openRecord||''; },
+  /** Asks Wraithguard to show the record `tag`/`id` in its conflict viewer. */
+  async openRecord(tag,id){
+    const url=this.recordLink();
+    if(!url || !id) return;
+    try{
+      await Engine.call('wg_open_record',{url, body:JSON.stringify({tag:tag||'', id})});
+      toast('Opening '+id+' in Wraithguard\'s conflict viewer','ok',2500);
+    }catch(e){ toast(String(e.message||e),'err',4000); }
+  },
+  /** The buttons and links a render put in the panel. */
+  wire(body, r){
+    body.querySelectorAll('[data-rec]').forEach(el=>{
+      el.onclick=e=>{ e.preventDefault(); this.openRecord(el.dataset.tag||'', el.dataset.rec); };
+    });
+  },
+  /** A record id: a link into the conflict viewer when there is one. */
+  recId(tag,id){
+    if(!id) return '—';
+    if(!this.recordLink()) return '<code>'+escHtml(id)+'</code>';
+    return '<a class="orimod" data-rec="'+escHtml(id)+'" data-tag="'+escHtml(tag||'')+'" title="Show this record in Wraithguard\'s conflict viewer"><code>'+escHtml(id)+'</code></a>';
+  },
+  conflictBtn(tag,id){
+    if(!this.recordLink() || !id) return '';
+    return ' <button class="btn sm" data-rec="'+escHtml(id)+'" data-tag="'+escHtml(tag||'')+'" title="Show this record in Wraithguard\'s conflict viewer">Conflicts</button>';
+  },
   render(r){
     const row=(k,v)=>'<div class="orirow"><span class="k">'+escHtml(k)+'</span><span class="v">'+v+'</span></div>';
     const mono=v=>'<code>'+escHtml(String(v||'—'))+'</code>';
@@ -80,9 +165,10 @@ const Ori={
     const defs=(r.definedIn||[]);
     let h='';
     h+=row('Reference', mono(r.key));
-    h+=row('Base', mono(r.id)+(defs.length? ' <span class="tag">'+escHtml(defs[defs.length-1].tag)+'</span>' : '')+
-                   (r.name? ' '+escHtml(r.name) : ''));
-    h+=row('Cell', escHtml(r.cell||'—'));
+    const baseTag=defs.length? defs[defs.length-1].tag : '';
+    h+=row('Base', mono(r.id)+(baseTag? ' <span class="tag">'+escHtml(baseTag)+'</span>' : '')+
+                   (r.name? ' '+escHtml(r.name) : '')+this.conflictBtn(baseTag, r.id));
+    h+=row('Cell', escHtml(r.cell||'—')+this.conflictBtn('CELL', r.cellKey||''));
     if(r.doorTo) h+=row('Door to', escHtml(r.doorTo)+
       (this._hit && doorTarget(this._hit.door)? ' <button class="btn sm" id="oriDoorGo">Go through</button>' : ''));
     h+='<div class="orisec">Load order</div>';

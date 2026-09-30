@@ -172,3 +172,24 @@ class PluginLinter:
         ``("cell", name, cell_id, fog_bug)``), ``evil_gmsts``, ``pathgrids``,
         ``masters``, ``tribunal``, ``bloodmoon``.
         """
+
+# Whole-plugin merging: greatness7's merge_to_master, vendored (src/merge.rs).
+
+def merge_plugins(
+    plugin_path: str,
+    master_path: str,
+    *,
+    remove_deleted: bool = False,
+    apply_moved_references: bool = False,
+    preserve_duplicate_references: bool = False,
+) -> bytes:
+    """The plugin merged into one of its masters, as plugin bytes."""
+
+def merge_load_order(
+    plugin_paths: list[str],
+    *,
+    remove_deleted: bool = False,
+    apply_moved_references: bool = False,
+    preserve_duplicate_references: bool = False,
+) -> bytes:
+    """A whole load order merged into one master, as plugin bytes."""

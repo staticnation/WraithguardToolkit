@@ -482,6 +482,10 @@ struct Materials {
     detail_source: Vec<Option<(i32, u32)>>,
     /// NiTexturingProperty slot 4, the glow map, and the UV set it names (round 17p).
     glow_source: Vec<Option<(i32, u32)>>,
+    /// Wraithguard: slot 3, the gloss map - a luminance mask on the specular highlight.
+    /// Neither Morrowind nor OpenMW draws it; the mesh viewer's studio views do, as the
+    /// old three.js viewer did.
+    gloss_source: Vec<Option<(i32, u32)>>,
     /// NiTexturingProperty slot 1, the *dark* map, and its UV set (round 17y). A second
     /// stage that multiplies the base — Glow in the Dahrk's lit windows keep their colour
     /// in it: `tex02_2.dds` is the warm of a Nord window, `tex03_2.dds` the green of a
@@ -575,6 +579,11 @@ fn skip_or_read(r: &mut Reader, ty: &str, mut store: Option<(&mut Materials, usi
                 if i == 2 {
                     if let Some((m, at)) = store.as_mut() {
                         m.detail_source[*at] = Some((src, uv_set));
+                    }
+                }
+                if i == 3 {
+                    if let Some((m, at)) = store.as_mut() {
+                        m.gloss_source[*at] = Some((src, uv_set));
                     }
                 }
                 if i == 4 {
@@ -986,6 +995,9 @@ impl PartAnim {
 /// `t` is `chain(t) × post × trafo`, and a vertex is the weighted sum of its bones'.
 #[derive(Clone, Debug)]
 pub struct BoneAnim {
+    /// Wraithguard: the bone node's name, so a part's skin can be bound to another
+    /// file's skeleton by name (`bind_to_skeleton`).
+    pub name: String,
     pub chain: Vec<AnimLink>,
     pub post: ([f32; 12], f32),
     pub trafo: ([f32; 12], f32),
@@ -1588,6 +1600,12 @@ pub fn set_own_reader_only(own: bool) {
 /// unknown record, a truncated or damaged one - is read by the engine's own reader
 /// (`own_records`), which scans past what it cannot decode.
 fn read_records_kf(buf: &[u8], kf: Option<&KfSequence>) -> Option<Records> {
+    read_records_opts(buf, kf, false)
+}
+
+/// `read_records_kf`; with `keep_skin`, every skinned shape keeps its skin-space data and
+/// bones as under an animated skeleton, whether or not anything here moves them.
+fn read_records_opts(buf: &[u8], kf: Option<&KfSequence>, keep_skin: bool) -> Option<Records> {
     let crate_read = if OWN_READER_ONLY.load(std::sync::atomic::Ordering::Relaxed) { None } else { from_crate::crate_records(buf) };
     let mut rec = crate_read.or_else(|| own_records(buf))?;
     if let Some(kf) = kf {
@@ -1597,6 +1615,9 @@ fn read_records_kf(buf: &[u8], kf: Option<&KfSequence>) -> Option<Records> {
        the mesh or were saved into the file itself - the tea shop's plain banner carries
        the vanilla controllers on its bones. Either way a skinned shape under it is moved
        by the page and its still picture is baked from the keys' first frame. */
+    if keep_skin {
+        rec.skel_animated = true;
+    }
     if !rec.skel_animated {
         rec.skel_animated = rec.kfctrls.iter().flatten().any(|c| {
             c.flags & 0x0008 != 0
@@ -1632,6 +1653,7 @@ impl Records {
                 tex_source: vec![None; n],
                 detail_source: vec![None; n],
                 glow_source: vec![None; n],
+                gloss_source: vec![None; n],
                 dark_source: vec![None; n],
                 decal_source: vec![None; n],
                 base_clamp: vec![None; n],
@@ -1689,6 +1711,7 @@ fn own_records(buf: &[u8]) -> Option<Records> {
         tex_source: vec![None; num_records],
         detail_source: vec![None; num_records],
         glow_source: vec![None; num_records],
+        gloss_source: vec![None; num_records],
         dark_source: vec![None; num_records],
         decal_source: vec![None; num_records],
         base_clamp: vec![None; num_records],
@@ -2397,6 +2420,8 @@ pub struct DrawPart {
     /// emissiveMapUV).xyz`), after the lighting and after the fog, which is why a lamp
     /// reads as lit at midnight and stays visible through fog at a distance. Round 17p.
     pub glow_tex: String,
+    /// Wraithguard: the gloss map (NiTexturingProperty slot 3), on the base UVs.
+    pub gloss_tex: String,
     /// Which UV set the glow map names. Every glow map in Morrowind and in OAAB names 0
     /// (`tests/glow.rs` asserts it); a shape asking for another set is drawn with set 0
     /// rather than dropped, and the count is what would say the assumption had broken.
@@ -2541,6 +2566,7 @@ pub fn draw_from_geom(g: &MeshGeom, name: &str) -> Vec<DrawPart> {
         tex: String::new(),
         detail_tex: String::new(),
         glow_tex: String::new(),
+        gloss_tex: String::new(),
         glow_uv_set: 0,
         uv2: Vec::new(),
         dark_tex: String::new(),
@@ -2649,7 +2675,8 @@ fn bone_anim(
             }
         }
     }
-    Some(BoneAnim { chain, post: (m, s), trafo })
+    let name = rec.nodes.get(bone as usize).and_then(|n| n.as_ref()).map(|n| n.name.clone()).unwrap_or_default();
+    Some(BoneAnim { name, chain, post: (m, s), trafo })
 }
 
 /// Round 18ag: a skinned shape's per-frame form - the bones with their chains, and the
@@ -3021,6 +3048,13 @@ fn draw_parts(rec: &Records) -> Vec<DrawPart> {
                         if let Some(Some(f)) = rec.mats.tex_file.get(*src as usize) {
                             part.detail_tex = f.clone();
                             detail_uv_set = *uv_set;
+                        }
+                    }
+                }
+                if part.gloss_tex.is_empty() {
+                    if let Some(Some((src, _))) = rec.mats.gloss_source.get(pi) {
+                        if let Some(Some(f)) = rec.mats.tex_file.get(*src as usize) {
+                            part.gloss_tex = f.clone();
                         }
                     }
                 }
@@ -4282,4 +4316,220 @@ fn half_box((mn, mx): &([f32; 3], [f32; 3])) -> Vec<[f32; 3]> {
         }
     }
     tris
+}
+
+
+/* ---- Wraithguard: parts hung on another file's skeleton (npc.rs) --------------------- */
+
+/// A skeleton read once, with an idle bound when there is one, for hanging body parts on.
+pub struct Skeleton {
+    rec: Records,
+    parent: Vec<i32>,
+}
+
+impl Skeleton {
+    pub fn read(buf: &[u8], kf: Option<&KfSequence>) -> Option<Skeleton> {
+        let rec = read_records_kf(buf, kf)?;
+        let parent = parents_of(&rec);
+        Some(Skeleton { rec, parent })
+    }
+
+    fn find(&self, name: &str) -> Option<i32> {
+        let by = |exact: bool| {
+            self.rec.nodes.iter().position(|n| {
+                n.as_ref().is_some_and(|n| if exact { n.name == name } else { n.name.eq_ignore_ascii_case(name) })
+            })
+        };
+        by(true).or_else(|| by(false)).map(|i| i as i32)
+    }
+
+    /// The bone called `name` as a skinned shape needs it: its chain of moving nodes, the
+    /// still tail and `trafo` as its skin-to-bone transform.
+    pub fn bone(&self, name: &str, trafo: ([f32; 12], f32)) -> Option<BoneAnim> {
+        let i = self.find(name)?;
+        let kf_of = |j: i32| kf_for(&self.rec, j);
+        bone_anim(&self.rec, &self.parent, &kf_of, i, trafo)
+    }
+}
+
+/// A mesh's draw parts with every skinned shape keeping its skin (`DrawPart::skin`), so
+/// it can be bound to a skeleton elsewhere.
+pub fn read_parts_skinned(buf: &[u8]) -> Option<Vec<DrawPart>> {
+    let rec = read_records_opts(buf, None, true)?;
+    Some(draw_parts(&rec))
+}
+
+const IDENT: [f32; 12] = [1., 0., 0., 0., 1., 0., 0., 0., 1., 0., 0., 0.];
+
+/// A bone's skinning matrix at `t` (`None`: each link's clip start) - the page's
+/// `skinBoneMats`: the chain, the still tail, the skin-to-bone transform.
+fn bone_at(b: &BoneAnim, t: Option<f32>) -> ([f32; 12], f32) {
+    let (mut m, mut s) = (IDENT, 1.0f32);
+    for l in &b.chain {
+        let (pm, ps) = mul(&m, s, &l.pre.0, l.pre.1);
+        let at = t.unwrap_or(l.ctrl.start);
+        let (lm, ls) = keyed_pose_at(&l.local.0, l.local.1, &l.ctrl, &l.data, at);
+        (m, s) = mul(&pm, ps, &lm, ls);
+    }
+    let (m, s) = mul(&m, s, &b.post.0, b.post.1);
+    mul(&m, s, &b.trafo.0, b.trafo.1)
+}
+
+/// Puts a skinned part's vertices where its bones hold them at the clip's start - the
+/// still picture, and what the page's bounds are taken from.
+fn rebake_skin(p: &mut DrawPart) {
+    let Some(sk) = &p.skin else { return };
+    let nv = sk.pos.len() / 3;
+    if p.pos.len() != nv * 3 {
+        return;
+    }
+    let mats: Vec<([f32; 12], f32)> = sk.bones.iter().map(|b| bone_at(b, None)).collect();
+    let has_n = sk.nrm.len() == nv * 3 && p.nrm.len() == nv * 3;
+    for v in 0..nv {
+        let (mut acc, mut nacc, mut ws) = ([0f32; 3], [0f32; 3], 0f32);
+        let src = [sk.pos[v * 3], sk.pos[v * 3 + 1], sk.pos[v * 3 + 2]];
+        for k in 0..4 {
+            let bi = sk.idx[v * 4 + k];
+            let w = sk.w[v * 4 + k];
+            if bi == 255 || w <= 0.0 {
+                continue;
+            }
+            let Some((m, s)) = mats.get(bi as usize) else { continue };
+            let q = apply(m, *s, src);
+            for c in 0..3 {
+                acc[c] += w * q[c];
+            }
+            if has_n {
+                let n = rotate(m, [sk.nrm[v * 3], sk.nrm[v * 3 + 1], sk.nrm[v * 3 + 2]]);
+                for c in 0..3 {
+                    nacc[c] += w * n[c];
+                }
+            }
+            ws += w;
+        }
+        if ws <= 0.0 {
+            continue;
+        }
+        for c in 0..3 {
+            p.pos[v * 3 + c] = acc[c] / ws;
+        }
+        if has_n {
+            let l = (nacc[0] * nacc[0] + nacc[1] * nacc[1] + nacc[2] * nacc[2]).sqrt();
+            if l > 1e-6 {
+                for c in 0..3 {
+                    p.nrm[v * 3 + c] = nacc[c] / l;
+                }
+            }
+        }
+    }
+}
+
+/// Binds a skinned part to `skel`'s bones by name, as OpenMW binds a body part to the
+/// actor's skeleton: each bone's chain becomes the skeleton's, so the part moves with it.
+/// A bone the skeleton lacks keeps the part file's own. When nothing moves, the skin is
+/// baked into the part and dropped.
+pub fn bind_to_skeleton(p: &mut DrawPart, skel: &Skeleton) {
+    let Some(sk) = p.skin.as_mut() else { return };
+    for b in sk.bones.iter_mut() {
+        if let Some(nb) = skel.bone(&b.name, b.trafo) {
+            *b = nb;
+        }
+    }
+    let moves = sk.bones.iter().any(|b| !b.chain.is_empty());
+    rebake_skin(p);
+    p.anim = None;
+    if !moves {
+        p.skin = None;
+    }
+}
+
+/// Hangs a rigid part on `skel`'s bone `bone` (mirrored across X when `mirror`, as OpenMW
+/// mirrors the left-side parts): the bone's moving nodes go in front of the part's own,
+/// and the still transform down to the bone is applied to it. False when the skeleton has
+/// no such bone.
+pub fn attach_to_bone(p: &mut DrawPart, skel: &Skeleton, bone: &str, mirror: bool) -> bool {
+    let Some(b) = skel.bone(bone, (IDENT, 1.0)) else { return false };
+    let mut m = b.post.0;
+    if mirror {
+        // post x diag(-1, 1, 1): the first column of the rotation flips.
+        m[0] = -m[0];
+        m[3] = -m[3];
+        m[6] = -m[6];
+    }
+    prepend_transform(p, &m, b.post.1);
+    if mirror {
+        for t in p.idx.chunks_exact_mut(3) {
+            t.swap(1, 2);
+        }
+    }
+    if !b.chain.is_empty() {
+        let a = p.anim.get_or_insert_with(PartAnim::default);
+        let mut nodes = b.chain;
+        nodes.append(&mut a.nodes);
+        a.nodes = nodes;
+    }
+    true
+}
+
+/// Puts `(m, s)` above everything in the part: into its first moving node's `pre` when
+/// it has any, into each bone's first transform when it is skinned, and into its
+/// vertices when it is still. `m`'s 3x3 may scale or mirror.
+pub fn prepend_transform(p: &mut DrawPart, m: &[f32; 12], s: f32) {
+    if let Some(sk) = p.skin.as_mut() {
+        for b in sk.bones.iter_mut() {
+            match b.chain.first_mut() {
+                Some(l) => l.pre = mul(m, s, &l.pre.0, l.pre.1),
+                None => b.post = mul(m, s, &b.post.0, b.post.1),
+            }
+        }
+        rebake_skin(p);
+        return;
+    }
+    if let Some(a) = p.anim.as_mut() {
+        if let Some(l) = a.nodes.first_mut() {
+            l.pre = mul(m, s, &l.pre.0, l.pre.1);
+            return;
+        }
+    }
+    for v in p.pos.chunks_exact_mut(3) {
+        let q = apply(m, s, [v[0], v[1], v[2]]);
+        v.copy_from_slice(&q);
+    }
+    for v in p.nrm.chunks_exact_mut(3) {
+        let q = rotate(m, [v[0], v[1], v[2]]);
+        let l = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt();
+        if l > 1e-6 {
+            v.copy_from_slice(&[q[0] / l, q[1] / l, q[2] / l]);
+        }
+    }
+}
+
+/// The identity transform, as `Skeleton::bone` takes a skin-to-bone one.
+pub fn identity() -> ([f32; 12], f32) {
+    (IDENT, 1.0)
+}
+
+/// Hangs particle systems read from a carried mesh on `skel`'s bone `bone`, where the bone
+/// stands at the idle's start (the systems do not follow the idle): a torch's flame.
+pub fn attach_systems(sys: &mut [ParticleSystem], skel: &Skeleton, bone: &str) -> bool {
+    let Some(b) = skel.bone(bone, (IDENT, 1.0)) else { return false };
+    let (m, s) = bone_at(&b, None);
+    prepend_systems(sys, &m, s);
+    true
+}
+
+/// Wraithguard: a point in a carried mesh's own space, where the skeleton's `bone` holds
+/// it at the clip's start - a torch's AttachLight in the NPC's space.
+pub fn bone_point(skel: &Skeleton, bone: &str, p: [f32; 3]) -> Option<[f32; 3]> {
+    let b = skel.bone(bone, (IDENT, 1.0))?;
+    let (m, s) = bone_at(&b, None);
+    Some(apply(&m, s, p))
+}
+
+/// Puts `(m, s)` above particle systems' nodes and emitters.
+pub fn prepend_systems(sys: &mut [ParticleSystem], m: &[f32; 12], s: f32) {
+    for p in sys.iter_mut() {
+        p.node = mul(m, s, &p.node.0, p.node.1);
+        p.emitter = mul(m, s, &p.emitter.0, p.emitter.1);
+    }
 }

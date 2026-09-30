@@ -1,0 +1,35 @@
+# Line endings: the repository stores LF, and every checkout gets LF, whatever
+# core.autocrlf says. That ends Git's "LF will be replaced by CRLF" warning on every
+# add, and keeps the CI (Linux) and the Windows working tree byte-identical.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF: cmd.exe and Windows PowerShell expect it.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Fixtures the tests read byte for byte: copies of real files (a Windows
+# mlox_base.txt, a Configurator TOML) and recorded baselines. Never converted.
+testdata/**                        -text
+tests/baselines/**                 -text
+tests/fixtures/**                  -text
+viewer-shell/ui/tests/fixture/**   -text
+tools/tes3filetype.csv             -text
+
+# Binary game and image data: never diffed, never converted.
+*.esm binary
+*.esp binary
+*.omwaddon binary
+*.bsa binary
+*.nif binary
+*.kf binary
+*.dds binary
+*.tga binary
+*.bmp binary
+*.png binary
+*.ico binary
+*.icns binary
+*.mo binary
+*.zip binary
+*.7z binary
+*.cab binary

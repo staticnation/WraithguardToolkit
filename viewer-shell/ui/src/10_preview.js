@@ -721,6 +721,16 @@ function decodeMesh(ab,rec){
       }
     }
   }
+  // Wraithguard: the gloss maps (slot 3) - a count, then per entry a part index and a name.
+  if(o+4<=dv.byteLength){
+    const ng=dv.getUint32(o,true); o+=4;
+    for(let i=0;i<ng && o+6<=dv.byteLength;i++){
+      const pi=dv.getUint32(o,true); o+=4;
+      const tex=str();
+      const p=rec.parts[pi];
+      if(p) p.gloss=tex||null;
+    }
+  }
   rec.tris=rec.parts.reduce((a,p)=>a+p.idx.length/3,0);
   /* The bounds of what is *drawn*, which is not `rec.aabb` above — that one is the
      collision shape's, and for a mesh with no collision at all it is null.
@@ -767,12 +777,50 @@ function normalMapIndex(){
   if(!Array.isArray(list) || !list.length) return null;
   if(normalMapIndex._of===list) return normalMapIndex._map;
   const m=new Map();
+  // Wraithguard: the suffixes the setup's OpenMW looks for (settings.cfg's map patterns).
+  const suf=normalMapSuffixes();
   for(const t of list){
     // Keyed and answered without the textures/ folder, the way a NIF names its maps.
     const k=VFS.norm(String(t)).toLowerCase().replace(/^textures\//,'');
-    if(/_(nh?|spec)\.[a-z0-9]+$/.test(k)) m.set(k.replace(/\.[a-z0-9]+$/,''), k);
+    const base=k.replace(/\.[a-z0-9]+$/,'');
+    if([suf.n, suf.nh, suf.spec].some(x=>x && base.endsWith(x))) m.set(base, k);
   }
   normalMapIndex._of=list; normalMapIndex._map=m;
+  return m;
+}
+/** The normal, normal-and-height and specular suffixes: settings.cfg's patterns when the
+    setup's OpenMW names them, else OpenMW's defaults (`_n`, `_nh`, `_spec`). */
+function normalMapSuffixes(){
+  const m=(typeof Sky==='object' && Sky.data && Sky.data.renderer && Sky.data.renderer.maps) || {};
+  const s=v=>String(v||'').trim().toLowerCase();
+  return {n:s(m.normalPattern)||'_n', nh:s(m.normalHeightPattern)||'_nh', spec:s(m.specularPattern)||'_spec'};
+}
+/** Wraithguard: a land texture's own maps - `{nrm, dspec}`, either null - by the setup's
+    suffixes (settings.cfg's terrain patterns; `_diffusespec` by default), and only as far
+    as its OpenMW uses them (`auto use terrain normal / specular maps`; on when unsaid). */
+function landMaps(file){
+  const idx=normalMapIndexAll();
+  if(!idx) return null;
+  const m=(typeof Sky==='object' && Sky.data && Sky.data.renderer && Sky.data.renderer.maps) || {};
+  const said=!!(m.found && m.setObjNormal);
+  const wantN = said? !!m.terrainNormal : true, wantS = said? !!m.terrainSpecular : true;
+  const suf=normalMapSuffixes();
+  const ds=String(m.terrainSpecularPattern||'_diffusespec').trim().toLowerCase();
+  const base=VFS.norm(file).toLowerCase().replace(/^textures\//,'').replace(/\.[a-z0-9]+$/,'');
+  return {nrm: wantN? (idx.get(base+suf.nh)||idx.get(base+suf.n)||null) : null,
+          dspec: wantS? (idx.get(base+ds)||null) : null};
+}
+/** Every texture by name without extension (and without textures/), for landMaps. */
+function normalMapIndexAll(){
+  const list=Assets.textures;
+  if(!Array.isArray(list) || !list.length) return null;
+  if(normalMapIndexAll._of===list) return normalMapIndexAll._map;
+  const m=new Map();
+  for(const t of list){
+    const k=VFS.norm(String(t)).toLowerCase().replace(/^textures\//,'');
+    m.set(k.replace(/\.[a-z0-9]+$/,''), k);
+  }
+  normalMapIndexAll._of=list; normalMapIndexAll._map=m;
   return m;
 }
 async function attachMeshTextures(rec){
@@ -791,8 +839,10 @@ async function attachMeshTextures(rec){
   if(texSet){
     for(const p of withTex){
       const base=VFS.norm(p.tex).toLowerCase().replace(/^textures\//,'').replace(/\.[a-z0-9]+$/,'');
-      p.nrmName=texSet.get(base+'_nh')||texSet.get(base+'_n')||null;
-      p.specName=texSet.get(base+'_spec')||null;
+      const suf=normalMapSuffixes();
+      p.nrmName=texSet.get(base+suf.nh)||texSet.get(base+suf.n)||null;
+      p.nrmHeight=!!(p.nrmName && texSet.get(base+suf.nh)===p.nrmName);
+      p.specName=texSet.get(base+suf.spec)||null;
     }
     await inFlight(withTex.filter(p=>p.nrmName), 8, async p=>{ p.glNrm=await loadTexture(p.nrmName); });
     await inFlight(withTex.filter(p=>p.specName), 8, async p=>{ p.glSpec=await loadTexture(p.specName); });
@@ -809,6 +859,11 @@ async function attachMeshTextures(rec){
   const withDecal=rec.parts.filter(p=>p.decal);
   await inFlight(withDecal, 8, async p=>{ p.glDecal=await loadTexture(p.decal); });
   // Round 18dl: and the environment map, and the bump map that perturbs it.
+  // The gloss map only matters where the mesh viewer draws (its studio views).
+  if(App.loadNormalMaps){
+    const withGloss=rec.parts.filter(p=>p.gloss);
+    await inFlight(withGloss, 8, async p=>{ p.glGloss=await loadTexture(p.gloss); });
+  }
   const withEnv=rec.parts.filter(p=>p.env);
   await inFlight(withEnv, 8, async p=>{ p.glEnv=await loadTexture(p.env); });
   const withBump=rec.parts.filter(p=>p.env && p.bump);
@@ -871,7 +926,13 @@ async function loadMeshes(relPaths,onProgress){
     try{
       const have=[...App.texGL.keys(), ..._texLoading.keys()];
       const tw=performance.now();
-      const ab=await Engine.bytes('assets_bundle',{meshes:batch.map(e=>VFS.norm(e.relPath)), have, bc, maxSize});
+      const bcx=(App.R && App.R.bcExtra)? App.R.bcExtra() : [];
+      /* Wraithguard: the normal and specular maps beside the textures, in the same bundle
+         (they were fetched one by one afterwards, eight at a time, and a cell of a
+         thousand meshes waited minutes on them). */
+      let maps=[];
+      if(App.loadNormalMaps){ const s=normalMapSuffixes(); maps=[s.nh, s.n, s.spec]; }
+      const ab=await Engine.bytes('assets_bundle',{meshes:batch.map(e=>VFS.norm(e.relPath)), have, bc, maxSize, bcx, maps});
       LoadProf.wait+=performance.now()-tw; LoadProf.bundles++;
       const b=readBundle(ab);
       if(b.ms!=null){ LoadProf.engine+=b.ms; LoadProf.engineKnown=true; }
@@ -1073,7 +1134,8 @@ async function readTexture(key,relPath){
        then a DDS or TGA decode in JavaScript on the thread the window is drawn on:
        11.7 ms for a 1024² DXT1, hundreds of them in a busy cell. See `img.rs`. */
     const bc=!!(App.R && App.R.bcFormats());
-    const buf=await Engine.bytes('texture_data',{path:VFS.norm(relPath), bc, maxSize:textureDetail()});
+    const bcx=(App.R && App.R.bcExtra)? App.R.bcExtra() : [];
+    const buf=await Engine.bytes('texture_data',{path:VFS.norm(relPath), bc, maxSize:textureDetail(), bcx});
     await decodeTexture(buf,rec,relPath);
   }catch(e){
     rec.err=e.message||String(e);
@@ -1096,7 +1158,7 @@ async function decodeTexture(buf,rec,relPath){
        hard stencils. `alphaBlend` in 06_gl.js is where it is used. */
     rec.alpha=t.alpha||'opaque';
     rec.bytes=t.levels.reduce((a,l)=>a+(l.data? l.data.byteLength : 0),0);   // what the GPU holds
-    if(t.kind==='bc1'||t.kind==='bc2'||t.kind==='bc3'){
+    if(t.kind==='bc1'||t.kind==='bc2'||t.kind==='bc3'||t.kind==='bc4'||t.kind==='bc5'||t.kind==='bc7'){
       rec.gl=App.R? App.R.makeCompressed(t.kind,t.levels) : null;
     }else if(t.kind==='volume'){
       // Round 15: MGE's water normals, a 3D texture (26_water.js).

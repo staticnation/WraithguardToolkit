@@ -148,14 +148,20 @@ class PluginViewMixin:
 
         def _is_custom(self, name: str) -> bool: ...
         def queue_field(  # noqa: D102
-            self, record_type: str, key: str, choice: Any  # noqa: ANN401
+            self,
+            record_type: str,
+            key: str,
+            choice: Any,  # noqa: ANN401
         ) -> None: ...
         def show_patch_builder(self) -> None: ...  # noqa: D102
         def _patch_whole_record(self, conflict: Mapping[str, Any]) -> None: ...
         def _patch_field(self, conflict: Mapping[str, Any], path: str) -> None: ...
         def _patch_field_value(self, conflict: Mapping[str, Any], path: str) -> None: ...
         def _schedule_ui(
-            self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
+            self,
+            delay_ms: int,
+            func: Callable[..., Any],
+            *args: Any,  # noqa: ANN401
         ) -> None: ...
         def _fmt_val(self, value: Any) -> str: ...  # noqa: ANN401
         def _session_lock(self) -> threading.Lock: ...
@@ -346,6 +352,19 @@ class PluginViewMixin:
                 "plugin in the background (the window stays responsive), then queues those "
                 "fields into a patch. Records where this plugin already wins, or where the "
                 "value already matches, are skipped; your mods are not modified."
+            ),
+        )
+        group_separator(actions)
+        cells_btn = ttk.Button(
+            actions, text=_("Show in Cell Preview"), command=self._pv_show_plugin_cells
+        )
+        cells_btn.pack(side="left", padx=(6, 0))
+        add_tooltip(
+            cells_btn,
+            _(
+                "Select a plugin above: Cell Preview opens its cell map with every cell the "
+                "plugin touches marked, and reviews that plugin in the cells you open - what "
+                "it placed and changed, or the cells with it left out."
             ),
         )
         group_separator(actions)
@@ -1004,6 +1023,23 @@ class PluginViewMixin:
             return None
         plugin = chosen[0].split(SEP, 1)[0]
         return plugin if plugin in getattr(self, "_plugin_branches", {}) else None
+
+    def _pv_show_plugin_cells(self) -> None:
+        """The selected plugin's cells on Cell Preview's map, reviewed there."""
+        plugin = self._selected_plugin()
+        if plugin is None:
+            messagebox.showinfo(
+                _("Select a plugin"),
+                _("Select a plugin in the tree first, then try again."),
+            )
+            return
+        show = getattr(self, "show_in_cell_preview", None)
+        if show is not None:
+            from wraithguard.gui.record_link import plugin_spec
+
+            spec = plugin_spec(plugin)
+            if spec:
+                show(spec)
 
     def _bulk_merge_selected_plugin(self) -> None:
         """Read the selected plugin's records, then ask which fields it wins.

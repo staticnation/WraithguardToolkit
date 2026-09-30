@@ -27,12 +27,26 @@ const Sky={
      the weather effects; the name stays because the ini, Weather Adjuster and MGE all
      key their settings by it. */
   weather:'Clear',
+  /** The ten weathers, as the ini and MGE name them (weather.rs WEATHERS). */
+  WEATHERS:['Clear','Cloudy','Foggy','Overcast','Rain','Thunderstorm','Ashstorm','Blight','Snow','Blizzard'],
+  /** Wonders of Water's per-weather multipliers (NullCascade, MIT; its config.lua), on
+      MGE's caustics and wave height: calm and faint in fair weather, rough and bright in
+      storms. Keyed by the game's weather names. */
+  WOW_WEATHER:{Clear:{caustics:0.2,waveHeight:0.2}, Cloudy:{caustics:0.4,waveHeight:0.4}, Foggy:{caustics:0.1,waveHeight:0.1},
+               Overcast:{caustics:0.4,waveHeight:0.4}, Rain:{caustics:1.2,waveHeight:1.2}, Thunderstorm:{caustics:2.0,waveHeight:2.0},
+               Ashstorm:{caustics:1.5,waveHeight:1.5}, Blight:{caustics:1.8,waveHeight:1.8}, Snow:{caustics:0.2,waveHeight:0.2},
+               Blizzard:{caustics:0.5,waveHeight:0.5}},
+  /** The multipliers for the current weather: Wonders of Water's in an exterior (or a room
+      that behaves as one), and in a true interior caustics as they are and no waves. */
+  wowNow(room){
+    if(room && !room.quasi) return {caustics:1.0, waveHeight:0.0};
+    return this.WOW_WEATHER[this.weather] || {caustics:1.0, waveHeight:1.0};
+  },
   hour:15,
   region:'',          // the loaded cell's region — picks the Weather Adjuster preset
   /* MGE's own scattering constants (distantinit.cpp), used when no preset says. */
   DEFAULT_SCATTER:{outscatter:[0.07,0.36,0.76], inscatter:[0.25,0.38,0.48],
                    skylight:[0.4456,0.6194,1.0], skylightMix:0.44},
-  WEATHERS:['Clear'],
 
   /** Asks the engine. Quiet when nothing is connected: the sky then keeps its defaults. */
   async load(){
@@ -49,7 +63,7 @@ const Sky={
   installPost(){
     const p=this.data && this.data.renderer && this.data.renderer.post;
     if(!p || !p.found) return null;
-    return {ssao:!!p.ssao, sunshafts:!!p.sunshafts, fxaa:!!p.fxaa, dof:!!p.dof};   // 18do: and FXAA. 18dy: and the depth of field
+    return {ssao:!!p.ssao, sunshafts:!!p.sunshafts, fxaa:!!p.fxaa, dof:!!p.dof, bloom:!!p.bloom};   // Wraithguard: and the bloom   // 18do: and FXAA. 18dy: and the depth of field
   },
   /* The switches a profile left unset take the chain's answer, once (19_settings.js). */
   /* Round 18ee: what the install says about the sun's shadows - MGE's own two settings
@@ -63,6 +77,8 @@ const Sky={
     return {enabled:!!s.enabled, resolution:(s.resolution!=null && isFinite(s.resolution) && s.resolution>0)? +s.resolution : null};
   },
   applyInstallPost(){
+    // Wraithguard: the normal and specular maps in cells, as the setup has them.
+    if(typeof WgViewport==='object' && WgViewport.installMaps) WgViewport.installMaps();
     const u=App._postUnset; const p=this.installPost();
     if(!u || !p) return;
     const set=(sel,v)=>{ const el=document.getElementById(sel); if(!el || el.checked===v) return; el.checked=v; el.dispatchEvent(new Event('change')); };
@@ -70,6 +86,7 @@ const Sky={
     if(u.sunshafts){ set('p_shafts', p.sunshafts); u.sunshafts=false; }
     if(u.fxaa){ set('p_fxaa', p.fxaa); u.fxaa=false; }
     if(u.dof){ set('p_dof', p.dof); u.dof=false; }
+    if(u.bloom){ set('p_bloom', p.bloom); u.bloom=false; }
     /* The sun's shadows are not one of the post chain's shaders - they are Distant
        Land's own pass - so they have their own reply and their own first-run handshake. */
     const sh=this.installShadows();
@@ -229,7 +246,12 @@ const Sky={
     const ambient=this.interp(r.ambient,T.ambient,hour,T);
     const sun=this.interp(r.sun,T.sun,hour,T);
     const sunDir=this.sunDir(hour,T);
-    const vis=this.sunVis(hour,T);
+    /* The weather's own share of the sun (Wraithguard, with the weathers back): the ini's
+       Glare View - 1 in clear and cloudy, a quarter in fog, none under overcast, rain or
+       a storm - which is how the game scales its sun visibility, and MGE reads that back. */
+    const wi=this.has()? this.data.ini.weathers[weather] : null;
+    const glare=(wi && wi.glareView!=null && isFinite(wi.glareView))? Math.max(0, Math.min(1, +wi.glareView)) : 1;
+    const vis=this.sunVis(hour,T)*glare;
     /* The disc's colour: the sunset disc colour near sunrise and sunset, white in the
        day — the game only names one, and uses it at both ends. */
     const dusk=Math.max(0, 1-Math.abs(hour-T.sunset)/2, 1-Math.abs(hour-T.sunrise)/2);
@@ -241,7 +263,9 @@ const Sky={
        — continuous, because the mirror is at the horizon. */
     const sunPos=sunDir;
     const sunLight=sunDir[2]<0? [sunDir[0],sunDir[1],-sunDir[2]] : sunDir;
-    const nice = 1;   // Clear: MGE's 'nice weather' scattering is always on now
+    /* MGE's niceWeather (distantland.cpp): the scattering runs in Clear and Cloudy - weather
+       index 0 and 1 - and not in anything heavier. */
+    const nice = /^(clear|cloudy)$/i.test(weather)? 1 : 0;
     return {sky,fog,ambient,sun,sunDir,sunPos,sunLight,sunVis:vis,sunDisc,nice,scatter:r.scatter,cloud:r.cloud,
             cloudSpeed:r.cloudSpeed, weather,
             stars:this.stars(hour,T),

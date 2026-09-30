@@ -11,3 +11,10 @@ description = "Cell viewer engine: VFS/BSA, load order, ESP/ESM world, NIF meshe
 # them. The engine's own code builds the world and the drawing from what they read.
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["bsa", "esp", "nif"] }
 bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
+
+# Our fork of tes3 (staticnation/tes3) until what is waiting upstream is taken there (see
+# native/Cargo.toml). A [patch] only counts in the package being built, so the viewer's
+# Cargo.toml and check-commands' carry the same section.
+[patch."https://github.com/Greatness7/tes3"]
+tes3 = { git = "https://github.com/staticnation/tes3" }
+bytes_io = { git = "https://github.com/staticnation/tes3" }

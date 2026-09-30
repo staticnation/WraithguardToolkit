@@ -99,12 +99,149 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtua
     w.TextDecoder=w.TextDecoder||require('util').TextDecoder; w.TextEncoder=w.TextEncoder||require('util').TextEncoder;
     w.ImageData=w.ImageData||class{constructor(a,b,c){ if(typeof a==='number'){this.width=a;this.height=b;this.data=new Uint8ClampedArray(4*a*b);} else {this.data=a;this.width=b;this.height=c||(a.length/4/b);} }};
     w.createImageBitmap=w.createImageBitmap||(async()=>({width:1,height:1,close(){}}));
+    /* The page's own assets (ui/assets), served beside it as build.rs copies them - the
+       bundled water_NRM.dds is fetched this way. Anything else is not there. */
+    w.fetch=async url=>{
+      const f=path.join(__dirname,'..','assets',path.basename(String(url).split('?')[0]));
+      if(!fs.existsSync(f)) return {ok:false, status:404, arrayBuffer:async()=>new ArrayBuffer(0)};
+      const b=fs.readFileSync(f);
+      return {ok:true, status:200, arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.length)};
+    };
     w.matchMedia=w.matchMedia||(()=>({matches:false,addEventListener(){},removeEventListener(){},addListener(){}}));
     w.ResizeObserver=class{observe(){}unobserve(){}disconnect(){}};
     w.requestAnimationFrame=f=>setTimeout(()=>f(Date.now()),16);
     w.addEventListener('error',e=>errors.push('error: '+(e.error&&e.error.stack||e.message).split('\n').slice(0,3).join(' | ')));
     w.addEventListener('unhandledrejection',e=>errors.push('rejection: '+String(e.reason&&e.reason.stack||e.reason).split('\n').slice(0,3).join(' | ')));
   }});
+/* The Preview features since 4.2.0, each through the flag its code sets for the tests.
+   The GL context is a stub, so these prove the paths run and set their state - not how
+   the result looks (SMOKE_TEST.md rows 6b-6g are the visual check). Each check draws a
+   frame itself with the options it needs, and puts them back after. */
+async function features(w){
+  // The page's globals are `const`s of its scripts, not window properties.
+  const R=w.eval('App.R'), Sky=w.eval('Sky'), done=[];
+  const fail=m=>errors.push('feature: '+m);
+  const frame=()=>{ try{ R.draw(); }catch(e){ fail('a frame threw: '+short(e)); } };
+  const saved={...R.opts}, weather=Sky.weather;
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  R.opts.mgeWater=true; R.opts.room=null;
+  // Waves: drawn with Waves on; not with it off, nor at Wave height 0.
+  R.opts.waves=true; R.opts.waveHeight=50; frame();
+  if(R.wavesDrawn!==true) fail('waves were not drawn with Waves on');
+  R.opts.waves=false; frame();
+  if(R.wavesDrawn!==false) fail('waves were drawn with Waves off');
+  R.opts.waves=true; R.opts.waveHeight=0; frame();
+  if(R.wavesDrawn!==false) fail('waves were drawn at Wave height 0');
+  R.opts.waveHeight=50;
+  done.push('waves');
+  // Rain ripples: in the four wet weathers with Waves on; not in Clear, nor in a true interior.
+  const rainIn=(wx,room)=>{ R._rainT=undefined; R.rainDrawn=false; Sky.weather=wx; R.opts.weather=wx; R.opts.room=room||null; frame(); R.opts.room=null; return R.rainDrawn===true; };
+  for(const wx of ['Rain','Thunderstorm','Snow','Blizzard']) if(!rainIn(wx)) fail('no rain ripples in '+wx);
+  if(rainIn('Clear')) fail('rain ripples in Clear');
+  // A true interior as 18_cellpreview.js sets it: its AMBI light (a quasi-exterior has none).
+  const room={ambient:[0.35,0.35,0.35], sunlight:[0.45,0.45,0.45], fog:[0.12,0.12,0.14], fogDensity:0};
+  if(rainIn('Rain',room)) fail('rain ripples in a true interior');
+  done.push('rain ripples');
+  // Bloom: the pass runs with Bloom on, and not with it off.
+  R.opts.bloom=true; frame();
+  if(R.bloomDrawn!==true) fail('bloom did not run with Bloom on');
+  R.opts.bloom=false; frame();
+  if(R.bloomDrawn===true) fail('bloom ran with Bloom off');
+  done.push('bloom');
+  // Every weather: a frame without a throw, and Wonders of Water's numbers for it.
+  for(const wx of Sky.WEATHERS){
+    Sky.weather=wx; R.opts.weather=wx; R.opts.waterDepth=true; frame();
+    const m=Sky.wowNow(null), want=Sky.WOW_WEATHER[wx];
+    if(!m || !want || m.waveHeight!==want.waveHeight || m.caustics!==want.caustics) fail('Wonders of Water numbers wrong in '+wx);
+    if(Math.abs(R.wowScale('waveHeight')-want.waveHeight)>1e-6) fail('the waves do not take Wonders of Water\'s height in '+wx);
+    const c=Sky.at && Sky.at(12);
+    if(c && JSON.stringify(c).includes('NaN')) fail('the sky ramp has NaN in '+wx);
+  }
+  if(Sky.wowNow(room).waveHeight!==0) fail('Wonders of Water gives waves in a true interior');
+  R.opts.waterDepth=false;
+  done.push('ten weathers');
+  // Shadows: each Shadow detail builds its map at that size.
+  Sky.weather='Clear'; R.opts.weather='Clear'; R.opts.shadows=true;
+  for(const res of [512,1024,2048]){
+    R.opts.shadowRes=res; R.shadowDrawn=false; frame();
+    if(!(R._shT && R._shT.res===res && R._shT.ok)) fail('no '+res+' shadow map ('+JSON.stringify(R._shT&&{res:R._shT.res,ok:R._shT.ok})+')');
+    if(R.shadowDrawn!==true) fail('the shadow pass did not run at '+res);
+  }
+  done.push('shadows');
+  // The bundled water_NRM.dds: the fixture has no MGE folder, so the viewer's own is used.
+  const mv=R.makeVolume; let vol=null;
+  R.makeVolume=function(W,H,D,data){ vol=[W,H,D,data&&data.length]; return mv.apply(this,arguments); };
+  R.dropWaterVolume(); R._wnrmBundled=undefined; frame();
+  for(let i=0;i<100 && !R._wnrm;i++) await sleep(50);
+  R.makeVolume=mv;
+  if(!R._wnrm) fail('the bundled water_NRM.dds was not loaded');
+  else if(!vol || vol[0]!==256 || vol[1]!==256 || vol[2]!==32 || vol[3]!==256*256*32*4) fail('the bundled water_NRM.dds decoded wrong: '+JSON.stringify(vol));
+  else done.push('water_NRM.dds');
+  Object.keys(R.opts).forEach(k=>{ if(!(k in saved)) delete R.opts[k]; });
+  Object.assign(R.opts,saved); Sky.weather=weather; R.dirty=true;
+  await tools(w, R, fail, done, sleep);
+  console.log('features:', done.join(', '));
+}
+
+/* The review, landscape, overlay and link tools (48_wg_tools.js), against the fixture's
+   Lamptown: Lamp.esm places its lamps and doors. */
+async function tools(w, R, fail, done, sleep){
+  const T=w.eval('WgTools'), App=w.eval('App'), d=w.document;
+  const scene=async()=>{ for(let i=0;i<300 && !App._scene;i++) await sleep(50); return !!App._scene; };
+  for(const id of ['acc_cell','acc_light','acc_scene','acc_water','acc_fx','acc_review','acc_land','acc_ovl','acc_links'])
+    if(!d.getElementById(id)) fail('no Preview group '+id);
+  const count=()=>R.pickables.length;
+  const before=count();
+  // Review: Lamp.esm's objects marked as placed; left out, they are gone.
+  T.review='Lamp.esm'; T.without=false; T.reload();
+  if(!await scene()) fail('the scene did not come back for the review');
+  const added=R.pickables.filter(p=>p.mark==='added').length;
+  if(!added) fail('Review a mod marked nothing Lamp.esm placed');
+  if(!R.hasOverlay('review')) fail('the review drew no markers');
+  T.without=true; T.reload(); await scene();
+  if(count()>=before) fail('leaving Lamp.esm out did not take its objects away ('+count()+' of '+before+')');
+  T.review=''; T.without=false; T.reload(); await scene();
+  if(count()!==before) fail('the cell did not come back whole after the review ('+count()+' of '+before+')');
+  done.push('review ('+added+' placed)');
+  // Checks run and list.
+  for(const k of ['float','dupes','moved','missing']){ try{ T.runCheck(k,true); }catch(e){ fail('check '+k+' threw: '+e); } }
+  T.runCheck('clear',true);
+  // Overlays.
+  for(const k of ['lights','doors','collision','pathgrid','reach']){
+    T.ovl[k]=true;
+    try{ await T.overlay(k); }catch(e){ fail('overlay '+k+' threw: '+e); }
+  }
+  for(const k of ['lights','doors','collision']) if(!R.hasOverlay(k)) fail('the '+k+' overlay drew nothing');
+  for(const k of Object.keys(T.ovl)){ T.ovl[k]=false; await T.overlay(k); }
+  // The built-in Construction Set markers (R-Zero's) load, and draw as outlines.
+  for(const f of ['marker_arrow','marker_travel','marker_creature','marker_character','marker_ruler']){
+    const mk=await w.eval("loadMesh('__wg/"+f+".nif')");
+    if(!mk || mk.err || !(mk.parts||[]).length) fail('the built-in '+f+'.nif did not load: '+(mk&&mk.err));
+  }
+  T.ovl.markers=true; await T.overlay('markers'); T.ovl.markers=false; await T.overlay('markers');
+  // Measure.
+  T.setMeasure(true); T.measure.a=[0,0,0]; T.measure.b=[300,400,0]; T.measureDraw();
+  if(!/Distance 500 u/.test((d.getElementById('wgMeasure')||{}).textContent||'')) fail('the tape did not measure 500');
+  T.setMeasure(false);
+  done.push('overlays, measure');
+  // Land: the merged-lands request goes through and the editors come back.
+  T.land='overwrite'; T.reload(); await scene();
+  const c0=App._scene.cells[0];
+  if(!Array.isArray(c0.landEditors) || !c0.landEditors.length) fail('no land editors for the cell');
+  T.land=''; T.reload(); await scene();
+  // Links.
+  const line=T.copySpot()||'';
+  if(!/^coe 9 9\nplayer->position /.test(line)) fail('the console line is wrong: '+JSON.stringify(line));
+  if(!/Lamptown/.test(T.reportText())) fail('the report does not name the cell');
+  await T.whereUsed('mesh','x\\lamp.nif');
+  if(!d.querySelectorAll('#wgUseList .it').length) fail('Where used found nothing for x\\lamp.nif');
+  // The heat runs yellow to red with rank.
+  const C=w.eval('WgCoverage');
+  const lo=C.ramp(0), hi=C.ramp(1);
+  if(!(lo[1]>0.8 && hi[1]<0.1 && hi[0]>0.4)) fail('the heat ramp does not run yellow to red');
+  done.push('land, links, heat');
+}
+
 // ORI: a few seconds before the report, inspect the first pickable object.
 const WAIT=+process.argv[3]||20000;
 if(!MESH) setTimeout(()=>{ try{ dom.window.eval('(()=>{ const p=(App.R&&App.R.pickables||[])[0]; if(p) Ori.show(p); })()'); }
@@ -134,6 +271,8 @@ setTimeout(async ()=>{
   const ori=(d.getElementById('oriBody')||{}).textContent||'';
   if(loaded && !/Created by/.test(ori)) errors.push('ORI did not fill in for the first object');
   else if(ori) console.log('ori:', ori.replace(/\s+/g,' ').slice(0,200));
+  if(loaded && !d.querySelector('#oriBody details.oriacc')) errors.push('ORI sections are not folded into accordions');
+  if(loaded) try{ await features(w); }catch(e){ errors.push('feature checks: '+short(e)); }
   console.log('scene:', w.eval("(document.getElementById('stats')||{}).textContent||''").replace(/\s+/g,' ').slice(0,160));
   console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
   try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);

@@ -21,6 +21,7 @@
    ===================================================================================== */
 const WgMeshView={
   list:[], idx:0, layout:'one', on:false, el:null, _gen:0, sel:null, pending:{},
+  light:{angle:0.6, elevation:0.5, key:1.4, ambient:0.25},
   shown:null, solo:null, shapes:[], viewMode:0, nrmOn:true, mapsOff:{}, alphaMode:'file', showCol:false, _col:new Map(),
 
   active(){ return this.on && this.list.length>0; },
@@ -50,6 +51,15 @@ const WgMeshView={
     schedulePreview();
   },
 
+  /** Wraithguard: opens the viewer from a cell - a container's contents (46_wg_tfh.js),
+      side by side - remembering the cell and the camera, so "Back to cell" returns to
+      them rather than to the picker. */
+  openFrom(meshes, label){
+    this.back={cellSel:App.cellSel, cam:App.R? Object.assign({}, App.R.cam) : null, label:label||''};
+    this.open(meshes);
+    if(this.list.length>1){ this.layout='side'; this.panel(); schedulePreview(); }
+  },
+
   /** Back to cells: the picker, and the scene is the cell's again. */
   close(){
     this.on=false; if(this.el) this.el.hidden=true;
@@ -58,6 +68,14 @@ const WgMeshView={
     document.title='Wraithguard - Cell Preview';
     const i=document.querySelector('#brand i'); if(i) i.textContent='Cell Preview';
     App._scene=null; App._framedKey=null;
+    // Wraithguard: opened from a cell - back to it, the camera where it was.
+    const back=this.back; this.back=null;
+    if(back && back.cellSel){
+      App.mode='cell'; App.cellSel=back.cellSel; App._camAfter=back.cam;
+      if(typeof syncCellButton==='function') syncCellButton();
+      schedulePreview();
+      return;
+    }
     if(typeof openCellPicker==='function') openCellPicker();
     schedulePreview();
   },
@@ -75,6 +93,10 @@ const WgMeshView={
       this.el=d;
     }
     d.hidden=false;
+    // Opened from a cell: the way back says so.
+    const bk=d.querySelector('#mvBack');
+    if(bk){ bk.textContent=this.back? 'Back to cell' : 'Cell map'; bk.title=this.back? 'Back to the cell and the view you left' : 'Leave the mesh viewer for the cell map'; }
+    const hd=d.querySelector('.orihead b'); if(hd) hd.textContent=(this.back&&this.back.label)||'Mesh viewer';
     const b=d.querySelector('#mvBody');
     let h='';
     if(this.list.length>1){
@@ -94,11 +116,17 @@ const WgMeshView={
       h+='<div class="orirow"><span class="k">Mesh</span><span class="v"><code>'+escHtml(this.list[0].path)+'</code></span></div>';
     }
     h+='<div class="orisec">View</div><div class="orirow mvSeg">'+
-       [[0,'Lit'],[1,'Flat colour'],[2,'Normals']].map(([k,t])=>
+       [[0,'Lit'],[1,'Flat colour'],[2,'Relief']].map(([k,t])=>
          '<button class="btn sm'+(this.viewMode===k?' on':'')+'" data-view="'+k+'" title="'+
-         (k===1?'No textures: two versions wearing the same texture differ in shape, and the texture hides it':
-          k===2?'The surface normals as colour (after any normal map)':'As the game lights it')+'">'+t+'</button>').join('')+'</div>'+
+         (k===1?'Clay grey under a light that moves with the camera: the shape, and the relief the normal map puts in it':
+          k===2?'The textures under a light that moves with the camera, raking across them: the normal map bends it, the specular map shines in it':'As the game lights it')+'">'+t+'</button>').join('')+'</div>'+
 
+       /* The light the studio views use (Flat colour, Relief), as the old texture
+          viewer's lit material had it: where it comes from, round the view and above it,
+          and how strong it and the ambient are. */
+       '<div class="orisec">Light (Flat colour, Relief)</div>'+
+       [['angle','Angle',-3.14,3.14,0.05],['elevation','Elevation',-1.5,1.5,0.05],['key','Light',0,4,0.05],['ambient','Ambient',0,2,0.05]].map(([k,t,lo,hi,st])=>
+         '<div class="orirow"><span class="k">'+t+'</span><span class="v"><input type="range" style="width:100%" data-light="'+k+'" min="'+lo+'" max="'+hi+'" step="'+st+'" value="'+this.light[k]+'"></span></div>').join('')+
        '<div class="orisec">Maps</div><div id="mvMaps" class="from">…</div>'+
        '<div class="orisec">Alpha</div><div class="orirow mvSeg">'+
        [['file','As the file says'],['cutout','Cutout'],['opaque','Opaque']].map(([k,t])=>
@@ -132,6 +160,12 @@ const WgMeshView={
       this.solo=null; this.panel(); schedulePreview(); });
     b.querySelectorAll('[data-layout]').forEach(x=>x.onclick=()=>{ this.layout=x.dataset.layout; this.solo=null; App._framedKey=null; this.panel(); schedulePreview(); });
     b.querySelectorAll('[data-shown]').forEach(x=>x.onchange=()=>{ this.shown[+x.dataset.shown]=x.checked; this.solo=null; schedulePreview(); });
+    // The studio light's sliders.
+    if(App.R) App.R.opts.keyLight=this.light;
+    b.querySelectorAll('[data-light]').forEach(x=>x.oninput=()=>{
+      this.light[x.dataset.light]=+x.value;
+      if(App.R){ App.R.opts.keyLight=this.light; App.R.dirty=true; }
+    });
     b.querySelectorAll('[data-view]').forEach(x=>x.onclick=()=>{
       this.viewMode=+x.dataset.view; if(App.R){ App.R.opts.viewMode=this.viewMode; App.R.dirty=true; }
       b.querySelectorAll('[data-view]').forEach(y=>y.classList.toggle('on', y===x));
@@ -258,7 +292,7 @@ const WgMeshView={
   /** The maps the drawn shapes use, a switch each (the renderer's opts.mapsOff). */
   mapList(){
     const box=$('#mvMaps'); if(!box) return;
-    const kinds=[['normal','Normal','glNrm'],['specular','Specular','glSpec'],['detail','Detail','detail'],['dark','Dark','dark'],
+    const kinds=[['normal','Normal','glNrm'],['specular','Specular','glSpec'],['gloss','Gloss','gloss'],['detail','Detail','detail'],['dark','Dark','dark'],
                  ['glow','Glow','glow'],['decal','Decal','decal'],['env','Environment','env']];
     const rows=kinds.map(([k,t,f])=>[k,t,this.shapes.filter(s=>s.part[f]).length]).filter(r=>r[2]>0);
     if(!rows.length){ box.textContent='none beyond the base texture'; return; }
@@ -286,6 +320,7 @@ const WgMeshView={
     if(p.tex) maps.push('base');
     if(p.glNrm) maps.push('normal');
     if(p.glSpec) maps.push('specular');
+    if(p.gloss) maps.push('gloss');
     if(p.detail) maps.push('detail');
     if(p.dark) maps.push('dark');
     if(p.glow) maps.push('glow');

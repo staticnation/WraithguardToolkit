@@ -5,11 +5,3 @@ version = 4
 [[package]]
 name = "wraithguard-viewer-check"
 version = "0.1.0"
-
-[[patch.unused]]
-name = "bytes_io"
-version = "0.0.1"
-
-[[patch.unused]]
-name = "tes3"
-version = "0.0.1"

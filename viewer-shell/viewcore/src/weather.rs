@@ -16,6 +16,10 @@
 //! per region — and the wind, the precipitation and the storm keys, which only ever fed
 //! the particles, are gone with them.
 //!
+//! Wraithguard: the ten weathers are back for what they do to the sky, the fog and the
+//! water - their colour ramps, fog ratios, Weather Adjuster presets and `Glare View` -
+//! and still without the particles. The page picks one (Preview, Weather).
+//!
 //! This module reads all three sources and hands them to the page as one JSON reply;
 //! the page interpolates and the shaders draw. Nothing here decides where grass goes.
 //!
@@ -36,10 +40,12 @@ use crate::json::{escape_into, Val};
 use crate::vfs::Vfs;
 use std::path::Path;
 
-/// The one weather the preview draws (round 17h). Kept as a list because the ini, the
-/// adjuster and MGE all key their settings by weather name, and the reader still has to
-/// name the one it wants.
-pub const WEATHERS: [&str; 1] = ["Clear"];
+/// The ten weathers, as the ini, the adjuster and MGE name them. Round 17h cut this to
+/// Clear alone along with the rain, snow and storm particles; Wraithguard brings the
+/// weathers back for their sky, fog and water only - no particles - so the preview can
+/// show a cell under any of them, and the water can answer to them (Wonders of Water).
+pub const WEATHERS: [&str; 10] =
+    ["Clear", "Cloudy", "Foggy", "Overcast", "Rain", "Thunderstorm", "Ashstorm", "Blight", "Snow", "Blizzard"];
 
 /// One ini section as key → value, keys lowercased.
 pub(crate) fn section<'a>(text: &'a str, name: &str) -> Vec<(String, &'a str)> {
@@ -229,6 +235,9 @@ pub fn ini_json(text: &str) -> String {
         escape_into(lookup(&sec, "Cloud Texture").unwrap_or(""), &mut out);
         out.push('"');
         out.push_str(&format!(",\"cloudSpeed\":{}", num(&sec, "Cloud Speed", 1.0)));
+        // How much of the sun shows through this weather (1 clear, 0 overcast): the game's
+        // own sun visibility scale, which MGE reads back as sunVis.
+        out.push_str(&format!(",\"glareView\":{}", num(&sec, "Glare View", 1.0)));
         out.push('}');
     }
     out.push_str("},\"water\":");

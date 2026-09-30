@@ -1,6 +1,158 @@
 # Changelog
 
 
+## Unreleased
+
+### Changed
+
+- **Cell Preview's water looks like MGE XE's on every setup.** MoMW runs OpenMW, which
+  has no MGE XE files, so the waves were a three-sine stand-in. The viewer now ships
+  MGE XE's own wave volume (`water_NRM.dds`, GPL-2.0, in the viewer page's silo) and
+  uses it whenever the install has none.
+- **Waves**: MGE XE's dynamic ripples - the surface rises and falls with the waves
+  instead of lying flat, on MGE's radial water mesh, with the reflection clip lowered
+  and read from under each crest as MGE does.
+- **Water controls in Preview** for what MGE XE would take from its own settings, since
+  an OpenMW setup has none: **Waves** (on), **Wave height** (0-250, 50), **Caustics**
+  (0-100, 50 - they only ever showed with an MGE XE install before) and **Blur
+  reflections** (off). All saved in the profile.
+- **Shadows no longer dim flames and glows.** A torch flame, a glowing sheet or a spell
+  effect standing in shadow was darkened with everything else; MGE XE never shadows
+  additive draws, and now neither does Cell Preview.
+- **Bloom**: MGE XE's Bloom Fine (Hrnchamd) - the glare of lamps, lit windows and the
+  sun on the water - as a Preview switch, run where MGE runs it (after the sunshafts,
+  before the depth of field). Off unless the install's shader chain has it.
+- **The sky no longer bands** at dusk and night: MGE XE's ordered dither over its
+  gradient (XE Mod Sky.fx).
+- **Shadows fade where MGE's do**: over Morrowind's own near fog (MGE's fogMWScalar),
+  not the distant fog, which let them run on further than in the game.
+- **Weather** in Preview: the ten weathers are back for their sky and fog colours (from
+  Morrowind.ini or openmw.cfg, and Weather Adjuster presets), their fog distance, and
+  how much sun comes through (the ini's Glare View); MGE's scattering runs in Clear and
+  Cloudy only, as MGE does.
+- **Rain, snow and storms fall** (with the Particles switch): OpenMW's rain around the
+  camera in Rain and Thunderstorm (650 and 1350 drops, the game's raindrop texture, a
+  storm's rain leaning with the wind), and the game's own `snow.nif`, `blizzard.nif`,
+  `ashcloud.nif` and `blightcloud.nif` carried with the camera in Snow, Blizzard,
+  Ashstorm and Blight - the ash and blight blowing away from Red Mountain. Outdoors only.
+- **Rain ripples**: in Rain, Thunderstorm, Snow and Blizzard, drops ring the water as
+  in MGE XE (its wave simulation, 150 drops a second, half as many again in a storm),
+  with the Waves switch on and outdoors. They die away when the weather clears.
+- **Wonders of Water** in Preview (off by default), simulating NullCascade's MWSE mod
+  (MIT): the water's waves and caustics follow the weather (0.2x in Clear up to 2x in a
+  Thunderstorm), water in interiors is still, and under the water the fog closes in and
+  the water darkens the deeper the camera goes. Its player-only rules (sun damage, Night
+  Eye) are left out.
+- **Shadow detail** in Preview: follow OpenMW's `shadow map resolution` (the default,
+  1024 unless MoMW changed it) or pick 512, 1024 or 2048 (MGE XE's sharpest). Saved in
+  the profile.
+- **NPCs, creatures and spawn points in Cell Preview** (a Preview switch, on). NPCs are
+  assembled as the game assembles them: the skeleton with its idle, the race's body,
+  the NPC's head and hair, and the best armour and clothing in its inventory per slot,
+  laid on by OpenMW's rules (robe over skirt over the rest, armour over clothing; a
+  helmet hides the hair), at the race's height and weight. Creatures stand in their
+  idle; a leveled-creature list shows its creature, or the Construction Set's marker
+  when it holds different ones. Weapons are not drawn yet.
+- **The object inspector is a "Toggle Full Help"** for everything in Cell Preview: a
+  reference's owner (an NPC, or a faction and the rank that may take it), the global
+  that makes it owned, its lock, key and trap, soul, charge, uses and count; the base
+  record's script; a container's contents (owned with the container) or an actor's
+  inventory, spells, race, class, faction and level; and, on request, an actor's
+  dialogue across the load order - its topics, how many lines of its own each plugin
+  gives it, and the quests those lines touch.
+- **From Cell Preview to the conflict viewer**: every record the inspector names - the
+  object's base record, its cell, the owner, the script, each item - opens in
+  Wraithguard's conflict viewer on a click, the list checked first if it has not been
+  and filters cleared if they hide the row. (Cell Preview started from Wraithguard.)
+- NPCs carry their **shield** on the arm; a **torch** in its place after dark out of
+  doors, lighting the street around them with the torch's own radius and colour; their **weapon** in its sheath where the setup's skeleton has OpenMW's
+  sheathing bones, or in the hand with the new **Weapons drawn** switch. Leveled items
+  in an inventory (a guard's random helmet) are worn, and **vampires** show their
+  race's vampire face.
+- **Normal and specular maps in cells by default**, as the setup's OpenMW has them
+  (settings.cfg's `auto use object normal / specular maps` and its own suffixes; on when
+  it does not say). **BC4, BC5 and BC7** textures now draw: passed to the GPU as they
+  are where the webview takes them (WebView2 does), decoded otherwise - a BC5 normal map
+  has its Z rebuilt. The mesh viewer's **Flat colour** is a clay grey rather than white, and
+  **Relief** (in place of the normals-as-colour view) shows the textures - both under a
+  key light that moves with the camera, so the normal map is seen the way it is used:
+  bending the light across the surface, the specular map shining in it. As the old
+  texture viewer's lit material had it: the light's angle, elevation and strength and
+  the ambient are sliders, the flat grey is its diffuse-off grey, and the mesh's
+  **gloss map** (NIF slot 3, which neither the game nor OpenMW draws) masks the
+  highlight in these views, with its own switch under Maps. The orbit pivot (hold Ctrl) is smaller up close.
+- **Every OpenMW map type in Cell Preview**: `_nh` normal maps now give parallax (the
+  height in their alpha, OpenMW's own offset), and the **land** takes its layers' `_n`
+  normal maps and `_diffusespec` highlights, as the setup's OpenMW settings say. The
+  normal and specular maps travel in the same bundle as the textures they sit beside,
+  so turning them on no longer slows a cell's loading to minutes.
+- **The inspector and the full help fold**: every section is an accordion, and a
+  section closed on one object stays closed on the next.
+- **From the conflict viewer to Cell Preview**: "Show in Cell Preview" opens the
+  selected record where it stands - a cell itself, anything else the first place it is
+  placed, framed and inspected. An open Cell Preview is sent there; otherwise one starts.
+- **The full help moves to its own panel on the right** (the inspector stays on the
+  left), with the game's own **icons** for a container's contents and an actor's
+  inventory, each item's name, a leveled list's entries by level with the chance it
+  gives nothing, an actor's AI, **services** and **travel destinations**, and **View
+  contents**: every item's mesh in the mesh viewer, with **Back to cell** returning to the
+  cell and the view you left.
+- **Plugin merging runs greatness7's merge_to_master itself**, built into the Rust
+  module, instead of our Python port of it (the port stays as the test reference).
+  Upstream took our stable-Rust change (commit 5ea27f1), so nothing is vendored; the
+  build takes merge_to_master and tes3 from our forks (staticnation/…) until what is
+  still waiting upstream lands there - OpenMW's LUAL records and our NIF fix.
+- **The Preview folds into groups**: Cell, Light & sky, Scene, Water, Effects, and the
+  new Review a mod, Landscape, Overlays & measure and Links & export. Each is an
+  accordion and stays open or closed as you leave it.
+- **Review a mod** in Cell Preview: pick a plugin and see what it placed (green) and
+  changed (yellow) in the loaded cells, or switch to **Without it** - the cells as the
+  load order would have them with that plugin left out: its changes undone (blue) and
+  what it deleted or moved away back where it stood (red). Checks over what is on
+  screen: **Floating / buried** objects (the ones a later landscape edit left hanging
+  or sunk come first), **Duplicates**, references the load order **Moved**, and
+  **Missing files**.
+- **Merged Lands in Cell Preview**: a cell's ground as the load order has it (the last
+  plugin's, whole) or as Merged Lands would build it - Overwrite, Resolve, Ignore or
+  Curvature - with the vertices two plugins both moved marked on request.
+- **Overlays**: path grids, light radii, collision shapes, door links (with the landing
+  spot's door marker), the Construction Set's editor markers, and **NPC reach** - how
+  close you must be to talk to someone, and where they greet you (their AI Hello times
+  iGreetDistanceMultiplier). And a **measuring tape** (📏 in the view), with R-Zero's
+  character gauge and 10 m ruler laid along it.
+- **Links & export**: **Copy spot for OpenMW** (console lines that put you where the
+  view is), **Save report…** (a screenshot and everything known about the place, for a
+  mod author), **Where used** (every cell with a mesh, a texture - on objects and on
+  the ground - or a record), and a **plugin's cells on the map**. The inspector's
+  meshes and textures list every mod that supplies them, with a side-by-side compare
+  of the loose versions.
+- **The cell map's heat runs yellow through orange to red**, by rank, so the busiest
+  cells stand out instead of the whole map sitting in yellow; and it can show reference
+  conflicts, land edits or one plugin's cells instead of mods.
+- **From Wraithguard to Cell Preview for a plugin**: the plugin view's **Show in Cell
+  Preview** opens the map on its cells and reviews it there; after **Write patch**,
+  Wraithguard offers to open the patch the same way, loaded last.
+- Leveled-creature spawn markers face the way the creature will (R-Zero's marker fix,
+  built in with his door, travel, character and ruler markers - "do whatever you want").
+
+### Fixed
+
+- **The Linux AppImage on the Steam Deck** (4.2.0): the viewer aborted with "Could not
+  create default EGL display: EGL_BAD_PARAMETER". The AppImage no longer carries its
+  build machine's EGL, GL, GBM, DRM and Wayland libraries - the host's GPU driver needs
+  its own - and the viewer starts through a launcher that retries on X11, then without
+  GPU compositing, if WebKit still cannot open the display. GTK's accessibility bridge
+  is left off in the viewer (its "atk-bridge: unknown signature" warning on the Deck).
+- **Release signing is retired.** The minisign step, `tools/sign_release.py` and
+  `minisign.pub` are gone: the `.minisig` files drew false antivirus (trojan)
+  detections, and a published flaw in minisign's trusted comments
+  (gpg.fail/trustcomment) made the signatures a weaker guarantee than they looked.
+  Check a download against the SHA-256 digest on its Release page (README).
+- **The water's waves are MGE XE's alone.** The slow noise field 4.2.0 added to stop
+  the waves repeating tile by tile is gone (and with it the webgl-noise code): with
+  MGE's own wave volume, dynamic ripples and settings the water no longer needs it.
+
+
 ## 4.2.0
 
 Game files are now read and written by greatness7's `tes3` crates, in process,

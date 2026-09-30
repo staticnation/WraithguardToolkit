@@ -12,56 +12,6 @@ function buildGameDatalists(){
 }
 
 
-
-
-
-/* =====================================================================================
-   Names that match nothing.
-
-   A rule naming a texture the install does not have places no grass and says nothing
-   about it — the generator matches exactly and fails silently, so a typo, a difference
-   in case and a disabled plugin all look identical from the outside.
-
-   The check is the engine's: it holds the authoritative list of every texture, region
-   and named cell in the load order, and the page asking its own copy of that list was
-   how the two came to disagree.
-   ===================================================================================== */
-
-/** Last answer from the engine, so the dialogue and the pill agree without asking
-    twice. `null` means it has not been asked, or there is no install to ask about. */
-let _unmatched=null;
-
-async function refreshUnmatched(){
-  const pill=$('#unmatched');
-  if(!pill) return;
-  if(!Engine.has() || !GameData.scanned){ _unmatched=null; pill.hidden=true; return; }
-  /* Three outcomes, not two. `null` is "not asked"; an empty list is "asked, and every
-     name is real"; a list is the problem. A throw used to collapse into `null` silently,
-     so a check that could not run looked exactly like a clean one. */
-  _unmatched=[];   // no grass rules to check any more
-  const bad=_unmatched;
-  if(!bad || !bad.length){ pill.hidden=true; return; }
-  pill.hidden=false;
-  /* Counted apart, because they are two different jobs. A name that matches nothing is
-     usually a typo to correct; a missing mesh is usually a mod to install, and no amount
-     of squinting at the spelling will fix it. */
-  const meshes=bad.filter(x=>x.field==='mesh').length;
-  const names=bad.length-meshes;
-  const parts=[];
-  if(names) parts.push(T('top.n_unmatched',{n:names}));
-  if(meshes) parts.push(T('top.n_meshes_missing',{n:meshes}));
-  pill.textContent='⚠ '+parts.join(' · ');
-  pill.title=T('top.unmatched_title',{n:bad.length});
-}
-
-
-
-
-
-
-
-
-
 /* =====================================================================================
    Progress overlay — long passes block interaction anyway, so say so plainly
    ===================================================================================== */

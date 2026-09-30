@@ -22,12 +22,14 @@ const PrevSettings={
        number, so it travels as `val`; an older profile has none and `lightsLit` falls
        back to the hour rule. */
     ['lights','#p_lights','val'], ['timeFlow','#p_flow','bool'], ['timeScale','#p_flowk','num'],
-    ['wind','#p_wind','num'], ['grassFar','#p_grassfar','num'], ['mge','#p_mge','bool'], ['mgew','#p_mgew','bool'], ['waterHue','#p_whue','num'], ['waterTint','#p_wtint','num'], ['sewers','#p_sewers','bool'], ['fogd','#p_fogd','num'], ['shafts','#p_shafts','bool'], ['particles','#p_particles','bool'],
+    ['wind','#p_wind','num'], ['grassFar','#p_grassfar','num'], ['mge','#p_mge','bool'], ['mgew','#p_mgew','bool'], ['waterHue','#p_whue','num'], ['waterTint','#p_wtint','num'], ['sewers','#p_sewers','bool'], ['waves','#p_waves','bool'], ['waveHeight','#p_wheight','num'], ['caustics','#p_caust','num'], ['reflBlur','#p_wblur','bool'], ['waterDepth','#p_wdepth','bool'], ['weather','#p_weather','val'], ['fogd','#p_fogd','num'], ['shafts','#p_shafts','bool'], ['particles','#p_particles','bool'], ['actors','#p_actors','bool'], ['npcDrawn','#p_npcdrawn','bool'],
     ['ssao','#p_ssao','bool'],   // round 18a
     ['fxaa','#p_fxaa','bool'],   // round 18do
     ['underwater','#p_under','bool'],   // round 18dt
     ['dof','#p_dof','bool'],            // round 18dy
+    ['bloom','#p_bloom','bool'],        // Wraithguard: 42_wg_bloom.js
     ['shadows','#p_shadows','bool'],       // round 18ee
+    ['shadowRes','#p_shadowres','val'],    // Wraithguard: 0 = the install's
     ['unlit','#p_unlit','bool'], // round 18f
     ['brushFeather','#paintFeather','num'],
     ['brushOpacity','#paintOpacity','num'],
@@ -115,12 +117,15 @@ const PrevSettings={
       ['mge_grass',!!+o.mge],    // round 14
       ['mge_water',!!+o.mgew],   // round 15
       ['water_hue',n(o.waterHue)], ['water_tint',n(o.waterTint)], ['sewer_waves',!!+o.sewers],   // Wraithguard: 26_water.js
+      ['waves',!!+o.waves], ['wave_height',n(o.waveHeight)], ['caustics',n(o.caustics)], ['blur_reflections',!!+o.reflBlur], ['water_depth',!!+o.waterDepth], ['weather',String(o.weather||'Clear')],   // Wraithguard: MGE XE's water settings
       ['sunshafts',!!+o.shafts], // round 16
       ['ssao',!!+o.ssao],        // round 18a
       ['fxaa',!!+o.fxaa],        // round 18do
       ['underwater',!!+o.underwater],   // round 18dt
       ['dof',!!+o.dof],                 // round 18dy
+      ['bloom',!!+o.bloom],             // Wraithguard: 42_wg_bloom.js
       ['shadows',!!+o.shadows],         // round 18ee
+      ['shadow_detail',String(o.shadowRes||'0')],
       ['unlit',!!+o.unlit],      // round 18f
       ['fog_density',n(o.fogd)], // round 15 item 3
       /* `mode` and `cell` used to be written here too. They are the only two things the
@@ -346,12 +351,14 @@ const PrevSettings={
                                ['ground_tint','#p_tint','num'],
                                ['wind','#p_wind','num'],
                                ['grass_distance','#p_grassfar','num'],
-                               ['mge_grass','#p_mge','bool'],['mge_water','#p_mgew','bool'],['water_hue','#p_whue','num'],['water_tint','#p_wtint','num'],['sewer_waves','#p_sewers','bool'],['fog_density','#p_fogd','num'],['sunshafts','#p_shafts','bool'],['particles','#p_particles','bool'],
+                               ['mge_grass','#p_mge','bool'],['mge_water','#p_mgew','bool'],['water_hue','#p_whue','num'],['water_tint','#p_wtint','num'],['sewer_waves','#p_sewers','bool'],['waves','#p_waves','bool'],['wave_height','#p_wheight','num'],['caustics','#p_caust','num'],['blur_reflections','#p_wblur','bool'],['water_depth','#p_wdepth','bool'],['weather','#p_weather','val'],['fog_density','#p_fogd','num'],['sunshafts','#p_shafts','bool'],['particles','#p_particles','bool'],['npcs_and_creatures','#p_actors','bool'],['weapons_drawn','#p_npcdrawn','bool'],
                                ['ssao','#p_ssao','bool'],
                                ['fxaa','#p_fxaa','bool'],
                                ['underwater','#p_under','bool'],
                                ['dof','#p_dof','bool'],
+                               ['bloom','#p_bloom','bool'],
                                ['shadows','#p_shadows','bool'],
+                               ['shadow_detail','#p_shadowres','val'],
                                ['unlit','#p_unlit','bool'],
                                ['brush_feather','#paintFeather','num'],
                                ['brush_opacity','#paintOpacity','num']])
@@ -373,7 +380,7 @@ const PrevSettings={
        otherwise." A block that is there and says nothing about them is still the old
        profile 18i was written for. */
     if(Array.isArray(P.viewport)){
-      App._postUnset={ssao:V.ssao==null, sunshafts:V.sunshafts==null, fxaa:V.fxaa==null, dof:V.dof==null,
+      App._postUnset={ssao:V.ssao==null, sunshafts:V.sunshafts==null, fxaa:V.fxaa==null, dof:V.dof==null, bloom:V.bloom==null,
                       shadows:V.shadows==null};   // 18do: and FXAA. 18dy: and the depth of field. 18ee: and the sun's shadows
       if(typeof Sky==='object') Sky.applyInstallPost();
     }

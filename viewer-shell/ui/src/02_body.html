@@ -28,7 +28,6 @@
     <input type="file" id="fileIni" accept=".ini,.txt,.toml" multiple hidden>
     <input type="file" id="fileToml" accept=".toml" hidden>
     <div style="flex:1"></div>
-    <button class="pill" id="unmatched" hidden style="color:var(--err);border-color:#5a3f30;cursor:pointer"></button>
     <!-- Everything about the grass rules, gathered against the button that exports them.
          Connecting an install is a thing you do once at the start and lives at the far
          left; the rules are what you work on and what you finish with, so they belong
@@ -73,257 +72,343 @@
               <select class="fld" id="pvMode">
                 <option value="cell" selected data-tx="preview.mode_cell">Real cell</option>
               </select></div></div>
-            <!-- Which cell, directly under which mode.
-                 Robin: "Put the cell field directly under Mode in the Preview section."
-                 Right: choosing Real cell and then choosing a cell is one thought, and the
-                 row used to be four settings further down, at the top of a pane that only
-                 appears once the mode is already switched.
+            <!-- Wraithguard: the Preview folds into accordions by what the controls are for;
+                 open or closed is remembered (48_wg_tools.js). -->
+            <div class="sect sub pvacc" id="acc_cell">
+              <div class="sh"><span class="caret">▼</span><span>Cell</span><span class="sp"></span></div>
+              <div class="sbody">
+              <!-- Which cell, directly under which mode.
+                   Robin: "Put the cell field directly under Mode in the Preview section."
+                   Right: choosing Real cell and then choosing a cell is one thought, and the
+                   row used to be four settings further down, at the top of a pane that only
+                   appears once the mode is already switched.
 
-                 A labelled row like its neighbours. It spent one round as a headline across
-                 the top of the pane, which Robin asked for and then asked back: made large
-                 it stopped reading as the thing you *click*. `syncCellButton` writes the
-                 flat label into it when the two spans are not there, which is why this can
-                 be plain markup.
+                   A labelled row like its neighbours. It spent one round as a headline across
+                   the top of the pane, which Robin asked for and then asked back: made large
+                   it stopped reading as the thing you *click*. `syncCellButton` writes the
+                   flat label into it when the two spans are not there, which is why this can
+                   be plain markup.
 
-                 Hidden in Simplified, like everything else that only means something once a
-                 real cell is loaded — a control that cannot do anything invites you to use
-                 it and wonder why nothing happened. -->
-            <div id="cellRow" hidden>
-              <div class="row"><label data-tx="preview.cell">Cell</label><div class="ctl">
-                <button class="btn sm wide" id="cellPick" data-txt="preview.cell_title"
-                        title="Choose a cell to load">&lt;none&gt;</button></div></div>
-              <!-- Wraithguard (40_wg_modhl.js): outline everything a plugin put in the loaded cells. -->
-              <div class="row"><label title="Outline every object in the loaded cells that this plugin placed (or last changed). The list is the plugins with objects here, most first.">Highlight mod</label><div class="ctl">
-                <select class="fld" id="p_modhl"><option value="">None</option></select></div></div>
-            </div>
-            <div class="hint" id="pvModeHint" data-tx="preview.mode_hint_start">Simplified previews a synthetic patch: instant, and
-              enough for judging density and clustering.</div>
-            <!-- Round 18f, Robin: "I want a toggle just above Brightness which toggles on and
-                 off Unlit mode in the viewport. Call it Unlit and default to OFF." Every
-                 surface at its texture: no sun, no ambient, no lamps; fog and the rest stay. -->
-            <div class="row"><label data-tx="preview.unlit" data-txt="preview.unlit_title" title="Draw every surface at its texture, with no sun, ambient or lamps on it - the colours as they are painted. The fog stays. Preview only.">Unlit</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_unlit"><span class="tr"></span></label></div></div>
-            <div class="row"><label data-tx="preview.bright">Brightness</label><div class="ctl"><div class="rng">
-              <input type="range" id="pvBright" min="40" max="220" step="5" value="140">
-              <span class="val" id="pvBrightV">140</span></div></div></div>
-            <!-- Round 13: the game clock places the sun and picks the ramp's colours,
-                 and the weather names which ramp. "Sun height" went with the old sky. -->
-            <div class="row"><label data-tx="preview.hour" data-txt="preview.hour_title" title="The game hour. Sunrise and sunset are read from your Morrowind.ini, and the sun follows the game's own arc.">Time of day</label><div class="ctl"><div class="rng">
-              <input type="range" id="p_hour" min="0" max="24" step="0.0833333" value="15">
-              <span class="val" id="p_hourV">15:00</span></div></div></div>
-            <!-- Round 17s: the clock runs on its own, so a sunset can be watched rather
-                 than scrubbed. Off by default — a preview that moves while you are trying
-                 to look at a blade of grass is worse than one that does not — and the
-                 speed only appears once it is on. -->
-            <div class="row"><label data-tx="preview.timeflow" data-txt="preview.timeflow_title" title="Let the clock run, so the light changes while you watch. Off, the time of day is only what the slider says.">Time passes</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_flow"><span class="tr"></span></label></div></div>
-            <div class="row" id="flowRow" hidden><label data-tx="preview.timescale" data-txt="preview.timescale_title" title="How fast the clock runs: game minutes per real second. The clouds drift at this pace too — 20 is the game's own — whether or not the clock is running.">Time scale</label><div class="ctl"><div class="rng">
-              <input type="range" id="p_flowk" min="1" max="120" step="1" value="20">
-              <span class="val" id="p_flowkV">20</span></div></div></div>
-            <!-- Round 17s: and whether the cell's lamps burn at all. The hours are Robin's
-                 own rule (18:00 to 07:00); this is the switch that says whether to keep
-                 them, ignore them, or drop the lamps altogether. -->
-            <div class="row"><label data-tx="preview.lights" data-txt="preview.lights_title" title="Whether the cell's lamps are lit. Night time is the game hour rule: on from 18:00 to 07:00. A lamp's glass and flame follow its light.">Lights</label><div class="ctl">
-              <select class="fld" id="p_lights">
-                <option value="night" selected data-tx="preview.lights_night">Night time</option>
-                <option value="always" data-tx="preview.lights_always">Always</option>
-                <option value="off" data-tx="preview.lights_off">Off</option>
-              </select></div></div>
-            <!-- Round 12 item 4, moved up under the clock in round 15. The atmosphere:
-                 the game's sky and light by the hour. Off is the plain dark backdrop and
-                 the flat fog, and the two rows that only mean anything under a sky - the
-                 weather and the fog density - fold away with it. -->
-            <div class="row"><label data-tx="preview.sky" data-txt="preview.sky_title" title="The game's sky, sun and haze for the hour and weather, drawn MGE XE's way. Off is the plain backdrop and the flat fog.">Atmosphere</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_sky"><span class="tr"></span></label></div></div>
-            <div id="skyPane">
-            <!-- Round 14: where the sky's colours came from — the install's ini or
-                 openmw.cfg, Weather Adjuster's preset for the region, MGE.ini's fog —
-                 so a plain, an OpenMW and a modded install each say what they read. -->
-            <div class="hint" id="p_skySrc" style="margin:-2px 0 8px"></div>
-            <!-- Round 15 item 3: how thick the atmosphere's haze is. 100 is MGE's own
-                 distances for the weather; the flat fog of the plain backdrop is untouched. -->
-            <div class="row"><label data-tx="preview.fogd" data-txt="preview.fogd_title" title="How thick the haze is. 100 is MGE XE's own distance for this weather; less clears the air, more closes it in. Under the water it scales the game's underwater distances the same way, so their ratio stays the install's. Only the atmosphere's fog — the plain backdrop's is not touched.">Fog density</label><div class="ctl"><div class="rng">
-              <input type="range" id="p_fogd" min="25" max="300" step="5" value="100">
-              <span class="val" id="p_fogdV">100</span></div></div></div>
-            <!-- Round 17h: back to whatever the install itself says the fog is - 100,
-                 which is the distances read from mge3\MGE.ini (or MGE XE's own numbers
-                 when there is none, which is every OpenMW install). The button says
-                 which, and where they came from, rather than only moving the slider.
-                 Under the slider and the width of it, the way "Just above the water"
-                 sits under Ground height. -->
-            <div class="row under"><label></label><div class="ctl"><div class="rng">
-              <button class="btn sm wide" id="p_fogdReset" data-txt="preview.fogd_reset_title"
-                      title="Put the haze back to what your install says: MGE XE's own distances for the weather, read from mge3\MGE.ini when you have one." data-tx="preview.fogd_reset2">↺ Reset</button><span class="val"></span></div></div></div>
-            <!-- Round 16: MGE XE's sunshafts (Sunshafts.fx) - the light rays from the sun
-                 through whatever stands against the sky. Only under the atmosphere, off
-                 unless asked for: it costs a few full-screen passes a frame. -->
-            <div class="row"><label data-tx="preview.shafts" data-txt="preview.shafts_title" title="MGE XE's sunshafts: rays of the sun's light streaming past whatever stands against the sky, as its Sunshafts.fx shader draws them. Turn to face the sun to see them. Costs a few full-screen passes a frame.">Sunshafts</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_shafts"><span class="tr"></span></label></div></div>
-            <!-- Round 17w: the meshes' own particle systems - a waterfall's mist, a torch's
-                 flame and smoke, a candle's flicker - run from the NIF's numbers. On by
-                 default; the switch is for a machine that would rather not, and for
-                 measuring without them. -->
-            <div class="row"><label data-tx="preview.particles" data-txt="preview.particles_title" title="The particle systems the meshes carry — a waterfall's mist, a torch's flame and smoke, a candle's flicker — run as the game runs them. A lamp's follow the Lights rule. Preview only.">Particles</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_particles" checked><span class="tr"></span></label></div></div>
-            </div>
-            <div class="row"><label data-tx="preview.fog">Fog</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_fog" checked><span class="tr"></span></label></div></div>
-            <!-- Round 14: the grass lit and cut out the way MGE XE's own grass shader
-                 does it (XE Mod Grass.fx): wrap lighting with a little backlight, a
-                 fixed alpha cutout softened by coverage, the mesh's vertex colours
-                 ignored. Off draws the blades by the plain rules the objects get. -->
-            <div class="row"><label data-tx="preview.mge" data-txt="preview.mge_title" title="The blades lit and cut out as MGE XE's grass shader does it: light wrapping round the blade with a little glow from behind, a soft-edged cutout, and the mesh's vertex colours ignored as MGE ignores them. Off draws them by the plain rules the placed objects get.">MGE grass light</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_mge" checked><span class="tr"></span></label></div></div>
-            <!-- Round 15 items 8-10: the water as MGE XE draws it - reflection, refraction,
-                 the sun's glint, MGE's own waves when the install has them. -->
-            <div class="row"><label data-tx="preview.mgew" data-txt="preview.mgew_title" title="The water as MGE XE's water shader draws it: the sky and the shore reflected, the bottom seen through the shallows, the sun's glint, and MGE's own waves when your install has its water_NRM texture. Off is the plain translucent sheet.">MGE water</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_mgew"><span class="tr"></span></label></div></div>
-            <!-- Wraithguard: a colour over MGE XE's water - its hue, and how much of it: at
-                 0 the colour layer is fully transparent (MGE XE's own water), at 100 it is
-                 opaque. -->
-            <div class="row wtint" id="rowWHue"><label title="The hue of the colour laid over the water.">Water hue</label><div class="ctl"><div class="rng">
-              <input type="range" id="p_whue" min="0" max="360" step="1" value="190" class="hue">
-              <span class="val" id="p_whueV">190</span></div></div></div>
-            <div class="row wtint" id="rowWTint"><label title="How much of the water hue shows. All the way left the colour is fully transparent and the water is MGE XE's own; all the way right it is opaque.">Water colour</label><div class="ctl"><div class="rng">
-              <input type="range" id="p_wtint" min="0" max="100" step="1" value="0">
-              <span class="val" id="p_wtintV">0</span></div></div></div>
-            <!-- The sewer waves of Vivec and Molag Mar (mod 45432), in MGE XE's water. -->
-            <div class="row wtint" id="rowSewers"><label title="Rings spreading on the water from the sewer outlets of Vivec and Molag Mar, from the 'Enhanced Water Shader for MGE XE 2.0' mod.">Sewer waves</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_sewers" checked><span class="tr"></span></label></div></div>
-            <!-- Round 18dt: the water seen from under it, as the game shows it - its fog
-                 (the install's own rule and numbers), the surface from beneath, the wobble
-                 and the light rays (the caustics in a room) of MGE XE's Underwater Effects
-                 shaders. On by default; off draws the frame as if the eye were in the air.
-                 Robin: "make the underwater effects fully toggleable in the preview
-                 settings."
-
-                 Round 18dy: and it sits under MGE water, because it is that water seen
-                 from the other side. Robin: "The Underwater effects should be
-                 automatically off when MGE water is turned off. Hide the option when the
-                 MGE water is not toggled on." The row hides with the switch above it and
-                 the effect stands down with it, whatever this one remembers. -->
-            <div class="row" id="rowUnder"><label data-tx="preview.under" data-txt="preview.under_title" title="What the game shows with the eye under the water: its underwater fog, in the install's own colour and distances, the surface seen from beneath, and the wobble and light rays (in a room, the caustics) of MGE XE's Underwater Effects shaders. Off, the frame is drawn as if the eye were in the air. Preview only.">Underwater effects</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_under" checked><span class="tr"></span></label></div></div>
-            <!-- Round 18a: screen-space ambient occlusion (29_ssao.js) - the creases and
-                 corners of the picture darkened from the depth buffer. An image effect on
-                 the preview alone; off unless asked for, since it is three full-screen
-                 passes a frame. Robin: "Add a SSAO image effect to the viewport that is
-                 toggleable under preview settings." -->
-            <div class="row"><label data-tx="preview.ssao" data-txt="preview.ssao_title" title="Ambient occlusion, from the picture's own depth: where a rock meets the ground, where walls turn and under the eaves, the ambient light is dimmed for the sky those places cannot see. Preview only; costs three full-screen passes a frame.">Ambient occlusion</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_ssao"><span class="tr"></span></label></div></div>
-            <!-- Wraithguard: which ambient occlusion - MGE's SSAO HQ, or SSGI (HBAO with
-                 screen-space global illumination: nearby lit surfaces bounce their colour into
-                 the shade). One or the other. -->
-            <div class="row" id="rowAoMode"><label title="SSAO: the corners and creases darkened. SSGI: the same, and the colour of nearby lit surfaces bounced into the shade - heavier on the GPU.">Occlusion mode</label><div class="ctl">
-              <select class="fld" id="p_aomode"><option value="ssao">SSAO</option><option value="ssgi">SSGI</option></select></div></div>
-            <!-- Round 18do: FXAA over the finished frame (33_fxaa.js), the shader Robin's
-                 game runs last in its chain, on top of the multisampling the frame already
-                 has. Off unless asked for; a profile that never stored it takes the
-                 install's chain's answer, as the occlusion does. -->
-            <div class="row"><label data-tx="preview.fxaa" data-txt="preview.fxaa_title" title="Fast approximate anti-aliasing over the finished picture - the FXAA shader MGE XE runs last in its chain - on top of the multisampling the preview already has. Smooths the edges the multisampling leaves, at some softness. Preview only.">FXAA</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_fxaa"><span class="tr"></span></label></div></div>
-            <!-- Round 18dy: the depth of field (36_dof.js), a port of the Depth of Field.fx
-                 Robin's chain runs second from last. The switch is the eye's own blur -
-                 what is not at the middle of the screen's distance goes soft. Its other
-                 half, the distance blur in fog conditions, runs under the water whatever
-                 this says: the shader's fog term is nought wherever the fog starts at a
-                 positive distance, and only the water's starts behind the eye. Robin:
-                 "Add the DOF as a toggle, but I always want the underwater blur in fog no
-                 matter if the other behaviors for DOF is active or not." -->
-            <div class="row"><label data-tx="preview.dof" data-txt="preview.dof_title" title="Depth of field, as MGE XE's Depth of Field.fx draws it: an eye focused on whatever is at the middle of the screen, with what is nearer or further going soft. The same shader's distance blur in fog runs under the water whether this is on or off, because that is where the fog starts behind the eye. Preview only.">Depth of field</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_dof"><span class="tr"></span></label></div></div>
-            <!-- Round 18ee, Robin: "Lets see if we can also get shadows into the renderer.
-                 Only shadows from the sun, and never cast by grass. Only from statics, the
-                 terrain, and moving activators." MGE XE's own shadow system, at its
-                 numbers (37_shadow.js). Starts on when the install says the game has them
-                 on, like the post shaders. -->
-            <div class="row"><label data-tx="preview.shadows" data-txt="preview.shadows_title" title="The sun's shadows, as MGE XE draws them: two cascades near the camera, softened, fading out with the fog. Cast by the terrain, the placed objects and whatever moves among them, and never by grass - a shadow map cannot resolve a blade, and the game does not cast from grass either. Preview only.">Sun shadows</label><div class="ctl">
-              <label class="sw"><input type="checkbox" id="p_shadows"><span class="tr"></span></label></div></div>
-            <!-- Round 11 item 11. The ground tint is the viewport's own idea - a blade
-                 coloured by the ground it stands on at its base, its own colour by the
-                 tip - and changes nothing in the plugin, which is why it lives here with
-                 the lighting. Vertex colours (the record's VCLR on the land, a shape's
-                 own colours on a mesh) are always drawn, as the game draws them - the
-                 switch that turned them off went in round 15, with Blend textures. -->
-            <!-- Round 12 item 6: wind in the grass. Zero is still; the preview only. -->
-            <div class="row" id="windRow"><label data-tx="preview.wind" data-txt="preview.wind_title" title="How hard the grass sways. Preview only: nothing in the plugin moves. Zero is still.">Wind</label><div class="ctl"><div class="rng">
-              <input type="range" id="p_wind" min="0" max="100" step="5" value="25">
-              <span class="val" id="p_windV">25</span></div></div></div>
-            <div class="row"><label data-tx="preview.tint" data-txt="preview.tint_title" title="How much of the ground's colour a blade takes at its base, fading to its own colour at the tip. Preview only: a placed blade carries no colour.">Ground tint</label><div class="ctl"><div class="rng">
-              <input type="range" id="p_tint" min="0" max="100" step="5" value="100">
-              <span class="val" id="p_tintV">100</span></div></div></div>
-            <!-- Round 18cn: Grass distance used to sit here, between Ground tint and the
-                 panes. It has two homes now - under Patch size in Simplified, under Texture
-                 detail in Real cell - and the row itself moves between them rather than
-                 being written out twice. Robin: "Move the Grass distance slider to sit
-                 beneath the Patch size in the simplified preview, and beneath the texture
-                 detail in the Full cell preview." See `App.placeGrassFar`. -->
-            <!-- "Random yaw" used to sit here. It turned the *preview's* blades off the
-                 rotation the engine had already given them, so the window showed an
-                 arrangement the exported plugin would never contain. The viewport draws
-                 the engine's own yaw now, which is the only one there has ever been. -->
-
-            <!-- simplified mode only: there is no real landscape to read, so these
-                 stand in for one. In cell mode they would do nothing. -->
-            
-
-            <!-- real cell only -->
-            <div id="cellPane" hidden>
-              <!-- Round 15 item 7: how many rings of neighbours load with the cell. A
-                   switch until then (the eight around it, or none). -->
-              <div class="row"><label data-tx="preview.adjacent" data-txt="preview.adjacent_title" title="How far out from the chosen cell the landscape and its objects are loaded. More cells is more to read and more to draw.">Adjacent cells</label><div class="ctl">
-                <select class="fld" id="pvAdjacent">
-                  <option value="0" selected data-tx="preview.adjacent_0">this cell only</option>
-                  <option value="1" data-tx="preview.adjacent_1">1 ring · 9 cells</option>
-                  <option value="2" data-tx="preview.adjacent_2">2 rings · 25 cells</option>
-                  <option value="3" data-tx="preview.adjacent_3">3 rings · 49 cells</option>
-                </select></div></div>
-              <!-- Round 16b: the longest side a texture is loaded at. A texture pack's
-                   4096² file arrives as its own 2048² mip - the same pixels, a fifth of the
-                   bytes through the shell and onto the GPU; the game's own textures are
-                   smaller than any of these and are not touched. -->
-              <div class="row"><label data-tx="preview.texdetail" data-txt="preview.texdetail_title" title="The largest size a texture is loaded at. Bigger files arrive as their own smaller mip - the same picture, far fewer bytes to move and to keep on the GPU. Full is the file's own size. The game's own textures are 512 or smaller and are never touched.">Texture detail</label><div class="ctl">
-                <select class="fld" id="pvTexDetail">
-                  <option value="0" data-tx="preview.texdetail_full">full size</option>
-                  <option value="4096" data-tx="preview.texdetail_4096">up to 4096</option>
-                  <option value="2048" selected data-tx="preview.texdetail_2048">up to 2048</option>
-                  <option value="1024" data-tx="preview.texdetail_1024">up to 1024</option>
-                  <option value="512" data-tx="preview.texdetail_512">up to 512</option>
-                </select></div></div>
-              <!-- And where it parks in Real cell. Empty in the markup: the row is one element
-                   and it starts in the other slot. -->
-              <div id="grassfarSlotCell"><div class="row" id="grassfarRow"><label data-tx="preview.grassfar" data-txt="preview.grassfar_title" title="How far from the camera grass is drawn, in cells. The blades shrink away over the last stretch rather than popping out. Preview only — the plugin still gets every blade. Off draws the lot, which is slow with many cells loaded.">Grass distance</label><div class="ctl"><div class="rng stack">
-                <!-- Round 18cm: the reading above the track, like How near counts — "1.5 cells"
-                     does not fit the 54px slot and wrapped, which moved every row under it on
-                     every step of a drag. Robin: "show the text above the slider instead". -->
-                <span class="val" id="p_grassfarV">Off</span>
-                <input type="range" id="p_grassfar" min="0" max="8" step="0.5" value="0"></div></div></div></div>
-              <!-- "Draw statics" used to sit here. A cell without its rocks and buildings
-                   is not a cell anybody wants to look at — the whole reason to load one is
-                   to see grass against the things it grows around — and the switch's only
-                   other effect was to invite the belief that hiding an object stopped
-                   grass avoiding it. Objects are always drawn. -->
-              <!-- "Blend textures" went in round 15: the soft edges are always drawn. -->
-              <button class="btn sm" id="cellReload" data-tx="preview.reload">↻ Reload cell</button>
-              <div class="hint" id="cellStatus" style="margin-top:8px" data-tx="cell.status_pick">Pick a cell.</div>
-              <!-- Folds away. Robin: "sometimes it's very long" — a cell with a dozen
-                   land textures pushes everything under it off the column, and the list is
-                   a thing you consult rather than a thing you watch. The same `.sect`
-                   markup the column's own sections use, so the caret behaves the way every
-                   other caret in the window does; `.sub` only tones the band down, because
-                   this one sits *inside* a section rather than beside them. -->
-              <div class="sect sub" id="secCellTex">
-                <div class="sh"><span class="caret">▼</span><span data-tx="preview.cell_textures">Ground textures in cell</span>
-                  <span class="sp"></span><span class="pill sm" id="cellTexCount"></span></div>
-                <div class="sbody">
-                  <div id="cellTexList"></div>
-                </div>
+                   Hidden in Simplified, like everything else that only means something once a
+                   real cell is loaded — a control that cannot do anything invites you to use
+                   it and wonder why nothing happened. -->
+              <div id="cellRow" hidden>
+                <div class="row"><label data-tx="preview.cell">Cell</label><div class="ctl">
+                  <button class="btn sm wide" id="cellPick" data-txt="preview.cell_title"
+                          title="Choose a cell to load">&lt;none&gt;</button></div></div>
               </div>
-              <!-- "Objects by plugin" used to sit here: every plugin that supplied
-                   anything to this cell, with a count each. It filled a section of the
-                   column to answer a question nobody asks. Who placed a given object is
-                   worth knowing, and that is asked by right-clicking the object — the
-                   never-avoid dialogue names the plugin. -->
+              <div class="hint" id="pvModeHint" data-tx="preview.mode_hint_start">Simplified previews a synthetic patch: instant, and
+                enough for judging density and clustering.</div>
+              <!-- real cell only -->
+              <div id="cellPane" hidden>
+                <!-- Round 15 item 7: how many rings of neighbours load with the cell. A
+                     switch until then (the eight around it, or none). -->
+                <div class="row"><label data-tx="preview.adjacent" data-txt="preview.adjacent_title" title="How far out from the chosen cell the landscape and its objects are loaded. More cells is more to read and more to draw.">Adjacent cells</label><div class="ctl">
+                  <select class="fld" id="pvAdjacent">
+                    <option value="0" selected data-tx="preview.adjacent_0">this cell only</option>
+                    <option value="1" data-tx="preview.adjacent_1">1 ring · 9 cells</option>
+                    <option value="2" data-tx="preview.adjacent_2">2 rings · 25 cells</option>
+                    <option value="3" data-tx="preview.adjacent_3">3 rings · 49 cells</option>
+                  </select></div></div>
+                <!-- Round 16b: the longest side a texture is loaded at. A texture pack's
+                     4096² file arrives as its own 2048² mip - the same pixels, a fifth of the
+                     bytes through the shell and onto the GPU; the game's own textures are
+                     smaller than any of these and are not touched. -->
+                <div class="row"><label data-tx="preview.texdetail" data-txt="preview.texdetail_title" title="The largest size a texture is loaded at. Bigger files arrive as their own smaller mip - the same picture, far fewer bytes to move and to keep on the GPU. Full is the file's own size. The game's own textures are 512 or smaller and are never touched.">Texture detail</label><div class="ctl">
+                  <select class="fld" id="pvTexDetail">
+                    <option value="0" data-tx="preview.texdetail_full">full size</option>
+                    <option value="4096" data-tx="preview.texdetail_4096">up to 4096</option>
+                    <option value="2048" selected data-tx="preview.texdetail_2048">up to 2048</option>
+                    <option value="1024" data-tx="preview.texdetail_1024">up to 1024</option>
+                    <option value="512" data-tx="preview.texdetail_512">up to 512</option>
+                  </select></div></div>
+                <!-- And where it parks in Real cell. Empty in the markup: the row is one element
+                     and it starts in the other slot. -->
+                <div id="grassfarSlotCell"><div class="row" id="grassfarRow"><label data-tx="preview.grassfar" data-txt="preview.grassfar_title" title="How far from the camera grass is drawn, in cells. The blades shrink away over the last stretch rather than popping out. Preview only — the plugin still gets every blade. Off draws the lot, which is slow with many cells loaded.">Grass distance</label><div class="ctl"><div class="rng stack">
+                  <!-- Round 18cm: the reading above the track, like How near counts — "1.5 cells"
+                       does not fit the 54px slot and wrapped, which moved every row under it on
+                       every step of a drag. Robin: "show the text above the slider instead". -->
+                  <span class="val" id="p_grassfarV">Off</span>
+                  <input type="range" id="p_grassfar" min="0" max="8" step="0.5" value="0"></div></div></div></div>
+                <!-- "Draw statics" used to sit here. A cell without its rocks and buildings
+                     is not a cell anybody wants to look at — the whole reason to load one is
+                     to see grass against the things it grows around — and the switch's only
+                     other effect was to invite the belief that hiding an object stopped
+                     grass avoiding it. Objects are always drawn. -->
+                <!-- "Blend textures" went in round 15: the soft edges are always drawn. -->
+                <button class="btn sm" id="cellReload" data-tx="preview.reload">↻ Reload cell</button>
+                <div class="hint" id="cellStatus" style="margin-top:8px" data-tx="cell.status_pick">Pick a cell.</div>
+                <!-- Folds away. Robin: "sometimes it's very long" — a cell with a dozen
+                     land textures pushes everything under it off the column, and the list is
+                     a thing you consult rather than a thing you watch. The same `.sect`
+                     markup the column's own sections use, so the caret behaves the way every
+                     other caret in the window does; `.sub` only tones the band down, because
+                     this one sits *inside* a section rather than beside them. -->
+                <div class="sect sub" id="secCellTex">
+                  <div class="sh"><span class="caret">▼</span><span data-tx="preview.cell_textures">Ground textures in cell</span>
+                    <span class="sp"></span><span class="pill sm" id="cellTexCount"></span></div>
+                  <div class="sbody">
+                    <div id="cellTexList"></div>
+                  </div>
+                </div>
+                <!-- "Objects by plugin" used to sit here: every plugin that supplied
+                     anything to this cell, with a count each. It filled a section of the
+                     column to answer a question nobody asks. Who placed a given object is
+                     worth knowing, and that is asked by right-clicking the object — the
+                     never-avoid dialogue names the plugin. -->
+              </div>
+              </div>
+            </div>
+            <div class="sect sub pvacc" id="acc_light">
+              <div class="sh"><span class="caret">▼</span><span>Light &amp; sky</span><span class="sp"></span></div>
+              <div class="sbody">
+              <!-- Round 18f, Robin: "I want a toggle just above Brightness which toggles on and
+                   off Unlit mode in the viewport. Call it Unlit and default to OFF." Every
+                   surface at its texture: no sun, no ambient, no lamps; fog and the rest stay. -->
+              <div class="row"><label data-tx="preview.unlit" data-txt="preview.unlit_title" title="Draw every surface at its texture, with no sun, ambient or lamps on it - the colours as they are painted. The fog stays. Preview only.">Unlit</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_unlit"><span class="tr"></span></label></div></div>
+              <div class="row"><label data-tx="preview.bright">Brightness</label><div class="ctl"><div class="rng">
+                <input type="range" id="pvBright" min="40" max="220" step="5" value="140">
+                <span class="val" id="pvBrightV">140</span></div></div></div>
+              <!-- Round 13: the game clock places the sun and picks the ramp's colours,
+                   and the weather names which ramp. "Sun height" went with the old sky. -->
+              <div class="row"><label data-tx="preview.hour" data-txt="preview.hour_title" title="The game hour. Sunrise and sunset are read from your Morrowind.ini, and the sun follows the game's own arc.">Time of day</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_hour" min="0" max="24" step="0.0833333" value="15">
+                <span class="val" id="p_hourV">15:00</span></div></div></div>
+              <!-- Wraithguard: the weathers back, for their sky, fog and water, and what falls
+                   in them (44_wg_precip.js). -->
+              <div class="row" id="rowWeather"><label title="The weather: its sky and fog colours from your Morrowind.ini or openmw.cfg, its fog distance, how much sun comes through, and - with Deep water darkens on - how rough the water is. Rain, snow, ash and blight fall around the camera with Particles on.">Weather</label><div class="ctl">
+                <select class="fld" id="p_weather"><option>Clear</option><option>Cloudy</option><option>Foggy</option><option>Overcast</option><option>Rain</option><option>Thunderstorm</option><option>Ashstorm</option><option>Blight</option><option>Snow</option><option>Blizzard</option></select></div></div>
+              <!-- Round 17s: the clock runs on its own, so a sunset can be watched rather
+                   than scrubbed. Off by default — a preview that moves while you are trying
+                   to look at a blade of grass is worse than one that does not — and the
+                   speed only appears once it is on. -->
+              <div class="row"><label data-tx="preview.timeflow" data-txt="preview.timeflow_title" title="Let the clock run, so the light changes while you watch. Off, the time of day is only what the slider says.">Time passes</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_flow"><span class="tr"></span></label></div></div>
+              <div class="row" id="flowRow" hidden><label data-tx="preview.timescale" data-txt="preview.timescale_title" title="How fast the clock runs: game minutes per real second. The clouds drift at this pace too — 20 is the game's own — whether or not the clock is running.">Time scale</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_flowk" min="1" max="120" step="1" value="20">
+                <span class="val" id="p_flowkV">20</span></div></div></div>
+              <!-- Round 17s: and whether the cell's lamps burn at all. The hours are Robin's
+                   own rule (18:00 to 07:00); this is the switch that says whether to keep
+                   them, ignore them, or drop the lamps altogether. -->
+              <div class="row"><label data-tx="preview.lights" data-txt="preview.lights_title" title="Whether the cell's lamps are lit. Night time is the game hour rule: on from 18:00 to 07:00. A lamp's glass and flame follow its light.">Lights</label><div class="ctl">
+                <select class="fld" id="p_lights">
+                  <option value="night" selected data-tx="preview.lights_night">Night time</option>
+                  <option value="always" data-tx="preview.lights_always">Always</option>
+                  <option value="off" data-tx="preview.lights_off">Off</option>
+                </select></div></div>
+              <!-- Round 12 item 4, moved up under the clock in round 15. The atmosphere:
+                   the game's sky and light by the hour. Off is the plain dark backdrop and
+                   the flat fog, and the two rows that only mean anything under a sky - the
+                   weather and the fog density - fold away with it. -->
+              <div class="row"><label data-tx="preview.sky" data-txt="preview.sky_title" title="The game's sky, sun and haze for the hour and weather, drawn MGE XE's way. Off is the plain backdrop and the flat fog.">Atmosphere</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_sky"><span class="tr"></span></label></div></div>
+              <div id="skyPane">
+              <!-- Round 14: where the sky's colours came from — the install's ini or
+                   openmw.cfg, Weather Adjuster's preset for the region, MGE.ini's fog —
+                   so a plain, an OpenMW and a modded install each say what they read. -->
+              <div class="hint" id="p_skySrc" style="margin:-2px 0 8px"></div>
+              <!-- Round 15 item 3: how thick the atmosphere's haze is. 100 is MGE's own
+                   distances for the weather; the flat fog of the plain backdrop is untouched. -->
+              <div class="row"><label data-tx="preview.fogd" data-txt="preview.fogd_title" title="How thick the haze is. 100 is MGE XE's own distance for this weather; less clears the air, more closes it in. Under the water it scales the game's underwater distances the same way, so their ratio stays the install's. Only the atmosphere's fog — the plain backdrop's is not touched.">Fog density</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_fogd" min="25" max="300" step="5" value="100">
+                <span class="val" id="p_fogdV">100</span></div></div></div>
+              <!-- Round 17h: back to whatever the install itself says the fog is - 100,
+                   which is the distances read from mge3\MGE.ini (or MGE XE's own numbers
+                   when there is none, which is every OpenMW install). The button says
+                   which, and where they came from, rather than only moving the slider.
+                   Under the slider and the width of it, the way "Just above the water"
+                   sits under Ground height. -->
+              <div class="row under"><label></label><div class="ctl"><div class="rng">
+                <button class="btn sm wide" id="p_fogdReset" data-txt="preview.fogd_reset_title"
+                        title="Put the haze back to what your install says: MGE XE's own distances for the weather, read from mge3\MGE.ini when you have one." data-tx="preview.fogd_reset2">↺ Reset</button><span class="val"></span></div></div></div>
+              <!-- Round 16: MGE XE's sunshafts (Sunshafts.fx) - the light rays from the sun
+                   through whatever stands against the sky. Only under the atmosphere, off
+                   unless asked for: it costs a few full-screen passes a frame. -->
+              <div class="row"><label data-tx="preview.shafts" data-txt="preview.shafts_title" title="MGE XE's sunshafts: rays of the sun's light streaming past whatever stands against the sky, as its Sunshafts.fx shader draws them. Turn to face the sun to see them. Costs a few full-screen passes a frame.">Sunshafts</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_shafts"><span class="tr"></span></label></div></div>
+              </div>
+              <div class="row"><label data-tx="preview.fog">Fog</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_fog" checked><span class="tr"></span></label></div></div>
+              </div>
+            </div>
+            <div class="sect sub pvacc" id="acc_scene">
+              <div class="sh"><span class="caret">▼</span><span>Scene</span><span class="sp"></span></div>
+              <div class="sbody">
+              <!-- Round 17w: the meshes' own particle systems - a waterfall's mist, a torch's
+                   flame and smoke, a candle's flicker - run from the NIF's numbers. On by
+                   default; the switch is for a machine that would rather not, and for
+                   measuring without them. -->
+              <div class="row"><label data-tx="preview.particles" data-txt="preview.particles_title" title="The particle systems the meshes carry — a waterfall's mist, a torch's flame and smoke, a candle's flicker — run as the game runs them. A lamp's follow the Lights rule. Preview only.">Particles</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_particles" checked><span class="tr"></span></label></div></div>
+              <!-- Wraithguard: the cell's NPCs (assembled from their body parts and what they
+                   wear), its creatures, and its leveled-creature spawn points. On by default. -->
+              <div class="row"><label title="The cell's NPCs, dressed as the game dresses them, its creatures standing in their idle, and its leveled-creature spawn points (the list's creature, or the Construction Set's marker when the list holds different ones).">NPCs and creatures</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_actors" checked><span class="tr"></span></label></div></div>
+              <div class="row"><label title="NPCs hold their weapons drawn. Off, a weapon shows in its sheath where the setup's skeleton has sheathing bones (OpenMW's weapon sheathing), and not at all otherwise, as in the game.">Weapons drawn</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_npcdrawn"><span class="tr"></span></label></div></div>
+              <!-- Round 14: the grass lit and cut out the way MGE XE's own grass shader
+                   does it (XE Mod Grass.fx): wrap lighting with a little backlight, a
+                   fixed alpha cutout softened by coverage, the mesh's vertex colours
+                   ignored. Off draws the blades by the plain rules the objects get. -->
+              <div class="row"><label data-tx="preview.mge" data-txt="preview.mge_title" title="The blades lit and cut out as MGE XE's grass shader does it: light wrapping round the blade with a little glow from behind, a soft-edged cutout, and the mesh's vertex colours ignored as MGE ignores them. Off draws them by the plain rules the placed objects get.">MGE grass light</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_mge" checked><span class="tr"></span></label></div></div>
+              <!-- Round 11 item 11. The ground tint is the viewport's own idea - a blade
+                   coloured by the ground it stands on at its base, its own colour by the
+                   tip - and changes nothing in the plugin, which is why it lives here with
+                   the lighting. Vertex colours (the record's VCLR on the land, a shape's
+                   own colours on a mesh) are always drawn, as the game draws them - the
+                   switch that turned them off went in round 15, with Blend textures. -->
+              <!-- Round 12 item 6: wind in the grass. Zero is still; the preview only. -->
+              <div class="row" id="windRow"><label data-tx="preview.wind" data-txt="preview.wind_title" title="How hard the grass sways. Preview only: nothing in the plugin moves. Zero is still.">Wind</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_wind" min="0" max="100" step="5" value="25">
+                <span class="val" id="p_windV">25</span></div></div></div>
+              <div class="row"><label data-tx="preview.tint" data-txt="preview.tint_title" title="How much of the ground's colour a blade takes at its base, fading to its own colour at the tip. Preview only: a placed blade carries no colour.">Ground tint</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_tint" min="0" max="100" step="5" value="100">
+                <span class="val" id="p_tintV">100</span></div></div></div>
+              <!-- Round 18cn: Grass distance used to sit here, between Ground tint and the
+                   panes. It has two homes now - under Patch size in Simplified, under Texture
+                   detail in Real cell - and the row itself moves between them rather than
+                   being written out twice. Robin: "Move the Grass distance slider to sit
+                   beneath the Patch size in the simplified preview, and beneath the texture
+                   detail in the Full cell preview." See `App.placeGrassFar`. -->
+              <!-- "Random yaw" used to sit here. It turned the *preview's* blades off the
+                   rotation the engine had already given them, so the window showed an
+                   arrangement the exported plugin would never contain. The viewport draws
+                   the engine's own yaw now, which is the only one there has ever been. -->
+
+              <!-- simplified mode only: there is no real landscape to read, so these
+                   stand in for one. In cell mode they would do nothing. -->
+            
+              </div>
+            </div>
+            <div class="sect sub pvacc closed" id="acc_water">
+              <div class="sh"><span class="caret">▼</span><span>Water</span><span class="sp"></span></div>
+              <div class="sbody">
+              <!-- Round 15 items 8-10: the water as MGE XE draws it - reflection, refraction,
+                   the sun's glint, MGE's own waves when the install has them. -->
+              <div class="row"><label data-tx="preview.mgew" data-txt="preview.mgew_title" title="The water as MGE XE's water shader draws it: the sky and the shore reflected, the bottom seen through the shallows, the sun's glint, and MGE's own waves when your install has its water_NRM texture. Off is the plain translucent sheet.">MGE water</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_mgew"><span class="tr"></span></label></div></div>
+              <!-- Wraithguard: a colour over MGE XE's water - its hue, and how much of it: at
+                   0 the colour layer is fully transparent (MGE XE's own water), at 100 it is
+                   opaque. -->
+              <div class="row wtint" id="rowWHue"><label title="The hue of the colour laid over the water.">Water hue</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_whue" min="0" max="360" step="1" value="190" class="hue">
+                <span class="val" id="p_whueV">190</span></div></div></div>
+              <div class="row wtint" id="rowWTint"><label title="How much of the water hue shows. All the way left the colour is fully transparent and the water is MGE XE's own; all the way right it is opaque.">Water colour</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_wtint" min="0" max="100" step="1" value="0">
+                <span class="val" id="p_wtintV">0</span></div></div></div>
+              <!-- The sewer waves of Vivec and Molag Mar (mod 45432), in MGE XE's water. -->
+              <div class="row wtint" id="rowSewers"><label title="Rings spreading on the water from the sewer outlets of Vivec and Molag Mar, from the 'Enhanced Water Shader for MGE XE 2.0' mod.">Sewer waves</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_sewers" checked><span class="tr"></span></label></div></div>
+              <!-- Wraithguard: MGE XE's water settings as Preview controls. MoMW runs OpenMW, so
+                   there is no MGE XE configuration to read; each starts at MGE XE's default. -->
+              <div class="row wtint" id="rowWaves"><label title="MGE XE's dynamic ripples: the water surface rises and falls with the waves instead of lying flat.">Waves</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_waves" checked><span class="tr"></span></label></div></div>
+              <div class="row wtint" id="rowWaveH"><label title="How high the waves stand (MGE XE's wave height, 0 to 250; its default is 50).">Wave height</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_wheight" min="0" max="250" step="1" value="50">
+                <span class="val" id="p_wheightV">50</span></div></div></div>
+              <div class="row wtint" id="rowCaust"><label title="The rippling light on the ground under shallow water (MGE XE's caustics intensity, 0 to 100; its default is 50).">Caustics</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_caust" min="0" max="100" step="1" value="50">
+                <span class="val" id="p_caustV">50</span></div></div></div>
+              <!-- Wraithguard: Wonders of Water (NullCascade, MIT) - its depth and shelter
+                   rules. An MWSE mod, so not part of an OpenMW setup: off by default. -->
+              <div class="row wtint" id="rowWDepth"><label title="The Wonders of Water mod's rules: the water is calm and its caustics faint in fair weather and rough and bright in storms (0.2x in Clear up to 2x in a Thunderstorm), still in interiors, and under water you see less and it grows darker the deeper you go (fully at 1,500 units down).">Wonders of Water</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_wdepth"><span class="tr"></span></label></div></div>
+              <div class="row wtint" id="rowWBlur"><label title="Soften the reflections on the water, more with distance (MGE XE's blur reflections).">Blur reflections</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_wblur"><span class="tr"></span></label></div></div>
+              <!-- Round 18dt: the water seen from under it, as the game shows it - its fog
+                   (the install's own rule and numbers), the surface from beneath, the wobble
+                   and the light rays (the caustics in a room) of MGE XE's Underwater Effects
+                   shaders. On by default; off draws the frame as if the eye were in the air.
+                   Robin: "make the underwater effects fully toggleable in the preview
+                   settings."
+
+                   Round 18dy: and it sits under MGE water, because it is that water seen
+                   from the other side. Robin: "The Underwater effects should be
+                   automatically off when MGE water is turned off. Hide the option when the
+                   MGE water is not toggled on." The row hides with the switch above it and
+                   the effect stands down with it, whatever this one remembers. -->
+              <div class="row" id="rowUnder"><label data-tx="preview.under" data-txt="preview.under_title" title="What the game shows with the eye under the water: its underwater fog, in the install's own colour and distances, the surface seen from beneath, and the wobble and light rays (in a room, the caustics) of MGE XE's Underwater Effects shaders. Off, the frame is drawn as if the eye were in the air. Preview only.">Underwater effects</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_under" checked><span class="tr"></span></label></div></div>
+              </div>
+            </div>
+            <div class="sect sub pvacc closed" id="acc_fx">
+              <div class="sh"><span class="caret">▼</span><span>Effects</span><span class="sp"></span></div>
+              <div class="sbody">
+              <!-- Round 18a: screen-space ambient occlusion (29_ssao.js) - the creases and
+                   corners of the picture darkened from the depth buffer. An image effect on
+                   the preview alone; off unless asked for, since it is three full-screen
+                   passes a frame. Robin: "Add a SSAO image effect to the viewport that is
+                   toggleable under preview settings." -->
+              <div class="row"><label data-tx="preview.ssao" data-txt="preview.ssao_title" title="Ambient occlusion, from the picture's own depth: where a rock meets the ground, where walls turn and under the eaves, the ambient light is dimmed for the sky those places cannot see. Preview only; costs three full-screen passes a frame.">Ambient occlusion</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_ssao"><span class="tr"></span></label></div></div>
+              <!-- Wraithguard: which ambient occlusion - MGE's SSAO HQ, or SSGI (HBAO with
+                   screen-space global illumination: nearby lit surfaces bounce their colour into
+                   the shade). One or the other. -->
+              <div class="row" id="rowAoMode"><label title="SSAO: the corners and creases darkened. SSGI: the same, and the colour of nearby lit surfaces bounced into the shade - heavier on the GPU.">Occlusion mode</label><div class="ctl">
+                <select class="fld" id="p_aomode"><option value="ssao">SSAO</option><option value="ssgi">SSGI</option></select></div></div>
+              <!-- Round 18do: FXAA over the finished frame (33_fxaa.js), the shader Robin's
+                   game runs last in its chain, on top of the multisampling the frame already
+                   has. Off unless asked for; a profile that never stored it takes the
+                   install's chain's answer, as the occlusion does. -->
+              <div class="row"><label data-tx="preview.fxaa" data-txt="preview.fxaa_title" title="Fast approximate anti-aliasing over the finished picture - the FXAA shader MGE XE runs last in its chain - on top of the multisampling the preview already has. Smooths the edges the multisampling leaves, at some softness. Preview only.">FXAA</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_fxaa"><span class="tr"></span></label></div></div>
+              <!-- Round 18dy: the depth of field (36_dof.js), a port of the Depth of Field.fx
+                   Robin's chain runs second from last. The switch is the eye's own blur -
+                   what is not at the middle of the screen's distance goes soft. Its other
+                   half, the distance blur in fog conditions, runs under the water whatever
+                   this says: the shader's fog term is nought wherever the fog starts at a
+                   positive distance, and only the water's starts behind the eye. Robin:
+                   "Add the DOF as a toggle, but I always want the underwater blur in fog no
+                   matter if the other behaviors for DOF is active or not." -->
+              <!-- Wraithguard: MGE XE's Bloom Fine (42_wg_bloom.js) - the glare of lamps, lit
+                   windows and the sun on the water. Starts as the install's post chain says,
+                   else off. -->
+              <div class="row" id="rowBloom"><label title="The glare of bright things - lamps, lit windows, the sun on the water - as MGE XE's Bloom Fine shader draws it.">Bloom</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_bloom"><span class="tr"></span></label></div></div>
+              <div class="row"><label data-tx="preview.dof" data-txt="preview.dof_title" title="Depth of field, as MGE XE's Depth of Field.fx draws it: an eye focused on whatever is at the middle of the screen, with what is nearer or further going soft. The same shader's distance blur in fog runs under the water whether this is on or off, because that is where the fog starts behind the eye. Preview only.">Depth of field</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_dof"><span class="tr"></span></label></div></div>
+              <!-- Round 18ee, Robin: "Lets see if we can also get shadows into the renderer.
+                   Only shadows from the sun, and never cast by grass. Only from statics, the
+                   terrain, and moving activators." MGE XE's own shadow system, at its
+                   numbers (37_shadow.js). Starts on when the install says the game has them
+                   on, like the post shaders. -->
+              <div class="row"><label data-tx="preview.shadows" data-txt="preview.shadows_title" title="The sun's shadows, as MGE XE draws them: two cascades near the camera, softened, fading out with the fog. Cast by the terrain, the placed objects and whatever moves among them, and never by grass - a shadow map cannot resolve a blade, and the game does not cast from grass either. Preview only.">Sun shadows</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_shadows"><span class="tr"></span></label></div></div>
+              <!-- Wraithguard: the shadow map's size. "From settings" is OpenMW's own
+                   [Shadows] shadow map resolution (1024 unless MoMW changed it); the rest
+                   override it, up to MGE XE's own ceiling of 2048. -->
+              <div class="row" id="rowShadowRes"><label title="How sharp the shadows are: the size of each shadow map cascade. From settings uses your OpenMW shadow map resolution; 2048 is MGE XE's sharpest.">Shadow detail</label><div class="ctl">
+                <select class="fld" id="p_shadowres"><option value="0">From settings</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option></select></div></div>
+              </div>
+            </div>
+            <div class="sect sub pvacc" id="acc_review">
+              <div class="sh"><span class="caret">▼</span><span>Review a mod</span><span class="sp"></span></div>
+              <div class="sbody">
+                <!-- Wraithguard (40_wg_modhl.js): outline everything a plugin put in the loaded cells. -->
+                <div class="row"><label title="Outline every object in the loaded cells that this plugin placed (or last changed). The list is the plugins with objects here, most first.">Highlight mod</label><div class="ctl">
+                  <select class="fld" id="p_modhl"><option value="">None</option></select></div></div>
+              <div id="wgReviewPane"></div>
+              </div>
+            </div>
+            <div class="sect sub pvacc closed" id="acc_land">
+              <div class="sh"><span class="caret">▼</span><span>Landscape</span><span class="sp"></span></div>
+              <div class="sbody">
+              <div id="wgLandPane"></div>
+              </div>
+            </div>
+            <div class="sect sub pvacc closed" id="acc_ovl">
+              <div class="sh"><span class="caret">▼</span><span>Overlays &amp; measure</span><span class="sp"></span></div>
+              <div class="sbody">
+              <div id="wgOverlayPane"></div>
+              </div>
+            </div>
+            <div class="sect sub pvacc closed" id="acc_links">
+              <div class="sh"><span class="caret">▼</span><span>Links &amp; export</span><span class="sp"></span></div>
+              <div class="sbody">
+              <div id="wgLinksPane"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -561,7 +646,7 @@
            most of the viewport. Saved in the viewer profile. -->
       <div class="row"><label title="Orbit navigation: the mouse wheel zooms towards the point under the pointer instead of the middle of the view. On by default.">Zoom to cursor (orbit)</label><div class="ctl">
         <label class="sw"><input type="checkbox" id="setZoomCursor" checked><span class="tr"></span></label></div></div>
-      <div class="row"><label title="Cells drawn with the OpenMW-style normal (_n, _nh) and specular (_spec) maps your mods ship beside their textures. Off by default: the game without shaders draws neither, and reading them costs a little load time. The mesh viewer always has them, with a switch per map.">Normal and specular maps (cells)</label><div class="ctl">
+      <div class="row"><label title="Cells drawn with the OpenMW-style normal (_n, _nh) and specular (_spec) maps your mods ship beside their textures. On as the setup's OpenMW has them (settings.cfg's auto use object normal / specular maps, with its own suffixes), and on when it does not say. The mesh viewer always has them, with a switch per map.">Normal and specular maps (cells)</label><div class="ctl">
         <label class="sw"><input type="checkbox" id="setNrmMaps"><span class="tr"></span></label></div></div>
       <div class="mhead2">Performance</div>
       <div class="row"><label title="The most frames drawn per second. Lower saves power and keeps the machine cool; Off draws as fast as the screen refreshes. The view also stops drawing while the window is minimized or a dialogue covers most of it.">Frame rate cap</label><div class="ctl">

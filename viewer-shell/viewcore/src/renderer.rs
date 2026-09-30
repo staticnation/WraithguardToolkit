@@ -550,6 +550,21 @@ fn openmw_json(layout: &Layout, _att: &Attenuation, j: &mut J) {
         .num("density", cfg_f32(&text, "Groundcover", "density", 1.0) as f64)
         .num("renderingDistance", cfg_f32(&text, "Groundcover", "rendering distance", 6144.0) as f64);
     j.raw("groundcover", &g.done());
+    /* Wraithguard: whether OpenMW puts the `_n`/`_nh` and `_spec` maps beside a texture on
+       objects (and on the land), and the suffixes it looks for. OpenMW's defaults are off;
+       `found` says whether the file said so or nobody did. */
+    let mut m = J::obj();
+    m.bool("found", found)
+        .bool("setObjNormal", cfg_get(&text, "Shaders", "auto use object normal maps").is_some())
+        .bool("objectNormal", cfg_bool(&text, "Shaders", "auto use object normal maps", false))
+        .bool("objectSpecular", cfg_bool(&text, "Shaders", "auto use object specular maps", false))
+        .bool("terrainNormal", cfg_bool(&text, "Shaders", "auto use terrain normal maps", false))
+        .bool("terrainSpecular", cfg_bool(&text, "Shaders", "auto use terrain specular maps", false))
+        .str("normalPattern", cfg_get(&text, "Shaders", "normal map pattern").map(str::trim).unwrap_or("_n"))
+        .str("normalHeightPattern", cfg_get(&text, "Shaders", "normal height map pattern").map(str::trim).unwrap_or("_nh"))
+        .str("specularPattern", cfg_get(&text, "Shaders", "specular map pattern").map(str::trim).unwrap_or("_spec"))
+        .str("terrainSpecularPattern", cfg_get(&text, "Shaders", "terrain specular map pattern").map(str::trim).unwrap_or("_diffusespec"));
+    j.raw("maps", &m.done());
     let mut fog = J::obj();
     fog.bool("useDistantFog", cfg_bool(&text, "Fog", "use distant fog", false))
         .num("viewingDistance", cfg_f32(&text, "Camera", "viewing distance", 7168.0) as f64)

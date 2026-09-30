@@ -382,6 +382,14 @@ pub fn mesh_bytes_all(
             }
         }
     }
+    /* Wraithguard: the gloss maps (slot 3), by part - a count, then per entry the part's
+       index and the texture's name. After the environment maps. */
+    let gloss: Vec<(usize, &crate::nif::DrawPart)> = parts.iter().enumerate().filter(|(_, p)| !p.gloss_tex.is_empty()).collect();
+    put_u32(&mut o, gloss.len() as u32);
+    for (i, p) in gloss {
+        put_u32(&mut o, i as u32);
+        put_str(&mut o, &p.gloss_tex);
+    }
     o
 }
 

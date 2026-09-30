@@ -99,8 +99,11 @@ const CellData={
    *  cache key that would have handed a room to the next caller asking for (0, 0). */
   async loadCell(target){
     const interior = target.kind==='int';
-    const key = interior? 'i:'+String(target.name||'').toLowerCase()
-                        : target.x+','+target.y;
+    /* Wraithguard: the review and landscape tools (48_wg_tools.js) ask for a cell with a
+       mod left out, marked for a mod, or on merged ground - each its own entry here. */
+    const rv=(typeof WgTools==='object')? WgTools.cellArgs() : {};
+    const key = (interior? 'i:'+String(target.name||'').toLowerCase()
+                         : target.x+','+target.y) + (rv.sig? '|'+rv.sig : '');
     if(this.cache.has(key)) return this.cache.get(key);
     /* Round 18bd (F3): which world this read belongs to, taken before the await.
        A cell load in flight when a different install is connected used to be filed
@@ -114,8 +117,8 @@ const CellData={
        read made wholly inside one. */
     const world=(typeof worldToken==='function')? worldToken() : null;
     const d = interior
-      ? await Engine.call('interior_data',{name:String(target.name||'')})
-      : await Engine.call('cell_data',{gx:target.x|0, gy:target.y|0});
+      ? await Engine.call('interior_data',{name:String(target.name||''), review:rv.review||'', without:!!rv.without})
+      : await Engine.call('cell_data',{gx:target.x|0, gy:target.y|0, review:rv.review||'', without:!!rv.without, land:rv.land||''});
 
     /* Still the world this read was asked of? Everything below files something in
        page-wide state — the LTEX table, the model, light and actor maps, the cache — and
@@ -185,7 +188,12 @@ const CellData={
                             // Round 17y: where a door leads - {pos, rot, cell} - or absent.
                             door:r.door||null,
                             // Wraithguard: grass from a `groundcover=` plugin.
-                            gc:!!r.gc})),
+                            gc:!!r.gc,
+                            // Wraithguard: its review mark, every plugin that supplied a
+                            // version, and how far the load order moved it.
+                            mark:r.mark||'', hist:r.hist||null, moved:+r.moved||0})),
+      // Wraithguard: who edits this cell's ground, and the merged-lands answer.
+      landEditors: d.landEditors||[], landMerged: d.landMerged||null, reviewed:!!d.reviewed,
       // The alpha maps, built against every landscape in the load order — including
       // the neighbours this cell blends into, which the page could never see.
       layers: d.hasLand? (d.layers||[]).map(unpackLayer) : null,

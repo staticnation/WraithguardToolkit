@@ -9,6 +9,8 @@
 //!   in the toolkit's native session), and plugins read and written for wraithguard/esp.
 //! - `land`: the numeric core of Merged Lands (`wraithguard/land/`): the relative
 //!   grids, the per-vertex merge, the slope limiter, normals and height decoding.
+//! - `merge`: whole-plugin merging, greatness7's merge_to_master (vendored) called as a
+//!   library (was the merge in `wraithguard/merge/`).
 //! - `nif`: mesh summaries, the mesh viewer's block panel and field edits (was
 //!   wraithguard/nif's reader, geometry and editor).
 
@@ -42,6 +44,7 @@ pub mod esp;
 pub mod img;
 pub mod land;
 pub mod lint;
+pub mod merge;
 pub mod nif;
 
 /// The extension module. `gil_used = false`: nothing here relies on the GIL
@@ -57,5 +60,6 @@ fn wraithguard_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     land::register(m)?;
     img::register(m)?;
     lint::register(m)?;
+    merge::register(m)?;
     Ok(())
 }

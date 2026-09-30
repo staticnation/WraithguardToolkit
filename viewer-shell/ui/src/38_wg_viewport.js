@@ -47,7 +47,7 @@ const WgViewport={
     // Normal and specular maps in cells: read with the meshes from now on, and the meshes
     // already read are read again, so the scene has them at once.
     const nm=$('#setNrmMaps');
-    if(nm) nm.onchange=()=>{ this.setCellNormalMaps(nm.checked); this.touch(); };
+    if(nm) nm.onchange=()=>{ App._nrmChosen=true; this.setCellNormalMaps(nm.checked); this.touch(); };
     const fc=$('#setFpsCap');
     if(fc) fc.onchange=()=>{ if(App.R){ App.R.opts.fpsCap=+fc.value||0; App.R.dirty=true; } this.touch(); };
     // Ambient occlusion's mode: SSAO or SSGI, one or the other (29_ssao.js).
@@ -76,6 +76,18 @@ const WgViewport={
 
   touch(){ if(typeof PrevSettings==='object') PrevSettings.touch(); },
 
+  /** Wraithguard: cells take the normal and specular maps as the setup's OpenMW does -
+      its settings.cfg's `auto use object normal maps` / `... specular maps` - and when
+      the file does not say, they are on (a setup that ships the maps wants them seen).
+      Until the switch is touched; then the profile remembers the choice. */
+  installMaps(){
+    if(App._nrmChosen) return;
+    const m=(typeof Sky==='object' && Sky.data && Sky.data.renderer && Sky.data.renderer.maps) || null;
+    const on = (m && m.found && m.setObjNormal)? !!(m.objectNormal || m.objectSpecular) : true;
+    if(on!==!!App.cellNormalMaps) this.setCellNormalMaps(on);
+    const nm=$('#setNrmMaps'); if(nm) nm.checked=!!App.cellNormalMaps;
+  },
+
   /** The two values, for the viewer profile. */
   save(){
     const o=(App.R&&App.R.opts)||{};
@@ -84,7 +96,11 @@ const WgViewport={
     return [['zoom_cursor',o.zoomToCursor!==false], ['fps_cap',Math.max(0,+o.fpsCap||0)],
             ['ao_mode',o.ssgi? 'ssgi' : 'ssao'],
             ['cov_heat', typeof WgCoverage==='object'? !!WgCoverage.on : true],
-            ['normal_maps', !!App.cellNormalMaps]];
+            ['cov_mode', typeof WgCoverage==='object'? String(WgCoverage.mode==='plugin'? 'mods' : WgCoverage.mode) : 'mods'],
+            // `normal_maps_cells`, not the first build's `normal_maps`: that one saved
+            // `false` into profiles while the switch defaulted off, and is ignored now that
+            // cells follow the setup (installMaps below).
+            ...(App._nrmChosen? [['normal_maps_cells', !!App.cellNormalMaps]] : [])];
   },
 
   /** Back from the viewer profile. */
@@ -94,7 +110,8 @@ const WgViewport={
     if(V.fps_cap!=null && App.R) App.R.opts.fpsCap=Math.max(0,+V.fps_cap||0);
     if(V.ao_mode!=null && App.R) App.R.opts.ssgi=String(V.ao_mode)==='ssgi';
     if(V.cov_heat!=null && typeof WgCoverage==='object') WgCoverage.on=!!V.cov_heat;
-    if(V.normal_maps!=null) this.setCellNormalMaps(!!V.normal_maps);
+    if(V.cov_mode!=null && typeof WgCoverage==='object' && ['mods','conflicts','land'].includes(String(V.cov_mode))) WgCoverage.mode=String(V.cov_mode);
+    if(V.normal_maps_cells!=null){ App._nrmChosen=true; this.setCellNormalMaps(!!V.normal_maps_cells); }
     { const nm=$('#setNrmMaps'); if(nm) nm.checked=!!App.cellNormalMaps; }
     const o=(App.R&&App.R.opts)||{};
     const am=$('#p_aomode'); if(am) am.value=o.ssgi? 'ssgi' : 'ssao';

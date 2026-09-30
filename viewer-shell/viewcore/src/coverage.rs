@@ -95,6 +95,12 @@ pub struct Layer {
 /// rest blend over it. Only the cell's own sub-cells count towards that — a texture
 /// that merely bleeds in from next door must not become the base.
 pub fn layers(world: &World, land: &Land) -> Vec<Layer> {
+    layers_with(|gi, gj| texture_at(world, land, gi, gj).unwrap_or("").to_string())
+}
+
+/// [`layers`], with the texture at each ring coordinate from `at` - the merged-lands
+/// preview's own cell, with the world's neighbours round it.
+pub fn layers_with(at: impl Fn(i32, i32) -> String) -> Vec<Layer> {
     let mut ids: Vec<String> = Vec::new();
     let mut masks: Vec<Vec<u8>> = Vec::new();
     let mut counts: Vec<u32> = Vec::new();
@@ -103,7 +109,7 @@ pub fn layers(world: &World, land: &Land) -> Vec<Layer> {
     for j in 0..P {
         for i in 0..P {
             let (gi, gj) = (i as i32 - 1, j as i32 - 1);
-            let id = texture_at(world, land, gi, gj).unwrap_or("").to_string();
+            let id = at(gi, gj);
             let k = match ids.iter().position(|x| *x == id) {
                 Some(k) => k,
                 None => {

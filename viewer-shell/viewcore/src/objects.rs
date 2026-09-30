@@ -1,30 +1,11 @@
-//! Scattering a reference by id — round 18av.
+//! Object definitions by id, for the world the viewer draws.
 //!
-//! Robin: "I want to be able to scatter a reference based on ID (which means an existing
-//! thing from a master). Make it a picker that searches through all references from my
-//! load order of the categories: Static, Activator, Creature, Leveled Creature. This is to
-//! help with populating large landmasses, and I want to be able to populate with creatures
-//! too."
-//!
-//! A card can name an object id instead of a mesh (`Slot::id`; Groundcover Generator's
-//! `sID`). A rule with such a card places *references to that record* rather than to a
-//! `GRS_` static of its own — and since a creature or an activator has to be loaded by
-//! the game to mean anything, those references go into a **regular** plugin, apart from
-//! the groundcover one, with the masters it needs. This module owns the four questions
-//! that raises:
-//!
-//! - **which records exist** — every STAT, ACTI, CREA and LEVC across the load order,
-//!   with the plugins that define each ([`ObjectDef`], indexed by [`World::load_with`]);
-//! - **where a reference comes from** — a record an `.esm` defines is had through a
-//!   master; one only an `.esp` defines cannot be (a plugin cannot master an `.esp`), so
-//!   the record is **copied**, byte for byte and under its own id, into the plugin
-//!   ([`plan`]);
-//! - **what the copy drags along** — the script, the inventory, the spells, the leveled
-//!   list's entries, an item's enchantment and body parts, a creature's sound generators:
-//!   the dependency closure, copied too when asked ([`deps_of`], [`plan`]);
-//! - **the masters** — `Morrowind.esm`, `Tribunal.esm` and `Bloodmoon.esm` always, when
-//!   the load order has them (Robin), plus any other `.esm` that defines a record the
-//!   plugin refers to.
+//! Every STAT, ACTI, CREA and LEVC (and the other placeable records) across the load
+//! order, read into an [`ObjectDef`] when [`World::load_with`](crate::world::World)
+//! merges the plugins, so a placed reference can be drawn with its model; leveled
+//! creature lists resolve to a model through [`resolve_leveled`]. [`record_id`] names a
+//! record by its id. (The module came from Gardenfell, where it also planned copying
+//! records into an exported plugin; that went with the export.)
 
 use std::collections::{HashMap, HashSet};
 
@@ -168,19 +149,6 @@ pub fn resolve_leveled(objects: &mut HashMap<String, ObjectDef>) {
     }
 }
 
-/// Where a reference's record comes from, as the export dialogue says it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Source {
-    /// Defined by these masters (load-order indices): the plugin names the last of them
-    /// and needs no copy.
-    Master(Vec<usize>),
-    /// Defined only by these `.esp` files: one of them is copied from.
-    Copy(Vec<usize>),
-    /// The load order no longer defines it — a card naming a record that went away.
-    Missing,
-}
-
-
 /* ---- records, by id, inside one plugin file ---------------------------------------- */
 
 /// A record's id — NAME on nearly everything; a script keeps its name in SCHD's first
@@ -204,64 +172,3 @@ pub fn record_id(tag: Tag, body: &[u8]) -> Option<String> {
     }
     None
 }
-
-
-
-
-/* ---- the plan ------------------------------------------------------------------------ */
-
-/// One record the objects plugin carries a copy of.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Copied {
-    pub id: String,
-    pub tag: String,
-    /// The plugin it was copied from, by load-order index.
-    pub from: usize,
-    /// Whether it was asked for, or came along as a dependency of one that was.
-    pub dependency: bool,
-    /// The picked ids this record is carried for (lowercased): itself, or every record it
-    /// is a dependency of. A plugin that places none of them leaves the record out.
-    ///
-    /// Round 18bc (A5): a list rather than one id. Two cards naming two creatures from
-    /// one `.esp` that share a script got the script copied once, tagged with the *first*
-    /// creature — so in a split export a file placing only the second creature filtered
-    /// the script out, and defined a creature whose `SCRI` named a script nothing
-    /// provided. The record is still carried once, because two records with one id is the
-    /// conflict this module exists to avoid; it is simply filed under both.
-    pub roots: Vec<String>,
-}
-
-/// One record the plan carries — its bytes, verbatim, and the picked ids it belongs to.
-#[derive(Clone, Debug)]
-pub struct PlanRecord {
-    pub bytes: Vec<u8>,
-    /// See `Copied::roots`.
-    pub roots: Vec<String>,
-}
-
-/// A dependency the plan could not satisfy: nothing in the load order defines it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Unmet {
-    pub id: String,
-    pub needed_by: String,
-}
-
-/// What the objects plugin is written with: its masters (name and byte size, in load
-/// order), the raw records to carry, and the account of them.
-///
-/// Built once for a run and shared by every plugin it writes; each plugin takes the
-/// records whose `root` it places (`for_roots`), so a region that places none of the
-/// copied creatures redefines nothing. The masters are the run's, whole: the three
-/// vanilla ones always, and Robin's rule for the rest is "any other that defines the
-/// record" - a file naming a master it did not strictly need loads all the same.
-#[derive(Clone, Debug, Default)]
-pub struct ObjectsPlan {
-    pub masters: Vec<(String, u64)>,
-    pub records: Vec<PlanRecord>,
-    pub copied: Vec<Copied>,
-    pub unmet: Vec<Unmet>,
-}
-
-impl ObjectsPlan {
-}
-

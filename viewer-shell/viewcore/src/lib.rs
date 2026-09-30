@@ -5,16 +5,21 @@
 //! generation, scatter, painting and export removed: the viewer displays a setup, it
 //! does not generate anything.
 
+pub mod bcx;
 pub mod bsa;
 pub mod coverage;
 pub mod esp;
 pub mod img;
+pub mod inspect;
 pub mod json;
 pub mod land;
 pub mod lang;
 pub mod layout;
 pub mod mge;
+pub mod markers;
+pub mod mland;
 pub mod nif;
+pub mod npc;
 pub mod objects;
 pub mod plugins;
 pub mod pool;
@@ -22,7 +27,9 @@ pub mod preview;
 pub mod profiles;
 pub mod refkey;
 pub mod renderer;
+pub mod review;
 pub mod toml;
+pub mod usage;
 pub mod vfs;
 pub mod weather;
 pub mod world;

@@ -9,3 +9,8 @@ publish = false
 
 [dependencies]
 viewcore = { path = "../viewcore" }
+
+# tes3 from our fork, as viewcore has it (see native/Cargo.toml).
+[patch."https://github.com/Greatness7/tes3"]
+tes3 = { git = "https://github.com/staticnation/tes3" }
+bytes_io = { git = "https://github.com/staticnation/tes3" }

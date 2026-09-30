@@ -66,7 +66,13 @@
      same separable filter with one more clear.
 
    The whole pass is off unless `opts.shadows` is on, and the switch is off unless the
-   install says the game has them on (`Sky.installShadows`). Nothing here writes to any
+   install says the game has them on (`Sky.installShadows`) - on a MoMW setup, which is
+   OpenMW, that is settings.cfg's [Shadows] enable shadows, and the map's size its shadow
+   map resolution unless the Preview's Shadow detail names one (Wraithguard: an OpenMW
+   setup has no MGE XE settings to take either from).
+
+   Wraithguard: an additive draw - a flame, a glow - is never darkened, as MGE skips
+   every additive batch when it lays its shadows over the frame (gdnShade, SKY_GLSL). Nothing here writes to any
    file and nothing reads the plugin state.
 
    (No backticks inside the shader strings: template literals.)
@@ -134,12 +140,14 @@ void main(){
 }`;
 
 Object.assign(Renderer.prototype,{
-  /** The map's size in texels, one cascade square. From the install when it said
-   *  anything (`renderer.shadows.resolution`, MGE's own setting), clamped to what a
-   *  texture can be here. */
+  /** The map's size in texels, one cascade square. The Preview's Shadow detail when it
+   *  names a size; otherwise the install's (`renderer.shadows.resolution` - on a MoMW
+   *  setup, OpenMW's own [Shadows] shadow map resolution), clamped to what a texture can
+   *  be here. */
   shadowRes(){
     const s=(typeof Sky==='object' && Sky.installShadows)? Sky.installShadows() : null;
-    let r=(s && isFinite(s.resolution) && s.resolution>0)? +s.resolution : SHADOW_RES_DEFAULT;
+    const want=+this.opts.shadowRes||0;
+    let r=want>0? want : (s && isFinite(s.resolution) && s.resolution>0)? +s.resolution : SHADOW_RES_DEFAULT;
     if(this._shadowResTest) r=this._shadowResTest;   // the tests shrink it to see the artefacts
     r=Math.max(SHADOW_RES_MIN, Math.min(SHADOW_RES_MAX, Math.round(r)));
     const max=this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE)||2048;
@@ -501,7 +509,11 @@ Object.assign(Renderer.prototype,{
        a shadow from being drawn at full strength under a sun the weather has half
        hidden. No atmosphere, no weather: the sun is whole. */
     const vis=(scat && now && now.sunVis!=null)? now.sunVis : 1;
-    this._shadowNow={vp, rcp:1/res, sunK:0.25+0.75*vis, res, mats};
+    /* Wraithguard: how far the shadows reach - MGE's fogMWScalar, Morrowind's own linear
+       near fog (nearFogStart .. nearFogRange), which is the pair its SSAO fades by too
+       (ssaoFade: `adjustFog`'s fit, the Fog density slider applied). */
+    const nf=this.ssaoFade? this.ssaoFade(now,scat) : [1280, 7168];
+    this._shadowNow={vp, rcp:1/res, sunK:0.25+0.75*vis, res, mats, fog:nf};
     this.shadowDrawn=true;
     if(this._passLog) this._passLog.push('shadow:'+res+':'+drawn);
     return true;

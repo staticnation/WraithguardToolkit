@@ -397,6 +397,7 @@ fn fill(rec: &mut Records, i: usize, o: &NiType, ix: &impl Fn(NiKey) -> i32) {
                     }
                     1 => m.dark_source[i] = Some((src, uv_set)),
                     2 => m.detail_source[i] = Some((src, uv_set)),
+                    3 => m.gloss_source[i] = Some((src, uv_set)),
                     4 => m.glow_source[i] = Some((src, uv_set)),
                     5 => {
                         if let TextureMap::BumpMap(b) = map {

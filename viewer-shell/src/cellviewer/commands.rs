@@ -736,12 +736,31 @@ fn assets(state: State) -> Result<String, String> {
 /// boundary, which simply kills the webview. The world is already parsed on this
 /// side, so a cell costs one lookup.
 #[tauri::command(async)]
-fn cell_data(gx: i32, gy: i32, state: State) -> Result<String, String> {
+fn cell_data(
+    gx: i32,
+    gy: i32,
+    review: Option<String>,
+    without: Option<bool>,
+    land_mode: Option<String>,
+    state: State,
+) -> Result<String, String> {
     // A cell load asks for one of these per cell and each writes a hundred kilobytes of
     // heights; done under the lock they queue behind every scatter. See `snapshot`.
     let w = { state.app().world.clone() }
         .ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let land = w.lands.get(&(gx, gy));
+    /* Wraithguard: the merged-lands preview - this cell's ground as Merged Lands would
+       build it under `land_mode` (`mland.rs`), when two or more plugins edit it. */
+    let merged = land_mode
+        .as_deref()
+        .and_then(viewcore::mland::Strategy::parse)
+        .and_then(|s| viewcore::mland::merge(&w, (gx, gy), s));
+    let land = merged.as_ref().map(|m| &m.land).or_else(|| w.lands.get(&(gx, gy)));
+    let tex_id = |v: u16, plugin: i32| -> Option<String> {
+        match &merged {
+            Some(m) => Some(if v == 0 { viewcore::world::DEFAULT_LTEX.to_string() } else { m.textures.get(v as usize - 1)?.clone() }),
+            None => w.ltex_for(v, plugin).map(|s| s.to_string()),
+        }
+    };
     let cell = w.cells.get(&(gx, gy));
 
     let mut heights = String::from("[");
@@ -762,14 +781,14 @@ fn cell_data(gx: i32, gy: i32, state: State) -> Result<String, String> {
             vtex.push_str(&v.to_string());
             if *v != 0 && !seen.contains(v) {
                 seen.push(*v);
-                if let Some(id) = w.ltex_for(*v, l.plugin) {
+                if let Some(id) = tex_id(*v, l.plugin) {
                     if ltex.len() > 1 {
                         ltex.push(',');
                     }
                     // keyed by v-1, which is what the page's resolver looks up
                     ltex.push_str(&format!("\"{}\":", v - 1));
                     ltex.push('"');
-                    viewcore::json::escape_into(id, &mut ltex);
+                    viewcore::json::escape_into(&id, &mut ltex);
                     ltex.push('"');
                 }
             }
@@ -825,13 +844,47 @@ fn cell_data(gx: i32, gy: i32, state: State) -> Result<String, String> {
 
        Each mask is 18x18 bits, hex: a texel carries exactly one texture, so a layer
        is 41 bytes on the wire whatever the cell. */
-    let layers = match land {
-        Some(l) => viewcore::coverage::layers_json(&viewcore::coverage::layers(&w, l)),
-        None => "[]".to_string(),
+    let layers = match (land, &merged) {
+        (Some(_), Some(m)) => viewcore::coverage::layers_json(&viewcore::coverage::layers_with(|gi, gj| {
+            if (0..16).contains(&gi) && (0..16).contains(&gj) {
+                viewcore::mland::texture_of(m, gi as usize, gj as usize).to_string()
+            } else {
+                viewcore::coverage::texture_at(&w, &m.land, gi, gj).unwrap_or("").to_string()
+            }
+        })),
+        (Some(l), None) => viewcore::coverage::layers_json(&viewcore::coverage::layers(&w, l)),
+        _ => "[]".to_string(),
     };
 
     // References, each already carrying the mesh it draws.
-    let (refs, models, actors, lights) = refs_json(&w, cell.map(|c| &c.refs), false);
+    let reviewed = cell.and_then(|c| {
+        review_items(&w, &c.refs, &c.gone, review.as_deref(), without.unwrap_or(false), &|p| viewcore::review::in_grid(p, gx, gy))
+    });
+    let (refs, models, actors, lights) = match &reviewed {
+        Some(items) => refs_json_marked(&w, items, false),
+        None => refs_json(&w, cell.map(|c| &c.refs), false),
+    };
+    /* Wraithguard: who edits this cell's ground, in load order, and - in the merged-lands
+       preview - where the edits met. */
+    let editors: Vec<String> = w
+        .land_edits
+        .get(&(gx, gy))
+        .map(|v| v.iter().filter_map(|(pi, _, _)| w.plugins.get(*pi).cloned()).collect())
+        .unwrap_or_default();
+    let land_merged = match &merged {
+        Some(m) => {
+            let list = |v: &Vec<u32>| v.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            format!(
+                "{{\"strategy\":\"{}\",\"contested\":[{}],\"major\":[{}],\"mergeable\":{},\"editors\":{}}}",
+                land_mode.as_deref().unwrap_or("").to_ascii_lowercase(),
+                list(&m.contested),
+                list(&m.major),
+                m.mergeable,
+                string_array(&m.editors.iter().filter_map(|i| w.plugins.get(*i).cloned()).collect::<Vec<_>>())
+            )
+        }
+        None => "null".to_string(),
+    };
 
     /* Who put what here. Every surviving reference remembers which plugin supplied it,
        and the cell remembers what the rest of the order did on the way — replaced,
@@ -860,7 +913,10 @@ fn cell_data(gx: i32, gy: i32, state: State) -> Result<String, String> {
         .raw("models", &models)
         .raw("actors", &actors)
         .raw("lights", &lights)
-        .raw("prov", &prov);
+        .raw("prov", &prov)
+        .raw("landEditors", &string_array(&editors))
+        .raw("landMerged", &land_merged)
+        .bool("reviewed", reviewed.is_some());
     Ok(out.done())
 }
 
@@ -881,6 +937,34 @@ fn refs_json(
     src: Option<&HashMap<viewcore::esp::RefNum, viewcore::esp::CellRef>>,
     indoors: bool,
 ) -> (String, String, String, String) {
+    let items: Vec<(viewcore::esp::CellRef, viewcore::review::Mark)> = src
+        .map(|m| m.values().map(|r| (r.clone(), viewcore::review::Mark::None)).collect())
+        .unwrap_or_default();
+    refs_json_marked(w, &items, indoors)
+}
+
+/// Wraithguard: which references to send, for the cell viewer's "review a mod" - all of
+/// them marked for plugin `p` (`review::with`), or the cell with `p` left out
+/// (`review::without`). `None` when no plugin is named, or it is not in the load order.
+fn review_items(
+    w: &viewcore::world::World,
+    refs: &HashMap<viewcore::esp::RefNum, viewcore::esp::CellRef>,
+    gone: &[viewcore::world::Gone],
+    review: Option<&str>,
+    without: bool,
+    here: &dyn Fn(&[f32; 3]) -> bool,
+) -> Option<Vec<(viewcore::esp::CellRef, viewcore::review::Mark)>> {
+    let name = review.filter(|s| !s.is_empty())?;
+    let p = w.plugins.iter().position(|n| n.eq_ignore_ascii_case(name))? as i32;
+    Some(if without { viewcore::review::without(refs, gone, p, here) } else { viewcore::review::with(refs, p) })
+}
+
+/// [`refs_json`] over references already chosen, each with its review mark.
+fn refs_json_marked(
+    w: &viewcore::world::World,
+    items: &[(viewcore::esp::CellRef, viewcore::review::Mark)],
+    indoors: bool,
+) -> (String, String, String, String) {
     let mut refs = String::from("[");
     let mut models = String::from("{");
     /* Round 17m: the LIGH records among the objects in this cell, so the preview can
@@ -896,13 +980,21 @@ fn refs_json(
     let mut first = true;
     let mut first_model = true;
     let mut first_actor = true;
-    if let Some(list) = src {
-        let mut named: Vec<&viewcore::esp::CellRef> = list.values().collect();
-        named.sort_by_key(|r| (r.num.content_file, r.num.index));
-        for r in named {
+    {
+        let mut named: Vec<&(viewcore::esp::CellRef, viewcore::review::Mark)> = items.iter().collect();
+        named.sort_by_key(|(r, _)| (r.num.content_file, r.num.index));
+        for (r, mark) in named {
             let key = r.id.to_ascii_lowercase();
             let actor = w.actors.get(&key);
-            if actor.is_none() && !w.models.contains_key(&key) {
+            /* Wraithguard: a leveled creature list placed in the cell - a spawn point. Sent
+               with the actors, drawn with the model `resolve_leveled` gave it (the list's one
+               mesh, or the Construction Set's creature marker). */
+            let lev = if actor.is_none() {
+                w.objects.get(&key).filter(|o| o.kind == Some(viewcore::objects::ObjKind::LeveledCreature))
+            } else {
+                None
+            };
+            if actor.is_none() && lev.is_none() && !w.models.contains_key(&key) {
                 continue;
             }
             if !first {
@@ -933,6 +1025,24 @@ fn refs_json(
             ));
             viewcore::json::escape_into(&rkey, &mut refs);
             refs.push('"');
+            /* Wraithguard: for reviewing a cell's conflicts - how this reference relates to
+               the plugin under review, every plugin that supplied a version of it, and how
+               far the load order has moved it from where its first plugin put it. */
+            if *mark != viewcore::review::Mark::None {
+                refs.push_str(",\"mark\":\"");
+                refs.push_str(mark.name());
+                refs.push('"');
+            }
+            if r.touched.len() > 1 {
+                refs.push_str(&format!(
+                    ",\"hist\":[{}]",
+                    r.touched.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(",")
+                ));
+                let d = viewcore::review::moved_by(r);
+                if d > 0.5 {
+                    refs.push_str(&format!(",\"moved\":{:.1}", d));
+                }
+            }
             // Wraithguard: grass from a `groundcover=` plugin.
             if usize::try_from(r.plugin).map(|p| w.groundcover.contains(&p)).unwrap_or(false) {
                 refs.push_str(",\"gc\":1");
@@ -949,6 +1059,20 @@ fn refs_json(
                 refs.push_str("\"}");
             }
             refs.push('}');
+            if let Some(o) = lev {
+                if !actors.contains(&format!("\"{}\":", key)) {
+                    if !first_actor {
+                        actors.push(',');
+                    }
+                    first_actor = false;
+                    actors.push('"');
+                    viewcore::json::escape_into(&key, &mut actors);
+                    actors.push_str("\":{\"kind\":\"lev\",\"model\":\"");
+                    viewcore::json::escape_into(&o.model, &mut actors);
+                    actors.push_str("\",\"twin\":null,\"health\":null,\"persistent\":false,\"corpse\":false}");
+                }
+                continue;
+            }
             if let Some(a) = actor {
                 if !first_actor {
                     actors.push(',');
@@ -979,6 +1103,10 @@ fn refs_json(
                 actors.push_str(if a.persistent { "true" } else { "false" });
                 actors.push_str(",\"corpse\":");
                 actors.push_str(if a.corpse() { "true" } else { "false" });
+                // Wraithguard: AI Hello, for the greeting-distance overlay.
+                if let Some(h) = w.hello.get(&key) {
+                    actors.push_str(&format!(",\"hello\":{}", h));
+                }
                 actors.push('}');
                 continue;
             }
@@ -1088,12 +1216,16 @@ fn plugin_name(w: &viewcore::world::World, ix: Option<usize>) -> &str {
 /// one of them arrived as (0, 0) and quietly loaded whichever exterior sits at the origin.
 /// Matched without regard to case, like every other name in the tool (§50).
 #[tauri::command(async)]
-fn interior_data(name: String, state: State) -> Result<String, String> {
+fn interior_data(name: String, review: Option<String>, without: Option<bool>, state: State) -> Result<String, String> {
     let w = { state.app().world.clone() }
         .ok_or_else(|| viewcore::msg!("eng.no_install"))?;
     let room = w.room(&name).ok_or_else(|| viewcore::msg!("eng.no_interior", name = name))?;
 
-    let (refs, models, actors, lights) = refs_json(&w, Some(&room.refs), !room.quasi);
+    let reviewed = review_items(&w, &room.refs, &room.gone, review.as_deref(), without.unwrap_or(false), &|_| true);
+    let (refs, models, actors, lights) = match &reviewed {
+        Some(items) => refs_json_marked(&w, items, !room.quasi),
+        None => refs_json(&w, Some(&room.refs), !room.quasi),
+    };
     let prov = prov_json(&w, Some((&room.refs, &room.prov)));
 
     let mut out = J::obj();
@@ -1150,7 +1282,10 @@ fn interior_data(name: String, state: State) -> Result<String, String> {
         .raw("models", &models)
         .raw("actors", &actors)
         .raw("lights", &lights)
-        .raw("prov", &prov);
+        .raw("prov", &prov)
+        .raw("landEditors", "[]")
+        .raw("landMerged", "null")
+        .bool("reviewed", reviewed.is_some());
     Ok(out.done())
 }
 
@@ -1515,7 +1650,7 @@ fn read_asset(path: String, state: State) -> Result<tauri::ipc::Response, String
 /// the file's own pixels and, at the viewport's size, all of them that can be seen;
 /// the two levels dropped were four fifths of the bytes. Textures without a mip chain
 /// are sent whole: there is nothing smaller to send.
-fn texture_payload(v: &Vfs, path: &str, bc: bool, max_size: u32) -> Result<Vec<u8>, String> {
+fn texture_payload(v: &Vfs, path: &str, bc: bool, extra: viewcore::img::Extra, max_size: u32) -> Result<Vec<u8>, String> {
     let n = viewcore::vfs::norm(path);
     let p = v
         .resolve_texture(&n)
@@ -1524,7 +1659,7 @@ fn texture_payload(v: &Vfs, path: &str, bc: bool, max_size: u32) -> Result<Vec<u
     let bytes = v.load(&p).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = path))?;
     // Where it came from, for the report: a decode error names the file that failed.
     let from = p.ident(v);
-    let mut t = viewcore::img::read(&bytes, &n, bc).map_err(|e| format!("{e} — {from}"))?;
+    let mut t = viewcore::img::read_with(&bytes, &n, bc, extra).map_err(|e| format!("{e} — {from}"))?;
     if max_size > 0 && t.levels.len() > 1 {
         while t.levels.len() > 1 && t.levels[0].0.max(t.levels[0].1) > max_size {
             t.levels.remove(0);
@@ -1575,10 +1710,17 @@ fn texture_data(
     path: String,
     bc: Option<bool>,
     max_size: Option<u32>,
+    bcx: Option<Vec<String>>,
     state: State,
 ) -> Result<tauri::ipc::Response, String> {
     let v = vfs_of(&state)?;
-    Ok(tauri::ipc::Response::new(texture_payload(&v, &path, bc.unwrap_or(false), max_size.unwrap_or(0))?))
+    Ok(tauri::ipc::Response::new(texture_payload(&v, &path, bc.unwrap_or(false), extra_of(&bcx), max_size.unwrap_or(0))?))
+}
+
+/// Wraithguard: the block formats beyond S3TC the page said it can take (`bcx`).
+fn extra_of(bcx: &Option<Vec<String>>) -> viewcore::img::Extra {
+    let has = |n: &str| bcx.as_ref().is_some_and(|v| v.iter().any(|x| x == n));
+    viewcore::img::Extra { rgtc: has("rgtc"), bptc: has("bptc") }
 }
 
 /// One mesh, parsed and ready to draw.
@@ -1588,7 +1730,26 @@ fn texture_data(
 /// where a season of avoidance bugs came from. It now draws what the engine read.
 /// The bytes `mesh_data` answers with, and the textures the mesh names - the bundle
 /// (below) fetches those in the same call.
-fn mesh_payload(v: &Vfs, path: &str) -> Result<(Vec<u8>, Vec<String>), String> {
+fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str) -> Result<(Vec<u8>, Vec<String>), String> {
+    /* Wraithguard: an NPC, assembled from its skeleton, body parts and what it wears
+       (`viewcore::npc`). The page asks for it by `__npc/<id>`. */
+    if let Some((id, opts)) = viewcore::npc::npc_request(path) {
+        let w = w.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+        let a = viewcore::npc::assemble(&w.npc, v, id, opts)
+            .ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = path))?;
+        /* A carried torch's light rides where a lamp's does: its point as the attach
+           point, its colour and radius as the light under it (the page reads it for an
+           NPC as the LIGH record's light, 18_cellpreview.js). */
+        let (attach, light) = match a.light {
+            Some(l) => (Some(l.at), Some((l.colour, l.radius))),
+            None => (None, None),
+        };
+        return Ok(payload_of_parts(a.parts, None, attach, a.systems, light));
+    }
+    // Wraithguard: a Construction Set marker the viewer carries itself (`viewcore::markers`).
+    if let Some(bytes) = viewcore::markers::get(path).filter(|_| path.to_ascii_lowercase().starts_with(viewcore::markers::PREFIX)) {
+        return Ok(mesh_payload_of(bytes, None, None));
+    }
     /* The corpse stand-in has no file. An NPC is assembled from body parts at runtime,
        so there is nothing on disk to draw or to keep grass out of, and the engine
        builds a body-shaped slab instead. The viewport asks for it by the same name the
@@ -1641,7 +1802,18 @@ fn mesh_payload_of(
         Some((r, g)) => (r.parts, r.attach, r.systems, r.light, g),
         None => (Vec::new(), None, Vec::new(), None, None),
     };
-    let geom = geom.or(read_geom);
+    payload_of_parts(parts, geom.or(read_geom), attach, systems, light)
+}
+
+/// The payload from what a mesh read gave: the parts, collision, attach point, particle
+/// systems and light, and every texture they name.
+fn payload_of_parts(
+    parts: Vec<viewcore::nif::DrawPart>,
+    geom: Option<viewcore::nif::MeshGeom>,
+    attach: Option<[f32; 3]>,
+    systems: Vec<viewcore::nif::ParticleSystem>,
+    light: Option<([f32; 3], f32)>,
+) -> (Vec<u8>, Vec<String>) {
     let mut texs: Vec<String> = Vec::new();
     for part in &parts {
         if !part.tex.is_empty() && !texs.iter().any(|t| t == &part.tex) {
@@ -1659,7 +1831,7 @@ fn mesh_payload_of(
         /* Round 18dl: and the glow map, the decal, the environment map and its bump map -
            the page fetched the first two on its own, a trip per file after the bundle
            had answered; now everything a mesh names comes in the one answer. */
-        for t in [&part.glow_tex, &part.decal_tex, &part.env_tex, &part.bump_tex] {
+        for t in [&part.glow_tex, &part.decal_tex, &part.env_tex, &part.bump_tex, &part.gloss_tex] {
             if !t.is_empty() && !texs.iter().any(|x| x == t) {
                 texs.push(t.clone());
             }
@@ -1690,8 +1862,11 @@ fn kf_beside(v: &Vfs, path: &str) -> Option<viewcore::nif::KfSequence> {
 
 #[tauri::command(async)]
 fn mesh_data(path: String, state: State) -> Result<tauri::ipc::Response, String> {
-    let v = { state.app().vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))? };
-    Ok(tauri::ipc::Response::new(mesh_payload(&v, &path)?.0))
+    let (v, w) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.world.clone())
+    };
+    Ok(tauri::ipc::Response::new(mesh_payload(&v, w.as_deref(), &path)?.0))
 }
 
 /// Wraithguard's mesh viewer: a mesh's collision shape, for drawing over it.
@@ -1763,9 +1938,16 @@ fn assets_bundle(
     have: Vec<String>,
     bc: Option<bool>,
     max_size: Option<u32>,
+    bcx: Option<Vec<String>>,
+    maps: Option<Vec<String>>,
     state: State,
 ) -> Result<tauri::ipc::Response, String> {
-    let v = { state.app().vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))? };
+    let extra = extra_of(&bcx);
+    let maps = maps.unwrap_or_default();
+    let (v, w) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.world.clone())
+    };
     let bc = bc.unwrap_or(false);
     let max_size = max_size.unwrap_or(0);
     /* Round 18cr: the engine's own clock on the bundle, for the report's Loading line -
@@ -1773,7 +1955,7 @@ fn assets_bundle(
        through the shell, and the page's decoding. */
     let clock = std::time::Instant::now();
     let got: Vec<Result<(Vec<u8>, Vec<String>), String>> =
-        viewcore::pool::par_map(&meshes, |_, m| mesh_payload(&v, m));
+        viewcore::pool::par_map(&meshes, |_, m| mesh_payload(&v, w.as_deref(), m));
     // Every texture the meshes name that the page does not hold, once each.
     let have: std::collections::HashSet<String> = have.iter().map(|h| viewcore::vfs::norm(h)).collect();
     let mut want: Vec<String> = Vec::new();
@@ -1787,8 +1969,41 @@ fn assets_bundle(
             want.push(t.clone());
         }
     }
+    /* Wraithguard: and the maps beside them - `maps` is the suffixes the page reads
+       (`_nh`, `_n`, `_spec`, as the setup's OpenMW names them) - in the same bundle, the
+       way the textures themselves come, rather than one trip each after it. Named as the
+       page's own index names them: lower case, without `textures/`, the file's own
+       extension. */
+    if !maps.is_empty() {
+        let bases: Vec<String> = want.clone();
+        for t in bases {
+            let n = viewcore::vfs::norm(&t).to_ascii_lowercase();
+            let n = n.strip_prefix("textures/").unwrap_or(&n).to_string();
+            let stem = match n.rfind('.') {
+                Some(d) if !n[d..].contains('/') => n[..d].to_string(),
+                _ => n.clone(),
+            };
+            for suf in &maps {
+                let suf = suf.trim().to_ascii_lowercase();
+                if suf.is_empty() || stem.ends_with(&suf) {
+                    continue;
+                }
+                for ext in ["dds", "tga", "bmp", "png"] {
+                    let name = format!("{stem}{suf}.{ext}");
+                    if v.resolve(&format!("textures/{name}")).is_none() && v.resolve(&name).is_none() {
+                        continue;
+                    }
+                    let k = viewcore::vfs::norm(&name);
+                    if !have.contains(&k) && !have.contains(&format!("textures/{k}")) && seen.insert(k) {
+                        want.push(name);
+                    }
+                    break;
+                }
+            }
+        }
+    }
     let texs: Vec<Result<Vec<u8>, String>> =
-        viewcore::pool::par_map(&want, |_, t| texture_payload(&v, t, bc, max_size));
+        viewcore::pool::par_map(&want, |_, t| texture_payload(&v, t, bc, extra, max_size));
 
     let mut out: Vec<u8> = Vec::new();
     let put_str = |out: &mut Vec<u8>, s: &str| {
@@ -1852,24 +2067,27 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
             .map(|k| viewcore::refkey::key_text(&k).to_ascii_lowercase() == want)
             .unwrap_or(false)
     };
-    // The reference, and the cell it stands in.
-    let mut found: Option<(&viewcore::esp::CellRef, String)> = None;
+    // The reference, the cell it stands in, which cell that is for a plugin, and the
+    // cell's key in the conflict viewer (an interior's name; an exterior's, or its grid).
+    use viewcore::inspect::CellSel;
+    let mut found: Option<(&viewcore::esp::CellRef, String, CellSel, String)> = None;
     for (g, c) in &w.cells {
         if let Some(r) = c.refs.iter().find(|(n, _)| is_key(n)).map(|(_, r)| r) {
             let label = if c.name.is_empty() { format!("{}, {}", g.0, g.1) } else { format!("{} ({}, {})", c.name, g.0, g.1) };
-            found = Some((r, label));
+            let ck = if c.name.is_empty() { format!("({}, {})", g.0, g.1) } else { c.name.clone() };
+            found = Some((r, label, CellSel::Exterior(g.0, g.1), ck));
             break;
         }
     }
     if found.is_none() {
         for room in w.interiors.values() {
             if let Some(r) = room.refs.iter().find(|(n, _)| is_key(n)).map(|(_, r)| r) {
-                found = Some((r, room.name.clone()));
+                found = Some((r, room.name.clone(), CellSel::Interior(room.name.clone()), room.name.clone()));
                 break;
             }
         }
     }
-    let (r, cell) = found.ok_or_else(|| format!("no reference {key} in the loaded world"))?;
+    let (r, cell, cell_sel, cell_key) = found.ok_or_else(|| format!("no reference {key} in the loaded world"))?;
     let name = |i: i32| usize::try_from(i).ok().and_then(|i| w.plugins.get(i)).cloned().unwrap_or_default();
     let lid = r.id.to_ascii_lowercase();
 
@@ -1906,6 +2124,122 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
     if let Some(def) = w.objects.get(&lid) {
         o.str("name", &def.name);
     }
+    o.str("cellKey", &cell_key);
+    /* Wraithguard: the full help. The reference's own fields from the plugin that last
+       changed it, and the base record's from the plugin that last defines it - read from
+       the files now, as the world keeps only what drawing needs. */
+    let read = |ix: i32| usize::try_from(ix).ok().and_then(|i| w.plugin_paths.get(i)).and_then(|p| std::fs::read(p).ok());
+    if let Some(buf) = read(r.plugin) {
+        if let Some(d) = viewcore::inspect::ref_details(&buf, &cell_sel, r.num.index, &r.id) {
+            let mut j = J::obj();
+            let npc_name = |id: &str| w.npc.npcs.get(&id.to_ascii_lowercase()).map(|n| n.name.clone()).unwrap_or_default();
+            j.str("owner", &d.owner).str("ownerName", &npc_name(&d.owner)).str("ownerGlobal", &d.owner_global);
+            j.str("faction", &d.faction).str("soul", &d.soul).str("key", &d.key).str("trap", &d.trap);
+            let opt = |j: &mut J, k: &str, v: Option<f64>| {
+                if let Some(v) = v {
+                    j.num(k, v);
+                }
+            };
+            opt(&mut j, "rank", d.rank.map(f64::from));
+            opt(&mut j, "charge", d.charge.map(f64::from));
+            opt(&mut j, "uses", d.uses.map(f64::from));
+            opt(&mut j, "count", d.count.map(f64::from));
+            opt(&mut j, "lock", d.lock.map(f64::from));
+            j.bool("blocked", d.blocked);
+            o.raw("refData", &j.done());
+        }
+    }
+    let last_def = w.record_where.get(&lid).and_then(|v| v.last()).copied();
+    if let Some((p, tag)) = last_def {
+        if let Some(fields) = read(p as i32).and_then(|b| viewcore::inspect::record_fields(&b, tag, &r.id)) {
+            let b = viewcore::inspect::base_details(tag, &fields);
+            let mut j = J::obj();
+            j.str("tag", &tag_text(&tag)).str("name", &b.name).str("script", &b.script);
+            j.str("race", &b.race).str("class", &b.class).str("faction", &b.faction).bool("female", b.female);
+            if let Some(l) = b.level {
+                j.num("level", l as f64);
+            }
+            if let Some(c) = b.capacity {
+                j.num("capacity", c as f64);
+            }
+            /* The items' names, icons and meshes, and a leveled list's entries - read from
+               the plugins that define them, each plugin once (inspect::records_many). */
+            let lookup = |ids: &[String]| -> HashMap<String, (viewcore::esp::Tag, Vec<(viewcore::esp::Tag, Vec<u8>)>)> {
+                let mut by_plugin: HashMap<usize, std::collections::HashSet<String>> = HashMap::new();
+                for id in ids {
+                    let k = id.to_ascii_lowercase();
+                    if let Some(&(p, _)) = w.record_where.get(&k).and_then(|v| v.last()) {
+                        by_plugin.entry(p).or_default().insert(k);
+                    }
+                }
+                let mut out = HashMap::new();
+                for (p, want) in by_plugin {
+                    if let Some(buf) = read(p as i32) {
+                        out.extend(viewcore::inspect::records_many(&buf, &want));
+                    }
+                }
+                out
+            };
+            let mut ids: Vec<String> = b.items.iter().map(|(_, id)| id.clone()).collect();
+            if let Some(l) = &b.list {
+                ids.extend(l.entries.iter().map(|(_, id)| id.clone()));
+            }
+            let mut found = lookup(&ids);
+            // A leveled list's own entries, one level down.
+            let inner: Vec<String> = found
+                .values()
+                .filter(|(t, _)| t == b"LEVI" || t == b"LEVC")
+                .flat_map(|(_, f)| viewcore::inspect::leveled_list(f).entries.into_iter().map(|(_, id)| id))
+                .filter(|id| !found.contains_key(&id.to_ascii_lowercase()))
+                .collect();
+            found.extend(lookup(&inner));
+            let info = |id: &str| -> (String, viewcore::inspect::ItemInfo) {
+                match found.get(&id.to_ascii_lowercase()) {
+                    Some((t, f)) => (tag_text(t), viewcore::inspect::item_info(*t, f)),
+                    None => (String::new(), viewcore::inspect::ItemInfo::default()),
+                }
+            };
+            fn list_json(l: &viewcore::inspect::LeveledList, info: &dyn Fn(&str) -> (String, viewcore::inspect::ItemInfo)) -> String {
+                let rows: Vec<String> = l
+                    .entries
+                    .iter()
+                    .map(|(lv, id)| {
+                        let (tag, i) = info(id);
+                        let mut e = J::obj();
+                        e.num("level", *lv as f64).str("id", id).str("tag", &tag).str("name", &i.name).str("icon", &i.icon).str("model", &i.model);
+                        e.done()
+                    })
+                    .collect();
+                let mut j = J::obj();
+                j.raw("entries", &format!("[{}]", rows.join(","))).num("chanceNone", l.chance_none as f64).raw("flags", &string_array(&l.flags));
+                j.done()
+            }
+            let items: Vec<String> = b
+                .items
+                .iter()
+                .map(|(n, id)| {
+                    let (tag, i) = info(id);
+                    let mut it = J::obj();
+                    it.num("count", *n as f64).str("id", id).str("tag", &tag).str("name", &i.name).str("icon", &i.icon).str("model", &i.model);
+                    if let Some(l) = &i.list {
+                        it.raw("list", &list_json(l, &info));
+                    }
+                    it.done()
+                })
+                .collect();
+            j.raw("items", &format!("[{}]", items.join(",")));
+            if let Some(l) = &b.list {
+                j.raw("list", &list_json(l, &info));
+            }
+            if let Some(ai) = b.ai {
+                j.raw("ai", &format!("[{},{},{},{}]", ai[0], ai[1], ai[2], ai[3]));
+            }
+            j.raw("services", &string_array(&b.services)).raw("travel", &string_array(&b.travel));
+            j.raw("spells", &string_array(&b.spells));
+            j.raw("flags", &string_array(&b.flags));
+            o.raw("base", &j.done());
+        }
+    }
     // The mesh and its textures, and where each resolves in the setup.
     let mesh = model.filter(|m| !m.is_empty()).or_else(|| w.models.get(&lid).cloned()).unwrap_or_default();
     o.str("mesh", &mesh);
@@ -1913,7 +2247,7 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
         if !mesh.is_empty() {
             let src = v.resolve_mesh(&mesh).map(|l| l.ident(v)).unwrap_or_default();
             o.str("meshFrom", &src);
-            if let Ok((_, texs)) = mesh_payload(v, &mesh) {
+            if let Ok((_, texs)) = mesh_payload(v, Some(&w), &mesh) {
                 let rows: Vec<String> = texs
                     .iter()
                     .map(|t| {
@@ -1928,6 +2262,116 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
         }
     }
     Ok(o.done())
+}
+
+/// Wraithguard: an actor's dialogue across the load order - the topics it has lines of its
+/// own in (with how many, and from which plugins) and the quests those lines touch. Reads
+/// every plugin, so the inspector asks for it only when the user does.
+#[tauri::command(async)]
+fn ori_dialogue(id: String, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let bufs: Vec<Vec<u8>> = viewcore::pool::par_map(&w.plugin_paths, |_, p| std::fs::read(p).unwrap_or_default());
+    let views: Vec<&[u8]> = bufs.iter().map(|b| b.as_slice()).collect();
+    let (topics, quests) = viewcore::inspect::dialogue_of(&views, &id);
+    let rows: Vec<String> = topics
+        .iter()
+        .map(|t| {
+            let mut j = J::obj();
+            let names: Vec<&str> = t.plugins.iter().filter_map(|&i| w.plugins.get(i).map(String::as_str)).collect();
+            j.str("topic", &t.name).num("kind", t.kind as f64).num("lines", t.lines as f64).raw("plugins", &string_array(&names));
+            j.done()
+        })
+        .collect();
+    let mut o = J::obj();
+    o.raw("topics", &format!("[{}]", rows.join(","))).raw("quests", &string_array(&quests));
+    Ok(o.done())
+}
+
+/// Wraithguard: where a record can be seen - for the conflict viewer's "Show in Cell
+/// Preview". A CELL by its conflict key (an interior's name, an exterior's name or
+/// "(x, y)"); anything else by the first reference to it (interiors by name, then the
+/// exterior by grid, so the answer is the same every time), with how many there are.
+/// `{kind:"int"|"ext", name, x, y, key, pos, count}`.
+#[tauri::command(async)]
+fn find_record(tag: String, id: String, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let want = id.trim().to_ascii_lowercase();
+    let mut o = J::obj();
+    if tag.eq_ignore_ascii_case("CELL") {
+        if let Some(room) = w.interiors.get(&viewcore::world::room_key(&id)) {
+            o.str("kind", "int").str("name", &room.name);
+            return Ok(o.done());
+        }
+        let grid = want
+            .strip_prefix('(')
+            .and_then(|r| r.strip_suffix(')'))
+            .and_then(|r| r.split_once(','))
+            .and_then(|(a, b)| Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?)));
+        let mut cells: Vec<&(i32, i32)> = w.cells.keys().collect();
+        cells.sort();
+        let hit = match grid {
+            Some(g) => w.cells.contains_key(&g).then_some(g),
+            None => cells.into_iter().find(|g| w.cells[g].name.eq_ignore_ascii_case(id.trim())).copied(),
+        };
+        let g = hit.ok_or_else(|| format!("no cell {id} in the loaded world"))?;
+        o.str("kind", "ext").str("name", &w.cells[&g].name).num("x", g.0 as f64).num("y", g.1 as f64);
+        return Ok(o.done());
+    }
+    let key_of = |r: &viewcore::esp::CellRef| {
+        viewcore::refkey::RefKey::of(r.num, &w.plugins).map(|k| viewcore::refkey::key_text(&k)).unwrap_or_default()
+    };
+    let mut count = 0usize;
+    let mut first: Option<(String, &viewcore::esp::CellRef, Option<(i32, i32)>)> = None;
+    let mut rooms: Vec<&viewcore::world::Interior> = w.interiors.values().collect();
+    rooms.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    for room in rooms {
+        let mut refs: Vec<&viewcore::esp::CellRef> = room.refs.values().filter(|r| !r.deleted && r.id.eq_ignore_ascii_case(&want)).collect();
+        refs.sort_by_key(|r| (r.num.content_file, r.num.index));
+        count += refs.len();
+        if first.is_none() {
+            if let Some(r) = refs.first() {
+                first = Some((room.name.clone(), r, None));
+            }
+        }
+    }
+    let mut grids: Vec<&(i32, i32)> = w.cells.keys().collect();
+    grids.sort();
+    for g in grids {
+        let c = &w.cells[g];
+        let mut refs: Vec<&viewcore::esp::CellRef> = c.refs.values().filter(|r| !r.deleted && r.id.eq_ignore_ascii_case(&want)).collect();
+        refs.sort_by_key(|r| (r.num.content_file, r.num.index));
+        count += refs.len();
+        if first.is_none() {
+            if let Some(r) = refs.first() {
+                first = Some((c.name.clone(), r, Some(*g)));
+            }
+        }
+    }
+    let (name, r, grid) = first.ok_or_else(|| format!("{id} is not placed in any cell of the loaded world"))?;
+    match grid {
+        Some(g) => o.str("kind", "ext").num("x", g.0 as f64).num("y", g.1 as f64),
+        None => o.str("kind", "int"),
+    };
+    o.str("name", &name).str("key", &key_of(r)).num("count", count as f64);
+    o.raw("pos", &format!("[{:.1},{:.1},{:.1}]", r.pos[0], r.pos[1], r.pos[2])).num("rot", r.rot[2] as f64);
+    Ok(o.done())
+}
+
+/// Wraithguard: a POST to Wraithguard's loopback server, at a URL it handed the viewer
+/// (`links` in the launch's extra file); the answer's text. The viewer asks it for the
+/// next place to show (`poll`).
+#[tauri::command(async)]
+fn wg_post(url: String, body: String) -> Result<String, String> {
+    let bytes = loopback_post(&url, body.as_bytes())?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// Wraithguard: asks Wraithguard (over its loopback server, at the URL it handed the
+/// viewer) to show a record in its conflict viewer. `body` is `{tag, id}`.
+#[tauri::command(async)]
+fn wg_open_record(url: String, body: String) -> Result<String, String> {
+    let bytes = loopback_post(&url, body.as_bytes())?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /* ---- the cell map's coverage (Wraithguard) -------------------------------------------
@@ -1949,6 +2393,18 @@ fn cell_coverage(state: State) -> Result<String, String> {
         .map(|c| format!("[{},{},{}]", c.grid.0, c.grid.1, ix(&c.touched_by)))
         .collect();
     ext.sort();
+    /* Wraithguard: and per exterior, how contested its references are and how many
+       plugins edit its ground - the map's other two heat modes. */
+    let mut grids: std::collections::BTreeSet<(i32, i32)> = w.cells.keys().copied().collect();
+    grids.extend(w.land_edits.keys().copied());
+    let extc: Vec<String> = grids
+        .into_iter()
+        .filter_map(|g| {
+            let conf = w.cells.get(&g).map(|c| viewcore::usage::conflicts(&c.refs, &c.gone)).unwrap_or(0);
+            let land = w.land_edits.get(&g).map(|v| v.len()).unwrap_or(0);
+            (conf > 0 || land > 1).then(|| format!("[{},{},{},{}]", g.0, g.1, conf, land))
+        })
+        .collect();
     let mut int: Vec<String> = w
         .interiors
         .values()
@@ -1961,11 +2417,176 @@ fn cell_coverage(state: State) -> Result<String, String> {
         .collect();
     int.sort();
     Ok(format!(
-        "{{\"plugins\":{},\"ext\":[{}],\"int\":[{}]}}",
+        "{{\"plugins\":{},\"ext\":[{}],\"int\":[{}],\"extc\":[{}]}}",
         string_array(&w.plugins),
         ext.join(","),
-        int.join(",")
+        int.join(","),
+        extc.join(",")
     ))
+}
+
+/// Wraithguard: the path grids of the cells asked for - `"x,y"` or `"int:<name>"` - with
+/// their points in world units: `[{spec, from, points:[[x,y,z]..], edges:[[a,b]..]}]`.
+#[tauri::command(async)]
+fn pathgrid(cells: Vec<String>, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut out: Vec<String> = Vec::new();
+    for spec in &cells {
+        let (pg, origin) = if let Some(name) = spec.strip_prefix("int:") {
+            (w.pathgrids_int.get(&viewcore::world::room_key(name)), (0.0, 0.0))
+        } else {
+            let mut it = spec.split(',').map(|v| v.trim().parse::<i32>());
+            match (it.next(), it.next()) {
+                (Some(Ok(x)), Some(Ok(y))) => (w.pathgrids_ext.get(&(x, y)), (x as f32 * 8192.0, y as f32 * 8192.0)),
+                _ => (None, (0.0, 0.0)),
+            }
+        };
+        let Some(pg) = pg else { continue };
+        let pts: Vec<String> = pg
+            .points
+            .iter()
+            .map(|p| format!("[{},{},{}]", p[0] as f32 + origin.0, p[1] as f32 + origin.1, p[2]))
+            .collect();
+        let edges: Vec<String> = pg.edges.iter().map(|(a, b)| format!("[{a},{b}]")).collect();
+        let mut o = J::obj();
+        o.str("spec", spec)
+            .str("from", plugin_name(&w, usize::try_from(pg.plugin).ok()))
+            .raw("points", &format!("[{}]", pts.join(",")))
+            .raw("edges", &format!("[{}]", edges.join(",")));
+        out.push(o.done());
+    }
+    Ok(format!("[{}]", out.join(",")))
+}
+
+/// Wraithguard: several meshes' collision, in one answer (as `mesh_collision` gives one):
+///
+/// ```text
+/// "GDCB" | u32 n | per mesh: u16 len, path, then mesh_collision's "GDCL" answer's length
+///        (u32) and bytes
+/// ```
+#[tauri::command(async)]
+fn collision_bundle(meshes: Vec<String>, state: State) -> Result<tauri::ipc::Response, String> {
+    let v = { state.app().vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))? };
+    let got = viewcore::pool::par_map(&meshes, |_, m| collision_payload(&v, m).unwrap_or_else(|_| {
+        let mut e = b"GDCL".to_vec();
+        e.push(2);
+        e.extend_from_slice(&0u32.to_le_bytes());
+        e
+    }));
+    let mut out = b"GDCB".to_vec();
+    out.extend_from_slice(&(meshes.len() as u32).to_le_bytes());
+    for (m, b) in meshes.iter().zip(got) {
+        let pb = m.as_bytes();
+        out.extend_from_slice(&(pb.len().min(65535) as u16).to_le_bytes());
+        out.extend_from_slice(&pb[..pb.len().min(65535)]);
+        out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+        out.extend_from_slice(&b);
+    }
+    Ok(tauri::ipc::Response::new(out))
+}
+
+/// Wraithguard: every cell where something is used - `kind` "mesh" (a mesh path), "id"
+/// (a base record) or "texture" (on the meshes that name it, and on the ground):
+/// `{ids, meshes, places:[{spec,label,count,pos,rot,ground}]}`.
+#[tauri::command(async)]
+fn where_used(kind: String, name: String, state: State) -> Result<String, String> {
+    let (v, w) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.world.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?)
+    };
+    let mut meshes: Vec<String> = Vec::new();
+    let mut ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut ground: Vec<viewcore::usage::Place> = Vec::new();
+    match kind.as_str() {
+        "id" => {
+            ids.insert(name.to_ascii_lowercase());
+        }
+        "mesh" => {
+            meshes.push(viewcore::usage::mesh_key(&name));
+            ids = viewcore::usage::ids_using_mesh(&w, &name);
+        }
+        "texture" => {
+            meshes = viewcore::usage::meshes_naming_texture(&w, &v, &name);
+            for m in &meshes {
+                ids.extend(viewcore::usage::ids_using_mesh(&w, m));
+            }
+            ground = viewcore::usage::land_places(&w, &name);
+        }
+        _ => return Err(format!("unknown kind {kind}")),
+    }
+    let places = viewcore::usage::places_of(&w, &ids);
+    let place = |p: &viewcore::usage::Place, on_ground: bool| {
+        let mut o = J::obj();
+        o.str("spec", &p.spec)
+            .str("label", &p.label)
+            .int("count", p.count as u64)
+            .raw("pos", &format!("[{:.1},{:.1},{:.1}]", p.pos[0], p.pos[1], p.pos[2]))
+            .num("rot", p.rot as f64)
+            .bool("ground", on_ground);
+        o.done()
+    };
+    let mut all: Vec<String> = places.iter().map(|p| place(p, false)).collect();
+    all.extend(ground.iter().map(|p| place(p, true)));
+    let mut idv: Vec<String> = ids.into_iter().collect();
+    idv.sort();
+    let mut o = J::obj();
+    o.raw("ids", &string_array(&idv)).raw("meshes", &string_array(&meshes)).raw("places", &format!("[{}]", all.join(",")));
+    Ok(o.done())
+}
+
+/// Wraithguard: every place in the setup that supplies an asset, winner first -
+/// `[{label, from, disk, winner}]` (`disk` the file's path when it is loose, for the mesh
+/// viewer's side-by-side compare).
+#[tauri::command(async)]
+fn asset_providers(path: String, kind: String, state: State) -> Result<String, String> {
+    let v = { state.app().vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))? };
+    let n = viewcore::vfs::norm(&path);
+    let rel = match kind.as_str() {
+        "mesh" if !n.starts_with("meshes/") => format!("meshes/{n}"),
+        "texture" if !n.starts_with("textures/") => format!("textures/{n}"),
+        _ => n,
+    };
+    let exts: &[&str] = if kind == "texture" { Vfs::TEX_EXTS } else { &[] };
+    let list = v.providers(&rel, exts);
+    let rows: Vec<String> = list
+        .iter()
+        .enumerate()
+        .map(|(i, (label, loc))| {
+            let mut o = J::obj();
+            o.str("label", label)
+                .str("from", &loc.ident(&v))
+                .str(
+                    "disk",
+                    &match loc {
+                        viewcore::vfs::Loc::Disk(p) => p.to_string_lossy().to_string(),
+                        _ => String::new(),
+                    },
+                )
+                .bool("winner", i == 0);
+            o.done()
+        })
+        .collect();
+    Ok(format!("[{}]", rows.join(",")))
+}
+
+/// Wraithguard: the game settings the overlays use, from the load order's GMSTs (the
+/// game's defaults where no plugin sets one).
+#[tauri::command(async)]
+fn game_settings(state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let g = |k: &str, d: f32| w.gmst.get(k).copied().unwrap_or(d);
+    Ok(format!(
+        "{{\"activate\":{},\"greetMult\":{}}}",
+        g("imaxactivatedist", 192.0),
+        g("igreetdistancemultiplier", 6.0)
+    ))
+}
+
+/// Wraithguard: writes base64 bytes (a screenshot for the report bundle) to `path`.
+#[tauri::command(async)]
+fn write_b64(path: String, data: String) -> Result<(), String> {
+    let bytes = viewcore::json::base64_decode(&data).ok_or_else(|| "not base64".to_string())?;
+    write_path_whole(&path, &bytes)
 }
 
 /* ---- the viewer profile (Wraithguard) ---------------------------------------------
@@ -2087,7 +2708,17 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(App::default()))
         .invoke_handler(tauri::generate_handler![
+            pathgrid,
+            collision_bundle,
+            where_used,
+            asset_providers,
+            game_settings,
+            write_b64,
             wg_save_edited,
+            wg_open_record,
+            wg_post,
+            find_record,
+            ori_dialogue,
             mesh_collision,
             open_install,
             textures,

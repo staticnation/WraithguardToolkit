@@ -17,7 +17,9 @@ if [ -d "$APPDIR/apprun-hooks" ]; then
   done
 fi
 
-export WRAITHGUARD_VIEWER="$APPDIR/usr/bin/wraithguard-viewer"
+# The viewer through its launcher, which retries if WebKit cannot open the GPU
+# (wraithguard-viewer-run).
+export WRAITHGUARD_VIEWER="$APPDIR/usr/bin/wraithguard-viewer-run"
 export WRAITHGUARD_VIEWER_CWD="$APPDIR/usr"
 
 exec "$APPDIR/opt/wraithguard/wraithguard_toolkit_gui" "$@"

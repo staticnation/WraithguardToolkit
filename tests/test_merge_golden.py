@@ -12,6 +12,7 @@ game masters) are skipped: the source project gitignores those large files.
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -52,8 +53,19 @@ def _fixture_runnable(base: Path) -> bool:
 
 
 def _refs_by_key(cell) -> dict[tuple[int, int], object]:
-    """A cell's references keyed by ``(master index, object index)``."""
-    return {(r.mast_index, r.refr_index): r for r in cell.references}
+    """A cell's references from masters, keyed by ``(master index, object index)``."""
+    return {(r.mast_index, r.refr_index): r for r in cell.references if r.mast_index != 0}
+
+
+def _local_refs(cell) -> list[object]:
+    """A cell's own references, their object index left out, in a fixed order.
+
+    merge_to_master numbers the merged master's own references afresh when it writes
+    the file, so which index a local reference gets is not part of the result; its own
+    test compares them by id and placement. Everything else about them must match.
+    """
+    local = [dataclasses.replace(r, refr_index=0) for r in cell.references if r.mast_index == 0]
+    return sorted(local, key=repr)
 
 
 def _assert_cell_equal(got, want, where: str) -> None:
@@ -66,6 +78,7 @@ def _assert_cell_equal(got, want, where: str) -> None:
     assert got.water_height == want.water_height, f"{where}: cell water_height"
     assert got.atmosphere_data == want.atmosphere_data, f"{where}: cell atmosphere"
     assert _refs_by_key(got) == _refs_by_key(want), f"{where}: references"
+    assert _local_refs(got) == _local_refs(want), f"{where}: local references"
 
 
 def _assert_equal(got: PluginData, want: PluginData) -> None:

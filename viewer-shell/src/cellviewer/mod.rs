@@ -21,8 +21,17 @@ mod commands;
 use serde_json::{json, Value};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-/// `--cell x,y` for an exterior, `--cell int:<name>` for an interior.
+/// `--cell x,y` for an exterior, `--cell int:<name>` for an interior, and (Wraithguard's
+/// conflict viewer) `--cell find:<tag>:<id>` for wherever a record can be seen, and
+/// `--cell plugin:<name>` for a plugin's cells on the map, reviewed.
 fn parse_cell(spec: &str) -> Option<Value> {
+    if let Some(name) = spec.strip_prefix("plugin:") {
+        return Some(json!({"kind": "plugin", "name": name}));
+    }
+    if let Some(rest) = spec.strip_prefix("find:") {
+        let (tag, id) = rest.split_once(':')?;
+        return Some(json!({"kind": "find", "tag": tag, "id": id}));
+    }
     if let Some(name) = spec.strip_prefix("int:") {
         return Some(json!({"kind": "int", "name": name, "label": name}));
     }
@@ -96,6 +105,7 @@ mod tests {
         assert_eq!(parse_cell("-3, 7").unwrap()["y"], 7);
         assert_eq!(parse_cell("int:Balmora, Guild").unwrap()["kind"], "int");
         assert!(parse_cell("x").is_none());
+        assert_eq!(parse_cell("plugin:My Mod.esp").unwrap()["name"], "My Mod.esp");
     }
 
     #[test]

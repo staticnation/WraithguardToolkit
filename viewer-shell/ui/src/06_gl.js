@@ -627,6 +627,7 @@ uniform int   uShadow;        /* 1 when the map for this frame was drawn */
 uniform mat4  uShadowVP[2];   /* world -> cascade clip, near then far */
 uniform sampler2D uShadowTex;
 uniform vec2  uShadowP;       /* x: one texel of a cascade in clip units; y: the sun-visibility term */
+uniform vec2  uShadowFog;     /* Morrowind's near fog, start and end in units: MGE's nearFogStart, nearFogRange */
 /* MGE's core-mod constants, verbatim. */
 const float GDN_ESM_C = 60.0;
 const float GDN_ESM_BIAS = 2e-3 * GDN_ESM_C;
@@ -659,14 +660,22 @@ float gdnShadowLight(float lambert){
    effectively lands. */
 vec3 gdnShade(vec3 c, vec3 w, float lambert){
   if(uShadow != 1 || uNoLight == 1) return c;   /* Unlit draws the textures as painted */
+  /* Wraithguard: nor what adds light - a flame, a glow, a spell's sheet. MGE skips every
+     additive draw when it lays its shadows over the frame (rendershadow.cpp renderShadow:
+     "Additive alphas do not receive shadows"); uFogBlack is 1 for exactly those batches. */
+  if(uFogBlack == 1) return c;
   float light = gdnShadowLight(lambert);
   if(light < 2.0 / 255.0) return c;
   float dz = gdnShadowDz(w);
   if(dz >= 0.0) return c;
   float v = (1.0 - clamp(exp(GDN_ESM_C * dz + GDN_ESM_BIAS), 0.0, 1.0)) * light;
   /* Out with the fog, by its square, as MGE fades it - and four times as fast under the
-     water, where it also clamps the fade up (isAboveSeaLevel). */
-  float att = airClear(w);
+     water, where it also clamps the fade up (isAboveSeaLevel). Wraithguard: by the fog
+     MGE fades them by, fogMWScalar - Morrowind's own linear near fog, over the pair MGE's
+     adjustFog fits to the weather (uShadowFog) - not the distant land's exponential fog,
+     which reaches much further and let shadows run on past where the game's stop. */
+  float sd = length(w - uEye);
+  float att = clamp((uShadowFog.y - sd) / max(1.0, uShadowFog.y - uShadowFog.x), 0.0, 1.0);
   att *= att;
   v *= uUnder == 1 ? clamp(4.0 * att, 0.0, 1.0) : att;
   /* The far cascade's own edge, so a shadow does not end on a straight line. */
@@ -893,6 +902,19 @@ uniform sampler2D uGlow; uniform int uHasGlow;
    on NRM_UNIT; and the mesh viewer's view mode - 0 as lit, 1 flat colour (no textures, so
    a shape reads as its shape), 2 the surface normals as colour. */
 uniform sampler2D uNrm; uniform int uHasNrm; uniform int uViewMode;
+/* A two-channel normal map (BC5, passed through): X and Y only, Z rebuilt. And the
+   camera's right, up and back, for the mesh viewer's key light (views 1 and 2). */
+uniform int uNrmRG; uniform mat3 uViewBasis;
+/* A normal map with height in its alpha (_nh): OpenMW's parallax - every map read at a
+   coordinate shifted along the eye's direction in the surface's own frame by
+   height * 0.04 - 0.02 (shaders' parallax.glsl). */
+uniform int uNrmH;
+/* The studio views' light, as the old three.js viewer's lit material had it: a key light
+   (direction in the world, its strength) over an ambient, and the gloss map (slot 3), a
+   luminance mask on the highlight - which neither the game nor OpenMW draws, so it is
+   read in these views only. */
+uniform vec3 uKeyDir; uniform float uKeyInt, uAmbInt;
+uniform sampler2D uGloss; uniform int uHasGloss;
 /* And its specular map (the _spec sibling, OpenMW's): rgb the specular colour, alpha the
    shininess over 255, lit by the sun (objects.frag's specular term). */
 uniform sampler2D uSpec; uniform int uHasSpec;
@@ -971,8 +993,20 @@ void main(){
   if(uClip==1 && vW.z<uClipZ) discard;
   if(uClip==2 && vW.z>uClipZ) discard;   // 18du: the mirror from under the water keeps what is under it
   vec2 auv = vUV*uUVXform.xy + uUVXform.zw;
+  if(uHasNrm==1 && uNrmH==1){
+    vec3 pn=normalize(vN); if(!gl_FrontFacing) pn=-pn;
+    vec3 q1=dFdx(vW), q2=dFdy(vW);
+    vec2 s1=dFdx(auv), s2=dFdy(auv);
+    vec3 q2p=cross(q2,pn), q1p=cross(pn,q1);
+    vec3 Tp=q2p*s1.x+q1p*s2.x, Bp=q2p*s1.y+q1p*s2.y;
+    float ip=inversesqrt(max(max(dot(Tp,Tp),dot(Bp,Bp)),1e-20));
+    vec3 ev=normalize(uEye-vW);
+    vec3 te=vec3(dot(ev,Tp*ip), dot(ev,Bp*ip), dot(ev,pn));
+    float hgt=texture(uNrm,auv).a;
+    auv += te.xy*(hgt*0.04-0.02);
+  }
   vec4 t = uHasTex==1 ? texture(uTex,auv) : vec4(1.0);
-  if(uViewMode==1) t.rgb=vec3(0.78);
+  if(uViewMode==1) t.rgb=vec3(0.6);
   /* Round 18df: where the fragment's alpha comes from, beyond the texture. With the
      vertex colours as the colour source the fixed pipeline takes the diffuse - alpha and
      all - from the vertex (D3DMCS_COLOR1; OpenMW's getDiffuseColor()), and the material's
@@ -1035,13 +1069,17 @@ void main(){
   if(!gl_FrontFacing) n=-n;
   if(uHasNrm==1){
     /* The tangent frame from the screen-space derivatives of position and UV (no tangent
-       attribute needed), then the map's tangent-space normal through it. */
+       attribute needed), then the map's tangent-space normal through it. B is the
+       direction V grows, which in a NIF's UVs (and a DDS's rows) is *down* the image - so
+       green is read as the down component: DirectX-style maps, the convention OpenMW's
+       own normal maps use (checked on tx_ashl_a_banner_n.dds). No flip. */
     vec3 dp1=dFdx(vW), dp2=dFdy(vW);
     vec2 du1=dFdx(auv), du2=dFdy(auv);
     vec3 dp2p=cross(dp2,n), dp1p=cross(n,dp1);
     vec3 Tn=dp2p*du1.x+dp1p*du2.x, Bn=dp2p*du1.y+dp1p*du2.y;
     float inv=inversesqrt(max(max(dot(Tn,Tn),dot(Bn,Bn)),1e-20));
     vec3 tn=texture(uNrm,auv).xyz*2.0-1.0;
+    if(uNrmRG==1) tn.z=sqrt(max(0.0, 1.0-dot(tn.xy,tn.xy)));
     n=normalize(mat3(Tn*inv,Bn*inv,n)*tn);
   }
   float d=max(dot(n,uSun),0.0);
@@ -1224,7 +1262,29 @@ void main(){
      A shape that says it is translucent - OAAB's water_rectf256_01.nif at 0.7, and every
      other little pool, fountain and canal like it - was drawn solid before, since only
      the alpha test was honoured. (No backticks in here: template literal.) */
-  if(uViewMode==2) c=n*0.5+0.5;
+  /* Wraithguard: the mesh viewer's studio views. The normal map is never drawn as a
+     picture: it bends the light on the surface, as the game uses it. Both views light the
+     shape with one key light that rides with the camera (up and to the left of it, raking
+     across the surface) over a little fill, so the relief the normal map gives reads from
+     any angle, and the specular map's highlight follows the same light.
+     1 Flat colour: clay grey - the shape and the normal map alone.
+     2 Relief: the base texture, lit the same way. */
+  if(uViewMode==1 || uViewMode==2){
+    vec3 L=normalize(uKeyDir);
+    float dk=max(dot(n,L),0.0);
+    /* Flat colour is the old viewer's diffuse-off grey (0x9aa0aa), so turning the
+       texture off never reads as a broken switch. */
+    vec3 base = uViewMode==1 ? vec3(0.604,0.627,0.667) : t.rgb;
+    vec3 sk=vec3(0.0);
+    if(uHasSpec==1 && dk>0.0){
+      vec4 sp=texture(uSpec,auv);
+      vec3 Hk=normalize(L+normalize(uEye-vW));
+      // OpenMW's reading of a _spec map: RGB the highlight's colour, alpha its shininess.
+      sk=sp.rgb*pow(max(dot(n,Hk),0.0),max(sp.a*255.0,1.0))*uKeyInt;
+      if(uHasGloss==1) sk*=texture(uGloss,auv).r;
+    }
+    c=base*(uAmbInt+uKeyInt*dk)+sk;
+  }
   o=vec4(c, uOpaque==1 ? 1.0 : t.a*srcA);
 }`;
 
@@ -1245,6 +1305,11 @@ in vec2 vUV; in vec3 vN; in vec3 vW; in float vSlope; in vec3 vC;
 uniform sampler2D uTex;
 uniform sampler2D uBlend;
 uniform int uHasTex, uGrid, uShowSlope, uUseBlend, uFirstLayer, uFlat;
+/* Wraithguard: a land texture's own maps, as OpenMW's terrain uses them - its normal map
+   (_n / _nh beside it) bending the light, and its _diffusespec, which is the diffuse
+   itself with the highlight's strength in its alpha (uSpecA). DirectX-style, as the
+   objects' (see FS_GRASS). */
+uniform sampler2D uLNrm; uniform int uHasLNrm, uSpecA;
 /* uVCol 1: multiply by the record's vertex colours, the way the game draws land - on
    for the texture layers, off for the paint and highlight overlays, which are marks on
    the tool and not on the world. uUnlit 1: albedo only - no sun, no fog, no grid, no
@@ -1280,7 +1345,8 @@ out vec4 o;
 void main(){
   if(uClip==1 && vW.z<uClipZ) discard;
   if(uClip==2 && vW.z>uClipZ) discard;   // 18du: the mirror from under the water keeps what is under it
-  vec3 base = uHasTex==1 ? texture(uTex,vUV*uTile).rgb : uFlatCol;
+  vec4 tx = uHasTex==1 ? texture(uTex,vUV*uTile) : vec4(uFlatCol,0.0);
+  vec3 base = tx.rgb;
   // No image at all is a fault worth seeing, so it gets a checker — unless the
   // layer supplied a colour to stand in with, which the engine default does.
   if(uHasTex==0 && uFlat==0){
@@ -1313,15 +1379,33 @@ void main(){
   }
   a *= uAlphaMul;
   if(a<=0.004) discard;
-  float d=max(dot(normalize(vN),uSun),0.0);
+  vec3 gn=normalize(vN);
+  if(uHasLNrm==1){
+    vec2 luv=vUV*uTile;
+    vec3 dp1=dFdx(vW), dp2=dFdy(vW);
+    vec2 du1=dFdx(luv), du2=dFdy(luv);
+    vec3 dp2p=cross(dp2,gn), dp1p=cross(gn,dp1);
+    vec3 Tn=dp2p*du1.x+dp1p*du2.x, Bn=dp2p*du1.y+dp1p*du2.y;
+    float inv=inversesqrt(max(max(dot(Tn,Tn),dot(Bn,Bn)),1e-20));
+    vec3 tn=texture(uLNrm,luv).xyz*2.0-1.0;
+    gn=normalize(mat3(Tn*inv,Bn*inv,gn)*tn);
+  }
+  float d=max(dot(gn,uSun),0.0);
   vec3 sunU = underLight(uSunCol, vW), ambU = underLight(uAmbCol, vW);   // 18dz: the crossing, per fragment
   vec3 light = uScat==1 ? (ambU + d*sunU) : (0.40*ambU + 0.85*d*sunU);
   // Round 17m: the cell's lamps light the ground too, or a lantern would hang over a
   // black street.
-  light += gdnLights(vW, normalize(vN), 0.0);
+  light += gdnLights(vW, gn, 0.0);
+  // The _diffusespec highlight: the alpha its strength, OpenMW's terrain shininess (128).
+  vec3 lspec=vec3(0.0);
+  if(uSpecA==1 && d>0.0){
+    vec3 H=normalize(uSun+normalize(uEye-vW));
+    lspec=vec3(tx.a)*pow(max(dot(gn,H),0.0),128.0)*sunU;
+  }
   if(uLampModel != 1) light = min(light, vec3(1.0));   // as above (round 17n); round 18i: MGE tonemaps instead
   if(uNoLight==1) light = vec3(1.0);   // the Unlit switch (round 18f)
   vec3 c = uLampModel == 1 ? gdnTonemap(base*light)*uBright : base*light*uBright;
+  c += lspec*uBright;
   if(uShowSlope==1 && gdnCulled(vW,vN)) c=mix(c,vec3(0.812,0.416,0.298),0.38);
   if(uGrid==1){
     vec2 f=abs(fract(vW.xy/512.0)-0.5);
@@ -1742,6 +1826,13 @@ out vec4 o;
 void main(){
   vec3 d=normalize(uCamF + uCamR*(vP.x*uTanH*uAspect) + uCamU*(vP.y*uTanH));
   vec3 c=fogColourSky(d).rgb;
+  /* Wraithguard: MGE XE's ordered dither over the sky's gradient (XE Mod Sky.fx, SkyPS:
+     ditherSky[vpos.x % 4][vpos.y % 4]), so a dusk or night sky does not band into steps
+     in an 8-bit frame. Its numbers, a few thousandths either way. */
+  { const float DITHER_SKY[16]=float[16](0.001176, 0.001961, -0.001176, -0.001699, -0.000654, -0.000915, 0.000392, 0.000131,
+                                         -0.000131, -0.001961, 0.000654, 0.000915, 0.001699, 0.001438, -0.000392, -0.001438);
+    ivec2 px=ivec2(gl_FragCoord.xy) % 4;
+    c+=DITHER_SKY[px.x*4+px.y]; }
   /* Round 18dv: under the water that is the water's colour, and nothing the sky carries
      survives the whole depth of it - no sun disc, no glare, no clouds, no stars. In the
      game the water plane covers the hemisphere and its refraction has faded to the fog
@@ -2720,7 +2811,24 @@ class Renderer{
     this._bc = e? {bc1:e.COMPRESSED_RGBA_S3TC_DXT1_EXT,
                    bc2:e.COMPRESSED_RGBA_S3TC_DXT3_EXT,
                    bc3:e.COMPRESSED_RGBA_S3TC_DXT5_EXT} : null;
+    /* Wraithguard: and BC4/BC5 (RGTC) and BC7 (BPTC) where the webview has them - WebView2
+       does - so a normal map (BC5, or BC3 with a height in its alpha, or BC1) and a modern
+       pack's BC7 go to the GPU as they are. Without them the engine decodes (bcx.rs). */
+    if(this._bc){
+      const r=gl.getExtension('EXT_texture_compression_rgtc');
+      if(r){ this._bc.bc4=r.COMPRESSED_RED_RGTC1_EXT; this._bc.bc5=r.COMPRESSED_RED_GREEN_RGTC2_EXT; }
+      const p=gl.getExtension('EXT_texture_compression_bptc');
+      if(p){ this._bc.bc7=p.COMPRESSED_RGBA_BPTC_UNORM_EXT; }
+    }
     return this._bc;
+  }
+  /** The block formats beyond S3TC the engine may send as blocks (`bcx`). */
+  bcExtra(){
+    const f=this.bcFormats()||{};
+    const out=[];
+    if(f.bc5) out.push('rgtc');
+    if(f.bc7) out.push('bptc');
+    return out;
   }
 
   /** A texture from compressed blocks, one `compressedTexImage2D` per level.
@@ -3115,6 +3223,8 @@ class Renderer{
     if(pr.u.uHasNrm){
       const nm=(this.opts.normalMaps===true && !off.normal)? (b.nrm||null) : null;
       this._u1i(pr,'uHasNrm', nm?1:0);
+      if(pr.u.uNrmRG) this._u1i(pr,'uNrmRG', (nm && b.nrmRG)?1:0);
+      if(pr.u.uNrmH) this._u1i(pr,'uNrmH', (nm && b.nrmH)?1:0);
       if(nm) this._bindUnit(NRM_UNIT,nm);
       this._u1i(pr,'uNrm',NRM_UNIT);
     }
@@ -3125,6 +3235,24 @@ class Renderer{
       this._u1i(pr,'uSpec',SPEC_UNIT);
     }
     if(pr.u.uViewMode) this._u1i(pr,'uViewMode', this.opts.viewMode|0);
+    if(pr.u.uViewBasis && (this.opts.viewMode|0)>0){
+      this.gl.uniformMatrix3fv(pr.u.uViewBasis,false,this.viewBasis());
+      /* The key light, turned with the camera: `angle` round the view and `elevation`
+         above it, as the old viewer's drag set them - so the light stays where it was put
+         relative to what is seen while the view orbits. */
+      const kl=this.opts.keyLight||{angle:0.6, elevation:0.5, key:1.4, ambient:0.25};
+      const B=this.viewBasis(), a=+kl.angle||0, e=+kl.elevation||0;
+      const x=Math.cos(e)*Math.sin(a), y=Math.sin(e), z=Math.cos(e)*Math.cos(a);
+      if(pr.u.uKeyDir) this.gl.uniform3f(pr.u.uKeyDir, B[0]*x+B[3]*y+B[6]*z, B[1]*x+B[4]*y+B[7]*z, B[2]*x+B[5]*y+B[8]*z);
+      if(pr.u.uKeyInt) this.gl.uniform1f(pr.u.uKeyInt, kl.key==null? 1.4 : +kl.key);
+      if(pr.u.uAmbInt) this.gl.uniform1f(pr.u.uAmbInt, kl.ambient==null? 0.25 : +kl.ambient);
+      if(pr.u.uHasGloss){
+        const gl2=off.gloss? null : (b.gloss||null);
+        this._u1i(pr,'uHasGloss', gl2?1:0);
+        // Unit 1: the only one the static program leaves free (7-9 are the lamps).
+        if(gl2){ this._bindUnit(1,gl2); this._u1i(pr,'uGloss',1); }
+      }
+    }
     if(pr.u.uHasGlow){
       /* Round 17w: sent whenever the shape has one. Whether it shows is the shader's, per
          instance - a lamp by its own hours, anything else always (see vLamp). */
@@ -3445,7 +3573,7 @@ class Renderer{
     let sc=now? now.sun.slice() : [1,1,1];
     const len=Math.hypot(sc[0],sc[1],sc[2])||1;
     if(len<0.4){ sc=[sc[0]/len*0.4, sc[1]/len*0.4, sc[2]/len*0.4]; }
-    const wb={clear:1, cloudy:0.9, foggy:0.5, overcast:0.6, rain:0.4, thunder:0.3, ash:0.5, blight:0.5, snow:0.7, blizzard:0.6};
+    const wb={clear:1, cloudy:0.9, foggy:0.5, overcast:0.6, rain:0.4, thunderstorm:0.3, ashstorm:0.5, blight:0.5, snow:0.7, blizzard:0.6};   // the game's weather names (Thunderstorm, Ashstorm)
     const bright=wb[String((now&&now.weather)||'clear').toLowerCase()]||1;
     k*=bright;
     return {k, col:[L.c[0]*sc[0]*k, L.c[1]*sc[1]*k, L.c[2]*sc[2]*k]};
@@ -3678,7 +3806,16 @@ class Renderer{
    *  the perspective every other object takes and its size on screen says how far away
    *  it is. The stamp on the ground uses the same number, which is what "the same radius
    *  as the ball itself" asks for. */
-  pivotRadius(){ return PIVOT_R; }
+  /** Wraithguard: the orbit pivot's size - 64 units at most, and less when the camera is
+      close (a twentieth of its distance, 8 at least), so inside a room it is a marker and
+      not a wall. Still a size in the world, as Robin asked: it shrinks with distance. */
+  pivotRadius(){ return Math.max(8, Math.min(PIVOT_R, (+this.cam.dist||1000)*0.05)); }
+  /** The camera's right, up and back as the columns of a 3x3 (the mesh viewer's key light). */
+  viewBasis(){
+    const c=this.cam, ce=Math.cos(c.el), se=Math.sin(c.el), ca=Math.cos(c.az), sa=Math.sin(c.az);
+    const right=[-sa, ca, 0], up=[-se*ca, -se*sa, ce], back=[ce*ca, ce*sa, se];
+    return new Float32Array([...right, ...up, ...back]);
+  }
   setBatches(b){ this.batches=b; this.dirty=true; }
 
   /* ---- hover highlights ------------------------------------------------------
@@ -4572,7 +4709,11 @@ class Renderer{
             detail:(part.glDetail&&part.glDetail.gl)||null,
             glow:(part.glGlow&&part.glGlow.gl)||null,
             nrm:(part.glNrm&&part.glNrm.gl)||null,
+            nrmRG:!!(part.glNrm && part.glNrm.kind==='bc5'),
+            // An _nh map (height in alpha) that really has a height: parallax.
+            nrmH:!!(part.glNrm && part.nrmHeight && part.glNrm.alpha && part.glNrm.alpha!=='opaque'),
             spec:(part.glSpec&&part.glSpec.gl)||null,
+            gloss:(part.glGloss&&part.glGloss.gl)||null,
             dark:(part.glDark&&part.glDark.gl&&part.uvDark&&part.uvDark.length)? part.glDark.gl : null,   // round 17y
             /* Round 17m: the shape's UV animation and its emissive colour ride with the
                batch, since both are per-shape facts the draw has to set. */
@@ -5168,6 +5309,7 @@ class Renderer{
         grid:ch.grid||null,
         inner:ch.inner||16,total:ch.total||(ch.inner||16),
         layers:(ch.layers||[]).map((L,i)=>({id:L.id||'', tex:L.tex||null, flat:L.flat||null,
+          nrm:L.nrm||null, specA:!!L.specA,
           blend:L.blend? this.makeBlendMap(L.blend,L.size||16):null,
           off:ranges.off[i]|0, count:ranges.count[i]|0}))});
     }
@@ -6845,7 +6987,19 @@ class Renderer{
     const over = eye[2] >= w.z;
     const k=(fogScale==null || !(fogScale>0))? 1 : fogScale;
     const f=(typeof Sky==='object' && Sky.underwaterFog)? Sky.underwaterFog(o.hour, o.room||null, fogCol) : null;
-    if(f) return {col:f.col, start:f.start*k, end:f.end*k, source:f.source, over};
+    if(f){
+      /* Wraithguard: Wonders of Water (NullCascade, MIT; Preview switch `waterDepth`) -
+         the deeper the eye, the less it sees and the darker the water: depthFactor =
+         saturate(depth / 1500), the fog's start and end times max(1 - depthFactor, 0.1)
+         and the underwater colour times (1 - depthFactor), as its interop.lua and main.lua
+         work it out (without Night Eye, which needs a player). */
+      if(o.waterDepth && !over){
+        const df=Math.min(1, Math.max(0, (w.z-eye[2])/1500));
+        const vis=Math.max(1-df, 0.1);
+        return {col:f.col.map(c=>c*(1-df)), start:f.start*k*vis, end:f.end*k*vis, source:f.source, over, depthFactor:df};
+      }
+      return {col:f.col, start:f.start*k, end:f.end*k, source:f.source, over};
+    }
     // No sky module (a harness): vanilla's day, the ini's own colour over the frame's fog.
     const col=[12/255*0.85+fogCol[0]*0.15, 30/255*0.85+fogCol[1]*0.15, 37/255*0.85+fogCol[2]*0.15];
     return {col, start:7168*(1-2.5)*k, end:7168*k, source:'vanilla', over};
@@ -7517,6 +7671,7 @@ class Renderer{
         if(sm){
           if(u.uShadowVP) gl.uniformMatrix4fv(u.uShadowVP, false, sm.vp);
           if(u.uShadowP) gl.uniform2f(u.uShadowP, sm.rcp, sm.sunK);
+          if(u.uShadowFog) gl.uniform2f(u.uShadowFog, sm.fog[0], sm.fog[1]);
           if(u.uShadowTex) gl.uniform1i(u.uShadowTex, SHADOW_UNIT);
         }
       }
@@ -7692,6 +7847,8 @@ class Renderer{
     if(opaqueP && this.cellChunks && this.cellChunks.length && o.ground){
       this._gpuMark(reflect? 'reflection:ground' : 'ground');
       const g=this.progGround; gl.useProgram(g.p);
+      // Wraithguard: no layer maps until a layer says so (the slab, the overlays).
+      this._u1i(g,'uHasLNrm',0); this._u1i(g,'uSpecA',0);
       gl.uniformMatrix4fv(g.u.uVP,false,VP);
       gl.uniform3fv(g.u.uSun,sun);
       gl.uniform1f(g.u.uBright, o.bright==null?1.0:o.bright);
@@ -7777,6 +7934,11 @@ class Renderer{
           this._u1i(g,'uHasTex',L.tex?1:0);
           this._u1i(g,'uFlat', (!L.tex&&L.flat)?1:0);
           this._u3(g,'uFlatCol', L.flat||FLAT_LAND);
+          // Wraithguard: the layer's normal map on unit 3, and its _diffusespec highlight.
+          const ln=(o.normalMaps===true && L.nrm)? L.nrm : null;
+          this._u1i(g,'uHasLNrm', ln?1:0);
+          if(ln){ onUnit(3); gl.bindTexture(gl.TEXTURE_2D,ln); this._u1i(g,'uLNrm',3); }
+          this._u1i(g,'uSpecA', (o.normalMaps===true && L.specA && L.tex)?1:0);
           const bl=L.blend||this.white;
           if(t1!==bl){ onUnit(1); gl.bindTexture(gl.TEXTURE_2D,bl); t1=bl; }
           // 18ct: the layer's own quads (the first layer, and any without a map, the whole chunk).
@@ -7785,6 +7947,7 @@ class Renderer{
       }
       onUnit(0);
       this._tex0=undefined;   // unit 0 holds a land texture now, whatever the shadow says
+      this._u1i(g,'uHasLNrm',0); this._u1i(g,'uSpecA',0);   // the overlays after are marks, not land
 
       /* Painted ground, over the terrain and under everything else.
        *
@@ -8372,7 +8535,7 @@ class Renderer{
     }
     /* Round 17w: the particle systems — mist, flame, smoke — over the objects and under
        the water, in the real pass only. See 28_particles.js. */
-    if((clearP||belowP) && !reflect && o.particles!==false && this.drawParticles && this._parts){
+    if((clearP||belowP) && !reflect && o.particles!==false && this.drawParticles && (this._parts || (this.wantsPrecip && this.wantsPrecip()))){   // Wraithguard: or the weather's (44_wg_precip.js)
       this._gpuMark('particles');
       // With water: what is under it before the surface, what is over it after. Without: all.
       const side = !this.water? 0 : belowP? -1 : (phase==='translucent'? 1 : 0);
@@ -8489,6 +8652,9 @@ class Renderer{
       gl.uniform1f(ap.u.uSwell,0); gl.uniform1f(ap.u.uFlat,0);
       gl.depthMask(true);
     }
+
+    // Wraithguard: the line overlays - path grids, radii, links, markers (47_wg_overlay.js).
+    if(this.drawOverlays) this.drawOverlays(VP);
 
     /* Round 17i: the orbit pivot while Ctrl is held — three rings at the point the view
        turns around, so the wheel's Ctrl-zoom has something to aim. Radius half of 1.5×

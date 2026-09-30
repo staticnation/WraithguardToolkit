@@ -774,7 +774,27 @@ class ConflictWindowsMixin:
             hook = getattr(self, "_on_open_cell_request", None)
             if hook is not None:
                 server.register_post("wg_open_cell", hook)
+            # And the cell viewer's "show this record in the conflict viewer".
+            server.register_post("wg_open_record", self._on_open_record_request)
         return server
+
+    def _on_open_record_request(self, body: bytes) -> Payload:
+        """The cell viewer's "Conflicts" link: show a record in the conflict viewer.
+
+        Registered on the loopback server (token-guarded like everything on it) as
+        ``wg_open_record``; the viewer posts ``{"tag": "NPC_", "id": "caius cosades"}``.
+
+        Args:
+            body: The request.
+
+        Returns:
+            A short plain-text answer for the viewer.
+        """
+        from wraithguard.gui.record_link import parse_request
+
+        tag, rid = parse_request(body)
+        self._schedule_ui(0, self.goto_conflict_record, tag, rid)
+        return Payload(b"ok", "text/plain; charset=utf-8")
 
     def _three_js_url(self, server: ViewerServer) -> str:
         """The URL for the vendored three.js build.
@@ -1673,6 +1693,18 @@ class ConflictWindowsMixin:
             ),
         )
 
+        cell_button = ttk.Button(
+            btns, text=_("Show in Cell Preview"), command=self._show_conflict_in_cell_preview
+        )
+        cell_button.pack(side="left", padx=(8, 0))
+        add_tooltip(
+            cell_button,
+            _(
+                "Open the selected record where it stands: a cell opens itself, anything "
+                "else the first place it is placed, framed and inspected. An open Cell "
+                "Preview is sent there; otherwise one starts."
+            ),
+        )
         group_separator(btns)
         view_button = ttk.Button(btns, text=_("Plugin view..."), command=self.show_plugin_view)
         view_button.pack(side="left")
@@ -1751,6 +1783,107 @@ class ConflictWindowsMixin:
         # stays responsive. The manual 'Plugin summary...' button still gives the
         # on-demand per-mod report; this only fills in the colours.
         self._schedule_ui(120, self._auto_survey_conflicts)
+        # A record the cell viewer asked for before there was a list to show it in.
+        pending = getattr(self, "_conf_goto", None)
+        if pending is not None:
+            self._conf_goto: tuple[str, str] | None = None
+            self._schedule_ui(0, self._select_conflict_record, *pending)
+
+    def goto_conflict_record(self, tag: str, rid: str) -> None:
+        """Show the record ``tag``/``rid`` in the conflict viewer (the cell viewer asked).
+
+        With the viewer open, the record's row is selected, its field diff shown and the
+        window raised. Without it, the conflict check runs first (as the Conflicts button
+        does) and the row is selected when the list arrives.
+
+        Args:
+            tag: The record's four-byte tag (``"NPC_"``), or ``""``.
+            rid: The record's id.
+        """
+        win = getattr(self, "_conflict_win", None)
+        if (
+            win is not None
+            and win.winfo_exists()
+            and getattr(self, "_all_conflicts", None) is not None
+        ):
+            self._select_conflict_record(tag, rid)
+            return
+        self._conf_goto = (tag, rid)
+        if self.worker_running or not self._current_plan:
+            self.status_var.set(
+                _("The conflict viewer opens on %(id)s once the current task is done.")
+                % {"id": rid}
+            )
+            return
+        self.on_check_conflicts()
+
+    def _select_conflict_record(self, tag: str, rid: str, tried: tuple[str, ...] = ()) -> None:
+        """Select ``tag``/``rid`` in the open conflict list, clearing filters that hide it.
+
+        A record no two plugins define differently is not a conflict; the list of
+        non-conflicting records (the window's own checkboxes) is switched on for it.
+
+        Args:
+            tag: The record's four-byte tag, or ``""``.
+            rid: The record's id.
+            tried: The non-conflicting lists already switched on for it.
+        """
+        from wraithguard.gui.record_link import find_conflict_row
+
+        win = getattr(self, "_conflict_win", None)
+        tree = getattr(self, "_conf_tree", None)
+        if win is None or tree is None or not win.winfo_exists():
+            return
+        win.deiconify()
+        win.lift()
+        win.focus_force()
+        at = find_conflict_row(getattr(self, "_shown_conflicts", []), tag, rid)
+        if at is None:
+            # Hidden by a filter? Clear them and look again.
+            self._conf_subset_only.set(False)
+            self._conf_search_var.set("")
+            self._refill_conflict_tree()
+            at = find_conflict_row(getattr(self, "_shown_conflicts", []), tag, rid)
+        if at is None:
+            # Not a conflict: one plugin alone defines it. Switch on the list of those
+            # records (other mods' first, then the user's own) and look again once it is in.
+            subset = (getattr(self, "_conf_scan_args", None) or ((), (), ()))[2]
+            for kind in ("other", "mine"):
+                if kind in tried or (kind == "mine" and not subset):
+                    continue
+                cfg = self._SINGLES_KINDS[kind]
+                var: tk.BooleanVar = getattr(self, cfg["var"])
+                if var.get() and getattr(self, cfg["cache"], None) is not None:
+                    continue  # already listed, and it was not there
+                if self.worker_running:
+                    break
+                self._conf_goto_after: tuple[str, str, tuple[str, ...]] | None = (
+                    tag,
+                    rid,
+                    (*tried, kind),
+                )
+                var.set(True)
+                self._toggle_singles(kind)
+                # Already fetched once: the list refilled at once, so look now.
+                if getattr(self, cfg["cache"], None) is not None:
+                    self._conf_goto_after = None
+                    self._select_conflict_record(tag, rid, (*tried, kind))
+                else:
+                    self.status_var.set(
+                        _("Listing the non-conflicting records to find %(id)s...") % {"id": rid}
+                    )
+                return
+            self._conf_search_var.set(rid)
+            self._refill_conflict_tree()
+            self.status_var.set(
+                _("%(id)s is not in the list, even with the non-conflicting records.")
+                % {"id": rid}
+            )
+            return
+        iid = str(at)
+        tree.selection_set(iid)
+        tree.focus(iid)
+        tree.see(iid)
 
     def _session_lock(self) -> threading.Lock:
         """The lock guarding the tes3conv session.
@@ -2144,6 +2277,28 @@ class ConflictWindowsMixin:
             )
             return
         self._patch_field_value(self._shown_conflicts[int(sel[0])], str(row[0]))
+
+    def _show_conflict_in_cell_preview(self) -> None:
+        """Show the selected conflict's record in Cell Preview."""
+        from wraithguard.gui.record_link import cell_preview_spec
+
+        tree = getattr(self, "_conf_tree", None)
+        sel = tree.selection() if tree else None
+        if not sel:
+            messagebox.showinfo(_("Nothing selected"), _("Select a record first."))
+            return
+        row = self._shown_conflicts[int(sel[0])]
+        spec = cell_preview_spec(str(row.get("type", "")), str(row.get("id", "")))
+        if not spec:
+            messagebox.showinfo(
+                _("Not in a cell"),
+                _("A %(type)s is not placed in cells, so there is nothing to show.")
+                % {"type": row.get("type", "")},
+            )
+            return
+        show = getattr(self, "show_in_cell_preview", None)
+        if show is not None:
+            show(spec)
 
     def _add_record_to_patch(self) -> None:
         """Ask which plugin should win for the selected record, and remember it."""
@@ -3548,6 +3703,11 @@ class ConflictWindowsMixin:
             % {"count": len(records), "label": cfg["label"]()}
         )
         self._refill_conflict_tree()
+        # A record the cell viewer asked for, waiting on this list.
+        pending = getattr(self, "_conf_goto_after", None)
+        if pending is not None:
+            self._conf_goto_after = None
+            self._select_conflict_record(*pending)
 
     def _sort_conflict_tree(self, column: str) -> None:
         """Sort the conflict list by a clicked column; reverse on a repeat click.

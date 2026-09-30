@@ -35,6 +35,14 @@ pub struct PluginData {
     /// Round 18av: every record that has an id, by lowercased id and tag — what the
     /// objects plugin's dependency search asks "does a master define this?" of.
     pub ids: Vec<(String, Tag)>,
+    /// Wraithguard: the races, body parts, NPCs and worn items an NPC is assembled from
+    /// (`npc.rs`).
+    pub npc: crate::npc::NpcRaw,
+    /// Wraithguard: each LAND record's grid, offset in the file and length (header included).
+    pub land_at: Vec<((i32, i32), u64, u32)>,
+    pub pathgrids: Vec<Pathgrid>,
+    pub gmst: Vec<(String, f32)>,
+    pub hello: Vec<(String, u8)>,
     pub records: usize,
 }
 
@@ -193,6 +201,9 @@ pub struct Interior {
     pub refs: HashMap<RefNum, CellRef>,
     /// What the load order did on the way, the same tally a cell keeps.
     pub prov: CellProv,
+    /// Wraithguard: what a plugin took out of the room - deleted or moved away - as it
+    /// stood before (`world::Gone`).
+    pub gone: Vec<Gone>,
 }
 
 /// An interior's name as [`World::interiors`] keys it — round 18bd (E8).
@@ -451,6 +462,125 @@ pub fn set_own_reader_only(own: bool) {
     OWN_READER_ONLY.store(own, std::sync::atomic::Ordering::Relaxed);
 }
 
+
+/// One LAND record's body as the world keeps it, or `None` without a grid or heights.
+pub fn decode_land(body: &[u8], plugin_idx: i32) -> Option<Land> {
+    let (mut grid, mut heights, mut vtex, mut normals, mut colours) = (None, None, None, None, None);
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"INTV" if s.data.len() >= 8 => grid = Some((i32le(s.data, 0), i32le(s.data, 4))),
+            b"VHGT" => heights = decode_vhgt(s.data),
+            /* The authored per-vertex normals. Read because they are not a
+               reconstruction of anything: measured against 300 vanilla cells,
+               no triangulation and no gradient predicts VNML better than about
+               half a degree at the median and several at p99, so deriving one
+               is guessing at a number the file already states. It is what the
+               game shades the ground with. See memory §11a. */
+            b"VNML" => normals = decode_vnml(s.data),
+            // The vertex colours, for the preview's ground. See `Land::colours`.
+            b"VCLR" => colours = decode_vclr(s.data),
+            b"VTEX" if s.data.len() >= 512 => {
+                let mut raw = [0u16; 256];
+                for (k, slot) in raw.iter_mut().enumerate() {
+                    *slot = u16le(s.data, k * 2);
+                }
+                vtex = Some(unswizzle_vtex(&raw));
+            }
+            _ => {}
+        }
+    }
+    let (grid, heights) = (grid?, heights?);
+    Some(Land { grid, heights, normals, colours, vtex: vtex.unwrap_or_else(|| Box::new([0u16; 256])), plugin: plugin_idx })
+}
+
+/// Wraithguard: a path grid (PGRD) - its points, in the cell's own space for an exterior
+/// (the game adds the cell's corner) and the world's for a room, and the edges between.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Pathgrid {
+    pub grid: (i32, i32),
+    pub cell: String,
+    pub points: Vec<[i32; 3]>,
+    pub edges: Vec<(u32, u32)>,
+    pub plugin: i32,
+}
+
+/// A PGRD record's body.
+pub fn decode_pgrd(body: &[u8], plugin_idx: i32) -> Option<Pathgrid> {
+    let mut p = Pathgrid { plugin: plugin_idx, ..Default::default() };
+    let mut conns: Vec<u8> = Vec::new();
+    let mut targets: Vec<u32> = Vec::new();
+    let mut deleted = false;
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"DATA" if s.data.len() >= 8 => p.grid = (i32le(s.data, 0), i32le(s.data, 4)),
+            b"NAME" => p.cell = cstring(s.data),
+            b"DELE" => deleted = true,
+            b"PGRP" => {
+                for c in s.data.chunks_exact(16) {
+                    p.points.push([i32le(c, 0), i32le(c, 4), i32le(c, 8)]);
+                    conns.push(c[13]);
+                }
+            }
+            b"PGRC" => {
+                for c in s.data.chunks_exact(4) {
+                    targets.push(u32le(c, 0));
+                }
+            }
+            _ => {}
+        }
+    }
+    if deleted {
+        return None;
+    }
+    let mut at = 0usize;
+    let mut seen: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
+    for (i, n) in conns.iter().enumerate() {
+        for _ in 0..*n {
+            // Each connection is listed from both ends; kept once, low index first.
+            if let Some(&t) = targets.get(at) {
+                let i = i as u32;
+                if (t as usize) < p.points.len() && t != i {
+                    let e = (i.min(t), i.max(t));
+                    if seen.insert(e) {
+                        p.edges.push(e);
+                    }
+                }
+            }
+            at += 1;
+        }
+    }
+    Some(p)
+}
+
+/// A GMST's number: its INTV or FLTV (`None` for a string setting).
+fn gmst_number(body: &[u8]) -> Option<(String, f32)> {
+    let mut name = String::new();
+    let mut val = None;
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"NAME" => name = cstring(s.data),
+            b"INTV" if s.data.len() >= 4 => val = Some(i32le(s.data, 0) as f32),
+            b"FLTV" if s.data.len() >= 4 => val = Some(f32::from_le_bytes([s.data[0], s.data[1], s.data[2], s.data[3]])),
+            _ => {}
+        }
+    }
+    if name.is_empty() { None } else { val.map(|v| (name.to_ascii_lowercase(), v)) }
+}
+
+/// An NPC's or creature's id and its AI Hello (AIDT's first byte).
+fn actor_hello(body: &[u8]) -> Option<(String, u8)> {
+    let mut id = String::new();
+    let mut hello = None;
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"NAME" => id = cstring(s.data),
+            b"AIDT" if !s.data.is_empty() => hello = Some(s.data[0]),
+            _ => {}
+        }
+    }
+    if id.is_empty() { None } else { hello.map(|h| (id.to_ascii_lowercase(), h)) }
+}
+
 pub fn parse_plugin(buf: &[u8], plugin_idx: i32, master_idx: &[i32], want_land: bool) -> PluginData {
     let own_only = OWN_READER_ONLY.load(std::sync::atomic::Ordering::Relaxed);
     parse_plugin_with(buf, plugin_idx, master_idx, want_land, !own_only)
@@ -483,6 +613,37 @@ fn parse_plugin_with(buf: &[u8], plugin_idx: i32, master_idx: &[i32], want_land:
         }
         if let Some(o) = crate::objects::raw_object(rec.tag, rec.body) {
             d.objects.push(o);
+        }
+        crate::npc::collect(&mut d.npc, rec.tag, rec.body);
+        /* Wraithguard: where each LAND record is (the merged-lands preview reads a cell's
+           every version back from the file), the path grids, the numeric game settings, and
+           each actor's AI Hello. */
+        match &rec.tag {
+            b"LAND" if want_land => {
+                let at = rec.body.as_ptr() as usize - buf.as_ptr() as usize - 16;
+                for s in Subs::new(rec.body) {
+                    if &s.tag == b"INTV" && s.data.len() >= 8 {
+                        d.land_at.push(((i32le(s.data, 0), i32le(s.data, 4)), at as u64, (16 + rec.body.len()) as u32));
+                        break;
+                    }
+                }
+            }
+            b"PGRD" => {
+                if let Some(p) = decode_pgrd(rec.body, plugin_idx) {
+                    d.pathgrids.push(p);
+                }
+            }
+            b"GMST" => {
+                if let Some(g) = gmst_number(rec.body) {
+                    d.gmst.push(g);
+                }
+            }
+            b"NPC_" | b"CREA" => {
+                if let Some(h) = actor_hello(rec.body) {
+                    d.hello.push(h);
+                }
+            }
+            _ => {}
         }
         if !keeps(rec.tag) {
             continue;
@@ -535,40 +696,8 @@ fn parse_plugin_with(buf: &[u8], plugin_idx: i32, master_idx: &[i32], want_land:
                 }
             }
             LAND if want_land => {
-                let (mut grid, mut heights, mut vtex, mut normals, mut colours) = (None, None, None, None, None);
-                for s in Subs::new(rec.body) {
-                    match &s.tag {
-                        b"INTV" if s.data.len() >= 8 => grid = Some((i32le(s.data, 0), i32le(s.data, 4))),
-                        b"VHGT" => heights = decode_vhgt(s.data),
-                        /* The authored per-vertex normals. Read because they are not a
-                           reconstruction of anything: measured against 300 vanilla cells,
-                           no triangulation and no gradient predicts VNML better than about
-                           half a degree at the median and several at p99, so deriving one
-                           is guessing at a number the file already states. It is what the
-                           game shades the ground with, so it is what a blade should stand
-                           on and what a slope test should measure. See memory §11a. */
-                        b"VNML" => normals = decode_vnml(s.data),
-                        // The vertex colours, for the preview's ground. See `Land::colours`.
-                        b"VCLR" => colours = decode_vclr(s.data),
-                        b"VTEX" if s.data.len() >= 512 => {
-                            let mut raw = [0u16; 256];
-                            for (k, slot) in raw.iter_mut().enumerate() {
-                                *slot = u16le(s.data, k * 2);
-                            }
-                            vtex = Some(unswizzle_vtex(&raw));
-                        }
-                        _ => {}
-                    }
-                }
-                if let (Some(grid), Some(heights)) = (grid, heights) {
-                    d.lands.push(Land {
-                        grid,
-                        heights,
-                        normals,
-                        colours,
-                        vtex: vtex.unwrap_or_else(|| Box::new([0u16; 256])),
-                        plugin: plugin_idx,
-                    });
+                if let Some(l) = decode_land(rec.body, plugin_idx) {
+                    d.lands.push(l);
                 }
             }
             CELL => {
@@ -671,6 +800,18 @@ pub struct Cell {
     /// did not survive, and are the difference between "this cell has five rocks" and
     /// "this cell had eight until three mods got to it".
     pub prov: CellProv,
+    /// Wraithguard: what a plugin took out of the cell - deleted or moved away - as it
+    /// stood before. What "this cell without that mod" puts back.
+    pub gone: Vec<Gone>,
+}
+
+/// A reference a plugin took out of a cell: the version before, which plugin, and whether
+/// it was moved (MVRF) rather than deleted.
+#[derive(Clone, Debug)]
+pub struct Gone {
+    pub r: CellRef,
+    pub by: i32,
+    pub moved: bool,
 }
 
 /// What later plugins did to one cell's references.
@@ -739,6 +880,9 @@ pub struct World {
     /// the living ones are kept so a reference to one is recognised as an actor and
     /// skipped, rather than falling through and being treated as an unknown object.
     pub actors: HashMap<String, ActorDef>,
+    /// Wraithguard: what NPCs are assembled from - races, body parts, the NPC records and
+    /// the armour and clothing they wear (`npc.rs`).
+    pub npc: crate::npc::NpcTables,
     /// Round 18bc (B8): plugins that resolved to a file and then could not be read, or
     /// were empty — one line each, for the connect report's warnings.
     ///
@@ -749,6 +893,16 @@ pub struct World {
     /// landscape. The shell reports plugins that fail to *resolve*; this was the gap, and
     /// the harder failure to diagnose, because the plugin was listed as loaded.
     pub plugin_failures: Vec<String>,
+    /// Wraithguard: every plugin's LAND for a grid, in load order - (plugin, offset, length)
+    /// in its file, read back by the merged-lands preview (`mland.rs`).
+    pub land_edits: HashMap<(i32, i32), Vec<(usize, u64, u32)>>,
+    /// The path grids, the last plugin's for each exterior grid and each room.
+    pub pathgrids_ext: HashMap<(i32, i32), Pathgrid>,
+    pub pathgrids_int: HashMap<String, Pathgrid>,
+    /// The numeric game settings, by lowercased name (the last plugin's).
+    pub gmst: HashMap<String, f32>,
+    /// Each actor's AI Hello, by lowercased id.
+    pub hello: HashMap<String, u8>,
     pub stats: LoadStats,
 }
 
@@ -910,6 +1064,7 @@ impl World {
         for (pi, d) in parsed.into_iter().enumerate() {
             w.stats.records += d.records;
             w.masters.push(d.masters.clone());
+            w.npc.merge(d.npc);
             /* Round 18av: the object index and the id index. A deleted definition takes
                the record out of the picker; a later definition wins the kind, model and
                name, and every defining plugin is remembered for the masters question. */
@@ -949,6 +1104,21 @@ impl World {
             }
             for l in d.lands {
                 w.lands.insert(l.grid, l); // later plugin wins
+            }
+            for (g, at, len) in d.land_at {
+                w.land_edits.entry(g).or_default().push((pi, at, len));
+            }
+            for p in d.pathgrids {
+                if p.grid == (0, 0) && !p.cell.is_empty() {
+                    w.pathgrids_int.insert(room_key(&p.cell), p.clone());
+                }
+                w.pathgrids_ext.insert(p.grid, p);
+            }
+            for (k, v) in d.gmst {
+                w.gmst.insert(k, v);
+            }
+            for (k, v) in d.hello {
+                w.hello.insert(k, v);
             }
             for l in d.lights {
                 let k = l.id.to_ascii_lowercase();
@@ -1099,12 +1269,17 @@ impl World {
                     let mut moves: Vec<((i32, i32), CellRef)> = Vec::new();
                     for mut r in rc.refs {
                         r.plugin = pi as i32;
-                        r.touched = room.refs.get(&r.num).map(|p| p.touched.clone()).unwrap_or_default();
+                        let prev = room.refs.get(&r.num);
+                        r.touched = prev.map(|p| p.touched.clone()).unwrap_or_default();
+                        r.poses = prev.map(|p| p.poses.clone()).unwrap_or_default();
                         r.touched.push(pi as i32);
+                        r.poses.push(r.pose());
                         if let Some(target) = r.moved_to {
                             w.stats.refs_moved += 1;
                             room.prov.moved_out += 1;
-                            room.refs.remove(&r.num);
+                            if let Some(old) = room.refs.remove(&r.num) {
+                                room.gone.push(Gone { r: old, by: pi as i32, moved: true });
+                            }
                             if !r.deleted {
                                 /* Round 18bd (E7): **the flag comes off on the way.**
                                    The reference is removed from the cell it left before
@@ -1129,7 +1304,9 @@ impl World {
                         if r.deleted {
                             w.stats.refs_deleted += 1;
                             room.prov.deleted += 1;
-                            room.refs.remove(&r.num);
+                            if let Some(old) = room.refs.remove(&r.num) {
+                                room.gone.push(Gone { r: old, by: pi as i32, moved: false });
+                            }
                             continue;
                         }
                         if room.refs.insert(r.num, r).is_some() {
@@ -1152,6 +1329,7 @@ impl World {
                             refs: HashMap::new(),
                             prov: CellProv::default(),
                             touched_by: Vec::new(),
+                            gone: Vec::new(),
                         });
                         dst.prov.moved_in += 1;
                         dst.refs.insert(r.num, r);
@@ -1166,6 +1344,7 @@ impl World {
                     refs: HashMap::new(),
                     prov: CellProv::default(),
                     touched_by: Vec::new(),
+                    gone: Vec::new(),
                 });
                 if !cell.touched_by.contains(&(pi as u32)) {
                     cell.touched_by.push(pi as u32);
@@ -1182,12 +1361,17 @@ impl World {
                     // because this is the only place that knows both the reference and
                     // where its plugin sits in the order.
                     r.plugin = pi as i32;
-                    r.touched = cell.refs.get(&r.num).map(|p| p.touched.clone()).unwrap_or_default();
+                    let prev = cell.refs.get(&r.num);
+                    r.touched = prev.map(|p| p.touched.clone()).unwrap_or_default();
+                    r.poses = prev.map(|p| p.poses.clone()).unwrap_or_default();
                     r.touched.push(pi as i32);
+                    r.poses.push(r.pose());
                     if let Some(target) = r.moved_to {
                         w.stats.refs_moved += 1;
                         cell.prov.moved_out += 1;
-                        cell.refs.remove(&r.num);
+                        if let Some(old) = cell.refs.remove(&r.num) {
+                            cell.gone.push(Gone { r: old, by: pi as i32, moved: true });
+                        }
                         if !r.deleted {
                             // Round 18bd (E7): it has arrived; it is not "not here". See
                             // the interior branch above for the whole of it.
@@ -1199,7 +1383,9 @@ impl World {
                     if r.deleted {
                         w.stats.refs_deleted += 1;
                         cell.prov.deleted += 1;
-                        cell.refs.remove(&r.num);
+                        if let Some(old) = cell.refs.remove(&r.num) {
+                            cell.gone.push(Gone { r: old, by: pi as i32, moved: false });
+                        }
                         continue;
                     }
                     if cell.refs.insert(r.num, r).is_some() {
@@ -1220,6 +1406,7 @@ impl World {
                         refs: HashMap::new(),
                         prov: CellProv::default(),
                         touched_by: Vec::new(),
+                        gone: Vec::new(),
                     });
                     dst.prov.moved_in += 1;
                     dst.refs.insert(r.num, r);

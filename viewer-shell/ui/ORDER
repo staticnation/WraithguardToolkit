@@ -33,4 +33,11 @@
 39_wg_coverage.js
 40_wg_modhl.js
 41_wg_meshview.js
+42_wg_bloom.js
+43_wg_rain.js
+44_wg_precip.js
+45_wg_nav.js
+46_wg_tfh.js
+47_wg_overlay.js
+48_wg_tools.js
 11_events.js

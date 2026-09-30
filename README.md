@@ -231,33 +231,20 @@ Run the GUI:
 python wraithguard_toolkit_gui.py
 ```
 
-### Verifying a download (minisign)
+### Verifying a download
 
-Release builds are signed with [minisign](https://jedisct1.github.io/minisign/).
-Each artifact on a Release has a matching `.minisig` beside it. To check a
-download is authentic and intact, install `minisign` (or the Rust `rsign2`) and
-verify against this project's public key:
+Each file on a Release page shows its SHA-256 digest. To check a download is intact,
+hash it and compare:
 
 ```
-minisign -Vm wraithguard-toolkit-windows-x86_64.exe -p minisign.pub
+Get-FileHash wraithguard-toolkit-windows-x86_64.exe -Algorithm SHA256   # Windows
+sha256sum wraithguard-toolkit-linux-x86_64.AppImage                     # Linux
+shasum -a 256 Wraithguard-Toolkit-macos-arm64.zip                       # macOS
 ```
 
-where `minisign.pub` is the public key shipped in this repository. (The
-signatures are standard minisign, so you do **not** need Python or this project's
-tooling to verify them.)
-
-**Maintainer setup (one-time).** The signing is done in CI by
-`tools/sign_release.py` (pure-Python via the `py-minisign` package -- no C or Rust
-toolchain on the runner). To enable it:
-
-1. Generate a key pair locally: `minisign -G` -> `minisign.key` (secret) and
-   `minisign.pub` (public). Commit `minisign.pub`.
-2. In the repository's **Settings -> Secrets and variables -> Actions**, add
-   `MINISIGN_SECRET_KEY` (paste the whole `minisign.key` file) and
-   `MINISIGN_PASSWORD` (the password you chose).
-3. Push a `v*` tag. Each OS build signs its own artifact and attaches the
-   `.minisig` to the Release. If the secret is absent the signing step is
-   skipped rather than failing, so a release can still go out during setup.
+(minisign signing is retired: the signature files drew false antivirus detections,
+and the minisign trusted-comment flaw published at gpg.fail made it a poor
+guarantee. See CHANGELOG.md.)
 
 ---
 

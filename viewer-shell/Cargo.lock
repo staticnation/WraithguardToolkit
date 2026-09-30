@@ -196,7 +196,7 @@ dependencies = [
 [[package]]
 name = "bsa"
 version = "0.0.1"
-source = "git+https://github.com/Greatness7/tes3#e61ad140b51d889ae5aa30914ba2a20fd51bf2e0"
+source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
 dependencies = [
  "bstr",
  "memmap2",
@@ -256,7 +256,7 @@ dependencies = [
 [[package]]
 name = "bytes_io"
 version = "0.0.1"
-source = "git+https://github.com/Greatness7/tes3#e61ad140b51d889ae5aa30914ba2a20fd51bf2e0"
+source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
 dependencies = [
  "bstr",
  "bytemuck",
@@ -273,7 +273,7 @@ dependencies = [
 [[package]]
 name = "bytes_io_macros"
 version = "0.0.1"
-source = "git+https://github.com/Greatness7/tes3#e61ad140b51d889ae5aa30914ba2a20fd51bf2e0"
+source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -874,7 +874,7 @@ dependencies = [
 [[package]]
 name = "esp"
 version = "0.0.1"
-source = "git+https://github.com/Greatness7/tes3#e61ad140b51d889ae5aa30914ba2a20fd51bf2e0"
+source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -893,7 +893,7 @@ dependencies = [
 [[package]]
 name = "esp_macros"
 version = "0.0.1"
-source = "git+https://github.com/Greatness7/tes3#e61ad140b51d889ae5aa30914ba2a20fd51bf2e0"
+source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -2066,7 +2066,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 [[package]]
 name = "nif"
 version = "0.0.1"
-source = "git+https://github.com/Greatness7/tes3#e61ad140b51d889ae5aa30914ba2a20fd51bf2e0"
+source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
 dependencies = [
  "bstr",
  "bytemuck",
@@ -2083,7 +2083,7 @@ dependencies = [
 [[package]]
 name = "nif_macros"
 version = "0.0.1"
-source = "git+https://github.com/Greatness7/tes3#e61ad140b51d889ae5aa30914ba2a20fd51bf2e0"
+source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -3631,7 +3631,7 @@ dependencies = [
 [[package]]
 name = "tes3"
 version = "0.0.1"
-source = "git+https://github.com/Greatness7/tes3#e61ad140b51d889ae5aa30914ba2a20fd51bf2e0"
+source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
 dependencies = [
  "bsa",
  "esp",

@@ -317,7 +317,6 @@ flowchart TD
   n_tests_test_service_full_merge["test_service_full_merge"]
   n_tests_test_service_merge["test_service_merge"]
   n_tests_test_service_native["test_service_native"]
-  n_tests_test_sign_release["test_sign_release"]
   n_tests_test_sort["test_sort"]
   n_tests_test_stage_for_tes3cmd["test_stage_for_tes3cmd"]
   n_tests_test_staleness_watchdog["test_staleness_watchdog"]
@@ -710,7 +709,6 @@ flowchart TD
   n_tools_gen_tes3_fieldtypes["gen_tes3_fieldtypes"]
   n_tools_gen_tes3_schema["gen_tes3_schema"]
   n_tools_make_pot["make_pot"]
-  n_tools_sign_release["sign_release"]
   n_tools_survey_landscape["survey_landscape"]
   n_PKG_wraithguard[["wraithguard"]]:::pkglink
   n_tools_build_merged_lands --> n_PKG_wraithguard
@@ -2378,10 +2376,6 @@ flowchart TD
     n_tests_test_service_merge_TestEmptyMergeDrivesTheOrchestration["TestEmptyMergeDrivesTheOrchestration"]
     n_tests_test_service_merge_TestMergeErrorBranches["TestMergeErrorBranches"]
     n_tests_test_service_merge_TestRecordsVia["TestRecordsVia"]
-  end
-  subgraph SG139["tests.test_sign_release"]
-    n_tests_test_sign_release_TestMain["TestMain"]
-    n_tests_test_sign_release_TestSign["TestSign"]
   end
   subgraph SG140["tests.test_sort"]
     n_tests_test_sort_TestAnchorReporting["TestAnchorReporting"]

@@ -14,7 +14,9 @@
      soft and the shallows show the bottom.
    - The waves are MGE's own: `textures\MGE\water_NRM.dds`, a 256×256×32 volume of
      normals that MGE ships with the game and animates by sliding through it in time
-     (`getFinalWaterNormal`). An install without it — vanilla, OpenMW — gets three sines.
+     (`getFinalWaterNormal`). Wraithguard: an install without it - every OpenMW install,
+     so every MoMW setup - gets the copy the viewer ships (ui/assets, GPL-2.0, see
+     `bundledWaterVolume`); only if that cannot be read either does it fall back to sines.
    - Then the surface: refraction bent by the normal and faded to a depth colour with
      depth (`depthscale`, `shorefactor`), reflection bent the other way and faded into the
      haze, Fresnel between them, the sun's glint (`pow(vdotr,170)`), the shoreline eased
@@ -27,8 +29,9 @@
      It now stands four units *inside* the slab's walls, so the slab always wins the depth
      test and the skirt only shows where the slab is missing, and its sheet is cut
      exactly to the slab's box (an overhang drew as a line along the top of the wall).
-     The surface has no vertex displacement (MGE's ripples are off), so the walls meet
-     it exactly.
+     With the Waves switch off the surface is flat and the walls meet it exactly; with
+     it on (MGE's dynamic ripples, VS_WATER_MGE) the height eases to nothing over the
+     last 256 units before the edge, so they still meet.
    - The sunshafts (round 16): `Sunshafts.fx`, ported below the water — see drawSunshafts.
    - The shore (item 10): the surface is pulled a hair towards the eye with a polygon
      offset, and the depth-based shore fade hides what is left. The plain sheet used to
@@ -38,16 +41,61 @@
    06_gl.js draws the translucent sheet it always did.
    ===================================================================================== */
 
+/* The surface's vertices. With the waves off (`uWaves` 0) the sheet and the skirt are
+   drawn where they are, flat, as MGE draws its water without dynamic ripples.
+
+   With them on - MGE's DYNAMIC_RIPPLES, the second WaterVS in XE Mod Water.fx - the sheet
+   is MGE's radial mesh (distantinit.cpp initWater: 150 spokes, 120 rings, dense near the
+   eye, the last ring past the horizon), centred on the eye and cut to the loaded water
+   (`uBox`), and every vertex is raised by the wave volume's height (its alpha), close waves
+   at 1104 units and far ones at 3900, times the install's `wave_height`, faded out within
+   200 units of the eye and past 6400. The reflection is read from the point pushed back
+   under the crest (`screenposclamp`), as MGE does, so a crest never reflects what is below
+   the water. Ours: the height eases to nothing over the last 256 units before the edge of
+   the loaded water, where the skirt meets the sheet. */
 const VS_WATER_MGE=`#version 300 es
 precision highp float;
+precision highp sampler3D;
 layout(location=0) in vec3 aPos;
 uniform mat4 uVP, uReflVP;
+uniform int   uWaves;          // 1: aPos is the radial wave mesh, relative to the eye
+uniform vec3  uEyeW;
+uniform vec4  uBox;            // the loaded water: x0, y0, x1, y1
+uniform float uWaterZ, uWaveH;
+uniform float uTime;
+uniform sampler3D uWater3d;
+uniform mediump int uHas3d;   // mediump: the fragment shader's default for int, and a shared uniform must match
 out vec3 vW; out vec4 vRefl; out float vClipW;
+/* A height 0..1 at a point, when the install has no wave volume: three sines. */
+float sineHeight(vec2 p, float t){
+  return 0.5 + 0.18*sin(dot(p,vec2(0.011,0.007))+t*1.3) + 0.12*sin(dot(p,vec2(-0.006,0.013))+t*1.7)
+             + 0.08*sin(dot(p,vec2(0.017,-0.012))+t*2.3);
+}
 void main(){
-  vW=aPos;
-  vec4 p=uVP*vec4(aPos,1.0);
+  vec3 w=aPos, wr=aPos;
+  if(uWaves==1){
+    w=vec3(clamp(uEyeW.xy+aPos.xy, uBox.xy, uBox.zw), uWaterZ);
+    float t=fract(0.4*uTime);
+    float hNear, hFar;
+    if(uHas3d==1){
+      hNear=textureLod(uWater3d, vec3(w.xy/1104.0, t), 0.0).a;
+      hFar =textureLod(uWater3d, vec3(w.xy/3900.0, t), 0.0).a;
+    }else{
+      hNear=sineHeight(w.xy, uTime);
+      hFar =sineHeight(w.xy*0.283, uTime);
+    }
+    float dist=length(uEyeW-w);
+    float edge=min(min(w.x-uBox.x, uBox.z-w.x), min(w.y-uBox.y, uBox.w-w.y));
+    float add=uWaveH*(mix(hNear,hFar,clamp(dist/8000.0,0.0,1.0))-0.5)
+             *clamp(1.0-dist/6400.0,0.0,1.0)*clamp(dist/200.0,0.0,1.0)
+             *clamp(edge/256.0,0.0,1.0);
+    w.z+=add;
+    wr=w-vec3(0.0,0.0,abs(add));
+  }
+  vW=w;
+  vec4 p=uVP*vec4(w,1.0);
   vClipW=p.w;
-  vRefl=uReflVP*vec4(aPos,1.0);
+  vRefl=uReflVP*vec4(wr,1.0);
   gl_Position=p;
 }`;
 
@@ -64,6 +112,9 @@ uniform vec2  uRcpRes;
 uniform vec2  uNearFar;
 uniform vec3  uViewF;          // the camera's forward, for MGE's depth slant
 uniform float uTime, uWindLen, uSunVis;
+uniform int   uReflBlur;       // the install's blur_reflections: MGE's FILTER_WATER_REFLECTION
+uniform sampler2D uRain;       // Wraithguard: MGE's rain/snow ripple simulation (43_wg_rain.js)
+uniform int   uRainOn;
 uniform vec3  uFogCol; uniform float uFogK;   // the plain fog, when the sky is off
 uniform int   uBelow;          // 18dt: the eye is under the water (06_gl.js underwaterAt)
 /* Wraithguard: MGE XE's water, with the shore surf and shallows caustics of "OpenMW Water
@@ -222,47 +273,6 @@ vec2 sineNormal(vec2 p, float t){
          +sin(dot(p,vec2(-0.019,0.020))+t*1.9)*0.35;
   return vec2(a,b)*0.5+0.5;
 }
-/* Wraithguard: randomness for MGE's waves. The volume tiles every 527 units close up and
-   3900 far off, and every tile runs the same frames at the same moment, so a calm sea
-   reads as a repeating pattern. A slow 2D simplex noise field - the technique of the old
-   Wraithguard water (Ashima Arts / Stefan Gustavson's simplex, MIT), used there as a
-   domain warp, "fluid distortion, not a scroll" - is used here only to *influence* MGE's
-   waves, never to replace them: it bends where each tile is read (a warp of a few tens of
-   units), shifts which frame of the animation each stretch of water is on, and lets the
-   waves be a little stronger in some places and calmer in others. The waves are still
-   MGE's own; they just stop lining up. */
-vec3 wgMod289(vec3 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
-vec2 wgMod289(vec2 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
-vec3 wgPermute(vec3 x){ return wgMod289(((x * 34.0) + 1.0) * x); }
-float snoise(vec2 v){
-  const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-  vec2 i = floor(v + dot(v, C.yy));
-  vec2 x0 = v - i + dot(i, C.xx);
-  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-  vec4 x12 = x0.xyxy + C.xxzz;
-  x12.xy -= i1;
-  i = wgMod289(i);
-  vec3 p = wgPermute(wgPermute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
-  vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);
-  m = m * m; m = m * m;
-  vec3 x = 2.0 * fract(p * C.www) - 1.0;
-  vec3 h = abs(x) - 0.5;
-  vec3 ox = floor(x + 0.5);
-  vec3 a0 = x - ox;
-  m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
-  vec3 g;
-  g.x = a0.x * x0.x + h.x * x0.y;
-  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-  return 130.0 * dot(m, g);
-}
-/* Two octaves, each drifting on its own heading (about -1..1). */
-float fbm2(vec2 p, float t){
-  vec2 flow = vec2(t * 0.25, -t * 0.18);
-  return 0.6 * snoise(p + flow) + 0.3 * snoise(p * 2.0 + flow * 1.6);
-}
-const float WAVE_WARP  = 45.0;    // world units the close tiles are bent by, at most
-const float WAVE_PHASE = 0.35;    // how far out of step two stretches of water can be
-const float WAVE_VARY  = 0.25;    // wave strength, 1 +- this
 /* ---- The sewer waves, from "Enhanced Water Shader for MGE XE" by Krokantor (Nexus Mods,
    Morrowind mod 45432, 2.0 Green-Blue): rings spreading from the sewer outlets of Vivec
    and Molag Mar, added to the close wave normals as its getFinalWaterNormal adds them.
@@ -292,29 +302,37 @@ vec2 sewerWaves(vec2 xy, float dist){
 }
 /* ---- end of the mod 45432 sewer waves ---- */
 vec3 waterNormal(vec2 tc1, vec2 tc2, float dist){
-  /* The fields, in world units: features about 1500 units across (the warp and the
-     phase) and 4000 (the strength), changing over tens of seconds. */
-  vec2 q = vW.xy;
-  float slow = uTime * 0.05;
-  vec2 warp = vec2(fbm2(q / 1500.0 + 19.0, slow), fbm2(q / 1500.0 + 41.0, slow * 0.8));
-  float phase = fbm2(q / 1700.0 + 73.0, slow * 0.6) * WAVE_PHASE;
-  float vary = 1.0 + fbm2(q / 4000.0 + 7.0, slow * 0.4) * WAVE_VARY;
-  vec2 tc2w = tc2 + warp * (WAVE_WARP / 527.0);
-  vec2 tc1w = tc1 + warp * (WAVE_WARP * 3.0 / 3900.0);
-  float t=fract(0.4*uTime + phase);
+  float t=fract(0.4*uTime);   // MGE's W coordinate into the volume
   vec2 farN, closeN;
   if(uHas3d==1){
-    farN  =texture(uWater3d, vec3(tc1w,t)).rg;
-    closeN=texture(uWater3d, vec3(tc2w,t)).rg;
+    farN  =texture(uWater3d, vec3(tc1,t)).rg;
+    closeN=texture(uWater3d, vec3(tc2,t)).rg;
   }else{
-    farN  =sineNormal(tc1w*3900.0, uTime + phase*6.0);
-    closeN=sineNormal(tc2w*527.0,  uTime + phase*6.0);
+    farN  =sineNormal(tc1*3900.0, uTime);
+    closeN=sineNormal(tc2*527.0,  uTime);
   }
   /* The mod's normals stand at z 0.295 where MGE's stand at 1, so its rings are scaled
      by the same 1/0.295 to lean the surface as far as they do there. */
   closeN += sewerWaves(vW.xy, dist) * 3.39;
-  vec2 nR=2.0*mix(closeN, farN, clamp(dist/8000.0,0.0,1.0))-1.0;
-  return normalize(vec3(nR*vary,1.0));
+  float farK=clamp(dist/8000.0,0.0,1.0);
+  vec2 nR=2.0*mix(closeN, farN, farK)-1.0;
+  /* MGE's precipitation ripples (DYNAMIC_RIPPLES: close_normal.rg += sampRain.ba, on the
+     close texcoords - they tile every 527 units as MGE's do). */
+  vec2 rain=vec2(0.0);
+  if(uRainOn==1) rain=2.0*(1.0-farK)*textureLod(uRain, tc2, 0.0).ba;
+  return normalize(vec3(nR+rain,1.0));
+}
+/* The reflection at a point. With the install's blur_reflections on, MGE's
+   FILTER_WATER_REFLECTION: six taps along a short, mostly horizontal smear whose width grows
+   with distance - 0.006 * saturate(0.11 + w/6000) * w in MGE's projected coordinates, which
+   is that much of the screen once divided by w - squashed to square pixels. */
+vec3 reflectAt(vec2 ruv){
+  vec3 c=texture(uReflCol,ruv).rgb;
+  if(uReflBlur!=1) return c;
+  vec2 r=0.006*clamp(0.11+vClipW/6000.0,0.0,1.0)*vec2(1.0, uRcpRes.y/uRcpRes.x);
+  const vec2 K[5]=vec2[5](vec2(0.60,0.10),vec2(0.30,-0.21),vec2(0.96,-0.03),vec2(-0.40,0.06),vec2(-0.70,0.18));
+  for(int i=0;i<5;i++) c+=texture(uReflCol, clamp(ruv+r*K[i], vec2(0.001), vec2(0.999))).rgb;
+  return c/6.0;
 }
 /* MGE's fogColourWater is fogColour; without the sky it is the plain fog. */
 vec4 waterFog(vec3 dir, float dist, vec3 w){
@@ -364,7 +382,7 @@ void main(){
     vec2 ruvU=vRefl.xy/max(vRefl.w,0.001)*0.5+0.5;
     ruvU-=vec2(2.1*reffactorU.x, -abs(reffactorU.y))/max(vClipW,1.0);
     ruvU=clamp(ruvU, vec2(0.001), vec2(0.999));
-    vec3 reflectedU=texture(uReflCol,ruvU).rgb;
+    vec3 reflectedU=reflectAt(ruvU);
     float fresnelU=pow(clamp(1.12-0.65*dot(-eyeVec,normal),0.0,1.0),8.0);
     vec3 resultU=mix(refractedU, reflectedU, fresnelU);
     float refractsun=dot(-eyeVec, normalize(-uSunPos+normal));
@@ -394,7 +412,7 @@ void main(){
   vec2 ruv=vRefl.xy/max(vRefl.w,0.001)*0.5+0.5;
   ruv-=vec2(2.1*reffactor.x, -abs(reffactor.y))/max(vClipW,1.0);
   ruv=clamp(ruv, vec2(0.001), vec2(0.999));
-  vec3 reflected=texture(uReflCol,ruv).rgb;
+  vec3 reflected=reflectAt(ruv);
   reflected=mix(fog.rgb, reflected, fog.a);
 
   vec3 adjustnormal=mix(vec3(0.0,0.0,0.1), normal, pow(clamp(1.05*fog.a,0.0,1.0),2.0));
@@ -586,11 +604,39 @@ Object.assign(Renderer.prototype,{
   waterVolume(){
     if(this._wnrm!==undefined) return this._wnrm;
     this._wnrm=null;
-    if(typeof loadTexture!=='function' || typeof VFS==='undefined' || !VFS.ok()) return null;
+    const bundled=()=>this.bundledWaterVolume().then(v=>{ if(v){ this._wnrm=v; this.dirty=true; } });
+    if(typeof loadTexture!=='function' || typeof VFS==='undefined' || !VFS.ok()){ bundled(); return null; }
     loadTexture('textures\\MGE\\water_NRM.dds').then(t=>{
-      this._wnrm=(t && t.gl && t.is3d)? t.gl : null; this.dirty=true;
-    }).catch(()=>{ this._wnrm=null; });
+      if(t && t.gl && t.is3d){ this._wnrm=t.gl; this.dirty=true; } else bundled();
+    }).catch(()=>bundled());
     return null;
+  },
+  /** MGE XE's wave volume as the viewer ships it (ui/assets/water_NRM.dds, GPL-2.0), for
+   *  an install that has none - which is every OpenMW install, so every MoMW setup. Without
+   *  it the waves are three sines. The file is MGE's own: an uncompressed 32-bit DDS volume,
+   *  256 x 256 x 32 with mips; the top level is read, BGRA to RGBA. Null if it cannot be
+   *  fetched (the headless boot test serves only the page). */
+  bundledWaterVolume(){
+    if(this._wnrmBundled) return this._wnrmBundled;
+    this._wnrmBundled=fetch('water_NRM.dds').then(r=>r.ok? r.arrayBuffer() : null).then(buf=>{
+      if(!buf || buf.byteLength<128) return null;
+      const dv=new DataView(buf);
+      if(dv.getUint32(0,true)!==0x20534444) return null;              // 'DDS '
+      const h=dv.getUint32(12,true), w=dv.getUint32(16,true), d=Math.max(1,dv.getUint32(24,true));
+      const bits=dv.getUint32(88,true), rMask=dv.getUint32(92,true);
+      const n=w*h*d*4;
+      if(bits!==32 || buf.byteLength<128+n) return null;
+      const src=new Uint8Array(buf,128,n), out=new Uint8Array(n);
+      const bgra = rMask===0x00ff0000;                                  // A8R8G8B8 in memory is B,G,R,A
+      for(let i=0;i<n;i+=4){
+        out[i]  =bgra? src[i+2] : src[i];
+        out[i+1]=src[i+1];
+        out[i+2]=bgra? src[i] : src[i+2];
+        out[i+3]=src[i+3];
+      }
+      return this.makeVolume(w,h,d,out);
+    }).catch(()=>null);
+    return this._wnrmBundled;
   },
   /** Forgotten with the install: another one may have MGE's file, or not. */
   dropWaterVolume(){ this._wnrm=undefined; },
@@ -723,8 +769,60 @@ Object.assign(Renderer.prototype,{
     const ib=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(idx),gl.STATIC_DRAW);
     gl.bindVertexArray(null);
-    this._wm={key,vao,sheet,skirt:idx.length-sheet,base:zb,top:z,bufs:[vb,ib]};
+    this._wm={key,vao,sheet,skirt:idx.length-sheet,base:zb,top:z,box:box.slice(),bufs:[vb,ib]};
     return this._wm;
+  },
+
+  /** MGE's dynamic ripples (XE Mod Water.fx's displaced WaterVS), and the rest of MGE XE's
+   *  water settings, as Preview controls. Wraithguard is for MoMW's OpenMW setups, where
+   *  there is no MGE XE configuration to read, so each is the preview's own, saved in the
+   *  profile, starting at MGE XE's default: waves on at wave height 50 (MGE clamps it to
+   *  0..250), reflections unblurred, caustics at 50. */
+  wavesOn(){ return this.opts.waves!==false && this.waveHeightNow()>0; },
+  waveHeightNow(){
+    const h=this.opts.waveHeight==null? 50 : +this.opts.waveHeight;
+    const base=isFinite(h)? Math.min(250, Math.max(0, h)) : 50;
+    return base*this.wowScale('waveHeight');
+  },
+  /** Wonders of Water (NullCascade, MIT; the Preview's `waterDepth` switch): its multiplier
+   *  on MGE's wave height or caustics for the weather now - 0.2 in Clear up to 2 in a
+   *  thunderstorm, no waves in a true interior (Sky.wowNow). 1 with the switch off. */
+  wowScale(which){
+    if(!this.opts.waterDepth || typeof Sky!=='object' || !Sky.wowNow) return 1;
+    const m=Sky.wowNow(this.opts.room||null);
+    return (m && isFinite(m[which]))? +m[which] : 1;
+  },
+  reflBlurOn(){ return !!this.opts.reflBlur; },
+  /** MGE's radial water mesh with dynamic ripples (distantinit.cpp initWater): a centre
+   *  vertex, then 120 rings of 150 spokes whose radius runs 9600 * (0.9 r^3 + 0.1 r) - dense
+   *  by the eye, wide further out - and a last ring past the horizon. Relative to the eye;
+   *  the vertex shader moves it there and cuts it to the loaded water. Built once. */
+  _waveMesh(){
+    if(this._wvm) return this._wvm;
+    const gl=this.gl, resS=150, resT=120, dS=Math.PI*2/resS;
+    const pos=new Float32Array((resS*resT+1)*3);
+    let k=3;                                   // vertex 0 is the centre, at 0,0,0
+    for(let t=0;t<resT;t++){
+      let r=t/resT; r=9600*(0.9*r*r*r+0.1*r);
+      if(t+1===resT) r=500000;
+      for(let si=0;si<resS;si++){ pos[k++]=r*Math.cos(dS*si); pos[k++]=r*Math.sin(dS*si); pos[k++]=0; }
+    }
+    const idx=new Uint16Array(3*resS + 6*resS*(resT-1)); let j=0;
+    for(let si=0;si<resS;si++){ idx[j++]=0; idx[j++]=1+si; idx[j++]=1+(si+1)%resS; }
+    for(let t=1;t<resT;t++){
+      for(let si=0;si<resS;si++){
+        const tb=1+resS*(t-1), s2=(si+1)%resS;
+        idx[j++]=tb+si; idx[j++]=resS+tb+si; idx[j++]=tb+s2;
+        idx[j++]=resS+tb+si; idx[j++]=resS+tb+s2; idx[j++]=tb+s2;
+      }
+    }
+    const vao=gl.createVertexArray(); gl.bindVertexArray(vao);
+    const vb=this._buf(pos); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);
+    const ib=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,idx,gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    this._wvm={vao,count:idx.length,bufs:[vb,ib]};
+    return this._wvm;
   },
 
   /** Whether the frame goes through the offscreen targets: the MGE water needs them
@@ -736,7 +834,8 @@ Object.assign(Renderer.prototype,{
     // Round 18dq: and the outline highlight (34_outline.js), which reads the frame's depth.
     // Round 18dt: and the underwater post pass, which reads the finished frame and its depth.
     // Round 18dy: and the depth of field (36_dof.js), which reads both.
-    return !!((this.water && o.mgeWater!==false) || (o.sunshafts && scat && now) || o.ssao || o.fxaa || (this.wantsOutline && this.wantsOutline()) || this.underNow || o.dof);
+    // Wraithguard: and the bloom (42_wg_bloom.js), which reads the finished frame and its depth.
+    return !!((this.water && o.mgeWater!==false) || (o.sunshafts && scat && now) || o.ssao || o.fxaa || (this.wantsOutline && this.wantsOutline()) || this.underNow || o.dof || o.bloom);
   },
 
   /** The whole frame, offscreen: MGE's water when it is on, the sunshafts after.
@@ -782,6 +881,8 @@ Object.assign(Renderer.prototype,{
       return true;
     }
     const wz=this.water.z;
+    // Wraithguard: MGE's rain/snow ripples, stepped for this frame (43_wg_rain.js).
+    if(this.rainStep) this.rainStep();
 
     // 1. The reflection: the scene from the eye's mirror image under the water.
     const eyeR=[eye[0],eye[1],2*wz-eye[2]];
@@ -815,7 +916,10 @@ Object.assign(Renderer.prototype,{
        which is total internal reflection: the sea floor and the kelp mirrored in the
        surface, not the sky. `clipMode` 2 drops fragments above the line. */
     const belowEye=!!this.underNow;
-    drawScene(VPR,eyeR,{reflect:true,clipZ:belowEye? wz+0.5 : wz-0.5,clipMode:belowEye? 2 : 1,target:[c.tx,c.ty,2*wz-c.tz],rect:wr||null});
+    /* With dynamic ripples MGE lowers the clip plane by half the wave height (renderwater.cpp:
+       plane.d += 0.5 * WaterWaveHeight), so a trough still reflects what stands above it. */
+    const wDrop=this.wavesOn()? 0.5*this.waveHeightNow() : 0;
+    drawScene(VPR,eyeR,{reflect:true,clipZ:belowEye? wz+0.5 : wz-0.5-wDrop,clipMode:belowEye? 2 : 1,target:[c.tx,c.ty,2*wz-c.tz],rect:wr||null});
     }
 
     // 2. The scene, for real, multisampled.
@@ -897,6 +1001,9 @@ Object.assign(Renderer.prototype,{
         if(pr.u.uSunPos) gl.uniform3fv(pr.u.uSunPos,[0.3,0.2,0.93]);
       }
       gl.uniform1f(pr.u.uSunVis, now? now.sunVis : 1);
+      if(pr.u.uWaves) gl.uniform1i(pr.u.uWaves,0);
+      if(pr.u.uWater3d) gl.uniform1i(pr.u.uWater3d,9);   // the volume's unit, for every program the vertex shader serves
+      if(pr.u.uTime) gl.uniform1f(pr.u.uTime,(performance.now()/1000)%3600);
     };
     const wp=this.progWaterMGE;
     setCommon(wp);
@@ -917,12 +1024,31 @@ Object.assign(Renderer.prototype,{
     gl.uniform1f(wp.u.uTintHue, this.opts.waterHue!=null? +this.opts.waterHue : 190);
     gl.uniform1f(wp.u.uTintAmt, Math.min(1, Math.max(0, +this.opts.waterTint||0)));
     gl.uniform1i(wp.u.uSewers, this.opts.sewerWaves===false? 0 : 1);   // on unless switched off
+    gl.uniform1i(wp.u.uReflBlur, this.reflBlurOn()? 1 : 0);
+    // Wraithguard: the rain ripples (43_wg_rain.js), stepped above, on unit 10.
+    const rainT=this.rainTexture? this.rainTexture() : null;
+    gl.uniform1i(wp.u.uRain,10); gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D,rainT); gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(wp.u.uRainOn, rainT? 1 : 0);
+    const waves=this.wavesOn();
+    this.wavesDrawn=waves;   // for the tests
     gl.disable(gl.BLEND);
     gl.depthMask(false);
     gl.disable(gl.CULL_FACE);
     gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1.0,-2.0);
-    gl.bindVertexArray(m.vao);
-    gl.drawElements(gl.TRIANGLES,m.sheet,gl.UNSIGNED_SHORT,0);
+    if(waves){
+      const wm=this._waveMesh();
+      gl.uniform1i(wp.u.uWaves,1);
+      gl.uniform3f(wp.u.uEyeW,eye[0],eye[1],eye[2]);
+      gl.uniform4f(wp.u.uBox,m.box[0],m.box[1],m.box[2],m.box[3]);
+      gl.uniform1f(wp.u.uWaterZ,m.top);
+      gl.uniform1f(wp.u.uWaveH,this.waveHeightNow());
+      gl.bindVertexArray(wm.vao);
+      gl.drawElements(gl.TRIANGLES,wm.count,gl.UNSIGNED_SHORT,0);
+      gl.uniform1i(wp.u.uWaves,0);
+    }else{
+      gl.bindVertexArray(m.vao);
+      gl.drawElements(gl.TRIANGLES,m.sheet,gl.UNSIGNED_SHORT,0);
+    }
     gl.disable(gl.POLYGON_OFFSET_FILL);
     /* The skirt: translucent, depth-tested, and writing no depth - it is water, and what
        is behind it is meant to show through (round 16). It stands in the terrain's own
@@ -976,8 +1102,11 @@ Object.assign(Renderer.prototype,{
        from last, after the bloom and before the FXAA. When it will run the frame goes to
        its own target first and the pass hands on to the FXAA's (or the canvas). */
     const dofDst=this.dofDest? this.dofDest(T.W,T.H) : null;
-    const dst=dofDst||fxDst;
-    this.fxaaDrawn=false; this.outlineDrawn=false; this.dofDrawn=false;
+    /* Wraithguard: and the bloom before that - MGE's "sensor" category, after the
+       sunshafts and before the lens (42_wg_bloom.js). */
+    const bloomDst=this.bloomDest? this.bloomDest(T.W,T.H) : null;
+    const dst=bloomDst||dofDst||fxDst;
+    this.fxaaDrawn=false; this.outlineDrawn=false; this.dofDrawn=false; this.bloomDrawn=false;
     // Round 18dq: the outline's mask, from the depth just resolved, before the frame moves on.
     const outline=!!(this.drawOutlineMask && this.drawOutlineMask(T));
     // 18dt: Sunshafts.fx is masked off under water (mgeflags 9), and the underwater post
@@ -997,6 +1126,7 @@ Object.assign(Renderer.prototype,{
       gl.uniform1i(bp.u.uTex,0);
       gl.drawArrays(gl.TRIANGLES,0,3);
     }
+    if(bloomDst) this.drawBloom(T,dofDst||fxDst);   // the glare, into the lens and then the FXAA
     if(dofDst) this.drawDof(T,fxDst);      // 18dy: the blur, then the outline over it
     if(outline) this.drawOutline(T,fxDst);   // over the frame, under the FXAA
     if(fxDst) this.drawFXAA(T.W,T.H);

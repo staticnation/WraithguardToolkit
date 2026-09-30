@@ -31,6 +31,19 @@ fn build_page() {
     page = page.replace("__WG_ICON__", &format!("data:image/png;base64,{}", base64(&icon)));
     std::fs::create_dir_all("ui-dist").expect("ui-dist");
     std::fs::write("ui-dist/index.html", page).expect("ui-dist/index.html");
+    // The page's own assets (GPL-2.0, see ui/LICENSE): copied beside it, so the viewer
+    // embeds them with the page and the page can fetch them by name. MGE XE's wave volume
+    // is the one that matters: an OpenMW install does not have it.
+    println!("cargo:rerun-if-changed=ui/assets");
+    if let Ok(dir) = std::fs::read_dir(ui.join("assets")) {
+        for entry in dir.flatten() {
+            let from = entry.path();
+            if from.is_file() {
+                let to = Path::new("ui-dist").join(entry.file_name());
+                std::fs::copy(&from, &to).unwrap_or_else(|e| panic!("{}: {e}", from.display()));
+            }
+        }
+    }
 }
 
 /// tauri-build needs the window icon at compile time. The one copy lives at the repo

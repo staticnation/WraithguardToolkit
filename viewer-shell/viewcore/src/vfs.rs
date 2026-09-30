@@ -260,6 +260,42 @@ impl Vfs {
         self.packed(&key)
     }
 
+    /// Wraithguard: every place that supplies `rel` (any of `exts` for the extension, as
+    /// [`Vfs::resolve_family`] reads them; none for the path as spelled), winner first:
+    /// each data folder in priority order, then the archives, last-loaded first. `(label,
+    /// location)` - the folder's label, or the archive's file name.
+    pub fn providers(&self, rel: &str, exts: &[&str]) -> Vec<(String, Loc)> {
+        let key = norm(rel);
+        let stem = match key.rfind('.') {
+            Some(i) if !key[i..].contains('/') => key[..i].to_string(),
+            _ => key.clone(),
+        };
+        let mut cands: Vec<String> = vec![key.clone()];
+        for e in exts {
+            let c = format!("{}{}", stem, e);
+            if !cands.contains(&c) {
+                cands.push(c);
+            }
+        }
+        let mut out: Vec<(String, Loc)> = Vec::new();
+        for r in &self.roots {
+            for c in &cands {
+                if let Some(p) = r.index.get(c) {
+                    out.push((r.label.clone(), Loc::Disk(p.clone())));
+                }
+            }
+        }
+        for (i, a) in self.archives.iter().enumerate().rev() {
+            for c in &cands {
+                if a.has(c) {
+                    let name = a.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    out.push((name, Loc::Packed { archive: i, key: c.clone() }));
+                }
+            }
+        }
+        out
+    }
+
     /// A loose file only — what a plugin is, always.
     pub fn resolve_disk(&self, rel: &str) -> Option<&Path> {
         let key = norm(rel);

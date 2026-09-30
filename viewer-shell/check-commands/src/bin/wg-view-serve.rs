@@ -93,6 +93,10 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "viewer_profile_read" => Reply::Text(t::viewer_profile_read()?),
         "viewer_profile_write" => Reply::Text(t::viewer_profile_write(s(a, "text"))?),
         "wg_save_edited" => Reply::Text(t::wg_save_edited(s(a, "url"), s(a, "body"), s(a, "out"))?),
+        "wg_open_record" => Reply::Text(t::wg_open_record(s(a, "url"), s(a, "body"))?),
+        "wg_post" => Reply::Text(t::wg_post(s(a, "url"), s(a, "body"))?),
+        "find_record" => Reply::Json(t::find_record(s(a, "tag"), s(a, "id"), st())?),
+        "ori_dialogue" => Reply::Json(t::ori_dialogue(s(a, "id"), st())?),
         "startup_install" => Reply::Json(t::startup_install()?),
         // Round 18cj: the colour theme, remembered for the next start-up.
         "theme_set" => Reply::Json(t::theme_set(s(a, "code"))?),
@@ -104,11 +108,21 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "cells" => Reply::Json(t::cells(st())?),
         "texture_usage" => Reply::Json(t::texture_usage(st())?),
         "assets" => Reply::Json(t::assets(st())?),
-        "cell_data" => Reply::Json(t::cell_data(i(a, "gx"), i(a, "gy"), st())?),
-        "interior_data" => Reply::Json(t::interior_data(s(a, "name"), st())?),
+        "cell_data" => Reply::Json(t::cell_data(i(a, "gx"), i(a, "gy"), opt(a, "review"), Some(b(a, "without")), opt(a, "land"), st())?),
+        "interior_data" => Reply::Json(t::interior_data(s(a, "name"), opt(a, "review"), Some(b(a, "without")), st())?),
+        // Wraithguard: the review, overlay and link tools.
+        "pathgrid" => Reply::Json(t::pathgrid(strs(a, "cells"), st())?),
+        "collision_bundle" => Reply::Bytes(t::collision_bundle(strs(a, "meshes"), st())?.0),
+        "where_used" => Reply::Json(t::where_used(s(a, "kind"), s(a, "name"), st())?),
+        "asset_providers" => Reply::Json(t::asset_providers(s(a, "path"), s(a, "kind"), st())?),
+        "game_settings" => Reply::Json(t::game_settings(st())?),
+        "write_b64" => {
+            t::write_b64(s(a, "path"), s(a, "data"))?;
+            Reply::Raw("true".into())
+        }
         // Text, not JSON: the caller wants the file's bytes.
-        "texture_data" => Reply::Bytes(t::texture_data(s(a, "path"), Some(b(a, "bc")), a.get("maxSize").and_then(|v| v.as_i64()).map(|v| v.max(0) as u32), st())?.0),
-        "assets_bundle" => Reply::Bytes(t::assets_bundle(strs(a, "meshes"), strs(a, "have"), Some(b(a, "bc")), a.get("maxSize").and_then(|v| v.as_i64()).map(|v| v.max(0) as u32), st())?.0),
+        "texture_data" => Reply::Bytes(t::texture_data(s(a, "path"), Some(b(a, "bc")), a.get("maxSize").and_then(|v| v.as_i64()).map(|v| v.max(0) as u32), Some(strs(a, "bcx")), st())?.0),
+        "assets_bundle" => Reply::Bytes(t::assets_bundle(strs(a, "meshes"), strs(a, "have"), Some(b(a, "bc")), a.get("maxSize").and_then(|v| v.as_i64()).map(|v| v.max(0) as u32), Some(strs(a, "bcx")), Some(strs(a, "maps")), st())?.0),
         // Spelled by hand here, as every argument in this file is; renaming one is a
         // two-file edit and the symptom of forgetting is the engine insisting a value is
         // missing while the page plainly sent it.

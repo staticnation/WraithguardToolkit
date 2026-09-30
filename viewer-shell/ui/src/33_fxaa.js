@@ -16,8 +16,8 @@
    which saves a full-screen pass and changes no number. The unrolled `#if PS > n`
    cascade is a loop over the step table.
 
-   Provenance, for the licence file: FXAA 3.11 is NVIDIA's, under its public licence
-   (the notice in the original header); the MGE XE port is J. Böttcher's, posted for MGE XE
+   Provenance, for the licence file: FXAA 3.11 is NVIDIA's, under its BSD-3 licence
+   (License/FXAA/LICENSE, from the FXAA3_11.h NVIDIA publishes in its GameWorks samples); the MGE XE port is J. Böttcher's, posted for MGE XE
    by Hrnchamd; the tuning is Robin's copy. (No backticks inside the shader strings: template literals.) */
 
 const FXAA_SUBPIX=0.32, FXAA_EDGE_THRESHOLD=0.063, FXAA_EDGE_THRESHOLD_MIN=0.0312;

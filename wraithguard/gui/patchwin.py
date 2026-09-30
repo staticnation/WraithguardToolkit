@@ -456,6 +456,17 @@ class PatchBuilderMixin:
                 "masters": len(result.masters),
             },
         )
+        # And, when the viewer is there, a look at it in the cells it changes.
+        preview = getattr(self, "preview_plugin", None)
+        if preview is not None and messagebox.askyesno(
+            _("Preview the patch?"),
+            _(
+                "Open Cell Preview with the patch loaded last, to see it in the cells it "
+                "changes? (Review a mod shows what it changes; Without it shows the cells "
+                "as they were.)"
+            ),
+        ):
+            preview(Path(result.output))
 
     def _plugin_sizes(self, order: Sequence[str]) -> dict[str, int]:
         """Measure every plugin in the order, for the patch header.

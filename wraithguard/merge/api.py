@@ -1,11 +1,15 @@
-"""The merge entry points, ported from merge_to_master.
-
-A port of ``merge_to_master``'s ``merge_plugins.rs`` (public domain, Greatness7).
+"""The merge entry points: merge_to_master's own merge, through the native module.
 
 :func:`merge_plugins` folds one plugin into its master. :func:`merge_load_order`
-folds a whole load order into a single merged master. :class:`MergeOptions`
+folds a whole load order into a single merged master. Both run greatness7's
+``merge_to_master`` (public domain), vendored into ``native/`` with our stable-Rust
+patch, and read its result back into a :class:`PluginData`. :class:`MergeOptions`
 carries the post-merge passes: dropping deleted objects, applying moved
 references, and removing duplicate references.
+
+The Python port of ``merge_plugins.rs`` (:func:`merge_plugins_reference`,
+:func:`merge_load_order_reference`, and the modules beside this one) stays as the
+reference ``tests/test_merge_native_parity.py`` holds the native merge to.
 """
 
 from __future__ import annotations
@@ -13,6 +17,8 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+import wraithguard_native as _native
 
 from wraithguard.esp.enums import FileType
 from wraithguard.esp.plugin import read_plugin, read_plugin_filtered
@@ -51,6 +57,14 @@ class MergeOptions:
     remove_deleted: bool = False
     apply_moved_references: bool = False
     preserve_duplicate_references: bool = False
+
+    def as_kwargs(self) -> dict[str, bool]:
+        """The options as the native merge takes them."""
+        return {
+            "remove_deleted": self.remove_deleted,
+            "apply_moved_references": self.apply_moved_references,
+            "preserve_duplicate_references": self.preserve_duplicate_references,
+        }
 
     def apply(self, merged: PluginData) -> None:
         """Run the enabled passes over ``merged`` in the source tool's order."""
@@ -112,6 +126,47 @@ def merge_plugins(plugin_path: Path, master_path: Path, options: MergeOptions) -
 
     Args:
         plugin_path: The plugin to merge in.
+        master_path: The master it is merged into: the plugin's last master (one it
+            does not list is added as its last).
+        options: The post-merge passes to run.
+
+    Returns:
+        The merged master as a :class:`PluginData`.
+
+    Raises:
+        OSError: A file could not be read.
+        ValueError: A plugin is malformed, or ``master_path`` is one of its masters
+            but not the last.
+    """
+    data = _native.merge_plugins(str(plugin_path), str(master_path), **options.as_kwargs())
+    return PluginData.from_records(read_plugin(data))
+
+
+def merge_load_order(plugin_paths: Sequence[Path], options: MergeOptions) -> PluginData:
+    """Merge a whole load order into one master, resolved as the game would see it.
+
+    Args:
+        plugin_paths: The plugins, in load order.
+        options: The post-merge passes to run.
+
+    Returns:
+        The merged result as a :class:`PluginData` (an ``.esm``).
+
+    Raises:
+        OSError: A file could not be read.
+        ValueError: A plugin is malformed.
+    """
+    data = _native.merge_load_order([str(p) for p in plugin_paths], **options.as_kwargs())
+    return PluginData.from_records(read_plugin(data))
+
+
+def merge_plugins_reference(
+    plugin_path: Path, master_path: Path, options: MergeOptions
+) -> PluginData:
+    """The Python port of :func:`merge_plugins`, kept as the parity reference.
+
+    Args:
+        plugin_path: The plugin to merge in.
         master_path: The master it is merged into (must be the plugin's last master).
         options: The post-merge passes to run.
 
@@ -133,8 +188,8 @@ def merge_plugins(plugin_path: Path, master_path: Path, options: MergeOptions) -
     return master
 
 
-def merge_load_order(plugin_paths: Sequence[Path], options: MergeOptions) -> PluginData:
-    """Merge a whole load order into one master, resolved as the game would see it.
+def merge_load_order_reference(plugin_paths: Sequence[Path], options: MergeOptions) -> PluginData:
+    """The Python port of :func:`merge_load_order`, kept as the parity reference.
 
     Args:
         plugin_paths: The plugins, in load order.

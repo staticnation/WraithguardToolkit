@@ -32,6 +32,13 @@ pub enum Kind {
     Bc2,
     /// BC3/DXT5 blocks, 16 bytes.
     Bc3,
+    /// Wraithguard: BC4 (ATI1) blocks, 8 bytes - one channel.
+    Bc4,
+    /// BC5 (ATI2) blocks, 16 bytes - two channels, a normal map's X and Y; the page
+    /// rebuilds Z.
+    Bc5,
+    /// BC7 blocks, 16 bytes.
+    Bc7,
     /// Straight RGBA8, one level; the page generates the mips.
     Rgba,
     /// The file's own bytes, for a format the browser reads better than we do.
@@ -47,6 +54,9 @@ impl Kind {
             Kind::Bc1 => "bc1",
             Kind::Bc2 => "bc2",
             Kind::Bc3 => "bc3",
+            Kind::Bc4 => "bc4",
+            Kind::Bc5 => "bc5",
+            Kind::Bc7 => "bc7",
             Kind::Rgba => "rgba",
             Kind::File => "file",
             Kind::Volume => "volume",
@@ -54,10 +64,19 @@ impl Kind {
     }
     fn block_bytes(self) -> usize {
         match self {
-            Kind::Bc1 => 8,
+            Kind::Bc1 | Kind::Bc4 => 8,
             _ => 16,
         }
     }
+}
+
+/// Wraithguard: the block formats the page can take beyond S3TC - `rgtc` (BC4, BC5) and
+/// `bptc` (BC7), as its WebGL has `EXT_texture_compression_rgtc` / `_bptc`. What it
+/// cannot take is decoded here instead (bcx.rs).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Extra {
+    pub rgtc: bool,
+    pub bptc: bool,
 }
 
 /// A texture ready for the GPU.
@@ -237,8 +256,13 @@ fn u16le(b: &[u8], o: usize) -> u16 {
 /// Sniffed by magic first and extension second, because Morrowind lies about extensions
 /// constantly: a great many `.tga` files in the wild are DDS inside.
 pub fn read(buf: &[u8], path: &str, want_bc: bool) -> Result<Texture, String> {
+    read_with(buf, path, want_bc, Extra::default())
+}
+
+/// [`read`], with the block formats beyond S3TC the page can take.
+pub fn read_with(buf: &[u8], path: &str, want_bc: bool, extra: Extra) -> Result<Texture, String> {
     if buf.len() >= 4 && &buf[0..4] == b"DDS " {
-        return dds(buf, want_bc);
+        return dds(buf, want_bc, extra);
     }
     if buf.len() >= 2 && buf[0] == 0x89 && buf[1] == 0x50 {
         return Ok(passthrough(buf, Kind::File));
@@ -318,7 +342,7 @@ fn plausible(w: usize, h: usize, depth: usize, avail: usize, row: usize) -> Resu
     Ok(())
 }
 
-fn dds(buf: &[u8], want_bc: bool) -> Result<Texture, String> {
+fn dds(buf: &[u8], want_bc: bool, extra: Extra) -> Result<Texture, String> {
     if buf.len() < 128 {
         return Err("DDS header is truncated".into());
     }
@@ -344,6 +368,67 @@ fn dds(buf: &[u8], want_bc: bool) -> Result<Texture, String> {
            which is how modern texture packs spell the same three block formats — and
            BC7, which is not decoded here yet. The message names the format so a white
            pot on Robin's machine says which replacer to look at. */
+        /* Wraithguard: BC4, BC5 and BC7 - a normal map is commonly BC5 (ATI2), and a
+           modern pack BC7 - decoded here to RGBA (bcx.rs), top level, for the page to mip.
+           BC5's blue is its Z, rebuilt from X and Y, so it reads as an ordinary map. */
+        let special: Option<u8> = if four == b"DX10" && buf.len() >= 148 {
+            match u32le(buf, 128) {
+                79..=81 => Some(4),
+                82..=84 => Some(5),
+                97..=99 => Some(7),
+                _ => None,
+            }
+        } else {
+            match four {
+                b"ATI1" | b"BC4U" | b"BC4S" => Some(4),
+                b"ATI2" | b"BC5U" | b"BC5S" => Some(5),
+                _ => None,
+            }
+        };
+        if let Some(k) = special {
+            /* Passed through as blocks when the page's WebGL takes them and the file has
+               its mips - a normal map at the GPU's own compression, not four times the
+               memory as RGBA. */
+            let pass = want_bc && if k == 7 { extra.bptc } else { extra.rgtc };
+            if pass {
+                let kind = match k {
+                    4 => Kind::Bc4,
+                    5 => Kind::Bc5,
+                    _ => Kind::Bc7,
+                };
+                let levels = block_levels(buf, off, w, h, mips, kind);
+                if levels.len() > 1 {
+                    let pick = levels.iter().rev().find(|(lw, lh, _)| (*lw).max(*lh) >= THUMB).or_else(|| levels.first());
+                    let px = pick.and_then(|(lw, lh, bytes)| {
+                        let (uw, uh) = (*lw as usize, *lh as usize);
+                        let px = match kind {
+                            Kind::Bc4 => crate::bcx::decode_bc4(bytes, uw, uh),
+                            Kind::Bc5 => crate::bcx::decode_bc5(bytes, uw, uh),
+                            _ => crate::bcx::decode_bc7(bytes, uw, uh),
+                        }
+                        .ok()?;
+                        Some((*lw, *lh, px))
+                    });
+                    // The alpha from the swatch's mip: BC4 and BC5 have none.
+                    let alpha = match (&px, kind) {
+                        (Some((_, _, p)), Kind::Bc7) => classify_alpha(p),
+                        _ => Alpha::Opaque,
+                    };
+                    let thumb = px.and_then(|(lw, lh, p)| shrink(lw, lh, &p));
+                    return Ok(Texture { kind, alpha, w, h, depth: 1, levels, thumb });
+                }
+            }
+            let block = if k == 4 { 8 } else { 16 };
+            plausible(w as usize, h as usize, 1, buf.len().saturating_sub(off), (w as usize).div_ceil(4) * block)?;
+            let data = &buf[off..];
+            let (uw, uh) = (w as usize, h as usize);
+            let px = match k {
+                4 => crate::bcx::decode_bc4(data, uw, uh),
+                5 => crate::bcx::decode_bc5(data, uw, uh),
+                _ => crate::bcx::decode_bc7(data, uw, uh),
+            }?;
+            return Ok(rgba_texture(w, h, px));
+        }
         let kind = if four == b"DX10" {
             if buf.len() < 148 {
                 return Err("DDS DX10 header is truncated".into());

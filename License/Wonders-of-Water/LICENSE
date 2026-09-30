@@ -1,0 +1,31 @@
+Wonders of Water - NullCascade (Nexus Mods, Morrowind mod 52815, version 1.0, 2023)
+https://www.nexusmods.com/morrowind/mods/52815
+https://github.com/NullCascade/morrowind-mods
+
+The mod page's licence statement, verbatim: "MIT licensed. Do what you want with it.
+Don't blame me for what you do with it." The archive carries no licence file of its
+own, so the MIT licence text is reproduced here for the rules Wraithguard adapts from
+it (viewer-shell/ui/src/25_sky.js per-weather wave and caustics multipliers, 26_water.js
+still water in interiors, 06_gl.js underwater fog by depth).
+
+MIT License
+
+Copyright (c) 2023 NullCascade
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

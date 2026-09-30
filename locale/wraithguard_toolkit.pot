@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.2.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-29 19:38\n"
+"POT-Creation-Date: 2026-09-30 07:05\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -47,20 +47,29 @@ msgstr ""
 msgid "WARNING: remove entry '%(entry)s' matches %(count)d openmw.cfg lines -- momw-configurator removes ALL of them, silently. Colliding lines: %(lines)s%(more)s"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:130
-#: wraithguard/gui/cellpreview.py:181
+#: wraithguard/gui/cellpreview.py:141
+#: wraithguard/gui/cellpreview.py:203
+#: wraithguard/gui/cellpreview.py:236
 msgid "Cell Preview"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:141
+#: wraithguard/gui/cellpreview.py:152
 msgid "Mesh Viewer"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:149
+#: wraithguard/gui/cellpreview.py:160
 msgid "Cell preview opened."
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:182
+#: wraithguard/gui/cellpreview.py:199
+msgid "Showing it in the open Cell Preview."
+msgstr ""
+
+#: wraithguard/gui/cellpreview.py:204
+msgid "The cell viewer (wraithguard-viewer) could not be started."
+msgstr ""
+
+#: wraithguard/gui/cellpreview.py:237
 msgid "The cell viewer (wraithguard-viewer) could not be started. Sort first, and check that the viewer is installed beside Wraithguard."
 msgstr ""
 
@@ -109,7 +118,7 @@ msgid "Only my paths"
 msgstr ""
 
 #: wraithguard/gui/conflicts.py:529
-#: wraithguard/gui/conflicts.py:1452
+#: wraithguard/gui/conflicts.py:1472
 msgid "Search:"
 msgstr ""
 
@@ -122,7 +131,7 @@ msgid "Select a file to see every folder that provides it, in load order.\nSelec
 msgstr ""
 
 #: wraithguard/gui/conflicts.py:653
-#: wraithguard/gui/conflicts.py:1736
+#: wraithguard/gui/conflicts.py:1768
 msgid "Save report (CSV)..."
 msgstr ""
 
@@ -143,9 +152,9 @@ msgid "Export comparison..."
 msgstr ""
 
 #: wraithguard/gui/conflicts.py:678
-#: wraithguard/gui/conflicts.py:1744
-#: wraithguard/gui/conflicts.py:2108
-#: wraithguard/gui/conflicts.py:3447
+#: wraithguard/gui/conflicts.py:1776
+#: wraithguard/gui/conflicts.py:2241
+#: wraithguard/gui/conflicts.py:3602
 #: wraithguard/gui/patchwin.py:221
 #: wraithguard/gui/pluginview.py:300
 #: wraithguard/gui/removemaster.py:123
@@ -161,619 +170,652 @@ msgstr ""
 msgid "Could not read the meshes: %(error)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:822
+#: wraithguard/gui/conflicts.py:842
 msgid "Opened the 3D view for %(path)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:864
+#: wraithguard/gui/conflicts.py:884
 msgid "Cannot show this mesh"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:865
+#: wraithguard/gui/conflicts.py:885
 msgid "The mesh viewer (wraithguard-viewer) could not be started."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:893
+#: wraithguard/gui/conflicts.py:913
 msgid "No mesh to show"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:894
+#: wraithguard/gui/conflicts.py:914
 msgid "None of the referenced meshes could be found in the data folders (a missing mod, or the file lives in a .bsa that is not present)."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:967
+#: wraithguard/gui/conflicts.py:987
 msgid "No image to show"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:968
+#: wraithguard/gui/conflicts.py:988
 msgid "None of the referenced images could be found in the data folders (a missing mod, or the file lives in a .bsa that is not present)."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:985
+#: wraithguard/gui/conflicts.py:1005
 msgid "Cannot show this image"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1017
+#: wraithguard/gui/conflicts.py:1037
 msgid "Editing %(path)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1019
+#: wraithguard/gui/conflicts.py:1039
 msgid "Cannot edit this mesh"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1019
+#: wraithguard/gui/conflicts.py:1039
 msgid "Its file could not be read."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1239
-#: wraithguard/gui/conflicts.py:1330
+#: wraithguard/gui/conflicts.py:1259
+#: wraithguard/gui/conflicts.py:1350
 msgid "Cannot show this texture"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1249
+#: wraithguard/gui/conflicts.py:1269
 msgid "Opened the texture comparison for %(path)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1334
-#: wraithguard/gui/conflicts.py:1291
+#: wraithguard/gui/conflicts.py:1354
+#: wraithguard/gui/conflicts.py:1311
 msgid "Texture comparison"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1352
+#: wraithguard/gui/conflicts.py:1372
 msgid "Export the texture comparison"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1374
+#: wraithguard/gui/conflicts.py:1394
 msgid "Export failed"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1376
+#: wraithguard/gui/conflicts.py:1396
 msgid "Exported: %(path)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1383
+#: wraithguard/gui/conflicts.py:1403
 msgid "Save resource conflicts"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1392
+#: wraithguard/gui/conflicts.py:1412
 msgid "Saved: %(path)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1394
-#: wraithguard/gui/conflicts.py:3664
+#: wraithguard/gui/conflicts.py:1414
+#: wraithguard/gui/conflicts.py:3824
 #: wraithguard_toolkit_gui.py:4332
 msgid "Save failed"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1429
+#: wraithguard/gui/conflicts.py:1449
 msgid "%(conflicts)d conflicting record(s) across %(scanned)d plugin(s) - %(involved)d involve your custom mods (★). Winner = last loaded."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1445
+#: wraithguard/gui/conflicts.py:1465
 msgid "Only my mods"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1460
+#: wraithguard/gui/conflicts.py:1480
 msgid "Filter by record type, id, or winning plugin. Enter jumps to the next match (Shift+Enter: previous) and scrolls it into view."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1468
+#: wraithguard/gui/conflicts.py:1488
 msgid "Include my mods' non-conflicting records"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1475
+#: wraithguard/gui/conflicts.py:1495
 msgid "Include other mods' non-conflicting records"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1488
+#: wraithguard/gui/conflicts.py:1508
 msgid "Field-level diffs: ON (%(engine)s)."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1489
+#: wraithguard/gui/conflicts.py:1509
 msgid "built-in reader"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1491
+#: wraithguard/gui/conflicts.py:1511
 msgid "Field-level diffs: OFF - record-level only. Install the built-in reader (wraithguard_native) or set a tes3conv binary, then re-check."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1499
+#: wraithguard/gui/conflicts.py:1519
 msgid "Set tes3conv..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1575
+#: wraithguard/gui/conflicts.py:1595
 msgid "Field comparison for the selected record - RED = a plugin's edit is discarded · AMBER = overridden but nothing lost · ★ = your custom mod · last column wins · double-click a field for the full value:"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1605
+#: wraithguard/gui/conflicts.py:1625
 msgid "Field-by-field diff of the selected record. Red = the plugins disagree; the last one in the load order wins.\n\nDouble-click any row for the full value, one tab per plugin. Fields stored as binary are decoded rather than shown raw, so an edit reads as a change instead of a wall of base64:\n  • bytecode -- disassembled to named script instructions. Spans the disassembler cannot decode are printed as offset/hex/ASCII rather than guessed at, and a 'decoded: N%' header says how much was understood.\n  • variables -- the script's local variable names, in declaration order.\n  • landscape (vertex heights, normals, colors, textures, world map) -- decoded to one terrain row per line, so the diff shows which rows of the cell moved. Heights are reconstructed to absolute world units.\n  • path grid connections -- decoded to a per-point adjacency list (point -> its neighbours), so you can see which nodes were rewired."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1630
-#: wraithguard/gui/conflicts.py:3191
+#: wraithguard/gui/conflicts.py:1650
+#: wraithguard/gui/conflicts.py:3346
 #: wraithguard/gui/pluginview.py:303
 msgid "Add record to patch..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1635
+#: wraithguard/gui/conflicts.py:1655
 msgid "Choose which plugin's version of the selected record should win, and add it to a patch. Nothing is written yet, and no mod is ever modified: the patch is one new plugin that loads last."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1642
+#: wraithguard/gui/conflicts.py:1662
 #: wraithguard/gui/pluginview.py:313
 msgid "Merge field..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1647
+#: wraithguard/gui/conflicts.py:1667
 msgid "Take the selected field from a plugin of your choosing and keep the rest of the record as it is now -- for when one mod fixed one thing and another mod fixed something else in the same record."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1653
+#: wraithguard/gui/conflicts.py:1673
 #: wraithguard/gui/pluginview.py:323
 msgid "Define value..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1657
+#: wraithguard/gui/conflicts.py:1677
 msgid "Type your own value for the selected field -- a number or string no plugin in the conflict uses (a compromise weight, a corrected health). It is written to the patch exactly as given, in the field's own type; your mods are not modified."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1665
+#: wraithguard/gui/conflicts.py:1685
 #: wraithguard/gui/patchwin.py:240
 #: wraithguard/gui/pluginview.py:352
 msgid "Patch Builder..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1670
+#: wraithguard/gui/conflicts.py:1690
 msgid "Review and edit the records queued so far, then write them as one new plugin. Nothing is written until you say so."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1677
+#: wraithguard/gui/conflicts.py:1697
+msgid "Show in Cell Preview"
+msgstr ""
+
+#: wraithguard/gui/conflicts.py:1702
+msgid "Open the selected record where it stands: a cell opens itself, anything else the first place it is placed, framed and inspected. An open Cell Preview is sent there; otherwise one starts."
+msgstr ""
+
+#: wraithguard/gui/conflicts.py:1709
 msgid "Plugin view..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1681
+#: wraithguard/gui/conflicts.py:1713
 msgid "The same scan with the load order's own shape restored: plugin, then kind of record, then record, with the record compared across every plugin that defines it.\n\nA flat list answers 'what conflicts'. This answers 'what does this mod change, and where does it lose', which is the question you are actually asking. The colours fill in on their own once the conflict window's background survey finishes. Read-only."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1692
+#: wraithguard/gui/conflicts.py:1724
 msgid "Journal chains..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1697
+#: wraithguard/gui/conflicts.py:1729
 msgid "Every quest's journal stages, sorted by journal index rather than file order, with the winning plugin's text for each stage. Reads the whole load order once when opened. Read-only."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1705
+#: wraithguard/gui/conflicts.py:1737
 msgid "Plugin summary..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1710
+#: wraithguard/gui/conflicts.py:1742
 msgid "Judge every conflict in the list and count the result per mod, rather than per record.\n\nA flat list of conflicts cannot answer the question that decides load order: which of my mods is losing work? This compares each record field by field and counts, for every plugin, how many records it edits and does not get its way on.\n\nReads every conflicting record with tes3conv, so it takes a moment on a large load order. Read-only."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1723
+#: wraithguard/gui/conflicts.py:1755
 msgid "Conflict map (direct)..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1728
+#: wraithguard/gui/conflicts.py:1760
 msgid "Build and open a conflict map directly from the selected conflicts. Shows which mods edit LAND records in each cell, with a breakdown of terrain shape, NPC navigation, and cell record edits."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1741
+#: wraithguard/gui/conflicts.py:1773
 msgid "Dump records as JSON..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1803
+#: wraithguard/gui/conflicts.py:1814
+msgid "The conflict viewer opens on %(id)s once the current task is done."
+msgstr ""
+
+#: wraithguard/gui/conflicts.py:1873
+msgid "Listing the non-conflicting records to find %(id)s..."
+msgstr ""
+
+#: wraithguard/gui/conflicts.py:1879
+msgid "%(id)s is not in the list, even with the non-conflicting records."
+msgstr ""
+
+#: wraithguard/gui/conflicts.py:1936
 #: wraithguard/gui/pluginview.py:1024
 msgid "Busy reading plugins -- try that again in a moment."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1851
+#: wraithguard/gui/conflicts.py:1984
 msgid "Nothing to summarise."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1857
+#: wraithguard/gui/conflicts.py:1990
 msgid "Judge every conflict?"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1858
+#: wraithguard/gui/conflicts.py:1991
 msgid "This reads every plugin that defines any of these %(count)d records -- once each, not once per record -- and will take a few minutes. The checkboxes and filters above narrow the list first if you would rather summarise part of it.\n\nGo ahead?"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1873
+#: wraithguard/gui/conflicts.py:2006
 msgid "Coloring the load order (%(count)d record(s))..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1875
+#: wraithguard/gui/conflicts.py:2008
 msgid "Judging %(count)d conflict(s)..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1927
+#: wraithguard/gui/conflicts.py:2060
 msgid "Reading plugin %(done)d of %(total)d..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1943
+#: wraithguard/gui/conflicts.py:2076
 msgid "Could not summarise the conflicts."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1944
+#: wraithguard/gui/conflicts.py:2077
 msgid "Summary failed"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1944
+#: wraithguard/gui/conflicts.py:2077
 msgid "Unknown error."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1954
+#: wraithguard/gui/conflicts.py:2087
 msgid "Colored %(count)d record(s) across the load order."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:1956
+#: wraithguard/gui/conflicts.py:2089
 msgid "Judged %(count)d record(s); %(losers)d plugin(s) losing work."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2017
+#: wraithguard/gui/conflicts.py:2150
 msgid "Plugin conflict summary"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2026
+#: wraithguard/gui/conflicts.py:2159
 msgid "How each mod fares across the conflicts listed. 'Loses' counts records it edits where a later plugin overwrote the change with something different -- work that never reaches the game. 'Same as original' counts records it redefines without changing anything, which is usually removable but not always: an unchanged dialogue response may be there to hold a line's position in its topic."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2041
+#: wraithguard/gui/conflicts.py:2174
 #: wraithguard/gui/journalview.py:784
 msgid "Plugin"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2044
+#: wraithguard/gui/conflicts.py:2177
 #: wraithguard/gui/pluginview.py:1232
 msgid "Records"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2045
+#: wraithguard/gui/conflicts.py:2178
 msgid "Loses"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2046
+#: wraithguard/gui/conflicts.py:2179
 msgid "Wins"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2047
+#: wraithguard/gui/conflicts.py:2180
 msgid "Same as original"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2048
+#: wraithguard/gui/conflicts.py:2181
 msgid "Defines first"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2092
+#: wraithguard/gui/conflicts.py:2225
 msgid "%(records)d record(s) judged, %(plugins)d plugin(s) involved%(unreadable)s. The conflict list behind this window is now coloured to match: red where an edit is discarded, amber where a record is overridden but nothing is lost."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2102
+#: wraithguard/gui/conflicts.py:2235
 msgid ", %(n)d could not be read"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2123
-#: wraithguard/gui/conflicts.py:2142
-#: wraithguard/gui/conflicts.py:2153
+#: wraithguard/gui/conflicts.py:2256
+#: wraithguard/gui/conflicts.py:2275
+#: wraithguard/gui/conflicts.py:2288
+#: wraithguard/gui/conflicts.py:2308
 #: wraithguard/gui/pluginview.py:963
 #: wraithguard/gui/pluginview.py:973
 #: wraithguard/gui/pluginview.py:985
 msgid "Nothing selected"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2124
-#: wraithguard/gui/conflicts.py:2143
+#: wraithguard/gui/conflicts.py:2257
+#: wraithguard/gui/conflicts.py:2276
 msgid "Select a record above, then a field in the comparison below."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2153
+#: wraithguard/gui/conflicts.py:2288
+msgid "Select a record first."
+msgstr ""
+
+#: wraithguard/gui/conflicts.py:2294
+msgid "Not in a cell"
+msgstr ""
+
+#: wraithguard/gui/conflicts.py:2295
+msgid "A %(type)s is not placed in cells, so there is nothing to show."
+msgstr ""
+
+#: wraithguard/gui/conflicts.py:2308
 msgid "Select a conflicting record first."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2170
+#: wraithguard/gui/conflicts.py:2325
 msgid "Nothing to choose"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2171
+#: wraithguard/gui/conflicts.py:2326
 msgid "Only one plugin defines this record, so there is nothing to patch."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2234
+#: wraithguard/gui/conflicts.py:2389
 msgid "Which version should win?"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2243
-#: wraithguard/gui/conflicts.py:2409
+#: wraithguard/gui/conflicts.py:2398
+#: wraithguard/gui/conflicts.py:2564
 msgid "%(type)s  %(id)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2250
+#: wraithguard/gui/conflicts.py:2405
 msgid "Take %(field)s from this plugin, keeping the rest of the record as it is now.\nYour mods are not modified."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2256
+#: wraithguard/gui/conflicts.py:2411
 msgid "The patch will carry this plugin's whole record and load last.\nYour mods are not modified."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2265
+#: wraithguard/gui/conflicts.py:2420
 msgid "currently wins"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2278
+#: wraithguard/gui/conflicts.py:2433
 msgid "Use this field"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2278
+#: wraithguard/gui/conflicts.py:2433
 msgid "Add to patch"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2280
-#: wraithguard/gui/conflicts.py:2561
+#: wraithguard/gui/conflicts.py:2435
+#: wraithguard/gui/conflicts.py:2716
 #: wraithguard/gui/pluginview.py:1293
 #: wraithguard_toolkit_gui.py:3851
 msgid "Cancel"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2331
+#: wraithguard/gui/conflicts.py:2486
 msgid "Cannot set this field"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2332
+#: wraithguard/gui/conflicts.py:2487
 msgid "%(path)s says which record this is -- giving it a typed value would make a different record, not a patched one."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2400
+#: wraithguard/gui/conflicts.py:2555
 msgid "Define a value"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2415
+#: wraithguard/gui/conflicts.py:2570
 msgid "Type a value for %(path)s. It is written to the patch exactly as given, in the field's own type.\nYour mods are not modified."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2425
+#: wraithguard/gui/conflicts.py:2580
 msgid "currently: %(val)s  (%(kind)s)"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2462
+#: wraithguard/gui/conflicts.py:2617
 msgid "keeping unnamed bits: %(bits)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2474
+#: wraithguard/gui/conflicts.py:2629
 msgid "Enabled (true)"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2560
+#: wraithguard/gui/conflicts.py:2715
 msgid "Set value"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2582
+#: wraithguard/gui/conflicts.py:2737
 msgid "Building the conflict map..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2618
+#: wraithguard/gui/conflicts.py:2773
 msgid "The conflict map could not be built."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2620
+#: wraithguard/gui/conflicts.py:2775
 msgid "Could not build conflict map"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2621
-#: wraithguard/gui/conflicts.py:2744
-#: wraithguard/gui/conflicts.py:2775
-#: wraithguard/gui/conflicts.py:2845
+#: wraithguard/gui/conflicts.py:2776
+#: wraithguard/gui/conflicts.py:2899
+#: wraithguard/gui/conflicts.py:2930
+#: wraithguard/gui/conflicts.py:3000
 msgid "%(error)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2624
+#: wraithguard/gui/conflicts.py:2779
 msgid "Conflict map ready (%(cells)d cell(s))."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2625
+#: wraithguard/gui/conflicts.py:2780
 msgid "Conflict Map"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2651
+#: wraithguard/gui/conflicts.py:2806
 msgid "Could not write the page"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2652
+#: wraithguard/gui/conflicts.py:2807
 msgid "Writing %(path)s failed: %(error)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2666
+#: wraithguard/gui/conflicts.py:2821
 msgid "Saved, but could not open a viewer"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2667
+#: wraithguard/gui/conflicts.py:2822
 msgid "The page was written to %(path)s (%(error)s)"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2744
-#: wraithguard/gui/conflicts.py:2775
-#: wraithguard/gui/conflicts.py:2845
+#: wraithguard/gui/conflicts.py:2899
+#: wraithguard/gui/conflicts.py:2930
+#: wraithguard/gui/conflicts.py:3000
 msgid "Could not build the view"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2817
+#: wraithguard/gui/conflicts.py:2972
 msgid "Nothing to compare"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2818
+#: wraithguard/gui/conflicts.py:2973
 msgid "Only one plugin edits this cell's terrain, so every strategy gives the same result. Strategy choice only matters where two or more plugins change the same ground."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2834
+#: wraithguard/gui/conflicts.py:2989
 msgid "Merged: %(s)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2863
+#: wraithguard/gui/conflicts.py:3018
 msgid "Format reference..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2869
+#: wraithguard/gui/conflicts.py:3024
 msgid "Show what this kind of record is supposed to contain: every subrecord, whether the game requires it, how wide it is, and -- where the layout is documented -- the named fields inside it.\n\nA diff tells you what changed; this tells you what it was."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2900
+#: wraithguard/gui/conflicts.py:3055
 msgid "Read as dialogue..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2906
+#: wraithguard/gui/conflicts.py:3061
 msgid "Show this record as the line an NPC says -- to whom, and under what conditions -- instead of raw subrecords. Each plugin's version is rendered in turn, so you can read what a conflict actually changes."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2931
+#: wraithguard/gui/conflicts.py:3086
 msgid "Dialogue"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2982
+#: wraithguard/gui/conflicts.py:3137
 msgid "(no dialogue content)"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:2998
+#: wraithguard/gui/conflicts.py:3153
 msgid "Format reference: %(type)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3045
+#: wraithguard/gui/conflicts.py:3200
 msgid "Show graph..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3051
+#: wraithguard/gui/conflicts.py:3206
 msgid "Draw the path grid as a navigation graph, with the edges this plugin added in green and the ones it removed in red.\n\nA mod that only REMOVES edges has probably rebuilt its path grid by accident -- that breaks NPC movement and nothing else reports it."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3063
+#: wraithguard/gui/conflicts.py:3218
 msgid "Show difference..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3069
+#: wraithguard/gui/conflicts.py:3224
 msgid "Decode both versions to absolute heights and subtract them: red where the winner raised the ground, blue where it lowered it.\n\nComparing the raw values above is misleading. Heights are stored as cumulative deltas, so moving ONE vertex changes every byte after it and two nearly-identical cells look completely different."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3081
+#: wraithguard/gui/conflicts.py:3236
 msgid "Show in 3D..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3087
+#: wraithguard/gui/conflicts.py:3242
 msgid "Draw the cell's terrain as a surface you can rotate, with each plugin's version switchable in place. Drag to turn it.\n\nShading follows slope rather than height, which reads as terrain."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3095
+#: wraithguard/gui/conflicts.py:3250
 msgid "Compare strategies..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3101
+#: wraithguard/gui/conflicts.py:3256
 msgid "Show what each conflict strategy would do to this cell -- the merged terrain under Overwrite, Resolve, Ignore and Curvature, switchable in the same 3D view alongside each plugin's own version.\n\nPreview it here, then set the strategy you want in the plugin's .mergedlands.toml with Merge Settings. Only differs where two or more plugins actually contest a vertex."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3114
+#: wraithguard/gui/conflicts.py:3269
 msgid "View mesh..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3120
+#: wraithguard/gui/conflicts.py:3275
 msgid "Open the mesh this record points at in the 3D viewer, resolved through your data folders and .bsa archives. One per plugin, so a record whose plugins point at different meshes shows them side by side -- the same viewer the Resource Conflicts window uses."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3131
+#: wraithguard/gui/conflicts.py:3286
 msgid "View image..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3137
+#: wraithguard/gui/conflicts.py:3292
 msgid "Open the texture/icon this record points at, resolved through your data folders and .bsa archives, and compared across the plugins that define it -- the same image viewer the Resource Conflicts window uses."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3197
+#: wraithguard/gui/conflicts.py:3352
 msgid "Queue the whole record from a plugin you pick, then open the patch builder."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3201
+#: wraithguard/gui/conflicts.py:3356
 msgid "Take this field..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3207
+#: wraithguard/gui/conflicts.py:3362
 msgid "Queue just this field from a plugin you pick -- the rest of the record keeps the load-order winner. For when one mod fixed the script and another retextured the mesh."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3218
+#: wraithguard/gui/conflicts.py:3373
 msgid "Dump records as JSON to folder"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3226
+#: wraithguard/gui/conflicts.py:3381
 msgid "Wrote %(count)d JSON file to %(folder)s"
 msgid_plural "Wrote %(count)d JSON files to %(folder)s"
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard/gui/conflicts.py:3235
+#: wraithguard/gui/conflicts.py:3390
 msgid "JSON dumped"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3236
+#: wraithguard/gui/conflicts.py:3391
 msgid "Wrote %(count)d tes3conv JSON file to:\n%(folder)s"
 msgid_plural "Wrote %(count)d tes3conv JSON files to:\n%(folder)s"
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard/gui/conflicts.py:3245
+#: wraithguard/gui/conflicts.py:3400
 msgid "Nothing written"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3246
+#: wraithguard/gui/conflicts.py:3401
 msgid "No JSON was written. The tes3conv session may have been cleared - re-run Check Conflicts, then dump again."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3253
+#: wraithguard/gui/conflicts.py:3408
 msgid "Dump failed"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3344
+#: wraithguard/gui/conflicts.py:3499
 msgid "Word wrap"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3353
+#: wraithguard/gui/conflicts.py:3508
 msgid "Syntax highlighting: %(theme)s"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3459
+#: wraithguard/gui/conflicts.py:3614
 msgid "your mods'"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3465
+#: wraithguard/gui/conflicts.py:3620
 msgid "other mods'"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3494
+#: wraithguard/gui/conflicts.py:3649
 msgid "No custom mods"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3495
+#: wraithguard/gui/conflicts.py:3650
 msgid "You have no custom/subset mods configured, so there is nothing to list here."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3500
+#: wraithguard/gui/conflicts.py:3655
 msgid "Finding %(label)s non-conflicting records..."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3542
+#: wraithguard/gui/conflicts.py:3697
 msgid "Could not list records."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3543
+#: wraithguard/gui/conflicts.py:3698
 msgid "Could not list records"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3547
+#: wraithguard/gui/conflicts.py:3702
 msgid "Found %(count)d non-conflicting record(s) from %(label)s."
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3653
+#: wraithguard/gui/conflicts.py:3813
 msgid "Save conflict report"
 msgstr ""
 
-#: wraithguard/gui/conflicts.py:3662
+#: wraithguard/gui/conflicts.py:3822
 msgid "Conflict report saved: %(path)s"
 msgstr ""
 

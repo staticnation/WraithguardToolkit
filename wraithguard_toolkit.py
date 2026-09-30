@@ -1451,8 +1451,13 @@ def _keys_and_cells(records: list[Any]) -> tuple[list[list[Any]], list[list[Any]
     for rec in records:
         if not isinstance(rec, dict):
             continue
-        # Lua scripts declared by an .omwaddon LuaScriptsCfg (keyless record)
-        if str(rec.get("type", "")).lower().replace("_", "") in ("luascriptscfg", "lual"):
+        # Lua scripts declared by an .omwaddon LuaScriptsCfg (keyless record). tes3 with
+        # LUAL support (Greatness7/tes3#7) names the type ScriptConfigList.
+        if str(rec.get("type", "")).lower().replace("_", "") in (
+            "luascriptscfg",
+            "lual",
+            "scriptconfiglist",
+        ):
             for s in rec.get("scripts") or rec.get("mScripts") or []:
                 sp = (
                     s.get("script_path") or s.get("path") or s.get("mScriptPath")

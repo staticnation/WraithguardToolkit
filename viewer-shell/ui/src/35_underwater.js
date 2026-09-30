@@ -129,8 +129,8 @@ void main(){
 
 /* Round 18du: MGE XE's water caustics - `XE Mod Caustics.fx`, a core shader, drawn in
    `renderStageBlend` before the water plane in every exterior with a caustics intensity
-   above zero (`distant_land.water.caustics_intensity`, `Water Caustics Intensity`; the
-   engine reports it as `renderer.water.caustics`), from above the water and from under it
+   above zero (MGE's `caustics_intensity`; here the Preview's Caustics slider, since an
+   OpenMW setup has no MGE XE settings), from above the water and from under it
    alike. Over the frame: for each pixel under the water line, the point is carried up to
    the surface along the sun's direction, the volume's blue channel read there (the same
    pattern the Interior Effects shader reads for its caustics), and the colour scaled by
@@ -185,20 +185,18 @@ void main(){
 
 Object.assign(Renderer.prototype,{
   /** Whether this frame gets MGE's caustics: an exterior with water, the MGE water on, and
-   *  an MGE install whose caustics intensity is above zero (the switch is the game's). */
+   *  a caustics intensity above zero. The intensity is a Preview control (`opts.caustics`,
+   *  0..100, MGE XE's default 50): Wraithguard runs on MoMW's OpenMW setups, which have no
+   *  MGE XE configuration to take it from. */
   wantsCaustics(){
     const o=this.opts;
     if(!this.water || o.mgeWater===false || o.room || o.underwater===false) return false;
-    const d=(typeof Sky==='object' && Sky.data)||null;
-    const r=d && d.renderer;
-    if(!r || r.engine!=='mgexe' || !r.water) return false;
-    const k=+r.water.caustics;
-    return isFinite(k) && k>0;
+    return this.causticsIntensity()>0;
   },
   causticsIntensity(){
-    const d=(typeof Sky==='object' && Sky.data)||null;
-    const r=d && d.renderer; const k=r && r.water? +r.water.caustics : 0;
-    return isFinite(k)? k : 0;
+    const k=this.opts.caustics==null? 50 : +this.opts.caustics;
+    const base=isFinite(k)? Math.min(100, Math.max(0, k)) : 50;
+    return base*(this.wowScale? this.wowScale('caustics') : 1);   // Wonders of Water's weather scale
   },
   /** The caustics over the resolved frame, back into the scene (`dst`, the multisampled
    *  scene target) before the surface is drawn. `airOn` sets the fog the pass fades by. */

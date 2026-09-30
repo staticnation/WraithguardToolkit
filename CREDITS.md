@@ -59,6 +59,13 @@ and their `LICENSE` files are included in their source folders in this repo.
   viewer's engine (`viewer-shell/viewcore`) also reads archives, meshes and the
   plugin records its world is built from with the crate, and falls back to its own
   readers only for a file or record the crate refuses.
+- **R-Zero's Construction Tools** and its **Door marker and Travel marker replacer**
+  and **Leveled Creature marker direction fix** - R-Zero aka Reizeron (Nexus Mods,
+  Morrowind mod 47908, May Modathon 2020; inspired by LondonRook's Outlander mod
+  markers). The author's permission: "Do whatever you want, really." Five of its
+  meshes are built into the cell viewer (`viewer-shell/viewcore/data/markers`, see its
+  README): door and travel markers, the leveled-creature marker, the character gauge
+  and the ruler.
 - **Merged Lands** - © 2022 David Von Derau. MIT. Licence text vendored at
   `License/MergedLands/LICENSE`.
   A Rust tool that merges the landscape changes a load order would otherwise
@@ -518,10 +525,18 @@ at its word and record it here so the grant is not lost.
 - `merge_plugins` and `merge_load_order` with their options (remove-deleted,
   apply-moved-references, remove-duplicate-references), from `merge_plugins.rs`.
 
-The parallel `par_merge_load_order` is deliberately **not** ported - our build is
-single-process by design. Verified rather than assumed: our merge reproduces the
-original tool's own `Expect.esm` fixtures object-for-object across its dialogue-
-ordering, deletion and cell-rename cases (`tests/test_merge_golden.py`), and its
+Since the Unreleased version the merge itself is **greatness7's own code**:
+`wraithguard.merge.merge_plugins` / `merge_load_order` call the crate through the
+native module (`par_merge_load_order` for a load order). Upstream took our stable-Rust
+change (commit 5ea27f1); the build takes the crate, and greatness7's tes3 with it, from
+our forks ([`staticnation/merge_to_master`](https://github.com/staticnation/merge_to_master),
+[`staticnation/tes3`](https://github.com/staticnation/tes3)) until the changes still
+waiting upstream land there. The Python port above
+stays as the reference the native merge is tested against
+(`tests/test_merge_native_parity.py`). Both reproduce the original tool's own
+`Expect.esm` fixtures across its dialogue-ordering, deletion and cell-rename cases
+(`tests/test_merge_golden.py`; a merged master's own references are compared by
+content, as upstream's test does, since the tool numbers them afresh), and its
 `get_index_remap` unit cases pass unchanged.
 
 ## Runtime & optional libraries
@@ -569,6 +584,13 @@ credit each shader's own header gives:
 - `XE Mod Shadow.fx` + `XE Mod Shadow Data.fx` (G7 fork) - the sun shadow
   receiver (`06_gl.js`, `37_shadow.js`).
 - `XE Mod Water.fx` (G7 branch, 0.16.0) - the water (`26_water.js`).
+- `XE Mod Water.fx`'s dynamic ripples - the displaced `WaterVS` and the radial water
+  mesh (`distantinit.cpp`) - and its reflection blur (`26_water.js`).
+- The precipitation ripples - `renderwater.cpp`'s drops and `XE Main.fx`'s
+  `WaveStepPS` wave simulation (`43_wg_rain.js`).
+- `textures/MGE/water_NRM.dds`, MGE XE's wave volume, **shipped unmodified** as
+  `viewer-shell/ui/assets/water_NRM.dds` for setups without it: MoMW runs OpenMW, which
+  has no MGE XE files, and without it the waves would be a stand-in.
 - `XE Mod Caustics.fx` - outdoor water caustics (`35_underwater.js`).
 - `XE Mod Grass.fx` - groundcover wind (`06_gl.js`).
 - `Sunshafts.fx` - "Sun shaft rays by **phal** v0.02a; many tweaks by **Hrnchamd**
@@ -576,9 +598,11 @@ credit each shader's own header gives:
 - `Underwater Effects.fx` and `Underwater Interior Effects.fx` - **Hrnchamd**
   (`35_underwater.js`).
 - `SSAO HQ.fx` - "based on ssao v09 by **Knu**" (`29_ssao.js`).
+- `Bloom Fine.fx` - **Hrnchamd** (`42_wg_bloom.js`).
+- `XE Mod Sky.fx` - the ordered dither over the sky's gradient (`06_gl.js`).
 - `Depth of Field.fx` - "v12 by **Knu**, tweaked by **peachykeen**" (`36_dof.js`).
-- `FXAA.fx` - FXAA 3.11 by **Timothy Lottes, NVIDIA**, under NVIDIA's notice in the
-  original header; the MGE XE port by **J. Böttcher** (as its header says), posted
+- `FXAA.fx` - FXAA 3.11 by **Timothy Lottes, NVIDIA**, under NVIDIA's BSD-3 licence
+  (`License/FXAA/LICENSE`, the FXAA 3.11 header from NVIDIA's GameWorks samples); the MGE XE port by **J. Böttcher** (as its header says), posted
   for MGE XE by **Hrnchamd** (`33_fxaa.js`).
 - `SSGI.fx` - an MGE XE post shader (HBAO + SSGI): **vtastek**'s SSGI, modified
   by **Remiros**; GPL-2.0 like the other MGE XE shaders (the SSGI mode in
@@ -589,21 +613,11 @@ camera smoothing from his own MWSE mod, and his go-ahead for the SSAO port.
 
 **Ours** (StaticNation, GPL-2.0 as part of the page) - `23_viewer_profile.js`,
 `24_ori.js`, `38_wg_viewport.js`, `39_wg_coverage.js`, `40_wg_modhl.js`,
-`41_wg_meshview.js` and `viewer_only.html`.
+`41_wg_meshview.js`, `42_wg_bloom.js`, `43_wg_rain.js`, `44_wg_precip.js`, `45_wg_nav.js`,
+`46_wg_tfh.js` and `viewer_only.html`.
 
-The water's other sources - the shore surf (OWSE, mod 56186), the sewer waves
-(Krokantor's shader, mod 45432) and the webgl-noise simplex noise - are in the three sections that follow.
-
-## Cell viewer water: wave randomness
-
-The cell viewer's water is MGE XE's water shader, as ported in Gardenfell's viewer (see Gardenfell above and `License/MGE-XE`). To keep its
-waves from repeating tile by tile, a slow **2D simplex noise** field bends where the
-wave texture is read, puts stretches of water out of step with each other, and varies
-the wave strength a little (`viewer-shell/ui/src/26_water.js`, `waterNormal`). The
-`snoise`/`wgPermute`/`wgMod289` functions are **Ian McEwan / Ashima Arts** and
-**Stefan Gustavson**'s implementation from the `webgl-noise` project, MIT licensed,
-reproduced as the licence permits (`License/webgl-noise/LICENSE`). The technique, a
-noise-driven domain warp, is the one the retired three.js water used.
+The water's other sources - the shore surf (OWSE, mod 56186) and the sewer waves
+(Krokantor's shader, mod 45432) - are in the two sections that follow.
 
 ## OpenMW Water Shader Enhanced (OWSE) - Vegetto (Nexus Mods, Morrowind mod 56186)
 
@@ -625,6 +639,19 @@ caustics, optimised sewer waves, bits of code and general help), **phal** and
 **harnlarnm** (original foam code), **abot** (sewer waves port), **Hrnchamd** (MGE
 XE). Permission: "You can do with this shader what you want as
 long as you give proper credit to the original authors and me."
+
+## Wonders of Water - NullCascade (Nexus Mods, Morrowind mod 52815)
+
+**MIT** ("MIT licensed. Do what you want with it."), notice at
+`License/Wonders-of-Water/LICENSE`. An MWSE mod that makes MGE XE's water react to the
+world; the viewer simulates it (MWSE cannot run under OpenMW) behind the Preview's
+**Wonders of Water** switch. Its per-weather multipliers on the wave height and the
+caustics, verbatim from its `config.lua` (`25_sky.js`, applied in `26_water.js` and
+`35_underwater.js`) - driven by the Preview's Weather picker; still water in a true
+interior (its `interop.lua`); and under the water the fog closing in and the water
+darkening with depth (`depthFactor = saturate(depth / 1500)`, fog times
+`max(1 - depthFactor, 0.1)`, colour times `1 - depthFactor`; `06_gl.js`). Its
+player-only rules - vampire sun damage, Night Eye - are left out.
 
 ## And of course
 

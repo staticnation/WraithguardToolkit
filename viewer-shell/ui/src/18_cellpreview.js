@@ -16,6 +16,19 @@
     assembled from body parts at runtime, so the engine builds a body-shaped slab and
     serves it under this name — the same geometry it keeps grass out of. */
 const CORPSE_SLAB='__corpse_slab';
+/** Wraithguard: the mesh path the engine assembles an NPC for (viewcore npc.rs NPC_PREFIX),
+ *  followed by the NPC's id. */
+const NPC_MESH_PREFIX='__npc/';
+/** Wraithguard: night, for the NPCs' torches - OpenMW's NPCs take one out after dark. */
+function npcNightHour(){ const h=+App.hour; return isFinite(h) && (h>=20 || h<6); }
+/** How the engine is asked to dress an NPC (viewcore npc.rs `npc_request`): a torch at
+ *  night out of doors, the weapon in the hand when the Preview says so. */
+function npcFlags(indoors){
+  const f=[];
+  if(npcNightHour() && !indoors) f.push('night');
+  if(App.npcDrawn) f.push('drawn');
+  return f.length? '?'+f.join('&') : '';
+}   // forward slash: VFS.norm turns every backslash into one
 
 /* The one living creature the preview draws: the silt strider, by its vanilla model path
    or the `x` twin the game actually draws; the folder is not part of the match, so a mod
@@ -407,8 +420,12 @@ function settleDoorEye(R,groundAt){
 }
 function doorTarget(door){
   if(!door || !door.pos) return null;
-  const cell=String(door.cell||'').trim();
-  if(cell) return {kind:'int', name:cell, label:cell};
+  /* The name as the door writes it: the engine keys interiors by their exact name (any
+     case, as the game matches), so trimming it here could miss a cell whose NAME carries
+     a trailing space. Trimmed only to tell "no name" (a door to the exterior) apart. */
+  const raw=String(door.cell||'');
+  const cell=raw.trim();
+  if(cell) return {kind:'int', name:raw, label:cell};
   const x=Math.floor((+door.pos[0]||0)/CELL), y=Math.floor((+door.pos[1]||0)/CELL);
   const named=(typeof GameData==='object' && GameData.grid)? GameData.grid.get(x+','+y) : null;
   return {kind:'ext', x, y, name:named? named.name : '',
@@ -629,7 +646,7 @@ async function _rebuildCellPreview(){
      depends on and skipped whenever those are unchanged. */
   const sceneKey=JSON.stringify([
     target.kind, target.x, target.y, target.name||'',
-    App.showAdjacent, App.showCorpses,
+    App.showAdjacent, App.showCorpses, App.showActors!==false, npcNightHour(), !!App.npcDrawn,
     App.avoidStatics, App.avoidPad, App.avoidMinSize, (App.avoidExclude||[]).join('|'),
     GameData.sig||'',
     /* The simplified patch is a cell whose *contents* change while its grid position
@@ -655,7 +672,7 @@ async function _rebuildCellPreview(){
   /* Round 17y: the same key with the target left out - what has to agree for a step to
      the next cell to keep what is already on the renderer (see `pan` below). */
   const panKey=JSON.stringify([
-    target.kind, App.showAdjacent, App.showCorpses,
+    target.kind, App.showAdjacent, App.showCorpses, App.showActors!==false, npcNightHour(), !!App.npcDrawn,
     App.avoidStatics, App.avoidPad, App.avoidMinSize, (App.avoidExclude||[]).join('|'),
     GameData.sig||'', App.mode==='cell'? '' : (App.patchSig||''),
   ]);
@@ -1000,9 +1017,21 @@ async function _rebuildCellPreview(){
     }
     gx0=Math.min(gx0,T.span[0]+off[0]); gx1=Math.max(gx1,T.span[1]+off[0]);
     gy0=Math.min(gy0,T.span[0]+off[1]); gy1=Math.max(gy1,T.span[1]+off[1]);
-    for(const L of T.layers){
+    /* The cell's land textures (and, Wraithguard, their maps) asked for together rather
+       than one after another. */
+    await Promise.all(T.layers.map(async L=>{
       const file=L.id? GameData.textureFileFor(L.id):null;
-      if(file){ const t=await loadTexture(file); if(t&&t.gl) L.tex=t.gl; }
+      if(!file) return;
+      /* Wraithguard: the layer's own maps, as the setup's OpenMW takes them - its
+         _diffusespec *in place of* the diffuse (the same picture, the highlight's
+         strength in its alpha) and its normal map beside it. */
+      const maps=App.cellNormalMaps? landMaps(file) : null;
+      const [t,n]=await Promise.all([loadTexture((maps&&maps.dspec)||file),
+                                     (maps&&maps.nrm)? loadTexture(maps.nrm) : null]);
+      if(t&&t.gl){ L.tex=t.gl; L.specA=!!(maps&&maps.dspec&&t.alpha!=='opaque'); }
+      if(n&&n.gl) L.nrm=n.gl;
+    }));
+    for(const L of T.layers){
       // Unpainted ground has no file to load when the vanilla one is only inside a
       // BSA, and a missing-texture checker there would be a lie: the game draws dirt.
       if(!L.tex && L.id===DEFAULT_LTEX) L.flat=DEFAULT_LTEX_COLOR;
@@ -1082,6 +1111,7 @@ async function _rebuildCellPreview(){
     Busy.show(T('busy.placing_objects'),'',0.5);
     await Busy.tick();
     const byMesh=new Map();
+    App._sceneMarkers=[];   // Wraithguard: the editor markers, not drawn, for the overlay (48_wg_tools.js)
     for(const c of cells){
 
       const off=cellOffsetFrom(origin,c);
@@ -1109,20 +1139,47 @@ async function _rebuildCellPreview(){
              halves: it is in the scene, the living rat beside it is not, and the cell's
              `aliveSkipped` and `rejObstacle` are what they were. */
           const strider=actor.kind==='crea' && STRIDER_MESH.test(actor.model||'');
-          if(!strider && (!App.showCorpses || !actor.corpse)) continue;
+          /* Wraithguard: the living are drawn too now - an NPC assembled by the engine from
+             its skeleton, body parts and what it wears (`__npc/<id>`, viewcore npc.rs), a
+             creature from its `x` twin with its idle, and a leveled-creature spawn point
+             with the model the list resolved to. The dead keep the corpse rule below. */
+          /* Dead only when the record says health 0. The engine's `corpse` also counts an
+             actor with auto-calculated stats and the "Corpses persist" flag, which was
+             right for keeping grass out and is wrong for drawing: most named NPCs -
+             Caius Cosades among them - are exactly that, and alive. */
+          const dead=actor.health===0;
+          const living=App.showActors!==false && !dead;
+          if(living){
+            if(actor.kind==='npc') model=NPC_MESH_PREFIX+(ref.id||'')+npcFlags(roomAlwaysOn);
+            else if(actor.kind==='lev'){
+              model=actor.model||'';
+              /* Wraithguard: the Construction Set's creature marker, drawn with its fix
+                 (R-Zero's "Leveled Creature marker direction fix"): it faces the way the
+                 creature will. Built in (viewcore markers.rs). */
+              if(/(^|[\\/])marker_creature\.nif$/i.test(model)) model='__wg/marker_creature.nif';
+            }
+            else model=actor.twin||actor.model||'';
+            if(!model) continue;
+          }
+          else if(actor.kind==='lev') continue;
+          else if(!strider && (!App.showCorpses || !dead)) continue;
           // An NPC has no mesh — the game assembles one from body parts — so it is
           // drawn as the same body-shaped slab the engine keeps grass out of.
           /* Round 18ag: the living strider is drawn from its `x` twin when the load order
              has one - the file the game draws it with, the one that carries the lanterns
              and the `.kf` beside it - and a corpse from the plain file, still. */
-          model=strider? (actor.twin||actor.model)
+          if(!living) model=strider? (actor.twin||actor.model)
               : (actor.kind==='npc'||!actor.model)? CORPSE_SLAB : actor.model;
         }else{
           model=CellData.models.get(key);
           if(!model) continue;
           // Editor markers are not drawn, for the same reason the engine does not avoid
           // them: the game does not draw them either.
-          if(isMarkerMesh(model)) continue;
+          if(isMarkerMesh(model)){
+            App._sceneMarkers.push({id:ref.id, model, rot:ref.rot, scale:ref.scale||1,
+              local:[ref.pos[0]-c.origin[0]+off[0], ref.pos[1]-c.origin[1]+off[1], ref.pos[2]]});
+            continue;
+          }
         }
         const local=[ref.pos[0]-c.origin[0]+off[0], ref.pos[1]-c.origin[1]+off[1], ref.pos[2]];
         let a=byMesh.get(model); if(!a){ a=[]; byMesh.set(model,a); }
@@ -1146,9 +1203,22 @@ async function _rebuildCellPreview(){
     /* Round 16b: bundled - a few round trips carrying every mesh and every texture
        the page does not have, instead of one per file (`loadMeshes`, 10_preview.js).
        The bar counts them in as they land. */
-    const loaded=await loadMeshes(meshList.map(([model])=>model===CORPSE_SLAB? model : 'Meshes\\'+model),
+    const loaded=await loadMeshes(meshList.map(([model])=>(model===CORPSE_SLAB || model.startsWith(NPC_MESH_PREFIX) || model.startsWith('__wg/'))? model : 'Meshes\\'+model),
       (done,total)=>{ Busy.show(T('busy.placing_objects'), T('busy.n_of_meshes',{done, total}), 0.5+0.35*done/Math.max(1,total)); });
     timing.tBuild=performance.now();   // round 18cr: the scene from what arrived
+    /* Wraithguard: what the loaded cells ask for and the setup does not have - meshes that
+       did not load, and textures that did not - for the review tools' Missing files. */
+    { const miss=[];
+      meshList.forEach(([model,list],mi)=>{
+        const info=loaded[mi];
+        if(!info || info.err){ if(!model.startsWith(NPC_MESH_PREFIX) && model!==CORPSE_SLAB) miss.push({kind:'mesh', name:model, count:list.length, err:(info&&info.err)||''}); return; }
+        const seen=new Set();
+        for(const p of (info.parts||[])){
+          const t=p.glTex;
+          if(t && t.err && p.tex && !seen.has(p.tex)){ seen.add(p.tex); miss.push({kind:'texture', name:p.tex, count:list.length, err:t.err, mesh:model}); }
+        }
+      });
+      App._sceneMissing=miss; }
     for(let mi=0; mi<meshList.length; mi++){
       const [model,list]=meshList[mi];
       const info=loaded[mi];
@@ -1179,6 +1249,12 @@ async function _rebuildCellPreview(){
          they come and go together." (-1,-1) marks an instance that is no lamp, whose glow
          is always on. The stream is only made when the mesh has a lamp on it at all. */
       let lamp=null;
+      /* Wraithguard: an NPC carrying a torch at night - the engine puts the torch's light
+         in the NPC's payload, at its AttachLight on the hand, with the LIGH record's
+         colour and radius (viewcore npc.rs `CarriedLight`). Lit whenever it is carried. */
+      const carried = model.startsWith(NPC_MESH_PREFIX) && info.attachLight && info.attachLightDef;
+      if(carried) for(const r of list)
+        r.light={radius:info.attachLightDef.radius, colour:info.attachLightDef.colour.map(c=>c*255), carried:true};
       for(let k=0;k<list.length;k++){
         const r=list[k];
         if(!r.light) continue;
@@ -1203,7 +1279,7 @@ async function _rebuildCellPreview(){
              below the water line - a sunken lantern - keeps its light and gets no swarm. */
           if(!(centre.water!=null && at[2] < centre.water)) mothSpots.push(at);
         }
-        const always = roomAlwaysOn || isFireLight(r.id, model);
+        const always = roomAlwaysOn || r.light.carried || isFireLight(r.id, model);
         /* (-2,-2): a lamp that keeps no hours. Not -1, which the stream's fill means "no
            lamp at all" - the shader tells the two apart since round 18i, so Off can put a
            fire's glow out without putting out every glowing static (see FS_GRASS glowOn). */
@@ -1322,7 +1398,11 @@ async function _rebuildCellPreview(){
         shape:info.colSource||'none', radius:info.colRadius||0,
         scale:r.ref.scale||1,
         // Round 17y: where a door leads, for the dialogue's "Open cell door leads to".
-        door:r.ref.door||null}));
+        door:r.ref.door||null,
+        // Wraithguard: for the review and overlay tools (48_wg_tools.js).
+        mark:r.ref.mark||'', hist:r.ref.hist||null, moved:r.ref.moved||0,
+        wpos:r.ref.pos, rot:r.ref.rot, cellKey:r.cellKey, from:r.ref.from,
+        visAabb:info.visAabb, light:r.light||null}));
     }
   }
   /* Round 18q: the moths, one copy of the mod's own mesh at each lamp it names. Built
@@ -1394,6 +1474,15 @@ async function _rebuildCellPreview(){
     if(typeof LoadProf==='object') LoadProf.groupsMs=performance.now()-tg; }
   for(const [sys,mm,lamp,model] of pendingSystems) R.addParticleSystems(sys,mm,lamp,model);
   R.setPickables(pickables);
+  /* Wraithguard: a record the conflict viewer sent here (45_wg_nav.js) - inspect it once
+     it is on screen. */
+  // Wraithguard: back from the mesh viewer (a container's contents) - the camera as it was.
+  if(App._camAfter){ Object.assign(R.cam, App._camAfter); App._camAfter=null; R.dirty=true; }
+  if(App._findOri){
+    const k=App._findOri; App._findOri=null;
+    const hit=pickables.find(p=>p.refKey===k);
+    if(hit && typeof Ori==='object') setTimeout(()=>Ori.show(hit),0);
+  }
   if(typeof LoadProf==='object' && timing.tBuild) LoadProf.build=performance.now()-timing.tBuild;
   /* Round 18bo: the pivot, once there is something to put it on.
    *
@@ -2528,7 +2617,14 @@ function openCellPicker(){
       '<button class="btn sm" data-k="int" id="cellIntOnly" hidden>'+T('cell.pick_int')+'</button>'+
       '<span style="flex:1"></span>'+
       // Wraithguard: the mods-per-cell heat over the map, on and off.
-      '<button class="btn sm" id="cellHeat" title="Colour the map by how many mods touch each cell (Wraithguard’s cell map). Hover a cell for the mods; your own mods’ cells are ringed.">Mods</button>'+
+      /* Wraithguard: what the heat over the map shows - how many mods touch each cell, how
+         contested its references are, how many plugins edit its ground, or one plugin's
+         cells (39_wg_coverage.js). */
+      '<select class="fld sm" id="cellHeat" style="width:auto" title="Colour the map by: how many mods touch each cell; how many of its references two or more plugins changed, deleted or moved; how many plugins edit its ground; or the cells one plugin touches. Hover a cell for the details; your own mods’ cells are ringed.">'+
+        '<option value="off">Heat: off</option><option value="mods">Heat: mods</option>'+
+        '<option value="conflicts">Heat: reference conflicts</option><option value="land">Heat: land edits</option>'+
+        '<option value="plugin">Heat: one plugin…</option></select>'+
+      '<select class="fld sm" id="cellHeatPlugin" style="width:auto;max-width:180px" hidden></select>'+
       '<span class="vsep"></span>'+
       '<label class="sw sm" title="'+escHtml(T('cell.pick_show_int_title'))+'"><input type="checkbox" id="cellShowInt"><span class="tr"></span></label>'+
       '<span style="font-size:11px;color:var(--tx2)">'+T('cell.pick_show_int')+'</span></div>'+
@@ -2545,11 +2641,8 @@ function openCellPicker(){
   m.hidden=false;
   // Wraithguard: the coverage for this world, and the Mods switch's state.
   if(typeof WgCoverage==='object'){
-    const hb=$('#cellHeat');
-    if(hb){ hb.classList.toggle('pri',WgCoverage.on);
-            hb.onclick=()=>{ WgCoverage.on=!WgCoverage.on; hb.classList.toggle('pri',WgCoverage.on);
-                             CellMap.redraw(); if(typeof PrevSettings==='object') PrevSettings.touch(); }; }
-    WgCoverage.load().then(()=>{ if(!isMap() && typeof render==='function') render(); });
+    WgCoverage.bindPicker();
+    WgCoverage.load().then(()=>{ WgCoverage.bindPicker(); if(!isMap() && typeof render==='function') render(); });
   }
   let kind='all';
   /* Round 18cv: the kind starts at All every time, and the buttons say so. The dialogue

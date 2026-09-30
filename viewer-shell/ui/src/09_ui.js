@@ -62,6 +62,7 @@ const App={
   /* `showStatics` used to live here. Objects are always drawn: a cell without its rocks
      and buildings is not what anybody loads a cell to see, and the switch's other effect
      was to suggest that hiding a thing stopped grass avoiding it. */
+  showActors:true,      // Wraithguard: NPCs, creatures and leveled spawn points (#p_actors)
   showCorpses:true,     // actors that spawn dead: they sit on the ground like statics
   avoidExclude:[],      // glob patterns for objects grass may sit inside anyway
   exportScope:'world', exportPrefix:'', exportAuthor:'Gardenfell', exportDesc:'',

@@ -89,10 +89,23 @@ while IFS= read -r lib; do
 done < <(find "$APPDIR/usr/lib" -name 'libwebkit2gtk-4.1.so*' -type f)
 [ "$found" = 1 ] || { echo "libwebkit2gtk-4.1 was not deployed"; exit 1; }
 
-# 3. Our entry point (it runs the GTK hooks itself), then the image.
+# 2b. The graphics stack is the host's, never the build machine's. WebKit opens an EGL
+#     display through libEGL, which loads the host's GPU driver - and that driver is
+#     built against the host's own libwayland, libdrm and libgbm. With Ubuntu 22.04's
+#     copies of those bundled beside it, the pairing fails on newer systems (SteamOS 3.6+)
+#     and WebKit aborts with "Could not create default EGL display: EGL_BAD_PARAMETER".
+#     Every desktop Linux has these libraries; the AppImage must use them.
+for pat in 'libEGL.so*' 'libEGL_mesa.so*' 'libGL.so*' 'libGLX*.so*' 'libGLdispatch.so*' \
+           'libgbm.so*' 'libdrm.so*' 'libdrm_*.so*' 'libwayland-*.so*' 'libvulkan.so*'; do
+  find "$APPDIR/usr/lib" -name "$pat" -print -delete
+done
+
+# 3. Our entry point (it runs the GTK hooks itself), the viewer's launcher, then the image.
 rm -f "$APPDIR/AppRun" "$APPDIR/AppRun.wrapped"
 cp "$ROOT/packaging/linux/AppRun" "$APPDIR/AppRun"
 chmod +x "$APPDIR/AppRun"
+cp "$ROOT/packaging/linux/wraithguard-viewer-run" "$APPDIR/usr/bin/wraithguard-viewer-run"
+chmod +x "$APPDIR/usr/bin/wraithguard-viewer-run"
 mkdir -p "$OUT_DIR"
 cd "$OUT_DIR"
 OUTPUT="Wraithguard-x86_64.AppImage" "$LD" --appdir "$APPDIR" --output appimage

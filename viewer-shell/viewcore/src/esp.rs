@@ -186,6 +186,25 @@ pub struct CellRef {
     /// reference, oldest first (the last is `plugin`). What the ORI panel lists as
     /// "changed by". Filled in by the merge.
     pub touched: Vec<i32>,
+    /// Wraithguard: each version's placement, beside `touched` (one per entry, the last
+    /// the current). What "the cell without this mod" and the moved-reference check read.
+    pub poses: Vec<Pose>,
+}
+
+/// One plugin's version of a reference: where it put it, and what base it named.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Pose {
+    pub id: String,
+    pub pos: [f32; 3],
+    pub rot: [f32; 3],
+    pub scale: f32,
+}
+
+impl CellRef {
+    /// This version's placement.
+    pub fn pose(&self) -> Pose {
+        Pose { id: self.id.clone(), pos: self.pos, rot: self.rot, scale: self.scale }
+    }
 }
 
 /// A door's destination (round 17y).
@@ -209,6 +228,7 @@ impl Default for CellRef {
             plugin: -1,
             door: None,
             touched: Vec::new(),
+            poses: Vec::new(),
         }
     }
 }
