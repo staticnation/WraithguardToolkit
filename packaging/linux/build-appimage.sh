@@ -74,8 +74,20 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 export DEPLOY_GTK_VERSION=3
 LD="$WORK/tools/linuxdeploy-x86_64.AppImage"
 
+# The graphics stack stays the host's (see 2b). linuxdeploy's own excludelist already
+# leaves out libGL/libEGL/libgbm/libdrm/libwayland-client, but not libwayland-egl,
+# -server or -cursor - and every linuxdeploy run (including the final
+# `--output appimage` one, which rescans the AppDir) deploys what is missing. So the
+# exclusion is given to every run, not just cleaned up once after the first.
+GFX_EXCLUDES=('libEGL.so*' 'libEGL_mesa.so*' 'libGL.so*' 'libGLX*' 'libGLdispatch.so*' \
+              'libgbm.so*' 'libdrm.so*' 'libdrm_*' 'libwayland-*' 'libvulkan.so*')
+EXCLUDE_ARGS=()
+for pat in "${GFX_EXCLUDES[@]}"; do EXCLUDE_ARGS+=(--exclude-library "$pat"); done
+LINUXDEPLOY_EXCLUDED_LIBRARIES="$(IFS=';'; echo "${GFX_EXCLUDES[*]}")"
+export LINUXDEPLOY_EXCLUDED_LIBRARIES
+
 # 1. Deploy: the viewer's closure, the helpers' closure, GTK's runtime bits.
-"$LD" --appdir "$APPDIR" \
+"$LD" --appdir "$APPDIR" "${EXCLUDE_ARGS[@]}" \
   --executable "$APPDIR/usr/bin/wraithguard-viewer" \
   --deploy-deps-only "$APPDIR$WEBKIT_DIR" \
   --desktop-file "$APPDIR/usr/share/applications/wraithguard.desktop" \
@@ -108,5 +120,5 @@ cp "$ROOT/packaging/linux/wraithguard-viewer-run" "$APPDIR/usr/bin/wraithguard-v
 chmod +x "$APPDIR/usr/bin/wraithguard-viewer-run"
 mkdir -p "$OUT_DIR"
 cd "$OUT_DIR"
-OUTPUT="Wraithguard-x86_64.AppImage" "$LD" --appdir "$APPDIR" --output appimage
+OUTPUT="Wraithguard-x86_64.AppImage" "$LD" --appdir "$APPDIR" "${EXCLUDE_ARGS[@]}" --output appimage
 ls -lh "$OUT_DIR/Wraithguard-x86_64.AppImage"

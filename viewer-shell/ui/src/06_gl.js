@@ -3235,8 +3235,11 @@ class Renderer{
       this._u1i(pr,'uSpec',SPEC_UNIT);
     }
     if(pr.u.uViewMode) this._u1i(pr,'uViewMode', this.opts.viewMode|0);
-    if(pr.u.uViewBasis && (this.opts.viewMode|0)>0){
-      this.gl.uniformMatrix3fv(pr.u.uViewBasis,false,this.viewBasis());
+    /* Keyed on the view mode, not on uViewBasis: the shader no longer reads that matrix,
+       so the compiler drops it, its location is null, and gating on it left the key light,
+       its strength and the ambient at zero - Flat colour and Relief drew black. */
+    if((this.opts.viewMode|0)>0){
+      if(pr.u.uViewBasis) this.gl.uniformMatrix3fv(pr.u.uViewBasis,false,this.viewBasis());
       /* The key light, turned with the camera: `angle` round the view and `elevation`
          above it, as the old viewer's drag set them - so the light stays where it was put
          relative to what is seen while the view orbits. */
