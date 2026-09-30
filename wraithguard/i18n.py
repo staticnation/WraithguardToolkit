@@ -65,7 +65,10 @@ def _detect_language() -> str:
             # "de_DE.UTF-8:en" -> "de_DE"
             return value.split(":")[0].split(".")[0]
     try:
-        system_language, _encoding = locale.getlocale(locale.LC_MESSAGES)
+        # LC_MESSAGES is POSIX-only: mypy checking as Windows knows it is missing.
+        system_language, _encoding = locale.getlocale(
+            locale.LC_MESSAGES  # type: ignore[attr-defined,unused-ignore]
+        )
     except (AttributeError, ValueError):
         # LC_MESSAGES does not exist on Windows.
         system_language = None

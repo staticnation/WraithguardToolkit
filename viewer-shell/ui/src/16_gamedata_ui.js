@@ -137,6 +137,7 @@ const Busy={
     }
     $('#busyLbl').textContent=label||'Working…';
     $('#busySub').textContent=sub||'';
+    $('#busySub').classList.toggle('multi', /\n/.test(sub||''));
     const fill=$('#busyFill'), pct=$('#busyPct');
     if(frac==null||!isFinite(frac)){
       fill.classList.add('indet'); fill.style.width='';

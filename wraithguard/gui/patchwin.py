@@ -417,9 +417,27 @@ class PatchBuilderMixin:
             wanted = {entry.plugin for entry in self.patch_selections()}
             for entry in merges:
                 wanted |= entry.plugins
-            records = {
-                name: self._conf_session.records(self._conf_paths.get(name, "")) for name in wanted
-            }
+            session = self._conf_session
+            names = sorted(wanted)
+
+            def _read(name: str) -> list[Any]:
+                """Every record of one plugin, by its load-order name.
+
+                Args:
+                    name: The plugin's file name.
+
+                Returns:
+                    Its records, or an empty list when it cannot be read.
+                """
+                return session.records(self._conf_paths.get(name, ""))
+
+            if getattr(session, "engine_name", "") == "native":
+                # The built-in reader is safe to share: the plugins read side by side.
+                from wraithguard.parallel import read_all
+
+                records = dict(zip(names, read_all(names, _read), strict=True))
+            else:
+                records = {name: _read(name) for name in names}
             sizes = self._plugin_sizes(order)
             result = build_record_patch(
                 self.patch_selections(),
@@ -458,7 +476,7 @@ class PatchBuilderMixin:
         )
         # And, when the viewer is there, a look at it in the cells it changes.
         preview = getattr(self, "preview_plugin", None)
-        if preview is not None and messagebox.askyesno(
+        if preview is not None and result.output is not None and messagebox.askyesno(
             _("Preview the patch?"),
             _(
                 "Open Cell Preview with the patch loaded last, to see it in the cells it "

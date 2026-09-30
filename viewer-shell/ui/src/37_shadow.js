@@ -449,6 +449,10 @@ Object.assign(Renderer.prototype,{
           gl.uniform1i(ps.u.uTex,0);
           for(const b of own){
             if(!b.n || !b.part) continue;
+            /* Wraithguard: only what is in this cascade's box. These were drawn whole into
+               both cascades - a town's NPCs are a batch each, over a thousand draws a
+               frame for shadows the cascades mostly could not hold. */
+            if(b.groups && b.groups.length && !b.groups.some(g=>this._boxInView(planes,g.b))) continue;
             this._ensureVao(b);
             if(!b.vao) continue;
             this._meshTex(ps,b);

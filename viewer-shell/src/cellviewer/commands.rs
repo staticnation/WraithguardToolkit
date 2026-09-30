@@ -2245,7 +2245,16 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
     o.str("mesh", &mesh);
     if let Some(v) = v.as_ref() {
         if !mesh.is_empty() {
-            let src = v.resolve_mesh(&mesh).map(|l| l.ident(v)).unwrap_or_default();
+            /* Wraithguard: the meshes the viewer makes itself have no file in the setup -
+               saying "not found" for them read as a missing asset. */
+            let lm = mesh.to_ascii_lowercase().replace('\\', "/");
+            let src = if lm.starts_with(viewcore::markers::PREFIX) {
+                "built into Wraithguard (R-Zero's Construction Set markers)".to_string()
+            } else if viewcore::npc::npc_request(&mesh).is_some() {
+                "assembled from the NPC's skeleton and body parts".to_string()
+            } else {
+                v.resolve_mesh(&mesh).map(|l| l.ident(v)).unwrap_or_default()
+            };
             o.str("meshFrom", &src);
             if let Ok((_, texs)) = mesh_payload(v, Some(&w), &mesh) {
                 let rows: Vec<String> = texs

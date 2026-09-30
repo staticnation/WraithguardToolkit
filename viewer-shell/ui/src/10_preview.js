@@ -893,7 +893,18 @@ const BUNDLE=8;
    wall time on purpose - it is the transport plus the engine, as the page felt it. The
    texture and mesh sums are main-thread time and so are real. */
 const LoadProf={engine:0, engineKnown:false, wait:0, bundles:0, tex:0, texN:0, texBytes:0, mesh:0, meshN:0, build:0, groupsMs:null,
-  reset(){ this.engine=0; this.engineKnown=false; this.wait=0; this.bundles=0; this.tex=0; this.texN=0; this.texBytes=0; this.mesh=0; this.meshN=0; this.build=0; this.groupsMs=null; },
+  slow:null,
+  reset(){ this.engine=0; this.engineKnown=false; this.wait=0; this.bundles=0; this.tex=0; this.texN=0; this.texBytes=0; this.mesh=0; this.meshN=0; this.build=0; this.groupsMs=null; this.slow=null; },
+  /** One line on where the time has gone so far, for the busy card while it loads. */
+  live(){
+    const s=v=>(v/1000).toFixed(1)+' s', mb=v=>(v/1048576).toFixed(0)+' MB';
+    let t='engine '+s(this.engine)+' · wait '+s(this.wait)+'\ntextures '+this.texN+' ('+mb(this.texBytes)+', decode '+s(this.tex)+') · mesh decode '+s(this.mesh);
+    if(this.slow){
+      const names=this.slow.meshes.map(m=>m.split('/').pop()).slice(0,3).join(', ');
+      t+='\nslowest bundle '+s(this.slow.ms)+' (engine '+s(this.slow.engine||0)+', '+mb(this.slow.bytes)+', '+this.slow.tex+' tex): '+names+(this.slow.meshes.length>3? '…' : '');
+    }
+    return t;
+  },
   take(){ return {engine:this.engine, engineKnown:this.engineKnown, wait:this.wait, bundles:this.bundles, tex:this.tex, texN:this.texN, texBytes:this.texBytes, mesh:this.mesh, meshN:this.meshN, build:this.build, groupsMs:this.groupsMs}; }};
 async function loadMeshes(relPaths,onProgress){
   const out=new Array(relPaths.length);
@@ -933,9 +944,15 @@ async function loadMeshes(relPaths,onProgress){
       let maps=[];
       if(App.loadNormalMaps){ const s=normalMapSuffixes(); maps=[s.nh, s.n, s.spec]; }
       const ab=await Engine.bytes('assets_bundle',{meshes:batch.map(e=>VFS.norm(e.relPath)), have, bc, maxSize, bcx, maps});
-      LoadProf.wait+=performance.now()-tw; LoadProf.bundles++;
+      const took=performance.now()-tw;
+      LoadProf.wait+=took; LoadProf.bundles++;
       const b=readBundle(ab);
       if(b.ms!=null){ LoadProf.engine+=b.ms; LoadProf.engineKnown=true; }
+      /* Wraithguard: the slowest bundle so far and what was in it, shown live under the
+         busy bar - a load that never finishes never reaches the report's Loading line. */
+      if(!LoadProf.slow || took>LoadProf.slow.ms){
+        LoadProf.slow={ms:took, engine:b.ms, bytes:ab.byteLength, tex:b.textures.length, meshes:batch.map(e=>VFS.norm(e.relPath))};
+      }
       // The textures first, so the meshes' lookups below are hits.
       await Promise.all(b.textures.map(async t=>{
         const key=VFS.norm(t.name).toLowerCase();

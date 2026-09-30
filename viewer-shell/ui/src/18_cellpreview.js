@@ -1204,7 +1204,11 @@ async function _rebuildCellPreview(){
        the page does not have, instead of one per file (`loadMeshes`, 10_preview.js).
        The bar counts them in as they land. */
     const loaded=await loadMeshes(meshList.map(([model])=>(model===CORPSE_SLAB || model.startsWith(NPC_MESH_PREFIX) || model.startsWith('__wg/'))? model : 'Meshes\\'+model),
-      (done,total)=>{ Busy.show(T('busy.placing_objects'), T('busy.n_of_meshes',{done, total}), 0.5+0.35*done/Math.max(1,total)); });
+      (done,total)=>{
+        Busy.show(T('busy.placing_objects'), T('busy.n_of_meshes',{done, total})+'\n'+LoadProf.live(), 0.5+0.35*done/Math.max(1,total));
+        // And to the console every 10 bundles, so the numbers survive a hang or a crash.
+        if(LoadProf.bundles%10===0) console.info('loading', done+'/'+total, LoadProf.live(), LoadProf.slow? LoadProf.slow.meshes.join(' | ') : '');
+      });
     timing.tBuild=performance.now();   // round 18cr: the scene from what arrived
     /* Wraithguard: what the loaded cells ask for and the setup does not have - meshes that
        did not load, and textures that did not - for the review tools' Missing files. */

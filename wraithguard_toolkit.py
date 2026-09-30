@@ -431,11 +431,18 @@ def check_missing_masters(
     missing, order_problems, size_notes = [], [], []
     problem_names = set()
     checked = 0
-    for p in active_order:
+    from wraithguard.parallel import read_all
+
+    def headers(p: str) -> tuple[Path | None, list[tuple[str, int | None]]]:
+        """One plugin's path and master list, read off its header."""
         path = index.find(p) if index else None
+        return (path, read_plugin_masters_with_sizes(path)) if path is not None else (None, [])
+
+    # The headers are read side by side; the checks below still go in load order.
+    order = list(active_order)
+    for p, (path, pairs) in zip(order, read_all(order, headers), strict=True):
         if path is None:
             continue
-        pairs = read_plugin_masters_with_sizes(path)
         if not pairs and not str(p).lower().endswith((".esp", ".esm", ".omwaddon", ".omwgame")):
             continue
         checked += 1
@@ -1167,19 +1174,38 @@ def lint_plugins(
         origin = origins.get(str(plugin).lower())
         return f" [{origin}]" if origin else ""
 
-    for position, plugin in enumerate(active_order):
+    from wraithguard.parallel import read_all
+
+    def scan(plugin: str) -> tuple[str, bytes | None, dict[str, Any] | None]:
+        """Read and scan one plugin: ``("skip"|"unreadable"|"ok", b"", facts)``.
+
+        The bytes are dropped once scanned (``b""`` in their place): kept for the
+        whole order they were the load order's size in memory, a gigabyte and more.
+        """
         lowered = str(plugin).lower()
         if lowered.endswith(".omwscripts") or lowered in _LINT_SKIP:
-            continue
+            return "skip", None, None
         path = index.find(plugin) if index else None
         if path is None:
-            continue
+            return "skip", None, None
         try:
             raw = path.read_bytes()
         except OSError:
+            return "unreadable", None, None
+        if raw[:4] != b"TES3":
+            return "skip", None, None
+        return "ok", b"", _plugin_linter().scan(raw, lowered in subset_lower)
+
+    # The reads and the Rust scans side by side; the load-order-wide fold (which
+    # plugin introduced a cell first) in order, as before.
+    order = list(active_order)
+    _plugin_linter()  # built once here, not raced for by the first eight scans
+    scans = read_all(order, scan)
+    for position, (plugin, (state, raw, facts)) in enumerate(zip(order, scans, strict=True)):
+        if state == "unreadable":
             stats["unreadable"] += 1
             continue
-        if raw[:4] != b"TES3":
+        if state != "ok" or raw is None:
             continue
         stats["scanned"] += 1
         if progress:
@@ -1188,10 +1214,11 @@ def lint_plugins(
             _lint_one_plugin(
                 raw,
                 plugin,
-                is_custom=lowered in subset_lower,
+                is_custom=str(plugin).lower() in subset_lower,
                 tagfor=tagfor,
                 interior_first=interior_first,
                 pathgrids=pathgrids,
+                facts=facts,
             )
         )
 
@@ -1218,6 +1245,7 @@ def _lint_one_plugin(
     tagfor: Callable[[str], str],
     interior_first: dict[str, tuple[str, str]],
     pathgrids: set[str],
+    facts: dict[str, Any] | None = None,
 ) -> list[str]:
     """Run the per-record checks over one plugin.
 
@@ -1236,12 +1264,16 @@ def _lint_one_plugin(
         interior_first: Cell id to the plugin that first introduced it, updated
             in place. The first writer wins, which is load order.
         pathgrids: Interior cell ids that have a path grid, updated in place.
+        facts: The linter's scan of ``raw``, when the caller already ran it (the
+            scans run side by side in :func:`lint_plugins`; this part is the
+            load-order fold, which stays in order).
 
     Returns:
         The warnings this plugin earns on its own.
     """
     warnings: list[str] = []
-    facts = _plugin_linter().scan(raw, is_custom)
+    if facts is None:
+        facts = _plugin_linter().scan(raw, is_custom)
     for event in facts["events"]:
         if event[0] == "header":
             warnings.append(
@@ -1650,6 +1682,21 @@ class Tes3ConvSession:
         """
         return self._records(path)
 
+    def records_of_types(self, path: str | Path, types: AbstractSet[str]) -> list[Any]:
+        """Return only the records of the given tes3conv types, in file order.
+
+        The tes3conv session has every record in its JSON already and filters
+        it; the native one (below) never decodes the others at all.
+
+        Args:
+            path: The plugin file.
+            types: tes3conv ``type`` names (``"Dialogue"``, ``"Script"``, ...).
+
+        Returns:
+            Those records, or an empty list if the plugin could not be read.
+        """
+        return [r for r in self._records(path) if isinstance(r, dict) and r.get("type") in types]
+
     def record_map(self, path: str | Path) -> dict[tuple[str, str], Any]:
         """Return {(rectype, rid): record} for one plugin, from cached JSON."""
         # Built fresh each call and NOT cached, so only one plugin's records are
@@ -1947,6 +1994,14 @@ class NativeEspSession(Tes3ConvSession):
         trace(f"native esp: READ {Path(path).name}")
         return self._parse(path)
 
+    def records_of_types(self, path: str | Path, types: AbstractSet[str]) -> list[Any]:
+        """Only the records of the given tes3conv types; the rest are never decoded."""
+        by_type = self._tags_by_type()
+        tags = {by_type[t] for t in types if t in by_type}
+        if not tags:
+            return []
+        return self._parse(path, keep=tags)
+
     def _keys_cells(self, path: str | Path) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
         """The plugin's record keys and cells, from memory while the file is unchanged."""
         key = str(path)
@@ -2171,6 +2226,8 @@ def batch_record_fields(
             must take turns -- but holding it for a whole batch blocks every
             other reader for minutes, and a caller waiting minutes is an
             application the operating system reports as not responding.
+            Ignored with the built-in reader, which reads eight plugins at a
+            time instead (:mod:`wraithguard.parallel`).
 
     Returns:
         ``(type, id)`` to ``(ordered field keys, per-plugin values)`` -- the
@@ -2196,21 +2253,45 @@ def batch_record_fields(
             wanted.setdefault(plugin, set()).add(key)
 
     held: dict[str, dict[tuple[str, str], dict[str, Any]]] = {}
-    for done, (plugin, keys) in enumerate(wanted.items(), start=1):
+    # The lock is for tes3conv's one pipe. The built-in reader is safe to share
+    # (its only state is a locked memo), so it neither needs the lock nor waits on it.
+    native = getattr(session, "engine_name", "") == "native"
+    if native:
+        lock = None
+
+    def read_one(item: tuple[str, set[tuple[str, str]]]) -> dict[tuple[str, str], dict[str, Any]]:
+        """The wanted records of one plugin, flattened (and hashed when digesting)."""
+        plugin, keys = item
         path = paths.get(plugin, "")
-        if path:
-            with lock if lock is not None else contextlib.nullcontext():
-                found = session.record_subset(path, keys)
-            held[plugin] = {
-                key: {name: keep(value) for name, value in flatten_dict(found[key]).items()}
-                for key in keys
-                if isinstance(found.get(key), dict)
-            }
-            del found  # before the next plugin, not after
-        else:
-            held[plugin] = {}
-        if report is not None:
-            report(done, len(wanted))
+        if not path:
+            return {}
+        with lock if lock is not None else contextlib.nullcontext():
+            found = session.record_subset(path, keys)
+        return {
+            key: {name: keep(value) for name, value in flatten_dict(found[key]).items()}
+            for key in keys
+            if isinstance(found.get(key), dict)
+        }
+
+    items = list(wanted.items())
+    if native:
+        # The built-in reader parses side by side; eight plugins at a time, so a
+        # progress report still moves and memory holds eight subsets, not all of them.
+        from wraithguard.parallel import MAX_WORKERS, read_all
+
+        done = 0
+        for at in range(0, len(items), MAX_WORKERS):
+            chunk = items[at : at + MAX_WORKERS]
+            for (plugin, _), got in zip(chunk, read_all(chunk, read_one), strict=True):
+                held[plugin] = got
+            done += len(chunk)
+            if report is not None:
+                report(done, len(items))
+    else:
+        for done, item in enumerate(items, start=1):
+            held[item[0]] = read_one(item)
+            if report is not None:
+                report(done, len(items))
 
     out: dict[tuple[str, str], tuple[list[str], dict[str, dict[str, Any]]]] = {}
     for conflict in conflicts:
@@ -2279,40 +2360,51 @@ def _scan_touch(
         ``(touch, unreadable, scanned, rec_count, paths)`` -- ``touch`` maps
         ``(type, id)`` to every ``(plugin, deleted)`` hit, in load order.
     """
+    from wraithguard.parallel import read_all
+
     touch: dict[tuple[str, str], list[tuple[str, bool]]] = {}
     unreadable, scanned, rec_count = [], 0, 0
     paths: dict[str, str] = {}
-    for plugin in active_order:
+
+    # tes3conv is one process on one pipe; only the built-in readers run side by side.
+    parallel = session is None or getattr(session, "engine_name", "") == "native"
+
+    def read_keys(plugin: str) -> tuple[Path | None, bool, list[tuple[Any, ...]]]:
+        """One plugin's keys, and whether they came from the session."""
         path = index.find(plugin) if index else None
         if path is None:
-            unreadable.append(plugin)
-            continue
-        scanned += 1
-        paths[plugin] = str(path)
+            return None, False, []
         is_omwscripts = str(path).lower().endswith(".omwscripts")
-        seen_here = set()  # collapse a record the same plugin defines twice
         if session is not None and not is_omwscripts:
             # tes3conv for TES3 records, plus any Lua scripts declared in an
             # .omwaddon's LuaScriptsCfg (so they line up with .omwscripts).
             # record_keys() is sidecar-cached (compact keys, not full records),
             # so re-scans don't re-read the whole tes3conv dump.
-            for rectype, rid, deleted in session.record_keys(path):
-                key = (rectype, rid)
-                if key in seen_here:
-                    continue
-                seen_here.add(key)
+            return path, True, list(session.record_keys(path))
+        # built-in engine: handles .omwscripts (text) AND TES3 records incl.
+        # .omwaddon LUAL scripts, all via parse_plugin_records.
+        return path, False, list(parse_plugin_records(path))
+
+    # Read side by side, folded in load order: the tally is the same as one by one.
+    order = list(active_order)
+    read = read_all(order, read_keys) if parallel else [read_keys(p) for p in order]
+    for plugin, (path, from_session, keys) in zip(order, read, strict=True):
+        if path is None:
+            unreadable.append(plugin)
+            continue
+        scanned += 1
+        paths[plugin] = str(path)
+        seen_here = set()  # collapse a record the same plugin defines twice
+        for rectype, rid, deleted in keys:
+            key = (rectype, rid)
+            if not from_session:
+                rec_count += 1  # the built-in count includes a plugin's repeats, as before
+            if key in seen_here:
+                continue
+            seen_here.add(key)
+            if from_session:
                 rec_count += 1
-                touch.setdefault(key, []).append((plugin, deleted))
-        else:
-            # built-in engine: handles .omwscripts (text) AND TES3 records incl.
-            # .omwaddon LUAL scripts, all via parse_plugin_records.
-            for rectype, rid, deleted in parse_plugin_records(path):
-                rec_count += 1
-                key = (rectype, rid)
-                if key in seen_here:
-                    continue
-                seen_here.add(key)
-                touch.setdefault(key, []).append((plugin, deleted))
+            touch.setdefault(key, []).append((plugin, deleted))
     return touch, unreadable, scanned, rec_count, paths
 
 
@@ -2648,21 +2740,28 @@ def dump_tes3conv_json(
     # concurrently (bounded), so the per-plugin loop below only reads fresh JSON
     # instead of waiting on one conversion at a time.
     session.prime([path for p in plugins if (path := paths.get(p))])
-    n = 0
-    for p in plugins:
+
+    def dump_one(p: str) -> int:
+        """Write one plugin's JSON; 1 when written."""
         path = paths.get(p)
         if not path:
-            continue
+            return 0
         try:
             recs = session._records(path)
             (outdir / (Path(p).stem + ".json")).write_text(
                 json.dumps(recs, indent=2, ensure_ascii=False, default=_json_value),
                 encoding="utf-8",
             )
-            n += 1
+            return 1
         except OSError:
-            continue
-    return n
+            return 0
+
+    if getattr(session, "engine_name", "") == "native":
+        # The built-in reader is safe to share: several plugins read and written at once.
+        from wraithguard.parallel import read_all
+
+        return sum(read_all(plugins, dump_one, cap=4))
+    return sum(dump_one(p) for p in plugins)
 
 
 # ---------------------------------------------------------------------------
@@ -2706,17 +2805,17 @@ def detect_resource_conflicts(
     """
     subset_norm = {str(s).replace("\\", "/").rstrip("/").lower() for s in (subset_dirs or [])}
     exclude_exts = {e.lower() for e in (exclude_exts or [])}
-    providers: dict[str, list[int]] = {}  # rel_path -> [dir_index in order]
-    dirs = []
-    for d in data_dirs:
+    from wraithguard.parallel import read_all
+
+    def walk(d: str) -> list[str] | None:
+        """Every file under one data folder, relative and lower-cased; None if not one."""
         try:
             p = Path(d)
             if not p.is_dir():
-                continue
+                return None
         except OSError:
-            continue
-        dirs.append(str(d))
-        di = len(dirs) - 1
+            return None
+        rels: list[str] = []
         try:
             for root, _sub, files in os.walk(p):
                 for fn in files:
@@ -2727,14 +2826,26 @@ def detect_resource_conflicts(
                     # a non-subpath (Path.relative_to raises), so the join stays
                     # os.path too rather than mixing idioms mid-expression.
                     joined = os.path.join(root, fn)  # noqa: PTH118
-                    rel = os.path.relpath(joined, p).replace("\\", "/").lower()
-                    lst = providers.get(rel)
-                    if lst is None:
-                        providers[rel] = [di]
-                    elif lst[-1] != di:
-                        lst.append(di)
+                    rels.append(os.path.relpath(joined, p).replace("\\", "/").lower())
         except (OSError, PermissionError):
+            pass  # what was listed before the error stands, as it did
+        return rels
+
+    # The folders are walked side by side (a MOMW setup has over a thousand), and
+    # folded in data-path order, so the providers list the same way as before.
+    providers: dict[str, list[int]] = {}  # rel_path -> [dir_index in order]
+    dirs = []
+    for d, rels in zip(data_dirs, read_all(list(data_dirs), walk), strict=True):
+        if rels is None:
             continue
+        dirs.append(str(d))
+        di = len(dirs) - 1
+        for rel in rels:
+            lst = providers.get(rel)
+            if lst is None:
+                providers[rel] = [di]
+            elif lst[-1] != di:
+                lst.append(di)
     conflicts = []
     for rel, idxs in providers.items():
         if len(idxs) < 2:
@@ -2747,9 +2858,13 @@ def detect_resource_conflicts(
             "winner": prov[-1],
             "involves_subset": involves,
         }
-        if compare_contents:
-            entry["identical"] = _providers_are_identical(rel, prov)
         conflicts.append(entry)
+    if compare_contents:
+        # The byte comparisons too: size checks and hashes are file I/O, and hashing
+        # lets go of the interpreter.
+        same = read_all(conflicts, lambda c: _providers_are_identical(c["path"], c["providers"]))
+        for entry, ident in zip(conflicts, same, strict=True):
+            entry["identical"] = ident
     # Files that genuinely differ first: a path present twice with the same
     # bytes is not a decision anybody has to make, and burying the real
     # overrides among them is how a list of thousands stops being read.

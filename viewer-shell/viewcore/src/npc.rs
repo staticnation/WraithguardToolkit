@@ -412,8 +412,79 @@ fn load(vfs: &Vfs, model: &str) -> Option<Vec<u8>> {
     vfs.load(&loc)
 }
 
-/// The skeleton an NPC stands on, with the idle bound when there is one.
-fn skeleton(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool) -> Option<nif::Skeleton> {
+/// Where `model` resolves in this setup, as a cache key: a different file behind the
+/// same name (another load order, a replacer switched on) is a different key.
+fn loc_key(vfs: &Vfs, model: &str) -> String {
+    match vfs.resolve_mesh(model).or_else(|| vfs.resolve(model)) {
+        Some(l) => format!("{l:?}"),
+        None => String::new(),
+    }
+}
+
+/* Every NPC in a cell used to read its skeleton and the idle `.kf` beside it (the whole
+   of xbase_anim.kf, a few megabytes of keys) and every body part file afresh: a town of
+   a hundred and fifty people parsed the same half-dozen files a hundred and fifty times
+   over, and the cell's load crawled. Read once per file as it resolves, and shared. */
+type Cache<T> = std::sync::Mutex<HashMap<String, std::sync::Arc<T>>>;
+static SKELETONS: std::sync::OnceLock<Cache<Option<nif::Skeleton>>> = std::sync::OnceLock::new();
+static PART_FILES: std::sync::OnceLock<Cache<Option<Vec<DrawPart>>>> = std::sync::OnceLock::new();
+
+fn cached<T>(cell: &'static std::sync::OnceLock<Cache<T>>, key: String, make: impl FnOnce() -> T) -> std::sync::Arc<T> {
+    let map = cell.get_or_init(Default::default);
+    if let Some(v) = map.lock().ok().and_then(|m| m.get(&key).cloned()) {
+        return v;
+    }
+    // Made outside the lock: two threads may both read a file once, which is harmless.
+    let v = std::sync::Arc::new(make());
+    if let Ok(mut m) = map.lock() {
+        // A few hundred files at most in any setup; cleared if it ever grows past that
+        // (a long session through many load orders).
+        if m.len() > 4096 {
+            m.clear();
+        }
+        m.insert(key, v.clone());
+    }
+    v
+}
+
+/// A body part file's skinned draw parts, read once per file.
+fn part_file(vfs: &Vfs, model: &str) -> std::sync::Arc<Option<Vec<DrawPart>>> {
+    let key = loc_key(vfs, model);
+    if key.is_empty() {
+        return std::sync::Arc::new(None);
+    }
+    cached(&PART_FILES, key, || load(vfs, model).and_then(|b| nif::read_parts_skinned(&b)))
+}
+
+/// The skeleton an NPC stands on, with the idle bound when there is one, read once per
+/// skeleton file and `.kf` pair.
+fn skeleton(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool) -> Option<std::sync::Arc<Option<nif::Skeleton>>> {
+    let base = if !npc.model.is_empty() {
+        npc.model.clone()
+    } else if beast {
+        "base_animkna.nif".to_string()
+    } else if npc.female {
+        "base_anim_female.nif".to_string()
+    } else {
+        "base_anim.nif".to_string()
+    };
+    let twin = crate::world::x_twin(vfs, &base);
+    let file = twin.clone().unwrap_or_else(|| base.clone());
+    let kf_of = |p: &str| p.rfind('.').map(|d| format!("{}.kf", &p[..d])).unwrap_or_default();
+    let shared = if beast { "xbase_animkna.nif" } else { "xbase_anim.nif" };
+    let key = format!(
+        "{}|{}|{}|{}",
+        loc_key(vfs, &file),
+        loc_key(vfs, &base),
+        twin.as_deref().map(|p| loc_key(vfs, &kf_of(p))).unwrap_or_default(),
+        loc_key(vfs, &kf_of(shared))
+    );
+    let s = cached(&SKELETONS, key, || skeleton_read(t, vfs, npc, beast));
+    if s.is_some() { Some(s) } else { None }
+}
+
+/// [`skeleton`], read from the files.
+fn skeleton_read(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool) -> Option<nif::Skeleton> {
     let base = if !npc.model.is_empty() {
         npc.model.clone()
     } else if beast {
@@ -591,7 +662,8 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
     let npc = t.npcs.get(&id.to_ascii_lowercase())?;
     let race = t.races.get(&npc.race.to_ascii_lowercase());
     let beast = race.map(|r| r.beast).unwrap_or(false);
-    let skel = skeleton(t, vfs, npc, beast)?;
+    let skel_read = skeleton(t, vfs, npc, beast)?;
+    let skel: &nif::Skeleton = skel_read.as_ref().as_ref()?;
     let kit = choose_kit(t, npc, beast);
     let chosen = &kit.chosen;
     let mut systems: Vec<nif::ParticleSystem> = Vec::new();
@@ -600,7 +672,6 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
     // A file already used for a place, with the shapes taken from it: a race's skins file
     // serves a dozen places, and each shape in it is drawn once.
     let mut taken: Vec<(String, String)> = Vec::new();
-    let mut cache: HashMap<String, Option<Vec<DrawPart>>> = HashMap::new();
     for (prt, body) in chosen.iter().enumerate() {
         let Some(body) = body else { continue };
         if body.is_empty() {
@@ -611,11 +682,8 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
             continue;
         }
         let key = def.model.to_ascii_lowercase();
-        let parts = cache
-            .entry(key.clone())
-            .or_insert_with(|| load(vfs, &def.model).and_then(|b| nif::read_parts_skinned(&b)))
-            .clone();
-        let Some(parts) = parts else { continue };
+        let file = part_file(vfs, &def.model);
+        let Some(parts) = file.as_ref().clone() else { continue };
         let bone = BONES[prt];
         let skinned = parts.iter().any(|p| p.skin.is_some());
         if skinned {

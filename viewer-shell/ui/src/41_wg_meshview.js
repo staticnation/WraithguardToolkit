@@ -65,6 +65,9 @@ const WgMeshView={
     this.on=false; if(this.el) this.el.hidden=true;
     document.body.classList.remove('wgMeshMode');
     if(App.R){ App.R.opts.viewMode=0; App.R.opts.normalMaps=!!App.cellNormalMaps; App.R.opts.mapsOff=null; }
+    // And stop reading the extra maps: left on, every mesh of the next cell loaded its
+    // normal, specular and gloss maps too, whatever the cell's own switch said.
+    App.loadNormalMaps=!!App.cellNormalMaps;
     document.title='Wraithguard - Cell Preview';
     const i=document.querySelector('#brand i'); if(i) i.textContent='Cell Preview';
     App._scene=null; App._framedKey=null;

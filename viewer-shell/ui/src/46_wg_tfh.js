@@ -82,6 +82,31 @@ const Tfh={
       loadTexture('icons\\'+p).then(t=>{ if(t && t.thumb) img.src=t.thumb; else img.replaceWith(Object.assign(document.createElement('div'),{className:'ph'})); })
         .catch(()=>{});
     });
+    /* Wraithguard: what has no icon - a creature in a leveled list - is drawn from its
+       mesh instead, one at a time so a long list does not stall the viewport. */
+    const byModel=[...body.querySelectorAll('img[data-model]')];
+    (async()=>{ for(const img of byModel){ await this.meshIcon(img); } })();
+  },
+
+  /** A mesh drawn small (the renderer's own thumbnail path), cached by path. */
+  async meshIcon(img){
+    const ph=()=>img.replaceWith(Object.assign(document.createElement('div'),{className:'ph'}));
+    const m=img.dataset.model||'';
+    const key=m.toLowerCase();
+    try{
+      if(typeof _meshThumb==='object' && _meshThumb.has(key)){ const u=_meshThumb.get(key); if(u) img.src=u; else ph(); return; }
+      const R=App.R;
+      if(!R || !R.thumbBegin || typeof loadMeshes!=='function'){ ph(); return; }
+      const [rec]=await loadMeshes([/^meshes[\\/]/i.test(m)? m : 'Meshes\\'+m]);
+      const h=(rec && !rec.err && rec.parts && rec.parts.length)? R.thumbBegin(rec.parts) : null;
+      let url='';
+      if(h){
+        try{ const px=R.thumbDraw(h, 0.6, 72); if(px) url=rgbaToDataURL(px,72); }
+        finally{ R.thumbEnd(h); }
+      }
+      if(typeof _meshThumb==='object') _meshThumb.set(key,url);
+      if(url) img.src=url; else ph();
+    }catch(_){ ph(); }
   },
 
   /** One item as a tile: its icon, its count, its name; a leveled list dashed. */
@@ -91,7 +116,9 @@ const Tfh={
     const n=it.count==null? '' : it.count<0? '↻'+(-it.count) : (it.count>1? String(it.count) : '');
     return '<div class="tfhitem'+(it.list? ' list' : '')+'"'+(Ori.recordLink()? ' data-rec="'+escHtml(it.id)+'" data-tag="'+escHtml(it.tag||'')+'"' : '')+
       ' title="'+escHtml(title)+'">'+
-      (it.icon? '<img data-icon="'+escHtml(it.icon)+'" alt="">' : '<div class="ph"></div>')+
+      (it.icon? '<img data-icon="'+escHtml(it.icon)+'" alt="">'
+       : it.model? '<img data-model="'+escHtml(it.model)+'" alt="">'
+       : '<div class="ph"></div>')+
       (n? '<span class="n">'+escHtml(n)+'</span>' : '')+
       '<div class="l">'+escHtml(it.name||it.id)+'</div></div>';
   },

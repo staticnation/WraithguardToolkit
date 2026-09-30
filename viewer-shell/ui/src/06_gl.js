@@ -3162,7 +3162,7 @@ class Renderer{
   _meshTex(pr,b){
     const gl=this.gl;
     // Round 18ag: a skinned shape is posed for this instant before any pass draws it.
-    if(b.skin) this._skinUpdate(b.skin, this._uvSecs||0);
+    if(b.skin) this._skinUpdate(b.skin, this._skinClock(b));
     this._bindTex0(b.tex||this.white);
     if(b.tex && (b.tex._wrap|0)!==(b.clamp|0)) this._wrapTex0(b.tex, b.clamp|0);
     this._u1i(pr,'uHasTex',b.tex?1:0);
@@ -4794,6 +4794,20 @@ class Renderer{
    *  frame however many batches and passes draw it, keyed on the clock. The bind pose the
    *  engine baked (`part.pos`) is what the CPU keeps for picking and bounds; what is drawn
    *  is what the bones are doing now. */
+  /** Wraithguard: the instant a skinned batch is posed at, stepped by how far it is from
+   *  the eye. Skinning is CPU work per vertex, and a town's NPCs are each a mesh of their
+   *  own: posed every frame, fifty cells of them took most of the frame. Near the camera
+   *  30 times a second, then 10, then 2; past 12,000 units they hold one pose. The steps
+   *  are on the clock, so `_skinUpdate`'s once-per-instant check does the skipping. */
+  _skinClock(b){
+    const secs=this._uvSecs||0, eye=this._eyeNow;
+    const g=b.groups && b.groups[0] && b.groups[0].b;
+    if(!eye || !g) return secs;
+    const dx=0.5*(g[0]+g[3])-eye[0], dy=0.5*(g[1]+g[4])-eye[1], dz=0.5*(g[2]+g[5])-eye[2];
+    const d2=dx*dx+dy*dy+dz*dz;
+    const iv = d2<2000*2000? 1/30 : d2<5000*5000? 0.1 : d2<12000*12000? 0.5 : 0;
+    return iv? Math.floor(secs/iv)*iv : 0;
+  }
   _skinUpdate(part, secs){
     const sk=part.skin, mo=part.morph, g=part._gpu;
     if((!sk && !mo) || !g || g.gl!==this.gl || part._skinAt===secs) return;
@@ -8550,6 +8564,7 @@ class Renderer{
        whatever the scene is drawn into afterwards - the map is in world space and every
        later pass, reflection included, samples the same one. It hands the framebuffer,
        the viewport and the sampler units back as it found them. */
+    this._eyeNow=eye;   // Wraithguard: for `_skinClock`, which steps far actors' poses
     if(o.shadows && this.drawShadowMap) this.drawShadowMap(eye, now, room, scat);
 
     /* Round 15 items 8-10: the water drawn MGE XE's way (26_water.js) - the scene twice,

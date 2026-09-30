@@ -28,10 +28,15 @@ const WgCoverage={
   plugins:[], ext:new Map(), int:new Map(), extc:new Map(), worst:0, ours:new Set(), _sig:null, _loading:null,
   _ranks:{},
 
-  NEUTRAL:'#2c313a', MINE:'#ff9d5c', RING:'#3fd8ff', ALPHA:0.5,
-  // Pale yellow, yellow, orange, red-orange, red, deep red.
-  STOPS:[[0.0,1.0,0.95,0.45],[0.2,1.0,0.84,0.12],[0.42,1.0,0.58,0.05],[0.62,0.96,0.34,0.04],
-         [0.82,0.84,0.1,0.05],[1.0,0.55,0.0,0.08]],
+  NEUTRAL:'#2c313a', MINE:'#ff9d5c', RING:'#3fd8ff',
+  // Mask opacity runs from ALPHA at the cool end to ALPHA_HOT at the hot end, so the
+  // busiest cells stand out of the map picture instead of blending into it.
+  ALPHA:0.42, ALPHA_HOT:0.8,
+  // Pale lemon, yellow, amber, orange, red-orange, red, crimson, deep red: eight stops
+  // with the hue moving at every one, so neighbouring bands read apart. The end stays a
+  // red (not maroon), or it sinks into the map's dark ground.
+  STOPS:[[0.0,1.0,0.98,0.55],[0.14,1.0,0.9,0.2],[0.28,1.0,0.72,0.06],[0.43,1.0,0.52,0.02],
+         [0.58,0.97,0.32,0.03],[0.72,0.9,0.14,0.05],[0.86,0.72,0.03,0.08],[1.0,0.52,0.0,0.08]],
 
   /** Reads the coverage for the world that is loaded, once per world. */
   load(){
@@ -129,11 +134,30 @@ const WgCoverage={
     const first=x=>{ let lo=0, hi=v.length; while(lo<hi){ const mid=(lo+hi)>>1; if(v[mid]<x) lo=mid+1; else hi=mid; } return lo; };
     // Among many equal counts, sit halfway up their run rather than at its foot.
     const lo=first(n), hi=first(n+1e-9);
-    return Math.max(0, Math.min(1, ((lo+hi-1)/2)/(v.length-1)));
+    const byCells=((lo+hi-1)/2)/(v.length-1);
+    // ...averaged with where the count sits among the distinct counts. By cells alone a
+    // load order where most cells share two or three counts spent the whole ramp on
+    // those and left the rest in one red; by distinct counts every step gets its own
+    // colour, so the spread shows between the busy cells too.
+    const d=this.distinct(), di=d.indexOf(n);
+    const byValue=di<0? byCells : di/(d.length-1);
+    return Math.max(0, Math.min(1, (byCells+byValue)/2));
+  },
+  /** The distinct counts in the current mode, ascending. */
+  distinct(){
+    const k='d:'+this.mode;
+    if(this._ranks[k]) return this._ranks[k];
+    const v=this.ranks(), d=[];
+    for(const n of v) if(d[d.length-1]!==n) d.push(n);
+    return (this._ranks[k]=d);
   },
   /** The heat colour of a count, `[r,g,b]` 0..255. */
   heat(count){
     return this.ramp(this.rankOf(count)).map(v=>Math.round(v*255));
+  },
+  /** The mask opacity of a count: hotter cells cover more of the map picture. */
+  alphaOf(count){
+    return +(this.ALPHA+(this.ALPHA_HOT-this.ALPHA)*this.rankOf(count)).toFixed(3);
   },
 
   /** The heat masks over the map picture, and the "yours" rings. Called from CellMap.draw. */
@@ -156,7 +180,7 @@ const WgCoverage={
       }
       const n=this.value(k); if(!n) continue;
       const [r,g,b]=this.heat(n);
-      ctx.fillStyle='rgba('+r+','+g+','+b+','+this.ALPHA+')';
+      ctx.fillStyle='rgba('+r+','+g+','+b+','+this.alphaOf(n)+')';
       ctx.fillRect(rx,ry,rw,rh);
       if(this.ours.size && ix.some(p=>this.isOurs(this.plugins[p]))) ours.push([rx,ry,rw,rh]);
     }

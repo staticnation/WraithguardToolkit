@@ -18,6 +18,7 @@ behaviour rather than guessing.
 from __future__ import annotations
 
 import struct
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -72,6 +73,9 @@ class PluginFileIndex:
         """
         self._dirs: list[str | Path] = list(data_dirs or [])
         self._index: dict[str, Path] | None = None
+        # The reads run on several threads now (wraithguard.parallel); the first
+        # finds from each would otherwise all build the index at once.
+        self._build_lock = threading.Lock()
 
     def _build(self) -> None:
         """Populate the index, skipping directories that cannot be read.
@@ -110,7 +114,9 @@ class PluginFileIndex:
             *not* prove absence -- check :attr:`usable` first.
         """
         if self._index is None:
-            self._build()
+            with self._build_lock:
+                if self._index is None:
+                    self._build()
         # _build always assigns a dict; the `or {}` keeps the type checker
         # happy without an assert, which `python -O` would strip.
         return (self._index or {}).get(plugin_name.lower())

@@ -137,6 +137,39 @@
 
 ### Fixed
 
+- **Big cells running the viewer out of memory** (Balmora froze at ~600 meshes): cells
+  load without normal and specular maps unless Settings' "Normal and specular maps
+  (cells)" is turned on, and leaving the mesh viewer no longer leaves them loading.
+- **Cells with NPCs or animated meshes stalling on "Placing objects"** (Balmora: one
+  bundle of eight meshes was 475 MB): an animated mesh carried every key in its `.kf` -
+  xbase_anim.kf's minutes of every clip, repeated for each bone of each skinned part -
+  though only the idle plays. Now only the idle's keys are kept. And every NPC read its
+  skeleton, the idle `.kf` and its body part files afresh; each is now read once and
+  shared.
+- **Frame rate in big exteriors** (Balmora and 48 cells ran at 9 fps, the shadow pass
+  73 ms of it): the shadow cascades skip the objects outside their box (every NPC was
+  drawn into both, whole, each frame), and an animated actor's pose updates less often
+  the further it is from the camera (30, 10, then 2 times a second; still past 12,000
+  units) - skinning every NPC every frame was CPU work on the frame's critical path.
+- **Load-order-wide reads run side by side** (`wraithguard/parallel.py`, eight threads,
+  results folded in load order so every "last wins" answer is unchanged): the conflict
+  scan's record keys, the lint, the master check's headers, field reads for judging
+  conflicts, the patch writer's source plugins, the tes3conv JSON dump, and the data
+  folder scan (walking 1,000+ folders, and the byte comparisons of shared files). The
+  built-in reader no longer waits on the tes3conv pipe lock it never needed; tes3conv
+  itself still reads one plugin at a time.
+- **Journal chains opening slowly on big load orders**: it decoded every record of every
+  plugin into Python, one plugin after another; it now reads only topics, their lines and
+  scripts (the rest is never decoded), eight plugins at a time. Closing the window before
+  it finished no longer raises an error.
+- **Leveled creature lists in the full help** showed empty tiles (creatures have no
+  icon): each is drawn from its mesh now. And ORI said "not found" for the meshes the
+  viewer makes itself - the built-in Construction Set markers and assembled NPCs - which
+  read as a missing file; it says what they are.
+- **The cell map's heat** used too little of its ramp: eight colour stops from lemon to
+  deep red, each count's colour taken half from how many cells sit below it and half from
+  its place among the distinct counts, and hotter cells drawn more opaque.
+- **Flat colour and Relief** in the mesh viewer drew black.
 - **The Linux AppImage on the Steam Deck** (4.2.0): the viewer aborted with "Could not
   create default EGL display: EGL_BAD_PARAMETER". The AppImage no longer carries its
   build machine's EGL, GL, GBM, DRM and Wayland libraries - the host's GPU driver needs

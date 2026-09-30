@@ -62,6 +62,7 @@ from wraithguard.gui import rtl
 from wraithguard.gui.theme import DARK, apply_titlebar_theme
 from wraithguard.i18n import gettext as _
 from wraithguard.logging_setup import get_logger
+from wraithguard.parallel import read_all
 from wraithguard.patch.journal import Resolved, resolve_journals
 from wraithguard.patch.journal_scripts import (
     Attachment,
@@ -274,13 +275,45 @@ class JournalViewMixin:
         Args:
             order: The load order to read, exclusions already applied.
         """
+        try:
+            self._journal_work(order)
+        except Exception:  # a failed read must not leave "Reading..." up forever
+            LOG.exception("reading journal chains")
+            self._schedule_ui(0, self._journal_failed)
+
+    def _journal_work(self, order: Sequence[str]) -> None:
+        """The body of :meth:`_journal_worker`."""
         session = self._conf_session
         paths = self._conf_paths
-        sources = {}
-        for plugin in order:
+        # Only what journal chains are made of: topics, their lines, and scripts.
+        # Every record of every plugin was decoded into Python before - on a
+        # load order of 600 plugins that was minutes, and most of it cells.
+        wanted = frozenset({"Dialogue", "DialogueInfo", "Script"})
+        typed = getattr(session, "records_of_types", None)
+
+        def _read(plugin: str) -> tuple[str, list[Any]] | None:
+            """One plugin's topics, lines and scripts.
+
+            Args:
+                plugin: The plugin's file name.
+
+            Returns:
+                ``(plugin, records)``, or ``None`` when it has no known path.
+            """
             path = paths.get(plugin)
-            if path:
-                sources[plugin] = session.records(path)
+            if not path:
+                return None
+            if typed is not None:
+                return plugin, typed(path, wanted)
+            return plugin, session.records(path)
+
+        # The native parse lets go of the interpreter, so plugins read side by side;
+        # tes3conv is one process on one pipe and reads one at a time.
+        if getattr(session, "engine_name", "") == "native":
+            read = read_all(list(order), _read)
+        else:
+            read = [_read(p) for p in order]
+        sources = dict(r for r in read if r is not None)
         try:
             resolved = resolve_journals(sources, order)
             # Excluding a journal-type stage's own info_id keeps
@@ -309,7 +342,7 @@ class JournalViewMixin:
     def _journal_failed(self) -> None:
         """Report a worker-thread failure without leaving the loading node stuck."""
         nav = getattr(self, "_journal_nav", None)
-        if nav is not None and nav.exists(LOADING):
+        if nav is not None and nav.winfo_exists() and nav.exists(LOADING):
             nav.item(LOADING, text=_("Could not read the load order -- see the log."))
 
     def _fill_journal_tree(
@@ -331,6 +364,10 @@ class JournalViewMixin:
                 detail can show what else it does without a second scan.
         """
         nav = self._journal_nav
+        # The window may have been closed while the load order was read in the
+        # background; its tree is gone and there is nothing to fill.
+        if not nav.winfo_exists():
+            return
         if nav.exists(LOADING):
             nav.delete(LOADING)
         self._journal_resolved = resolved

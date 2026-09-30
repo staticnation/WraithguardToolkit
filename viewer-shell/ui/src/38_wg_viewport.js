@@ -76,15 +76,14 @@ const WgViewport={
 
   touch(){ if(typeof PrevSettings==='object') PrevSettings.touch(); },
 
-  /** Wraithguard: cells take the normal and specular maps as the setup's OpenMW does -
-      its settings.cfg's `auto use object normal maps` / `... specular maps` - and when
-      the file does not say, they are on (a setup that ships the maps wants them seen).
-      Until the switch is touched; then the profile remembers the choice. */
+  /** Wraithguard: cells load without the normal and specular maps unless the switch is
+      turned on. Following the setup's settings.cfg turned them on for most installs, and
+      a big cell (Balmora, ~600 meshes) then decoded two or three extra textures per mesh
+      and ran the page out of memory. The mesh viewer keeps them; the profile remembers
+      the switch once touched. */
   installMaps(){
     if(App._nrmChosen) return;
-    const m=(typeof Sky==='object' && Sky.data && Sky.data.renderer && Sky.data.renderer.maps) || null;
-    const on = (m && m.found && m.setObjNormal)? !!(m.objectNormal || m.objectSpecular) : true;
-    if(on!==!!App.cellNormalMaps) this.setCellNormalMaps(on);
+    if(App.cellNormalMaps) this.setCellNormalMaps(false);
     const nm=$('#setNrmMaps'); if(nm) nm.checked=!!App.cellNormalMaps;
   },
 
@@ -97,10 +96,9 @@ const WgViewport={
             ['ao_mode',o.ssgi? 'ssgi' : 'ssao'],
             ['cov_heat', typeof WgCoverage==='object'? !!WgCoverage.on : true],
             ['cov_mode', typeof WgCoverage==='object'? String(WgCoverage.mode==='plugin'? 'mods' : WgCoverage.mode) : 'mods'],
-            // `normal_maps_cells`, not the first build's `normal_maps`: that one saved
-            // `false` into profiles while the switch defaulted off, and is ignored now that
-            // cells follow the setup (installMaps below).
-            ...(App._nrmChosen? [['normal_maps_cells', !!App.cellNormalMaps]] : [])];
+            // `cell_maps`, not `normal_maps_cells`: that one saved `true` into profiles
+            // while cells followed the setup, and is ignored now that they default off.
+            ...(App._nrmChosen? [['cell_maps', !!App.cellNormalMaps]] : [])];
   },
 
   /** Back from the viewer profile. */
@@ -111,7 +109,7 @@ const WgViewport={
     if(V.ao_mode!=null && App.R) App.R.opts.ssgi=String(V.ao_mode)==='ssgi';
     if(V.cov_heat!=null && typeof WgCoverage==='object') WgCoverage.on=!!V.cov_heat;
     if(V.cov_mode!=null && typeof WgCoverage==='object' && ['mods','conflicts','land'].includes(String(V.cov_mode))) WgCoverage.mode=String(V.cov_mode);
-    if(V.normal_maps_cells!=null){ App._nrmChosen=true; this.setCellNormalMaps(!!V.normal_maps_cells); }
+    if(V.cell_maps!=null){ App._nrmChosen=true; this.setCellNormalMaps(!!V.cell_maps); }
     { const nm=$('#setNrmMaps'); if(nm) nm.checked=!!App.cellNormalMaps; }
     const o=(App.R&&App.R.opts)||{};
     const am=$('#p_aomode'); if(am) am.value=o.ssgi? 'ssgi' : 'ssao';

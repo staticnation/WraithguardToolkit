@@ -646,7 +646,7 @@
            most of the viewport. Saved in the viewer profile. -->
       <div class="row"><label title="Orbit navigation: the mouse wheel zooms towards the point under the pointer instead of the middle of the view. On by default.">Zoom to cursor (orbit)</label><div class="ctl">
         <label class="sw"><input type="checkbox" id="setZoomCursor" checked><span class="tr"></span></label></div></div>
-      <div class="row"><label title="Cells drawn with the OpenMW-style normal (_n, _nh) and specular (_spec) maps your mods ship beside their textures. On as the setup's OpenMW has them (settings.cfg's auto use object normal / specular maps, with its own suffixes), and on when it does not say. The mesh viewer always has them, with a switch per map.">Normal and specular maps (cells)</label><div class="ctl">
+      <div class="row"><label title="Cells drawn with the OpenMW-style normal (_n, _nh) and specular (_spec) maps your mods ship beside their textures, with settings.cfg's suffixes. Off by default: each mesh then loads two or three more textures, and a big cell such as Balmora can run the viewer out of memory. The mesh viewer always has them, with a switch per map.">Normal and specular maps (cells)</label><div class="ctl">
         <label class="sw"><input type="checkbox" id="setNrmMaps"><span class="tr"></span></label></div></div>
       <div class="mhead2">Performance</div>
       <div class="row"><label title="The most frames drawn per second. Lower saves power and keeps the machine cool; Off draws as fast as the screen refreshes. The view also stops drawing while the window is minimized or a dialogue covers most of it.">Frame rate cap</label><div class="ctl">

@@ -945,6 +945,34 @@ impl KfData {
     pub fn is_empty(&self) -> bool {
         self.rot.is_empty() && self.rot_xyz.is_none() && self.trans.is_empty() && self.scales.is_empty()
     }
+
+    /// Wraithguard: only the keys a clip from `start` to `stop` plays - those inside it,
+    /// and the last key before and the first after, so sampling at either end reads what
+    /// it read with every key. Times are kept as they were.
+    ///
+    /// A `.kf` controller spans every clip in the file end to end, and `bind_kf` plays one
+    /// of them. xbase_anim.kf is minutes of keys for every bone; carried whole, an NPC's
+    /// payload repeated them for each bone of each skinned part, and a town's NPCs came to
+    /// hundreds of megabytes for a few seconds of idle.
+    pub fn window(&self, start: f32, stop: f32) -> KfData {
+        fn cut<V: Clone>(keys: &[(f32, V)], start: f32, stop: f32) -> Vec<(f32, V)> {
+            if keys.is_empty() {
+                return Vec::new();
+            }
+            let first = keys.iter().rposition(|(t, _)| *t <= start).unwrap_or(0);
+            let last = keys.iter().position(|(t, _)| *t >= stop).unwrap_or(keys.len() - 1);
+            keys[first..=last.max(first)].to_vec()
+        }
+        KfData {
+            rot: cut(&self.rot, start, stop),
+            rot_xyz: self
+                .rot_xyz
+                .as_ref()
+                .map(|ch| [cut(&ch[0], start, stop), cut(&ch[1], start, stop), cut(&ch[2], start, stop)]),
+            trans: cut(&self.trans, start, stop),
+            scales: cut(&self.scales, start, stop),
+        }
+    }
 }
 
 /// Round 17y: one animated node above a shape — the still transform from the previous
@@ -2341,7 +2369,8 @@ fn bind_kf(rec: &mut Records, kf: &KfSequence) {
             }
         }
         let data_i = rec.kfdatas.len();
-        rec.kfdatas.push(Some(t.data.clone()));
+        // Only the clip's keys (`KfData::window`): the rest never play.
+        rec.kfdatas.push(Some(t.data.window(start, stop)));
         rec.kfctrls.push(Some(KfCtrl {
             next: -1,
             flags: 0x0008, // on, and looping (cycle bits 1-2 clear)
@@ -4531,5 +4560,27 @@ pub fn prepend_systems(sys: &mut [ParticleSystem], m: &[f32; 12], s: f32) {
     for p in sys.iter_mut() {
         p.node = mul(m, s, &p.node.0, p.node.1);
         p.emitter = mul(m, s, &p.emitter.0, p.emitter.1);
+    }
+}
+
+#[cfg(test)]
+mod kf_window_tests {
+    use super::KfData;
+
+    #[test]
+    fn a_clip_keeps_its_keys_and_one_either_side() {
+        let d = KfData {
+            scales: (0..100).map(|i| (i as f32, i as f32)).collect(),
+            trans: vec![(50.0, [1.0, 2.0, 3.0])],
+            ..Default::default()
+        };
+        let w = d.window(10.5, 20.5);
+        let t: Vec<f32> = w.scales.iter().map(|k| k.0).collect();
+        assert_eq!(t.first(), Some(&10.0));
+        assert_eq!(t.last(), Some(&21.0));
+        assert_eq!(t.len(), 12);
+        // A channel with its one key outside the clip keeps it (the value it holds).
+        assert_eq!(w.trans.len(), 1);
+        assert!(KfData::default().window(0.0, 1.0).is_empty());
     }
 }
