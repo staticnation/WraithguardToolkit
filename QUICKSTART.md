@@ -9,13 +9,19 @@ in about five minutes. For the full reference, see [README.md](README.md).
 - mlox rules: **`mlox_base.txt`** and (optionally) **`mlox_user.txt`**.
 - Optional but recommended: MOMW's **`plugin-order.yml`** and your list's name
   (e.g. `total-overhaul`).
-- Python 3.10+ with tkinter. On Linux: `sudo apt install python3-tk`.
+- The app itself: a release build from the
+  [Releases page](https://github.com/staticnation/WraithguardToolkit/releases)
+  (Windows `.exe`, or the `-webview2.zip` for a PC without WebView2; macOS `.app`;
+  Linux/Steam Deck `.AppImage`) needs nothing else. From source you need Python
+  3.14+ with tkinter (Linux: `sudo apt install python3-tk`) and the Rust module:
+  `pip install ./native` with a Rust toolchain installed - see the README's
+  *Requirements & setup*.
 
 ---
 
 ## The GUI in 6 steps
 
-Launch it:
+Launch the release build, or from source:
 
 ```
 python wraithguard_toolkit_gui.py

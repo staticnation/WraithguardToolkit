@@ -101,6 +101,9 @@ jobs:
             --add-data "README.md:." \
             --add-data "QUICKSTART.md:." \
             --add-data "MLOX_RULES.md:." \
+            --add-data "CREDITS.md:." \
+            --add-data "License:License" \
+            --add-data "viewer-shell/ui/LICENSE:License/viewer-page" \
             --add-data "wraithguard_toolkit_icon.ico:." \
             --add-data "wraithguard/viz/assets:assets" \
             wraithguard_toolkit_gui.py

@@ -1,6 +1,6 @@
-//! Assembles the cell viewer page (ui/ORDER -> ui-dist/index.html, with
-//! ui/viewer_only.html inserted before </head>), then runs tauri-build, which embeds
-//! ui-dist as the app's frontend.
+//! Assembles the cell viewer page (ui/ORDER -> ui-dist/index.html, with ui/LICENSE
+//! as a comment after <head> and ui/viewer_only.html inserted before </head>), then
+//! runs tauri-build, which embeds ui-dist as the app's frontend.
 
 use std::path::Path;
 
@@ -17,6 +17,12 @@ fn build_page() {
             page.push('\n');
         }
     }
+    // The page is GPL-2.0 (MGE XE shader ports): its licence and the provenance of every
+    // part travel inside the page, so they ship with the viewer binary that embeds it.
+    let licence = std::fs::read_to_string(ui.join("LICENSE")).expect("ui/LICENSE");
+    println!("cargo:rerun-if-changed=ui/LICENSE");
+    let head = page.find("<head>").expect("page has no <head>") + "<head>".len();
+    page.insert_str(head, &format!("\n<!--\n{}\n-->\n", licence.replace("-->", "- ->")));
     let extra = std::fs::read_to_string(ui.join("viewer_only.html")).expect("ui/viewer_only.html");
     let at = page.find("</head>").expect("page has no </head>");
     page.insert_str(at, &extra);

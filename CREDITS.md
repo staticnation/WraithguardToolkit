@@ -92,6 +92,43 @@ and their `LICENSE` files are included in their source folders in this repo.
   substitution), and it confirmed the `.mergedlands.toml` schema is unchanged
   from the original.
 
+- **Gardenfell / GrassForge** - © 2026 Robin Hjelte. **MIT**; its page is
+  **GPL-2.0** because it carries MGE XE shader ports. Shared with us by its author
+  to build on. **The cell viewer and the mesh viewer are Gardenfell's viewer**,
+  brought into this repo and adapted - its code, not an imitation of it:
+  - **The engine**, `viewer-shell/viewcore` (MIT, Robin's notice kept): the
+    install's files and archives, the load order merged into a world, meshes and
+    textures read for drawing, the sky and weather.
+  - **The command layer**, `viewer-shell/src/cellviewer/commands.rs` (MIT): what
+    the page calls.
+  - **The page**, `viewer-shell/ui` (**GPL-2.0**): the WebGL2 renderer, terrain,
+    water, sky, particles, shadows, ambient occlusion, depth of field, underwater,
+    the cell picker and its map. The MGE XE shader ports (shadows, fog/tonemap,
+    water, sunshafts, underwater, SSAO) are why this part is GPL. It is a separate
+    frontend loaded into the webview, so the GPL does not reach the MIT code. See
+    `viewer-shell/ui/LICENSE`, `License/Gardenfell` and `License/MGE-XE`.
+
+  What we changed: stripped it to a viewer (grass generation, painting, the
+  statics setup, ESP export and the profile/rules managers are gone from the page,
+  the commands and the engine); it opens Wraithguard's own setup (the sort panels'
+  current state); the engine reads with greatness7's `tes3` crates and keeps its
+  own readers as the fallback; and ours are the ORI inspector, `groundcover=`
+  loading, the mod-coverage map in the cell picker, mod highlighting, the viewport
+  settings, the mesh-viewer mode with its block editor, and the water changes
+  credited at the end of this file. `viewer-shell/MANIFEST.md` lists every part.
+
+  Two smaller things came from it earlier:
+  - Its tiny hand-crafted animation test NIFs (`morph.nif`, `anim.nif`,
+    `uvsets.nif`, `particle_move.nif`, `flap.nif`/`.kf`) are vendored under
+    `tests/fixtures/gardenfell_anim/` (MIT). They first tested our own NIF
+    reader's animation extraction, where they caught two bugs -- geometry lost
+    under a `NiCollisionSwitch`, and a particle `NiTriShape` drawn as a surface --
+    and now test the crate-based mesh readers in `native/` and
+    `viewer-shell/viewcore`.
+  - Its start-up discipline -- *read a thing once and reuse it rather than
+    re-reading it every pass* -- shaped our first, Python cell previewer, before
+    that previewer was replaced by Gardenfell's own.
+
 - **momw-configurator** - © Modding-OpenMW.com (johnnyhostile). MIT.
   We read its `cfg/custom.go` to reimplement its customization-apply logic
   faithfully, so the **Export preview** can simulate exactly what the
@@ -172,32 +209,6 @@ reference your scripts at all, say the word and it is done.
   distributed with it; **no code was copied**. We credit it for the field-level
   record-diff *approach* that inspired our field comparison view. All rights
   remain with its author.
-- **Gardenfell / GrassForge** - © 2026 Robin Hjelte. **MIT** (except its MGE XE
-  shader parts, which are not used here); shared privately with us to draw on.
-  Its Rust engine is largely native/GPU micro-optimisation that does not port to
-  a Python + three.js tool, but two things came across:
-  - Its start-up discipline -- *read a thing once and reuse it rather than
-    re-reading it every pass* -- shaped our first, Python cell previewer (a
-    parsed-mesh cache, and a parallel model parse under free-threaded Python).
-    That previewer has since been replaced by Gardenfell's own viewer (below).
-  - Its tiny hand-crafted animation test NIFs (`morph.nif`, `anim.nif`,
-    `uvsets.nif`, `particle_move.nif`, `flap.nif`/`.kf`) are vendored under
-    `tests/fixtures/gardenfell_anim/` (MIT). They first tested our own NIF
-    reader's animation extraction, where they caught two bugs -- geometry lost
-    under a `NiCollisionSwitch`, and a particle `NiTriShape` drawn as a surface --
-    and now test the crate-based mesh readers in `native/` and
-    `viewer-shell/viewcore`.
-  - **Cell Preview is its viewer, brought into this repo.** Its engine is
-    `viewer-shell/viewcore` (MIT, Robin's notice kept), its Tauri command layer
-    is `viewer-shell/src/cellviewer/commands.rs` (MIT), and its page is
-    `viewer-shell/ui` -- **GPL-2.0**, because the renderer carries MGE XE shader
-    ports (shadows, fog/tonemap, water, sunshafts, underwater, SSAO). The page is
-    a separate frontend loaded into the webview, so that silo does not reach the
-    MIT code. See `viewer-shell/ui/LICENSE`, `License/Gardenfell`, `License/MGE-XE`.
-    Stripped to a viewer: grass generation, painting, the statics setup, ESP
-    export, and the profile/rules managers are gone from the page, the commands
-    and the engine. It opens Wraithguard's own setup (the sort panels' current
-    state), and adds an ORI object inspector and `groundcover=` loading of our own.
 - **xEdit / TES5Edit / SSEEdit** - © the xEdit team. **MPL 1.1; no code copied.**
   Our conflict-colour convention -- a record's overall status colours the row
   **background**, what one plugin does colours the **text** -- is xEdit's, the
@@ -339,7 +350,9 @@ transcribing six hundred numbers needed a cross-check rather than a unit test.
 ## Referenced for formats & behavior (GPL - no source copied)
 
 We read these projects to understand file formats and expected behavior. **No
-GPL source was copied into this tool**, so no copyleft obligations attach to it;
+GPL source was copied into this tool's MIT code**, so no copyleft obligations
+attach to it (the one GPL part, the cell viewer's page, is its own GPL-2.0 silo -
+see *The cell viewer page (GPL-2.0)*);
 the credit is one of gratitude and correctness.
 
 - **OpenMW** - GPLv3. The engine that makes modern Morrowind modding possible.
@@ -385,8 +398,10 @@ the credit is one of gratitude and correctness.
   customfunctions lists two and UESP documents
   `xFileWriteFloat filename (string), value (float)`. Corrections live in one
   small explicit table in the generator, each with its evidence.
-- **MGE XE** - GPLv3. Referenced alongside MWSE for the same cross-check; no
-  source copied.
+- **MGE XE** - GPL-2.0. Read alongside MWSE for the same opcode cross-check; no
+  MGE XE source is in the MIT code. Its **shaders are ported into the cell viewer's
+  page**, which is GPL-2.0 for exactly that reason - see *The cell viewer page
+  (GPL-2.0)* below.
 - **Wrye Mash** (Polemos fork) - © 2017-2021 Polemos, based on Yacoby
   (2011-2016), Melchor (2009-2011) and Wrye (2005-2009). **GPLv2-or-later.**
   Wrye Mash popularised the *features* of removing a master from a plugin and
@@ -539,9 +554,51 @@ Apache-2.0 (ryu: Apache-2.0 or BSL-1.0), plus their own dependencies:
   (the shortest float spelling, as tes3conv's JSON writes it), **regex**,
   **base64**, **memmap2**.
 
+## The cell viewer page (GPL-2.0)
+
+`viewer-shell/ui` is licensed **GPL-2.0** and kept apart from the MIT code: it is
+the viewer's frontend, loaded into the webview at runtime, not linked into
+anything else. Its licence file, `viewer-shell/ui/LICENSE`, carries the full
+GPL-2.0 text and the provenance of every part; this is the same list.
+
+**MGE XE** - GPL-2.0, licence text at `License/MGE-XE/LICENSE`. "MGE was written by
+Timeslip, LizTail, Krzymar, and Phal. MGE XE is currently being developed by
+Hrnchamd" (its readme's credits); "G7" is Greatness7's fork. Ported, with the
+credit each shader's own header gives:
+
+- `XE Common.fx` - fog colour and scattering (`06_gl.js`, fed by `25_sky.js`).
+- `XE FixedFuncEmu.fx` - the static tonemap and light attenuation (`06_gl.js`).
+- `XE Mod Shadow.fx` + `XE Mod Shadow Data.fx` (G7 fork) - the sun shadow
+  receiver (`06_gl.js`, `37_shadow.js`).
+- `XE Mod Water.fx` (G7 branch, 0.16.0) - the water (`26_water.js`).
+- `XE Mod Caustics.fx` - outdoor water caustics (`35_underwater.js`).
+- `XE Mod Grass.fx` - groundcover wind (`06_gl.js`).
+- `Sunshafts.fx` - "Sun shaft rays by **phal** v0.02a; many tweaks by **Hrnchamd**
+  for MGE XE 0.11.0" (`26_water.js`).
+- `Underwater Effects.fx` and `Underwater Interior Effects.fx` - **Hrnchamd**
+  (`35_underwater.js`).
+- `SSAO HQ.fx` - "based on ssao v09 by **Knu**" (`29_ssao.js`).
+- `Depth of Field.fx` - "v12 by **Knu**, tweaked by **peachykeen**" (`36_dof.js`).
+- `FXAA.fx` - FXAA 3.11 by **Timothy Lottes, NVIDIA**, under NVIDIA's notice in the
+  original header; the MGE XE port by **J. Böttcher** (as its header says), posted
+  for MGE XE by **Hrnchamd** (`33_fxaa.js`).
+- `SSGI.fx` - an MGE XE post shader (HBAO + SSGI): **vtastek**'s SSGI, modified
+  by **Remiros**; GPL-2.0 like the other MGE XE shaders (the SSGI mode in
+  `29_ssao.js`).
+
+**Gardenfell** (Robin Hjelte, MIT; see above) - the page itself, including Robin's
+camera smoothing from his own MWSE mod, and his go-ahead for the SSAO port.
+
+**Ours** (StaticNation, GPL-2.0 as part of the page) - `23_viewer_profile.js`,
+`24_ori.js`, `38_wg_viewport.js`, `39_wg_coverage.js`, `40_wg_modhl.js`,
+`41_wg_meshview.js` and `viewer_only.html`.
+
+The water's other sources - the shore surf (mod 56186), the sewer waves (mod
+45432) and the webgl-noise simplex noise - are in the three sections that follow.
+
 ## Cell viewer water: wave randomness
 
-The cell viewer's water is MGE XE's water shader, ported (see Gardenfell above and `License/MGE-XE`). To keep its
+The cell viewer's water is MGE XE's water shader, as ported in Gardenfell's viewer (see Gardenfell above and `License/MGE-XE`). To keep its
 waves from repeating tile by tile, a slow **2D simplex noise** field bends where the
 wave texture is read, puts stretches of water out of step with each other, and varies
 the wave strength a little (`viewer-shell/ui/src/26_water.js`, `waterNormal`). The
@@ -580,9 +637,10 @@ long as you give proper credit to the original authors and me."
 *Wraithguard Toolkit is provided as-is. Where we reproduce MIT-licensed material
 (notably tes3lint's evil-GMST table, and the algorithms ported from Merged
 Lands and yampt), the original copyright and licence notice travels with it in
-the source. We copy no GPL or unlicensed source: MWSE and OpenMW were read for
-cross-checking only, and the unlicensed community Perl scripts contributed
-ideas, not code.*
+the source. GPL source appears only in the cell viewer's page (`viewer-shell/ui`),
+which is itself GPL-2.0, carries the full licence text, and is kept apart from the
+MIT code; MWSE and OpenMW were read for cross-checking only, and the unlicensed
+community Perl scripts contributed ideas, not code.*
 
 *Attribution is something we would rather over-do than get wrong. If anything
 here is inaccurate - a name, a licence, a claim about what we derived from

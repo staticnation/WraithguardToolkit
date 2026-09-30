@@ -82,11 +82,13 @@ INTERNALERROR about writing the data file (some mounts refuse it), set
 hung test.
 
 **Last verified full run (4.2.0):** Windows 11, free-threaded Python 3.14t in its
-own venv (see `PREFLIGHT.md`) -- **7,189 passed, 19 skipped**. The skips are
+own venv (see `PREFLIGHT.md`) -- **7,297 passed, 21 skipped**. The skips are
 deliberate: the differential baseline, tests that need a real tes3conv binary
 (now only a fallback), and converter-subprocess tests that stand a shell script
-in for tes3conv, which Windows cannot run. `-rs` names each one; a skip that is
-not one of those, or any failure, is a real signal.
+in for tes3conv, which Windows cannot run. `-rs` names each one; the two new corpus
+parity tests (`test_images_native_parity.py`, `test_lint_native_parity.py`) also
+skip unless `WG_TEXTURE_CORPUS` / `WG_PLUGIN_CORPUS` point at real files. A skip
+that is not one of those, or any failure, is a real signal.
 
 The floor is `fail_under = 77`, ratcheted up from 52 once the suite's honest
 number climbed (to ~54% at 3.0, ~80% mid-3.1, ~84% now). It is kept a few points
@@ -398,4 +400,6 @@ the things only a look can judge. Run them on the built app, not from source.
 | 10 | **View in 3D** on a mesh conflict | The mesh viewer opens on the files alone (no cell loading first), with the block tree beside it. |
 | 11 | Windows `-webview2.zip` build, on a machine without WebView2 | Cell Preview and the cell map still open. |
 | 12 | Linux AppImage on a Steam Deck (desktop mode) | The app starts, and Cell Preview opens. |
+| 13 | **Resource Conflicts**, then open a texture conflict with a large DDS (2048px, ideally a BC7 replacer) | Both sides and the difference image appear in well under a second (the decoders are Rust now); the numbers and the difference look as they did in 4.1. |
+| 14 | Tick **Lint** and sort | The lint warnings are the same as before 4.2.0 ([FOGBUG], [NO PATHGRID], [EVLGMST], [EXP-DEP], [HEADER]), and the stage finishes noticeably faster on a big list. |
 

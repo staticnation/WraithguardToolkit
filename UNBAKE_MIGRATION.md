@@ -1,5 +1,11 @@
 # Un-baking migration: model-space geometry + per-shape instancing
 
+*Historical. This was the 4.1.2 plan for the Python/three.js cell previewer
+(`wraithguard/scene/`, `world_meshes`, `build_scene`, `build_instanced`). That
+previewer was retired in 4.2.0 when Cell Preview and the mesh viewer moved to the
+Tauri viewer (`viewer-shell/`), whose engine keeps each mesh's node hierarchy and
+animates nodes directly. Kept as the record of the decision.*
+
 ## Why
 
 `world_meshes` composes each shape's node-chain transform and **bakes it into the

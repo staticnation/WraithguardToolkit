@@ -138,7 +138,7 @@ WraithguardToolkit/
 ```
 
 The standard library and the Rust module (`native/`) are required to run.
-Optional extras (`tkinterdnd2`, `PyYAML`, `tkinterweb`, `tomli` on Python < 3.11)
+Optional extras (`tkinterdnd2`, `PyYAML`, `tkinterweb`)
 each enable one feature and degrade gracefully when missing. Kept *outside* this folder because
 none of it is needed to build or run: the reference sources read while porting
 (credited in `CREDITS.md`), the third-party Perl/`tes3cmd` tools the app drives,
@@ -152,7 +152,8 @@ and run output (logs, `cell_map.html`, `resource_conflicts.csv`, the packaged
 Python + tkinter, with a Rust module for reading and writing game files, so it
 runs on all three platforms.
 
-- **Python 3.10+** (3.11+ gets `tomllib` for free; on 3.10 install `tomli`).
+- **Python 3.14+** (`requires-python` in `pyproject.toml`). The release builds use
+  the free-threaded **3.14t**, and CI tests both 3.14 and 3.14t.
 - **The built-in reader, `wraithguard_native`** (`native/`) - greatness7's `tes3`
   crates, as a Python module: it reads and writes plugins, meshes and `.bsa`
   archives in process. The release builds carry it. From source, install it once
@@ -167,7 +168,6 @@ runs on all three platforms.
     works regardless).
   - `pip install PyYAML` - faster/robust `plugin-order.yml` parsing. Without it,
     a built-in parser is used automatically.
-  - `pip install tomli` - only on Python < 3.11, for reading TOML.
   - `pip install tkinterweb` - shows the cell map in an in-app window when the
     viewer (`wraithguard-viewer`, see Packaging) is not built; without either, the
     map opens in your default browser.
@@ -195,6 +195,10 @@ outputs survive the build:
   (`--add-binary "viewer-shell/target/release/wraithguard-viewer.exe;."` on Windows,
   `:.` elsewhere). The release workflows in `.github/workflows/` are the reference
   build for each platform; copy their PyInstaller line.
+- **The licences travel with the build.** `CREDITS.md`, the `License/` folder and
+  the viewer page's own licence (`viewer-shell/ui/LICENSE`, GPL-2.0) are added with
+  `--add-data` (see the workflows). The viewer binary also carries that GPL-2.0
+  text inside the page it embeds (`viewer-shell/build.rs`).
 
 The viewer (cell map, Cell Preview, mesh viewer, conflict views) draws with the
 system webview: **WebView2** on Windows (present on Windows 11 and updated Windows

@@ -17,8 +17,8 @@
    cascade is a loop over the step table.
 
    Provenance, for the licence file: FXAA 3.11 is NVIDIA's, under its public licence
-   (the notice in the original header); the MGE XE port is J. Böttcher's; the tuning is
-   Robin's copy. (No backticks inside the shader strings: template literals.) */
+   (the notice in the original header); the MGE XE port is J. Böttcher's, posted for MGE XE
+   by Hrnchamd; the tuning is Robin's copy. (No backticks inside the shader strings: template literals.) */
 
 const FXAA_SUBPIX=0.32, FXAA_EDGE_THRESHOLD=0.063, FXAA_EDGE_THRESHOLD_MIN=0.0312;
 const FXAA_STEPS=[1.0,1.5,2.0,2.0,2.0,3.0,8.0];   // preset 24

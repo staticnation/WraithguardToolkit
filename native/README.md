@@ -2,8 +2,12 @@
 
 Wraithguard Toolkit's Rust backend: a Python extension module on
 [greatness7's tes3 crates](https://github.com/Greatness7/tes3) (MIT OR Apache-2.0).
-It replaces the toolkit's pure-Python ports of those crates one piece at a time. Each
-piece keeps the Python API its callers already use.
+It replaced the toolkit's pure-Python ports of those crates one piece at a time, and
+since 4.2.0 also carries the per-vertex and per-pixel loops that were too slow in
+Python (Merged Lands, textures, the lint scan). Each piece keeps the Python API its
+callers already use, and each moved loop has a parity test holding it to the Python
+it replaced (`tests/test_*_native_parity.py`, with that Python kept beside them as
+the reference).
 
 | Piece | Rust | Replaces |
 |---|---|---|
@@ -23,7 +27,9 @@ Needs Rust 1.88+ (the crates are edition 2024):
 
     pip install ./native
 
-The CI and release workflows run this before the tests and before PyInstaller.
+On Windows, `.\tools\setup_dev_env.ps1 -NativeOnly` rebuilds it into every dev venv
+(see `PREFLIGHT.md`). The CI and release workflows run `pip install ./native` before
+the tests and before PyInstaller.
 The module declares free-threaded support, so the 3.14t builds keep their threads.
 
 ## Test
@@ -34,3 +40,7 @@ To build against a local checkout of the crates instead of GitHub, add:
 
     --config 'patch."https://github.com/Greatness7/tes3".tes3.path="../../tes3-main"'
     --config 'patch."https://github.com/Greatness7/tes3".bytes_io.path="../../tes3-main/libs/bytes_io"'
+
+Do not commit a `Cargo.lock` produced that way: a patched build drops the
+`source = "git+https://github.com/Greatness7/tes3..."` lines, and CI's `--locked`
+builds then fail. Check with `cargo metadata --locked --manifest-path native/Cargo.toml`.

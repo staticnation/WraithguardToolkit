@@ -1,7 +1,11 @@
 # How the NIF reader was written, and where every fact in it came from
 
-*The reader this describes has been retired: Wraithguard now reads meshes with
-greatness7's `tes3::nif` (`native/src/nif.rs`). Kept as the record.*
+*The NIF reader this describes has been retired: Wraithguard now reads meshes with
+greatness7's `tes3::nif` (`native/src/nif.rs`), and archives with `tes3::bsa`. Kept
+as the record. The texture section below still describes live code: the decoders
+were moved to Rust in 4.2.0 (`native/src/img.rs`) as a step-for-step translation,
+with the BC7 tables generated from the Python constants rather than retyped, so the
+provenance and the checks recorded here carry over unchanged.*
 
 This document exists so that the origin of `wraithguard/nif/` can be examined
 by someone who did not write it, including someone who assumes the worst. It
@@ -321,8 +325,9 @@ person opening it in a viewer.
 
 ## The same method, applied to textures
 
-`wraithguard/images/` decodes every texture format this game and its mods use,
-under the same rules and for the same reasons. The block formats are arithmetic
+`wraithguard/images/` decodes every texture format this game and its mods use
+(since 4.2.0 through `native/src/img.rs`, a translation of the Python described
+here), under the same rules and for the same reasons. The block formats are arithmetic
 -- a DXT1 block is two 16-bit colors and sixteen 2-bit selectors, and the
 decode is the interpolation the format defines -- so they were implemented from
 the public description and checked against real files.

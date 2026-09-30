@@ -290,8 +290,8 @@ void main(){
    SSGI - horizon-based ambient occlusion with screen-space global illumination.
 
    Wraithguard: the alternative to the SSAO above, one or the other (Preview, Ambient
-   occlusion, Mode). A port of the MGE XE shader "SSGI.fx" (HBAO + SSGI, supplied by the
-   project's author), pass for pass and number for number, onto the same road as SSAO:
+   occlusion, Mode). A port of the MGE XE shader "SSGI.fx" (HBAO + SSGI; vtastek's,
+   modified by Remiros; GPL-2.0), pass for pass and number for number, onto the same road as SSAO:
 
    - `generate`: SSAO's kernel (N=16, the first sixteen of Knu's directions), with a
      radius that grows a little with distance and a surface-match weight, and - the GI -

@@ -18,11 +18,15 @@ const path=require('path');
 const CFG=process.env.WG_VIEW_CFG||path.join(__dirname,'fixture','openmw.cfg');
 const MESH=!!process.env.WG_MESH_VIEW;
 const CELL=process.env.WG_VIEW_CELL?JSON.parse(process.env.WG_VIEW_CELL):{kind:'ext',x:9,y:9,name:'Lamptown',label:'Lamptown'};
-/** The page as build.rs assembles it: ui/ORDER's parts, with viewer_only.html before </head>. */
+/** The page as build.rs assembles it: ui/ORDER's parts, ui/LICENSE as a comment after
+ *  <head>, and viewer_only.html before </head>. */
 function assemble(){
   const ui=path.join(__dirname,'..');
   const order=fs.readFileSync(path.join(ui,'ORDER'),'utf8').split(/\r?\n/).map(l=>l.trim()).filter(l=>l && !l.startsWith('#'));
   let page=order.map(n=>{ const t=fs.readFileSync(path.join(ui,'src',n),'utf8'); return t.endsWith('\n')? t : t+'\n'; }).join('');
+  const head=page.indexOf('<head>')+'<head>'.length;
+  const licence=fs.readFileSync(path.join(ui,'LICENSE'),'utf8').split('-->').join('- ->');
+  page=page.slice(0,head)+'\n<!--\n'+licence+'\n-->\n'+page.slice(head);
   const at=page.indexOf('</head>');
   const icon='data:image/png;base64,'+fs.readFileSync(path.join(ui,'wraithguard_icon.png')).toString('base64');
   return (page.slice(0,at)+fs.readFileSync(path.join(ui,'viewer_only.html'),'utf8')+page.slice(at))

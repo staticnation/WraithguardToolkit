@@ -28,6 +28,7 @@
 > | §45 (dialogue rendered readable, xEdit conflict colours, a macOS app build, and an `abspath`/`resolve` audit) | **4,519** (4,514 passed, 5 skipped; coverage 93.44%, floor raised 77% -> 90%; the four `test_service_merge` POSIX-converter skips were then made cross-platform) |
 > | §46 (3.1.6: a cfg orphan-pull subset source, and the `clean_` alias reconciliation) | **4,428** (4,412 passed, 16 skipped on the hermetic basis with no `tes3conv` on PATH, so the converter-gated tests skip; coverage 93.52% with one present, floor 90%; +22 tests in `test_subset_from_cfg.py`) |
 > | §47 (the `tools/` gap closed: every gate checker and generator tested, and a broken merge CLI repaired) | **~7,240** (coverage 99.9% of the measured source; the long-standing `tools/` coverage gap from §4/§44 is closed) |
+> | §48 (4.2.0: the Rust backend, and parity tests that keep the Python it replaced) | **7,318** (7,297 passed, 21 skipped on Windows 3.14t) |
 >
 > The same applies to tooling versions, file layouts, message counts and line
 > counts. For the current state of anything, check the code, `CHANGELOG.md`, or
@@ -4370,3 +4371,40 @@ imported `tomllib` unconditionally; both fail on a runner that lacks the module
 (no Pillow; Python 3.10, where `tomllib` is 3.11+). `pytest.importorskip` turns
 each into a clean skip rather than an error, so the suite is green across the
 whole version/dependency matrix, not just where those happen to be installed.
+
+## §48 4.2.0: moving hot loops to Rust without trusting the translation
+
+4.2.0 put game-file I/O on greatness7's `tes3` crates (`native/`, a PyO3 module) and
+then moved four hot loops out of Python: conflict keys, Merged Lands' per-vertex core,
+texture decoding and the lint's record scan. The decisions worth keeping:
+
+**Every moved loop has a parity test with the old Python as the reference.** The
+replaced Python is not deleted: it lives on as `tests/_images_reference.py`,
+`tests/_lint_reference.py` and the reference functions in
+`tests/test_land_native_parity.py`, and each `test_*_native_parity.py` holds the Rust to
+it on random input (random BC7 blocks force every mode, partition and rotation; random
+script text hits the lint's word-boundary and comment rules), on every error path (same
+message), and optionally on a real corpus (`WG_TEXTURE_CORPUS`, `WG_PLUGIN_CORPUS`). A
+translation is only as good as its check, and "it looks right" is how a wrong BC7 table
+entry ships.
+
+**Python's arithmetic had to be reproduced, not approximated.** Half-to-even `round`,
+`int()` truncation toward zero, `** 0.5` as `pow` rather than `sqrt`, floor division on
+negative heights, and Python's `str.strip()` / `re` `\w` sets over Latin-1 (which
+include `\x1c`-`\x1f` and the superscript digits, unlike Rust's). Each one showed up as
+a differing vertex, pixel or warning before it was matched. f32 values crossing to
+Python are spelled with `ryu`, so they print the same as the old JSON path.
+
+**Two gates caught slips in this work.** `test_gettext_marker_is_never_shadowed_by_unpacking`
+caught `_, name, cell_id, fog_bug = event` in the rewritten lint -- the third time this
+class of bug has appeared, and the first time the test caught it before a user did. And
+mypy, run from a Python with an older `wraithguard_native` installed, reported every new
+native function as missing; `mypy_path = "native"` now makes it read the repo's stubs
+whatever is installed.
+
+**Rules that came out of the build.** A `Cargo.lock` produced with a local `[patch]` of
+the crates loses its `source = git...` lines and breaks CI's `--locked` builds, so it
+must never be committed (`native/README.md`). Tauri's `generate_context!` embeds the
+macOS Info.plist as a named symbol, so it must be expanded once per binary -- the
+viewer's two modes each expanding it built everywhere but macOS.
+

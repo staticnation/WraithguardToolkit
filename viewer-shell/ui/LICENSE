@@ -6,17 +6,46 @@ This directory is licensed under the GNU General Public License, version 2
 which is MIT: the page is loaded into the webview at runtime as the viewer's
 frontend and is not linked into any MIT code.
 
-Why GPL: the page's renderer carries ports of MGE XE shaders (shadow receiver,
-fog and tonemap in 06_gl.js; water, sunshafts and underwater in 26_water.js and
-35_underwater.js; SSAO HQ in 29_ssao.js). MGE XE is GPL-2.0.
+Why GPL: the page's renderer carries ports of MGE XE shaders, and MGE XE is
+GPL-2.0 (its licence text is carried at ../../License/MGE-XE/LICENSE and in full
+below).
 
-Provenance:
+MGE XE: "MGE was written by Timeslip, LizTail, Krzymar, and Phal. MGE XE is
+currently being developed by Hrnchamd." (MGE XE Readme, Credits.) The "G7" branch
+named below is Greatness7's fork of MGE XE. The shaders ported here, each by file,
+with the credit its own header gives:
+
+  * XE Common.fx (MGE XE 0.16.0) - the fog colour and scattering
+    (fogColourScatter / fogColour / fogColourSky): 06_gl.js, fed by 25_sky.js.
+  * XE FixedFuncEmu.fx - the static tonemap and light attenuation: 06_gl.js.
+  * XE Mod Shadow.fx + XE Mod Shadow Data.fx (MGE XE 0.16.0, G7 fork) - the sun
+    shadow receiver: 06_gl.js, 37_shadow.js.
+  * XE Mod Water.fx (MGE XE 0.16.0, G7 branch) - the water plane: 26_water.js.
+  * XE Mod Caustics.fx (MGE XE 0.16.0) - outdoor water caustics: 35_underwater.js.
+  * XE Mod Grass.fx (MGE XE 0.16.0) - grass/groundcover wind (grassDisplacement):
+    06_gl.js.
+  * Sunshafts.fx - "Sun shaft rays by phal v0.02a; many tweaks by Hrnchamd for MGE
+    XE 0.11.0": 26_water.js.
+  * Underwater Effects.fx and Underwater Interior Effects.fx - Hrnchamd:
+    35_underwater.js.
+  * SSAO HQ.fx - "based on ssao v09 by Knu", shipped with MGE XE: 29_ssao.js.
+  * Depth of Field.fx - "v12 by Knu, tweaked by peachykeen": 36_dof.js.
+  * FXAA.fx (33_fxaa.js) - FXAA 3.11 by Timothy Lottes, NVIDIA, under NVIDIA's
+    notice in the original header; ported to MGE XE by J. Boettcher (as its
+    header says) and posted for MGE XE by Hrnchamd (GPL-2.0, as the other MGE XE
+    shaders).
+  * SSGI.fx (the SSGI mode in 29_ssao.js) - an MGE XE post shader (HBAO + SSGI):
+    vtastek's SSGI, modified by Remiros. GPL-2.0, as the MGE XE shaders are.
+
+Provenance of the rest:
   * The page is from Gardenfell, Copyright (c) 2026 Robin Hjelte, whose own code
-    is MIT (see ../../License/Gardenfell/LICENSE); used with his permission.
-  * MGE XE shader ports: GPL-2.0 (see ../../License/MGE-XE/LICENSE).
-  * FXAA 3.11 (33_fxaa.js): NVIDIA, under its public licence, via J. Boettcher's
-    MGE XE port.
-  * viewer_only.html: Copyright (c) 2026 StaticNation.
+    is MIT (see ../../License/Gardenfell/LICENSE); used with his permission. This
+    includes the camera smoothing in 06_gl.js, ported from Robin's own MWSE mod.
+  * Robin's permission for the SSAO port: "Totally OK to use code in the SSAO
+    shader I sent you."
+  * Modules 23_viewer_profile.js, 24_ori.js, 38_wg_viewport.js,
+    39_wg_coverage.js, 40_wg_modhl.js, 41_wg_meshview.js and viewer_only.html:
+    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
   * The shore foam and caustics in 26_water.js: ported from "Water shader with foam
     on shore" (Nexus Mods, Morrowind mod 56186), its author's own functions only, under
     the mod's permission: "Feel free to use this shader as a resource for your own
@@ -24,9 +53,10 @@ Provenance:
     nothing of OpenMW's water shader is.
   * The sewer waves in 26_water.js (sewerWaves): ported from "Enhanced Water Shader
     for MGE XE 2.0 Green-Blue" (Nexus Mods, Morrowind mod 45432) - its author, with
-    vtastek, phal, harnlarnm and abot, on MGE XE's water shader - under its
-    permission: "You can do with this shader what you want as long as you give
-    proper credit to the original authors and me."
+    vtastek (sewer wave optimisations), phal and harnlarnm (sewer waves) and abot
+    (sewer waves port), on MGE XE's water shader - under its permission: "You can do
+    with this shader what you want as long as you give proper credit to the original
+    authors and me."
   * The simplex noise in 26_water.js (snoise): webgl-noise, Copyright (C) 2011 Ashima
     Arts and (C) 2011-2016 Stefan Gustavson, MIT (see ../../License/webgl-noise/LICENSE).
 

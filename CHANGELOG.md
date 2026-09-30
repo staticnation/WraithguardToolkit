@@ -5,7 +5,9 @@
 
 Game files are now read and written by greatness7's `tes3` crates, in process,
 through a Rust module (`wraithguard_native`). tes3conv is no longer needed for
-anything, and no JSON is written or parsed along the way.
+anything, and no JSON is written or parsed along the way. Cell Preview and the
+mesh viewer are now Gardenfell's viewer, brought into this repo as
+`wraithguard-viewer`.
 
 ### Changed
 
@@ -55,6 +57,21 @@ anything, and no JSON is written or parsed along the way.
 
 ### Added
 
+- **Cell Preview is Gardenfell's viewer** (Robin Hjelte, MIT; its page GPL-2.0 for
+  the MGE XE shader ports), in `wraithguard-viewer`, replacing the Python/three.js
+  previewer. It draws terrain with blended land textures, placed objects,
+  interiors lit by their own ambient, neighbouring cells, the sky and weather,
+  MGE XE water, particles, sun shadows, ambient occlusion (SSAO or SSGI), depth of
+  field, FXAA and underwater effects, and it opens on Wraithguard's own setup.
+  - Click an object for its **ORI** readout (reference, base record, which plugins
+    created and changed it, mesh and texture sources); Shift+click a door to go
+    through it.
+  - **Groundcover** plugins draw through the grass renderer.
+  - The **cell picker** has a world map, favourites and visit history, arrow-key
+    panning, and Wraithguard's **cell map** (which mods touch which cells).
+  - **Highlight a mod**: outline every object a chosen plugin supplied.
+  - **Viewport settings**: zoom to cursor, a frame-rate cap, and pausing while the
+    window is covered or minimised. Orbit, or fly with WASD.
 - **The mesh viewer** in the viewer shell: one, side-by-side or overlaid copies,
   per-map toggles, alpha override, collision shapes, and the NIF block tree with a
   field editor. Normal maps in Cell Preview behind a setting.
@@ -68,8 +85,11 @@ anything, and no JSON is written or parsed along the way.
 
 ### Removed
 
-- The Cell Preview's leftover grass generation and scatter code, and the
-  statistics rows that reported on it. Groundcover is still displayed.
+- The Python/three.js Cell Preview (`wraithguard/scene/`,
+  `wraithguard/viz/cellpreview.py`) and mesh viewer (`wraithguard/nif/viewer.py`),
+  replaced by the viewer above.
+- The viewer's leftover grass generation and scatter code, and the statistics
+  rows that reported on it. Groundcover is still displayed.
 - The Python ports of the tes3 crates' plugin, mesh and archive readers and
   writers, the conflict session's JSON spool and sidecar files, and the
   alternative water styles (their surf and sewer waves now live in the one shader).
@@ -79,10 +99,31 @@ anything, and no JSON is written or parsed along the way.
 - The Rust module is built and bundled by every build: Windows (both variants),
   Linux (the AppImage), macOS and the Docker build. The macOS build now also
   builds and bundles the viewer, which it was missing.
+- **Linux ships as an AppImage** (`wraithguard-toolkit-linux-x86_64.AppImage`)
+  carrying WebKitGTK and its dependencies, so the viewer runs on a machine without
+  them, such as a Steam Deck.
+- **A Windows `-webview2.zip`** carries a fixed-version WebView2 runtime, for PCs
+  without WebView2 installed.
+- The macOS viewer build no longer fails on a duplicate `_EMBED_INFO_PLIST`: the
+  Tauri context is generated once for both of the viewer's modes.
 - The Docker build freezes free-threaded Python 3.14t, as the release builds do.
 - A `.dockerignore` keeps the cargo build folders out of the Docker context.
+- **The licences ship with every build**: `CREDITS.md`, the `License/` folder and
+  the viewer page's GPL-2.0 licence are bundled, and the viewer binary carries that
+  licence inside the page it embeds. `viewer-shell/ui/LICENSE` and `CREDITS.md` now
+  credit every MGE XE shader the page ports, with its authors (MGE: Timeslip,
+  LizTail, Krzymar, Phal; MGE XE: Hrnchamd; Knu, peachykeen, phal, J. Böttcher,
+  Timothy Lottes/NVIDIA), and Gardenfell is credited as the viewer's code, not only
+  its approach.
 - `PREFLIGHT.md`: the checks to run before pushing, and the push, test-build,
   release and rebuild sequences.
+- `tools/setup_dev_env.ps1` sets up both dev venvs (3.14t and 3.14) and builds the
+  Rust module into each; `tools/build_and_check_rust.ps1` builds the viewer and runs
+  every Rust check CI runs, with `-Pages` for the page boot tests.
+- mypy reads the Rust module's type stubs from the repo (`mypy_path = "native"`),
+  so an older installed build cannot make its new functions look missing.
+- Parity tests hold each piece moved to Rust to the Python it replaced
+  (`tests/test_*_native_parity.py`).
 
 ## 4.1.2
 
