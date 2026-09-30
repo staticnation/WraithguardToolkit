@@ -25,9 +25,10 @@ and their `LICENSE` files are included in their source folders in this repo.
   separately below. (The missing-pathgrid check does *not* come from mlox -
   see the unlicensed-scripts section.)
 - **tes3lint** - © 2009 John Moonsugar. MIT. Distributed as part of mlox.
-  A diagnostic tool for TES3 plugins. Our native **Lint** feature reimplements
+  A diagnostic tool for TES3 plugins. Our **Lint** feature reimplements
   its useful checks against plugin binaries (so they see the whole OpenMW
-  multi-folder VFS, with no Perl needed). One thing is *reproduced rather than
+  multi-folder VFS, with no Perl needed); since 4.2.0 the record scan behind them
+  runs in Rust (`native/src/lint.rs`). One thing is *reproduced rather than
   reimplemented*: the table of **72 "evil GMSTs"** - the exact name/value pairs
   an old Construction Set wrote when run without both expansions. Those values
   are research, not something we could rederive, and the table carries John
@@ -40,8 +41,12 @@ and their `LICENSE` files are included in their source folders in this repo.
   A Rust reimplementation of mlox. Used as a second reference to harden our
   engine (wildcard/`<VER>` matching, order transitivity, predicate functions).
 - **tes3conv** - © 2025 Greatness7. MIT.
-  Converts Morrowind plugins ↔ JSON. Used (optionally, if present on PATH) as the
-  exact record-identification and field-diff engine behind Check Conflicts.
+  Converts Morrowind plugins ↔ JSON. It was the record-identification and
+  field-diff engine behind Check Conflicts, and the MOMW Tools Pack shipped it for
+  this tool. Since 4.2.0 the same work is done in process by the `tes3` crate
+  (below), and tes3conv is only a fallback when the Rust module is missing. Its
+  JSON layout lives on: the records the toolkit works with still take tes3conv's
+  shape, field names and all.
 - **tes3** ([`Greatness7/tes3`](https://github.com/Greatness7/tes3)) - © Greatness7. MIT.
   The Rust library of TES3 record and NIF block types, and now a dependency:
   `native/` (the `wraithguard_native` Python module) reads and writes plugins on
@@ -63,6 +68,12 @@ and their `LICENSE` files are included in their source folders in this repo.
   shared `LTEX` index space, the conflict images, and the `.mergedlands.toml`
   sidecar schema, which we read with the same field names and values so
   settings written for the original work here unchanged.
+
+  Since 4.2.0 the per-vertex core of that port - the relative grids, the
+  per-vertex merge in every strategy, the slope limiter, normals and height
+  decoding - runs in Rust (`native/src/land.rs`), translated from our Python
+  rather than from the original, with our fixes kept; settings, reports and UI
+  stay in Python.
 
   `MERGED_LANDS.md` accounts for **all 191 functions** in its
   `src/`, names where each one lives here, and records every place we diverge
@@ -166,16 +177,16 @@ reference your scripts at all, say the word and it is done.
   Its Rust engine is largely native/GPU micro-optimisation that does not port to
   a Python + three.js tool, but two things came across:
   - Its start-up discipline -- *read a thing once and reuse it rather than
-    re-reading it every pass* -- prompted the cell previewer's parsed-mesh cache
-    (`_cell_parsed_mesh_cache`) and, once we moved to free-threaded Python, the
-    parallel model parse in `build_instanced` (its "read the mesh superset on the
-    pool while the merge runs"). The code is our own; the approach is Gardenfell's.
+    re-reading it every pass* -- shaped our first, Python cell previewer (a
+    parsed-mesh cache, and a parallel model parse under free-threaded Python).
+    That previewer has since been replaced by Gardenfell's own viewer (below).
   - Its tiny hand-crafted animation test NIFs (`morph.nif`, `anim.nif`,
     `uvsets.nif`, `particle_move.nif`, `flap.nif`/`.kf`) are vendored under
-    `tests/fixtures/gardenfell_anim/` (MIT) and used to test our animation
-    extraction against real NIF bytes. They immediately caught two of our bugs --
-    geometry lost under a `NiCollisionSwitch`, and a particle `NiTriShape` drawn
-    as a surface -- which is exactly what a second corpus is for.
+    `tests/fixtures/gardenfell_anim/` (MIT). They first tested our own NIF
+    reader's animation extraction, where they caught two bugs -- geometry lost
+    under a `NiCollisionSwitch`, and a particle `NiTriShape` drawn as a surface --
+    and now test the crate-based mesh readers in `native/` and
+    `viewer-shell/viewcore`.
   - **Cell Preview is its viewer, brought into this repo.** Its engine is
     `viewer-shell/viewcore` (MIT, Robin's notice kept), its Tauri command layer
     is `viewer-shell/src/cellviewer/commands.rs` (MIT), and its page is
@@ -198,14 +209,14 @@ reference your scripts at all, say the word and it is done.
   we decoded to `#RRGGBB`). Only the colour **values and the scheme** were
   taken -- data, not code. Material Design is Google's, under Apache-2.0.
 
-## The NIF reader, and why it is written rather than imported
+## Our own NIF reader (retired), and why it was written rather than imported
 
 *Retired: meshes are now read by greatness7's `tes3::nif` (see **tes3** above). This
 section and `NIF_PROVENANCE.md` are kept as the record of the reader that was.*
 
-`wraithguard/nif/` reads Morrowind meshes with our own code. That is a licence
-decision, taken deliberately and recorded here so it is not revisited by
-accident:
+Until 4.2.0, `wraithguard/nif/` read Morrowind meshes with our own code. That
+was a licence decision, taken deliberately and recorded here so it is not
+revisited by accident:
 
 - **pyFFI** - LGPL. The obvious Python choice. This tool ships as a PyInstaller
   onefile binary, and statically bundling an LGPL library carries a relinking
@@ -219,6 +230,39 @@ accident:
   used as a source either.
 - **niflib** - **BSD-3**, and therefore the permissively-licensed reference to
   consult if a layout ever needs checking against an implementation.
+
+### Greatness7 relicensed the `es3` library so this project could use it
+
+On 28 July 2026, **Greatness7** - author of the Morrowind Blender Plugin and of
+`Greatness7/tes3` - offered to relicense the NIF library inside `io_scene_mw`,
+and then did it:
+[`cbe18b5`](https://github.com/Greatness7/io_scene_mw/commit/cbe18b558299e14ecd959183e3cf9ea096fe95df)
+adds an MIT `LICENSE` to `lib/es3/`. `Greatness7/tes3` was already MIT.
+
+That was an unprompted act of generosity toward a project that had spent months
+carefully working around his code, and it is worth naming plainly. The
+relicensed library is `lib/es3/` **only**; the rest of `io_scene_mw` remains
+GPL-3.0 because Blender requires plugins to be, and this project respects that
+line. See `NIF_PROVENANCE.md` for the exact boundary.
+
+Within an hour of reading `tes3`, the cross-check had confirmed this project's
+hardest-won layout - the typed bounding box - and found a gap it could not have
+found alone: `NiUnionBV`, a bound type no file in either corpus carries, which
+this reader would have refused. A second implementation sees what a corpus
+cannot.
+
+**How each field layout was actually derived - and what was deliberately not
+read to derive it - is recorded in `NIF_PROVENANCE.md`.** That document is the
+companion to this one: this section says *why* the reader was ours, and that one
+says *where every fact in it came from*, with the worked derivations so they can
+be re-run rather than taken on trust.
+
+Going GPL-3.0 was considered seriously: it would unlock io_scene_mw, pyFFI,
+nifly and - the bigger prize - **OpenMW**, whose NIF loading, texture handling
+and `openmw.cfg` semantics this tool models from the outside. The project stays
+**MIT** for now, so none of those were read for the reader's field layouts. They
+came from the publicly documented format, checked against real meshes with
+`tools/check_nif_layouts.py` (retired along with the reader).
 
 ## three.js - bundled, not merely referenced
 
@@ -248,30 +292,26 @@ The orbit controls in the page are ours, not three.js's `OrbitControls.js`,
 because that imports the bare specifier `'three'` and would pull ESM back into
 a page built specifically to avoid it.
 
-## Cell viewer water: wave randomness
+## Archives and textures, and why they are ours
 
-The cell viewer's water is MGE XE's water shader, ported (see Gardenfell above and `License/MGE-XE`). To keep its
-waves from repeating tile by tile, a slow **2D simplex noise** field bends where the
-wave texture is read, puts stretches of water out of step with each other, and varies
-the wave strength a little (`viewer-shell/ui/src/26_water.js`, `waterNormal`). The
-`snoise`/`wgPermute`/`wgMod289` functions are **Ian McEwan / Ashima Arts** and
-**Stefan Gustavson**'s implementation from the `webgl-noise` project, MIT licensed,
-reproduced as the licence permits (`License/webgl-noise/LICENSE`). The technique, a
-noise-driven domain warp, is the one the retired three.js water used.
-
-`wraithguard/nif/bsa.py` reads Morrowind's archives, and is ours for the same
-reasons again. **bethesda-structs** (MIT, Stephen Bunn) via **BSAFileExtractor**
+Archives went the same way as meshes. Since 4.2.0 they are read by `tes3::bsa` (through
+`wraithguard_native.Archive`); before that, `wraithguard/nif/bsa.py` read them
+with our own code, for the reasons that follow. **bethesda-structs** (MIT, Stephen Bunn) via **BSAFileExtractor**
 (MIT, Pierre GAMBIER) would have been licence-compatible, so this was an
 engineering call rather than a legal one: it pulls in `construct`, `multidict`,
 `attrs` and `lz4` - the last with a compiled extension - ships a 49 MB tree
 covering Fallout and Skyrim record formats this project will never touch, and
 every archive in its own test suite is the *post-Morrowind* BSA format, which
 shares an extension with Morrowind's and nothing else. Morrowind's layout is a
-header and three tables. Neither project was read for the format; it was
+header and three tables. Neither project was read for the format; ours was
 implemented from the public description and checked against a shipped archive
-with `tools/check_bsa.py`.
+with `tools/check_bsa.py`, which still checks the crate-based reader today.
 
-`wraithguard/images/` is ours for the same reasons and by the same method.
+`wraithguard/images/` is ours for the same reasons and by the same method. Since
+4.2.0 its per-pixel decoders (DXT1-5, BC4, BC5, BC7, uncompressed DDS, Targa)
+run in Rust (`native/src/img.rs`), a step-for-step translation of our Python
+decoders, kept pixel-identical to them by `tests/test_images_native_parity.py`;
+the history below is of the decoders themselves.
 Pillow would decode these textures, but it is a large binary dependency in a
 PyInstaller onefile build. It was used instead as an **oracle**: the corpus
 textures decode byte-for-byte identically to it, BC7 matches on 19,380 random
@@ -286,48 +326,15 @@ facts made it moot anyway: it *depends on* Pillow rather than replacing it, so
 adopting it would have added a dependency rather than removed one; and it is a
 compiled extension at version 0.0.8, marked alpha.
 
-`quicktex` (Apache-2.0) would have been licence-compatible and remains the
-option if a hand-written BC7 decoder ever proves too slow. It was not needed:
-ours matches an independent implementation exactly, and a viewer decodes one
-texture on demand rather than a collection.
+`quicktex` (Apache-2.0) would have been licence-compatible and was the option
+if a hand-written BC7 decoder ever proved too slow. It was not needed: ours
+matches an independent implementation exactly, and moving it to Rust took a
+2048px BC7 texture from about 12 s to about 70 ms.
 
 The BC7 tables come from the **published format specification** - Khronos's
 OpenGL BPTC specification and Microsoft's Direct3D 11 documentation - not from
 any implementation. `NIF_PROVENANCE.md` records how that was verified, and why
 transcribing six hundred numbers needed a cross-check rather than a unit test.
-
-### Greatness7 relicensed the `es3` library so this project could use it
-
-On 28 July 2026, **Greatness7** - author of the Morrowind Blender Plugin and of
-`Greatness7/tes3` - offered to relicense the NIF library inside `io_scene_mw`,
-and then did it:
-[`cbe18b5`](https://github.com/Greatness7/io_scene_mw/commit/cbe18b558299e14ecd959183e3cf9ea096fe95df)
-adds an MIT `LICENSE` to `lib/es3/`. `Greatness7/tes3` was already MIT.
-
-That was an unprompted act of generosity toward a project that had spent months
-carefully working around his code, and it is worth naming plainly. The
-relicensed library is `lib/es3/` **only**; the rest of `io_scene_mw` remains
-GPL-3.0 because Blender requires plugins to be, and this project respects that
-line. See `NIF_PROVENANCE.md` for the exact boundary.
-
-Within an hour of reading `tes3`, the cross-check had confirmed this project's
-hardest-won layout - the typed bounding box - and found a gap it could not have
-found alone: `NiUnionBV`, a bound type no file in either corpus carries, which
-this reader would have refused. A second implementation sees what a corpus
-cannot.
-
-**How each field layout was actually derived - and what was deliberately not
-read to derive it - is recorded in `NIF_PROVENANCE.md`.** That document is the
-companion to this one: this section says *why* the reader is ours, and that one
-says *where every fact in it came from*, with the worked derivations so they can
-be re-run rather than taken on trust.
-
-Going GPL-3.0 was considered seriously: it would unlock io_scene_mw, pyFFI,
-nifly and - the bigger prize - **OpenMW**, whose NIF loading, texture handling
-and `openmw.cfg` semantics this tool models from the outside. The project stays
-**MIT** for now, so none of those were read for the reader's field layouts. They
-come from the publicly documented format, checked against real meshes with
-`tools/check_nif_layouts.py`.
 
 ## Referenced for formats & behavior (GPL - no source copied)
 
@@ -509,30 +516,39 @@ ordering, deletion and cell-rename cases (`tests/test_merge_golden.py`), and its
 - **Python** and **Tkinter/ttk** - the language and GUI toolkit.
 - **[tkinterdnd2](https://github.com/pmgagne/tkinterdnd2)** - optional drag-and-drop.
 - **[PyYAML](https://pyyaml.org/)** - optional, faster `plugin-order.yml` parsing.
-- **[pywebview](https://pywebview.flowrl.com/)** - optional in-app cell-map viewer
-  (OS webview).
+- **[Tauri](https://tauri.app/)** (MIT / Apache-2.0) and `tauri-plugin-dialog` -
+  the native window (`viewer-shell/`) behind the cell viewer, the mesh viewer and
+  the in-app cell map, on the OS webview (WebView2, WebKitGTK, WKWebView). It
+  replaced pywebview.
 - **[tkinterweb](https://github.com/Andereoo/TkinterWeb)** /
   **[tkhtmlview](https://github.com/bauripalash/tkhtmlview)** - optional inline
   HTML rendering fallbacks.
 
-## And of course
+## The Rust side
 
-- **Bethesda Game Studios** - for *The Elder Scrolls III: Morrowind*.
-- The wider **OpenMW and Morrowind modding community** - for decades of tools,
-  documentation, and reverse-engineering that everything here depends on.
+The `wraithguard_native` module (`native/`) and the viewer are built on
+greatness7's `tes3` crates (above) and these libraries, all MIT and/or
+Apache-2.0 (ryu: Apache-2.0 or BSL-1.0), plus their own dependencies:
 
----
+- **[PyO3](https://pyo3.rs/)** and **[maturin](https://www.maturin.rs/)** - the
+  Python binding and the build that packages it as a wheel.
+- **[pythonize](https://github.com/davidhewitt/pythonize)** - serde values
+  straight into Python objects, so records reach Python without JSON text in
+  between.
+- **[serde](https://serde.rs/)** / **serde_json**, **[ryu](https://github.com/dtolnay/ryu)**
+  (the shortest float spelling, as tes3conv's JSON writes it), **regex**,
+  **base64**, **memmap2**.
 
-*Wraithguard Toolkit is provided as-is. Where we reproduce MIT-licensed material
-(notably tes3lint's evil-GMST table, and the algorithms ported from Merged
-Lands and yampt), the original copyright and licence notice travels with it in
-the source. We copy no GPL or unlicensed source: MWSE and OpenMW were read for
-cross-checking only, and the unlicensed community Perl scripts contributed
-ideas, not code.*
+## Cell viewer water: wave randomness
 
-*Attribution is something we would rather over-do than get wrong. If anything
-here is inaccurate - a name, a licence, a claim about what we derived from
-whom - please tell us and it will be corrected.*
+The cell viewer's water is MGE XE's water shader, ported (see Gardenfell above and `License/MGE-XE`). To keep its
+waves from repeating tile by tile, a slow **2D simplex noise** field bends where the
+wave texture is read, puts stretches of water out of step with each other, and varies
+the wave strength a little (`viewer-shell/ui/src/26_water.js`, `waterNormal`). The
+`snoise`/`wgPermute`/`wgMod289` functions are **Ian McEwan / Ashima Arts** and
+**Stefan Gustavson**'s implementation from the `webgl-noise` project, MIT licensed,
+reproduced as the licence permits (`License/webgl-noise/LICENSE`). The technique, a
+noise-driven domain warp, is the one the retired three.js water used.
 
 ## Water shader with foam on shore (Nexus Mods, Morrowind mod 56186)
 
@@ -552,3 +568,22 @@ ring formula. Credits as its readme gives them: its author; vtastek (sewer wave
 optimisations); phal and harnlarnm (sewer waves); abot (sewer waves port); built on
 MGE XE's water shader. Permission: "You can do with this shader what you want as
 long as you give proper credit to the original authors and me."
+
+## And of course
+
+- **Bethesda Game Studios** - for *The Elder Scrolls III: Morrowind*.
+- The wider **OpenMW and Morrowind modding community** - for decades of tools,
+  documentation, and reverse-engineering that everything here depends on.
+
+---
+
+*Wraithguard Toolkit is provided as-is. Where we reproduce MIT-licensed material
+(notably tes3lint's evil-GMST table, and the algorithms ported from Merged
+Lands and yampt), the original copyright and licence notice travels with it in
+the source. We copy no GPL or unlicensed source: MWSE and OpenMW were read for
+cross-checking only, and the unlicensed community Perl scripts contributed
+ideas, not code.*
+
+*Attribution is something we would rather over-do than get wrong. If anything
+here is inaccurate - a name, a licence, a claim about what we derived from
+whom - please tell us and it will be corrected.*

@@ -38,6 +38,14 @@ inside the program as well.
   [The 3D terrain view](#the-3d-terrain-view)).
 - `wraithguard_toolkit_gui.py` - a drag-and-drop GUI front-end (imports the engine
   directly; it reimplements no logic).
+- `native/` - the Rust backend, `wraithguard_native`: greatness7's `tes3` crates as
+  a Python module (plugins, meshes, archives), plus the hot loops moved out of
+  Python - conflict keys, Merged Lands' per-vertex core, texture decoding and the
+  lint's record scan. See [native/README.md](native/README.md).
+- `viewer-shell/` - `wraithguard-viewer`, the Tauri app behind the cell viewer,
+  the mesh viewer and the in-app cell map. Its engine is `viewer-shell/viewcore`;
+  its page, `viewer-shell/ui`, is GPL-2.0 (MGE XE shader ports) and kept separate
+  from the MIT code.
 - `mlox_base.txt`, `mlox_user.txt` - mlox rule databases (download/update with
   mlox or `plox`).
 - `plugin-order.yml` - MOMW's source of truth for which plugins belong to which
@@ -47,7 +55,7 @@ inside the program as well.
   theme (see [Theming the app](#theming-the-app)).
 - `CREDITS.md` - acknowledgements for the projects this tool ports, references,
   and depends on (mlox, plox, tes3conv, modmapper, OpenMW, MOMW, and more).
-- `CHANGELOG.md` - what changed between releases (current: **4.0.2**).
+- `CHANGELOG.md` - what changed between releases (current: **4.2.0**).
 - `CODE_REVIEW.md` - the running engineering log: defects found, and the
   reasoning behind decisions that look odd (including linter suggestions
   deliberately refused because following them would introduce bugs).
@@ -83,14 +91,20 @@ WraithguardToolkit/
 │   │                             cell coverage map, conflict map, terrain
 │   │                             deltas, path-grid graphs, 3D surface, and the
 │   │                             Markdown renderer behind in-app Help. No CDN.
+│   ├── esp/                      Plugins as record objects, read and written
+│   │                             by the tes3 crate (through native/).
 │   ├── images/                   Every texture format the game and mods use,
-│   │                             decoded without a dependency (DDS incl. BC7,
-│   │                             Targa, bitmap, a zlib-only PNG writer), picked
-│   │                             by inspecting bytes, plus texture-role slots.
-│   ├── nif/                      Morrowind NIF meshes: block reader, geometry,
-│   │                             texture resolution, BSA-aware VFS, 3D viewer.
+│   │                             decoded without a third-party dependency (DDS
+│   │                             incl. BC7, Targa, bitmap, a zlib-only PNG
+│   │                             writer; pixel decoding in native/), picked by
+│   │                             inspecting bytes, plus texture-role slots.
+│   ├── nif/                      Morrowind meshes on the tes3 crate: summaries,
+│   │                             comparison, the mesh viewer's block panel and
+│   │                             editor, texture resolution, BSA-aware VFS.
 │   ├── land/                     The Merged Lands port: reference landmass,
-│   │                             per-plugin diff, merge strategies, seam repair.
+│   │                             per-plugin diff, merge strategies, seam repair
+│   │                             (per-vertex core in native/).
+│   ├── merge/                    Whole-plugin merging: the merge_to_master port.
 │   ├── patch/                    Building a *new* patch plugin from records
 │   │                             chosen in the diff viewer; never writes a
 │   │                             source mod. Conflict-status model + roll-ups.
@@ -101,10 +115,18 @@ WraithguardToolkit/
 │   ├── plugins/                  Plugin location + header metadata.
 │   ├── sort/                     Load-order sort: graph primitives + engine.
 │   ├── tracing.py                Crash-survival trace logs (main + sort).
-│   └── versions.py               Version regex + mlox's canonical form.
+│   ├── versions.py               Version regex + mlox's canonical form.
+│   └── viewer_launch.py          Finding and starting wraithguard-viewer.
+├── native/                       The Rust backend (wraithguard_native), on
+│                                 greatness7's tes3 crates.
+├── viewer-shell/                 wraithguard-viewer (Tauri): viewcore/ is its
+│                                 engine, ui/ its page (GPL-2.0, kept apart),
+│                                 check/ + check-commands/ the CI compile checks.
+├── packaging/                    Linux AppImage recipe (AppRun, desktop file).
 ├── tools/                        Developer scripts (not shipped): the gate
-│                                 checkers, the code generators, make_pot.py
-│                                 -- all under the test suite.
+│                                 checkers, the code generators, make_pot.py,
+│                                 and setup_dev_env.ps1 / build_and_check_rust.ps1
+│                                 (see Developing).
 ├── tests/                        pytest suite: the hermetic set plus a Tk smoke
 │                                 set that runs under xvfb in CI.
 ├── testdata/                     Copies of a real setup, used by the tests.
@@ -810,7 +832,8 @@ deliberately changed is in [MERGED_LANDS.md](MERGED_LANDS.md).
 file-producing action, not a read-only scan). It needs only a sort so it knows
 the load order - the built-in reader and writer handle the terrain and the
 binary encoding, with no external tool (tes3conv is used only in a build without
-the built-in reader). It writes
+the built-in reader). The per-vertex work runs in the Rust module, so a
+4,000-cell landmass merges in seconds rather than a minute. It writes
 `Merged Lands.esp` to your output folder and a `Merged Lands.mergedlands.toml`
 marker beside it; **enable the plugin and load it LAST**. A second run ignores
 its own previous output rather than merging a merge.
@@ -1295,11 +1318,21 @@ On Windows the regular and the free-threaded Python 3.14 (`py -3.14` and
 `py -3.14t`) share one `site-packages`, so compiled modules built for one break the
 other - `wraithguard_native` built for 3.14t will not import in 3.14, and a GIL-only
 C extension (such as `cryptography`) can crash 3.14t outright. Give each its own
-virtual environment:
+virtual environment. Two scripts do the setup and the Rust side for you:
+
+```powershell
+.\tools\setup_dev_env.ps1                # .venv-t (3.14t) and .venv (3.14): dev tools + native/
+.\tools\setup_dev_env.ps1 -NativeOnly    # after changing native/
+.\tools\build_and_check_rust.ps1         # build the viewer + every Rust check CI runs
+.\tools\build_and_check_rust.ps1 -Pages  # ...plus the viewer page boot tests (Node 22)
+```
+
+By hand, the environment is:
 
 ```powershell
 py -3.14t -m venv .venv-t
-.venv-t\Scripts\python -m pip install -e .[dev] ./native
+.venv-t\Scripts\python -m pip install -e .[dev]
+.venv-t\Scripts\python -m pip install ./native
 .venv-t\Scripts\python -m pytest
 ```
 
@@ -1314,8 +1347,10 @@ python -m mypy                  # PEP 484 types (on Windows add --platform linux
 python tools/check_undefined.py wraithguard_toolkit_gui.py
 python tools/check_placeholders.py   # i18n %(key)s placeholders vs their dicts
 python tools/make_pot.py --check     # the .pot template must be current
-cargo test --manifest-path native/Cargo.toml                 # the built-in reader
-cargo test --manifest-path viewer-shell/viewcore/Cargo.toml  # the viewer's engine
+cargo test --manifest-path native/Cargo.toml                   # the built-in reader
+cargo test --manifest-path viewer-shell/viewcore/Cargo.toml    # the viewer's engine
+cargo build --manifest-path viewer-shell/check-commands/Cargo.toml  # viewer commands, no Tauri
+cargo build --manifest-path viewer-shell/check/Cargo.toml           # viewer shell, stubbed Tauri
 ```
 
 All of these are expected to pass with zero findings (CI runs exactly this
