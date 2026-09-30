@@ -1876,8 +1876,7 @@ class ConflictWindowsMixin:
             self._conf_search_var.set(rid)
             self._refill_conflict_tree()
             self.status_var.set(
-                _("%(id)s is not in the list, even with the non-conflicting records.")
-                % {"id": rid}
+                _("%(id)s is not in the list, even with the non-conflicting records.") % {"id": rid}
             )
             return
         iid = str(at)
