@@ -53,8 +53,9 @@ fn view_request(args: &[String]) -> Value {
     json!({"cfg": cfg, "cell": cell, "theme": theme, "extra": extra, "meshView": mesh_view})
 }
 
-/// `args` are everything after `--cell-viewer`. Returns the process exit code.
-pub fn run(args: &[String]) -> i32 {
+/// `args` are everything after `--cell-viewer`; `context` is the binary's one
+/// `tauri::generate_context!()` (see `main`). Returns the process exit code.
+pub fn run(args: &[String], context: tauri::Context<tauri::Wry>) -> i32 {
     // Where the viewer profile lives (commands::viewer_profile_*). Set before any
     // thread exists.
     if let Some(p) = flag(args, "--prefs") {
@@ -75,7 +76,7 @@ pub fn run(args: &[String]) -> i32 {
                 .build()?;
             Ok(())
         })
-        .run(tauri::generate_context!());
+        .run(context);
 
     match result {
         Ok(()) => 0,

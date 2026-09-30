@@ -29,9 +29,14 @@ mod cellviewer;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
+    // One context for the whole binary. On macOS `generate_context!` embeds the
+    // Info.plist as a named static (`_EMBED_INFO_PLIST`), so expanding it in both
+    // modes -- here and in the cell viewer -- fails to link with a duplicate symbol.
+    let context = tauri::generate_context!();
+
     #[cfg(not(wg_check))]
     if args.get(1).map(String::as_str) == Some("--cell-viewer") {
-        std::process::exit(cellviewer::run(&args[2..]));
+        std::process::exit(cellviewer::run(&args[2..], context));
     }
 
     let url_arg = match args.get(1) {
@@ -75,7 +80,7 @@ fn main() {
         // the same failure shape pywebview could hit -- exit non-zero so the
         // Python side's existing browser fallback (see open_html_in_app) can
         // catch it via the subprocess return code, same as before.
-        .run(tauri::generate_context!());
+        .run(context);
 
     if let Err(e) = result {
         eprintln!("wraithguard-viewer: fatal error: {e}");
