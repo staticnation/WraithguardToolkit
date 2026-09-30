@@ -277,31 +277,29 @@ came from the publicly documented format, checked against real meshes with
 
 ## three.js - bundled, not merely referenced
 
-`wraithguard/viz/assets/three.cjs` is **three.js r186**, MIT licensed, with its
-licence text beside it as `three-LICENSE.txt`. It is the first third-party
-*source* this project ships, as distinct from the Python packages PyInstaller
-already collects, so it is called out here rather than left to be discovered in
-a build.
+`wraithguard/viz/assets/three.cjs` is **three.js r186** (© three.js authors), MIT
+licensed, with its licence text beside it as `three-LICENSE.txt` (and in
+`License/Three.js`). It is used by one page: the **texture comparison**
+(`wraithguard/images/viewer.py`) - the WebGL wipe between two textures and the
+lit-material preview, where dragging moves the light. The mesh viewer and Cell
+Preview that used to draw with it are the viewer shell's now (see Gardenfell above)
+and need none of it.
 
-It is a **CommonJS** file, which looks like an odd choice until the constraint
-is stated: modern three.js ships ESM only, split across `three.module.js` and
-`three.core.js`, and **ES module scripts do not load from `file://`** - the
-origin is `null` and the CORS check fails. The viewer pages are written to disk
-and opened in a browser, so no ESM packaging can work. A single CommonJS file
-with no `require()` of its own runs as a classic script behind a three-line
-shim, which is what these pages need.
+It is a **CommonJS** file, which looks like an odd choice until the constraint is
+stated: modern three.js ships ESM only, split across `three.module.js` and
+`three.core.js`, and **ES module scripts do not load from `file://`** - the origin
+is `null` and the CORS check fails. The comparison page is served over loopback
+(`127.0.0.1`) in the app, but it can also be saved and opened from disk, so it has
+to work from `file://` too. A single CommonJS file with no `require()` of its own
+runs as a classic script behind a three-line shim, which works either way.
 
 Through r185 three.js shipped exactly such a file as `build/three.cjs` and we
-vendored it unmodified. **r186 removed it** - `build/three.cjs` is now a stub
-that `require()`s the ESM module - so the vendored file is no longer upstream's
-own build. It is built by `tools/build_three_cjs.py`, which concatenates
-upstream's unmodified `three.module.js` graph into one `module.exports` with
-esbuild: packaging only, no minify and no source transform. The provenance is
-therefore a command anyone can rerun, not a binary to take on trust.
-
-The orbit controls in the page are ours, not three.js's `OrbitControls.js`,
-because that imports the bare specifier `'three'` and would pull ESM back into
-a page built specifically to avoid it.
+vendored it unmodified. **r186 removed it** - `build/three.cjs` is now a stub that
+`require()`s the ESM module - so the vendored file is no longer upstream's own
+build. It is built by `tools/build_three_cjs.py`, which concatenates upstream's
+unmodified `three.module.js` graph into one `module.exports` with esbuild:
+packaging only, no minify and no source transform. The provenance is therefore a
+command anyone can rerun, not a binary to take on trust.
 
 ## Archives and textures, and why they are ours
 
@@ -593,8 +591,8 @@ camera smoothing from his own MWSE mod, and his go-ahead for the SSAO port.
 `24_ori.js`, `38_wg_viewport.js`, `39_wg_coverage.js`, `40_wg_modhl.js`,
 `41_wg_meshview.js` and `viewer_only.html`.
 
-The water's other sources - the shore surf (mod 56186), the sewer waves (mod
-45432) and the webgl-noise simplex noise - are in the three sections that follow.
+The water's other sources - the shore surf (OWSE, mod 56186), the sewer waves
+(Krokantor's shader, mod 45432) and the webgl-noise simplex noise - are in the three sections that follow.
 
 ## Cell viewer water: wave randomness
 
@@ -607,23 +605,25 @@ the wave strength a little (`viewer-shell/ui/src/26_water.js`, `waterNormal`). T
 reproduced as the licence permits (`License/webgl-noise/LICENSE`). The technique, a
 noise-driven domain warp, is the one the retired three.js water used.
 
-## Water shader with foam on shore (Nexus Mods, Morrowind mod 56186)
+## OpenMW Water Shader Enhanced (OWSE) - Vegetto (Nexus Mods, Morrowind mod 56186)
 
 The cell viewer's water carries this mod's shore foam (the surf) and procedural
 caustics in the shallows (`viewer-shell/ui/src/26_water.js`), ported from its
-`water.frag` - the author's own foam and caustics functions only, not the OpenMW
+`water.frag` - **Vegetto**'s own foam and caustics functions only, not the OpenMW
 water shader they sit in. Used under the mod's
 permission: "Feel free to use this shader as a resource for your own projects but
 for the fog part you must ask Epoch." The fog is not used.
 
-## Enhanced Water Shader for MGE XE 2.0 Green-Blue (Nexus Mods, Morrowind mod 45432)
+## Enhanced Water Shader for MGE XE - Krokantor (Nexus Mods, Morrowind mod 45432)
 
 The cell viewer's sewer waves - the rings spreading from the sewer outlets of Vivec
 and Molag Mar, added to MGE XE's close wave normals - are this shader's, ported to
 GLSL in `viewer-shell/ui/src/26_water.js` (`sewerWaves`): its outlet positions and
-ring formula. Credits as its readme gives them: its author; vtastek (sewer wave
-optimisations); phal and harnlarnm (sewer waves); abot (sewer waves port); built on
-MGE XE's water shader. Permission: "You can do with this shader what you want as
+ring formula, from version 2.0 (the Green-Blue variant). By **Krokantor**, on MGE
+XE's water shader; credits as its readme gives them: **vtastek** (peak fix, improved
+caustics, optimised sewer waves, bits of code and general help), **phal** and
+**harnlarnm** (original foam code), **abot** (sewer waves port), **Hrnchamd** (MGE
+XE). Permission: "You can do with this shader what you want as
 long as you give proper credit to the original authors and me."
 
 ## And of course

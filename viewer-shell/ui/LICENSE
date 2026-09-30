@@ -46,15 +46,18 @@ Provenance of the rest:
   * Modules 23_viewer_profile.js, 24_ori.js, 38_wg_viewport.js,
     39_wg_coverage.js, 40_wg_modhl.js, 41_wg_meshview.js and viewer_only.html:
     Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
-  * The shore foam and caustics in 26_water.js: ported from "Water shader with foam
-    on shore" (Nexus Mods, Morrowind mod 56186), its author's own functions only, under
+  * The shore foam and caustics in 26_water.js: ported from "OpenMW Water Shader
+    Enhanced (OWSE)" by Vegetto (Nexus Mods, Morrowind mod 56186), its author's own
+    functions only, under
     the mod's permission: "Feel free to use this shader as a resource for your own
     projects but for the fog part you must ask Epoch." The fog part is not used;
     nothing of OpenMW's water shader is.
   * The sewer waves in 26_water.js (sewerWaves): ported from "Enhanced Water Shader
-    for MGE XE 2.0 Green-Blue" (Nexus Mods, Morrowind mod 45432) - its author, with
-    vtastek (sewer wave optimisations), phal and harnlarnm (sewer waves) and abot
-    (sewer waves port), on MGE XE's water shader - under its permission: "You can do
+    for MGE XE" by Krokantor (Nexus Mods, Morrowind mod 45432, version 2.0, the
+    Green-Blue variant), on MGE XE's water shader - with, per its readme, vtastek
+    (peak fix, improved caustics, optimised sewer waves, bits of code and general
+    help), phal and harnlarnm (original foam code), abot (sewer waves port) and
+    Hrnchamd (MGE XE) - under its permission: "You can do
     with this shader what you want as long as you give proper credit to the original
     authors and me."
   * The simplex noise in 26_water.js (snoise): webgl-noise, Copyright (C) 2011 Ashima

@@ -66,8 +66,8 @@ uniform vec3  uViewF;          // the camera's forward, for MGE's depth slant
 uniform float uTime, uWindLen, uSunVis;
 uniform vec3  uFogCol; uniform float uFogK;   // the plain fog, when the sky is off
 uniform int   uBelow;          // 18dt: the eye is under the water (06_gl.js underwaterAt)
-/* Wraithguard: MGE XE's water, with the shore surf and shallows caustics of "Water shader
-   with foam on shore" (Nexus Mods, Morrowind mod 56186), ported from its water.frag with
+/* Wraithguard: MGE XE's water, with the shore surf and shallows caustics of "OpenMW Water
+   Shader Enhanced (OWSE)" by Vegetto (Nexus Mods, Morrowind mod 56186), ported from its water.frag with
    its author's permission ("Feel free to use this shader as a resource for your own
    projects"). Only the author's own foam and caustics functions are taken - not the
    OpenMW water shader they sit in, and not the fog (which the permission excludes).
@@ -78,7 +78,7 @@ uniform int   uSewers;         // the sewer waves (below), on or off
 ${SKY_GLSL}
 out vec4 o;
 
-/* ---- Shore foam and caustics, from "Water shader with foam on shore" (mod 56186) ----
+/* ---- Shore foam and caustics, from OWSE by Vegetto (mod 56186) ----
    OpenMW's 2D water normal map is sampled there; here it is MGE's water volume at its
    first slice, or the sines when the install has none. */
 const float FOAM_DEPTH_THRESHOLD = 60.0;
@@ -263,11 +263,12 @@ float fbm2(vec2 p, float t){
 const float WAVE_WARP  = 45.0;    // world units the close tiles are bent by, at most
 const float WAVE_PHASE = 0.35;    // how far out of step two stretches of water can be
 const float WAVE_VARY  = 0.25;    // wave strength, 1 +- this
-/* ---- The sewer waves, from "Enhanced Water Shader for MGE XE 2.0 Green-Blue" (Nexus
-   Mods, Morrowind mod 45432): rings spreading from the sewer outlets of Vivec and Molag
-   Mar, added to the close wave normals as its getFinalWaterNormal adds them. Credits, per
-   its readme: its author; vtastek (sewer wave optimisations); phal and harnlarnm (sewer
-   waves); abot (sewer waves port); built on MGE XE's water shader. "You can do with this
+/* ---- The sewer waves, from "Enhanced Water Shader for MGE XE" by Krokantor (Nexus Mods,
+   Morrowind mod 45432, 2.0 Green-Blue): rings spreading from the sewer outlets of Vivec
+   and Molag Mar, added to the close wave normals as its getFinalWaterNormal adds them.
+   Credits, per its readme: vtastek (peak fix, improved caustics, optimised sewer waves,
+   code and help); phal and harnlarnm (original foam code); abot (sewer waves port);
+   Hrnchamd (MGE XE). "You can do with this
    shader what you want as long as you give proper credit to the original authors and me."
    Its outlet positions and ring formula are taken as they are. ---- */
 const vec2 SEWER_OUTLETS[70] = vec2[70](

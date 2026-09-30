@@ -47,9 +47,9 @@ _THREE_ASSET: Final[str] = "assets/three.cjs"
 class ViewerError(Exception):
     """Raised when a viewer page cannot be built.
 
-    Not specific to any one viewer -- the mesh viewer and the texture
-    comparison both raise this through :func:`three_source`, and either could
-    grow its own reasons to raise it later.
+    Raised through :func:`three_source` by the page that needs three.js -- the
+    texture comparison, since the mesh viewer moved to the viewer shell. Kept
+    generic so another page could raise it for its own reasons later.
     """
 
 
