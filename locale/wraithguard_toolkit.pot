@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.2.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-30 18:40\n"
+"POT-Creation-Date: 2026-09-30 19:29\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1129,23 +1129,23 @@ msgstr ""
 msgid "%(records)d record(s) written to:\n%(path)s%(carried)s\n\nDeclares %(masters)d master(s). Add it to your load order LAST."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:480
+#: wraithguard/gui/patchwin.py:482
 msgid "Preview the patch?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:481
+#: wraithguard/gui/patchwin.py:483
 msgid "Open Cell Preview with the patch loaded last, to see it in the cells it changes? (Review a mod shows what it changes; Without it shows the cells as they were.)"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:518
+#: wraithguard/gui/patchwin.py:520
 msgid "Write the patch as"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:522
+#: wraithguard/gui/patchwin.py:524
 msgid "Morrowind plugin"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:522
+#: wraithguard/gui/patchwin.py:524
 #: wraithguard_toolkit_gui.py:2824
 #: wraithguard_toolkit_gui.py:3695
 msgid "All files"
