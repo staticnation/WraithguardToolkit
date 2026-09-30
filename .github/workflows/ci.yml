@@ -67,9 +67,12 @@ jobs:
         # wheel yet -- installing it would force a source build on `3.14t` for
         # nothing. ruff and black are Rust binaries and black is pure Python, so
         # the whole toolchain is free-threading-safe.
+        # Pinned to pyproject's [dev] versions: unpinned, CI took the newest black
+        # the day it ran and disagreed with the pinned one on a file local checks
+        # passed. Bump both together.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ruff black mypy pytest pytest-cov
+          python -m pip install "ruff==0.16.1" "black==26.5.1" "mypy==2.3.0" "pytest==9.1.1" "pytest-cov==7.1.0"
 
       - uses: dtolnay/rust-toolchain@stable
 

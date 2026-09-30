@@ -476,7 +476,9 @@ class PatchBuilderMixin:
         )
         # And, when the viewer is there, a look at it in the cells it changes.
         preview = getattr(self, "preview_plugin", None)
-        if preview is not None and result.output is not None and messagebox.askyesno(
+        if preview is None or result.output is None:
+            return
+        if messagebox.askyesno(
             _("Preview the patch?"),
             _(
                 "Open Cell Preview with the patch loaded last, to see it in the cells it "
