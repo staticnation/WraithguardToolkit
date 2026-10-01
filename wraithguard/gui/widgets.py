@@ -460,6 +460,8 @@ def once_per_idle(widget: tk.Misc, fn: Callable[[], object]) -> Callable[..., No
 
 #: Linux only: canvases holding a form (create_window) to repaint after a resize.
 _EMBEDDED: list[tuple[tk.Canvas, int]] = []
+#: Windows (Tk path names) whose <Configure> already runs the repaint.
+_REPAINT_BOUND: set[str] = set()
 
 
 def repaint_after_resize(canvas: tk.Canvas, window_id: int) -> None:
@@ -479,9 +481,9 @@ def repaint_after_resize(canvas: tk.Canvas, window_id: int) -> None:
         return
     _EMBEDDED.append((canvas, window_id))
     top = canvas.winfo_toplevel()
-    if getattr(top, "_wg_repaint_bound", False):
+    if str(top) in _REPAINT_BOUND:
         return
-    top._wg_repaint_bound = True
+    _REPAINT_BOUND.add(str(top))
     state: dict[str, Any] = {"size": None, "job": None}
 
     def repaint() -> None:
