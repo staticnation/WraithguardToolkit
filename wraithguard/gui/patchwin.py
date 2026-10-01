@@ -22,10 +22,10 @@ from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 from typing import TYPE_CHECKING, Any, Final
 
-from wraithguard.gui import case_insensitive_filetypes, rtl
+from wraithguard.gui import case_insensitive_filetypes, filedlg as filedialog, rtl
 from wraithguard.gui.theme import DARK, apply_titlebar_theme
 from wraithguard.gui.widgets import add_tooltip
 from wraithguard.i18n import gettext as _

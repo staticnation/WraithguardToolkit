@@ -285,10 +285,11 @@ fn as_json_shapes(v: Bound<'_, PyAny>) -> PyResult<Bound<'_, PyAny>> {
     if let Ok(f) = v.cast::<PyFloat>() {
         let x = f.value();
         let n = x as f32;
-        if x.is_finite() && n as f64 == x {
-            if let Ok(short) = ryu::Buffer::new().format_finite(n).parse::<f64>() {
-                return Ok(PyFloat::new(v.py(), short).into_any());
-            }
+        if x.is_finite()
+            && n as f64 == x
+            && let Ok(short) = ryu::Buffer::new().format_finite(n).parse::<f64>()
+        {
+            return Ok(PyFloat::new(v.py(), short).into_any());
         }
         return Ok(v);
     }
@@ -589,10 +590,10 @@ pub fn keys_and_cells(bytes: &[u8]) -> io::Result<(Vec<(String, String, bool)>, 
                         let t = rid.trim();
                         if let Some(inner) = t.strip_prefix('(').and_then(|t| t.strip_suffix(')')) {
                             let mut it = inner.split(", ");
-                            if let (Some(x), Some(y), None) = (it.next(), it.next(), it.next()) {
-                                if let (Ok(x), Ok(y)) = (x.parse(), y.parse()) {
-                                    cells.push(CellRef::Ext(x, y));
-                                }
+                            if let (Some(x), Some(y), None) = (it.next(), it.next(), it.next())
+                                && let (Ok(x), Ok(y)) = (x.parse(), y.parse())
+                            {
+                                cells.push(CellRef::Ext(x, y));
                             }
                         }
                     }

@@ -12,6 +12,18 @@ description = "Cell viewer engine: VFS/BSA, load order, ESP/ESM world, NIF meshe
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["bsa", "esp", "nif"] }
 bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
 
+# Clippy (tools/build_and_check_rust.ps1, CI): everything on except what is a style call
+# this code base has made on purpose.
+[lints.clippy]
+# The NIF reader's per-record tables are tuples in the file's own field order; naming
+# each one a type alias would scatter what the code beside it already says.
+type_complexity = "allow"
+# `chunks_exact(n)` over vertex/pixel data reads as what it is; `as_chunks` is newer
+# Rust (1.88) for the same thing and buys nothing here.
+chunks_exact_to_as_chunks = "allow"
+# Index loops over x/y/z and r/g/b in maths code: clearer than zip/enumerate chains.
+needless_range_loop = "allow"
+
 # Our fork of tes3 (staticnation/tes3) until what is waiting upstream is taken there (see
 # native/Cargo.toml). A [patch] only counts in the package being built, so the viewer's
 # Cargo.toml and check-commands' carry the same section.

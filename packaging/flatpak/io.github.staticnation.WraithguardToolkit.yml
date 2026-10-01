@@ -40,6 +40,9 @@ finish-args:
   - --socket=x11
   # The viewer's GPU rendering (Cell Preview, the mesh viewer).
   - --device=dri
+  # Game controllers for the viewport (49_wg_gamepad.js): the Deck's own controls as the
+  # virtual pad Steam makes, read through WebKitGTK's libmanette (Flatpak 1.15.6+).
+  - --device=input
   # Update checks and downloads (wraithguard.net).
   - --share=network
   # Morrowind and OpenMW installs, mod folders and Steam libraries in the home

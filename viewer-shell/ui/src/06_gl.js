@@ -6326,7 +6326,11 @@ class Renderer{
     window.addEventListener('keydown',e=>{
       if(this.nav!=='wasd' || typing(e)) return;
       const k=keyOf(e); if(!k) return;
-      if(look){ this.fly.keys[k]=true; e.preventDefault(); }
+      /* Wraithguard: and while a controller is being read (49_wg_gamepad.js), so the Deck's
+         back buttons, bound to E and Q in Steam, lift and drop the camera without the
+         right button held. */
+      const pad=typeof WgPad==='object' && WgPad.active();
+      if(look || pad){ this.fly.keys[k]=true; e.preventDefault(); }
     });
     window.addEventListener('keyup',e=>{
       const k=keyOf(e); if(k) this.fly.keys[k]=false;
@@ -7140,8 +7144,17 @@ class Renderer{
     // Round 17b, Robin: E up, Q down (the way most editors have it).
     if(k.E) want[2]+=1;
     if(k.Q) want[2]-=1;
+    /* Wraithguard: a controller's sticks (49_wg_gamepad.js) - analog, so a stick pushed
+       half way flies at half speed; keys are whole presses and still reach full speed. */
+    const p=f.pad;
+    if(p){
+      for(let i=0;i<3;i++) want[i]+=fwd[i]*p[0];
+      want[0]+=right[0]*p[1]; want[1]+=right[1]*p[1];
+      want[2]+=p[2];
+    }
     const wl=Math.hypot(want[0],want[1],want[2]);
-    if(wl>0){ want=[want[0]/wl*f.speed, want[1]/wl*f.speed, want[2]/wl*f.speed]; }
+    const keyed=k.W||k.A||k.S||k.D||k.Q||k.E;
+    if(wl>0){ const s=f.speed/(keyed? wl : Math.max(1,wl)); want=[want[0]*s, want[1]*s, want[2]*s]; }
     /* Ease (round 17d, Robin's "Camera position smoothing"): the velocity closes on the
        wanted one the way the look closes on the mouse - `vel = lerp(vel, want,
        1 - exp(-dt·k))`, k the slider 1..100. Low is a slow, soft start and stop; 100 is
@@ -7214,7 +7227,8 @@ class Renderer{
     this._drainTurn(performance.now());
     // Round 17: the flying camera, while it is moving or asked to.
     if(this.nav==='wasd' && this.fly){
-      const k=this.fly.keys, held=k.W||k.A||k.S||k.D||k.Q||k.E;
+      const k=this.fly.keys, pd=this.fly.pad;
+      const held=k.W||k.A||k.S||k.D||k.Q||k.E||!!(pd && (pd[0]||pd[1]||pd[2]));
       const moving=this.fly.vel[0]||this.fly.vel[1]||this.fly.vel[2];
       if(held||moving){ if(this._flyStep(performance.now())) this.dirty=true; }
       else this.fly.last=0;

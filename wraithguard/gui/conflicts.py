@@ -16,11 +16,17 @@ import tkinter as tk
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import messagebox, scrolledtext, ttk
 from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
 
 import wraithguard_toolkit as core
-from wraithguard.gui import app_base_dir, case_insensitive_filetypes, open_in_browser, rtl
+from wraithguard.gui import (
+    app_base_dir,
+    case_insensitive_filetypes,
+    filedlg as filedialog,
+    open_in_browser,
+    rtl,
+)
 from wraithguard.gui.conflict_colors import (
     ALL_TEXT_MINE,
     all_bg_by_tag,

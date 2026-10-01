@@ -64,6 +64,10 @@ impl Bsa {
         self.index.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.index.is_empty()
+    }
+
     pub fn has(&self, key: &str) -> bool {
         self.index.contains_key(key)
     }

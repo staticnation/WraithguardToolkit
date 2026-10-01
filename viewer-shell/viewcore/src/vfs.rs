@@ -346,7 +346,7 @@ impl Vfs {
         for e in exts.iter().take(1) {
             cands.push(format!("{}{}", stem, e));
         }
-        if !cands.iter().any(|c| *c == key) {
+        if !cands.contains(&key) {
             cands.push(key.clone());
         }
         for e in exts.iter().skip(1) {
@@ -477,7 +477,7 @@ impl Vfs {
                 out.push((shown, path.clone()));
             }
         }
-        out.sort_by(|a, b| a.0.to_ascii_lowercase().cmp(&b.0.to_ascii_lowercase()));
+        out.sort_by_key(|a| a.0.to_ascii_lowercase());
         out
     }
 }

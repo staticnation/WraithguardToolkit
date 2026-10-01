@@ -251,6 +251,13 @@ def apply_dark_theme(root: tk.Tk) -> ttk.Style:
     root.option_add("*TCombobox*Listbox.selectBackground", DARK["select"])
     root.option_add("*TCombobox*Listbox.selectForeground", DARK["fg"])
     root.option_add("*TCombobox*Listbox.font", ("TkDefaultFont",))
+    # Tk's own file dialog (Linux, when no desktop dialog is installed - see filedlg):
+    # its file list is a plain canvas and its menus plain menus, outside ttk::Style.
+    for part in ("", "*Canvas", "*Menu", "*Listbox"):
+        root.option_add(f"*TkFDialog{part}.background", DARK["field_bg"] if part else DARK["bg"])
+        root.option_add(f"*TkFDialog{part}.foreground", DARK["fg"])
+    root.option_add("*TkFDialog*selectBackground", DARK["select"])
+    root.option_add("*TkFDialog*selectForeground", DARK["fg"])
     style.configure(
         "Conf.Treeview",
         background=DARK["field_bg"],

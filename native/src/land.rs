@@ -710,19 +710,20 @@ fn resolve_cell_normals(heights: Vec<i64>, original: Option<Vec<i64>>, base: Opt
     let hf: Vec<f64> = heights.iter().map(|&v| v as f64).collect();
     let mut normals = normals_from_heights(&hf);
     let mut preserved = 0;
-    if let (Some(orig), Some(base)) = (original, base) {
-        if base.len() == heights.len() && orig.len() >= normals.len() {
-            for i in 0..heights.len() {
-                if heights[i] != base[i] {
-                    continue;
-                }
-                let t = &orig[i * 3..i * 3 + 3];
-                if t == [0, 0, 0] {
-                    continue;
-                }
-                normals[i * 3..i * 3 + 3].copy_from_slice(t);
-                preserved += 1;
+    if let (Some(orig), Some(base)) = (original, base)
+        && base.len() == heights.len()
+        && orig.len() >= normals.len()
+    {
+        for i in 0..heights.len() {
+            if heights[i] != base[i] {
+                continue;
             }
+            let t = &orig[i * 3..i * 3 + 3];
+            if t == [0, 0, 0] {
+                continue;
+            }
+            normals[i * 3..i * 3 + 3].copy_from_slice(t);
+            preserved += 1;
         }
     }
     Ok((normals, preserved))

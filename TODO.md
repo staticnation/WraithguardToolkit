@@ -17,8 +17,15 @@ TB_BM dialogue test passing against a baseline recorded from upstream 5ea27f1
   `MW`, `MW_TB`, `MW_BM` and `MW_TB_BM` dialogue tests.
 - When both are upstream: delete the `[patch]` sections and point merge_to_master back
   at Greatness7.
-- Clippy for our own crates (native, viewcore, viewer-shell) in
-  `tools/build_and_check_rust.ps1` and CI, warnings first, `-D warnings` once clean.
+
+## Controllers
+
+`49_wg_gamepad.js` (fly / cursor modes, A switches). Still to do once tested on the Deck
+and with Robin: put it behind a Settings switch; an action layer and a binding table so
+buttons can be remapped (Unreal's FViewportClientNavigationHelper split: inputs write
+impulses, the camera consumes them once a tick); D-pad focus navigation for the menus;
+on Steam (SteamGameId) leave cursor mode off - the trackpad is the cursor; elsewhere move
+the real pointer where the system allows (Tauri set_cursor_position: Windows, X11).
 
 ## OpenMW Lua tools
 
@@ -45,5 +52,6 @@ Rust side (native or viewcore) check scripts without a Lua install.
 When the Unreleased section is released: rename it (PREFLIGHT.md, "Release"), and
 write the GitHub release text from it - the water (MGE XE's own waves, dynamic
 ripples, rain ripples, Wonders of Water), weather, bloom, shadows, the native merge,
-and that downloads are no longer minisign-signed (check the SHA-256 on the Release
-page instead).
+the Flatpak (Steam Deck) and plain Linux build replacing the AppImage, controller
+support, and that downloads are no longer minisign-signed (check the SHA-256 on the
+Release page instead).

@@ -201,7 +201,7 @@ fn serve_one(line: &str, app: &Mutex<App>) -> String {
                    a test suite that dies mid-run tells you far less than one that
                    reports which call went wrong. */
                 let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    dispatch(&cmd, &args, &app)
+                    dispatch(&cmd, &args, app)
                 }));
                 (
                     id,
@@ -329,6 +329,8 @@ fn run() -> i32 {
     code
 }
 
+fn main() { std::process::exit(run()) }
+
 /* Round 18bk — the two registries a command has to be in, checked against each other.
    
    `plugins_probe` shipped in round 18bi defined, dispatched here, and covered by 41 tests,
@@ -397,7 +399,7 @@ mod registry {
            An unregistered command compiles, tests clean through `serve`, and then answers
            "Command <name> not found" the first time somebody uses the program. */
         let reg = registered();
-        let missing: Vec<String> = commands().into_iter().filter(|c| !reg.contains(&c)).collect();
+        let missing: Vec<String> = commands().into_iter().filter(|c| !reg.contains(c)).collect();
         assert!(
             missing.is_empty(),
             "these are #[tauri::command] but not in generate_handler!, so the desktop app \
@@ -432,5 +434,3 @@ mod registry {
         );
     }
 }
-
-fn main() { std::process::exit(run()) }

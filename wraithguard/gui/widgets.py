@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import io
 import tkinter as tk
-from tkinter import filedialog, font as tkfont, ttk
+from tkinter import font as tkfont, ttk
 from typing import TYPE_CHECKING, Any, cast
 
 from wraithguard.gui import (
     case_insensitive_filetypes,
+    filedlg as filedialog,
     register_drop_target,
     rtl,
     trace_first_fire,

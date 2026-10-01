@@ -511,7 +511,7 @@ fn dds(buf: &[u8], want_bc: bool, extra: Extra) -> Result<Texture, String> {
     let (rn, gn, bn, an) = (size_of(r_mask), size_of(g_mask), size_of(b_mask), size_of(a_mask));
     let scale = |v: u32, bits: u32| -> u8 {
         let max = (1u32 << bits) - 1;
-        if max == 0 { 0 } else { ((v * 255 + max / 2) / max) as u8 }
+        (v * 255 + max / 2).checked_div(max).map_or(0, |q| q as u8)
     };
     // Every slice of a volume's top level; one slice for a plain texture.
     // Round 18bc (B4): and only once the header agrees with the file.

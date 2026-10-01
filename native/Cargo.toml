@@ -48,6 +48,16 @@ anyhow = "1"
 tes3 = { git = "https://github.com/staticnation/tes3" }
 bytes_io = { git = "https://github.com/staticnation/tes3" }
 
+# Clippy (tools/build_and_check_rust.ps1, CI): everything on except what is a style call
+# this code base has made on purpose.
+[lints.clippy]
+# Record and table shapes are tuples and nested containers by design; naming each one a
+# type alias would scatter what the signature already says.
+type_complexity = "allow"
+# `Item::Obj` holds a whole parsed record. Boxing it costs an allocation per record for
+# memory the parse holds only briefly; not measured to matter.
+large_enum_variant = "allow"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

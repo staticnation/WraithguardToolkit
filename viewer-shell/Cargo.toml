@@ -24,6 +24,10 @@ bytes_io = { git = "https://github.com/staticnation/tes3" }
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(wg_check)"] }
 
+# Clippy, as viewcore has it (see viewcore/Cargo.toml for why each is off).
+[lints.clippy]
+type_complexity = "allow"
+
 [[bin]]
 name = "wraithguard-viewer"
 path = "src/main.rs"

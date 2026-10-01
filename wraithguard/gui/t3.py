@@ -14,11 +14,16 @@ import tkinter as tk
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import wraithguard_toolkit as core
-from wraithguard.gui import app_base_dir, case_insensitive_filetypes, trace_first_fire
+from wraithguard.gui import (
+    app_base_dir,
+    case_insensitive_filetypes,
+    filedlg as filedialog,
+    trace_first_fire,
+)
 from wraithguard.gui.theme import DARK, apply_titlebar_theme, style_plain_widget
 from wraithguard.gui.widgets import QueueWriter, RadioButton, add_tooltip, attach_typeahead
 from wraithguard.i18n import gettext as _, ngettext

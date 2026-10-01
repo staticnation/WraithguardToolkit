@@ -710,7 +710,7 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
                 }
                 taken.push(tag);
                 p.morph = None;
-                nif::bind_to_skeleton(&mut p, &skel);
+                nif::bind_to_skeleton(&mut p, skel);
                 out.push(p);
             }
         } else {
@@ -721,7 +721,7 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
             taken.push(tag);
             for mut p in parts {
                 p.morph = None;
-                if nif::attach_to_bone(&mut p, &skel, bone, bone.starts_with("Left")) {
+                if nif::attach_to_bone(&mut p, skel, bone, bone.starts_with("Left")) {
                     out.push(p);
                 }
             }
@@ -734,13 +734,13 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
         let mut any = false;
         for mut p in parts {
             p.morph = None;
-            if nif::attach_to_bone(&mut p, &skel, bone, false) {
+            if nif::attach_to_bone(&mut p, skel, bone, false) {
                 out.push(p);
                 any = true;
             }
         }
         let mut sys = nif::parse_particles(&buf);
-        if any && nif::attach_systems(&mut sys, &skel, bone) {
+        if any && nif::attach_systems(&mut sys, skel, bone) {
             systems.extend(sys);
         }
         any
@@ -756,7 +756,7 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
                hand's bone as the flame is. */
             if carry(&w.model, BONES[10], &mut out) && w.radius > 0.0 {
                 let local = load(vfs, &w.model).and_then(|b| nif::read_for_draw(&b, None)).and_then(|r| r.attach).unwrap_or([0.0; 3]);
-                if let Some(at) = nif::bone_point(&skel, BONES[10], local) {
+                if let Some(at) = nif::bone_point(skel, BONES[10], local) {
                     light = Some(CarriedLight { at, colour: w.colour.map(|c| c as f32 / 255.0), radius: w.radius });
                 }
             }

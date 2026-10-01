@@ -1933,11 +1933,15 @@ fn own_records(buf: &[u8]) -> Option<Records> {
                 uvctrls[i] = Some((next, target, data, frequency, phase, start, stop, texture_set));
             }
             "NiUVData" => {
-                let mut a = UvAnim::default();
-                a.u_trans = r.key_group_f32();
-                a.v_trans = r.key_group_f32();
-                a.u_scale = r.key_group_f32();
-                a.v_scale = r.key_group_f32();
+                // The four key groups in the file's order (a struct literal evaluates its
+                // fields in the order written).
+                let a = UvAnim {
+                    u_trans: r.key_group_f32(),
+                    v_trans: r.key_group_f32(),
+                    u_scale: r.key_group_f32(),
+                    v_scale: r.key_group_f32(),
+                    ..Default::default()
+                };
                 if !r.ok() {
                     break;
                 }
@@ -3857,7 +3861,7 @@ fn read_shape_data(r: &mut Reader) -> Option<ShapeData> {
     // Triangle *points*, i.e. three per triangle. There is no has-triangles
     // flag at this version.
     let npoints = r.u32() as usize;
-    if npoints > 6_000_000 || npoints % 3 != 0 {
+    if npoints > 6_000_000 || !npoints.is_multiple_of(3) {
         return None;
     }
     d.tris = Vec::with_capacity(npoints / 3);

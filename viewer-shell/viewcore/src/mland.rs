@@ -130,7 +130,7 @@ fn average_delta(first: i64, second: i64) -> (i64, bool) {
 
 fn is_major(first: i64, second: i64, blended: f64) -> bool {
     let smaller = first.min(second) as f64;
-    let threshold = (0.3 * smaller).max(10.0).min(64.0);
+    let threshold = (0.3 * smaller).clamp(10.0, 64.0);
     (smaller - blended).abs() >= threshold
 }
 

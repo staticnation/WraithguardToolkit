@@ -93,7 +93,7 @@ pub fn list(
     names
         .iter()
         .zip(paths.iter())
-        .zip(heads.into_iter())
+        .zip(heads)
         .map(|((name, path), head)| Entry {
             name: name.clone(),
             masters: head.as_ref().map(|h| h.masters.clone()).unwrap_or_default(),
@@ -397,7 +397,7 @@ fn settle(
             }
             // Nothing can go next, so something names something that names it back.
             None => {
-                out.extend(left.drain(..));
+                out.append(&mut left);
                 break;
             }
         }

@@ -10,6 +10,10 @@ publish = false
 [dependencies]
 viewcore = { path = "../viewcore" }
 
+# Clippy, as viewcore has it (see viewcore/Cargo.toml for why).
+[lints.clippy]
+type_complexity = "allow"
+
 # tes3 from our fork, as viewcore has it (see native/Cargo.toml).
 [patch."https://github.com/Greatness7/tes3"]
 tes3 = { git = "https://github.com/staticnation/tes3" }

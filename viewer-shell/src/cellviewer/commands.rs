@@ -340,7 +340,7 @@ fn open_install(
        the indoors half is `World::indoor_plain`. */
     let mcp = viewcore::mge::mcp_features(&l);
     let mcp_still = mcp.as_ref().map(|f| f.contains(&viewcore::mge::MCP_IMPROVED_ANIMATION)).unwrap_or(false);
-    let world = World::load_with(&paths, &vfs, true, &viewcore::world::LoadOpts { script_plays: true, ..Default::default() });
+    let world = World::load_with(&paths, &vfs, true, &viewcore::world::LoadOpts { script_plays: true });
     let mut world = world;
     // Wraithguard: which plugins are grass (`groundcover=`), so their references go to
     // the grass renderer.
@@ -667,7 +667,7 @@ fn cells(state: State) -> Result<String, String> {
     // [name, references] per interior, sorted, so the picker's list is stable between
     // scans of the same install rather than in hash order.
     let mut ints: Vec<&viewcore::world::Interior> = w.interiors.values().collect();
-    ints.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    ints.sort_by_key(|a| a.name.to_lowercase());
     let mut inter = String::from("[");
     for (i, c) in ints.iter().enumerate() {
         if i > 0 {
@@ -1780,7 +1780,7 @@ fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str) -> Result<(Vec<u8>, Vec<
        replacer's mesh takes the game's own `.kf` from the archive when it ships none of
        its own, which is what the game does too. A mesh with none is the still thing it
        always was. */
-    let kf = kf_beside(&v, path);
+    let kf = kf_beside(v, path);
     // Round 17m: and where a light hangs on it, for the LIGH records that name it.
     // Round 18cr: the parts, the particle systems and the light in one read of the file.
     Ok(mesh_payload_of(&bytes, kf.as_ref(), None))
@@ -2332,7 +2332,7 @@ fn find_record(tag: String, id: String, state: State) -> Result<String, String> 
     let mut count = 0usize;
     let mut first: Option<(String, &viewcore::esp::CellRef, Option<(i32, i32)>)> = None;
     let mut rooms: Vec<&viewcore::world::Interior> = w.interiors.values().collect();
-    rooms.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    rooms.sort_by_key(|a| a.name.to_ascii_lowercase());
     for room in rooms {
         let mut refs: Vec<&viewcore::esp::CellRef> = room.refs.values().filter(|r| !r.deleted && r.id.eq_ignore_ascii_case(&want)).collect();
         refs.sort_by_key(|r| (r.num.content_file, r.num.index));
@@ -2681,6 +2681,9 @@ pub(crate) fn loopback_post(url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(test)]
+// Before `builder()` on purpose: check-commands' build.rs keeps this file up to
+// `pub fn builder()`, so a test module after it would leave that build.
+#[allow(clippy::items_after_test_module)]
 mod loopback_tests {
     use super::loopback_post;
     use std::io::{Read, Write};

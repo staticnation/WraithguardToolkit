@@ -18,11 +18,11 @@ import tkinter as tk
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 from typing import TYPE_CHECKING, Any
 
 from wraithguard.esp import read_header, remove_master_from_bytes, rename_master_in_bytes
-from wraithguard.gui import case_insensitive_filetypes
+from wraithguard.gui import case_insensitive_filetypes, filedlg as filedialog
 from wraithguard.gui.theme import DARK, apply_titlebar_theme
 from wraithguard.gui.widgets import QueueWriter, add_tooltip
 from wraithguard.i18n import gettext as _, ngettext

@@ -241,7 +241,7 @@ pub const CORPSE_SLAB: &str = "__corpse_slab";
 /// whole load aborted. Bytes on both sides, and `eq_ignore_ascii_case` on `[u8]` folds
 /// exactly the ASCII letters the game folds.
 pub fn is_marker_mesh(model: &str) -> bool {
-    model.split(|c| c == '\\' || c == '/').any(|seg| {
+    model.split(['\\', '/']).any(|seg| {
         let b = seg.as_bytes();
         b.len() >= 7 && b[..7].eq_ignore_ascii_case(b"marker_")
     })

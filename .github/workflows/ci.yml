@@ -140,8 +140,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - name: viewcore tests
         run: cargo test --manifest-path viewer-shell/viewcore/Cargo.toml
+      # Clippy on our own crates (not the forks or dependencies), strict: a warning fails
+      # the job. The style lints this code base has chosen not to follow are allowed in
+      # each crate's Cargo.toml ([lints.clippy]), with the reason beside each. The viewer
+      # shell itself needs WebKitGTK, which this runner does not install; check-commands
+      # compiles the same command code without it (tools/build_and_check_rust.ps1 covers
+      # the shell locally).
+      - name: clippy
+        run: |
+          set -e
+          for m in native/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
+            echo "::group::clippy $m"
+            cargo clippy --all-targets --manifest-path "$m" -- -D warnings
+            echo "::endgroup::"
+          done
       - name: command layer compiles
         run: cargo build --manifest-path viewer-shell/check-commands/Cargo.toml
       - name: shell URL mode compiles

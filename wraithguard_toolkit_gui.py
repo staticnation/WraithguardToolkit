@@ -95,7 +95,10 @@ except ImportError:  # pragma: no cover - only when wraithguard/ is absent
 
 try:
     import tkinter as tk
-    from tkinter import filedialog, messagebox, ttk
+    from tkinter import messagebox, ttk
+
+    # tkinter.filedialog's API, but the desktop's own dialog on Linux (dark, hidden files)
+    from wraithguard.gui import filedlg as filedialog
 except ImportError:
     sys.exit(
         "tkinter isn't available in this Python install.\n"

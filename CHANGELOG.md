@@ -3,8 +3,24 @@
 
 ## Unreleased
 
+### Added
+
+- **Controller support in Cell Preview and the mesh viewer** (Steam Deck, or any game
+  pad, standard mapping). Two modes, A switches: **fly** - right stick looks or orbits,
+  left stick flies (WASD) or slides the pivot (orbit), RT/LT go up/down, RB/LB zoom
+  (orbit) or set the speed (WASD), Y switches orbit/WASD, the D-pad steps to the
+  neighbouring cell; **cursor** - the left stick moves a pointer, RT/LT click and
+  right-click, X shift-clicks, the right stick scrolls, B is Escape, the D-pad steps a
+  focused list or slider. A real mouse or touch (the Deck's trackpads) always works and
+  leaves fly mode; a dialog opening switches to cursor. On the Deck, add Wraithguard to
+  Steam as a non-Steam game with the "Gamepad with Mouse Trackpad" layout.
+
 ### Changed
 
+- **Clippy on our Rust crates** (native, viewcore, check-commands and the viewer shell),
+  strict: `tools/build_and_check_rust.ps1` and CI fail on any warning. The ~60 it found
+  are fixed; the few style lints this code base does not follow are allowed in each
+  crate's `[lints.clippy]` with the reason beside each.
 - **Linux: the AppImage is replaced by a Flatpak and a plain build.**
   - `wraithguard-toolkit-linux-x86_64.flatpak` is the Steam Deck's build:
     `flatpak install --user` it in Desktop Mode. WebKitGTK, GTK, the GPU driver and
@@ -149,6 +165,13 @@
 
 ### Fixed
 
+- **Linux: the file picker was white and hid dot-folders**, so `~/.config/openmw/openmw.cfg`
+  could not be chosen. Every Open/Save/Folder dialog now uses the desktop's own picker
+  (kdialog on KDE, zenity elsewhere), which follows the system theme, shows hidden
+  files on Ctrl+H (KDE: Alt+.) and takes a typed or pasted path (Ctrl+L, or start
+  typing `/` or `~`). Without either (the Flatpak), Tk's picker shows hidden
+  files and its "Show hidden files" toggle, in the dark theme.
+  `WRAITHGUARD_FILE_DIALOG=tk` (or `kdialog`/`zenity`) picks one.
 - **Big cells running the viewer out of memory** (Balmora froze at ~600 meshes): cells
   load without normal and specular maps unless Settings' "Normal and specular maps
   (cells)" is turned on, and leaving the mesh viewer no longer leaves them loading.

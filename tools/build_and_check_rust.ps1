@@ -10,6 +10,8 @@
         viewcore    cargo test  viewer-shell/viewcore/            (the viewer's engine)
         commands    cargo build viewer-shell/check-commands/      (the viewer's commands, without Tauri)
         check       cargo build viewer-shell/check/
+        clippy      cargo clippy on native, viewcore, check-commands and the viewer
+                    (a warning fails it, as in CI; -ClippyReport only lists them)
         pages       wg-view-serve + node boot.js, cell and mesh   (only with -Pages; needs Node 22)
 
     Every step runs even if an earlier one fails, and a table at the end says which
@@ -24,6 +26,10 @@
 
 .PARAMETER SkipViewer
     Skip the release build of the viewer (the slowest step) when you only want the checks.
+
+.PARAMETER ClippyReport
+    List clippy's warnings without failing the step (every lint capped at a warning).
+    By default the step is strict (-D warnings), as CI's is.
 
 .PARAMETER Only
     Run just the named steps, e.g. -Only viewcore,native
@@ -40,7 +46,8 @@
 param(
     [switch]$Pages,
     [switch]$SkipViewer,
-    [ValidateSet('viewer', 'native', 'viewcore', 'commands', 'check', 'pages')]
+    [switch]$ClippyReport,
+    [ValidateSet('viewer', 'native', 'viewcore', 'commands', 'check', 'clippy', 'pages')]
     [string[]]$Only
 )
 
@@ -88,19 +95,34 @@ function Invoke-PageTests {
     }
 }
 
+function Invoke-Clippy {
+    # Our own crates only (the forks and dependencies are not linted). Strict by default,
+    # as CI is; -ClippyReport caps every lint at a warning so the step lists them and
+    # passes. The lints this code base allows are in each crate's [lints.clippy].
+    $lint = $(if ($ClippyReport) { @('--cap-lints', 'warn') } else { @('-D', 'warnings') })
+    $ok = $true
+    foreach ($m in @('native/Cargo.toml', 'viewer-shell/viewcore/Cargo.toml',
+                     'viewer-shell/check-commands/Cargo.toml', 'viewer-shell/Cargo.toml')) {
+        Write-Host "  - clippy $m" -ForegroundColor Cyan
+        if (-not (Invoke-Native cargo (@('clippy', '--all-targets', '--manifest-path', $m, '--') + $lint))) { $ok = $false }
+    }
+    return $ok
+}
+
 $steps = [ordered]@{
     viewer   = @{ Label = 'viewer release build';        Run = { Invoke-Native cargo @('build', '--release', '--manifest-path', 'viewer-shell/Cargo.toml') } }
     native   = @{ Label = 'native tests';                Run = { Invoke-Native cargo @('test', '--manifest-path', 'native/Cargo.toml') } }
     viewcore = @{ Label = 'viewcore tests';              Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/viewcore/Cargo.toml') } }
     commands = @{ Label = 'check-commands build';        Run = { Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check-commands/Cargo.toml') } }
     check    = @{ Label = 'check build';                 Run = { Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check/Cargo.toml') } }
+    clippy   = @{ Label = $(if ($ClippyReport) { 'clippy (report)' } else { 'clippy' }); Run = { Invoke-Clippy } }
     pages    = @{ Label = 'page boot tests (cell, mesh)'; Run = { Invoke-PageTests } }
 }
 
 if ($Only) {
     $wanted = $Only
 } else {
-    $wanted = @('viewer', 'native', 'viewcore', 'commands', 'check')
+    $wanted = @('viewer', 'native', 'viewcore', 'commands', 'check', 'clippy')
     if ($SkipViewer) { $wanted = $wanted | Where-Object { $_ -ne 'viewer' } }
     if ($Pages) { $wanted += 'pages' }
 }

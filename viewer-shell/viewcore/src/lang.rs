@@ -491,8 +491,7 @@ pub fn update_with(pack_text: &str, template: &str) -> Result<(String, usize, Ve
                     /* A form the English has not got — `.few`, `.many` for a language
                        with three — sits under its base's last form rather than among
                        the orphans: it is a translation of a key that exists. */
-                    if key.ends_with(".other") {
-                        let base = &key[..key.len() - ".other".len()];
+                    if let Some(base) = key.strip_suffix(".other") {
                         for form in [".one", ".few", ".many"] {
                             let extra = format!("{}{}", base, form);
                             if !used.contains(&extra) && values.contains_key(&extra) && !template_has(template, &extra) {
