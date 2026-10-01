@@ -129,8 +129,10 @@ jobs:
           [ -z "$stray" ] || { echo "graphics libraries bundled: $stray"; exit 1; }
           test -x squashfs-root/usr/bin/wraithguard-viewer-run \
             || { echo "launcher missing or not executable:"; ls -la squashfs-root/usr/bin/; exit 1; }
-          grep -q wraithguard-viewer-run squashfs-root/AppRun \
-            || { echo "AppRun does not start the launcher:"; ls -la squashfs-root/AppRun*; head -40 squashfs-root/AppRun || true; exit 1; }
+          # linuxdeploy wraps our AppRun in its own (which loads the GTK hook, then runs
+          # AppRun.wrapped) whenever an apprun-hooks folder exists, so ours may be either.
+          grep -qs wraithguard-viewer-run squashfs-root/AppRun squashfs-root/AppRun.wrapped \
+            || { echo "AppRun does not start the launcher:"; ls -la squashfs-root/AppRun*; head -40 squashfs-root/AppRun* || true; exit 1; }
           echo "self-contained: OK"
           rm -rf squashfs-root
 
