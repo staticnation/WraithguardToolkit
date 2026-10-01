@@ -104,7 +104,10 @@ precision highp float;
 precision highp sampler3D;
 in vec3 vW; in vec4 vRefl; in float vClipW;
 uniform sampler2D uSceneCol;   // the frame so far, resolved
-uniform sampler2D uSceneDepth; // and its depth
+/* and its depth. highp: a sampler2D is lowp unless it says otherwise (GLSL ES), and Linux's
+   drivers mean it - a depth of 0.9999 read at half precision is 1.0, so every distance read
+   as the same two values and the water drew in bands (Windows' Direct3D ignores it). */
+uniform highp sampler2D uSceneDepth;
 uniform sampler2D uReflCol;    // the scene from under the water
 uniform sampler3D uWater3d;    // MGE's water_NRM.dds
 uniform int   uHas3d;
@@ -516,7 +519,7 @@ void main(){ o=vec4(texture(uTex,vUV).rgb,1.0); }`;
    centervis 0.3, sunrayocclude 0.85, brightnessadd 1.1. */
 const FS_SHAFT_MASK=`#version 300 es
 precision highp float;
-in vec2 vUV; uniform sampler2D uDepth; uniform vec2 uRcpRes; out vec4 o;
+in vec2 vUV; uniform highp sampler2D uDepth; uniform vec2 uRcpRes; out vec4 o;
 void main(){
   // The sky is where nothing was drawn: the cleared depth. Four taps, as the .fx.
   float d = step(0.99999, texture(uDepth, vUV).r)

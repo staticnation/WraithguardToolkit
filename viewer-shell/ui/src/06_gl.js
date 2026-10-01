@@ -625,7 +625,7 @@ float airClear(vec3 w){
    fog, by its square. */
 uniform int   uShadow;        /* 1 when the map for this frame was drawn */
 uniform mat4  uShadowVP[2];   /* world -> cascade clip, near then far */
-uniform sampler2D uShadowTex;
+uniform highp sampler2D uShadowTex;   // highp: a depth, read at full precision on every driver
 uniform vec2  uShadowP;       /* x: one texel of a cascade in clip units; y: the sun-visibility term */
 uniform vec2  uShadowFog;     /* Morrowind's near fog, start and end in units: MGE's nearFogStart, nearFogRange */
 /* MGE's core-mod constants, verbatim. */
@@ -1609,7 +1609,7 @@ const MAX_TINT_PAL=64;
 const FS_STATIC_PAINT=`#version 300 es
 precision highp float;
 in vec3 vObj; in vec3 vN; in vec3 vW;
-uniform sampler2D uDabs;   // texel 2i: centre.xyz, radius; texel 2i+1: feather, strength,
+uniform highp sampler2D uDabs;   // texel 2i: centre.xyz, radius; texel 2i+1: feather, strength,
                            // palette index, and which plane/layer laid it: 0..n is a rule
                            // layer, -1 the cover plane ("no grass" / "grass anyway")
 uniform vec3 uPal[${MAX_TINT_PAL}];
@@ -1617,7 +1617,7 @@ uniform int  uCount;
 /* The bucket grid over the marks, and where it sits in object space. uGridCells is 0 when
    there is no grid, which is the small-mask case and the only branch this shader takes on
    a uniform. uGridBase is where the index lists start, past the cell offsets. */
-uniform sampler2D uGrid;
+uniform highp sampler2D uGrid;   // highp: world positions in a float texture (see uSceneDepth, 26_water.js)
 uniform vec3 uGridLo;
 uniform vec3 uGridInv;
 uniform ivec3 uGridN;

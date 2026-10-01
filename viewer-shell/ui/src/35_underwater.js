@@ -37,7 +37,7 @@ const FS_UNDERWATER=`#version 300 es
 precision highp float;
 precision highp sampler3D;
 in vec2 vUV;
-uniform sampler2D uTex, uDepth;
+uniform sampler2D uTex; uniform highp sampler2D uDepth;   // highp: see uSceneDepth in 26_water.js
 uniform sampler3D uWater3d; uniform int uHas3d;
 uniform vec3 uCamF, uCamR, uCamU, uEyeP, uSunP, uSunColP;
 uniform float uTanH, uAspect, uSunVisP, uTimeP, uWaterZ;
@@ -144,7 +144,7 @@ const FS_CAUSTICS=`#version 300 es
 precision highp float;
 precision highp sampler3D;
 in vec2 vUV;
-uniform sampler2D uTex, uDepth;
+uniform sampler2D uTex; uniform highp sampler2D uDepth;   // highp: see uSceneDepth in 26_water.js
 uniform sampler3D uWater3d; uniform int uHas3d;
 uniform vec3 uCamF, uCamR, uCamU, uEyeP, uSunV;
 uniform float uTanH, uAspect, uTimeP, uWaterZ, uStrength, uSunVisP;

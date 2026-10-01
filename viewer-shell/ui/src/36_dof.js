@@ -47,7 +47,7 @@ const DOF_TAPS=[[-0.326212,-0.40581],[-0.840144,-0.07358],[-0.695914,0.457137],[
 const FS_DOF_COC=`#version 300 es
 precision highp float;
 in vec2 vUV;
-uniform sampler2D uTex, uDepth;
+uniform sampler2D uTex; uniform highp sampler2D uDepth;   // highp: see uSceneDepth in 26_water.js
 uniform vec2 uNearFar, uRcpRes;
 uniform float uTanH, uAspect, uFogStart, uFogRange;
 uniform int uFull;          // 1: the eye's blur as well; 0: the fog's distance blur alone

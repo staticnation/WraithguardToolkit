@@ -36,7 +36,7 @@ const BLOOM_THRESHOLD=0.48, BLOOM_LEVEL=0.23, BLOOM_COLOUR_SENS=0.39, BLOOM_GAMM
 const FS_BLOOM_ENERGY=`#version 300 es
 precision highp float;
 in vec2 vUV;
-uniform sampler2D uTex, uDepth;
+uniform sampler2D uTex; uniform highp sampler2D uDepth;   // highp: see uSceneDepth in 26_water.js
 uniform vec2 uNearFar;
 uniform float uFogStart, uFogRange;
 out vec4 o;

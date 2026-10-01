@@ -173,9 +173,12 @@
   files and its "Show hidden files" toggle, in the dark theme.
   `WRAITHGUARD_FILE_DIALOG=tk` (or `kdialog`/`zenity`) picks one.
 - **Linux: MGE water drawn in straight horizontal bands** (black at night) where the
-  sea lies almost level with the sand. The viewer's offscreen scene now keeps its depth
-  as a 32-bit float rather than 24-bit, the same on every driver; the Report's
-  Performance section adds a "water:" line with what the GPU said about the water pass.
+  sea lies almost level with the sand. The shaders read the scene's depth at low
+  precision - GLSL ES makes a texture sampler low precision unless it says otherwise,
+  and Linux's drivers honour that (Windows' Direct3D does not) - so every distance read
+  as one of two values. Depth and other float data textures are read at high precision
+  now (water, sunshafts, underwater, depth of field, bloom, shadows, paint), the scene's
+  depth is a 32-bit float, and the Report's Performance section adds a "water:" line.
 - **Linux: black blocks on the buttons after going fullscreen**, and pane dividers
   lagging while dragged. The scrolling forms redraw once a resize settles, and their
   relayout runs once per idle pass instead of once per pixel of a drag.
