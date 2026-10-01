@@ -1,7 +1,7 @@
 # Build the plain Linux app and upload it as an artifact (and a release asset on tags).
 #
-# One PyInstaller binary (build/pyinstaller.txt's command), in a .tar.gz, with the
-# viewer shell inside it - nothing of the system's carried along. The viewer runs on
+# One PyInstaller binary (build/pyinstaller.txt's command) and the viewer shell beside
+# it, in a .tar.gz - nothing of the system's carried along. The viewer runs on
 # the machine's own WebKitGTK 4.1 (libwebkit2gtk-4.1: Ubuntu 22.04+, Debian 12+,
 # Fedora, Arch), so a distro that has it gets its own GTK, Mesa and C++ runtime,
 # matched to each other. The Steam Deck's
@@ -83,12 +83,12 @@ jobs:
         run: python -m pip install ./native
 
       - name: Build the toolkit (PyInstaller, one file)
-        # build/pyinstaller.txt's release command, with Linux's ':' separators - except
-        # the viewer goes in with --add-data, not --add-binary: as a binary PyInstaller
-        # would collect WebKitGTK's whole dependency tree into the bundle, and those
-        # build-machine copies are what broke the AppImage. As data it is carried as
-        # it is and runs on the machine's own WebKitGTK; wraithguard/viewer_launch.py
-        # restores its executable bit after extraction.
+        # build/pyinstaller.txt's release command, with Linux's ':' separators and
+        # WITHOUT the viewer: PyInstaller 6 recognises an executable even when it is
+        # added as data, and then collects its whole dependency tree (WebKitGTK, GTK,
+        # libsoup, libgbm - the run that tried it). The viewer ships beside the toolkit
+        # in the archive instead (Pack it), where wraithguard/viewer_launch.py finds it
+        # (the frozen app's own folder), and runs on the machine's own WebKitGTK.
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed --noupx \
             --name wraithguard_toolkit_gui \
@@ -97,7 +97,6 @@ jobs:
             --hidden-import wraithguard_native \
             --collect-all certifi \
             --hidden-import tkinterweb \
-            --add-data "viewer-shell/target/release/wraithguard-viewer:." \
             --add-data "wraithguard_toolkit.py:." \
             --add-data "README.md:." \
             --add-data "QUICKSTART.md:." \
@@ -116,20 +115,29 @@ jobs:
           deps=$(LD_LIBRARY_PATH= ldd viewer-shell/target/release/wraithguard-viewer)
           echo "$deps"
           ! echo "$deps" | grep -q 'not found' || { echo "the viewer has unresolved libraries"; exit 1; }
-          contents=$(pyi-archive_viewer --list --brief dist/wraithguard_toolkit_gui | sed 's/^ //')
-          echo "$contents" | grep -qx 'wraithguard-viewer' \
-            || { echo "the viewer is not in the bundle:"; echo "$contents"; exit 1; }
-          stray=$(echo "$contents" | grep -E '(^|/)lib(webkit2gtk|javascriptcoregtk|gtk-3|gdk-3|soup-3|EGL|GL|gbm|drm|wayland-)' || true)
-          [ -z "$stray" ] || { echo "bundled system libraries: $stray"; exit 1; }
-          echo "plain build: OK"
+          # The bundle's table of contents through PyInstaller's own reader (the
+          # pyi-archive_viewer command line changes between releases; this does not).
+          python - <<'PY'
+          import re, sys
+          from PyInstaller.archive.readers import CArchiveReader
+          names = [str(n) for n in CArchiveReader("dist/wraithguard_toolkit_gui").toc]
+          print(f"{len(names)} entries in the bundle")
+          pat =re.compile(r"(^|/)lib(webkit2gtk|javascriptcoregtk|gtk-3|gdk-3|soup-3|EGL|GL|gbm|drm|wayland-)")
+          stray = sorted(n for n in names if pat.search(n))
+          if stray:
+              sys.exit("bundled system libraries:\n  " + "\n  ".join(stray))
+          print("plain build: OK")
+          PY
 
       - name: Pack it
-        # The one binary in a .tar.gz, which keeps its executable bit (a bare file
-        # downloaded from a Release page loses it).
+        # The toolkit and the viewer side by side in a .tar.gz, which keeps their
+        # executable bits (a bare file downloaded from a Release page loses it).
         run: |
           mkdir -p dist/pack
           install -m755 dist/wraithguard_toolkit_gui dist/pack/wraithguard-toolkit
-          tar -C dist/pack -czf dist/wraithguard-toolkit-linux-x86_64.tar.gz wraithguard-toolkit
+          install -m755 viewer-shell/target/release/wraithguard-viewer dist/pack/wraithguard-viewer
+          tar -C dist/pack -czf dist/wraithguard-toolkit-linux-x86_64.tar.gz wraithguard-toolkit wraithguard-viewer
+          tar -tzvf dist/wraithguard-toolkit-linux-x86_64.tar.gz
           ls -lh dist/wraithguard-toolkit-linux-x86_64.tar.gz
 
       - name: Upload the build
