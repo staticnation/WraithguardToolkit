@@ -6,6 +6,7 @@ Moved verbatim from ``wraithguard_toolkit_gui.py`` (see the package docstring).
 from __future__ import annotations
 
 import io
+import sys
 import tkinter as tk
 from tkinter import font as tkfont, ttk
 from typing import TYPE_CHECKING, Any, cast
@@ -424,6 +425,96 @@ class RadioButton(tk.Canvas):
 # ---------------------------------------------------------------------------
 
 
+def once_per_idle(widget: tk.Misc, fn: Callable[[], object]) -> Callable[..., None]:
+    """A ``<Configure>`` handler that runs ``fn`` once per idle pass, not per event.
+
+    Dragging a pane divider sends a burst of ``<Configure>`` events - one per pixel,
+    each relaying out the whole form when handled directly. Coalesced, the work runs
+    once for the burst, after the drag's events are drained, so the drag keeps up.
+
+    Args:
+        widget: Any widget of the window, for scheduling.
+        fn: The work to do, reading the widgets' current sizes itself (its result
+            is ignored, so a bare ``configure`` call will do).
+
+    Returns:
+        The handler to bind (it ignores the event).
+    """
+    pending: list[str] = []
+
+    def run() -> None:
+        """Do the work once and allow the next burst to schedule it again."""
+        pending.clear()
+        try:
+            fn()
+        except tk.TclError:
+            pass  # the window was closed between the event and the idle pass
+
+    def handler(*_args: object) -> None:
+        """Schedule ``fn`` unless it is already waiting for the idle pass."""
+        if not pending:
+            pending.append(widget.after_idle(run))
+
+    return handler
+
+
+#: Linux only: canvases holding a form (create_window) to repaint after a resize.
+_EMBEDDED: list[tuple[tk.Canvas, int]] = []
+
+
+def repaint_after_resize(canvas: tk.Canvas, window_id: int) -> None:
+    """Repaint a canvas-embedded form once its window has finished resizing (X11).
+
+    On Linux, maximising or going fullscreen can leave black blocks on the buttons of a
+    form embedded in a canvas: X exposes the new area while the form is still being
+    laid out, and those patches never get an expose of their own. Hiding and showing
+    the embedded window once the resize has settled maps it again, and X then sends the
+    whole form an expose, so every widget redraws. Windows and macOS don't need it.
+
+    Args:
+        canvas: The canvas.
+        window_id: Its ``create_window`` item.
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    _EMBEDDED.append((canvas, window_id))
+    top = canvas.winfo_toplevel()
+    if getattr(top, "_wg_repaint_bound", False):
+        return
+    top._wg_repaint_bound = True
+    state: dict[str, Any] = {"size": None, "job": None}
+
+    def repaint() -> None:
+        """Remap each live embedded form of this window."""
+        state["job"] = None
+        for cv, item in list(_EMBEDDED):
+            try:
+                if not cv.winfo_exists():
+                    _EMBEDDED.remove((cv, item))
+                    continue
+                if cv.winfo_toplevel() is not top:
+                    continue
+                cv.itemconfigure(item, state="hidden")
+                cv.update_idletasks()
+                cv.itemconfigure(item, state="normal")
+            except tk.TclError:
+                pass  # closed while repainting; the next resize tries again
+
+    def on_configure(event: tk.Event) -> None:
+        """After the window's size stops changing, repaint once."""
+        if event.widget is not top:
+            return  # a child's <Configure> (the toplevel's binding sees them all)
+        size = (event.width, event.height)
+        if size == state["size"]:
+            return  # moved, not resized
+        state["size"] = size
+        if state["job"] is not None:
+            top.after_cancel(state["job"])
+        state["job"] = top.after(150, repaint)
+
+    top.bind("<Configure>", on_configure, add="+")
+
+
 def make_scrollable_y(parent: tk.Misc, *, bg: str) -> tuple[ttk.Frame, tk.Canvas, ttk.Frame]:
     """Build a vertically scrollable container for a tall form.
 
@@ -455,9 +546,16 @@ def make_scrollable_y(parent: tk.Misc, *, bg: str) -> tuple[ttk.Frame, tk.Canvas
     canvas.grid(row=0, column=0, sticky="nsew")
 
     inner = ttk.Frame(canvas)
-    inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+    inner.bind(
+        "<Configure>",
+        once_per_idle(canvas, lambda: canvas.configure(scrollregion=canvas.bbox("all"))),
+    )
     window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-    canvas.bind("<Configure>", lambda e: canvas.itemconfig(window_id, width=e.width))
+    canvas.bind(
+        "<Configure>",
+        once_per_idle(canvas, lambda: canvas.itemconfig(window_id, width=canvas.winfo_width())),
+    )
+    repaint_after_resize(canvas, window_id)
 
     def _wheel(event: tk.Event) -> None:
         """Scroll the canvas one step per wheel notch.
@@ -561,8 +659,10 @@ def make_scrollable_x(parent: tk.Misc, *, bg: str) -> tuple[ttk.Frame, tk.Canvas
         # see the docstring above for why both bounds matter.
         canvas.itemconfig(window_id, width=max(canvas.winfo_width(), inner.winfo_reqwidth()))
 
-    inner.bind("<Configure>", _resize)
-    canvas.bind("<Configure>", _resize)
+    resize_soon = once_per_idle(canvas, _resize)
+    inner.bind("<Configure>", resize_soon)
+    canvas.bind("<Configure>", resize_soon)
+    repaint_after_resize(canvas, window_id)
     # content is added to `inner` after this function returns, so an initial
     # pass now would just measure an empty frame -- defer one more pass to
     # after the caller has finished building the row and Tk has processed

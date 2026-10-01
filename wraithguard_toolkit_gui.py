@@ -277,6 +277,8 @@ from wraithguard.gui.widgets import (  # noqa: E402
     attach_typeahead,
     group_separator,
     make_scrollable_y,
+    once_per_idle,
+    repaint_after_resize,
 )
 from wraithguard.net import (  # noqa: E402
     MANAGED_RULE_FILES,
@@ -1419,6 +1421,9 @@ class App(
                 pass
             reposition()
 
+        reposition_idle = once_per_idle(paned, reposition)
+        late: list[str] = []
+
         def reposition_soon(_event: tk.Event | None = None) -> None:
             # On a resize (esp. maximize/restore/fullscreen) the <Configure>
             # event fires before the PanedWindow has moved its sash, so reading
@@ -1426,12 +1431,16 @@ class App(
             # in the wrong place until you nudge it. Defer to the idle pass so we
             # read the sash position AFTER layout settles. A second delayed pass
             # catches window managers that relayout in more than one step.
-            paned.after_idle(reposition)
-            paned.after(60, reposition)
+            # Both coalesced: a drag sends one <Configure> a pixel, and scheduling
+            # two callbacks for each piled up behind the drag.
+            reposition_idle()
+            if late:
+                paned.after_cancel(late.pop())
+            late.append(paned.after(60, reposition))
 
         grip.bind("<B1-Motion>", on_drag)
         paned.bind("<Configure>", reposition_soon, add="+")
-        paned.bind("<B1-Motion>", lambda e: reposition(), add="+")  # follow a direct sash drag
+        paned.bind("<B1-Motion>", reposition_idle, add="+")  # follow a direct sash drag
         paned.bind("<ButtonRelease-1>", lambda e: reposition(), add="+")
         paned.after(200, reposition)
 
@@ -1492,16 +1501,29 @@ class App(
         self._build_controls(controls_frame)
 
         # Configure the canvas to scroll the frame
+        # Once per idle pass, not per event: dragging a divider sends one <Configure>
+        # a pixel, and each would relay out the whole form (the slow pane drag on Linux).
         controls_frame.bind(
             "<Configure>",
-            lambda e: controls_canvas.configure(scrollregion=controls_canvas.bbox("all")),
+            once_per_idle(
+                controls_canvas,
+                lambda: controls_canvas.configure(scrollregion=controls_canvas.bbox("all")),
+            ),
         )
         self.controls_window = controls_canvas.create_window(
             (0, 0), window=controls_frame, anchor="nw"
         )
         controls_canvas.bind(
-            "<Configure>", lambda e: controls_canvas.itemconfig(self.controls_window, width=e.width)
+            "<Configure>",
+            once_per_idle(
+                controls_canvas,
+                lambda: controls_canvas.itemconfig(
+                    self.controls_window, width=controls_canvas.winfo_width()
+                ),
+            ),
         )
+        # Linux: black blocks on the buttons after going fullscreen otherwise.
+        repaint_after_resize(controls_canvas, self.controls_window)
 
         # Bind mousewheel to scroll the canvas -- only while the pointer is
         # actually over it. bind_all with no unbind (the previous version)

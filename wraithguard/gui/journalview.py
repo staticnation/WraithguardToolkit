@@ -60,6 +60,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from wraithguard.gui import rtl
 from wraithguard.gui.theme import DARK, apply_titlebar_theme
+from wraithguard.gui.widgets import repaint_after_resize
 from wraithguard.i18n import gettext as _
 from wraithguard.logging_setup import get_logger
 from wraithguard.parallel import read_all
@@ -227,6 +228,7 @@ class JournalViewMixin:
 
         body.bind("<Configure>", _on_body_configure)
         canvas.bind("<Configure>", _on_canvas_configure)
+        repaint_after_resize(canvas, body_window)  # Linux: no black blocks after fullscreen
 
         def _on_mousewheel(event: tk.Event[Any]) -> None:
             """Windows/Mac deliver <MouseWheel> with a signed delta; scroll by it directly."""

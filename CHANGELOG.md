@@ -172,6 +172,9 @@
   typing `/` or `~`). Without either (the Flatpak), Tk's picker shows hidden
   files and its "Show hidden files" toggle, in the dark theme.
   `WRAITHGUARD_FILE_DIALOG=tk` (or `kdialog`/`zenity`) picks one.
+- **Linux: black blocks on the buttons after going fullscreen**, and pane dividers
+  lagging while dragged. The scrolling forms redraw once a resize settles, and their
+  relayout runs once per idle pass instead of once per pixel of a drag.
 - **Big cells running the viewer out of memory** (Balmora froze at ~600 meshes): cells
   load without normal and specular maps unless Settings' "Normal and specular maps
   (cells)" is turned on, and leaving the mesh viewer no longer leaves them loading.
