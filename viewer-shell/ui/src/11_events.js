@@ -378,6 +378,7 @@ function boot(){
   lightSlider('#p_whue','#p_whueV',v=>{ if(App.R) App.R.opts.waterHue=v; });
   lightSlider('#p_wtint','#p_wtintV',v=>{ if(App.R) App.R.opts.waterTint=v/100; });
   { const e=$('#p_sewers'); if(e) e.onchange=()=>{ if(App.R){ App.R.opts.sewerWaves=e.checked; App.R.dirty=true; } }; }
+  { const e=$('#p_wdbg'); if(e) e.onchange=()=>{ if(App.R){ App.R.opts.waterDebug=+e.value||0; App.R.dirty=true; } }; }
   // Wraithguard: MGE XE's water settings, driven here (26_water.js, 35_underwater.js).
   { const e=$('#p_waves'); if(e){ const f=()=>{ if(App.R){ App.R.opts.waves=e.checked; App.R.dirty=true; } }; e.onchange=f; f(); } }
   lightSlider('#p_wheight','#p_wheightV',v=>{ if(App.R) App.R.opts.waveHeight=v; });

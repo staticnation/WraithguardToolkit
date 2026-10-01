@@ -301,6 +301,17 @@
               <!-- The sewer waves of Vivec and Molag Mar (mod 45432), in MGE XE's water. -->
               <div class="row wtint" id="rowSewers"><label title="Rings spreading on the water from the sewer outlets of Vivec and Molag Mar, from the 'Enhanced Water Shader for MGE XE 2.0' mod.">Sewer waves</label><div class="ctl">
                 <label class="sw"><input type="checkbox" id="p_sewers" checked><span class="tr"></span></label></div></div>
+              <!-- Wraithguard: a diagnostic for the banding Linux draws on MGE's water (not
+                   Windows). Each view isolates one part of the surface; remove once found. -->
+              <div class="row wtint" id="rowWaterDbg"><label title="Diagnostic: shows one part of MGE's water at a time, to find where the Linux banding comes from.">Water debug</label><div class="ctl">
+                <select class="fld" id="p_wdbg">
+                  <option value="0">Off</option>
+                  <option value="5">No shore pull</option>
+                  <option value="1">Depth below surface</option>
+                  <option value="2">Reflection only</option>
+                  <option value="3">Refraction only</option>
+                  <option value="4">Scene depth (raw)</option>
+                </select></div></div>
               <!-- Wraithguard: MGE XE's water settings as Preview controls. MoMW runs OpenMW, so
                    there is no MGE XE configuration to read; each starts at MGE XE's default. -->
               <div class="row wtint" id="rowWaves"><label title="MGE XE's dynamic ripples: the water surface rises and falls with the waves instead of lying flat.">Waves</label><div class="ctl">
