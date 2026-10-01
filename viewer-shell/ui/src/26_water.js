@@ -652,7 +652,18 @@ Object.assign(Renderer.prototype,{
       for(const k of ['colRB','depRB','reflDepRB']) try{ gl.deleteRenderbuffer(t[k]); }catch(_){ }
       for(const k of ['colTex','depTex','reflTex','shaftATex','shaftBTex']) try{ gl.deleteTexture(t[k]); }catch(_){ }
     }
-    const samples=Math.min(4, gl.getParameter(gl.MAX_SAMPLES)||0);
+    /* Wraithguard: the depth is a 32-bit float, not DEPTH_COMPONENT24. On Linux (WebKitGTK
+       over OpenGL, and the Steam Deck's AMD driver, whose hardware has no 24-bit depth of
+       its own) MGE's water drew in straight horizontal bands wherever the sea lies almost
+       level with the sand: the water and the shore came out at the same depth a band at a
+       time - Windows (Direct3D) never showed it. A float depth is what that hardware stores
+       natively, and it is the same precision on every driver. The scene, its resolve and
+       the reflection all use it; a depth blit needs both ends in the same format. Both
+       formats' multisample limits are honoured, since colour and depth must agree. */
+    const DEPTH=gl.DEPTH_COMPONENT32F;
+    let depthMax=4;
+    try{ const s=gl.getInternalformatParameter(gl.RENDERBUFFER,DEPTH,gl.SAMPLES); if(s && s.length) depthMax=s[0]; }catch(_){ }
+    const samples=Math.min(4, gl.getParameter(gl.MAX_SAMPLES)||0, depthMax);
     const n={W,H,samples};
     // The scene, multisampled, so the grass keeps its soft edges.
     n.sceneFB=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,n.sceneFB);
@@ -661,8 +672,8 @@ Object.assign(Renderer.prototype,{
     else gl.renderbufferStorage(gl.RENDERBUFFER,gl.RGBA8,W,H);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.RENDERBUFFER,n.colRB);
     n.depRB=gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER,n.depRB);
-    if(samples>0) gl.renderbufferStorageMultisample(gl.RENDERBUFFER,samples,gl.DEPTH_COMPONENT24,W,H);
-    else gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,W,H);
+    if(samples>0) gl.renderbufferStorageMultisample(gl.RENDERBUFFER,samples,DEPTH,W,H);
+    else gl.renderbufferStorage(gl.RENDERBUFFER,DEPTH,W,H);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,n.depRB);
     // Its resolve: a colour texture and a depth texture the water reads.
     const tex2=(fmt,ifmt,type,w,h)=>{ const x=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,x);
@@ -674,7 +685,7 @@ Object.assign(Renderer.prototype,{
     n.resolveFB=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,n.resolveFB);
     n.colTex=tex2(gl.RGBA,gl.RGBA8,gl.UNSIGNED_BYTE,W,H);
     gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,n.colTex,0);
-    n.depTex=tex2(gl.DEPTH_COMPONENT,gl.DEPTH_COMPONENT24,gl.UNSIGNED_INT,W,H);
+    n.depTex=tex2(gl.DEPTH_COMPONENT,DEPTH,gl.FLOAT,W,H);
     gl.bindTexture(gl.TEXTURE_2D,n.depTex);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
@@ -685,7 +696,7 @@ Object.assign(Renderer.prototype,{
     n.reflTex=tex2(gl.RGBA,gl.RGBA8,gl.UNSIGNED_BYTE,n.RW,n.RH);
     gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,n.reflTex,0);
     n.reflDepRB=gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER,n.reflDepRB);
-    gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,n.RW,n.RH);
+    gl.renderbufferStorage(gl.RENDERBUFFER,DEPTH,n.RW,n.RH);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,n.reflDepRB);
     n.ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
     // Two half-size ping-pong targets for the sunshafts (round 16).
@@ -955,10 +966,18 @@ Object.assign(Renderer.prototype,{
 
     // 3. Resolved into textures the water can read.
     this._gpuMark('water');
+    /* Wraithguard: the first frame on a set of targets records what the GL said about the
+       resolve and the surface (`T.diag`, shown in the viewer's Report) - the water draws
+       wrong on Linux (WebKitGTK over OpenGL) and right on Windows (Direct3D), and these are
+       the steps where the two differ. */
+    const diag=!T.diag;
+    if(diag){ for(let i=0;i<8 && gl.getError()!==gl.NO_ERROR;i++){} }
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER,T.sceneFB);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,T.resolveFB);
     gl.blitFramebuffer(0,0,W,H,0,0,W,H,gl.COLOR_BUFFER_BIT,gl.NEAREST);
+    const errCol=diag? gl.getError() : 0;
     gl.blitFramebuffer(0,0,W,H,0,0,W,H,gl.DEPTH_BUFFER_BIT,gl.NEAREST);
+    const errDep=diag? gl.getError() : 0;
 
     /* Round 18du: MGE's caustics over what lies under the water line, into the scene
        before the surface reads it (35_underwater.js `drawCaustics`), and the colour
@@ -1067,6 +1086,14 @@ Object.assign(Renderer.prototype,{
     gl.depthMask(true);
     gl.enable(gl.CULL_FACE);
     gl.bindVertexArray(null);
+    if(diag){
+      let hp=null, depBits=null;
+      try{ const f=gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER,gl.HIGH_FLOAT); hp=f? f.precision : null; }catch(_){ }
+      try{ gl.bindFramebuffer(gl.FRAMEBUFFER,T.resolveFB); depBits=gl.getParameter(gl.DEPTH_BITS);
+           gl.bindFramebuffer(gl.FRAMEBUFFER,T.sceneFB); }catch(_){ }
+      T.diag={errCol, errDep, errSurface:gl.getError(), samples:T.samples, near, far, hp, depBits,
+              W, H, RW:T.RW, RH:T.RH, refl:this.reflDrawn, rect:this.reflRect, vol:!!vol, waves};
+    }
     /* 5. And now what writes no depth: the waterfalls, the mist, the flames — over the
        surface, tested against the scene's depth. Drawn before the surface they were under
        its reflection wherever the surface lay behind them (round 17x). */

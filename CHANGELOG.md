@@ -172,6 +172,10 @@
   typing `/` or `~`). Without either (the Flatpak), Tk's picker shows hidden
   files and its "Show hidden files" toggle, in the dark theme.
   `WRAITHGUARD_FILE_DIALOG=tk` (or `kdialog`/`zenity`) picks one.
+- **Linux: MGE water drawn in straight horizontal bands** (black at night) where the
+  sea lies almost level with the sand. The viewer's offscreen scene now keeps its depth
+  as a 32-bit float rather than 24-bit, the same on every driver; the Report's
+  Performance section adds a "water:" line with what the GPU said about the water pass.
 - **Linux: black blocks on the buttons after going fullscreen**, and pane dividers
   lagging while dragged. The scrolling forms redraw once a resize settles, and their
   relayout runs once per idle pass instead of once per pixel of a drag.

@@ -1257,6 +1257,10 @@ function openLog(){
     let card='unknown';
     try{ const dbg=gl.getExtension('WEBGL_debug_renderer_info');
          if(dbg) card=gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)||'unknown'; }catch(_){ }
+    /* WebKit (the viewer's engine on Linux and macOS) hides the real GPU from pages and
+       answers "Apple GPU" everywhere - a Steam Deck included. Said as such off a Mac. */
+    if(/^Apple GPU$/i.test(card) && !/Mac/i.test(navigator.platform||''))
+      card='hidden by WebKit (it reports every GPU as "Apple GPU")';
     /* Round 18cr: three numbers where there was one. Robin: "I think the performance
        report doesn't show correct amount of FPS, as I can feel the scene stutter a bit."
        The twenty frames are timed twice over - the page's own submit (`draw()` returning,
@@ -1291,6 +1295,18 @@ function openLog(){
     const gtris=(R.batches||[]).reduce((a,x)=>a+(x.count/3)*x.n,0);
     const n=x=>x.toLocaleString();
     line({k:'ok', t:'GPU: '+card});
+    /* Wraithguard: what the GL said about MGE's water on its first frame (26_water.js,
+       `T.diag`) - for the black band Linux draws over the water and Windows does not. */
+    { const d=R._wt && R._wt.diag;
+      if(d){
+        const e=x=>x? '0x'+x.toString(16) : 'ok';
+        line({k:(d.errCol||d.errDep||d.errSurface)? 'w' : 'ok',
+              t:'water: resolve colour '+e(d.errCol)+', depth '+e(d.errDep)+', surface '+e(d.errSurface)+
+                ' · '+d.W+'×'+d.H+' ×'+d.samples+' samples, depth '+d.depBits+' bits'+
+                ' · near '+(+d.near).toFixed(2)+' far '+Math.round(d.far)+' · highp '+d.hp+' bits'+
+                ' · reflection '+(d.refl? (d.rect? 'band '+d.rect.map(v=>v.toFixed(2)).join(',') : 'whole') : 'skipped')+
+                ' '+d.RW+'×'+d.RH+' · waves '+(d.waves? 'on' : 'off')+', volume '+(d.vol? 'yes' : 'no')});
+      } }
     const vpLine=line({k:'ok', t:'viewport '+gl.drawingBufferWidth+'×'+gl.drawingBufferHeight+
                     (ms!=null? ' — '+ms.toFixed(1)+' ms a frame from submit to last pixel ('+(1000/ms).toFixed(0)+' fps), of which the page submitting '+
                                cpu.toFixed(1)+' ms' : '')+
