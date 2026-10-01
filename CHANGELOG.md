@@ -5,6 +5,17 @@
 
 ### Changed
 
+- **Linux: the AppImage is replaced by a Flatpak and a plain build.**
+  - `wraithguard-toolkit-linux-x86_64.flatpak` is the Steam Deck's build:
+    `flatpak install --user` it in Desktop Mode. WebKitGTK, GTK, the GPU driver and
+    the C++ runtime come from the GNOME runtime, matched to each other and to the
+    host, and the toolkit runs on its own free-threaded Python 3.14
+    (packaging/flatpak/, build-flatpak.yml).
+  - `wraithguard-toolkit-linux-x86_64.tar.gz` is the app as a folder, for any distro
+    with WebKitGTK 4.1 (`libwebkit2gtk-4.1-0` or your distro's name for it): the
+    viewer runs on the system's own WebKit, and nothing of the system's is bundled.
+  - The AppImage carried WebKitGTK and its whole dependency tree; every library the
+    host also had could shadow the host's copy, and on the Deck they did (see Fixed).
 - **Cell Preview's water looks like MGE XE's on every setup.** MoMW runs OpenMW, which
   has no MGE XE files, so the waves were a three-sine stand-in. The viewer now ships
   MGE XE's own wave volume (`water_NRM.dds`, GPL-2.0, in the viewer page's silo) and
@@ -170,12 +181,13 @@
   deep red, each count's colour taken half from how many cells sit below it and half from
   its place among the distinct counts, and hotter cells drawn more opaque.
 - **Flat colour and Relief** in the mesh viewer drew black.
-- **The Linux AppImage on the Steam Deck** (4.2.0): the viewer aborted with "Could not
-  create default EGL display: EGL_BAD_PARAMETER". The AppImage no longer carries its
-  build machine's EGL, GL, GBM, DRM and Wayland libraries - the host's GPU driver needs
-  its own - and the viewer starts through a launcher that retries on X11, then without
-  GPU compositing, if WebKit still cannot open the display. GTK's accessibility bridge
-  is left off in the viewer (its "atk-bridge: unknown signature" warning on the Deck).
+- **Linux on the Steam Deck** (4.2.0's AppImage): the viewer aborted with "Could not
+  create default EGL display: EGL_BAD_PARAMETER" - the Deck's GPU driver could not
+  start against the build machine's libraries - and a shell the toolkit started
+  failed with "undefined symbol: rl_trim_arg_from_keyseq". The Flatpak takes those
+  libraries from its runtime (see Changed), and programs the toolkit starts (the
+  viewer, a browser, a shell) no longer inherit the frozen app's own library path, so
+  they load the system's libraries rather than the copies bundled with the app.
 - **Release signing is retired.** The minisign step, `tools/sign_release.py` and
   `minisign.pub` are gone: the `.minisig` files drew false antivirus (trojan)
   detections, and a published flaw in minisign's trusted comments

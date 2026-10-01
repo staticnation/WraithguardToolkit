@@ -153,5 +153,5 @@ that is not defined, or a `#[tauri::command]` is left unregistered.
 - Dropping an optional effect (SSAO, FXAA, depth of field, shadows, underwater)
   does not remove the GPL: `06_gl.js` and `26_water.js` also carry MGE XE ports.
 - The viewer runs on the OS webview: WebView2 on Windows (the `-webview2.zip`
-  release bundles a fixed-version runtime), WebKitGTK on Linux (the AppImage
-  bundles it), WKWebView on macOS.
+  release bundles a fixed-version runtime), WebKitGTK on Linux (the system's, or
+  the GNOME runtime's in the Flatpak), WKWebView on macOS.

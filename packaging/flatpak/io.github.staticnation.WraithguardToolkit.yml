@@ -1,0 +1,144 @@
+# Wraithguard Toolkit as a Flatpak: the Linux build for the Steam Deck (SteamOS
+# installs desktop apps through Flatpak) and any other distro with Flatpak.
+#
+# Why Flatpak rather than the AppImage: the AppImage carried its build machine's
+# libraries, and each one the host also has could shadow the host's copy - the Deck
+# showed it twice (WebKit's "Could not create default EGL display: EGL_BAD_PARAMETER"
+# when Mesa met an older libstdc++/libwayland, and /bin/sh's "undefined symbol:
+# rl_trim_arg_from_keyseq" from an older libreadline). Here WebKitGTK 4.1, GTK, Mesa
+# (through Flatpak's GL extension, matched to the host's GPU) and the C++ runtime all
+# come from the GNOME runtime, built against each other. Nothing goes in /app/lib.
+#
+# The app runs from source on its own free-threaded Python (3.14t, as every other
+# build), not frozen by PyInstaller - so there is no bundle library path to leak
+# either. Python is python-build-standalone's 3.14t (it carries Tkinter and its own
+# Tcl/Tk; the GNOME runtime has no Tk). The workflow downloads it and checks it
+# against the release's SHA256SUMS before this build (build-flatpak.yml):
+#     build/flatpak/python.tar.gz
+#
+# Build locally from the repository root:
+#     flatpak-builder --user --install --force-clean --install-deps-from=flathub \
+#         build/flatpak/app packaging/flatpak/io.github.staticnation.WraithguardToolkit.yml
+#
+# Not a Flathub build: pip and cargo fetch their dependencies over the network during
+# the build (build-args below). Flathub would need every crate and wheel listed as a
+# source instead (flatpak-cargo-generator / flatpak-pip-generator).
+
+app-id: io.github.staticnation.WraithguardToolkit
+runtime: org.gnome.Platform
+# GNOME 50 (Freedesktop SDK 25.08) carries WebKitGTK 4.1, the WebKit Tauri v2 uses.
+runtime-version: "50"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: wraithguard
+
+finish-args:
+  - --share=ipc
+  # Tk draws only through X11 (XWayland on a Wayland session); the viewer's GTK
+  # follows it there.
+  - --socket=x11
+  # The viewer's GPU rendering (Cell Preview, the mesh viewer).
+  - --device=dri
+  # Update checks and downloads (wraithguard.net).
+  - --share=network
+  # Morrowind and OpenMW installs, mod folders and Steam libraries in the home
+  # folder; OpenMW's own Flatpak keeps openmw.cfg under ~/.var/app, which "home"
+  # does not reach, so it is named; /run/media for libraries and mods on an SD card.
+  - --filesystem=home
+  - --filesystem=~/.var/app/org.openmw.OpenMW
+  - --filesystem=/run/media
+
+modules:
+  # python-build-standalone's free-threaded CPython 3.14, in /app/python (its
+  # libraries stay in /app/python/lib, found through the interpreter's RPATH).
+  - name: python
+    buildsystem: simple
+    sources:
+      - type: archive
+        path: ../../build/flatpak/python.tar.gz
+    build-commands:
+      - mkdir -p /app/python
+      - cp -a . /app/python/
+      # Fail here, not at the user's first start, if this is not a free-threaded
+      # build or it has no Tkinter.
+      - >-
+        /app/python/bin/python3 -c "import sys, tkinter;
+        assert not sys._is_gil_enabled(), 'GIL is enabled -- not a free-threaded build';
+        print(sys.version, 'free-threaded OK, Tk', tkinter.TkVersion)"
+
+  # The toolkit, its Rust backend and its viewer shell.
+  - name: wraithguard
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      build-args:
+        # pip and cargo fetch crates, wheels and the staticnation forks.
+        - --share=network
+      env:
+        CARGO_HOME: /run/build/wraithguard/cargo
+        PIP_DISABLE_PIP_VERSION_CHECK: "1"
+        PIP_NO_CACHE_DIR: "1"
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - .flatpak-builder
+          - flatpak_app
+          - repo
+          - .venv
+          - .venv-t
+          - .mypy_cache
+          - .pytest_cache
+          - .ruff_cache
+          - build
+          - dist
+          - htmlcov
+          - output
+          - plugin_cache
+          - tes3conv_json
+          - testdata
+          - native/target
+          - viewer-shell/target
+      - type: file
+        path: wraithguard.sh
+      - type: file
+        path: io.github.staticnation.WraithguardToolkit.desktop
+      - type: file
+        path: io.github.staticnation.WraithguardToolkit.metainfo.xml
+    build-commands:
+      # The same runtime packages as the other builds (build-windows.yml).
+      - /app/python/bin/python3 -m pip install tkinterweb tkinterdnd2 PyYAML ijson certifi
+      # The Rust backend (native/, greatness7's tes3 crates), for this interpreter.
+      - /app/python/bin/python3 -m pip install ./native
+      # The viewer shell, on the runtime's WebKitGTK. It is started by
+      # wraithguard/viewer_launch.py through WRAITHGUARD_VIEWER (see wraithguard.sh).
+      - cd viewer-shell && cargo build --release
+      - install -Dm755 viewer-shell/target/release/wraithguard-viewer /app/bin/wraithguard-viewer
+      # The app, laid out as in a checkout (resource_path() and the imports expect
+      # the scripts beside the package), plus what the frozen builds carry.
+      - install -d /app/share/wraithguard
+      - >-
+        cp -a wraithguard wraithguard_toolkit_gui.py wraithguard_toolkit.py
+        README.md QUICKSTART.md MLOX_RULES.md CREDITS.md License
+        wraithguard_toolkit_icon.ico /app/share/wraithguard/
+      - install -Dm644 viewer-shell/ui/LICENSE /app/share/wraithguard/License/viewer-page/LICENSE
+      - find /app/share/wraithguard -name __pycache__ -type d -prune -exec rm -rf {} +
+      # /app is read-only at run time, so compile now rather than on every start.
+      # (Settings, logs and generated views go to ~/.var/app/<id>/config/MloxSubsetSort:
+      # app_base_dir() falls back there when the app folder is not writable.)
+      - /app/python/bin/python3 -m compileall -q /app/share/wraithguard
+      - install -Dm755 wraithguard.sh /app/bin/wraithguard
+      # Desktop entry, AppStream metadata and the icon (the .ico's 256x256 PNG frame,
+      # taken out by the app's own helper - no Pillow needed).
+      - install -Dm644 ${FLATPAK_ID}.desktop /app/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 ${FLATPAK_ID}.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - >-
+        /app/python/bin/python3 -c "import importlib.util as u;
+        s = u.spec_from_file_location('ico', 'wraithguard/images/ico.py');
+        m = u.module_from_spec(s); s.loader.exec_module(m);
+        png = m.largest_png_frame(open('wraithguard_toolkit_icon.ico', 'rb').read());
+        assert png and png[16:24] == bytes.fromhex('0000010000000100'), 'no 256x256 PNG frame';
+        open('icon.png', 'wb').write(png)"
+      - install -Dm644 icon.png /app/share/icons/hicolor/256x256/apps/${FLATPAK_ID}.png

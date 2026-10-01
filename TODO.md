@@ -19,8 +19,6 @@ TB_BM dialogue test passing against a baseline recorded from upstream 5ea27f1
   at Greatness7.
 - Clippy for our own crates (native, viewcore, viewer-shell) in
   `tools/build_and_check_rust.ps1` and CI, warnings first, `-D warnings` once clean.
-- Delete `native/vendor/` and `tools/vendor_merge_to_master.py`: the build no longer
-  reads them.
 
 ## OpenMW Lua tools
 

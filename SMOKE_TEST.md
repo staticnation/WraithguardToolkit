@@ -411,13 +411,13 @@ the things only a look can judge. Run them on the built app, not from source.
 | 6o | **Overlays**: path grids, light radii, collision, door links, editor markers, NPC reach; then **📏 Measure** two points | Each draws over the scene (fainter through walls). Door links end in an arrow at the landing spot. The tape gives the distance in units and metres, with the character gauge and ruler along it. |
 | 6p | **Links & export**: Copy spot, paste in OpenMW's console; **Save report…**; **Where used** on a mesh; a plugin's **Show on map** | The console lines put you at the view. The report is a .md with a .png beside it. Where used lists cells and a click opens one. The map marks the plugin's cells. |
 | 6q | The cell map's **Heat** list: mods, reference conflicts, land edits | The colours run yellow through orange to red, the busiest cells red. |
-| 6r | Steam Deck (desktop mode): open Cell Preview from the AppImage | The viewer opens (4.2.0 aborted with EGL_BAD_PARAMETER). |
+| 6r | Steam Deck (desktop mode): open Cell Preview from the Flatpak | The viewer opens (4.2.0's AppImage aborted with EGL_BAD_PARAMETER). |
 | 7 | **Cell Preview** in Vivec, with **Sewer waves** on, then off | Rings spread from the sewer outlets while it is on, and stop when it is off. |
 | 8 | Look at an animated effect: a lightning mesh or flames | The bolt flickers from shape to shape rather than showing every frame at once. |
 | 9 | Switch navigation to WASD (Tab), hold the right mouse button, press W/A/S/D/E/Q | The camera flies. Release the button and it stops. |
 | 10 | **View in 3D** on a mesh conflict | The mesh viewer opens on the files alone (no cell loading first), with the block tree beside it. |
 | 11 | Windows `-webview2.zip` build, on a machine without WebView2 | Cell Preview and the cell map still open. |
-| 12 | Linux AppImage on a Steam Deck (desktop mode) | The app starts, and Cell Preview opens. |
+| 12 | Linux Flatpak on a Steam Deck (desktop mode), then the `.tar.gz` on a desktop distro with WebKitGTK 4.1 | Each starts, Cell Preview opens, and **Open in browser** works. |
 | 13 | **Resource Conflicts**, then open a texture conflict with a large DDS (2048px, ideally a BC7 replacer) | Both sides and the difference image appear in well under a second (the decoders are Rust now); the numbers and the difference look as they did in 4.1. |
 | 14 | Tick **Lint** and sort | The lint warnings are the same as before 4.2.0 ([FOGBUG], [NO PATHGRID], [EVLGMST], [EXP-DEP], [HEADER]), and the stage finishes noticeably faster on a big list. |
 

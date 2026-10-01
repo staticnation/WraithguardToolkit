@@ -12,7 +12,9 @@ in about five minutes. For the full reference, see [README.md](README.md).
 - The app itself: a release build from the
   [Releases page](https://github.com/staticnation/WraithguardToolkit/releases)
   (Windows `.exe`, or the `-webview2.zip` for a PC without WebView2; macOS `.app`;
-  Linux/Steam Deck `.AppImage`) needs nothing else. From source you need Python
+  Steam Deck or any Linux: the `.flatpak`, installed with
+  `flatpak install --user <file>`; other Linux: the `.tar.gz`, which needs the
+  system's WebKitGTK 4.1, e.g. `libwebkit2gtk-4.1-0`) needs nothing else. From source you need Python
   3.14+ with tkinter (Linux: `sudo apt install python3-tk`) and the Rust module:
   `pip install ./native` with a Rust toolchain installed - see the README's
   *Requirements & setup*.

@@ -1,0 +1,124 @@
+# Build the Linux Flatpak and upload it as an artifact (and a release asset on tags).
+#
+# The Steam Deck's build: SteamOS installs desktop apps through Flatpak, and the GNOME
+# runtime brings WebKitGTK, GTK, Mesa and the C++ runtime matched to each other and to
+# the host's GPU - what the AppImage kept getting wrong by bundling its own
+# (packaging/flatpak/io.github.staticnation.WraithguardToolkit.yml says more).
+#
+# Two jobs: the first fetches python-build-standalone's free-threaded CPython 3.14
+# and checks it against the release's SHA256SUMS (on a plain runner, which has Python
+# and the GitHub token); the second builds the Flatpak in Flathub's GNOME 50 image.
+# Pin the Python release with the repository variable PBS_TAG (a
+# python-build-standalone tag, e.g. 20251014); empty = the latest release.
+#
+# Install on a Deck (Desktop Mode, Konsole):
+#     flatpak install --user ./wraithguard-toolkit-linux-x86_64.flatpak
+
+name: Build Linux Flatpak
+
+on:
+  workflow_dispatch:
+  push:
+    # A `v*` tag cuts a release; a `build/**` branch is a dry run (artifact only).
+    tags: ["v*"]
+    branches: ["build/**"]
+
+permissions:
+  contents: write # attach to a Release on tag builds
+
+concurrency:
+  group: build-flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fetch free-threaded CPython 3.14 (python-build-standalone)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PBS_TAG: ${{ vars.PBS_TAG }}
+        run: |
+          mkdir -p build/flatpak
+          python3 - <<'PY'
+          import hashlib, json, os, re, sys, urllib.request
+
+          repo = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/"
+          tag = os.environ.get("PBS_TAG", "").strip()
+          headers = {"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                     "Accept": "application/vnd.github+json"}
+
+          def get(url, accept=None):
+              h = dict(headers)
+              if accept:
+                  h["Accept"] = accept
+              with urllib.request.urlopen(urllib.request.Request(url, headers=h)) as r:
+                  return r.read()
+
+          rel = json.loads(get(repo + (f"tags/{tag}" if tag else "latest")))
+          assets = {a["name"]: a for a in rel["assets"]}
+          pat = re.compile(r"cpython-3\.14\.\d+\+\d+-x86_64-unknown-linux-gnu-"
+                           r"freethreaded.*install_only(_stripped)?\.tar\.gz$")
+          # The stripped archive first (no debug symbols), else the plain one.
+          names = sorted((n for n in assets if pat.match(n)), key=lambda n: "_stripped" not in n)
+          if not names:
+              print(f"no free-threaded 3.14 x86_64 install_only archive in {rel['tag_name']}:")
+              print("\n".join(n for n in assets if "3.14" in n and "x86_64-unknown-linux-gnu" in n))
+              sys.exit(1)
+          name = names[0]
+
+          want = None
+          if "SHA256SUMS" in assets:
+              sums = get(assets["SHA256SUMS"]["url"], "application/octet-stream").decode()
+              for line in sums.splitlines():
+                  parts = line.split()
+                  if len(parts) == 2 and parts[1].lstrip("*") == name:
+                      want = parts[0].lower()
+          if want is None and (assets[name].get("digest") or "").startswith("sha256:"):
+              want = assets[name]["digest"].split(":", 1)[1].lower()
+          if want is None:
+              sys.exit(f"no SHA-256 published for {name}")
+
+          data = get(assets[name]["url"], "application/octet-stream")
+          got = hashlib.sha256(data).hexdigest()
+          if got != want:
+              sys.exit(f"{name}: SHA-256 {got}, release says {want}")
+          with open("build/flatpak/python.tar.gz", "wb") as f:
+              f.write(data)
+          print(f"{rel['tag_name']}: {name} ({len(data) // 1048576} MB), SHA-256 OK")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-3.14t
+          path: build/flatpak/python.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  flatpak:
+    needs: python
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-3.14t
+          path: build/flatpak
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/io.github.staticnation.WraithguardToolkit.yml
+          bundle: wraithguard-toolkit-linux-x86_64.flatpak
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/**', 'native/Cargo.lock', 'viewer-shell/Cargo.lock') }}
+
+      - name: Publish the release asset (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: wraithguard-toolkit-linux-x86_64.flatpak
+          fail_on_unmatched_files: false
+          # No generate_release_notes: build-linux.yml owns the release notes.

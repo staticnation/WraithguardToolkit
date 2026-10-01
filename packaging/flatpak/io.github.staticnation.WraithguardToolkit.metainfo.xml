@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.staticnation.WraithguardToolkit</id>
+  <name>Wraithguard Toolkit</name>
+  <summary>Morrowind and OpenMW load order, conflicts and cell preview</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <!-- The toolkit is MIT; the viewer's page (viewer-shell/ui) is GPL-2.0, for its
+       MGE XE shader ports. -->
+  <project_license>MIT AND GPL-2.0-only</project_license>
+  <developer id="io.github.staticnation">
+    <name>Static</name>
+  </developer>
+  <description>
+    <p>
+      Sorts your own Morrowind mods into a frozen MOMW load order, finds conflicts
+      between plugins and resources, builds patches and merged lands, and previews
+      cells as the load order has them.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/staticnation/WraithguardToolkit</url>
+  <url type="bugtracker">https://github.com/staticnation/WraithguardToolkit/issues</url>
+  <launchable type="desktop-id">io.github.staticnation.WraithguardToolkit.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+</component>

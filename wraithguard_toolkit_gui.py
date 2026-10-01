@@ -63,10 +63,16 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from wraithguard.images.ico import largest_png_frame
-from wraithguard.land import meta as land_meta, service as land_service
-from wraithguard.logging_setup import get_logger
-from wraithguard.patch.summary import ALL_TAGS, field_statuses, search_rows
+from wraithguard.proc import restore_host_library_path
+
+# Before anything starts a child process: a frozen Linux build's own library folder
+# must not reach host programs (/bin/sh, xdg-open, the viewer). See proc.py.
+restore_host_library_path()
+
+from wraithguard.images.ico import largest_png_frame  # noqa: E402
+from wraithguard.land import meta as land_meta, service as land_service  # noqa: E402
+from wraithguard.logging_setup import get_logger  # noqa: E402
+from wraithguard.patch.summary import ALL_TAGS, field_statuses, search_rows  # noqa: E402
 
 LOG = get_logger(__name__)
 
@@ -4090,7 +4096,7 @@ class App(
         # the bug with the old pywebview child; the same caution still
         # applies to this one.
         # (wraithguard.viewer_launch: where the viewer is and what it needs -- the
-        # AppImage's bundled WebKit, the bundled WebView2 runtime, CREATE_NO_WINDOW.)
+        # Flatpak's viewer, the bundled WebView2 runtime, CREATE_NO_WINDOW.)
         from wraithguard.viewer_launch import viewer_binary, viewer_popen_kwargs
 
         viewer_bin = viewer_binary()

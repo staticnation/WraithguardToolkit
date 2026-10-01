@@ -122,7 +122,7 @@ WraithguardToolkit/
 ├── viewer-shell/                 wraithguard-viewer (Tauri): viewcore/ is its
 │                                 engine, ui/ its page (GPL-2.0, kept apart),
 │                                 check/ + check-commands/ the CI compile checks.
-├── packaging/                    Linux AppImage recipe (AppRun, desktop file).
+├── packaging/                    The Linux Flatpak (manifest, launcher, desktop file).
 ├── tools/                        Developer scripts (not shipped): the gate
 │                                 checkers, the code generators, make_pot.py,
 │                                 and setup_dev_env.ps1 / build_and_check_rust.ps1
@@ -203,7 +203,8 @@ outputs survive the build:
 The viewer (cell map, Cell Preview, mesh viewer, conflict views) draws with the
 system webview: **WebView2** on Windows (present on Windows 11 and updated Windows
 10; the `-webview2.zip` release carries its own for machines without it),
-**WebKitGTK** on Linux (the AppImage carries it), **WKWebView** on macOS. Without
+**WebKitGTK** on Linux (the system's own; the Flatpak's GNOME runtime has it),
+**WKWebView** on macOS. Without
 the viewer, the cell map falls back to **tkinterweb** if installed, then to your
 browser. To see which path a build took, run it with `--trace` and read the
 `viewers:` and `cell map: viewer = ...` lines in the log.
@@ -238,7 +239,8 @@ hash it and compare:
 
 ```
 Get-FileHash wraithguard-toolkit-windows-x86_64.exe -Algorithm SHA256   # Windows
-sha256sum wraithguard-toolkit-linux-x86_64.AppImage                     # Linux
+sha256sum wraithguard-toolkit-linux-x86_64.flatpak                      # Linux (Flatpak)
+sha256sum wraithguard-toolkit-linux-x86_64.tar.gz                       # Linux (plain)
 shasum -a 256 Wraithguard-Toolkit-macos-arm64.zip                       # macOS
 ```
 

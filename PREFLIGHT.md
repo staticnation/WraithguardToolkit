@@ -9,7 +9,8 @@ from the repo folder (`WraithguardToolkit`).
 | Workflow | Runs on | What it does |
 |---|---|---|
 | `ci.yml` | every push, any branch; pull requests | the checks below, on Linux, under Python 3.14 and 3.14t; the viewer's engine tests; the page boot tests; the GUI smoke tests |
-| `build-linux.yml` | `build/**` branches, `v*` tags, manual | the AppImage (Steam Deck) |
+| `build-linux.yml` | `build/**` branches, `v*` tags, manual | the plain Linux `.tar.gz` (needs the system's WebKitGTK 4.1) |
+| `build-flatpak.yml` | `build/**` branches, `v*` tags, manual | the `.flatpak` (Steam Deck; set `PBS_TAG` to pin its Python) |
 | `build-macos.yml` | `build/**` branches, `v*` tags, manual | the `.app`, Intel and Apple Silicon |
 | `build-windows.yml` | `v*` tags, manual only | the `.exe`, and the zip with WebView2 bundled (needs the `WEBVIEW2_FIXED_URL` variable) |
 
@@ -181,7 +182,7 @@ CI runs on the push. Watch it under **Actions** on GitHub.
 
 ### A test build (build branch)
 
-A `build/**` branch builds the Linux AppImage and the macOS app, without making a release.
+A `build/**` branch builds the Linux `.tar.gz` and `.flatpak` and the macOS app, without making a release.
 
 ```powershell
 git switch main

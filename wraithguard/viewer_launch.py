@@ -3,14 +3,12 @@
 One place that knows, for every way the toolkit is shipped, where the viewer is and
 what it needs around it to start:
 
-* **Linux AppImage** (``packaging/linux``): the viewer is inside the AppImage with
-  WebKitGTK and its whole dependency tree beside it, so it runs on a machine with no
-  WebKitGTK at all (a Steam Deck). The AppImage's ``AppRun`` says where
-  (``WRAITHGUARD_VIEWER``) and which folder it must start in
-  (``WRAITHGUARD_VIEWER_CWD``: the bundled WebKit finds its helper processes relative
-  to it). A bundled WebKit also runs without its bubblewrap sandbox (the viewer only
-  ever shows its own local page) and without the DMA-BUF renderer, which fails on
-  several GPU stacks, the Deck's included.
+* **Linux Flatpak** (``packaging/flatpak``, the Steam Deck's build): the viewer is in
+  ``/app/bin`` on the GNOME runtime's WebKitGTK, and the launcher names it
+  (``WRAITHGUARD_VIEWER``).
+* **Linux, plain build** (build-linux.yml): the viewer is beside the app and runs on
+  the machine's own WebKitGTK 4.1. On Linux the viewer starts without the DMA-BUF
+  renderer, which fails on several GPU stacks, the Deck's included.
 * **Windows, WebView2-bundled build**: the Fixed Version WebView2 runtime ships in a
   ``webview2`` folder beside the app, for machines without the system runtime (older
   Windows, or WebView2 removed along with Edge). ``WEBVIEW2_BROWSER_EXECUTABLE_FOLDER``
@@ -24,6 +22,8 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+
+from wraithguard.proc import host_library_path
 
 VIEWER_NAME = "wraithguard-viewer.exe" if os.name == "nt" else "wraithguard-viewer"
 
@@ -89,9 +89,12 @@ def viewer_env() -> dict[str, str]:
     """
     env = dict(os.environ)
     if sys.platform.startswith("linux"):
+        # Not the toolkit's bundled libraries (an older libstdc++ among them): the
+        # host GPU driver loaded into the viewer cannot start with them, and WebKit
+        # aborts with EGL_BAD_PARAMETER. The viewer uses the system's libraries.
+        # Start-up already did this for the whole process; again here in case not.
+        host_library_path(env)
         env.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
-        if env.get("APPDIR") or env.get("WRAITHGUARD_VIEWER_CWD"):
-            env.setdefault("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1")
     runtime = bundled_webview2()
     if runtime:
         env.setdefault("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", runtime)
@@ -102,14 +105,11 @@ def viewer_popen_kwargs() -> dict[str, object]:
     """Everything ``subprocess.Popen`` needs to start the viewer, besides argv.
 
     Returns:
-        ``env``, ``cwd`` (the AppImage's), and on Windows ``creationflags`` =
-        CREATE_NO_WINDOW -- not the SW_HIDE startup info, which the viewer's first
-        window would inherit and so never show.
+        ``env``, and on Windows ``creationflags`` = CREATE_NO_WINDOW -- not the
+        SW_HIDE startup info, which the viewer's first window would inherit and so
+        never show.
     """
     kw: dict[str, object] = {"env": viewer_env()}
-    cwd = os.environ.get("WRAITHGUARD_VIEWER_CWD")
-    if cwd and Path(cwd).is_dir():
-        kw["cwd"] = cwd
     if os.name == "nt":
         kw["creationflags"] = 0x08000000
     return kw

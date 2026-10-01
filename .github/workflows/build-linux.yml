@@ -1,23 +1,26 @@
-# Build the Linux AppImage and upload it as an artifact (and a release asset on tags).
+# Build the plain Linux app and upload it as an artifact (and a release asset on tags).
 #
-# One self-contained AppImage: the toolkit, its viewer shell, and WebKitGTK with its
-# whole dependency tree (packaging/linux/build-appimage.sh), so it runs on machines
-# with no WebKitGTK of their own - the Steam Deck's SteamOS ships none. The earlier
-# Docker build copied the viewer into the PyInstaller bundle as a bare ELF with none
-# of the ~70 shared libraries it needs, which is why it could not start on a Deck.
+# A .tar.gz of the PyInstaller folder build with the viewer shell beside it - nothing
+# of the system's carried along. The viewer runs on the machine's own WebKitGTK 4.1
+# (libwebkit2gtk-4.1: Ubuntu 22.04+, Debian 12+, Fedora, Arch), so a distro that has
+# it gets its own GTK, Mesa and C++ runtime, matched to each other. The Steam Deck's
+# SteamOS ships no WebKitGTK: its build is the Flatpak (build-flatpak.yml).
 #
-# Built on Ubuntu 22.04 on purpose: an AppImage runs where the build machine's glibc
-# runs, and 22.04's 2.35 is older than any current SteamOS; it also has
-# libwebkit2gtk-4.1 (Tauri v2's WebKit).
+# This replaced the AppImage, which carried WebKitGTK and its ~70 libraries with it:
+# every one the host also had could shadow the host's copy, and on the Deck they did
+# (EGL_BAD_PARAMETER from Mesa, an undefined readline symbol in /bin/sh).
+#
+# Built on Ubuntu 22.04 on purpose: the build runs where the build machine's glibc
+# runs, and 22.04's 2.35 is older than any current distro; it also has
+# libwebkit2gtk-4.1 (Tauri v2's WebKit) to build the viewer against.
 
 name: Build Linux app
 
 on:
   workflow_dispatch:
   push:
-    # A `v*` tag cuts a release (Release/sign steps are tag-gated). A `build/**`
-    # branch is a dry run: it builds and uploads the AppImage as an artifact but
-    # attaches nothing.
+    # A `v*` tag cuts a release (Release steps are tag-gated). A `build/**` branch is a
+    # dry run: it builds and uploads the archive as an artifact but attaches nothing.
     tags: ["v*"]
     branches: ["build/**"]
 
@@ -35,14 +38,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: System packages
-        # Tauri v2's Linux build prerequisites (webkit2gtk-4.1), Tk for the toolkit,
-        # and what the AppImage step uses (file for linuxdeploy, wget).
+        # Tauri v2's Linux build prerequisites (webkit2gtk-4.1) and Tk for the toolkit.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
             librsvg2-dev libssl-dev libxdo-dev pkg-config build-essential \
-            file wget tk-dev
+            file tk-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -72,18 +74,18 @@ jobs:
           python -c "import sys; assert not sys._is_gil_enabled(), 'GIL is enabled -- not a free-threaded build'; print('free-threaded OK')"
 
       - name: Install build dependencies
-        # Pillow only for the AppImage icon (build time); the app does not import it.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller tkinterweb tkinterdnd2 PyYAML ijson certifi pillow
+          python -m pip install pyinstaller tkinterweb tkinterdnd2 PyYAML ijson certifi
 
       - name: Build the Rust backend (native/, greatness7's tes3 crates)
         run: python -m pip install ./native
 
       - name: Build the toolkit (PyInstaller, one folder)
-        # --onedir, not --onefile: the AppImage is the single file, and a onefile
-        # inside it would unpack itself to /tmp on every start. The viewer is not
-        # added here - it lives in the AppImage beside its WebKit (AppRun names it).
+        # --onedir, not --onefile: a onefile build would unpack itself to /tmp on every
+        # start. The viewer is not given to PyInstaller (--add-binary would make it
+        # collect WebKitGTK's whole dependency tree into _internal); it is copied in
+        # beside the executable afterwards, where wraithguard/viewer_launch.py looks.
         run: |
           python -m PyInstaller --noconfirm --clean --onedir --windowed \
             --name wraithguard_toolkit_gui \
@@ -102,63 +104,49 @@ jobs:
             --add-data "wraithguard_toolkit_icon.ico:." \
             --add-data "wraithguard/viz/assets:assets" \
             wraithguard_toolkit_gui.py
+          install -m755 viewer-shell/target/release/wraithguard-viewer dist/wraithguard_toolkit_gui/
 
-      - name: Build the AppImage
-        run: bash packaging/linux/build-appimage.sh
-
-      - name: Check it is self-contained
-        # The viewer's libraries must all resolve inside the AppImage: anything
-        # ldd finds only on the host is something a Steam Deck will not have.
+      - name: Check it carries nothing of the system's
+        # The viewer must take WebKitGTK, GTK and the graphics stack from the machine it
+        # runs on, and nothing in the bundle may stand in for them.
         run: |
-          cd dist
-          ./Wraithguard-x86_64.AppImage --appimage-extract >/dev/null
-          deps=$(LD_LIBRARY_PATH= ldd squashfs-root/usr/bin/wraithguard-viewer)
+          cd dist/wraithguard_toolkit_gui
+          test -x wraithguard-viewer || { echo "the viewer is not beside the app"; ls -la; exit 1; }
+          deps=$(LD_LIBRARY_PATH= ldd wraithguard-viewer)
           echo "$deps"
-          ! echo "$deps" | grep -q 'not found'
-          # The host has WebKit installed too, so "found" is not enough: these must be
-          # the AppImage's own copies.
-          for lib in libwebkit2gtk-4.1 libjavascriptcoregtk-4.1 libgtk-3 libsoup-3; do
-            echo "$deps" | grep "$lib" | grep -q squashfs-root || { echo "$lib resolves outside the AppImage"; exit 1; }
-          done
-          # Every check says what failed: a bare `test` ends the step with no reason.
-          test -x squashfs-root/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitWebProcess \
-            || { echo "WebKitWebProcess missing:"; ls -la squashfs-root/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/ || true; exit 1; }
-          # ...and the graphics stack must be the host's (the Deck's EGL_BAD_PARAMETER),
-          # started through the launcher that retries without it.
-          stray=$(find squashfs-root/usr/lib \( -name 'libEGL*.so*' -o -name 'libGL*.so*' -o -name 'libgbm.so*' -o -name 'libdrm*.so*' -o -name 'libwayland-*.so*' -o -name 'libstdc++.so*' -o -name 'libgcc_s.so*' \) -print)
-          [ -z "$stray" ] || { echo "graphics libraries bundled: $stray"; exit 1; }
-          test -x squashfs-root/usr/bin/wraithguard-viewer-run \
-            || { echo "launcher missing or not executable:"; ls -la squashfs-root/usr/bin/; exit 1; }
-          # linuxdeploy wraps our AppRun in its own (which loads the GTK hook, then runs
-          # AppRun.wrapped) whenever an apprun-hooks folder exists, so ours may be either.
-          grep -qs wraithguard-viewer-run squashfs-root/AppRun squashfs-root/AppRun.wrapped \
-            || { echo "AppRun does not start the launcher:"; ls -la squashfs-root/AppRun*; head -40 squashfs-root/AppRun* || true; exit 1; }
-          echo "self-contained: OK"
-          rm -rf squashfs-root
+          ! echo "$deps" | grep -q 'not found' || { echo "the viewer has unresolved libraries"; exit 1; }
+          stray=$(find . \( -name 'libwebkit2gtk*' -o -name 'libjavascriptcoregtk*' -o -name 'libgtk-3*' \
+            -o -name 'libgdk-3*' -o -name 'libsoup-3*' -o -name 'libEGL*' -o -name 'libGL*' -o -name 'libgbm*' \
+            -o -name 'libdrm*' -o -name 'libwayland-*' \) -print)
+          [ -z "$stray" ] || { echo "bundled system libraries: $stray"; exit 1; }
+          echo "plain build: OK"
 
-      - name: Upload the AppImage
+      - name: Pack it
+        # One top-level folder in the archive, named for what it is.
+        run: |
+          mv dist/wraithguard_toolkit_gui dist/wraithguard-toolkit
+          tar -C dist -czf dist/wraithguard-toolkit-linux-x86_64.tar.gz wraithguard-toolkit
+          ls -lh dist/wraithguard-toolkit-linux-x86_64.tar.gz
+
+      - name: Upload the build
         uses: actions/upload-artifact@v4
         with:
-          name: wraithguard-toolkit-linux-x86_64-appimage
-          path: dist/Wraithguard-x86_64.AppImage
+          name: wraithguard-toolkit-linux-x86_64
+          path: dist/wraithguard-toolkit-linux-x86_64.tar.gz
           if-no-files-found: error
           retention-days: 14
-
-      - name: Name it for the release (tag builds only)
-        if: startsWith(github.ref, 'refs/tags/')
-        run: cp dist/Wraithguard-x86_64.AppImage dist/wraithguard-toolkit-linux-x86_64.AppImage
 
       - name: Publish the release asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/wraithguard-toolkit-linux-x86_64.AppImage
+            dist/wraithguard-toolkit-linux-x86_64.tar.gz
           fail_on_unmatched_files: false
-          # This single-run job is the sole owner of the release notes: the Windows
-          # and macOS build steps deliberately omit generate_release_notes because
-          # they are matrixed and each set call appends another "Full Changelog"
-          # block to the shared release. Keeping it here (and only here) yields one
-          # changelog. If this job is ever matrixed, move note generation to a
-          # dedicated release job so it still fires exactly once.
+          # This single-run job is the sole owner of the release notes: the Windows,
+          # macOS and Flatpak build steps deliberately omit generate_release_notes
+          # because each set call appends another "Full Changelog" block to the shared
+          # release. Keeping it here (and only here) yields one changelog. If this job
+          # is ever matrixed, move note generation to a dedicated release job so it
+          # still fires exactly once.
           generate_release_notes: true

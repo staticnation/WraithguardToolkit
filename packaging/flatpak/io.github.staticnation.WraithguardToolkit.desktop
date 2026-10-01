@@ -2,7 +2,7 @@
 Type=Application
 Name=Wraithguard Toolkit
 Comment=Morrowind / OpenMW load order, conflicts and cell preview
-Exec=wraithguard_toolkit_gui
-Icon=wraithguard
+Exec=wraithguard
+Icon=io.github.staticnation.WraithguardToolkit
 Categories=Game;Utility;
 Terminal=false
