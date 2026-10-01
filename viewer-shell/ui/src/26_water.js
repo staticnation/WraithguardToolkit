@@ -659,7 +659,9 @@ Object.assign(Renderer.prototype,{
   _waterTargets(){
     const gl=this.gl, W=this.cv.width, H=this.cv.height;
     const t=this._wt;
-    if(t && t.W===W && t.H===H) return t;
+    // Water debug 6: no multisampling, to test the depth resolve on Linux.
+    const noMS=+this.opts.waterDebug===6 || +this.opts.waterDebug===7;
+    if(t && t.W===W && t.H===H && !!t.noMS===noMS) return t;
     if(t){
       for(const k of ['sceneFB','resolveFB','reflFB','shaftA','shaftB']) try{ gl.deleteFramebuffer(t[k]); }catch(_){ }
       for(const k of ['colRB','depRB','reflDepRB']) try{ gl.deleteRenderbuffer(t[k]); }catch(_){ }
@@ -676,8 +678,8 @@ Object.assign(Renderer.prototype,{
     const DEPTH=gl.DEPTH_COMPONENT32F;
     let depthMax=4;
     try{ const s=gl.getInternalformatParameter(gl.RENDERBUFFER,DEPTH,gl.SAMPLES); if(s && s.length) depthMax=s[0]; }catch(_){ }
-    const samples=Math.min(4, gl.getParameter(gl.MAX_SAMPLES)||0, depthMax);
-    const n={W,H,samples};
+    const samples=noMS? 0 : Math.min(4, gl.getParameter(gl.MAX_SAMPLES)||0, depthMax);
+    const n={W,H,samples,noMS};
     // The scene, multisampled, so the grass keeps its soft edges.
     n.sceneFB=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,n.sceneFB);
     n.colRB=gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER,n.colRB);
@@ -1057,7 +1059,7 @@ Object.assign(Renderer.prototype,{
     gl.uniform1f(wp.u.uTintAmt, Math.min(1, Math.max(0, +this.opts.waterTint||0)));
     gl.uniform1i(wp.u.uSewers, this.opts.sewerWaves===false? 0 : 1);   // on unless switched off
     const dbg=+this.opts.waterDebug||0;
-    if(wp.u.uDbg) gl.uniform1i(wp.u.uDbg, dbg>=1 && dbg<=4? dbg : 0);
+    if(wp.u.uDbg) gl.uniform1i(wp.u.uDbg, dbg>=1 && dbg<=4? dbg : dbg===7? 4 : 0);
     gl.uniform1i(wp.u.uReflBlur, this.reflBlurOn()? 1 : 0);
     // Wraithguard: the rain ripples (43_wg_rain.js), stepped above, on unit 10.
     const rainT=this.rainTexture? this.rainTexture() : null;
