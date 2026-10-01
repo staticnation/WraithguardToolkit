@@ -125,7 +125,7 @@ jobs:
             || { echo "WebKitWebProcess missing:"; ls -la squashfs-root/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/ || true; exit 1; }
           # ...and the graphics stack must be the host's (the Deck's EGL_BAD_PARAMETER),
           # started through the launcher that retries without it.
-          stray=$(find squashfs-root/usr/lib \( -name 'libEGL*.so*' -o -name 'libGL*.so*' -o -name 'libgbm.so*' -o -name 'libdrm*.so*' -o -name 'libwayland-*.so*' \) -print)
+          stray=$(find squashfs-root/usr/lib \( -name 'libEGL*.so*' -o -name 'libGL*.so*' -o -name 'libgbm.so*' -o -name 'libdrm*.so*' -o -name 'libwayland-*.so*' -o -name 'libstdc++.so*' -o -name 'libgcc_s.so*' \) -print)
           [ -z "$stray" ] || { echo "graphics libraries bundled: $stray"; exit 1; }
           test -x squashfs-root/usr/bin/wraithguard-viewer-run \
             || { echo "launcher missing or not executable:"; ls -la squashfs-root/usr/bin/; exit 1; }
