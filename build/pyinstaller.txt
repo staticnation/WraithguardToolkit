@@ -1,5 +1,11 @@
 # The Windows release build, as build-windows.yml runs it (from the repo folder).
 # Before it: pip install ./native (into the Python that runs PyInstaller), and
 # cargo build --release in viewer-shell/ (the viewer, bundled with --add-binary).
-# On Linux/macOS use ':' instead of ';' and drop the .exe; see the workflows.
+# On macOS use ':' instead of ';' and drop the .exe; see the workflows.
+#
+# The Linux release build (build-linux.yml): ':' separators, and the viewer as
+# --add-data, not --add-binary - as a binary PyInstaller would bundle WebKitGTK's whole
+# dependency tree with it; as data it runs on the system's own WebKitGTK 4.1.
+# python -m PyInstaller --noconfirm --clean --onefile --windowed --noupx --name wraithguard_toolkit_gui --icon wraithguard_toolkit_icon.ico --collect-submodules wraithguard --hidden-import wraithguard_native --collect-all certifi --hidden-import tkinterweb --add-data "viewer-shell/target/release/wraithguard-viewer:." --add-data "wraithguard_toolkit.py:." --add-data "README.md:." --add-data "QUICKSTART.md:." --add-data "MLOX_RULES.md:." --add-data "CREDITS.md:." --add-data "License:License" --add-data "viewer-shell/ui/LICENSE:License/viewer-page" --add-data "wraithguard_toolkit_icon.ico:." --add-data "wraithguard/viz/assets:assets" wraithguard_toolkit_gui.py
+#
 python -m PyInstaller --noconfirm --clean --onefile --windowed --noupx --name wraithguard_toolkit_gui --icon wraithguard_toolkit_icon.ico --collect-submodules wraithguard --hidden-import wraithguard_native --collect-all certifi --hidden-import tkinterweb --add-binary "viewer-shell/target/release/wraithguard-viewer.exe;." --add-data "wraithguard_toolkit.py;." --add-data "README.md;." --add-data "QUICKSTART.md;." --add-data "MLOX_RULES.md;." --add-data "CREDITS.md;." --add-data "License;License" --add-data "viewer-shell/ui/LICENSE;License/viewer-page" --add-data "wraithguard_toolkit_icon.ico;." --add-data "wraithguard/viz/assets;assets" wraithguard_toolkit_gui.py

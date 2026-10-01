@@ -54,6 +54,12 @@ modules:
   # libraries stay in /app/python/lib, found through the interpreter's RPATH).
   - name: python
     buildsystem: simple
+    # Ship python-build-standalone's binaries exactly as built: flatpak-builder's
+    # strip and debug-info split rewrites them, and the rewritten python3 then fails
+    # with "undefined symbol: , version" when the next module runs it.
+    build-options:
+      strip: false
+      no-debuginfo: true
     sources:
       - type: archive
         path: ../../build/flatpak/python.tar.gz
@@ -71,6 +77,10 @@ modules:
   - name: wraithguard
     buildsystem: simple
     build-options:
+      # The extension modules pip builds and installs here go into the same Python,
+      # so they are left as built too (the viewer is already stripped by cargo).
+      strip: false
+      no-debuginfo: true
       append-path: /usr/lib/sdk/rust-stable/bin
       build-args:
         # pip and cargo fetch crates, wheels and the staticnation forks.

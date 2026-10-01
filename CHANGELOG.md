@@ -11,9 +11,10 @@
     the C++ runtime come from the GNOME runtime, matched to each other and to the
     host, and the toolkit runs on its own free-threaded Python 3.14
     (packaging/flatpak/, build-flatpak.yml).
-  - `wraithguard-toolkit-linux-x86_64.tar.gz` is the app as a folder, for any distro
-    with WebKitGTK 4.1 (`libwebkit2gtk-4.1-0` or your distro's name for it): the
-    viewer runs on the system's own WebKit, and nothing of the system's is bundled.
+  - `wraithguard-toolkit-linux-x86_64.tar.gz` holds one PyInstaller binary, as the
+    Windows `.exe` is, for any distro with WebKitGTK 4.1 (`libwebkit2gtk-4.1-0` or
+    your distro's name for it): the viewer runs on the system's own WebKit, and
+    nothing of the system's is bundled.
   - The AppImage carried WebKitGTK and its whole dependency tree; every library the
     host also had could shadow the host's copy, and on the Deck they did (see Fixed).
 - **Cell Preview's water looks like MGE XE's on every setup.** MoMW runs OpenMW, which

@@ -93,6 +93,20 @@ def test_only_the_bundle_folder_is_dropped(monkeypatch: pytest.MonkeyPatch) -> N
     assert env == {"LD_LIBRARY_PATH": "/home/me/lib"}
 
 
+@pytest.mark.skipif(os.name == "nt", reason="no executable bit on Windows")
+def test_a_bundled_viewer_gets_its_executable_bit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one-file Linux build carries the viewer as data; it must still start."""
+    exe = tmp_path / vl.VIEWER_NAME
+    exe.write_bytes(b"")
+    exe.chmod(0o644)
+    monkeypatch.delenv("WRAITHGUARD_VIEWER", raising=False)
+    monkeypatch.setattr(vl, "_app_roots", lambda: [tmp_path])
+    assert vl.viewer_binary() == str(exe)
+    assert os.access(exe, os.X_OK)
+
+
 @pytest.mark.skipif(os.name != "nt", reason="WebView2 is Windows-only")
 def test_the_bundled_webview2_is_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The Fixed Version runtime's versioned folder, as Microsoft ships it."""

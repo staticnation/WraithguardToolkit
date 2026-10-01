@@ -1,9 +1,10 @@
 # Build the plain Linux app and upload it as an artifact (and a release asset on tags).
 #
-# A .tar.gz of the PyInstaller folder build with the viewer shell beside it - nothing
-# of the system's carried along. The viewer runs on the machine's own WebKitGTK 4.1
-# (libwebkit2gtk-4.1: Ubuntu 22.04+, Debian 12+, Fedora, Arch), so a distro that has
-# it gets its own GTK, Mesa and C++ runtime, matched to each other. The Steam Deck's
+# One PyInstaller binary (build/pyinstaller.txt's command), in a .tar.gz, with the
+# viewer shell inside it - nothing of the system's carried along. The viewer runs on
+# the machine's own WebKitGTK 4.1 (libwebkit2gtk-4.1: Ubuntu 22.04+, Debian 12+,
+# Fedora, Arch), so a distro that has it gets its own GTK, Mesa and C++ runtime,
+# matched to each other. The Steam Deck's
 # SteamOS ships no WebKitGTK: its build is the Flatpak (build-flatpak.yml).
 #
 # This replaced the AppImage, which carried WebKitGTK and its ~70 libraries with it:
@@ -81,19 +82,22 @@ jobs:
       - name: Build the Rust backend (native/, greatness7's tes3 crates)
         run: python -m pip install ./native
 
-      - name: Build the toolkit (PyInstaller, one folder)
-        # --onedir, not --onefile: a onefile build would unpack itself to /tmp on every
-        # start. The viewer is not given to PyInstaller (--add-binary would make it
-        # collect WebKitGTK's whole dependency tree into _internal); it is copied in
-        # beside the executable afterwards, where wraithguard/viewer_launch.py looks.
+      - name: Build the toolkit (PyInstaller, one file)
+        # build/pyinstaller.txt's release command, with Linux's ':' separators - except
+        # the viewer goes in with --add-data, not --add-binary: as a binary PyInstaller
+        # would collect WebKitGTK's whole dependency tree into the bundle, and those
+        # build-machine copies are what broke the AppImage. As data it is carried as
+        # it is and runs on the machine's own WebKitGTK; wraithguard/viewer_launch.py
+        # restores its executable bit after extraction.
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed \
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --noupx \
             --name wraithguard_toolkit_gui \
             --icon wraithguard_toolkit_icon.ico \
             --collect-submodules wraithguard \
             --hidden-import wraithguard_native \
             --collect-all certifi \
             --hidden-import tkinterweb \
+            --add-data "viewer-shell/target/release/wraithguard-viewer:." \
             --add-data "wraithguard_toolkit.py:." \
             --add-data "README.md:." \
             --add-data "QUICKSTART.md:." \
@@ -104,28 +108,28 @@ jobs:
             --add-data "wraithguard_toolkit_icon.ico:." \
             --add-data "wraithguard/viz/assets:assets" \
             wraithguard_toolkit_gui.py
-          install -m755 viewer-shell/target/release/wraithguard-viewer dist/wraithguard_toolkit_gui/
 
       - name: Check it carries nothing of the system's
         # The viewer must take WebKitGTK, GTK and the graphics stack from the machine it
         # runs on, and nothing in the bundle may stand in for them.
         run: |
-          cd dist/wraithguard_toolkit_gui
-          test -x wraithguard-viewer || { echo "the viewer is not beside the app"; ls -la; exit 1; }
-          deps=$(LD_LIBRARY_PATH= ldd wraithguard-viewer)
+          deps=$(LD_LIBRARY_PATH= ldd viewer-shell/target/release/wraithguard-viewer)
           echo "$deps"
           ! echo "$deps" | grep -q 'not found' || { echo "the viewer has unresolved libraries"; exit 1; }
-          stray=$(find . \( -name 'libwebkit2gtk*' -o -name 'libjavascriptcoregtk*' -o -name 'libgtk-3*' \
-            -o -name 'libgdk-3*' -o -name 'libsoup-3*' -o -name 'libEGL*' -o -name 'libGL*' -o -name 'libgbm*' \
-            -o -name 'libdrm*' -o -name 'libwayland-*' \) -print)
+          contents=$(pyi-archive_viewer --list --brief dist/wraithguard_toolkit_gui | sed 's/^ //')
+          echo "$contents" | grep -qx 'wraithguard-viewer' \
+            || { echo "the viewer is not in the bundle:"; echo "$contents"; exit 1; }
+          stray=$(echo "$contents" | grep -E '(^|/)lib(webkit2gtk|javascriptcoregtk|gtk-3|gdk-3|soup-3|EGL|GL|gbm|drm|wayland-)' || true)
           [ -z "$stray" ] || { echo "bundled system libraries: $stray"; exit 1; }
           echo "plain build: OK"
 
       - name: Pack it
-        # One top-level folder in the archive, named for what it is.
+        # The one binary in a .tar.gz, which keeps its executable bit (a bare file
+        # downloaded from a Release page loses it).
         run: |
-          mv dist/wraithguard_toolkit_gui dist/wraithguard-toolkit
-          tar -C dist -czf dist/wraithguard-toolkit-linux-x86_64.tar.gz wraithguard-toolkit
+          mkdir -p dist/pack
+          install -m755 dist/wraithguard_toolkit_gui dist/pack/wraithguard-toolkit
+          tar -C dist/pack -czf dist/wraithguard-toolkit-linux-x86_64.tar.gz wraithguard-toolkit
           ls -lh dist/wraithguard-toolkit-linux-x86_64.tar.gz
 
       - name: Upload the build

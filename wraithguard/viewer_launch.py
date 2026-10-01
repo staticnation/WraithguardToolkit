@@ -6,8 +6,11 @@ what it needs around it to start:
 * **Linux Flatpak** (``packaging/flatpak``, the Steam Deck's build): the viewer is in
   ``/app/bin`` on the GNOME runtime's WebKitGTK, and the launcher names it
   (``WRAITHGUARD_VIEWER``).
-* **Linux, plain build** (build-linux.yml): the viewer is beside the app and runs on
-  the machine's own WebKitGTK 4.1. On Linux the viewer starts without the DMA-BUF
+* **Linux, plain build** (build-linux.yml, PyInstaller one-file): the viewer is in the
+  bundle as a data file, not a binary - a binary would make PyInstaller collect
+  WebKitGTK's whole dependency tree with it - and runs on the machine's own
+  WebKitGTK 4.1. A data file may come out without its executable bit, so it is put
+  back before the viewer is started. On Linux the viewer starts without the DMA-BUF
   renderer, which fails on several GPU stacks, the Deck's included.
 * **Windows, WebView2-bundled build**: the Fixed Version WebView2 runtime ships in a
   ``webview2`` folder beside the app, for machines without the system runtime (older
@@ -19,7 +22,9 @@ what it needs around it to start:
 
 from __future__ import annotations
 
+import contextlib
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -56,8 +61,26 @@ def viewer_binary() -> str | None:
     for root in _app_roots():
         candidate = root / VIEWER_NAME
         if candidate.is_file():
+            _ensure_executable(candidate)
             return str(candidate)
     return None
+
+
+def _ensure_executable(path: Path) -> None:
+    """Give the viewer back its executable bit if the bundle dropped it.
+
+    The Linux one-file build carries the viewer as data (see the module docstring),
+    and PyInstaller may extract a data file without the bit. A copy that cannot be
+    changed is left as it is; starting it then fails and the app falls back to the
+    browser, as for any viewer that will not start.
+
+    Args:
+        path: The viewer executable.
+    """
+    if os.name == "nt" or os.access(path, os.X_OK):
+        return
+    with contextlib.suppress(OSError):  # a read-only install: nothing to do here
+        path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def bundled_webview2() -> str | None:

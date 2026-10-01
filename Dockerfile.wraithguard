@@ -2,8 +2,9 @@
 #
 # A local container build. Its binary carries wraithguard-viewer as a bare ELF, so the
 # viewer needs WebKitGTK 4.1 installed on the machine that runs it. The released Linux
-# builds are the plain .tar.gz (.github/workflows/build-linux.yml), the same thing as
-# a folder, and the Flatpak (packaging/flatpak/, build-flatpak.yml) for the Steam Deck.
+# builds are the plain .tar.gz (.github/workflows/build-linux.yml: one binary, with the
+# viewer as data so WebKitGTK is not bundled) and the Flatpak (packaging/flatpak/,
+# build-flatpak.yml) for the Steam Deck.
 
 # ---------------------------------------------------------------------------
 # Stage 1: build wraithguard-viewer, the Rust/Tauri binary that replaced

@@ -225,8 +225,8 @@ git push -u origin build/test --force-with-lease
    git push origin v4.2.0
    ```
 
-The tag builds Windows (both variants), Linux and macOS, signs them, and attaches
-them to a GitHub Release named after the tag. The Linux build writes the release
+The tag builds Windows (both variants), Linux (the `.tar.gz` and the `.flatpak`) and
+macOS, and attaches them to a GitHub Release named after the tag. The Linux build writes the release
 notes.
 
 ## 3. When a build fails
