@@ -1,6 +1,49 @@
 # Changelog
 
 
+## Unreleased
+
+### Added
+
+- **OpenMW Lua checks** (`wraithguard/lua/`, first part of the TODO's Lua tools; no GUI
+  yet - run `python -m wraithguard.lua path\to\openmw.cfg`). Reads every `.omwscripts`
+  in the load order, finds each script in the data folders (case-insensitive, later
+  folders winning, as OpenMW's VFS does), parses it with a Lua 5.1/LuaJIT parser of
+  its own, and reports, against the OpenMW 0.51 API (revision 129):
+  - missing `.omwscripts` files and scripts; scripts registered twice; script files
+    more than one data folder has, and which one runs;
+  - interfaces offered by two scripts that run in the same place (and whether the later
+    one extends via `onInterfaceOverride` or replaces), and built-in ones overridden;
+  - events sent that no script handles (typos, missing mods);
+  - engine handlers a script's flags never call (`onKeyPress` in a GLOBAL script),
+    unknown handler names, and `openmw.*` packages required where they do not exist
+    (`openmw.nearby` in a global script);
+  - per-frame cost: `onUpdate`/`onFrame` on scripts attached to every NPC/creature,
+    loops over `nearby.actors`, `world.activeActors`, `*.records`, `cell:getAll()` in
+    per-frame handlers (followed into the script's own functions), nested ones, and
+    costly calls (`findPath`, `castRenderingRay`, ...). Code under a condition or after
+    an early `return` - usually a timer or a mode check - is reported as a note, not a
+    warning. Flags may be separated by commas or spaces (`PLAYER NPC: ...`), as mods do.
+
+  **In the GUI: Conflicts window -> "Lua scripts..."** (`gui/luaview.py`): the scripts
+  in load order with their flags and finding counts; for the selected one, its source
+  with Lua syntax highlighting (the checks' own tokenizer, coloured from the log
+  panel's theme), its syntax tree (opened on demand; double-click goes to the line),
+  and its findings (double-click goes to the line); "Copy report"; and **"Flowchart"**:
+  the control flow of the function selected in the tree, or of the whole script
+  (`lua/flowchart.py`, the Lua port of `tools/ast_mermaid.py`'s cfg chart), shown in
+  the app's HTML window over the loopback server. The chart library (mermaid.js) is
+  loaded from a CDN, so the first chart needs a connection.
+  **Teal**: the lexer and parser read Teal (`parse(src, teal=True)`) - annotations,
+  generics, `record`/`enum`/`interface`/`type` declarations, `as`/`is`, `global`,
+  `macroexp`, typed table fields - into the same tree; checked against all 47 `.tl`
+  files of the Teal compiler (tl 0.24.8, `tl.tl` included) and Cyan 0.4.1, which all
+  parse. The window's **"Teal source"** tab shows (highlighted) the `.tl` a mod ships
+  beside the `.lua` that runs.
+  Scripts that `.omwaddon` files register in LUAL records are read too, in load order
+  (`lua/lual.py`, the layout of OpenMW's `luascripts.cpp`). Not read: scripts packed in
+  BSAs - the report says so.
+
 ## 4.2.1
 
 ### Added

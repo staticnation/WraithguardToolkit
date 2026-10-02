@@ -273,6 +273,9 @@ class ConflictWindowsMixin:
         # Supplied by JournalViewMixin, which owns the journal chain window.
         def show_journal_view(self) -> None: ...  # noqa: D102
 
+        # Supplied by LuaViewMixin, which owns the Lua scripts window.
+        def show_lua_view(self) -> None: ...  # noqa: D102
+
         # Supplied by PatchBuilderMixin, which owns the patch queue.
         def queue_field(self, record_type: str, key: str, choice: Choice) -> None: ...  # noqa: D102
         def queue_whole_record(self, selection: Selection) -> None: ...  # noqa: D102
@@ -1736,6 +1739,19 @@ class ConflictWindowsMixin:
                 "Every quest's journal stages, sorted by journal index rather than file "
                 "order, with the winning plugin's text for each stage. Reads the whole "
                 "load order once when opened. Read-only."
+            ),
+        )
+        lua_button = ttk.Button(btns, text=_("Lua scripts..."), command=self.show_lua_view)
+        lua_button.pack(side="left", padx=(8, 0))
+        add_tooltip(
+            lua_button,
+            _(
+                "The load order's OpenMW Lua scripts: every .omwscripts file and the "
+                "scripts addons register, found in the data folders the way OpenMW finds "
+                "them, each shown highlighted with its syntax tree.\n\n"
+                "Checked against OpenMW 0.51: missing scripts, scripts registered twice, "
+                "interfaces that clash, events nothing handles, handlers and packages used "
+                "where they never run, and what costs time every frame. Read-only."
             ),
         )
         if self._conf_session is not None:

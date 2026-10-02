@@ -250,6 +250,7 @@ from wraithguard.gui import (  # noqa: E402
 from wraithguard.gui.cellpreview import CellPreviewMixin  # noqa: E402
 from wraithguard.gui.conflicts import ConflictWindowsMixin  # noqa: E402
 from wraithguard.gui.journalview import JournalViewMixin  # noqa: E402
+from wraithguard.gui.luaview import LuaViewMixin  # noqa: E402
 from wraithguard.gui.patchwin import PatchBuilderMixin  # noqa: E402
 from wraithguard.gui.pluginview import PluginViewMixin  # noqa: E402
 from wraithguard.gui.removemaster import RemoveMasterMixin  # noqa: E402
@@ -991,6 +992,7 @@ class App(
     RemoveMasterMixin,
     ConflictWindowsMixin,
     JournalViewMixin,
+    LuaViewMixin,
     PatchBuilderMixin,
     PluginViewMixin,
     CellPreviewMixin,

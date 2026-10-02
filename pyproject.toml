@@ -31,6 +31,7 @@ packages = [
     "wraithguard.gui",
     "wraithguard.images",
     "wraithguard.land",
+    "wraithguard.lua",
     "wraithguard.merge",
     "wraithguard.mwscript",
     "wraithguard.net",
