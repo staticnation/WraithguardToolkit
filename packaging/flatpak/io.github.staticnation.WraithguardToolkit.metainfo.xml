@@ -21,4 +21,8 @@
   <url type="bugtracker">https://github.com/staticnation/WraithguardToolkit/issues</url>
   <launchable type="desktop-id">io.github.staticnation.WraithguardToolkit.desktop</launchable>
   <content_rating type="oars-1.1"/>
+  <!-- Newest first; add one per release (PREFLIGHT.md, "A release"). -->
+  <releases>
+    <release version="4.2.1" date="2026-10-01"/>
+  </releases>
 </component>

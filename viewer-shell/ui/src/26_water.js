@@ -129,7 +129,6 @@ uniform int   uBelow;          // 18dt: the eye is under the water (06_gl.js und
    transparent - MGE XE's own water) to 1 (opaque). */
 uniform float uTintHue, uTintAmt;
 uniform int   uSewers;         // the sewer waves (below), on or off
-uniform int   uDbg;            // Wraithguard: the Water debug view (0 off; see the end of main)
 ${SKY_GLSL}
 out vec4 o;
 
@@ -485,18 +484,6 @@ void main(){
 
   result=mix(result, refracted, shorefactor*fog.a);
   o=vec4(result,1.0);
-  /* Wraithguard: the Water debug views - one part of the surface at a time, to find where
-     the banding Linux draws comes from. 1: how far below the surface the bottom is (white
-     at the surface, black 200 units down, red where the scene's depth is in front of the
-     water); 2, 3: the reflection, the refraction alone; 4: the raw depth the water reads,
-     stretched so a step in it shows. */
-  if(uDbg==1){
-    float raw=linearDepth(texture(uSceneDepth,suv).r)-vClipW;
-    o=raw<0.0? vec4(1.0,0.0,0.0,1.0) : vec4(vec3(1.0-clamp(raw/200.0,0.0,1.0)),1.0);
-  }
-  else if(uDbg==2) o=vec4(reflected,1.0);
-  else if(uDbg==3) o=vec4(refracted,1.0);
-  else if(uDbg==4) o=vec4(vec3(fract(linearDepth(texture(uSceneDepth,suv).r)/64.0)),1.0);
 }`;
 
 /* One triangle over the screen carrying a texture: the offscreen frame onto the canvas. */
@@ -662,9 +649,7 @@ Object.assign(Renderer.prototype,{
   _waterTargets(){
     const gl=this.gl, W=this.cv.width, H=this.cv.height;
     const t=this._wt;
-    // Water debug 6: no multisampling, to test the depth resolve on Linux.
-    const noMS=+this.opts.waterDebug===6 || +this.opts.waterDebug===7;
-    if(t && t.W===W && t.H===H && !!t.noMS===noMS) return t;
+    if(t && t.W===W && t.H===H) return t;
     if(t){
       for(const k of ['sceneFB','resolveFB','reflFB','shaftA','shaftB']) try{ gl.deleteFramebuffer(t[k]); }catch(_){ }
       for(const k of ['colRB','depRB','reflDepRB']) try{ gl.deleteRenderbuffer(t[k]); }catch(_){ }
@@ -681,8 +666,8 @@ Object.assign(Renderer.prototype,{
     const DEPTH=gl.DEPTH_COMPONENT32F;
     let depthMax=4;
     try{ const s=gl.getInternalformatParameter(gl.RENDERBUFFER,DEPTH,gl.SAMPLES); if(s && s.length) depthMax=s[0]; }catch(_){ }
-    const samples=noMS? 0 : Math.min(4, gl.getParameter(gl.MAX_SAMPLES)||0, depthMax);
-    const n={W,H,samples,noMS};
+    const samples=Math.min(4, gl.getParameter(gl.MAX_SAMPLES)||0, depthMax);
+    const n={W,H,samples};
     // The scene, multisampled, so the grass keeps its soft edges.
     n.sceneFB=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,n.sceneFB);
     n.colRB=gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER,n.colRB);
@@ -1060,10 +1045,7 @@ Object.assign(Renderer.prototype,{
     // Wraithguard: the colour over the water - its hue, and 0 (none) .. 1 (opaque).
     gl.uniform1f(wp.u.uTintHue, this.opts.waterHue!=null? +this.opts.waterHue : 190);
     gl.uniform1f(wp.u.uTintAmt, Math.min(1, Math.max(0, +this.opts.waterTint||0)));
-    gl.uniform1i(wp.u.uSewers, this.opts.sewerWaves===false? 0 : 1);   // on unless switched off
-    const dbg=+this.opts.waterDebug||0;
-    if(wp.u.uDbg) gl.uniform1i(wp.u.uDbg, dbg>=1 && dbg<=4? dbg : dbg===7? 4 : 0);
-    gl.uniform1i(wp.u.uReflBlur, this.reflBlurOn()? 1 : 0);
+    gl.uniform1i(wp.u.uSewers, this.opts.sewerWaves===false? 0 : 1);   // on unless switched off    gl.uniform1i(wp.u.uReflBlur, this.reflBlurOn()? 1 : 0);
     // Wraithguard: the rain ripples (43_wg_rain.js), stepped above, on unit 10.
     const rainT=this.rainTexture? this.rainTexture() : null;
     gl.uniform1i(wp.u.uRain,10); gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D,rainT); gl.activeTexture(gl.TEXTURE0);
@@ -1073,9 +1055,7 @@ Object.assign(Renderer.prototype,{
     gl.disable(gl.BLEND);
     gl.depthMask(false);
     gl.disable(gl.CULL_FACE);
-    // Water debug 5, "No shore pull": the surface at its own depth, to see whether the
-    // pull towards the eye is what draws it over the sand in bands on Linux.
-    if(dbg!==5){ gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1.0,-2.0); }
+    gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1.0,-2.0);
     if(waves){
       const wm=this._waveMesh();
       gl.uniform1i(wp.u.uWaves,1);

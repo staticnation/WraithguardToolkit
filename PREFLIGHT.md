@@ -204,7 +204,10 @@ git push -u origin build/test --force-with-lease
 
 ### A release (tag)
 
-1. **Set the version** in `pyproject.toml`.
+1. **Set the version** in `pyproject.toml`, `wraithguard/__init__.py` (`__version__`),
+   the "current" line in `README.md`, and a new `<release>` at the top of
+   `packaging/flatpak/io.github.staticnation.WraithguardToolkit.metainfo.xml`; then run
+   `python tools/make_pot.py` so the `.pot` header carries it too.
 2. **Rename `## Unreleased`** at the top of `CHANGELOG.md` to that version.
 3. **Check the repository settings** (**Settings → Secrets and variables →
    Actions**):
@@ -218,11 +221,11 @@ git push -u origin build/test --force-with-lease
    git switch main
    git pull
    git add -A
-   git commit -m "Release 4.2.0"
+   git commit -m "Release 4.2.1"
    git push
    # wait for CI to pass on main, then:
-   git tag v4.2.0
-   git push origin v4.2.0
+   git tag v4.2.1
+   git push origin v4.2.1
    ```
 
 The tag builds Windows (both variants), Linux (the `.tar.gz` and the `.flatpak`) and
@@ -290,14 +293,14 @@ A tag names one commit, so the fix needs the tag moved to the fixed commit.
 ```powershell
 git switch main
 git pull
-git tag -d v4.2.0                         # delete it here
-git push origin :refs/tags/v4.2.0         # delete it on GitHub
-git tag v4.2.0                            # re-create it on the fixed commit
-git push origin v4.2.0                    # starts the release builds again
+git tag -d v4.2.1                         # delete it here
+git push origin :refs/tags/v4.2.1         # delete it on GitHub
+git tag v4.2.1                            # re-create it on the fixed commit
+git push origin v4.2.1                    # starts the release builds again
 ```
 
 If people may already have downloaded the release, bump to the next version
-(`v4.2.1`) instead of moving the tag.
+(`v4.2.2`) instead of moving the tag.
 
 ### If a push is rejected
 
