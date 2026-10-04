@@ -33,10 +33,12 @@ from wraithguard.gui.theme import (
 from wraithguard.gui.widgets import add_tooltip
 from wraithguard.i18n import gettext as _
 from wraithguard.logging_setup import get_logger
-from wraithguard.lua.flowchart import flowchart, flowchart_html
+from wraithguard.lua.callgraph import call_graph_chart
+from wraithguard.lua.flowchart import MERMAID_JS, flowchart, flowchart_html
 from wraithguard.lua.lexer import LuaSyntaxError, tokenize
 from wraithguard.lua.report import all_findings, render
 from wraithguard.lua.scan import scan_cfg
+from wraithguard.viz.library import ViewerError, mermaid_source
 from wraithguard.viz.serve import Payload
 
 if TYPE_CHECKING:
@@ -166,9 +168,18 @@ class LuaViewMixin:
             flow,
             _(
                 "The control flow of the function selected in the Syntax tree tab (or of "
-                "the whole script), as a flowchart in your browser: branches, loops, "
-                "returns, breaks and gotos. Needs an internet connection the first time, "
-                "for the chart library."
+                "the whole script), as a flowchart: branches, loops, returns, breaks and "
+                "gotos."
+            ),
+        )
+        calls = ttk.Button(top, text=_("Call graph"), command=self._lua_call_graph)
+        calls.pack(side="right", padx=(0, 6))
+        add_tooltip(
+            calls,
+            _(
+                "Which of the selected script's functions calls which, from the handlers "
+                "it gives OpenMW (rounded boxes) down. Calls into OpenMW and other "
+                "modules are left out."
             ),
         )
         self._lua_show_info = tk.BooleanVar(value=True)
@@ -568,7 +579,7 @@ class LuaViewMixin:
         return node.line if node is not None else 0
 
     def _lua_flowchart(self) -> None:
-        """Open the selected function's (or the script's) flowchart in the browser."""
+        """Open the selected function's (or the script's) flowchart."""
         sel = self._lua_nav.selection()
         rec = self._lua_records.get(sel[0]) if sel else None
         tree = rec.info.tree if rec is not None and rec.info is not None else None
@@ -581,23 +592,54 @@ class LuaViewMixin:
         target = node
         name = target.value or (_("function at line ") + str(target.line))
         heading = rec.path if target is tree else f"{rec.path} - {name}"
-        page = flowchart_html(heading, [(heading, flowchart(target))])
-        title = _("Lua flowchart")
-        # In the app's own HTML window over the shared loopback server, as every other
-        # page the toolkit shows; a temporary file when no port can be bound.
+        self._lua_show_chart(heading, flowchart(target), _("Lua flowchart"))
+
+    def _lua_call_graph(self) -> None:
+        """Open the selected script's call graph."""
+        sel = self._lua_nav.selection()
+        rec = self._lua_records.get(sel[0]) if sel else None
+        tree = rec.info.tree if rec is not None and rec.info is not None else None
+        if rec is None or tree is None:
+            self._lua_status.set(_("Select a script that parses first."))
+            return
+        heading = f"{rec.path} - " + _("call graph")
+        self._lua_show_chart(heading, call_graph_chart(tree), _("Lua call graph"))
+
+    def _lua_show_chart(self, heading: str, chart: str, title: str) -> None:
+        """Show a Mermaid chart in a page of its own.
+
+        In the app's own HTML window over the shared loopback server, as every other
+        page the toolkit shows, with mermaid.js published beside it; with the library
+        inlined in a file when no port can be bound.
+
+        Args:
+            heading: The page's heading.
+            chart: The Mermaid text.
+            title: The window title.
+        """
+        try:
+            library = mermaid_source()
+        except ViewerError as exc:
+            LOG.warning("%s", exc)
+            library = ""  # the page shows the chart's text
         server_of = getattr(self, "_viewer_server", None)
         server = server_of() if callable(server_of) else None
         opener = getattr(self, "open_html_in_app", None)
         if server is not None and callable(opener):
             session = server.publish_session("luaflow")
+            js = Payload(library.encode("utf-8"), "text/javascript; charset=utf-8")
+            page = flowchart_html(
+                heading, [(heading, chart)], library_url=session.publish(MERMAID_JS, js)
+            )
             url = session.publish("index.html", Payload(page.encode("utf-8"), "text/html"))
             opener(url, title)
             return
+        page = flowchart_html(heading, [(heading, chart)], library=library)
         fallback = getattr(self, "_open_html_view", None)
         if callable(fallback):
-            fallback(page, "lua_flowchart", title)
+            fallback(page, "lua_chart", title)
             return
-        out = Path(tempfile.gettempdir()) / "wraithguard_lua_flowchart.html"
+        out = Path(tempfile.gettempdir()) / "wraithguard_lua_chart.html"
         out.write_text(page, encoding="utf-8")
         open_in_browser(out.as_uri())
 

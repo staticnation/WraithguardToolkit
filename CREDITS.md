@@ -308,6 +308,16 @@ unmodified `three.module.js` graph into one `module.exports` with esbuild:
 packaging only, no minify and no source transform. The provenance is therefore a
 command anyone can rerun, not a binary to take on trust.
 
+## mermaid.js - bundled, for the Lua charts
+
+`wraithguard/viz/assets/mermaid.min.js` is **mermaid 12.1.0** (© 2014 - 2022 Knut
+Sveidqvist and contributors), MIT licensed, with its licence text beside it as
+`mermaid-LICENSE.txt` (and in `License/Mermaid`). It is upstream's own
+`dist/mermaid.min.js` from the npm package, unmodified (SHA-256 `6484afc3...518b2`,
+the full hash in `wraithguard/viz/assets/README.txt`). The Lua scripts window's
+flowcharts and call graphs draw with it (`wraithguard/lua/flowchart.py`); it used to
+be loaded from a CDN when a chart opened.
+
 ## Archives and textures, and why they are ours
 
 Archives went the same way as meshes. Since 4.2.0 they are read by `tes3::bsa` (through

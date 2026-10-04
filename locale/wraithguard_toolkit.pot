@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.2.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 01:57\n"
+"POT-Creation-Date: 2026-10-04 00:06\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -972,7 +972,7 @@ msgid "Found in"
 msgstr ""
 
 #: wraithguard/gui/journalview.py:826
-#: wraithguard/gui/luaview.py:210
+#: wraithguard/gui/luaview.py:224
 msgid "Source"
 msgstr ""
 
@@ -1007,118 +1007,135 @@ msgstr ""
 msgid "(no matching stage found)"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:140
+#: wraithguard/gui/luaview.py:145
 msgid "No openmw.cfg"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:141
+#: wraithguard/gui/luaview.py:146
 msgid "Choose your openmw.cfg in the main window first: the scripts come from it."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:148
+#: wraithguard/gui/luaview.py:153
 msgid "Lua scripts"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:159
+#: wraithguard/gui/luaview.py:164
 msgid "Rescan"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:160
+#: wraithguard/gui/luaview.py:165
 msgid "Copy report"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:163
+#: wraithguard/gui/luaview.py:168
 msgid "Flowchart"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:167
-msgid "The control flow of the function selected in the Syntax tree tab (or of the whole script), as a flowchart in your browser: branches, loops, returns, breaks and gotos. Needs an internet connection the first time, for the chart library."
+#: wraithguard/gui/luaview.py:172
+msgid "The control flow of the function selected in the Syntax tree tab (or of the whole script), as a flowchart: branches, loops, returns, breaks and gotos."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:176
-msgid "Show notes"
+#: wraithguard/gui/luaview.py:178
+msgid "Call graph"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:186
-msgid "Script"
-msgstr ""
-
-#: wraithguard/gui/luaview.py:188
-msgid "Flags"
+#: wraithguard/gui/luaview.py:182
+msgid "Which of the selected script's functions calls which, from the handlers it gives OpenMW (rounded boxes) down. Calls into OpenMW and other modules are left out."
 msgstr ""
 
 #: wraithguard/gui/luaview.py:190
+msgid "Show notes"
+msgstr ""
+
+#: wraithguard/gui/luaview.py:200
+msgid "Script"
+msgstr ""
+
+#: wraithguard/gui/luaview.py:202
+msgid "Flags"
+msgstr ""
+
+#: wraithguard/gui/luaview.py:204
 msgid "Findings"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:218
+#: wraithguard/gui/luaview.py:232
 msgid "Teal source"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:225
-#: wraithguard/gui/luaview.py:235
+#: wraithguard/gui/luaview.py:239
+#: wraithguard/gui/luaview.py:249
 msgid "Syntax tree"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:227
-#: wraithguard/gui/luaview.py:250
+#: wraithguard/gui/luaview.py:241
+#: wraithguard/gui/luaview.py:264
 msgid "Line"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:248
+#: wraithguard/gui/luaview.py:262
 msgid "Severity"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:249
+#: wraithguard/gui/luaview.py:263
 msgid "Check"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:251
+#: wraithguard/gui/luaview.py:265
 msgid "What it means"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:277
-#: wraithguard/gui/luaview.py:155
+#: wraithguard/gui/luaview.py:291
+#: wraithguard/gui/luaview.py:160
 msgid "Reading the load order's scripts..."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:298
+#: wraithguard/gui/luaview.py:312
 msgid "The scan failed: "
 msgstr ""
 
-#: wraithguard/gui/luaview.py:325
+#: wraithguard/gui/luaview.py:339
 msgid "%(scripts)d scripts from %(files)d .omwscripts file(s) and %(lual)d addon(s)"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:326
+#: wraithguard/gui/luaview.py:340
 msgid "%(error)d errors, %(warn)d warnings, %(info)d notes"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:361
+#: wraithguard/gui/luaview.py:375
 msgid "(the load order)"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:429
+#: wraithguard/gui/luaview.py:443
 msgid "No data folder has this script."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:455
+#: wraithguard/gui/luaview.py:469
 msgid "No Teal source (.tl) beside this script."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:576
+#: wraithguard/gui/luaview.py:590
+#: wraithguard/gui/luaview.py:606
 msgid "Select a script that parses first."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:582
+#: wraithguard/gui/luaview.py:596
 msgid "function at line "
 msgstr ""
 
-#: wraithguard/gui/luaview.py:585
+#: wraithguard/gui/luaview.py:598
 msgid "Lua flowchart"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:611
+#: wraithguard/gui/luaview.py:608
+msgid "call graph"
+msgstr ""
+
+#: wraithguard/gui/luaview.py:609
+msgid "Lua call graph"
+msgstr ""
+
+#: wraithguard/gui/luaview.py:656
 msgid "Report copied."
 msgstr ""
 

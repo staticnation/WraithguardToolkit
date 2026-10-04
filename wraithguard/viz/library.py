@@ -42,6 +42,8 @@ LOG = get_logger(__name__)
 
 #: The vendored three.js build, relative to this package.
 _THREE_ASSET: Final[str] = "assets/three.cjs"
+#: The vendored mermaid.js build (the Lua flowcharts and call graphs), likewise.
+_MERMAID_ASSET: Final[str] = "assets/mermaid.min.js"
 
 
 class ViewerError(Exception):
@@ -68,19 +70,56 @@ def three_source() -> str:
             than crashed on: a missing viewer is a disappointment, and the
             caller can say so.
     """
-    bundled = getattr(sys, "_MEIPASS", None)
-    candidates = [
-        *([Path(bundled) / "wraithguard" / "viz" / _THREE_ASSET] if bundled else []),
-        *([Path(bundled) / _THREE_ASSET] if bundled else []),
-        Path(__file__).resolve().parent / _THREE_ASSET,
-    ]
-    found = _first_readable(candidates)
+    found, candidates = _asset_source(_THREE_ASSET)
     if found is not None:
         return found
     raise ViewerError(
         "the 3D viewer library was not shipped with this build; "
         f"looked in {[str(c) for c in candidates]}"
     )
+
+
+def mermaid_source() -> str:
+    """Locate and read the vendored mermaid.js build (the Lua charts draw with it).
+
+    Upstream's own ``dist/mermaid.min.js``, unmodified: a classic script that sets a
+    global ``mermaid``, so a page can load it from the loopback server or inline it
+    in a file opened from disk, with no connection either way.
+
+    Returns:
+        The library source.
+
+    Raises:
+        ViewerError: If it was not shipped with this build.
+    """
+    found, candidates = _asset_source(_MERMAID_ASSET)
+    if found is not None:
+        return found
+    raise ViewerError(
+        "the chart library (mermaid.js) was not shipped with this build; "
+        f"looked in {[str(c) for c in candidates]}"
+    )
+
+
+def _asset_source(asset: str) -> tuple[str | None, list[Path]]:
+    """Read a vendored asset from wherever this build keeps it.
+
+    A frozen build unpacks its data to ``sys._MEIPASS``; a source checkout has it
+    beside this module.
+
+    Args:
+        asset: Its path relative to this package (``assets/...``).
+
+    Returns:
+        ``(its text or None, the places looked in)``.
+    """
+    bundled = getattr(sys, "_MEIPASS", None)
+    candidates = [
+        *([Path(bundled) / "wraithguard" / "viz" / asset] if bundled else []),
+        *([Path(bundled) / asset] if bundled else []),
+        Path(__file__).resolve().parent / asset,
+    ]
+    return _first_readable(candidates), candidates
 
 
 def _first_readable(candidates: list[Path]) -> str | None:
