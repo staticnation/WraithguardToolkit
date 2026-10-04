@@ -133,6 +133,17 @@
   camera kept, and drops back when a change is reverted. The engine's `ori` and
   `editor_cell_refs` now say the cell's record key and the plugins with a CELL record for
   it, which is what the dialog asks Wraithguard with.
+- **The Editor moves objects in the render window, as the Construction Set does.** With
+  an object selected, drag it (left button) across the ground plane at its height; hold Z
+  to lift or lower it, X or Y to keep to that axis; Shift-drag turns it about Z (or about
+  X or Y, held); F drops it onto the ground or the object under it, its lowest point on
+  the surface. A gold copy follows the pointer, and the move goes to the patch pool on
+  release - drawn in place and listed with the rest. A press anywhere else, or a still
+  click, does what it did.
+- **A door's destination in the reference dialog**: whether it teleports, the cell (empty
+  for the exterior, with the interiors to choose from), where the player lands and which
+  way they face; "From the view" takes the view's pivot and direction in the cell on
+  screen, "Go there" opens it. Written as DODT, with DNAM only for an interior.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

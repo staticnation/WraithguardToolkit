@@ -20,6 +20,11 @@
      every pending reference change in place (`overlay`, over CellData.loadCell).
    - The inspector (24_ori.js) gets "Edit record" (F2) and "Edit reference" (F3) for
      whatever is clicked.
+   - The render window moves the selected object as the Construction Set does: drag it
+     (left button) across the ground plane at its height; hold Z to lift and lower it,
+     X or Y to keep to that axis; Shift-drag turns it (about Z, or X/Y held); F drops it
+     onto what is under it. A gold copy follows the pointer and the change goes to the
+     pool on release (`grab`, over the renderer's `onGrab`).
 
    The lists come from the shell (`editor_tags`, `editor_records`, `editor_cell_refs`,
    `cells`); a record's contents and every change from Wraithguard, over the `links` the
@@ -39,6 +44,8 @@ const WgEditor={
   live:new Map(),            // "origin:refr" lower -> pending changes, drawn in place
   liveSig:'[]',              // changes when `live` does: part of the preview's scene key
   NUDGE:8,                   // units a nudge moves (Shift: 8x); degrees a turn (Shift: 8x)
+  held:new Set(),            // Z, X, Y held: the drag's axis keys
+  TURN:0.01,                 // radians a pixel of Shift-drag turns
   ROW_CAP:600,
 
   /** The tags' names, for the tabs; anything else shows as its tag. */
@@ -435,7 +442,7 @@ const WgEditor={
       const c=cur(f), dis=f.editable? '' : ' disabled';
       let inner;
       if(f.kind==='bool') inner='<input type="checkbox" data-rpath="'+f.path+'"'+(c?' checked':'')+dis+'>';
-      else if(f.kind==='dict') inner='<span class="from">'+escHtml(c? (c.cell||'exterior')+(c.translation? ' at '+c.translation.map(n=>Math.round(n)).join(', ') : '') : '-')+'</span>';
+      else if(f.kind==='door') inner=this.doorInputs(c);
       else if(f.kind==='grid') inner='<input class="fld" type="text" data-rpath="'+f.path+'" data-kind="grid" placeholder="x, y" value="'+escHtml(c? c.join(', ') : '')+'"'+dis+' spellcheck="false">';
       else {
         const num=f.kind==='int'||f.kind==='float';
@@ -465,6 +472,7 @@ const WgEditor={
       el.value=String((Number(el.value)||0)+(+b.dataset.s)*this.NUDGE*(e.shiftKey?8:1));
       el.onchange();
     });
+    this.wireDoor(body, F.destination? cur(F.destination) : null);
     body.querySelectorAll('[data-rpath]').forEach(el=>{
       el.onchange=()=>{
         let value = el.type==='checkbox'? el.checked : el.value;
@@ -476,6 +484,64 @@ const WgEditor={
     });
   },
 
+  /** A teleport door's destination: whether it is one, the cell (empty: the exterior),
+   *  where the player lands and which way they face. */
+  doorInputs(c){
+    const t=c||{translation:[0,0,0], rotation:[0,0,0], cell:''};
+    const face=((Math.atan2(Math.sin(t.rotation[2]), Math.cos(t.rotation[2]))*180/Math.PI)+360)%360;
+    const rooms=(this.cells||[]).filter(x=>x.kind==='int').slice(0,4000);
+    const on=!!c;
+    return '<label><input type="checkbox" data-door="on"'+(on?' checked':'')+'> Teleport</label>'+
+      '<div data-door-box'+(on?'':' hidden')+'>'+
+      '<input class="fld" type="text" data-door="cell" list="edRooms" placeholder="Cell (empty: the exterior)" value="'+escHtml(t.cell||'')+'" spellcheck="false">'+
+      '<datalist id="edRooms">'+rooms.map(r=>'<option value="'+escHtml(r.name)+'">').join('')+'</datalist>'+
+      ['X','Y','Z'].map((a,i)=>'<div class="edVec"><span class="from">'+a+'</span><input class="fld" type="number" step="any" data-door="p" data-i="'+i+'" value="'+(+(+t.translation[i]).toFixed(1))+'"></div>').join('')+
+      '<div class="edVec"><span class="from" title="Which way the player faces, degrees clockwise from north">⦟</span><input class="fld" type="number" step="any" data-door="face" value="'+(+face.toFixed(1))+'"></div>'+
+      '<div class="edVec"><button class="btn sm" data-door="view" title="The view\'s pivot, facing the way the view looks, in the cell on screen">From the view</button>'+
+      '<button class="btn sm" data-door="go" title="Go to where it leads">Go there</button></div></div>';
+  },
+
+  /** The destination's inputs: any change sends the whole destination. */
+  wireDoor(body, cur){
+    const q=sel=>body.querySelector(sel);
+    const on=q('[data-door="on"]'); if(!on) return;
+    const rot=(cur && cur.rotation)? cur.rotation.slice() : [0,0,0];
+    const read=()=>{
+      const p=[...body.querySelectorAll('[data-door="p"]')].map(el=>Number(el.value)||0);
+      const face=(Number(q('[data-door="face"]').value)||0)*Math.PI/180;
+      return {translation:p, rotation:[rot[0], rot[1], face], cell:q('[data-door="cell"]').value.trim()};
+    };
+    const send=v=>this.refChange('editRefSet', {path:'destination', value:v}, on);
+    on.onchange=()=>{
+      if(!on.checked){ send(null); return; }
+      q('[data-door-box]').hidden=false;
+      send(read());
+    };
+    body.querySelectorAll('input[data-door]:not([data-door="on"])').forEach(el=>{
+      el.onchange=()=>send(read());
+      el.onkeydown=e=>{ if(e.key==='Enter') el.blur(); e.stopPropagation(); };
+    });
+    const view=q('[data-door="view"]');
+    if(view) view.onclick=()=>{
+      const R=App.R, sc=App._scene;
+      if(!R || !R.cam || !sc || !sc.origin) return toast('Open a cell first','warn',3000);
+      const c=R.cam, look=[-Math.cos(c.az), -Math.sin(c.az)];
+      const sel=App.cellSel||{};
+      send({translation:[c.tx+sc.origin[0], c.ty+sc.origin[1], c.tz], rotation:[0,0,Math.atan2(look[0], look[1])],
+            cell:sel.kind==='int'? (sel.name||'') : ''});
+    };
+    const go=q('[data-door="go"]');
+    if(go) go.onclick=()=>{
+      const d=read(), target=typeof doorTarget==='function'? doorTarget({pos:d.translation, rot:d.rotation, cell:d.cell}) : null;
+      if(!target) return toast('No such cell in the loaded world','warn',3000);
+      App.mode='cell'; App.cellSel=target;
+      App._doorAim={pos:d.translation.slice(), rot:d.rotation[2],
+                    key:target.kind==='int'? 'i:'+(target.name||'') : target.x+','+target.y};
+      if(typeof syncCellButton==='function') syncCellButton();
+      schedulePreview();
+    };
+  },
+
   async refChange(link, extra, el){
     try{
       this.drawRef(await this.ask(link, this.refReq(extra)));
@@ -484,6 +550,126 @@ const WgEditor={
       if(el) el.classList.add('bad');
       toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000);
     }
+  },
+
+  /* ---- moving the selected object in the render window -------------------------------- */
+
+  /** The selected object, when it is a reference the editor can change: the inspector's
+   *  pick and its {cell, origin, refr, plugins}. */
+  selected(){
+    const hit=typeof Ori==='object'? Ori._hit : null, ref=this._oriRef;
+    if(!this.on || !this.canEdit() || !hit || !ref || !Ori.el || Ori.el.hidden) return null;
+    if(String(hit.refKey).toLowerCase()!==(ref.origin+':'+ref.refr).toLowerCase() || !hit.m || !hit.wpos) return null;
+    return {hit, ref};
+  },
+
+  /** Where a ray meets the horizontal plane at height `z`, or null when it runs along it. */
+  onPlane(ray, z){
+    if(Math.abs(ray.dir[2])<1e-4) return null;
+    const t=(z-ray.eye[2])/ray.dir[2];
+    if(!(t>0)) return null;
+    return [ray.eye[0]+ray.dir[0]*t, ray.eye[1]+ray.dir[1]*t, z];
+  },
+
+  /** The renderer's `onGrab`: a press on the selected object - the drag that moves or
+   *  turns it, or null to leave the press to the viewport. Positions here are the scene's
+   *  (the renderer's origin); `off` takes them back to the world's. */
+  grab(e){
+    const sel=this.selected(), R=App.R;
+    if(!sel || !R || e.altKey || e.ctrlKey || e.metaKey) return null;
+    if(R.pickAt(e.clientX,e.clientY)!==sel.hit) return null;
+    const hit=sel.hit, m=hit.m;
+    const local=[m[3], m[7], m[11]];
+    const off=[hit.wpos[0]-local[0], hit.wpos[1]-local[1], hit.wpos[2]-local[2]];
+    const st={sel, off, cur:local.slice(), rot:(hit.rot||[0,0,0]).slice(), scale:hit.scale||1,
+              mode:null, base:null, rotBase:null, x0:0, y0:0, p0:null, moved:false, turned:false};
+    const modeOf=ev=> ev.shiftKey? 'turn'+(this.held.has('x')? 0 : this.held.has('y')? 1 : 2)
+      : this.held.has('z')? 'lift' : this.held.has('x')? 'x' : this.held.has('y')? 'y' : 'slide';
+    const rebase=(ev, mode)=>{
+      st.mode=mode; st.base=st.cur.slice(); st.rotBase=st.rot.slice();
+      st.x0=ev.clientX; st.y0=ev.clientY;
+      st.p0=this.onPlane(R.rayAt(ev.clientX,ev.clientY), st.base[2]);
+    };
+    const ghost=()=>R.setStaticHighlight([Object.assign({}, hit, {m:refMatrix(st.cur, st.rot, st.scale)})]);
+    rebase(e, modeOf(e));       // from the press, so the first few pixels count
+    return {
+      move:ev=>{
+        const mode=modeOf(ev);
+        if(mode!==st.mode) rebase(ev, mode);
+        if(mode.startsWith('turn')){
+          const k=+mode.slice(4);
+          st.rot[k]=st.rotBase[k]+(ev.clientX-st.x0)*this.TURN;
+          st.turned=true;
+        } else if(mode==='lift'){
+          const ray=R.rayAt(ev.clientX,ev.clientY);
+          const dist=Math.hypot(ray.eye[0]-st.base[0], ray.eye[1]-st.base[1], ray.eye[2]-st.base[2]);
+          const H=(R.cv && R.cv.clientHeight)||800;
+          const perPx=2*Math.tan((typeof FOV==='number'? FOV : 1)/2)*dist/H;
+          st.cur=[st.base[0], st.base[1], st.base[2]-(ev.clientY-st.y0)*perPx];
+          st.moved=true;
+        } else {
+          const p=this.onPlane(R.rayAt(ev.clientX,ev.clientY), st.base[2]);
+          if(!p || !st.p0) return;
+          let dx=p[0]-st.p0[0], dy=p[1]-st.p0[1];
+          if(mode==='x') dy=0; else if(mode==='y') dx=0;
+          st.cur=[st.base[0]+dx, st.base[1]+dy, st.base[2]];
+          st.moved=true;
+        }
+        ghost();
+      },
+      end:()=>{
+        R.setStaticHighlight([hit]);
+        const world=st.cur.map((v,i)=>v+off[i]);
+        const sends=[];
+        if(st.moved) sends.push(['translation', world]);
+        if(st.turned) sends.push(['rotation', st.rot.slice()]);
+        this.sendRef(sel.ref, sends);
+      },
+      cancel:()=>R.setStaticHighlight([hit]),
+      state:st,
+    };
+  },
+
+  /** Queue changes to a reference (`[[path, value], ...]`), one after another; the dialog,
+   *  when it shows that reference, and the render window follow. */
+  async sendRef(ref, changes){
+    if(!changes.length) return;
+    let v=null;
+    try{
+      for(const [path, value] of changes)
+        v=await this.ask('editRefSet', Object.assign({cell:ref.cell, origin:ref.origin, refr:ref.refr},
+                                                     ref.plugins? {plugins:ref.plugins} : {}, {path, value}));
+    }catch(e){
+      toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000);
+    }
+    const same=this.refRec && this.dlg && !this.dlg.hidden &&
+      String(this.refRec.origin).toLowerCase()===String(ref.origin).toLowerCase() && this.refRec.refr===ref.refr;
+    if(v && same) this.drawRef(v);
+    if(!this.refRec || !same) this.refRec=Object.assign({}, ref);
+    await this.refreshPending();
+  },
+
+  /** F: the selected object dropped onto the ground or the object under it, its lowest
+   *  point on the surface (the Construction Set's "drop to ground"). */
+  drop(){
+    const sel=this.selected(), R=App.R;
+    if(!sel || !R) return false;
+    const hit=sel.hit, m=hit.m, a=hit.aabb;
+    const local=[m[3], m[7], m[11]];
+    const bottom=a? a.z0 : local[2];
+    let surface=null;
+    if(R.groundZ){ const g=R.groundZ(local[0], local[1]); if(g!=null && g<=bottom+1) surface=g; }
+    const all=R.pickables;
+    try{
+      R.pickables=(all||[]).filter(o=>o!==hit);
+      const under=R.pickRay([local[0], local[1], bottom-0.5], [0,0,-1]);
+      if(under && (surface==null || under.p[2]>surface)) surface=under.p[2];
+    }finally{ R.pickables=all; }
+    if(surface==null){ toast('Nothing under it to drop onto','warn',3000); return true; }
+    const z=local[2]+(surface-bottom);
+    const off=hit.wpos[2]-local[2];
+    this.sendRef(sel.ref, [['translation', [hit.wpos[0], hit.wpos[1], z+off]]]);
+    return true;
   },
 
   /* ---- the render window, as the pending changes leave it ------------------------------ */
@@ -501,6 +687,10 @@ const WgEditor={
       if(Array.isArray(c.translation)) n.pos=c.translation.slice();
       if(Array.isArray(c.rotation)) n.rot=c.rotation.slice();
       if('scale' in c) n.scale= c.scale==null? 1 : c.scale;
+      if('destination' in c){
+        const t=c.destination;
+        n.door= t? {pos:t.translation.slice(), rot:t.rotation.slice(), cell:t.cell||''} : null;
+      }
       n.edited=true;
       refs.push(n);
     }
@@ -586,6 +776,9 @@ const WgEditor={
   keys(e){
     if(!this.on) return false;
     const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
+    const k=String(e.key||'').toLowerCase();
+    if(!typing && (k==='z'||k==='x'||k==='y') && !e.ctrlKey && !e.metaKey) this.held.add(k);
+    if(k==='f' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && this.selected()) return this.drop();
     if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='f'){
       const f=this.el && this.el.querySelector('#edFilter'); if(f){ f.focus(); f.select(); }
       return true;
@@ -604,3 +797,5 @@ const WgEditor={
 };
 
 document.addEventListener('keydown', e=>{ if(WgEditor.keys(e)){ e.preventDefault(); e.stopPropagation(); } }, true);
+document.addEventListener('keyup', e=>WgEditor.held.delete(String(e.key||'').toLowerCase()), true);
+window.addEventListener('blur', ()=>WgEditor.held.clear());

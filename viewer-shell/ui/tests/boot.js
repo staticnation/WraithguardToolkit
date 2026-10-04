@@ -47,7 +47,7 @@ const fakeRefView=()=>({cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fak
     {path:'scale', value:null, kind:'float', editable:true},
     {path:'deleted', value:null, kind:'bool', editable:true},
     {path:'lock_level', value:null, kind:'int', editable:true},
-    {path:'destination', value:null, kind:'dict', editable:false},
+    {path:'destination', value:null, kind:'door', editable:true},
   ].map(f=> f.path in fakeWg.refQueued? Object.assign(f,{queued:fakeWg.refQueued[f.path]}) : f)});
 const fakeView=()=>({tag:'LIGH', type:'Light', id:'lamp_lit', winner:'Lamp.esm', plugins:['Lamp.esm'], whole:null,
   fields:[
@@ -306,6 +306,61 @@ async function tools(w, R, fail, done, sleep){
   await editor(w, R, fail, done, sleep);
 }
 
+/* The Editor's drag in the render window, with the pointer's rays stood in for: a slide
+   across the ground plane, a Shift-drag turn about Z, and F onto the ground. Each is
+   checked by what reaches the stand-in Wraithguard. */
+async function dragging(E, R, lamp, fail, sleep){
+  if(!E.selected()){ fail('the clicked object is not selectable for dragging'); return; }
+  const m=lamp.m, L=[m[3],m[7],m[11]], W=lamp.wpos.slice();
+  let ex=L[0];
+  const gz=R.groundZ;
+  R.pickAt=()=>{ const sel=E.selected(); return sel? sel.hit : lamp; };
+  R.rayAt=()=>({eye:[ex, L[1], L[2]+1000], dir:[0,0,-1]});
+  const sent=async()=>{
+    const n=fakeWg.posts.length;
+    for(let i=0;i<100 && !fakeWg.posts.slice(n).some(p=>p[0]==='editRefSet');i++) await sleep(30);
+    await sleep(60);
+    return fakeWg.posts.slice(n).filter(p=>p[0]==='editRefSet').map(p=>p[1]);
+  };
+  const near=(a,b)=>Math.abs(a-b)<0.05;
+  try{
+    const g=E.grab({clientX:10, clientY:10, shiftKey:false});
+    if(!g) fail('a press on the selected object does not grab it');
+    else{
+      ex=L[0]+100; g.move({clientX:60, clientY:10, shiftKey:false});
+      const posts=sent(); g.end({});
+      const t=(await posts).find(b=>b.path==='translation');
+      if(!t || !near(t.value[0], W[0]+100) || !near(t.value[1], W[1]) || !near(t.value[2], W[2]))
+        fail('the slide was not sent as the moved position: '+JSON.stringify(t)+' from '+JSON.stringify(W));
+      if(!(E.live.get(lamp.refKey.toLowerCase())||{}).translation) fail('the moved lamp is not drawn moved');
+    }
+    if(!E.selected()) await Ori.show(R.pickables.find(p=>p.refKey===lamp.refKey)||lamp);
+    ex=L[0];
+    const h=E.grab({clientX:10, clientY:10, shiftKey:true});
+    if(h){
+      h.move({clientX:110, clientY:10, shiftKey:true});
+      const posts=sent(); h.end({});
+      const r=(await posts).find(b=>b.path==='rotation');
+      if(!r || !near(r.value[2], (h.state.sel.hit.rot||[0,0,0])[2]+100*E.TURN)) fail('the Shift-drag was not sent as a turn about Z: '+JSON.stringify(r));
+    } else fail('a Shift-press on the selected object does not grab it');
+    // F: onto the ground, its lowest point on it.
+    const sel=E.selected();
+    if(sel){
+      const hit=sel.hit, hm=hit.m;
+      R.groundZ=()=>hit.aabb.z0-500;
+      R.pickRay=()=>null;
+      const posts=sent();
+      if(!E.drop()) fail('F did not drop the selected object');
+      const t=(await posts).find(b=>b.path==='translation');
+      if(!t || !near(t.value[2], hit.wpos[2]-500) || !near(t.value[0], hit.wpos[0])) fail('F did not drop it onto the ground: '+JSON.stringify(t)+' from '+JSON.stringify(hit.wpos)+' z0 '+hit.aabb.z0+' local '+hm[11]);
+    } else fail('the object is not selected again after a move');
+  } finally {
+    delete R.pickAt; delete R.rayAt; delete R.pickRay; R.groundZ=gz;
+    await E.ask('editRefRevert', {cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fakeWg.ref.refr});
+    await E.refreshPending();
+  }
+}
+
 /* The Editor mode (50_wg_editor.js): the Object Window and Cell View from the engine, the
    record dialog and the pool from the stand-in Wraithguard above. */
 async function editor(w, R, fail, done, sleep){
@@ -381,6 +436,28 @@ async function editor(w, R, fail, done, sleep){
         const scale=d.querySelector('#edDlgBody [data-rpath="scale"]');
         scale.value='3'; scale.onchange(); await sleep(150);
         if(!d.querySelector('#edDlgBody [data-rpath="scale"]').classList.contains('bad')) fail('a refused scale is not marked');
+        // A teleport door: switched on, a cell typed, switched off - the whole
+        // destination each time, then none.
+        const lastSet=()=>fakeWg.posts.filter(p=>p[0]==='editRefSet').pop()[1];
+        const door=()=>d.querySelector('#edDlgBody [data-door="on"]');
+        door().checked=true; door().onchange();
+        for(let i=0;i<100 && lastSet().path!=='destination';i++) await sleep(30);
+        let v=lastSet().value;
+        if(!v || !Array.isArray(v.translation) || v.translation.length!==3 || v.cell!=='') fail('switching teleport on did not send a destination: '+JSON.stringify(v));
+        await sleep(100);
+        const cellIn=d.querySelector('#edDlgBody [data-door="cell"]');
+        if(!cellIn || d.querySelector('#edDlgBody [data-door-box]').hidden) fail('the destination inputs are not shown');
+        else{
+          cellIn.value='Lamp Cellar'; cellIn.onchange();
+          for(let i=0;i<100 && (lastSet().value||{}).cell!=='Lamp Cellar';i++) await sleep(30);
+          if((lastSet().value||{}).cell!=='Lamp Cellar') fail('the destination cell was not sent');
+          const lr=CD && (await CD.loadCell({kind:'ext', x:9, y:9})).refs.find(r=>String(r.key).toLowerCase()===key);
+          if(lr && !(lr.door && lr.door.cell==='Lamp Cellar')) fail('the render window does not carry the new destination');
+          await sleep(100);
+          door().checked=false; door().onchange();
+          for(let i=0;i<100 && lastSet().value!==null;i++) await sleep(30);
+          if(lastSet().value!==null) fail('switching teleport off did not clear the destination');
+        }
         await E.showPending();
         if(!d.querySelector('#edPendBody [data-ref]')) fail('the pending list has no reference change to open');
         await E.refChange('editRefRevert', {});
@@ -395,6 +472,7 @@ async function editor(w, R, fail, done, sleep){
     for(let i=0;i<100 && !d.getElementById('edOriEdit');i++) await sleep(30);
     if(!d.getElementById('edOriEdit')) fail('the inspector has no Edit record in the Editor');
     if(!d.getElementById('edOriRef')) fail('the inspector has no Edit reference in the Editor');
+    await dragging(E, R, lamp, fail, sleep);
     Ori.hide();
   }
   E.leave();

@@ -102,7 +102,8 @@ class Found:
 
 #: What each changeable field of a reference holds, in the order the reference dialog
 #: shows them: ``vec3`` three numbers (rotation in radians), ``grid`` an exterior's
-#: ``[x, y]``. ``destination`` (a door's) is shown, not changed here yet.
+#: ``[x, y]``, ``door`` a teleport door's destination ``{translation, rotation, cell}``
+#: (an empty cell is the exterior; None makes it an ordinary door).
 REF_KINDS: Final[dict[str, str]] = {
     "translation": "vec3",
     "rotation": "vec3",
@@ -122,7 +123,7 @@ REF_KINDS: Final[dict[str, str]] = {
     "blocked": "int",
     "temporary": "bool",
     "moved_cell": "grid",
-    "destination": "dict",
+    "destination": "door",
 }
 
 #: The scale the game allows a reference (the Construction Set's limits).
@@ -142,6 +143,34 @@ def _whole(raw: object, what: str) -> int:
     return int(number)
 
 
+def _vec3(raw: object, what: str) -> list[float]:
+    """Three finite numbers from what the viewer sent."""
+    import math
+
+    if not isinstance(raw, list) or len(raw) != 3:
+        raise EditorError(f"{what} is three numbers")
+    try:
+        out = [float(v) for v in raw]
+    except (TypeError, ValueError):
+        raise EditorError(f"{what} is three numbers") from None
+    if not all(math.isfinite(v) for v in out):
+        raise EditorError(f"{what} must be finite")
+    return out
+
+
+def same_value(a: object, b: object) -> bool:
+    """Whether two field values are the same, floats to within a millionth."""
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if isinstance(a, bool) or isinstance(b, bool):
+            return a is b
+        return abs(float(a) - float(b)) < 1e-6
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(same_value(x, y) for x, y in zip(a, b, strict=True))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same_value(a[k], b[k]) for k in a)
+    return a == b
+
+
 def coerce_ref(name: str, raw: object) -> object:
     """A value the viewer sent for a reference's field, as the field holds it.
 
@@ -157,21 +186,24 @@ def coerce_ref(name: str, raw: object) -> object:
     Raises:
         EditorError: For a field that is not changed here, or a value it cannot hold.
     """
-    import math
-
     kind = REF_KINDS.get(name)
-    if kind is None or kind == "dict" or name not in REF_FIELDS:
+    if kind is None or name not in REF_FIELDS:
         raise EditorError(f"{name} cannot be changed on a reference here")
     if kind == "vec3":
-        if not isinstance(raw, list) or len(raw) != 3:
-            raise EditorError(f"{name} is three numbers")
-        try:
-            out = [float(v) for v in raw]
-        except (TypeError, ValueError):
-            raise EditorError(f"{name} is three numbers") from None
-        if not all(math.isfinite(v) for v in out):
-            raise EditorError(f"{name} must be finite")
-        return out
+        return _vec3(raw, name)
+    if kind == "door":
+        if raw is None or raw == "":
+            return None
+        if not isinstance(raw, dict):
+            raise EditorError("a destination is {translation, rotation, cell}")
+        cell = raw.get("cell", "")
+        if not isinstance(cell, str):
+            raise EditorError("a destination's cell is a name (empty: the exterior)")
+        return {
+            "translation": _vec3(raw.get("translation"), "the destination's position"),
+            "rotation": _vec3(raw.get("rotation", [0.0, 0.0, 0.0]), "the destination's rotation"),
+            "cell": cell.strip(),
+        }
     if kind == "bool":
         if isinstance(raw, bool):
             return raw
@@ -639,7 +671,7 @@ class EditorSession:
                 "path": name,
                 "value": found.ref.get(name),
                 "kind": kind,
-                "editable": kind != "dict",
+                "editable": True,
             }
             if name in queued:
                 item["queued"] = queued[name]
@@ -668,12 +700,7 @@ class EditorSession:
             EditorError: For a field not changed here, or a value it cannot hold.
         """
         value = coerce_ref(path, raw)
-        current = found.ref.get(path)
-        if isinstance(value, list) and isinstance(current, list) and len(current) == len(value):
-            same = all(abs(float(a) - float(b)) < 1e-6 for a, b in zip(value, current, strict=True))
-        else:
-            same = value == current
-        if same:
+        if same_value(value, found.ref.get(path)):
             self.queue.remove_ref_edit(found.cell, found.origin, found.refr_index, path)
         else:
             self.queue.add_ref_edit(
@@ -890,6 +917,7 @@ __all__ = [
     "forget_queue",
     "plugins_from_cfg",
     "restore_queue",
+    "same_value",
     "save_queue",
     "tag_of",
 ]

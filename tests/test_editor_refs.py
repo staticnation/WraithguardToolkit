@@ -90,7 +90,7 @@ def test_ref_view_set_revert_and_pending(tmp_path):
     fields = {f["path"]: f for f in view["fields"]}
     assert view["id"] == "iron dagger" and view["winner"] == "B.esp"
     assert fields["scale"]["value"] == 1.5 and fields["lock_level"]["value"] is None
-    assert not fields["destination"]["editable"]
+    assert fields["destination"]["kind"] == "door"
 
     s.set_ref_field(found, "translation", [7, "8", 9.5])
     s.set_ref_field(found, "deleted", True)
@@ -130,12 +130,19 @@ def test_coerce_ref_types_and_limits():
     assert coerce_ref("lock_level", "") is None
     assert coerce_ref("deleted", "yes") is True
     assert coerce_ref("moved_cell", [-2, "9"]) == [-2, 9]
+    assert coerce_ref("destination", {"translation": [1, 2, 3], "cell": " Balmora "}) == {
+        "translation": [1.0, 2.0, 3.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "cell": "Balmora",
+    }
+    assert coerce_ref("destination", None) is None  # an ordinary door
     for name, bad in [
         ("translation", [1, 2]),
         ("translation", [1, 2, float("nan")]),
         ("scale", 3.0),
         ("lock_level", 1.5),
-        ("destination", {}),
+        ("destination", {"cell": "x"}),
+        ("destination", {"translation": [1, 2, 3], "cell": 4}),
         ("id", "x"),
         ("refr_index", 1),
     ]:
@@ -199,3 +206,26 @@ def test_a_cleared_field_is_written_absent(tmp_path):
     (cell,) = [r for r in back if r["type"] == "Cell"]
     (ref,) = cell["references"]
     assert "scale" not in ref and ref["lock_level"] == 30
+
+
+def test_a_door_destination_is_written(tmp_path):
+    """A destination set on a reference: DODT, and DNAM only for an interior."""
+    native = pytest.importorskip("wraithguard_native")
+    from wraithguard.land.emit import build_plugin
+    from wraithguard.patch.refedit import RefEdit, cell_patch_record
+
+    masters = ["Tamriel_Data.esm", "OAAB.esm", "B.esp"]
+    out = {}
+    for cell in ("Ebon Tower, Upper", ""):
+        dest = coerce_ref(
+            "destination", {"translation": [1, 2, 3], "rotation": [0, 0, 1.5], "cell": cell}
+        )
+        edit = RefEdit("Ebon Tower", "Tamriel_Data.esm", 15, {"destination": dest})
+        rec = cell_patch_record([edit], PLUGINS, list(PLUGINS), masters)
+        doc = build_plugin([rec], [(m, 100) for m in masters], description="test")
+        back = native.plugin_records(native.plugin_records_bytes(json.dumps(doc)))
+        (c,) = [r for r in back if r["type"] == "Cell"]
+        out[cell] = c["references"][0]["destination"]
+    assert out["Ebon Tower, Upper"]["cell"] == "Ebon Tower, Upper"
+    assert out[""]["cell"] == "" and out[""]["translation"] == [1.0, 2.0, 3.0]
+    assert out[""]["rotation"][2] == pytest.approx(1.5)

@@ -555,6 +555,8 @@ function boot(){
   // Clicking an object opens ORI, the object inspector (24_ori.js); Shift+click on a door
   // goes through to the cell it leads to.
   if(App.R) App.R.onPick=(hit,e)=>Ori.pick(hit,e);
+  // Wraithguard: in the Editor, a drag on the selected object moves it (50_wg_editor.js).
+  if(App.R) App.R.onGrab=e=>(typeof WgEditor==='object' && WgEditor.on)? WgEditor.grab(e) : null;
   /* Round 18r: the shell moves the mouse pointer for the WASD look, and the renderer
      asks through this rather than reaching for `Engine` itself - the same shape as
      `onPick` and `onFlyState` below. A browser has no shell to ask and leaves it unset,

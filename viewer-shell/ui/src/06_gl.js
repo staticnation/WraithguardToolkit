@@ -6559,6 +6559,9 @@ class Renderer{
       try{ cv.setPointerCapture(e.pointerId); }catch(_){ }
       const mode = e.button===1? 'pan' : (e.button===2? 'orbit' : 'click');
       drag={...pos(e), mode, btn:e.button, x0:e.clientX, y0:e.clientY};
+      /* Wraithguard: a left press on the object the editor has selected may become a drag
+         that moves it (50_wg_editor.js). Still a click until the pointer moves. */
+      if(mode==='click' && this.onGrab) drag.grab=this.onGrab(e)||null;
       // Round 18q: a click is still a point at something; orbiting and panning are not.
       if(mode!=='click') dropHover();
     });
@@ -6629,6 +6632,11 @@ class Renderer{
       if(!drag) return;
       const p=pos(e), dx=p.x-drag.x, dy=p.y-drag.y; drag.x=p.x; drag.y=p.y;
       const c=this.cam;
+      if(drag.grab){
+        if(!drag.grabbing && Math.hypot(e.clientX-drag.x0, e.clientY-drag.y0)>=5){ drag.grabbing=true; dropHover(); }
+        if(drag.grabbing){ drag.grab.move(e); this.dirty=true; }
+        return;
+      }
       if(drag.mode==='click') return;
       if(drag.mode==='orbit'){
         // Round 17g: through `turn`, so this scheme has its own rotation smoothing too.
@@ -6690,7 +6698,7 @@ class Renderer{
         stroke=null;
         if(this.onPaintEnd) this.onPaintEnd();
       }
-      if(drag){ drag=null; }
+      if(drag){ if(drag.grabbing) drag.grab.cancel(); drag=null; }
     });
     const up=e=>{
       if(stroke){
@@ -6707,7 +6715,9 @@ class Renderer{
       if(!drag){ return; }
       const still=Math.hypot(e.clientX-drag.x0, e.clientY-drag.y0)<5;
       try{cv.releasePointerCapture(e.pointerId);}catch(_){ }
+      const grabbed=drag.grabbing? drag.grab : null;
       drag=null;
+      if(grabbed){ if(e.type==='pointercancel') grabbed.cancel(); else grabbed.end(e); return; }
       // Round 17h: a still left click is the pick, in both schemes.
       if(still && e.button===0){
         const a=this.onArrowClick? this.arrowAt(e.clientX,e.clientY) : null;

@@ -25,14 +25,14 @@ Window (record tabs, filter, sortable columns, changed records marked), the Cell
 (cells and their references), a dialog per record whose changes go to Wraithguard's patch
 pool (`wraithguard/patch/editor.py`, `gui/editorlink.py`), the pool journalled so a crash
 loses nothing. Still to do, roughly in this order:
-- **References**: move/rotate/scale in the render window (the CS's drag, Z/X axis locks,
-  F to drop). Done: the writer (`wraithguard/patch/refedit.py`, checked against
-  merge_to_master), reference edits in the pool and `build_record_patch`, and the
-  reference dialog (position and rotation with nudges, scale, deleted, ownership, lock,
-  trap, count; drawn in the render window as it changes). Still to do: the render
-  window's drag gizmo, a door's destination in the dialog, new references
-  (`next_new_index`, carried-forward builds included) and OpenMW's LUAL instance entries,
-  which name references the same way and must be remapped with them.
+- **References**: done - the writer (`wraithguard/patch/refedit.py`, checked against
+  merge_to_master), reference edits in the pool and `build_record_patch`, the reference
+  dialog (position, rotation, scale, deleted, ownership, lock, trap, count, a door's
+  destination), drawn in the render window as it changes, and moving the selected object
+  in the render window (drag, Z/X/Y, Shift-drag turns, F drops). Still to do: new
+  references (`next_new_index`, carried-forward builds included), moving a reference to
+  another exterior cell (`moved_cell`, when a drag crosses a cell edge), and OpenMW's LUAL
+  instance entries, which name references the same way and must be remapped with them.
 - New records (Insert, or "new from this one" with a new id), deleting, renaming (with
   the CS's "used in N places" warning); placing a record from the Object Window into the
   render window (drag and drop).
