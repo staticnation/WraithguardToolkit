@@ -78,12 +78,15 @@ body.wgEditMode #edDock{display:flex;flex-direction:column;width:460px;flex:0 0 
 .edT tbody tr.edited{background:color-mix(in srgb,#3fb950 16%,transparent)}
 .edT tbody tr.edited.sel{background:color-mix(in srgb,#3fb950 28%,transparent)}
 #edDlg{left:auto;right:132px;width:460px}
+#edUsesPanel{left:auto;right:604px;width:460px;max-height:70vh}
 #edPend{left:auto;right:604px;width:360px}
 .edFields td{white-space:normal;max-width:none;vertical-align:top}
 .edFields td.k{color:var(--tx3);width:38%;overflow-wrap:anywhere}
 .edFields .fld{width:100%;box-sizing:border-box}
 .edFields .fld.bad,.edFields input.bad{outline:1px solid #e5534b}
 .edFields .edVec{display:flex;align-items:center;gap:3px;margin:1px 0}
+.edFields .edList td{padding:1px 2px}
+.edFields .edList .fld{min-width:0}
 .edFields .edVec .from{width:12px}
 .edFields .edVec .fld{flex:1;min-width:0;width:auto}
 #btnEditor.on{background:var(--acd);border-color:var(--ac)}

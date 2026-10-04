@@ -167,3 +167,18 @@ def test_plugins_from_cfg_takes_the_last_folder_that_has_each(tmp_path):
         ("Morrowind.esm", "A", "Morrowind.esm"),
         ("Mod.esp", "B", "mod.esp"),
     ]
+
+
+def test_coerce_checks_list_entries_against_the_first():
+    inventory = [[5, "gold_001"], [1, "iron dagger"]]
+    assert coerce(inventory, [["3", "gold_001"], [1, 2]], None) == [[3, "gold_001"], [1, "2"]]
+    with pytest.raises(EditorError):
+        coerce(inventory, [["x", "gold_001"]], None)
+    packages = [{"type": "Wander", "distance": 128}]
+    assert coerce(packages, [{"type": "Wander", "distance": "256"}], None) == [
+        {"type": "Wander", "distance": 256}
+    ]
+    with pytest.raises(EditorError, match="not part"):
+        coerce(packages, [{"type": "Wander", "speed": 1}], None)
+    assert coerce([], ["anything"], None) == ["anything"]
+    assert coerce(["fireball"], ["frost", 7], None) == ["frost", "7"]

@@ -38,10 +38,11 @@ loses nothing. Still to do, roughly in this order:
   Delete/Undelete (the DELETED flag). Still to do: a blank new record of a type (Insert),
   renaming with the CS's "used in N places" warning (needs the Use Report), copying
   scripts (their text names them) and dialogue.
-- List fields in the dialog (inventory, spells, AI packages, leveled list entries,
-  dialogue conditions) as tables, not read-only.
-- Use Report (where a record is used: references, leveled lists, inventories, scripts),
-  Search & Replace, the CSSE's Layers window and its Q context menu.
+- List fields: done (tables in the record dialog, each entry checked against the
+  first). Still to do: nested groups inside an entry edited as fields, not JSON.
+- Use Report: done (every record naming the id, live or overridden, and the cells it is
+  placed in). Still to do: Search & Replace (repoint the live uses to another id, using
+  the report), the CSSE's Layers window and its Q context menu.
 - Dialogue, and the Script Edit window (with the mwscript checks the toolkit has).
 - An "active file" view: the patch being built, as the CS shows the plugin it edits.
 

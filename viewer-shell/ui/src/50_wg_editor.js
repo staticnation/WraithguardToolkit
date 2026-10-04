@@ -9,7 +9,9 @@
    - The Cell View: every cell, and the references in the one selected. Double-click a
      cell to open it in the render window; a reference to go to it, framed and selected.
    - The record dialog: each field (the conflict viewer's dotted paths), its value in
-     the winning plugin, and an input that sends a change. Changes go to Wraithguard's
+     the winning plugin, and an input that sends a change. Its Use Report lists every
+     record of the load order that names it (live, or in a version a later mod
+     overrides), and the cells it is placed in. Changes go to Wraithguard's
      patch pool - the queue its conflict viewer fills - and are reviewed and written in
      its Patch Builder; Wraithguard journals the pool, so a viewer that runs out of
      memory loses nothing.
@@ -342,8 +344,9 @@ const WgEditor={
   input(f){
     const cur=('queued' in f)? f.queued : f.value;
     const dis=f.editable? '' : ' disabled';
-    if(Array.isArray(f.value) || (f.value && typeof f.value==='object'))
-      return '<span class="from">'+(f.count!=null? f.count+' entries' : 'a group')+' - not edited here yet</span>';
+    if(Array.isArray(f.value)) return this.listTable(f, Array.isArray(cur)? cur : f.value);
+    if(f.value && typeof f.value==='object')
+      return '<span class="from">a group - not edited here yet</span>';
     if(typeof f.value==='boolean')
       return '<input type="checkbox" data-path="'+escHtml(f.path)+'"'+(cur?' checked':'')+dis+'>';
     if(f.options && f.options.length && !String(f.kind).startsWith('flags:')){
@@ -359,6 +362,65 @@ const WgEditor={
     return h;
   },
 
+  /** A list field as a table: one row per entry - an input for a value, one per column
+   *  for a row (an inventory's count and item), the entry's JSON for a group (an AI
+   *  package) - with a row removed by its ×, and added by "Add". Any change sends the
+   *  whole list; Wraithguard checks each entry against the first. */
+  listTable(f, list){
+    this._lists=this._lists||{};
+    const tpl=list.length? list[0] : (f.value.length? f.value[0] : null);
+    this._lists[f.path]={list:JSON.parse(JSON.stringify(list)), tpl};
+    const dis=f.editable? '' : ' disabled', P=escHtml(f.path);
+    const cell=(v, r, c, like)=>{
+      const num=typeof like==='number';
+      return '<input class="fld" type="'+(num?'number':'text')+'"'+(num? (Number.isInteger(like)?' step="1"':' step="any"') : '')+
+        ' data-lpath="'+P+'" data-r="'+r+'"'+(c!=null? ' data-c="'+c+'"' : '')+' value="'+escHtml(v==null? '' : (typeof v==='object'? JSON.stringify(v) : String(v)))+'"'+dis+' spellcheck="false">';
+    };
+    let h='<table class="edT edList"><tbody>';
+    if(tpl===null && !list.length) h+='<tr><td class="from">empty</td></tr>';
+    list.slice(0,300).forEach((e,r)=>{
+      h+='<tr>';
+      if(Array.isArray(tpl) && Array.isArray(e)) e.forEach((v,c)=>{ h+='<td>'+cell(v, r, c, tpl[c])+'</td>'; });
+      else h+='<td>'+cell(e, r, null, tpl)+'</td>';
+      h+='<td>'+(f.editable? '<button class="btn dim ic" data-ldel="'+P+'" data-r="'+r+'" title="Remove this entry">&#x2715;</button>' : '')+'</td></tr>';
+    });
+    h+='</tbody></table>';
+    if(list.length>300) h+='<div class="from">'+(list.length-300)+' more entries, not shown</div>';
+    if(f.editable && tpl!==null) h+='<button class="btn sm" data-ladd="'+P+'" title="Another entry, like the last">Add</button>';
+    return h;
+  },
+
+  /** The list as its table's inputs now have it. */
+  readList(body, path){
+    const L=this._lists[path], out=JSON.parse(JSON.stringify(L.list));
+    body.querySelectorAll('[data-lpath]').forEach(el=>{
+      if(el.dataset.lpath!==path) return;
+      const r=+el.dataset.r, c=el.dataset.c;
+      let v=el.value;
+      const like=c!=null? (Array.isArray(L.tpl)? L.tpl[+c] : null) : L.tpl;
+      if(like && typeof like==='object'){ try{ v=JSON.parse(v); }catch(_){ } }
+      else if(el.type==='number') v= v===''? '' : Number(v);
+      if(c!=null) out[r][+c]=v; else out[r]=v;
+    });
+    return out;
+  },
+
+  wireLists(body){
+    const send=(path, list)=>this.change('editSet', {path, value:list});
+    body.querySelectorAll('[data-lpath]').forEach(el=>{
+      el.onchange=()=>send(el.dataset.lpath, this.readList(body, el.dataset.lpath));
+      el.onkeydown=e=>{ if(e.key==='Enter') el.blur(); e.stopPropagation(); };
+    });
+    body.querySelectorAll('[data-ldel]').forEach(b=>b.onclick=()=>{
+      const list=this.readList(body, b.dataset.ldel); list.splice(+b.dataset.r, 1); send(b.dataset.ldel, list);
+    });
+    body.querySelectorAll('[data-ladd]').forEach(b=>b.onclick=()=>{
+      const path=b.dataset.ladd, list=this.readList(body, path), L=this._lists[path];
+      list.push(JSON.parse(JSON.stringify(list.length? list[list.length-1] : L.tpl)));
+      send(path, list);
+    });
+  },
+
   drawRecord(v){
     const d=this.dialog(), body=d.querySelector('#edDlgBody');
     this.record.id=v.id;
@@ -372,6 +434,7 @@ const WgEditor={
     const deleted=flagsNow!=null && flagsNow.split('|').some(x=>x.trim()==='DELETED');
     h+='<div class="orirow"><span class="v">'+
       (v.new? '' : '<button class="btn sm" id="edShow" title="Where it stands in the world">Show in world</button> ')+
+      (v.new? '' : '<button class="btn sm" id="edUses" title="Every record of the load order that names this one, and the cells it is placed in - the Construction Set\'s Use Report">Use Report</button> ')+
       (Ori.recordLink() && !v.new? '<button class="btn sm" id="edConf" title="This record in Wraithguard\'s conflict viewer">Conflicts</button> ' : '')+
       (v.new? '<button class="btn sm" id="edRevertAll" title="Take this record back out of the patch">Remove from the patch</button>'
             : '<button class="btn sm" id="edRevertAll" title="Drop every change waiting for this record">Revert record</button>')+
@@ -387,6 +450,8 @@ const WgEditor={
          '</td><td>'+(q? '<button class="btn dim ic" data-revert="'+escHtml(f.path)+'" title="Drop this change">&#x21B6;</button>' : '')+'</td></tr>';
     }
     body.innerHTML=h+'</tbody></table>';
+    const us=body.querySelector('#edUses');
+    if(us) us.onclick=()=>this.showUses(v.tag, v.id, v.plugins);
     const sh=body.querySelector('#edShow');
     if(sh) sh.onclick=()=>{ if(typeof WgNav==='object') WgNav.go('find:'+v.tag+':'+v.id); };
     const del=body.querySelector('#edDelete');
@@ -414,6 +479,7 @@ const WgEditor={
     const cf=body.querySelector('#edConf'); if(cf) cf.onclick=()=>Ori.openRecord(v.tag, v.id);
     body.querySelector('#edRevertAll').onclick=()=>this.change('editRevert', {});
     body.querySelectorAll('[data-revert]').forEach(b=>b.onclick=()=>this.change('editRevert', {path:b.dataset.revert}));
+    this.wireLists(body);
     body.querySelectorAll('[data-path]').forEach(el=>{
       el.onchange=()=>{
         const value = el.type==='checkbox'? el.checked : el.type==='number'? (el.value===''? '' : Number(el.value)) : el.value;
@@ -905,6 +971,66 @@ const WgEditor={
     if(this.refRec) App._findOri=this.refKeyOf(this.refRec);
     if(typeof schedulePreview==='function' && App.cellSel) schedulePreview();
     return true;
+  },
+
+  /* ---- the Use Report ------------------------------------------------------------------ */
+
+  /** Opens the Use Report for a record: Wraithguard reads every plugin for it. */
+  async showUses(tag, id, plugins){
+    if(!this.uses){
+      const d=document.createElement('div');
+      d.id='edUsesPanel'; d.className='ori'; d.hidden=true;
+      d.innerHTML='<div class="orihead"><b id="edUsesTitle">Use Report</b><span style="flex:1"></span>'+
+        '<button class="btn dim ic" id="edUsesX" title="Close">&#x2715;</button></div><div class="oribody" id="edUsesBody"></div>';
+      ($('#vpwrap')||document.body).appendChild(d);
+      d.querySelector('#edUsesX').onclick=()=>{ d.hidden=true; };
+      this.uses=d;
+    }
+    const d=this.uses, body=d.querySelector('#edUsesBody');
+    d.hidden=false;
+    d.querySelector('#edUsesTitle').textContent='Use Report - '+id;
+    body.innerHTML='<div class="hint">Reading every plugin of the load order for '+escHtml(id)+'…</div>';
+    let r;
+    try{ r=await this.ask('editUses', Object.assign({tag, id}, plugins? {plugins} : {})); }
+    catch(e){ body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return null; }
+    this.drawUses(r);
+    return r;
+  },
+
+  drawUses(r){
+    const body=this.uses.querySelector('#edUsesBody');
+    const uses=r.uses||[];
+    let h='<div class="hint">'+(uses.length
+      ? r.live+' live use'+(r.live===1?'':'s')+(r.cells? ', '+r.cells+' placed in cells' : '')+'. Greyed: in a version a later plugin overrides.'
+      : 'Nothing in the load order names '+escHtml(r.id)+'.')+'</div>';
+    const cells=uses.filter(u=>u.type==='Cell'), other=uses.filter(u=>u.type!=='Cell');
+    if(other.length){
+      h+='<div class="orisec">Records</div><table class="edT"><tbody>';
+      other.forEach((u,i)=>{
+        h+='<tr data-u="'+uses.indexOf(u)+'"'+(u.wins? '' : ' class="from" title="'+escHtml(u.plugin)+'\'s version is overridden by a later plugin"')+'>'+
+          '<td>'+escHtml(this.NAMES[u.tag]||u.tag||u.type)+'</td><td>'+escHtml(u.key)+'</td>'+
+          '<td class="from" title="'+escHtml(u.paths.join(', '))+'">'+escHtml(u.paths.slice(0,2).join(', ')+(u.paths.length>2? '…' : ''))+'</td>'+
+          '<td class="from">'+escHtml(u.plugin)+'</td></tr>';
+      });
+      h+='</tbody></table>';
+    }
+    if(cells.length){
+      h+='<div class="orisec">Placed in</div><table class="edT"><tbody>';
+      cells.forEach(u=>{
+        h+='<tr data-u="'+uses.indexOf(u)+'"><td>'+escHtml(u.key)+'</td><td class="num">'+u.count+'×</td><td class="from">'+escHtml(u.plugin)+'</td></tr>';
+      });
+      h+='</tbody></table>';
+    }
+    body.innerHTML=h;
+    body.querySelectorAll('tr[data-u]').forEach(tr=>{
+      const u=uses[+tr.dataset.u];
+      tr.style.cursor='pointer';
+      tr.onclick=()=>{
+        if(u.type!=='Cell'){ if(u.tag) this.openRecord(u.tag, u.key, null); return; }
+        const m=/^\((-?\d+), (-?\d+)\)$/.exec(u.key);
+        if(typeof WgNav==='object') WgNav.go(m? m[1]+','+m[2] : 'int:'+u.key);
+      };
+    });
   },
 
   /* ---- what waits in the pool -------------------------------------------------------- */

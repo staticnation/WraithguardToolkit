@@ -58,6 +58,7 @@ const fakeView=()=>({tag:'LIGH', type:'Light', id:'lamp_lit', winner:'Lamp.esm',
     {path:'mesh', value:'x\\lamp.nif', editable:true, kind:'str', options:[]},
     {path:'data.radius', value:256, editable:true, kind:'int:0:4294967295', options:[]},
     {path:'flags', value:'', editable:true, kind:'flags:ObjectFlags', options:['DELETED','PERSISTENT']},
+    {path:'inventory', value:[[5,'gold_001'],[1,'torch']], editable:true, kind:'list', options:[], count:2},
   ].map(f=> f.path in fakeWg.queued? Object.assign(f,{queued:fakeWg.queued[f.path], source:'typed'}) : f)});
 fakeWg.made={};
 const fakeServer=http.createServer((req,res)=>{
@@ -66,6 +67,10 @@ const fakeServer=http.createServer((req,res)=>{
     fakeWg.posts.push([name,b]);
     let out;
     if(name==='editRecord') out=fakeView();
+    else if(name==='editUses') out={tag:b.tag, id:b.id, live:3, cells:2, uses:[
+      {plugin:'Lamp.esm', type:'LeveledItem', tag:'LEVI', key:'l_lamps', paths:['items.0.0'], count:1, wins:true},
+      {plugin:'Lamp.esm', type:'Container', tag:'CONT', key:'old_chest', paths:['inventory.0.1'], count:1, wins:false},
+      {plugin:'Lamp.esm', type:'Cell', tag:'CELL', key:'(9, 9)', paths:['references'], count:2, wins:true}]};
     else if(name==='editDuplicate'){
       if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
       fakeWg.made[b.newId.toLowerCase()]={tag:'LIGH', id:b.newId};
@@ -426,7 +431,7 @@ async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editUses','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -460,6 +465,43 @@ async function editor(w, R, fail, done, sleep){
     if(!fakeWg.reviewed) fail('Review did not reach Wraithguard');
     await E.change('editRevert', {path:'data.radius'});
     if(E.edited.size) fail('the revert left the record marked');
+    // A list field as a table: a count changed, an entry added and one removed, each
+    // sent as the whole list.
+    {
+      const lastInv=()=>(fakeWg.posts.filter(p=>p[0]==='editSet' && p[1].path==='inventory').pop()||[0,{}])[1].value;
+      const n0=fakeWg.posts.length;
+      const c=d.querySelector('#edDlgBody [data-lpath="inventory"][data-r="0"][data-c="0"]');
+      if(!c) fail('the inventory is not a table');
+      else{
+        c.value='7'; c.onchange();
+        for(let i=0;i<100 && fakeWg.posts.length===n0;i++) await sleep(30);
+        if(JSON.stringify(lastInv())!==JSON.stringify([[7,'gold_001'],[1,'torch']])) fail('the changed count was not sent as the list: '+JSON.stringify(lastInv()));
+        await sleep(100);
+        d.querySelector('#edDlgBody [data-ladd="inventory"]').onclick();
+        for(let i=0;i<100 && (lastInv()||[]).length!==3;i++) await sleep(30);
+        if((lastInv()||[]).length!==3) fail('Add did not send a longer list');
+        await sleep(100);
+        d.querySelector('#edDlgBody [data-ldel="inventory"][data-r="1"]').onclick();
+        for(let i=0;i<100 && (lastInv()||[]).length!==2;i++) await sleep(30);
+        const v=lastInv();
+        if(!v || v.length!==2 || v[0][0]!==7 || v[1][1]!=='torch') fail('removing an entry sent '+JSON.stringify(v));
+        await E.change('editRevert', {path:'inventory'});
+      }
+    }
+    // The Use Report: records and cells, an overridden one greyed, a record opening.
+    d.getElementById('edUses').onclick();
+    for(let i=0;i<100 && !d.querySelector('#edUsesBody tr[data-u]');i++) await sleep(30);
+    const urows=[...d.querySelectorAll('#edUsesBody tr[data-u]')];
+    if(urows.length!==3) fail('the Use Report lists '+urows.length+' uses');
+    else{
+      if(!urows[1].classList.contains('from')) fail('an overridden use is not greyed');
+      if(!/3 live uses, 2 placed/.test(d.getElementById('edUsesBody').textContent)) fail('the Use Report has no summary');
+      urows[0].onclick();
+      for(let i=0;i<100 && !fakeWg.posts.some(p=>p[0]==='editRecord' && p[1].id==='l_lamps');i++) await sleep(30);
+      if(!fakeWg.posts.some(p=>p[0]==='editRecord' && p[1].id==='l_lamps' && p[1].tag==='LEVI')) fail('a use does not open its record');
+      for(let i=0;i<100 && !d.getElementById('edDelete');i++) await sleep(30);
+    }
+    d.getElementById('edUsesPanel').hidden=true;
     // Delete record: the DELETED flag, and Undelete takes it off.
     d.getElementById('edDelete').onclick();
     for(let i=0;i<100 && !/DELETED/.test(fakeWg.queued.flags||'');i++) await sleep(30);

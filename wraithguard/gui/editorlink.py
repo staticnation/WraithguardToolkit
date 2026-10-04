@@ -18,6 +18,8 @@ loopback server, for everything else:
 - ``editDuplicate`` ``{tag, id, plugins?, newId}`` -> a copy of a record under a new
   id, made by the patch; its dialog (``editSet`` changes it, ``editRevert`` without a
   path removes it);
+- ``editUses`` ``{tag, id, plugins?}`` -> the record's Use Report
+  (:meth:`.EditorSession.uses`: every record that names it, live or overridden);
 - ``editPending`` ``{}`` -> everything the patch would carry;
 - ``editReview`` ``{}`` -> open the Patch Builder here, to review and write.
 
@@ -118,6 +120,7 @@ class EditorLinkMixin:
             "editRefSet": server.register_post("wg_edit_ref_set", self._on_edit_ref_set),
             "editRefRevert": server.register_post("wg_edit_ref_revert", self._on_edit_ref_revert),
             "editDuplicate": server.register_post("wg_edit_duplicate", self._on_edit_duplicate),
+            "editUses": server.register_post("wg_edit_uses", self._on_edit_uses),
             "editPlace": server.register_post("wg_edit_place", self._on_edit_place),
             "editNew": server.register_post("wg_edit_new", self._on_edit_new),
             "editNewSet": server.register_post("wg_edit_new_set", self._on_edit_new_set),
@@ -237,6 +240,18 @@ class EditorLinkMixin:
             return session.view(found)
 
         return self._json(self._on_ui_wait(change))
+
+    def _on_edit_uses(self, body: bytes) -> Payload:
+        """``editUses``: the record's Use Report (read on the server's thread).
+
+        Args:
+            body: ``{tag, id, plugins?}``.
+
+        Returns:
+            :meth:`.EditorSession.uses`, as JSON.
+        """
+        _req, session, found = self._edit_request(body)
+        return self._json(session.uses(found))
 
     def _on_edit_duplicate(self, body: bytes) -> Payload:
         """``editDuplicate``: a copy of a record under a new id, made by the patch.

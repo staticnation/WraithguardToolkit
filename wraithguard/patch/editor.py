@@ -344,6 +344,32 @@ def _native_read(path: Path, tag: str) -> list[dict[str, Any]]:
     return list(wraithguard_native.plugin_records(path.read_bytes(), keep=[tag.encode("ascii")]))
 
 
+def _native_read_all(path: Path) -> list[dict[str, Any]]:
+    """All of a plugin's records, through the Rust backend.
+
+    Args:
+        path: The plugin.
+
+    Returns:
+        The records.
+    """
+    import wraithguard_native
+
+    return list(wraithguard_native.plugin_records(path.read_bytes()))
+
+
+def _coerce_entry(template: object, entry: object) -> object:
+    """One entry of a list, checked by the shape of the first.
+
+    A row (``[count, id]``) position by position, anything else as :func:`coerce` takes it.
+    """
+    if isinstance(template, list):
+        if not isinstance(entry, list) or len(entry) != len(template):
+            raise EditorError(f"an entry here is {len(template)} values, not {entry!r}")
+        return [coerce(t, v, None) for t, v in zip(template, entry, strict=True)]
+    return coerce(template, entry, None)
+
+
 def coerce(current: object, raw: object, kind: str | None) -> object:
     """A value the viewer sent, as the type the field holds.
 
@@ -353,7 +379,9 @@ def coerce(current: object, raw: object, kind: str | None) -> object:
         kind: The schema's kind for the field (:func:`.fieldtypes.field_kind`).
 
     Returns:
-        The value to write.
+        The value to write. A list is checked entry by entry against the shape of its
+        first entry (an inventory's ``[count, id]``, a leveled list's ``[id, level]``, an
+        AI package's fields); a group against its own fields.
 
     Raises:
         EditorError: When it cannot be that type, or is out of the field's range.
@@ -383,10 +411,19 @@ def coerce(current: object, raw: object, kind: str | None) -> object:
             return float(str(raw).strip())
         except ValueError:
             raise EditorError(f"{raw!r} is not a number") from None
-    if isinstance(current, (list, dict)):
-        if not isinstance(raw, type(current)):
-            raise EditorError(f"this field holds a {type(current).__name__}, not {raw!r}")
-        return raw
+    if isinstance(current, list):
+        if not isinstance(raw, list):
+            raise EditorError(f"this field holds a list, not {raw!r}")
+        if not current:
+            return raw  # nothing to say what an entry is
+        return [_coerce_entry(current[0], entry) for entry in raw]
+    if isinstance(current, dict):
+        if not isinstance(raw, dict):
+            raise EditorError(f"this field holds a group, not {raw!r}")
+        unknown = set(raw) - set(current)
+        if unknown:
+            raise EditorError(f"{', '.join(sorted(unknown))} is not part of this entry")
+        return {k: coerce(current[k], raw.get(k, current[k]), None) for k in current}
     if isinstance(current, str):
         return raw if isinstance(raw, str) else str(raw)
     return raw
@@ -401,6 +438,7 @@ class EditorSession:
         queue: PatchQueue,
         journal: Path | None = None,
         read: Callable[[Path, str], list[dict[str, Any]]] = _native_read,
+        read_all: Callable[[Path], list[dict[str, Any]]] = _native_read_all,
     ) -> None:
         """Start a session.
 
@@ -409,6 +447,7 @@ class EditorSession:
             queue: The patch queue the edits go into.
             journal: Where the queue is saved after every change (None: nowhere).
             read: Reads one plugin's records of one tag.
+            read_all: Reads all of one plugin's records (the Use Report).
         """
         self.order = [name for name, _ in plugins]
         self._paths = {name.lower(): (name, path) for name, path in plugins}
@@ -416,6 +455,7 @@ class EditorSession:
         self.queue = queue
         self.journal = journal
         self._read = read
+        self._read_all = read_all
         self._cache: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         self._masters: dict[str, list[str]] = {}
         self._lock = threading.Lock()
@@ -481,6 +521,44 @@ class EditorSession:
                 return None
             return Found(tag, record_type, made.key, ((PATCH, dict(made.record)),), new=True)
         return Found(tag, record_type, record_key(versions[-1][1]), tuple(versions))
+
+    def uses(self, found: Found) -> dict[str, Any]:
+        """The record's Use Report: every record of the load order that names it.
+
+        Reads every plugin whole, so it is slow on a large load order; it runs where
+        :meth:`find` does, off the queue's thread.
+
+        Args:
+            found: The record.
+
+        Returns:
+            ``{"tag", "id", "uses": [{"plugin", "type", "tag", "key", "paths", "count",
+            "wins"}], "live", "cells"}`` - ``live`` the uses in versions the load order
+            uses, ``cells`` the references placed.
+        """
+        from wraithguard.patch.uses import use_report
+
+        plugins = [self._paths[n.lower()] for n in self.order]
+        found_uses = use_report(plugins, self._read_all, found.record_type, found.key)
+        rows = [
+            {
+                "plugin": u.plugin,
+                "type": u.record_type,
+                "tag": tag_of(u.record_type),
+                "key": u.key,
+                "paths": u.paths,
+                "count": u.count,
+                "wins": u.wins,
+            }
+            for u in found_uses
+        ]
+        return {
+            "tag": found.tag,
+            "id": found.key,
+            "uses": rows,
+            "live": sum(u.count for u in found_uses if u.wins),
+            "cells": sum(u.count for u in found_uses if u.record_type == "Cell"),
+        }
 
     # -- the dialog -------------------------------------------------------------------
 

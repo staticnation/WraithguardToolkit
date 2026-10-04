@@ -165,6 +165,16 @@
   bytes, and types whose identity is not their id or that name themselves (cells,
   dialogue, scripts, game settings) are refused. "Delete record" marks a record deleted
   the way the Construction Set does, with its DELETED flag; "Undelete" takes it off.
+- **The Use Report, in the Editor's record dialog.** Every record of the load order that
+  names the record - leveled lists, inventories, spell lists, enchantments, sounds,
+  dialogue filters, scripts (as a word in their text) - and every cell it is placed in,
+  with the plugin each is in; a use in a version a later plugin overrides is greyed. A
+  record opens in the dialog, a cell in the render window. Wraithguard reads the plugins
+  side by side (`wraithguard/patch/uses.py`), walking only records whose text holds the id.
+- **List fields are edited in the record dialog**: an inventory, a spell list, a leveled
+  list's entries, AI packages - a table with a row per entry (a column per value of a row,
+  an entry's JSON for a group), Add and ×. Wraithguard checks each entry against the shape
+  of the first (`[count, id]` stays a count and an id).
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time
