@@ -240,6 +240,18 @@ async function tools(w, R, fail, done, sleep){
   const lo=C.ramp(0), hi=C.ramp(1);
   if(!(lo[1]>0.8 && hi[1]<0.1 && hi[0]>0.4)) fail('the heat ramp does not run yellow to red');
   done.push('land, links, heat');
+  // A teleporting door: "Go through" in the inspector and in the full help.
+  const Ori=w.eval('Ori');
+  const door=R.pickables.find(p=>p.door && p.door.cell);
+  if(!door) fail('no teleporting door among the pickables');
+  else{
+    await Ori.show(door);
+    if(!d.querySelector('#oriBody #oriDoorGo')) fail('the inspector has no Go through for '+door.id);
+    const tfh=d.getElementById('tfhPanel');
+    if(!tfh || tfh.hidden || !tfh.querySelector('#tfhDoorGo')) fail('the full help has no Go through for '+door.id);
+    Ori.hide();
+    done.push('door buttons');
+  }
 }
 
 // ORI: a few seconds before the report, inspect the first pickable object.

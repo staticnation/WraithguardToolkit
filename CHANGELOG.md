@@ -51,6 +51,21 @@
   (`lua/lual.py`, the layout of OpenMW's `luascripts.cpp`). Not read: scripts packed in
   BSAs - the report says so.
 
+### Changed
+
+- **CI builds Windows on every push.** The CI run carries
+  `wraithguard-toolkit-windows-x86_64-system` (the one-file `.exe`) as an artifact, built
+  by the same steps as a release (`build-windows.yml`, now also callable from `ci.yml`), so
+  a change can be tried on Windows without tagging. Release builds are unchanged.
+
+### Fixed
+
+- **Cell Preview: "Go through" is back in the full help panel.** Clicking a teleporting
+  door shows where it leads and a "Go through" button on the right again - the old object
+  dialogue's "Open cell door leads to", which went missing when the full help replaced
+  that dialogue. The inspector's own button and Shift+click still work; the CI's viewer
+  boot test now checks both buttons.
+
 ## 4.2.1
 
 ### Added

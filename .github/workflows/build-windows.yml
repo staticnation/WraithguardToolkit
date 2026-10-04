@@ -17,7 +17,10 @@
 # (https://developer.microsoft.com/microsoft-edge/webview2/ -> Fixed Version, x64,
 # a .cab). Its download links change with every release, so the link is a repository
 # variable, WEBVIEW2_FIXED_URL (or the manual run's input); the webview2 variant is
-# built only when one is set. Note: Rust's Windows target needs Windows 10 or later,
+# built only when one is set.
+#
+# CI (ci.yml) also calls this on every push, so each run carries a Windows .exe to try:
+# the system variant only (the WebView2 download is ~250 MB), and never a release. Note: Rust's Windows target needs Windows 10 or later,
 # so neither variant runs on Windows 7/8.1 whatever WebView2 it carries.
 
 name: Build Windows app
@@ -31,12 +34,21 @@ on:
         default: ""
   push:
     tags: ["v*"]
+  workflow_call:
+    inputs:
+      variants:
+        description: "JSON list of variants; empty = system, and webview2 when a runtime URL is set"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: write # create/attach to a Release on tag builds
 
 concurrency:
-  group: build-windows-${{ github.ref }}
+  # github.workflow is the caller's name when CI calls this, so a CI run and a manual or
+  # tag build of the same ref do not cancel each other.
+  group: build-windows-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -46,7 +58,8 @@ jobs:
       fail-fast: false
       matrix:
         # The bundled-WebView2 variant only when there is a runtime to bundle.
-        variant: ${{ fromJSON((inputs.webview2_url != '' || vars.WEBVIEW2_FIXED_URL != '') && '["system","webview2"]' || '["system"]') }}
+        # CI passes its own list (system only).
+        variant: ${{ fromJSON(inputs.variants != '' && inputs.variants || ((inputs.webview2_url != '' || vars.WEBVIEW2_FIXED_URL != '') && '["system","webview2"]' || '["system"]')) }}
     env:
       WEBVIEW2_URL: ${{ inputs.webview2_url != '' && inputs.webview2_url || vars.WEBVIEW2_FIXED_URL }}
     steps:
