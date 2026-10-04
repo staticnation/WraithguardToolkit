@@ -130,3 +130,91 @@ def test_a_journal_shows_its_stages(tmp_path):
         (10, ""),
         (100, "Finished"),
     ]
+
+
+def test_a_topic_is_copied_with_its_responses_in_order(tmp_path):
+    s = _session(tmp_path)
+    copied = s.copy_topic("rumors", "Rumors Two")
+    assert copied["id"] == "Rumors Two" and copied["type"] == "Topic"
+    texts = [r["text"] for r in copied["responses"]]
+    assert texts == [r["text"] for r in s.topic("Rumors")["responses"]]
+    ids = [r["id"] for r in copied["responses"]]
+    assert len(set(ids)) == len(ids) and not set(ids) & {"1", "2", "5", "7"}
+    assert not any(r["orphan"] for r in copied["responses"])  # linked to each other
+    assert any(t["id"] == "Rumors Two" and t["plugins"] == ["(this patch)"] for t in s.topics())
+    with pytest.raises(EditorError, match="already a topic"):
+        s.copy_topic("rumors", "greeting 0")
+    # a response added to the copy later lands in it
+    added = s.new_response("Rumors Two", ids[0])
+    assert [r["id"] for r in s.topic("Rumors Two")["responses"]][1] == added.key
+
+
+def test_a_copied_topic_is_written_topic_first(tmp_path):
+    from wraithguard.patch.service import build_record_patch
+
+    s = _session(tmp_path)
+    s.copy_topic("rumors", "Rumors Two")
+    plugins = {n: [{"type": "Header", "masters": []}, *r] for n, r in PLUGINS.items()}
+    captured: dict[str, Any] = {}
+    from wraithguard.patch import service
+
+    real = service._write
+    service._write = lambda doc, _t, _c: captured.setdefault("doc", doc)  # type: ignore[assignment]
+    try:
+        build_record_patch(
+            [],
+            plugins,
+            list(PLUGINS),
+            dict.fromkeys(PLUGINS, 1),
+            "",
+            tmp_path / "p.esp",
+            new_records=s.queue.new_records,
+        )
+    except FileNotFoundError:
+        pass  # the stand-in writer wrote nothing to measure
+    finally:
+        service._write = real  # type: ignore[assignment]
+    kinds = [r["type"] for r in captured["doc"] if r["type"] in ("Dialogue", "DialogueInfo")]
+    assert kinds == ["Dialogue"] + ["DialogueInfo"] * 4
+
+
+def test_the_dialogue_endpoints(tmp_path):
+    """Through the real endpoints: every link the dialogue window uses is there."""
+    import json
+
+    from wraithguard.gui.editorlink import EditorLinkMixin
+
+    class Host(EditorLinkMixin):
+        def __init__(self) -> None:
+            self._editor_session = _session(tmp_path)
+            self.refreshed = 0
+
+        def _schedule_ui(self, _delay: int, fn: Any, *args: Any) -> None:
+            fn(*args)
+
+        def refresh_patch_views(self) -> None:
+            self.refreshed += 1
+
+    class Server:
+        def __init__(self) -> None:
+            self.routes: dict[str, Any] = {}
+
+        def register_post(self, name: str, fn: Any) -> str:
+            self.routes[name] = fn
+            return f"http://x/{name}"
+
+    host, server = Host(), Server()
+    host._editor_for = lambda _setup: host._editor_session  # type: ignore[method-assign]
+    links = host.editor_links(server, tmp_path / "openmw.cfg")  # type: ignore[arg-type]
+    for name in ("editTopics", "editTopic", "editNewResponse", "editCopyTopic"):
+        assert name in links, name
+
+    def post(name: str, **b: Any) -> Any:
+        return json.loads(server.routes[links[name].rsplit("/", 1)[1]](json.dumps(b).encode()).body)
+
+    assert any(t["id"] == "Rumors" for t in post("editTopics"))
+    view = post("editNewResponse", topic="Rumors", after="1")
+    assert view["new"] and view["tag"] == "INFO"
+    copied = post("editCopyTopic", topic="Rumors", newId="Rumors Copy")
+    assert copied["id"] == "Rumors Copy" and len(copied["responses"]) == 5
+    assert host.refreshed == 2

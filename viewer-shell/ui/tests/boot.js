@@ -80,6 +80,11 @@ const fakeServer=http.createServer((req,res)=>{
     else if(name==='editTopic') out={id:b.topic, type:'Topic', responses:[
       {id:'101', text:'First.', speaker:'race: Dark Elf', disposition:0, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false},
       {id:'102', text:'Orphaned.', speaker:'', disposition:0, plugins:['Mod.esp'], winner:'Mod.esp', orphan:true}]};
+    else if(name==='editCopyTopic'){
+      if(b.newId.toLowerCase()==='greeting 0'){ res.writeHead(400); res.end('Greeting 0 is already a topic in this load order'); return; }
+      fakeWg.copied=b;
+      out={id:b.newId, type:'Topic', responses:[{id:'901', text:'First.', speaker:'', disposition:0, plugins:['(this patch)'], winner:'(this patch)', orphan:false, quest:''}]};
+    }
     else if(name==='editNewResponse'){
       fakeWg.newResp=b;
       out=Object.assign(fakeView(), {tag:'INFO', type:'DialogueInfo', id:'777', new:true, winner:'(this patch)', plugins:['(this patch)']});
@@ -500,7 +505,7 @@ async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editNewResponse','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editNewResponse','editCopyTopic','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -751,6 +756,15 @@ async function editor(w, R, fail, done, sleep){
     if(!fakeWg.newResp || fakeWg.newResp.after!=='') fail('Add at top sent '+JSON.stringify(fakeWg.newResp));
     d.querySelector('#edDialTabs [data-kind="Greeting"]').onclick();
     if(d.querySelector('#edDialTopics tr[data-topic]').dataset.topic!=='Greeting 0') fail('the Greeting tab does not list greetings');
+    // Copy topic as: a taken name refused, a new one sent and opened.
+    d.querySelector('#edDialTabs [data-kind="Topic"]').onclick();
+    await E.openTopic('Rumors');
+    d.getElementById('edTopicCopyId').value='Greeting 0';
+    await E.copyTopic('Rumors');
+    if(!d.getElementById('edTopicCopyId').classList.contains('bad')) fail('a taken topic name is not refused');
+    d.getElementById('edTopicCopyId').value='Rumors Copy';
+    const ct=await E.copyTopic('Rumors');
+    if(!ct || !fakeWg.copied || fakeWg.copied.topic!=='Rumors' || fakeWg.copied.newId!=='Rumors Copy') fail('Copy topic as sent '+JSON.stringify(fakeWg.copied));
     // A journal: stages by index, the quest's name over them.
     d.querySelector('#edDialTabs [data-kind="Journal"]').onclick();
     await E.openTopic('MS_Lamp');

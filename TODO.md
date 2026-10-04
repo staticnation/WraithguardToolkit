@@ -34,8 +34,7 @@ loses nothing. Still to do, roughly in this order:
   remapped with them.
 - Records: done - "Make a copy as", "New" (a blank record of a type), Delete/Undelete
   (the DELETED flag) and "Rename to" (a copy, the live uses repointed to it, the count
-  said); a copied script's `begin` line takes the new id. Still to do: copying whole
-  topics.
+  said); a copied script's `begin` line takes the new id; a topic copied whole.
 - List fields: done (tables in the record dialog; a group per entry - a dialogue
   condition, an AI package - a column per field, each entry checked against one of its
   kind). Values nested deeper than that are JSON in their cell.

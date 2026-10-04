@@ -244,6 +244,9 @@
 - **Lua: LUAL records are read by the Rust backend** (the tes3 crate's
   `ScriptConfigList`, only LUAL records parsed), with the Python reader kept for a build
   without it. The backend can also write an archive (`bsa_bytes`).
+- **"Copy topic as" in the dialogue window**: a topic and its responses, in the order
+  the engine reads them, under a new name - the patch's own topic and responses, with new
+  ids linked to each other, the plugins they came from kept as masters.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time
@@ -259,6 +262,10 @@
 
 ### Fixed
 
+- **The Editor's "Add after"/"Add at top" in the dialogue window reach Wraithguard.** The
+  endpoint behind them was never registered, so the buttons failed in the app (the
+  viewer's own tests answer from a stand-in). A test now checks that every link the
+  editor page names is one Wraithguard registers.
 - **The Windows build downloads as the `.exe`.** The workflow's artifact was a zip named
   `wraithguard-toolkit-windows-x86_64-system` holding the `.exe` - with the `.zip`
   extension dropped on the way down, a file Windows would not run. Builds are now uploaded

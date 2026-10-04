@@ -236,7 +236,11 @@ def build_record_patch(
             )
         for m in new_records:
             say(f"  {m.record_type} {m.key}: made by the patch")
-            made_topic = _topic_named(records_by_plugin.get(m.source) or [], m.topic)
+            # The topic's record: one the patch already carries (a topic it made, or
+            # took), else the plugin's whose version wins.
+            made_topic = _topic_named(records, m.topic) or _topic_named(
+                records_by_plugin.get(m.source) or [], m.topic
+            )
             if m.record_type == INFO_TYPE and made_topic is not None:
                 _place_in(records, copy.deepcopy(dict(m.record)), made_topic)
             else:

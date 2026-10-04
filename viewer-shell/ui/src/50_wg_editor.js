@@ -1313,7 +1313,9 @@ const WgEditor={
       if(name) t.questName=name.text;
     }
     box.innerHTML=(journal && t.questName? '<div class="orisec">Quest: '+escHtml(t.questName)+'</div>' : '')+
-      '<div class="orirow"><span class="v"><button class="btn sm" id="edRespTop" title="A new response at the top of the topic, made by the patch">Add at top</button></span></div>'+
+      '<div class="orirow"><span class="v edVec"><button class="btn sm" id="edRespTop" title="A new response at the top of the topic, made by the patch">Add at top</button>'+
+      '<input class="fld" id="edTopicCopyId" placeholder="New topic name" spellcheck="false">'+
+      '<button class="btn sm" id="edTopicCopy" title="This topic and its responses, in their order, under a new name - made by the patch">Copy topic as</button></span></div>'+
       '<table class="edT"><thead><tr><th>#</th><th>'+(journal? 'Index' : 'Who')+'</th><th>Text</th><th>From</th><th></th></tr></thead><tbody>'+
       t.responses.map((r,i)=>'<tr data-r="'+i+'"'+(this.isEditedInfo(r.id)? ' class="edited"' : '')+' title="'+escHtml(r.text)+'">'+
         '<td class="num">'+(i+1)+(r.orphan? ' <span class="bad" title="Its predecessor is not in the topic: it is read last">!</span>' : '')+'</td>'+
@@ -1327,11 +1329,30 @@ const WgEditor={
       tr.ondblclick=()=>this.openRecord('INFO', r.id, r.winner==='(this patch)'? null : r.plugins);
     });
     box.querySelector('#edRespTop').onclick=()=>this.addResponse(t.id, '');
+    const cpIn=box.querySelector('#edTopicCopyId');
+    cpIn.onkeydown=e=>{ if(e.key==='Enter') this.copyTopic(t.id); e.stopPropagation(); };
+    box.querySelector('#edTopicCopy').onclick=()=>this.copyTopic(t.id);
     box.querySelectorAll('[data-after]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); this.addResponse(t.id, b.dataset.after); });
     return t;
   },
 
   isEditedInfo(id){ return this.edited.has('INFO:'+String(id).toLowerCase()); },
+
+  /** "Copy topic as": the topic and its responses under a new name, made by the patch;
+   *  the topic list then has it, and it opens. */
+  async copyTopic(topic){
+    const box=this.dial.querySelector('#edTopicCopyId'), newId=box.value.trim();
+    if(!newId){ box.classList.add('bad'); return null; }
+    let t;
+    try{ t=await this.ask('editCopyTopic', {topic, newId}); }
+    catch(e){ box.classList.add('bad'); toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); return null; }
+    this.topicList=null;
+    await this.showDialogue();
+    await this.refreshPending();
+    await this.openTopic(t.id);
+    toast(t.id+': '+t.responses.length+' response'+(t.responses.length===1?'':'s')+' copied','ok',4000);
+    return t;
+  },
 
   /** A new response in a topic, after another (or at the top): made by the patch, opened
    *  in the record dialog, and shown in its place. */

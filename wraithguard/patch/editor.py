@@ -741,6 +741,13 @@ class EditorSession:
                 entry = out.setdefault(tid.lower(), {"id": tid, "type": "", "plugins": []})
                 entry["type"] = str(rec.get("dialogue_type") or entry["type"])
                 entry["plugins"].append(self._paths[plugin.lower()][0])
+        for made in self.queue.new_records:
+            if made.record_type == "Dialogue":
+                entry = out.setdefault(
+                    made.key.lower(), {"id": made.key, "type": "", "plugins": []}
+                )
+                entry["type"] = str(made.record.get("dialogue_type") or entry["type"])
+                entry["plugins"].append(PATCH)
         return sorted(out.values(), key=lambda t: (t["type"], t["id"].lower()))
 
     def topic(self, topic_id: str) -> dict[str, Any]:
@@ -781,6 +788,9 @@ class EditorSession:
                 elif rec.get("type") == "DialogueInfo" and current == want:
                     latest[str(rec.get("id") or "")] = (name, rec)
         for made in self.queue.new_records:
+            if made.record_type == "Dialogue" and made.key.lower() == want:
+                spelled = spelled or made.key
+                kind = str(made.record.get("dialogue_type") or kind)
             if made.record_type == "DialogueInfo" and made.topic.lower() == want:
                 rec = dict(made.record)
                 defs.append(Response(made.key, str(rec.get("prev_id") or ""), PATCH))
@@ -867,6 +877,71 @@ class EditorSession:
         self.queue.add_new_record(NewRecord("DialogueInfo", rid, record, source, view["id"]))
         self.save_journal()
         return Found("INFO", "DialogueInfo", rid, ((PATCH, record),), new=True)
+
+    def copy_topic(self, topic_id: str, new_id: str) -> dict[str, Any]:
+        """Copy a topic under a new name, with its responses, in the patch.
+
+        The topic's record is the patch's own (its kind kept); each response is the
+        version the load order uses, copied in the order the engine reads them, under a
+        new id and linked to the copies before and after it, so the new topic reads as
+        the old one does.
+
+        Args:
+            topic_id: The topic to copy (any case).
+            new_id: The new topic's name.
+
+        Returns:
+            The new topic, as :meth:`topic` shows it.
+
+        Raises:
+            EditorError: A topic no plugin has, or a name a topic already has.
+        """
+        import secrets
+
+        from wraithguard.esp.json import _by_name, record_to_json
+
+        view = self.topic(topic_id)
+        name = new_id.strip()
+        if not name:
+            raise EditorError("the topic needs a name")
+        if any(t["id"].lower() == name.lower() for t in self.topics()):
+            raise EditorError(f"{name} is already a topic in this load order")
+        # Each response as the load order uses it, and the plugin it came from (a master
+        # of the patch: what it names - speakers, scripts - is defined there).
+        latest: dict[str, tuple[str, dict[str, Any]]] = {}
+        for plugin in self.order:
+            current = ""
+            name_of = self._paths[plugin.lower()][0]
+            for rec in self._dialogue(plugin):
+                if rec.get("type") == "Dialogue":
+                    current = str(rec.get("id") or "").lower()
+                elif rec.get("type") == "DialogueInfo" and current == view["id"].lower():
+                    latest[str(rec.get("id") or "")] = (name_of, rec)
+        for made in self.queue.new_records:
+            if made.record_type == "DialogueInfo" and made.topic.lower() == view["id"].lower():
+                latest[made.key] = (made.source, dict(made.record))
+        topic = record_to_json(_by_name()["Dialogue"]())
+        topic.update({"id": name, "dialogue_type": view["type"] or topic["dialogue_type"]})
+        self.queue.add_new_record(NewRecord("Dialogue", name, topic, ""))
+        ids = [str(secrets.randbelow(9 * 10**18) + 10**18) for _ in view["responses"]]
+        for i, row in enumerate(view["responses"]):
+            source, found = latest.get(row["id"], ("", {}))
+            rec = copy.deepcopy(found)
+            rec.update(
+                {
+                    "type": "DialogueInfo",
+                    "id": ids[i],
+                    "prev_id": ids[i - 1] if i else "",
+                    "next_id": ids[i + 1] if i + 1 < len(ids) else "",
+                }
+            )
+            flags = str(rec.get("flags") or "")
+            rec["flags"] = " | ".join(
+                f for f in flags.split(" | ") if f.strip() and f.strip() != "DELETED"
+            )
+            self.queue.add_new_record(NewRecord("DialogueInfo", ids[i], rec, source, name))
+        self.save_journal()
+        return self.topic(name)
 
     # -- scripts ----------------------------------------------------------------------
 

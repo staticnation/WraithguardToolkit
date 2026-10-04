@@ -31,6 +31,10 @@ loopback server, for everything else:
   record, ``INFO``, in the record dialog);
 - ``editInsert`` ``{tag, newId}`` -> a blank record of a type, made by the patch; its
   dialog;
+- ``editNewResponse`` ``{topic, after}`` -> a response added to a topic after another (or
+  at the top), made by the patch; its record dialog;
+- ``editCopyTopic`` ``{topic, newId}`` -> a copy of a topic and its responses under a new
+  name, made by the patch; the new topic as ``editTopic`` gives it;
 - ``editPending`` ``{}`` -> everything the patch would carry;
 - ``editReview`` ``{}`` -> open the Patch Builder here, to review and write.
 
@@ -136,6 +140,10 @@ class EditorLinkMixin:
             "editScript": server.register_post("wg_edit_script", self._on_edit_script),
             "editTopics": server.register_post("wg_edit_topics", self._on_edit_topics),
             "editTopic": server.register_post("wg_edit_topic", self._on_edit_topic),
+            "editNewResponse": server.register_post(
+                "wg_edit_new_response", self._on_edit_new_response
+            ),
+            "editCopyTopic": server.register_post("wg_edit_copy_topic", self._on_edit_copy_topic),
             "editReplace": server.register_post("wg_edit_replace", self._on_edit_replace),
             "editPlace": server.register_post("wg_edit_place", self._on_edit_place),
             "editNew": server.register_post("wg_edit_new", self._on_edit_new),
@@ -282,6 +290,73 @@ class EditorLinkMixin:
         if not isinstance(topic, str) or not topic.strip():
             raise ValueError("bad topic")
         return self._json(self._editor().topic(topic))
+
+    @staticmethod
+    def _body(body: bytes) -> dict[str, Any]:
+        """A request's JSON object.
+
+        Args:
+            body: The request.
+
+        Returns:
+            The object.
+
+        Raises:
+            ValueError: When it is not a JSON object.
+        """
+        try:
+            req = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise ValueError("bad request") from None
+        if not isinstance(req, dict):
+            raise ValueError("bad request")
+        return req
+
+    def _on_edit_new_response(self, body: bytes) -> Payload:
+        """``editNewResponse``: a response added to a topic, in the patch.
+
+        Args:
+            body: ``{topic, after}`` (``after`` empty for the top).
+
+        Returns:
+            The response's record dialog.
+        """
+        req = self._body(body)
+        topic, after = req.get("topic"), req.get("after", "")
+        if not isinstance(topic, str) or not topic.strip() or not isinstance(after, str):
+            raise ValueError("bad request")
+        session = self._editor()
+
+        def change() -> dict[str, Any]:
+            """Queue the response and redraw the Patch Builder."""
+            made = session.new_response(topic, after)
+            self.refresh_patch_views()
+            return session.view(made)
+
+        return self._json(self._on_ui_wait(change))
+
+    def _on_edit_copy_topic(self, body: bytes) -> Payload:
+        """``editCopyTopic``: a topic and its responses copied under a new name.
+
+        Args:
+            body: ``{topic, newId}``.
+
+        Returns:
+            The new topic (:meth:`.EditorSession.topic`).
+        """
+        req = self._body(body)
+        topic, new_id = req.get("topic"), req.get("newId")
+        if not isinstance(topic, str) or not isinstance(new_id, str):
+            raise ValueError("bad request")
+        session = self._editor()
+
+        def change() -> dict[str, Any]:
+            """Queue the copy and redraw the Patch Builder."""
+            out = session.copy_topic(topic, new_id)
+            self.refresh_patch_views()
+            return out
+
+        return self._json(self._on_ui_wait(change))
 
     def _on_edit_script(self, body: bytes) -> Payload:
         """``editScript``: the Script Edit window's source, checks and listing.

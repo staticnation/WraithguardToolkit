@@ -101,3 +101,29 @@ def test_a_busy_ui_thread_times_out(tmp_path, monkeypatch):
     with pytest.raises(TimeoutError):
         host._on_edit_pending(b"{}")
     gate.set()
+
+
+def test_every_link_the_viewer_asks_for_is_registered(tmp_path):
+    """The editor page asks Wraithguard by link name; each must be one editor_links gives.
+
+    The viewer's own tests answer from a stand-in, so a link the page uses that Wraithguard
+    never registered passes there and fails only in the app.
+    """
+    import re
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parent.parent / "viewer-shell/ui/src/50_wg_editor.js").read_text(
+        encoding="utf-8"
+    )
+    # Every link name the page spells: asked directly, passed on, or read off links().
+    used = set(re.findall(r"'(edit[A-Z]\w*)'", js)) | set(re.findall(r"links\(\)\.(\w+)", js))
+
+    class Server:
+        def register_post(self, name: str, fn: Any) -> str:
+            return f"http://x/{name}"
+
+    host = _Host(tmp_path)
+    host._editor_for = lambda _setup: host._editor_session  # type: ignore[method-assign]
+    links = host.editor_links(Server(), tmp_path / "openmw.cfg")  # type: ignore[arg-type]
+    missing = sorted(n for n in used if n.startswith("edit") and n not in links)
+    assert not missing, f"the viewer asks for links Wraithguard does not register: {missing}"
