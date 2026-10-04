@@ -175,6 +175,15 @@
   list's entries, AI packages - a table with a row per entry (a column per value of a row,
   an entry's JSON for a group), Add and ×. Wraithguard checks each entry against the shape
   of the first (`[count, id]` stays a count and an id).
+- **Search & Replace, from the Use Report.** "Replace with" another record's id
+  repoints every live use - the field of each using record that names it (a leveled list,
+  an inventory, a spell list...) - to the other record, queued in the patch pool; the
+  placed references and scripts naming it are counted and left as they are.
+- **The Q menu and Layers, in the Editor's render window.** Q on the selected object:
+  edit its reference or record, its Use Report, drop it to the ground, duplicate it (a new
+  reference of the same record beside it), delete it, hide it, or move it to a layer.
+  Layers ("Layers" in the dock) are named groups of references shown or hidden in the
+  render window - a view kept in this viewer, never written to the patch.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

@@ -11,7 +11,8 @@
    - The record dialog: each field (the conflict viewer's dotted paths), its value in
      the winning plugin, and an input that sends a change. Its Use Report lists every
      record of the load order that names it (live, or in a version a later mod
-     overrides), and the cells it is placed in. Changes go to Wraithguard's
+     overrides), and the cells it is placed in; "Replace with" repoints the live uses to
+     another record (Search & Replace), placed references and scripts excepted. Changes go to Wraithguard's
      patch pool - the queue its conflict viewer fills - and are reviewed and written in
      its Patch Builder; Wraithguard journals the pool, so a viewer that runs out of
      memory loses nothing.
@@ -27,6 +28,10 @@
      X or Y to keep to that axis; Shift-drag turns it (about Z, or X/Y held); F drops it
      onto what is under it. A gold copy follows the pointer and the change goes to the
      pool on release (`grab`, over the renderer's `onGrab`).
+   - Q on the selected object: a menu of what can be done to it (edit, Use Report, drop,
+     duplicate, delete, hide, move to a layer). Layers (the dock's "Layers") are named
+     groups of references shown or hidden in the render window - a view, kept in this
+     viewer, never written to the patch.
    - Placing: drag a record from the Object Window into the render window (or right-click
      it: at the view's pivot) for a new reference, the patch's own (`editPlace`); it opens
      in the reference dialog, moves like any other, and is drawn with the rest.
@@ -50,7 +55,7 @@ const WgEditor={
   live:new Map(),            // "origin:refr" lower -> pending changes, drawn in place
   liveNew:new Map(),         // cell key lower -> [{uid, tag, fields}]: new references, drawn
   _sel:null,                 // the selected reference: {hit, ref}, ref {cell, origin, refr} or {cell, uid}
-  liveSig:'[[],[]]',         // changes when `live` does: part of the preview's scene key
+  _liveSig:'[[],[]]',        // changes when `live` does: part of the preview's scene key
   NUDGE:8,                   // units a nudge moves (Shift: 8x); degrees a turn (Shift: 8x)
   held:new Set(),            // Z, X, Y held: the drag's axis keys
   TURN:0.01,                 // radians a pixel of Shift-drag turns
@@ -66,6 +71,9 @@ const WgEditor={
 
   links(){ return (((window.__WG_VIEW__||{}).extra)||{}).links||{}; },
   canEdit(){ return !!this.links().editRecord; },
+
+  /** Part of the preview's scene key: the pending changes, and what the layers hide. */
+  get liveSig(){ return this._liveSig+'|'+this.layerSig(); },
 
   /** A reference's key as the render window names it: `origin:refr`, or `new:uid`. */
   refKeyOf(ref){ return ref.uid? 'new:'+ref.uid : (ref.origin+':'+ref.refr).toLowerCase(); },
@@ -122,6 +130,7 @@ const WgEditor={
     d.innerHTML=
       '<div class="edPane" id="edObjects">'+
         '<div class="edHead"><b>Object Window</b><span style="flex:1"></span>'+
+          '<button class="btn sm" id="edLayersBtn" title="Groups of references shown or hidden in the render window">Layers</button> '+
           '<button class="btn sm" id="edPendBtn" title="The changes waiting in Wraithguard\'s patch pool">Pending</button></div>'+
         '<div class="edTabs" id="edTabs"></div>'+
         '<div class="edBar"><input class="fld" id="edFilter" placeholder="Filter: id, name or model (Ctrl+F)" spellcheck="false">'+
@@ -139,6 +148,7 @@ const WgEditor={
     d.querySelector('#edFilter').oninput=e=>{ this.filter=e.target.value; this.drawRows(); };
     d.querySelector('#edCellFilter').oninput=e=>{ this.cellFilter=e.target.value; this.drawCells(); };
     d.querySelector('#edPendBtn').onclick=()=>this.showPending();
+    d.querySelector('#edLayersBtn').onclick=()=>this.showLayers();
   },
 
   fillTabs(){
@@ -819,6 +829,150 @@ const WgEditor={
     return true;
   },
 
+  /* ---- layers and the Q menu ----------------------------------------------------------- */
+
+  /** The layers: [{name, visible, keys:[refKey]}], kept in this viewer (localStorage). */
+  layers(){
+    if(this._layers) return this._layers;
+    let L=null;
+    try{ L=JSON.parse(localStorage.getItem('wgEditorLayers')||'null'); }catch(_){ }
+    this._layers=Array.isArray(L)? L.filter(l=>l && typeof l.name==='string' && Array.isArray(l.keys)) : [];
+    return this._layers;
+  },
+  saveLayers(){
+    try{ localStorage.setItem('wgEditorLayers', JSON.stringify(this._layers||[])); }catch(_){ }
+  },
+  /** The references the layers hide, by key (lower case). */
+  hiddenKeys(){
+    const out=new Set();
+    for(const l of this.layers()) if(!l.visible) for(const k of l.keys) out.add(String(k).toLowerCase());
+    return out;
+  },
+  layerSig(){ return this.layers().filter(l=>!l.visible).map(l=>l.name+':'+l.keys.length).join(','); },
+
+  /** The layers changed: the panel and the render window follow, the camera kept. */
+  layersChanged(){
+    this.saveLayers();
+    if(this.lay && !this.lay.hidden) this.drawLayers();
+    if(App.R && App.R.cam) App._camAfter=Object.assign({}, App.R.cam);
+    if(typeof schedulePreview==='function' && App.cellSel) schedulePreview();
+  },
+
+  /** Puts a reference on a layer (made when new), off every other. */
+  toLayer(key, name){
+    key=String(key).toLowerCase();
+    const L=this.layers();
+    for(const l of L) l.keys=l.keys.filter(k=>String(k).toLowerCase()!==key);
+    let l=L.find(x=>x.name===name);
+    if(!l){ l={name, visible:true, keys:[]}; L.push(l); }
+    l.keys.push(key);
+    this.layersChanged();
+    return l;
+  },
+
+  showLayers(){
+    if(!this.lay){
+      const d=document.createElement('div');
+      d.id='edLayers'; d.className='ori'; d.hidden=true;
+      d.innerHTML='<div class="orihead"><b>Layers</b><span style="flex:1"></span>'+
+        '<button class="btn dim ic" id="edLayersX" title="Close">&#x2715;</button></div><div class="oribody" id="edLayersBody"></div>';
+      ($('#vpwrap')||document.body).appendChild(d);
+      d.querySelector('#edLayersX').onclick=()=>{ d.hidden=true; };
+      this.lay=d;
+    }
+    this.lay.hidden=false;
+    this.drawLayers();
+  },
+
+  drawLayers(){
+    const body=this.lay.querySelector('#edLayersBody'), L=this.layers();
+    let h='<div class="hint">Groups of references, shown or hidden in the render window. Q on an object puts it on one. '+
+      'A view only: nothing here is written to the patch.</div>';
+    if(!L.length) h+='<div class="hint">No layers yet.</div>';
+    h+='<table class="edT"><tbody>'+L.map((l,i)=>
+      '<tr><td><input type="checkbox" data-lvis="'+i+'"'+(l.visible?' checked':'')+' title="Shown"></td>'+
+      '<td><input class="fld" data-lname="'+i+'" value="'+escHtml(l.name)+'" spellcheck="false"></td>'+
+      '<td class="num">'+l.keys.length+'</td>'+
+      '<td><button class="btn dim ic" data-ldrop="'+i+'" title="Remove the layer (its references are shown again)">&#x2715;</button></td></tr>').join('')+'</tbody></table>'+
+      '<div class="orirow"><span class="v"><button class="btn sm" id="edLayerNew">New layer</button> '+
+      '<button class="btn sm" id="edLayerAll" title="Every layer shown">Show all</button></span></div>';
+    body.innerHTML=h;
+    body.querySelectorAll('[data-lvis]').forEach(c=>c.onchange=()=>{ L[+c.dataset.lvis].visible=c.checked; this.layersChanged(); });
+    body.querySelectorAll('[data-lname]').forEach(c=>{
+      c.onchange=()=>{ const v=c.value.trim(); if(v && !L.some((l,j)=>j!==+c.dataset.lname && l.name===v)){ L[+c.dataset.lname].name=v; this.saveLayers(); } else this.drawLayers(); };
+      c.onkeydown=e=>{ if(e.key==='Enter') c.blur(); e.stopPropagation(); };
+    });
+    body.querySelectorAll('[data-ldrop]').forEach(b=>b.onclick=()=>{ L.splice(+b.dataset.ldrop, 1); this.layersChanged(); });
+    body.querySelector('#edLayerNew').onclick=()=>{
+      let n=1; while(L.some(l=>l.name==='Layer '+n)) n++;
+      L.push({name:'Layer '+n, visible:true, keys:[]}); this.layersChanged();
+    };
+    body.querySelector('#edLayerAll').onclick=()=>{ L.forEach(l=>{ l.visible=true; }); this.layersChanged(); };
+  },
+
+  /** The record a selected reference places: {tag, id, model}. */
+  selectedRecord(sel){
+    const hit=sel.hit;
+    let tag='';
+    if(sel.ref.uid){ for(const list of this.liveNew.values()) for(const a of list) if(a.uid===sel.ref.uid) tag=a.tag; }
+    else if(this._oriRecord && String(this._oriRecord.id).toLowerCase()===String(hit.id).toLowerCase()) tag=this._oriRecord.tag;
+    return {tag, id:hit.id, model:hit.model||CellData.models.get(String(hit.id).toLowerCase())||''};
+  },
+
+  /** Q: what can be done to the selected object, at the pointer. */
+  quickMenu(x, y){
+    const sel=this.selected(); if(!sel) return false;
+    if(!this.qm){
+      const m=document.createElement('div');
+      m.id='edQ'; m.className='ori'; m.hidden=true;
+      document.body.appendChild(m);
+      this.qm=m;
+    }
+    const m=this.qm, rec=this.selectedRecord(sel), L=this.layers();
+    const items=[
+      ['ref', 'Edit reference (F3)'],
+      rec.tag? ['record', 'Edit record (F2)'] : null,
+      rec.tag? ['uses', 'Use Report'] : null,
+      ['drop', 'Drop to ground (F)'],
+      rec.tag? ['dup', 'Duplicate'] : null,
+      ['del', sel.ref.uid? 'Remove from the patch' : 'Delete reference'],
+      ['hide', 'Hide (layer "Hidden")'],
+      ...L.filter(l=>l.name!=='Hidden').map((l,i)=>['layer:'+l.name, 'Move to layer: '+l.name]),
+      ['newlayer', 'Move to a new layer'],
+    ].filter(Boolean);
+    m.innerHTML='<div class="oribody">'+items.map(([a,t])=>'<div class="it" data-q="'+escHtml(a)+'">'+escHtml(t)+'</div>').join('')+'</div>';
+    const W=window.innerWidth||1200, H=window.innerHeight||800;
+    m.style.left=Math.min(Math.max(0,(x==null? W/2 : x)), W-240)+'px';
+    m.style.top=Math.min(Math.max(0,(y==null? H/2 : y)), H-items.length*24-20)+'px';
+    m.hidden=false;
+    m.querySelectorAll('[data-q]').forEach(el=>el.onclick=()=>{ m.hidden=true; this.quickAction(el.dataset.q, sel, rec); });
+    return true;
+  },
+
+  async quickAction(a, sel, rec){
+    const key=this.refKeyOf(sel.ref);
+    if(a==='ref') return this.openRef(sel.ref);
+    if(a==='record') return this.openRecord(rec.tag, rec.id, this._oriRecord? this._oriRecord.plugins : null);
+    if(a==='uses') return this.showUses(rec.tag, rec.id, null);
+    if(a==='drop') return this.drop();
+    if(a==='del'){
+      if(sel.ref.uid){ this.refRec=Object.assign({}, sel.ref); return this.refChange('editRefRevert', {}); }
+      return this.sendRef(sel.ref, [['deleted', true]]);
+    }
+    if(a==='dup'){
+      // Beside it, turned the same way: a new reference of the same record.
+      const p=sel.hit.wpos;
+      return this.placeAt({tag:rec.tag, id:rec.id, model:rec.model}, null, null, [p[0]+64, p[1], p[2]], (sel.hit.rot||[0,0,0]).slice());
+    }
+    if(a==='hide'){ this.toLayer(key, 'Hidden').visible=false; this._sel=null; return this.layersChanged(); }
+    if(a.startsWith('layer:')) return this.toLayer(key, a.slice(6));
+    if(a==='newlayer'){
+      let n=1; while(this.layers().some(l=>l.name==='Layer '+n)) n++;
+      this.toLayer(key, 'Layer '+n);
+      return this.showLayers();
+    }
+  },
+
   /* ---- placing new references -------------------------------------------------------- */
 
   /** The render window takes records dropped on it from the Object Window (once). */
@@ -856,9 +1010,9 @@ const WgEditor={
 
   /** Places a record (`{tag, id, model, defined}`) as a new reference: in the cell on
    *  screen, an exterior's by where it lands. Opens it in the reference dialog. */
-  async placeAt(rec, clientX, clientY){
+  async placeAt(rec, clientX, clientY, world, rotation){
     if(!this.canEdit()) return toast('Placing needs Wraithguard: open this viewer from Wraithguard (Cell Preview)','warn',5000);
-    const at=this.placePoint(clientX, clientY), sel=App.cellSel;
+    const at=world? {world:world.slice()} : this.placePoint(clientX, clientY), sel=App.cellSel;
     if(!at || !sel) return toast('Open a cell first','warn',3000);
     const cellArg= sel.kind==='int'? 'int:'+sel.name : Math.floor(at.world[0]/CELL)+','+Math.floor(at.world[1]/CELL);
     let cell;
@@ -867,7 +1021,7 @@ const WgEditor={
     if(rec.model) CellData.models.set(String(rec.id).toLowerCase(), rec.model);
     let v;
     try{
-      v=await this.ask('editPlace', {cell:cell.refCell, tag:rec.tag, id:rec.id, translation:at.world, rotation:[0,0,0],
+      v=await this.ask('editPlace', {cell:cell.refCell, tag:rec.tag, id:rec.id, translation:at.world, rotation:rotation||[0,0,0],
                                      plugins:cell.plugins||null, defined:rec.defined||null});
     }catch(e){ return toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); }
     this.refRec={cell:v.cell, uid:v.uid};
@@ -894,7 +1048,7 @@ const WgEditor={
         for(const row of r.rows||[]) if(row[2] && !CellData.models.has(row[0].toLowerCase())){ CellData.models.set(row[0].toLowerCase(), row[2]); got=true; }
       }catch(_){ }
     }
-    if(got){ this.liveSig+=' '; if(typeof schedulePreview==='function' && App.cellSel) schedulePreview(); }
+    if(got){ this._liveSig+=' '; if(typeof schedulePreview==='function' && App.cellSel) schedulePreview(); }
   },
 
   /** The inspector's pick of a new reference (24_ori.js asks first): it has no record in
@@ -921,9 +1075,12 @@ const WgEditor={
     if(!rec.refs) return rec;
     const cellKey=rec.kind==='int'? String(rec.name||'').toLowerCase() : '('+rec.gx+', '+rec.gy+')';
     const added=this.liveNew.get(cellKey)||[];
-    if(!added.length && (!this.live.size || !rec.refs.some(r=>this.live.has(String(r.key).toLowerCase())))) return rec;
+    const hide=this.hiddenKeys();
+    const touched=r=>{ const k=String(r.key).toLowerCase(); return this.live.has(k) || hide.has(k); };
+    if(!added.length && !rec.refs.some(touched)) return rec;
     const refs=[];
     for(const r of rec.refs){
+      if(hide.has(String(r.key).toLowerCase())) continue;
       const c=this.live.get(String(r.key).toLowerCase());
       if(!c){ refs.push(r); continue; }
       if(c.deleted) continue;
@@ -940,7 +1097,7 @@ const WgEditor={
     }
     for(const a of added){
       const f=a.fields;
-      if(!f.translation || f.deleted) continue;
+      if(!f.translation || f.deleted || hide.has('new:'+a.uid)) continue;
       refs.push({id:f.id, pos:f.translation.slice(), rot:(f.rotation||[0,0,0]).slice(), scale:f.scale==null? 1 : f.scale,
                  key:'new:'+a.uid, from:-1, door:f.destination? {pos:f.destination.translation.slice(), rot:f.destination.rotation.slice(), cell:f.destination.cell||''} : null,
                  gc:false, mark:'', hist:null, moved:0, edited:true, isNew:true});
@@ -964,8 +1121,8 @@ const WgEditor={
     }
     const byKey=(a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0;
     const sig=JSON.stringify([[...live].sort(byKey), [...liveNew].sort(byKey)]);
-    if(sig===this.liveSig) return false;
-    this.live=live; this.liveNew=liveNew; this.liveSig=sig;
+    if(sig===this._liveSig) return false;
+    this.live=live; this.liveNew=liveNew; this._liveSig=sig;
     this.modelsFor(liveNew);
     if(App.R && App.R.cam) App._camAfter=Object.assign({}, App.R.cam);
     if(this.refRec) App._findOri=this.refKeyOf(this.refRec);
@@ -993,6 +1150,7 @@ const WgEditor={
     let r;
     try{ r=await this.ask('editUses', Object.assign({tag, id}, plugins? {plugins} : {})); }
     catch(e){ body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return null; }
+    this._usesOf={tag, id, plugins};
     this.drawUses(r);
     return r;
   },
@@ -1021,7 +1179,27 @@ const WgEditor={
       });
       h+='</tbody></table>';
     }
+    if(uses.some(u=>u.wins && u.type!=='Cell' && u.type!=='Script'))
+      h+='<div class="orirow" style="margin-top:6px"><span class="v edVec"><input class="fld" id="edReplId" placeholder="Another '+escHtml(this.NAMES[r.tag]||r.tag)+' id" spellcheck="false">'+
+        '<button class="btn sm" id="edRepl" title="Every live use above names that record instead - queued in the patch pool. Placed references and scripts are left as they are">Replace with</button></span></div>';
     body.innerHTML=h;
+    const rb=body.querySelector('#edRepl'), ri=body.querySelector('#edReplId');
+    if(rb){
+      ri.onkeydown=e=>{ if(e.key==='Enter') rb.onclick(); e.stopPropagation(); };
+      rb.onclick=async()=>{
+        const newId=ri.value.trim(), of=this._usesOf;
+        if(!newId || !of){ ri.classList.add('bad'); return; }
+        try{
+          const x=await this.ask('editReplace', Object.assign({tag:of.tag, id:of.id, newId}, of.plugins? {plugins:of.plugins} : {}));
+          const left=[x.cells? x.cells+' placed reference'+(x.cells===1?'':'s') : '', x.scripts? x.scripts+' script'+(x.scripts===1?'':'s') : ''].filter(Boolean).join(' and ');
+          toast(x.changed+' record'+(x.changed===1?'':'s')+' now name '+newId+(left? '; '+left+' left as they are' : ''),'ok',6000);
+          await this.refreshPending();
+        }catch(e){
+          ri.classList.add('bad');
+          toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000);
+        }
+      };
+    }
     body.querySelectorAll('tr[data-u]').forEach(tr=>{
       const u=uses[+tr.dataset.u];
       tr.style.cursor='pointer';
@@ -1100,6 +1278,11 @@ const WgEditor={
     const k=String(e.key||'').toLowerCase();
     if(!typing && (k==='z'||k==='x'||k==='y') && !e.ctrlKey && !e.metaKey) this.held.add(k);
     if(k==='f' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && this.selected()) return this.drop();
+    if(k==='q' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && this.selected() && !(App.R && App.R.fly && App.R.fly.active)){
+      this.quickMenu(this._pointer? this._pointer[0] : null, this._pointer? this._pointer[1] : null);
+      return true;
+    }
+    if(e.key==='Escape' && this.qm && !this.qm.hidden){ this.qm.hidden=true; return true; }
     if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='f'){
       const f=this.el && this.el.querySelector('#edFilter'); if(f){ f.focus(); f.select(); }
       return true;
@@ -1119,4 +1302,6 @@ const WgEditor={
 
 document.addEventListener('keydown', e=>{ if(WgEditor.keys(e)){ e.preventDefault(); e.stopPropagation(); } }, true);
 document.addEventListener('keyup', e=>WgEditor.held.delete(String(e.key||'').toLowerCase()), true);
+document.addEventListener('pointermove', e=>{ WgEditor._pointer=[e.clientX, e.clientY]; }, true);
+document.addEventListener('pointerdown', e=>{ const q=WgEditor.qm; if(q && !q.hidden && !q.contains(e.target)) q.hidden=true; }, true);
 window.addEventListener('blur', ()=>WgEditor.held.clear());

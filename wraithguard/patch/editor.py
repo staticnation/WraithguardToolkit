@@ -560,6 +560,102 @@ class EditorSession:
             "cells": sum(u.count for u in found_uses if u.record_type == "Cell"),
         }
 
+    @staticmethod
+    def _field_of(record: Mapping[str, Any], path: str) -> str:
+        """The dialog's field that holds a dotted path.
+
+        Up to the first list: lists are one field, as the conflict viewer keeps them.
+        """
+        parts = path.split(".")
+        current: Any = record
+        for i, part in enumerate(parts):
+            if isinstance(current, list):
+                return ".".join(parts[:i])
+            if not isinstance(current, dict) or part not in current:
+                return ".".join(parts[: i + 1])
+            current = current[part]
+        return path
+
+    @staticmethod
+    def _swap(value: object, old: str, new: str) -> object:
+        """A copy of a value with every string equal to ``old`` (any case) made ``new``."""
+        if isinstance(value, str):
+            return new if value.lower() == old.lower() else value
+        if isinstance(value, list):
+            return [EditorSession._swap(v, old, new) for v in value]
+        if isinstance(value, dict):
+            return {k: EditorSession._swap(v, old, new) for k, v in value.items()}
+        return value
+
+    def replace_plan(
+        self, found: Found, new_id: str
+    ) -> tuple[list[tuple[Found, str, object]], dict[str, Any]]:
+        """What Search & Replace would change: each live use's field, with ``new_id``.
+
+        Reads the load order (:meth:`uses`); runs off the queue's thread.
+
+        Args:
+            found: The record whose uses are repointed.
+            new_id: The record they should name instead (of the same type).
+
+        Returns:
+            ``(plan, report)``: ``(using record, field, new value)`` per field, and the
+            Use Report it was made from (:meth:`uses`). Placed references and scripts are
+            left out: a reference's object is part of what it is, and a script's compiled
+            data would go stale.
+
+        Raises:
+            EditorError: When ``new_id`` is not a record of the same type, or is the same.
+        """
+        target = self.find(found.tag, new_id)
+        if target is None:
+            raise EditorError(f"{new_id} is not a {found.record_type} of this load order")
+        if target.key.lower() == found.key.lower():
+            raise EditorError("that is the same record")
+        report = self.uses(found)
+        plan: list[tuple[Found, str, object]] = []
+        for use in report["uses"]:
+            if not use["wins"] or use["type"] in ("Cell", "Script") or not use["tag"]:
+                continue
+            user = self.find(use["tag"], use["key"])
+            if user is None:
+                continue
+            record = user.record
+            for field in dict.fromkeys(self._field_of(record, p) for p in use["paths"]):
+                current, present = value_at(record, field)
+                if present:
+                    plan.append((user, field, self._swap(current, found.key, target.key)))
+        return plan, report
+
+    def replace_uses(self, plan: Sequence[tuple[Found, str, object]]) -> int:
+        """Queue a Search & Replace plan (:meth:`replace_plan`), on the queue's thread.
+
+        Args:
+            plan: The changes.
+
+        Returns:
+            How many records it changed.
+        """
+        changed: set[tuple[str, str]] = set()
+        for user, field, value in plan:
+            if user.new:
+                made = self.queue.new_record(user.record_type, user.key)
+                if made is None:
+                    continue
+                record = copy.deepcopy(dict(made.record))
+                set_at(record, field, value)
+                self.queue.add_new_record(
+                    NewRecord(made.record_type, made.key, record, made.source)
+                )
+            else:
+                self.queue.add_field(
+                    user.record_type, user.key, FieldValue(path=field, value=value)
+                )
+                self.queue.set_base(user.record_type, user.key, user.winner)
+            changed.add((user.record_type, user.key))
+        self.save_journal()
+        return len(changed)
+
     # -- the dialog -------------------------------------------------------------------
 
     def _choices(self, found: Found) -> dict[str, FieldChoice | FieldValue]:

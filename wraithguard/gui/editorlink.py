@@ -20,6 +20,9 @@ loopback server, for everything else:
   path removes it);
 - ``editUses`` ``{tag, id, plugins?}`` -> the record's Use Report
   (:meth:`.EditorSession.uses`: every record that names it, live or overridden);
+- ``editReplace`` ``{tag, id, plugins?, newId}`` -> Search & Replace: every live use's
+  field repointed to ``newId``, queued (``{changed, cells, scripts}``: references and
+  scripts are counted, left);
 - ``editPending`` ``{}`` -> everything the patch would carry;
 - ``editReview`` ``{}`` -> open the Patch Builder here, to review and write.
 
@@ -121,6 +124,7 @@ class EditorLinkMixin:
             "editRefRevert": server.register_post("wg_edit_ref_revert", self._on_edit_ref_revert),
             "editDuplicate": server.register_post("wg_edit_duplicate", self._on_edit_duplicate),
             "editUses": server.register_post("wg_edit_uses", self._on_edit_uses),
+            "editReplace": server.register_post("wg_edit_replace", self._on_edit_replace),
             "editPlace": server.register_post("wg_edit_place", self._on_edit_place),
             "editNew": server.register_post("wg_edit_new", self._on_edit_new),
             "editNewSet": server.register_post("wg_edit_new_set", self._on_edit_new_set),
@@ -252,6 +256,38 @@ class EditorLinkMixin:
         """
         _req, session, found = self._edit_request(body)
         return self._json(session.uses(found))
+
+    def _on_edit_replace(self, body: bytes) -> Payload:
+        """``editReplace``: Search & Replace - the live uses repointed to another record.
+
+        Args:
+            body: ``{tag, id, plugins?, newId}``.
+
+        Returns:
+            ``{changed, cells, scripts}``: records changed, and the placed references and
+            scripts naming it, which are left.
+        """
+        req, session, found = self._edit_request(body)
+        new_id = req.get("newId")
+        if not isinstance(new_id, str) or not new_id.strip():
+            raise ValueError("bad newId")
+        plan, report = session.replace_plan(found, new_id.strip())
+
+        def change() -> int:
+            """Queue the plan and redraw the Patch Builder."""
+            n = session.replace_uses(plan)
+            self.refresh_patch_views()
+            return n
+
+        changed = self._on_ui_wait(change)
+        live = [u for u in report["uses"] if u["wins"]]
+        return self._json(
+            {
+                "changed": changed,
+                "cells": sum(u["count"] for u in live if u["type"] == "Cell"),
+                "scripts": sum(1 for u in live if u["type"] == "Script"),
+            }
+        )
 
     def _on_edit_duplicate(self, body: bytes) -> Payload:
         """``editDuplicate``: a copy of a record under a new id, made by the patch.

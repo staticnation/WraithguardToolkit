@@ -71,6 +71,10 @@ const fakeServer=http.createServer((req,res)=>{
       {plugin:'Lamp.esm', type:'LeveledItem', tag:'LEVI', key:'l_lamps', paths:['items.0.0'], count:1, wins:true},
       {plugin:'Lamp.esm', type:'Container', tag:'CONT', key:'old_chest', paths:['inventory.0.1'], count:1, wins:false},
       {plugin:'Lamp.esm', type:'Cell', tag:'CELL', key:'(9, 9)', paths:['references'], count:2, wins:true}]};
+    else if(name==='editReplace'){
+      if(b.newId==='nothing'){ res.writeHead(400); res.end('nothing is not a Light of this load order'); return; }
+      out={changed:1, cells:2, scripts:0};
+    }
     else if(name==='editDuplicate'){
       if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
       fakeWg.made[b.newId.toLowerCase()]={tag:'LIGH', id:b.newId};
@@ -391,6 +395,44 @@ async function dragging(E, R, lamp, fail, sleep){
   }
 }
 
+/* Q on the selected object: hide it (a layer, the render window's cell without it, Show
+   all bringing it back) and Duplicate (a new reference beside it). */
+async function quick(w, E, R, lamp, fail, sleep){
+  const d=w.document, CD=w.eval('CellData'), Ori=w.eval('Ori');
+  const key=lamp.refKey.toLowerCase();
+  for(let i=0;i<100 && !E.selected();i++){ const p=(R.pickables||[]).find(x=>x.refKey===lamp.refKey); if(p) await Ori.show(p); await sleep(30); }
+  if(!E.selected()){ fail('nothing selected for the Q menu'); return; }
+  E.quickMenu(20, 20);
+  const item=a=>d.querySelector('#edQ [data-q="'+a+'"]');
+  if(!item('hide') || !item('drop') || !item('ref')){ fail('the Q menu lacks its items'); return; }
+  item('hide').onclick();
+  const has=async()=>(await CD.loadCell({kind:'ext', x:9, y:9})).refs.some(r=>String(r.key).toLowerCase()===key);
+  if(await has()) fail('a hidden reference is still in the cell the render window draws');
+  E.showLayers();
+  const L=E.layers().find(l=>l.name==='Hidden');
+  if(!L || L.visible || !L.keys.includes(key)) fail('hiding did not make a hidden layer with it: '+JSON.stringify(E.layers()));
+  d.getElementById('edLayerAll').onclick();
+  if(!(await has())) fail('Show all did not bring the reference back');
+  d.querySelector('[data-ldrop="0"]').onclick();
+  if(E.layers().length) fail('removing the layer left it');
+  d.getElementById('edLayers').hidden=true;
+  // Duplicate: a new reference of the same record, 64 units along X.
+  for(let i=0;i<200 && !E.selected();i++){ const p=(R.pickables||[]).find(x=>x.refKey===lamp.refKey); if(p) await Ori.show(p); await sleep(30); }
+  const sel=E.selected();
+  if(!sel){ fail('the lamp is not selected again'); return; }
+  E.quickMenu(20, 20);
+  if(!item('dup')){ fail('the Q menu has no Duplicate'); return; }
+  const n0=fakeWg.posts.length;
+  item('dup').onclick();
+  for(let i=0;i<100 && !fakeWg.posts.slice(n0).some(p=>p[0]==='editPlace');i++) await sleep(30);
+  const pl=fakeWg.posts.slice(n0).find(p=>p[0]==='editPlace');
+  if(!pl || pl[1].id!==lamp.id || Math.abs(pl[1].translation[0]-(sel.hit.wpos[0]+64))>0.05) fail('Duplicate did not place one beside it: '+JSON.stringify(pl&&pl[1]));
+  for(let i=0;i<100 && !E.refRec;i++) await sleep(30);
+  await sleep(100);
+  for(const uid of Object.keys(fakeWg.news)) await E.ask('editNewRemove', {cell:'(9, 9)', uid});
+  await E.refreshPending();
+}
+
 /* Placing a record (the Object Window's right-click: at the view's pivot): what reaches
    Wraithguard, the new reference drawn and pickable, its dialog, and taking it out. */
 async function placing(w, E, R, fail, sleep){
@@ -431,7 +473,7 @@ async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editUses','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editUses','editReplace','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -496,6 +538,16 @@ async function editor(w, R, fail, done, sleep){
     else{
       if(!urows[1].classList.contains('from')) fail('an overridden use is not greyed');
       if(!/3 live uses, 2 placed/.test(d.getElementById('edUsesBody').textContent)) fail('the Use Report has no summary');
+      // Replace with: a refused id marked, an accepted one sent.
+      const ri=d.getElementById('edReplId');
+      if(!ri) fail('the Use Report has no Replace with');
+      else{
+        ri.value='nothing'; await d.getElementById('edRepl').onclick();
+        if(!ri.classList.contains('bad')) fail('a refused replacement is not marked');
+        ri.value='lamp_dim'; await d.getElementById('edRepl').onclick();
+        const rp=fakeWg.posts.filter(p=>p[0]==='editReplace').pop();
+        if(!rp || rp[1].newId!=='lamp_dim' || rp[1].id!=='lamp_lit' || rp[1].tag!=='LIGH') fail('Replace with was not sent: '+JSON.stringify(rp));
+      }
       urows[0].onclick();
       for(let i=0;i<100 && !fakeWg.posts.some(p=>p[0]==='editRecord' && p[1].id==='l_lamps');i++) await sleep(30);
       if(!fakeWg.posts.some(p=>p[0]==='editRecord' && p[1].id==='l_lamps' && p[1].tag==='LEVI')) fail('a use does not open its record');
@@ -600,6 +652,7 @@ async function editor(w, R, fail, done, sleep){
     if(!d.getElementById('edOriEdit')) fail('the inspector has no Edit record in the Editor');
     if(!d.getElementById('edOriRef')) fail('the inspector has no Edit reference in the Editor');
     await dragging(E, R, lamp, fail, sleep);
+    await quick(w, E, R, lamp, fail, sleep);
     Ori.hide();
     await placing(w, E, R, fail, sleep);
   }

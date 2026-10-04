@@ -73,3 +73,51 @@ def test_session_uses(tmp_path: Path):
     assert report["cells"] == 2
     assert report["live"] == 4  # chest 1, script 1, vault 2; the leveled list's is overridden
     assert {u["tag"] for u in report["uses"]} == {"LEVI", "CONT", "SCPT", "CELL"}
+
+
+def test_search_and_replace_repoints_live_uses(tmp_path: Path):
+    plugins = {
+        "Morrowind.esm": [
+            {"type": "Header", "masters": []},
+            {"type": "MiscItem", "id": "gold_001", "name": "Gold"},
+            {"type": "MiscItem", "id": "gold_005", "name": "Gold"},
+            {"type": "LeveledItem", "id": "l_loot", "items": [["Gold_001", 1], ["x", 2]]},
+            {"type": "LeveledItem", "id": "l_old", "items": [["gold_001", 1]]},
+            {"type": "Container", "id": "chest", "inventory": [[5, "gold_001"]], "flags": ""},
+            {"type": "Script", "id": "payme", "text": "player->additem gold_001 5"},
+            {
+                "type": "Cell",
+                "id": "Vault",
+                "name": "Vault",
+                "data": {"flags": "IS_INTERIOR", "grid": [0, 0]},
+                "references": [{"id": "gold_001"}],
+            },
+        ],
+        "Fix.esp": [
+            {"type": "Header", "masters": [["Morrowind.esm", 1]]},
+            {"type": "LeveledItem", "id": "l_old", "items": []},  # overrides: not live
+        ],
+    }
+    tags = {"MISC": "MiscItem", "LEVI": "LeveledItem", "CONT": "Container"}
+    s = EditorSession(
+        [(n, tmp_path / n) for n in plugins],
+        PatchQueue(),
+        read=lambda p, tag: [r for r in plugins[p.name] if r["type"] == tags.get(tag)],
+        read_all=lambda p: plugins[p.name],
+    )
+    found = s.find("MISC", "gold_001")
+    assert found is not None
+    import pytest
+
+    from wraithguard.patch.editor import EditorError
+
+    with pytest.raises(EditorError, match="not a MiscItem"):
+        s.replace_plan(found, "nothing")
+    plan, report = s.replace_plan(found, "GOLD_005")
+    assert {(u.key, f) for u, f, _v in plan} == {("l_loot", "items"), ("chest", "inventory")}
+    assert report["cells"] == 1
+    assert s.replace_uses(plan) == 2
+    fields = {k: v[0].value for k, v in s.queue.fields.items()}
+    assert fields[("LeveledItem", "l_loot")] == [["gold_005", 1], ["x", 2]]
+    assert fields[("Container", "chest")] == [[5, "gold_005"]]
+    assert s.queue.base("Container", "chest") == "Morrowind.esm"
