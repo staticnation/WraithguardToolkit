@@ -5,6 +5,9 @@
 //                                    [--extra <json file>] [--mesh-view]
 //   --mesh-view: the mesh viewer - the meshes in the extra file's `meshes`
 //                ([{path, label}]), on the same setup, instead of a cell.
+//   --editor:    open in the Editor mode (50_wg_editor.js): the Construction Set's
+//                Object Window and Cell View beside the render window, edits going to
+//                Wraithguard's patch pool through the extra file's `links`.
 //
 // Everything is in this binary: the engine (`viewcore` -- VFS/BSA, load order, the
 // ESP/ESM world, NIF meshes, DDS textures, terrain, sky), the command layer the page
@@ -59,7 +62,9 @@ fn view_request(args: &[String]) -> Value {
         .filter(Value::is_object);
     // The mesh viewer: the meshes in `extra.meshes`, instead of a cell.
     let mesh_view = args.iter().any(|a| a == "--mesh-view");
-    json!({"cfg": cfg, "cell": cell, "theme": theme, "extra": extra, "meshView": mesh_view})
+    // The Editor mode, straight away.
+    let editor = args.iter().any(|a| a == "--editor");
+    json!({"cfg": cfg, "cell": cell, "theme": theme, "extra": extra, "meshView": mesh_view, "editor": editor})
 }
 
 /// `args` are everything after `--cell-viewer`; `context` is the binary's one

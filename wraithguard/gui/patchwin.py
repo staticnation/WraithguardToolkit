@@ -81,6 +81,17 @@ class PatchBuilderMixin:
         if queue is None:
             queue = PatchQueue()
             self._patch_queue = queue
+            # Decisions a crash (Wraithguard's, or the viewer editor's) left unwritten.
+            from wraithguard.gui.editorlink import journal_path
+            from wraithguard.patch.editor import restore_queue
+
+            back = restore_queue(queue, journal_path())
+            status = getattr(self, "status_var", None)
+            if back and status is not None:
+                status.set(
+                    _("Brought back %(count)d unwritten patch decision(s) from last time.")
+                    % {"count": back}
+                )
         return queue
 
     def patch_selections(self) -> list[Selection]:
@@ -228,8 +239,14 @@ class PatchBuilderMixin:
         """Redraw the queue wherever it is shown.
 
         Safe to call whether or not the window is open, so the callers that
-        change the queue do not have to know.
+        change the queue do not have to know. Every change to the queue comes through
+        here, so this is also where it is journalled (:func:`.patch.editor.save_queue`):
+        a crash loses no decision, and a written-and-cleared queue removes the journal.
         """
+        from wraithguard.gui.editorlink import journal_path
+        from wraithguard.patch.editor import save_queue
+
+        save_queue(self.patch_queue(), journal_path())
         button = getattr(self, "_patch_button", None)
         if button is not None and button.winfo_exists():
             count = self.patch_count()

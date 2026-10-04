@@ -120,6 +120,8 @@ const Ori={
     this.wire(body, r);
     // Wraithguard: each asset's providers, a compare of the loose versions, Where used.
     if(typeof WgTools==='object') WgTools.decorateOri(body, r);
+    // Wraithguard: the Editor mode's "Edit record" (F2) for the clicked object.
+    if(typeof WgEditor==='object') WgEditor.decorateOri(body, r);
     OriAcc.apply(body,'ori');
     // The full help - owner, contents, inventory, dialogue - on the right (46_wg_tfh.js).
     if(typeof Tfh==='object') Tfh.show(r, hit);

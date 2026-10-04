@@ -96,6 +96,9 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "wg_open_record" => Reply::Text(t::wg_open_record(s(a, "url"), s(a, "body"))?),
         "wg_post" => Reply::Text(t::wg_post(s(a, "url"), s(a, "body"))?),
         "find_record" => Reply::Json(t::find_record(s(a, "tag"), s(a, "id"), st())?),
+        "editor_tags" => Reply::Json(t::editor_tags(st())?),
+        "editor_records" => Reply::Json(t::editor_records(s(a, "tag"), st())?),
+        "editor_cell_refs" => Reply::Json(t::editor_cell_refs(s(a, "cell"), st())?),
         "ori_dialogue" => Reply::Json(t::ori_dialogue(s(a, "id"), st())?),
         "startup_install" => Reply::Json(t::startup_install()?),
         // Round 18cj: the colour theme, remembered for the next start-up.

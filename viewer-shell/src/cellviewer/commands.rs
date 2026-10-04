@@ -2366,6 +2366,138 @@ fn find_record(tag: String, id: String, state: State) -> Result<String, String> 
     Ok(o.done())
 }
 
+/* ---- the Editor mode (Wraithguard, 50_wg_editor.js) ------------------------------------
+
+   The Construction Set's Object Window and Cell View, from the world the viewer already
+   loaded: what records each tag has and who defines them, and what references a cell
+   holds without drawing it. A record's contents and every edit are Wraithguard's (the
+   page asks it over the `links` the launch handed over); this only lists. */
+
+/// Every reference in the world by base id (lower case) -> how many are placed.
+fn placed_counts(w: &World) -> HashMap<String, u32> {
+    let mut n: HashMap<String, u32> = HashMap::new();
+    let all = w.cells.values().flat_map(|c| c.refs.values()).chain(w.interiors.values().flat_map(|r| r.refs.values()));
+    for r in all {
+        if !r.deleted {
+            *n.entry(r.id.to_ascii_lowercase()).or_default() += 1;
+        }
+    }
+    n
+}
+
+/// The Object Window's tabs: `[[tag, count]...]`, every tag the load order has records of.
+#[tauri::command(async)]
+fn editor_tags(state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut n: HashMap<viewcore::esp::Tag, u64> = HashMap::new();
+    for defs in w.record_where.values() {
+        if let Some((_, tag)) = defs.last() {
+            *n.entry(*tag).or_default() += 1;
+        }
+    }
+    let mut tags: Vec<(viewcore::esp::Tag, u64)> = n.into_iter().collect();
+    tags.sort();
+    let rows: Vec<String> = tags
+        .iter()
+        .map(|(t, c)| {
+            let mut s = String::from("[\"");
+            viewcore::json::escape_into(&tag_text(t), &mut s);
+            s.push_str(&format!("\",{c}]"));
+            s
+        })
+        .collect();
+    Ok(format!("[{}]", rows.join(",")))
+}
+
+/// The Object Window's rows for one tag: `{plugins:[names], rows:[[id, name, model,
+/// [plugin ix...], placed]...]}`, sorted by id. The id is as the record spells it where
+/// the world kept it (objects), else lower case; `plugins` (load order) are the files
+/// defining it, the last winning.
+#[tauri::command(async)]
+fn editor_records(tag: String, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let want: viewcore::esp::Tag = {
+        let mut t = [b'_'; 4];
+        for (i, b) in tag.bytes().take(4).enumerate() {
+            t[i] = b.to_ascii_uppercase();
+        }
+        t
+    };
+    let placed = placed_counts(&w);
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for (id, defs) in &w.record_where {
+        if defs.last().map(|(_, t)| *t) != Some(want) {
+            continue;
+        }
+        let obj = w.objects.get(id);
+        let shown = obj.map(|o| o.id.as_str()).filter(|s| !s.is_empty()).unwrap_or(id);
+        let mut row = String::from("[\"");
+        viewcore::json::escape_into(shown, &mut row);
+        row.push_str("\",\"");
+        viewcore::json::escape_into(obj.map(|o| o.name.as_str()).unwrap_or(""), &mut row);
+        row.push_str("\",\"");
+        // Lights, statics and the like keep their mesh in `models` rather than `objects`.
+        let model = obj.map(|o| o.model.as_str()).filter(|m| !m.is_empty()).or_else(|| w.models.get(id).map(String::as_str));
+        viewcore::json::escape_into(model.unwrap_or(""), &mut row);
+        let mut ixs: Vec<usize> = defs.iter().filter(|(_, t)| *t == want).map(|(p, _)| *p).collect();
+        ixs.dedup();
+        let ixs: Vec<String> = ixs.iter().map(usize::to_string).collect();
+        row.push_str(&format!("\",[{}],{}]", ixs.join(","), placed.get(id).copied().unwrap_or(0)));
+        rows.push((id.clone(), row));
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut o = J::obj();
+    o.raw("plugins", &string_array(&w.plugins));
+    o.raw("rows", &format!("[{}]", rows.into_iter().map(|(_, r)| r).collect::<Vec<_>>().join(",")));
+    Ok(o.done())
+}
+
+/// The Cell View's object list for one cell (`x,y`, or `int:<name>`): `{name, rows:[[key,
+/// id, tag, [x,y,z], plugin]...]}` - every reference not deleted, sorted by id; `key` is
+/// the viewport's reference key, `plugin` the file whose version of it wins.
+#[tauri::command(async)]
+fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let (name, refs): (String, Vec<&viewcore::esp::CellRef>) = if let Some(room) = cell.strip_prefix("int:") {
+        let r = w.interiors.get(&viewcore::world::room_key(room)).ok_or_else(|| format!("no interior {room}"))?;
+        (r.name.clone(), r.refs.values().collect())
+    } else {
+        let (x, y) = cell
+            .split_once(',')
+            .and_then(|(a, b)| Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?)))
+            .ok_or_else(|| format!("not a cell: {cell}"))?;
+        let c = w.cells.get(&(x, y)).ok_or_else(|| format!("no exterior cell {x},{y}"))?;
+        (c.name.clone(), c.refs.values().collect())
+    };
+    let mut refs: Vec<&viewcore::esp::CellRef> = refs.into_iter().filter(|r| !r.deleted).collect();
+    refs.sort_by(|a, b| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()).then(a.num.index.cmp(&b.num.index)));
+    let rows: Vec<String> = refs
+        .iter()
+        .map(|r| {
+            let key = viewcore::refkey::RefKey::of(r.num, &w.plugins).map(|k| viewcore::refkey::key_text(&k)).unwrap_or_default();
+            let tag = w
+                .record_where
+                .get(&r.id.to_ascii_lowercase())
+                .and_then(|d| d.last())
+                .map(|(_, t)| tag_text(t))
+                .unwrap_or_default();
+            let mut row = String::from("[\"");
+            viewcore::json::escape_into(&key, &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&r.id, &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&tag, &mut row);
+            row.push_str(&format!("\",[{:.1},{:.1},{:.1}],\"", r.pos[0], r.pos[1], r.pos[2]));
+            viewcore::json::escape_into(plugin_name(&w, usize::try_from(r.plugin).ok()), &mut row);
+            row.push_str("\"]");
+            row
+        })
+        .collect();
+    let mut o = J::obj();
+    o.str("name", &name).raw("rows", &format!("[{}]", rows.join(",")));
+    Ok(o.done())
+}
+
 /// Wraithguard: a POST to Wraithguard's loopback server, at a URL it handed the viewer
 /// (`links` in the launch's extra file); the answer's text. The viewer asks it for the
 /// next place to show (`poll`).
@@ -2730,6 +2862,9 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             wg_open_record,
             wg_post,
             find_record,
+            editor_tags,
+            editor_records,
+            editor_cell_refs,
             ori_dialogue,
             mesh_collision,
             open_install,

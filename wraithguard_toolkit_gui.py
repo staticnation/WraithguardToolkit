@@ -249,6 +249,7 @@ from wraithguard.gui import (  # noqa: E402
 )
 from wraithguard.gui.cellpreview import CellPreviewMixin  # noqa: E402
 from wraithguard.gui.conflicts import ConflictWindowsMixin  # noqa: E402
+from wraithguard.gui.editorlink import EditorLinkMixin  # noqa: E402
 from wraithguard.gui.journalview import JournalViewMixin  # noqa: E402
 from wraithguard.gui.luaview import LuaViewMixin  # noqa: E402
 from wraithguard.gui.patchwin import PatchBuilderMixin  # noqa: E402
@@ -996,6 +997,7 @@ class App(
     PatchBuilderMixin,
     PluginViewMixin,
     CellPreviewMixin,
+    EditorLinkMixin,
 ):
     """The main application window."""
 

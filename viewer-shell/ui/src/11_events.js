@@ -871,6 +871,8 @@ function markInstall(kind,label,title){
   if(fs && label!=null){
     fs.classList.add('ok');
     const rb=$('#btnReport'); if(rb) rb.hidden=false;
+    // Wraithguard: the Editor mode's switch, beside it (50_wg_editor.js).
+    if(typeof WgEditor==='object') WgEditor.button();
     fs.querySelector('.p').textContent=label;
     if(title) fs.querySelector('.p').title=title;
   }
@@ -1569,6 +1571,8 @@ async function openWraithguardSetup(){
   else openCellPicker();
   // And whatever else it asks this window to show while it stays open.
   if(typeof WgNav==='object') WgNav.poll();
+  // Launched on `--editor`: straight into the Editor mode (50_wg_editor.js).
+  if(want.editor && typeof WgEditor==='object'){ WgEditor.button(); WgEditor.enter(); }
 }
 
 async function start(){

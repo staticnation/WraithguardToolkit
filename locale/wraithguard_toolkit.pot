@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.2.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 02:04\n"
+"POT-Creation-Date: 2026-10-04 02:57\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -47,31 +47,35 @@ msgstr ""
 msgid "WARNING: remove entry '%(entry)s' matches %(count)d openmw.cfg lines -- momw-configurator removes ALL of them, silently. Colliding lines: %(lines)s%(more)s"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:154
-#: wraithguard/gui/cellpreview.py:189
-#: wraithguard/gui/cellpreview.py:233
-#: wraithguard/gui/cellpreview.py:266
+#: wraithguard/gui/cellpreview.py:161
+#: wraithguard/gui/cellpreview.py:199
+#: wraithguard/gui/cellpreview.py:243
+#: wraithguard/gui/cellpreview.py:276
 msgid "Cell Preview"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:165
+#: wraithguard/gui/cellpreview.py:172
+msgid "Wraithguard Editor"
+msgstr ""
+
+#: wraithguard/gui/cellpreview.py:175
 msgid "Mesh Viewer"
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:173
+#: wraithguard/gui/cellpreview.py:183
 msgid "Cell preview opened."
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:190
-#: wraithguard/gui/cellpreview.py:234
+#: wraithguard/gui/cellpreview.py:200
+#: wraithguard/gui/cellpreview.py:244
 msgid "The cell viewer (wraithguard-viewer) could not be started."
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:229
+#: wraithguard/gui/cellpreview.py:239
 msgid "Showing it in the open Cell Preview."
 msgstr ""
 
-#: wraithguard/gui/cellpreview.py:267
+#: wraithguard/gui/cellpreview.py:277
 msgid "The cell viewer (wraithguard-viewer) could not be started. Sort first, and check that the viewer is installed beside Wraithguard."
 msgstr ""
 
@@ -157,14 +161,14 @@ msgstr ""
 #: wraithguard/gui/conflicts.py:1798
 #: wraithguard/gui/conflicts.py:2262
 #: wraithguard/gui/conflicts.py:3623
-#: wraithguard/gui/patchwin.py:221
+#: wraithguard/gui/patchwin.py:232
 #: wraithguard/gui/pluginview.py:306
 #: wraithguard/gui/removemaster.py:123
 #: wraithguard/gui/t3.py:225
-#: wraithguard_toolkit_gui.py:4285
-#: wraithguard_toolkit_gui.py:4317
-#: wraithguard_toolkit_gui.py:4762
-#: wraithguard_toolkit_gui.py:5462
+#: wraithguard_toolkit_gui.py:4287
+#: wraithguard_toolkit_gui.py:4319
+#: wraithguard_toolkit_gui.py:4764
+#: wraithguard_toolkit_gui.py:5464
 msgid "Close"
 msgstr ""
 
@@ -252,7 +256,7 @@ msgstr ""
 
 #: wraithguard/gui/conflicts.py:1423
 #: wraithguard/gui/conflicts.py:3845
-#: wraithguard_toolkit_gui.py:4365
+#: wraithguard_toolkit_gui.py:4367
 msgid "Save failed"
 msgstr ""
 
@@ -329,7 +333,7 @@ msgid "Type your own value for the selected field -- a number or string no plugi
 msgstr ""
 
 #: wraithguard/gui/conflicts.py:1694
-#: wraithguard/gui/patchwin.py:240
+#: wraithguard/gui/patchwin.py:257
 #: wraithguard/gui/pluginview.py:371
 msgid "Patch Builder..."
 msgstr ""
@@ -565,7 +569,7 @@ msgstr ""
 #: wraithguard/gui/conflicts.py:2456
 #: wraithguard/gui/conflicts.py:2737
 #: wraithguard/gui/pluginview.py:1329
-#: wraithguard_toolkit_gui.py:3884
+#: wraithguard_toolkit_gui.py:3886
 msgid "Cancel"
 msgstr ""
 
@@ -830,8 +834,20 @@ msgstr ""
 msgid "Conflict report saved: %(path)s"
 msgstr ""
 
+#: wraithguard/gui/editorlink.py:137
+msgid "Wraithguard is busy (a dialog is open?) - try again"
+msgstr ""
+
+#: wraithguard/gui/editorlink.py:162
+msgid "The editor is not connected to a load order - reopen the viewer"
+msgstr ""
+
+#: wraithguard/gui/editorlink.py:171
+msgid "%(id)s is not a record any plugin of this load order defines"
+msgstr ""
+
 #: wraithguard/gui/journalview.py:157
-#: wraithguard/gui/patchwin.py:344
+#: wraithguard/gui/patchwin.py:361
 msgid "No plugin reader"
 msgstr ""
 
@@ -1139,156 +1155,160 @@ msgstr ""
 msgid "Report copied."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:168
+#: wraithguard/gui/patchwin.py:92
+msgid "Brought back %(count)d unwritten patch decision(s) from last time."
+msgstr ""
+
+#: wraithguard/gui/patchwin.py:179
 msgid "Patch Builder"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:176
+#: wraithguard/gui/patchwin.py:187
 msgid "Records queued for the patch. Nothing is written until you press Write. Your mods are never modified."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:186
+#: wraithguard/gui/patchwin.py:197
 msgid "Record"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:189
+#: wraithguard/gui/patchwin.py:200
 #: wraithguard/gui/pluginview.py:230
 #: wraithguard/gui/pluginview.py:1266
 msgid "Field"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:190
+#: wraithguard/gui/patchwin.py:201
 msgid "How"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:191
+#: wraithguard/gui/patchwin.py:202
 msgid "From"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:209
-#: wraithguard_toolkit_gui.py:4606
+#: wraithguard/gui/patchwin.py:220
+#: wraithguard_toolkit_gui.py:4608
 msgid "Remove"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:213
+#: wraithguard/gui/patchwin.py:224
 msgid "Drop the selected record, or just the selected field. Removing a record's last field drops the record too."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:218
+#: wraithguard/gui/patchwin.py:229
 msgid "Clear all"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:222
+#: wraithguard/gui/patchwin.py:233
 msgid "Write patch..."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:238
+#: wraithguard/gui/patchwin.py:255
 msgid "Patch Builder... (%(count)d)"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:265
+#: wraithguard/gui/patchwin.py:282
 msgid "base: %(base)s"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:265
+#: wraithguard/gui/patchwin.py:282
 msgid "unknown"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:270
+#: wraithguard/gui/patchwin.py:287
 msgid "set to"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:272
+#: wraithguard/gui/patchwin.py:289
 msgid "from"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:286
+#: wraithguard/gui/patchwin.py:303
 msgid "%(count)d record(s) queued."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:288
+#: wraithguard/gui/patchwin.py:305
 msgid "Nothing queued yet. Add records from the conflict list."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:315
+#: wraithguard/gui/patchwin.py:332
 msgid "Clear the patch?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:316
+#: wraithguard/gui/patchwin.py:333
 msgid "This drops every queued record. Nothing has been written, so nothing is lost."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:345
+#: wraithguard/gui/patchwin.py:362
 msgid "Cannot read the plugins without the built-in reader (wraithguard_native) or a tes3conv binary. Reinstall Wraithguard, or set a tes3conv path in the Conflicts window, and try again."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:361
+#: wraithguard/gui/patchwin.py:378
 msgid "Rescan needed"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:362
+#: wraithguard/gui/patchwin.py:379
 msgid "%(what)s is no longer in the scan, so there is no way to tell which plugin its unchosen fields should come from. Rescan and queue it again."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:374
+#: wraithguard/gui/patchwin.py:391
 msgid "Append or replace?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:375
+#: wraithguard/gui/patchwin.py:392
 msgid "%(name)s already exists. This session has %(count)d record(s) queued.\n\nAppend keeps everything already written and adds these on top -- the way to build one patch across several sessions.\n\nReplace throws away what is already there and writes only this session's records.\n\nYour mods are NOT modified either way, and deleting the patch restores your previous behaviour completely. Load it LAST, and back up your saves."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:394
+#: wraithguard/gui/patchwin.py:411
 msgid "Could not read the existing patch"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:395
+#: wraithguard/gui/patchwin.py:412
 msgid "%(name)s could not be decoded, so there is nothing to append to. Run Write again and choose Replace, or check the file opens in another tool first."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:404
+#: wraithguard/gui/patchwin.py:421
 msgid "Write patch?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:405
+#: wraithguard/gui/patchwin.py:422
 msgid "%(count)d record(s) will be written to:\n%(path)s\n\nIt carries whole records chosen by you, and loads last. Your mods are NOT modified, and deleting the patch restores your previous behaviour completely.\n\nLoad it LAST, and back up your saves."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:454
+#: wraithguard/gui/patchwin.py:471
 msgid "Patch failed"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:460
+#: wraithguard/gui/patchwin.py:477
 msgid " (%(carried)d carried forward from before)"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:465
+#: wraithguard/gui/patchwin.py:482
 msgid "Patch written"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:466
+#: wraithguard/gui/patchwin.py:483
 msgid "%(records)d record(s) written to:\n%(path)s%(carried)s\n\nDeclares %(masters)d master(s). Add it to your load order LAST."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:482
+#: wraithguard/gui/patchwin.py:499
 msgid "Preview the patch?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:483
+#: wraithguard/gui/patchwin.py:500
 msgid "Open Cell Preview with the patch loaded last, to see it in the cells it changes? (Review a mod shows what it changes; Without it shows the cells as they were.)"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:520
+#: wraithguard/gui/patchwin.py:537
 msgid "Write the patch as"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:524
+#: wraithguard/gui/patchwin.py:541
 msgid "Morrowind plugin"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:524
-#: wraithguard_toolkit_gui.py:2857
-#: wraithguard_toolkit_gui.py:3728
+#: wraithguard/gui/patchwin.py:541
+#: wraithguard_toolkit_gui.py:2859
+#: wraithguard_toolkit_gui.py:3730
 msgid "All files"
 msgstr ""
 
@@ -1489,7 +1509,7 @@ msgstr ""
 #: wraithguard/gui/t3.py:123
 #: wraithguard/gui/widgets.py:822
 #: wraithguard/gui/widgets.py:838
-#: wraithguard_toolkit_gui.py:4542
+#: wraithguard_toolkit_gui.py:4544
 msgid "Browse..."
 msgstr ""
 
@@ -1502,7 +1522,7 @@ msgid "The master to strip from this plugin's header. References into it are dro
 msgstr ""
 
 #: wraithguard/gui/removemaster.py:96
-#: wraithguard_toolkit_gui.py:4731
+#: wraithguard_toolkit_gui.py:4733
 msgid "Preview"
 msgstr ""
 
@@ -1701,7 +1721,7 @@ msgstr ""
 
 #: wraithguard/gui/t3.py:187
 #: wraithguard/viz/conflictmap.py:424
-#: wraithguard_toolkit_gui.py:4607
+#: wraithguard_toolkit_gui.py:4609
 msgid "Clear"
 msgstr ""
 
@@ -2603,7 +2623,7 @@ msgid "  Keeping tes3conv JSON dump in: %(path)s"
 msgstr ""
 
 #: wraithguard_toolkit.py:5459
-#: wraithguard_toolkit_gui.py:3978
+#: wraithguard_toolkit_gui.py:3980
 msgid "  Engine: %(engine)s"
 msgstr ""
 
@@ -2636,7 +2656,7 @@ msgid "could not write cell map: %(error)s"
 msgstr ""
 
 #: wraithguard_toolkit.py:5548
-#: wraithguard_toolkit_gui.py:5503
+#: wraithguard_toolkit_gui.py:5505
 msgid "  Scanned %(scanned)d plugin(s); %(cells)d interior cell(s), %(grids)d interior pathgrid(s)."
 msgstr ""
 
@@ -2744,15 +2764,15 @@ msgstr ""
 
 #: wraithguard_toolkit.py:6285
 #: wraithguard_toolkit.py:6288
-#: wraithguard_toolkit_gui.py:3226
-#: wraithguard_toolkit_gui.py:3227
+#: wraithguard_toolkit_gui.py:3228
+#: wraithguard_toolkit_gui.py:3229
 msgid "yes"
 msgstr ""
 
 #: wraithguard_toolkit.py:6285
 #: wraithguard_toolkit.py:6288
-#: wraithguard_toolkit_gui.py:3226
-#: wraithguard_toolkit_gui.py:3227
+#: wraithguard_toolkit_gui.py:3228
+#: wraithguard_toolkit_gui.py:3229
 msgid "no"
 msgstr ""
 
@@ -2760,1094 +2780,1094 @@ msgstr ""
 msgid "  customizations.toml written: %(answer)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:370
+#: wraithguard_toolkit_gui.py:371
 msgid "Rule files (priority = order below, last = highest -- drag rows to reorder)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:392
+#: wraithguard_toolkit_gui.py:393
 msgid "mlox rule files (mlox_base.txt, mlox_user.txt, ...), applied in this order.\nLater files can override/extend earlier ones -- put mlox_base.txt first and your own mlox_user.txt last. Drag rows to reorder, or use the buttons."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:408
+#: wraithguard_toolkit_gui.py:409
 msgid "Add File(s)..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:410
+#: wraithguard_toolkit_gui.py:411
 msgid "Browse for one or more mlox rule .txt files to add to the list."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:411
+#: wraithguard_toolkit_gui.py:412
 msgid "Remove Selected"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:415
+#: wraithguard_toolkit_gui.py:416
 msgid "Remove the selected rule file from the list (doesn't delete anything on disk)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:417
-#: wraithguard_toolkit_gui.py:676
+#: wraithguard_toolkit_gui.py:418
+#: wraithguard_toolkit_gui.py:677
 msgid "Move Up"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:419
+#: wraithguard_toolkit_gui.py:420
 msgid "Move the selected rule file earlier (lower priority)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:420
-#: wraithguard_toolkit_gui.py:685
+#: wraithguard_toolkit_gui.py:421
+#: wraithguard_toolkit_gui.py:686
 msgid "Move Down"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:422
+#: wraithguard_toolkit_gui.py:423
 msgid "Move the selected rule file later (higher priority)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:427
+#: wraithguard_toolkit_gui.py:428
 msgid "New Rule..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:431
+#: wraithguard_toolkit_gui.py:432
 msgid "Write your own mlox [Order]/[NearStart]/[NearEnd] rule without knowing the syntax: pick plugins (or grab the selected rows from the plugin panel), preview the rule, and append it to a personal rules file that loads LAST so it wins conflicts. This is how rules for modern mods get made -- consider contributing good ones upstream."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:439
+#: wraithguard_toolkit_gui.py:440
 msgid "Update Rules..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:443
+#: wraithguard_toolkit_gui.py:444
 msgid "Download the CURRENT mlox_base.txt / mlox_user.txt from the actively maintained rules repo (github.com/%(repo)s -- the same source plox uses, and mlox 1.1+ auto-updates from) over the matching files in this list. The old files are kept as timestamped .bak copies. Files with other names (your personal rules) are never touched. Source URL configurable via Sources..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:454
+#: wraithguard_toolkit_gui.py:455
 msgid "Sources..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:458
+#: wraithguard_toolkit_gui.py:459
 msgid "Configure WHERE 'Update Rules...' and the plugin-order.yml 'Update...' button download from -- point them at a fork or mirror if upstream moves. Blank fields use the built-in defaults."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:470
+#: wraithguard_toolkit_gui.py:471
 msgid "(install tkinterdnd2 to drag files in from your file manager)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:487
+#: wraithguard_toolkit_gui.py:488
 msgid "Choose a folder for the mlox rule files"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:509
-#: wraithguard_toolkit_gui.py:523
-#: wraithguard_toolkit_gui.py:546
+#: wraithguard_toolkit_gui.py:510
+#: wraithguard_toolkit_gui.py:524
+#: wraithguard_toolkit_gui.py:547
 msgid "Update rules"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:510
+#: wraithguard_toolkit_gui.py:511
 msgid "Download the current mlox rules from github.com/%(repo)s?\n\n%(files)s\n\nThey don't exist yet -- they'll be created here."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:524
+#: wraithguard_toolkit_gui.py:525
 msgid "Download the current rules from github.com/%(repo)s over these files?\n\n%(age)s\n\nTimestamped .bak copies of the old files are kept."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:680
+#: wraithguard_toolkit_gui.py:681
 msgid "Move the selected row(s) one position earlier. Works with a multi-selection; you can also drag a contiguous block up with the mouse."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:689
+#: wraithguard_toolkit_gui.py:690
 msgid "Move the selected row(s) one position later. Works with a multi-selection; you can also drag a contiguous block down with the mouse."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:694
+#: wraithguard_toolkit_gui.py:695
 msgid "Disable / Enable"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:698
+#: wraithguard_toolkit_gui.py:699
 msgid "Opt the selected row in or out of the load order. Disabled rows are dimmed and marked, and are left out of Export: a custom item is simply not inserted, and an item already in your openmw.cfg gets a removeContent/removeData entry in the emitted TOML so it's durably removed. Double-click a row to toggle it too."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:709
+#: wraithguard_toolkit_gui.py:710
 msgid "Discard any manual dragging and restore the order from the last Sort (your disable/enable choices are kept)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:868
+#: wraithguard_toolkit_gui.py:869
 msgid "Plugin load order -- drag to override mlox (red = touched by this sort, purple = master problem)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:897
+#: wraithguard_toolkit_gui.py:898
 msgid "Data path order -- drag to adjust (highlighted = your custom paths)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1627
+#: wraithguard_toolkit_gui.py:1629
 msgid "Drag & drop is unavailable (tkinterdnd2 or its tkdnd library is missing) -- use the Browse buttons below."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1653
+#: wraithguard_toolkit_gui.py:1655
 msgid "Required. The openmw.cfg to read the current content= and data= order from, and (if 'Write openmw.cfg directly' is checked) to patch."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1664
+#: wraithguard_toolkit_gui.py:1666
 msgid "A momw-configurator/umo customizations TOML to pull the plugin/data-path subset from automatically. Optional if you provide a subset file instead -- provide both and they're combined."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1676
+#: wraithguard_toolkit_gui.py:1678
 msgid "A plain text file (one plugin filename or data folder path per line, '#' comments allowed) or a minimal TOML with subset=[...]/data=[...]. Combined with --emit-toml, this alone is enough to generate a brand new customizations.toml with no existing one required."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1716
+#: wraithguard_toolkit_gui.py:1718
 msgid "Where to write a corrected customizations.toml (sorted insert blocks, re-anchored). Disabled when 'write directly back' below is checked."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1727
+#: wraithguard_toolkit_gui.py:1729
 msgid "list name (optional):"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1748
+#: wraithguard_toolkit_gui.py:1750
 msgid "MOMW's plugin-order.yml (source of truth for which plugins belong to which curated list). With the list name above set, curated plugins for that list are excluded from the sort (never reordered) so only your custom additions are touched, and read-only warnings are emitted: redundant, orphan, needs-cleaning, and a base-order drift check. PyYAML used if installed, else a built-in parser."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1774
+#: wraithguard_toolkit_gui.py:1776
 msgid "A cached MOMW list data-path order (one relative data-path tail per line). Fetch it for the list named above with the button, then it's read offline: the exact set/order of data= paths that list manages, used to tell a list-managed data= folder from an unmanaged (orphan) one, and to warn on data= paths whose cfg order contradicts the list's."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1794
+#: wraithguard_toolkit_gui.py:1796
 msgid "Write directly back to customizations.toml (overwrite in place; a .bak-<timestamp> copy is made first unless backups are disabled below)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1804
+#: wraithguard_toolkit_gui.py:1806
 msgid "Instead of writing to a separate file above, overwrite the customizations.toml given above in place. A timestamped backup is made first (unless disabled), and you'll get a confirmation prompt before it actually happens."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1818
+#: wraithguard_toolkit_gui.py:1820
 msgid "Options"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1856
+#: wraithguard_toolkit_gui.py:1858
 msgid "Dry run (preview only, don't write files)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1861
+#: wraithguard_toolkit_gui.py:1863
 msgid "When checked, Export shows exactly what it would write without touching any files. Uncheck when you're ready to actually save."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1868
+#: wraithguard_toolkit_gui.py:1870
 msgid "Write openmw.cfg directly"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1873
+#: wraithguard_toolkit_gui.py:1875
 msgid "Patch the content=/data= lines in openmw.cfg in place on Export. A .bak-<timestamp> copy is made first unless backups are disabled."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1880
+#: wraithguard_toolkit_gui.py:1882
 msgid "Sort data= paths too"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1885
+#: wraithguard_toolkit_gui.py:1887
 msgid "mlox has no concept of data= folder order -- this positions new data= paths using an explicit after/before anchor if you wrote one, or by scanning the folder for plugins and anchoring next to their neighbor in the sorted content= order. Off by default so a plugin-only run can't surprise-reorder data= too. Also required for the data path order panel to populate."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1895
+#: wraithguard_toolkit_gui.py:1897
 msgid "Skip .bak backup of openmw.cfg"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1900
+#: wraithguard_toolkit_gui.py:1902
 msgid "Skip making a timestamped backup before overwriting openmw.cfg and/or an in-place customizations.toml. Not recommended."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1908
+#: wraithguard_toolkit_gui.py:1910
 msgid "Skip mlox Conflict/Requires/Note warnings"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1914
+#: wraithguard_toolkit_gui.py:1916
 msgid "Skip evaluating [Conflict]/[Requires]/[Note] rules against the sorted plugin list. This is purely informational and read-only either way -- it never changes the computed order or what gets written, only whether warnings get printed."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1923
+#: wraithguard_toolkit_gui.py:1925
 msgid "Create subset text document (on Scan)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1929
+#: wraithguard_toolkit_gui.py:1931
 msgid "Controls what 'Scan...' does with its result. Checked: write the scanned list to a .txt subset file you choose, and load it (the file stays on disk for reuse). Unchecked: keep the scanned list in memory just for this session and feed it straight to the sort -- nothing is written to disk."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1939
+#: wraithguard_toolkit_gui.py:1941
 msgid "Pull unmanaged (orphan) plugins & data paths from openmw.cfg"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1945
+#: wraithguard_toolkit_gui.py:1947
 msgid "Also capture what's ALREADY in openmw.cfg that nothing manages -- neither the curated list (plugin-order.yml) nor your customizations.toml -- so it survives the next momw-configurator rebuild. content= plugins are sorted in; their current cfg order is the starting order until the sort repositions them. Base masters (Morrowind/Tribunal/Bloodmoon) are never touched. Works on its own (no subset file needed) or alongside one.\n\ndata= paths are captured too when a data paths cache is set (fetch it for the list above; it's how a path the list manages is told from one you added). Unmanaged data= paths are highlighted here and, on Export, written into the customizations.toml as inserts anchored to the curated paths -- they are never reordered in place, since they already sit in the cfg's data= order."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1966
+#: wraithguard_toolkit_gui.py:1968
 msgid "Exclude from conflict / cell scans:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1978
+#: wraithguard_toolkit_gui.py:1980
 msgid "Declare as groundcover:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:1998
+#: wraithguard_toolkit_gui.py:2000
 msgid "Keep tes3conv JSON dump"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2007
+#: wraithguard_toolkit_gui.py:2009
 msgid "Tidy old HTML views"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2013
+#: wraithguard_toolkit_gui.py:2015
 msgid "Every conflict map, terrain view and path grid is written to its own timestamped file so you can compare two of them side by side -- which means they pile up, and one map can be several megabytes.\n\nChecked: on exit, the newest 3 of each kind are kept and older ones removed (with their data folders). Only files this tool generated are ever touched -- never anything you saved yourself with a name of your own choosing.\n\nUnchecked: nothing is ever deleted."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2026
+#: wraithguard_toolkit_gui.py:2028
 msgid "tes3conv conversions are written to disk (not held in RAM) and read per-plugin, so big load orders don't blow up memory. They always go to a 'tes3conv_json' folder next to the app and are reused within a run -- so Check Conflicts then Cell Map won't re-run tes3conv (a plugin is only re-converted if it changed). This box just decides what happens on exit: checked = keep that folder (reused next launch too); unchecked = delete it when you close the app."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2037
+#: wraithguard_toolkit_gui.py:2039
 msgid "Verbose Merged Lands log"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2043
+#: wraithguard_toolkit_gui.py:2045
 msgid "Checked: a Merge Lands run also names every plugin that carries a .mergedlands.toml and exactly what it sets (per layer: on/off and the conflict strategy), and lists every plugin it could not read -- rather than the headline counts. For working out why a merge did what it did.\n\nUnchecked: the normal summary log."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2268
+#: wraithguard_toolkit_gui.py:2270
 msgid "Log"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2299
+#: wraithguard_toolkit_gui.py:2301
 msgid "Full output from the last Sort and/or Export. Color key: green = a plugin/path this sort inserted or moved, orange = a heads-up (mlox warning, or a rule your curated cfg order overrode), blue = a section header, bright red = an error worth checking. Plain text = frozen base rows left untouched. Colors follow the syntax highlighting theme picked below."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2315
+#: wraithguard_toolkit_gui.py:2317
 msgid "Clear Log"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2318
+#: wraithguard_toolkit_gui.py:2320
 msgid "Clear the log panel. Doesn't affect the order panels or any files."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2320
+#: wraithguard_toolkit_gui.py:2322
 msgid "Save Log As..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2322
+#: wraithguard_toolkit_gui.py:2324
 msgid "Save the current log contents to a text file."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2324
+#: wraithguard_toolkit_gui.py:2326
 msgid "Theme:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2338
+#: wraithguard_toolkit_gui.py:2340
 msgid "Color theme for the whole GUI: window/button colors, syntax highlighting here in the Log panel, and the field-diff JSON viewer (Check Conflicts -> double-click a field). Switching re-themes everything immediately, including any windows already open. Built-in: Dracula, Monokai, Atom One Dark, Gruvbox Dark, plus anything you've imported."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2348
+#: wraithguard_toolkit_gui.py:2350
 msgid "Import Theme..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2353
+#: wraithguard_toolkit_gui.py:2355
 msgid "Import a custom theme from a JSON file (background/foreground/select/section/warn/error/ok/inserted/dim as hex colors, plus an optional \"chrome\" object for explicit window/button colors) or a base16 scheme file (.yaml/.yml/.json with base00..base0F -- e.g. from the atelierbram/syntax-highlighting or chriskempson/base16 scheme repos). Window colors not given explicitly are derived from the background. Imported themes are saved and appear in the dropdown from then on."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2366
+#: wraithguard_toolkit_gui.py:2368
 msgid "Clear Memory"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2371
+#: wraithguard_toolkit_gui.py:2373
 msgid "Forget every plugin/folder added by hand (drag-drop or the Add buttons) and any scan result held only in memory (not saved to a .txt) -- none of that is shown anywhere on screen, and it otherwise keeps accumulating for the rest of the session. Does not touch any files."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2379
+#: wraithguard_toolkit_gui.py:2381
 msgid "Help"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2383
+#: wraithguard_toolkit_gui.py:2385
 msgid "Open the program's own documentation -- the Quick start (what to click, in order) or the Read me (every option, in detail) -- rendered as a readable page with a contents sidebar. Works offline; nothing is downloaded."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2456
+#: wraithguard_toolkit_gui.py:2458
 msgid "Log syntax highlighting: %(name)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2483
+#: wraithguard_toolkit_gui.py:2485
 msgid "Import syntax highlighting theme"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2495
+#: wraithguard_toolkit_gui.py:2497
 msgid "Import failed"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2495
+#: wraithguard_toolkit_gui.py:2497
 msgid "Couldn't import that theme:\n\n%(error)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2508
+#: wraithguard_toolkit_gui.py:2510
 msgid "Imported and applied theme: %(name)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2510
+#: wraithguard_toolkit_gui.py:2512
 msgid "Theme imported"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2511
+#: wraithguard_toolkit_gui.py:2513
 msgid "Imported \"%(name)s\" and set it as the active log theme."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2674
+#: wraithguard_toolkit_gui.py:2676
 msgid "Missing input"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2720
+#: wraithguard_toolkit_gui.py:2722
 msgid "Select the mods folder to scan"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2727
+#: wraithguard_toolkit_gui.py:2729
 msgid "Save generated subset file as"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2739
+#: wraithguard_toolkit_gui.py:2741
 msgid "Scanning mods folder..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2750
+#: wraithguard_toolkit_gui.py:2752
 msgid "Scan complete -- %(folders)d folder(s), %(plugins)d plugin(s). Subset file loaded."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2756
+#: wraithguard_toolkit_gui.py:2758
 msgid "Scan complete -- %(folders)d folder(s), %(plugins)d plugin(s). Held in memory (no file written)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2799
+#: wraithguard_toolkit_gui.py:2801
 msgid "Add plugin..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2800
+#: wraithguard_toolkit_gui.py:2802
 msgid "Include a plugin the Scan missed -- e.g. one sitting outside a recognised mod folder. It joins your custom subset on the next Sort. You can also drag a plugin file onto the list above from your file manager."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2806
+#: wraithguard_toolkit_gui.py:2808
 msgid "(install tkinterdnd2 to drag a plugin in)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2808
+#: wraithguard_toolkit_gui.py:2810
 msgid "Add data folder..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2809
+#: wraithguard_toolkit_gui.py:2811
 msgid "Include a folder the Scan missed -- e.g. an OpenMW Lua mod with a non-standard layout (no meshes/textures/... folder and no plugin). It joins your data paths on the next Sort; tick 'Sort data= paths too' to place it in the load order. You can also drag a folder onto the list above from your file manager."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2816
+#: wraithguard_toolkit_gui.py:2818
 msgid "(install tkinterdnd2 to drag a folder in)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2846
+#: wraithguard_toolkit_gui.py:2848
 msgid "Select a data folder to add"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2853
+#: wraithguard_toolkit_gui.py:2855
 msgid "Select plugin(s) to add"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2856
+#: wraithguard_toolkit_gui.py:2858
 msgid "Plugins"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2884
+#: wraithguard_toolkit_gui.py:2886
 msgid "Added plugin"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2885
-#: wraithguard_toolkit_gui.py:2931
-#: wraithguard_toolkit_gui.py:2914
+#: wraithguard_toolkit_gui.py:2887
+#: wraithguard_toolkit_gui.py:2933
+#: wraithguard_toolkit_gui.py:2916
 msgid "Already added"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2930
-#: wraithguard_toolkit_gui.py:2913
+#: wraithguard_toolkit_gui.py:2932
+#: wraithguard_toolkit_gui.py:2915
 msgid "Added data folder"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2935
-#: wraithguard_toolkit_gui.py:2918
+#: wraithguard_toolkit_gui.py:2937
+#: wraithguard_toolkit_gui.py:2920
 msgid "  Tick 'Sort data= paths too' to place it."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2939
+#: wraithguard_toolkit_gui.py:2941
 msgid "Not a plugin or folder: %(path)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2961
+#: wraithguard_toolkit_gui.py:2963
 msgid "Nothing to clear."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2965
+#: wraithguard_toolkit_gui.py:2967
 msgid "%(n)d manual plugin(s)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2967
+#: wraithguard_toolkit_gui.py:2969
 msgid "%(n)d manual data folder(s)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2969
+#: wraithguard_toolkit_gui.py:2971
 msgid "the in-memory scan result"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2972
+#: wraithguard_toolkit_gui.py:2974
 msgid "Clear memory?"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2973
+#: wraithguard_toolkit_gui.py:2975
 msgid "This forgets everything added by hand this session and any scan result held in memory (not written to a subset file):\n\n%(summary)s\n\nThey will no longer be included on the next Sort. This does not touch the subset file field, remembered paths, or any file on disk. Continue?"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:2987
+#: wraithguard_toolkit_gui.py:2989
 msgid "Cleared: %(summary)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3017
+#: wraithguard_toolkit_gui.py:3019
 msgid "%(what)s (%(n)d added, applied on Sort): %(value)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3035
+#: wraithguard_toolkit_gui.py:3037
 msgid "Sorting..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3049
+#: wraithguard_toolkit_gui.py:3051
 msgid ", %(count)d yml warning(s)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3050
+#: wraithguard_toolkit_gui.py:3052
 msgid "Sorted %(plugins)d plugin(s), %(warnings)d rule warning(s)%(yml)s. Drag to adjust, then Export."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3163
+#: wraithguard_toolkit_gui.py:3165
 msgid "openmw.cfg changed"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3164
+#: wraithguard_toolkit_gui.py:3166
 msgid "openmw.cfg has changed on disk since you ran '1. Sort' (did momw-configurator re-run?).\n\nThe order on screen was computed against the OLD contents. It's safer to re-Sort first.\n\nExport anyway?"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3179
+#: wraithguard_toolkit_gui.py:3181
 msgid "Overwrite customizations.toml?"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3180
+#: wraithguard_toolkit_gui.py:3182
 msgid "This will overwrite:\n%(path)s\n\nin place%(note)s. Continue?"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3194
+#: wraithguard_toolkit_gui.py:3196
 msgid "Exporting..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3225
+#: wraithguard_toolkit_gui.py:3227
 msgid "Export done -- cfg written: %(cfg)s, toml written: %(toml)s."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3400
+#: wraithguard_toolkit_gui.py:3402
 msgid "Building cell map..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3439
+#: wraithguard_toolkit_gui.py:3441
 msgid "\n\nThis REPLACES the existing %(name)s."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3444
+#: wraithguard_toolkit_gui.py:3446
 msgid "Build Merged Lands.esp?"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3445
+#: wraithguard_toolkit_gui.py:3447
 msgid "A new plugin will be written to:\n%(path)s\n\nIt carries terrain only -- no references, objects or scripts -- so everything placed in those cells stays where it is. Your mods are NOT modified, and deleting the merged plugin restores your previous behaviour completely.\n\nLoad it LAST, and back up your saves before playing with it the first time.%(existing)s\n\nYes: write it here.   No: choose a different folder."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3480
+#: wraithguard_toolkit_gui.py:3482
 msgid "Merging land..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3521
+#: wraithguard_toolkit_gui.py:3523
 msgid "Folder not found"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3522
+#: wraithguard_toolkit_gui.py:3524
 msgid "%(path)s no longer exists. Please choose where to write."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3528
+#: wraithguard_toolkit_gui.py:3530
 msgid "Data Files not found"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3529
+#: wraithguard_toolkit_gui.py:3531
 msgid "Could not work out which folder holds your plugins, so there is no sensible place to put the merged plugin. Use 'Merged Lands folder...' to choose one."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3554
+#: wraithguard_toolkit_gui.py:3556
 msgid "Where should Merged Lands.esp be written?"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3592
+#: wraithguard_toolkit_gui.py:3594
 msgid "Not a data folder"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3593
+#: wraithguard_toolkit_gui.py:3595
 msgid "%(path)s is not one of the folders OpenMW reads, so it will not find the merged plugin there.\n\nAdd this line to openmw.cfg:\n\ndata=\"%(path)s\"\n\nand put 'content=%(name)s' last."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3631
+#: wraithguard_toolkit_gui.py:3633
 msgid " MERGE LANDS"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3646
+#: wraithguard_toolkit_gui.py:3648
 msgid "Merge produced nothing to write."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3648
+#: wraithguard_toolkit_gui.py:3650
 msgid "Merged Lands written: %(cells)d cell(s)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3652
-#: wraithguard_toolkit_gui.py:3656
+#: wraithguard_toolkit_gui.py:3654
+#: wraithguard_toolkit_gui.py:3658
 msgid "Merge failed -- see log."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3688
+#: wraithguard_toolkit_gui.py:3690
 msgid "%(contested)d vertex/vertices were edited by more than one mod; the later one in your load order won each."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3693
+#: wraithguard_toolkit_gui.py:3695
 msgid "%(major)d were blended far from a mod's intent where a .mergedlands.toml asked to Resolve."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3698
+#: wraithguard_toolkit_gui.py:3700
 msgid "Merged Lands built"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3699
+#: wraithguard_toolkit_gui.py:3701
 msgid "Written to:\n%(path)s\n\nEnable it and place it LAST in your load order.\n\n%(cells)d land record(s), %(textures)d land texture(s).\n%(detail)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3723
+#: wraithguard_toolkit_gui.py:3725
 msgid "Pick a plugin to write a .mergedlands.toml for"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3727
+#: wraithguard_toolkit_gui.py:3729
 msgid "Morrowind plugins"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3753
+#: wraithguard_toolkit_gui.py:3755
 msgid "Existing .mergedlands.toml could not be read"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3754
+#: wraithguard_toolkit_gui.py:3756
 msgid "%(name)s will be replaced from defaults:\n\n%(err)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3762
+#: wraithguard_toolkit_gui.py:3764
 msgid "Merge settings: %(name)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3773
+#: wraithguard_toolkit_gui.py:3775
 msgid "Choose how %(name)s's landscape edits merge. Uncheck a layer to keep this plugin from touching it; set a strategy for how its edits resolve where they collide with another mod. The defaults behave as if there were no file."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3786
+#: wraithguard_toolkit_gui.py:3788
 msgid "meta_type:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3801
+#: wraithguard_toolkit_gui.py:3803
 msgid "Patch = a hand-written settings file (the usual choice). Auto = default behaviour. MergedLands marks a plugin the tool generated so a re-run ignores it -- do not set that on an ordinary mod."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3808
+#: wraithguard_toolkit_gui.py:3810
 msgid "Layers"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3811
+#: wraithguard_toolkit_gui.py:3813
 msgid "include"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3812
+#: wraithguard_toolkit_gui.py:3814
 msgid "layer"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3815
+#: wraithguard_toolkit_gui.py:3817
 msgid "conflict strategy"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3822
+#: wraithguard_toolkit_gui.py:3824
 msgid "Vertex heights -- and the normals stored with them."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3823
+#: wraithguard_toolkit_gui.py:3825
 msgid "Baked vertex colors (terrain lighting)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3824
+#: wraithguard_toolkit_gui.py:3826
 msgid "Which land texture paints each square."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3825
+#: wraithguard_toolkit_gui.py:3827
 msgid "The low-resolution world-map heightmap."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3858
+#: wraithguard_toolkit_gui.py:3860
 msgid "Auto = later plugin wins for entries it changed · Overwrite = this plugin wins collisions · Ignore = keep the earlier edit · Resolve = blend conflicting numbers · Curvature = structure-weighted blend (ours)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3865
+#: wraithguard_toolkit_gui.py:3867
 msgid "Preview:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3885
+#: wraithguard_toolkit_gui.py:3887
 msgid "Write .mergedlands.toml"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3938
+#: wraithguard_toolkit_gui.py:3940
 msgid "Could not write .mergedlands.toml"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3940
+#: wraithguard_toolkit_gui.py:3942
 msgid "Wrote %(name)s."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3943
+#: wraithguard_toolkit_gui.py:3945
 msgid "Merge settings written"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3944
+#: wraithguard_toolkit_gui.py:3946
 msgid "Wrote:\n%(path)s\n\nRun Merge Lands to apply it."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3975
+#: wraithguard_toolkit_gui.py:3977
 msgid " CELL MAP"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:3981
+#: wraithguard_toolkit_gui.py:3983
 msgid "native esp reader"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4012
+#: wraithguard_toolkit_gui.py:4014
 msgid "  %(exterior)d exterior + %(interior)d interior cell(s) touched across %(scanned)d plugin(s)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4022
+#: wraithguard_toolkit_gui.py:4024
 msgid "  Map written to: %(path)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4023
+#: wraithguard_toolkit_gui.py:4025
 msgid "Cell map ready (%(exterior)d exterior, %(interior)d interior)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4279
-#: wraithguard_toolkit_gui.py:4314
+#: wraithguard_toolkit_gui.py:4281
+#: wraithguard_toolkit_gui.py:4316
 msgid "Open in browser"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4295
+#: wraithguard_toolkit_gui.py:4297
 msgid "(inline render failed -- use 'Open in browser'. The 3D and nav views need a real browser engine.)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4313
+#: wraithguard_toolkit_gui.py:4315
 msgid "Save HTML..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4328
+#: wraithguard_toolkit_gui.py:4330
 msgid "(inline render failed - use 'Open in browser' for the full map)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4351
+#: wraithguard_toolkit_gui.py:4353
 msgid "Save cell map"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4363
+#: wraithguard_toolkit_gui.py:4365
 msgid "Cell map saved: %(path)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4389
+#: wraithguard_toolkit_gui.py:4391
 msgid "If upstream moves or a new fork takes over, point the updaters at the new location here. Blank = built-in defaults. Downloads are always validated before anything is overwritten."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4399
+#: wraithguard_toolkit_gui.py:4401
 msgid "mlox rules URL template:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4407
+#: wraithguard_toolkit_gui.py:4409
 msgid "Where 'Update Rules...' downloads from. Must contain {name}, which is replaced with mlox_base.txt / mlox_user.txt per file.\nDefault: %(url)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4416
+#: wraithguard_toolkit_gui.py:4418
 msgid "default: %(url)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4420
+#: wraithguard_toolkit_gui.py:4422
 msgid "plugin-order.yml URL:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4427
+#: wraithguard_toolkit_gui.py:4429
 msgid "Where the plugin-order.yml 'Update...' button downloads from. Blank tries the built-in candidates in order.\nDefault: %(url)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4436
+#: wraithguard_toolkit_gui.py:4438
 msgid "default: %(url)s..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4451
+#: wraithguard_toolkit_gui.py:4453
 msgid "Download sources"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4452
+#: wraithguard_toolkit_gui.py:4454
 msgid "The rules URL template must contain {name} (it's replaced with the rule filename)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4462
+#: wraithguard_toolkit_gui.py:4464
 msgid "Reset to defaults"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4463
+#: wraithguard_toolkit_gui.py:4465
 msgid "Save & Close"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4504
+#: wraithguard_toolkit_gui.py:4506
 msgid "New mlox rule"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4529
+#: wraithguard_toolkit_gui.py:4531
 msgid "rules file:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4535
+#: wraithguard_toolkit_gui.py:4537
 msgid "Personal rules file the rule is appended to (created with a header if new). Use your OWN file, not mlox_base/mlox_user -- those get overwritten by 'Update Rules...'. It's auto-added to the rule-files list LAST, so your rules win conflicts."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4550
+#: wraithguard_toolkit_gui.py:4552
 msgid "Rule type"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4573
+#: wraithguard_toolkit_gui.py:4575
 msgid "Plugins (order matters for [Order])"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4596
+#: wraithguard_toolkit_gui.py:4598
 msgid "From plugin panel"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4601
+#: wraithguard_toolkit_gui.py:4603
 msgid "Add the rows currently SELECTED in the main plugin-order panel, in their displayed order (Ctrl/Shift-click there to multi-select first)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4608
+#: wraithguard_toolkit_gui.py:4610
 msgid "Group as ANY"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4612
+#: wraithguard_toolkit_gui.py:4614
 msgid "Wrap the SELECTED plugins in an [ANY ...] group, for a rule that is satisfied by whichever of several versions someone has installed -- the shape the guidelines use for mods with an XB edition, a Tribunal edition and so on.\n\nSelect the grouped entry and press again to ungroup."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4630
+#: wraithguard_toolkit_gui.py:4632
 msgid "Type a plugin filename and press Enter. mlox wildcards are allowed: ? for one character, * for any run, <VER> for a version number -- though the guidelines ask for these to be used sparingly, since expanding them is slow."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4637
+#: wraithguard_toolkit_gui.py:4639
 msgid "Add"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4645
+#: wraithguard_toolkit_gui.py:4647
 msgid "Message and source"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4649
+#: wraithguard_toolkit_gui.py:4651
 msgid "message:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4656
+#: wraithguard_toolkit_gui.py:4658
 msgid "What to tell the person, and what to do about it. Ordering rules carry no message; the warning rules are much less useful without one.\n\nA message containing ']' is written in the block form automatically, because a ']' would otherwise close the rule label early."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4665
+#: wraithguard_toolkit_gui.py:4667
 msgid "(Ref:) source:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4672
+#: wraithguard_toolkit_gui.py:4674
 msgid "Where this rule's claim comes from: a readme filename, a forum post, a URL. The guidelines ask for one on every rule so that someone else can check it, or correct it.\n\nA URL gets whitespace before the closing parenthesis automatically -- pages that auto-link URLs otherwise swallow the ')' into the link."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4681
+#: wraithguard_toolkit_gui.py:4683
 msgid "@section:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4688
+#: wraithguard_toolkit_gui.py:4690
 msgid "Optional heading written above the rule. The rule-base groups rules into sections, roughly one per mod, to keep the file navigable."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4696
+#: wraithguard_toolkit_gui.py:4698
 msgid "highlight:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4701
+#: wraithguard_toolkit_gui.py:4703
 msgid "none"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4708
+#: wraithguard_toolkit_gui.py:4710
 msgid "%(mark)s = %(meaning)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4715
+#: wraithguard_toolkit_gui.py:4717
 msgid "; comment:"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4722
+#: wraithguard_toolkit_gui.py:4724
 msgid "A ';' comment written above the rule. mlox strips these before reading."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4750
+#: wraithguard_toolkit_gui.py:4752
 msgid "Append rule"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4754
+#: wraithguard_toolkit_gui.py:4756
 msgid "Write the rule to the file above. Refused while there is an error: mlox silently discards a rule it cannot use, so this is the only place you would find out.\n\nWarnings do not block -- they are the guidelines' advice, not the parser's requirements."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4766
+#: wraithguard_toolkit_gui.py:4768
 msgid "Rule guide"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4772
+#: wraithguard_toolkit_gui.py:4774
 msgid "Open the rule reference: what each rule kind says, how expressions nest, and the conventions the rule-base follows.\n\nIt opens in your browser, so it can sit beside this window while you work."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4880
+#: wraithguard_toolkit_gui.py:4882
 msgid "No problems. This rule follows the guidelines.\n"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4892
+#: wraithguard_toolkit_gui.py:4894
 msgid "Select row(s) in the plugin-order panel first."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4920
+#: wraithguard_toolkit_gui.py:4922
 msgid "Personal rules file"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4933
-#: wraithguard_toolkit_gui.py:4937
-#: wraithguard_toolkit_gui.py:4981
+#: wraithguard_toolkit_gui.py:4935
+#: wraithguard_toolkit_gui.py:4939
+#: wraithguard_toolkit_gui.py:4983
 msgid "New rule"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4933
+#: wraithguard_toolkit_gui.py:4935
 msgid "Set a rules file first."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4938
+#: wraithguard_toolkit_gui.py:4940
 msgid "Don't append personal rules to mlox_base.txt / mlox_user.txt -- 'Update Rules...' overwrites those. Pick your own file (e.g. mlox_my_rules.txt)."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4967
+#: wraithguard_toolkit_gui.py:4969
 msgid "Rule conflicts with the curated order"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4968
+#: wraithguard_toolkit_gui.py:4970
 msgid "This [Order] rule contradicts the frozen curated (MOMW) order for:\n\n%(pairs)s\n\nmlox will DISCARD those orderings (it never reorders the curated list), so the rule won't take effect for them. Write it anyway?"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:4991
+#: wraithguard_toolkit_gui.py:4993
 msgid "Rule appended to %(file)s. Re-run '1. Sort' to apply it."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5021
+#: wraithguard_toolkit_gui.py:5023
 msgid "Update %(name)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5027
+#: wraithguard_toolkit_gui.py:5029
 msgid "Save %(name)s as"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5040
+#: wraithguard_toolkit_gui.py:5042
 msgid "the file doesn't exist yet -- it will be created"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5042
+#: wraithguard_toolkit_gui.py:5044
 msgid "your copy is ~%(days)d day(s) old"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5046
+#: wraithguard_toolkit_gui.py:5048
 msgid "Download the current %(name)s from MOMW?\n\n%(age)s.\n\nThe download is validated before anything is written; a timestamped .bak of the old file is kept."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5072
+#: wraithguard_toolkit_gui.py:5074
 msgid "Downloading %(name)s..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5093
-#: wraithguard_toolkit_gui.py:5112
-#: wraithguard_toolkit_gui.py:5131
+#: wraithguard_toolkit_gui.py:5095
+#: wraithguard_toolkit_gui.py:5114
+#: wraithguard_toolkit_gui.py:5133
 msgid "Fetch data paths"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5094
+#: wraithguard_toolkit_gui.py:5096
 msgid "Set the list name field first -- data paths are fetched per list."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5100
+#: wraithguard_toolkit_gui.py:5102
 msgid "Save data paths cache as"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5113
+#: wraithguard_toolkit_gui.py:5115
 msgid "Fetch the data-path order for '%(list)s' from MOMW's cfg-generator API and cache it to:\n%(path)s\n\nThe response is validated before anything is written; any old cache is kept as a timestamped .bak."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5136
+#: wraithguard_toolkit_gui.py:5138
 msgid "Fetching data paths for '%(list)s'..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5149
+#: wraithguard_toolkit_gui.py:5151
 msgid "Run '1. Sort' first so there's a load order to check against."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5153
+#: wraithguard_toolkit_gui.py:5155
 msgid "Choose an OpenMW save"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5166
+#: wraithguard_toolkit_gui.py:5168
 msgid "Save check failed: %(error)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5177
+#: wraithguard_toolkit_gui.py:5179
 msgid "Save check: %(count)d missing dependency! See the log."
 msgid_plural "Save check: %(count)d missing dependencies! See the log."
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard_toolkit_gui.py:5185
-#: wraithguard_toolkit_gui.py:5199
+#: wraithguard_toolkit_gui.py:5187
+#: wraithguard_toolkit_gui.py:5201
 msgid "Save Check"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5196
+#: wraithguard_toolkit_gui.py:5198
 msgid "Save check: all %(count)d dependencies present."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5200
+#: wraithguard_toolkit_gui.py:5202
 msgid "%(file)s: all %(count)d content files it needs are in the current load order. Safe to export."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5219
+#: wraithguard_toolkit_gui.py:5221
 msgid "Quick start"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5220
+#: wraithguard_toolkit_gui.py:5222
 msgid "Read me"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5221
-#: wraithguard_toolkit_gui.py:4767
+#: wraithguard_toolkit_gui.py:5223
+#: wraithguard_toolkit_gui.py:4769
 msgid "Writing mlox rules"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5261
+#: wraithguard_toolkit_gui.py:5263
 msgid "Documentation not found"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5262
+#: wraithguard_toolkit_gui.py:5264
 msgid "%(name)s was not found next to the program.\n\nIt ships alongside the app; if this is a build made without it, the same document is in the project folder."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5278
+#: wraithguard_toolkit_gui.py:5280
 msgid "Could not open documentation"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5279
+#: wraithguard_toolkit_gui.py:5281
 msgid "%(name)s could not be rendered:\n%(error)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5319
+#: wraithguard_toolkit_gui.py:5321
 msgid "Set openmw.cfg (or run a Sort) so I know where to look."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5322
+#: wraithguard_toolkit_gui.py:5324
 msgid "Scanning for backups..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5328
+#: wraithguard_toolkit_gui.py:5330
 msgid "Found %(count)d backup file."
 msgid_plural "Found %(count)d backup files."
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard_toolkit_gui.py:5333
+#: wraithguard_toolkit_gui.py:5335
 msgid "Backup scan failed: %(error)s"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5355
+#: wraithguard_toolkit_gui.py:5357
 msgid "%(count)d backup file. Restore copies the backup over its original; Delete removes the backup file itself."
 msgid_plural "%(count)d backup files. Restore copies the backup over its original; Delete removes the backup file itself."
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard_toolkit_gui.py:5389
+#: wraithguard_toolkit_gui.py:5391
 msgid "Restore"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5390
+#: wraithguard_toolkit_gui.py:5392
 msgid "Copy %(count)d backup over its original (overwriting it)?"
 msgid_plural "Copy %(count)d backups over their originals (overwriting them)?"
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard_toolkit_gui.py:5409
+#: wraithguard_toolkit_gui.py:5411
 msgid "Restored %(count)d backup%(failed)s. Re-run '1. Sort' to refresh checks."
 msgid_plural "Restored %(count)d backups%(failed)s. Re-run '1. Sort' to refresh checks."
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard_toolkit_gui.py:5416
+#: wraithguard_toolkit_gui.py:5418
 msgid ", %(fail)d failed"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5425
+#: wraithguard_toolkit_gui.py:5427
 msgid "Delete"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5426
+#: wraithguard_toolkit_gui.py:5428
 msgid "Permanently delete %(count)d backup file?"
 msgid_plural "Permanently delete %(count)d backup files?"
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard_toolkit_gui.py:5443
+#: wraithguard_toolkit_gui.py:5445
 msgid "Deleted %(count)d backup file."
 msgid_plural "Deleted %(count)d backup files."
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard_toolkit_gui.py:5453
+#: wraithguard_toolkit_gui.py:5455
 msgid "Restore Selected"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5456
+#: wraithguard_toolkit_gui.py:5458
 msgid "Delete Selected"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5459
+#: wraithguard_toolkit_gui.py:5461
 msgid "Refresh"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5486
+#: wraithguard_toolkit_gui.py:5488
 msgid "Linting plugins..."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5495
+#: wraithguard_toolkit_gui.py:5497
 msgid " LINT (tes3lint-style checks, native)"
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5517
+#: wraithguard_toolkit_gui.py:5519
 msgid "\n  No lint findings. Clean bill of health."
 msgstr ""
 
-#: wraithguard_toolkit_gui.py:5520
+#: wraithguard_toolkit_gui.py:5522
 msgid "Lint: %(count)d finding. See the log."
 msgid_plural "Lint: %(count)d findings. See the log."
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard_toolkit_gui.py:5527
+#: wraithguard_toolkit_gui.py:5529
 msgid "Lint: no findings."
 msgstr ""

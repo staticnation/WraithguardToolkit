@@ -33,6 +33,36 @@ function assemble(){
     .split('__WG_ICON__').join(icon);
 }
 const html=process.argv[2]? fs.readFileSync(process.argv[2],'utf8') : assemble();
+
+/* A stand-in for Wraithguard's editor endpoints (gui/editorlink.py, tested in pytest):
+   one record, its changes kept, so the Editor mode's dialog and pool can be driven here.
+   Reached the way the real one is - the engine's loopback POST (`wg_post`). */
+const http=require('http');
+const fakeWg={posts:[], queued:{}, reviewed:false};
+const fakeView=()=>({tag:'LIGH', type:'Light', id:'lamp_lit', winner:'Lamp.esm', plugins:['Lamp.esm'], whole:null,
+  fields:[
+    {path:'id', value:'lamp_lit', editable:false, kind:'str', options:[]},
+    {path:'mesh', value:'x\\lamp.nif', editable:true, kind:'str', options:[]},
+    {path:'data.radius', value:256, editable:true, kind:'int:0:4294967295', options:[]},
+  ].map(f=> f.path in fakeWg.queued? Object.assign(f,{queued:fakeWg.queued[f.path], source:'typed'}) : f)});
+const fakeServer=http.createServer((req,res)=>{
+  let body=''; req.on('data',c=>body+=c); req.on('end',()=>{
+    const name=req.url.split('?')[0].slice(1), b=body? JSON.parse(body) : {};
+    fakeWg.posts.push([name,b]);
+    let out;
+    if(name==='editRecord') out=fakeView();
+    else if(name==='editSet'){
+      if(b.path==='id'){ res.writeHead(400); res.end('id cannot be changed here'); return; }
+      fakeWg.queued[b.path]=b.value; out=fakeView();
+    } else if(name==='editRevert'){ if(b.path) delete fakeWg.queued[b.path]; else fakeWg.queued={}; out=fakeView(); }
+    else if(name==='editPending') out=Object.keys(fakeWg.queued).length?
+      [{tag:'LIGH', type:'Light', id:'lamp_lit', whole:null, changes:Object.entries(fakeWg.queued).map(([path,value])=>({path,value}))}] : [];
+    else if(name==='editReview'){ fakeWg.reviewed=true; res.writeHead(200); res.end('ok'); return; }
+    else { res.writeHead(404); res.end(); return; }
+    res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(out));
+  });
+});
+fakeServer.listen(0,'127.0.0.1');
 const {spawn}=require('child_process');
 const eng=spawn(process.env.WG_VIEW_SERVE||require('path').join(__dirname,'../../check-commands/target/release/wg-view-serve'+(process.platform==='win32'?'.exe':'')),[],{stdio:['pipe','pipe','inherit']});
 let nextId=1; const waiting=new Map(); let buf='';
@@ -53,7 +83,7 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtua
     w.__WG_VIEW__= MESH ? {cfg:CFG, meshView:true, extra:{meshes:[
         {path:'meshes/x/anim.nif', label:'Load order'},
         {path:path.join(__dirname,'fixture','Data Files','meshes','x','anim.nif'), label:'On disk'}]}}
-      : {cfg:CFG, cell:CELL};
+      : {cfg:CFG, cell:CELL, extra:{links:{}}};
     // No WebGL in jsdom (the viewport reports no context); 2D canvases get a no-op
     // context so map and swatch drawing run.
     const noop2d=()=>new Proxy({canvas:null},{get(t,k){ if(k in t) return t[k]; if(k==='getImageData'||k==='createImageData') return (x,y,wd,ht)=>({data:new Uint8ClampedArray(4*(wd||1)*(ht||1)),width:wd||1,height:ht||1}); if(k==='measureText') return ()=>({width:0}); if(/^create/.test(k)) return ()=>({addColorStop(){}}); return ()=>{}; }, set(t,k,v){ t[k]=v; return true; }});
@@ -252,6 +282,56 @@ async function tools(w, R, fail, done, sleep){
     Ori.hide();
     done.push('door buttons');
   }
+  await editor(w, R, fail, done, sleep);
+}
+
+/* The Editor mode (50_wg_editor.js): the Object Window and Cell View from the engine, the
+   record dialog and the pool from the stand-in Wraithguard above. */
+async function editor(w, R, fail, done, sleep){
+  const E=w.eval('WgEditor'), d=w.document;
+  const port=fakeServer.address().port;
+  const links=w.__WG_VIEW__.extra.links;
+  for(const k of ['editRecord','editSet','editRevert','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
+  await E.enter();
+  if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
+  if(!E.tags.some(t=>t[0]==='LIGH')) fail('the Object Window has no Light tab: '+JSON.stringify(E.tags));
+  d.querySelector('#edTabs [data-tag="LIGH"]').onclick();
+  for(let i=0;i<100 && !E.rows.some(r=>r[0]==='lamp_lit');i++) await sleep(30);
+  const rows=()=>d.querySelectorAll('#edTable tbody tr').length;
+  if(rows()<8) fail('the Light tab lists '+rows()+' rows');
+  E.filter='lamp_lit'; E.drawRows();
+  if(rows()!==1) fail('the filter left '+rows()+' rows');
+  // The Cell View: the cells, and a cell's references.
+  if(!(E.cells||[]).length) fail('the Cell View has no cells');
+  await E.loadRefs('9,9');
+  if(!d.querySelectorAll('#edRefList tbody tr').length) fail('the Cell View lists no references in 9,9');
+  // The record dialog: from Wraithguard, a change sent and marked, a refusal shown.
+  d.querySelector('#edTable tbody tr').ondblclick();
+  for(let i=0;i<100 && !d.querySelector('#edDlgBody [data-path="data.radius"]');i++) await sleep(30);
+  const radius=d.querySelector('#edDlgBody [data-path="data.radius"]');
+  if(!radius) fail('the record dialog did not fill in');
+  else{
+    if(!d.querySelector('#edDlgBody [data-path="id"]').disabled) fail('the id is editable');
+    radius.value='512'; radius.onchange();
+    for(let i=0;i<100 && !E.edited.size;i++) await sleep(30);
+    const sent=fakeWg.posts.find(p=>p[0]==='editSet');
+    if(!sent || sent[1].value!==512 || sent[1].path!=='data.radius' || sent[1].tag!=='LIGH') fail('the change was not sent: '+JSON.stringify(sent));
+    if(!E.isEdited('lamp_lit')) fail('the Object Window does not mark the changed record');
+    if(!d.querySelector('#edDlgBody tr.edited [data-revert="data.radius"]')) fail('the dialog does not show the waiting change');
+    await E.showPending();
+    if(!/data\.radius/.test(d.getElementById('edPendBody').textContent)) fail('the pending list does not have the change');
+    d.getElementById('edReview').onclick(); for(let i=0;i<50 && !fakeWg.reviewed;i++) await sleep(30);
+    if(!fakeWg.reviewed) fail('Review did not reach Wraithguard');
+    await E.change('editRevert', {path:'data.radius'});
+    if(E.edited.size) fail('the revert left the record marked');
+  }
+  // The inspector's "Edit record" for a clicked object.
+  const Ori=w.eval('Ori'), lamp=R.pickables.find(p=>p.id==='lamp_lit');
+  if(lamp){ await Ori.show(lamp); if(!d.getElementById('edOriEdit')) fail('the inspector has no Edit record in the Editor'); Ori.hide(); }
+  E.leave();
+  if(d.body.classList.contains('wgEditMode')) fail('leaving the Editor left the page in it');
+  done.push('editor');
 }
 
 // ORI: a few seconds before the report, inspect the first pickable object.

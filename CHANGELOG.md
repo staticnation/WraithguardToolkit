@@ -84,6 +84,31 @@
   (`lua/lual.py`, the layout of OpenMW's `luascripts.cpp`). Not read: scripts packed in
   BSAs - the report says so.
 
+- **The viewer's Editor mode: a Construction Set beside the render window** (Editor in
+  the viewer's topbar, or `--editor`). A mode of its own, not the Cell Preview's
+  settings: the **Object Window** - every record of the load order by type, filtered
+  (Ctrl+F) and sorted by id, name, model, the plugins defining it and how many are placed,
+  the ones with changes waiting marked green as the CSSE marks them; the **Cell View** -
+  every cell and the references in the selected one (double-click a cell to open it, a
+  reference to go to it, framed and selected); and a **dialog per record** with each field
+  and an input fitting it (checkbox, list, number, text; ids and the like locked),
+  "Show in world", "Conflicts" and revert. The inspector gets **Edit record (F2)** for the
+  object clicked. Changes go to **Wraithguard's patch pool** - the queue the conflict
+  viewer fills - as typed values on the winning record, are listed under **Pending**, and
+  are reviewed and written in the Patch Builder ("Review and write in Wraithguard"), so
+  the patch writer that is tested already writes them. Records no conflict lists write too
+  (the pool now takes a base plugin from the editor). The record lists come from the
+  viewer's engine (`editor_tags`, `editor_records`, `editor_cell_refs`); records and
+  changes from Wraithguard over the loopback links (`gui/editorlink.py`,
+  `wraithguard/patch/editor.py`), which touches the pool only on its Tk thread. Opened
+  without Wraithguard it browses, and says editing needs it. References (moving them, the
+  reference dialog) come next: see the TODO.
+- **The patch pool survives a crash.** Every decision in it - whole records, fields taken
+  from a plugin, typed values - is journalled as it is made
+  (`wraithguard_patch_journal.json` beside the settings) and brought back the next time
+  Wraithguard starts, with a status line saying how many; writing the patch clears it. A
+  viewer that runs out of memory, or a Wraithguard that crashes, loses no work.
+
 ### Changed
 
 - **CI builds Windows on every push.** The CI run carries

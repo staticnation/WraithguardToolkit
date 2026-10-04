@@ -22,7 +22,9 @@ reaches the game.
 
 *The base is whatever currently wins.* A merge is then a list of departures
 from what the load order already does, which is the smallest thing that can be
-wrong.
+wrong. The conflict scan says what wins for a record in conflict; for one it does
+not list (the viewer's editor edits any record), whoever queued it says, with
+:meth:`PatchQueue.set_base`.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ class PatchQueue:
         """Start empty."""
         self._whole: list[Selection] = []
         self._fields: dict[tuple[str, str], list[Choice]] = {}
+        self._bases: dict[tuple[str, str], str] = {}
 
     @property
     def selections(self) -> list[Selection]:
@@ -64,6 +67,33 @@ class PatchQueue:
         """Drop every decision."""
         self._whole.clear()
         self._fields.clear()
+        self._bases.clear()
+
+    def set_base(self, record_type: str, key: str, plugin: str) -> None:
+        """Say which plugin wins a record, for one the conflict scan does not list.
+
+        Used by :meth:`merges` when its ``base_for`` has no answer: the viewer's
+        editor changes records that conflict with nothing, and knows (from the load
+        order it loaded) which plugin defines them last.
+
+        Args:
+            record_type: The record's type.
+            key: Its identifying key.
+            plugin: The plugin that currently wins it.
+        """
+        self._bases[(record_type, key)] = plugin
+
+    def base(self, record_type: str, key: str) -> str:
+        """The base given to :meth:`set_base` for a record, or ``""``.
+
+        Args:
+            record_type: The record's type.
+            key: Its identifying key.
+
+        Returns:
+            The plugin.
+        """
+        return self._bases.get((record_type, key), "")
 
     def add_whole(self, selection: Selection) -> None:
         """Queue a record to be taken whole.
@@ -99,6 +129,7 @@ class PatchQueue:
         """
         self._drop_whole(record_type, key)
         self._fields.pop((record_type, key), None)
+        self._bases.pop((record_type, key), None)
 
     def remove_field(self, record_type: str, key: str, path: str) -> None:
         """Drop one field choice.
@@ -117,6 +148,7 @@ class PatchQueue:
         choices[:] = [entry for entry in choices if entry.path != path]
         if not choices:
             self._fields.pop((record_type, key), None)
+            self._bases.pop((record_type, key), None)
 
     def merges(self, base_for: Callable[[str, str], str]) -> list[Merge]:
         """The queued field choices, as the writer takes them.
@@ -125,7 +157,8 @@ class PatchQueue:
             base_for: Called with ``(record_type, key)``; returns the plugin
                 supplying the fields not chosen. Passed in rather than looked
                 up here because it depends on the current scan, which this does
-                not know about.
+                not know about. When it answers ``""``, the base given to
+                :meth:`set_base` is used.
 
         Returns:
             One :class:`~wraithguard.patch.merge.Merge` per record.
@@ -134,7 +167,7 @@ class PatchQueue:
             Merge(
                 record_type=record_type,
                 key=key,
-                base_plugin=base_for(record_type, key),
+                base_plugin=base_for(record_type, key) or self._bases.get((record_type, key), ""),
                 choices=tuple(choices),
             )
             for (record_type, key), choices in self._fields.items()

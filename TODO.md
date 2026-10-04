@@ -18,6 +18,28 @@ TB_BM dialogue test passing against a baseline recorded from upstream 5ea27f1
 - When both are upstream: delete the `[patch]` sections and point merge_to_master back
   at Greatness7.
 
+## The Editor mode (a Construction Set beside the render window)
+
+Started: the viewer's Editor mode (`viewer-shell/ui/src/50_wg_editor.js`) - the Object
+Window (record tabs, filter, sortable columns, changed records marked), the Cell View
+(cells and their references), a dialog per record whose changes go to Wraithguard's patch
+pool (`wraithguard/patch/editor.py`, `gui/editorlink.py`), the pool journalled so a crash
+loses nothing. Still to do, roughly in this order:
+- **References**: move/rotate/scale in the render window (the CS's drag, Z/X axis locks,
+  F to drop), the reference dialog (position, rotation, scale, ownership, lock, count).
+  Writing them needs a CELL patch carrying only the changed references, their
+  `mast_index` remapped to the patch's masters - not the cell's whole `references` list,
+  which the pool keeps as one value and which would override every reference in the cell.
+- New records (Insert, or "new from this one" with a new id), deleting, renaming (with
+  the CS's "used in N places" warning); placing a record from the Object Window into the
+  render window (drag and drop).
+- List fields in the dialog (inventory, spells, AI packages, leveled list entries,
+  dialogue conditions) as tables, not read-only.
+- Use Report (where a record is used: references, leveled lists, inventories, scripts),
+  Search & Replace, the CSSE's Layers window and its Q context menu.
+- Dialogue, and the Script Edit window (with the mwscript checks the toolkit has).
+- An "active file" view: the patch being built, as the CS shows the plugin it edits.
+
 ## Controllers
 
 `49_wg_gamepad.js` (fly / cursor modes, A switches). Still to do once tested on the Deck

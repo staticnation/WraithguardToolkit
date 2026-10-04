@@ -216,6 +216,16 @@ reference your scripts at all, say the word and it is done.
   distributed with it; **no code was copied**. We credit it for the field-level
   record-diff *approach* that inspired our field comparison view. All rights
   remain with its author.
+- **The Elder Scrolls Construction Set** (Bethesda) and **Construction Set Extender**
+  (CSSE, the MWSE team) - **no code copied**. The viewer's Editor mode follows the CS's
+  window model as its help documents describe it (the Object Window's record tabs and
+  sortable columns, the Cell View's cells and their references, the render window, an
+  edit dialog per record; the help text read from the Morrowind Modding community's
+  Markdown edition, morrowind-modding/tes3cs-manual, https://tes3cs.pages.dev/), and
+  takes CSSE's additions as its checklist (an Object Window filter on Ctrl+F, changed
+  records marked green, F2 to edit the selected reference's base record; from MWSE's
+  `docs/source/references/general/csse.md`). Window layout and behaviour only; every
+  line of the mode is ours.
 - **xEdit / TES5Edit / SSEEdit** - © the xEdit team. **MPL 1.1; no code copied.**
   Our conflict-colour convention -- a record's overall status colours the row
   **background**, what one plugin does colours the **text** -- is xEdit's, the
