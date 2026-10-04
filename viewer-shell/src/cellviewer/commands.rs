@@ -2070,24 +2070,29 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
     // The reference, the cell it stands in, which cell that is for a plugin, and the
     // cell's key in the conflict viewer (an interior's name; an exterior's, or its grid).
     use viewcore::inspect::CellSel;
-    let mut found: Option<(&viewcore::esp::CellRef, String, CellSel, String)> = None;
+    // Also the cell's key as a plugin's records key it (an interior's name, an exterior's
+    // grid), and the plugins with a CELL record for it - the editor reads those.
+    type Found<'a> = (&'a viewcore::esp::CellRef, String, CellSel, String, String, &'a [u32]);
+    let mut found: Option<Found> = None;
     for (g, c) in &w.cells {
         if let Some(r) = c.refs.iter().find(|(n, _)| is_key(n)).map(|(_, r)| r) {
             let label = if c.name.is_empty() { format!("{}, {}", g.0, g.1) } else { format!("{} ({}, {})", c.name, g.0, g.1) };
-            let ck = if c.name.is_empty() { format!("({}, {})", g.0, g.1) } else { c.name.clone() };
-            found = Some((r, label, CellSel::Exterior(g.0, g.1), ck));
+            let grid = format!("({}, {})", g.0, g.1);
+            let ck = if c.name.is_empty() { grid.clone() } else { c.name.clone() };
+            found = Some((r, label, CellSel::Exterior(g.0, g.1), ck, grid, &c.touched_by));
             break;
         }
     }
     if found.is_none() {
         for room in w.interiors.values() {
             if let Some(r) = room.refs.iter().find(|(n, _)| is_key(n)).map(|(_, r)| r) {
-                found = Some((r, room.name.clone(), CellSel::Interior(room.name.clone()), room.name.clone()));
+                let n = room.name.clone();
+                found = Some((r, n.clone(), CellSel::Interior(n.clone()), n.clone(), n, &room.touched_by));
                 break;
             }
         }
     }
-    let (r, cell, cell_sel, cell_key) = found.ok_or_else(|| format!("no reference {key} in the loaded world"))?;
+    let (r, cell, cell_sel, cell_key, ref_cell, cell_by) = found.ok_or_else(|| format!("no reference {key} in the loaded world"))?;
     let name = |i: i32| usize::try_from(i).ok().and_then(|i| w.plugins.get(i)).cloned().unwrap_or_default();
     let lid = r.id.to_ascii_lowercase();
 
@@ -2124,7 +2129,9 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
     if let Some(def) = w.objects.get(&lid) {
         o.str("name", &def.name);
     }
-    o.str("cellKey", &cell_key);
+    o.str("cellKey", &cell_key).str("refCell", &ref_cell).num("refIndex", r.num.index as f64);
+    let cell_plugins: Vec<String> = cell_by.iter().map(|&i| name(i as i32)).collect();
+    o.raw("cellPlugins", &string_array(&cell_plugins));
     /* Wraithguard: the full help. The reference's own fields from the plugin that last
        changed it, and the base record's from the plugin that last defines it - read from
        the files now, as the world keeps only what drawing needs. */
@@ -2458,16 +2465,19 @@ fn editor_records(tag: String, state: State) -> Result<String, String> {
 #[tauri::command(async)]
 fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let (name, refs): (String, Vec<&viewcore::esp::CellRef>) = if let Some(room) = cell.strip_prefix("int:") {
+    // Also the cell's key as plugins' records key it, and the plugins with a CELL record
+    // for it: what the editor's reference dialog asks Wraithguard with.
+    type Cell<'a> = (String, String, &'a [u32], Vec<&'a viewcore::esp::CellRef>);
+    let (name, ref_cell, by, refs): Cell = if let Some(room) = cell.strip_prefix("int:") {
         let r = w.interiors.get(&viewcore::world::room_key(room)).ok_or_else(|| format!("no interior {room}"))?;
-        (r.name.clone(), r.refs.values().collect())
+        (r.name.clone(), r.name.clone(), &r.touched_by, r.refs.values().collect())
     } else {
         let (x, y) = cell
             .split_once(',')
             .and_then(|(a, b)| Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?)))
             .ok_or_else(|| format!("not a cell: {cell}"))?;
         let c = w.cells.get(&(x, y)).ok_or_else(|| format!("no exterior cell {x},{y}"))?;
-        (c.name.clone(), c.refs.values().collect())
+        (c.name.clone(), format!("({x}, {y})"), &c.touched_by, c.refs.values().collect())
     };
     let mut refs: Vec<&viewcore::esp::CellRef> = refs.into_iter().filter(|r| !r.deleted).collect();
     refs.sort_by(|a, b| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()).then(a.num.index.cmp(&b.num.index)));
@@ -2494,7 +2504,9 @@ fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
         })
         .collect();
     let mut o = J::obj();
-    o.str("name", &name).raw("rows", &format!("[{}]", rows.join(",")));
+    let plugins: Vec<String> = by.iter().map(|&i| plugin_name(&w, Some(i as usize)).to_string()).collect();
+    o.str("name", &name).str("refCell", &ref_cell).raw("plugins", &string_array(&plugins));
+    o.raw("rows", &format!("[{}]", rows.join(",")));
     Ok(o.done())
 }
 

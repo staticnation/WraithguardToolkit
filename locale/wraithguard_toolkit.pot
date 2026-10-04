@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.2.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 02:57\n"
+"POT-Creation-Date: 2026-10-04 03:56\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -834,20 +834,25 @@ msgstr ""
 msgid "Conflict report saved: %(path)s"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:137
+#: wraithguard/gui/editorlink.py:144
 msgid "Wraithguard is busy (a dialog is open?) - try again"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:162
+#: wraithguard/gui/editorlink.py:169
+#: wraithguard/gui/editorlink.py:278
 msgid "The editor is not connected to a load order - reopen the viewer"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:171
+#: wraithguard/gui/editorlink.py:178
 msgid "%(id)s is not a record any plugin of this load order defines"
 msgstr ""
 
+#: wraithguard/gui/editorlink.py:282
+msgid "No plugin of this load order has reference %(ref)s in %(cell)s"
+msgstr ""
+
 #: wraithguard/gui/journalview.py:157
-#: wraithguard/gui/patchwin.py:361
+#: wraithguard/gui/patchwin.py:396
 msgid "No plugin reader"
 msgstr ""
 
@@ -1222,91 +1227,99 @@ msgstr ""
 msgid "from"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:303
+#: wraithguard/gui/patchwin.py:308
+msgid "references"
+msgstr ""
+
+#: wraithguard/gui/patchwin.py:319
+msgid "set"
+msgstr ""
+
+#: wraithguard/gui/patchwin.py:329
 msgid "%(count)d record(s) queued."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:305
+#: wraithguard/gui/patchwin.py:331
 msgid "Nothing queued yet. Add records from the conflict list."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:332
+#: wraithguard/gui/patchwin.py:364
 msgid "Clear the patch?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:333
+#: wraithguard/gui/patchwin.py:365
 msgid "This drops every queued record. Nothing has been written, so nothing is lost."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:362
+#: wraithguard/gui/patchwin.py:397
 msgid "Cannot read the plugins without the built-in reader (wraithguard_native) or a tes3conv binary. Reinstall Wraithguard, or set a tes3conv path in the Conflicts window, and try again."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:378
+#: wraithguard/gui/patchwin.py:413
 msgid "Rescan needed"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:379
+#: wraithguard/gui/patchwin.py:414
 msgid "%(what)s is no longer in the scan, so there is no way to tell which plugin its unchosen fields should come from. Rescan and queue it again."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:391
+#: wraithguard/gui/patchwin.py:426
 msgid "Append or replace?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:392
+#: wraithguard/gui/patchwin.py:427
 msgid "%(name)s already exists. This session has %(count)d record(s) queued.\n\nAppend keeps everything already written and adds these on top -- the way to build one patch across several sessions.\n\nReplace throws away what is already there and writes only this session's records.\n\nYour mods are NOT modified either way, and deleting the patch restores your previous behaviour completely. Load it LAST, and back up your saves."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:411
+#: wraithguard/gui/patchwin.py:446
 msgid "Could not read the existing patch"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:412
+#: wraithguard/gui/patchwin.py:447
 msgid "%(name)s could not be decoded, so there is nothing to append to. Run Write again and choose Replace, or check the file opens in another tool first."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:421
+#: wraithguard/gui/patchwin.py:456
 msgid "Write patch?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:422
+#: wraithguard/gui/patchwin.py:457
 msgid "%(count)d record(s) will be written to:\n%(path)s\n\nIt carries whole records chosen by you, and loads last. Your mods are NOT modified, and deleting the patch restores your previous behaviour completely.\n\nLoad it LAST, and back up your saves."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:471
+#: wraithguard/gui/patchwin.py:511
 msgid "Patch failed"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:477
+#: wraithguard/gui/patchwin.py:517
 msgid " (%(carried)d carried forward from before)"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:482
+#: wraithguard/gui/patchwin.py:522
 msgid "Patch written"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:483
+#: wraithguard/gui/patchwin.py:523
 msgid "%(records)d record(s) written to:\n%(path)s%(carried)s\n\nDeclares %(masters)d master(s). Add it to your load order LAST."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:499
+#: wraithguard/gui/patchwin.py:539
 msgid "Preview the patch?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:500
+#: wraithguard/gui/patchwin.py:540
 msgid "Open Cell Preview with the patch loaded last, to see it in the cells it changes? (Review a mod shows what it changes; Without it shows the cells as they were.)"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:537
+#: wraithguard/gui/patchwin.py:577
 msgid "Write the patch as"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:541
+#: wraithguard/gui/patchwin.py:581
 msgid "Morrowind plugin"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:541
+#: wraithguard/gui/patchwin.py:581
 #: wraithguard_toolkit_gui.py:2859
 #: wraithguard_toolkit_gui.py:3730
 msgid "All files"

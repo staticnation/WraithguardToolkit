@@ -26,12 +26,11 @@ Window (record tabs, filter, sortable columns, changed records marked), the Cell
 pool (`wraithguard/patch/editor.py`, `gui/editorlink.py`), the pool journalled so a crash
 loses nothing. Still to do, roughly in this order:
 - **References**: move/rotate/scale in the render window (the CS's drag, Z/X axis locks,
-  F to drop), the reference dialog (position, rotation, scale, ownership, lock, count).
-  The writer is done and checked against merge_to_master (`wraithguard/patch/refedit.py`:
-  a CELL record with the winning cell's own fields and only the changed references, keyed
-  by the creating file's position in the patch's masters). Still to do: a `RefEdit` kind
-  in the patch pool and `build_record_patch` (combined with field changes to the same
-  cell), the render window's gizmo and the reference dialog, and new references
+  F to drop). Done: the writer (`wraithguard/patch/refedit.py`, checked against
+  merge_to_master), reference edits in the pool and `build_record_patch`, and the
+  reference dialog (position and rotation with nudges, scale, deleted, ownership, lock,
+  trap, count; drawn in the render window as it changes). Still to do: the render
+  window's drag gizmo, a door's destination in the dialog, new references
   (`next_new_index`, carried-forward builds included) and OpenMW's LUAL instance entries,
   which name references the same way and must be remapped with them.
 - New records (Insert, or "new from this one" with a new id), deleting, renaming (with

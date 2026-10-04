@@ -13,12 +13,18 @@
      patch pool - the queue its conflict viewer fills - and are reviewed and written in
      its Patch Builder; Wraithguard journals the pool, so a viewer that runs out of
      memory loses nothing.
-   - The inspector (24_ori.js) gets "Edit record" (F2) for whatever is clicked.
+   - The reference dialog: one placed object - position and rotation with nudges,
+     scale, deleted, owner, lock, key, trap, count. Changes go to the pool too, and the
+     patch carries them as merge_to_master does (patch/refedit.py): a CELL record with
+     only that reference, keyed to the file that created it. The render window draws
+     every pending reference change in place (`overlay`, over CellData.loadCell).
+   - The inspector (24_ori.js) gets "Edit record" (F2) and "Edit reference" (F3) for
+     whatever is clicked.
 
    The lists come from the shell (`editor_tags`, `editor_records`, `editor_cell_refs`,
    `cells`); a record's contents and every change from Wraithguard, over the `links` the
-   launch handed over (`editRecord`, `editSet`, `editRevert`, `editPending`,
-   `editReview`; gui/editorlink.py). Opened without Wraithguard, it browses but cannot
+   launch handed over (`editRecord`, `editSet`, `editRevert`, `editRef`, `editRefSet`,
+   `editRefRevert`, `editPending`, `editReview`; gui/editorlink.py). Opened without Wraithguard, it browses but cannot
    edit, and says so.
 
    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
@@ -29,6 +35,10 @@ const WgEditor={
   cells:null, cellFilter:'', cellSel:null, refs:[],
   edited:new Set(),          // "TAG:id lower" with changes waiting in the pool
   record:null,               // the dialog's {tag, id, plugins}
+  refRec:null,               // or, for a placed object, {cell, origin, refr, plugins}
+  live:new Map(),            // "origin:refr" lower -> pending changes, drawn in place
+  liveSig:'[]',              // changes when `live` does: part of the preview's scene key
+  NUDGE:8,                   // units a nudge moves (Shift: 8x); degrees a turn (Shift: 8x)
   ROW_CAP:600,
 
   /** The tags' names, for the tabs; anything else shows as its tag. */
@@ -204,6 +214,7 @@ const WgEditor={
     try{ r=await Engine.call('editor_cell_refs',{cell}); }
     catch(e){ box.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return; }
     this.refs=r.rows||[];
+    const refCell=r.refCell||'', cellPlugins=r.plugins||null;
     this.el.querySelector('#edCellName').textContent=(r.name||cell)+' - '+this.refs.length+' references';
     let h='<table class="edT"><thead><tr><th>Object</th><th>Type</th><th>From</th></tr></thead><tbody>';
     this.refs.forEach((x,i)=>{
@@ -212,9 +223,14 @@ const WgEditor={
     box.innerHTML=h+'</tbody></table>';
     box.querySelectorAll('tr[data-i]').forEach(tr=>{
       const x=this.refs[+tr.dataset.i];
-      tr.title='Double-click: go to it in the render window. Right-click: edit its base record';
+      tr.title='Double-click: go to it in the render window. Right-click: edit this reference (Shift: its base record)';
       tr.ondblclick=()=>this.goToRef(cell, x);
-      tr.oncontextmenu=e=>{ e.preventDefault(); this.openRecord(x[2], x[1], null); };
+      tr.oncontextmenu=e=>{
+        e.preventDefault();
+        const at=x[0].lastIndexOf(':');
+        if(e.shiftKey || at<0 || !refCell) this.openRecord(x[2], x[1], null);
+        else this.openRef({cell:refCell, origin:x[0].slice(0,at), refr:+x[0].slice(at+1), plugins:cellPlugins});
+      };
     });
   },
 
@@ -240,10 +256,15 @@ const WgEditor={
     if(!tag || !r.id) return;
     const row=document.createElement('div');
     row.className='orirow';
-    row.innerHTML='<span class="k"></span><span class="v"><button class="btn sm" id="edOriEdit" title="This object\'s base record in the editor (F2)">Edit record</button></span>';
+    const ref=(r.refCell && r.createdBy && r.refIndex!=null)
+      ? {cell:r.refCell, origin:r.createdBy, refr:r.refIndex|0, plugins:r.cellPlugins||null} : null;
+    row.innerHTML='<span class="k"></span><span class="v"><button class="btn sm" id="edOriEdit" title="This object\'s base record in the editor (F2)">Edit record</button>'+
+      (ref? ' <button class="btn sm" id="edOriRef" title="This placed object: where it stands, its owner, lock and the rest (F3)">Edit reference</button>' : '')+'</span>';
     body.insertBefore(row, body.firstChild);
     row.querySelector('#edOriEdit').onclick=()=>this.openRecord(tag, r.id, defs.map(d=>d.plugin));
+    if(ref) row.querySelector('#edOriRef').onclick=()=>this.openRef(ref);
     this._oriRecord={tag, id:r.id, plugins:defs.map(d=>d.plugin)};
+    this._oriRef=ref;
   },
 
   async ask(link, body){
@@ -254,7 +275,7 @@ const WgEditor={
   },
 
   async openRecord(tag, id, plugins){
-    this.record={tag, id, plugins:plugins||null};
+    this.record={tag, id, plugins:plugins||null}; this.refRec=null;
     const d=this.dialog();
     d.hidden=false;
     d.querySelector('#edDlgTitle').textContent=(this.NAMES[tag]||tag)+' - '+id;
@@ -347,13 +368,170 @@ const WgEditor={
     }
   },
 
+  /* ---- the reference dialog ---------------------------------------------------------- */
+
+  /** A placed object's dialog: `ref` is {cell, origin, refr, plugins?} - the cell as its
+   *  records key it, the plugin that created the reference and its index there. */
+  async openRef(ref){
+    this.refRec=Object.assign({}, ref);
+    const d=this.dialog();
+    d.hidden=false;
+    d.querySelector('#edDlgTitle').textContent='Reference - '+ref.origin+':'+ref.refr;
+    const body=d.querySelector('#edDlgBody');
+    if(!this.canEdit()){
+      body.innerHTML='<div class="hint">Editing needs Wraithguard: open this viewer from Wraithguard\'s Cell Preview.</div>';
+      return;
+    }
+    body.innerHTML='<div class="hint">Reading the cell from every plugin that has it…</div>';
+    try{ this.drawRef(await this.ask('editRef', this.refReq())); }
+    catch(e){ body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; }
+  },
+
+  refReq(extra){
+    const r=this.refRec;
+    return Object.assign({cell:r.cell, origin:r.origin, refr:r.refr}, r.plugins? {plugins:r.plugins} : {}, extra||{});
+  },
+
+  /** The labels the dialog shows, the Construction Set's names where it has them. */
+  REF_LABELS:{translation:'Position', rotation:'Rotation (°)', scale:'Scale', deleted:'Deleted',
+    owner:'Owner', owner_global:'Global variable', owner_faction:'Faction', owner_faction_rank:'Faction rank',
+    lock_level:'Lock level', key:'Key', trap:'Trap', soul:'Soul', charge_left:'Charge', health_left:'Health',
+    object_count:'Count', blocked:'Blocked', temporary:'Temporary', moved_cell:'Moved to cell', destination:'Door to'},
+
+  drawRef(v){
+    const d=this.dialog(), body=d.querySelector('#edDlgBody');
+    this.refRec.cell=v.cell; this.refRec.origin=v.origin;
+    if(!this.refRec.plugins) this.refRec.plugins=v.plugins;
+    this.refView=v;
+    d.querySelector('#edDlgTitle').textContent='Reference - '+v.id+' ('+v.origin+':'+v.refr+')';
+    const F={}; for(const f of v.fields) F[f.path]=f;
+    const cur=f=> ('queued' in f)? f.queued : f.value;
+    const DEG=180/Math.PI;
+    let h='<div class="orirow"><span class="k">Cell</span><span class="v">'+escHtml(v.cell)+'</span></div>'+
+      '<div class="orirow"><span class="k">Created by</span><span class="v">'+escHtml(v.origin)+'</span></div>'+
+      '<div class="orirow"><span class="k">Changed by</span><span class="v">'+
+        v.plugins.map(p=>p===v.winner? '<b>'+escHtml(p)+'</b>' : escHtml(p)).join(' &gt; ')+'</span></div>'+
+      '<div class="orirow"><span class="v"><button class="btn sm" id="edRefBase" title="The base record this places">Base record</button> '+
+      '<button class="btn sm" id="edRefRevertAll" title="Drop every change waiting for this reference">Revert reference</button></span></div>'+
+      '<div class="hint">Changes are drawn in the render window as you make them; the patch carries this one reference, keyed to '+escHtml(v.origin)+'.</div>';
+    h+='<table class="edT edFields"><tbody>';
+    const row=(f, inner)=>{
+      const q='queued' in f;
+      return '<tr class="'+(q?'edited':'')+'"><td class="k" title="'+escHtml(f.path)+'">'+escHtml(this.REF_LABELS[f.path]||f.path)+'</td><td>'+inner+
+        (q? '<div class="from">was '+escHtml(JSON.stringify(f.value))+'</div>' : '')+
+        '</td><td>'+(q? '<button class="btn dim ic" data-rrevert="'+escHtml(f.path)+'" title="Drop this change">&#x21B6;</button>' : '')+'</td></tr>';
+    };
+    for(const path of ['translation','rotation']){
+      const f=F[path]; if(!f) continue;
+      const vec=(cur(f)||[0,0,0]).map(n=> path==='rotation'? n*DEG : n);
+      h+=row(f, ['X','Y','Z'].map((a,i)=>
+        '<div class="edVec"><span class="from">'+a+'</span>'+
+        '<button class="btn dim ic" data-nudge="'+path+'" data-i="'+i+'" data-s="-1" title="'+(path==='rotation'?'Turn':'Move')+' back (Shift: more)">&#x2212;</button>'+
+        '<input class="fld" type="number" step="any" data-vec="'+path+'" data-i="'+i+'" value="'+(+vec[i].toFixed(path==='rotation'?2:1))+'">'+
+        '<button class="btn dim ic" data-nudge="'+path+'" data-i="'+i+'" data-s="1" title="'+(path==='rotation'?'Turn':'Move')+' on (Shift: more)">+</button></div>').join(''));
+    }
+    for(const f of v.fields){
+      if(f.path==='translation' || f.path==='rotation') continue;
+      const c=cur(f), dis=f.editable? '' : ' disabled';
+      let inner;
+      if(f.kind==='bool') inner='<input type="checkbox" data-rpath="'+f.path+'"'+(c?' checked':'')+dis+'>';
+      else if(f.kind==='dict') inner='<span class="from">'+escHtml(c? (c.cell||'exterior')+(c.translation? ' at '+c.translation.map(n=>Math.round(n)).join(', ') : '') : '-')+'</span>';
+      else if(f.kind==='grid') inner='<input class="fld" type="text" data-rpath="'+f.path+'" data-kind="grid" placeholder="x, y" value="'+escHtml(c? c.join(', ') : '')+'"'+dis+' spellcheck="false">';
+      else {
+        const num=f.kind==='int'||f.kind==='float';
+        inner='<input class="fld" type="'+(num?'number':'text')+'"'+(f.kind==='int'?' step="1"':num?' step="any"':'')+
+          (f.path==='scale'? ' min="0.5" max="2"' : '')+' data-rpath="'+f.path+'" value="'+escHtml(c==null? '' : String(c))+'"'+
+          (f.path==='scale'? ' placeholder="1"' : '')+dis+' spellcheck="false">';
+      }
+      h+=row(f, inner);
+    }
+    body.innerHTML=h+'</tbody></table>';
+    body.querySelector('#edRefBase').onclick=()=>{
+      const r=(this.refs||[]).find(x=>x[1]===v.id);
+      this.openRecord(r? r[2] : (this._oriRecord && this._oriRecord.id===v.id? this._oriRecord.tag : 'STAT'), v.id, null);
+    };
+    body.querySelector('#edRefRevertAll').onclick=()=>this.refChange('editRefRevert', {});
+    body.querySelectorAll('[data-rrevert]').forEach(b=>b.onclick=()=>this.refChange('editRefRevert', {path:b.dataset.rrevert}));
+    const vecOf=path=>{
+      const vals=[...body.querySelectorAll('[data-vec="'+path+'"]')].map(el=>Number(el.value)||0);
+      return path==='rotation'? vals.map(n=>n/DEG) : vals;
+    };
+    body.querySelectorAll('[data-vec]').forEach(el=>{
+      el.onchange=()=>this.refChange('editRefSet', {path:el.dataset.vec, value:vecOf(el.dataset.vec)}, el);
+      el.onkeydown=e=>{ if(e.key==='Enter') el.blur(); e.stopPropagation(); };
+    });
+    body.querySelectorAll('[data-nudge]').forEach(b=>b.onclick=e=>{
+      const el=body.querySelector('[data-vec="'+b.dataset.nudge+'"][data-i="'+b.dataset.i+'"]');
+      el.value=String((Number(el.value)||0)+(+b.dataset.s)*this.NUDGE*(e.shiftKey?8:1));
+      el.onchange();
+    });
+    body.querySelectorAll('[data-rpath]').forEach(el=>{
+      el.onchange=()=>{
+        let value = el.type==='checkbox'? el.checked : el.value;
+        if(el.dataset.kind==='grid') value = el.value.trim()? el.value.split(',').map(n=>n.trim()) : '';
+        else if(el.type==='number') value = el.value===''? '' : Number(el.value);
+        this.refChange('editRefSet', {path:el.dataset.rpath, value}, el);
+      };
+      if(el.type!=='checkbox') el.onkeydown=e=>{ if(e.key==='Enter') el.blur(); e.stopPropagation(); };
+    });
+  },
+
+  async refChange(link, extra, el){
+    try{
+      this.drawRef(await this.ask(link, this.refReq(extra)));
+      await this.refreshPending();
+    }catch(e){
+      if(el) el.classList.add('bad');
+      toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000);
+    }
+  },
+
+  /* ---- the render window, as the pending changes leave it ------------------------------ */
+
+  /** A loaded cell with the pending reference changes applied (CellData.live). The same
+   *  record when none touches it; else a copy - moved, turned, scaled, deleted ones gone. */
+  overlay(rec){
+    if(!this.live.size || !rec.refs || !rec.refs.some(r=>this.live.has(String(r.key).toLowerCase()))) return rec;
+    const refs=[];
+    for(const r of rec.refs){
+      const c=this.live.get(String(r.key).toLowerCase());
+      if(!c){ refs.push(r); continue; }
+      if(c.deleted) continue;
+      const n=Object.assign({}, r);
+      if(Array.isArray(c.translation)) n.pos=c.translation.slice();
+      if(Array.isArray(c.rotation)) n.rot=c.rotation.slice();
+      if('scale' in c) n.scale= c.scale==null? 1 : c.scale;
+      n.edited=true;
+      refs.push(n);
+    }
+    return Object.assign({}, rec, {refs});
+  },
+
+  /** The pending reference changes, from the pool's list; redraws the render window
+   *  when they changed, the camera kept and the edited object still selected. */
+  setLive(list){
+    const live=new Map();
+    for(const p of list) if(p.ref){
+      const c={}; for(const ch of p.changes) if('value' in ch) c[ch.path]=ch.value;
+      live.set((p.ref.origin+':'+p.ref.refr).toLowerCase(), c);
+    }
+    const sig=JSON.stringify([...live].sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0));
+    if(sig===this.liveSig) return false;
+    this.live=live; this.liveSig=sig;
+    if(App.R && App.R.cam) App._camAfter=Object.assign({}, App.R.cam);
+    if(this.refRec) App._findOri=(this.refRec.origin+':'+this.refRec.refr).toLowerCase();
+    if(typeof schedulePreview==='function' && App.cellSel) schedulePreview();
+    return true;
+  },
+
   /* ---- what waits in the pool -------------------------------------------------------- */
 
   async refreshPending(){
     if(!this.canEdit()) return [];
     let list=[];
     try{ list=await this.ask('editPending', {}); }catch(_){ return []; }
-    this.edited=new Set(list.map(p=>p.tag+':'+String(p.id).toLowerCase()));
+    this.edited=new Set(list.filter(p=>p.tag).map(p=>p.tag+':'+String(p.id).toLowerCase()));
+    this.setLive(list);
     const b=this.el && this.el.querySelector('#edPendBtn');
     if(b) b.textContent=list.length? 'Pending ('+list.length+')' : 'Pending';
     if(this.el) this.drawRows();
@@ -391,10 +569,12 @@ const WgEditor={
         h+='<div class="orirow"><span class="k">'+escHtml(c.path)+'</span><span class="v">'+
           escHtml('value' in c? JSON.stringify(c.value) : 'from '+c.plugin)+'</span></div>';
       if(p.tag) h+='<div class="orirow"><span class="v"><button class="btn sm" data-open="'+escHtml(p.tag)+'" data-id="'+escHtml(p.id)+'">Open</button></span></div>';
+      else if(p.ref) h+='<div class="orirow"><span class="v"><button class="btn sm" data-ref="'+escHtml(JSON.stringify(p.ref))+'">Open</button></span></div>';
     }
     h+='<div class="orirow" style="margin-top:8px"><span class="v"><button class="btn sm" id="edReview" title="Open the Patch Builder in Wraithguard, to review and write the patch">Review and write in Wraithguard</button></span></div>';
     body.innerHTML=h;
     body.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>this.openRecord(b.dataset.open, b.dataset.id, null));
+    body.querySelectorAll('[data-ref]').forEach(b=>b.onclick=()=>this.openRef(JSON.parse(b.dataset.ref)));
     body.querySelector('#edReview').onclick=async()=>{
       try{ await Engine.call('wg_post',{url:this.links().editReview, body:'{}'}); toast('The Patch Builder is open in Wraithguard','ok',3000); }
       catch(e){ toast(String(e.message||e),'err',5000); }
@@ -413,6 +593,10 @@ const WgEditor={
     if(e.key==='F2' && !typing){
       const r=this._oriRecord;
       if(r && Ori.el && !Ori.el.hidden){ this.openRecord(r.tag, r.id, r.plugins); return true; }
+    }
+    if(e.key==='F3' && !typing){
+      const r=this._oriRef;
+      if(r && Ori.el && !Ori.el.hidden){ this.openRef(r); return true; }
     }
     if(e.key==='Escape' && this.dlg && !this.dlg.hidden && !typing){ this.dlg.hidden=true; return true; }
     return false;

@@ -121,6 +121,18 @@
   references, added into the cell's record when the patch carries that cell anyway
   (whole, merged, or from the build it appends to). The Patch Builder no longer needs a
   conflict scan first: it reads the plugins of the current load order itself.
+- **The Editor's reference dialog, drawn live.** Right-click a reference in the Cell View
+  (Shift: its base record), or "Edit reference" (F3) in the inspector, for one placed
+  object: position and rotation (in degrees) with nudge buttons (Shift: eight times as
+  far), scale, deleted, owner, faction and rank, lock level, key, trap, soul, charge,
+  health and count. Wraithguard reads the cell from every plugin that has it, shows the
+  reference as the load order resolves it and which plugins changed it, and queues the
+  changes in the patch pool (`editRef`, `editRefSet`, `editRefRevert`); a value cleared
+  leaves the field out of the written reference. The render window draws every pending
+  change in place - moved, turned, scaled, deleted objects - over the cell as loaded, the
+  camera kept, and drops back when a change is reverted. The engine's `ori` and
+  `editor_cell_refs` now say the cell's record key and the plugins with a CELL record for
+  it, which is what the dialog asks Wraithguard with.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

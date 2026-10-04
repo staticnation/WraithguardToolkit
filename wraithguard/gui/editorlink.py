@@ -7,6 +7,10 @@ loopback server, for everything else:
 - ``editRecord`` ``{tag, id, plugins?}`` -> the record dialog (:meth:`.EditorSession.view`);
 - ``editSet`` ``{tag, id, plugins?, path, value}`` -> queue a typed value, and the dialog;
 - ``editRevert`` ``{tag, id, plugins?, path?}`` -> drop a change (or all of a record's);
+- ``editRef`` ``{cell, origin, refr, plugins?}`` -> the reference dialog
+  (:meth:`.EditorSession.ref_view`), ``cell`` the cell's record key;
+- ``editRefSet`` ``{..., path, value}`` / ``editRefRevert`` ``{..., path?}`` -> change a
+  placed object, or drop the change; the patch carries it as merge_to_master does;
 - ``editPending`` ``{}`` -> everything the patch would carry;
 - ``editReview`` ``{}`` -> open the Patch Builder here, to review and write.
 
@@ -36,7 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from wraithguard.patch.editor import EditorSession, Found
+    from wraithguard.patch.editor import EditorSession, Found, FoundRef
     from wraithguard.patch.queue import PatchQueue
     from wraithguard.viz.serve import ViewerServer
 
@@ -102,6 +106,9 @@ class EditorLinkMixin:
             "editRecord": server.register_post("wg_edit_record", self._on_edit_record),
             "editSet": server.register_post("wg_edit_set", self._on_edit_set),
             "editRevert": server.register_post("wg_edit_revert", self._on_edit_revert),
+            "editRef": server.register_post("wg_edit_ref", self._on_edit_ref),
+            "editRefSet": server.register_post("wg_edit_ref_set", self._on_edit_ref_set),
+            "editRefRevert": server.register_post("wg_edit_ref_revert", self._on_edit_ref_revert),
             "editPending": server.register_post("wg_edit_pending", self._on_edit_pending),
             "editReview": server.register_post("wg_edit_review", self._on_edit_review),
         }
@@ -235,6 +242,99 @@ class EditorLinkMixin:
             session.revert(found, path if isinstance(path, str) and path else None)
             self.refresh_patch_views()
             return session.view(found)
+
+        return self._json(self._on_ui_wait(change))
+
+    def _ref_request(self, body: bytes) -> tuple[dict[str, Any], EditorSession, FoundRef]:
+        """Parse a request naming a placed object, and find it (on this thread).
+
+        Args:
+            body: ``{cell, origin, refr, plugins?, ...}``.
+
+        Returns:
+            ``(request, session, reference)``.
+
+        Raises:
+            ValueError: For a bad request, no session, or a reference no plugin has.
+        """
+        try:
+            req = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise ValueError("bad request") from None
+        if not isinstance(req, dict):
+            raise ValueError("bad request")
+        cell, origin, refr = req.get("cell"), req.get("origin"), req.get("refr")
+        if not (isinstance(cell, str) and cell and isinstance(origin, str) and origin):
+            raise ValueError("bad request")
+        if not isinstance(refr, int) or isinstance(refr, bool) or refr < 0:
+            raise ValueError("bad refr")
+        plugins = req.get("plugins")
+        if plugins is not None and not (
+            isinstance(plugins, list) and all(isinstance(p, str) for p in plugins)
+        ):
+            raise ValueError("bad plugins")
+        session: EditorSession | None = getattr(self, "_editor_session", None)
+        if session is None:
+            raise ValueError(_("The editor is not connected to a load order - reopen the viewer"))
+        found = session.find_ref(cell, origin, refr, plugins or None)
+        if found is None:
+            raise ValueError(
+                _("No plugin of this load order has reference %(ref)s in %(cell)s")
+                % {"ref": f"{origin}:{refr}", "cell": cell}
+            )
+        return req, session, found
+
+    def _on_edit_ref(self, body: bytes) -> Payload:
+        """``editRef``: the reference dialog's contents.
+
+        Args:
+            body: ``{cell, origin, refr, plugins?}``.
+
+        Returns:
+            :meth:`.EditorSession.ref_view`, as JSON.
+        """
+        _req, session, found = self._ref_request(body)
+        return self._json(self._on_ui_wait(lambda: session.ref_view(found)))
+
+    def _on_edit_ref_set(self, body: bytes) -> Payload:
+        """``editRefSet``: queue a change to a placed object.
+
+        Args:
+            body: ``{cell, origin, refr, plugins?, path, value}``.
+
+        Returns:
+            The reference dialog after the change.
+        """
+        req, session, found = self._ref_request(body)
+        path = req.get("path")
+        if not isinstance(path, str) or not path:
+            raise ValueError("bad path")
+
+        def change() -> dict[str, Any]:
+            """Change the queue and redraw the Patch Builder."""
+            session.set_ref_field(found, path, req.get("value"))
+            self.refresh_patch_views()
+            return session.ref_view(found)
+
+        return self._json(self._on_ui_wait(change))
+
+    def _on_edit_ref_revert(self, body: bytes) -> Payload:
+        """``editRefRevert``: drop a change to a placed object, or all of them.
+
+        Args:
+            body: ``{cell, origin, refr, plugins?, path?}``.
+
+        Returns:
+            The reference dialog after the change.
+        """
+        req, session, found = self._ref_request(body)
+        path = req.get("path")
+
+        def change() -> dict[str, Any]:
+            """Change the queue and redraw the Patch Builder."""
+            session.revert_ref(found, path if isinstance(path, str) and path else None)
+            self.refresh_patch_views()
+            return session.ref_view(found)
 
         return self._json(self._on_ui_wait(change))
 

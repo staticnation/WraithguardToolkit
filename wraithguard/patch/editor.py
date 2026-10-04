@@ -37,8 +37,8 @@ from wraithguard.logging_setup import get_logger
 from wraithguard.patch.enums import enum_options
 from wraithguard.patch.fieldtypes import field_kind, flag_options, flags_name, int_bounds
 from wraithguard.patch.merge import IDENTITY, FieldChoice, FieldValue, value_at
-from wraithguard.patch.records import Selection, record_key
-from wraithguard.patch.refedit import RefEdit
+from wraithguard.patch.records import Selection, master_names, record_key
+from wraithguard.patch.refedit import REF_FIELDS, RefEdit, winning_reference
 from wraithguard.tes3fields.naming import TYPE_TO_TAG
 
 if TYPE_CHECKING:
@@ -98,6 +98,130 @@ class Found:
     def record(self) -> dict[str, Any]:
         """The winning version."""
         return self.versions[-1][1]
+
+
+#: What each changeable field of a reference holds, in the order the reference dialog
+#: shows them: ``vec3`` three numbers (rotation in radians), ``grid`` an exterior's
+#: ``[x, y]``. ``destination`` (a door's) is shown, not changed here yet.
+REF_KINDS: Final[dict[str, str]] = {
+    "translation": "vec3",
+    "rotation": "vec3",
+    "scale": "float",
+    "deleted": "bool",
+    "owner": "str",
+    "owner_global": "str",
+    "owner_faction": "str",
+    "owner_faction_rank": "int",
+    "lock_level": "int",
+    "key": "str",
+    "trap": "str",
+    "soul": "str",
+    "charge_left": "int",
+    "health_left": "int",
+    "object_count": "int",
+    "blocked": "int",
+    "temporary": "bool",
+    "moved_cell": "grid",
+    "destination": "dict",
+}
+
+#: The scale the game allows a reference (the Construction Set's limits).
+_SCALE: Final = (0.5, 2.0)
+#: A signed 32-bit field's range.
+_I32: Final = (-(2**31), 2**31 - 1)
+
+
+def _whole(raw: object, what: str) -> int:
+    """A whole number from what the viewer sent."""
+    try:
+        number = float(str(raw).strip())
+    except ValueError:
+        raise EditorError(f"{raw!r} is not a whole number ({what})") from None
+    if not number.is_integer():
+        raise EditorError(f"{raw!r} is not a whole number ({what})")
+    return int(number)
+
+
+def coerce_ref(name: str, raw: object) -> object:
+    """A value the viewer sent for a reference's field, as the field holds it.
+
+    An empty value clears an optional field (``None``: the reference does not have it).
+
+    Args:
+        name: The field (:data:`REF_KINDS`).
+        raw: What the viewer sent (JSON-decoded).
+
+    Returns:
+        The value to write.
+
+    Raises:
+        EditorError: For a field that is not changed here, or a value it cannot hold.
+    """
+    import math
+
+    kind = REF_KINDS.get(name)
+    if kind is None or kind == "dict" or name not in REF_FIELDS:
+        raise EditorError(f"{name} cannot be changed on a reference here")
+    if kind == "vec3":
+        if not isinstance(raw, list) or len(raw) != 3:
+            raise EditorError(f"{name} is three numbers")
+        try:
+            out = [float(v) for v in raw]
+        except (TypeError, ValueError):
+            raise EditorError(f"{name} is three numbers") from None
+        if not all(math.isfinite(v) for v in out):
+            raise EditorError(f"{name} must be finite")
+        return out
+    if kind == "bool":
+        if isinstance(raw, bool):
+            return raw
+        text = str(raw).strip().lower()
+        if text in ("true", "1", "yes"):
+            return True
+        if text in ("false", "0", "no", ""):
+            return False
+        raise EditorError(f"{raw!r} is not true or false")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    if kind == "str":
+        return str(raw)
+    if kind == "grid":
+        if not isinstance(raw, list) or len(raw) != 2:
+            raise EditorError("moved_cell is an exterior's grid, [x, y]")
+        return [_whole(raw[0], name), _whole(raw[1], name)]
+    if kind == "float":
+        try:
+            value = float(str(raw).strip())
+        except ValueError:
+            raise EditorError(f"{raw!r} is not a number") from None
+        if name == "scale" and not _SCALE[0] <= value <= _SCALE[1]:
+            raise EditorError(f"scale is {_SCALE[0]} to {_SCALE[1]}")
+        return value
+    value = _whole(raw, name)
+    if not _I32[0] <= value <= _I32[1]:
+        raise EditorError(f"{value} is out of range")
+    return value
+
+
+@dataclass(frozen=True)
+class FoundRef:
+    """One placed object, as the load order resolves it.
+
+    Attributes:
+        cell: Its cell's key (an interior's name, an exterior's ``"(x, y)"``).
+        origin: The plugin that created it, spelled as the load order spells it.
+        refr_index: Its index in that plugin.
+        plugins: The plugins with a CELL record for the cell, in load order.
+        winner: The plugin whose version of the reference the game uses.
+        ref: That version.
+    """
+
+    cell: str
+    origin: str
+    refr_index: int
+    plugins: tuple[str, ...]
+    winner: str
+    ref: dict[str, Any]
 
 
 def _flatten(record: Mapping[str, Any], parent: str = "") -> dict[str, Any]:
@@ -211,6 +335,7 @@ class EditorSession:
         self.journal = journal
         self._read = read
         self._cache: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+        self._masters: dict[str, list[str]] = {}
         self._lock = threading.Lock()
 
     # -- reading ----------------------------------------------------------------------
@@ -381,6 +506,8 @@ class EditorSession:
         Returns:
             One ``{"tag", "type", "id", "whole", "changes"}`` per record; each change
             ``{"path", "value"}`` (typed) or ``{"path", "plugin"}`` (taken from one).
+            A changed placed object is ``type`` ``Reference``, with ``ref`` ``{cell,
+            origin, refr, plugins}``.
         """
         out: list[dict[str, Any]] = [
             {
@@ -410,7 +537,159 @@ class EditorSession:
                     "changes": changes,
                 }
             )
+        out.extend(
+            {
+                "tag": "",
+                "type": "Reference",
+                "id": f"{e.origin}:{e.refr_index} in {e.cell}",
+                "ref": {
+                    "cell": e.cell,
+                    "origin": e.origin,
+                    "refr": e.refr_index,
+                    "plugins": list(e.plugins),
+                },
+                "whole": None,
+                "changes": [{"path": k, "value": v} for k, v in e.changes.items()],
+            }
+            for e in self.queue.ref_edits
+        )
         return out
+
+    # -- placed objects ---------------------------------------------------------------
+
+    def _masters_of(self, plugin: str) -> list[str]:
+        """A plugin's master list, from its header (read once)."""
+        low = plugin.lower()
+        with self._lock:
+            hit = self._masters.get(low)
+        if hit is not None:
+            return hit
+        name_path = self._paths.get(low)
+        masters: list[str] = []
+        if name_path is not None:
+            try:
+                masters = master_names(self._read(name_path[1], "TES3"))
+            except (OSError, ValueError) as exc:
+                LOG.warning("editor: cannot read %s: %s", name_path[1], exc)
+        with self._lock:
+            self._masters[low] = masters
+        return masters
+
+    def find_ref(
+        self, cell: str, origin: str, refr_index: int, plugins: Sequence[str] | None = None
+    ) -> FoundRef | None:
+        """A placed object, from every plugin with a CELL record for its cell.
+
+        Args:
+            cell: The cell's key (an interior's name, or ``"(x, y)"``).
+            origin: The plugin that created the reference (any case).
+            refr_index: Its index there.
+            plugins: The plugins with the cell, when the caller knows (the viewer
+                does); else every plugin is looked in.
+
+        Returns:
+            The reference, or None when no version of the cell has it.
+        """
+        known = [p for p in (plugins or self.order) if p.lower() in self._rank]
+        known.sort(key=lambda p: self._rank[p.lower()])
+        want = cell.strip().lower()
+        versions: list[tuple[str, Mapping[str, Any]]] = []
+        for name in known:
+            rec = self._records(name, "CELL").get(want)
+            if rec is not None and rec.get("type") == "Cell":
+                versions.append((self._paths[name.lower()][0], rec))
+        if not versions:
+            return None
+        masters_of = {p: self._masters_of(p) for p, _ in versions}
+        won = winning_reference(versions, masters_of, origin, refr_index)
+        if won is None:
+            return None
+        spelled = self._paths.get(origin.lower(), (origin, None))[0]
+        return FoundRef(
+            record_key(versions[-1][1]),
+            spelled,
+            refr_index,
+            tuple(p for p, _ in versions),
+            won[0],
+            won[1],
+        )
+
+    def _ref_queued(self, found: FoundRef) -> dict[str, Any]:
+        """The changes queued for a placed object."""
+        ident = (found.cell.lower(), found.origin.lower(), found.refr_index)
+        edit = next((e for e in self.queue.ref_edits if e.ident == ident), None)
+        return dict(edit.changes) if edit is not None else {}
+
+    def ref_view(self, found: FoundRef) -> dict[str, Any]:
+        """What the reference dialog shows.
+
+        Args:
+            found: The reference.
+
+        Returns:
+            ``{"cell", "origin", "refr", "id", "winner", "plugins", "fields"}``; each
+            field ``{"path", "value", "kind", "editable"}``, plus ``queued`` when a
+            change waits for it. ``value`` is None for a field the reference does not
+            have.
+        """
+        queued = self._ref_queued(found)
+        fields = []
+        for name, kind in REF_KINDS.items():
+            item: dict[str, Any] = {
+                "path": name,
+                "value": found.ref.get(name),
+                "kind": kind,
+                "editable": kind != "dict",
+            }
+            if name in queued:
+                item["queued"] = queued[name]
+            fields.append(item)
+        return {
+            "cell": found.cell,
+            "origin": found.origin,
+            "refr": found.refr_index,
+            "id": found.ref.get("id", ""),
+            "winner": found.winner,
+            "plugins": list(found.plugins),
+            "fields": fields,
+        }
+
+    def set_ref_field(self, found: FoundRef, path: str, raw: object) -> None:
+        """Queue a change to a placed object (and save the journal).
+
+        A value equal to what the load order already has drops the change instead.
+
+        Args:
+            found: The reference.
+            path: The field (:data:`REF_KINDS`).
+            raw: The value, as the viewer sent it.
+
+        Raises:
+            EditorError: For a field not changed here, or a value it cannot hold.
+        """
+        value = coerce_ref(path, raw)
+        current = found.ref.get(path)
+        if isinstance(value, list) and isinstance(current, list) and len(current) == len(value):
+            same = all(abs(float(a) - float(b)) < 1e-6 for a, b in zip(value, current, strict=True))
+        else:
+            same = value == current
+        if same:
+            self.queue.remove_ref_edit(found.cell, found.origin, found.refr_index, path)
+        else:
+            self.queue.add_ref_edit(
+                RefEdit(found.cell, found.origin, found.refr_index, {path: value}, found.plugins)
+            )
+        self.save_journal()
+
+    def revert_ref(self, found: FoundRef, path: str | None = None) -> None:
+        """Drop the change to one field of a placed object, or all of them.
+
+        Args:
+            found: The reference.
+            path: The field, or None for every change to it.
+        """
+        self.queue.remove_ref_edit(found.cell, found.origin, found.refr_index, path)
+        self.save_journal()
 
     # -- the journal ------------------------------------------------------------------
 
@@ -600,11 +879,14 @@ def plugins_from_cfg(cfg: Path) -> list[tuple[str, Path]]:
 
 __all__ = [
     "READ_ONLY",
+    "REF_KINDS",
     "TAG_TO_TYPE",
     "EditorError",
     "EditorSession",
     "Found",
+    "FoundRef",
     "coerce",
+    "coerce_ref",
     "forget_queue",
     "plugins_from_cfg",
     "restore_queue",
