@@ -484,6 +484,41 @@ def findings_for(
     return out
 
 
+_TLCONFIG_FIELD = re.compile(
+    r"\b(include_dir|source_dir)\s*=\s*(\{[^}]*\}|\"[^\"]*\"|'[^']*')", re.DOTALL
+)
+_LUA_STRING = re.compile(r"\"([^\"]*)\"|'([^']*)'")
+
+
+def tlconfig_dirs(data_dirs: Sequence[Path]) -> list[Path]:
+    """The module folders the Teal projects among a setup's mods name.
+
+    A mod built with Cyan ships a ``tlconfig.lua`` (at its data folder's root, or a
+    folder in): ``source_dir`` and ``include_dir`` say where its own modules and
+    declarations are, relative to the file. Read as text - the file is a Lua table, but
+    only those two fields matter, and nothing in it is run.
+
+    Args:
+        data_dirs: The data folders, in load order.
+
+    Returns:
+        The folders that exist, in the order found.
+    """
+    out: list[Path] = []
+    for d in data_dirs:
+        for cfg in [d / "tlconfig.lua", *sorted(d.glob("*/tlconfig.lua"))]:
+            try:
+                text = cfg.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for m in _TLCONFIG_FIELD.finditer(text):
+                for s1, s2 in _LUA_STRING.findall(m.group(2)):
+                    folder = (cfg.parent / (s1 or s2)).resolve()
+                    if folder.is_dir() and folder not in out:
+                        out.append(folder)
+    return out
+
+
 def add_teal_findings(scan: LuaScan, setup: TealSetup) -> int:
     """Check every script of a scan with Teal and add the findings to its records.
 
@@ -513,8 +548,14 @@ def add_teal_findings(scan: LuaScan, setup: TealSetup) -> int:
             jobs.append((rec, f, False))
     if not jobs:
         return 0
-    # Lowest priority first: OpenMW's own files, the data folders, the declarations.
-    include = [*([setup.vfs] if setup.vfs else []), *scan.data_dirs, setup.folder]
+    # Lowest priority first: OpenMW's own files, the data folders, the folders the mods'
+    # own Teal projects name (tlconfig.lua), the declarations.
+    include = [
+        *([setup.vfs] if setup.vfs else []),
+        *scan.data_dirs,
+        *tlconfig_dirs(scan.data_dirs),
+        setup.folder,
+    ]
     results = native.lua_check([j[1] for j in jobs], include)
     for (rec, path, is_teal), res in zip(jobs, results, strict=True):
         if isinstance(res, str):
@@ -579,4 +620,5 @@ __all__ = [
     "is_resources",
     "read_docs",
     "teal_setup",
+    "tlconfig_dirs",
 ]

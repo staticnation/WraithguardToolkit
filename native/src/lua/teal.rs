@@ -270,6 +270,22 @@ pub fn declarations(api: &Api) -> (String, Vec<(String, String)>) {
         let _ = writeln!(out, "   {}: {}", keys[i], id);
         packages.insert(m.require.clone(), keys[i].clone());
     }
+    // `openmw.interfaces`: the built-in interfaces typed as the install documents them, and
+    // any other name - a mod's interface, or one looked up by a variable - as `any`.
+    let _ = writeln!(out, "   record {INTERFACES}");
+    let mut named = BTreeSet::new();
+    for (i, m) in api.modules.iter().enumerate() {
+        if let Some(name) = &m.interface
+            && field_ok(name)
+            && m.types.contains_key(&m.name)
+            && named.insert(name.clone())
+        {
+            let _ = writeln!(out, "      {}: {}", name, names.ids[&(i, m.name.clone())]);
+        }
+    }
+    let _ = writeln!(out, "      metamethod __index: function(self: {INTERFACES}, key: string): any");
+    let _ = writeln!(out, "   end");
+    let _ = writeln!(out, "   interfaces: {INTERFACES}");
     let _ = writeln!(out, "end");
     out.push_str(EXTRA_GLOBALS);
     let _ = writeln!(out, "return {API_MODULE}");
@@ -277,11 +293,15 @@ pub fn declarations(api: &Api) -> (String, Vec<(String, String)>) {
         .into_iter()
         .map(|(req, key)| (req, format!("local api = require(\"{API_MODULE}\")\nreturn api.{key}\n")))
         .collect();
-    files.push(("openmw.interfaces".into(), interfaces_decl()));
+    files.push(("openmw.interfaces".into(), format!("local api = require(\"{API_MODULE}\")\nreturn api.interfaces\n")));
     (out, files)
 }
 
-/// `openmw.interfaces`: what interfaces exist depends on the mods, so a map of any.
+/// The record `openmw.interfaces` is, in the API module.
+const INTERFACES: &str = "interfaces__all";
+
+/// `openmw.interfaces` with no install to read: what interfaces exist is unknown, so a map
+/// of any.
 fn interfaces_decl() -> String {
     format!("local _api = require(\"{API_MODULE}\")\nlocal interfaces: {{string:any}}\nreturn interfaces\n")
 }
@@ -370,6 +390,18 @@ mod tests {
         assert!(files[0].1.contains("return api.core"));
         let mem = members(&api());
         assert_eq!(mem["self__Self"], vec!["controls", "isValid", "recordId"]);
+    }
+
+    #[test]
+    fn interfaces_are_typed_and_open() {
+        let doc = "---\n-- @module AI\n-- @context local\n-- @usage require('openmw.interfaces').AI\n\n---\n-- @function [parent=#AI] startPackage\n-- @param #table p\n";
+        let mut modules = parse_file(doc, "ai.lua", Some("AI".into()));
+        modules.extend(api().modules);
+        let (main, files) = declarations(&Api { version: None, modules });
+        assert!(main.contains("   record interfaces__all\n      AI: I_AI__AI\n"), "{main}");
+        assert!(main.contains("metamethod __index: function(self: interfaces__all, key: string): any"), "{main}");
+        let (_, text) = files.iter().find(|(r, _)| r == "openmw.interfaces").expect("interfaces file");
+        assert!(text.contains("return api.interfaces"), "{text}");
     }
 
     #[test]

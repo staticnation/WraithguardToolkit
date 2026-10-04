@@ -71,10 +71,6 @@ performance checks against OpenMW 0.51 (API 129), as a CLI report
 mermaid.js bundled). The API now comes from the setup's own OpenMW install (its LDT docs,
 read in Rust, `native/src/lua`), written out as Teal declarations, and every script is
 checked by the Teal compiler (htl 0.12.0 / tl 0.24.8, embedded). Still to do:
-- Mods that ship a `tlconfig.lua` (Cyan projects): read its `include_dir`/`source_dir`
-  so their own modules and declarations resolve.
-- Type `openmw.interfaces` (a map of any now, since mods add interfaces): the built-in
-  interfaces' docs are read, and each mod's `interfaceName`/`interface` table is too.
 - Engine handlers and built-in events from the install as well (still the 0.51 list:
   the docs keep them in the .rst pages, not in LDT comments).
 - The rest of the Lua side in Rust as the Python prototype settles - LUAL via the tes3

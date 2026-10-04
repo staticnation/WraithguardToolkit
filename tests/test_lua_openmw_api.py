@@ -338,3 +338,75 @@ def test_is_resources_and_a_chosen_install(tmp_path):
     assert is_resources(res) and not is_resources(tmp_path)
     assert find_resources(None, tmp_path / "OpenMW") == res  # the install folder is enough
     assert find_resources(None, res) == res
+
+
+def test_tlconfig_dirs(tmp_path):
+    from wraithguard.lua.openmw_api import tlconfig_dirs
+
+    mod = tmp_path / "Data"
+    (mod / "src").mkdir(parents=True)
+    (mod / "types").mkdir()
+    (mod / "tlconfig.lua").write_text(
+        'return {\n  source_dir = "src",\n  include_dir = { "src", \'types\', "gone" },\n}\n',
+        encoding="utf-8",
+    )
+    inner = tmp_path / "Other" / "project"
+    (inner / "lib").mkdir(parents=True)
+    (inner / "tlconfig.lua").write_text("return { include_dir = {'lib'} }", encoding="utf-8")
+    assert tlconfig_dirs([mod, tmp_path / "Other"]) == [
+        (mod / "src").resolve(),
+        (mod / "types").resolve(),
+        (inner / "lib").resolve(),
+    ]
+
+
+@needs_teal
+def test_a_teal_projects_own_modules_resolve(tmp_path, monkeypatch):
+    """A require of a module the mod keeps under its tlconfig's source_dir is found."""
+    monkeypatch.delenv("WG_OPENMW_RESOURCES", raising=False)
+    res = _install(tmp_path / "OpenMW")
+    data = tmp_path / "Data Files"
+    (data / "scripts" / "mymod").mkdir(parents=True)
+    (data / "src" / "mylib").mkdir(parents=True)
+    (data / "src" / "mylib" / "util.lua").write_text("return { x = 1 }\n", encoding="utf-8")
+    (data / "scripts" / "mymod" / "main.lua").write_text(
+        "local util = require('mylib.util')\nprint(util.x)\nreturn {}\n", encoding="utf-8"
+    )
+    (data / "mymod.omwscripts").write_text("PLAYER: scripts/mymod/main.lua\n", encoding="utf-8")
+    cfg = tmp_path / "openmw.cfg"
+    cfg.write_text(f'data="{data}"\ncontent=mymod.omwscripts\n', encoding="utf-8")
+
+    def codes() -> set[str]:
+        return {f.code for f in check_cfg(cfg, resources=res).scripts[0].info.findings}
+
+    assert "REQUIRE_NOT_FOUND" in codes()  # without the project's config
+    (data / "tlconfig.lua").write_text('return { source_dir = "src" }\n', encoding="utf-8")
+    assert "REQUIRE_NOT_FOUND" not in codes()
+
+
+@needs_teal
+def test_interfaces_are_typed_from_the_install(tmp_path, monkeypatch):
+    """A built-in interface is the install's type; a mod's, or one by a variable, is open."""
+    monkeypatch.delenv("WG_OPENMW_RESOURCES", raising=False)
+    res = _install(tmp_path / "OpenMW")
+    data = tmp_path / "Data Files"
+    (data / "scripts" / "mymod").mkdir(parents=True)
+    (data / "scripts" / "mymod" / "main.lua").write_text(
+        "local I = require('openmw.interfaces')\n"
+        "print(I.Helper.version)\n"
+        "print(I.Helper.versoin)\n"
+        "print(I.SomeMod)\n"
+        "local name = 'Other'\n"
+        "print(I[name])\n"
+        "return {}\n",
+        encoding="utf-8",
+    )
+    (data / "mymod.omwscripts").write_text("PLAYER: scripts/mymod/main.lua\n", encoding="utf-8")
+    cfg = tmp_path / "openmw.cfg"
+    cfg.write_text(f'data="{data}"\ncontent=mymod.omwscripts\n', encoding="utf-8")
+    findings = check_cfg(cfg, resources=res).scripts[0].info.findings
+    lines = {f.line for f in findings if f.code.startswith("API_")}
+    assert 3 in lines, [(f.code, f.line, f.message) for f in findings]  # versoin
+    assert not any(f.line in (2, 4, 6) for f in findings), [
+        (f.code, f.line, f.message) for f in findings
+    ]

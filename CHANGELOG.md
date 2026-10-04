@@ -231,6 +231,12 @@
 - **The Lua scripts window's "OpenMW install..."**: the install whose Lua API scripts are
   checked against, when the one found on its own is not it - kept in the settings, and
   checked to have `resources/lua_api/openmw` before it is taken.
+- **Lua: a Teal project's own modules resolve.** A mod built with Cyan ships a
+  `tlconfig.lua`; its `source_dir` and `include_dir` folders are where the Teal check looks
+  for that mod's requires and declarations.
+- **Lua: `openmw.interfaces` is typed from the install.** Each built-in interface the
+  install documents (AI, Camera, ...) is its documented type, so a misspelt member of one
+  is found; any other name - a mod's interface, or one looked up by a variable - is open.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time
