@@ -57,13 +57,21 @@ const fakeView=()=>({tag:'LIGH', type:'Light', id:'lamp_lit', winner:'Lamp.esm',
     {path:'id', value:'lamp_lit', editable:false, kind:'str', options:[]},
     {path:'mesh', value:'x\\lamp.nif', editable:true, kind:'str', options:[]},
     {path:'data.radius', value:256, editable:true, kind:'int:0:4294967295', options:[]},
+    {path:'flags', value:'', editable:true, kind:'flags:ObjectFlags', options:['DELETED','PERSISTENT']},
   ].map(f=> f.path in fakeWg.queued? Object.assign(f,{queued:fakeWg.queued[f.path], source:'typed'}) : f)});
+fakeWg.made={};
 const fakeServer=http.createServer((req,res)=>{
   let body=''; req.on('data',c=>body+=c); req.on('end',()=>{
     const name=req.url.split('?')[0].slice(1), b=body? JSON.parse(body) : {};
     fakeWg.posts.push([name,b]);
     let out;
     if(name==='editRecord') out=fakeView();
+    else if(name==='editDuplicate'){
+      if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
+      fakeWg.made[b.newId.toLowerCase()]={tag:'LIGH', id:b.newId};
+      out=Object.assign(fakeView(), {id:b.newId, new:true, winner:'(this patch)', plugins:['(this patch)']});
+    }
+    else if(name==='editRevert' && fakeWg.made[String(b.id).toLowerCase()] && !b.path){ delete fakeWg.made[String(b.id).toLowerCase()]; out=fakeView(); }
     else if(name==='editSet'){
       if(b.path==='id'){ res.writeHead(400); res.end('id cannot be changed here'); return; }
       fakeWg.queued[b.path]=b.value; out=fakeView();
@@ -84,6 +92,8 @@ const fakeServer=http.createServer((req,res)=>{
     else if(name==='editPending'){
       out=Object.keys(fakeWg.queued).length?
         [{tag:'LIGH', type:'Light', id:'lamp_lit', whole:null, changes:Object.entries(fakeWg.queued).map(([path,value])=>({path,value}))}] : [];
+      for(const m of Object.values(fakeWg.made))
+        out.push({tag:m.tag, type:'Light', id:m.id, whole:null, made:{source:'Lamp.esm', name:'Lamp', mesh:'x\\lamp.nif'}, changes:[]});
       if(fakeWg.ref && Object.keys(fakeWg.refQueued).length)
         out.push({tag:'', type:'Reference', id:fakeWg.ref.origin+':'+fakeWg.ref.refr+' in '+fakeWg.ref.cell, whole:null,
                   ref:{cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fakeWg.ref.refr, plugins:fakeWg.ref.plugins||[]},
@@ -416,7 +426,7 @@ async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -450,6 +460,32 @@ async function editor(w, R, fail, done, sleep){
     if(!fakeWg.reviewed) fail('Review did not reach Wraithguard');
     await E.change('editRevert', {path:'data.radius'});
     if(E.edited.size) fail('the revert left the record marked');
+    // Delete record: the DELETED flag, and Undelete takes it off.
+    d.getElementById('edDelete').onclick();
+    for(let i=0;i<100 && !/DELETED/.test(fakeWg.queued.flags||'');i++) await sleep(30);
+    if(!/DELETED/.test(fakeWg.queued.flags||'')) fail('Delete record did not send the DELETED flag');
+    for(let i=0;i<100 && !/Undelete/.test((d.getElementById('edDelete')||{}).textContent||'');i++) await sleep(30);
+    d.getElementById('edDelete').onclick();
+    for(let i=0;i<100 && /DELETED/.test(fakeWg.queued.flags||'');i++) await sleep(30);
+    if(/DELETED/.test(fakeWg.queued.flags||'')) fail('Undelete did not take the flag off');
+    await E.change('editRevert', {});
+    // Make a copy as: a record of the patch's own, in the Object Window, then removed.
+    d.getElementById('edCopyId').value='lamp_copy';
+    await d.getElementById('edCopy').onclick();
+    const dup=fakeWg.posts.filter(p=>p[0]==='editDuplicate').pop();
+    if(!dup || dup[1].newId!=='lamp_copy' || dup[1].id!=='lamp_lit') fail('the copy was not asked for: '+JSON.stringify(dup));
+    if(!/lamp_copy/.test(d.getElementById('edDlgTitle').textContent)) fail('the dialog does not show the copy');
+    E.filter='lamp'; E.drawRows();
+    if(![...d.querySelectorAll('#edTable tbody tr')].some(tr=>tr.dataset.id==='lamp_copy')) fail('the Object Window does not list the copy');
+    d.getElementById('edCopyId').value='lamp_lit';
+    await d.getElementById('edCopy').onclick();
+    if(!d.getElementById('edCopyId').classList.contains('bad')) fail('a taken id is not refused');
+    d.getElementById('edRevertAll').onclick();
+    for(let i=0;i<100 && Object.keys(fakeWg.made).length;i++) await sleep(30);
+    if(Object.keys(fakeWg.made).length) fail('Remove from the patch did not reach Wraithguard');
+    for(let i=0;i<100 && E.made.length;i++) await sleep(30);
+    if(E.made.length) fail('the removed copy is still listed');
+    E.filter='lamp_lit'; E.drawRows();
   }
   // The reference dialog, from the Cell View's right-click: what it asks Wraithguard
   // with, a nudge sent as the whole position, and the render window's copy of the cell.

@@ -157,6 +157,14 @@
 - **Moving an exterior reference into the next cell** sets its `moved_cell` (it stays in
   its own cell's record, as merge_to_master moves one), and moving it back clears it; a
   new reference moves to the cell it now stands in.
+- **New records and deleting, in the Editor's record dialog.** "Make a copy as" makes a
+  copy of the record under a new id, the patch's own: listed in the Object Window with
+  the load order's records (and placed from there like them), changed in its dialog,
+  journalled, written by the patch with the plugin it came from a master, and "Remove
+  from the patch" takes it out. A taken id (in any plugin, or the patch), one over 31
+  bytes, and types whose identity is not their id or that name themselves (cells,
+  dialogue, scripts, game settings) are refused. "Delete record" marks a record deleted
+  the way the Construction Set does, with its DELETED flag; "Undelete" takes it off.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

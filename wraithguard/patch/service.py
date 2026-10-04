@@ -19,6 +19,7 @@ for why that needs different handling than an ordinary source plugin.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import subprocess
@@ -47,6 +48,7 @@ from wraithguard.proc import no_window_kwargs
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from wraithguard.patch.records import NewRecord
     from wraithguard.patch.refedit import NewRef, RefEdit
 
 _log: Final = logging.getLogger(__name__)
@@ -98,6 +100,7 @@ def build_record_patch(
     report: Callable[[str], None] | None = None,
     ref_edits: Sequence[RefEdit] = (),
     new_refs: Sequence[NewRef] = (),
+    new_records: Sequence[NewRecord] = (),
 ) -> PatchResult:
     """Build and write a patch carrying the chosen records.
 
@@ -137,6 +140,8 @@ def build_record_patch(
         new_refs: References the patch adds (:class:`.refedit.NewRef`), each ``(0, n)``
             numbered on from the highest the patch carries, the plugin defining what it
             places a master (``base_plugin``).
+        new_records: Records the patch makes itself (:class:`.records.NewRecord`),
+            written as they are, the plugin each was copied from a master.
 
     Returns:
         What was produced.
@@ -160,7 +165,7 @@ def build_record_patch(
         if report is not None:
             report(text)
 
-    if not selections and not merges and not carried and not ref_edits and not new_refs:
+    if not (selections or merges or carried or ref_edits or new_refs or new_records):
         raise PatchServiceError("nothing was selected, so there is no patch to build")
 
     clashes = {(entry.record_type, entry.key) for entry in selections} & {
@@ -179,8 +184,20 @@ def build_record_patch(
     )
     try:
         own = output.name
+        sources = [
+            Selection(plugin=m.source, record_type=m.record_type, key=m.key)
+            for m in new_records
+            if m.source
+        ]
         masters = _masters_for(
-            selections, merges, records_by_plugin, load_order, carried, ref_edits, new_refs, own
+            [*selections, *sources],
+            merges,
+            records_by_plugin,
+            load_order,
+            carried,
+            ref_edits,
+            new_refs,
+            own,
         )
         say(f"declaring {len(masters)} master(s): {', '.join(masters)}")
 
@@ -191,7 +208,8 @@ def build_record_patch(
             {(entry.record_type, entry.key) for entry in selections}
             | {(entry.record_type, entry.key) for entry in merges}
         )
-        records = carry_forward(carried, masters, skip=decided) if carried else []
+        made = frozenset((m.record_type, m.key) for m in new_records)
+        records = carry_forward(carried, masters, skip=decided | made) if carried else []
         carried_count = len(records)
         if carried:
             say(f"{carried_count} record(s) carried forward from the existing patch")
@@ -210,6 +228,9 @@ def build_record_patch(
                     masters,
                 )
             )
+        for m in new_records:
+            say(f"  {m.record_type} {m.key}: made by the patch")
+            records.append(copy.deepcopy(dict(m.record)))
         if ref_edits:
             _apply_ref_edits(records, ref_edits, records_by_plugin, load_order, masters, say, own)
         if new_refs:

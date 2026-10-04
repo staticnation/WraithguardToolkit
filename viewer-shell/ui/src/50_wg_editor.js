@@ -42,6 +42,7 @@ const WgEditor={
   tag:'STAT', tags:[], rows:[], plugins:[], filter:'', sort:{col:0, dir:1},
   cells:null, cellFilter:'', cellSel:null, refs:[],
   edited:new Set(),          // "TAG:id lower" with changes waiting in the pool
+  made:[],                   // records the patch makes ("Make a copy as"), from the pool
   record:null,               // the dialog's {tag, id, plugins}
   refRec:null,               // or, for a placed object, {cell, origin, refr, plugins}
   live:new Map(),            // "origin:refr" lower -> pending changes, drawn in place
@@ -162,7 +163,9 @@ const WgEditor={
   drawRows(){
     const box=this.el.querySelector('#edTable');
     const f=this.filter.trim().toLowerCase();
-    let rows=this.rows;
+    // The patch's own records of this type, with the load order's.
+    const mine=this.made.filter(p=>p.tag===this.tag).map(p=>[p.id, p.made.name||'', p.made.mesh||'', [], 0]);
+    let rows=mine.length? this.rows.concat(mine) : this.rows;
     if(f) rows=rows.filter(r=>r[0].toLowerCase().includes(f) || r[1].toLowerCase().includes(f) || r[2].toLowerCase().includes(f));
     const c=this.sort.col, dir=this.sort.dir;
     const key=r=> c===3? r[3].length : c===4? r[4] : c===5? (this.isEdited(r[0])?1:0) : String(r[c]).toLowerCase();
@@ -186,7 +189,8 @@ const WgEditor={
       const k=+th.dataset.col; this.sort={col:k, dir:this.sort.col===k? -this.sort.dir : 1}; this.drawRows();
     });
     box.querySelectorAll('tr[data-id]').forEach(tr=>{
-      const row=()=>this.rows.find(x=>x[0]===tr.dataset.id);
+      const row=()=>this.rows.find(x=>x[0]===tr.dataset.id)
+        || ((m=>m? [m.id, m.made.name||'', m.made.mesh||'', [], 0] : null)(this.made.find(p=>p.tag===this.tag && p.id===tr.dataset.id)));
       const placing=()=>{ const r=row(); return r? {tag:this.tag, id:r[0], model:r[2], defined:r[3].map(i=>this.plugins[i]).filter(Boolean)} : null; };
       tr.draggable=true;
       tr.title='Double-click: open the record. Drag into the render window, or right-click, to place one';
@@ -362,10 +366,19 @@ const WgEditor={
     let h='<div class="orirow"><span class="k">Defined in</span><span class="v">'+
       v.plugins.map((p,i)=>i===v.plugins.length-1? '<b>'+escHtml(p)+'</b>' : escHtml(p)).join(' &gt; ')+'</span></div>';
     if(v.whole) h+='<div class="hint">Wraithguard\'s patch takes this whole record from '+escHtml(v.whole)+'; a change here replaces that choice.</div>';
+    if(v.new) h+='<div class="hint">Made by this patch: a change here is the record itself.</div>';
+    const flags=v.fields.find(f=>f.path==='flags');
+    const flagsNow=flags? String(('queued' in flags)? flags.queued : flags.value||'') : null;
+    const deleted=flagsNow!=null && flagsNow.split('|').some(x=>x.trim()==='DELETED');
     h+='<div class="orirow"><span class="v">'+
-      '<button class="btn sm" id="edShow" title="Where it stands in the world">Show in world</button> '+
-      (Ori.recordLink()? '<button class="btn sm" id="edConf" title="This record in Wraithguard\'s conflict viewer">Conflicts</button> ' : '')+
-      '<button class="btn sm" id="edRevertAll" title="Drop every change waiting for this record">Revert record</button></span></div>';
+      (v.new? '' : '<button class="btn sm" id="edShow" title="Where it stands in the world">Show in world</button> ')+
+      (Ori.recordLink() && !v.new? '<button class="btn sm" id="edConf" title="This record in Wraithguard\'s conflict viewer">Conflicts</button> ' : '')+
+      (v.new? '<button class="btn sm" id="edRevertAll" title="Take this record back out of the patch">Remove from the patch</button>'
+            : '<button class="btn sm" id="edRevertAll" title="Drop every change waiting for this record">Revert record</button>')+
+      (flags && !v.new? ' <button class="btn sm" id="edDelete" title="'+(deleted? 'Take the deleted flag off again' : 'Mark the record deleted, as the Construction Set deletes one: the patch carries it with its DELETED flag')+'">'+(deleted? 'Undelete' : 'Delete record')+'</button>' : '')+
+      '</span></div>'+
+      '<div class="orirow"><span class="v edVec"><input class="fld" id="edCopyId" placeholder="New id" spellcheck="false" maxlength="31">'+
+      '<button class="btn sm" id="edCopy" title="A copy of this record under a new id, made by the patch - the Construction Set\'s way of making a record">Make a copy as</button></span></div>';
     h+='<table class="edT edFields"><tbody>';
     for(const f of v.fields){
       const q='queued' in f;
@@ -374,7 +387,30 @@ const WgEditor={
          '</td><td>'+(q? '<button class="btn dim ic" data-revert="'+escHtml(f.path)+'" title="Drop this change">&#x21B6;</button>' : '')+'</td></tr>';
     }
     body.innerHTML=h+'</tbody></table>';
-    body.querySelector('#edShow').onclick=()=>{ if(typeof WgNav==='object') WgNav.go('find:'+v.tag+':'+v.id); };
+    const sh=body.querySelector('#edShow');
+    if(sh) sh.onclick=()=>{ if(typeof WgNav==='object') WgNav.go('find:'+v.tag+':'+v.id); };
+    const del=body.querySelector('#edDelete');
+    if(del) del.onclick=()=>{
+      const parts=flagsNow.split('|').map(x=>x.trim()).filter(x=>x && x!=='DELETED');
+      if(!deleted) parts.push('DELETED');
+      this.change('editSet', {path:'flags', value:parts.join(' | ')});
+    };
+    const cp=body.querySelector('#edCopy'), cpId=body.querySelector('#edCopyId');
+    cpId.onkeydown=e=>{ if(e.key==='Enter') cp.onclick(); e.stopPropagation(); };
+    cp.onclick=async()=>{
+      const newId=cpId.value.trim();
+      if(!newId){ cpId.classList.add('bad'); return; }
+      try{
+        const c=await this.ask('editDuplicate', this.req({newId}));
+        this.record={tag:c.tag, id:c.id, plugins:null};
+        this.drawRecord(c);
+        await this.refreshPending();
+        toast(c.id+' is made - drag it from the Object Window to place one','ok',4000);
+      }catch(e){
+        cpId.classList.add('bad');
+        toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000);
+      }
+    };
     const cf=body.querySelector('#edConf'); if(cf) cf.onclick=()=>Ori.openRecord(v.tag, v.id);
     body.querySelector('#edRevertAll').onclick=()=>this.change('editRevert', {});
     body.querySelectorAll('[data-revert]').forEach(b=>b.onclick=()=>this.change('editRevert', {path:b.dataset.revert}));
@@ -389,7 +425,14 @@ const WgEditor={
 
   async change(link, extra, el){
     try{
-      this.drawRecord(await this.ask(link, this.req(extra)));
+      const v=await this.ask(link, this.req(extra));
+      // Removing a record the patch made leaves nothing to show.
+      if(link==='editRevert' && !(extra&&extra.path) && this.made.some(p=>p.tag===this.record.tag && p.id.toLowerCase()===String(this.record.id).toLowerCase())){
+        if(this.dlg) this.dlg.hidden=true;
+        await this.refreshPending();
+        return;
+      }
+      this.drawRecord(v);
       await this.refreshPending();
     }catch(e){
       if(el) el.classList.add('bad');
@@ -871,6 +914,7 @@ const WgEditor={
     let list=[];
     try{ list=await this.ask('editPending', {}); }catch(_){ return []; }
     this.edited=new Set(list.filter(p=>p.tag).map(p=>p.tag+':'+String(p.id).toLowerCase()));
+    this.made=list.filter(p=>p.made && p.tag);
     this.setLive(list);
     const b=this.el && this.el.querySelector('#edPendBtn');
     if(b) b.textContent=list.length? 'Pending ('+list.length+')' : 'Pending';

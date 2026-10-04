@@ -15,6 +15,9 @@ loopback server, for everything else:
   reference to a record, in the patch (``plugins``: the cell's; ``defined``: the
   record's definers); ``editNew`` / ``editNewSet`` / ``editNewRemove`` ``{cell, uid,
   ...}`` -> its dialog, a change, or taking it back out;
+- ``editDuplicate`` ``{tag, id, plugins?, newId}`` -> a copy of a record under a new
+  id, made by the patch; its dialog (``editSet`` changes it, ``editRevert`` without a
+  path removes it);
 - ``editPending`` ``{}`` -> everything the patch would carry;
 - ``editReview`` ``{}`` -> open the Patch Builder here, to review and write.
 
@@ -114,6 +117,7 @@ class EditorLinkMixin:
             "editRef": server.register_post("wg_edit_ref", self._on_edit_ref),
             "editRefSet": server.register_post("wg_edit_ref_set", self._on_edit_ref_set),
             "editRefRevert": server.register_post("wg_edit_ref_revert", self._on_edit_ref_revert),
+            "editDuplicate": server.register_post("wg_edit_duplicate", self._on_edit_duplicate),
             "editPlace": server.register_post("wg_edit_place", self._on_edit_place),
             "editNew": server.register_post("wg_edit_new", self._on_edit_new),
             "editNewSet": server.register_post("wg_edit_new_set", self._on_edit_new_set),
@@ -231,6 +235,28 @@ class EditorLinkMixin:
             session.set_field(found, path, req.get("value"))
             self.refresh_patch_views()
             return session.view(found)
+
+        return self._json(self._on_ui_wait(change))
+
+    def _on_edit_duplicate(self, body: bytes) -> Payload:
+        """``editDuplicate``: a copy of a record under a new id, made by the patch.
+
+        Args:
+            body: ``{tag, id, plugins?, newId}``.
+
+        Returns:
+            The copy's record dialog.
+        """
+        req, session, found = self._edit_request(body)
+        new_id = req.get("newId")
+        if not isinstance(new_id, str):
+            raise ValueError("bad newId")
+
+        def change() -> dict[str, Any]:
+            """Queue the copy and redraw the Patch Builder."""
+            copy = session.duplicate(found, new_id)
+            self.refresh_patch_views()
+            return session.view(copy)
 
         return self._json(self._on_ui_wait(change))
 

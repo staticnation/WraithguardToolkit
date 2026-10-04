@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from wraithguard.patch.merge import Choice
-    from wraithguard.patch.records import Selection
+    from wraithguard.patch.records import NewRecord, Selection
     from wraithguard.patch.refedit import NewRef, RefEdit
 
 
@@ -51,6 +51,7 @@ class PatchQueue:
         self._bases: dict[tuple[str, str], str] = {}
         self._refs: dict[tuple[str, str, int], RefEdit] = {}
         self._new: dict[tuple[str, str], NewRef] = {}
+        self._made: dict[tuple[str, str], NewRecord] = {}
 
     @property
     def selections(self) -> list[Selection]:
@@ -69,7 +70,7 @@ class PatchQueue:
         cells = {("Cell", e.cell.lower()) for e in self._refs.values()}
         cells |= {("Cell", n.cell.lower()) for n in self._new.values()}
         cells -= records
-        return len(self._whole) + len(self._fields) + len(cells)
+        return len(self._whole) + len(self._fields) + len(cells) + len(self._made)
 
     @property
     def ref_edits(self) -> list[RefEdit]:
@@ -95,6 +96,40 @@ class PatchQueue:
                 plugins=tuple(dict.fromkeys((*old.plugins, *edit.plugins))),
             )
         self._refs[edit.ident] = edit
+
+    @property
+    def new_records(self) -> list[NewRecord]:
+        """Records the patch makes itself, in the order made."""
+        return list(self._made.values())
+
+    def add_new_record(self, made: NewRecord) -> None:
+        """Queue a record the patch makes, or replace the one queued with its key.
+
+        Args:
+            made: The record.
+        """
+        self._made[(made.record_type, made.key.lower())] = made
+
+    def remove_new_record(self, record_type: str, key: str) -> None:
+        """Drop a record the patch would make.
+
+        Args:
+            record_type: Its type.
+            key: Its id.
+        """
+        self._made.pop((record_type, key.lower()), None)
+
+    def new_record(self, record_type: str, key: str) -> NewRecord | None:
+        """The record the patch makes with this type and id, or None.
+
+        Args:
+            record_type: Its type.
+            key: Its id (any case).
+
+        Returns:
+            It, or None.
+        """
+        return self._made.get((record_type, key.lower()))
 
     @property
     def new_refs(self) -> list[NewRef]:
@@ -156,6 +191,7 @@ class PatchQueue:
         self._bases.clear()
         self._refs.clear()
         self._new.clear()
+        self._made.clear()
 
     def set_base(self, record_type: str, key: str, plugin: str) -> None:
         """Say which plugin wins a record, for one the conflict scan does not list.

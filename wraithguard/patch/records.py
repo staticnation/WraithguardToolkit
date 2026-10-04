@@ -86,6 +86,24 @@ class Selection:
     key: str
 
 
+@dataclass(frozen=True, slots=True)
+class NewRecord:
+    """A record the patch makes itself (the editor's "Make a copy as").
+
+    Attributes:
+        record_type: Its ``type``.
+        key: Its id.
+        record: The whole record, as it will be written.
+        source: The plugin whose record it was copied from: a master, so whatever the
+            copy names (a script, a sound, an item) is there when the patch loads.
+    """
+
+    record_type: str
+    key: str
+    record: Mapping[str, Any]
+    source: str = ""
+
+
 def record_key(record: Mapping[str, Any]) -> str:
     """Identify a record within its type.
 

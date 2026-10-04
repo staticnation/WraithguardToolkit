@@ -28,6 +28,7 @@ Copyright (c) 2026 StaticNation.
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 from dataclasses import dataclass
@@ -36,8 +37,8 @@ from typing import TYPE_CHECKING, Any, Final
 from wraithguard.logging_setup import get_logger
 from wraithguard.patch.enums import enum_options
 from wraithguard.patch.fieldtypes import field_kind, flag_options, flags_name, int_bounds
-from wraithguard.patch.merge import IDENTITY, FieldChoice, FieldValue, value_at
-from wraithguard.patch.records import Selection, master_names, record_key
+from wraithguard.patch.merge import IDENTITY, FieldChoice, FieldValue, set_at, value_at
+from wraithguard.patch.records import NewRecord, Selection, master_names, record_key
 from wraithguard.patch.refedit import REF_FIELDS, NewRef, RefEdit, winning_reference
 from wraithguard.tes3fields.naming import TYPE_TO_TAG
 
@@ -67,6 +68,33 @@ READ_ONLY: Final[frozenset[str]] = frozenset({"references"})
 
 _JOURNAL_VERSION: Final = 1
 
+#: Types "Make a copy as" refuses: keyed by something other than an id the copy could
+#: change (cells, lands, paths, dialogue, which also has an order), fixed by the engine
+#: (skills, magic effects, game settings, land texture indices), or naming themselves
+#: inside (a script's text begins with its name).
+UNCOPYABLE: Final[frozenset[str]] = frozenset(
+    {
+        "Header",
+        "Cell",
+        "Landscape",
+        "PathGrid",
+        "Dialogue",
+        "DialogueInfo",
+        "Skill",
+        "MagicEffect",
+        "GameSetting",
+        "LandscapeTexture",
+        "Script",
+        "StartScript",
+    }
+)
+
+#: The longest id the game reads (32 bytes with the terminator).
+MAX_ID: Final = 31
+
+#: The name a record the patch makes is "defined in", in the dialog.
+PATCH: Final = "(this patch)"
+
 
 class EditorError(ValueError):
     """A change the editor refuses, with the reason to show."""
@@ -82,12 +110,15 @@ class Found:
         key: Its key, as the record spells it (:func:`.records.record_key`).
         versions: ``(plugin, record)`` for each plugin defining it, in load order;
             the last wins.
+        new: The patch makes it (:class:`.records.NewRecord`): no plugin defines it,
+            and its one version is the patch's.
     """
 
     tag: str
     record_type: str
     key: str
     versions: tuple[tuple[str, dict[str, Any]], ...]
+    new: bool = False
 
     @property
     def winner(self) -> str:
@@ -445,7 +476,10 @@ class EditorSession:
             if rec is not None and rec.get("type") == record_type:
                 versions.append((self._paths[name.lower()][0], rec))
         if not versions:
-            return None
+            made = self.queue.new_record(record_type, rid.strip())
+            if made is None:
+                return None
+            return Found(tag, record_type, made.key, ((PATCH, dict(made.record)),), new=True)
         return Found(tag, record_type, record_key(versions[-1][1]), tuple(versions))
 
     # -- the dialog -------------------------------------------------------------------
@@ -510,6 +544,7 @@ class EditorSession:
             "winner": found.winner,
             "plugins": [p for p, _ in found.versions],
             "whole": whole,
+            "new": found.new,
             "fields": fields,
         }
 
@@ -531,6 +566,16 @@ class EditorSession:
         if not present:
             raise EditorError(f"{found.key} has no field {path}")
         value = coerce(current, raw, field_kind(found.record_type, path))
+        if found.new:
+            # The patch's own record: the change is the record.
+            made = self.queue.new_record(found.record_type, found.key)
+            if made is None:
+                raise EditorError(f"{found.key} is no longer in the patch")
+            record = copy.deepcopy(dict(made.record))
+            set_at(record, path, value)
+            self.queue.add_new_record(NewRecord(made.record_type, made.key, record, made.source))
+            self.save_journal()
+            return
         if value == current:
             self.queue.remove_field(found.record_type, found.key, path)
         else:
@@ -545,11 +590,55 @@ class EditorSession:
             found: The record.
             path: The field, or None for every queued change to the record.
         """
-        if path is None:
+        if found.new:
+            if path is not None:
+                raise EditorError(
+                    "a record the patch makes has nothing to go back to: set the value, "
+                    "or remove the record"
+                )
+            self.queue.remove_new_record(found.record_type, found.key)
+        elif path is None:
             self.queue.remove_record(found.record_type, found.key)
         else:
             self.queue.remove_field(found.record_type, found.key, path)
         self.save_journal()
+
+    def duplicate(self, found: Found, new_id: str) -> Found:
+        """Make a copy of a record under a new id, in the patch (and save the journal).
+
+        The Construction Set's way of making a record: change the id of one and save it
+        as new. The copy is the patch's own; what it names (a script, a sound, items) is
+        the original's, so the plugin it came from becomes a master.
+
+        Args:
+            found: The record to copy.
+            new_id: The copy's id.
+
+        Returns:
+            The copy, as :meth:`find` finds it.
+
+        Raises:
+            EditorError: A type that cannot be copied this way, an empty or too long id,
+                or one a plugin of this load order (or the patch) already uses.
+        """
+        if found.record_type in UNCOPYABLE:
+            raise EditorError(f"a {found.record_type} record cannot be copied under a new id")
+        rid = new_id.strip()
+        if not rid:
+            raise EditorError("the copy needs an id")
+        if len(rid.encode("utf-8")) > MAX_ID:
+            raise EditorError(f"an id is at most {MAX_ID} bytes")
+        if self.find(found.tag, rid) is not None:
+            raise EditorError(f"{rid} is already a {found.record_type} id in this load order")
+        record = copy.deepcopy(found.record)
+        record["id"] = rid
+        flags = str(record.get("flags") or "")
+        if "DELETED" in flags:
+            record["flags"] = " | ".join(f for f in flags.split(" | ") if f.strip() != "DELETED")
+        source = "" if found.new else found.winner
+        self.queue.add_new_record(NewRecord(found.record_type, rid, record, source))
+        self.save_journal()
+        return Found(found.tag, found.record_type, rid, ((PATCH, record),), new=True)
 
     def pending(self) -> list[dict[str, Any]]:
         """Everything the patch would carry, editor changes and conflict choices.
@@ -559,7 +648,8 @@ class EditorSession:
             ``{"path", "value"}`` (typed) or ``{"path", "plugin"}`` (taken from one).
             A changed placed object is ``type`` ``Reference``, with ``ref`` ``{cell,
             origin, refr, plugins}``; a new one ``NewReference``, with ``new`` ``{cell,
-            uid, id, tag, plugins}`` and its fields as the changes.
+            uid, id, tag, plugins}`` and its fields as the changes. A record the patch
+            makes has ``made`` ``{source, name, mesh}``.
         """
         out: list[dict[str, Any]] = [
             {
@@ -604,6 +694,21 @@ class EditorSession:
                 "changes": [{"path": k, "value": v} for k, v in e.changes.items()],
             }
             for e in self.queue.ref_edits
+        )
+        out.extend(
+            {
+                "tag": tag_of(m.record_type),
+                "type": m.record_type,
+                "id": m.key,
+                "whole": None,
+                "made": {
+                    "source": m.source,
+                    "name": m.record.get("name", ""),
+                    "mesh": m.record.get("mesh", ""),
+                },
+                "changes": [],
+            }
+            for m in self.queue.new_records
         )
         out.extend(
             {
@@ -809,6 +914,7 @@ class EditorSession:
         import secrets
 
         holders = self._cell_plugins(cell, plugins)
+        base = "" if found.new else found.winner
         if not holders:
             raise EditorError(f"no plugin of this load order has the cell {cell}")
         rec = self._records(holders[-1], "CELL")[cell.strip().lower()]
@@ -819,7 +925,7 @@ class EditorSession:
             "temporary": found.tag not in self.PERSISTENT_TAGS,
         }
         new = NewRef(
-            record_key(rec), f"new-{secrets.token_hex(4)}", fields, found.winner, holders, found.tag
+            record_key(rec), f"new-{secrets.token_hex(4)}", fields, base, holders, found.tag
         )
         self.queue.add_new_ref(new)
         self.save_journal()
@@ -970,6 +1076,10 @@ def save_queue(queue: PatchQueue, journal: Path) -> None:
             }
             for e in queue.ref_edits
         ],
+        "made": [
+            {"type": m.record_type, "key": m.key, "record": dict(m.record), "source": m.source}
+            for m in queue.new_records
+        ],
         "new": [
             {
                 "cell": n.cell,
@@ -1054,6 +1164,12 @@ def restore_queue(queue: PatchQueue, journal: Path) -> int:
             if edit.ident not in have:
                 queue.add_ref_edit(edit)
                 n += 1
+        for m in doc.get("made") or []:
+            if queue.new_record(m["type"], m["key"]) is None:
+                queue.add_new_record(
+                    NewRecord(m["type"], m["key"], dict(m["record"]), str(m.get("source") or ""))
+                )
+                n += 1
         placed = {p.ident for p in queue.new_refs}
         for r in doc.get("new") or []:
             new = NewRef(
@@ -1115,9 +1231,11 @@ def plugins_from_cfg(cfg: Path) -> list[tuple[str, Path]]:
 
 
 __all__ = [
+    "PATCH",
     "READ_ONLY",
     "REF_KINDS",
     "TAG_TO_TYPE",
+    "UNCOPYABLE",
     "EditorError",
     "EditorSession",
     "Found",

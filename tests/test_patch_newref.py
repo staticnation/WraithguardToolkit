@@ -218,3 +218,59 @@ def test_place_endpoints(tmp_path):
                 {"cell": "Ebon Tower", "tag": "STAT", "id": "nothing", "translation": [0, 0, 0]}
             ).encode()
         )
+
+
+def test_duplicate_makes_a_record_of_the_patchs_own(tmp_path):
+    s = _session(tmp_path)
+    chair = s.find("STAT", "T_Chair")
+    assert chair is not None
+    copy = s.duplicate(chair, "  WG_Chair  ")
+    assert copy.new and copy.key == "WG_Chair" and copy.winner == "(this patch)"
+    assert s.find("STAT", "wg_chair") == copy  # found from the pool, any case
+    s.set_field(copy, "mesh", "x/chair2.nif")
+    made = s.queue.new_record("Static", "WG_Chair")
+    assert made is not None and made.record["mesh"] == "x/chair2.nif"
+    assert made.source == "Tamriel_Data.esm"
+    assert s.view(s.find("STAT", "WG_Chair"))["new"] is True
+    with pytest.raises(EditorError, match="already"):
+        s.duplicate(chair, "t_chair")
+    with pytest.raises(EditorError, match="already"):
+        s.duplicate(chair, "WG_CHAIR")  # the patch's own counts
+    with pytest.raises(EditorError, match="at most"):
+        s.duplicate(chair, "x" * 32)
+    with pytest.raises(EditorError, match="nothing to go back to"):
+        s.revert(copy, "mesh")
+    pend = [p for p in s.pending() if p.get("made")]
+    assert pend[0]["id"] == "WG_Chair" and pend[0]["made"]["mesh"] == "x/chair2.nif"
+
+    # placed, the copy needs no master of its own; the journal keeps both
+    new = s.place("Ebon Tower", copy, [0, 0, 0])
+    assert new.base_plugin == ""
+    again = PatchQueue()
+    assert restore_queue(again, tmp_path / "journal.json") == 2
+    assert again.new_record("Static", "wg_chair") is not None
+
+    s.revert(copy)
+    assert s.queue.new_records == []
+
+
+def test_build_record_patch_writes_made_records(tmp_path):
+    native = pytest.importorskip("wraithguard_native")
+    from wraithguard.patch.records import NewRecord
+    from wraithguard.patch.service import build_record_patch
+
+    made = NewRecord(
+        "Static",
+        "WG_Chair",
+        {"type": "Static", "id": "WG_Chair", "flags": "", "mesh": "x/c.nif"},
+        "B.esp",
+    )
+    out = tmp_path / "Patch.esp"
+    result = build_record_patch(
+        [], PLUGINS, ORDER, dict.fromkeys(ORDER, 1000), "", out, new_records=[made]
+    )
+    assert result.masters == ["Tamriel_Data.esm", "B.esp"]  # the source and its master
+    back = native.plugin_records(out.read_bytes())
+    assert [(r["type"], r["id"], r["mesh"]) for r in back if r["type"] == "Static"] == [
+        ("Static", "WG_Chair", "x/c.nif")
+    ]

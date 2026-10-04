@@ -34,8 +34,10 @@ loses nothing. Still to do, roughly in this order:
   remapped with them; a reference another mod already moved to another cell (it is found
   in the cell it stands in, while its record is in the one it left); NPCs and creatures
   placed new are written right but drawn only once the cell is reloaded.
-- New records (Insert, or "new from this one" with a new id), deleting, renaming (with
-  the CS's "used in N places" warning).
+- Records: done - "Make a copy as" (a new record of the patch's own, under a new id) and
+  Delete/Undelete (the DELETED flag). Still to do: a blank new record of a type (Insert),
+  renaming with the CS's "used in N places" warning (needs the Use Report), copying
+  scripts (their text names them) and dialogue.
 - List fields in the dialog (inventory, spells, AI packages, leveled list entries,
   dialogue conditions) as tables, not read-only.
 - Use Report (where a record is used: references, leveled lists, inventories, scripts),

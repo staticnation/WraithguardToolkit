@@ -320,6 +320,14 @@ class PatchBuilderMixin:
                     ", ".join(f"{k}={v}" for k, v in ref.changes.items()),
                 ),
             )
+        for made in self.patch_queue().new_records:
+            tree.insert(
+                "",
+                "end",
+                iid=f"made::{made.record_type}::{made.key}",
+                text=f"{made.record_type}  {made.key}",
+                values=("", _("new record"), made.source),
+            )
         for new in self.patch_queue().new_refs:
             parent = cells.get(new.cell.lower())
             if parent is None:
@@ -374,6 +382,8 @@ class PatchBuilderMixin:
                 self.patch_queue().remove_field(parts[1], parts[2], parts[3])
             elif kind == "ref" and len(parts) == 4 and parts[3].isdigit():
                 self.patch_queue().remove_ref_edit(parts[1], parts[2], int(parts[3]))
+            elif kind == "made" and len(parts) == 3:
+                self.patch_queue().remove_new_record(parts[1], parts[2])
             elif kind == "newref" and len(parts) == 3:
                 self.patch_queue().remove_new_ref(parts[1], parts[2])
             elif kind == "refcell" and len(parts) == 2:
@@ -502,6 +512,8 @@ class PatchBuilderMixin:
             for ref in ref_edits:
                 # Every plugin with the cell: the reference is read as they resolve it.
                 wanted |= {ref.origin, *ref.plugins}
+            new_records = self.patch_queue().new_records
+            wanted |= {m.source for m in new_records if m.source}
             new_refs = self.patch_queue().new_refs
             for new in new_refs:
                 # The cell's plugins (its record), and what defines the placed object.
@@ -540,6 +552,7 @@ class PatchBuilderMixin:
                 report=LOG.info,
                 ref_edits=ref_edits,
                 new_refs=new_refs,
+                new_records=new_records,
             )
         except PatchServiceError as exc:
             messagebox.showerror(_("Patch failed"), str(exc))
