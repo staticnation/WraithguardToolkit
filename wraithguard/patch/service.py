@@ -32,6 +32,8 @@ from wraithguard.land.emit import EmitError, build_plugin
 from wraithguard.patch.dialogue import shifts as dialogue_shifts
 from wraithguard.patch.merge import Merge, describe, merge_record
 from wraithguard.patch.records import (
+    DIALOGUE_TYPE,
+    INFO_TYPE,
     PatchError,
     Selection,
     carry_forward,
@@ -39,7 +41,9 @@ from wraithguard.patch.records import (
     dialogue_position_risk,
     keys_of,
     master_names,
+    owning_dialogue,
     position_anchors,
+    record_key,
     required_masters,
 )
 from wraithguard.patch.refedit import cell_patch_record, place_new_refs
@@ -218,7 +222,8 @@ def build_record_patch(
         for entry in merges:
             for line in describe(entry.choices, entry.base_plugin):
                 say(f"  {entry.record_type} {entry.key}: {line}")
-            records.append(
+            _place(
+                records,
                 merge_record(
                     entry.base_plugin,
                     entry.record_type,
@@ -226,7 +231,8 @@ def build_record_patch(
                     entry.choices,
                     records_by_plugin,
                     masters,
-                )
+                ),
+                records_by_plugin.get(entry.base_plugin) or [],
             )
         for m in new_records:
             say(f"  {m.record_type} {m.key}: made by the patch")
@@ -295,6 +301,47 @@ def build_record_patch(
     say(f"wrote {output} ({output.stat().st_size} bytes, {len(document)} records)")
     result.output = output
     return result
+
+
+def _place(
+    records: list[dict[str, Any]],
+    record: dict[str, Any],
+    source: Sequence[Mapping[str, Any]],
+) -> None:
+    """Add a built record to the patch; a dialogue response inside its own topic.
+
+    A response carries no topic: the engine gives it to the last topic read before it.
+    Appended after another topic's responses it would answer that topic, and with no
+    topic before it, none - so it goes after its topic's block, the topic (from the
+    plugin it was built on) put in first when the patch does not carry it yet, as
+    :func:`.records.collect` does for a response taken whole.
+
+    Args:
+        records: The patch's records so far (changed in place).
+        record: The record.
+        source: The records of the plugin it was built on, in file order.
+    """
+    topic = owning_dialogue(source, str(record.get("type")), record_key(record))
+    if topic is None:
+        records.append(record)
+        return
+    want = record_key(topic).lower()
+    at = next(
+        (
+            i
+            for i, r in enumerate(records)
+            if r.get("type") == DIALOGUE_TYPE and record_key(r).lower() == want
+        ),
+        None,
+    )
+    if at is None:
+        records.append(copy.deepcopy(dict(topic)))
+        records.append(record)
+        return
+    end = at + 1
+    while end < len(records) and records[end].get("type") == INFO_TYPE:
+        end += 1
+    records.insert(end, record)
 
 
 def _masters_for(

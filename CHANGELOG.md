@@ -214,6 +214,12 @@
 
 ### Fixed
 
+- **A dialogue response merged field by field is written inside its own topic.** It was
+  appended to the end of the patch with no topic before it - so the engine attached it to
+  whichever topic the patch carried last (another topic's responses, answering the wrong
+  question), or to none. It now goes after its topic and that topic's other responses,
+  the topic put in first when the patch does not carry it yet, as a response taken whole
+  always was.
 - **Patches of interior cells.** The patch writer keyed every interior cell as `(0, 0)` -
   an interior's record carries a placeholder grid - so every room was the same cell, and
   the same as the exterior at the origin; and the conflict viewer names a cell by its
