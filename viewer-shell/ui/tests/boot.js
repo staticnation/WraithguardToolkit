@@ -72,7 +72,11 @@ const fakeServer=http.createServer((req,res)=>{
       {plugin:'Lamp.esm', type:'LeveledItem', tag:'LEVI', key:'l_lamps', paths:['items.0.0'], count:1, wins:true},
       {plugin:'Lamp.esm', type:'Container', tag:'CONT', key:'old_chest', paths:['inventory.0.1'], count:1, wins:false},
       {plugin:'Lamp.esm', type:'Cell', tag:'CELL', key:'(9, 9)', paths:['references'], count:2, wins:true}]};
-    else if(name==='editTopics') out=[{id:'Greeting 0', type:'Greeting', plugins:['Lamp.esm']}, {id:'Rumors', type:'Topic', plugins:['Lamp.esm','Mod.esp']}];
+    else if(name==='editTopics') out=[{id:'Greeting 0', type:'Greeting', plugins:['Lamp.esm']}, {id:'Rumors', type:'Topic', plugins:['Lamp.esm','Mod.esp']},
+                                      {id:'MS_Lamp', type:'Journal', plugins:['Lamp.esm']}];
+    else if(name==='editTopic' && b.topic==='MS_Lamp') out={id:b.topic, type:'Journal', responses:[
+      {id:'j100', text:'Done.', speaker:'', disposition:100, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false, quest:'Finished'},
+      {id:'j0', text:'The Lamp', speaker:'', disposition:0, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false, quest:'Name'}]};
     else if(name==='editTopic') out={id:b.topic, type:'Topic', responses:[
       {id:'101', text:'First.', speaker:'race: Dark Elf', disposition:0, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false},
       {id:'102', text:'Orphaned.', speaker:'', disposition:0, plugins:['Mod.esp'], winner:'Mod.esp', orphan:true}]};
@@ -625,6 +629,20 @@ async function editor(w, R, fail, done, sleep){
     for(let i=0;i<100 && E.made.length;i++) await sleep(30);
     if(E.made.length) fail('the removed copy is still listed');
     E.filter='lamp_lit'; E.drawRows();
+    // Rename to: a copy, then the uses repointed from the original to it.
+    {
+      await E.openRecord('LIGH', 'lamp_lit', ['Lamp.esm']);
+      d.getElementById('edCopyId').value='lamp_renamed';
+      const n0=fakeWg.posts.length;
+      await E.renameRecord(Object.assign(fakeView(), {tag:'LIGH'}));
+      const sent=fakeWg.posts.slice(n0).map(p=>p[0]+':'+(p[1].newId||''));
+      if(sent.indexOf('editDuplicate:lamp_renamed')<0 || sent.indexOf('editReplace:lamp_renamed')<sent.indexOf('editDuplicate:lamp_renamed')) fail('Rename did not copy then replace: '+JSON.stringify(sent));
+      const rp=fakeWg.posts.slice(n0).find(p=>p[0]==='editReplace');
+      if(!rp || rp[1].id!=='lamp_lit') fail('Rename replaced from the wrong record: '+JSON.stringify(rp));
+      delete fakeWg.made.lamp_renamed;
+      await E.refreshPending();
+      await E.openRecord('LIGH', 'lamp_lit', ['Lamp.esm']);
+    }
     // New: a blank record of the tab's type, made by the patch, then taken out again.
     {
       d.getElementById('edNewId').value='lamp_new';
@@ -733,6 +751,12 @@ async function editor(w, R, fail, done, sleep){
     if(!fakeWg.newResp || fakeWg.newResp.after!=='') fail('Add at top sent '+JSON.stringify(fakeWg.newResp));
     d.querySelector('#edDialTabs [data-kind="Greeting"]').onclick();
     if(d.querySelector('#edDialTopics tr[data-topic]').dataset.topic!=='Greeting 0') fail('the Greeting tab does not list greetings');
+    // A journal: stages by index, the quest's name over them.
+    d.querySelector('#edDialTabs [data-kind="Journal"]').onclick();
+    await E.openTopic('MS_Lamp');
+    const firsts=[...d.querySelectorAll('#edDialResp tr[data-r] td:nth-child(2)')].map(td=>td.textContent);
+    if(!/^0/.test(firsts[0]||'') || !/^100/.test(firsts[1]||'') || !/Finished/.test(firsts[1]||'')) fail('the journal stages are not by index: '+JSON.stringify(firsts));
+    if(!/Quest: The Lamp/.test(d.getElementById('edDialResp').textContent)) fail('the quest has no name over its stages');
     d.getElementById('edDial').hidden=true;
   }
   // The Script Edit window: the source, checked as typed, the listing, and saving.

@@ -750,9 +750,10 @@ class EditorSession:
 
         Returns:
             ``{"id", "type", "responses": [{"id", "text", "speaker", "disposition",
-            "plugins", "winner", "orphan"}]}``: ``speaker`` the response's conditions in
-            a few words, ``orphan`` a response whose predecessor is not in the topic
-            (it goes last, :mod:`.dialogue`).
+            "plugins", "winner", "orphan", "quest"}]}``: ``speaker`` the response's
+            conditions in a few words, ``orphan`` a response whose predecessor is not in
+            the topic (it goes last, :mod:`.dialogue`), ``quest`` a journal entry's
+            ``Name``/``Finished``/``Restart`` (its index is ``disposition``).
 
         Raises:
             EditorError: For a topic no plugin has.
@@ -815,6 +816,7 @@ class EditorSession:
                     "plugins": list(placed.plugins),
                     "winner": winner,
                     "orphan": placed.key in lost,
+                    "quest": str(rec.get("quest_state") or ""),
                 }
             )
         return {"id": spelled or topic_id, "type": kind, "responses": rows}

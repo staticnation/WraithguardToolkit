@@ -221,6 +221,11 @@
   `prev_id` naming the one it follows (which is how the engine places a response it has
   not seen, the patch loading last), its `next_id` the one that followed, written inside
   its topic. It opens in the record dialog and shows in its place in the topic.
+- **"Rename to" in the record dialog**: a copy under the new id, then every live use -
+  fields and placed references - repointed to it, saying how many moved and which scripts
+  still name the old id; the original stays, for whatever still names it.
+- **Journals in the dialogue window**: a quest's stages by index under the quest's name,
+  its name, finishing and restarting stages marked.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

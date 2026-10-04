@@ -24,6 +24,10 @@ PLUGINS: dict[str, list[dict[str, Any]]] = {
         _info("2", "1", "Second.", data={"disposition": 30}),
         {"type": "Dialogue", "id": "Greeting 0", "dialogue_type": "Greeting"},
         _info("9", "", "Hello."),
+        {"type": "Dialogue", "id": "MS_Quest", "dialogue_type": "Journal"},
+        _info("j0", "", "The Quest", quest_state="Name", data={"disposition": 0}),
+        _info("j10", "j0", "Begun.", data={"disposition": 10}),
+        _info("j100", "j10", "Done.", quest_state="Finished", data={"disposition": 100}),
     ],
     "Mod.esp": [
         {"type": "Dialogue", "id": "rumors", "dialogue_type": "Topic"},
@@ -47,6 +51,7 @@ def test_topics_by_type_with_their_plugins(tmp_path):
     topics = _session(tmp_path).topics()
     assert [(t["type"], t["id"], t["plugins"]) for t in topics] == [
         ("Greeting", "Greeting 0", ["Morrowind.esm"]),
+        ("Journal", "MS_Quest", ["Morrowind.esm"]),
         ("Topic", "Rumors", ["Morrowind.esm", "Mod.esp"]),
     ]
 
@@ -116,3 +121,12 @@ def test_a_new_response_is_written_inside_its_topic(tmp_path):
         if r["type"] in ("Dialogue", "DialogueInfo")
     ]
     assert kinds == [("Dialogue", "rumors"), ("DialogueInfo", "999")]
+
+
+def test_a_journal_shows_its_stages(tmp_path):
+    rows = _session(tmp_path).topic("ms_quest")["responses"]
+    assert [(r["disposition"], r["quest"]) for r in rows] == [
+        (0, "Name"),
+        (10, ""),
+        (100, "Finished"),
+    ]

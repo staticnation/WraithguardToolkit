@@ -32,22 +32,23 @@ loses nothing. Still to do, roughly in this order:
   Object Window (the patch's own `(0, n)`, numbered on from an earlier build's). Still to
   do: OpenMW's LUAL instance entries, which name references the same way and must be
   remapped with them.
-- Records: done - "Make a copy as", "New" (a blank record of a type) and Delete/Undelete
-  (the DELETED flag). Still to do: renaming with the CS's "used in N places" warning (needs the Use Report), copying
-  scripts (their text names them) and dialogue.
+- Records: done - "Make a copy as", "New" (a blank record of a type), Delete/Undelete
+  (the DELETED flag) and "Rename to" (a copy, the live uses repointed to it, the count
+  said). Still to do: copying scripts (their text names them) and whole topics.
 - List fields: done (tables in the record dialog; a group per entry - a dialogue
   condition, an AI package - a column per field, each entry checked against one of its
   kind). Values nested deeper than that are JSON in their cell.
 - Use Report, Search & Replace (fields and placed references), Layers and the Q menu:
-  done. Still to do: Search & Replace in scripts (needs a recompile); the Layers and Q menu were built without the CSSE's documentation (the
-  site is not reachable from here) and should be checked against it.
+  done. Still to do: Search & Replace in scripts (needs a recompile); the Layers and Q
+  menu were built without the CSSE's documentation (the site is not reachable from here)
+  and should be checked against it.
 - Script Edit window: done (source checked as typed, compiled listing, saved to the
   pool). Still to do: a compiler, so Morrowind.exe gets the changed bytecode too (OpenMW
   compiles the text itself); checks that know each function's arguments (the opcode table
   has their shapes).
 - Dialogue window: done (topics by kind, responses in engine order, a response edited in
   the record dialog and written inside its topic; a new response added at a place in a
-  topic). Still to do: the journal's quest view.
+  topic; a journal's stages by index under its quest's name).
 - Active file view: done ("Patch only" in the Object Window, tabs counting, cells marked).
 
 ## Controllers

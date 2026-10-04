@@ -508,7 +508,8 @@ const WgEditor={
       (flags && !v.new? ' <button class="btn sm" id="edDelete" title="'+(deleted? 'Take the deleted flag off again' : 'Mark the record deleted, as the Construction Set deletes one: the patch carries it with its DELETED flag')+'">'+(deleted? 'Undelete' : 'Delete record')+'</button>' : '')+
       '</span></div>'+
       '<div class="orirow"><span class="v edVec"><input class="fld" id="edCopyId" placeholder="New id" spellcheck="false" maxlength="31">'+
-      '<button class="btn sm" id="edCopy" title="A copy of this record under a new id, made by the patch - the Construction Set\'s way of making a record">Make a copy as</button></span></div>';
+      '<button class="btn sm" id="edCopy" title="A copy of this record under a new id, made by the patch - the Construction Set\'s way of making a record">Make a copy as</button>'+
+      (v.new? '' : '<button class="btn sm" id="edRename" title="A copy under the new id, and every live use of this record - fields and placed references - repointed to it (the Use Report reads the load order). The original stays for anything still naming it">Rename to</button>')+'</span></div>';
     h+='<table class="edT edFields"><tbody>';
     for(const f of v.fields){
       const q='queued' in f;
@@ -529,6 +530,8 @@ const WgEditor={
       if(!deleted) parts.push('DELETED');
       this.change('editSet', {path:'flags', value:parts.join(' | ')});
     };
+    const rn=body.querySelector('#edRename');
+    if(rn) rn.onclick=()=>this.renameRecord(v);
     const cp=body.querySelector('#edCopy'), cpId=body.querySelector('#edCopyId');
     cpId.onkeydown=e=>{ if(e.key==='Enter') cp.onclick(); e.stopPropagation(); };
     cp.onclick=async()=>{
@@ -556,6 +559,32 @@ const WgEditor={
       };
       if(el.tagName==='INPUT' && el.type!=='checkbox') el.onkeydown=e=>{ if(e.key==='Enter') el.blur(); e.stopPropagation(); };
     });
+  },
+
+  /** Rename: a copy under the new id, then Search & Replace from the original to it - the
+   *  original stays (a master's record cannot be taken back without breaking whatever
+   *  still names it), and what was moved, and what was not, is said. */
+  async renameRecord(v){
+    const box=this.dlg.querySelector('#edCopyId'), newId=box.value.trim();
+    if(!newId){ box.classList.add('bad'); return null; }
+    const from={tag:v.tag, id:v.id, plugins:this.record.plugins};
+    try{
+      const c=await this.ask('editDuplicate', Object.assign({tag:from.tag, id:from.id, newId}, from.plugins? {plugins:from.plugins} : {}));
+      toast('Reading the load order for the uses of '+from.id+'…','ok',3000);
+      const x=await this.ask('editReplace', Object.assign({tag:from.tag, id:from.id, newId:c.id}, from.plugins? {plugins:from.plugins} : {}));
+      const recs=x.changed-(x.refs||0);
+      toast(from.id+' renamed to '+c.id+': '+recs+' record'+(recs===1?'':'s')+' and '+(x.refs||0)+' placed reference'+((x.refs||0)===1?'':'s')+' now name it'+
+            (x.scripts? '; '+x.scripts+' script'+(x.scripts===1?'':'s')+' still name '+from.id : '')+'. '+from.id+' itself stays.','ok',8000);
+      this.record={tag:c.tag, id:c.id, plugins:null};
+      this.drawRecord(c);
+      await this.loadModels(c.tag);
+      await this.refreshPending();
+      return x;
+    }catch(e){
+      box.classList.add('bad');
+      toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000);
+      return null;
+    }
   },
 
   async change(link, extra, el){
@@ -1276,11 +1305,20 @@ const WgEditor={
     catch(e){ box.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return null; }
     this.dialTopic=t;
     const journal=t.type==='Journal';
-    box.innerHTML='<div class="orirow"><span class="v"><button class="btn sm" id="edRespTop" title="A new response at the top of the topic, made by the patch">Add at top</button></span></div>'+
+    if(journal){
+      // A quest: its stages by index (the order means nothing to a journal), its name and
+      // its end marked.
+      t.responses=t.responses.slice().sort((a,b)=>(a.disposition|0)-(b.disposition|0));
+      const name=t.responses.find(r=>r.quest==='Name');
+      if(name) t.questName=name.text;
+    }
+    box.innerHTML=(journal && t.questName? '<div class="orisec">Quest: '+escHtml(t.questName)+'</div>' : '')+
+      '<div class="orirow"><span class="v"><button class="btn sm" id="edRespTop" title="A new response at the top of the topic, made by the patch">Add at top</button></span></div>'+
       '<table class="edT"><thead><tr><th>#</th><th>'+(journal? 'Index' : 'Who')+'</th><th>Text</th><th>From</th><th></th></tr></thead><tbody>'+
       t.responses.map((r,i)=>'<tr data-r="'+i+'"'+(this.isEditedInfo(r.id)? ' class="edited"' : '')+' title="'+escHtml(r.text)+'">'+
         '<td class="num">'+(i+1)+(r.orphan? ' <span class="bad" title="Its predecessor is not in the topic: it is read last">!</span>' : '')+'</td>'+
-        '<td>'+escHtml(journal? String(r.disposition==null? '' : r.disposition) : r.speaker)+'</td>'+
+        '<td>'+escHtml(journal? String(r.disposition==null? '' : r.disposition) : r.speaker)+
+          (journal && r.quest? ' <span class="from" title="'+escHtml(r.quest==='Name'? 'The quest\'s name in the journal' : r.quest==='Finished'? 'This stage ends the quest' : 'This stage restarts the quest')+'">'+escHtml(r.quest)+'</span>' : '')+'</td>'+
         '<td>'+escHtml(r.text.length>90? r.text.slice(0,90)+'…' : r.text)+'</td>'+
         '<td class="from" title="'+escHtml(r.plugins.join(' > '))+'">'+escHtml(r.winner)+'</td>'+
         '<td><button class="btn dim ic" data-after="'+escHtml(r.id)+'" title="A new response after this one, made by the patch">+</button></td></tr>').join('')+'</tbody></table>';
