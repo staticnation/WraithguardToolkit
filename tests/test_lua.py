@@ -284,7 +284,7 @@ def test_flowchart_html_loads_the_bundled_library():
     assert "cdn" not in served.lower()
     # Inlined (a page opened from disk): nothing in it may end the script element.
     library = mermaid_source()
-    assert "globalThis[\"mermaid\"]" in library
+    assert 'globalThis["mermaid"]' in library
     page = flowchart_html("t", [("t", "flowchart TD")], library=library)
     body = page.split("<script>", 1)[1]
     assert "</script" not in body.split("</script>", 1)[0]
