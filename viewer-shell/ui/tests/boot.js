@@ -445,6 +445,9 @@ async function placing(w, E, R, fail, sleep){
   const d=w.document, CD=w.eval('CellData');
   const row=E.rows.find(r=>r[0]==='lamp_lit');
   if(!row){ fail('no lamp_lit row to place'); return; }
+  // What draws an object not yet placed: the engine's actors and models for the ids asked.
+  const ea=await w.eval('Engine').call('editor_actors',{ids:['lamp_lit','no_such_thing']});
+  if(!ea || !ea.models || !ea.models.lamp_lit || ea.models.no_such_thing || typeof ea.actors!=='object') fail('editor_actors answered '+JSON.stringify(ea));
   const n0=fakeWg.posts.length;
   const v=await E.placeAt({tag:'LIGH', id:'lamp_lit', model:row[2], defined:['Lamp.esm']}, null, null);
   const sent=fakeWg.posts.slice(n0).find(p=>p[0]==='editPlace');

@@ -1065,11 +1065,7 @@ fn refs_json_marked(
                         actors.push(',');
                     }
                     first_actor = false;
-                    actors.push('"');
-                    viewcore::json::escape_into(&key, &mut actors);
-                    actors.push_str("\":{\"kind\":\"lev\",\"model\":\"");
-                    viewcore::json::escape_into(&o.model, &mut actors);
-                    actors.push_str("\",\"twin\":null,\"health\":null,\"persistent\":false,\"corpse\":false}");
+                    push_lev(&key, &o.model, &mut actors);
                 }
                 continue;
             }
@@ -1078,36 +1074,7 @@ fn refs_json_marked(
                     actors.push(',');
                 }
                 first_actor = false;
-                actors.push('"');
-                viewcore::json::escape_into(&key, &mut actors);
-                actors.push_str("\":{\"kind\":\"");
-                actors.push_str(if a.creature { "crea" } else { "npc" });
-                actors.push_str("\",\"model\":\"");
-                viewcore::json::escape_into(&a.model, &mut actors);
-                // Round 18ag: and the `x` twin the game draws the living creature with.
-                actors.push_str("\",\"twin\":");
-                match &a.twin {
-                    Some(t) => {
-                        actors.push('"');
-                        viewcore::json::escape_into(t, &mut actors);
-                        actors.push('"');
-                    }
-                    None => actors.push_str("null"),
-                }
-                actors.push_str(",\"health\":");
-                match a.health {
-                    Some(h) => actors.push_str(&h.to_string()),
-                    None => actors.push_str("null"),
-                }
-                actors.push_str(",\"persistent\":");
-                actors.push_str(if a.persistent { "true" } else { "false" });
-                actors.push_str(",\"corpse\":");
-                actors.push_str(if a.corpse() { "true" } else { "false" });
-                // Wraithguard: AI Hello, for the greeting-distance overlay.
-                if let Some(h) = w.hello.get(&key) {
-                    actors.push_str(&format!(",\"hello\":{}", h));
-                }
-                actors.push('}');
+                push_actor(&w, &key, a, &mut actors);
                 continue;
             }
             if let Some(li) = w.lights.get(&key) {
@@ -2459,6 +2426,89 @@ fn editor_records(tag: String, state: State) -> Result<String, String> {
     Ok(o.done())
 }
 
+/// One actor, `"key":{kind, model, twin, health, persistent, corpse, hello?}`, as the
+/// cell's `actors` map carries it (and `editor_actors`).
+fn push_actor(w: &viewcore::world::World, key: &str, a: &viewcore::world::ActorDef, actors: &mut String) {
+    actors.push('"');
+    viewcore::json::escape_into(key, actors);
+    actors.push_str("\":{\"kind\":\"");
+    actors.push_str(if a.creature { "crea" } else { "npc" });
+    actors.push_str("\",\"model\":\"");
+    viewcore::json::escape_into(&a.model, actors);
+    // Round 18ag: and the `x` twin the game draws the living creature with.
+    actors.push_str("\",\"twin\":");
+    match &a.twin {
+        Some(t) => {
+            actors.push('"');
+            viewcore::json::escape_into(t, actors);
+            actors.push('"');
+        }
+        None => actors.push_str("null"),
+    }
+    actors.push_str(",\"health\":");
+    match a.health {
+        Some(h) => actors.push_str(&h.to_string()),
+        None => actors.push_str("null"),
+    }
+    actors.push_str(",\"persistent\":");
+    actors.push_str(if a.persistent { "true" } else { "false" });
+    actors.push_str(",\"corpse\":");
+    actors.push_str(if a.corpse() { "true" } else { "false" });
+    // Wraithguard: AI Hello, for the greeting-distance overlay.
+    if let Some(h) = w.hello.get(key) {
+        actors.push_str(&format!(",\"hello\":{}", h));
+    }
+    actors.push('}');
+}
+
+/// A leveled creature list placed as a spawn point, as the cell's `actors` map carries it.
+fn push_lev(key: &str, model: &str, actors: &mut String) {
+    actors.push('"');
+    viewcore::json::escape_into(key, actors);
+    actors.push_str("\":{\"kind\":\"lev\",\"model\":\"");
+    viewcore::json::escape_into(model, actors);
+    actors.push_str("\",\"twin\":null,\"health\":null,\"persistent\":false,\"corpse\":false}");
+}
+
+/// Wraithguard: what the render window needs to draw objects it has not seen placed (a
+/// reference the editor adds): `{actors:{...}, models:{id: mesh}}`, as a cell carries
+/// them, for the ids asked.
+#[tauri::command(async)]
+fn editor_actors(ids: Vec<String>, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut actors = String::from("{");
+    let mut models = String::from("{");
+    for id in ids.iter().take(4096) {
+        let key = id.to_ascii_lowercase();
+        if let Some(a) = w.actors.get(&key) {
+            if actors.len() > 1 {
+                actors.push(',');
+            }
+            push_actor(&w, &key, a, &mut actors);
+        } else if let Some(o) = w.objects.get(&key).filter(|o| o.kind == Some(viewcore::objects::ObjKind::LeveledCreature)) {
+            if actors.len() > 1 {
+                actors.push(',');
+            }
+            push_lev(&key, &o.model, &mut actors);
+        }
+        if let Some(m) = w.models.get(&key) {
+            if models.len() > 1 {
+                models.push(',');
+            }
+            models.push('"');
+            viewcore::json::escape_into(&key, &mut models);
+            models.push_str("\":\"");
+            viewcore::json::escape_into(m, &mut models);
+            models.push('"');
+        }
+    }
+    actors.push('}');
+    models.push('}');
+    let mut o = J::obj();
+    o.raw("actors", &actors).raw("models", &models);
+    Ok(o.done())
+}
+
 /// The Cell View's object list for one cell (`x,y`, or `int:<name>`): `{name, rows:[[key,
 /// id, tag, [x,y,z], plugin]...]}` - every reference not deleted, sorted by id; `key` is
 /// the viewport's reference key, `plugin` the file whose version of it wins.
@@ -2877,6 +2927,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             editor_tags,
             editor_records,
             editor_cell_refs,
+            editor_actors,
             ori_dialogue,
             mesh_collision,
             open_install,

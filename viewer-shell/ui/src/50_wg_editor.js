@@ -1040,6 +1040,7 @@ const WgEditor={
     try{ cell=await Engine.call('editor_cell_refs',{cell:cellArg}); }
     catch(e){ return toast('No cell there to place into: '+String(e.message||e),'warn',5000); }
     if(rec.model) CellData.models.set(String(rec.id).toLowerCase(), rec.model);
+    await this.actorsFor([rec.id]);
     let v;
     try{
       v=await this.ask('editPlace', {cell:cell.refCell, tag:rec.tag, id:rec.id, translation:at.world, rotation:rotation||[0,0,0],
@@ -1050,6 +1051,20 @@ const WgEditor={
     this.drawRef(v);
     await this.refreshPending();
     return v;
+  },
+
+  /** What draws an NPC, a creature or a spawn point the render window has not seen placed
+   *  (the cell's `actors` map is per cell): asked of the engine for the ids it lacks. */
+  async actorsFor(ids){
+    const want=[...new Set(ids.map(i=>String(i).toLowerCase()))].filter(k=>!CellData.actors.has(k));
+    if(!want.length) return false;
+    try{
+      const r=await Engine.call('editor_actors',{ids:want});
+      let got=false;
+      for(const [k,a] of Object.entries(r.actors||{})){ CellData.actors.set(k,a); got=true; }
+      for(const [k,m] of Object.entries(r.models||{})) if(!CellData.models.has(k)) CellData.models.set(k,m);
+      return got;
+    }catch(_){ return false; }
   },
 
   /** The models of every record of a tag, for objects the render window has not drawn
@@ -1068,12 +1083,15 @@ const WgEditor={
   /** The models of new references' objects the page has not seen placed (a journal
    *  brought back after a restart): asked of the engine by tag, once each. */
   async modelsFor(liveNew){
+    const ids=[];
+    for(const list of liveNew.values()) for(const a of list) if(a.fields.id) ids.push(a.fields.id);
+    const actors=ids.length? await this.actorsFor(ids) : false;
     const want=new Set();
     for(const list of liveNew.values()) for(const a of list)
       if(a.tag && a.fields.id && !CellData.models.has(String(a.fields.id).toLowerCase())) want.add(a.tag);
-    if(!want.size) return;
+    let got=actors;
+    if(!want.size && !got) return;
     this._modelTags=this._modelTags||new Set();
-    let got=false;
     for(const tag of want){
       if(this._modelTags.has(tag)) continue;
       this._modelTags.add(tag);

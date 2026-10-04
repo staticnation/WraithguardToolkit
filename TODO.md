@@ -32,8 +32,7 @@ loses nothing. Still to do, roughly in this order:
   Object Window (the patch's own `(0, n)`, numbered on from an earlier build's). Still to
   do: OpenMW's LUAL instance entries, which name references the same way and must be
   remapped with them; a reference another mod already moved to another cell (it is found
-  in the cell it stands in, while its record is in the one it left); NPCs and creatures
-  placed new are written right but drawn only once the cell is reloaded.
+  in the cell it stands in, while its record is in the one it left).
 - Records: done - "Make a copy as" (a new record of the patch's own, under a new id) and
   Delete/Undelete (the DELETED flag). Still to do: a blank new record of a type (Insert),
   renaming with the CS's "used in N places" warning (needs the Use Report), copying

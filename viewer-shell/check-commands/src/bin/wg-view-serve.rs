@@ -99,6 +99,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "editor_tags" => Reply::Json(t::editor_tags(st())?),
         "editor_records" => Reply::Json(t::editor_records(s(a, "tag"), st())?),
         "editor_cell_refs" => Reply::Json(t::editor_cell_refs(s(a, "cell"), st())?),
+        "editor_actors" => Reply::Json(t::editor_actors(strs(a, "ids"), st())?),
         "ori_dialogue" => Reply::Json(t::ori_dialogue(s(a, "id"), st())?),
         "startup_install" => Reply::Json(t::startup_install()?),
         // Round 18cj: the colour theme, remembered for the next start-up.

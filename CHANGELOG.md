@@ -196,6 +196,9 @@
 - **The patch as the Editor's active file**: "Patch only" narrows the Object Window to the
   records the patch changes or makes, each tab counts its changed records, and the Cell
   View marks the cells whose references the patch changes or adds.
+- **NPCs, creatures and spawn points placed new are drawn** at once: the viewer asks the
+  engine (`editor_actors`) for what draws objects it has not seen placed, as a cell
+  carries it.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time
