@@ -34,14 +34,20 @@ lexer and parser (syntax tree), per-script analysis and load-order conflict and
 performance checks against OpenMW 0.51 (API 129), as a CLI report
 (`python -m wraithguard.lua openmw.cfg`), and the Conflicts window's "Lua scripts..."
 (highlighted source, syntax tree, findings, control-flow flowchart, call graph, with
-mermaid.js bundled). Still to do:
-- Teal: parsing and highlighting are done (Python). Type *checking* is the Teal
-  compiler's job: run it through htl/mlua in Rust (`subset sort\htl-0.12.0`; checking
-  and linting without luarocks), and Cyan (`cyan-0.4.1`, Teal's build tool) the same
-  way for mods that ship a `tlconfig.lua`. Needs a Rust build to test.
-- The Lua side in Rust (native or viewcore) as the Python prototype settles - LUAL via
-  the tes3 crate's `ScriptConfigList`, which already reads LUAD too.
-- Scripts in BSAs; the API version from the setup's OpenMW (only 0.51 / API 129 now).
+mermaid.js bundled). The API now comes from the setup's own OpenMW install (its LDT docs,
+read in Rust, `native/src/lua`), written out as Teal declarations, and every script is
+checked by the Teal compiler (htl 0.12.0 / tl 0.24.8, embedded). Still to do:
+- A Settings field for the OpenMW install (found on its own now, or `--openmw` /
+  `WG_OPENMW_RESOURCES`).
+- Mods that ship a `tlconfig.lua` (Cyan projects): read its `include_dir`/`source_dir`
+  so their own modules and declarations resolve.
+- Type `openmw.interfaces` (a map of any now, since mods add interfaces): the built-in
+  interfaces' docs are read, and each mod's `interfaceName`/`interface` table is too.
+- Engine handlers and built-in events from the install as well (still the 0.51 list:
+  the docs keep them in the .rst pages, not in LDT comments).
+- The rest of the Lua side in Rust as the Python prototype settles - LUAL via the tes3
+  crate's `ScriptConfigList`, which already reads LUAD too.
+- Scripts in BSAs.
 
 The load order's Lua scripts, read from each mod's `.omwscripts` lists (plain text,
 `CONTEXT: path` lines): a script browser with syntax highlighting; a parsed tree (AST)

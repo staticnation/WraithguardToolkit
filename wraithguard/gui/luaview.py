@@ -36,8 +36,8 @@ from wraithguard.logging_setup import get_logger
 from wraithguard.lua.callgraph import call_graph_chart
 from wraithguard.lua.flowchart import MERMAID_JS, flowchart, flowchart_html
 from wraithguard.lua.lexer import LuaSyntaxError, tokenize
+from wraithguard.lua.openmw_api import check_cfg
 from wraithguard.lua.report import all_findings, render
-from wraithguard.lua.scan import scan_cfg
 from wraithguard.viz.library import ViewerError, mermaid_source
 from wraithguard.viz.serve import Payload
 
@@ -290,7 +290,9 @@ class LuaViewMixin:
         def work() -> None:
             """Scan, then hand the result (or the error) to the UI thread."""
             try:
-                result = scan_cfg(cfg)
+                # The setup's OpenMW install is found on its own (openmw_api.find_resources);
+                # its documented API and the Teal checks come with the scan.
+                result = check_cfg(cfg)
             except Exception as exc:  # shown to the user, never fatal
                 LOG.exception("Lua scan failed")
                 self._schedule_ui(0, self._lua_failed, str(exc))
@@ -335,7 +337,10 @@ class LuaViewMixin:
         }
         what = _("%(scripts)d scripts from %(files)d .omwscripts file(s) and %(lual)d addon(s)")
         tally = _("%(error)d errors, %(warn)d warnings, %(info)d notes")
-        self._lua_status.set(f"{what % sources}  -  {tally % counts}")
+        status = f"{what % sources}  -  {tally % counts}"
+        if result.api_source:
+            status += f"  -  {result.api_source}"
+        self._lua_status.set(status)
         self._lua_refill()
 
     def _lua_findings_for(self, path: str) -> list[Finding]:

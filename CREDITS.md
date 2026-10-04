@@ -318,6 +318,24 @@ the full hash in `wraithguard/viz/assets/README.txt`). The Lua scripts window's
 flowcharts and call graphs draw with it (`wraithguard/lua/flowchart.py`); it used to
 be loaded from a CDN when a chart opened.
 
+## Teal and htl - the Lua checks (MIT)
+
+`native/` embeds **htl** 0.12.0 (ynishi/htl, MIT OR Apache-2.0), which carries the
+**Teal** compiler `tl.lua` 0.24.8 (Hisham Muhammad and contributors, MIT) and runs it in
+a vendored Lua 5.4 through **mlua** (MIT). They check OpenMW Lua and Teal scripts
+(`native/src/lua/check.rs`).
+
+**OpenMW's Lua API documentation (GPLv3) is read, never shipped.** OpenMW documents its
+Lua API in `files/lua_api/openmw/*.lua` and installs those files to every install's
+`resources/lua_api/`; the built-in interfaces are documented in `resources/vfs/`. They
+are GPLv3. The toolkit contains none of them: `native/src/lua/ldt.rs` reads them from the
+user's own OpenMW install at run time and writes Teal declarations into a temporary
+folder, as OpenMW's own `openmwluadocumentor` does for its published
+`teal_declarations`. The reader was written from the comment format (LDT's `@module`,
+`@type`, `@field`, `@function`, `@param`, `@return`), and its tests use fixtures written
+for them. The same separation as the cell viewer below: the GPL part stays where its
+licence puts it, and the toolkit stays MIT.
+
 ## Archives and textures, and why they are ours
 
 Archives went the same way as meshes. Since 4.2.0 they are read by `tes3::bsa` (through

@@ -86,6 +86,9 @@ class LuaScan:
         scripts: The scripts, in load order.
         findings: ``(script path or "", finding)`` for the whole load order -
             each script's own findings are on its :class:`ScriptRecord`.
+        api: The API rules it was checked against.
+        api_source: What the Teal checks ran against, for the report
+            (:func:`.openmw_api.check_cfg`), or "".
     """
 
     data_dirs: list[Path] = field(default_factory=list)
@@ -94,6 +97,8 @@ class LuaScan:
     lual_files: list[str] = field(default_factory=list)
     scripts: list[ScriptRecord] = field(default_factory=list)
     findings: list[tuple[str, Finding]] = field(default_factory=list)
+    api: ApiVersion = API
+    api_source: str = ""
 
 
 def read_cfg_lua(cfg: Path) -> tuple[list[Path], list[str]]:
@@ -273,7 +278,9 @@ def scan_cfg(cfg: Path, api: ApiVersion = API) -> LuaScan:
         The scan.
     """
     dirs, content = read_cfg_lua(cfg)
-    return scan_load_order(dirs, content, api)
+    out = scan_load_order(dirs, content, api)
+    out.api = api
+    return out
 
 
 def _cross_checks(out: LuaScan, api: ApiVersion) -> None:

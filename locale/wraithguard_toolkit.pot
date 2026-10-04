@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.2.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 00:26\n"
+"POT-Creation-Date: 2026-10-04 02:04\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1090,52 +1090,52 @@ msgstr ""
 msgid "Reading the load order's scripts..."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:309
+#: wraithguard/gui/luaview.py:311
 msgid "The scan failed: "
 msgstr ""
 
-#: wraithguard/gui/luaview.py:336
+#: wraithguard/gui/luaview.py:338
 msgid "%(scripts)d scripts from %(files)d .omwscripts file(s) and %(lual)d addon(s)"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:337
+#: wraithguard/gui/luaview.py:339
 msgid "%(error)d errors, %(warn)d warnings, %(info)d notes"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:372
+#: wraithguard/gui/luaview.py:377
 msgid "(the load order)"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:440
+#: wraithguard/gui/luaview.py:445
 msgid "No data folder has this script."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:466
+#: wraithguard/gui/luaview.py:471
 msgid "No Teal source (.tl) beside this script."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:587
-#: wraithguard/gui/luaview.py:603
+#: wraithguard/gui/luaview.py:592
+#: wraithguard/gui/luaview.py:608
 msgid "Select a script that parses first."
 msgstr ""
 
-#: wraithguard/gui/luaview.py:593
+#: wraithguard/gui/luaview.py:598
 msgid "function at line "
 msgstr ""
 
-#: wraithguard/gui/luaview.py:595
+#: wraithguard/gui/luaview.py:600
 msgid "Lua flowchart"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:605
+#: wraithguard/gui/luaview.py:610
 msgid "call graph"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:606
+#: wraithguard/gui/luaview.py:611
 msgid "Lua call graph"
 msgstr ""
 
-#: wraithguard/gui/luaview.py:653
+#: wraithguard/gui/luaview.py:658
 msgid "Report copied."
 msgstr ""
 

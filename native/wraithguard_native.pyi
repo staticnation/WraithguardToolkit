@@ -193,3 +193,37 @@ def merge_load_order(
     preserve_duplicate_references: bool = False,
 ) -> bytes:
     """A whole load order merged into one master, as plugin bytes."""
+
+# -- OpenMW Lua (native/src/lua) -------------------------------------------------------
+
+TEAL_VERSION: str
+
+def lua_api(resources: str | PathLike[str]) -> dict[str, Any] | None:
+    """An install's Lua API documentation, read from its ``resources`` folder.
+
+    ``{"version", "modules", "members"}``: each module's ``name``, ``require``,
+    ``interface``, ``contexts``, ``file``, ``fields``, ``functions`` and ``types``, and
+    each declared type's member names by its Teal name. None when the folder has no
+    ``lua_api/openmw``.
+    """
+
+def lua_write_declarations(
+    out: str | PathLike[str],
+    resources: str | PathLike[str] | None = None,
+    packages: Sequence[str] = (),
+) -> dict[str, Any]:
+    """Teal declarations written into ``out`` (emptied first).
+
+    From the install's documentation, or stubs for ``packages`` without one. Returns
+    ``{"source": "openmw" | "stubs", "version", "packages"}``.
+    """
+
+def lua_check(
+    paths: Sequence[str | PathLike[str]], include: Sequence[str | PathLike[str]]
+) -> list[list[dict[str, Any]] | str]:
+    """Each file checked by the Teal compiler (tl 0.24.8, embedded).
+
+    ``include``: module folders, lowest priority first. Per path, its diagnostics
+    (``line``, ``col``, ``severity``, ``kind``, ``rule``, ``message``) or why it could
+    not be checked.
+    """

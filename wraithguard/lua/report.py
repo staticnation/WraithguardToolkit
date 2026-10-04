@@ -8,9 +8,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from wraithguard.lua.analysis import Finding
-from wraithguard.lua.api import API, ApiVersion
 
 if TYPE_CHECKING:
+    from wraithguard.lua.api import ApiVersion
     from wraithguard.lua.scan import LuaScan
 
 _ORDER = {"error": 0, "warn": 1, "info": 2}
@@ -36,25 +36,30 @@ def all_findings(result: LuaScan) -> list[tuple[str, Finding]]:
     return found
 
 
-def render(result: LuaScan, api: ApiVersion = API, *, info: bool = True) -> str:
+def render(result: LuaScan, api: ApiVersion | None = None, *, info: bool = True) -> str:
     """The scan as a report.
 
     Args:
         result: The scan.
-        api: The API version it was checked against (named in the header).
+        api: The API version it was checked against (named in the header); the
+            scan's own when not given.
         info: Include ``info`` findings.
 
     Returns:
         The report text.
     """
+    api = api or result.api
     found = all_findings(result)
     counts = {sev: sum(1 for _, f in found if f.severity == sev) for sev in _ORDER}
+    revision = f"Lua API {api.revision}" if api.revision else "Lua API revision not known"
     lines = [
-        f"OpenMW Lua scripts - checked against OpenMW {api.openmw} (Lua API {api.revision})",
+        f"OpenMW Lua scripts - checked against OpenMW {api.openmw} ({revision})",
         f"{len(result.omwscripts)} .omwscripts file(s), {len(result.scripts)} script(s), "
         f"{len(result.data_dirs)} data folder(s)",
         f"{counts['error']} error(s), {counts['warn']} warning(s), {counts['info']} note(s)",
     ]
+    if result.api_source:
+        lines.append(result.api_source)
     if result.omwaddons:
         lines.append(
             f"LUAL records read from {len(result.omwaddons)} .omwaddon file(s); "

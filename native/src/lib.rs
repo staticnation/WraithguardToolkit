@@ -9,6 +9,8 @@
 //!   in the toolkit's native session), and plugins read and written for wraithguard/esp.
 //! - `land`: the numeric core of Merged Lands (`wraithguard/land/`): the relative
 //!   grids, the per-vertex merge, the slope limiter, normals and height decoding.
+//! - `lua`: OpenMW Lua scripts: the API read from the setup's OpenMW install, Teal
+//!   declarations written from it, and scripts checked by the Teal compiler (htl).
 //! - `merge`: whole-plugin merging, greatness7's merge_to_master (vendored) called as a
 //!   library (was the merge in `wraithguard/merge/`).
 //! - `nif`: mesh summaries, the mesh viewer's block panel and field edits (was
@@ -44,6 +46,7 @@ pub mod esp;
 pub mod img;
 pub mod land;
 pub mod lint;
+pub mod lua;
 pub mod merge;
 pub mod nif;
 
@@ -60,6 +63,7 @@ fn wraithguard_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     land::register(m)?;
     img::register(m)?;
     lint::register(m)?;
+    lua::register(m)?;
     merge::register(m)?;
     Ok(())
 }

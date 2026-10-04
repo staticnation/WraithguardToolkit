@@ -47,6 +47,26 @@
   files of the Teal compiler (tl 0.24.8, `tl.tl` included) and Cyan 0.4.1, which all
   parse. The window's **"Teal source"** tab shows (highlighted) the `.tl` a mod ships
   beside the `.lua` that runs.
+  **Checked against the setup's own OpenMW** (`lua/openmw_api.py`, `native/src/lua`).
+  Every OpenMW install documents its Lua API in its `resources` folder (LDT comments in
+  `lua_api/openmw/*.lua`, and the built-in interfaces and `openmw_aux.*` under `vfs/`).
+  The Rust backend reads them there - nothing of them ships with the toolkit, so it
+  stays MIT - writes Teal declarations from them into a temporary folder, and checks every
+  script with the Teal compiler (tl 0.24.8 through htl, embedded: no Lua or luarocks).
+  New findings: `API_TYPO` (a key a documented type lacks, close to one it has:
+  `self.recrdId` - did you mean `recordId`?), `API_UNDOCUMENTED` / `API_INTERNAL` (notes:
+  the docs leave some real members out), `TOO_MANY_ARGS`, `UNKNOWN_GLOBAL`,
+  `REQUIRE_NOT_FOUND` (an `openmw.*` package this OpenMW lacks, or a module no data folder
+  has), `UNUSED_LOCAL`; for a mod written in Teal (a `.tl` beside the `.lua`) every type
+  error (`TEAL`). Plain Lua keeps only what is reliable without types; fewer arguments
+  than documented is never reported, since the docs rarely mark optional ones. Packages,
+  their contexts and the built-in interfaces follow the install's version. The install
+  is found from the cfg's `resources=`, `WG_OPENMW_RESOURCES` or the usual install places;
+  `--openmw` names it. With none, the checks that need no API still run against stubs.
+  `--teal-declarations DIR` checks against OpenMW's published declarations instead, and
+  `--write-teal-declarations DIR` keeps the generated ones for a Teal project. Tried on
+  OpenMW 0.51's own 40 built-in scripts: the generated declarations check clean, and the
+  only warning left is a real one (an extra `string.format` argument).
   Scripts that `.omwaddon` files register in LUAL records are read too, in load order
   (`lua/lual.py`, the layout of OpenMW's `luascripts.cpp`). Not read: scripts packed in
   BSAs - the report says so.
