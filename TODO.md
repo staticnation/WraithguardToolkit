@@ -33,15 +33,14 @@ Started: `wraithguard/lua/` - `.omwscripts` reading, VFS resolution, a Lua 5.1/L
 lexer and parser (syntax tree), per-script analysis and load-order conflict and
 performance checks against OpenMW 0.51 (API 129), as a CLI report
 (`python -m wraithguard.lua openmw.cfg`), and the Conflicts window's "Lua scripts..."
-(highlighted source, syntax tree, findings, control-flow flowchart). Still to do:
+(highlighted source, syntax tree, findings, control-flow flowchart, call graph, with
+mermaid.js bundled). Still to do:
 - Teal: parsing and highlighting are done (Python). Type *checking* is the Teal
   compiler's job: run it through htl/mlua in Rust (`subset sort\htl-0.12.0`; checking
   and linting without luarocks), and Cyan (`cyan-0.4.1`, Teal's build tool) the same
   way for mods that ship a `tlconfig.lua`. Needs a Rust build to test.
 - The Lua side in Rust (native or viewcore) as the Python prototype settles - LUAL via
   the tes3 crate's `ScriptConfigList`, which already reads LUAD too.
-- Bundle mermaid.js (the flowchart loads it from a CDN today); call graphs per script
-  (which local function calls which, as ast_mermaid's `calls`).
 - Scripts in BSAs; the API version from the setup's OpenMW (only 0.51 / API 129 now).
 
 The load order's Lua scripts, read from each mod's `.omwscripts` lists (plain text,

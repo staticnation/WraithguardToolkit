@@ -12,6 +12,8 @@ them the way the engine does and reports on what they add up to:
 - :mod:`.scan` - the whole load order: which file each script path resolves to in
   the data folders, and the conflicts between mods.
 - :mod:`.report` - the findings as text.
+- :mod:`.flowchart` / :mod:`.callgraph` - a function's control flow and a script's
+  call graph, as Mermaid charts.
 
 Nothing here runs Lua, and nothing here writes a file.
 

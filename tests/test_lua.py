@@ -10,6 +10,7 @@ import pytest
 from wraithguard.lua.__main__ import main
 from wraithguard.lua.analysis import analyze
 from wraithguard.lua.api import contexts_for_flags
+from wraithguard.lua.callgraph import MAIN, call_graph, call_graph_chart
 from wraithguard.lua.flowchart import expr_text, flowchart, flowchart_html
 from wraithguard.lua.lexer import LuaSyntaxError, tokenize
 from wraithguard.lua.lual import read_lual
@@ -17,6 +18,7 @@ from wraithguard.lua.omwscripts import parse_omwscripts
 from wraithguard.lua.parser import Node, parse
 from wraithguard.lua.report import all_findings, render
 from wraithguard.lua.scan import read_cfg_lua, scan_load_order
+from wraithguard.viz.library import mermaid_source
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -274,6 +276,86 @@ def test_flowchart():
     fn = parse("local function f(a) if a then return 1 end return 2 end").children[0]
     assert '{"if a"}' in flowchart(fn)
     assert "mermaid" in flowchart_html("t", [("t", chart)])
+
+
+def test_flowchart_html_loads_the_bundled_library():
+    served = flowchart_html("t", [("t", "flowchart TD")], library_url="http://h/m.js?t=a&b")
+    assert "<script src='http://h/m.js?t=a&amp;b'></script>" in served
+    assert "cdn" not in served.lower()
+    # Inlined (a page opened from disk): nothing in it may end the script element.
+    library = mermaid_source()
+    assert 'globalThis["mermaid"]' in library
+    page = flowchart_html("t", [("t", "flowchart TD")], library=library)
+    body = page.split("<script>", 1)[1]
+    assert "</script" not in body.split("</script>", 1)[0]
+    assert "<!--" not in page
+    inlined = flowchart_html("t", [], library="var s = '</script><!--';")
+    assert "var s = '<\\/script><\\x21--';" in inlined
+
+
+_CALLS_SRC = """
+local M = {}
+local function helper(x) return x * 2 end
+function M.step(dt) return helper(dt) end
+function M:tick() self:other() end
+function M:other() end
+local function unused() end
+local update = function(dt)
+  M.step(dt)
+  time.runRepeatedly(function() helper(1) end, 1)
+  nearby.castRay(1, 2)
+end
+local util = { scale = function(v) return helper(v) end }
+helper(3)
+return {
+  engineHandlers = {
+    onUpdate = update,
+    onSave = function() return util.scale(1) end,
+  },
+  eventHandlers = { Foo = M.tick },
+}
+"""
+
+
+def test_call_graph():
+    graph = call_graph(parse(_CALLS_SRC))
+    assert list(graph.functions) == [
+        "helper",
+        "M.step",
+        "M.tick",
+        "M.other",
+        "unused",
+        "update",
+        "util.scale",
+        "engineHandlers.onSave",
+    ]
+    assert graph.entries == [
+        "engineHandlers.onSave",
+        "engineHandlers.onUpdate",
+        "eventHandlers.Foo",
+    ]
+    assert set(graph.calls) == {
+        (MAIN, "helper"),
+        ("M.step", "helper"),
+        ("M.tick", "M.other"),  # self:other()
+        ("update", "M.step"),
+        ("update", "helper"),  # from the anonymous callback written inside it
+        ("util.scale", "helper"),
+        ("engineHandlers.onSave", "util.scale"),
+        ("engineHandlers.onUpdate", "update"),
+        ("eventHandlers.Foo", "M.tick"),
+    }
+
+
+def test_call_graph_chart():
+    chart = call_graph_chart(parse(_CALLS_SRC))
+    assert chart.startswith("flowchart LR")
+    assert '(["engineHandlers.onUpdate"])' in chart  # an entry point
+    assert '["helper<br/>line 3"]' in chart
+    assert '["unused<br/>line 7"]' in chart  # called by nothing, still shown
+    assert "castRay" not in chart
+    # Nothing calls from the top level: no main-chunk node.
+    assert MAIN not in call_graph_chart(parse("local function f() end return {}"))
 
 
 def test_contexts():

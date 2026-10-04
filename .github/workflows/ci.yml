@@ -180,6 +180,19 @@ jobs:
         working-directory: viewer-shell/ui/tests
         run: WG_MESH_VIEW=1 node boot.js
 
+  windows-build:
+    # A Windows build of every push, as an artifact on the run
+    # (wraithguard-toolkit-windows-x86_64-system: the one-file .exe), so a change can be
+    # tried on Windows without tagging a release. The same steps as a release build
+    # (build-windows.yml); not gated on the checks above, so a lint failure still leaves
+    # something to try. Release attaching there only runs for tags, which CI never sees.
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      variants: '["system"]'
+    permissions:
+      # What build-windows.yml declares (for its tag releases); unused here.
+      contents: write
+
   gui-smoke:
     # The GUI is the one part of this project the gate list above cannot see:
     # it needs Tk, which the hermetic suite deliberately does not have, so it is

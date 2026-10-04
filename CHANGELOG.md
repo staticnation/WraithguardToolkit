@@ -32,8 +32,15 @@
   and its findings (double-click goes to the line); "Copy report"; and **"Flowchart"**:
   the control flow of the function selected in the tree, or of the whole script
   (`lua/flowchart.py`, the Lua port of `tools/ast_mermaid.py`'s cfg chart), shown in
-  the app's HTML window over the loopback server. The chart library (mermaid.js) is
-  loaded from a CDN, so the first chart needs a connection.
+  the app's HTML window over the loopback server; and **"Call graph"**
+  (`lua/callgraph.py`): which of the script's functions calls which, from the
+  handlers it returns to OpenMW (`engineHandlers.onUpdate`, `eventHandlers.*`,
+  `interface.*`) down - functions named as they are defined (`local function f`,
+  `M.f`, `M:f`, functions in table constructors), callbacks counted as part of the
+  function they are written in, `self:f()` followed when only one `*.f` matches;
+  calls into OpenMW and other modules left out. The chart library (**mermaid.js
+  12.1.0**, MIT) ships with the toolkit (`wraithguard/viz/assets/mermaid.min.js`,
+  upstream's own build), so charts need no connection.
   **Teal**: the lexer and parser read Teal (`parse(src, teal=True)`) - annotations,
   generics, `record`/`enum`/`interface`/`type` declarations, `as`/`is`, `global`,
   `macroexp`, typed table fields - into the same tree; checked against all 47 `.tl`
@@ -43,6 +50,21 @@
   Scripts that `.omwaddon` files register in LUAL records are read too, in load order
   (`lua/lual.py`, the layout of OpenMW's `luascripts.cpp`). Not read: scripts packed in
   BSAs - the report says so.
+
+### Changed
+
+- **CI builds Windows on every push.** The CI run carries
+  `wraithguard-toolkit-windows-x86_64-system` (the one-file `.exe`) as an artifact, built
+  by the same steps as a release (`build-windows.yml`, now also callable from `ci.yml`), so
+  a change can be tried on Windows without tagging. Release builds are unchanged.
+
+### Fixed
+
+- **Cell Preview: "Go through" is back in the full help panel.** Clicking a teleporting
+  door shows where it leads and a "Go through" button on the right again - the old object
+  dialogue's "Open cell door leads to", which went missing when the full help replaced
+  that dialogue. The inspector's own button and Shift+click still work; the CI's viewer
+  boot test now checks both buttons.
 
 ## 4.2.1
 
