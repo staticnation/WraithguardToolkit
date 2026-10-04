@@ -26,6 +26,9 @@ loopback server, for everything else:
 - ``editScript`` ``{tag, id, plugins?, text?}`` -> the Script Edit window: the source
   (the queued change, or ``text`` to check as typed), its checks and the compiled listing;
   saving is ``editSet`` on ``text``;
+- ``editTopics`` ``{}`` / ``editTopic`` ``{topic}`` -> the dialogue window: every topic,
+  and a topic's responses in the order the engine reads them (a response is edited as a
+  record, ``INFO``, in the record dialog);
 - ``editPending`` ``{}`` -> everything the patch would carry;
 - ``editReview`` ``{}`` -> open the Patch Builder here, to review and write.
 
@@ -128,6 +131,8 @@ class EditorLinkMixin:
             "editDuplicate": server.register_post("wg_edit_duplicate", self._on_edit_duplicate),
             "editUses": server.register_post("wg_edit_uses", self._on_edit_uses),
             "editScript": server.register_post("wg_edit_script", self._on_edit_script),
+            "editTopics": server.register_post("wg_edit_topics", self._on_edit_topics),
+            "editTopic": server.register_post("wg_edit_topic", self._on_edit_topic),
             "editReplace": server.register_post("wg_edit_replace", self._on_edit_replace),
             "editPlace": server.register_post("wg_edit_place", self._on_edit_place),
             "editNew": server.register_post("wg_edit_new", self._on_edit_new),
@@ -248,6 +253,32 @@ class EditorLinkMixin:
             return session.view(found)
 
         return self._json(self._on_ui_wait(change))
+
+    def _on_edit_topics(self, _body: bytes) -> Payload:
+        """``editTopics``: every topic of the load order (read on the server's thread).
+
+        Returns:
+            :meth:`.EditorSession.topics`, as JSON.
+        """
+        return self._json(self._editor().topics())
+
+    def _on_edit_topic(self, body: bytes) -> Payload:
+        """``editTopic``: one topic's responses, in the order the engine reads them.
+
+        Args:
+            body: ``{topic}``.
+
+        Returns:
+            :meth:`.EditorSession.topic`, as JSON.
+        """
+        try:
+            req = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise ValueError("bad request") from None
+        topic = req.get("topic") if isinstance(req, dict) else None
+        if not isinstance(topic, str) or not topic.strip():
+            raise ValueError("bad topic")
+        return self._json(self._editor().topic(topic))
 
     def _on_edit_script(self, body: bytes) -> Payload:
         """``editScript``: the Script Edit window's source, checks and listing.

@@ -45,7 +45,11 @@ loses nothing. Still to do, roughly in this order:
 - Script Edit window: done (source checked as typed, compiled listing, saved to the
   pool). Still to do: a compiler, so Morrowind.exe gets the changed bytecode too (OpenMW
   compiles the text itself); checks that know each function's arguments (the opcode table
-  has their shapes). Dialogue: still to do.
+  has their shapes).
+- Dialogue window: done (topics by kind, responses in engine order, a response edited in
+  the record dialog and written inside its topic). Still to do: adding a response at a
+  place in a topic (its prev/next links and the neighbours' anchors), conditions edited
+  as a table of their own, and the journal's quest view.
 - Active file view: done ("Patch only" in the Object Window, tabs counting, cells marked).
 
 ## Controllers

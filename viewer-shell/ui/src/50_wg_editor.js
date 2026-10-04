@@ -37,6 +37,10 @@
      listing, and "Save to the patch". The toolkit does not compile: OpenMW compiles the
      text, Morrowind.exe runs the compiled data the record carries, which a changed text
      leaves as it was - the window says so.
+   - The dialogue window (the dock's "Dialogue"): every topic by kind, and a topic's
+     responses in the order the engine reads them (who says each, the plugin whose
+     version wins, a response that has lost its place marked); a response opens in the
+     record dialog, its changes written inside its topic.
    - Q on the selected object: a menu of what can be done to it (edit, Use Report, drop,
      duplicate, delete, hide, move to a layer). Layers (the dock's "Layers") are named
      groups of references shown or hidden in the render window - a view, kept in this
@@ -141,6 +145,7 @@ const WgEditor={
     d.innerHTML=
       '<div class="edPane" id="edObjects">'+
         '<div class="edHead"><b>Object Window</b><span style="flex:1"></span>'+
+          '<button class="btn sm" id="edDialBtn" title="Topics and their responses, in the order the engine reads them">Dialogue</button> '+
           '<button class="btn sm" id="edLayersBtn" title="Groups of references shown or hidden in the render window">Layers</button> '+
           '<button class="btn sm" id="edPendBtn" title="The changes waiting in Wraithguard\'s patch pool">Pending</button></div>'+
         '<div class="edTabs" id="edTabs"></div>'+
@@ -162,6 +167,7 @@ const WgEditor={
     d.querySelector('#edCellFilter').oninput=e=>{ this.cellFilter=e.target.value; this.drawCells(); };
     d.querySelector('#edPendBtn').onclick=()=>this.showPending();
     d.querySelector('#edLayersBtn').onclick=()=>this.showLayers();
+    d.querySelector('#edDialBtn').onclick=()=>this.showDialogue();
   },
 
   fillTabs(){
@@ -1182,6 +1188,76 @@ const WgEditor={
     if(typeof schedulePreview==='function' && App.cellSel) schedulePreview();
     return true;
   },
+
+  /* ---- the dialogue window ------------------------------------------------------------- */
+
+  async showDialogue(){
+    if(!this.dial){
+      const d=document.createElement('div');
+      d.id='edDial'; d.className='ori'; d.hidden=true;
+      d.innerHTML='<div class="orihead"><b id="edDialTitle">Dialogue</b><span style="flex:1"></span>'+
+        '<button class="btn dim ic" id="edDialX" title="Close">&#x2715;</button></div>'+
+        '<div class="oribody"><div class="edTabs" id="edDialTabs"></div>'+
+        '<input class="fld" id="edDialFilter" placeholder="Filter topics" spellcheck="false">'+
+        '<div class="edSplit"><div class="edTable" id="edDialTopics"></div><div class="edTable" id="edDialResp"></div></div></div>';
+      ($('#vpwrap')||document.body).appendChild(d);
+      d.querySelector('#edDialX').onclick=()=>{ d.hidden=true; };
+      d.querySelector('#edDialFilter').oninput=()=>this.drawTopics();
+      d.querySelector('#edDialFilter').onkeydown=e=>e.stopPropagation();
+      this.dial=d;
+    }
+    this.dial.hidden=false;
+    if(!this.canEdit()){ this.dial.querySelector('#edDialTopics').innerHTML='<div class="hint">The dialogue window needs Wraithguard.</div>'; return; }
+    if(!this.topicList){
+      this.dial.querySelector('#edDialTopics').innerHTML='<div class="hint">Reading every plugin\'s topics…</div>';
+      try{ this.topicList=await this.ask('editTopics', {}); }
+      catch(e){ this.dial.querySelector('#edDialTopics').innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return; }
+      const kinds=[...new Set(this.topicList.map(t=>t.type))];
+      this.dialKind=kinds.includes('Topic')? 'Topic' : kinds[0]||'';
+      const tabs=this.dial.querySelector('#edDialTabs');
+      tabs.innerHTML=kinds.map(k=>'<button class="btn sm'+(k===this.dialKind?' on':'')+'" data-kind="'+escHtml(k)+'">'+escHtml(k||'?')+'</button>').join('');
+      tabs.querySelectorAll('[data-kind]').forEach(b=>b.onclick=()=>{
+        this.dialKind=b.dataset.kind; tabs.querySelectorAll('.on').forEach(x=>x.classList.remove('on')); b.classList.add('on'); this.drawTopics();
+      });
+    }
+    this.drawTopics();
+  },
+
+  drawTopics(){
+    const box=this.dial.querySelector('#edDialTopics');
+    const f=this.dial.querySelector('#edDialFilter').value.trim().toLowerCase();
+    const list=(this.topicList||[]).filter(t=>t.type===this.dialKind && (!f || t.id.toLowerCase().includes(f)));
+    box.innerHTML='<table class="edT"><tbody>'+list.slice(0,this.ROW_CAP).map(t=>
+      '<tr data-topic="'+escHtml(t.id)+'" title="'+escHtml(t.plugins.join(' > '))+'"><td>'+escHtml(t.id)+'</td><td class="from">'+t.plugins.length+'</td></tr>').join('')+'</tbody></table>'+
+      (list.length>this.ROW_CAP? '<div class="hint">'+(list.length-this.ROW_CAP)+' more - filter to narrow.</div>' : '');
+    box.querySelectorAll('tr[data-topic]').forEach(tr=>tr.onclick=()=>{
+      box.querySelectorAll('tr.sel').forEach(x=>x.classList.remove('sel')); tr.classList.add('sel');
+      this.openTopic(tr.dataset.topic);
+    });
+  },
+
+  async openTopic(topic){
+    const box=this.dial.querySelector('#edDialResp');
+    box.innerHTML='<div class="hint">…</div>';
+    let t;
+    try{ t=await this.ask('editTopic', {topic}); }
+    catch(e){ box.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return null; }
+    this.dialTopic=t;
+    const journal=t.type==='Journal';
+    box.innerHTML='<table class="edT"><thead><tr><th>#</th><th>'+(journal? 'Index' : 'Who')+'</th><th>Text</th><th>From</th></tr></thead><tbody>'+
+      t.responses.map((r,i)=>'<tr data-r="'+i+'"'+(this.isEditedInfo(r.id)? ' class="edited"' : '')+' title="'+escHtml(r.text)+'">'+
+        '<td class="num">'+(i+1)+(r.orphan? ' <span class="bad" title="Its predecessor is not in the topic: it is read last">!</span>' : '')+'</td>'+
+        '<td>'+escHtml(journal? String(r.disposition==null? '' : r.disposition) : r.speaker)+'</td>'+
+        '<td>'+escHtml(r.text.length>90? r.text.slice(0,90)+'…' : r.text)+'</td>'+
+        '<td class="from" title="'+escHtml(r.plugins.join(' > '))+'">'+escHtml(r.winner)+'</td></tr>').join('')+'</tbody></table>';
+    box.querySelectorAll('tr[data-r]').forEach(tr=>{
+      const r=t.responses[+tr.dataset.r];
+      tr.ondblclick=()=>this.openRecord('INFO', r.id, r.plugins);
+    });
+    return t;
+  },
+
+  isEditedInfo(id){ return this.edited.has('INFO:'+String(id).toLowerCase()); },
 
   /* ---- the Script Edit window ------------------------------------------------------------ */
 

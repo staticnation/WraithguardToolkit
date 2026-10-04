@@ -199,6 +199,12 @@
 - **NPCs, creatures and spawn points placed new are drawn** at once: the viewer asks the
   engine (`editor_actors`) for what draws objects it has not seen placed, as a cell
   carries it.
+- **The dialogue window, in the Editor ("Dialogue" in the dock).** Every topic of the load
+  order by kind (topics, greetings, persuasion, voice, journals) with a filter, and a
+  topic's responses in the order the engine reads them - who says each, the text, the
+  plugin whose version wins, and a response whose predecessor is missing (so it is read
+  last) marked. A response opens in the record dialog; its changes are written inside its
+  topic.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

@@ -71,6 +71,10 @@ const fakeServer=http.createServer((req,res)=>{
       {plugin:'Lamp.esm', type:'LeveledItem', tag:'LEVI', key:'l_lamps', paths:['items.0.0'], count:1, wins:true},
       {plugin:'Lamp.esm', type:'Container', tag:'CONT', key:'old_chest', paths:['inventory.0.1'], count:1, wins:false},
       {plugin:'Lamp.esm', type:'Cell', tag:'CELL', key:'(9, 9)', paths:['references'], count:2, wins:true}]};
+    else if(name==='editTopics') out=[{id:'Greeting 0', type:'Greeting', plugins:['Lamp.esm']}, {id:'Rumors', type:'Topic', plugins:['Lamp.esm','Mod.esp']}];
+    else if(name==='editTopic') out={id:b.topic, type:'Topic', responses:[
+      {id:'101', text:'First.', speaker:'race: Dark Elf', disposition:0, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false},
+      {id:'102', text:'Orphaned.', speaker:'', disposition:0, plugins:['Mod.esp'], winner:'Mod.esp', orphan:true}]};
     else if(name==='editScript'){
       const text=b.text!=null? b.text : 'begin payme\nend';
       out={id:'payme', text, compiled:true, queued:false, listing:'0000  Return',
@@ -482,7 +486,7 @@ async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editUses','editReplace','editScript','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editUses','editReplace','editScript','editTopics','editTopic','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -659,6 +663,26 @@ async function editor(w, R, fail, done, sleep){
         if(E.live.size) fail('the revert left the reference drawn moved');
       }
     }
+  }
+  // The dialogue window: topics by kind, a topic's responses in order, one opening.
+  {
+    await E.showDialogue();
+    const tops=[...d.querySelectorAll('#edDialTopics tr[data-topic]')].map(tr=>tr.dataset.topic);
+    if(JSON.stringify(tops)!=='["Rumors"]') fail('the Topic tab lists '+JSON.stringify(tops));
+    d.querySelector('#edDialTopics tr[data-topic]').onclick();
+    for(let i=0;i<100 && !d.querySelector('#edDialResp tr[data-r]');i++) await sleep(30);
+    const rows=d.querySelectorAll('#edDialResp tr[data-r]');
+    if(rows.length!==2) fail('the topic shows '+rows.length+' responses');
+    else{
+      if(!rows[1].querySelector('.bad')) fail('an orphaned response is not marked');
+      rows[0].ondblclick();
+      for(let i=0;i<100 && !fakeWg.posts.some(p=>p[0]==='editRecord' && p[1].tag==='INFO');i++) await sleep(30);
+      const op=fakeWg.posts.filter(p=>p[0]==='editRecord' && p[1].tag==='INFO').pop();
+      if(!op || op[1].id!=='101' || JSON.stringify(op[1].plugins)!=='["Lamp.esm"]') fail('a response does not open in the record dialog: '+JSON.stringify(op));
+    }
+    d.querySelector('#edDialTabs [data-kind="Greeting"]').onclick();
+    if(d.querySelector('#edDialTopics tr[data-topic]').dataset.topic!=='Greeting 0') fail('the Greeting tab does not list greetings');
+    d.getElementById('edDial').hidden=true;
   }
   // The Script Edit window: the source, checked as typed, the listing, and saving.
   {

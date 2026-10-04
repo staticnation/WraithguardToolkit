@@ -370,6 +370,22 @@ def _coerce_entry(template: object, entry: object) -> object:
     return coerce(template, entry, None)
 
 
+def _native_read_dialogue(path: Path) -> list[dict[str, Any]]:
+    """A plugin's topics and responses, in file order, through the Rust backend.
+
+    File order matters: a response belongs to the topic before it.
+
+    Args:
+        path: The plugin.
+
+    Returns:
+        The DIAL and INFO records.
+    """
+    import wraithguard_native
+
+    return list(wraithguard_native.plugin_records(path.read_bytes(), keep=[b"DIAL", b"INFO"]))
+
+
 def coerce(current: object, raw: object, kind: str | None) -> object:
     """A value the viewer sent, as the type the field holds.
 
@@ -439,6 +455,7 @@ class EditorSession:
         journal: Path | None = None,
         read: Callable[[Path, str], list[dict[str, Any]]] = _native_read,
         read_all: Callable[[Path], list[dict[str, Any]]] = _native_read_all,
+        read_dialogue: Callable[[Path], list[dict[str, Any]]] = _native_read_dialogue,
     ) -> None:
         """Start a session.
 
@@ -448,6 +465,7 @@ class EditorSession:
             journal: Where the queue is saved after every change (None: nowhere).
             read: Reads one plugin's records of one tag.
             read_all: Reads all of one plugin's records (the Use Report).
+            read_dialogue: Reads one plugin's topics and responses, in file order.
         """
         self.order = [name for name, _ in plugins]
         self._paths = {name.lower(): (name, path) for name, path in plugins}
@@ -456,6 +474,8 @@ class EditorSession:
         self.journal = journal
         self._read = read
         self._read_all = read_all
+        self._read_dialogue = read_dialogue
+        self._dialogue_cache: dict[str, list[dict[str, Any]]] = {}
         self._cache: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         self._masters: dict[str, list[str]] = {}
         self._lock = threading.Lock()
@@ -670,6 +690,111 @@ class EditorSession:
             changed.add((user.record_type, user.key))
         self.save_journal()
         return len(changed) + refs
+
+    # -- dialogue ---------------------------------------------------------------------
+
+    def _dialogue(self, plugin: str) -> list[dict[str, Any]]:
+        """One plugin's topics and responses, in file order (read once)."""
+        low = plugin.lower()
+        with self._lock:
+            hit = self._dialogue_cache.get(low)
+        if hit is not None:
+            return hit
+        found: list[dict[str, Any]] = []
+        name_path = self._paths.get(low)
+        if name_path is not None:
+            try:
+                found = self._read_dialogue(name_path[1])
+            except (OSError, ValueError) as exc:
+                LOG.warning("editor: cannot read %s: %s", name_path[1], exc)
+        with self._lock:
+            self._dialogue_cache[low] = found
+        return found
+
+    def topics(self) -> list[dict[str, Any]]:
+        """Every topic of the load order: ``[{"id", "type", "plugins"}]``, by id."""
+        out: dict[str, dict[str, Any]] = {}
+        for plugin in self.order:
+            for rec in self._dialogue(plugin):
+                if rec.get("type") != "Dialogue":
+                    continue
+                tid = str(rec.get("id") or "")
+                entry = out.setdefault(tid.lower(), {"id": tid, "type": "", "plugins": []})
+                entry["type"] = str(rec.get("dialogue_type") or entry["type"])
+                entry["plugins"].append(self._paths[plugin.lower()][0])
+        return sorted(out.values(), key=lambda t: (t["type"], t["id"].lower()))
+
+    def topic(self, topic_id: str) -> dict[str, Any]:
+        """A topic's responses in the order the engine reads them.
+
+        Args:
+            topic_id: The topic (any case).
+
+        Returns:
+            ``{"id", "type", "responses": [{"id", "text", "speaker", "disposition",
+            "plugins", "winner", "orphan"}]}``: ``speaker`` the response's conditions in
+            a few words, ``orphan`` a response whose predecessor is not in the topic
+            (it goes last, :mod:`.dialogue`).
+
+        Raises:
+            EditorError: For a topic no plugin has.
+        """
+        from wraithguard.patch.dialogue import orphans, responses_by_topic, topic_order
+
+        want = topic_id.strip().lower()
+        defs: list[Any] = []
+        latest: dict[str, tuple[str, dict[str, Any]]] = {}
+        spelled, kind = "", ""
+        for plugin in self.order:
+            name = self._paths[plugin.lower()][0]
+            records = self._dialogue(plugin)
+            for tid, found in responses_by_topic(records, name).items():
+                if tid.lower() == want:
+                    spelled = spelled or tid
+                    defs.extend(found)
+            current = ""
+            for rec in records:
+                if rec.get("type") == "Dialogue":
+                    current = str(rec.get("id") or "").lower()
+                    if current == want:
+                        kind = str(rec.get("dialogue_type") or kind)
+                elif rec.get("type") == "DialogueInfo" and current == want:
+                    latest[str(rec.get("id") or "")] = (name, rec)
+        if not spelled and not kind:
+            raise EditorError(f"no plugin of this load order has the topic {topic_id}")
+        order = topic_order(defs)
+        lost = set(orphans(order))
+        rows = []
+        for placed in order:
+            winner, rec = latest.get(placed.key, ("", {}))
+            raw_data = rec.get("data")
+            data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
+            bits = [
+                f"{label} {rec[k]}"
+                for k, label in (
+                    ("speaker_id", "who:"),
+                    ("speaker_race", "race:"),
+                    ("speaker_class", "class:"),
+                    ("speaker_faction", "faction:"),
+                    ("speaker_cell", "cell:"),
+                    ("player_faction", "player faction:"),
+                )
+                if rec.get(k)
+            ]
+            if rec.get("filters"):
+                bits.append(f"{len(rec['filters'])} condition(s)")
+            rows.append(
+                {
+                    "id": placed.key,
+                    "text": str(rec.get("text") or ""),
+                    "speaker": ", ".join(bits),
+                    "disposition": data.get("disposition"),
+                    "plugins": list(placed.plugins),
+                    "winner": winner,
+                    "orphan": placed.key in lost,
+                }
+            )
+        return {"id": spelled or topic_id, "type": kind, "responses": rows}
 
     # -- scripts ----------------------------------------------------------------------
 

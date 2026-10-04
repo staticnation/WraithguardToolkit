@@ -82,6 +82,10 @@ body.wgEditMode #edDock{display:flex;flex-direction:column;width:460px;flex:0 0 
 #edDlg{left:auto;right:132px;width:460px}
 #edUsesPanel{left:auto;right:604px;width:460px;max-height:70vh}
 #edLayers{left:auto;right:604px;width:320px}
+#edDial{left:auto;right:132px;width:720px;max-height:80vh}
+#edDial .edSplit{display:grid;grid-template-columns:220px 1fr;gap:6px;max-height:62vh}
+#edDial .edTable{overflow:auto;max-height:62vh}
+#edDial tr[data-topic],#edDial tr[data-r]{cursor:pointer}
 #edScript{left:auto;right:132px;width:640px;max-height:82vh}
 #edScriptText{width:100%;box-sizing:border-box;height:46vh;font:12px/1.4 ui-monospace,Consolas,monospace;tab-size:4;background:var(--bg);color:var(--tx);border:1px solid var(--bd,#444)}
 #edScriptFind{max-height:16vh;overflow:auto;margin:4px 0}
