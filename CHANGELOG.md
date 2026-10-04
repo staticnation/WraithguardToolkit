@@ -103,6 +103,17 @@
   `wraithguard/patch/editor.py`), which touches the pool only on its Tk thread. Opened
   without Wraithguard it browses, and says editing needs it. References (moving them, the
   reference dialog) come next: see the TODO.
+- **Changed references are written the way the engine merges cells**
+  (`wraithguard/patch/refedit.py`, for the Editor's reference editing). From greatness7's
+  merge_to_master, which implements the engine's rule: a cell's references are keyed by
+  the file that created them (its position in *each plugin's own* master list) and their
+  index, and a later plugin's CELL record is merged in - its references added by key,
+  every other reference left alone. So the patch carries a CELL record with the winning
+  cell's own fields and only the changed references, each as the load order resolves it
+  with the change applied, keyed for the patch's masters; not the cell's whole reference
+  list, which would re-assert every reference that version lists. Checked by writing such
+  a patch and merging the load order with merge_to_master itself (embedded in the
+  backend): the changed reference changes, the cell's other references and fields do not.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

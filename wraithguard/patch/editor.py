@@ -59,8 +59,9 @@ def tag_of(record_type: str) -> str:
 
 
 #: Fields the editor shows but does not change. ``references`` is one list per cell
-#: (the diff panel keeps lists whole), and writing it would override every reference
-#: in the cell, not the one changed: references get their own editing, not this.
+#: (the diff panel keeps lists whole): writing it would re-assert every reference that
+#: version of the cell lists, freezing them against later mods, to change one. A
+#: changed reference is written alone instead (:mod:`.refedit`, merge_to_master's rule).
 READ_ONLY: Final[frozenset[str]] = frozenset({"references"})
 
 _JOURNAL_VERSION: Final = 1

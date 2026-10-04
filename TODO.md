@@ -27,9 +27,13 @@ pool (`wraithguard/patch/editor.py`, `gui/editorlink.py`), the pool journalled s
 loses nothing. Still to do, roughly in this order:
 - **References**: move/rotate/scale in the render window (the CS's drag, Z/X axis locks,
   F to drop), the reference dialog (position, rotation, scale, ownership, lock, count).
-  Writing them needs a CELL patch carrying only the changed references, their
-  `mast_index` remapped to the patch's masters - not the cell's whole `references` list,
-  which the pool keeps as one value and which would override every reference in the cell.
+  The writer is done and checked against merge_to_master (`wraithguard/patch/refedit.py`:
+  a CELL record with the winning cell's own fields and only the changed references, keyed
+  by the creating file's position in the patch's masters). Still to do: a `RefEdit` kind
+  in the patch pool and `build_record_patch` (combined with field changes to the same
+  cell), the render window's gizmo and the reference dialog, and new references
+  (`next_new_index`, carried-forward builds included) and OpenMW's LUAL instance entries,
+  which name references the same way and must be remapped with them.
 - New records (Insert, or "new from this one" with a new id), deleting, renaming (with
   the CS's "used in N places" warning); placing a record from the Object Window into the
   render window (drag and drop).
