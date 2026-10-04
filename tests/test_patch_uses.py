@@ -135,3 +135,68 @@ def test_search_and_replace_repoints_live_uses(tmp_path: Path):
     assert fields[("LeveledItem", "l_loot")] == [["gold_005", 1], ["x", 2]]
     assert fields[("Container", "chest")] == [[5, "gold_005"]]
     assert s.queue.base("Container", "chest") == "Morrowind.esm"
+
+
+def test_the_native_scan_agrees_with_the_python_walk(tmp_path):
+    """Real plugin files: the Rust Use Report and the Python one give the same uses."""
+    import json
+
+    import pytest
+
+    native = pytest.importorskip("wraithguard_native")
+    if not hasattr(native, "use_report"):
+        pytest.skip("the backend has no use_report")
+    from wraithguard.esp.json import record_to_json
+    from wraithguard.esp.records.cell import Cell
+    from wraithguard.esp.records.container import Container
+    from wraithguard.esp.records.leveleditem import LeveledItem
+    from wraithguard.esp.records.miscitem import MiscItem
+    from wraithguard.esp.records.script import Script
+    from wraithguard.land.emit import build_plugin
+    from wraithguard.patch.uses import native_use_report
+
+    def rec(cls: Any, **fields: Any) -> dict[str, Any]:
+        return {**record_to_json(cls()), **fields}
+
+    ref = {
+        "mast_index": 0,
+        "refr_index": 1,
+        "id": "gold_001",
+        "temporary": True,
+        "translation": [0.0, 0.0, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+    }
+    base = [
+        rec(MiscItem, id="gold_001", name="Gold"),
+        rec(LeveledItem, id="l_loot", items=[["Gold_001", 1], ["other", 2]]),
+        rec(Container, id="chest", name="Chest", inventory=[[5, "gold_001"]]),
+        rec(Script, id="payme", text="begin payme\nplayer->additem gold_001 5\nend"),
+        rec(Cell, name="Vault", data={"flags": "IS_INTERIOR", "grid": [0, 0]}, references=[ref]),
+    ]
+    fix = [rec(LeveledItem, id="l_loot", items=[["other", 2]])]
+    paths = []
+    for name, recs, masters in (
+        ("Base.esm", base, [("Morrowind.esm", 1)]),
+        ("Fix.esp", fix, [("Morrowind.esm", 1), ("Base.esm", 1000)]),
+    ):
+        doc = build_plugin(recs, masters, description="t")
+        p = tmp_path / name
+        p.write_bytes(native.plugin_records_bytes(json.dumps(doc)))
+        paths.append((name, p))
+    other = tmp_path / "Other.esp"  # holds no "gold_001" at all: never parsed
+    empty = build_plugin([], [("Morrowind.esm", 1)], description="t")
+    other.write_bytes(native.plugin_records_bytes(json.dumps(empty)))
+    paths.append(("Other.esp", other))
+
+    def key(u):
+        return (u.plugin, u.record_type, u.key, tuple(u.paths), u.count, u.wins)
+
+    fast = native_use_report(paths, "MiscItem", "GOLD_001")
+    slow = use_report(
+        paths, lambda p: native.plugin_records(p.read_bytes()), "MiscItem", "GOLD_001"
+    )
+    assert fast is not None
+    assert sorted(map(key, fast)) == sorted(map(key, slow))
+    got = {(u.record_type, u.key): u for u in fast}
+    assert got[("LeveledItem", "l_loot")].wins is False  # Fix.esp took it out
+    assert got[("Cell", "Vault")].count == 1 and got[("Script", "payme")].paths == ["text"]

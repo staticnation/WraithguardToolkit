@@ -545,8 +545,8 @@ class EditorSession:
     def uses(self, found: Found) -> dict[str, Any]:
         """The record's Use Report: every record of the load order that names it.
 
-        Reads every plugin whole, so it is slow on a large load order; it runs where
-        :meth:`find` does, off the queue's thread.
+        The Rust backend scans the plugins (only those whose bytes hold the id are
+        parsed); it runs where :meth:`find` does, off the queue's thread.
 
         Args:
             found: The record.
@@ -556,10 +556,16 @@ class EditorSession:
             "wins"}], "live", "cells"}`` - ``live`` the uses in versions the load order
             uses, ``cells`` the references placed.
         """
-        from wraithguard.patch.uses import use_report
+        from wraithguard.patch.uses import native_use_report, use_report
 
         plugins = [self._paths[n.lower()] for n in self.order]
-        found_uses = use_report(plugins, self._read_all, found.record_type, found.key)
+        found_uses = (
+            native_use_report(plugins, found.record_type, found.key)
+            if self._read_all is _native_read_all
+            else None
+        )
+        if found_uses is None:
+            found_uses = use_report(plugins, self._read_all, found.record_type, found.key)
         rows = [
             {
                 "plugin": u.plugin,

@@ -169,8 +169,10 @@
   names the record - leveled lists, inventories, spell lists, enchantments, sounds,
   dialogue filters, scripts (as a word in their text) - and every cell it is placed in,
   with the plugin each is in; a use in a version a later plugin overrides is greyed. A
-  record opens in the dialog, a cell in the render window. Wraithguard reads the plugins
-  side by side (`wraithguard/patch/uses.py`), walking only records whose text holds the id.
+  record opens in the dialog, a cell in the render window. The scan is the Rust backend's
+  (`native/src/uses.rs`, on greatness7's tes3 crate): each plugin mapped and parsed only
+  when its bytes hold the id - most of a load order is passed over at the speed of a byte
+  scan - on threads, with which version wins told from the files' record framing.
 - **List fields are edited in the record dialog**: an inventory, a spell list, a leveled
   list's entries, AI packages - a table with a row per entry (a column per value of a row,
   an entry's JSON for a group), Add and ×. Wraithguard checks each entry against the shape

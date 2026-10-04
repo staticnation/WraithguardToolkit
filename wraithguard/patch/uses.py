@@ -1,5 +1,10 @@
 """Where a record is used: the Construction Set's Use Report, over a load order.
 
+The scan is the Rust backend's (``wraithguard_native.use_report``, ``native/src/uses.rs``):
+plugins mapped, parsed only when their bytes hold the id, on threads. What is here is
+the same report over records already in Python - for a caller that reads plugins its
+own way (the tests do), and the rule the native one follows.
+
 Every plugin is read whole and every record searched for the id: as a value anywhere in
 it (a leveled list's entry, an inventory's item, a spell list, an enchantment, a sound,
 a dialogue filter, a reference placed in a cell), and as a word in a script's text. A
@@ -158,4 +163,32 @@ def use_report(
     return out
 
 
-__all__ = ["Use", "use_report", "uses_in"]
+def native_use_report(
+    plugins: Sequence[tuple[str, Path]], record_type: str, rid: str
+) -> list[Use] | None:
+    """The Use Report by the Rust backend, or None when it is not built.
+
+    Args:
+        plugins: The load order, ``(name, path)``.
+        record_type: The used record's type.
+        rid: The id.
+
+    Returns:
+        The uses, in load order, each marked with whether its version wins.
+    """
+    try:
+        import wraithguard_native
+    except ImportError:
+        return None
+    scan = getattr(wraithguard_native, "use_report", None)
+    if scan is None:
+        return None
+    names = [name for name, _path in plugins]
+    found = scan([str(path) for _name, path in plugins], record_type, rid)
+    return [
+        Use(names[i], kind, key, list(paths), count, wins)
+        for i, kind, _tag, key, paths, count, wins in found
+    ]
+
+
+__all__ = ["Use", "native_use_report", "use_report", "uses_in"]

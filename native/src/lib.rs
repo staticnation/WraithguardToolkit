@@ -15,6 +15,8 @@
 //!   library (was the merge in `wraithguard/merge/`).
 //! - `nif`: mesh summaries, the mesh viewer's block panel and field edits (was
 //!   wraithguard/nif's reader, geometry and editor).
+//! - `uses`: the editor's Use Report, every record of a load order naming an id (was
+//!   `wraithguard/patch/uses.py`'s scan).
 
 use pyo3::prelude::*;
 
@@ -49,6 +51,7 @@ pub mod lint;
 pub mod lua;
 pub mod merge;
 pub mod nif;
+pub mod uses;
 
 /// The extension module. `gil_used = false`: nothing here relies on the GIL
 /// (every class is immutable after construction), so free-threaded Python keeps
@@ -65,5 +68,6 @@ fn wraithguard_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     lint::register(m)?;
     lua::register(m)?;
     merge::register(m)?;
+    uses::register(m)?;
     Ok(())
 }
