@@ -372,6 +372,7 @@ async function dragging(E, R, lamp, fail, sleep){
       if(!t || !near(t.value[0], W[0]+100) || !near(t.value[1], W[1]) || !near(t.value[2], W[2]))
         fail('the slide was not sent as the moved position: '+JSON.stringify(t)+' from '+JSON.stringify(W));
       if(!(E.live.get(lamp.refKey.toLowerCase())||{}).translation) fail('the moved lamp is not drawn moved');
+      if(!E.editedCells.has('(9, 9)')) fail('the Cell View does not know the cell has a changed reference');
     }
     if(!E.selected()) await Ori.show(R.pickables.find(p=>p.refKey===lamp.refKey)||lamp);
     ex=L[0];
@@ -505,6 +506,13 @@ async function editor(w, R, fail, done, sleep){
     const sent=fakeWg.posts.find(p=>p[0]==='editSet');
     if(!sent || sent[1].value!==512 || sent[1].path!=='data.radius' || sent[1].tag!=='LIGH') fail('the change was not sent: '+JSON.stringify(sent));
     if(!E.isEdited('lamp_lit')) fail('the Object Window does not mark the changed record');
+    // Patch only: the Object Window narrowed to what the patch changes, the tab counting it.
+    E.filter=''; d.getElementById('edPatchOnly').checked=true; d.getElementById('edPatchOnly').onchange({target:d.getElementById('edPatchOnly')});
+    const shown=[...d.querySelectorAll('#edTable tbody tr')].map(tr=>tr.dataset.id);
+    if(shown.length!==1 || shown[0]!=='lamp_lit') fail('Patch only shows '+JSON.stringify(shown));
+    if(!d.querySelector('#edTabs [data-tag="LIGH"].edited')) fail('the Light tab does not count the changed record');
+    d.getElementById('edPatchOnly').checked=false; d.getElementById('edPatchOnly').onchange({target:d.getElementById('edPatchOnly')});
+    E.filter='lamp_lit'; E.drawRows();
     if(!d.querySelector('#edDlgBody tr.edited [data-revert="data.radius"]')) fail('the dialog does not show the waiting change');
     await E.showPending();
     if(!/data\.radius/.test(d.getElementById('edPendBody').textContent)) fail('the pending list does not have the change');

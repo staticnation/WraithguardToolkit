@@ -6,6 +6,9 @@
      (Ctrl+F), sortable columns - id, name, model, the plugins that define it (the last
      wins) and how many are placed - and the records with changes waiting marked.
      Double-click opens one.
+   - "Patch only" (the active file, as the Construction Set shows the plugin it edits):
+     the Object Window narrowed to the records the patch changes or makes, the tabs
+     counting them, and the Cell View marking the cells whose references it changes.
    - The Cell View: every cell, and the references in the one selected. Double-click a
      cell to open it in the render window; a reference to go to it, framed and selected.
    - The record dialog: each field (the conflict viewer's dotted paths), its value in
@@ -55,6 +58,8 @@ const WgEditor={
   cells:null, cellFilter:'', cellSel:null, refs:[],
   edited:new Set(),          // "TAG:id lower" with changes waiting in the pool
   made:[],                   // records the patch makes ("Make a copy as"), from the pool
+  patchOnly:false,           // the Object Window shows only what the patch changes or makes
+  editedCells:new Set(),     // cell keys (lower) whose references the patch changes or adds
   record:null,               // the dialog's {tag, id, plugins}
   refRec:null,               // or, for a placed object, {cell, origin, refr, plugins}
   live:new Map(),            // "origin:refr" lower -> pending changes, drawn in place
@@ -139,6 +144,7 @@ const WgEditor={
           '<button class="btn sm" id="edPendBtn" title="The changes waiting in Wraithguard\'s patch pool">Pending</button></div>'+
         '<div class="edTabs" id="edTabs"></div>'+
         '<div class="edBar"><input class="fld" id="edFilter" placeholder="Filter: id, name or model (Ctrl+F)" spellcheck="false">'+
+          '<label class="from" title="Only the records the patch changes or makes - the active file"><input type="checkbox" id="edPatchOnly"> Patch only</label>'+
           '<span class="from" id="edCount"></span></div>'+
         '<div class="edTable" id="edTable"></div>'+
       '</div>'+
@@ -151,6 +157,7 @@ const WgEditor={
     main.insertBefore(d, main.firstChild);
     this.el=d;
     d.querySelector('#edFilter').oninput=e=>{ this.filter=e.target.value; this.drawRows(); };
+    d.querySelector('#edPatchOnly').onchange=e=>{ this.patchOnly=e.target.checked; this.drawRows(); };
     d.querySelector('#edCellFilter').oninput=e=>{ this.cellFilter=e.target.value; this.drawCells(); };
     d.querySelector('#edPendBtn').onclick=()=>this.showPending();
     d.querySelector('#edLayersBtn').onclick=()=>this.showLayers();
@@ -158,9 +165,11 @@ const WgEditor={
 
   fillTabs(){
     const t=this.el.querySelector('#edTabs');
+    const changed={};
+    for(const k of this.edited){ const tag=k.slice(0,4); changed[tag]=(changed[tag]||0)+1; }
     t.innerHTML=this.tags.map(([tag,n])=>
-      '<button class="btn sm'+(tag===this.tag?' on':'')+'" data-tag="'+escHtml(tag)+'" title="'+escHtml(tag)+' - '+n+' records">'+
-      escHtml(this.NAMES[tag]||tag)+'</button>').join('');
+      '<button class="btn sm'+(tag===this.tag?' on':'')+(changed[tag]?' edited':'')+'" data-tag="'+escHtml(tag)+'" title="'+escHtml(tag)+' - '+n+' records'+(changed[tag]? ', '+changed[tag]+' in the patch' : '')+'">'+
+      escHtml(this.NAMES[tag]||tag)+(changed[tag]? ' <span class="from">'+changed[tag]+'</span>' : '')+'</button>').join('');
     t.querySelectorAll('[data-tag]').forEach(b=>b.onclick=()=>{
       this.tag=b.dataset.tag;
       t.querySelectorAll('.on').forEach(x=>x.classList.remove('on')); b.classList.add('on');
@@ -183,6 +192,7 @@ const WgEditor={
     // The patch's own records of this type, with the load order's.
     const mine=this.made.filter(p=>p.tag===this.tag).map(p=>[p.id, p.made.name||'', p.made.mesh||'', [], 0]);
     let rows=mine.length? this.rows.concat(mine) : this.rows;
+    if(this.patchOnly) rows=rows.filter(r=>this.isEdited(r[0]));
     if(f) rows=rows.filter(r=>r[0].toLowerCase().includes(f) || r[1].toLowerCase().includes(f) || r[2].toLowerCase().includes(f));
     const c=this.sort.col, dir=this.sort.dir;
     const key=r=> c===3? r[3].length : c===4? r[4] : c===5? (this.isEdited(r[0])?1:0) : String(r[c]).toLowerCase();
@@ -244,7 +254,9 @@ const WgEditor={
     let h='<table class="edT"><thead><tr><th>Cell</th></tr></thead><tbody>';
     for(const c of list.slice(0,this.ROW_CAP)){
       const k=c.kind==='int'? 'int:'+c.name : c.x+','+c.y;
-      h+='<tr data-cell="'+escHtml(k)+'"'+(this.cellSel===k?' class="sel"':'')+'><td>'+escHtml(c.label)+'</td></tr>';
+      const ed=this.editedCells.has(c.kind==='int'? String(c.name).toLowerCase() : '('+c.x+', '+c.y+')');
+      const cls=[this.cellSel===k? 'sel' : '', ed? 'edited' : ''].filter(Boolean).join(' ');
+      h+='<tr data-cell="'+escHtml(k)+'"'+(cls? ' class="'+cls+'"' : '')+(ed? ' title="The patch changes or adds references here"' : '')+'><td>'+escHtml(c.label)+'</td></tr>';
     }
     h+='</tbody></table>';
     if(list.length>this.ROW_CAP) h+='<div class="hint">'+(list.length-this.ROW_CAP)+' more - filter to narrow.</div>';
@@ -1317,6 +1329,10 @@ const WgEditor={
     try{ list=await this.ask('editPending', {}); }catch(_){ return []; }
     this.edited=new Set(list.filter(p=>p.tag).map(p=>p.tag+':'+String(p.id).toLowerCase()));
     this.made=list.filter(p=>p.made && p.tag);
+    const cellsBefore=[...this.editedCells].sort().join('|');
+    this.editedCells=new Set(list.filter(p=>p.ref||p.new).map(p=>String((p.ref||p.new).cell).toLowerCase()));
+    if(this.el && this.tags.length) this.fillTabs();
+    if(this.el && this.cells && cellsBefore!==[...this.editedCells].sort().join('|')) this.drawCells();
     this.setLive(list);
     const b=this.el && this.el.querySelector('#edPendBtn');
     if(b) b.textContent=list.length? 'Pending ('+list.length+')' : 'Pending';

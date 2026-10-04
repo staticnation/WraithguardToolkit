@@ -49,7 +49,7 @@ loses nothing. Still to do, roughly in this order:
   pool). Still to do: a compiler, so Morrowind.exe gets the changed bytecode too (OpenMW
   compiles the text itself); checks that know each function's arguments (the opcode table
   has their shapes). Dialogue: still to do.
-- An "active file" view: the patch being built, as the CS shows the plugin it edits.
+- Active file view: done ("Patch only" in the Object Window, tabs counting, cells marked).
 
 ## Controllers
 

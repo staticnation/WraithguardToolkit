@@ -192,6 +192,9 @@
   table); a finding selects its line. The compiled listing beside it, and "Save to the
   patch". The toolkit writes no bytecode, and the window says what that means: OpenMW
   compiles the text, Morrowind.exe runs the compiled data the record carries.
+- **The patch as the Editor's active file**: "Patch only" narrows the Object Window to the
+  records the patch changes or makes, each tab counts its changed records, and the Cell
+  View marks the cells whose references the patch changes or adds.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time
