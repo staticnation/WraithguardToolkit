@@ -1276,20 +1276,38 @@ const WgEditor={
     catch(e){ box.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return null; }
     this.dialTopic=t;
     const journal=t.type==='Journal';
-    box.innerHTML='<table class="edT"><thead><tr><th>#</th><th>'+(journal? 'Index' : 'Who')+'</th><th>Text</th><th>From</th></tr></thead><tbody>'+
+    box.innerHTML='<div class="orirow"><span class="v"><button class="btn sm" id="edRespTop" title="A new response at the top of the topic, made by the patch">Add at top</button></span></div>'+
+      '<table class="edT"><thead><tr><th>#</th><th>'+(journal? 'Index' : 'Who')+'</th><th>Text</th><th>From</th><th></th></tr></thead><tbody>'+
       t.responses.map((r,i)=>'<tr data-r="'+i+'"'+(this.isEditedInfo(r.id)? ' class="edited"' : '')+' title="'+escHtml(r.text)+'">'+
         '<td class="num">'+(i+1)+(r.orphan? ' <span class="bad" title="Its predecessor is not in the topic: it is read last">!</span>' : '')+'</td>'+
         '<td>'+escHtml(journal? String(r.disposition==null? '' : r.disposition) : r.speaker)+'</td>'+
         '<td>'+escHtml(r.text.length>90? r.text.slice(0,90)+'…' : r.text)+'</td>'+
-        '<td class="from" title="'+escHtml(r.plugins.join(' > '))+'">'+escHtml(r.winner)+'</td></tr>').join('')+'</tbody></table>';
+        '<td class="from" title="'+escHtml(r.plugins.join(' > '))+'">'+escHtml(r.winner)+'</td>'+
+        '<td><button class="btn dim ic" data-after="'+escHtml(r.id)+'" title="A new response after this one, made by the patch">+</button></td></tr>').join('')+'</tbody></table>';
     box.querySelectorAll('tr[data-r]').forEach(tr=>{
       const r=t.responses[+tr.dataset.r];
-      tr.ondblclick=()=>this.openRecord('INFO', r.id, r.plugins);
+      tr.ondblclick=()=>this.openRecord('INFO', r.id, r.winner==='(this patch)'? null : r.plugins);
     });
+    box.querySelector('#edRespTop').onclick=()=>this.addResponse(t.id, '');
+    box.querySelectorAll('[data-after]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); this.addResponse(t.id, b.dataset.after); });
     return t;
   },
 
   isEditedInfo(id){ return this.edited.has('INFO:'+String(id).toLowerCase()); },
+
+  /** A new response in a topic, after another (or at the top): made by the patch, opened
+   *  in the record dialog, and shown in its place. */
+  async addResponse(topic, after){
+    let v;
+    try{ v=await this.ask('editNewResponse', {topic, after}); }
+    catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); return null; }
+    this.record={tag:'INFO', id:v.id, plugins:null};
+    this.dialog().hidden=false;
+    this.drawRecord(v);
+    await this.refreshPending();
+    await this.openTopic(topic);
+    return v;
+  },
 
   /* ---- the Script Edit window ------------------------------------------------------------ */
 

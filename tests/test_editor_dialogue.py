@@ -64,3 +64,55 @@ def test_a_topic_in_engine_order(tmp_path):
     assert rows["7"]["orphan"] and not rows["1"]["orphan"]
     with pytest.raises(EditorError, match="no plugin"):
         _session(tmp_path).topic("nothing")
+
+
+def test_a_new_response_goes_where_it_was_put(tmp_path):
+    s = _session(tmp_path)
+    made = s.new_response("rumors", "5")  # after "Inserted.", before "Second, changed."
+    rec = made.record
+    assert made.new and rec["prev_id"] == "5" and rec["next_id"] == "2"
+    assert rec["data"]["dialogue_type"] == "Topic"
+    s.set_field(s.find("INFO", made.key), "text", "Brand new.")  # type: ignore[arg-type]
+    order = [r["id"] for r in s.topic("Rumors")["responses"]]
+    assert order == ["1", "5", made.key, "2", "7"]
+    assert s.topic("Rumors")["responses"][2]["text"] == "Brand new."
+    top = s.new_response("Rumors")
+    assert top.record["prev_id"] == "" and top.record["next_id"] == "1"
+    assert s.topic("Rumors")["responses"][0]["id"] == top.key
+    queued = s.queue.new_record("DialogueInfo", made.key)
+    assert queued is not None and queued.topic == "Rumors" and queued.source == "Mod.esp"
+    with pytest.raises(EditorError, match="not a response"):
+        s.new_response("Rumors", "nope")
+
+
+def test_a_new_response_is_written_inside_its_topic(tmp_path):
+    from wraithguard.patch.records import NewRecord
+    from wraithguard.patch.service import build_record_patch
+
+    plugins = {"Mod.esp": [{"type": "Header", "masters": []}, *PLUGINS["Mod.esp"]]}
+    made = NewRecord(
+        "DialogueInfo",
+        "999",
+        {"type": "DialogueInfo", "id": "999", "prev_id": "5", "text": "New."},
+        "Mod.esp",
+        "Rumors",
+    )
+    captured: dict[str, Any] = {}
+    from wraithguard.patch import service
+
+    real = service._write
+    service._write = lambda doc, _t, _c: captured.setdefault("doc", doc)  # type: ignore[assignment]
+    try:
+        build_record_patch(
+            [], plugins, ["Mod.esp"], {"Mod.esp": 1}, "", tmp_path / "p.esp", new_records=[made]
+        )
+    except FileNotFoundError:
+        pass  # the stand-in writer wrote nothing to measure
+    finally:
+        service._write = real  # type: ignore[assignment]
+    kinds = [
+        (r["type"], r.get("id"))
+        for r in captured["doc"]
+        if r["type"] in ("Dialogue", "DialogueInfo")
+    ]
+    assert kinds == [("Dialogue", "rumors"), ("DialogueInfo", "999")]

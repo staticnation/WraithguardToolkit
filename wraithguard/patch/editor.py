@@ -31,7 +31,7 @@ from __future__ import annotations
 import copy
 import json
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
 
 from wraithguard.logging_setup import get_logger
@@ -699,9 +699,7 @@ class EditorSession:
                     continue
                 record = copy.deepcopy(dict(made.record))
                 set_at(record, field, value)
-                self.queue.add_new_record(
-                    NewRecord(made.record_type, made.key, record, made.source)
-                )
+                self.queue.add_new_record(replace(made, record=record))
             else:
                 self.queue.add_field(
                     user.record_type, user.key, FieldValue(path=field, value=value)
@@ -759,7 +757,7 @@ class EditorSession:
         Raises:
             EditorError: For a topic no plugin has.
         """
-        from wraithguard.patch.dialogue import orphans, responses_by_topic, topic_order
+        from wraithguard.patch.dialogue import Response, orphans, responses_by_topic, topic_order
 
         want = topic_id.strip().lower()
         defs: list[Any] = []
@@ -780,6 +778,11 @@ class EditorSession:
                         kind = str(rec.get("dialogue_type") or kind)
                 elif rec.get("type") == "DialogueInfo" and current == want:
                     latest[str(rec.get("id") or "")] = (name, rec)
+        for made in self.queue.new_records:
+            if made.record_type == "DialogueInfo" and made.topic.lower() == want:
+                rec = dict(made.record)
+                defs.append(Response(made.key, str(rec.get("prev_id") or ""), PATCH))
+                latest[made.key] = (PATCH, rec)
         if not spelled and not kind:
             raise EditorError(f"no plugin of this load order has the topic {topic_id}")
         order = topic_order(defs)
@@ -815,6 +818,52 @@ class EditorSession:
                 }
             )
         return {"id": spelled or topic_id, "type": kind, "responses": rows}
+
+    def new_response(self, topic_id: str, after: str = "") -> Found:
+        """Add a response to a topic, after another (or at the top), in the patch.
+
+        The engine puts a response it has not seen straight after the one its
+        ``prev_id`` names, and the patch loads last, so that is the whole of placing it;
+        ``next_id`` names the response that followed, as the Construction Set writes it.
+        It is written inside its topic (the winning version of the topic's record).
+
+        Args:
+            topic_id: The topic (any case).
+            after: The response it follows, or empty for the top of the topic.
+
+        Returns:
+            The response, as :meth:`find` finds it (``INFO``, edited in the dialog).
+
+        Raises:
+            EditorError: A topic no plugin has, or ``after`` not one of its responses.
+        """
+        import secrets
+
+        from wraithguard.esp.json import _by_name, record_to_json
+
+        view = self.topic(topic_id)
+        ids = [r["id"] for r in view["responses"]]
+        if after and after not in ids:
+            raise EditorError(f"{after} is not a response of {view['id']}")
+        holder = next(
+            (t for t in self.topics() if t["id"].lower() == topic_id.strip().lower()), None
+        )
+        source = holder["plugins"][-1] if holder else ""
+        if after:
+            at = ids.index(after) + 1
+            following = ids[at] if at < len(ids) else ""
+        else:
+            following = ids[0] if ids else ""
+        rid = str(secrets.randbelow(9 * 10**18) + 10**18)
+        while rid in ids:
+            rid = str(secrets.randbelow(9 * 10**18) + 10**18)
+        record = record_to_json(_by_name()["DialogueInfo"]())
+        record.update({"id": rid, "prev_id": after, "next_id": following})
+        if isinstance(record.get("data"), dict) and view["type"]:
+            record["data"]["dialogue_type"] = view["type"]
+        self.queue.add_new_record(NewRecord("DialogueInfo", rid, record, source, view["id"]))
+        self.save_journal()
+        return Found("INFO", "DialogueInfo", rid, ((PATCH, record),), new=True)
 
     # -- scripts ----------------------------------------------------------------------
 
@@ -954,7 +1003,7 @@ class EditorSession:
                 raise EditorError(f"{found.key} is no longer in the patch")
             record = copy.deepcopy(dict(made.record))
             set_at(record, path, value)
-            self.queue.add_new_record(NewRecord(made.record_type, made.key, record, made.source))
+            self.queue.add_new_record(replace(made, record=record))
             self.save_journal()
             return
         if value == current:
@@ -1542,7 +1591,13 @@ def save_queue(queue: PatchQueue, journal: Path) -> None:
             for e in queue.ref_edits
         ],
         "made": [
-            {"type": m.record_type, "key": m.key, "record": dict(m.record), "source": m.source}
+            {
+                "type": m.record_type,
+                "key": m.key,
+                "record": dict(m.record),
+                "source": m.source,
+                "topic": m.topic,
+            }
             for m in queue.new_records
         ],
         "new": [
@@ -1632,7 +1687,13 @@ def restore_queue(queue: PatchQueue, journal: Path) -> int:
         for m in doc.get("made") or []:
             if queue.new_record(m["type"], m["key"]) is None:
                 queue.add_new_record(
-                    NewRecord(m["type"], m["key"], dict(m["record"]), str(m.get("source") or ""))
+                    NewRecord(
+                        m["type"],
+                        m["key"],
+                        dict(m["record"]),
+                        str(m.get("source") or ""),
+                        str(m.get("topic") or ""),
+                    )
                 )
                 n += 1
         placed = {p.ident for p in queue.new_refs}

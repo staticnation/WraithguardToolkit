@@ -76,6 +76,10 @@ const fakeServer=http.createServer((req,res)=>{
     else if(name==='editTopic') out={id:b.topic, type:'Topic', responses:[
       {id:'101', text:'First.', speaker:'race: Dark Elf', disposition:0, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false},
       {id:'102', text:'Orphaned.', speaker:'', disposition:0, plugins:['Mod.esp'], winner:'Mod.esp', orphan:true}]};
+    else if(name==='editNewResponse'){
+      fakeWg.newResp=b;
+      out=Object.assign(fakeView(), {tag:'INFO', type:'DialogueInfo', id:'777', new:true, winner:'(this patch)', plugins:['(this patch)']});
+    }
     else if(name==='editScript'){
       const text=b.text!=null? b.text : 'begin payme\nend';
       out={id:'payme', text, compiled:true, queued:false, listing:'0000  Return',
@@ -492,7 +496,7 @@ async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editNewResponse','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -716,6 +720,17 @@ async function editor(w, R, fail, done, sleep){
       const op=fakeWg.posts.filter(p=>p[0]==='editRecord' && p[1].tag==='INFO').pop();
       if(!op || op[1].id!=='101' || JSON.stringify(op[1].plugins)!=='["Lamp.esm"]') fail('a response does not open in the record dialog: '+JSON.stringify(op));
     }
+    // A new response after the first, and one at the top.
+    d.querySelector('#edDialResp [data-after="101"]').onclick({stopPropagation(){}});
+    for(let i=0;i<100 && !fakeWg.newResp;i++) await sleep(30);
+    if(!fakeWg.newResp || fakeWg.newResp.topic!=='Rumors' || fakeWg.newResp.after!=='101') fail('adding a response after another sent '+JSON.stringify(fakeWg.newResp));
+    for(let i=0;i<100 && !/777/.test(d.getElementById('edDlgTitle').textContent);i++) await sleep(30);
+    if(!/777/.test(d.getElementById('edDlgTitle').textContent)) fail('the new response is not in the record dialog');
+    fakeWg.newResp=null;
+    for(let i=0;i<100 && !d.getElementById('edRespTop');i++) await sleep(30);
+    d.getElementById('edRespTop').onclick();
+    for(let i=0;i<100 && !fakeWg.newResp;i++) await sleep(30);
+    if(!fakeWg.newResp || fakeWg.newResp.after!=='') fail('Add at top sent '+JSON.stringify(fakeWg.newResp));
     d.querySelector('#edDialTabs [data-kind="Greeting"]').onclick();
     if(d.querySelector('#edDialTopics tr[data-topic]').dataset.topic!=='Greeting 0') fail('the Greeting tab does not list greetings');
     d.getElementById('edDial').hidden=true;

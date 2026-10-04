@@ -236,7 +236,11 @@ def build_record_patch(
             )
         for m in new_records:
             say(f"  {m.record_type} {m.key}: made by the patch")
-            records.append(copy.deepcopy(dict(m.record)))
+            made_topic = _topic_named(records_by_plugin.get(m.source) or [], m.topic)
+            if m.record_type == INFO_TYPE and made_topic is not None:
+                _place_in(records, copy.deepcopy(dict(m.record)), made_topic)
+            else:
+                records.append(copy.deepcopy(dict(m.record)))
         if ref_edits:
             _apply_ref_edits(records, ref_edits, records_by_plugin, load_order, masters, say, own)
         if new_refs:
@@ -325,6 +329,34 @@ def _place(
     if topic is None:
         records.append(record)
         return
+    _place_in(records, record, topic)
+
+
+def _topic_named(source: Sequence[Mapping[str, Any]], topic_id: str) -> Mapping[str, Any] | None:
+    """A plugin's topic record by id (any case), or None."""
+    if not topic_id:
+        return None
+    want = topic_id.lower()
+    return next(
+        (
+            r
+            for r in source
+            if r.get("type") == DIALOGUE_TYPE and str(r.get("id") or "").lower() == want
+        ),
+        None,
+    )
+
+
+def _place_in(
+    records: list[dict[str, Any]], record: dict[str, Any], topic: Mapping[str, Any]
+) -> None:
+    """Put a response after its topic's block in the patch, the topic first if absent.
+
+    Args:
+        records: The patch's records so far (changed in place).
+        record: The response.
+        topic: Its topic's record.
+    """
     want = record_key(topic).lower()
     at = next(
         (

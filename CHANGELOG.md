@@ -216,6 +216,11 @@
 - **A reference another mod moved into the cell is edited where its record is**: the
   Editor finds it in the cell it stands in and changes it in the cell it left, its key
   kept and its `moved_cell` following it.
+- **New dialogue responses, placed where they go.** In the dialogue window, "+" on a
+  response adds one after it, "Add at top" one first: the patch's own response, its
+  `prev_id` naming the one it follows (which is how the engine places a response it has
+  not seen, the patch loading last), its `next_id` the one that followed, written inside
+  its topic. It opens in the record dialog and shows in its place in the topic.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

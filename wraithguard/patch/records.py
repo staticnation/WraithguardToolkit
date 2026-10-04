@@ -95,13 +95,16 @@ class NewRecord:
         key: Its id.
         record: The whole record, as it will be written.
         source: The plugin whose record it was copied from: a master, so whatever the
-            copy names (a script, a sound, an item) is there when the patch loads.
+            copy names (a script, a sound, an item) is there when the patch loads. For a
+            dialogue response, the plugin whose version of its topic wins.
+        topic: For a dialogue response, the topic it answers (it is written inside it).
     """
 
     record_type: str
     key: str
     record: Mapping[str, Any]
     source: str = ""
+    topic: str = ""
 
 
 def record_key(record: Mapping[str, Any]) -> str:

@@ -46,9 +46,8 @@ loses nothing. Still to do, roughly in this order:
   compiles the text itself); checks that know each function's arguments (the opcode table
   has their shapes).
 - Dialogue window: done (topics by kind, responses in engine order, a response edited in
-  the record dialog and written inside its topic). Still to do: adding a response at a
-  place in a topic (its prev/next links and the neighbours' anchors), and the journal's
-  quest view.
+  the record dialog and written inside its topic; a new response added at a place in a
+  topic). Still to do: the journal's quest view.
 - Active file view: done ("Patch only" in the Object Window, tabs counting, cells marked).
 
 ## Controllers
