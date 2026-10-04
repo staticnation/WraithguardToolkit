@@ -237,6 +237,13 @@
 - **Lua: `openmw.interfaces` is typed from the install.** Each built-in interface the
   install documents (AI, Camera, ...) is its documented type, so a misspelt member of one
   is found; any other name - a mod's interface, or one looked up by a variable - is open.
+- **Lua: scripts held in archives are scanned.** OpenMW reads Lua scripts out of the
+  `fallback-archive=` archives too, under every loose file; their `scripts/` files are
+  taken out (cached while the archive is unchanged) and read and checked like loose ones,
+  a loose file overriding the archive's.
+- **Lua: LUAL records are read by the Rust backend** (the tes3 crate's
+  `ScriptConfigList`, only LUAL records parsed), with the Python reader kept for a build
+  without it. The backend can also write an archive (`bsa_bytes`).
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

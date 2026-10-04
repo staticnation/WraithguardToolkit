@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn interfaces_are_typed_and_open() {
         let doc = "---\n-- @module AI\n-- @context local\n-- @usage require('openmw.interfaces').AI\n\n---\n-- @function [parent=#AI] startPackage\n-- @param #table p\n";
-        let mut modules = parse_file(doc, "ai.lua", Some("AI".into()));
+        let mut modules = parse_file(doc, "ai.lua", Some("AI"));
         modules.extend(api().modules);
         let (main, files) = declarations(&Api { version: None, modules });
         assert!(main.contains("   record interfaces__all\n      AI: I_AI__AI\n"), "{main}");

@@ -8,8 +8,9 @@ type it attaches to), an optional ``LUAD`` (initialization data), then any numbe
 ``LUAR`` (attach to one record) and ``LUAI`` (attach to one reference) subrecords,
 each optionally followed by its own ``LUAD``.
 
-The records are read straight from the file (TES3 framing: a 16-byte record header,
-then 8-byte subrecord headers), so nothing else in the plugin is parsed.
+Read by the Rust backend with the tes3 crate's ``ScriptConfigList`` (only LUAL records
+are parsed); without it, straight from the file here (TES3 framing: a 16-byte record
+header, then 8-byte subrecord headers).
 
 Copyright (c) 2026 StaticNation.
 """
@@ -22,6 +23,7 @@ from typing import TYPE_CHECKING
 from wraithguard.lua.omwscripts import OmwScripts, ScriptEntry
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 #: LuaScriptCfg flag bits -> the .omwscripts flag they mean.
@@ -114,6 +116,15 @@ def _parse_lual(data: bytes, name: str, out: OmwScripts) -> None:
         out.entries.append(ScriptEntry(path=path, flags=flags, source=name, line=0))
 
 
+def _native_reader() -> Callable[[Path], list[tuple[str, int, list[str], bool]]] | None:
+    """The Rust backend's LUAL reader, or None when it is not built."""
+    try:
+        import wraithguard_native
+    except ImportError:
+        return None
+    return getattr(wraithguard_native, "lual_scripts", None)
+
+
 def read_lual(path: Path, name: str) -> OmwScripts:
     """The scripts a content file registers in its LUAL records.
 
@@ -126,6 +137,23 @@ def read_lual(path: Path, name: str) -> OmwScripts:
         could not be read.
     """
     out = OmwScripts(name=name)
+    native = _native_reader()
+    if native is not None:
+        try:
+            found = native(path)
+        except OSError as exc:
+            out.problems.append((0, f"cannot read: {exc}"))
+            return out
+        except ValueError as exc:
+            out.problems.append((0, f"LUAL records that cannot be read: {exc}"))
+            return out
+        for script, word, types, per_object in found:
+            flags = _flags(word, [t.encode("latin-1") for t in types], per_object)
+            if not flags:
+                out.problems.append((0, f"script {script!r} has no flags (it never starts)"))
+                continue
+            out.entries.append(ScriptEntry(path=script, flags=flags, source=name, line=0))
+        return out
     try:
         data = path.read_bytes()
     except OSError as exc:

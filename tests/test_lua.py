@@ -565,3 +565,64 @@ def test_what_the_sandbox_does_not_have():
         m.startswith("os.time") for m in msgs
     )
     assert not any(m.startswith("debug ") for m in msgs)  # the script's own `debug`
+
+
+def test_scripts_held_in_archives_are_scanned(tmp_path, monkeypatch):
+    """OpenMW reads scripts out of fallback archives, under every loose file."""
+    native = pytest.importorskip("wraithguard_native")
+    if not hasattr(native, "bsa_bytes"):
+        pytest.skip("the backend cannot write an archive")
+    from wraithguard.lua import scan as scan_mod
+
+    monkeypatch.setattr(scan_mod, "_archive_cache", lambda: tmp_path / "cache")
+    data = tmp_path / "Data Files"
+    data.mkdir()
+    (data / "Arch.bsa").write_bytes(
+        native.bsa_bytes(
+            [
+                ("scripts\\arch\\main.lua", b"local x = 1\nreturn {}\n"),
+                ("scripts\\arch\\both.lua", b"return { from = 'archive' }\n"),
+                ("textures\\a.dds", b"DDS"),
+            ]
+        )
+    )
+    (data / "scripts" / "arch").mkdir(parents=True)
+    (data / "scripts" / "arch" / "both.lua").write_text(
+        "return { from = 'loose' }\n", encoding="utf-8"
+    )
+    (data / "arch.omwscripts").write_text(
+        "GLOBAL: scripts/arch/main.lua\nGLOBAL: scripts/arch/both.lua\n", encoding="utf-8"
+    )
+    cfg = tmp_path / "openmw.cfg"
+    cfg.write_text(
+        f'data="{data}"\nfallback-archive=Arch.bsa\ncontent=arch.omwscripts\n', encoding="utf-8"
+    )
+    out = scan_mod.scan_cfg(cfg)
+    recs = {r.path: r for r in out.scripts}
+    main = recs["scripts/arch/main.lua"]
+    assert main.file is not None and "Arch.bsa" in main.file.parts and main.info is not None
+    both = recs["scripts/arch/both.lua"]
+    assert both.file == data / "scripts" / "arch" / "both.lua"  # the loose file wins
+    assert len(both.providers) == 2
+    assert not any(f.code == "MISSING_SCRIPT" for _p, f in out.findings)
+    assert not list((tmp_path / "cache").glob("**/a.dds"))  # only scripts come out
+    assert scan_mod.extract_archive_scripts([data / "Arch.bsa"]) == [main.file.parents[2]]  # reused
+
+
+def test_lual_without_the_backend_reads_the_same(tmp_path, monkeypatch):
+    from wraithguard.lua import lual
+
+    body = (
+        _sub(b"LUAS", b"scripts/a.lua\0")
+        + _sub(b"LUAF", struct.pack("<I", 1 << 2) + b"NPC_")
+        + _sub(b"LUAS", b"scripts/b.lua\0")
+        + _sub(b"LUAF", struct.pack("<I", 0))
+        + _sub(b"LUAR", b"\x01some_id")
+    )
+    addon = tmp_path / "Mod.omwaddon"
+    addon.write_bytes(_rec(b"TES3", _sub(b"HEDR", b"\0" * 300)) + _rec(b"LUAL", body))
+    fast = read_lual(addon, "Mod.omwaddon")
+    monkeypatch.setattr(lual, "_native_reader", lambda: None)
+    slow = read_lual(addon, "Mod.omwaddon")
+    assert [(e.path, e.flags) for e in fast.entries] == [(e.path, e.flags) for e in slow.entries]
+    assert fast.problems == slow.problems == []

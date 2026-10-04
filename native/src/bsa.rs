@@ -151,6 +151,22 @@ impl Archive {
     }
 }
 
+/// `bsa_bytes([(name, data), ...])`: a Morrowind archive holding those files, as the tes3
+/// crate's builder writes one. ValueError for a name it refuses.
+#[pyfunction]
+fn bsa_bytes<'py>(py: Python<'py>, files: Vec<(String, Vec<u8>)>) -> PyResult<Bound<'py, PyBytes>> {
+    let built = py
+        .detach(|| {
+            let mut b = tes3::bsa::Builder::new();
+            for (name, data) in files {
+                b.insert(name, data)?;
+            }
+            b.save_bytes()
+        })
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    Ok(PyBytes::new(py, &built))
+}
+
 #[pyfunction(name = "bsa_normalise")]
 fn py_normalise(name: &str) -> String {
     normalise(name)
@@ -158,6 +174,7 @@ fn py_normalise(name: &str) -> String {
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Archive>()?;
+    m.add_function(wrap_pyfunction!(bsa_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(py_normalise, m)?)?;
     Ok(())
 }

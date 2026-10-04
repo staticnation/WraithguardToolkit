@@ -72,10 +72,10 @@ mermaid.js bundled). The API now comes from the setup's own OpenMW install (its 
 read in Rust, `native/src/lua`), written out as Teal declarations, and every script is
 checked by the Teal compiler (htl 0.12.0 / tl 0.24.8, embedded). Still to do:
 - Engine handlers and built-in events from the install as well (still the 0.51 list:
-  the docs keep them in the .rst pages, not in LDT comments).
-- The rest of the Lua side in Rust as the Python prototype settles - LUAL via the tes3
-  crate's `ScriptConfigList`, which already reads LUAD too.
-- Scripts in BSAs.
+  the docs keep them in the .rst pages, not in LDT comments - and an install ships no
+  .rst pages, so this needs OpenMW to document them in `lua_api`, or a list per release).
+- The rest of the Lua side in Rust as the Python prototype settles (LUAL is read by the
+  tes3 crate's `ScriptConfigList` now; the lexer, parser and checks are still Python).
 
 The load order's Lua scripts, read from each mod's `.omwscripts` lists (plain text,
 `CONTEXT: path` lines): a script browser with syntax highlighting; a parsed tree (AST)

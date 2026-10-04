@@ -114,10 +114,40 @@ fn lua_check<'py>(py: Python<'py>, paths: Vec<PathBuf>, include: Vec<PathBuf>) -
     Ok(out)
 }
 
+/// The scripts a content file registers in its LUAL records (OpenMW's
+/// `LuaScriptsCfg`), read with the tes3 crate's `ScriptConfigList`:
+/// `[(vfs path, flags word, record types, per object)]` in record order - `per object`
+/// when it is attached to particular records or references (LUAR/LUAI). Only LUAL records
+/// are read. ValueError for a file the crate cannot read, OSError when unreadable.
+#[pyfunction]
+fn lual_scripts(py: Python<'_>, path: PathBuf) -> PyResult<Vec<(String, u32, Vec<String>, bool)>> {
+    use tes3::esp::{Plugin, TES3Object};
+    let got = py.detach(|| -> std::io::Result<Vec<(String, u32, Vec<String>, bool)>> {
+        let bytes = std::fs::read(&path)?;
+        let mut plugin = Plugin::new();
+        crate::guarded(|| plugin.load_bytes_filtered(&bytes, |t| &t == b"LUAL"))?;
+        let mut out = Vec::new();
+        for obj in &plugin.objects {
+            if let TES3Object::ScriptConfigList(list) = obj {
+                for sc in &list.scripts {
+                    let per_object = !sc.records.is_empty() || !sc.instances.is_empty();
+                    out.push((sc.path.clone(), sc.flags.bits(), sc.types.clone(), per_object));
+                }
+            }
+        }
+        Ok(out)
+    });
+    got.map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => PyOSError::new_err(e.to_string()),
+        _ => pyo3::exceptions::PyValueError::new_err(e.to_string()),
+    })
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(lua_api, m)?)?;
     m.add_function(wrap_pyfunction!(lua_write_declarations, m)?)?;
     m.add_function(wrap_pyfunction!(lua_check, m)?)?;
+    m.add_function(wrap_pyfunction!(lual_scripts, m)?)?;
     m.add("TEAL_VERSION", "0.24.8")?;
     Ok(())
 }

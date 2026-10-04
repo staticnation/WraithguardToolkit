@@ -30,11 +30,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from wraithguard.configurator.cfglines import cfg_line_value, unescape_cfg_value
+from wraithguard.logging_setup import get_logger
 from wraithguard.lua.analysis import Finding, ScriptInfo, analyze
 from wraithguard.lua.api import API, ApiVersion, contexts_for_flags
 from wraithguard.lua.lual import read_lual
 from wraithguard.lua.omwscripts import OmwScripts, ScriptEntry, parse_omwscripts
 from wraithguard.parallel import read_all
+
+LOG = get_logger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -132,6 +135,98 @@ def read_cfg_lua(cfg: Path) -> tuple[list[Path], list[str]]:
     return data + local, content
 
 
+def read_cfg_archives(cfg: Path, data_dirs: Sequence[Path]) -> list[Path]:
+    """The archives an openmw.cfg loads (``fallback-archive=``), found in its data folders.
+
+    Args:
+        cfg: The openmw.cfg.
+        data_dirs: Its data folders, in load order (the last holding an archive wins).
+
+    Returns:
+        The archives found, in the cfg's order.
+    """
+    names: list[str] = []
+    for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = _KEY_RE.match(line)
+        if m and m.group(1).lower() == "fallback-archive":
+            raw = cfg_line_value(line) or ""
+            if raw:
+                names.append(unescape_cfg_value(raw) if '"' in line else raw)
+    vfs = _Vfs(data_dirs)
+    out: list[Path] = []
+    for name in names:
+        found = vfs.providers(name)
+        if found:
+            out.append(found[-1])
+    return out
+
+
+def _archive_cache() -> Path:
+    """The folder archived scripts are extracted under (the user's temp folder)."""
+    import tempfile
+
+    return Path(tempfile.gettempdir()) / "wraithguard_lua_archives"
+
+
+def extract_archive_scripts(archives: Sequence[Path], cache: Path | None = None) -> list[Path]:
+    """Put the Lua and Teal scripts the archives hold where they can be read and checked.
+
+    OpenMW reads scripts out of the archives too, under the loose files of every data
+    folder. Each archive's ``scripts/`` files are written under a folder named for it
+    (reused while the archive is unchanged), which then stands in the VFS as a data
+    folder of the lowest priority - so the scan reads them, and the Teal check resolves
+    requires between them.
+
+    Args:
+        archives: The archives, in load order.
+        cache: Where to put them (the temp folder's ``wraithguard_lua_archives``).
+
+    Returns:
+        One folder per archive that holds scripts, in the archives' order.
+    """
+    import hashlib
+
+    try:
+        from wraithguard.nif.bsa import BsaArchive, BsaError
+    except ImportError:  # no Rust backend to read archives with: loose scripts only
+        LOG.info("lua: archives not read (the Rust backend is not built)")
+        return []
+
+    root = cache or _archive_cache()
+    out: list[Path] = []
+    for archive in archives:
+        try:
+            stat = archive.stat()
+        except OSError:
+            continue
+        tag = hashlib.sha1(
+            f"{archive.resolve()}|{stat.st_size}|{stat.st_mtime_ns}".encode(), usedforsecurity=False
+        ).hexdigest()[:12]
+        folder = root / tag / archive.name
+        done = folder / ".complete"
+        if not done.is_file():
+            try:
+                bsa = BsaArchive(archive)
+                names = [
+                    n for n in bsa.names if n.startswith("scripts/") and n.endswith((".lua", ".tl"))
+                ]
+                for name in names:
+                    data = bsa.read(name)
+                    if data is None:
+                        continue
+                    dest = folder.joinpath(*name.split("/"))
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(data)
+                folder.mkdir(parents=True, exist_ok=True)
+                done.write_text(str(len(names)), encoding="utf-8")
+            except (BsaError, OSError) as exc:
+                LOG.warning("lua: cannot read the scripts in %s: %s", archive, exc)
+                continue
+        if any(folder.joinpath("scripts").glob("**/*")):
+            out.append(folder)
+    return out
+
+
 class _Vfs:
     """Case-insensitive lookups across the data folders, with listings cached."""
 
@@ -214,7 +309,10 @@ def _read_script(rec: ScriptRecord, api: ApiVersion) -> ScriptRecord:
 
 
 def scan_load_order(
-    data_dirs: Sequence[Path], content: Sequence[str], api: ApiVersion = API
+    data_dirs: Sequence[Path],
+    content: Sequence[str],
+    api: ApiVersion = API,
+    archives: Sequence[Path] = (),
 ) -> LuaScan:
     """Find, read and check the scripts of a load order.
 
@@ -222,12 +320,15 @@ def scan_load_order(
         data_dirs: The data folders, in load order.
         content: The ``content=`` names, in load order.
         api: The API version to check against.
+        archives: The archives it loads (``fallback-archive=``): the scripts they hold
+            are read too, under every data folder's (:func:`extract_archive_scripts`).
 
     Returns:
         The scan.
     """
-    out = LuaScan(data_dirs=list(data_dirs))
-    vfs = _Vfs(data_dirs)
+    held = extract_archive_scripts(archives) if archives else []
+    out = LuaScan(data_dirs=[*held, *data_dirs])
+    vfs = _Vfs([*held, *data_dirs])
     by_key: dict[str, ScriptRecord] = {}
     for name in content:
         low = name.lower()
@@ -278,7 +379,7 @@ def scan_cfg(cfg: Path, api: ApiVersion = API) -> LuaScan:
         The scan.
     """
     dirs, content = read_cfg_lua(cfg)
-    out = scan_load_order(dirs, content, api)
+    out = scan_load_order(dirs, content, api, read_cfg_archives(cfg, dirs))
     out.api = api
     return out
 
