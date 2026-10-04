@@ -89,9 +89,11 @@ class Selection:
 def record_key(record: Mapping[str, Any]) -> str:
     """Identify a record within its type.
 
-    Most records are identified by ``id``. Exterior cells and landscapes have
-    none and are identified by their grid, which is why this exists rather than
-    reading ``id`` at every call site.
+    Most records are identified by ``id``. Cells are keyed as the engine keys them
+    (greatness7's merge_to_master, ``types/cells.rs``): an interior by its name, an
+    exterior by its grid - an interior's record carries a placeholder grid of 0, 0, so
+    keying it by grid made every room the same cell, and the same as the exterior at the
+    origin. Landscapes, with no id either, by their grid.
 
     Args:
         record: A decoded record.
@@ -102,6 +104,8 @@ def record_key(record: Mapping[str, Any]) -> str:
     identifier = record.get("id")
     if isinstance(identifier, str) and identifier:
         return identifier
+    if record.get("type") == "Cell" and is_interior(record):
+        return str(record.get("name") or "")
 
     grid = record.get("grid")
     if grid is None:
@@ -111,6 +115,71 @@ def record_key(record: Mapping[str, Any]) -> str:
     if isinstance(grid, (list, tuple)) and len(grid) == 2:
         return f"({int(grid[0])}, {int(grid[1])})"
     return ""
+
+
+def is_interior(record: Mapping[str, Any]) -> bool:
+    """Whether a CELL record is an interior (its ``IS_INTERIOR`` flag).
+
+    Args:
+        record: A decoded ``Cell`` record.
+
+    Returns:
+        True for an interior.
+    """
+    data = record.get("data")
+    flags = data.get("flags") if isinstance(data, dict) else None
+    if isinstance(flags, int):
+        return bool(flags & 0x1)
+    return "IS_INTERIOR" in str(flags or "")
+
+
+def keys_of(record: Mapping[str, Any]) -> set[str]:
+    """Every key a record answers to: :func:`record_key`, and a cell's name.
+
+    The conflict scan keys a cell by its name whenever it has one
+    (``wraithguard_toolkit._tes3conv_record_key``), so a request may name an exterior
+    by name too. A name several exterior cells share (a town over a few grids) is then
+    ambiguous: :func:`find_record` refuses it rather than pick one.
+
+    Args:
+        record: A decoded record.
+
+    Returns:
+        The keys.
+    """
+    out = {record_key(record)}
+    if record.get("type") == "Cell" and record.get("name"):
+        out.add(str(record["name"]))
+    out.discard("")
+    return out
+
+
+def find_record(
+    records: Sequence[Mapping[str, Any]], record_type: str, key: str, plugin: str
+) -> Mapping[str, Any] | None:
+    """The one record of a type a key names in a plugin.
+
+    Args:
+        records: The plugin's decoded records.
+        record_type: The record's type.
+        key: Its key (see :func:`keys_of`).
+        plugin: The plugin's name, for the message.
+
+    Returns:
+        The record, or None when the plugin has none.
+
+    Raises:
+        PatchError: When the key names more than one record (a cell name several
+            exterior cells share).
+    """
+    hits = [r for r in records if r.get("type") == record_type and key in keys_of(r)]
+    if len(hits) > 1:
+        where = ", ".join(record_key(r) for r in hits)
+        raise PatchError(
+            f"{key!r} names {len(hits)} {record_type} records in {plugin} ({where}). "
+            "Choose the one meant by its grid."
+        )
+    return hits[0] if hits else None
 
 
 def master_names(records: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -502,15 +571,7 @@ def collect(
         if records is None:
             raise PatchError(f"no records were read for {selection.plugin}")
 
-        found = next(
-            (
-                record
-                for record in records
-                if record.get("type") == selection.record_type
-                and record_key(record) == selection.key
-            ),
-            None,
-        )
+        found = find_record(records, selection.record_type, selection.key, selection.plugin)
         if found is None:
             raise PatchError(
                 f"{selection.plugin} has no {selection.record_type} record "
@@ -603,7 +664,7 @@ def carry_forward(
     for record in records:
         if record.get("type") == HEADER_TYPE:
             continue
-        if (str(record.get("type")), record_key(record)) in skip:
+        if any((str(record.get("type")), k) in skip for k in keys_of(record)):
             continue
         if not needs_remapping(record):
             out.append(copy.deepcopy(dict(record)))

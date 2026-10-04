@@ -295,6 +295,32 @@ class PatchBuilderMixin:
                     values=(choice.path, verb, source),
                 )
 
+        # Changes to placed objects (the viewer editor's), grouped by cell.
+        cells: dict[str, str] = {}
+        for ref in self.patch_queue().ref_edits:
+            parent = cells.get(ref.cell.lower())
+            if parent is None:
+                parent = tree.insert(
+                    "",
+                    "end",
+                    iid=f"refcell::{ref.cell}",
+                    text=f"Cell  {ref.cell}",
+                    values=("", _("references"), ""),
+                    open=True,
+                )
+                cells[ref.cell.lower()] = parent
+            tree.insert(
+                parent,
+                "end",
+                iid=f"ref::{ref.cell}::{ref.origin}::{ref.refr_index}",
+                text="",
+                values=(
+                    f"{ref.origin}:{ref.refr_index}",
+                    _("set"),
+                    ", ".join(f"{k}={v}" for k, v in ref.changes.items()),
+                ),
+            )
+
         summary = getattr(self, "_patch_summary", None)
         if summary is not None and summary.winfo_exists():
             count = self.patch_count()
@@ -322,6 +348,12 @@ class PatchBuilderMixin:
                 self.patch_queue().remove_record(parts[1], parts[2])
             elif kind == "field" and len(parts) == 4:
                 self.patch_queue().remove_field(parts[1], parts[2], parts[3])
+            elif kind == "ref" and len(parts) == 4 and parts[3].isdigit():
+                self.patch_queue().remove_ref_edit(parts[1], parts[2], int(parts[3]))
+            elif kind == "refcell" and len(parts) == 2:
+                for ref in self.patch_queue().ref_edits:
+                    if ref.cell.lower() == parts[1].lower():
+                        self.patch_queue().remove_ref_edit(ref.cell, ref.origin, ref.refr_index)
         self.refresh_patch_views()
 
     def _clear_patch(self) -> None:
@@ -347,7 +379,10 @@ class PatchBuilderMixin:
         build alongside whatever is queued today, so a record chosen last
         week is not lost just because this session never mentions it again.
         """
-        if not self.patch_count() or self._conf_session is None:
+        # No conflict scan is needed first: _ensure_conflict_session below builds the
+        # reader and the paths from the current load order (the viewer editor's changes
+        # may be all that is queued).
+        if not self.patch_count():
             return
         # Refresh both the session and the plugin -> path map against the
         # current load order before measuring anything. Neither is done
@@ -434,6 +469,10 @@ class PatchBuilderMixin:
             wanted = {entry.plugin for entry in self.patch_selections()}
             for entry in merges:
                 wanted |= entry.plugins
+            ref_edits = self.patch_queue().ref_edits
+            for ref in ref_edits:
+                # Every plugin with the cell: the reference is read as they resolve it.
+                wanted |= {ref.origin, *ref.plugins}
             session = self._conf_session
             names = sorted(wanted)
 
@@ -466,6 +505,7 @@ class PatchBuilderMixin:
                 merges=merges,
                 carried=carried,
                 report=LOG.info,
+                ref_edits=ref_edits,
             )
         except PatchServiceError as exc:
             messagebox.showerror(_("Patch failed"), str(exc))

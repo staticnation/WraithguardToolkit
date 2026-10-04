@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
     from wraithguard.patch.merge import Choice
     from wraithguard.patch.records import Selection
+    from wraithguard.patch.refedit import RefEdit
 
 
 class PatchQueue:
@@ -48,6 +49,7 @@ class PatchQueue:
         self._whole: list[Selection] = []
         self._fields: dict[tuple[str, str], list[Choice]] = {}
         self._bases: dict[tuple[str, str], str] = {}
+        self._refs: dict[tuple[str, str, int], RefEdit] = {}
 
     @property
     def selections(self) -> list[Selection]:
@@ -60,14 +62,69 @@ class PatchQueue:
         return self._fields
 
     def __len__(self) -> int:
-        """How many records the patch would carry."""
-        return len(self._whole) + len(self._fields)
+        """How many records the patch would carry (a cell with changed references is one)."""
+        records = {(s.record_type, s.key.lower()) for s in self._whole}
+        records |= {(t, k.lower()) for t, k in self._fields}
+        cells = {("Cell", e.cell.lower()) for e in self._refs.values()} - records
+        return len(self._whole) + len(self._fields) + len(cells)
+
+    @property
+    def ref_edits(self) -> list[RefEdit]:
+        """Changes to placed objects, one per reference, in the order made."""
+        return list(self._refs.values())
+
+    def add_ref_edit(self, edit: RefEdit) -> None:
+        """Queue changes to a placed object.
+
+        Changes already queued for it are kept, the new ones replacing any to the
+        same fields.
+
+        Args:
+            edit: The changes.
+        """
+        from dataclasses import replace
+
+        old = self._refs.get(edit.ident)
+        if old is not None:
+            edit = replace(
+                edit,
+                changes={**old.changes, **edit.changes},
+                plugins=tuple(dict.fromkeys((*old.plugins, *edit.plugins))),
+            )
+        self._refs[edit.ident] = edit
+
+    def remove_ref_edit(
+        self, cell: str, origin: str, refr_index: int, path: str | None = None
+    ) -> None:
+        """Drop the changes to a placed object, or to one of its fields.
+
+        Args:
+            cell: The cell's key.
+            origin: The plugin that created the reference.
+            refr_index: Its index.
+            path: One field, or None for all of them.
+        """
+        from dataclasses import replace
+
+        ident = (cell.lower(), origin.lower(), refr_index)
+        old = self._refs.get(ident)
+        if old is None:
+            return
+        if path is None:
+            del self._refs[ident]
+            return
+        rest = {k: v for k, v in old.changes.items() if k != path}
+        if rest:
+            self._refs[ident] = replace(old, changes=rest)
+        else:
+            del self._refs[ident]
 
     def clear(self) -> None:
         """Drop every decision."""
         self._whole.clear()
         self._fields.clear()
         self._bases.clear()
+        self._refs.clear()
 
     def set_base(self, record_type: str, key: str, plugin: str) -> None:
         """Say which plugin wins a record, for one the conflict scan does not list.

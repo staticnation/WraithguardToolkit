@@ -209,3 +209,162 @@ def test_merge_to_master_applies_the_patch_as_the_game_would(tmp_path):
     assert by_id["chair"]["translation"][0] == pytest.approx(5.0)  # untouched
     assert by_id["torch"]["translation"][0] == pytest.approx(9.0)  # B's own, untouched
     assert cell.get("water_height") == pytest.approx(3.0)  # the cell's own fields, unchanged
+
+
+# -- cell keys: interiors by name, exteriors by grid ------------------------------------
+
+_CELLS = [
+    {
+        "type": "Cell",
+        "flags": "",
+        "name": "Lamptown, Cellar",
+        "data": {"flags": "IS_INTERIOR", "grid": [0, 0]},
+        "references": [],
+    },
+    {
+        "type": "Cell",
+        "flags": "",
+        "name": "Lamptown, Attic",
+        "data": {"flags": "IS_INTERIOR", "grid": [0, 0]},
+        "references": [],
+    },
+    {
+        "type": "Cell",
+        "flags": "",
+        "name": "Coast Watch",
+        "data": {"flags": "", "grid": [0, 0]},
+        "references": [],
+    },
+    {
+        "type": "Cell",
+        "flags": "",
+        "name": "Seyda Neen",
+        "data": {"flags": "", "grid": [-2, -9]},
+        "references": [],
+    },
+    {
+        "type": "Cell",
+        "flags": "",
+        "name": "Seyda Neen",
+        "data": {"flags": "", "grid": [-3, -9]},
+        "references": [],
+    },
+    {
+        "type": "Cell",
+        "flags": "",
+        "name": "",
+        "data": {"flags": "", "grid": [5, 5]},
+        "references": [],
+    },
+]
+
+
+def test_cells_are_keyed_as_the_engine_keys_them():
+    from wraithguard.patch.records import record_key
+
+    assert [record_key(c) for c in _CELLS] == [
+        "Lamptown, Cellar",
+        "Lamptown, Attic",
+        "(0, 0)",
+        "(-2, -9)",
+        "(-3, -9)",
+        "(5, 5)",
+    ]
+
+
+def test_find_record_takes_a_conflict_name_but_refuses_an_ambiguous_one():
+    from wraithguard.patch.records import find_record
+
+    assert find_record(_CELLS, "Cell", "Lamptown, Attic", "x.esp")["name"] == "Lamptown, Attic"
+    assert find_record(_CELLS, "Cell", "(0, 0)", "x.esp")["name"] == "Coast Watch"  # not a room
+    assert find_record(_CELLS, "Cell", "Coast Watch", "x.esp")["data"]["grid"] == [0, 0]
+    assert find_record(_CELLS, "Cell", "(-3, -9)", "x.esp")["data"]["grid"] == [-3, -9]
+    with pytest.raises(PatchError, match=r"\(-2, -9\), \(-3, -9\)"):
+        find_record(_CELLS, "Cell", "Seyda Neen", "x.esp")
+    assert find_record(_CELLS, "Cell", "Nowhere", "x.esp") is None
+
+
+def test_a_whole_interior_cell_is_carried_not_the_first_room():
+    from wraithguard.patch.records import Selection, collect
+
+    rooms = {"Mod.esp": [{"type": "Header", "masters": []}, *_CELLS]}
+    (got,) = collect(
+        [Selection(plugin="Mod.esp", record_type="Cell", key="Lamptown, Attic")], rooms, ["Mod.esp"]
+    )
+    assert got["name"] == "Lamptown, Attic"
+
+
+# -- through the pool and the patch writer ---------------------------------------------
+
+
+def test_the_pool_keeps_journals_and_counts_reference_edits(tmp_path):
+    from wraithguard.patch.editor import restore_queue, save_queue
+    from wraithguard.patch.queue import PatchQueue
+
+    q = PatchQueue()
+    q.add_ref_edit(
+        RefEdit("Ebon Tower", "Tamriel_Data.esm", 15, {"translation": [1.0, 2.0, 3.0]}, ("A.esp",))
+    )
+    q.add_ref_edit(RefEdit("ebon tower", "tamriel_data.esm", 15, {"scale": 1.5}, ("B.esp",)))
+    (e,) = q.ref_edits
+    assert e.changes == {"translation": [1.0, 2.0, 3.0], "scale": 1.5} and e.plugins == (
+        "A.esp",
+        "B.esp",
+    )
+    q.add_ref_edit(RefEdit("Ebon Tower", "B.esp", 1, {"deleted": True}))
+    assert len(q) == 1  # one cell
+    j = tmp_path / "j.json"
+    save_queue(q, j)
+    again = PatchQueue()
+    assert restore_queue(again, j) == 2
+    assert {x.ident for x in again.ref_edits} == {x.ident for x in q.ref_edits}
+    again.remove_ref_edit("EBON TOWER", "Tamriel_Data.esm", 15, "scale")
+    assert next(x for x in again.ref_edits if x.refr_index == 15).changes == {
+        "translation": [1.0, 2.0, 3.0]
+    }
+    again.remove_ref_edit("Ebon Tower", "B.esp", 1)
+    again.remove_ref_edit("Ebon Tower", "Tamriel_Data.esm", 15, "translation")
+    assert not again.ref_edits and not len(again)
+
+
+def test_build_record_patch_writes_the_changed_references(tmp_path):
+    pytest.importorskip("wraithguard_native")
+    from wraithguard.patch.service import build_record_patch
+
+    edits = [
+        RefEdit(
+            "Ebon Tower",
+            "Tamriel_Data.esm",
+            16,
+            {"translation": [6.0, 0.0, 0.0]},
+            ("Tamriel_Data.esm", "A.esp", "B.esp"),
+        )
+    ]
+    out = tmp_path / "Patch.esp"
+    sizes = dict.fromkeys(ORDER, 1000)
+    result = build_record_patch([], PLUGINS, ORDER, sizes, "", out, ref_edits=edits)
+    assert result.masters == ["Tamriel_Data.esm"]
+    import wraithguard_native
+
+    back = wraithguard_native.plugin_records(out.read_bytes())
+    (cell,) = [r for r in back if r["type"] == "Cell"]
+    assert [(r["mast_index"], r["refr_index"], r["id"]) for r in cell["references"]] == [
+        (1, 16, "chair")
+    ]
+    # The same cell queued whole as well: the change goes into that record.
+    from wraithguard.patch.records import Selection
+
+    result = build_record_patch(
+        [Selection(plugin="B.esp", record_type="Cell", key="Ebon Tower")],
+        PLUGINS,
+        ORDER,
+        sizes,
+        "",
+        out,
+        ref_edits=edits,
+    )
+    back = wraithguard_native.plugin_records(out.read_bytes())
+    (cell,) = [r for r in back if r["type"] == "Cell"]
+    got = {r["id"]: r for r in cell["references"]}
+    assert set(got) == {"iron dagger", "torch", "chair"}
+    assert got["chair"]["translation"][0] == pytest.approx(6.0)

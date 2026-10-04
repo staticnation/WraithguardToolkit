@@ -38,9 +38,9 @@ from typing import TYPE_CHECKING, Any, Final
 
 from wraithguard.patch.records import (
     PatchError,
+    find_record,
     index_map,
     master_names,
-    record_key,
     remap_reference_list,
 )
 
@@ -297,14 +297,7 @@ def _find(
     records = records_by_plugin.get(plugin)
     if records is None:
         raise PatchError(f"no records were read for {plugin}")
-    found = next(
-        (
-            record
-            for record in records
-            if record.get("type") == record_type and record_key(record) == key
-        ),
-        None,
-    )
+    found = find_record(records, record_type, key, plugin)
     if found is None:
         raise PatchError(f"{plugin} has no {record_type} record {key!r}")
     return found

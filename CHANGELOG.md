@@ -114,6 +114,13 @@
   list, which would re-assert every reference that version lists. Checked by writing such
   a patch and merging the load order with merge_to_master itself (embedded in the
   backend): the changed reference changes, the cell's other references and fields do not.
+- **Changed references go through the patch pool and the Patch Builder.** A reference
+  edit (the cell, the file that created the reference, its index, the changes) is a kind
+  of its own in the pool, journalled with the rest and listed in the Patch Builder by cell,
+  where it can be removed; writing the patch builds each cell's record from its changed
+  references, added into the cell's record when the patch carries that cell anyway
+  (whole, merged, or from the build it appends to). The Patch Builder no longer needs a
+  conflict scan first: it reads the plugins of the current load order itself.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time
@@ -129,6 +136,14 @@
 
 ### Fixed
 
+- **Patches of interior cells.** The patch writer keyed every interior cell as `(0, 0)` -
+  an interior's record carries a placeholder grid - so every room was the same cell, and
+  the same as the exterior at the origin; and the conflict viewer names a cell by its
+  name, which the writer never matched, so carrying or merging a cell from it failed.
+  Cells are now keyed as the engine keys them (merge_to_master's `types/cells.rs`):
+  interiors by name, exteriors by grid, and a name is taken when it names one cell - a
+  name several exterior cells share (a town over a few grids) is refused with their grids
+  rather than one of them picked.
 - **Cell Preview: "Go through" is back in the full help panel.** Clicking a teleporting
   door shows where it leads and a "Go through" button on the right again - the old object
   dialogue's "Open cell door leads to", which went missing when the full help replaced

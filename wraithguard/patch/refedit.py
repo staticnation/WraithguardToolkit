@@ -77,12 +77,20 @@ class RefEdit:
         origin: The plugin that created the reference (its ``mast_index`` resolved).
         refr_index: Its ``refr_index``.
         changes: Field -> new value (fields of :data:`REF_FIELDS`).
+        plugins: The plugins with a CELL record for the cell (each is read to find
+            the reference as the load order resolves it).
     """
 
     cell: str
     origin: str
     refr_index: int
     changes: Mapping[str, Any] = field(default_factory=dict)
+    plugins: tuple[str, ...] = ()
+
+    @property
+    def ident(self) -> tuple[str, str, int]:
+        """What it is a change to, for de-duplicating: ``(cell, origin, refr_index)``."""
+        return (self.cell.lower(), self.origin.lower(), self.refr_index)
 
 
 def _origin(plugin: str, masters: Sequence[str], mast_index: int) -> str | None:
@@ -119,7 +127,7 @@ def cell_versions(
     out = []
     for plugin in load_order:
         for rec in records_by_plugin.get(plugin) or []:
-            if rec.get("type") == "Cell" and record_key(rec).lower() == cell.lower():
+            if rec.get("type") == "Cell" and record_key(rec).lower() == cell.lower():  # engine keys
                 out.append((plugin, rec))
                 break
     return out

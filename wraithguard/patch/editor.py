@@ -38,6 +38,7 @@ from wraithguard.patch.enums import enum_options
 from wraithguard.patch.fieldtypes import field_kind, flag_options, flags_name, int_bounds
 from wraithguard.patch.merge import IDENTITY, FieldChoice, FieldValue, value_at
 from wraithguard.patch.records import Selection, record_key
+from wraithguard.patch.refedit import RefEdit
 from wraithguard.tes3fields.naming import TYPE_TO_TAG
 
 if TYPE_CHECKING:
@@ -467,6 +468,16 @@ def save_queue(queue: PatchQueue, journal: Path) -> None:
             }
             for (record_type, key), choices in queue.fields.items()
         ],
+        "refs": [
+            {
+                "cell": e.cell,
+                "origin": e.origin,
+                "refr": e.refr_index,
+                "changes": dict(e.changes),
+                "plugins": list(e.plugins),
+            }
+            for e in queue.ref_edits
+        ],
     }
     tmp = journal.with_name(journal.name + ".tmp")
     try:
@@ -528,7 +539,19 @@ def restore_queue(queue: PatchQueue, journal: Path) -> int:
             if f.get("base"):
                 queue.set_base(f["type"], f["key"], f["base"])
             n += 1
-    except (KeyError, TypeError) as exc:
+        have = {e.ident for e in queue.ref_edits}
+        for r in doc.get("refs") or []:
+            edit = RefEdit(
+                r["cell"],
+                r["origin"],
+                int(r["refr"]),
+                dict(r["changes"]),
+                tuple(r.get("plugins") or ()),
+            )
+            if edit.ident not in have:
+                queue.add_ref_edit(edit)
+                n += 1
+    except (KeyError, TypeError, ValueError) as exc:
         LOG.warning("patch journal: %s is damaged (%s); restored what read", journal, exc)
     return n
 
