@@ -15,7 +15,8 @@
      the winning plugin, and an input that sends a change. Its Use Report lists every
      record of the load order that names it (live, or in a version a later mod
      overrides), and the cells it is placed in; "Replace with" repoints the live uses to
-     another record (Search & Replace), placed references and scripts excepted. Changes go to Wraithguard's
+     another record (Search & Replace) - fields, and placed references (their key kept,
+     the object changed) - scripts excepted. Changes go to Wraithguard's
      patch pool - the queue its conflict viewer fills - and are reviewed and written in
      its Patch Builder; Wraithguard journals the pool, so a viewer that runs out of
      memory loses nothing.
@@ -1051,6 +1052,19 @@ const WgEditor={
     return v;
   },
 
+  /** The models of every record of a tag, for objects the render window has not drawn
+   *  yet (a reference that now places another): asked of the engine once per tag. */
+  async loadModels(tag){
+    if(!tag) return;
+    this._modelTags=this._modelTags||new Set();
+    if(this._modelTags.has(tag)) return;
+    this._modelTags.add(tag);
+    try{
+      const r=await Engine.call('editor_records',{tag});
+      for(const row of r.rows||[]) if(row[2] && !CellData.models.has(row[0].toLowerCase())) CellData.models.set(row[0].toLowerCase(), row[2]);
+    }catch(_){ }
+  },
+
   /** The models of new references' objects the page has not seen placed (a journal
    *  brought back after a restart): asked of the engine by tag, once each. */
   async modelsFor(liveNew){
@@ -1105,6 +1119,7 @@ const WgEditor={
       if(!c){ refs.push(r); continue; }
       if(c.deleted) continue;
       const n=Object.assign({}, r);
+      if(c.id) n.id=c.id;
       if(Array.isArray(c.translation)) n.pos=c.translation.slice();
       if(Array.isArray(c.rotation)) n.rot=c.rotation.slice();
       if('scale' in c) n.scale= c.scale==null? 1 : c.scale;
@@ -1289,9 +1304,9 @@ const WgEditor={
       });
       h+='</tbody></table>';
     }
-    if(uses.some(u=>u.wins && u.type!=='Cell' && u.type!=='Script'))
+    if(uses.some(u=>u.wins && u.type!=='Script'))
       h+='<div class="orirow" style="margin-top:6px"><span class="v edVec"><input class="fld" id="edReplId" placeholder="Another '+escHtml(this.NAMES[r.tag]||r.tag)+' id" spellcheck="false">'+
-        '<button class="btn sm" id="edRepl" title="Every live use above names that record instead - queued in the patch pool. Placed references and scripts are left as they are">Replace with</button></span></div>';
+        '<button class="btn sm" id="edRepl" title="Every live use above names that record instead, and every placed one becomes it - queued in the patch pool. Scripts are left as they are">Replace with</button></span></div>';
     body.innerHTML=h;
     const rb=body.querySelector('#edRepl'), ri=body.querySelector('#edReplId');
     if(rb){
@@ -1301,8 +1316,10 @@ const WgEditor={
         if(!newId || !of){ ri.classList.add('bad'); return; }
         try{
           const x=await this.ask('editReplace', Object.assign({tag:of.tag, id:of.id, newId}, of.plugins? {plugins:of.plugins} : {}));
-          const left=[x.cells? x.cells+' placed reference'+(x.cells===1?'':'s') : '', x.scripts? x.scripts+' script'+(x.scripts===1?'':'s') : ''].filter(Boolean).join(' and ');
-          toast(x.changed+' record'+(x.changed===1?'':'s')+' now name '+newId+(left? '; '+left+' left as they are' : ''),'ok',6000);
+          const recs=x.changed-(x.refs||0);
+          toast(recs+' record'+(recs===1?'':'s')+' now name '+newId+(x.refs? ', '+x.refs+' placed reference'+(x.refs===1?'':'s')+' became it' : '')+
+                (x.scripts? '; '+x.scripts+' script'+(x.scripts===1?'':'s')+' left as they are' : ''),'ok',6000);
+          await this.loadModels(of.tag);
           await this.refreshPending();
         }catch(e){
           ri.classList.add('bad');

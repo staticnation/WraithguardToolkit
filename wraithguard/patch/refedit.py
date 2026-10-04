@@ -47,8 +47,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
 #: The fields of a reference a change may set (the tes3 crate's ``Reference``). Its key
-#: (``mast_index``, ``refr_index``) and what it is (``id``) are not changes: changing
-#: them makes another reference.
+#: (``mast_index``, ``refr_index``) is not: changing it makes another reference. What it
+#: places (``id``) may change too (:data:`REF_CHANGES`) - the same reference, another
+#: object, as the engine merges it - which is what Search & Replace does.
 REF_FIELDS: Final[frozenset[str]] = frozenset(
     {
         "translation",
@@ -72,6 +73,10 @@ REF_FIELDS: Final[frozenset[str]] = frozenset(
         "destination",
     }
 )
+
+
+#: Everything a :class:`RefEdit` may change: the fields, and the object placed.
+REF_CHANGES: Final[frozenset[str]] = REF_FIELDS | {"id"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +204,40 @@ def winning_reference(
     return found
 
 
+def refs_naming(
+    versions: Sequence[tuple[str, Mapping[str, Any]]],
+    masters_of: Mapping[str, Sequence[str]],
+    rid: str,
+) -> list[tuple[str, int]]:
+    """The references of a cell that place an object, as the load order resolves them.
+
+    Args:
+        versions: The cell's CELL records, in load order (:func:`cell_versions`).
+        masters_of: Each plugin's master list.
+        rid: The object's id (any case).
+
+    Returns:
+        ``(creating plugin, refr_index)`` of each reference whose winning version places
+        it and is not deleted.
+    """
+    want = rid.lower()
+    keys: dict[tuple[str, int], str] = {}
+    for plugin, rec in versions:
+        masters = masters_of.get(plugin, ())
+        for ref in rec.get("references") or []:
+            if not isinstance(ref, dict):
+                continue
+            origin = _origin(plugin, masters, int(ref.get("mast_index", -1)))
+            if origin is not None:
+                keys[(origin.lower(), int(ref.get("refr_index", 0)))] = origin
+    out: list[tuple[str, int]] = []
+    for (_low, refr), origin in keys.items():
+        won = winning_reference(versions, masters_of, origin, refr)
+        if won and str(won[1].get("id", "")).lower() == want and not won[1].get("deleted"):
+            out.append((origin, refr))
+    return out
+
+
 def next_new_index(records: Iterable[Mapping[str, Any]]) -> int:
     """The ``refr_index`` for a reference the patch adds itself.
 
@@ -259,7 +298,7 @@ def cell_patch_record(
         if ident in seen:
             raise PatchError(f"two sets of changes for reference {e.origin}:{e.refr_index}")
         seen.add(ident)
-        bad = set(e.changes) - REF_FIELDS
+        bad = set(e.changes) - REF_CHANGES
         if bad:
             raise PatchError(f"{', '.join(sorted(bad))} cannot be changed on a reference")
         won = winning_reference(versions, masters_of, e.origin, e.refr_index)
@@ -348,6 +387,7 @@ def place_new_refs(
 
 
 __all__ = [
+    "REF_CHANGES",
     "REF_FIELDS",
     "NewRef",
     "RefEdit",
@@ -355,5 +395,6 @@ __all__ = [
     "cell_versions",
     "next_new_index",
     "place_new_refs",
+    "refs_naming",
     "winning_reference",
 ]

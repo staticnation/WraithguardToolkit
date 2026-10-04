@@ -78,7 +78,7 @@ const fakeServer=http.createServer((req,res)=>{
     }
     else if(name==='editReplace'){
       if(b.newId==='nothing'){ res.writeHead(400); res.end('nothing is not a Light of this load order'); return; }
-      out={changed:1, cells:2, scripts:0};
+      out={changed:3, refs:2, scripts:0};
     }
     else if(name==='editDuplicate'){
       if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }

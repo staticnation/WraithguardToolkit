@@ -40,10 +40,8 @@ loses nothing. Still to do, roughly in this order:
   scripts (their text names them) and dialogue.
 - List fields: done (tables in the record dialog, each entry checked against the
   first). Still to do: nested groups inside an entry edited as fields, not JSON.
-- Use Report, Search & Replace, Layers and the Q menu: done. Still to do: Search &
-  Replace for placed references (each reference keeps its key and gets the other
-  object - allowed by the engine, not yet by `REF_FIELDS`) and in scripts (needs a
-  recompile); the Layers and Q menu were built without the CSSE's documentation (the
+- Use Report, Search & Replace (fields and placed references), Layers and the Q menu:
+  done. Still to do: Search & Replace in scripts (needs a recompile); the Layers and Q menu were built without the CSSE's documentation (the
   site is not reachable from here) and should be checked against it.
 - Script Edit window: done (source checked as typed, compiled listing, saved to the
   pool). Still to do: a compiler, so Morrowind.exe gets the changed bytecode too (OpenMW

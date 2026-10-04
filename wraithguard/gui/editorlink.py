@@ -21,8 +21,8 @@ loopback server, for everything else:
 - ``editUses`` ``{tag, id, plugins?}`` -> the record's Use Report
   (:meth:`.EditorSession.uses`: every record that names it, live or overridden);
 - ``editReplace`` ``{tag, id, plugins?, newId}`` -> Search & Replace: every live use's
-  field repointed to ``newId``, queued (``{changed, cells, scripts}``: references and
-  scripts are counted, left);
+  field, and every placed reference, repointed to ``newId``, queued (``{changed, refs,
+  scripts}``: scripts are counted, left);
 - ``editScript`` ``{tag, id, plugins?, text?}`` -> the Script Edit window: the source
   (the queued change, or ``text`` to check as typed), its checks and the compiled listing;
   saving is ``editSet`` on ``text``;
@@ -294,8 +294,8 @@ class EditorLinkMixin:
             body: ``{tag, id, plugins?, newId}``.
 
         Returns:
-            ``{changed, cells, scripts}``: records changed, and the placed references and
-            scripts naming it, which are left.
+            ``{changed, refs, scripts}``: records and references changed, the references
+            among them, and the scripts naming it, which are left.
         """
         req, session, found = self._edit_request(body)
         new_id = req.get("newId")
@@ -314,7 +314,7 @@ class EditorLinkMixin:
         return self._json(
             {
                 "changed": changed,
-                "cells": sum(u["count"] for u in live if u["type"] == "Cell"),
+                "refs": sum(1 for p in plan if not isinstance(p, tuple)),
                 "scripts": sum(1 for u in live if u["type"] == "Script"),
             }
         )

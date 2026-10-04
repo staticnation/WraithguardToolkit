@@ -39,7 +39,7 @@ from wraithguard.patch.enums import enum_options
 from wraithguard.patch.fieldtypes import field_kind, flag_options, flags_name, int_bounds
 from wraithguard.patch.merge import IDENTITY, FieldChoice, FieldValue, set_at, value_at
 from wraithguard.patch.records import NewRecord, Selection, master_names, record_key
-from wraithguard.patch.refedit import REF_FIELDS, NewRef, RefEdit, winning_reference
+from wraithguard.patch.refedit import REF_FIELDS, NewRef, RefEdit, refs_naming, winning_reference
 from wraithguard.tes3fields.naming import TYPE_TO_TAG
 
 if TYPE_CHECKING:
@@ -589,7 +589,7 @@ class EditorSession:
 
     def replace_plan(
         self, found: Found, new_id: str
-    ) -> tuple[list[tuple[Found, str, object]], dict[str, Any]]:
+    ) -> tuple[list[tuple[Found, str, object] | RefEdit], dict[str, Any]]:
         """What Search & Replace would change: each live use's field, with ``new_id``.
 
         Reads the load order (:meth:`uses`); runs off the queue's thread.
@@ -599,10 +599,10 @@ class EditorSession:
             new_id: The record they should name instead (of the same type).
 
         Returns:
-            ``(plan, report)``: ``(using record, field, new value)`` per field, and the
-            Use Report it was made from (:meth:`uses`). Placed references and scripts are
-            left out: a reference's object is part of what it is, and a script's compiled
-            data would go stale.
+            ``(plan, report)``: ``(using record, field, new value)`` per field and a
+            :class:`.refedit.RefEdit` per placed reference (its key kept, the object
+            changed - the engine merges it so), and the Use Report it was made from
+            (:meth:`uses`). Scripts are left out: their compiled data would go stale.
 
         Raises:
             EditorError: When ``new_id`` is not a record of the same type, or is the same.
@@ -613,9 +613,11 @@ class EditorSession:
         if target.key.lower() == found.key.lower():
             raise EditorError("that is the same record")
         report = self.uses(found)
-        plan: list[tuple[Found, str, object]] = []
+        plan: list[tuple[Found, str, object] | RefEdit] = []
         for use in report["uses"]:
-            if not use["wins"] or use["type"] in ("Cell", "Script") or not use["tag"]:
+            if use["type"] == "Cell":
+                continue
+            if not use["wins"] or use["type"] == "Script" or not use["tag"]:
                 continue
             user = self.find(use["tag"], use["key"])
             if user is None:
@@ -625,19 +627,32 @@ class EditorSession:
                 current, present = value_at(record, field)
                 if present:
                     plan.append((user, field, self._swap(current, found.key, target.key)))
+        cells = dict.fromkeys(u["key"] for u in report["uses"] if u["type"] == "Cell")
+        for cell in cells:
+            holders = self._cell_plugins(cell, None)
+            versions = [(p, self._records(p, "CELL")[cell.lower()]) for p in holders]
+            masters_of = {p: self._masters_of(p) for p in holders}
+            for origin, refr in refs_naming(versions, masters_of, found.key):
+                plan.append(RefEdit(cell, origin, refr, {"id": target.key}, holders))
         return plan, report
 
-    def replace_uses(self, plan: Sequence[tuple[Found, str, object]]) -> int:
+    def replace_uses(self, plan: Sequence[tuple[Found, str, object] | RefEdit]) -> int:
         """Queue a Search & Replace plan (:meth:`replace_plan`), on the queue's thread.
 
         Args:
             plan: The changes.
 
         Returns:
-            How many records it changed.
+            How many records and placed references it changed.
         """
         changed: set[tuple[str, str]] = set()
-        for user, field, value in plan:
+        refs = 0
+        for item in plan:
+            if isinstance(item, RefEdit):
+                self.queue.add_ref_edit(item)
+                refs += 1
+                continue
+            user, field, value = item
             if user.new:
                 made = self.queue.new_record(user.record_type, user.key)
                 if made is None:
@@ -654,7 +669,7 @@ class EditorSession:
                 self.queue.set_base(user.record_type, user.key, user.winner)
             changed.add((user.record_type, user.key))
         self.save_journal()
-        return len(changed)
+        return len(changed) + refs
 
     # -- scripts ----------------------------------------------------------------------
 

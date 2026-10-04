@@ -177,8 +177,9 @@
   of the first (`[count, id]` stays a count and an id).
 - **Search & Replace, from the Use Report.** "Replace with" another record's id
   repoints every live use - the field of each using record that names it (a leveled list,
-  an inventory, a spell list...) - to the other record, queued in the patch pool; the
-  placed references and scripts naming it are counted and left as they are.
+  an inventory, a spell list...) - to the other record, and every reference placing it
+  becomes the other (its key kept, so the engine merges it as the same reference with
+  another object), queued in the patch pool; the scripts naming it are counted and left.
 - **The Q menu and Layers, in the Editor's render window.** Q on the selected object:
   edit its reference or record, its Use Report, drop it to the ground, duplicate it (a new
   reference of the same record beside it), delete it, hide it, or move it to a layer.

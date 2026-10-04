@@ -90,7 +90,10 @@ def test_search_and_replace_repoints_live_uses(tmp_path: Path):
                 "id": "Vault",
                 "name": "Vault",
                 "data": {"flags": "IS_INTERIOR", "grid": [0, 0]},
-                "references": [{"id": "gold_001"}],
+                "references": [
+                    {"mast_index": 0, "refr_index": 1, "id": "gold_001"},
+                    {"mast_index": 0, "refr_index": 2, "id": "gold_001", "deleted": True},
+                ],
             },
         ],
         "Fix.esp": [
@@ -98,7 +101,13 @@ def test_search_and_replace_repoints_live_uses(tmp_path: Path):
             {"type": "LeveledItem", "id": "l_old", "items": []},  # overrides: not live
         ],
     }
-    tags = {"MISC": "MiscItem", "LEVI": "LeveledItem", "CONT": "Container"}
+    tags = {
+        "MISC": "MiscItem",
+        "LEVI": "LeveledItem",
+        "CONT": "Container",
+        "CELL": "Cell",
+        "TES3": "Header",
+    }
     s = EditorSession(
         [(n, tmp_path / n) for n in plugins],
         PatchQueue(),
@@ -114,9 +123,14 @@ def test_search_and_replace_repoints_live_uses(tmp_path: Path):
     with pytest.raises(EditorError, match="not a MiscItem"):
         s.replace_plan(found, "nothing")
     plan, report = s.replace_plan(found, "GOLD_005")
-    assert {(u.key, f) for u, f, _v in plan} == {("l_loot", "items"), ("chest", "inventory")}
-    assert report["cells"] == 1
-    assert s.replace_uses(plan) == 2
+    fields = [p for p in plan if isinstance(p, tuple)]
+    refs = [p for p in plan if not isinstance(p, tuple)]
+    assert {(u.key, f) for u, f, _v in fields} == {("l_loot", "items"), ("chest", "inventory")}
+    assert report["cells"] == 2  # the deleted one is a use in the text, not replaced
+    assert [(r.cell, r.origin, r.refr_index, dict(r.changes)) for r in refs] == [
+        ("Vault", "Morrowind.esm", 1, {"id": "gold_005"})
+    ]
+    assert s.replace_uses(plan) == 3
     fields = {k: v[0].value for k, v in s.queue.fields.items()}
     assert fields[("LeveledItem", "l_loot")] == [["gold_005", 1], ["x", 2]]
     assert fields[("Container", "chest")] == [[5, "gold_005"]]

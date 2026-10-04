@@ -122,7 +122,7 @@ def test_refusals():
         )
     with pytest.raises(PatchError, match="cannot be changed"):
         cell_patch_record(
-            [RefEdit("Ebon Tower", "Tamriel_Data.esm", 15, {"id": "x"})],
+            [RefEdit("Ebon Tower", "Tamriel_Data.esm", 15, {"refr_index": 3})],
             PLUGINS,
             ORDER,
             ["Tamriel_Data.esm"],
@@ -368,3 +368,28 @@ def test_build_record_patch_writes_the_changed_references(tmp_path):
     got = {r["id"]: r for r in cell["references"]}
     assert set(got) == {"iron dagger", "torch", "chair"}
     assert got["chair"]["translation"][0] == pytest.approx(6.0)
+
+
+def test_a_reference_can_place_another_object():
+    """Search & Replace: the same key, another object - the engine merges it so."""
+    native = pytest.importorskip("wraithguard_native")
+    import json
+
+    from wraithguard.land.emit import build_plugin
+
+    masters = ["Tamriel_Data.esm"]
+    rec = cell_patch_record(
+        [RefEdit("Ebon Tower", "Tamriel_Data.esm", 16, {"id": "T_Chair02"})],
+        PLUGINS,
+        ORDER,
+        masters,
+    )
+    doc = build_plugin([rec], [(m, 100) for m in masters], description="test")
+    (cell,) = [
+        r
+        for r in native.plugin_records(native.plugin_records_bytes(json.dumps(doc)))
+        if r["type"] == "Cell"
+    ]
+    assert [(r["mast_index"], r["refr_index"], r["id"]) for r in cell["references"]] == [
+        (1, 16, "T_Chair02")
+    ]
