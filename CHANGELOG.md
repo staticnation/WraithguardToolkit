@@ -207,6 +207,15 @@
   plugin whose version wins, and a response whose predecessor is missing (so it is read
   last) marked. A response opens in the record dialog; its changes are written inside its
   topic.
+- **"New" in the Editor's Object Window**: a blank record of the tab's type under the id
+  typed - every field at the type's default, a script a bare `begin`/`end` - made by the
+  patch and opened in the record dialog.
+- **Group entries in list fields are a table of fields**: a dialogue condition, an AI
+  package - a column per field, with names; each entry is checked against an existing
+  one of the same kind (a travel package against a travel package).
+- **A reference another mod moved into the cell is edited where its record is**: the
+  Editor finds it in the cell it stands in and changes it in the cell it left, its key
+  kept and its `moved_cell` following it.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

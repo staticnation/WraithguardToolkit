@@ -136,7 +136,7 @@ def test_build_record_patch_writes_new_references_and_its_own(tmp_path):
 
 def _session(tmp_path: Path) -> EditorSession:
     def read(path: Path, tag: str) -> list[dict[str, Any]]:
-        want = {"TES3": "Header", "CELL": "Cell", "STAT": "Static", "NPC_": "Npc"}[tag]
+        want = {"TES3": "Header", "CELL": "Cell", "STAT": "Static", "NPC_": "Npc"}.get(tag)
         return [r for r in PLUGINS[path.name] if r["type"] == want]
 
     order = [(name, tmp_path / name) for name in PLUGINS]
@@ -273,4 +273,41 @@ def test_build_record_patch_writes_made_records(tmp_path):
     back = native.plugin_records(out.read_bytes())
     assert [(r["type"], r["id"], r["mesh"]) for r in back if r["type"] == "Static"] == [
         ("Static", "WG_Chair", "x/c.nif")
+    ]
+
+
+def test_insert_makes_a_blank_record(tmp_path):
+    s = _session(tmp_path)
+    made = s.insert("stat", "WG_Rock")
+    assert made.new and made.record["type"] == "Static" and made.record["id"] == "WG_Rock"
+    assert made.record["mesh"] == ""  # every field at its default
+    assert s.find("STAT", "wg_rock") is not None
+    with pytest.raises(EditorError, match="already"):
+        s.insert("STAT", "t_chair")
+    with pytest.raises(EditorError, match="cannot be made"):
+        s.insert("CELL", "x")
+    with pytest.raises(EditorError, match="no record type"):
+        s.insert("XXXX", "x")
+    script = s.insert("SCPT", "wg_hello")
+    assert script.record["text"].startswith("begin wg_hello")
+
+
+def test_blank_records_write(tmp_path):
+    """Every field a blank record has is one the backend writes."""
+    native = pytest.importorskip("wraithguard_native")
+    from wraithguard.land.emit import build_plugin
+
+    s = _session(tmp_path)
+    recs = [
+        s.insert(tag, f"wg_{tag.lower().strip('_')}").record
+        for tag in ("STAT", "NPC_", "SCPT", "LEVI", "CONT")
+    ]
+    doc = build_plugin(recs, [("Morrowind.esm", 1)], description="t")
+    back = native.plugin_records(native.plugin_records_bytes(json.dumps(doc)))
+    assert sorted(r["id"] for r in back if r.get("id")) == [
+        "wg_cont",
+        "wg_levi",
+        "wg_npc",
+        "wg_scpt",
+        "wg_stat",
     ]

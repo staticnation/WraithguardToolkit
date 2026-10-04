@@ -279,3 +279,28 @@ def test_moving_across_an_exterior_edge_sets_moved_cell(tmp_path):
     assert [n.cell for n in s.queue.new_refs] == ["(-1, -9)"]
     with pytest.raises(EditorError, match="no plugin"):
         s.set_new_field(new, "translation", [9 * 8192.0, y, 0])
+
+
+def test_a_reference_moved_in_from_another_cell_is_found_at_home(tmp_path):
+    """The viewer finds it where it stands; its record is in the cell it left."""
+    moved = _ref(0, 5, "rock", 8192 + 10.0, moved_cell=[1, 0])
+    plugins = {
+        "Morrowind.esm": [
+            {"type": "Header", "masters": []},
+            _exterior(moved, grid=(0, 0)),
+            _exterior(grid=(1, 0)),
+        ]
+    }
+
+    def read(path: Path, tag: str) -> list[dict[str, Any]]:
+        want = {"TES3": "Header", "CELL": "Cell"}.get(tag)
+        return [r for r in plugins[path.name] if r["type"] == want]
+
+    s = EditorSession([("Morrowind.esm", tmp_path / "Morrowind.esm")], PatchQueue(), None, read)
+    found = s.find_ref("(1, 0)", "Morrowind.esm", 5, ["Morrowind.esm"])
+    assert found is not None and found.cell == "(0, 0)"
+    # Moved further along: still keyed at home, moved_cell following it.
+    s.set_ref_field(found, "translation", [2 * 8192 + 5.0, 10.0, 0])
+    assert s.queue.ref_edits[0].cell == "(0, 0)"
+    assert s.queue.ref_edits[0].changes["moved_cell"] == [2, 0]
+    assert s.find_ref("(1, 0)", "Morrowind.esm", 99) is None

@@ -182,3 +182,11 @@ def test_coerce_checks_list_entries_against_the_first():
         coerce(packages, [{"type": "Wander", "speed": 1}], None)
     assert coerce([], ["anything"], None) == ["anything"]
     assert coerce(["fireball"], ["frost", 7], None) == ["frost", "7"]
+
+
+def test_coerce_takes_each_entry_by_its_kind():
+    packages = [{"type": "Wander", "distance": 128}, {"type": "Travel", "x": 1.0}]
+    out = coerce(
+        packages, [{"type": "Travel", "x": "2"}, {"type": "Wander", "distance": "64"}], None
+    )
+    assert out == [{"type": "Travel", "x": 2.0}, {"type": "Wander", "distance": 64}]

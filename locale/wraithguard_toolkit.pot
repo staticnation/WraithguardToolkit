@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.2.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-04 05:17\n"
+"POT-Creation-Date: 2026-10-04 05:37\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -834,25 +834,25 @@ msgstr ""
 msgid "Conflict report saved: %(path)s"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:173
+#: wraithguard/gui/editorlink.py:176
 msgid "Wraithguard is busy (a dialog is open?) - try again"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:198
-#: wraithguard/gui/editorlink.py:425
-#: wraithguard/gui/editorlink.py:501
+#: wraithguard/gui/editorlink.py:201
+#: wraithguard/gui/editorlink.py:454
+#: wraithguard/gui/editorlink.py:530
 msgid "The editor is not connected to a load order - reopen the viewer"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:207
+#: wraithguard/gui/editorlink.py:210
 msgid "%(id)s is not a record any plugin of this load order defines"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:429
+#: wraithguard/gui/editorlink.py:458
 msgid "No plugin of this load order has reference %(ref)s in %(cell)s"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:570
+#: wraithguard/gui/editorlink.py:599
 msgid "That new reference is no longer in the patch"
 msgstr ""
 

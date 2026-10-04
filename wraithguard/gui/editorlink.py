@@ -29,6 +29,8 @@ loopback server, for everything else:
 - ``editTopics`` ``{}`` / ``editTopic`` ``{topic}`` -> the dialogue window: every topic,
   and a topic's responses in the order the engine reads them (a response is edited as a
   record, ``INFO``, in the record dialog);
+- ``editInsert`` ``{tag, newId}`` -> a blank record of a type, made by the patch; its
+  dialog;
 - ``editPending`` ``{}`` -> everything the patch would carry;
 - ``editReview`` ``{}`` -> open the Patch Builder here, to review and write.
 
@@ -129,6 +131,7 @@ class EditorLinkMixin:
             "editRefSet": server.register_post("wg_edit_ref_set", self._on_edit_ref_set),
             "editRefRevert": server.register_post("wg_edit_ref_revert", self._on_edit_ref_revert),
             "editDuplicate": server.register_post("wg_edit_duplicate", self._on_edit_duplicate),
+            "editInsert": server.register_post("wg_edit_insert", self._on_edit_insert),
             "editUses": server.register_post("wg_edit_uses", self._on_edit_uses),
             "editScript": server.register_post("wg_edit_script", self._on_edit_script),
             "editTopics": server.register_post("wg_edit_topics", self._on_edit_topics),
@@ -349,6 +352,32 @@ class EditorLinkMixin:
                 "scripts": sum(1 for u in live if u["type"] == "Script"),
             }
         )
+
+    def _on_edit_insert(self, body: bytes) -> Payload:
+        """``editInsert``: a blank record of a type under a new id, made by the patch.
+
+        Args:
+            body: ``{tag, newId}``.
+
+        Returns:
+            The record's dialog.
+        """
+        try:
+            req = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise ValueError("bad request") from None
+        tag, new_id = (req.get("tag"), req.get("newId")) if isinstance(req, dict) else (None, None)
+        if not isinstance(tag, str) or not isinstance(new_id, str):
+            raise ValueError("bad request")
+        session = self._editor()
+
+        def change() -> dict[str, Any]:
+            """Queue the record and redraw the Patch Builder."""
+            made = session.insert(tag, new_id)
+            self.refresh_patch_views()
+            return session.view(made)
+
+        return self._json(self._on_ui_wait(change))
 
     def _on_edit_duplicate(self, body: bytes) -> Payload:
         """``editDuplicate``: a copy of a record under a new id, made by the patch.

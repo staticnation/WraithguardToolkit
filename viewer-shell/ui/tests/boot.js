@@ -59,6 +59,7 @@ const fakeView=()=>({tag:'LIGH', type:'Light', id:'lamp_lit', winner:'Lamp.esm',
     {path:'data.radius', value:256, editable:true, kind:'int:0:4294967295', options:[]},
     {path:'flags', value:'', editable:true, kind:'flags:ObjectFlags', options:['DELETED','PERSISTENT']},
     {path:'inventory', value:[[5,'gold_001'],[1,'torch']], editable:true, kind:'list', options:[], count:2},
+    {path:'filters', value:[{slot:'Slot0', function:'PcLevel', comparison:'Greater', value:{Integer:5}}], editable:true, kind:'list', options:[], count:1},
   ].map(f=> f.path in fakeWg.queued? Object.assign(f,{queued:fakeWg.queued[f.path], source:'typed'}) : f)});
 fakeWg.made={};
 const fakeServer=http.createServer((req,res)=>{
@@ -83,6 +84,11 @@ const fakeServer=http.createServer((req,res)=>{
     else if(name==='editReplace'){
       if(b.newId==='nothing'){ res.writeHead(400); res.end('nothing is not a Light of this load order'); return; }
       out={changed:3, refs:2, scripts:0};
+    }
+    else if(name==='editInsert'){
+      if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
+      fakeWg.made[b.newId.toLowerCase()]={tag:b.tag, id:b.newId};
+      out=Object.assign(fakeView(), {tag:b.tag, id:b.newId, new:true, winner:'(this patch)', plugins:['(this patch)']});
     }
     else if(name==='editDuplicate'){
       if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
@@ -486,7 +492,7 @@ async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editUses','editReplace','editScript','editTopics','editTopic','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -550,6 +556,21 @@ async function editor(w, R, fail, done, sleep){
         await E.change('editRevert', {path:'inventory'});
       }
     }
+    // A list of groups (dialogue conditions): a column per field, a nested value as JSON.
+    {
+      const lastF=()=>(fakeWg.posts.filter(p=>p[0]==='editSet' && p[1].path==='filters').pop()||[0,{}])[1].value;
+      const fn=d.querySelector('#edDlgBody [data-lpath="filters"][data-r="0"][data-c="function"]');
+      const val=d.querySelector('#edDlgBody [data-lpath="filters"][data-r="0"][data-c="value"]');
+      if(!fn || !val) fail('dialogue conditions are not a table of fields');
+      else{
+        if(!/function/.test(d.querySelector('#edDlgBody .edList thead').textContent)) fail('the conditions table has no field names');
+        val.value='{"Integer":9}'; val.onchange();
+        for(let i=0;i<100 && !lastF();i++) await sleep(30);
+        const v=lastF();
+        if(!v || v[0].function!=='PcLevel' || v[0].value.Integer!==9) fail('the condition was not sent as a group: '+JSON.stringify(v));
+        await E.change('editRevert', {path:'filters'});
+      }
+    }
     // The Use Report: records and cells, an overridden one greyed, a record opening.
     d.getElementById('edUses').onclick();
     for(let i=0;i<100 && !d.querySelector('#edUsesBody tr[data-u]');i++) await sleep(30);
@@ -600,6 +621,21 @@ async function editor(w, R, fail, done, sleep){
     for(let i=0;i<100 && E.made.length;i++) await sleep(30);
     if(E.made.length) fail('the removed copy is still listed');
     E.filter='lamp_lit'; E.drawRows();
+    // New: a blank record of the tab's type, made by the patch, then taken out again.
+    {
+      d.getElementById('edNewId').value='lamp_new';
+      const nv=await E.insertRecord();
+      const ins=fakeWg.posts.filter(p=>p[0]==='editInsert').pop();
+      if(!nv || !ins || ins[1].tag!=='LIGH' || ins[1].newId!=='lamp_new') fail('New did not ask for a record: '+JSON.stringify(ins));
+      if(!/lamp_new/.test(d.getElementById('edDlgTitle').textContent)) fail('the new record is not in the dialog');
+      d.getElementById('edNewId').value='lamp_lit';
+      await E.insertRecord();
+      if(!d.getElementById('edNewId').classList.contains('bad')) fail('a taken id for New is not marked');
+      d.getElementById('edRevertAll').onclick();
+      for(let i=0;i<100 && fakeWg.made.lamp_new;i++) await sleep(30);
+      if(fakeWg.made.lamp_new) fail('the new record was not removed');
+      await E.refreshPending();
+    }
   }
   // The reference dialog, from the Cell View's right-click: what it asks Wraithguard
   // with, a nudge sent as the whole position, and the render window's copy of the cell.

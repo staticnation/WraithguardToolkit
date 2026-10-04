@@ -31,14 +31,13 @@ loses nothing. Still to do, roughly in this order:
   `moved_cell` when one crosses an exterior edge, and new references placed from the
   Object Window (the patch's own `(0, n)`, numbered on from an earlier build's). Still to
   do: OpenMW's LUAL instance entries, which name references the same way and must be
-  remapped with them; a reference another mod already moved to another cell (it is found
-  in the cell it stands in, while its record is in the one it left).
-- Records: done - "Make a copy as" (a new record of the patch's own, under a new id) and
-  Delete/Undelete (the DELETED flag). Still to do: a blank new record of a type (Insert),
-  renaming with the CS's "used in N places" warning (needs the Use Report), copying
+  remapped with them.
+- Records: done - "Make a copy as", "New" (a blank record of a type) and Delete/Undelete
+  (the DELETED flag). Still to do: renaming with the CS's "used in N places" warning (needs the Use Report), copying
   scripts (their text names them) and dialogue.
-- List fields: done (tables in the record dialog, each entry checked against the
-  first). Still to do: nested groups inside an entry edited as fields, not JSON.
+- List fields: done (tables in the record dialog; a group per entry - a dialogue
+  condition, an AI package - a column per field, each entry checked against one of its
+  kind). Values nested deeper than that are JSON in their cell.
 - Use Report, Search & Replace (fields and placed references), Layers and the Q menu:
   done. Still to do: Search & Replace in scripts (needs a recompile); the Layers and Q menu were built without the CSSE's documentation (the
   site is not reachable from here) and should be checked against it.
@@ -48,8 +47,8 @@ loses nothing. Still to do, roughly in this order:
   has their shapes).
 - Dialogue window: done (topics by kind, responses in engine order, a response edited in
   the record dialog and written inside its topic). Still to do: adding a response at a
-  place in a topic (its prev/next links and the neighbours' anchors), conditions edited
-  as a table of their own, and the journal's quest view.
+  place in a topic (its prev/next links and the neighbours' anchors), and the journal's
+  quest view.
 - Active file view: done ("Patch only" in the Object Window, tabs counting, cells marked).
 
 ## Controllers

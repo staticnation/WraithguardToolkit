@@ -358,6 +358,20 @@ def _native_read_all(path: Path) -> list[dict[str, Any]]:
     return list(wraithguard_native.plugin_records(path.read_bytes()))
 
 
+def _template_for(current: list[Any], entry: object) -> object:
+    """The existing entry a new one is checked against.
+
+    One with the same fields, for a list whose entries differ in kind (AI packages: a
+    wander, a travel...), else the first.
+    """
+    if isinstance(entry, dict):
+        keys = set(entry)
+        for have in current:
+            if isinstance(have, dict) and set(have) == keys:
+                return have
+    return current[0]
+
+
 def _coerce_entry(template: object, entry: object) -> object:
     """One entry of a list, checked by the shape of the first.
 
@@ -432,7 +446,7 @@ def coerce(current: object, raw: object, kind: str | None) -> object:
             raise EditorError(f"this field holds a list, not {raw!r}")
         if not current:
             return raw  # nothing to say what an entry is
-        return [_coerce_entry(current[0], entry) for entry in raw]
+        return [_coerce_entry(_template_for(current, entry), entry) for entry in raw]
     if isinstance(current, dict):
         if not isinstance(raw, dict):
             raise EditorError(f"this field holds a group, not {raw!r}")
@@ -970,6 +984,65 @@ class EditorSession:
             self.queue.remove_field(found.record_type, found.key, path)
         self.save_journal()
 
+    def _new_id(self, tag: str, record_type: str, new_id: str) -> str:
+        """An id for a record the patch makes, checked.
+
+        Not empty, not too long, and not one the load order (or the patch) already has.
+
+        Args:
+            tag: The type's tag.
+            record_type: The type.
+            new_id: The id asked for.
+
+        Returns:
+            The id, trimmed.
+
+        Raises:
+            EditorError: When it cannot be used.
+        """
+        rid = new_id.strip()
+        if not rid:
+            raise EditorError("the record needs an id")
+        if len(rid.encode("utf-8")) > MAX_ID:
+            raise EditorError(f"an id is at most {MAX_ID} bytes")
+        if self.find(tag, rid) is not None:
+            raise EditorError(f"{rid} is already a {record_type} id in this load order")
+        return rid
+
+    def insert(self, tag: str, new_id: str) -> Found:
+        """Make a blank record of a type under a new id, in the patch (and journal it).
+
+        Every field at the type's default; a script a bare ``begin``/``end``.
+
+        Args:
+            tag: The type's tag (``STAT``).
+            new_id: Its id.
+
+        Returns:
+            The record, as :meth:`find` finds it.
+
+        Raises:
+            EditorError: An unknown type, one made this way is not (as for
+                :meth:`duplicate`, scripts aside), or an id that cannot be used.
+        """
+        from wraithguard.esp.json import _by_name, record_to_json
+
+        tag = tag.upper().ljust(4, "_")
+        record_type = TAG_TO_TYPE.get(tag)
+        cls = _by_name().get(record_type or "")
+        if record_type is None or cls is None:
+            raise EditorError(f"no record type has the tag {tag}")
+        if record_type in UNCOPYABLE - {"Script"}:
+            raise EditorError(f"a {record_type} record cannot be made this way")
+        rid = self._new_id(tag, record_type, new_id)
+        record = record_to_json(cls())
+        record["id"] = rid
+        if record_type == "Script":
+            record["text"] = f"begin {rid}\n\nend\n"
+        self.queue.add_new_record(NewRecord(record_type, rid, record, ""))
+        self.save_journal()
+        return Found(tag, record_type, rid, ((PATCH, record),), new=True)
+
     def duplicate(self, found: Found, new_id: str) -> Found:
         """Make a copy of a record under a new id, in the patch (and save the journal).
 
@@ -990,13 +1063,7 @@ class EditorSession:
         """
         if found.record_type in UNCOPYABLE:
             raise EditorError(f"a {found.record_type} record cannot be copied under a new id")
-        rid = new_id.strip()
-        if not rid:
-            raise EditorError("the copy needs an id")
-        if len(rid.encode("utf-8")) > MAX_ID:
-            raise EditorError(f"an id is at most {MAX_ID} bytes")
-        if self.find(found.tag, rid) is not None:
-            raise EditorError(f"{rid} is already a {found.record_type} id in this load order")
+        rid = self._new_id(found.tag, found.record_type, new_id)
         record = copy.deepcopy(found.record)
         record["id"] = rid
         flags = str(record.get("flags") or "")
@@ -1139,12 +1206,15 @@ class EditorSession:
             rec = self._records(name, "CELL").get(want)
             if rec is not None and rec.get("type") == "Cell":
                 versions.append((self._paths[name.lower()][0], rec))
-        if not versions:
-            return None
         masters_of = {p: self._masters_of(p) for p, _ in versions}
-        won = winning_reference(versions, masters_of, origin, refr_index)
+        won = winning_reference(versions, masters_of, origin, refr_index) if versions else None
         if won is None:
-            return None
+            # Moved here from another exterior cell (MVRF): its record is in the cell it
+            # left, which is where it is changed.
+            home = self._home_cell(origin, refr_index) if exterior_grid(cell) else None
+            if home is None or home.lower() == want:
+                return None
+            return self.find_ref(home, origin, refr_index)
         spelled = self._paths.get(origin.lower(), (origin, None))[0]
         return FoundRef(
             record_key(versions[-1][1]),
@@ -1154,6 +1224,34 @@ class EditorSession:
             won[0],
             won[1],
         )
+
+    def _home_cell(self, origin: str, refr_index: int) -> str | None:
+        """The exterior cell whose records hold a reference, or None.
+
+        One moved out of a cell keeps its key there. Reads every plugin's cells (once).
+
+        Args:
+            origin: The plugin that created the reference.
+            refr_index: Its index.
+
+        Returns:
+            The cell's key.
+        """
+        from wraithguard.patch.refedit import _origin
+
+        for plugin in self.order:
+            masters = self._masters_of(plugin)
+            name = self._paths[plugin.lower()][0]
+            for key, rec in self._records(plugin, "CELL").items():
+                if exterior_grid(key) is None:
+                    continue
+                for ref in rec.get("references") or []:
+                    if not isinstance(ref, dict) or ref.get("refr_index") != refr_index:
+                        continue
+                    at = _origin(name, masters, int(ref.get("mast_index", -1)))
+                    if at is not None and at.lower() == origin.lower():
+                        return record_key(rec)
+        return None
 
     def _ref_queued(self, found: FoundRef) -> dict[str, Any]:
         """The changes queued for a placed object."""

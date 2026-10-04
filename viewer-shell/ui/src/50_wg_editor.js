@@ -151,6 +151,8 @@ const WgEditor={
         '<div class="edTabs" id="edTabs"></div>'+
         '<div class="edBar"><input class="fld" id="edFilter" placeholder="Filter: id, name or model (Ctrl+F)" spellcheck="false">'+
           '<label class="from" title="Only the records the patch changes or makes - the active file"><input type="checkbox" id="edPatchOnly"> Patch only</label>'+
+          '<input class="fld" id="edNewId" placeholder="New id" spellcheck="false" maxlength="31" style="width:110px;margin-left:6px">'+
+          '<button class="btn sm" id="edNew" title="A blank record of this type under that id, made by the patch (Insert)">New</button>'+
           '<span class="from" id="edCount"></span></div>'+
         '<div class="edTable" id="edTable"></div>'+
       '</div>'+
@@ -164,6 +166,8 @@ const WgEditor={
     this.el=d;
     d.querySelector('#edFilter').oninput=e=>{ this.filter=e.target.value; this.drawRows(); };
     d.querySelector('#edPatchOnly').onchange=e=>{ this.patchOnly=e.target.checked; this.drawRows(); };
+    d.querySelector('#edNewId').onkeydown=e=>{ if(e.key==='Enter') this.insertRecord(); e.stopPropagation(); };
+    d.querySelector('#edNew').onclick=()=>this.insertRecord();
     d.querySelector('#edCellFilter').oninput=e=>{ this.cellFilter=e.target.value; this.drawCells(); };
     d.querySelector('#edPendBtn').onclick=()=>this.showPending();
     d.querySelector('#edLayersBtn').onclick=()=>this.showLayers();
@@ -239,6 +243,25 @@ const WgEditor={
   },
 
   isEdited(id){ return this.edited.has(this.tag+':'+String(id).toLowerCase()); },
+
+  /** "New": a blank record of the tab's type, under the id typed, made by the patch. */
+  async insertRecord(){
+    const box=this.el.querySelector('#edNewId'), newId=box.value.trim();
+    if(!newId){ box.classList.add('bad'); return null; }
+    try{
+      const v=await this.ask('editInsert', {tag:this.tag, newId});
+      box.value=''; box.classList.remove('bad');
+      this.record={tag:v.tag, id:v.id, plugins:null};
+      this.dialog().hidden=false;
+      this.drawRecord(v);
+      await this.refreshPending();
+      return v;
+    }catch(e){
+      box.classList.add('bad');
+      toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000);
+      return null;
+    }
+  },
 
   /* ---- the cell view ---------------------------------------------------------------- */
 
@@ -410,11 +433,19 @@ const WgEditor={
       return '<input class="fld" type="'+(num?'number':'text')+'"'+(num? (Number.isInteger(like)?' step="1"':' step="any"') : '')+
         ' data-lpath="'+P+'" data-r="'+r+'"'+(c!=null? ' data-c="'+c+'"' : '')+' value="'+escHtml(v==null? '' : (typeof v==='object'? JSON.stringify(v) : String(v)))+'"'+dis+' spellcheck="false">';
     };
-    let h='<table class="edT edList"><tbody>';
+    // A group per entry (a dialogue condition, an AI package): a column per field.
+    const group=tpl && typeof tpl==='object' && !Array.isArray(tpl);
+    const cols=group? [...new Set(list.concat([tpl]).flatMap(e=>e && typeof e==='object'? Object.keys(e) : []))] : null;
+    this._lists[f.path].cols=cols;
+    let h='<table class="edT edList">'+(group? '<thead><tr>'+cols.map(k=>'<th>'+escHtml(k)+'</th>').join('')+'<th></th></tr></thead>' : '')+'<tbody>';
     if(tpl===null && !list.length) h+='<tr><td class="from">empty</td></tr>';
     list.slice(0,300).forEach((e,r)=>{
       h+='<tr>';
       if(Array.isArray(tpl) && Array.isArray(e)) e.forEach((v,c)=>{ h+='<td>'+cell(v, r, c, tpl[c])+'</td>'; });
+      else if(group && e && typeof e==='object') cols.forEach(k=>{
+        // A field this entry's kind does not have (AI packages differ): a blank, not an input.
+        h+='<td>'+(k in e? cell(e[k], r, k, k in tpl? tpl[k] : e[k]) : '')+'</td>';
+      });
       else h+='<td>'+cell(e, r, null, tpl)+'</td>';
       h+='<td>'+(f.editable? '<button class="btn dim ic" data-ldel="'+P+'" data-r="'+r+'" title="Remove this entry">&#x2715;</button>' : '')+'</td></tr>';
     });
@@ -431,10 +462,11 @@ const WgEditor={
       if(el.dataset.lpath!==path) return;
       const r=+el.dataset.r, c=el.dataset.c;
       let v=el.value;
-      const like=c!=null? (Array.isArray(L.tpl)? L.tpl[+c] : null) : L.tpl;
+      const keyed=L.cols && c!=null;
+      const like=c!=null? (keyed? (c in (L.tpl||{})? L.tpl[c] : (L.list[r]||{})[c]) : (Array.isArray(L.tpl)? L.tpl[+c] : null)) : L.tpl;
       if(like && typeof like==='object'){ try{ v=JSON.parse(v); }catch(_){ } }
       else if(el.type==='number') v= v===''? '' : Number(v);
-      if(c!=null) out[r][+c]=v; else out[r]=v;
+      if(keyed) out[r][c]=v; else if(c!=null) out[r][+c]=v; else out[r]=v;
     });
     return out;
   },
