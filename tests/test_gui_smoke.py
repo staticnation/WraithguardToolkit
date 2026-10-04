@@ -3551,3 +3551,175 @@ class TestRadioButton:
         # and both are actually fixed (non-zero), not label-sized
         assert int(app.sort_button.cget("width")) > 0
         assert int(app.export_button.cget("width")) > 0
+
+
+def _lua_setup(root: Path, scripts: int) -> Path:
+    """A setup with many scripts, one held in an archive, a Teal project, and an install."""
+    res = root / "OpenMW" / "resources" / "lua_api" / "openmw"
+    res.mkdir(parents=True)
+    (res / "core.lua").write_text(
+        "---\n-- @context global|local\n-- @module core\n-- @usage local core = require('openmw.core')\n\n"
+        "---\n-- @function [parent=#core] sendGlobalEvent\n-- @param #string name\n",
+        encoding="utf-8",
+    )
+    data = root / "Data Files"
+    (data / "scripts" / "many").mkdir(parents=True)
+    lines = []
+    for i in range(scripts):
+        body = (
+            "local core = require('openmw.core')\n"
+            f"local function onUpdate(dt)\n  core.sendGlobalEvent('E{i}')\n"
+            + ("  undefinedThing()\n" if i % 7 == 0 else "")
+            + "end\nreturn { engineHandlers = { onUpdate = onUpdate } }\n"
+        )
+        (data / "scripts" / "many" / f"s{i}.lua").write_text(body, encoding="utf-8")
+        lines.append(f"PLAYER: scripts/many/s{i}.lua")
+    lines.append("GLOBAL: scripts/arch/held.lua")
+    (data / "many.omwscripts").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (data / "src").mkdir()
+    (data / "tlconfig.lua").write_text('return { source_dir = "src" }\n', encoding="utf-8")
+    cfg_lines = [f'data="{data}"', "content=many.omwscripts"]
+    try:
+        import wraithguard_native as native
+
+        (data / "Held.bsa").write_bytes(
+            native.bsa_bytes([("scripts\\arch\\held.lua", b"return {}\n")])
+        )
+        cfg_lines.insert(1, "fallback-archive=Held.bsa")
+    except (ImportError, AttributeError):
+        pass  # no backend: the archived script is reported missing instead
+    cfg = root / "openmw.cfg"
+    cfg.write_text("\n".join(cfg_lines) + "\n", encoding="utf-8")
+    return root / "OpenMW"
+
+
+def test_lua_window_fills_without_freezing(
+    fresh_app: Any, tk_root: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Lua scripts window lists the scan and never stops the event loop for long.
+
+    Run under a real ``mainloop`` - the worker hands its result back with
+    ``root.after`` from its own thread, which Tk delivers only while the loop runs - and
+    a tick every 20 ms measures the longest the window went without answering.
+    """
+    import time
+
+    from wraithguard.lua import scan as scan_mod
+
+    monkeypatch.setattr(scan_mod, "_archive_cache", lambda: tmp_path / "cache")
+    monkeypatch.delenv("WG_OPENMW_RESOURCES", raising=False)
+    install = _lua_setup(tmp_path, 150)
+    fresh_app.cfg_var.set(str(tmp_path / "openmw.cfg"))
+    fresh_app._openmw_install = str(install)
+    fresh_app.show_lua_view()
+    start = last = time.monotonic()
+    worst = 0.0
+
+    def done() -> bool:
+        return getattr(fresh_app, "_lua_result", None) is not None
+
+    def tick() -> None:
+        nonlocal last, worst
+        now = time.monotonic()
+        worst = max(worst, now - last)
+        last = now
+        if done() or now - start > 180:
+            tk_root.quit()
+            return
+        tk_root.after(20, tick)
+
+    tk_root.after(20, tick)
+    tk_root.mainloop()
+    elapsed = time.monotonic() - start
+    try:
+        assert done(), f"the scan did not finish in {elapsed:.0f}s: {fresh_app._lua_status.get()}"
+        result = fresh_app._lua_result
+        nav = fresh_app._lua_nav
+        tk_root.update()
+        assert len(nav.get_children()) == len(result.scripts) + 1  # and the load order
+        assert len(result.scripts) == 151
+        held = next(r for r in result.scripts if r.path == "scripts/arch/held.lua")
+        assert held.file is not None or "Held.bsa" not in (tmp_path / "openmw.cfg").read_text()
+        status = fresh_app._lua_status.get()
+        print(f"\nlua window: {elapsed:.2f}s, longest stall {worst * 1000:.0f} ms; {status}")
+        assert "151 scripts" in status, status
+        assert worst < 1.0, f"the window went {worst:.2f}s without answering"
+        # A script opens: its source and findings fill in.
+        nav.selection_set("s0")
+        tk_root.update()
+        fresh_app._lua_select()
+        tk_root.update()
+        assert fresh_app._lua_src.get("1.0", "end").strip().startswith("local core")
+    finally:
+        fresh_app._lua_win.destroy()
+        tk_root.update()
+
+
+def _pump_until(tk_root: Any, cond: Any, limit: float = 30.0) -> None:
+    """Run the real event loop until ``cond()`` holds (or ``limit`` seconds pass)."""
+    import time
+
+    start = time.monotonic()
+
+    def tick() -> None:
+        if cond() or time.monotonic() - start > limit:
+            tk_root.quit()
+            return
+        tk_root.after(20, tick)
+
+    tk_root.after(20, tick)
+    tk_root.mainloop()
+
+
+def test_lua_window_says_when_the_scan_fails(
+    fresh_app: Any, tk_root: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scan that raises is reported in the window, which does not wait on for ever."""
+    from wraithguard.gui import luaview
+
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise OSError("the data folder went away")
+
+    monkeypatch.setattr(luaview, "check_cfg", boom)
+    cfg = tmp_path / "openmw.cfg"
+    cfg.write_text("content=x.omwscripts\n", encoding="utf-8")
+    fresh_app.cfg_var.set(str(cfg))
+    fresh_app.show_lua_view()
+    _pump_until(tk_root, lambda: "failed" in fresh_app._lua_status.get())
+    try:
+        assert "the data folder went away" in fresh_app._lua_status.get()
+    finally:
+        fresh_app._lua_win.destroy()
+        tk_root.update()
+
+
+def test_lua_window_closed_mid_scan_drops_the_result(
+    fresh_app: Any, tk_root: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closed before the scan ends: the late result is dropped, nothing raises."""
+    import threading
+
+    from wraithguard.gui import luaview
+
+    gate = threading.Event()
+    finished = threading.Event()
+    real = luaview.check_cfg
+
+    def slow(*a: Any, **k: Any) -> Any:
+        gate.wait(10)
+        try:
+            return real(*a, **k)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(luaview, "check_cfg", slow)
+    cfg = tmp_path / "openmw.cfg"
+    cfg.write_text("", encoding="utf-8")
+    fresh_app.cfg_var.set(str(cfg))
+    fresh_app.show_lua_view()
+    fresh_app._lua_win.destroy()
+    tk_root.update()
+    gate.set()
+    _pump_until(tk_root, finished.is_set)
+    tk_root.update()
+    assert getattr(fresh_app, "_lua_result", None) is None
