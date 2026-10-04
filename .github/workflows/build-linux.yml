@@ -141,9 +141,10 @@ jobs:
           ls -lh dist/wraithguard-toolkit-linux-x86_64.tar.gz
 
       - name: Upload the build
-        uses: actions/upload-artifact@v4
+        # The archive itself (`archive: false`, upload-artifact v7), not zipped again.
+        uses: actions/upload-artifact@v7
         with:
-          name: wraithguard-toolkit-linux-x86_64
+          archive: false
           path: dist/wraithguard-toolkit-linux-x86_64.tar.gz
           if-no-files-found: error
           retention-days: 14

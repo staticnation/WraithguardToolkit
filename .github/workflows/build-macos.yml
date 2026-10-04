@@ -162,9 +162,10 @@ jobs:
             "Wraithguard-Toolkit-macos-${{ matrix.arch }}.zip"
 
       - name: Upload the app
-        uses: actions/upload-artifact@v4
+        # The archive itself (`archive: false`, upload-artifact v7), not zipped again.
+        uses: actions/upload-artifact@v7
         with:
-          name: wraithguard-toolkit-macos-${{ matrix.arch }}
+          archive: false
           path: dist/Wraithguard-Toolkit-macos-${{ matrix.arch }}.zip
           if-no-files-found: error
           retention-days: 14

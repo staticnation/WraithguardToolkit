@@ -177,10 +177,15 @@ jobs:
           "ASSET=dist/wraithguard-toolkit-windows-x86_64-webview2.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload the build
-        uses: actions/upload-artifact@v4
+        # Uploaded as the file itself, not zipped (`archive: false`, upload-artifact v7):
+        # the download is the .exe (or the webview2 variant's .zip), named as built.
+        # Zipped, it came down as "wraithguard-toolkit-windows-x86_64-system" - a zip
+        # holding the .exe, which anything that dropped the .zip extension left as a file
+        # Windows would not run.
+        uses: actions/upload-artifact@v7
         with:
-          name: wraithguard-toolkit-windows-x86_64-${{ matrix.variant }}
           path: ${{ env.ASSET }}
+          archive: false
           if-no-files-found: error
           retention-days: 14
 

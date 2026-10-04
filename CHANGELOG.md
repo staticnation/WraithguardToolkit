@@ -259,6 +259,11 @@
 
 ### Fixed
 
+- **The Windows build downloads as the `.exe`.** The workflow's artifact was a zip named
+  `wraithguard-toolkit-windows-x86_64-system` holding the `.exe` - with the `.zip`
+  extension dropped on the way down, a file Windows would not run. Builds are now uploaded
+  as the file itself (`wraithguard-toolkit-windows-x86_64.exe`; the macOS `.zip` and
+  Linux `.tar.gz` likewise, no longer zipped a second time).
 - **A dialogue response merged field by field is written inside its own topic.** It was
   appended to the end of the patch with no topic before it - so the engine attached it to
   whichever topic the patch carried last (another topic's responses, answering the wrong
