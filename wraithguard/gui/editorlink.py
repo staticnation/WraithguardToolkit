@@ -23,6 +23,9 @@ loopback server, for everything else:
 - ``editReplace`` ``{tag, id, plugins?, newId}`` -> Search & Replace: every live use's
   field repointed to ``newId``, queued (``{changed, cells, scripts}``: references and
   scripts are counted, left);
+- ``editScript`` ``{tag, id, plugins?, text?}`` -> the Script Edit window: the source
+  (the queued change, or ``text`` to check as typed), its checks and the compiled listing;
+  saving is ``editSet`` on ``text``;
 - ``editPending`` ``{}`` -> everything the patch would carry;
 - ``editReview`` ``{}`` -> open the Patch Builder here, to review and write.
 
@@ -124,6 +127,7 @@ class EditorLinkMixin:
             "editRefRevert": server.register_post("wg_edit_ref_revert", self._on_edit_ref_revert),
             "editDuplicate": server.register_post("wg_edit_duplicate", self._on_edit_duplicate),
             "editUses": server.register_post("wg_edit_uses", self._on_edit_uses),
+            "editScript": server.register_post("wg_edit_script", self._on_edit_script),
             "editReplace": server.register_post("wg_edit_replace", self._on_edit_replace),
             "editPlace": server.register_post("wg_edit_place", self._on_edit_place),
             "editNew": server.register_post("wg_edit_new", self._on_edit_new),
@@ -244,6 +248,32 @@ class EditorLinkMixin:
             return session.view(found)
 
         return self._json(self._on_ui_wait(change))
+
+    def _on_edit_script(self, body: bytes) -> Payload:
+        """``editScript``: the Script Edit window's source, checks and listing.
+
+        Args:
+            body: ``{tag, id, plugins?, text?}``.
+
+        Returns:
+            :meth:`.EditorSession.script_view`, as JSON, with ``queued`` (whether a
+            changed text waits in the pool).
+        """
+        req, session, found = self._edit_request(body)
+        text = req.get("text")
+        if text is not None and not isinstance(text, str):
+            raise ValueError("bad text")
+
+        def queued() -> object:
+            """The text waiting in the pool for this script, or None."""
+            view = session.view(found)
+            return next((f.get("queued") for f in view["fields"] if f["path"] == "text"), None)
+
+        waiting = self._on_ui_wait(queued)
+        source = text if text is not None else (waiting if isinstance(waiting, str) else None)
+        out = session.script_view(found, source)
+        out["queued"] = isinstance(waiting, str)
+        return self._json(out)
 
     def _on_edit_uses(self, body: bytes) -> Payload:
         """``editUses``: the record's Use Report (read on the server's thread).

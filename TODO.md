@@ -45,7 +45,10 @@ loses nothing. Still to do, roughly in this order:
   object - allowed by the engine, not yet by `REF_FIELDS`) and in scripts (needs a
   recompile); the Layers and Q menu were built without the CSSE's documentation (the
   site is not reachable from here) and should be checked against it.
-- Dialogue, and the Script Edit window (with the mwscript checks the toolkit has).
+- Script Edit window: done (source checked as typed, compiled listing, saved to the
+  pool). Still to do: a compiler, so Morrowind.exe gets the changed bytecode too (OpenMW
+  compiles the text itself); checks that know each function's arguments (the opcode table
+  has their shapes). Dialogue: still to do.
 - An "active file" view: the patch being built, as the CS shows the plugin it edits.
 
 ## Controllers

@@ -71,6 +71,11 @@ const fakeServer=http.createServer((req,res)=>{
       {plugin:'Lamp.esm', type:'LeveledItem', tag:'LEVI', key:'l_lamps', paths:['items.0.0'], count:1, wins:true},
       {plugin:'Lamp.esm', type:'Container', tag:'CONT', key:'old_chest', paths:['inventory.0.1'], count:1, wins:false},
       {plugin:'Lamp.esm', type:'Cell', tag:'CELL', key:'(9, 9)', paths:['references'], count:2, wins:true}]};
+    else if(name==='editScript'){
+      const text=b.text!=null? b.text : 'begin payme\nend';
+      out={id:'payme', text, compiled:true, queued:false, listing:'0000  Return',
+           findings:/oops/.test(text)? [{line:2, level:'error', message:"'if' is never closed"}] : []};
+    }
     else if(name==='editReplace'){
       if(b.newId==='nothing'){ res.writeHead(400); res.end('nothing is not a Light of this load order'); return; }
       out={changed:1, cells:2, scripts:0};
@@ -473,7 +478,7 @@ async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editUses','editReplace','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editUses','editReplace','editScript','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -643,6 +648,26 @@ async function editor(w, R, fail, done, sleep){
         if(E.live.size) fail('the revert left the reference drawn moved');
       }
     }
+  }
+  // The Script Edit window: the source, checked as typed, the listing, and saving.
+  {
+    const v=await E.openScript('SCPT', 'payme', null);
+    const ta=d.getElementById('edScriptText');
+    if(!v || !ta || ta.value!=='begin payme\nend') fail('the Script Edit window did not open with the source');
+    else{
+      if(d.getElementById('edScriptListing').textContent!=='0000  Return') fail('the compiled listing is not shown');
+      if(!/Morrowind\.exe/.test(d.getElementById('edScriptNote').textContent)) fail('the window does not say the compiled data is not rebuilt');
+      ta.value='begin payme\nif oops\nend'; ta.oninput();
+      for(let i=0;i<100 && !d.querySelector('#edScriptFind .it.bad');i++) await sleep(30);
+      if(!d.querySelector('#edScriptFind .it.bad')) fail('a finding is not shown as it is typed');
+      ta.value='begin payme\nset x to 1\nend'; await E.checkScript();
+      const n0=fakeWg.posts.length;
+      await E.saveScript();
+      const sv=fakeWg.posts.slice(n0).find(p=>p[0]==='editSet');
+      if(!sv || sv[1].path!=='text' || sv[1].value!=='begin payme\nset x to 1\nend' || sv[1].tag!=='SCPT') fail('saving did not send the text: '+JSON.stringify(sv));
+      delete fakeWg.queued.text;
+    }
+    d.getElementById('edScript').hidden=true;
   }
   // The inspector's "Edit record" and "Edit reference" for a clicked object.
   const Ori=w.eval('Ori'), lamp=R.pickables.find(p=>p.id==='lamp_lit');

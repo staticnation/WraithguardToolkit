@@ -656,6 +656,53 @@ class EditorSession:
         self.save_journal()
         return len(changed)
 
+    # -- scripts ----------------------------------------------------------------------
+
+    def script_globals(self) -> list[str]:
+        """Every global variable the load order defines (read once per plugin)."""
+        names: set[str] = set()
+        for plugin in self.order:
+            names.update(self._records(plugin, "GLOB"))
+        return sorted(names)
+
+    def script_view(self, found: Found, text: str | None = None) -> dict[str, Any]:
+        """The Script Edit window: the source, its checks, and the compiled listing.
+
+        Args:
+            found: The script.
+            text: Source to check instead of the record's (the window's, as typed).
+
+        Returns:
+            ``{"id", "text", "findings": [{"line", "level", "message"}], "listing",
+            "compiled"}`` - ``compiled`` whether the record carries bytecode, which a
+            changed text does not rebuild (OpenMW compiles the text; Morrowind.exe runs
+            the bytecode).
+
+        Raises:
+            EditorError: For a record that is not a script.
+        """
+        from wraithguard.mwscript.check import check_script
+
+        if found.record_type != "Script":
+            raise EditorError(f"{found.key} is not a script")
+        source = text if text is not None else str(found.record.get("text") or "")
+        bytecode = found.record.get("bytecode")
+        listing = ""
+        if bytecode:
+            from wraithguard.mwscript.tes3conv import listing_for_bytecode_field
+
+            listing = listing_for_bytecode_field(bytecode, str(found.record.get("text") or ""))
+        findings = check_script(source, found.key, self.script_globals())
+        return {
+            "id": found.key,
+            "text": source,
+            "findings": [
+                {"line": f.line, "level": f.level, "message": f.message} for f in findings
+            ],
+            "listing": listing,
+            "compiled": bool(bytecode),
+        }
+
     # -- the dialog -------------------------------------------------------------------
 
     def _choices(self, found: Found) -> dict[str, FieldChoice | FieldValue]:

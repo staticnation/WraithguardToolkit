@@ -184,6 +184,14 @@
   reference of the same record beside it), delete it, hide it, or move it to a layer.
   Layers ("Layers" in the dock) are named groups of references shown or hidden in the
   render window - a view kept in this viewer, never written to the patch.
+- **The Script Edit window, from a script's record dialog.** The source in an editor,
+  checked as it is typed (`wraithguard/mwscript/check.py`): the `begin`/`end` frame and a
+  `begin` name that is not the script's, `if`/`while` blocks out of balance, variables
+  declared twice, `set` on a name that is neither a local nor one of the load order's
+  globals, and statements starting with a function the game does not have (the opcode
+  table); a finding selects its line. The compiled listing beside it, and "Save to the
+  patch". The toolkit writes no bytecode, and the window says what that means: OpenMW
+  compiles the text, Morrowind.exe runs the compiled data the record carries.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

@@ -28,6 +28,11 @@
      X or Y to keep to that axis; Shift-drag turns it (about Z, or X/Y held); F drops it
      onto what is under it. A gold copy follows the pointer and the change goes to the
      pool on release (`grab`, over the renderer's `onGrab`).
+   - The Script Edit window (a script's dialog, "Script Edit"): the source, checked as it
+     is typed (begin/end, blocks, variables, functions the game knows), the compiled
+     listing, and "Save to the patch". The toolkit does not compile: OpenMW compiles the
+     text, Morrowind.exe runs the compiled data the record carries, which a changed text
+     leaves as it was - the window says so.
    - Q on the selected object: a menu of what can be done to it (edit, Use Report, drop,
      duplicate, delete, hide, move to a layer). Layers (the dock's "Layers") are named
      groups of references shown or hidden in the render window - a view, kept in this
@@ -445,6 +450,7 @@ const WgEditor={
     h+='<div class="orirow"><span class="v">'+
       (v.new? '' : '<button class="btn sm" id="edShow" title="Where it stands in the world">Show in world</button> ')+
       (v.new? '' : '<button class="btn sm" id="edUses" title="Every record of the load order that names this one, and the cells it is placed in - the Construction Set\'s Use Report">Use Report</button> ')+
+      (v.tag==='SCPT'? '<button class="btn sm" id="edScriptBtn" title="The source, checked as you type, and the compiled listing">Script Edit</button> ' : '')+
       (Ori.recordLink() && !v.new? '<button class="btn sm" id="edConf" title="This record in Wraithguard\'s conflict viewer">Conflicts</button> ' : '')+
       (v.new? '<button class="btn sm" id="edRevertAll" title="Take this record back out of the patch">Remove from the patch</button>'
             : '<button class="btn sm" id="edRevertAll" title="Drop every change waiting for this record">Revert record</button>')+
@@ -460,6 +466,8 @@ const WgEditor={
          '</td><td>'+(q? '<button class="btn dim ic" data-revert="'+escHtml(f.path)+'" title="Drop this change">&#x21B6;</button>' : '')+'</td></tr>';
     }
     body.innerHTML=h+'</tbody></table>';
+    const sb=body.querySelector('#edScriptBtn');
+    if(sb) sb.onclick=()=>this.openScript(v.tag, v.id, v.plugins);
     const us=body.querySelector('#edUses');
     if(us) us.onclick=()=>this.showUses(v.tag, v.id, v.plugins);
     const sh=body.querySelector('#edShow');
@@ -1128,6 +1136,96 @@ const WgEditor={
     if(this.refRec) App._findOri=this.refKeyOf(this.refRec);
     if(typeof schedulePreview==='function' && App.cellSel) schedulePreview();
     return true;
+  },
+
+  /* ---- the Script Edit window ------------------------------------------------------------ */
+
+  async openScript(tag, id, plugins){
+    if(!this.scr){
+      const d=document.createElement('div');
+      d.id='edScript'; d.className='ori'; d.hidden=true;
+      d.innerHTML='<div class="orihead"><b id="edScriptTitle">Script</b><span style="flex:1"></span>'+
+        '<button class="btn sm" data-stab="src">Source</button> <button class="btn sm" data-stab="lst">Compiled</button> '+
+        '<button class="btn dim ic" id="edScriptX" title="Close">&#x2715;</button></div>'+
+        '<div class="oribody"><div id="edScriptSrc"><textarea id="edScriptText" spellcheck="false" wrap="off"></textarea>'+
+        '<div id="edScriptFind"></div><div class="orirow"><span class="v">'+
+        '<button class="btn sm" id="edScriptSave" title="The text goes to the patch pool, as a change to this script">Save to the patch</button> '+
+        '<button class="btn sm" id="edScriptRevert" title="Drop the changed text waiting in the pool">Revert</button></span></div>'+
+        '<div class="hint" id="edScriptNote"></div></div>'+
+        '<pre id="edScriptListing" hidden></pre></div>';
+      ($('#vpwrap')||document.body).appendChild(d);
+      d.querySelector('#edScriptX').onclick=()=>{ d.hidden=true; };
+      d.querySelectorAll('[data-stab]').forEach(b=>b.onclick=()=>{
+        const src=b.dataset.stab==='src';
+        d.querySelector('#edScriptSrc').hidden=!src; d.querySelector('#edScriptListing').hidden=src;
+        d.querySelectorAll('[data-stab]').forEach(x=>x.classList.toggle('on', x===b));
+      });
+      const ta=d.querySelector('#edScriptText');
+      ta.onkeydown=e=>{
+        e.stopPropagation();
+        if(e.key==='Tab'){ e.preventDefault(); const a=ta.selectionStart; ta.value=ta.value.slice(0,a)+'    '+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=a+4; ta.oninput(); }
+      };
+      ta.oninput=()=>{ clearTimeout(this._scrT); this._scrT=setTimeout(()=>this.checkScript(), 400); };
+      d.querySelector('#edScriptSave').onclick=()=>this.saveScript();
+      d.querySelector('#edScriptRevert').onclick=async()=>{
+        const s=this._script; if(!s) return;
+        try{ await this.ask('editRevert', Object.assign({tag:s.tag, id:s.id, path:'text'}, s.plugins? {plugins:s.plugins} : {})); }
+        catch(e){ toast(String(e.message||e),'err',5000); }
+        await this.refreshPending();
+        this.openScript(s.tag, s.id, s.plugins);
+      };
+      this.scr=d;
+    }
+    const d=this.scr;
+    this._script={tag, id, plugins};
+    d.hidden=false;
+    d.querySelector('#edScriptTitle').textContent='Script - '+id;
+    d.querySelector('[data-stab="src"]').onclick();
+    let v;
+    try{ v=await this.ask('editScript', Object.assign({tag, id}, plugins? {plugins} : {})); }
+    catch(e){ d.querySelector('#edScriptFind').innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return null; }
+    d.querySelector('#edScriptText').value=v.text;
+    d.querySelector('#edScriptListing').textContent=v.listing||'; no compiled data in this record';
+    d.querySelector('#edScriptNote').textContent=(v.queued? 'A changed text waits in the pool. ' : '')+(v.compiled
+      ? 'OpenMW compiles this text when it loads. Morrowind.exe runs the compiled data the record carries, which the toolkit does not rebuild: a changed text reaches Morrowind.exe only once the Construction Set recompiles it.'
+      : 'This record carries no compiled data: OpenMW compiles the text; Morrowind.exe needs the Construction Set to compile it.');
+    this.drawFindings(v.findings);
+    return v;
+  },
+
+  async checkScript(){
+    const s=this._script; if(!s || !this.scr) return;
+    const text=this.scr.querySelector('#edScriptText').value;
+    try{
+      const v=await this.ask('editScript', Object.assign({tag:s.tag, id:s.id, text}, s.plugins? {plugins:s.plugins} : {}));
+      if(this.scr.querySelector('#edScriptText').value===text) this.drawFindings(v.findings);
+    }catch(_){ }
+  },
+
+  drawFindings(list){
+    const box=this.scr.querySelector('#edScriptFind');
+    this._findings=list||[];
+    box.innerHTML=this._findings.length
+      ? this._findings.map((f,i)=>'<div class="it '+(f.level==='error'?'bad':'')+'" data-f="'+i+'"><span class="k">'+f.line+'</span> '+escHtml(f.message)+'</div>').join('')
+      : '<div class="hint">No problems found.</div>';
+    box.querySelectorAll('[data-f]').forEach(el=>el.onclick=()=>{
+      const f=this._findings[+el.dataset.f], ta=this.scr.querySelector('#edScriptText');
+      const lines=ta.value.split('\n'); let a=0;
+      for(let i=0;i<f.line-1 && i<lines.length;i++) a+=lines[i].length+1;
+      ta.focus(); ta.selectionStart=a; ta.selectionEnd=a+(lines[f.line-1]||'').length;
+    });
+  },
+
+  async saveScript(){
+    const s=this._script; if(!s) return;
+    const text=this.scr.querySelector('#edScriptText').value;
+    if(this._findings.some(f=>f.level==='error') && !window.confirm('The script has errors the compiler would refuse. Save it to the patch anyway?')) return;
+    try{
+      await this.ask('editSet', Object.assign({tag:s.tag, id:s.id, path:'text', value:text}, s.plugins? {plugins:s.plugins} : {}));
+      toast('The changed text is in the patch pool','ok',3000);
+      await this.refreshPending();
+      this.scr.querySelector('#edScriptNote').textContent='A changed text waits in the pool. '+this.scr.querySelector('#edScriptNote').textContent.replace(/^A changed text waits in the pool\. /,'');
+    }catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); }
   },
 
   /* ---- the Use Report ------------------------------------------------------------------ */
