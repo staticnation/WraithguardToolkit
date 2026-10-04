@@ -328,3 +328,13 @@ def test_checks_from_many_threads_agree(tmp_path, monkeypatch):
     for t in threads:
         t.join()
     assert all(g == want for g in got), got
+
+
+def test_is_resources_and_a_chosen_install(tmp_path):
+    from wraithguard.lua.openmw_api import find_resources, is_resources
+
+    res = tmp_path / "OpenMW" / "resources"
+    (res / "lua_api" / "openmw").mkdir(parents=True)
+    assert is_resources(res) and not is_resources(tmp_path)
+    assert find_resources(None, tmp_path / "OpenMW") == res  # the install folder is enough
+    assert find_resources(None, res) == res

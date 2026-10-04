@@ -121,6 +121,9 @@ class LuaViewMixin:
         cfg_var: tk.StringVar
         log_theme_var: tk.StringVar
         _conflict_win: tk.Toplevel | None
+        _openmw_install: str | None
+
+        def _save_settings(self) -> None: ...
 
         def _schedule_ui(
             self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
@@ -159,6 +162,18 @@ class LuaViewMixin:
             side="left", fill="x", expand=True
         )
         ttk.Button(top, text=_("Rescan"), command=lambda: self._lua_scan(cfg)).pack(side="right")
+        install = ttk.Button(
+            top, text=_("OpenMW install..."), command=lambda: self._lua_choose_install(cfg)
+        )
+        install.pack(side="right", padx=(0, 6))
+        add_tooltip(
+            install,
+            _(
+                "The OpenMW install whose Lua API the scripts are checked against: its "
+                "resources folder, or the folder holding it. Found on its own when not "
+                "chosen; choosing one keeps it in the settings."
+            ),
+        )
         ttk.Button(top, text=_("Copy report"), command=self._lua_copy_report).pack(
             side="right", padx=(0, 6)
         )
@@ -290,9 +305,10 @@ class LuaViewMixin:
         def work() -> None:
             """Scan, then hand the result (or the error) to the UI thread."""
             try:
-                # The setup's OpenMW install is found on its own (openmw_api.find_resources);
-                # its documented API and the Teal checks come with the scan.
-                result = check_cfg(cfg)
+                # The OpenMW install chosen in the window, or else found on its own
+                # (openmw_api.find_resources); its API and the Teal checks come with it.
+                chosen = getattr(self, "_openmw_install", None)
+                result = check_cfg(cfg, resources=Path(chosen) if chosen else None)
             except Exception as exc:  # shown to the user, never fatal
                 LOG.exception("Lua scan failed")
                 self._schedule_ui(0, self._lua_failed, str(exc))
@@ -300,6 +316,40 @@ class LuaViewMixin:
             self._schedule_ui(0, self._lua_filled, result)
 
         threading.Thread(target=work, name="wg-lua-scan", daemon=True).start()
+
+    def _lua_choose_install(self, cfg: Path) -> None:
+        """Choose the OpenMW install the scripts are checked against, keep it, rescan.
+
+        Args:
+            cfg: The openmw.cfg being scanned.
+        """
+        from tkinter import filedialog
+
+        from wraithguard.lua.openmw_api import is_resources
+
+        start = getattr(self, "_openmw_install", None) or ""
+        folder = filedialog.askdirectory(
+            parent=getattr(self, "_lua_win", None) or self.root,
+            title=_("The OpenMW install (or its resources folder)"),
+            initialdir=start or None,
+            mustexist=True,
+        )
+        if not folder:
+            return
+        if not (is_resources(Path(folder)) or is_resources(Path(folder) / "resources")):
+            messagebox.showwarning(
+                _("Not an OpenMW install"),
+                _(
+                    "%(folder)s has no resources/lua_api/openmw folder (OpenMW 0.49 or "
+                    "newer has one). Choose the install folder or its resources folder."
+                )
+                % {"folder": folder},
+                parent=getattr(self, "_lua_win", None) or self.root,
+            )
+            return
+        self._openmw_install = folder
+        self._save_settings()
+        self._lua_scan(cfg)
 
     def _lua_failed(self, message: str) -> None:
         """Say the scan failed.

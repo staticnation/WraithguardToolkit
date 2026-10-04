@@ -226,6 +226,11 @@
   still name the old id; the original stays, for whatever still names it.
 - **Journals in the dialogue window**: a quest's stages by index under the quest's name,
   its name, finishing and restarting stages marked.
+- **Scripts can be copied under a new id** ("Make a copy as"): the copy's `begin` line
+  names it.
+- **The Lua scripts window's "OpenMW install..."**: the install whose Lua API scripts are
+  checked against, when the one found on its own is not it - kept in the settings, and
+  checked to have `resources/lua_api/openmw` before it is taken.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

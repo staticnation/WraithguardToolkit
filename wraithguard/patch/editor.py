@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import threading
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
@@ -68,10 +69,10 @@ READ_ONLY: Final[frozenset[str]] = frozenset({"references"})
 
 _JOURNAL_VERSION: Final = 1
 
-#: Types "Make a copy as" refuses: keyed by something other than an id the copy could
-#: change (cells, lands, paths, dialogue, which also has an order), fixed by the engine
-#: (skills, magic effects, game settings, land texture indices), or naming themselves
-#: inside (a script's text begins with its name).
+#: Types "Make a copy as" and "New" refuse: keyed by something other than an id the copy
+#: could change (cells, lands, paths, dialogue, which also has an order), or fixed by the
+#: engine (skills, magic effects, game settings, land texture indices). A script names
+#: itself inside (its `begin` line), which both take care of.
 UNCOPYABLE: Final[frozenset[str]] = frozenset(
     {
         "Header",
@@ -1112,11 +1113,20 @@ class EditorSession:
             EditorError: A type that cannot be copied this way, an empty or too long id,
                 or one a plugin of this load order (or the patch) already uses.
         """
-        if found.record_type in UNCOPYABLE:
+        if found.record_type in UNCOPYABLE - {"Script"}:
             raise EditorError(f"a {found.record_type} record cannot be copied under a new id")
         rid = self._new_id(found.tag, found.record_type, new_id)
         record = copy.deepcopy(found.record)
         record["id"] = rid
+        if found.record_type == "Script":
+            # The text names the script: its `begin` line takes the new id.
+            record["text"] = re.sub(
+                r"^(\s*begin\s+)(\"[^\"]*\"|\S+)",
+                lambda m: m.group(1) + rid,
+                str(record.get("text") or ""),
+                count=1,
+                flags=re.IGNORECASE | re.MULTILINE,
+            )
         flags = str(record.get("flags") or "")
         if "DELETED" in flags:
             record["flags"] = " | ".join(f for f in flags.split(" | ") if f.strip() != "DELETED")

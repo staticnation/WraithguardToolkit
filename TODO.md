@@ -34,7 +34,8 @@ loses nothing. Still to do, roughly in this order:
   remapped with them.
 - Records: done - "Make a copy as", "New" (a blank record of a type), Delete/Undelete
   (the DELETED flag) and "Rename to" (a copy, the live uses repointed to it, the count
-  said). Still to do: copying scripts (their text names them) and whole topics.
+  said); a copied script's `begin` line takes the new id. Still to do: copying whole
+  topics.
 - List fields: done (tables in the record dialog; a group per entry - a dialogue
   condition, an AI package - a column per field, each entry checked against one of its
   kind). Values nested deeper than that are JSON in their cell.
@@ -70,8 +71,6 @@ performance checks against OpenMW 0.51 (API 129), as a CLI report
 mermaid.js bundled). The API now comes from the setup's own OpenMW install (its LDT docs,
 read in Rust, `native/src/lua`), written out as Teal declarations, and every script is
 checked by the Teal compiler (htl 0.12.0 / tl 0.24.8, embedded). Still to do:
-- A Settings field for the OpenMW install (found on its own now, or `--openmw` /
-  `WG_OPENMW_RESOURCES`).
 - Mods that ship a `tlconfig.lua` (Cyan projects): read its `include_dir`/`source_dir`
   so their own modules and declarations resolve.
 - Type `openmw.interfaces` (a map of any now, since mods add interfaces): the built-in

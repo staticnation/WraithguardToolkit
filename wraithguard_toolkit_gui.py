@@ -1110,6 +1110,9 @@ class App(
         # user did not pick and would lose if that mod were uninstalled.
         self._merged_lands_out: str | None = None
         self._tes3cmd_override = None  # user-set path to tes3cmd (frontend window)
+        # The OpenMW install whose Lua API the Lua scripts window checks against, when
+        # the one found on its own is not it (the window's "OpenMW install...").
+        self._openmw_install: str | None = None
         self._conf_session = None
         self._conf_paths = {}
         # reused disk-backed Tes3ConvSession
@@ -1220,6 +1223,7 @@ class App(
             "exclude": self.exclude_var.get(),
             "groundcover": self.groundcover_var.get(),
             "tes3cmd": self._tes3cmd_override or "",
+            "openmw_install": self._openmw_install or "",
             "plugin_order_url": self.plugin_order_url_var.get(),
             "rules_url_template": self.rules_url_var.get(),
             "rules": [str(p) for p in self.rules_panel.get_paths()],
@@ -1281,6 +1285,8 @@ class App(
             self._merged_lands_out = d["merged_lands_out"]
         if d.get("tes3cmd"):
             self._tes3cmd_override = d["tes3cmd"]
+        if isinstance(d.get("openmw_install"), str) and d["openmw_install"]:
+            self._openmw_install = d["openmw_install"]
         for p in d.get("rules") or []:
             try:
                 self.rules_panel.listbox.insert("end", p)

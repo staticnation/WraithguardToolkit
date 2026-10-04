@@ -83,7 +83,7 @@ _INSTALL_GLOBS: tuple[str, ...] = (
 )
 
 
-def _is_resources(path: Path) -> bool:
+def is_resources(path: Path) -> bool:
     """Whether a folder is an OpenMW ``resources`` folder with a Lua API.
 
     Args:
@@ -137,7 +137,7 @@ def find_resources(cfg: Path | None = None, explicit: Path | None = None) -> Pat
     if sys.platform == "darwin":
         tried.append(Path("~/Applications/OpenMW.app/Contents/Resources/resources").expanduser())
     for p in tried:
-        if _is_resources(p):
+        if is_resources(p):
             return p
     return None
 
@@ -576,6 +576,7 @@ __all__ = [
     "check_cfg",
     "find_resources",
     "findings_for",
+    "is_resources",
     "read_docs",
     "teal_setup",
 ]

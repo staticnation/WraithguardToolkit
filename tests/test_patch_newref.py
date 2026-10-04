@@ -311,3 +311,22 @@ def test_blank_records_write(tmp_path):
         "wg_scpt",
         "wg_stat",
     ]
+
+
+def test_a_copied_script_names_itself(tmp_path):
+    from wraithguard.patch.editor import Found
+
+    s = _session(tmp_path)
+    src = Found(
+        "SCPT",
+        "Script",
+        "payme",
+        (
+            (
+                "Tamriel_Data.esm",
+                {"type": "Script", "id": "payme", "text": "; hi\nBegin payme\nend payme"},
+            ),
+        ),
+    )
+    copy = s.duplicate(src, "payyou")
+    assert copy.record["text"] == "; hi\nBegin payyou\nend payme"
