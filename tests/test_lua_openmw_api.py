@@ -6,6 +6,10 @@ none of OpenMW's own (GPLv3) files are copied.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import sysconfig
+import threading
 from typing import TYPE_CHECKING
 
 import pytest
@@ -278,3 +282,49 @@ def test_written_declarations_are_kept(tmp_path, monkeypatch):
     check_cfg(_setup(tmp_path), resources=res, write_declarations=out)
     assert (out / "wg_openmw_api.d.tl").is_file()
     assert (out / "openmw" / "nearby.d.tl").is_file()
+
+
+@pytest.mark.skipif(
+    not sysconfig.get_config_var("Py_GIL_DISABLED"), reason="not a free-threaded build"
+)
+def test_the_backend_keeps_free_threaded_python_free():
+    """On 3.14t, importing an extension that does not declare itself free-threading
+    safe turns the GIL back on for the whole process. A fresh interpreter, so nothing
+    else the test run imported can be the one that did it."""
+    code = (
+        "import sys, wraithguard_native, wraithguard.lua.openmw_api\n"
+        "print(sys._is_gil_enabled())\n"
+    )
+    out = subprocess.run(  # noqa: S603 -- a fixed argv, no shell
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == "False", out.stderr
+
+
+@needs_teal
+def test_checks_from_many_threads_agree(tmp_path, monkeypatch):
+    """The Lua functions hold no shared state: threads calling them at once (each
+    sharing its files out over threads of its own) get the single-threaded answers."""
+    monkeypatch.delenv("WG_OPENMW_RESOURCES", raising=False)
+    res = _install(tmp_path / "OpenMW")
+    cfg = _setup(tmp_path)
+
+    def found() -> list[tuple[str, int, str]]:
+        scan = check_cfg(cfg, resources=res)
+        return [(f.code, f.line, f.message) for f in scan.scripts[0].info.findings]
+
+    want = found()
+    got: list[list[tuple[str, int, str]] | BaseException] = [[] for _ in range(6)]
+
+    def run(i: int) -> None:
+        try:
+            got[i] = found()
+        except BaseException as exc:  # noqa: BLE001 -- handed to the main thread, failed there
+            got[i] = exc
+
+    threads = [threading.Thread(target=run, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert all(g == want for g in got), got
