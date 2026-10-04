@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any
 
 from wraithguard.configurator.cfglines import cfg_line_value, unescape_cfg_value
 from wraithguard.logging_setup import get_logger
-from wraithguard.lua.analysis import Finding
+from wraithguard.lua.analysis import Finding, bound_names
 from wraithguard.lua.api import API, ApiVersion
 
 if TYPE_CHECKING:
@@ -342,38 +342,6 @@ _STUB_PACKAGES = frozenset(
 )
 
 
-def _bound_names(tree: Node | None) -> set[str]:
-    """Every name a script binds anywhere.
-
-    Locals, parameters, loop variables, and globals it assigns. Teal's "unknown
-    variable" for one of those is its inference giving up (a loop over something it
-    could not type), not a missing global.
-
-    Args:
-        tree: The script's syntax tree.
-
-    Returns:
-        The names.
-    """
-    out: set[str] = set()
-    if tree is None:
-        return out
-    for n in tree.walk():
-        if n.kind in ("Local", "ForIn"):
-            out.update(c.value for c in n.children[0].children if c.value)
-        elif n.kind == "ForNum" and n.children and n.children[0].value:
-            out.add(n.children[0].value)
-        elif n.kind == "LocalFunction" and n.value:
-            out.add(n.value)
-        elif n.kind == "Params":
-            out.update(c.value for c in n.children if c.kind == "Name" and c.value)
-        elif n.kind == "Assign":
-            out.update(t.value for t in n.children[0].children if t.kind == "Name" and t.value)
-        elif n.kind == "FunctionStat" and n.value and "." not in n.value and ":" not in n.value:
-            out.add(n.value)
-    return out
-
-
 def _typo_of(key: str, names: Sequence[str]) -> str | None:
     """The documented name ``key`` is likely a typo of, if any.
 
@@ -439,7 +407,7 @@ def findings_for(
     Returns:
         The findings, in line order.
     """
-    bound = _bound_names(tree)
+    bound = bound_names(tree)
     out: list[Finding] = []
     seen: set[tuple[str, int, str]] = set()
 

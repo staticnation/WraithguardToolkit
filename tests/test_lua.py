@@ -500,3 +500,68 @@ def test_read_cfg_and_main(tmp_path, capsys):
     assert content == ["Morrowind.esm", "A.omwscripts"]
     assert main([str(cfg)]) == 1  # scripts/a.lua is missing
     assert "MISSING_SCRIPT" in capsys.readouterr().out
+
+
+# -- garbage and the sandbox ------------------------------------------------------------
+
+_GC_SRC = """local nearby = require('openmw.nearby')
+local util = require('openmw.util')
+local cache = {}
+local function helper(a)
+  return { a = a }
+end
+local function onUpdate(dt)
+  local opts = { ignore = nil }
+  for _, actor in ipairs(nearby.actors) do
+    local pos = util.vector3(1, 2, 3)
+    local label = 'actor ' .. tostring(actor)
+    local cb = function() return actor end
+    helper(actor)
+  end
+  for i = 1, 10 do
+    cache[i] = { i, nested = { i } }
+  end
+  if dt > 1 then
+    local guarded = {}
+  end
+  local msg = 'once ' .. dt
+  return opts, pos, label, cb, msg
+end
+return { engineHandlers = { onUpdate = onUpdate } }
+"""
+
+
+def test_garbage_made_every_frame():
+    found = {(f.line, f.code, f.severity) for f in analyze(_GC_SRC, frozenset({"local"})).findings}
+    assert (5, "GC_TABLE", "warn") in found  # helper's table, called once per actor
+    assert (8, "GC_TABLE", "info") in found  # once a frame
+    assert (10, "GC_USERDATA", "warn") in found
+    assert (11, "GC_STRING", "warn") in found
+    assert (12, "GC_CLOSURE", "warn") in found
+    assert (16, "GC_TABLE", "warn") in found  # the nested table is the same construction
+    assert sum(1 for f in found if f[0] == 16) == 1
+    assert not any(f[0] in (19, 21) for f in found)  # guarded; a string outside loops
+    # Not a per-frame handler: nothing reported.
+    quiet = _GC_SRC.replace("onUpdate = onUpdate", "onActive = onUpdate")
+    assert not [
+        f for f in analyze(quiet, frozenset({"local"})).findings if f.code.startswith("GC_")
+    ]
+
+
+def test_what_the_sandbox_does_not_have():
+    src = (
+        "collectgarbage('collect')\n"
+        "local f = loadstring('return 1')\n"
+        "print(os.time(), os.clock())\n"
+        "string.myext = 1\n"
+        "local debug = require('openmw.debug')\n"
+        "print(debug.toggleRenderMode, io)\n"
+    )
+    found = {(f.line, f.code) for f in analyze(src).findings if f.severity == "error"}
+    assert found == {(1, "SANDBOX"), (2, "SANDBOX"), (3, "SANDBOX"), (4, "SANDBOX"), (6, "SANDBOX")}
+    msgs = [f.message for f in analyze(src).findings]
+    assert any("collectgarbage" in m and "make less garbage" in m for m in msgs)
+    assert any(m.startswith("os.clock") for m in msgs) and not any(
+        m.startswith("os.time") for m in msgs
+    )
+    assert not any(m.startswith("debug ") for m in msgs)  # the script's own `debug`

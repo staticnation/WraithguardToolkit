@@ -72,7 +72,36 @@ fn severity_str(s: Severity) -> &'static str {
 /// Checks each file. `include` are folders of modules, lowest priority first: the data
 /// folders in load order, then the declarations. The outer error is a checker that could
 /// not start; an inner one is a file the checker could not read.
+///
+/// The files are shared out over threads, each with a checker (a Lua state) of its own -
+/// a state belongs to one thread - so a big load order takes a fraction of the time.
+/// Nothing here touches Python.
 pub fn check(paths: &[PathBuf], include: &[PathBuf]) -> anyhow::Result<Vec<Result<Vec<Diag>, String>>> {
+    // A checker costs ~0.1 s to start (it loads the Teal compiler), so a thread is only
+    // worth it for a few files.
+    const PER_THREAD_MIN: usize = 4;
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let threads = cores.min(paths.len().div_ceil(PER_THREAD_MIN)).max(1);
+    if threads == 1 {
+        return check_serial(paths, include);
+    }
+    let chunk = paths.len().div_ceil(threads);
+    let parts: Vec<anyhow::Result<Vec<Result<Vec<Diag>, String>>>> = std::thread::scope(|s| {
+        let handles: Vec<_> = paths.chunks(chunk).map(|part| s.spawn(move || check_serial(part, include))).collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or_else(|_| Err(anyhow::anyhow!("a checker thread panicked"))))
+            .collect()
+    });
+    let mut out = Vec::with_capacity(paths.len());
+    for part in parts {
+        out.extend(part?);
+    }
+    Ok(out)
+}
+
+/// [`check`] on this thread, with one checker.
+fn check_serial(paths: &[PathBuf], include: &[PathBuf]) -> anyhow::Result<Vec<Result<Vec<Diag>, String>>> {
     let h = Htl::new()?;
     // `add_path` puts a folder in front of those already added.
     for dir in include {
@@ -117,6 +146,27 @@ mod tests {
         assert_eq!(kind_of(Severity::Warning, Some("tl:unused"), "unused argument dt: any", false), "unused_argument");
         assert_eq!(kind_of(Severity::Error, None, "expected an expression", true), "syntax");
         assert_eq!(kind_of(Severity::Error, None, "argument 1: got string, expected number", false), "type");
+    }
+
+    #[test]
+    fn threads_give_the_same_answers_in_the_same_order() {
+        let dir = std::env::temp_dir().join(format!("wg_lua_par_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths: Vec<PathBuf> = (0..12)
+            .map(|i| {
+                let p = dir.join(format!("s{i}.lua"));
+                // Each file's one unknown global is on its own line number.
+                std::fs::write(&p, format!("{}missing{i}()\n", "\n".repeat(i))).unwrap();
+                p
+            })
+            .collect();
+        let all = check(&paths, &[]).unwrap();
+        for (i, r) in all.iter().enumerate() {
+            let d = r.as_ref().unwrap();
+            assert_eq!(d.len(), 1, "{d:?}");
+            assert_eq!((d[0].line, d[0].kind), (i + 1, "unknown_variable"));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

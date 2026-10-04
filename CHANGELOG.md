@@ -67,6 +67,19 @@
   `--write-teal-declarations DIR` keeps the generated ones for a Teal project. Tried on
   OpenMW 0.51's own 40 built-in scripts: the generated declarations check clean, and the
   only warning left is a real one (an extra `string.format` argument).
+  **Garbage and the sandbox.** The per-frame walk (`onUpdate`/`onFrame`, followed into
+  the script's own functions) now reports the garbage it makes: a table constructor or a
+  closure every frame (a note; a warning inside a loop, where it is one per actor or per
+  pass), and strings built or vectors/colours made inside loops (`GC_TABLE`,
+  `GC_CLOSURE`, `GC_STRING`, `GC_USERDATA`). OpenMW tracks each script's memory and its
+  collector pauses the scripts, so garbage made every frame costs every frame; code under
+  a condition (a timer, a mode check) is left out. And what OpenMW's sandbox leaves out
+  of Lua is an error, since the script fails there (`SANDBOX`): `collectgarbage` (the
+  engine runs the collector; the message says to make less garbage instead),
+  `load`/`loadstring`/`dofile`, `setfenv`, `io`, `debug`, `package`, `os.*` but
+  `date`/`difftime`/`time`, and assigning into `string`, `math` and the other read-only
+  packages - from OpenMW 0.51's `components/lua/luastate.cpp`. The Teal check now shares
+  the scripts out over threads, a Lua state each (45 scripts: 3.2 s to 1.4 s on 4 cores).
   Scripts that `.omwaddon` files register in LUAL records are read too, in load order
   (`lua/lual.py`, the layout of OpenMW's `luascripts.cpp`). Not read: scripts packed in
   BSAs - the report says so.
