@@ -320,6 +320,30 @@ class PatchBuilderMixin:
                     ", ".join(f"{k}={v}" for k, v in ref.changes.items()),
                 ),
             )
+        for new in self.patch_queue().new_refs:
+            parent = cells.get(new.cell.lower())
+            if parent is None:
+                parent = tree.insert(
+                    "",
+                    "end",
+                    iid=f"refcell::{new.cell}",
+                    text=f"Cell  {new.cell}",
+                    values=("", _("references"), ""),
+                    open=True,
+                )
+                cells[new.cell.lower()] = parent
+            pos = new.fields.get("translation") or [0, 0, 0]
+            tree.insert(
+                parent,
+                "end",
+                iid=f"newref::{new.cell}::{new.uid}",
+                text="",
+                values=(
+                    str(new.fields.get("id", "")),
+                    _("add"),
+                    ", ".join(f"{float(v):.0f}" for v in pos),
+                ),
+            )
 
         summary = getattr(self, "_patch_summary", None)
         if summary is not None and summary.winfo_exists():
@@ -350,10 +374,15 @@ class PatchBuilderMixin:
                 self.patch_queue().remove_field(parts[1], parts[2], parts[3])
             elif kind == "ref" and len(parts) == 4 and parts[3].isdigit():
                 self.patch_queue().remove_ref_edit(parts[1], parts[2], int(parts[3]))
+            elif kind == "newref" and len(parts) == 3:
+                self.patch_queue().remove_new_ref(parts[1], parts[2])
             elif kind == "refcell" and len(parts) == 2:
                 for ref in self.patch_queue().ref_edits:
                     if ref.cell.lower() == parts[1].lower():
                         self.patch_queue().remove_ref_edit(ref.cell, ref.origin, ref.refr_index)
+                for new in self.patch_queue().new_refs:
+                    if new.cell.lower() == parts[1].lower():
+                        self.patch_queue().remove_new_ref(new.cell, new.uid)
         self.refresh_patch_views()
 
     def _clear_patch(self) -> None:
@@ -473,6 +502,10 @@ class PatchBuilderMixin:
             for ref in ref_edits:
                 # Every plugin with the cell: the reference is read as they resolve it.
                 wanted |= {ref.origin, *ref.plugins}
+            new_refs = self.patch_queue().new_refs
+            for new in new_refs:
+                # The cell's plugins (its record), and what defines the placed object.
+                wanted |= {*new.plugins, *([new.base_plugin] if new.base_plugin else [])}
             session = self._conf_session
             names = sorted(wanted)
 
@@ -506,6 +539,7 @@ class PatchBuilderMixin:
                 carried=carried,
                 report=LOG.info,
                 ref_edits=ref_edits,
+                new_refs=new_refs,
             )
         except PatchServiceError as exc:
             messagebox.showerror(_("Patch failed"), str(exc))

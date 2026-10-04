@@ -229,3 +229,53 @@ def test_a_door_destination_is_written(tmp_path):
     assert out["Ebon Tower, Upper"]["cell"] == "Ebon Tower, Upper"
     assert out[""]["cell"] == "" and out[""]["translation"] == [1.0, 2.0, 3.0]
     assert out[""]["rotation"][2] == pytest.approx(1.5)
+
+
+def _exterior(*refs: dict[str, Any], grid: tuple[int, int]) -> dict[str, Any]:
+    return {
+        "type": "Cell",
+        "flags": "",
+        "id": "",
+        "name": "",
+        "data": {"flags": "", "grid": list(grid)},
+        "references": list(refs),
+    }
+
+
+def test_moving_across_an_exterior_edge_sets_moved_cell(tmp_path):
+    plugins = {
+        "Morrowind.esm": [
+            {"type": "Header", "masters": []},
+            {"type": "Static", "id": "rock", "mesh": "x/rock.nif"},
+            _exterior(_ref(0, 7, "rock", -2 * 8192 + 100.0), grid=(-2, -9)),
+            _exterior(grid=(-1, -9)),
+        ]
+    }
+
+    def read(path: Path, tag: str) -> list[dict[str, Any]]:
+        want = {"TES3": "Header", "CELL": "Cell", "STAT": "Static"}[tag]
+        return [r for r in plugins[path.name] if r["type"] == want]
+
+    s = EditorSession(
+        [("Morrowind.esm", tmp_path / "Morrowind.esm")], PatchQueue(), tmp_path / "j.json", read
+    )
+    found = s.find_ref("(-2, -9)", "Morrowind.esm", 7)
+    assert found is not None
+    y = -9 * 8192 + 10.0
+    s.set_ref_field(found, "translation", [-8192 + 50.0, y, 0])
+    assert s.queue.ref_edits[0].changes["moved_cell"] == [-1, -9]
+    s.set_ref_field(found, "translation", [-2 * 8192 + 300.0, y, 0])  # back home
+    assert "moved_cell" not in s.queue.ref_edits[0].changes
+    s.set_ref_field(found, "translation", [-8192 + 50.0, y, 0])
+    s.revert_ref(found, "translation")
+    assert s.queue.ref_edits == []
+
+    # A new reference moves to the cell it now stands in.
+    rock = s.find("STAT", "rock")
+    assert rock is not None
+    new = s.place("(-2, -9)", rock, [-2 * 8192 + 10.0, y, 0])
+    new = s.set_new_field(new, "translation", [-8192 + 10.0, y, 0])
+    assert new.cell == "(-1, -9)" and new.plugins == ("Morrowind.esm",)
+    assert [n.cell for n in s.queue.new_refs] == ["(-1, -9)"]
+    with pytest.raises(EditorError, match="no plugin"):
+        s.set_new_field(new, "translation", [9 * 8192.0, y, 0])

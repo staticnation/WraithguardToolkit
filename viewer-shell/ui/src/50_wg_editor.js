@@ -25,6 +25,9 @@
      X or Y to keep to that axis; Shift-drag turns it (about Z, or X/Y held); F drops it
      onto what is under it. A gold copy follows the pointer and the change goes to the
      pool on release (`grab`, over the renderer's `onGrab`).
+   - Placing: drag a record from the Object Window into the render window (or right-click
+     it: at the view's pivot) for a new reference, the patch's own (`editPlace`); it opens
+     in the reference dialog, moves like any other, and is drawn with the rest.
 
    The lists come from the shell (`editor_tags`, `editor_records`, `editor_cell_refs`,
    `cells`); a record's contents and every change from Wraithguard, over the `links` the
@@ -42,7 +45,9 @@ const WgEditor={
   record:null,               // the dialog's {tag, id, plugins}
   refRec:null,               // or, for a placed object, {cell, origin, refr, plugins}
   live:new Map(),            // "origin:refr" lower -> pending changes, drawn in place
-  liveSig:'[]',              // changes when `live` does: part of the preview's scene key
+  liveNew:new Map(),         // cell key lower -> [{uid, tag, fields}]: new references, drawn
+  _sel:null,                 // the selected reference: {hit, ref}, ref {cell, origin, refr} or {cell, uid}
+  liveSig:'[[],[]]',         // changes when `live` does: part of the preview's scene key
   NUDGE:8,                   // units a nudge moves (Shift: 8x); degrees a turn (Shift: 8x)
   held:new Set(),            // Z, X, Y held: the drag's axis keys
   TURN:0.01,                 // radians a pixel of Shift-drag turns
@@ -58,6 +63,14 @@ const WgEditor={
 
   links(){ return (((window.__WG_VIEW__||{}).extra)||{}).links||{}; },
   canEdit(){ return !!this.links().editRecord; },
+
+  /** A reference's key as the render window names it: `origin:refr`, or `new:uid`. */
+  refKeyOf(ref){ return ref.uid? 'new:'+ref.uid : (ref.origin+':'+ref.refr).toLowerCase(); },
+  /** What names a reference to Wraithguard. */
+  refBody(ref){
+    return ref.uid? {cell:ref.cell, uid:ref.uid}
+      : Object.assign({cell:ref.cell, origin:ref.origin, refr:ref.refr}, ref.plugins? {plugins:ref.plugins} : {});
+  },
 
   /** The topbar's "Editor" switch, once an install is connected (not in the mesh viewer). */
   button(){
@@ -77,6 +90,7 @@ const WgEditor={
     const i=document.querySelector('#brand i'); if(i) i.textContent='Editor';
     document.title='Wraithguard - Editor';
     const b=$('#btnEditor'); if(b) b.classList.add('on');
+    this.hookDrop();
     this.dock();
     try{
       this.tags=await Engine.call('editor_tags',{});
@@ -172,6 +186,12 @@ const WgEditor={
       const k=+th.dataset.col; this.sort={col:k, dir:this.sort.col===k? -this.sort.dir : 1}; this.drawRows();
     });
     box.querySelectorAll('tr[data-id]').forEach(tr=>{
+      const row=()=>this.rows.find(x=>x[0]===tr.dataset.id);
+      const placing=()=>{ const r=row(); return r? {tag:this.tag, id:r[0], model:r[2], defined:r[3].map(i=>this.plugins[i]).filter(Boolean)} : null; };
+      tr.draggable=true;
+      tr.title='Double-click: open the record. Drag into the render window, or right-click, to place one';
+      tr.ondragstart=e=>{ const p=placing(); if(p && e.dataTransfer){ e.dataTransfer.setData('application/x-wg-record', JSON.stringify(p)); e.dataTransfer.effectAllowed='copy'; } };
+      tr.oncontextmenu=e=>{ e.preventDefault(); const p=placing(); if(p) this.placeAt(p, null, null); };
       tr.onclick=()=>{ box.querySelectorAll('tr.sel').forEach(x=>x.classList.remove('sel')); tr.classList.add('sel'); };
       tr.ondblclick=()=>{
         const r=this.rows.find(x=>x[0]===tr.dataset.id);
@@ -272,13 +292,15 @@ const WgEditor={
     if(ref) row.querySelector('#edOriRef').onclick=()=>this.openRef(ref);
     this._oriRecord={tag, id:r.id, plugins:defs.map(d=>d.plugin)};
     this._oriRef=ref;
+    this._sel=ref? {hit:Ori._hit, ref} : null;
   },
 
   async ask(link, body){
     const url=this.links()[link];
     if(!url) throw new Error('Editing needs Wraithguard: open the viewer from Wraithguard (Cell Preview)');
     const t=await Engine.call('wg_post',{url, body:JSON.stringify(body)});
-    return typeof t==='string' && t.length? JSON.parse(t) : t;
+    if(typeof t!=='string' || !t.length) return t;
+    try{ return JSON.parse(t); }catch(_){ return t; }      // `ok` and the like
   },
 
   async openRecord(tag, id, plugins){
@@ -383,21 +405,18 @@ const WgEditor={
     this.refRec=Object.assign({}, ref);
     const d=this.dialog();
     d.hidden=false;
-    d.querySelector('#edDlgTitle').textContent='Reference - '+ref.origin+':'+ref.refr;
+    d.querySelector('#edDlgTitle').textContent=ref.uid? 'New reference' : 'Reference - '+ref.origin+':'+ref.refr;
     const body=d.querySelector('#edDlgBody');
     if(!this.canEdit()){
       body.innerHTML='<div class="hint">Editing needs Wraithguard: open this viewer from Wraithguard\'s Cell Preview.</div>';
       return;
     }
     body.innerHTML='<div class="hint">Reading the cell from every plugin that has it…</div>';
-    try{ this.drawRef(await this.ask('editRef', this.refReq())); }
+    try{ this.drawRef(await this.ask(ref.uid? 'editNew' : 'editRef', this.refReq())); }
     catch(e){ body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; }
   },
 
-  refReq(extra){
-    const r=this.refRec;
-    return Object.assign({cell:r.cell, origin:r.origin, refr:r.refr}, r.plugins? {plugins:r.plugins} : {}, extra||{});
-  },
+  refReq(extra){ return Object.assign(this.refBody(this.refRec), extra||{}); },
 
   /** The labels the dialog shows, the Construction Set's names where it has them. */
   REF_LABELS:{translation:'Position', rotation:'Rotation (°)', scale:'Scale', deleted:'Deleted',
@@ -407,15 +426,20 @@ const WgEditor={
 
   drawRef(v){
     const d=this.dialog(), body=d.querySelector('#edDlgBody');
-    this.refRec.cell=v.cell; this.refRec.origin=v.origin;
+    this.refRec.cell=v.cell;
+    if(!v.new) this.refRec.origin=v.origin;
     if(!this.refRec.plugins) this.refRec.plugins=v.plugins;
     this.refView=v;
-    d.querySelector('#edDlgTitle').textContent='Reference - '+v.id+' ('+v.origin+':'+v.refr+')';
+    d.querySelector('#edDlgTitle').textContent=v.new? 'New reference - '+v.id : 'Reference - '+v.id+' ('+v.origin+':'+v.refr+')';
     const F={}; for(const f of v.fields) F[f.path]=f;
     const cur=f=> ('queued' in f)? f.queued : f.value;
     const DEG=180/Math.PI;
-    let h='<div class="orirow"><span class="k">Cell</span><span class="v">'+escHtml(v.cell)+'</span></div>'+
-      '<div class="orirow"><span class="k">Created by</span><span class="v">'+escHtml(v.origin)+'</span></div>'+
+    let h='<div class="orirow"><span class="k">Cell</span><span class="v">'+escHtml(v.cell)+'</span></div>';
+    if(v.new) h+='<div class="orirow"><span class="k">Created by</span><span class="v">the patch (new)</span></div>'+
+      '<div class="orirow"><span class="v"><button class="btn sm" id="edRefBase" title="The base record this places">Base record</button> '+
+      '<button class="btn sm" id="edRefRevertAll" title="Take this new reference back out of the patch">Remove from the patch</button></span></div>'+
+      '<div class="hint">A reference the patch adds: numbered on from the patch\'s own when it is written.</div>';
+    else h+='<div class="orirow"><span class="k">Created by</span><span class="v">'+escHtml(v.origin)+'</span></div>'+
       '<div class="orirow"><span class="k">Changed by</span><span class="v">'+
         v.plugins.map(p=>p===v.winner? '<b>'+escHtml(p)+'</b>' : escHtml(p)).join(' &gt; ')+'</span></div>'+
       '<div class="orirow"><span class="v"><button class="btn sm" id="edRefBase" title="The base record this places">Base record</button> '+
@@ -455,7 +479,7 @@ const WgEditor={
     body.innerHTML=h+'</tbody></table>';
     body.querySelector('#edRefBase').onclick=()=>{
       const r=(this.refs||[]).find(x=>x[1]===v.id);
-      this.openRecord(r? r[2] : (this._oriRecord && this._oriRecord.id===v.id? this._oriRecord.tag : 'STAT'), v.id, null);
+      this.openRecord(v.tag || (r? r[2] : (this._oriRecord && this._oriRecord.id===v.id? this._oriRecord.tag : 'STAT')), v.id, null);
     };
     body.querySelector('#edRefRevertAll').onclick=()=>this.refChange('editRefRevert', {});
     body.querySelectorAll('[data-rrevert]').forEach(b=>b.onclick=()=>this.refChange('editRefRevert', {path:b.dataset.rrevert}));
@@ -544,6 +568,19 @@ const WgEditor={
 
   async refChange(link, extra, el){
     try{
+      if(this.refRec && this.refRec.uid){
+        if(link==='editRefRevert'){
+          // A new reference has nothing to revert to: the whole of it goes.
+          if(extra && extra.path) return this.refChange('editRefSet', {path:extra.path, value:null}, el);
+          await this.ask('editNewRemove', this.refReq());
+          this.refRec=null; this._sel=null;
+          if(this.dlg) this.dlg.hidden=true;
+          if(App.R) App.R.setStaticHighlight(null);
+          await this.refreshPending();
+          return;
+        }
+        link='editNewSet';
+      }
       this.drawRef(await this.ask(link, this.refReq(extra)));
       await this.refreshPending();
     }catch(e){
@@ -557,10 +594,11 @@ const WgEditor={
   /** The selected object, when it is a reference the editor can change: the inspector's
    *  pick and its {cell, origin, refr, plugins}. */
   selected(){
-    const hit=typeof Ori==='object'? Ori._hit : null, ref=this._oriRef;
-    if(!this.on || !this.canEdit() || !hit || !ref || !Ori.el || Ori.el.hidden) return null;
-    if(String(hit.refKey).toLowerCase()!==(ref.origin+':'+ref.refr).toLowerCase() || !hit.m || !hit.wpos) return null;
-    return {hit, ref};
+    const s=this._sel, R=App.R;
+    if(!this.on || !this.canEdit() || !s || !s.hit || !R) return null;
+    if(!(R.pickables||[]).includes(s.hit) || !s.hit.m || !s.hit.wpos) return null;
+    if(String(s.hit.refKey).toLowerCase()!==this.refKeyOf(s.ref).toLowerCase()) return null;
+    return s;
   },
 
   /** Where a ray meets the horizontal plane at height `z`, or null when it runs along it. */
@@ -637,13 +675,13 @@ const WgEditor={
     let v=null;
     try{
       for(const [path, value] of changes)
-        v=await this.ask('editRefSet', Object.assign({cell:ref.cell, origin:ref.origin, refr:ref.refr},
-                                                     ref.plugins? {plugins:ref.plugins} : {}, {path, value}));
+        v=await this.ask(ref.uid? 'editNewSet' : 'editRefSet', Object.assign(this.refBody(ref), {path, value}));
     }catch(e){
       toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000);
     }
-    const same=this.refRec && this.dlg && !this.dlg.hidden &&
-      String(this.refRec.origin).toLowerCase()===String(ref.origin).toLowerCase() && this.refRec.refr===ref.refr;
+    // A new reference dragged into the next exterior cell now belongs to that one.
+    if(v && ref.uid && v.cell) ref.cell=v.cell;
+    const same=this.refRec && this.dlg && !this.dlg.hidden && this.refKeyOf(this.refRec)===this.refKeyOf(ref);
     if(v && same) this.drawRef(v);
     if(!this.refRec || !same) this.refRec=Object.assign({}, ref);
     await this.refreshPending();
@@ -672,12 +710,109 @@ const WgEditor={
     return true;
   },
 
+  /* ---- placing new references -------------------------------------------------------- */
+
+  /** The render window takes records dropped on it from the Object Window (once). */
+  hookDrop(){
+    const cv=App.R && App.R.cv;
+    if(!cv || cv._wgDrop) return;
+    cv._wgDrop=true;
+    const ours=e=>this.on && e.dataTransfer && [...(e.dataTransfer.types||[])].includes('application/x-wg-record');
+    cv.addEventListener('dragover', e=>{ if(ours(e)){ e.preventDefault(); e.dataTransfer.dropEffect='copy'; } });
+    cv.addEventListener('drop', e=>{
+      if(!ours(e)) return;
+      e.preventDefault();
+      let rec=null; try{ rec=JSON.parse(e.dataTransfer.getData('application/x-wg-record')); }catch(_){ }
+      if(rec) this.placeAt(rec, e.clientX, e.clientY);
+    });
+  },
+
+  /** Where a new reference goes: the surface under the pointer (an object, or the
+   *  ground), or the view's pivot when there is no pointer or nothing under it - the
+   *  scene's coordinates and the world's. */
+  placePoint(clientX, clientY){
+    const R=App.R, sc=App._scene;
+    if(!R || !R.cam || !sc || !sc.origin) return null;
+    let p=null;
+    if(clientX!=null){
+      const s=R.surfaceAt? R.surfaceAt(clientX, clientY) : null;
+      const g=R.groundAt? R.groundAt(clientX, clientY) : null;
+      const eye=R.cameraEye? R.cameraEye() : [0,0,0];
+      const d=q=>q? Math.hypot(q[0]-eye[0], q[1]-eye[1], q[2]-eye[2]) : Infinity;
+      p= (s && s.p && d(s.p)<=d(g))? s.p : g;
+    }
+    if(!p) p=[R.cam.tx, R.cam.ty, R.cam.tz];
+    return {local:p.slice(), world:[p[0]+sc.origin[0], p[1]+sc.origin[1], p[2]]};
+  },
+
+  /** Places a record (`{tag, id, model, defined}`) as a new reference: in the cell on
+   *  screen, an exterior's by where it lands. Opens it in the reference dialog. */
+  async placeAt(rec, clientX, clientY){
+    if(!this.canEdit()) return toast('Placing needs Wraithguard: open this viewer from Wraithguard (Cell Preview)','warn',5000);
+    const at=this.placePoint(clientX, clientY), sel=App.cellSel;
+    if(!at || !sel) return toast('Open a cell first','warn',3000);
+    const cellArg= sel.kind==='int'? 'int:'+sel.name : Math.floor(at.world[0]/CELL)+','+Math.floor(at.world[1]/CELL);
+    let cell;
+    try{ cell=await Engine.call('editor_cell_refs',{cell:cellArg}); }
+    catch(e){ return toast('No cell there to place into: '+String(e.message||e),'warn',5000); }
+    if(rec.model) CellData.models.set(String(rec.id).toLowerCase(), rec.model);
+    let v;
+    try{
+      v=await this.ask('editPlace', {cell:cell.refCell, tag:rec.tag, id:rec.id, translation:at.world, rotation:[0,0,0],
+                                     plugins:cell.plugins||null, defined:rec.defined||null});
+    }catch(e){ return toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); }
+    this.refRec={cell:v.cell, uid:v.uid};
+    this.dialog().hidden=false;
+    this.drawRef(v);
+    await this.refreshPending();
+    return v;
+  },
+
+  /** The models of new references' objects the page has not seen placed (a journal
+   *  brought back after a restart): asked of the engine by tag, once each. */
+  async modelsFor(liveNew){
+    const want=new Set();
+    for(const list of liveNew.values()) for(const a of list)
+      if(a.tag && a.fields.id && !CellData.models.has(String(a.fields.id).toLowerCase())) want.add(a.tag);
+    if(!want.size) return;
+    this._modelTags=this._modelTags||new Set();
+    let got=false;
+    for(const tag of want){
+      if(this._modelTags.has(tag)) continue;
+      this._modelTags.add(tag);
+      try{
+        const r=await Engine.call('editor_records',{tag});
+        for(const row of r.rows||[]) if(row[2] && !CellData.models.has(row[0].toLowerCase())){ CellData.models.set(row[0].toLowerCase(), row[2]); got=true; }
+      }catch(_){ }
+    }
+    if(got){ this.liveSig+=' '; if(typeof schedulePreview==='function' && App.cellSel) schedulePreview(); }
+  },
+
+  /** The inspector's pick of a new reference (24_ori.js asks first): it has no record in
+   *  the world yet, so the reference dialog is its inspector. */
+  showNew(hit){
+    if(!this.on || !hit || !String(hit.refKey||'').startsWith('new:')) return false;
+    const uid=String(hit.refKey).slice(4);
+    let cell=null;
+    for(const [k, list] of this.liveNew) if(list.some(a=>a.uid===uid)) cell=k;
+    if(cell==null) return false;
+    const ref={cell, uid};
+    this._sel={hit, ref};
+    if(typeof Ori==='object'){ Ori._hit=hit; if(Ori.el) Ori.el.hidden=true; }
+    if(App.R) App.R.setStaticHighlight([hit]);
+    this.openRef(ref);
+    return true;
+  },
+
   /* ---- the render window, as the pending changes leave it ------------------------------ */
 
   /** A loaded cell with the pending reference changes applied (CellData.live). The same
    *  record when none touches it; else a copy - moved, turned, scaled, deleted ones gone. */
   overlay(rec){
-    if(!this.live.size || !rec.refs || !rec.refs.some(r=>this.live.has(String(r.key).toLowerCase()))) return rec;
+    if(!rec.refs) return rec;
+    const cellKey=rec.kind==='int'? String(rec.name||'').toLowerCase() : '('+rec.gx+', '+rec.gy+')';
+    const added=this.liveNew.get(cellKey)||[];
+    if(!added.length && (!this.live.size || !rec.refs.some(r=>this.live.has(String(r.key).toLowerCase())))) return rec;
     const refs=[];
     for(const r of rec.refs){
       const c=this.live.get(String(r.key).toLowerCase());
@@ -694,22 +829,37 @@ const WgEditor={
       n.edited=true;
       refs.push(n);
     }
+    for(const a of added){
+      const f=a.fields;
+      if(!f.translation || f.deleted) continue;
+      refs.push({id:f.id, pos:f.translation.slice(), rot:(f.rotation||[0,0,0]).slice(), scale:f.scale==null? 1 : f.scale,
+                 key:'new:'+a.uid, from:-1, door:f.destination? {pos:f.destination.translation.slice(), rot:f.destination.rotation.slice(), cell:f.destination.cell||''} : null,
+                 gc:false, mark:'', hist:null, moved:0, edited:true, isNew:true});
+    }
     return Object.assign({}, rec, {refs});
   },
 
   /** The pending reference changes, from the pool's list; redraws the render window
    *  when they changed, the camera kept and the edited object still selected. */
   setLive(list){
-    const live=new Map();
-    for(const p of list) if(p.ref){
+    const live=new Map(), liveNew=new Map();
+    for(const p of list){
+      if(!p.ref && !p.new) continue;
       const c={}; for(const ch of p.changes) if('value' in ch) c[ch.path]=ch.value;
-      live.set((p.ref.origin+':'+p.ref.refr).toLowerCase(), c);
+      if(p.ref) live.set((p.ref.origin+':'+p.ref.refr).toLowerCase(), c);
+      else{
+        const k=String(p.new.cell).toLowerCase();
+        if(!liveNew.has(k)) liveNew.set(k, []);
+        liveNew.get(k).push({uid:p.new.uid, tag:p.new.tag||'', fields:c});
+      }
     }
-    const sig=JSON.stringify([...live].sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0));
+    const byKey=(a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0;
+    const sig=JSON.stringify([[...live].sort(byKey), [...liveNew].sort(byKey)]);
     if(sig===this.liveSig) return false;
-    this.live=live; this.liveSig=sig;
+    this.live=live; this.liveNew=liveNew; this.liveSig=sig;
+    this.modelsFor(liveNew);
     if(App.R && App.R.cam) App._camAfter=Object.assign({}, App.R.cam);
-    if(this.refRec) App._findOri=(this.refRec.origin+':'+this.refRec.refr).toLowerCase();
+    if(this.refRec) App._findOri=this.refKeyOf(this.refRec);
     if(typeof schedulePreview==='function' && App.cellSel) schedulePreview();
     return true;
   },
@@ -755,11 +905,12 @@ const WgEditor={
     for(const p of list){
       h+='<div class="orisec">'+escHtml((this.NAMES[p.tag]||p.tag||p.type)+' - '+p.id)+'</div>';
       if(p.whole) h+='<div class="orirow"><span class="v">the whole record from '+escHtml(p.whole)+'</span></div>';
-      for(const c of p.changes)
+      for(const c of p.changes.filter(c=>!(p.new && c.value==null)))
         h+='<div class="orirow"><span class="k">'+escHtml(c.path)+'</span><span class="v">'+
           escHtml('value' in c? JSON.stringify(c.value) : 'from '+c.plugin)+'</span></div>';
       if(p.tag) h+='<div class="orirow"><span class="v"><button class="btn sm" data-open="'+escHtml(p.tag)+'" data-id="'+escHtml(p.id)+'">Open</button></span></div>';
       else if(p.ref) h+='<div class="orirow"><span class="v"><button class="btn sm" data-ref="'+escHtml(JSON.stringify(p.ref))+'">Open</button></span></div>';
+      else if(p.new) h+='<div class="orirow"><span class="v"><button class="btn sm" data-ref="'+escHtml(JSON.stringify({cell:p.new.cell, uid:p.new.uid}))+'">Open</button></span></div>';
     }
     h+='<div class="orirow" style="margin-top:8px"><span class="v"><button class="btn sm" id="edReview" title="Open the Patch Builder in Wraithguard, to review and write the patch">Review and write in Wraithguard</button></span></div>';
     body.innerHTML=h;
@@ -788,8 +939,8 @@ const WgEditor={
       if(r && Ori.el && !Ori.el.hidden){ this.openRecord(r.tag, r.id, r.plugins); return true; }
     }
     if(e.key==='F3' && !typing){
-      const r=this._oriRef;
-      if(r && Ori.el && !Ori.el.hidden){ this.openRef(r); return true; }
+      const r=this._sel && this._sel.ref;
+      if(r){ this.openRef(r); return true; }
     }
     if(e.key==='Escape' && this.dlg && !this.dlg.hidden && !typing){ this.dlg.hidden=true; return true; }
     return false;

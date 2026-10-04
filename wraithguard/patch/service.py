@@ -41,13 +41,13 @@ from wraithguard.patch.records import (
     position_anchors,
     required_masters,
 )
-from wraithguard.patch.refedit import cell_patch_record
+from wraithguard.patch.refedit import cell_patch_record, place_new_refs
 from wraithguard.proc import no_window_kwargs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from wraithguard.patch.refedit import RefEdit
+    from wraithguard.patch.refedit import NewRef, RefEdit
 
 _log: Final = logging.getLogger(__name__)
 
@@ -97,6 +97,7 @@ def build_record_patch(
     dry_run: bool = False,
     report: Callable[[str], None] | None = None,
     ref_edits: Sequence[RefEdit] = (),
+    new_refs: Sequence[NewRef] = (),
 ) -> PatchResult:
     """Build and write a patch carrying the chosen records.
 
@@ -131,7 +132,11 @@ def build_record_patch(
             cell gets a CELL record carrying only its changed references - added to
             the cell's record when the patch carries that cell anyway (whole, merged,
             or from the earlier build). ``records_by_plugin`` must hold every plugin
-            with a CELL record for those cells (``RefEdit.plugins``).
+            with a CELL record for those cells (``RefEdit.plugins``). A reference the
+            patch itself created (``origin`` is ``output``'s name) stays ``(0, n)``.
+        new_refs: References the patch adds (:class:`.refedit.NewRef`), each ``(0, n)``
+            numbered on from the highest the patch carries, the plugin defining what it
+            places a master (``base_plugin``).
 
     Returns:
         What was produced.
@@ -155,7 +160,7 @@ def build_record_patch(
         if report is not None:
             report(text)
 
-    if not selections and not merges and not carried and not ref_edits:
+    if not selections and not merges and not carried and not ref_edits and not new_refs:
         raise PatchServiceError("nothing was selected, so there is no patch to build")
 
     clashes = {(entry.record_type, entry.key) for entry in selections} & {
@@ -173,8 +178,9 @@ def build_record_patch(
         + (f", up to {len(carried)} carried forward from the existing patch" if carried else "")
     )
     try:
+        own = output.name
         masters = _masters_for(
-            selections, merges, records_by_plugin, load_order, carried, ref_edits
+            selections, merges, records_by_plugin, load_order, carried, ref_edits, new_refs, own
         )
         say(f"declaring {len(masters)} master(s): {', '.join(masters)}")
 
@@ -205,7 +211,11 @@ def build_record_patch(
                 )
             )
         if ref_edits:
-            _apply_ref_edits(records, ref_edits, records_by_plugin, load_order, masters, say)
+            _apply_ref_edits(records, ref_edits, records_by_plugin, load_order, masters, say, own)
+        if new_refs:
+            given = place_new_refs(records, new_refs, records_by_plugin, load_order)
+            for new in new_refs:
+                say(f"  Cell {new.cell}: new {new.fields.get('id')} as (0, {given[new.uid]})")
     except PatchError as exc:
         raise PatchServiceError(str(exc)) from exc
 
@@ -273,6 +283,8 @@ def _masters_for(
     load_order: Sequence[str],
     carried: Sequence[Mapping[str, Any]] = (),
     ref_edits: Sequence[RefEdit] = (),
+    new_refs: Sequence[NewRef] = (),
+    own: str = "",
 ) -> list[str]:
     """Work out what a patch of these records and merges must declare.
 
@@ -290,7 +302,9 @@ def _masters_for(
             takes a record from it *as* a plugin -- the carried records still
             reference those masters by position.
         ref_edits: Changes to placed objects: each reference is named by the file
-            that created it, so that file is a master.
+            that created it, so that file is a master - unless it is the patch itself.
+        new_refs: References the patch adds: what each places is defined by a master.
+        own: The patch's own file name, never its own master.
 
     Returns:
         The masters to declare, in load order.
@@ -302,7 +316,15 @@ def _masters_for(
             for name in sorted(entry.plugins)
         )
     stand_ins.extend(Selection(plugin=e.origin, record_type="Cell", key=e.cell) for e in ref_edits)
-    return required_masters(stand_ins, records_by_plugin, load_order, extra=master_names(carried))
+    stand_ins.extend(
+        Selection(plugin=n.base_plugin, record_type="Cell", key=n.cell)
+        for n in new_refs
+        if n.base_plugin
+    )
+    if own:
+        stand_ins = [s for s in stand_ins if s.plugin.lower() != own.lower()]
+    found = required_masters(stand_ins, records_by_plugin, load_order, extra=master_names(carried))
+    return [name for name in found if not own or name.lower() != own.lower()]
 
 
 def _apply_ref_edits(
@@ -312,6 +334,7 @@ def _apply_ref_edits(
     load_order: Sequence[str],
     masters: Sequence[str],
     say: Callable[[str], None],
+    own: str = "",
 ) -> None:
     """Put each cell's changed references into the patch.
 
@@ -326,12 +349,13 @@ def _apply_ref_edits(
         load_order: The load order.
         masters: The patch's masters.
         say: The progress reporter.
+        own: The patch's own file name (its references are ``(0, n)``).
     """
     by_cell: dict[str, list[RefEdit]] = {}
     for e in ref_edits:
         by_cell.setdefault(e.cell.lower(), []).append(e)
     for edits in by_cell.values():
-        built = cell_patch_record(edits, records_by_plugin, load_order, masters)
+        built = cell_patch_record(edits, records_by_plugin, load_order, masters, own)
         cell = edits[0].cell
         say(f"  Cell {cell}: {len(edits)} changed reference(s)")
         have = next(

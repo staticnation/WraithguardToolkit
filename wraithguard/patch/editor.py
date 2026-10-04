@@ -38,7 +38,7 @@ from wraithguard.patch.enums import enum_options
 from wraithguard.patch.fieldtypes import field_kind, flag_options, flags_name, int_bounds
 from wraithguard.patch.merge import IDENTITY, FieldChoice, FieldValue, value_at
 from wraithguard.patch.records import Selection, master_names, record_key
-from wraithguard.patch.refedit import REF_FIELDS, RefEdit, winning_reference
+from wraithguard.patch.refedit import REF_FIELDS, NewRef, RefEdit, winning_reference
 from wraithguard.tes3fields.naming import TYPE_TO_TAG
 
 if TYPE_CHECKING:
@@ -125,6 +125,25 @@ REF_KINDS: Final[dict[str, str]] = {
     "moved_cell": "grid",
     "destination": "door",
 }
+
+#: An exterior cell's side, in units.
+CELL_SIZE: Final = 8192
+
+
+def exterior_grid(cell: str) -> tuple[int, int] | None:
+    """An exterior cell key's grid (``"(x, y)"`` -> ``(x, y)``), or None for an interior."""
+    import re
+
+    m = re.fullmatch(r"\((-?\d+), (-?\d+)\)", cell.strip())
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def grid_of(position: Sequence[float]) -> tuple[int, int]:
+    """The exterior cell a world position is in."""
+    import math
+
+    return (math.floor(position[0] / CELL_SIZE), math.floor(position[1] / CELL_SIZE))
+
 
 #: The scale the game allows a reference (the Construction Set's limits).
 _SCALE: Final = (0.5, 2.0)
@@ -539,7 +558,8 @@ class EditorSession:
             One ``{"tag", "type", "id", "whole", "changes"}`` per record; each change
             ``{"path", "value"}`` (typed) or ``{"path", "plugin"}`` (taken from one).
             A changed placed object is ``type`` ``Reference``, with ``ref`` ``{cell,
-            origin, refr, plugins}``.
+            origin, refr, plugins}``; a new one ``NewReference``, with ``new`` ``{cell,
+            uid, id, tag, plugins}`` and its fields as the changes.
         """
         out: list[dict[str, Any]] = [
             {
@@ -584,6 +604,23 @@ class EditorSession:
                 "changes": [{"path": k, "value": v} for k, v in e.changes.items()],
             }
             for e in self.queue.ref_edits
+        )
+        out.extend(
+            {
+                "tag": "",
+                "type": "NewReference",
+                "id": f"{n.fields.get('id', '')} (new) in {n.cell}",
+                "new": {
+                    "cell": n.cell,
+                    "uid": n.uid,
+                    "id": n.fields.get("id", ""),
+                    "tag": n.tag,
+                    "plugins": list(n.plugins),
+                },
+                "whole": None,
+                "changes": [{"path": k, "value": v} for k, v in n.fields.items()],
+            }
+            for n in self.queue.new_refs
         )
         return out
 
@@ -700,13 +737,23 @@ class EditorSession:
             EditorError: For a field not changed here, or a value it cannot hold.
         """
         value = coerce_ref(path, raw)
+        self._queue_ref(found, path, value)
+        home = exterior_grid(found.cell)
+        if path == "translation" and home is not None and isinstance(value, list):
+            # Moved out of its exterior cell: it stays in this cell's record, and says where
+            # it is now (MVRF/CNDT, as merge_to_master moves one) - or no longer, once back.
+            now = grid_of(value)
+            self._queue_ref(found, "moved_cell", None if now == home else list(now))
+        self.save_journal()
+
+    def _queue_ref(self, found: FoundRef, path: str, value: object) -> None:
+        """Queue one field's value, or drop the change when the load order has it already."""
         if same_value(value, found.ref.get(path)):
             self.queue.remove_ref_edit(found.cell, found.origin, found.refr_index, path)
         else:
             self.queue.add_ref_edit(
                 RefEdit(found.cell, found.origin, found.refr_index, {path: value}, found.plugins)
             )
-        self.save_journal()
 
     def revert_ref(self, found: FoundRef, path: str | None = None) -> None:
         """Drop the change to one field of a placed object, or all of them.
@@ -716,6 +763,145 @@ class EditorSession:
             path: The field, or None for every change to it.
         """
         self.queue.remove_ref_edit(found.cell, found.origin, found.refr_index, path)
+        if path == "translation":  # the cell it moved to went with the move
+            self.queue.remove_ref_edit(found.cell, found.origin, found.refr_index, "moved_cell")
+        self.save_journal()
+
+    # -- new references ---------------------------------------------------------------
+
+    #: Tags placed persistent: the game expects actors to be (the tes3 crate's note).
+    PERSISTENT_TAGS: Final = frozenset({"NPC_", "CREA"})
+
+    def _cell_plugins(self, cell: str, plugins: Sequence[str] | None) -> tuple[str, ...]:
+        """The plugins with a CELL record for a cell, in load order.
+
+        The viewer's list, checked, or every plugin looked in.
+        """
+        known = [p for p in (plugins or self.order) if p.lower() in self._rank]
+        known.sort(key=lambda p: self._rank[p.lower()])
+        want = cell.strip().lower()
+        return tuple(self._paths[p.lower()][0] for p in known if want in self._records(p, "CELL"))
+
+    def place(
+        self,
+        cell: str,
+        found: Found,
+        translation: object,
+        rotation: object = None,
+        plugins: Sequence[str] | None = None,
+    ) -> NewRef:
+        """Queue a new reference to a record (and save the journal).
+
+        Args:
+            cell: The cell's key (an interior's name, an exterior's ``"(x, y)"``).
+            found: What it places (:meth:`find`).
+            translation: Where, as the viewer sent it.
+            rotation: Its rotation (radians), or None for none.
+            plugins: The plugins with the cell, when the viewer knows.
+
+        Returns:
+            The reference queued.
+
+        Raises:
+            EditorError: A cell no plugin has, or a position or rotation that is not
+                three numbers.
+        """
+        import secrets
+
+        holders = self._cell_plugins(cell, plugins)
+        if not holders:
+            raise EditorError(f"no plugin of this load order has the cell {cell}")
+        rec = self._records(holders[-1], "CELL")[cell.strip().lower()]
+        fields: dict[str, Any] = {
+            "id": found.key,
+            "translation": coerce_ref("translation", translation),
+            "rotation": coerce_ref("rotation", rotation if rotation is not None else [0, 0, 0]),
+            "temporary": found.tag not in self.PERSISTENT_TAGS,
+        }
+        new = NewRef(
+            record_key(rec), f"new-{secrets.token_hex(4)}", fields, found.winner, holders, found.tag
+        )
+        self.queue.add_new_ref(new)
+        self.save_journal()
+        return new
+
+    def find_new(self, cell: str, uid: str) -> NewRef | None:
+        """A queued new reference, by its cell and editor name.
+
+        Args:
+            cell: The cell's key.
+            uid: Its editor name.
+
+        Returns:
+            It, or None.
+        """
+        del cell  # the uid is the patch's own and unique; the cell may have moved under it
+        return next((n for n in self.queue.new_refs if n.uid == uid), None)
+
+    def new_view(self, new: NewRef) -> dict[str, Any]:
+        """The reference dialog for a new reference: its fields, each as it will be written.
+
+        Args:
+            new: The reference.
+
+        Returns:
+            ``{"cell", "uid", "id", "tag", "new", "plugins", "fields"}``, fields as
+            :meth:`ref_view` has them (no ``queued``: all of it is the patch's).
+        """
+        return {
+            "cell": new.cell,
+            "uid": new.uid,
+            "id": new.fields.get("id", ""),
+            "tag": new.tag,
+            "new": True,
+            "plugins": list(new.plugins),
+            "fields": [
+                {"path": name, "value": new.fields.get(name), "kind": kind, "editable": True}
+                for name, kind in REF_KINDS.items()
+            ],
+        }
+
+    def set_new_field(self, new: NewRef, path: str, raw: object) -> NewRef:
+        """Change a field of a new reference (and save the journal).
+
+        Args:
+            new: The reference.
+            path: The field (:data:`REF_KINDS`).
+            raw: The value, as the viewer sent it.
+
+        Returns:
+            The reference as it now is.
+
+        Raises:
+            EditorError: For a field not changed here, or a value it cannot hold (a
+                position is always three numbers).
+        """
+        from dataclasses import replace
+
+        value = coerce_ref(path, raw)
+        home = exterior_grid(new.cell)
+        if path == "translation" and home is not None and isinstance(value, list):
+            now = grid_of(value)
+            if now != home:
+                # A new reference belongs to the cell it stands in: it moves to that one.
+                cell = f"({now[0]}, {now[1]})"
+                holders = self._cell_plugins(cell, None)
+                if not holders:
+                    raise EditorError(f"no plugin of this load order has the cell {cell}")
+                self.queue.remove_new_ref(new.cell, new.uid)
+                new = replace(new, cell=cell, plugins=holders)
+                self.queue.add_new_ref(new)
+        self.queue.add_new_ref(NewRef(new.cell, new.uid, {path: value}))
+        self.save_journal()
+        return self.find_new(new.cell, new.uid) or new
+
+    def remove_new(self, new: NewRef) -> None:
+        """Drop a new reference from the patch (and save the journal).
+
+        Args:
+            new: The reference.
+        """
+        self.queue.remove_new_ref(new.cell, new.uid)
         self.save_journal()
 
     # -- the journal ------------------------------------------------------------------
@@ -783,6 +969,17 @@ def save_queue(queue: PatchQueue, journal: Path) -> None:
                 "plugins": list(e.plugins),
             }
             for e in queue.ref_edits
+        ],
+        "new": [
+            {
+                "cell": n.cell,
+                "uid": n.uid,
+                "fields": dict(n.fields),
+                "base": n.base_plugin,
+                "plugins": list(n.plugins),
+                "tag": n.tag,
+            }
+            for n in queue.new_refs
         ],
     }
     tmp = journal.with_name(journal.name + ".tmp")
@@ -857,6 +1054,19 @@ def restore_queue(queue: PatchQueue, journal: Path) -> int:
             if edit.ident not in have:
                 queue.add_ref_edit(edit)
                 n += 1
+        placed = {p.ident for p in queue.new_refs}
+        for r in doc.get("new") or []:
+            new = NewRef(
+                r["cell"],
+                str(r["uid"]),
+                dict(r["fields"]),
+                str(r.get("base") or ""),
+                tuple(r.get("plugins") or ()),
+                str(r.get("tag") or ""),
+            )
+            if new.ident not in placed:
+                queue.add_new_ref(new)
+                n += 1
     except (KeyError, TypeError, ValueError) as exc:
         LOG.warning("patch journal: %s is damaged (%s); restored what read", journal, exc)
     return n
@@ -914,7 +1124,9 @@ __all__ = [
     "FoundRef",
     "coerce",
     "coerce_ref",
+    "exterior_grid",
     "forget_queue",
+    "grid_of",
     "plugins_from_cfg",
     "restore_queue",
     "same_value",

@@ -11,6 +11,10 @@ loopback server, for everything else:
   (:meth:`.EditorSession.ref_view`), ``cell`` the cell's record key;
 - ``editRefSet`` ``{..., path, value}`` / ``editRefRevert`` ``{..., path?}`` -> change a
   placed object, or drop the change; the patch carries it as merge_to_master does;
+- ``editPlace`` ``{cell, tag, id, translation, rotation?, plugins?, defined?}`` -> a new
+  reference to a record, in the patch (``plugins``: the cell's; ``defined``: the
+  record's definers); ``editNew`` / ``editNewSet`` / ``editNewRemove`` ``{cell, uid,
+  ...}`` -> its dialog, a change, or taking it back out;
 - ``editPending`` ``{}`` -> everything the patch would carry;
 - ``editReview`` ``{}`` -> open the Patch Builder here, to review and write.
 
@@ -42,6 +46,7 @@ if TYPE_CHECKING:
 
     from wraithguard.patch.editor import EditorSession, Found, FoundRef
     from wraithguard.patch.queue import PatchQueue
+    from wraithguard.patch.refedit import NewRef
     from wraithguard.viz.serve import ViewerServer
 
 LOG = get_logger(__name__)
@@ -109,6 +114,10 @@ class EditorLinkMixin:
             "editRef": server.register_post("wg_edit_ref", self._on_edit_ref),
             "editRefSet": server.register_post("wg_edit_ref_set", self._on_edit_ref_set),
             "editRefRevert": server.register_post("wg_edit_ref_revert", self._on_edit_ref_revert),
+            "editPlace": server.register_post("wg_edit_place", self._on_edit_place),
+            "editNew": server.register_post("wg_edit_new", self._on_edit_new),
+            "editNewSet": server.register_post("wg_edit_new_set", self._on_edit_new_set),
+            "editNewRemove": server.register_post("wg_edit_new_remove", self._on_edit_new_remove),
             "editPending": server.register_post("wg_edit_pending", self._on_edit_pending),
             "editReview": server.register_post("wg_edit_review", self._on_edit_review),
         }
@@ -337,6 +346,144 @@ class EditorLinkMixin:
             return session.ref_view(found)
 
         return self._json(self._on_ui_wait(change))
+
+    @staticmethod
+    def _names(value: object, what: str) -> list[str] | None:
+        """A list of plugin names from a request, or None when absent."""
+        if value is None:
+            return None
+        if not (isinstance(value, list) and all(isinstance(p, str) for p in value)):
+            raise ValueError(f"bad {what}")
+        return value or None
+
+    def _editor(self) -> EditorSession:
+        """The editor session, or a refusal when the viewer is not connected."""
+        session: EditorSession | None = getattr(self, "_editor_session", None)
+        if session is None:
+            raise ValueError(_("The editor is not connected to a load order - reopen the viewer"))
+        return session
+
+    def _on_edit_place(self, body: bytes) -> Payload:
+        """``editPlace``: a new reference to a record, into the patch.
+
+        Args:
+            body: ``{cell, tag, id, translation, rotation?, plugins?, defined?}``.
+
+        Returns:
+            The new reference's dialog (:meth:`.EditorSession.new_view`).
+        """
+        _req, session, found = self._edit_request(
+            json.dumps(self._place_record(body)).encode("utf-8")
+        )
+        place = json.loads(body.decode("utf-8"))
+        cell = place.get("cell")
+        if not isinstance(cell, str) or not cell:
+            raise ValueError("bad cell")
+        cell_plugins = self._names(place.get("plugins"), "plugins")
+
+        def change() -> dict[str, Any]:
+            """Queue it and redraw the Patch Builder."""
+            new = session.place(
+                cell, found, place.get("translation"), place.get("rotation"), cell_plugins
+            )
+            self.refresh_patch_views()
+            return session.new_view(new)
+
+        return self._json(self._on_ui_wait(change))
+
+    @staticmethod
+    def _place_record(body: bytes) -> dict[str, Any]:
+        """The record half of an ``editPlace`` request, as ``editRecord`` takes it."""
+        try:
+            req = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise ValueError("bad request") from None
+        if not isinstance(req, dict):
+            raise ValueError("bad request")
+        out = {"tag": req.get("tag"), "id": req.get("id")}
+        if req.get("defined") is not None:
+            out["plugins"] = req.get("defined")
+        return out
+
+    def _new_request(self, body: bytes) -> tuple[dict[str, Any], EditorSession, NewRef]:
+        """Parse a request naming a new reference, and find it in the patch pool.
+
+        Args:
+            body: ``{cell, uid, ...}``.
+
+        Returns:
+            ``(request, session, reference)``.
+
+        Raises:
+            ValueError: For a bad request, or a reference the pool no longer has.
+        """
+        try:
+            req = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise ValueError("bad request") from None
+        if not isinstance(req, dict):
+            raise ValueError("bad request")
+        cell, uid = req.get("cell"), req.get("uid")
+        if not (isinstance(cell, str) and cell and isinstance(uid, str) and uid):
+            raise ValueError("bad request")
+        session = self._editor()
+        new = self._on_ui_wait(lambda: session.find_new(cell, uid))
+        if new is None:
+            raise ValueError(_("That new reference is no longer in the patch"))
+        return req, session, new
+
+    def _on_edit_new(self, body: bytes) -> Payload:
+        """``editNew``: a new reference's dialog.
+
+        Args:
+            body: ``{cell, uid}``.
+
+        Returns:
+            :meth:`.EditorSession.new_view`, as JSON.
+        """
+        _req, session, new = self._new_request(body)
+        return self._json(session.new_view(new))
+
+    def _on_edit_new_set(self, body: bytes) -> Payload:
+        """``editNewSet``: change a field of a new reference.
+
+        Args:
+            body: ``{cell, uid, path, value}``.
+
+        Returns:
+            Its dialog after the change.
+        """
+        req, session, new = self._new_request(body)
+        path = req.get("path")
+        if not isinstance(path, str) or not path:
+            raise ValueError("bad path")
+
+        def change() -> dict[str, Any]:
+            """Change the queue and redraw the Patch Builder."""
+            now = session.set_new_field(new, path, req.get("value"))
+            self.refresh_patch_views()
+            return session.new_view(now)
+
+        return self._json(self._on_ui_wait(change))
+
+    def _on_edit_new_remove(self, body: bytes) -> Payload:
+        """``editNewRemove``: take a new reference back out of the patch.
+
+        Args:
+            body: ``{cell, uid}``.
+
+        Returns:
+            ``ok``.
+        """
+        _req, session, new = self._new_request(body)
+
+        def change() -> None:
+            """Change the queue and redraw the Patch Builder."""
+            session.remove_new(new)
+            self.refresh_patch_views()
+
+        self._on_ui_wait(change)
+        return Payload(b"ok", "text/plain; charset=utf-8")
 
     def _on_edit_pending(self, _body: bytes) -> Payload:
         """``editPending``: everything the patch would carry.

@@ -23,7 +23,14 @@ and as Morrowind and OpenMW load it:
 
 This module builds such a CELL record for the patch: the winning cell's own fields (so
 the merge changes nothing else about the cell), and each changed reference as the load
-order currently has it, with the changes applied, keyed for the patch's master list.
+order currently has it, with the changes applied, keyed for the patch's master list. A
+reference the patch created itself, in an earlier build, is ``(0, n)`` still: the file
+being rewritten keeps its identity (``own``).
+
+A **new** reference (:class:`NewRef`) is the patch's own: ``(0, n)``, ``n`` above every
+``(0, ...)`` the patch already carries - an earlier build's, carried forward, included -
+in the cell's record, made from the winning version's fields when the patch has none
+(:func:`place_new_refs`).
 
 Copyright (c) 2026 StaticNation.
 """
@@ -91,6 +98,35 @@ class RefEdit:
     def ident(self) -> tuple[str, str, int]:
         """What it is a change to, for de-duplicating: ``(cell, origin, refr_index)``."""
         return (self.cell.lower(), self.origin.lower(), self.refr_index)
+
+
+@dataclass(frozen=True, slots=True)
+class NewRef:
+    """A reference the patch adds.
+
+    Attributes:
+        cell: The cell's key (an interior's name, an exterior's ``"(x, y)"``).
+        uid: The editor's name for it until it is written (it has no index before).
+        fields: The reference: ``id``, ``translation``, ``rotation``, and any other
+            field of :data:`REF_FIELDS`.
+        base_plugin: The plugin that defines what it places (last): a master, so the
+            object is there when the patch loads.
+        plugins: The plugins with a CELL record for the cell.
+        tag: What it places is a record of this tag (``STAT``): for the editor, which
+            draws it, not for the file.
+    """
+
+    cell: str
+    uid: str
+    fields: Mapping[str, Any] = field(default_factory=dict)
+    base_plugin: str = ""
+    plugins: tuple[str, ...] = ()
+    tag: str = ""
+
+    @property
+    def ident(self) -> tuple[str, str]:
+        """``(cell, uid)``, for de-duplicating."""
+        return (self.cell.lower(), self.uid)
 
 
 def _origin(plugin: str, masters: Sequence[str], mast_index: int) -> str | None:
@@ -185,6 +221,7 @@ def cell_patch_record(
     records_by_plugin: Mapping[str, Sequence[Mapping[str, Any]]],
     load_order: Sequence[str],
     patch_masters: Sequence[str],
+    own: str = "",
 ) -> dict[str, Any]:
     """The CELL record that carries a cell's changed references, and only those.
 
@@ -193,6 +230,7 @@ def cell_patch_record(
         records_by_plugin: The plugins' decoded records (headers included).
         load_order: The load order.
         patch_masters: The master list the patch declares.
+        own: The patch's own file name: a reference it created is ``(0, n)``.
 
     Returns:
         The record: the winning version's own fields, and the changed references keyed
@@ -227,7 +265,7 @@ def cell_patch_record(
         won = winning_reference(versions, masters_of, e.origin, e.refr_index)
         if won is None:
             raise PatchError(f"the cell {e.cell} has no reference {e.origin}:{e.refr_index}")
-        at = position.get(e.origin.lower())
+        at = 0 if own and e.origin.lower() == own.lower() else position.get(e.origin.lower())
         if at is None:
             raise PatchError(
                 f"{e.origin} created this reference but is not among the patch's masters, "
@@ -242,11 +280,80 @@ def cell_patch_record(
     return record
 
 
+def place_new_refs(
+    records: list[dict[str, Any]],
+    new_refs: Sequence[NewRef],
+    records_by_plugin: Mapping[str, Sequence[Mapping[str, Any]]],
+    load_order: Sequence[str],
+) -> dict[str, int]:
+    """Put the references the patch adds into its records.
+
+    Each goes into the patch's record for its cell - one already there (whole, merged,
+    changed references, or an earlier build's) or, failing that, a new one with the
+    winning version's own fields and no other reference - as ``(0, n)``, numbered on from
+    the highest the patch carries.
+
+    Args:
+        records: The patch's records so far (changed in place).
+        new_refs: The references.
+        records_by_plugin: The plugins' decoded records (the cells' plugins included).
+        load_order: The load order.
+
+    Returns:
+        Each reference's ``uid`` -> the ``refr_index`` it was given.
+
+    Raises:
+        PatchError: A cell no plugin of the load order has, a reference without an id
+            or position, or a field that is not a reference's.
+    """
+    from wraithguard.patch.records import keys_of
+
+    given: dict[str, int] = {}
+    n = next_new_index(records)
+    for new in new_refs:
+        bad = set(new.fields) - REF_FIELDS - {"id"}
+        if bad:
+            raise PatchError(f"{', '.join(sorted(bad))} is not a field of a reference")
+        if not new.fields.get("id") or "translation" not in new.fields:
+            raise PatchError(f"the new reference {new.uid} has no object or no position")
+        want = new.cell.lower()
+        cell = next(
+            (
+                r
+                for r in records
+                if r.get("type") == "Cell" and want in {k.lower() for k in keys_of(r)}
+            ),
+            None,
+        )
+        if cell is None:
+            versions = cell_versions(new.cell, records_by_plugin, load_order)
+            if not versions:
+                raise PatchError(f"no plugin of the load order has the cell {new.cell}")
+            cell = copy.deepcopy({k: v for k, v in versions[-1][1].items() if k != "references"})
+            cell["references"] = []
+            records.append(cell)
+        ref: dict[str, Any] = {
+            "mast_index": 0,
+            "refr_index": n,
+            "id": new.fields["id"],
+            "temporary": True,
+            "rotation": [0.0, 0.0, 0.0],
+        }
+        ref.update(copy.deepcopy({k: v for k, v in new.fields.items() if v is not None}))
+        ref["mast_index"], ref["refr_index"] = 0, n
+        cell.setdefault("references", []).append(ref)
+        given[new.uid] = n
+        n += 1
+    return given
+
+
 __all__ = [
     "REF_FIELDS",
+    "NewRef",
     "RefEdit",
     "cell_patch_record",
     "cell_versions",
     "next_new_index",
+    "place_new_refs",
     "winning_reference",
 ]

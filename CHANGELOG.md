@@ -144,6 +144,19 @@
   for the exterior, with the interiors to choose from), where the player lands and which
   way they face; "From the view" takes the view's pivot and direction in the cell on
   screen, "Go there" opens it. Written as DODT, with DNAM only for an interior.
+- **New references: place a record from the Editor's Object Window.** Drag a row into the
+  render window (it lands on the surface under the pointer) or right-click it (at the
+  view's pivot). The reference is the patch's own - written `(0, n)`, numbered on from the
+  highest the patch carries, an earlier build's included, into the cell's record (made
+  from the winning version's fields when the patch has none), with the plugin defining
+  the object a master; actors are placed persistent. It opens in the reference dialog,
+  moves and turns like any other, is drawn in place, journalled, listed in the Patch
+  Builder ("add") and the pending list, and "Remove from the patch" takes it out. Changing
+  a reference the patch itself made in an earlier build keeps it `(0, n)` too, and the
+  patch is never its own master.
+- **Moving an exterior reference into the next cell** sets its `moved_cell` (it stays in
+  its own cell's record, as merge_to_master moves one), and moving it back clears it; a
+  new reference moves to the cell it now stands in.
 - **The patch pool survives a crash.** Every decision in it - whole records, fields taken
   from a plugin, typed values - is journalled as it is made
   (`wraithguard_patch_journal.json` beside the settings) and brought back the next time

@@ -38,7 +38,10 @@ const html=process.argv[2]? fs.readFileSync(process.argv[2],'utf8') : assemble()
    one record, its changes kept, so the Editor mode's dialog and pool can be driven here.
    Reached the way the real one is - the engine's loopback POST (`wg_post`). */
 const http=require('http');
-const fakeWg={posts:[], queued:{}, reviewed:false, ref:null, refQueued:{}, refBase:{id:'', pos:[0,0,0]}};
+const fakeWg={posts:[], queued:{}, reviewed:false, ref:null, refQueued:{}, refBase:{id:'', pos:[0,0,0]}, news:{}};
+const fakeNewView=n=>({cell:n.cell, uid:n.uid, id:n.fields.id, tag:n.tag, new:true, plugins:n.plugins||[],
+  fields:['translation','rotation','scale','deleted'].map(path=>({path, value:n.fields[path]==null? null : n.fields[path],
+    kind:path==='scale'?'float':path==='deleted'?'bool':'vec3', editable:true}))});
 const fakeRefView=()=>({cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fakeWg.ref.refr, id:fakeWg.refBase.id,
   winner:'Lamp.esm', plugins:fakeWg.ref.plugins||['Lamp.esm'],
   fields:[
@@ -66,6 +69,14 @@ const fakeServer=http.createServer((req,res)=>{
       fakeWg.queued[b.path]=b.value; out=fakeView();
     } else if(name==='editRevert'){ if(b.path) delete fakeWg.queued[b.path]; else fakeWg.queued={}; out=fakeView(); }
     else if(name==='editRef'){ fakeWg.ref=b; out=fakeRefView(); }
+    else if(name==='editPlace'){
+      const uid='new-'+(Object.keys(fakeWg.news).length+1).toString(16).padStart(8,'0');
+      const n={cell:b.cell, uid, tag:b.tag, plugins:b.plugins, fields:{id:b.id, translation:b.translation, rotation:b.rotation||[0,0,0]}};
+      fakeWg.news[uid]=n; out=fakeNewView(n);
+    }
+    else if(name==='editNew'){ const n=fakeWg.news[b.uid]; if(!n){ res.writeHead(400); res.end('That new reference is no longer in the patch'); return; } out=fakeNewView(n); }
+    else if(name==='editNewSet'){ const n=fakeWg.news[b.uid]; n.fields[b.path]=b.value; out=fakeNewView(n); }
+    else if(name==='editNewRemove'){ delete fakeWg.news[b.uid]; res.writeHead(200); res.end('ok'); return; }
     else if(name==='editRefSet'){
       if(b.path==='scale' && b.value>2){ res.writeHead(400); res.end('scale is 0.5 to 2.0'); return; }
       fakeWg.ref=Object.assign({}, b); fakeWg.refQueued[b.path]=b.value; out=fakeRefView();
@@ -77,6 +88,10 @@ const fakeServer=http.createServer((req,res)=>{
         out.push({tag:'', type:'Reference', id:fakeWg.ref.origin+':'+fakeWg.ref.refr+' in '+fakeWg.ref.cell, whole:null,
                   ref:{cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fakeWg.ref.refr, plugins:fakeWg.ref.plugins||[]},
                   changes:Object.entries(fakeWg.refQueued).map(([path,value])=>({path,value}))});
+      for(const n of Object.values(fakeWg.news))
+        out.push({tag:'', type:'NewReference', id:n.fields.id+' (new) in '+n.cell, whole:null,
+                  new:{cell:n.cell, uid:n.uid, id:n.fields.id, tag:n.tag, plugins:n.plugins||[]},
+                  changes:Object.entries(n.fields).map(([path,value])=>({path,value}))});
     }
     else if(name==='editReview'){ fakeWg.reviewed=true; res.writeHead(200); res.end('ok'); return; }
     else { res.writeHead(404); res.end(); return; }
@@ -361,13 +376,47 @@ async function dragging(E, R, lamp, fail, sleep){
   }
 }
 
+/* Placing a record (the Object Window's right-click: at the view's pivot): what reaches
+   Wraithguard, the new reference drawn and pickable, its dialog, and taking it out. */
+async function placing(w, E, R, fail, sleep){
+  const d=w.document, CD=w.eval('CellData');
+  const row=E.rows.find(r=>r[0]==='lamp_lit');
+  if(!row){ fail('no lamp_lit row to place'); return; }
+  const n0=fakeWg.posts.length;
+  const v=await E.placeAt({tag:'LIGH', id:'lamp_lit', model:row[2], defined:['Lamp.esm']}, null, null);
+  const sent=fakeWg.posts.slice(n0).find(p=>p[0]==='editPlace');
+  if(!sent || !v){ fail('placing did not reach Wraithguard'); return; }
+  const b=sent[1];
+  if(b.cell!=='(9, 9)' || b.tag!=='LIGH' || b.id!=='lamp_lit' || !Array.isArray(b.translation) || b.translation.length!==3 || !Array.isArray(b.plugins))
+    fail('the placement was sent wrongly: '+JSON.stringify(b));
+  if(!d.querySelector('#edDlgBody [data-vec="translation"]') || !/New reference/.test(d.getElementById('edDlgTitle').textContent))
+    fail('the new reference did not open in the dialog');
+  const key='new:'+v.uid;
+  const cell=await CD.loadCell({kind:'ext', x:9, y:9});
+  const drawn=cell.refs.find(r=>r.key===key);
+  if(!drawn || Math.abs(drawn.pos[0]-b.translation[0])>0.05) fail('the new reference is not in the cell the render window draws');
+  let pick=null;
+  for(let i=0;i<200 && !(pick=(R.pickables||[]).find(p=>p.refKey===key));i++) await sleep(30);
+  if(!pick) fail('the new reference is not drawn (not pickable)');
+  else{
+    w.eval('Ori').show(pick);
+    if(!E.selected() || E.selected().ref.uid!==v.uid) fail('picking the new reference does not select it');
+    for(let i=0;i<100 && !d.getElementById('edRefRevertAll');i++) await sleep(30);
+    d.getElementById('edRefRevertAll').onclick();
+    for(let i=0;i<100 && Object.keys(fakeWg.news).length;i++) await sleep(30);
+    for(let i=0;i<100 && E.liveNew.size;i++) await sleep(30);
+    if(Object.keys(fakeWg.news).length) fail('Remove from the patch did not reach Wraithguard');
+    if(E.liveNew.size) fail('the removed reference is still drawn');
+  }
+}
+
 /* The Editor mode (50_wg_editor.js): the Object Window and Cell View from the engine, the
    record dialog and the pool from the stand-in Wraithguard above. */
 async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -474,6 +523,7 @@ async function editor(w, R, fail, done, sleep){
     if(!d.getElementById('edOriRef')) fail('the inspector has no Edit reference in the Editor');
     await dragging(E, R, lamp, fail, sleep);
     Ori.hide();
+    await placing(w, E, R, fail, sleep);
   }
   E.leave();
   if(d.body.classList.contains('wgEditMode')) fail('leaving the Editor left the page in it');

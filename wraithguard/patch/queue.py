@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from wraithguard.patch.merge import Choice
     from wraithguard.patch.records import Selection
-    from wraithguard.patch.refedit import RefEdit
+    from wraithguard.patch.refedit import NewRef, RefEdit
 
 
 class PatchQueue:
@@ -50,6 +50,7 @@ class PatchQueue:
         self._fields: dict[tuple[str, str], list[Choice]] = {}
         self._bases: dict[tuple[str, str], str] = {}
         self._refs: dict[tuple[str, str, int], RefEdit] = {}
+        self._new: dict[tuple[str, str], NewRef] = {}
 
     @property
     def selections(self) -> list[Selection]:
@@ -65,7 +66,9 @@ class PatchQueue:
         """How many records the patch would carry (a cell with changed references is one)."""
         records = {(s.record_type, s.key.lower()) for s in self._whole}
         records |= {(t, k.lower()) for t, k in self._fields}
-        cells = {("Cell", e.cell.lower()) for e in self._refs.values()} - records
+        cells = {("Cell", e.cell.lower()) for e in self._refs.values()}
+        cells |= {("Cell", n.cell.lower()) for n in self._new.values()}
+        cells -= records
         return len(self._whole) + len(self._fields) + len(cells)
 
     @property
@@ -92,6 +95,33 @@ class PatchQueue:
                 plugins=tuple(dict.fromkeys((*old.plugins, *edit.plugins))),
             )
         self._refs[edit.ident] = edit
+
+    @property
+    def new_refs(self) -> list[NewRef]:
+        """References the patch adds, in the order placed."""
+        return list(self._new.values())
+
+    def add_new_ref(self, new: NewRef) -> None:
+        """Queue a reference to add, or change one queued (its fields merged).
+
+        Args:
+            new: The reference.
+        """
+        from dataclasses import replace
+
+        old = self._new.get(new.ident)
+        if old is not None:
+            new = replace(old, fields={**old.fields, **new.fields})
+        self._new[new.ident] = new
+
+    def remove_new_ref(self, cell: str, uid: str) -> None:
+        """Drop a reference queued to be added.
+
+        Args:
+            cell: Its cell's key.
+            uid: Its editor name.
+        """
+        self._new.pop((cell.lower(), uid), None)
 
     def remove_ref_edit(
         self, cell: str, origin: str, refr_index: int, path: str | None = None
@@ -125,6 +155,7 @@ class PatchQueue:
         self._fields.clear()
         self._bases.clear()
         self._refs.clear()
+        self._new.clear()
 
     def set_base(self, record_type: str, key: str, plugin: str) -> None:
         """Say which plugin wins a record, for one the conflict scan does not list.

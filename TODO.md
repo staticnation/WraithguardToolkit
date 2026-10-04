@@ -26,16 +26,16 @@ Window (record tabs, filter, sortable columns, changed records marked), the Cell
 pool (`wraithguard/patch/editor.py`, `gui/editorlink.py`), the pool journalled so a crash
 loses nothing. Still to do, roughly in this order:
 - **References**: done - the writer (`wraithguard/patch/refedit.py`, checked against
-  merge_to_master), reference edits in the pool and `build_record_patch`, the reference
-  dialog (position, rotation, scale, deleted, ownership, lock, trap, count, a door's
-  destination), drawn in the render window as it changes, and moving the selected object
-  in the render window (drag, Z/X/Y, Shift-drag turns, F drops). Still to do: new
-  references (`next_new_index`, carried-forward builds included), moving a reference to
-  another exterior cell (`moved_cell`, when a drag crosses a cell edge), and OpenMW's LUAL
-  instance entries, which name references the same way and must be remapped with them.
+  merge_to_master), changed references in the pool and `build_record_patch`, the
+  reference dialog (a door's destination included), moving objects in the render window,
+  `moved_cell` when one crosses an exterior edge, and new references placed from the
+  Object Window (the patch's own `(0, n)`, numbered on from an earlier build's). Still to
+  do: OpenMW's LUAL instance entries, which name references the same way and must be
+  remapped with them; a reference another mod already moved to another cell (it is found
+  in the cell it stands in, while its record is in the one it left); NPCs and creatures
+  placed new are written right but drawn only once the cell is reloaded.
 - New records (Insert, or "new from this one" with a new id), deleting, renaming (with
-  the CS's "used in N places" warning); placing a record from the Object Window into the
-  render window (drag and drop).
+  the CS's "used in N places" warning).
 - List fields in the dialog (inventory, spells, AI packages, leveled list entries,
   dialogue conditions) as tables, not read-only.
 - Use Report (where a record is used: references, leveled lists, inventories, scripts),

@@ -93,6 +93,7 @@ const Ori={
 
   hide(){
     if(this.el) this.el.hidden=true;
+    if(typeof WgEditor==='object') WgEditor._sel=null;
     if(typeof Tfh==='object') Tfh.hide();
     // The object's own highlight goes; a highlighted mod's stays.
     if(typeof WgModHl==='object' && WgModHl.active()) WgModHl.apply();
@@ -102,6 +103,8 @@ const Ori={
   /** Shows the inspector for a viewport pick (`App.R.onPick`). */
   async show(hit){
     if(!hit || !hit.refKey){ this.hide(); return; }
+    // Wraithguard: a reference the editor is adding has no record yet; its dialog shows it.
+    if(typeof WgEditor==='object' && WgEditor.showNew(hit)) return;
     this._hit=hit;
     const d=this.box(), ask=++this._ask;
     d.hidden=false;
