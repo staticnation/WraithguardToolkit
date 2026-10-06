@@ -193,3 +193,127 @@ def merge_load_order(
     preserve_duplicate_references: bool = False,
 ) -> bytes:
     """A whole load order merged into one master, as plugin bytes."""
+
+# -- OpenMW Lua (native/src/lua) -------------------------------------------------------
+
+TEAL_VERSION: str
+
+def lua_api(resources: str | PathLike[str]) -> dict[str, Any] | None:
+    """An install's Lua API documentation, read from its ``resources`` folder.
+
+    ``{"version", "modules", "members"}``: each module's ``name``, ``require``,
+    ``interface``, ``contexts``, ``file``, ``fields``, ``functions`` and ``types``, and
+    each declared type's member names by its Teal name. None when the folder has no
+    ``lua_api/openmw``.
+    """
+
+def lua_write_declarations(
+    out: str | PathLike[str],
+    resources: str | PathLike[str] | None = None,
+    packages: Sequence[str] = (),
+) -> dict[str, Any]:
+    """Teal declarations written into ``out`` (emptied first).
+
+    From the install's documentation, or stubs for ``packages`` without one. Returns
+    ``{"source": "openmw" | "stubs", "version", "packages"}``.
+    """
+
+def lua_check(
+    paths: Sequence[str | PathLike[str]],
+    include: Sequence[str | PathLike[str]],
+    globals: Sequence[str] = (),  # noqa: A002 - the backend's keyword
+) -> list[list[dict[str, Any]] | str]:
+    """Each file checked by the Teal compiler (tl 0.24.8, embedded).
+
+    ``include``: module folders, lowest priority first. Per path, its diagnostics
+    (``line``, ``col``, ``severity``, ``kind``, ``rule``, ``message``) or why it could
+    not be checked.
+    """
+
+def lual_scripts(path: str | PathLike[str]) -> list[tuple[str, int, list[str], bool]]: ...
+def lual_remap(record_json: str, mapping: dict[int, int]) -> str: ...
+def lua_tokenize(
+    src: str, comments: bool = False, teal: bool = False
+) -> list[tuple[str, str, int, int, int, str]]: ...
+def lua_parse(src: str, teal: bool = False) -> tuple[Any, ...]: ...
+def lua_analyze(
+    src: str,
+    contexts: Sequence[str],
+    handlers: dict[str, Sequence[str]],
+    per_frame: Sequence[str],
+    packages: dict[str, Sequence[str]],
+) -> dict[str, Any]: ...
+def lua_omwscripts(
+    text: str, name: str
+) -> tuple[str, list[tuple[str, list[str], str, int]], list[tuple[int, str]]]: ...
+def lua_scan(
+    data_dirs: Sequence[str | PathLike[str]],
+    content: Sequence[str],
+    handlers: dict[str, Sequence[str]],
+    per_frame: Sequence[str],
+    packages: dict[str, Sequence[str]],
+    builtin_interfaces: Sequence[str],
+    builtin_events: Sequence[str],
+) -> dict[str, Any]:
+    """A load order's scripts found, read and checked (viewer-shell/luacore/src/scan.rs)."""
+
+def lua_findings_for(
+    diags: Sequence[tuple[str, str, int, str]],
+    teal: bool,
+    bound: Sequence[str],
+    members: dict[str, list[str]],
+    stubs: bool,
+) -> list[tuple[str, str, int, str]]: ...
+def lua_check_findings(
+    jobs: Sequence[tuple[str | PathLike[str], bool, str | PathLike[str]]],
+    include: Sequence[str | PathLike[str]],
+    globals: Sequence[str],  # noqa: A002 - the backend's keyword
+    members: dict[str, list[str]],
+    stubs: bool,
+) -> list[list[tuple[str, str, int, str]] | str]: ...
+def lua_tlconfig_dirs(data_dirs: Sequence[str | PathLike[str]]) -> list[str]: ...
+def lua_tlconfig_globals(data_dirs: Sequence[str | PathLike[str]]) -> list[str]: ...
+def lua_find_teal_declarations(near: Sequence[str | PathLike[str]]) -> str | None: ...
+def lua_find_resources(
+    cfg: str | PathLike[str] | None = None, explicit: str | PathLike[str] | None = None
+) -> str | None: ...
+def lua_flowchart(node: tuple[Any, ...]) -> str: ...
+def lua_call_graph_chart(chunk: tuple[Any, ...]) -> str: ...
+def lua_mermaid(
+    nodes: Sequence[tuple[str, str, str]], edges: Sequence[tuple[str, str, str | None]]
+) -> str: ...
+def lua_report(
+    header: tuple[str, int, int, int, int, str, int, int],
+    found: Sequence[tuple[str, str, str, int, str]],
+    scripts: Sequence[tuple[str, list[str], str | None, list[str], bool]],
+    info: bool = True,
+) -> str: ...
+def walk_files(
+    roots: Sequence[str | PathLike[str]], skip_exts: Sequence[str] | None = None, lower: bool = True
+) -> list[list[str] | None]:
+    """Every file under each root, relative with ``/``; None for a root that is no folder."""
+
+def files_identical(paths: Sequence[str | PathLike[str]]) -> bool:
+    """Whether every file holds the same bytes (False when one cannot be read)."""
+
+def files_identical_many(groups: Sequence[Sequence[str | PathLike[str]]]) -> list[bool]:
+    """:func:`files_identical` for each group, compared in parallel."""
+
+def file_digest(path: str | PathLike[str]) -> str:
+    """A file's BLAKE2b-128 as hex (``hashlib.blake2b(digest_size=16)``), ``""`` if unreadable."""
+
+def file_digests(paths: Sequence[str | PathLike[str]]) -> list[str]:
+    """:func:`file_digest` for each, in parallel."""
+
+def scan_mod_folders(
+    start: str | PathLike[str], asset_dirs: Sequence[str], plugin_exts: Sequence[str]
+) -> list[tuple[str, list[str]]]:
+    """Folders under ``start`` holding an asset folder or a plugin (not looked into further)."""
+
+def bsa_extract(
+    archive: str | PathLike[str],
+    dest: str | PathLike[str],
+    prefix: str = "",
+    suffixes: Sequence[str] | None = None,
+) -> int:
+    """Write the archive's files under ``prefix`` (ending in a suffix) beneath ``dest``."""

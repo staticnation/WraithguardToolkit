@@ -132,7 +132,10 @@ class JournalViewMixin:
         order_panel: Any
 
         def _schedule_ui(
-            self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
+            self,
+            delay_ms: int,
+            func: Callable[..., Any],
+            *args: Any,  # noqa: ANN401
         ) -> None: ...
         def _ensure_conflict_session(self, conv: str | None = ...) -> bool: ...
         def _apply_exclusions(self, order: Sequence[str]) -> list[str]: ...

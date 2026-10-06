@@ -8,9 +8,10 @@
         viewer      cargo build --release in viewer-shell/        (the app the GUI launches)
         native      cargo test  native/                           (the Python module's Rust tests)
         viewcore    cargo test  viewer-shell/viewcore/            (the viewer's engine)
+        luacore     cargo test  viewer-shell/luacore/             (OpenMW Lua, shared by both)
         commands    cargo build viewer-shell/check-commands/      (the viewer's commands, without Tauri)
         check       cargo build viewer-shell/check/
-        clippy      cargo clippy on native, viewcore, check-commands and the viewer
+        clippy      cargo clippy on native, luacore, viewcore, check-commands and the viewer
                     (a warning fails it, as in CI; -ClippyReport only lists them)
         pages       wg-view-serve + node boot.js, cell and mesh   (only with -Pages; needs Node 22)
 
@@ -47,7 +48,7 @@ param(
     [switch]$Pages,
     [switch]$SkipViewer,
     [switch]$ClippyReport,
-    [ValidateSet('viewer', 'native', 'viewcore', 'commands', 'check', 'clippy', 'pages')]
+    [ValidateSet('viewer', 'native', 'viewcore', 'luacore', 'commands', 'check', 'clippy', 'pages')]
     [string[]]$Only
 )
 
@@ -101,7 +102,7 @@ function Invoke-Clippy {
     # passes. The lints this code base allows are in each crate's [lints.clippy].
     $lint = $(if ($ClippyReport) { @('--cap-lints', 'warn') } else { @('-D', 'warnings') })
     $ok = $true
-    foreach ($m in @('native/Cargo.toml', 'viewer-shell/viewcore/Cargo.toml',
+    foreach ($m in @('native/Cargo.toml', 'viewer-shell/luacore/Cargo.toml', 'viewer-shell/viewcore/Cargo.toml',
                      'viewer-shell/check-commands/Cargo.toml', 'viewer-shell/Cargo.toml')) {
         Write-Host "  - clippy $m" -ForegroundColor Cyan
         if (-not (Invoke-Native cargo (@('clippy', '--all-targets', '--manifest-path', $m, '--') + $lint))) { $ok = $false }
@@ -113,6 +114,7 @@ $steps = [ordered]@{
     viewer   = @{ Label = 'viewer release build';        Run = { Invoke-Native cargo @('build', '--release', '--manifest-path', 'viewer-shell/Cargo.toml') } }
     native   = @{ Label = 'native tests';                Run = { Invoke-Native cargo @('test', '--manifest-path', 'native/Cargo.toml') } }
     viewcore = @{ Label = 'viewcore tests';              Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/viewcore/Cargo.toml') } }
+    luacore  = @{ Label = 'luacore tests';               Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/luacore/Cargo.toml') } }
     commands = @{ Label = 'check-commands build';        Run = { Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check-commands/Cargo.toml') } }
     check    = @{ Label = 'check build';                 Run = { Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check/Cargo.toml') } }
     clippy   = @{ Label = $(if ($ClippyReport) { 'clippy (report)' } else { 'clippy' }); Run = { Invoke-Clippy } }
@@ -122,7 +124,7 @@ $steps = [ordered]@{
 if ($Only) {
     $wanted = $Only
 } else {
-    $wanted = @('viewer', 'native', 'viewcore', 'commands', 'check', 'clippy')
+    $wanted = @('viewer', 'native', 'viewcore', 'luacore', 'commands', 'check', 'clippy')
     if ($SkipViewer) { $wanted = $wanted | Where-Object { $_ -ne 'viewer' } }
     if ($Pages) { $wanted += 'pages' }
 }

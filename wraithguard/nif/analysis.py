@@ -22,7 +22,6 @@ finding either rests on two fully-read meshes or says why it does not.
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -35,10 +34,6 @@ if TYPE_CHECKING:
     from wraithguard.nif.report import Difference, Structure
 
 LOG = get_logger(__name__)
-
-#: How much of a file to hash for cache identity. Meshes are small and read
-#: whole anyway, so there is nothing to gain from partial hashing.
-_HASH_CHUNK = 1 << 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,15 +103,13 @@ def file_digest(path: Path) -> str:
         digest deliberately does not compare equal to anything cached, so an
         unreadable file is retried rather than remembered as a failure.
     """
-    digest = hashlib.blake2b(digest_size=16)
-    try:
-        with path.open("rb") as handle:
-            while chunk := handle.read(_HASH_CHUNK):
-                digest.update(chunk)
-    except OSError as exc:
-        LOG.debug("cannot hash %s: %s", path, exc)
-        return ""
-    return digest.hexdigest()
+    from wraithguard.fsio import file_digest as digest_of
+
+    # BLAKE2b-128, in Rust when the backend is built (the same digest hashlib gives).
+    out = digest_of(path)
+    if not out:
+        LOG.debug("cannot hash %s", path)
+    return out
 
 
 class MeshAnalyser:

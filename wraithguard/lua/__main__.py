@@ -9,8 +9,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from wraithguard.lua.openmw_api import check_cfg
 from wraithguard.lua.report import all_findings, render
-from wraithguard.lua.scan import scan_cfg
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,8 +25,32 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m wraithguard.lua", description=__doc__)
     ap.add_argument("cfg", type=Path, help="the openmw.cfg to read")
     ap.add_argument("--no-info", action="store_true", help="leave out the notes")
+    ap.add_argument(
+        "--openmw",
+        type=Path,
+        help="the OpenMW install (or its resources folder) whose documented Lua API to check "
+        "against; found on its own when not given (also WG_OPENMW_RESOURCES)",
+    )
+    ap.add_argument(
+        "--teal-declarations",
+        type=Path,
+        help="a folder of Teal declarations (OpenMW's teal_declarations) to check against instead",
+    )
+    ap.add_argument(
+        "--write-teal-declarations",
+        type=Path,
+        metavar="DIR",
+        help="keep the declarations written from the install in DIR, for a Teal project's include_dir",
+    )
+    ap.add_argument("--no-teal", action="store_true", help="skip the Teal checks")
     args = ap.parse_args(argv)
-    result = scan_cfg(args.cfg)
+    result = check_cfg(
+        args.cfg,
+        resources=args.openmw,
+        declarations=args.teal_declarations,
+        teal=not args.no_teal,
+        write_declarations=args.write_teal_declarations,
+    )
     sys.stdout.write(render(result, info=not args.no_info))
     return 1 if any(f.severity == "error" for _, f in all_findings(result)) else 0
 

@@ -1,11 +1,14 @@
-"""What OpenMW's Lua API allows where, for one API version.
+"""What OpenMW's Lua API allows where, per release.
 
-Taken from the OpenMW 0.51.0 reference (Lua API revision 129):
-https://openmw.readthedocs.io/en/openmw-0.51.0/reference/lua-scripting/engine_handlers.html
-https://openmw.readthedocs.io/en/openmw-0.51.0/reference/lua-scripting/events.html
-and the package pages beside them. The API changes between releases, so every table
-here belongs to :data:`API` and a newer OpenMW gets a new :class:`ApiVersion` rather
-than an edit of this one.
+Taken from each release's reference - its engine handlers and built-in events pages
+(``reference/lua-scripting/engine_handlers.html`` and ``events.html`` under
+``https://openmw.readthedocs.io/en/openmw-<version>/``) and the package pages beside
+them: :data:`API` is 0.51.0 (Lua API revision 129), :data:`API_050` 0.50.0 (97) and
+:data:`API_049` 0.49.0 (76). An install's own documentation carries its packages and
+interfaces (read at run time), but not its engine handlers or built-in events - those
+live in the documentation's .rst pages, which an install does not ship - so they come
+from the release's table here, picked by :func:`for_version`. A newer OpenMW gets a new
+:class:`ApiVersion` rather than an edit of these.
 
 A script's *contexts* come from its ``.omwscripts`` flags: ``global``, ``menu``,
 ``load``, ``player`` (a local script on the player) and ``local`` (a local script on
@@ -146,6 +149,79 @@ API = ApiVersion(
         }
     ),
 )
+
+
+_HANDLERS_050 = {k: v - {"load"} for k, v in API.handlers.items() if k != "onContentFilesLoaded"}
+_PACKAGES_050 = {k: v for k, v in API.packages.items() if k != "openmw.content"}
+
+#: OpenMW 0.50.0 (API 97): 0.51's handlers and events without load scripts
+#: (``onContentFilesLoaded``, ``openmw.content``).
+API_050 = ApiVersion(
+    openmw="0.50.0",
+    revision=97,
+    handlers=_HANDLERS_050,
+    per_frame=API.per_frame,
+    packages=_PACKAGES_050,
+    builtin_events=API.builtin_events,
+    builtin_interfaces=API.builtin_interfaces,
+)
+
+#: OpenMW 0.49.0 (API 76): 0.50's handlers (``onUpdate`` not called while paused yet);
+#: fewer built-in events, and no ``Combat`` interface.
+API_049 = ApiVersion(
+    openmw="0.49.0",
+    revision=76,
+    handlers=_HANDLERS_050,
+    per_frame=API.per_frame,
+    packages=_PACKAGES_050,
+    builtin_events=frozenset(
+        {
+            "Died",
+            "StartAIPackage",
+            "RemoveAIPackages",
+            "UseItem",
+            "UiModeChanged",
+            "AddUiMode",
+            "SetUiMode",
+            "Pause",
+            "Unpause",
+            "SetGameTimeScale",
+            "SetSimulationTimeScale",
+        }
+    ),
+    builtin_interfaces=API.builtin_interfaces - {"Combat"},
+)
+
+#: Every release with a table, oldest first.
+RELEASES: tuple[ApiVersion, ...] = (API_049, API_050, API)
+
+
+def _version_key(text: str) -> tuple[int, ...]:
+    """``"0.50.0"`` -> ``(0, 50, 0)``; anything unreadable sorts as newest."""
+    try:
+        return tuple(int(p) for p in text.strip().split(".")[:3])
+    except ValueError:
+        return (99,)
+
+
+def for_version(version: str | None) -> ApiVersion:
+    """The table for an OpenMW release: the newest one not newer than it.
+
+    Args:
+        version: The install's version (``"0.50.0"``), or None when unknown.
+
+    Returns:
+        That release's rules; the newest for an unknown or newer one, the oldest for an
+        older one.
+    """
+    if not version:
+        return API
+    want = _version_key(version)
+    best = RELEASES[0]
+    for rel in RELEASES:
+        if _version_key(rel.openmw) <= want:
+            best = rel
+    return best
 
 
 def contexts_for_flags(flags: tuple[str, ...]) -> frozenset[str]:

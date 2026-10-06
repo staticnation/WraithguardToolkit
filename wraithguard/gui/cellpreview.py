@@ -87,6 +87,7 @@ class CellPreviewMixin:
         cell: str | None = None,
         meshes: list[dict[str, object]] | None = None,
         extra_plugins: list[Path] | None = None,
+        editor: bool = False,
     ) -> bool:
         """Launch the shell's cell viewer on the current setup; False if it cannot start.
 
@@ -99,6 +100,8 @@ class CellPreviewMixin:
                 and ``"edit"`` (``{"url", "filename"}``, the Save handler).
             extra_plugins: Plugins loaded last on top of the order (see
                 :meth:`_write_viewer_setup`).
+            editor: Open in the viewer's Editor mode (it can be switched to from the
+                viewer either way).
 
         Returns:
             Whether the viewer launched.
@@ -136,6 +139,10 @@ class CellPreviewMixin:
             links["openRecord"] = server.register_post("wg_open_record", handler)
             # And where it asks, while it is open, for the next thing to show.
             links["poll"] = server.register_post("wg_viewer_poll", self._on_viewer_poll)
+            # The Editor mode's records, edits and patch pool (EditorLinkMixin).
+            editor_links = getattr(self, "editor_links", None)
+            if editor_links is not None and not meshes:
+                links.update(editor_links(server, setup))
         try:
             extra_file.write_text(
                 json.dumps({"subset": subset, "meshes": meshes or [], "links": links}),
@@ -160,6 +167,9 @@ class CellPreviewMixin:
             cmd += ["--extra", str(extra)]
         if cell:
             cmd += ["--cell", cell]
+        if editor and not meshes:
+            cmd += ["--editor"]
+            cmd[cmd.index("--title") + 1] = _("Wraithguard Editor")
         if meshes:
             cmd += ["--mesh-view"]
             cmd[cmd.index("--title") + 1] = _("Mesh Viewer")

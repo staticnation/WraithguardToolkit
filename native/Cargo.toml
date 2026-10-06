@@ -39,6 +39,16 @@ memmap2 = "0.9"
 # No mimalloc (a Python extension keeps Python's allocator); its logging compiled out.
 merge_to_master = { git = "https://github.com/staticnation/merge_to_master", default-features = false, features = ["strip-logs"] }
 anyhow = "1"
+# Windows-1252, as the tes3 crate decodes plugin strings: the script compiler works on
+# the plugin's bytes (src/mwscript). Already in the tree through tes3's bytes_io.
+encoding_rs = "0.8"
+# OpenMW Lua scripts in plain Rust (lexer, parser, checks, the load-order scan, the API
+# tables, reports and charts), shared with the viewer's engine (viewer-shell/luacore).
+luacore = { path = "../viewer-shell/luacore" }
+# The Teal compiler (tl 0.24.8, MIT) in an embedded Lua 5.4 (mlua, vendored), for checking
+# OpenMW Lua and Teal scripts (src/lua). ynishi/htl, MIT OR Apache-2.0. Without its `pkg`
+# feature: no project manifests here, only files and folders of declarations.
+htl-core = { version = "0.12.0", default-features = false }
 
 # greatness7's tes3, from our fork (staticnation/tes3) until what is waiting upstream is
 # taken there: OpenMW's LUAL records (Greatness7/tes3#7), Clippy in CI (#9) and our NIF

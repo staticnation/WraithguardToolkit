@@ -36,11 +36,21 @@ const WgPad={
   LOOK:2.6,             // radians a second at full deflection
   CURSOR:1100,          // cursor pixels a second at full deflection
   mode:'fly',
+  enabled:true,         // Settings' "Game controller" (the viewer profile's `gamepad`)
   _raf:0, _last:0, _prev:[], _cx:0, _cy:0, _el:null, _badge:null, _hover:null,
+
+  /** Run from Steam: a pad's cursor mode stays off - the Deck's trackpad is the cursor. */
+  steam(){ return !!((window.__WG_VIEW__||{}).steam); },
+  /** Settings' switch: off, the pad is ignored. */
+  setEnabled(on){
+    this.enabled=!!on;
+    if(!this.enabled) this.stop();
+    else if(this.pad()) this.start();
+  },
 
   init(){
     if(typeof navigator==='undefined' || !navigator.getGamepads) return;
-    window.addEventListener('gamepadconnected',()=>this.start());
+    window.addEventListener('gamepadconnected',()=>{ if(this.enabled) this.start(); });
     window.addEventListener('gamepaddisconnected',()=>{ if(!this.pad()) this.stop(); });
     // A real mouse or touch takes over: out of FLY (Robin: "keep touch as mouse input
     // always ... and make that automatically exit the fly around mode").
@@ -51,7 +61,7 @@ const WgPad={
       if(this.mode==='fly') this.setMode('cursor', true);
       this.showCursor(false);   // the system pointer is the cursor now
     },true);
-    if(this.pad()) this.start();
+    if(this.pad() && this.enabled) this.start();
   },
   pad(){
     try{ for(const p of navigator.getGamepads()||[]) if(p && p.connected) return p; }catch(_){ }
@@ -103,7 +113,7 @@ const WgPad={
     return (this._badge=b);
   },
   setMode(m, byMouse){
-    this.mode=m==='cursor'? 'cursor' : 'fly';
+    this.mode=m==='cursor' && !this.steam()? 'cursor' : 'fly';
     const R=App.R; if(R && R.fly && this.mode!=='fly') R.fly.pad=null;
     if(this.mode==='cursor' && !byMouse) this.showCursor(true);
     if(this.mode==='fly') this.showCursor(false);
@@ -112,6 +122,7 @@ const WgPad={
     b.textContent=this.mode==='fly'
       ? 'Pad: fly - A cursor · RT/LT up/down · RB/LB '+((R&&R.nav==='wasd')? 'speed' : 'zoom')+' · Y orbit/WASD'
       : 'Pad: cursor - A fly · RT click · LT right-click · X shift-click · B back';
+    if(this.mode==='fly' && this.steam()) b.textContent=b.textContent.replace('A cursor · ','');
     clearTimeout(this._badgeT);
     this._badgeT=setTimeout(()=>{ if(this._badge) this._badge.hidden=true; }, 3500);
   },

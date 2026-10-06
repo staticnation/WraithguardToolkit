@@ -7,12 +7,20 @@
 //! - `bsa`: `.bsa` archives (was `wraithguard/nif/bsa.py`).
 //! - `esp`: plugins to tes3conv-schema JSON (was `wraithguard.esp` + `record_to_json`
 //!   in the toolkit's native session), and plugins read and written for wraithguard/esp.
+//! - `fsio`: walking data folders and comparing files byte for byte, Python released
+//!   (was `os.walk` and chunked hashing in the toolkit's resource scan and wraithguard/nif).
 //! - `land`: the numeric core of Merged Lands (`wraithguard/land/`): the relative
 //!   grids, the per-vertex merge, the slope limiter, normals and height decoding.
+//! - `lua`: OpenMW Lua scripts: the API read from the setup's OpenMW install, Teal
+//!   declarations written from it, and scripts checked by the Teal compiler (htl).
 //! - `merge`: whole-plugin merging, greatness7's merge_to_master (vendored) called as a
 //!   library (was the merge in `wraithguard/merge/`).
+//! - `mwscript`: Morrowind scripts compiled to bytecode, MWEdit's compiler ported (the
+//!   Python port in `wraithguard/mwscript/compiler.py` is the fallback).
 //! - `nif`: mesh summaries, the mesh viewer's block panel and field edits (was
 //!   wraithguard/nif's reader, geometry and editor).
+//! - `uses`: the editor's Use Report, every record of a load order naming an id (was
+//!   `wraithguard/patch/uses.py`'s scan).
 
 use pyo3::prelude::*;
 
@@ -41,11 +49,15 @@ pub fn quiet_panics() {
 
 pub mod bsa;
 pub mod esp;
+pub mod fsio;
 pub mod img;
 pub mod land;
 pub mod lint;
+pub mod lua;
 pub mod merge;
+pub mod mwscript;
 pub mod nif;
+pub mod uses;
 
 /// The extension module. `gil_used = false`: nothing here relies on the GIL
 /// (every class is immutable after construction), so free-threaded Python keeps
@@ -56,10 +68,14 @@ fn wraithguard_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     quiet_panics();
     bsa::register(m)?;
     esp::register(m)?;
+    fsio::register(m)?;
     nif::register(m)?;
     land::register(m)?;
     img::register(m)?;
     lint::register(m)?;
+    lua::register(m)?;
     merge::register(m)?;
+    mwscript::register(m)?;
+    uses::register(m)?;
     Ok(())
 }

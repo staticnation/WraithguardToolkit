@@ -264,7 +264,10 @@ class ConflictWindowsMixin:
 
         # Guarded worker-thread -> UI-thread marshaller, from the host App.
         def _schedule_ui(
-            self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
+            self,
+            delay_ms: int,
+            func: Callable[..., Any],
+            *args: Any,  # noqa: ANN401
         ) -> None: ...
 
         # Supplied by PluginViewMixin, which owns the plugin tree window.

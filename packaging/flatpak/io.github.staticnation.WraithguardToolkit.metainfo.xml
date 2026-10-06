@@ -23,6 +23,7 @@
   <content_rating type="oars-1.1"/>
   <!-- Newest first; add one per release (PREFLIGHT.md, "A release"). -->
   <releases>
+    <release version="4.3.0" date="2026-10-06"/>
     <release version="4.2.1" date="2026-10-01"/>
   </releases>
 </component>

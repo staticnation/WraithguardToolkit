@@ -96,6 +96,12 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "wg_open_record" => Reply::Text(t::wg_open_record(s(a, "url"), s(a, "body"))?),
         "wg_post" => Reply::Text(t::wg_post(s(a, "url"), s(a, "body"))?),
         "find_record" => Reply::Json(t::find_record(s(a, "tag"), s(a, "id"), st())?),
+        "editor_tags" => Reply::Json(t::editor_tags(st())?),
+        "editor_records" => Reply::Json(t::editor_records(s(a, "tag"), st())?),
+        "editor_cell_refs" => Reply::Json(t::editor_cell_refs(s(a, "cell"), st())?),
+        "editor_actors" => Reply::Json(t::editor_actors(strs(a, "ids"), st())?),
+        "lua_scan" => Reply::Json(t::lua_scan(st())?),
+        "editor_record_tag" => Reply::Json(t::editor_record_tag(s(a, "id"), st())?),
         "ori_dialogue" => Reply::Json(t::ori_dialogue(s(a, "id"), st())?),
         "startup_install" => Reply::Json(t::startup_install()?),
         // Round 18cj: the colour theme, remembered for the next start-up.
@@ -112,6 +118,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "interior_data" => Reply::Json(t::interior_data(s(a, "name"), opt(a, "review"), Some(b(a, "without")), st())?),
         // Wraithguard: the review, overlay and link tools.
         "pathgrid" => Reply::Json(t::pathgrid(strs(a, "cells"), st())?),
+        "navmesh" => Reply::Bytes(t::navmesh(strs(a, "cells"), opt(a, "db"), st())?.0),
         "collision_bundle" => Reply::Bytes(t::collision_bundle(strs(a, "meshes"), st())?.0),
         "where_used" => Reply::Json(t::where_used(s(a, "kind"), s(a, "name"), st())?),
         "asset_providers" => Reply::Json(t::asset_providers(s(a, "path"), s(a, "kind"), st())?),

@@ -2805,37 +2805,16 @@ def detect_resource_conflicts(
     """
     subset_norm = {str(s).replace("\\", "/").rstrip("/").lower() for s in (subset_dirs or [])}
     exclude_exts = {e.lower() for e in (exclude_exts or [])}
-    from wraithguard.parallel import read_all
+    from wraithguard.fsio import files_identical_many, walk_files
 
-    def walk(d: str) -> list[str] | None:
-        """Every file under one data folder, relative and lower-cased; None if not one."""
-        try:
-            p = Path(d)
-            if not p.is_dir():
-                return None
-        except OSError:
-            return None
-        rels: list[str] = []
-        try:
-            for root, _sub, files in os.walk(p):
-                for fn in files:
-                    ext = Path(fn).suffix.lower()
-                    if ext in PLUGIN_EXTS or ext in exclude_exts:
-                        continue
-                    # os.path.relpath has no pathlib equivalent that tolerates
-                    # a non-subpath (Path.relative_to raises), so the join stays
-                    # os.path too rather than mixing idioms mid-expression.
-                    joined = os.path.join(root, fn)  # noqa: PTH118
-                    rels.append(os.path.relpath(joined, p).replace("\\", "/").lower())
-        except (OSError, PermissionError):
-            pass  # what was listed before the error stands, as it did
-        return rels
-
-    # The folders are walked side by side (a MOMW setup has over a thousand), and
-    # folded in data-path order, so the providers list the same way as before.
+    # The folders are walked side by side, in Rust when the backend is built (a MOMW
+    # setup has over a thousand, and hundreds of thousands of files), and folded in
+    # data-path order, so the providers list the same way as before. Plugin files and
+    # the excluded extensions are left out of the walk itself.
+    walked = walk_files([str(d) for d in data_dirs], {*PLUGIN_EXTS, *exclude_exts})
     providers: dict[str, list[int]] = {}  # rel_path -> [dir_index in order]
     dirs = []
-    for d, rels in zip(data_dirs, read_all(list(data_dirs), walk), strict=True):
+    for d, rels in zip(data_dirs, walked, strict=True):
         if rels is None:
             continue
         dirs.append(str(d))
@@ -2860,9 +2839,11 @@ def detect_resource_conflicts(
         }
         conflicts.append(entry)
     if compare_contents:
-        # The byte comparisons too: size checks and hashes are file I/O, and hashing
-        # lets go of the interpreter.
-        same = read_all(conflicts, lambda c: _providers_are_identical(c["path"], c["providers"]))
+        # The byte comparisons too, side by side and off the interpreter: sizes first,
+        # then the contents, stopping at the first difference.
+        same = files_identical_many(
+            [[Path(d) / c["path"] for d in c["providers"]] for c in conflicts]
+        )
         for entry, ident in zip(conflicts, same, strict=True):
             entry["identical"] = ident
     # Files that genuinely differ first: a path present twice with the same
@@ -2882,8 +2863,9 @@ def detect_resource_conflicts(
 def _providers_are_identical(rel: str, provider_dirs: Sequence[str]) -> bool:
     """Whether every provider ships byte-identical content for one path.
 
-    Sizes are compared first and the hash is only reached when they agree, which
-    is what makes this affordable: a re-shipped asset and a real override almost
+    Sizes are compared first and the contents are only read when they agree (in
+    Rust when the backend is built, :mod:`wraithguard.fsio`), which is what makes
+    this affordable: a re-shipped asset and a real override almost
     always differ in length, so the expensive path runs on the minority.
 
     A file that cannot be read counts as *not* identical. Claiming two files
@@ -2897,35 +2879,9 @@ def _providers_are_identical(rel: str, provider_dirs: Sequence[str]) -> bool:
     Returns:
         ``True`` when all providers hold the same bytes.
     """
-    import hashlib
+    from wraithguard.fsio import files_identical
 
-    sizes: set[int] = set()
-    paths = [Path(d) / rel for d in provider_dirs]
-    for candidate in paths:
-        try:
-            sizes.add(candidate.stat().st_size)
-        except OSError:
-            return False
-        if len(sizes) > 1:
-            return False
-    digests: set[str] = set()
-    for candidate in paths:
-        # blake2b rather than a cryptographic-strength choice: this compares
-        # files that already have the same length and the same name, so the
-        # question is accidental collision, not an adversary.
-        digest = hashlib.blake2b(digest_size=16)
-        try:
-            with candidate.open("rb") as fh:
-                # Chunked: a data folder can hold a 200 MB texture pack and
-                # reading one whole into memory per provider is avoidable.
-                while chunk := fh.read(1 << 20):
-                    digest.update(chunk)
-        except OSError:
-            return False
-        digests.add(digest.hexdigest())
-        if len(digests) > 1:
-            return False
-    return True
+    return files_identical([Path(d) / rel for d in provider_dirs])
 
 
 #: Below this ratio of winner triangles to loser triangles, the winning mesh is
@@ -3801,24 +3757,21 @@ def scan_mod_directories(
     start_path = str(start_path)
     lines = []
     n_folders = n_plugins = 0
-    for root, dirs, files in os.walk(start_path):
-        lower_dirs = {d.lower() for d in dirs}
-        has_asset_folder = any(f in lower_dirs for f in SCAN_ASSET_FOLDERS)
-        plugins = sorted(
-            (f for f in files if Path(f).suffix.lower() in PLUGIN_EXTS),
-            key=str.lower,
-        )
-        if has_asset_folder or plugins:
-            # abspath normalizes WITHOUT resolving symlinks. Path.resolve()
-            # follows them, which would rewrite the displayed path of every
-            # MO2 junction / symlinked mod folder -- common in Morrowind
-            # setups. Not equivalent, so this stays os.path.
-            lines.append(os.path.abspath(root))  # noqa: PTH100
-            lines.extend(plugins)
-            lines.append("")  # blank separator for readability
-            n_folders += 1
-            n_plugins += len(plugins)
-            dirs[:] = []  # matched -> don't descend further into this branch
+    from wraithguard.fsio import scan_mod_folders
+
+    # The walk is the Rust backend's when it is built (Python released), pruned at
+    # each match as before.
+    for root, found in scan_mod_folders(start_path, SCAN_ASSET_FOLDERS, PLUGIN_EXTS):
+        plugins = sorted(found, key=str.lower)
+        # abspath normalizes WITHOUT resolving symlinks. Path.resolve()
+        # follows them, which would rewrite the displayed path of every
+        # MO2 junction / symlinked mod folder -- common in Morrowind
+        # setups. Not equivalent, so this stays os.path.
+        lines.append(os.path.abspath(root))  # noqa: PTH100
+        lines.extend(plugins)
+        lines.append("")  # blank separator for readability
+        n_folders += 1
+        n_plugins += len(plugins)
 
     text = "\n".join(lines) + ("\n" if lines else "")
     if output_path is not None:

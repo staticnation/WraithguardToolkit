@@ -47,6 +47,70 @@
 .ori .orisec{margin:10px 0 3px;font-weight:600;color:var(--ac);font-size:11px;letter-spacing:.4px;text-transform:uppercase}
 .ori .from{color:var(--tx3);font-size:11px}
 .ori .tag{font-family:var(--mono);font-size:10.5px;color:var(--tx3)}
+/* The Editor mode (50_wg_editor.js): the Object Window and Cell View docked where the
+   Cell Preview's settings are, the render window beside them, the record dialog over it. */
+#edDock{display:none}
+body.wgEditMode #left{display:none}
+body.wgEditMode #edDock{display:flex;flex-direction:column;width:460px;flex:0 0 460px;min-height:0;
+  background:var(--bg2);border-right:1px solid var(--line);overflow:hidden;position:relative}
+#edDock .edPane,.edPopout .edPane{display:flex;flex-direction:column;min-height:0;border-bottom:1px solid var(--line)}
+#edObjects{flex:3}
+#edCells{flex:2}
+#edDock .edHead,.edPopout .edHead{display:flex;align-items:center;gap:6px;padding:6px 8px;border-left:3px solid var(--ac);background:var(--bg3,var(--bg2))}
+#edDock .edTabs,.edPopout .edTabs{display:flex;flex-wrap:wrap;gap:3px;padding:6px 8px 0}
+#edDock .edTabs .btn,.edPopout .edTabs .btn{padding:1px 6px;font-size:11px}
+#edDock .edTabs .btn.on,.edPopout .edTabs .btn.on{background:var(--acd);border-color:var(--ac);color:var(--tx)}
+#edDock .edTabs .btn.edited,.edPopout .edTabs .btn.edited{border-color:#57ab5a}
+#edDock .edBar label,.edPopout .edBar label{white-space:nowrap;margin-left:6px}
+#edDock .edBar,.edPopout .edBar{display:flex;align-items:center;gap:8px;padding:6px 8px}
+#edDock .edBar .fld,.edPopout .edBar .fld{flex:1}
+#edDock .edTable,.edPopout .edTable{flex:1;overflow:auto;min-height:0}
+#edDock .edSplit,.edPopout .edSplit{display:flex;flex:1;min-height:0}
+#edDock .edSplit .edTable,.edPopout .edSplit .edTable{flex:1;border-right:1px solid var(--line)}
+.edT{width:100%;border-collapse:collapse;font-size:11.5px}
+.edT th{position:sticky;top:0;background:var(--bg3,var(--bg2));text-align:left;font-weight:600;padding:3px 6px;cursor:pointer;
+  border-bottom:1px solid var(--line);white-space:nowrap;user-select:none}
+.edT td{padding:3px 6px;border-bottom:1px solid color-mix(in srgb,var(--line) 50%,transparent);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.edT td.num{text-align:right}
+.edT tbody tr{cursor:default}
+.edT tbody tr:hover{background:color-mix(in srgb,var(--ac) 10%,transparent)}
+.edT tbody tr.sel{background:color-mix(in srgb,var(--ac) 22%,transparent)}
+.edBuildList{outline:none;max-height:40vh;overflow:auto}.edBuildList:focus-visible{box-shadow:0 0 0 1px var(--ac)}.edBuildList tr[data-i]{cursor:default;user-select:none}
+/* What the CSSE marks light green: changes waiting. */
+.edT tbody tr.edited{background:color-mix(in srgb,#3fb950 16%,transparent)}
+.edT tbody tr.edited.sel{background:color-mix(in srgb,#3fb950 28%,transparent)}
+#edDlg{left:auto;right:132px;width:540px;max-height:calc(100% - 70px)}
+#edUsesPanel{left:auto;right:604px;width:460px;max-height:70vh}
+#edLayers{left:auto;right:604px;width:320px}
+#edDial{left:auto;right:132px;width:720px;max-height:80vh}
+#edDial .edSplit{display:grid;grid-template-columns:220px 1fr;gap:6px;max-height:62vh}
+#edDial .edTable{overflow:auto;max-height:62vh}
+#edDial tr[data-topic],#edDial tr[data-r]{cursor:pointer}
+#edScript{left:auto;right:132px;width:640px;max-height:82vh}
+#edScriptText{width:100%;box-sizing:border-box;height:46vh;font:12px/1.4 ui-monospace,Consolas,monospace;tab-size:4;background:var(--bg);color:var(--tx);border:1px solid var(--bd,#444)}
+#edScriptFind{max-height:16vh;overflow:auto;margin:4px 0}
+#edScriptFind .it{cursor:pointer;padding:1px 4px}
+#edScriptFind .it.bad{color:#e5534b}
+#edResult{margin:6px 0;max-height:14vh;overflow:auto}
+#edQ hr.edQsep{border:0;border-top:1px solid var(--bd,#444);margin:3px 0}
+#edResult .it{padding:1px 4px}
+#edResult .it.bad{color:#e5534b}
+#edScriptListing{max-height:70vh;overflow:auto;font:11px/1.35 ui-monospace,Consolas,monospace;white-space:pre}
+#edQ{position:fixed;width:auto;min-width:230px;z-index:60;padding:4px 0}
+#edQ .it{padding:3px 10px;cursor:pointer;white-space:nowrap}
+#edQ .it:hover{background:var(--acd)}
+#edPend{left:auto;right:604px;width:360px}
+.edFields td{white-space:normal;max-width:none;vertical-align:top}
+.edFields td.k{color:var(--tx3);width:30%;overflow-wrap:anywhere;padding-top:6px}
+.edFields .fld{width:100%;box-sizing:border-box}
+.edFields .fld.bad,.edFields input.bad{outline:1px solid #e5534b}
+.edFields .edVec{display:flex;align-items:center;gap:3px;margin:1px 0}
+.edFields .edList td{padding:1px 2px}
+.edFields .edList .fld{min-width:0}
+.edFields .edVec .from{width:12px}
+.edFields .edVec .fld{flex:1;min-width:0;width:auto}
+#btnEditor.on{background:var(--acd);border-color:var(--ac)}
 /* The full help (46_wg_tfh.js): on the right, the inspector on the left. */
 #tfhPanel{left:auto;right:12px;width:380px}
 .tfhgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:6px;margin-top:4px}
@@ -104,9 +168,296 @@ body.wgMeshMode :is(#acc_review,#acc_land,#acc_ovl,#acc_links){display:none!impo
 .wgKey{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 .wgStats{font-size:11px;color:var(--tx2);margin:4px 0 2px;line-height:1.5}
 .wgBtns{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}
+.wgNavRow{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:2px 0 6px 10px}.wgNavRow select{max-width:160px}.wgNavRow .hint{flex-basis:100%;word-break:break-all}
 #wgMeasure{position:absolute;left:50%;bottom:44px;transform:translateX(-50%);z-index:25;padding:5px 10px;
   background:color-mix(in srgb,var(--bg2) 92%,transparent);border:1px solid var(--line2);border-radius:var(--r-box,5px);
   font-size:12px;font-family:var(--mono)}
 .wgDlg{position:absolute;top:60px;left:50%;transform:translateX(-50%);width:460px;max-height:70%;overflow:auto;z-index:40}
+/* The Object Window and Cell View popped out over the render window, and columns sized by
+   hand (51_wg_editor_ui.js popPane, sizeColumns). */
+.edPopout{width:min(1100px,calc(100% - 40px));height:70%;left:20px;top:20px;display:flex;flex-direction:column;max-height:none;overflow:hidden}
+.edPopout.folded{height:auto!important}
+.edPopout>.oribody{flex:1;min-height:0;display:flex;flex-direction:column;padding:0}
+.edPopout .edPane{flex:1!important;display:flex;flex-direction:column;min-height:0}
+.edPopout .edPane>.edHead .edFoldable::before{content:""}
+#edDock.allOut{display:none!important}
+body:not(.wgEditMode) .edPopout{display:none!important}
+.edPopout .edT td{max-width:520px}
+.edT th{position:sticky}
+.edT th .edColGrip{position:absolute;right:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:2}
+.edT th .edColGrip:hover{background:color-mix(in srgb,var(--ac) 50%,transparent)}
+.edT.sized{table-layout:fixed}
+.edT.sized td{max-width:none}
+.edPopBtn.on{background:var(--acd);color:var(--ac)}
+.edMore{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;border-top:1px dashed var(--line)}
+/* The Dialogue window's other views (52_wg_dialogue_views.js). */
+.edSeg{display:inline-flex;gap:2px;margin-left:10px}
+.edSeg .btn.on{background:var(--acd);border-color:var(--ac);color:var(--ac)}
+#edDial.edDialWide{width:min(980px,calc(100% - 160px))}
+#edDialView{max-height:72vh;overflow:auto;padding-right:4px}
+.edDTop{display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap}
+.edDEdges{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:3px 0}
+.edDCard{border:1px solid var(--line);border-left:3px solid var(--ac2);border-radius:5px;padding:6px 8px;margin:4px 0;
+  background:color-mix(in srgb,var(--bg3,var(--bg2)) 55%,transparent)}
+.edDCard.edited{border-left-color:#3fb950}
+.edDCard.orphan{border-left-color:#e5534b}
+.edDHead{display:flex;align-items:center;gap:8px;font-size:11.5px}
+.edDCond{font-size:11px;color:var(--tx2);margin:3px 0 4px 2px;font-family:var(--mono)}
+.edDText{font-size:12.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.edDElse{text-align:center;font-size:10.5px;color:var(--tx3);margin:1px 0}
+.edDChoices{margin:6px 0 0 14px;border-left:2px dotted var(--line2);padding-left:8px}
+.edDChoice>summary{cursor:pointer;font-size:12px;margin:4px 0}
+.edChip{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--line2);margin:2px 3px 0 0;
+  color:var(--tx);text-decoration:none;cursor:default;white-space:nowrap}
+a.edChip{cursor:pointer}
+.edChip.add,.edChip.addtopic{border-color:#6cb6ff;color:#6cb6ff}
+.edChip.link{border-style:dashed}
+.edChip.quest{border-color:#c9a227;color:#c9a227}
+.edChip.var{border-color:#3fb950;color:#3fb950}
+.edChip.bye{border-color:#e5534b;color:#e5534b}
+.edChip.gate,.edChip.choice{border-color:var(--ac);color:var(--ac)}
+a.edDLink{color:#7aa6ff;cursor:pointer;text-decoration:underline dotted}
+.edDMacro{color:#c9a227;font-family:var(--mono);font-size:11.5px}
+.edDMap{width:100%;height:auto;max-height:64vh;background:var(--bg);border:1px solid var(--line);border-radius:5px}
+.edDMap .edDNode{cursor:pointer}
+.edDMap .edDNode rect{fill:var(--bg3,#252526);stroke:var(--line2)}
+.edDMap .edDNode.centre rect{fill:var(--acd);stroke:var(--ac)}
+.edDMap .edDNode.quest rect{stroke:#c9a227}
+.edDMap .edDNode.var rect{stroke:#3fb950}
+.edDMap .edDNode:hover rect{stroke:var(--ac);stroke-width:2}
+.edDMap text{fill:var(--tx);font-size:11px;font-family:var(--font,system-ui)}
+.edDLegend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--tx2);margin:2px 0 4px}
+.edDLegend i{display:inline-block;width:14px;height:3px;margin-right:4px;vertical-align:middle}
+tr.edDWOnly td:nth-child(2){color:#c9a227}
+tr.edDROnly td:nth-child(2){color:#e5534b}
+#edDFlagList tr[data-dflag]{cursor:pointer}
+/* The game's dialogue window, rehearsed: parchment and brass, as Morrowind draws it. */
+.mwDlg{display:flex;gap:10px;height:56vh;min-height:300px;padding:10px;border:2px solid #8a6d3b;border-radius:4px;
+  background:linear-gradient(180deg,#2b2117,#1c150e);box-shadow:inset 0 0 30px rgba(0,0,0,.6);font-family:Georgia,'Palatino Linotype',serif}
+.mwDlgL{flex:1;display:flex;flex-direction:column;min-width:0}
+.mwDlgName{color:#e3c77d;font-size:15px;font-weight:bold;text-align:center;border-bottom:1px solid #6d5530;padding-bottom:4px;margin-bottom:6px}
+.mwDlgLog{flex:1;overflow:auto;color:#d8c9a3;font-size:14px;line-height:1.5;padding-right:6px}
+.mwDlgR{width:200px;display:flex;flex-direction:column;border-left:1px solid #6d5530;padding-left:8px}
+.mwDlgTopics{flex:1;overflow:auto}
+.mwTopic{display:block;color:#e3c77d;cursor:pointer;padding:1px 2px;font-size:13.5px}
+.mwTopic:hover{color:#fff4cf;background:rgba(227,199,125,.08)}
+.mwDlgBye{text-align:center;padding-top:6px;border-top:1px solid #6d5530}
+.mwBtn{background:#3a2c1b;border:1px solid #8a6d3b;color:#e3c77d;font-family:inherit;padding:2px 14px;cursor:pointer}
+.mwHead{color:#e3c77d;font-weight:bold;margin-top:8px}
+.mwLine{margin:2px 0 6px}
+.mwLine a.edDLink{color:#8fb3ff;text-decoration:none}
+.mwLine a.edDLink:hover{text-decoration:underline}
+.mwLine .edDMacro{color:#e3c77d}
+.mwEdit{color:#8a6d3b;cursor:pointer;font-size:11px;text-decoration:none}
+.mwAssumed{color:#c98a3b;font-size:10.5px;font-family:var(--font,system-ui)}
+.mwSys{color:#a8987a;font-style:italic;margin:2px 0}
+.mwErr{color:#e5534b}
+.mwChoices{margin:4px 0 8px}
+.mwChoice{display:block;color:#8fb3ff;cursor:pointer;margin:2px 0 2px 10px}
+.mwChoice:hover{color:#cfe0ff}
+.edT .edIco{display:inline-block;width:18px;margin-right:4px;text-align:center;font-size:12px}
+.edT td.ctr{text-align:center}
+.edT td.ctr.yes{color:var(--ac)}
+.edT.edObj td.num{color:#d9a066}
+/* The record dialog's Construction Set form (53_wg_record_forms.js). */
+.edForm{display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:10px;margin:6px 0}
+.edForm.withText{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}
+.edFMain{display:flex;flex-direction:column;gap:3px;min-width:0}
+.edFRow{display:grid;grid-template-columns:96px minmax(0,1fr);gap:6px;align-items:center}
+.edFRow>label{color:var(--tx2);text-align:right;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.edFRow.edited>label{color:#57ab5a}
+.edFRow .fld{width:100%;box-sizing:border-box}
+.edFRow input[type=number].fld{max-width:110px}
+.edFCheck{display:inline-flex;align-items:center;gap:5px;font-size:12px;margin:2px 10px 2px 0;cursor:pointer}
+.edFCheck.edited{color:#57ab5a}
+.edFGroup{border:1px solid var(--line);border-radius:4px;padding:4px 8px 6px;margin:4px 0;min-width:0}
+.edFGroup>legend{font-size:10.5px;color:var(--ac);letter-spacing:.4px;text-transform:uppercase;padding:0 4px}
+.edFGroup.edited>legend{color:#57ab5a}
+.edFCols{display:grid;gap:3px 10px}
+.edFCols .edFRow{grid-template-columns:62px minmax(0,1fr)}
+.edFRadios{display:grid;grid-template-columns:1fr 1fr}
+.edFGrid{border-collapse:collapse;width:100%}
+.edFGrid th{font-size:10.5px;color:var(--tx3);font-weight:normal}
+.edFGrid td{padding:1px 3px}
+.edFGrid td:first-child{color:var(--tx2);font-size:11.5px;text-align:right;width:60px}
+.edFGrid .fld{width:100%;box-sizing:border-box}
+.edFList .edT{font-size:11px}
+.edFSide{display:flex;flex-direction:column;gap:8px;min-width:0}
+.edFArt .edFRow{grid-template-columns:1fr}
+.edFArt .edFRow>label{text-align:left}
+.edFArt .edPrevCv{display:block;margin:0 auto 4px}
+.edFIcon{width:48px;height:48px;margin:0 auto 4px;border:1px solid var(--line);border-radius:4px;display:flex;align-items:center;justify-content:center;
+  background:var(--bg)}
+.edFIcon img{width:32px;height:32px;image-rendering:pixelated}
+.edFText textarea.fld{min-height:240px}
+.edFColor{display:flex;align-items:center;gap:8px}
+.edFColor input[type=color]{width:56px;height:32px;padding:0;border:1px solid var(--line2);background:none}
+details.edAllFields{margin-top:8px;border-top:1px solid var(--line);padding-top:4px}
+details.edAllFields>summary{cursor:pointer;color:var(--tx2);font-size:11.5px}
+/* The Editor's selection box (50_wg_editor.js boxSelect). */
+#edBox{position:absolute;z-index:28;pointer-events:none;border:1px dashed var(--ac);
+  background:color-mix(in srgb,var(--ac) 12%,transparent)}
+#edBox::after{content:attr(data-n);position:absolute;right:3px;bottom:2px;font-size:11px;color:var(--ac);font-family:var(--mono)}
+/* The Editor's "Build patch" (50_wg_editor.js showBuild): the Patch Builder's sister. */
+#edBuild{left:auto;right:132px;width:540px;max-height:82vh}
+.edChips{display:flex;flex-wrap:wrap;gap:4px;margin:5px 0}
+.edLog{max-height:240px;overflow:auto;font:11px/1.45 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);
+  border:1px solid var(--line);border-radius:4px;padding:6px 8px;margin:0}
+.edGood{color:#57ab5a}
+.edBad{color:#e5534b}
+.edT td.edWrapCell{white-space:normal;overflow-wrap:anywhere}
+/* ---- The Editor's window furniture (51_wg_editor_ui.js) ------------------------------- */
+/* The Object Window column: a grip to widen it, a bar between its panes, folds, a strip. */
+#edDock.onRight{order:20;border-right:0;border-left:1px solid var(--line)}
+#edDock .edStrip{display:none}
+#edDock.stripped{width:28px!important;flex-basis:28px!important;min-width:28px}
+#edDock.stripped>:not(.edStrip){display:none!important}
+#edDock.stripped .edStrip{display:flex;flex:1;align-items:center;justify-content:center;cursor:pointer;background:var(--bg3,var(--bg2))}
+.edStrip span{writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;color:var(--tx2);letter-spacing:.6px;white-space:nowrap}
+.edStrip:hover span{color:var(--ac)}
+.edGrip{position:absolute;top:0;bottom:0;width:6px;cursor:col-resize;z-index:6}
+/* Rows that drag into the render window: no text selection to scroll them sideways, and
+   on a touch screen (the Deck) a sideways swipe is the drag, not a pan. */
+#edDock tr[data-id],.edPopout tr[data-id]{user-select:none;-webkit-user-select:none;touch-action:pan-y}
+/* Astride the column's edge, not over the rows: a drag from a row's end is the row's. */
+.edGripR{right:-4px;width:8px}
+.edGripR.flip{right:auto;left:-4px}
+.edGripL{left:0}
+.edGrip:hover{background:color-mix(in srgb,var(--ac) 45%,transparent)}
+body.edResizing,body.edResizing *{cursor:col-resize!important;user-select:none}
+#edDock .edHSplit{flex:0 0 5px;cursor:row-resize;background:var(--line)}
+#edDock .edHSplit:hover{background:var(--ac2)}
+#edDock .edPane.folded,.edPopout .edPane.folded{flex:0 0 auto!important}
+#edDock .edPane.folded>:not(.edHead),.edPopout .edPane.folded>:not(.edHead){display:none!important}
+#edDock .edHead .edFoldable,.edPopout .edHead .edFoldable{cursor:pointer}
+#edDock .edHead .edFoldable::before,.edPopout .edHead .edFoldable::before{content:"\25BE  ";font-size:9px;color:var(--tx3)}
+#edDock .edPane.folded .edHead .edFoldable::before,.edPopout .edPane.folded .edHead .edFoldable::before{content:"\25B8  "}
+#edDock .edTabs,.edPopout .edTabs{max-height:50px;overflow:hidden}
+#edDock .edTabs.all,.edPopout .edTabs.all{max-height:none;overflow:visible}
+#edDock .edTabsMore,.edPopout .edTabsMore{padding:2px 8px 0}
+#edDock .edTabsMore .btn,.edPopout .edTabsMore .btn{font-size:10.5px;padding:0 6px}
+.edWrapOn .edT td{white-space:normal;overflow-wrap:anywhere;max-width:none}
+.edWrapBtn.on{background:var(--acd);color:var(--ac)}
+/* The rail on the right that panels dock into. */
+#edRail{display:none}
+body.wgEditMode #edRail{display:flex;flex-direction:column;gap:6px;width:420px;flex:0 0 auto;position:relative;overflow:auto;
+  background:var(--bg2);border-left:1px solid var(--line);padding:6px 6px 6px 10px;min-height:0}
+body.wgEditMode #edRail.empty{display:none}
+/* Panels: dragged by the title bar, folded, docked. */
+.edPanel .orihead.edDragBar{cursor:move;user-select:none}
+.edPanel .edPanTools{display:flex;gap:1px}
+.edPanel.folded>:not(.orihead){display:none!important}
+.edPanel.folded{height:auto!important;resize:none!important}
+.edPanel:not(.edDockedL):not(.edDockedR){resize:both}
+.edPanel.front{z-index:36}
+.edPanel.dragging{opacity:.88;box-shadow:0 14px 40px rgba(0,0,0,.6)}
+.edPanel.edDockedR,.edPanel.edDockedL{position:relative;left:auto!important;right:auto!important;top:auto!important;width:auto!important;
+  max-height:none;box-shadow:none;backdrop-filter:none;flex:0 0 auto;transform:none}
+.edPanel.edDockedL{margin:6px;max-height:60vh;overflow:auto}
+#edDockMark{position:fixed;top:0;bottom:0;width:0;z-index:90;pointer-events:none}
+#edDockMark.on{width:10px;background:color-mix(in srgb,var(--ac) 55%,transparent);box-shadow:0 0 18px var(--ac)}
+#edDockMark.on.right{right:0;left:auto}
+/* Flyouts, and the Q menu's submenus. */
+.edFly{position:fixed;z-index:70;min-width:210px;padding:4px 0;font-size:12px;max-height:none;overflow:visible;width:auto}
+.edFly .it{position:relative;display:flex;align-items:center;gap:8px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+.edFly .it:hover{background:var(--acd)}
+.edFly .it.off{opacity:.5;cursor:default}
+.edFly .it.off:hover{background:none}
+.edFly .it .ck{flex:0 0 12px;width:12px;color:var(--ac)}
+#edQ .it .ck{display:none}
+.edFly .it .lb{flex:1}
+.edFly .it .kb{font-family:var(--mono);font-size:10.5px;color:#fff;background:color-mix(in srgb,var(--bg4) 85%,#fff 8%);
+  border:1px solid color-mix(in srgb,var(--line2) 60%,#fff 25%);border-radius:3px;padding:1px 5px;white-space:nowrap}
+.edFly .it.info{cursor:default;opacity:1}
+.edFly .it.info:hover{background:none}
+.edFly .it.info .lb{color:var(--tx)}
+.edFly .it .ar{color:var(--tx3);margin-left:6px}
+.edFly .edFlyHead{padding:6px 10px 2px;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--ac)}
+.edFly .edFlySub{display:none;position:absolute;left:100%;top:-4px}
+.edFly .edFlySub.left{left:auto;right:100%}
+.edFly .it.sub:hover>.edFlySub,.edFly .it.sub.open>.edFlySub{display:block}
+/* The Keys sheet: sections in columns, as many as fit, scrolling past the window's height. */
+.edFly.edKeys{width:min(1020px,calc(100vw - 16px));overflow-y:auto;padding:0 0 6px}
+.edKeys .edKeysTop{position:sticky;top:0;z-index:1;padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--line)}
+.edKeys .edKeysTop input{width:100%}
+.edKeys .edKeysCols{columns:310px auto;column-gap:14px;padding:0 4px}
+.edKeys .edKeysSec{break-inside:avoid;padding-bottom:6px}
+.edKeys .edKeysSec[hidden],.edKeys .it[hidden]{display:none}
+.edKeys .it{white-space:normal;align-items:flex-start;padding:3px 8px}
+.edKeys .it .lb{min-width:0}
+.edKeys .it .kb{flex:0 1 auto;max-width:55%;white-space:normal;text-align:right}
+/* The toolbar over the render window. */
+#edTools{position:absolute;z-index:26;display:none;align-items:center;gap:3px;padding:3px 6px;flex-wrap:wrap;
+  background:color-mix(in srgb,var(--bg2) 92%,transparent);border:1px solid var(--line2);border-radius:var(--r-box,6px);
+  box-shadow:0 6px 18px rgba(0,0,0,.45);backdrop-filter:blur(6px);max-width:calc(100% - 210px)}
+body.wgEditMode #edTools{display:flex}
+#edTools.top{top:8px;left:50%;transform:translateX(-50%)}
+#edTools.bottom{bottom:10px;left:50%;transform:translateX(-50%)}
+#edTools.float{transform:none}
+#edTools.vert{flex-direction:column;align-items:stretch;flex-wrap:nowrap}
+#edTools.vert .grp{flex-direction:column;align-items:stretch}
+#edTools .grp{display:flex;gap:2px;align-items:center}
+#edTools .sepv{width:1px;align-self:stretch;background:var(--line);margin:0 3px}
+#edTools.vert .sepv{width:auto;height:1px;margin:3px 0}
+#edTools .edTbGrip{cursor:grab;color:var(--tx3);padding:0 4px;user-select:none;letter-spacing:-2px;font-size:13px}
+#edTools .edTb{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+#edTools .edTb .g{font-size:13px;line-height:1}
+#edTools .edTb[data-glyph]::before{content:attr(data-glyph);font-size:13px;line-height:1;margin-right:4px}
+#edTools.iconly .edTb .l{display:none}
+#edTools.iconly .edTb[data-glyph]{font-size:0}
+#edTools.iconly .edTb[data-glyph]::before{font-size:13px;margin:0}
+#edTools .edTb.off{opacity:.42}
+#edTools .edTb.on{background:var(--acd);border-color:var(--ac);color:var(--ac)}
+#edTools .edTb.badge{position:relative}
+#edTools .edTb.badge::after{content:attr(data-n);position:absolute;top:-6px;right:-6px;min-width:15px;height:15px;border-radius:8px;
+  background:#3fb950;color:#0b0b0b;font-size:9.5px;font-weight:700;line-height:15px;text-align:center;padding:0 3px;box-sizing:border-box}
+/* The dialogs' folding sections, big fields and the field filter. */
+.edSecBar{display:flex;gap:4px;align-items:center;margin:6px 0 4px}
+.edSecBar .fld{flex:1;min-width:0}
+details.edSec{border:1px solid color-mix(in srgb,var(--line) 70%,transparent);border-radius:4px;margin:5px 0;
+  background:color-mix(in srgb,var(--bg3,var(--bg2)) 45%,transparent)}
+details.edSec>summary{cursor:pointer;list-style:none;padding:5px 8px;font-weight:600;font-size:10.5px;letter-spacing:.45px;
+  text-transform:uppercase;color:var(--ac);display:flex;gap:6px;align-items:center;user-select:none}
+details.edSec>summary::-webkit-details-marker{display:none}
+details.edSec>summary::before{content:"\25B8";font-size:9px;transition:transform .12s}
+details.edSec[open]>summary::before{transform:rotate(90deg)}
+details.edSec>summary:hover{filter:brightness(1.2)}
+details.edSec.edited>summary{color:#57ab5a}
+details.edSec>.edT{margin:0 0 4px}
+.edDot{color:#3fb950}
+.edFiltered{display:none!important}
+.edFields td.u{width:24px}
+.edFields tr.wide>td>.k{color:var(--tx3);margin:2px 0 4px}
+.edFields textarea.fld{width:100%;box-sizing:border-box;resize:vertical;min-height:44px;line-height:1.45;white-space:pre-wrap;
+  overflow-wrap:anywhere;font:inherit;font-size:12px;padding:5px 7px}
+.edFields textarea.mono{font:12px/1.4 var(--mono);tab-size:4}
+.edFields input[type=number].fld{max-width:180px}
+.edFields .edVec input[type=number].fld{max-width:none}
+/* Previews: the card the pointer brings up, the selected record's, the drag and the drop. */
+#edHover{position:fixed;z-index:65;width:auto;max-width:380px;padding:8px;pointer-events:none;top:0;left:0;max-height:none}
+.edPrevCard{display:flex;gap:10px;align-items:flex-start}
+.edPrevCv{flex:0 0 auto;border-radius:4px;border:1px solid var(--line);
+  background:radial-gradient(circle at 50% 40%,color-mix(in srgb,var(--bg4) 78%,var(--tx) 10%),var(--bg))}
+.edPrevCv.none{background:repeating-linear-gradient(45deg,var(--bg3,var(--bg2)),var(--bg3,var(--bg2)) 6px,var(--bg2) 6px,var(--bg2) 12px)}
+.edPrevInfo{min-width:0;font-size:11.5px;line-height:1.45}
+.edPrevInfo b{font-size:12.5px}
+.edWrap{overflow-wrap:anywhere}
+.edDotTxt{color:#3fb950;font-size:11px}
+#edDock .edPrevBox,.edPopout .edPrevBox{border-top:1px solid var(--line);padding:8px;background:var(--bg3,var(--bg2));cursor:grab;flex:0 0 auto}
+.edPrevBtns{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;align-items:center}
+.edPrevBtns .btn.ic{margin-left:auto}
+#edDragImg{position:fixed;top:-400px;left:-400px;pointer-events:none;z-index:9999;display:flex;align-items:center;gap:6px;padding:4px 8px 4px 4px;background:var(--bg2);
+  border:1px solid var(--ac);border-radius:5px;font-size:12px;color:var(--tx)}
+#edDragImg img{width:40px;height:40px}
+#edDragImg.no{opacity:.55}
+.edArmor.light{color:#8fd18f}.edArmor.medium{color:#e6c35c}.edArmor.heavy{color:#e88a6a}
+body.wgEditMode.edNoOri #oriPanel,body.wgEditMode.edNoTfh #tfhPanel{display:none!important}
+body.edDragging,body.edDragging *{cursor:copy!important;user-select:none!important}
+#edDragImg .ph{width:40px;height:40px;border:1px dashed var(--line2);border-radius:3px}
+#edDropAt{position:absolute;z-index:27;pointer-events:none}
+#edDropAt .x{position:absolute;left:-10px;top:-10px;width:16px;height:16px;border:2px solid var(--ac);border-radius:50%;
+  box-shadow:0 0 0 2px rgba(0,0,0,.5),0 0 12px var(--ac)}
+#edDropAt .t{position:absolute;left:14px;top:12px;white-space:nowrap;background:color-mix(in srgb,var(--bg2) 92%,transparent);
+  border:1px solid var(--line2);border-radius:4px;padding:2px 7px;font-size:11.5px}
 </style>
 <script>document.title='Wraithguard - Cell Preview';</script>

@@ -174,3 +174,23 @@ class TestTakingThingsBackOut:
         queue = self._queued()
         queue.remove_field("Static", "rock", "never-chosen")
         assert len(queue.fields[("Static", "rock")]) == 2
+
+
+def test_a_base_set_by_the_editor_fills_in_for_the_scan():
+    """A record the conflict scan does not list still writes, from the base given."""
+    from wraithguard.patch.merge import FieldValue
+    from wraithguard.patch.queue import PatchQueue
+
+    queue = PatchQueue()
+    queue.add_field("Npc", "fargoth", FieldValue(path="name", value="Fargoth the Bold"))
+    queue.set_base("Npc", "fargoth", "Morrowind.esm")
+    (merge,) = queue.merges(lambda _t, _k: "")
+    assert merge.base_plugin == "Morrowind.esm"
+    # The scan's answer, when it has one, still wins.
+    (merge,) = queue.merges(lambda _t, _k: "Patch.esp")
+    assert merge.base_plugin == "Patch.esp"
+    # Dropping the record's last field forgets its base too.
+    queue.remove_field("Npc", "fargoth", "name")
+    queue.add_field("Npc", "fargoth", FieldValue(path="name", value="x"))
+    (merge,) = queue.merges(lambda _t, _k: "")
+    assert merge.base_plugin == ""

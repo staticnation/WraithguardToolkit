@@ -1,0 +1,28 @@
+# OpenMW Lua scripts read and checked in plain Rust (no Python, no embedded Lua): the
+# lexer, parser, per-script checks, the load-order scan, the API tables and docs reader,
+# the Teal findings mapping, the report and the Mermaid charts. Used by native/ (the
+# Python backend, which adds the Teal checker) and viewcore (the viewer's Editor).
+#
+# Beside viewcore rather than in native/ so the viewer's builds (which copy only
+# viewer-shell/) have it; native/ takes it by path.
+[package]
+name = "luacore"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[dependencies]
+# greatness7's tes3 (MIT OR Apache-2.0), for the LUAL records content files carry.
+tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp"] }
+regex = "1"
+
+[lints.clippy]
+type_complexity = "allow"
+
+# Our fork of tes3 (LUAL records, Greatness7/tes3#7), as native/ and viewcore have it. A
+# [patch] only counts in the package being built: this one is for building luacore alone.
+[patch."https://github.com/Greatness7/tes3"]
+tes3 = { git = "https://github.com/staticnation/tes3" }
+bytes_io = { git = "https://github.com/staticnation/tes3" }

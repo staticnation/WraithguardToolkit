@@ -25,7 +25,7 @@
    ===================================================================================== */
 const WgTools={
   review:'', without:false, land:'',
-  checks:[], checkKind:'', ovl:{pathgrid:false, lights:false, collision:false, doors:false, reach:false, markers:false},
+  checks:[], checkKind:'', ovl:{pathgrid:false, navmesh:false, lights:false, collision:false, doors:false, reach:false, markers:false},
   measure:{on:false, a:null, b:null}, _gs:null, _gsSig:null,
 
   COL:{added:[0.35,0.95,0.45], changed:[1,0.82,0.2], reverted:[0.4,0.72,1], restored:[1,0.35,0.3]},
@@ -130,6 +130,10 @@ const WgTools={
     if(ov){
       ov.innerHTML=
         this.row('Path grids',this.sw('wgOvPathgrid','The cells\' path grids (PGRD): the points NPCs and creatures walk between, and the links between them'))+
+        this.row('Navmesh',this.sw('wgOvNavmesh','OpenMW\'s navigation mesh (navmesh.db, built by openmw-navmeshtool): where actors can walk (green), swim (blue), open doors (orange) and the path grid links it was given (purple). Read from beside openmw.cfg or OpenMW\'s user data folder'))+
+        '<div class="wgNavRow" id="wgNavRow" hidden><select id="wgNavAgent" title="Which actor size\'s mesh to draw: OpenMW builds one per collision box"></select>'+
+          '<button class="btn sm" id="wgNavPick" title="Choose the navmesh.db to read">navmesh.db…</button>'+
+          '<div class="hint" id="wgNavNote"></div></div>'+
         this.row('Light radii',this.sw('wgOvLights','Each lit lamp\'s radius, in its colour'))+
         this.row('Collision',this.sw('wgOvCollision','The collision shape of every object in the loaded cells (its hull, or the drawn mesh where it has none)'))+
         this.row('Door links',this.sw('wgOvDoors','A line from each door to where it leads, when that is in view; a post over doors that lead elsewhere'))+
@@ -142,6 +146,13 @@ const WgTools={
         const el=$('#'+id); if(el) el.onchange=()=>{ this.ovl[k]=el.checked; this.overlay(k); };
       }
       $('#wgOvMeasure').onclick=()=>this.setMeasure(!this.measure.on);
+      $('#wgNavAgent').onchange=e=>{ this.nav.agent=+e.target.value; this.drawNav(); };
+      $('#wgNavPick').onclick=async()=>{
+        const p=await Engine.pick('open',{filters:[{name:'navmesh.db',extensions:['db']}]});
+        if(!p) return;
+        this.nav.db=String(p); try{ localStorage.setItem('wg.navDb',this.nav.db); }catch(_){ }
+        if(this.ovl.navmesh) this.overlay('navmesh');
+      };
     }
     const lk=$('#wgLinksPane');
     if(lk){
@@ -178,6 +189,8 @@ const WgTools={
     for(const k of Object.keys(this.ovl)) if(this.ovl[k]) this.overlay(k);
     if(this.checkKind && this.checkKind!=='clear') this.runCheck(this.checkKind, true);
     if(this.measure.a) this.measureDraw();
+    if(typeof WgPath==='object' && WgPath.on) WgPath.load();
+    if(typeof WgEditor==='object' && WgEditor.on) WgEditor.reselect();
   },
 
   /** The plugins touching the loaded cells, in load order - for Review mod - and every
@@ -418,6 +431,43 @@ const WgTools={
     const s=this.sc();
     return ((s&&s.cells)||[]).map(c=>c.kind==='int'? 'int:'+c.name : c.gx+','+c.gy);
   },
+  nav:{agent:0, db:null, data:null},
+  navDb(){ if(this.nav.db==null){ try{ this.nav.db=localStorage.getItem('wg.navDb')||''; }catch(_){ this.nav.db=''; } } return this.nav.db||null; },
+  /** `navmesh`'s answer (viewcore::navmesh::encode): agents, then polygons in world units. */
+  readNav(buf){
+    const dv=new DataView(buf); let o=4;
+    if(new TextDecoder().decode(new Uint8Array(buf,0,4))!=='GDNM') throw new Error('not a navmesh answer');
+    o++; const pl=dv.getUint16(o,true); o+=2;
+    const path=new TextDecoder().decode(new Uint8Array(buf,o,pl)); o+=pl;
+    const tiles=dv.getUint32(o,true), skipped=dv.getUint32(o+4,true), capped=!!dv.getUint8(o+8); o+=9;
+    const na=dv.getUint8(o++), agents=[];
+    for(let i=0;i<na;i++){ agents.push({shape:dv.getUint8(o), h:[dv.getFloat32(o+1,true),dv.getFloat32(o+5,true),dv.getFloat32(o+9,true)]}); o+=13; }
+    const np=dv.getUint32(o,true); o+=4; const polys=[];
+    for(let i=0;i<np;i++){
+      const a=dv.getUint8(o), area=dv.getUint8(o+1), flags=dv.getUint16(o+2,true), n=dv.getUint8(o+4); o+=5;
+      const v=new Float32Array(n*3); for(let j=0;j<n*3;j++){ v[j]=dv.getFloat32(o,true); o+=4; }
+      polys.push({a,area,flags,v});
+    }
+    return {path,tiles,skipped,capped,agents,polys};
+  },
+  /** Navmesh polygon outlines for the chosen agent, coloured by what the polygon allows. */
+  drawNav(){
+    const R=App.R, d=this.nav.data; if(!R || !d) return;
+    const o=this.origin(), L=new OvlLines(), seen=new Set();
+    for(const p of d.polys){
+      if(p.a!==this.nav.agent) continue;
+      const col= p.flags&8? [0.75,0.4,1] : p.flags&4? [1,0.6,0.2] : p.flags&2? [0.3,0.55,1] : [0.35,1,0.45];
+      const n=p.v.length/3;
+      for(let i=0;i<n;i++){
+        const j=(i+1)%n, a=[p.v[i*3]-o[0],p.v[i*3+1]-o[1],p.v[i*3+2]+6], b=[p.v[j*3]-o[0],p.v[j*3+1]-o[1],p.v[j*3+2]+6];
+        // A shared edge once: the two polygons list it in opposite directions.
+        const ka=a.map(Math.round).join(','), kb=b.map(Math.round).join(',');
+        const key= ka<kb? ka+'|'+kb : kb+'|'+ka; if(seen.has(key)) continue; seen.add(key);
+        L.seg(a,b,col);
+      }
+    }
+    R.setOverlay('navmesh',L,{xray:true});
+  },
   async overlay(k){
     const R=App.R; if(!R) return;
     if(!this.ovl[k]){ R.setOverlay(k,null); return; }
@@ -433,6 +483,21 @@ const WgTools={
       }
       if(!r.length) toast('No path grid in the loaded cells','ok',2500);
       R.setOverlay(k,L,{xray:true});
+    }else if(k==='navmesh'){
+      const row=$('#wgNavRow'), note=$('#wgNavNote');
+      let buf=null;
+      try{ buf=await Engine.bytes('navmesh',{cells:this.specs(), db:this.navDb()}); }
+      catch(e){ if(row) row.hidden=false; if(note) note.textContent=String(e.message||e); toast(String(e.message||e),'err',6000); R.setOverlay(k,null); return; }
+      this.nav.data=this.readNav(buf);
+      if(row) row.hidden=false;
+      const sel=$('#wgNavAgent'), d=this.nav.data;
+      if(this.nav.agent>=d.agents.length) this.nav.agent=0;
+      if(sel) sel.innerHTML=d.agents.map((a,i)=>'<option value="'+i+'"'+(i===this.nav.agent?' selected':'')+'>'+
+        escHtml(['Box','Rotating box','Cylinder'][a.shape]||'Shape '+a.shape)+' '+a.h.map(v=>Math.round(v*2)).join('×')+'</option>').join('');
+      if(note) note.textContent=d.path+' - '+d.tiles+' tiles'+(d.skipped? ', '+d.skipped+' unreadable' : '')+(d.capped? ' (capped)' : '');
+      if(!d.polys.length) toast('No navmesh tiles for the loaded cells','ok',3000);
+      this.drawNav();
+      return;
     }else if(k==='lights'){
       for(const li of (R.lights||[])){
         const c=li.c||[1,1,1], mx=Math.max(c[0],c[1],c[2],0.001);

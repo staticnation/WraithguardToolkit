@@ -19,6 +19,7 @@ for why that needs different handling than an ordinary source plugin.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import subprocess
@@ -31,19 +32,28 @@ from wraithguard.land.emit import EmitError, build_plugin
 from wraithguard.patch.dialogue import shifts as dialogue_shifts
 from wraithguard.patch.merge import Merge, describe, merge_record
 from wraithguard.patch.records import (
+    DIALOGUE_TYPE,
+    INFO_TYPE,
     PatchError,
     Selection,
     carry_forward,
     collect,
     dialogue_position_risk,
+    keys_of,
     master_names,
+    owning_dialogue,
     position_anchors,
+    record_key,
     required_masters,
 )
+from wraithguard.patch.refedit import cell_patch_record, place_new_refs
 from wraithguard.proc import no_window_kwargs
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+
+    from wraithguard.patch.records import NewRecord
+    from wraithguard.patch.refedit import NewRef, RefEdit
 
 _log: Final = logging.getLogger(__name__)
 
@@ -92,6 +102,9 @@ def build_record_patch(
     carried: Sequence[Mapping[str, Any]] = (),
     dry_run: bool = False,
     report: Callable[[str], None] | None = None,
+    ref_edits: Sequence[RefEdit] = (),
+    new_refs: Sequence[NewRef] = (),
+    new_records: Sequence[NewRecord] = (),
 ) -> PatchResult:
     """Build and write a patch carrying the chosen records.
 
@@ -122,6 +135,17 @@ def build_record_patch(
             for why that distinction matters.
         dry_run: Report without writing.
         report: Called with each progress line, if given.
+        ref_edits: Changes to placed objects (:mod:`wraithguard.patch.refedit`). Each
+            cell gets a CELL record carrying only its changed references - added to
+            the cell's record when the patch carries that cell anyway (whole, merged,
+            or from the earlier build). ``records_by_plugin`` must hold every plugin
+            with a CELL record for those cells (``RefEdit.plugins``). A reference the
+            patch itself created (``origin`` is ``output``'s name) stays ``(0, n)``.
+        new_refs: References the patch adds (:class:`.refedit.NewRef`), each ``(0, n)``
+            numbered on from the highest the patch carries, the plugin defining what it
+            places a master (``base_plugin``).
+        new_records: Records the patch makes itself (:class:`.records.NewRecord`),
+            written as they are, the plugin each was copied from a master.
 
     Returns:
         What was produced.
@@ -145,7 +169,7 @@ def build_record_patch(
         if report is not None:
             report(text)
 
-    if not selections and not merges and not carried:
+    if not (selections or merges or carried or ref_edits or new_refs or new_records):
         raise PatchServiceError("nothing was selected, so there is no patch to build")
 
     clashes = {(entry.record_type, entry.key) for entry in selections} & {
@@ -163,7 +187,22 @@ def build_record_patch(
         + (f", up to {len(carried)} carried forward from the existing patch" if carried else "")
     )
     try:
-        masters = _masters_for(selections, merges, records_by_plugin, load_order, carried)
+        own = output.name
+        sources = [
+            Selection(plugin=m.source, record_type=m.record_type, key=m.key)
+            for m in new_records
+            if m.source
+        ]
+        masters = _masters_for(
+            [*selections, *sources],
+            merges,
+            records_by_plugin,
+            load_order,
+            carried,
+            ref_edits,
+            new_refs,
+            own,
+        )
         say(f"declaring {len(masters)} master(s): {', '.join(masters)}")
 
         # This session's own decisions always win: a record carried forward
@@ -173,7 +212,8 @@ def build_record_patch(
             {(entry.record_type, entry.key) for entry in selections}
             | {(entry.record_type, entry.key) for entry in merges}
         )
-        records = carry_forward(carried, masters, skip=decided) if carried else []
+        made = frozenset((m.record_type, m.key) for m in new_records)
+        records = carry_forward(carried, masters, skip=decided | made) if carried else []
         carried_count = len(records)
         if carried:
             say(f"{carried_count} record(s) carried forward from the existing patch")
@@ -182,7 +222,8 @@ def build_record_patch(
         for entry in merges:
             for line in describe(entry.choices, entry.base_plugin):
                 say(f"  {entry.record_type} {entry.key}: {line}")
-            records.append(
+            _place(
+                records,
                 merge_record(
                     entry.base_plugin,
                     entry.record_type,
@@ -190,8 +231,26 @@ def build_record_patch(
                     entry.choices,
                     records_by_plugin,
                     masters,
-                )
+                ),
+                records_by_plugin.get(entry.base_plugin) or [],
             )
+        for m in new_records:
+            say(f"  {m.record_type} {m.key}: made by the patch")
+            # The topic's record: one the patch already carries (a topic it made, or
+            # took), else the plugin's whose version wins.
+            made_topic = _topic_named(records, m.topic) or _topic_named(
+                records_by_plugin.get(m.source) or [], m.topic
+            )
+            if m.record_type == INFO_TYPE and made_topic is not None:
+                _place_in(records, copy.deepcopy(dict(m.record)), made_topic)
+            else:
+                records.append(copy.deepcopy(dict(m.record)))
+        if ref_edits:
+            _apply_ref_edits(records, ref_edits, records_by_plugin, load_order, masters, say, own)
+        if new_refs:
+            given = place_new_refs(records, new_refs, records_by_plugin, load_order)
+            for new in new_refs:
+                say(f"  Cell {new.cell}: new {new.fields.get('id')} as (0, {given[new.uid]})")
     except PatchError as exc:
         raise PatchServiceError(str(exc)) from exc
 
@@ -252,12 +311,84 @@ def build_record_patch(
     return result
 
 
+def _place(
+    records: list[dict[str, Any]],
+    record: dict[str, Any],
+    source: Sequence[Mapping[str, Any]],
+) -> None:
+    """Add a built record to the patch; a dialogue response inside its own topic.
+
+    A response carries no topic: the engine gives it to the last topic read before it.
+    Appended after another topic's responses it would answer that topic, and with no
+    topic before it, none - so it goes after its topic's block, the topic (from the
+    plugin it was built on) put in first when the patch does not carry it yet, as
+    :func:`.records.collect` does for a response taken whole.
+
+    Args:
+        records: The patch's records so far (changed in place).
+        record: The record.
+        source: The records of the plugin it was built on, in file order.
+    """
+    topic = owning_dialogue(source, str(record.get("type")), record_key(record))
+    if topic is None:
+        records.append(record)
+        return
+    _place_in(records, record, topic)
+
+
+def _topic_named(source: Sequence[Mapping[str, Any]], topic_id: str) -> Mapping[str, Any] | None:
+    """A plugin's topic record by id (any case), or None."""
+    if not topic_id:
+        return None
+    want = topic_id.lower()
+    return next(
+        (
+            r
+            for r in source
+            if r.get("type") == DIALOGUE_TYPE and str(r.get("id") or "").lower() == want
+        ),
+        None,
+    )
+
+
+def _place_in(
+    records: list[dict[str, Any]], record: dict[str, Any], topic: Mapping[str, Any]
+) -> None:
+    """Put a response after its topic's block in the patch, the topic first if absent.
+
+    Args:
+        records: The patch's records so far (changed in place).
+        record: The response.
+        topic: Its topic's record.
+    """
+    want = record_key(topic).lower()
+    at = next(
+        (
+            i
+            for i, r in enumerate(records)
+            if r.get("type") == DIALOGUE_TYPE and record_key(r).lower() == want
+        ),
+        None,
+    )
+    if at is None:
+        records.append(copy.deepcopy(dict(topic)))
+        records.append(record)
+        return
+    end = at + 1
+    while end < len(records) and records[end].get("type") == INFO_TYPE:
+        end += 1
+    records.insert(end, record)
+
+
 def _masters_for(
     selections: Sequence[Selection],
     merges: Sequence[Merge],
     records_by_plugin: Mapping[str, Sequence[Mapping[str, Any]]],
     load_order: Sequence[str],
     carried: Sequence[Mapping[str, Any]] = (),
+    ref_edits: Sequence[RefEdit] = (),
+    new_refs: Sequence[NewRef] = (),
+    own: str = "",
 ) -> list[str]:
     """Work out what a patch of these records and merges must declare.
 
@@ -274,6 +405,10 @@ def _masters_for(
             Its own masters join the required set even though nothing here
             takes a record from it *as* a plugin -- the carried records still
             reference those masters by position.
+        ref_edits: Changes to placed objects: each reference is named by the file
+            that created it, so that file is a master - unless it is the patch itself.
+        new_refs: References the patch adds: what each places is defined by a master.
+        own: The patch's own file name, never its own master.
 
     Returns:
         The masters to declare, in load order.
@@ -284,7 +419,64 @@ def _masters_for(
             Selection(plugin=name, record_type=entry.record_type, key=entry.key)
             for name in sorted(entry.plugins)
         )
-    return required_masters(stand_ins, records_by_plugin, load_order, extra=master_names(carried))
+    stand_ins.extend(Selection(plugin=e.origin, record_type="Cell", key=e.cell) for e in ref_edits)
+    stand_ins.extend(
+        Selection(plugin=n.base_plugin, record_type="Cell", key=n.cell)
+        for n in new_refs
+        if n.base_plugin
+    )
+    if own:
+        stand_ins = [s for s in stand_ins if s.plugin.lower() != own.lower()]
+    found = required_masters(stand_ins, records_by_plugin, load_order, extra=master_names(carried))
+    return [name for name in found if not own or name.lower() != own.lower()]
+
+
+def _apply_ref_edits(
+    records: list[dict[str, Any]],
+    ref_edits: Sequence[RefEdit],
+    records_by_plugin: Mapping[str, Sequence[Mapping[str, Any]]],
+    load_order: Sequence[str],
+    masters: Sequence[str],
+    say: Callable[[str], None],
+    own: str = "",
+) -> None:
+    """Put each cell's changed references into the patch.
+
+    A cell the patch already carries (whole, merged, or from the earlier build) gets
+    them in its own record, a reference with the same key replaced; any other cell
+    gets a CELL record of its own with only them (:func:`.refedit.cell_patch_record`).
+
+    Args:
+        records: The patch's records so far (changed in place).
+        ref_edits: The changes.
+        records_by_plugin: The plugins' decoded records.
+        load_order: The load order.
+        masters: The patch's masters.
+        say: The progress reporter.
+        own: The patch's own file name (its references are ``(0, n)``).
+    """
+    by_cell: dict[str, list[RefEdit]] = {}
+    for e in ref_edits:
+        by_cell.setdefault(e.cell.lower(), []).append(e)
+    for edits in by_cell.values():
+        built = cell_patch_record(edits, records_by_plugin, load_order, masters, own)
+        cell = edits[0].cell
+        say(f"  Cell {cell}: {len(edits)} changed reference(s)")
+        have = next(
+            (
+                r
+                for r in records
+                if r.get("type") == "Cell" and cell.lower() in {k.lower() for k in keys_of(r)}
+            ),
+            None,
+        )
+        if have is None:
+            records.append(built)
+            continue
+        key = lambda r: (r.get("mast_index"), r.get("refr_index"))  # noqa: E731 - one use
+        changed = {key(r): r for r in built["references"]}
+        kept = [r for r in have.get("references") or [] if key(r) not in changed]
+        have["references"] = kept + list(changed.values())
 
 
 def _write(document: Sequence[Mapping[str, Any]], target: Path, converter: str) -> None:

@@ -144,6 +144,8 @@ jobs:
           components: clippy
       - name: viewcore tests
         run: cargo test --manifest-path viewer-shell/viewcore/Cargo.toml
+      - name: luacore tests
+        run: cargo test --manifest-path viewer-shell/luacore/Cargo.toml
       # Clippy on our own crates (not the forks or dependencies), strict: a warning fails
       # the job. The style lints this code base has chosen not to follow are allowed in
       # each crate's Cargo.toml ([lints.clippy]), with the reason beside each. The viewer
@@ -153,7 +155,7 @@ jobs:
       - name: clippy
         run: |
           set -e
-          for m in native/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
+          for m in native/Cargo.toml viewer-shell/luacore/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
             echo "::group::clippy $m"
             cargo clippy --all-targets --manifest-path "$m" -- -D warnings
             echo "::endgroup::"

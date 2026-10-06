@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 KEYWORDS: frozenset[str] = frozenset(
     {
@@ -313,8 +314,46 @@ def _read_string(cur: _Cursor) -> tuple[int, str]:
             raise cur.error(f"invalid escape \\{esc}")
 
 
+def _native_tokenize() -> Any:  # noqa: ANN401 - the backend's function, or None
+    """The Rust backend's tokenizer (``viewer-shell/luacore/src/lexer.rs``), or None."""
+    try:
+        import wraithguard_native
+    except ImportError:
+        return None
+    return getattr(wraithguard_native, "lua_tokenize", None)
+
+
 def tokenize(src: str, *, comments: bool = False, teal: bool = False) -> list[Token]:
-    """Split Lua source into tokens.
+    """Split Lua source into tokens (in Rust when the backend is built).
+
+    Args:
+        src: The source text. A leading ``#!`` line is skipped, as Lua does.
+        comments: Keep comment tokens (for highlighting). The parser leaves them out.
+        teal: Teal source: ``?`` (an optional parameter, ``x?: T``) is a token too.
+
+    Returns:
+        The tokens, ending with one ``eof`` token.
+
+    Raises:
+        LuaSyntaxError: Text that is not a Lua token.
+    """
+    native = _native_tokenize()
+    if native is None:
+        return tokenize_py(src, comments=comments, teal=teal)
+    try:
+        raw = native(src, comments, teal)
+    except ValueError as exc:
+        info = exc.args
+        if len(info) == 1 and isinstance(info[0], tuple):
+            info = info[0]
+        if len(info) == 3:
+            raise LuaSyntaxError(str(info[0]), int(info[1]), int(info[2])) from None
+        raise
+    return [Token(*t) for t in raw]
+
+
+def tokenize_py(src: str, *, comments: bool = False, teal: bool = False) -> list[Token]:
+    """Split Lua source into tokens (:func:`tokenize` in Python, its fallback and reference).
 
     Args:
         src: The source text. A leading ``#!`` line is skipped, as Lua does.

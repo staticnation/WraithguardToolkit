@@ -71,13 +71,12 @@ def loose_index(folder: Path) -> dict[str, Path]:
     if cached is not None:
         return cached
 
+    from wraithguard.fsio import walk_files
+
     index: dict[str, Path] = {}
-    try:
-        for item in folder.rglob("*"):
-            if item.is_file():
-                index[normalise(str(item.relative_to(folder)))] = item
-    except OSError as exc:
-        LOG.debug("cannot index loose files in %s: %s", folder, exc)
+    # The walk is the Rust backend's when it is built (Python released); names as on disk.
+    for rel in walk_files([folder], lower=False)[0] or []:
+        index[normalise(rel)] = folder / rel
     _LOOSE_INDEX[folder] = index
     return index
 

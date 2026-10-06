@@ -16,12 +16,12 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 
 /// Top-level records: `(tag, body)`, the body clamped to what the file holds.
-fn records(raw: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
+pub(crate) fn records(raw: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
     frames(raw, 16)
 }
 
 /// Subrecords of a record body: `(tag, data)`, clamped likewise.
-fn subrecords(body: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
+pub(crate) fn subrecords(body: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
     frames(body, 8)
 }
 
@@ -46,7 +46,7 @@ fn is_py_space(c: char) -> bool {
 }
 
 /// Python `re`'s `\w` over Latin-1 text: `str.isalnum()` or underscore.
-fn is_py_word(b: u8) -> bool {
+pub(crate) fn is_py_word(b: u8) -> bool {
     let c = b as char;
     c == '_' || c.is_alphanumeric()
 }
@@ -56,7 +56,7 @@ fn latin1(b: &[u8]) -> String {
 }
 
 /// A NUL-terminated string field: up to the first NUL, Latin-1, stripped.
-fn zstr(b: &[u8]) -> String {
+pub(crate) fn zstr(b: &[u8]) -> String {
     let end = b.iter().position(|&x| x == 0).unwrap_or(b.len());
     latin1(&b[..end]).trim_matches(is_py_space).to_string()
 }

@@ -555,6 +555,8 @@ function boot(){
   // Clicking an object opens ORI, the object inspector (24_ori.js); Shift+click on a door
   // goes through to the cell it leads to.
   if(App.R) App.R.onPick=(hit,e)=>Ori.pick(hit,e);
+  // Wraithguard: in the Editor, a drag on the selected object moves it (50_wg_editor.js).
+  if(App.R) App.R.onGrab=e=>(typeof WgEditor==='object' && WgEditor.on)? WgEditor.grab(e) : null;
   /* Round 18r: the shell moves the mouse pointer for the WASD look, and the renderer
      asks through this rather than reaching for `Engine` itself - the same shape as
      `onPick` and `onFlyState` below. A browser has no shell to ask and leaves it unset,
@@ -871,6 +873,8 @@ function markInstall(kind,label,title){
   if(fs && label!=null){
     fs.classList.add('ok');
     const rb=$('#btnReport'); if(rb) rb.hidden=false;
+    // Wraithguard: the Editor mode's switch, beside it (50_wg_editor.js).
+    if(typeof WgEditor==='object') WgEditor.button();
     fs.querySelector('.p').textContent=label;
     if(title) fs.querySelector('.p').title=title;
   }
@@ -1566,9 +1570,16 @@ async function openWraithguardSetup(){
   if(want.cell && want.cell.kind==='find' && typeof WgNav==='object') WgNav.go('find:'+want.cell.tag+':'+want.cell.id);
   else if(want.cell && want.cell.kind==='plugin' && typeof WgNav==='object') WgNav.go('plugin:'+want.cell.name);
   else if(want.cell){ App.cellSel=want.cell; syncCellButton(); schedulePreview(); }
-  else openCellPicker();
+  else{
+    // The editor's QuickStart (its Q menu): the cell and view it was set on.
+    const qs=(typeof WgEditor==='object' && WgEditor.quickStart)? WgEditor.quickStart() : null;
+    if(qs){ App.cellSel=qs.cell; if(qs.cam) App._camAfter=qs.cam; syncCellButton(); schedulePreview(); }
+    else openCellPicker();
+  }
   // And whatever else it asks this window to show while it stays open.
   if(typeof WgNav==='object') WgNav.poll();
+  // Launched on `--editor`: straight into the Editor mode (50_wg_editor.js).
+  if(want.editor && typeof WgEditor==='object'){ WgEditor.button(); WgEditor.enter(); }
 }
 
 async function start(){

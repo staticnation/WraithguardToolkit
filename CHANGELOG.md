@@ -1,10 +1,207 @@
 # Changelog
 
 
-## Unreleased
+## 4.3.0
 
 ### Added
 
+- **An MWScript compiler, in Rust** (`native/src/mwscript/`): script source to the
+  bytecode Morrowind.exe runs (`SCDT`), with its locals (`SCVR`) and header (`SCHD`). A
+  port of MWEdit's table-driven compiler (MIT), its grammar and function table generated
+  from MWEdit's source by `tools/gen_mwscript_compiler.py`. Names resolve against the load
+  order read with the tes3 crate (globals in their own case, object IDs, other scripts'
+  locals for `id.variable`), with the patch pool's own records laid over it. It writes the
+  same bytes as MWEdit for all 34 scripts of MWEdit's compiler test plugin, which the tests
+  carry (`tests/fixtures/mwedit/`; `cargo test` and pytest both check it). The same port
+  in Python (`wraithguard/mwscript/compiler.py`) is the reference the Rust one is held to
+  and the fallback when the native module is not built.
+
+  **In the editor's Script Edit window** the text is compiled as it is checked (the
+  compiler's errors and warnings beside the checks), and saving a text that compiles
+  queues its bytecode, locals and header with it, so the patch carries a script
+  Morrowind.exe runs too, not only OpenMW. Without the Rust backend the text alone is
+  saved, and the window says so.
+
+  Since then:
+  - **Extended functions (MWSE / MW-Enhanced):** MWEdit's own list is built in, and a
+    `customfunctions.dat` beside the game or a data folder (the MWSE updater's) replaces
+    it; `xAddItem` and the rest compile as MWEdit compiles them, in Rust and in Python.
+  - **Dialogue results are compiled for their errors** in the response dialog, against the
+    speaker's script's locals (a result reads and sets them by bare name); Morrowind
+    compiles a result when it fires, so nothing is stored.
+  - **Search & Replace changes scripts too:** a script's text and a response's result that
+    name the record as a word (bare or quoted, not in a comment) are changed, and each
+    script recompiled as it is queued; the Use Report counts results naming an id.
+  - **A script's flowchart:** "Flowchart" in the Script Edit window opens its control flow
+    (ifs, whiles, returns) in Wraithguard's chart window, as the Lua window draws a Lua
+    function's.
+  - **The Script Edit window's checks run in Rust** (`native/src/mwscript/check.rs`; the
+    Python module stays as the fallback and is held to it, message for message).
+- **The editor's Q menu and Layers, checked against CSSE's documentation:** Alt-drag puts
+  the selected object on the surface under the pointer, its chosen axis (the Q menu's,
+  +Z by default) turned out of it; Shift-drag turns about the world's axes by default (or
+  the object's own, from the Q menu); the Q menu also resets rotation and scale, restores
+  hidden references, hides the landscape, and sets or clears QuickStart (the cell and view
+  the viewer opens on when launched without one). Layers are numbered, Ctrl+Shift+1-9
+  showing or hiding the first nine. CSSE's layer tint is not here yet.
+- **Several objects at once in the editor:** Ctrl+click picks them (Esc lets them go),
+  and Q on them is CSSE's: align position, rotation or scale to the last picked, randomize
+  rotation, scale or position, reset, drop each to the ground, hide.
+- **Layer tints:** a layer's objects drawn in a colour of its own (the Layers panel's
+  colour box), as CSSE's layers are.
+- **Cyan's `global_env_def`:** a Teal mod's `tlconfig.lua` naming a module of globals is
+  read, and its globals are known to every file of the mod when it is checked.
+- **Game controller switch:** Settings' "Game controller" (on by default, kept in the
+  viewer profile); run from Steam, a pad's cursor mode stays off and the Deck's trackpad
+  is the cursor.
+- **OpenMW's Lua script lists in a patch:** a LUAL record carried into the patch (whole,
+  or its scripts taken from another plugin) has its per-reference entries (LUAI) and the
+  references inside its Lua data (LUAD) renumbered for the patch's master list, by the
+  Rust backend (merge_to_master's walker); without it, such a record is refused rather
+  than written pointing at other objects.
+- **The Lua checks run in Rust:** the tokenizer, the parser (Teal mode included) and the
+  per-script checks (handlers, contexts, per-frame loops and garbage, the sandbox) are
+  `viewer-shell/luacore/src/{lexer,parser,analysis}.rs`; the Python ones stay as the fallback and
+  the reference they are held to, token, node and finding alike. The rest of the Lua side
+  followed: `.omwscripts` parsing and the load-order scan (VFS lookups, LUAL records, the
+  scripts read and analysed on threads, the cross-script checks) are `scan.rs` and
+  `omwscripts.rs`; Teal's diagnostics mapped to findings (difflib's close matches ported
+  block for block), `tlconfig.lua` reading and finding the install or `teal_declarations`
+  are `findings.rs`, and the Teal check and that mapping run in one pass, so the
+  declared types' members cross into Rust once rather than per script; the report text is
+  `report.rs`; the flowcharts and call graphs (Lua's, and the Mermaid writer MWScript's
+  flowchart shares) are `mermaid.rs`. Each Python function keeps its API and a `_py`
+  fallback, and tests hold the two to each other. Still Python: reading the cfg's
+  `data=`/`content=` lines and unpacking scripts from BSAs (glue that keeps paths in the
+  form the rest of the toolkit uses).
+- **The Object Window and record dialogs as the Construction Set has them:**
+  - Each record type's tab has its own columns (Wraithguard reads them:
+    `wraithguard/patch/columns.py`, `editColumns`) - a lockpick's uses and quality, a
+    weapon's type, damage, speed and reach, an NPC's level, race, class, faction and
+    flags, a container's organic and respawn flags and item list, a leveled list's
+    entries, a spell's cost and range - with Count, Model, Defined in, Persists, Blocked
+    and Modified around them, and the type's icon on every row. Without Wraithguard the
+    engine's columns stay.
+  - The Cell View has the CS's columns - cell name, grid, reference count, pathgrid -
+    sortable, and "Modified only"; the reference list marks each object's type.
+  - The record dialog opens on the type's CS form (`53_wg_record_forms.js`): the fields
+    laid out as the CS lays them, flags as checkboxes (References persist, Blocked,
+    Female, Essential, Organic, Silver...), a weapon's damage as a Minimum/Maximum grid, a
+    light's colour with a picker and its flicker as one choice, a book's text in its own
+    pane, the art file turning and the inventory image beside them, "…" by a script to open
+    it. Every field is still there below, folded ("All fields").
+- **A dialogue result with a `Choice` no longer fails its check:** a function on a later
+  line (a `StartScript` after the `Choice`) was refused as "called from within another
+  function" - MWEdit leaves the Choice call open past its line; the CS does not, and now
+  neither do the compilers (Python and Rust).
+- **Dialogue, seen four more ways** (the Dialogue window's List / Flow / Map / Flags / In
+  game; `wraithguard/patch/dialogue_graph.py`, `viewer-shell/ui/src/52_wg_dialogue_views.js`):
+  - *Flow*: a topic's responses in the order the engine tries them, each falling through
+    to the next ("else"), with its conditions in words, its text with the words the game
+    hyperlinks, and chips for what its result script does (AddTopic, journal stages,
+    variables set, items, Goodbye). A response offering a `Choice` holds, under each
+    option, the responses that answer it - the tree inside the topic, nested. The topics
+    that lead to it and that it leads to head the view.
+  - *Map*: the topics around one, drawn - AddTopic and hyperlink arrows in and out, the
+    quests it advances, the variables it sets and the topics that test them (trees linked
+    through shared flags, not through each other); one or two steps out; click to
+    recentre, double-click for the flow.
+  - *Flags*: the blackboard - every variable, quest, item and death count the dialogue
+    writes or tests, who writes it and who reads it; set-but-never-tested and
+    tested-but-never-set marked.
+  - *In game*: the game's dialogue window, rehearsed - choose an NPC (or creature), and
+    their greeting, the topics they answer and the line the engine picks for each (the
+    speaker's id, race, class, faction, sex, cell and disposition checked; what only the
+    running game knows assumed and listed on the line, or skipped with Strict), with
+    hyperlinks and Choice buttons that work, and every line one click from its record.
+    The pool's changes to responses are what it says.
+- **Object Window and Cell View lists load more:** the foot of a long list has "Show 600
+  more" and "Show all", and scrolling to the bottom loads the next page.
+- **Land textures preview as their texture**, and only records that can be placed drag
+  into the render window.
+- **The Construction Set's basics in the Editor:** Snap to Grid (G; the grid size in
+  Transform, 16 units by default - drags, Alt-drags onto a surface, drops and pastes land
+  on it) and Snap to Angle (Shift+G; 15° steps by default), both on the toolbar too with
+  their setting shown; Undo and Redo of changes to placed objects (Ctrl+Z, Ctrl+Y or
+  Ctrl+Shift+Z, and toolbar buttons); Ctrl+C / Ctrl+V to place copies under the pointer,
+  turned and scaled as the original; Ctrl+D to duplicate; Delete; C to centre the view
+  on the selection. Box selection: a left drag off the selected object draws a box, and
+  everything placed inside it is selected when you let go (Ctrl or Shift held: added to
+  what is selected), lit as the box is drawn, with its count in the corner - then Q aligns,
+  randomizes, resets, drops or hides them all. Dragging one of several selected moves them all together (Z: up and down; X or Y: along an axis; on the grid when it is on). The Keys flyout lists them.
+- **Editor fixes:** the Keys flyout and the menus' key chips are white and readable; the
+  Object Window and Cell View pop out (⤢) into panels over the render window, as big as
+  wanted, and back; their columns widen by dragging a heading's edge (a double-click
+  fits them again), and a cut-short cell shows its whole text when the pointer rests on
+  it. The Lua panel no longer calls Wraithguard's setup "not an OpenMW setup": any cfg
+  with `data=`/`content=` lines is OpenMW's, whatever it is named.
+- **Build patch, in the viewer's Editor:** the Patch Builder's sister, so the pool is
+  written without leaving the viewer (the toolbar's ⚒ Build patch, or Pending's "Build
+  patch…"). It shows what the patch will carry by kind, each entry openable and the
+  editor's own droppable; where it goes - the last patch, one of the setup's data
+  folders, or any file through the system's save dialog; Append or Replace when the file
+  is there (said, with a note when a plugin of that name is in the load order); then
+  Wraithguard writes it exactly as its Patch Builder does, on a thread of its own, the
+  build's report shown as it goes, and the pool is cleared once it is written. After it:
+  "Preview it in a new Cell Preview" and the path to copy. The Patch Builder's write is
+  now three steps both use (`prepare_patch`, `run_patch`, `finish_patch` in
+  `gui/patchwin.py`); the endpoints are `editBuildInfo`, `editBuildCheck`, `editBuild`,
+  `editBuildStatus` and `editPreviewPatch` (`gui/editorlink.py`).
+- **Record links open in the Editor while it is on:** an id in the inspector or the full
+  help (an owner, a key, a trap, an item in a container, a topic) opens that record's
+  dialog, with its type's tab in the Object Window and its row selected and previewed - a
+  topic in the Dialogue window - rather than Wraithguard's conflict viewer. The type is
+  the engine's (`editor_record_tag`), since a link often only guesses it. Outside the
+  Editor the links go to the conflict viewer as before, and the record dialog keeps its
+  "Conflicts" button for that.
+- **The Editor, made easier to work in** (`viewer-shell/ui/src/51_wg_editor_ui.js`):
+  - Panels (record dialog, Use Report, Layers, Dialogue, Script Edit, Pending, Lua) move by
+    their title bar, fold to it (▾ or a double-click), keep the size they are dragged to,
+    and dock: on a column at the right of the render window, or under the Object Window -
+    drop one on the window edge, or pick a place from ⧉; drag a docked one out to float it.
+  - The Object Window column widens by its edge, shares its height with the Cell View by
+    the bar between them, folds a pane by its title, folds to a strip (« ) and changes
+    sides (⇄). The record types fold to two rows ("▾ All types"); ↵ wraps long names and
+    paths in the lists.
+  - A toolbar over the render window: the windows (Pending with its count), what can be
+    done to the selected object (record, reference, Use Report, drop, duplicate, hide,
+    delete; greyed with nothing selected) and flyouts - Transform (the Alt-drag snap axis,
+    world or local turns, the nudge step), View (landscape, hidden objects, layers,
+    QuickStart, fold or close every panel, put the layout back) and Keys. Drag its grip
+    to float it, double-click to put it back, right-click to dock it at the bottom or
+    stand it up, or show icons only.
+  - The Q menu has its layer moves and render-window settings in submenus, and shows keys.
+  - The record and reference dialogs group their fields in folding sections (General,
+    each `data`-style group, Flags, Text, each list; Placement, Door, Ownership, Lock &
+    trap, Item, State), remembered per record type, with "Find a field" to filter and
+    open what matches. Long text - a book's, a response's, a description, a script - is a
+    box that wraps and grows (Ctrl+Enter sends it); fields are named in words, their
+    paths in the tooltip.
+  - Previews: resting on a record in the Object Window brings up its mesh, turning, with
+    what it is and where it comes from; the selected one stays under the list with Open,
+    Place and Use Report, and drags into the render window too. A drag carries the
+    picture, and a marker shows where the new reference will land, with its cell.
+- **Lua scripts in the viewer's Editor:** the plain-Rust Lua code is a crate of its own,
+  `viewer-shell/luacore` (lexer, parser, checks, the load-order scan, the API tables per
+  release, the docs reader, the findings mapping, report and charts), which `native/`
+  takes by path and the viewer's engine uses directly - no Python in between. The
+  Editor's Object Window has a **Lua** button: the engine scans the setup's scripts
+  through its own overlay (`viewcore::luascan`, the `lua_scan` command), so a script
+  packed in a BSA is read where it is and a data folder's place decides which copy runs,
+  and lists the findings, most serious first, and the scripts in load order, with the
+  report to copy. The API rules are the install's own when its `resources` folder is
+  found, OpenMW 0.51's otherwise; the Teal type checks stay in the toolkit's Lua window.
+- **Engine handlers and built-in events follow the OpenMW release:** tables for 0.49, 0.50
+  and 0.51 from each release's reference, picked by the install's version - a 0.50 setup
+  is no longer told `onContentFilesLoaded` exists, a 0.49 one that `ModifyStat` is built
+  in.
+- **The editor's highlight no longer z-fights an NPC:** the gold copy (and a layer's tint)
+  is drawn a hair towards the eye, and a skinned part's copy takes the pose the NPC is
+  already in that frame instead of posing the shared buffers again.
+- **OpenMW's published Teal declarations** (`teal_declarations`, OpenMW's CI download) are
+  used by the Lua window when no install is found but the folder is kept beside it or
+  the openmw.cfg; with an install, its own documentation is still read (it is this
+  OpenMW's).
 - **OpenMW Lua checks** (`wraithguard/lua/`, first part of the TODO's Lua tools; no GUI
   yet - run `python -m wraithguard.lua path\to\openmw.cfg`). Reads every `.omwscripts`
   in the load order, finds each script in the data folders (case-insensitive, later
@@ -32,17 +229,340 @@
   and its findings (double-click goes to the line); "Copy report"; and **"Flowchart"**:
   the control flow of the function selected in the tree, or of the whole script
   (`lua/flowchart.py`, the Lua port of `tools/ast_mermaid.py`'s cfg chart), shown in
-  the app's HTML window over the loopback server. The chart library (mermaid.js) is
-  loaded from a CDN, so the first chart needs a connection.
+  the app's HTML window over the loopback server; and **"Call graph"**
+  (`lua/callgraph.py`): which of the script's functions calls which, from the
+  handlers it returns to OpenMW (`engineHandlers.onUpdate`, `eventHandlers.*`,
+  `interface.*`) down - functions named as they are defined (`local function f`,
+  `M.f`, `M:f`, functions in table constructors), callbacks counted as part of the
+  function they are written in, `self:f()` followed when only one `*.f` matches;
+  calls into OpenMW and other modules left out. The chart library (**mermaid.js
+  12.1.0**, MIT) ships with the toolkit (`wraithguard/viz/assets/mermaid.min.js`,
+  upstream's own build), so charts need no connection.
   **Teal**: the lexer and parser read Teal (`parse(src, teal=True)`) - annotations,
   generics, `record`/`enum`/`interface`/`type` declarations, `as`/`is`, `global`,
   `macroexp`, typed table fields - into the same tree; checked against all 47 `.tl`
   files of the Teal compiler (tl 0.24.8, `tl.tl` included) and Cyan 0.4.1, which all
   parse. The window's **"Teal source"** tab shows (highlighted) the `.tl` a mod ships
   beside the `.lua` that runs.
+  **Checked against the setup's own OpenMW** (`lua/openmw_api.py`, `native/src/lua`).
+  Every OpenMW install documents its Lua API in its `resources` folder (LDT comments in
+  `lua_api/openmw/*.lua`, and the built-in interfaces and `openmw_aux.*` under `vfs/`).
+  The Rust backend reads them there - nothing of them ships with the toolkit, so it
+  stays MIT - writes Teal declarations from them into a temporary folder, and checks every
+  script with the Teal compiler (tl 0.24.8 through htl, embedded: no Lua or luarocks).
+  New findings: `API_TYPO` (a key a documented type lacks, close to one it has:
+  `self.recrdId` - did you mean `recordId`?), `API_UNDOCUMENTED` / `API_INTERNAL` (notes:
+  the docs leave some real members out), `TOO_MANY_ARGS`, `UNKNOWN_GLOBAL`,
+  `REQUIRE_NOT_FOUND` (an `openmw.*` package this OpenMW lacks, or a module no data folder
+  has), `UNUSED_LOCAL`; for a mod written in Teal (a `.tl` beside the `.lua`) every type
+  error (`TEAL`). Plain Lua keeps only what is reliable without types; fewer arguments
+  than documented is never reported, since the docs rarely mark optional ones. Packages,
+  their contexts and the built-in interfaces follow the install's version. The install
+  is found from the cfg's `resources=`, `WG_OPENMW_RESOURCES` or the usual install places;
+  `--openmw` names it. With none, the checks that need no API still run against stubs.
+  `--teal-declarations DIR` checks against OpenMW's published declarations instead, and
+  `--write-teal-declarations DIR` keeps the generated ones for a Teal project. Tried on
+  OpenMW 0.51's own 40 built-in scripts: the generated declarations check clean, and the
+  only warning left is a real one (an extra `string.format` argument).
+  **Garbage and the sandbox.** The per-frame walk (`onUpdate`/`onFrame`, followed into
+  the script's own functions) now reports the garbage it makes: a table constructor or a
+  closure every frame (a note; a warning inside a loop, where it is one per actor or per
+  pass), and strings built or vectors/colours made inside loops (`GC_TABLE`,
+  `GC_CLOSURE`, `GC_STRING`, `GC_USERDATA`). OpenMW tracks each script's memory and its
+  collector pauses the scripts, so garbage made every frame costs every frame; code under
+  a condition (a timer, a mode check) is left out. And what OpenMW's sandbox leaves out
+  of Lua is an error, since the script fails there (`SANDBOX`): `collectgarbage` (the
+  engine runs the collector; the message says to make less garbage instead),
+  `load`/`loadstring`/`dofile`, `setfenv`, `io`, `debug`, `package`, `os.*` but
+  `date`/`difftime`/`time`, and assigning into `string`, `math` and the other read-only
+  packages - from OpenMW 0.51's `components/lua/luastate.cpp`. The Teal check now shares
+  the scripts out over threads, a Lua state each (45 scripts: 3.2 s to 1.4 s on 4 cores).
   Scripts that `.omwaddon` files register in LUAL records are read too, in load order
   (`lua/lual.py`, the layout of OpenMW's `luascripts.cpp`). Not read: scripts packed in
   BSAs - the report says so.
+
+- **The viewer's Editor mode: a Construction Set beside the render window** (Editor in
+  the viewer's topbar, or `--editor`). A mode of its own, not the Cell Preview's
+  settings: the **Object Window** - every record of the load order by type, filtered
+  (Ctrl+F) and sorted by id, name, model, the plugins defining it and how many are placed,
+  the ones with changes waiting marked green as the CSSE marks them; the **Cell View** -
+  every cell and the references in the selected one (double-click a cell to open it, a
+  reference to go to it, framed and selected); and a **dialog per record** with each field
+  and an input fitting it (checkbox, list, number, text; ids and the like locked),
+  "Show in world", "Conflicts" and revert. The inspector gets **Edit record (F2)** for the
+  object clicked. Changes go to **Wraithguard's patch pool** - the queue the conflict
+  viewer fills - as typed values on the winning record, are listed under **Pending**, and
+  are reviewed and written in the Patch Builder ("Review and write in Wraithguard"), so
+  the patch writer that is tested already writes them. Records no conflict lists write too
+  (the pool now takes a base plugin from the editor). The record lists come from the
+  viewer's engine (`editor_tags`, `editor_records`, `editor_cell_refs`); records and
+  changes from Wraithguard over the loopback links (`gui/editorlink.py`,
+  `wraithguard/patch/editor.py`), which touches the pool only on its Tk thread. Opened
+  without Wraithguard it browses, and says editing needs it. References (moving them, the
+  reference dialog) come next: see the TODO.
+- **Changed references are written the way the engine merges cells**
+  (`wraithguard/patch/refedit.py`, for the Editor's reference editing). From greatness7's
+  merge_to_master, which implements the engine's rule: a cell's references are keyed by
+  the file that created them (its position in *each plugin's own* master list) and their
+  index, and a later plugin's CELL record is merged in - its references added by key,
+  every other reference left alone. So the patch carries a CELL record with the winning
+  cell's own fields and only the changed references, each as the load order resolves it
+  with the change applied, keyed for the patch's masters; not the cell's whole reference
+  list, which would re-assert every reference that version lists. Checked by writing such
+  a patch and merging the load order with merge_to_master itself (embedded in the
+  backend): the changed reference changes, the cell's other references and fields do not.
+- **Changed references go through the patch pool and the Patch Builder.** A reference
+  edit (the cell, the file that created the reference, its index, the changes) is a kind
+  of its own in the pool, journalled with the rest and listed in the Patch Builder by cell,
+  where it can be removed; writing the patch builds each cell's record from its changed
+  references, added into the cell's record when the patch carries that cell anyway
+  (whole, merged, or from the build it appends to). The Patch Builder no longer needs a
+  conflict scan first: it reads the plugins of the current load order itself.
+- **The Editor's reference dialog, drawn live.** Right-click a reference in the Cell View
+  (Shift: its base record), or "Edit reference" (F3) in the inspector, for one placed
+  object: position and rotation (in degrees) with nudge buttons (Shift: eight times as
+  far), scale, deleted, owner, faction and rank, lock level, key, trap, soul, charge,
+  health and count. Wraithguard reads the cell from every plugin that has it, shows the
+  reference as the load order resolves it and which plugins changed it, and queues the
+  changes in the patch pool (`editRef`, `editRefSet`, `editRefRevert`); a value cleared
+  leaves the field out of the written reference. The render window draws every pending
+  change in place - moved, turned, scaled, deleted objects - over the cell as loaded, the
+  camera kept, and drops back when a change is reverted. The engine's `ori` and
+  `editor_cell_refs` now say the cell's record key and the plugins with a CELL record for
+  it, which is what the dialog asks Wraithguard with.
+- **The Editor moves objects in the render window, as the Construction Set does.** With
+  an object selected, drag it (left button) across the ground plane at its height; hold Z
+  to lift or lower it, X or Y to keep to that axis; Shift-drag turns it about Z (or about
+  X or Y, held); F drops it onto the ground or the object under it, its lowest point on
+  the surface. A gold copy follows the pointer, and the move goes to the patch pool on
+  release - drawn in place and listed with the rest. A press anywhere else, or a still
+  click, does what it did.
+- **A door's destination in the reference dialog**: whether it teleports, the cell (empty
+  for the exterior, with the interiors to choose from), where the player lands and which
+  way they face; "From the view" takes the view's pivot and direction in the cell on
+  screen, "Go there" opens it. Written as DODT, with DNAM only for an interior.
+- **New references: place a record from the Editor's Object Window.** Drag a row into the
+  render window (it lands on the surface under the pointer) or right-click it (at the
+  view's pivot). The reference is the patch's own - written `(0, n)`, numbered on from the
+  highest the patch carries, an earlier build's included, into the cell's record (made
+  from the winning version's fields when the patch has none), with the plugin defining
+  the object a master; actors are placed persistent. It opens in the reference dialog,
+  moves and turns like any other, is drawn in place, journalled, listed in the Patch
+  Builder ("add") and the pending list, and "Remove from the patch" takes it out. Changing
+  a reference the patch itself made in an earlier build keeps it `(0, n)` too, and the
+  patch is never its own master.
+- **Moving an exterior reference into the next cell** sets its `moved_cell` (it stays in
+  its own cell's record, as merge_to_master moves one), and moving it back clears it; a
+  new reference moves to the cell it now stands in.
+- **New records and deleting, in the Editor's record dialog.** "Make a copy as" makes a
+  copy of the record under a new id, the patch's own: listed in the Object Window with
+  the load order's records (and placed from there like them), changed in its dialog,
+  journalled, written by the patch with the plugin it came from a master, and "Remove
+  from the patch" takes it out. A taken id (in any plugin, or the patch), one over 31
+  bytes, and types whose identity is not their id or that name themselves (cells,
+  dialogue, scripts, game settings) are refused. "Delete record" marks a record deleted
+  the way the Construction Set does, with its DELETED flag; "Undelete" takes it off.
+- **The Use Report, in the Editor's record dialog.** Every record of the load order that
+  names the record - leveled lists, inventories, spell lists, enchantments, sounds,
+  dialogue filters, scripts (as a word in their text) - and every cell it is placed in,
+  with the plugin each is in; a use in a version a later plugin overrides is greyed. A
+  record opens in the dialog, a cell in the render window. The scan is the Rust backend's
+  (`native/src/uses.rs`, on greatness7's tes3 crate): each plugin mapped and parsed only
+  when its bytes hold the id - most of a load order is passed over at the speed of a byte
+  scan - on threads, with which version wins told from the files' record framing.
+- **List fields are edited in the record dialog**: an inventory, a spell list, a leveled
+  list's entries, AI packages - a table with a row per entry (a column per value of a row,
+  an entry's JSON for a group), Add and ×. Wraithguard checks each entry against the shape
+  of the first (`[count, id]` stays a count and an id).
+- **Search & Replace, from the Use Report.** "Replace with" another record's id
+  repoints every live use - the field of each using record that names it (a leveled list,
+  an inventory, a spell list...) - to the other record, and every reference placing it
+  becomes the other (its key kept, so the engine merges it as the same reference with
+  another object), queued in the patch pool; the scripts naming it are counted and left.
+- **The Q menu and Layers, in the Editor's render window.** Q on the selected object:
+  edit its reference or record, its Use Report, drop it to the ground, duplicate it (a new
+  reference of the same record beside it), delete it, hide it, or move it to a layer.
+  Layers ("Layers" in the dock) are named groups of references shown or hidden in the
+  render window - a view kept in this viewer, never written to the patch.
+- **The Script Edit window, from a script's record dialog.** The source in an editor,
+  checked as it is typed (`wraithguard/mwscript/check.py`): the `begin`/`end` frame and a
+  `begin` name that is not the script's, `if`/`while` blocks out of balance, variables
+  declared twice, `set` on a name that is neither a local nor one of the load order's
+  globals, and statements starting with a function the game does not have (the opcode
+  table); a finding selects its line. The compiled listing beside it, and "Save to the
+  patch". The toolkit writes no bytecode, and the window says what that means: OpenMW
+  compiles the text, Morrowind.exe runs the compiled data the record carries.
+- **The patch as the Editor's active file**: "Patch only" narrows the Object Window to the
+  records the patch changes or makes, each tab counts its changed records, and the Cell
+  View marks the cells whose references the patch changes or adds.
+- **NPCs, creatures and spawn points placed new are drawn** at once: the viewer asks the
+  engine (`editor_actors`) for what draws objects it has not seen placed, as a cell
+  carries it.
+- **The dialogue window, in the Editor ("Dialogue" in the dock).** Every topic of the load
+  order by kind (topics, greetings, persuasion, voice, journals) with a filter, and a
+  topic's responses in the order the engine reads them - who says each, the text, the
+  plugin whose version wins, and a response whose predecessor is missing (so it is read
+  last) marked. A response opens in the record dialog; its changes are written inside its
+  topic.
+- **"New" in the Editor's Object Window**: a blank record of the tab's type under the id
+  typed - every field at the type's default, a script a bare `begin`/`end` - made by the
+  patch and opened in the record dialog.
+- **Group entries in list fields are a table of fields**: a dialogue condition, an AI
+  package - a column per field, with names; each entry is checked against an existing
+  one of the same kind (a travel package against a travel package).
+- **A reference another mod moved into the cell is edited where its record is**: the
+  Editor finds it in the cell it stands in and changes it in the cell it left, its key
+  kept and its `moved_cell` following it.
+- **New dialogue responses, placed where they go.** In the dialogue window, "+" on a
+  response adds one after it, "Add at top" one first: the patch's own response, its
+  `prev_id` naming the one it follows (which is how the engine places a response it has
+  not seen, the patch loading last), its `next_id` the one that followed, written inside
+  its topic. It opens in the record dialog and shows in its place in the topic.
+- **"Rename to" in the record dialog**: a copy under the new id, then every live use -
+  fields and placed references - repointed to it, saying how many moved and which scripts
+  still name the old id; the original stays, for whatever still names it.
+- **Journals in the dialogue window**: a quest's stages by index under the quest's name,
+  its name, finishing and restarting stages marked.
+- **Scripts can be copied under a new id** ("Make a copy as"): the copy's `begin` line
+  names it.
+- **The Lua scripts window's "OpenMW install..."**: the install whose Lua API scripts are
+  checked against, when the one found on its own is not it - kept in the settings, and
+  checked to have `resources/lua_api/openmw` before it is taken.
+- **Lua: a Teal project's own modules resolve.** A mod built with Cyan ships a
+  `tlconfig.lua`; its `source_dir` and `include_dir` folders are where the Teal check looks
+  for that mod's requires and declarations.
+- **Lua: `openmw.interfaces` is typed from the install.** Each built-in interface the
+  install documents (AI, Camera, ...) is its documented type, so a misspelt member of one
+  is found; any other name - a mod's interface, or one looked up by a variable - is open.
+- **Lua: scripts held in archives are scanned.** OpenMW reads Lua scripts out of the
+  `fallback-archive=` archives too, under every loose file; their `scripts/` files are
+  taken out (cached while the archive is unchanged) and read and checked like loose ones,
+  a loose file overriding the archive's.
+- **Lua: LUAL records are read by the Rust backend** (the tes3 crate's
+  `ScriptConfigList`, only LUAL records parsed), with the Python reader kept for a build
+  without it. The backend can also write an archive (`bsa_bytes`).
+- **"Copy topic as" in the dialogue window**: a topic and its responses, in the order
+  the engine reads them, under a new name - the patch's own topic and responses, with new
+  ids linked to each other, the plugins they came from kept as masters.
+- **The patch pool survives a crash.** Every decision in it - whole records, fields taken
+  from a plugin, typed values - is journalled as it is made
+  (`wraithguard_patch_journal.json` beside the settings) and brought back the next time
+  Wraithguard starts, with a status line saying how many; writing the patch clears it. A
+  viewer that runs out of memory, or a Wraithguard that crashes, loses no work.
+
+- **OpenMW's navmesh in the cell viewer** (Tools > Overlays > Navmesh): the navigation
+  mesh `openmw-navmeshtool` (or the game) keeps in `navmesh.db`, drawn over the loaded
+  cells - where actors walk (green), swim (blue), open doors (orange), and the path grid
+  links the navigator was given (purple) - one actor size at a time (OpenMW builds a mesh
+  per collision box). The file is found beside the setup's openmw.cfg, through a
+  `user-data=` line in it, or in OpenMW's user data folder (beside openmw.cfg on Windows,
+  `~/.local/share/openmw` on Linux, a Flatpak's own); "navmesh.db..." picks another.
+  Read by the viewer's engine (`viewcore/src/navmesh.rs`), written from the file's
+  layout, not from OpenMW's GPL-3 code: SQLite through rusqlite (MIT, SQLite bundled, a
+  new dependency), and its own LZ4 block decoder.
+- **Path grid editing in the Editor** (toolbar: Path grid): the loaded cells' path grids
+  drawn with their links and edited in the render window - click to select, drag to move
+  (Z: up and down, Alt: onto the surface, the grid snap kept), Shift+click the ground for
+  a new point linked to the selected one, Ctrl+click to link or unlink, J / U, Delete,
+  undo and redo. Each change queues the cell's whole PGRD in the patch pool (journalled);
+  a cell without one gets the patch's own. With the navmesh overlay on, the grid can be
+  placed by what the navigator built.
+
+- **The inspector and the full help can be switched off in the Editor** (toolbar: ORI,
+  Full help; View menu; I / Shift+I): picking still selects, only the panels stay out of
+  the way. Remembered with the Editor's other settings.
+
+- **Deleting from the Editor's Build patch window**: rows select (click, Ctrl+click,
+  Shift+click for a run, Ctrl+A), and Delete or "Delete selected" takes them out of the
+  pool. Every row has its own ✕ now, whole records taken from a plugin included. Delete
+  there acts on the list, not on the object selected in the render window.
+
+- **Armor's weight class in the Editor**: a Class column (Light, Medium, Heavy) in the
+  Object Window's Armor tab, and a Weight class line in the armor form that follows the
+  weight and slot as they are typed, with the limits beside it. Worked out as the game
+  does - the slot's base weight setting (`iHelmWeight`, `iCuirassWeight`...; bracers use
+  `iGauntletWeight`) times `fLightMaxMod` or `fMedMaxMod` - from the load order's GMSTs,
+  Morrowind's values where none sets them (`wraithguard/patch/armor.py`).
+
+- **Folder walks and byte compares in Rust** (`native/src/fsio.rs`, `wraithguard/fsio.py`):
+  the resource-conflict scan's walk of every data folder, its check of which re-shipped
+  files are identical, the mesh reader's loose-file index and the texture index now run
+  in the backend on a few threads with Python released - one list of names per folder
+  crosses back instead of a Python object per directory entry, and identical files are
+  compared side by side and given up on at the first differing byte rather than hashed
+  whole. Without the backend built, the same answers come from `os.walk` (tests hold the
+  two together). One difference: a symlinked or junctioned folder inside a data folder
+  is followed (once; loops are caught), where `os.walk` followed junctions only.
+  Since then, the rest of the file work too:
+  - **Mesh content digests** (the mesh analyser's cache keys) are BLAKE2b-128 in Rust,
+    written from RFC 7693 and checked against Python's `hashlib`, so the digests - and
+    every cache keyed on them - are the same either way.
+  - **The subset sort's scan for mod folders** (`--scan`) walks in Rust, stopping at each
+    folder that holds an asset folder or a plugin as before.
+  - **Lua scripts packed in archives** are written out for the scan by the backend
+    (`bsa_extract`, a name that would climb out of the folder skipped), and whether an
+    archive held any is read from the count kept beside them instead of a walk.
+
+### Changed
+
+- **A build branch builds Windows too.** `build-windows.yml` now runs on a push to a
+  branch under `build/` as the Linux, macOS and Flatpak builds already did, uploading the
+  binary as an artifact and attaching nothing, so one test push gives a binary for every
+  OS. Release builds (`v*` tags) are unchanged.
+
+### Fixed
+
+- **The Editor's selection stays lit, and Ctrl+click is reliable.** What is selected
+  shared one highlight with the hover, so moving the pointer or the camera put it out;
+  the renderer now keeps the selection lit under any other highlight
+  (`setSelection`), and it follows its objects when the scene is drawn again. A
+  Ctrl+click that hit nothing cleared the whole selection (now it keeps it), and one
+  where the hand moved a few pixels became an empty box (now it is the click it was).
+
+- **Dragging a record from the Object Window into the render window works.** It used the
+  browser's drag and drop, which the webview does not deliver reliably (on Windows the
+  shell's own file-drop handling takes the drag, so the render window never saw it, and a
+  drag starting on a row's text could select it instead). It is now the page's own drag,
+  made of pointer events: the record's picture follows the pointer, the landing spot is
+  marked over the render window, Esc cancels, and letting go anywhere else places
+  nothing. The press no longer starts a text selection (dragged sideways, that scrolled
+  the Object Window right instead of carrying the record), the list stays put while a
+  drag is on, and the column's width grip sits astride its edge rather than over the
+  rows' ends.
+
+- **Interior path grids are each their own record.** A PGRD was keyed by its grid, which
+  is 0, 0 for every interior, so all of them were one record to the conflict viewer and
+  the editor; an interior's is now keyed by its cell name, an exterior's by its grid, as
+  the engine finds them (merge_to_master's rule).
+
+- **The Editor's "Add after"/"Add at top" in the dialogue window reach Wraithguard.** The
+  endpoint behind them was never registered, so the buttons failed in the app (the
+  viewer's own tests answer from a stand-in). A test now checks that every link the
+  editor page names is one Wraithguard registers.
+- **The Windows build downloads as the `.exe`.** The workflow's artifact was a zip named
+  `wraithguard-toolkit-windows-x86_64-system` holding the `.exe` - with the `.zip`
+  extension dropped on the way down, a file Windows would not run. Builds are now uploaded
+  as the file itself (`wraithguard-toolkit-windows-x86_64.exe`; the macOS `.zip` and
+  Linux `.tar.gz` likewise, no longer zipped a second time).
+- **A dialogue response merged field by field is written inside its own topic.** It was
+  appended to the end of the patch with no topic before it - so the engine attached it to
+  whichever topic the patch carried last (another topic's responses, answering the wrong
+  question), or to none. It now goes after its topic and that topic's other responses,
+  the topic put in first when the patch does not carry it yet, as a response taken whole
+  always was.
+- **Patches of interior cells.** The patch writer keyed every interior cell as `(0, 0)` -
+  an interior's record carries a placeholder grid - so every room was the same cell, and
+  the same as the exterior at the origin; and the conflict viewer names a cell by its
+  name, which the writer never matched, so carrying or merging a cell from it failed.
+  Cells are now keyed as the engine keys them (merge_to_master's `types/cells.rs`):
+  interiors by name, exteriors by grid, and a name is taken when it names one cell - a
+  name several exterior cells share (a town over a few grids) is refused with their grids
+  rather than one of them picked.
+- **Cell Preview: "Go through" is back in the full help panel.** Clicking a teleporting
+  door shows where it leads and a "Go through" button on the right again - the old object
+  dialogue's "Open cell door leads to", which went missing when the full help replaced
+  that dialogue. The inspector's own button and Shift+click still work; the CI's viewer
+  boot test now checks both buttons.
 
 ## 4.2.1
 

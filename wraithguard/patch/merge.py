@@ -38,10 +38,11 @@ from typing import TYPE_CHECKING, Any, Final
 
 from wraithguard.patch.records import (
     PatchError,
+    find_record,
     index_map,
     master_names,
-    record_key,
     remap_reference_list,
+    remap_references,
 )
 
 if TYPE_CHECKING:
@@ -235,6 +236,11 @@ def merge_record(
     merged = copy.deepcopy(dict(base))
     if isinstance(merged.get("references"), list):
         merged["references"] = remap_reference_list(merged["references"], mapping_for(base_plugin))
+    lual = str(merged.get("type")) == "ScriptConfigList"
+    if lual:
+        # OpenMW's Lua script list names placed objects by content file too (LUAI, and the
+        # references in its Lua data): renumbered against the base's plugin.
+        merged = remap_references(merged, mapping_for(base_plugin))
 
     for choice in choices:
         if isinstance(choice, FieldValue):
@@ -269,6 +275,11 @@ def merge_record(
         if choice.path in _MASTER_INDEXED_PATHS and isinstance(value, list):
             # Numbered against *its own* plugin, not the base's.
             value = remap_reference_list(value, mapping_for(choice.plugin))
+        elif lual and choice.path == "scripts" and isinstance(value, list):
+            # A LUAL's scripts, numbered against *their own* plugin.
+            value = remap_references(
+                {"type": "ScriptConfigList", "scripts": value}, mapping_for(choice.plugin)
+            )["scripts"]
         set_at(merged, choice.path, copy.deepcopy(value))
 
     return merged
@@ -297,14 +308,7 @@ def _find(
     records = records_by_plugin.get(plugin)
     if records is None:
         raise PatchError(f"no records were read for {plugin}")
-    found = next(
-        (
-            record
-            for record in records
-            if record.get("type") == record_type and record_key(record) == key
-        ),
-        None,
-    )
+    found = find_record(records, record_type, key, plugin)
     if found is None:
         raise PatchError(f"{plugin} has no {record_type} record {key!r}")
     return found

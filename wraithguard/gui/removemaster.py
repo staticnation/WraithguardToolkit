@@ -45,7 +45,10 @@ class RemoveMasterMixin:
         worker_running: bool
 
         def _schedule_ui(
-            self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
+            self,
+            delay_ms: int,
+            func: Callable[..., Any],
+            *args: Any,  # noqa: ANN401
         ) -> None: ...
 
     def on_remove_master_window(self) -> None:

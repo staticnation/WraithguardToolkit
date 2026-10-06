@@ -66,7 +66,10 @@ class Tes3cmdMixin:
 
         # Guarded worker-thread -> UI-thread marshaller, from the host App.
         def _schedule_ui(
-            self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
+            self,
+            delay_ms: int,
+            func: Callable[..., Any],
+            *args: Any,  # noqa: ANN401
         ) -> None: ...
 
     def _tes3conv_json_dir(self) -> Path:
@@ -426,7 +429,7 @@ class Tes3cmdMixin:
         if not exe:
             messagebox.showerror(
                 _("tes3cmd"),
-                _("tes3cmd not found. Browse to the compiled " "tes3cmd.exe (MOMW Tools Pack)."),
+                _("tes3cmd not found. Browse to the compiled tes3cmd.exe (MOMW Tools Pack)."),
                 parent=self._t3_win,
             )
             return
@@ -759,8 +762,7 @@ class Tes3cmdMixin:
                             % {"name": name, "master": m}
                         )
             status = _(
-                "Resync: %(fixed)d plugin(s) updated, %(ok)d already in sync, "
-                "%(failed)d error(s)."
+                "Resync: %(fixed)d plugin(s) updated, %(ok)d already in sync, %(failed)d error(s)."
             ) % {"fixed": fixed, "ok": ok - fixed, "failed": fail}
             if fixed:
                 status += _("  Re-run '1. Sort' to refresh the master check.")

@@ -22,7 +22,9 @@ reaches the game.
 
 *The base is whatever currently wins.* A merge is then a list of departures
 from what the load order already does, which is the smallest thing that can be
-wrong.
+wrong. The conflict scan says what wins for a record in conflict; for one it does
+not list (the viewer's editor edits any record), whoever queued it says, with
+:meth:`PatchQueue.set_base`.
 """
 
 from __future__ import annotations
@@ -35,7 +37,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from wraithguard.patch.merge import Choice
-    from wraithguard.patch.records import Selection
+    from wraithguard.patch.records import NewRecord, Selection
+    from wraithguard.patch.refedit import NewRef, RefEdit
 
 
 class PatchQueue:
@@ -45,6 +48,10 @@ class PatchQueue:
         """Start empty."""
         self._whole: list[Selection] = []
         self._fields: dict[tuple[str, str], list[Choice]] = {}
+        self._bases: dict[tuple[str, str], str] = {}
+        self._refs: dict[tuple[str, str, int], RefEdit] = {}
+        self._new: dict[tuple[str, str], NewRef] = {}
+        self._made: dict[tuple[str, str], NewRecord] = {}
 
     @property
     def selections(self) -> list[Selection]:
@@ -57,13 +64,160 @@ class PatchQueue:
         return self._fields
 
     def __len__(self) -> int:
-        """How many records the patch would carry."""
-        return len(self._whole) + len(self._fields)
+        """How many records the patch would carry (a cell with changed references is one)."""
+        records = {(s.record_type, s.key.lower()) for s in self._whole}
+        records |= {(t, k.lower()) for t, k in self._fields}
+        cells = {("Cell", e.cell.lower()) for e in self._refs.values()}
+        cells |= {("Cell", n.cell.lower()) for n in self._new.values()}
+        cells -= records
+        return len(self._whole) + len(self._fields) + len(cells) + len(self._made)
+
+    @property
+    def ref_edits(self) -> list[RefEdit]:
+        """Changes to placed objects, one per reference, in the order made."""
+        return list(self._refs.values())
+
+    def add_ref_edit(self, edit: RefEdit) -> None:
+        """Queue changes to a placed object.
+
+        Changes already queued for it are kept, the new ones replacing any to the
+        same fields.
+
+        Args:
+            edit: The changes.
+        """
+        from dataclasses import replace
+
+        old = self._refs.get(edit.ident)
+        if old is not None:
+            edit = replace(
+                edit,
+                changes={**old.changes, **edit.changes},
+                plugins=tuple(dict.fromkeys((*old.plugins, *edit.plugins))),
+            )
+        self._refs[edit.ident] = edit
+
+    @property
+    def new_records(self) -> list[NewRecord]:
+        """Records the patch makes itself, in the order made."""
+        return list(self._made.values())
+
+    def add_new_record(self, made: NewRecord) -> None:
+        """Queue a record the patch makes, or replace the one queued with its key.
+
+        Args:
+            made: The record.
+        """
+        self._made[(made.record_type, made.key.lower())] = made
+
+    def remove_new_record(self, record_type: str, key: str) -> None:
+        """Drop a record the patch would make.
+
+        Args:
+            record_type: Its type.
+            key: Its id.
+        """
+        self._made.pop((record_type, key.lower()), None)
+
+    def new_record(self, record_type: str, key: str) -> NewRecord | None:
+        """The record the patch makes with this type and id, or None.
+
+        Args:
+            record_type: Its type.
+            key: Its id (any case).
+
+        Returns:
+            It, or None.
+        """
+        return self._made.get((record_type, key.lower()))
+
+    @property
+    def new_refs(self) -> list[NewRef]:
+        """References the patch adds, in the order placed."""
+        return list(self._new.values())
+
+    def add_new_ref(self, new: NewRef) -> None:
+        """Queue a reference to add, or change one queued (its fields merged).
+
+        Args:
+            new: The reference.
+        """
+        from dataclasses import replace
+
+        old = self._new.get(new.ident)
+        if old is not None:
+            new = replace(old, fields={**old.fields, **new.fields})
+        self._new[new.ident] = new
+
+    def remove_new_ref(self, cell: str, uid: str) -> None:
+        """Drop a reference queued to be added.
+
+        Args:
+            cell: Its cell's key.
+            uid: Its editor name.
+        """
+        self._new.pop((cell.lower(), uid), None)
+
+    def remove_ref_edit(
+        self, cell: str, origin: str, refr_index: int, path: str | None = None
+    ) -> None:
+        """Drop the changes to a placed object, or to one of its fields.
+
+        Args:
+            cell: The cell's key.
+            origin: The plugin that created the reference.
+            refr_index: Its index.
+            path: One field, or None for all of them.
+        """
+        from dataclasses import replace
+
+        ident = (cell.lower(), origin.lower(), refr_index)
+        old = self._refs.get(ident)
+        if old is None:
+            return
+        if path is None:
+            del self._refs[ident]
+            return
+        rest = {k: v for k, v in old.changes.items() if k != path}
+        if rest:
+            self._refs[ident] = replace(old, changes=rest)
+        else:
+            del self._refs[ident]
 
     def clear(self) -> None:
         """Drop every decision."""
         self._whole.clear()
         self._fields.clear()
+        self._bases.clear()
+        self._refs.clear()
+        self._new.clear()
+        self._made.clear()
+
+    def set_base(self, record_type: str, key: str, plugin: str) -> None:
+        """Say which plugin wins a record, for one the conflict scan does not list.
+
+        Used by :meth:`merges` when its ``base_for`` has no answer: the viewer's
+        editor changes records that conflict with nothing, and knows (from the load
+        order it loaded) which plugin defines them last.
+
+        Args:
+            record_type: The record's type.
+            key: Its identifying key.
+            plugin: The plugin that currently wins it.
+        """
+        self._bases[(record_type, key)] = plugin
+
+    def base(self, record_type: str, key: str) -> str:
+        """The base given to :meth:`set_base` for a record, or ``""``.
+
+        Args:
+            record_type: The record's type.
+            key: Its identifying key.
+
+        Returns:
+            The plugin.
+        """
+        return self._bases.get((record_type, key), "")
 
     def add_whole(self, selection: Selection) -> None:
         """Queue a record to be taken whole.
@@ -99,6 +253,7 @@ class PatchQueue:
         """
         self._drop_whole(record_type, key)
         self._fields.pop((record_type, key), None)
+        self._bases.pop((record_type, key), None)
 
     def remove_field(self, record_type: str, key: str, path: str) -> None:
         """Drop one field choice.
@@ -117,6 +272,7 @@ class PatchQueue:
         choices[:] = [entry for entry in choices if entry.path != path]
         if not choices:
             self._fields.pop((record_type, key), None)
+            self._bases.pop((record_type, key), None)
 
     def merges(self, base_for: Callable[[str, str], str]) -> list[Merge]:
         """The queued field choices, as the writer takes them.
@@ -125,7 +281,8 @@ class PatchQueue:
             base_for: Called with ``(record_type, key)``; returns the plugin
                 supplying the fields not chosen. Passed in rather than looked
                 up here because it depends on the current scan, which this does
-                not know about.
+                not know about. When it answers ``""``, the base given to
+                :meth:`set_base` is used.
 
         Returns:
             One :class:`~wraithguard.patch.merge.Merge` per record.
@@ -134,7 +291,7 @@ class PatchQueue:
             Merge(
                 record_type=record_type,
                 key=key,
-                base_plugin=base_for(record_type, key),
+                base_plugin=base_for(record_type, key) or self._bases.get((record_type, key), ""),
                 choices=tuple(choices),
             )
             for (record_type, key), choices in self._fields.items()

@@ -13,6 +13,7 @@ Copyright (c) 2026 StaticNation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 #: Flags OpenMW 0.51 documents. Anything else is reported, not dropped.
 KNOWN_FLAGS: frozenset[str] = frozenset(
@@ -95,8 +96,40 @@ def normalize_vfs_path(path: str) -> str:
     return path.strip().replace("\\", "/").lstrip("/").lower()
 
 
+def _native_parse() -> Any:  # noqa: ANN401 - the backend's function, or None
+    """The Rust backend's parser (``viewer-shell/luacore/src/omwscripts.rs``), or None."""
+    try:
+        import wraithguard_native
+    except ImportError:
+        return None
+    return getattr(wraithguard_native, "lua_omwscripts", None)
+
+
 def parse_omwscripts(text: str, name: str) -> OmwScripts:
-    """Parse the text of an ``.omwscripts`` file.
+    """Parse the text of an ``.omwscripts`` file (in Rust when the backend is built).
+
+    Args:
+        text: The file's text.
+        name: Its name, recorded on every entry.
+
+    Returns:
+        As :func:`parse_omwscripts_py`.
+    """
+    native = _native_parse()
+    if native is None:
+        return parse_omwscripts_py(text, name)
+    got_name, entries, problems = native(text, name)
+    return OmwScripts(
+        name=got_name,
+        entries=[
+            ScriptEntry(path, tuple(flags), source, line) for path, flags, source, line in entries
+        ],
+        problems=[(int(line), msg) for line, msg in problems],
+    )
+
+
+def parse_omwscripts_py(text: str, name: str) -> OmwScripts:
+    """Parse the text of an ``.omwscripts`` file in Python (the fallback and reference).
 
     Args:
         text: The file's text.

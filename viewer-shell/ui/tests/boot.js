@@ -33,6 +33,119 @@ function assemble(){
     .split('__WG_ICON__').join(icon);
 }
 const html=process.argv[2]? fs.readFileSync(process.argv[2],'utf8') : assemble();
+
+/* A stand-in for Wraithguard's editor endpoints (gui/editorlink.py, tested in pytest):
+   one record, its changes kept, so the Editor mode's dialog and pool can be driven here.
+   Reached the way the real one is - the engine's loopback POST (`wg_post`). */
+const http=require('http');
+const fakeWg={posts:[], queued:{}, reviewed:false, ref:null, refQueued:{}, refBase:{id:'', pos:[0,0,0]}, news:{}};
+const fakeNewView=n=>({cell:n.cell, uid:n.uid, id:n.fields.id, tag:n.tag, new:true, plugins:n.plugins||[],
+  fields:['translation','rotation','scale','deleted'].map(path=>({path, value:n.fields[path]==null? null : n.fields[path],
+    kind:path==='scale'?'float':path==='deleted'?'bool':'vec3', editable:true}))});
+const fakeRefView=()=>({cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fakeWg.ref.refr, id:fakeWg.refBase.id,
+  winner:'Lamp.esm', plugins:fakeWg.ref.plugins||['Lamp.esm'],
+  fields:[
+    {path:'translation', value:fakeWg.refBase.pos, kind:'vec3', editable:true},
+    {path:'rotation', value:[0,0,0], kind:'vec3', editable:true},
+    {path:'scale', value:null, kind:'float', editable:true},
+    {path:'deleted', value:null, kind:'bool', editable:true},
+    {path:'lock_level', value:null, kind:'int', editable:true},
+    {path:'destination', value:null, kind:'door', editable:true},
+  ].map(f=> f.path in fakeWg.refQueued? Object.assign(f,{queued:fakeWg.refQueued[f.path]}) : f)});
+const fakeView=()=>({tag:'LIGH', type:'Light', id:'lamp_lit', winner:'Lamp.esm', plugins:['Lamp.esm'], whole:null,
+  fields:[
+    {path:'id', value:'lamp_lit', editable:false, kind:'str', options:[]},
+    {path:'mesh', value:'x\\lamp.nif', editable:true, kind:'str', options:[]},
+    {path:'data.radius', value:256, editable:true, kind:'int:0:4294967295', options:[]},
+    {path:'flags', value:'', editable:true, kind:'flags:ObjectFlags', options:['DELETED','PERSISTENT']},
+    {path:'inventory', value:[[5,'gold_001'],[1,'torch']], editable:true, kind:'list', options:[], count:2},
+    {path:'filters', value:[{slot:'Slot0', function:'PcLevel', comparison:'Greater', value:{Integer:5}}], editable:true, kind:'list', options:[], count:1},
+  ].map(f=> f.path in fakeWg.queued? Object.assign(f,{queued:fakeWg.queued[f.path], source:'typed'}) : f)});
+fakeWg.made={};
+const fakeServer=http.createServer((req,res)=>{
+  let body=''; req.on('data',c=>body+=c); req.on('end',()=>{
+    const name=req.url.split('?')[0].slice(1), b=body? JSON.parse(body) : {};
+    fakeWg.posts.push([name,b]);
+    let out;
+    if(name==='editRecord') out=fakeView();
+    else if(name==='editUses') out={tag:b.tag, id:b.id, live:3, cells:2, uses:[
+      {plugin:'Lamp.esm', type:'LeveledItem', tag:'LEVI', key:'l_lamps', paths:['items.0.0'], count:1, wins:true},
+      {plugin:'Lamp.esm', type:'Container', tag:'CONT', key:'old_chest', paths:['inventory.0.1'], count:1, wins:false},
+      {plugin:'Lamp.esm', type:'Cell', tag:'CELL', key:'(9, 9)', paths:['references'], count:2, wins:true}]};
+    else if(name==='editTopics') out=[{id:'Greeting 0', type:'Greeting', plugins:['Lamp.esm']}, {id:'Rumors', type:'Topic', plugins:['Lamp.esm','Mod.esp']},
+                                      {id:'MS_Lamp', type:'Journal', plugins:['Lamp.esm']}];
+    else if(name==='editTopic' && b.topic==='MS_Lamp') out={id:b.topic, type:'Journal', responses:[
+      {id:'j100', text:'Done.', speaker:'', disposition:100, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false, quest:'Finished'},
+      {id:'j0', text:'The Lamp', speaker:'', disposition:0, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false, quest:'Name'}]};
+    else if(name==='editTopic') out={id:b.topic, type:'Topic', responses:[
+      {id:'101', text:'First.', speaker:'race: Dark Elf', disposition:0, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false},
+      {id:'102', text:'Orphaned.', speaker:'', disposition:0, plugins:['Mod.esp'], winner:'Mod.esp', orphan:true}]};
+    else if(name==='editCopyTopic'){
+      if(b.newId.toLowerCase()==='greeting 0'){ res.writeHead(400); res.end('Greeting 0 is already a topic in this load order'); return; }
+      fakeWg.copied=b;
+      out={id:b.newId, type:'Topic', responses:[{id:'901', text:'First.', speaker:'', disposition:0, plugins:['(this patch)'], winner:'(this patch)', orphan:false, quest:''}]};
+    }
+    else if(name==='editNewResponse'){
+      fakeWg.newResp=b;
+      out=Object.assign(fakeView(), {tag:'INFO', type:'DialogueInfo', id:'777', new:true, winner:'(this patch)', plugins:['(this patch)']});
+    }
+    else if(name==='editScript'){
+      const text=b.text!=null? b.text : 'begin payme\nend';
+      out={id:'payme', text, compiled:true, queued:false, listing:'0000  Return',
+           findings:/oops/.test(text)? [{line:2, level:'error', message:"'if' is never closed"}] : []};
+    }
+    else if(name==='editReplace'){
+      if(b.newId==='nothing'){ res.writeHead(400); res.end('nothing is not a Light of this load order'); return; }
+      out={changed:3, refs:2, scripts:0};
+    }
+    else if(name==='editInsert'){
+      if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
+      fakeWg.made[b.newId.toLowerCase()]={tag:b.tag, id:b.newId};
+      out=Object.assign(fakeView(), {tag:b.tag, id:b.newId, new:true, winner:'(this patch)', plugins:['(this patch)']});
+    }
+    else if(name==='editDuplicate'){
+      if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
+      fakeWg.made[b.newId.toLowerCase()]={tag:'LIGH', id:b.newId};
+      out=Object.assign(fakeView(), {id:b.newId, new:true, winner:'(this patch)', plugins:['(this patch)']});
+    }
+    else if(name==='editRevert' && fakeWg.made[String(b.id).toLowerCase()] && !b.path){ delete fakeWg.made[String(b.id).toLowerCase()]; out=fakeView(); }
+    else if(name==='editSet'){
+      if(b.path==='id'){ res.writeHead(400); res.end('id cannot be changed here'); return; }
+      fakeWg.queued[b.path]=b.value; out=fakeView();
+    } else if(name==='editRevert'){ if(b.path) delete fakeWg.queued[b.path]; else fakeWg.queued={}; out=fakeView(); }
+    else if(name==='editRef'){ fakeWg.ref=b; out=fakeRefView(); }
+    else if(name==='editPlace'){
+      const uid='new-'+(Object.keys(fakeWg.news).length+1).toString(16).padStart(8,'0');
+      const n={cell:b.cell, uid, tag:b.tag, plugins:b.plugins, fields:{id:b.id, translation:b.translation, rotation:b.rotation||[0,0,0]}};
+      fakeWg.news[uid]=n; out=fakeNewView(n);
+    }
+    else if(name==='editNew'){ const n=fakeWg.news[b.uid]; if(!n){ res.writeHead(400); res.end('That new reference is no longer in the patch'); return; } out=fakeNewView(n); }
+    else if(name==='editNewSet'){ const n=fakeWg.news[b.uid]; n.fields[b.path]=b.value; out=fakeNewView(n); }
+    else if(name==='editNewRemove'){ delete fakeWg.news[b.uid]; res.writeHead(200); res.end('ok'); return; }
+    else if(name==='editRefSet'){
+      if(b.path==='scale' && b.value>2){ res.writeHead(400); res.end('scale is 0.5 to 2.0'); return; }
+      fakeWg.ref=Object.assign({}, b); fakeWg.refQueued[b.path]=b.value; out=fakeRefView();
+    } else if(name==='editRefRevert'){ if(b.path) delete fakeWg.refQueued[b.path]; else fakeWg.refQueued={}; out=fakeRefView(); }
+    else if(name==='editPending'){
+      out=Object.keys(fakeWg.queued).length?
+        [{tag:'LIGH', type:'Light', id:'lamp_lit', whole:null, changes:Object.entries(fakeWg.queued).map(([path,value])=>({path,value}))}] : [];
+      for(const m of Object.values(fakeWg.made))
+        out.push({tag:m.tag, type:'Light', id:m.id, whole:null, made:{source:'Lamp.esm', name:'Lamp', mesh:'x\\lamp.nif'}, changes:[]});
+      if(fakeWg.ref && Object.keys(fakeWg.refQueued).length)
+        out.push({tag:'', type:'Reference', id:fakeWg.ref.origin+':'+fakeWg.ref.refr+' in '+fakeWg.ref.cell, whole:null,
+                  ref:{cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fakeWg.ref.refr, plugins:fakeWg.ref.plugins||[]},
+                  changes:Object.entries(fakeWg.refQueued).map(([path,value])=>({path,value}))});
+      for(const n of Object.values(fakeWg.news))
+        out.push({tag:'', type:'NewReference', id:n.fields.id+' (new) in '+n.cell, whole:null,
+                  new:{cell:n.cell, uid:n.uid, id:n.fields.id, tag:n.tag, plugins:n.plugins||[]},
+                  changes:Object.entries(n.fields).map(([path,value])=>({path,value}))});
+    }
+    else if(name==='editReview'){ fakeWg.reviewed=true; res.writeHead(200); res.end('ok'); return; }
+    else { res.writeHead(404); res.end(); return; }
+    res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(out));
+  });
+});
+fakeServer.listen(0,'127.0.0.1');
 const {spawn}=require('child_process');
 const eng=spawn(process.env.WG_VIEW_SERVE||require('path').join(__dirname,'../../check-commands/target/release/wg-view-serve'+(process.platform==='win32'?'.exe':'')),[],{stdio:['pipe','pipe','inherit']});
 let nextId=1; const waiting=new Map(); let buf='';
@@ -53,7 +166,7 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtua
     w.__WG_VIEW__= MESH ? {cfg:CFG, meshView:true, extra:{meshes:[
         {path:'meshes/x/anim.nif', label:'Load order'},
         {path:path.join(__dirname,'fixture','Data Files','meshes','x','anim.nif'), label:'On disk'}]}}
-      : {cfg:CFG, cell:CELL};
+      : {cfg:CFG, cell:CELL, extra:{links:{}}};
     // No WebGL in jsdom (the viewport reports no context); 2D canvases get a no-op
     // context so map and swatch drawing run.
     const noop2d=()=>new Proxy({canvas:null},{get(t,k){ if(k in t) return t[k]; if(k==='getImageData'||k==='createImageData') return (x,y,wd,ht)=>({data:new Uint8ClampedArray(4*(wd||1)*(ht||1)),width:wd||1,height:ht||1}); if(k==='measureText') return ()=>({width:0}); if(/^create/.test(k)) return ()=>({addColorStop(){}}); return ()=>{}; }, set(t,k,v){ t[k]=v; return true; }});
@@ -240,6 +353,478 @@ async function tools(w, R, fail, done, sleep){
   const lo=C.ramp(0), hi=C.ramp(1);
   if(!(lo[1]>0.8 && hi[1]<0.1 && hi[0]>0.4)) fail('the heat ramp does not run yellow to red');
   done.push('land, links, heat');
+  // A teleporting door: "Go through" in the inspector and in the full help.
+  const Ori=w.eval('Ori');
+  const door=R.pickables.find(p=>p.door && p.door.cell);
+  if(!door) fail('no teleporting door among the pickables');
+  else{
+    await Ori.show(door);
+    if(!d.querySelector('#oriBody #oriDoorGo')) fail('the inspector has no Go through for '+door.id);
+    const tfh=d.getElementById('tfhPanel');
+    if(!tfh || tfh.hidden || !tfh.querySelector('#tfhDoorGo')) fail('the full help has no Go through for '+door.id);
+    Ori.hide();
+    done.push('door buttons');
+  }
+  await editor(w, R, fail, done, sleep);
+}
+
+/* The Editor's drag in the render window, with the pointer's rays stood in for: a slide
+   across the ground plane, a Shift-drag turn about Z, and F onto the ground. Each is
+   checked by what reaches the stand-in Wraithguard. */
+async function dragging(E, R, lamp, fail, sleep){
+  if(!E.selected()){ fail('the clicked object is not selectable for dragging'); return; }
+  const m=lamp.m, L=[m[3],m[7],m[11]], W=lamp.wpos.slice();
+  let ex=L[0];
+  const gz=R.groundZ;
+  R.pickAt=()=>{ const sel=E.selected(); return sel? sel.hit : lamp; };
+  R.rayAt=()=>({eye:[ex, L[1], L[2]+1000], dir:[0,0,-1]});
+  const sent=async()=>{
+    const n=fakeWg.posts.length;
+    for(let i=0;i<100 && !fakeWg.posts.slice(n).some(p=>p[0]==='editRefSet');i++) await sleep(30);
+    await sleep(60);
+    return fakeWg.posts.slice(n).filter(p=>p[0]==='editRefSet').map(p=>p[1]);
+  };
+  const near=(a,b)=>Math.abs(a-b)<0.05;
+  try{
+    const g=E.grab({clientX:10, clientY:10, shiftKey:false});
+    if(!g) fail('a press on the selected object does not grab it');
+    else{
+      ex=L[0]+100; g.move({clientX:60, clientY:10, shiftKey:false});
+      const posts=sent(); g.end({});
+      const t=(await posts).find(b=>b.path==='translation');
+      if(!t || !near(t.value[0], W[0]+100) || !near(t.value[1], W[1]) || !near(t.value[2], W[2]))
+        fail('the slide was not sent as the moved position: '+JSON.stringify(t)+' from '+JSON.stringify(W));
+      if(!(E.live.get(lamp.refKey.toLowerCase())||{}).translation) fail('the moved lamp is not drawn moved');
+      if(!E.editedCells.has('(9, 9)')) fail('the Cell View does not know the cell has a changed reference');
+    }
+    if(!E.selected()) await Ori.show(R.pickables.find(p=>p.refKey===lamp.refKey)||lamp);
+    ex=L[0];
+    const h=E.grab({clientX:10, clientY:10, shiftKey:true});
+    if(h){
+      h.move({clientX:110, clientY:10, shiftKey:true});
+      const posts=sent(); h.end({});
+      const r=(await posts).find(b=>b.path==='rotation');
+      if(!r || !near(r.value[2], (h.state.sel.hit.rot||[0,0,0])[2]+100*E.TURN)) fail('the Shift-drag was not sent as a turn about Z: '+JSON.stringify(r));
+    } else fail('a Shift-press on the selected object does not grab it');
+    // F: onto the ground, its lowest point on it.
+    const sel=E.selected();
+    if(sel){
+      const hit=sel.hit, hm=hit.m;
+      R.groundZ=()=>hit.aabb.z0-500;
+      R.pickRay=()=>null;
+      const posts=sent();
+      if(!E.drop()) fail('F did not drop the selected object');
+      const t=(await posts).find(b=>b.path==='translation');
+      if(!t || !near(t.value[2], hit.wpos[2]-500) || !near(t.value[0], hit.wpos[0])) fail('F did not drop it onto the ground: '+JSON.stringify(t)+' from '+JSON.stringify(hit.wpos)+' z0 '+hit.aabb.z0+' local '+hm[11]);
+    } else fail('the object is not selected again after a move');
+  } finally {
+    delete R.pickAt; delete R.rayAt; delete R.pickRay; R.groundZ=gz;
+    await E.ask('editRefRevert', {cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fakeWg.ref.refr});
+    await E.refreshPending();
+  }
+}
+
+/* Q on the selected object: hide it (a layer, the render window's cell without it, Show
+   all bringing it back) and Duplicate (a new reference beside it). */
+async function quick(w, E, R, lamp, fail, sleep){
+  const d=w.document, CD=w.eval('CellData'), Ori=w.eval('Ori');
+  const key=lamp.refKey.toLowerCase();
+  for(let i=0;i<100 && !E.selected();i++){ const p=(R.pickables||[]).find(x=>x.refKey===lamp.refKey); if(p) await Ori.show(p); await sleep(30); }
+  if(!E.selected()){ fail('nothing selected for the Q menu'); return; }
+  E.quickMenu(20, 20);
+  const item=a=>d.querySelector('#edQ [data-q="'+a+'"]');
+  if(!item('hide') || !item('drop') || !item('ref')){ fail('the Q menu lacks its items'); return; }
+  item('hide').onclick();
+  const has=async()=>(await CD.loadCell({kind:'ext', x:9, y:9})).refs.some(r=>String(r.key).toLowerCase()===key);
+  if(await has()) fail('a hidden reference is still in the cell the render window draws');
+  E.showLayers();
+  const L=E.layers().find(l=>l.name==='Hidden');
+  if(!L || L.visible || !L.keys.includes(key)) fail('hiding did not make a hidden layer with it: '+JSON.stringify(E.layers()));
+  d.getElementById('edLayerAll').onclick();
+  if(!(await has())) fail('Show all did not bring the reference back');
+  d.querySelector('[data-ldrop="0"]').onclick();
+  if(E.layers().length) fail('removing the layer left it');
+  d.getElementById('edLayers').hidden=true;
+  // Duplicate: a new reference of the same record, 64 units along X.
+  for(let i=0;i<200 && !E.selected();i++){ const p=(R.pickables||[]).find(x=>x.refKey===lamp.refKey); if(p) await Ori.show(p); await sleep(30); }
+  const sel=E.selected();
+  if(!sel){ fail('the lamp is not selected again'); return; }
+  E.quickMenu(20, 20);
+  if(!item('dup')){ fail('the Q menu has no Duplicate'); return; }
+  const n0=fakeWg.posts.length;
+  item('dup').onclick();
+  for(let i=0;i<100 && !fakeWg.posts.slice(n0).some(p=>p[0]==='editPlace');i++) await sleep(30);
+  const pl=fakeWg.posts.slice(n0).find(p=>p[0]==='editPlace');
+  if(!pl || pl[1].id!==lamp.id || Math.abs(pl[1].translation[0]-(sel.hit.wpos[0]+64))>0.05) fail('Duplicate did not place one beside it: '+JSON.stringify(pl&&pl[1]));
+  for(let i=0;i<100 && !E.refRec;i++) await sleep(30);
+  await sleep(100);
+  for(const uid of Object.keys(fakeWg.news)) await E.ask('editNewRemove', {cell:'(9, 9)', uid});
+  await E.refreshPending();
+}
+
+/* Placing a record (the Object Window's right-click: at the view's pivot): what reaches
+   Wraithguard, the new reference drawn and pickable, its dialog, and taking it out. */
+async function placing(w, E, R, fail, sleep){
+  const d=w.document, CD=w.eval('CellData');
+  const row=E.rows.find(r=>r[0]==='lamp_lit');
+  if(!row){ fail('no lamp_lit row to place'); return; }
+  // What draws an object not yet placed: the engine's actors and models for the ids asked.
+  const ea=await w.eval('Engine').call('editor_actors',{ids:['lamp_lit','no_such_thing']});
+  if(!ea || !ea.models || !ea.models.lamp_lit || ea.models.no_such_thing || typeof ea.actors!=='object') fail('editor_actors answered '+JSON.stringify(ea));
+  const n0=fakeWg.posts.length;
+  const v=await E.placeAt({tag:'LIGH', id:'lamp_lit', model:row[2], defined:['Lamp.esm']}, null, null);
+  const sent=fakeWg.posts.slice(n0).find(p=>p[0]==='editPlace');
+  if(!sent || !v){ fail('placing did not reach Wraithguard'); return; }
+  const b=sent[1];
+  if(b.cell!=='(9, 9)' || b.tag!=='LIGH' || b.id!=='lamp_lit' || !Array.isArray(b.translation) || b.translation.length!==3 || !Array.isArray(b.plugins))
+    fail('the placement was sent wrongly: '+JSON.stringify(b));
+  if(!d.querySelector('#edDlgBody [data-vec="translation"]') || !/New reference/.test(d.getElementById('edDlgTitle').textContent))
+    fail('the new reference did not open in the dialog');
+  const key='new:'+v.uid;
+  const cell=await CD.loadCell({kind:'ext', x:9, y:9});
+  const drawn=cell.refs.find(r=>r.key===key);
+  if(!drawn || Math.abs(drawn.pos[0]-b.translation[0])>0.05) fail('the new reference is not in the cell the render window draws');
+  let pick=null;
+  for(let i=0;i<200 && !(pick=(R.pickables||[]).find(p=>p.refKey===key));i++) await sleep(30);
+  if(!pick) fail('the new reference is not drawn (not pickable)');
+  else{
+    w.eval('Ori').show(pick);
+    if(!E.selected() || E.selected().ref.uid!==v.uid) fail('picking the new reference does not select it');
+    for(let i=0;i<100 && !d.getElementById('edRefRevertAll');i++) await sleep(30);
+    d.getElementById('edRefRevertAll').onclick();
+    for(let i=0;i<100 && Object.keys(fakeWg.news).length;i++) await sleep(30);
+    for(let i=0;i<100 && E.liveNew.size;i++) await sleep(30);
+    if(Object.keys(fakeWg.news).length) fail('Remove from the patch did not reach Wraithguard');
+    if(E.liveNew.size) fail('the removed reference is still drawn');
+  }
+}
+
+/* The Editor mode (50_wg_editor.js): the Object Window and Cell View from the engine, the
+   record dialog and the pool from the stand-in Wraithguard above. */
+async function editor(w, R, fail, done, sleep){
+  const E=w.eval('WgEditor'), d=w.document;
+  const port=fakeServer.address().port;
+  const links=w.__WG_VIEW__.extra.links;
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editNewResponse','editCopyTopic','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
+  await E.enter();
+  if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
+  if(!E.tags.some(t=>t[0]==='LIGH')) fail('the Object Window has no Light tab: '+JSON.stringify(E.tags));
+  d.querySelector('#edTabs [data-tag="LIGH"]').onclick();
+  for(let i=0;i<100 && !E.rows.some(r=>r[0]==='lamp_lit');i++) await sleep(30);
+  const rows=()=>d.querySelectorAll('#edTable tbody tr').length;
+  if(rows()<8) fail('the Light tab lists '+rows()+' rows');
+  E.filter='lamp_lit'; E.drawRows();
+  if(rows()!==1) fail('the filter left '+rows()+' rows');
+  // The Cell View: the cells, and a cell's references.
+  if(!(E.cells||[]).length) fail('the Cell View has no cells');
+  await E.loadRefs('9,9');
+  if(!d.querySelectorAll('#edRefList tbody tr').length) fail('the Cell View lists no references in 9,9');
+  // The record dialog: from Wraithguard, a change sent and marked, a refusal shown.
+  d.querySelector('#edTable tbody tr').ondblclick();
+  for(let i=0;i<100 && !d.querySelector('#edDlgBody [data-path="data.radius"]');i++) await sleep(30);
+  const radius=d.querySelector('#edDlgBody [data-path="data.radius"]');
+  if(!radius) fail('the record dialog did not fill in');
+  else{
+    if(!d.querySelector('#edDlgBody [data-path="id"]').disabled) fail('the id is editable');
+    radius.value='512'; radius.onchange();
+    for(let i=0;i<100 && !E.edited.size;i++) await sleep(30);
+    const sent=fakeWg.posts.find(p=>p[0]==='editSet');
+    if(!sent || sent[1].value!==512 || sent[1].path!=='data.radius' || sent[1].tag!=='LIGH') fail('the change was not sent: '+JSON.stringify(sent));
+    if(!E.isEdited('lamp_lit')) fail('the Object Window does not mark the changed record');
+    // Patch only: the Object Window narrowed to what the patch changes, the tab counting it.
+    E.filter=''; d.getElementById('edPatchOnly').checked=true; d.getElementById('edPatchOnly').onchange({target:d.getElementById('edPatchOnly')});
+    const shown=[...d.querySelectorAll('#edTable tbody tr')].map(tr=>tr.dataset.id);
+    if(shown.length!==1 || shown[0]!=='lamp_lit') fail('Patch only shows '+JSON.stringify(shown));
+    if(!d.querySelector('#edTabs [data-tag="LIGH"].edited')) fail('the Light tab does not count the changed record');
+    d.getElementById('edPatchOnly').checked=false; d.getElementById('edPatchOnly').onchange({target:d.getElementById('edPatchOnly')});
+    E.filter='lamp_lit'; E.drawRows();
+    if(!d.querySelector('#edDlgBody tr.edited [data-revert="data.radius"]')) fail('the dialog does not show the waiting change');
+    await E.showPending();
+    if(!/data\.radius/.test(d.getElementById('edPendBody').textContent)) fail('the pending list does not have the change');
+    d.getElementById('edReview').onclick(); for(let i=0;i<50 && !fakeWg.reviewed;i++) await sleep(30);
+    if(!fakeWg.reviewed) fail('Review did not reach Wraithguard');
+    await E.change('editRevert', {path:'data.radius'});
+    if(E.edited.size) fail('the revert left the record marked');
+    // A list field as a table: a count changed, an entry added and one removed, each
+    // sent as the whole list.
+    {
+      const lastInv=()=>(fakeWg.posts.filter(p=>p[0]==='editSet' && p[1].path==='inventory').pop()||[0,{}])[1].value;
+      const n0=fakeWg.posts.length;
+      const c=d.querySelector('#edDlgBody [data-lpath="inventory"][data-r="0"][data-c="0"]');
+      if(!c) fail('the inventory is not a table');
+      else{
+        c.value='7'; c.onchange();
+        for(let i=0;i<100 && fakeWg.posts.length===n0;i++) await sleep(30);
+        if(JSON.stringify(lastInv())!==JSON.stringify([[7,'gold_001'],[1,'torch']])) fail('the changed count was not sent as the list: '+JSON.stringify(lastInv()));
+        await sleep(100);
+        d.querySelector('#edDlgBody [data-ladd="inventory"]').onclick();
+        for(let i=0;i<100 && (lastInv()||[]).length!==3;i++) await sleep(30);
+        if((lastInv()||[]).length!==3) fail('Add did not send a longer list');
+        await sleep(100);
+        d.querySelector('#edDlgBody [data-ldel="inventory"][data-r="1"]').onclick();
+        for(let i=0;i<100 && (lastInv()||[]).length!==2;i++) await sleep(30);
+        const v=lastInv();
+        if(!v || v.length!==2 || v[0][0]!==7 || v[1][1]!=='torch') fail('removing an entry sent '+JSON.stringify(v));
+        await E.change('editRevert', {path:'inventory'});
+      }
+    }
+    // A list of groups (dialogue conditions): a column per field, a nested value as JSON.
+    {
+      const lastF=()=>(fakeWg.posts.filter(p=>p[0]==='editSet' && p[1].path==='filters').pop()||[0,{}])[1].value;
+      const fn=d.querySelector('#edDlgBody [data-lpath="filters"][data-r="0"][data-c="function"]');
+      const val=d.querySelector('#edDlgBody [data-lpath="filters"][data-r="0"][data-c="value"]');
+      if(!fn || !val) fail('dialogue conditions are not a table of fields');
+      else{
+        if(!/function/.test(d.querySelector('#edDlgBody .edList thead').textContent)) fail('the conditions table has no field names');
+        val.value='{"Integer":9}'; val.onchange();
+        for(let i=0;i<100 && !lastF();i++) await sleep(30);
+        const v=lastF();
+        if(!v || v[0].function!=='PcLevel' || v[0].value.Integer!==9) fail('the condition was not sent as a group: '+JSON.stringify(v));
+        await E.change('editRevert', {path:'filters'});
+      }
+    }
+    // The Use Report: records and cells, an overridden one greyed, a record opening.
+    d.getElementById('edUses').onclick();
+    for(let i=0;i<100 && !d.querySelector('#edUsesBody tr[data-u]');i++) await sleep(30);
+    const urows=[...d.querySelectorAll('#edUsesBody tr[data-u]')];
+    if(urows.length!==3) fail('the Use Report lists '+urows.length+' uses');
+    else{
+      if(!urows[1].classList.contains('from')) fail('an overridden use is not greyed');
+      if(!/3 live uses, 2 placed/.test(d.getElementById('edUsesBody').textContent)) fail('the Use Report has no summary');
+      // Replace with: a refused id marked, an accepted one sent.
+      const ri=d.getElementById('edReplId');
+      if(!ri) fail('the Use Report has no Replace with');
+      else{
+        ri.value='nothing'; await d.getElementById('edRepl').onclick();
+        if(!ri.classList.contains('bad')) fail('a refused replacement is not marked');
+        ri.value='lamp_dim'; await d.getElementById('edRepl').onclick();
+        const rp=fakeWg.posts.filter(p=>p[0]==='editReplace').pop();
+        if(!rp || rp[1].newId!=='lamp_dim' || rp[1].id!=='lamp_lit' || rp[1].tag!=='LIGH') fail('Replace with was not sent: '+JSON.stringify(rp));
+      }
+      urows[0].onclick();
+      for(let i=0;i<100 && !fakeWg.posts.some(p=>p[0]==='editRecord' && p[1].id==='l_lamps');i++) await sleep(30);
+      if(!fakeWg.posts.some(p=>p[0]==='editRecord' && p[1].id==='l_lamps' && p[1].tag==='LEVI')) fail('a use does not open its record');
+      for(let i=0;i<100 && !d.getElementById('edDelete');i++) await sleep(30);
+    }
+    d.getElementById('edUsesPanel').hidden=true;
+    // Delete record: the DELETED flag, and Undelete takes it off.
+    d.getElementById('edDelete').onclick();
+    for(let i=0;i<100 && !/DELETED/.test(fakeWg.queued.flags||'');i++) await sleep(30);
+    if(!/DELETED/.test(fakeWg.queued.flags||'')) fail('Delete record did not send the DELETED flag');
+    for(let i=0;i<100 && !/Undelete/.test((d.getElementById('edDelete')||{}).textContent||'');i++) await sleep(30);
+    d.getElementById('edDelete').onclick();
+    for(let i=0;i<100 && /DELETED/.test(fakeWg.queued.flags||'');i++) await sleep(30);
+    if(/DELETED/.test(fakeWg.queued.flags||'')) fail('Undelete did not take the flag off');
+    await E.change('editRevert', {});
+    // Make a copy as: a record of the patch's own, in the Object Window, then removed.
+    d.getElementById('edCopyId').value='lamp_copy';
+    await d.getElementById('edCopy').onclick();
+    const dup=fakeWg.posts.filter(p=>p[0]==='editDuplicate').pop();
+    if(!dup || dup[1].newId!=='lamp_copy' || dup[1].id!=='lamp_lit') fail('the copy was not asked for: '+JSON.stringify(dup));
+    if(!/lamp_copy/.test(d.getElementById('edDlgTitle').textContent)) fail('the dialog does not show the copy');
+    E.filter='lamp'; E.drawRows();
+    if(![...d.querySelectorAll('#edTable tbody tr')].some(tr=>tr.dataset.id==='lamp_copy')) fail('the Object Window does not list the copy');
+    d.getElementById('edCopyId').value='lamp_lit';
+    await d.getElementById('edCopy').onclick();
+    if(!d.getElementById('edCopyId').classList.contains('bad')) fail('a taken id is not refused');
+    d.getElementById('edRevertAll').onclick();
+    for(let i=0;i<100 && Object.keys(fakeWg.made).length;i++) await sleep(30);
+    if(Object.keys(fakeWg.made).length) fail('Remove from the patch did not reach Wraithguard');
+    for(let i=0;i<100 && E.made.length;i++) await sleep(30);
+    if(E.made.length) fail('the removed copy is still listed');
+    E.filter='lamp_lit'; E.drawRows();
+    // Rename to: a copy, then the uses repointed from the original to it.
+    {
+      await E.openRecord('LIGH', 'lamp_lit', ['Lamp.esm']);
+      d.getElementById('edCopyId').value='lamp_renamed';
+      const n0=fakeWg.posts.length;
+      await E.renameRecord(Object.assign(fakeView(), {tag:'LIGH'}));
+      const sent=fakeWg.posts.slice(n0).map(p=>p[0]+':'+(p[1].newId||''));
+      if(sent.indexOf('editDuplicate:lamp_renamed')<0 || sent.indexOf('editReplace:lamp_renamed')<sent.indexOf('editDuplicate:lamp_renamed')) fail('Rename did not copy then replace: '+JSON.stringify(sent));
+      const rp=fakeWg.posts.slice(n0).find(p=>p[0]==='editReplace');
+      if(!rp || rp[1].id!=='lamp_lit') fail('Rename replaced from the wrong record: '+JSON.stringify(rp));
+      delete fakeWg.made.lamp_renamed;
+      await E.refreshPending();
+      await E.openRecord('LIGH', 'lamp_lit', ['Lamp.esm']);
+    }
+    // New: a blank record of the tab's type, made by the patch, then taken out again.
+    {
+      d.getElementById('edNewId').value='lamp_new';
+      const nv=await E.insertRecord();
+      const ins=fakeWg.posts.filter(p=>p[0]==='editInsert').pop();
+      if(!nv || !ins || ins[1].tag!=='LIGH' || ins[1].newId!=='lamp_new') fail('New did not ask for a record: '+JSON.stringify(ins));
+      if(!/lamp_new/.test(d.getElementById('edDlgTitle').textContent)) fail('the new record is not in the dialog');
+      d.getElementById('edNewId').value='lamp_lit';
+      await E.insertRecord();
+      if(!d.getElementById('edNewId').classList.contains('bad')) fail('a taken id for New is not marked');
+      d.getElementById('edRevertAll').onclick();
+      for(let i=0;i<100 && fakeWg.made.lamp_new;i++) await sleep(30);
+      if(fakeWg.made.lamp_new) fail('the new record was not removed');
+      await E.refreshPending();
+    }
+  }
+  // The reference dialog, from the Cell View's right-click: what it asks Wraithguard
+  // with, a nudge sent as the whole position, and the render window's copy of the cell.
+  {
+    const x=E.refs[0], at=x[0].lastIndexOf(':');
+    fakeWg.refBase={id:x[1], pos:x[3].slice()};
+    d.querySelector('#edRefList tbody tr').oncontextmenu({preventDefault(){}, shiftKey:false});
+    for(let i=0;i<100 && !d.querySelector('#edDlgBody [data-vec="translation"]');i++) await sleep(30);
+    const asked=fakeWg.posts.filter(p=>p[0]==='editRef').pop();
+    if(!asked) fail('the reference dialog did not ask Wraithguard');
+    else{
+      const a=asked[1];
+      if(a.cell!=='(9, 9)' || a.origin!==x[0].slice(0,at) || a.refr!==+x[0].slice(at+1) || !Array.isArray(a.plugins) || !a.plugins.length)
+        fail('the reference was asked for wrongly: '+JSON.stringify(a));
+      const plus=d.querySelector('#edDlgBody [data-nudge="translation"][data-i="0"][data-s="1"]');
+      if(!plus) fail('the reference dialog has no nudge');
+      else{
+        plus.onclick({shiftKey:false});
+        for(let i=0;i<100 && !E.live.size;i++) await sleep(30);
+        const sent=fakeWg.posts.filter(p=>p[0]==='editRefSet').pop();
+        if(!sent || sent[1].path!=='translation' || Math.abs(sent[1].value[0]-(x[3][0]+E.NUDGE))>0.11) fail('the nudge was not sent as the position: '+JSON.stringify(sent));
+        const key=x[0].toLowerCase();
+        const CD=w.eval('CellData');
+        const cell=await CD.loadCell({kind:'ext', x:9, y:9});
+        const moved=cell.refs.find(r=>String(r.key).toLowerCase()===key);
+        if(!moved || !moved.edited || Math.abs(moved.pos[0]-(x[3][0]+E.NUDGE))>0.11) fail('the render window does not draw the moved reference: '+JSON.stringify(moved));
+        const cached=[...CD.cache.values()].find(c=>c.refs && c.refs.some(r=>String(r.key).toLowerCase()===key));
+        if(cached && cached.refs.find(r=>String(r.key).toLowerCase()===key).edited) fail('the overlay changed the cached cell');
+        const del=d.querySelector('#edDlgBody [data-rpath="deleted"]');
+        del.checked=true; del.onchange();
+        for(let i=0;i<100 && !(E.live.get(key)||{}).deleted;i++) await sleep(30);
+        if((await CD.loadCell({kind:'ext', x:9, y:9})).refs.some(r=>String(r.key).toLowerCase()===key)) fail('a deleted reference is still drawn');
+        const scale=d.querySelector('#edDlgBody [data-rpath="scale"]');
+        scale.value='3'; scale.onchange(); await sleep(150);
+        if(!d.querySelector('#edDlgBody [data-rpath="scale"]').classList.contains('bad')) fail('a refused scale is not marked');
+        // A teleport door: switched on, a cell typed, switched off - the whole
+        // destination each time, then none.
+        const lastSet=()=>fakeWg.posts.filter(p=>p[0]==='editRefSet').pop()[1];
+        const door=()=>d.querySelector('#edDlgBody [data-door="on"]');
+        door().checked=true; door().onchange();
+        for(let i=0;i<100 && lastSet().path!=='destination';i++) await sleep(30);
+        let v=lastSet().value;
+        if(!v || !Array.isArray(v.translation) || v.translation.length!==3 || v.cell!=='') fail('switching teleport on did not send a destination: '+JSON.stringify(v));
+        await sleep(100);
+        const cellIn=d.querySelector('#edDlgBody [data-door="cell"]');
+        if(!cellIn || d.querySelector('#edDlgBody [data-door-box]').hidden) fail('the destination inputs are not shown');
+        else{
+          cellIn.value='Lamp Cellar'; cellIn.onchange();
+          for(let i=0;i<100 && (lastSet().value||{}).cell!=='Lamp Cellar';i++) await sleep(30);
+          if((lastSet().value||{}).cell!=='Lamp Cellar') fail('the destination cell was not sent');
+          const lr=CD && (await CD.loadCell({kind:'ext', x:9, y:9})).refs.find(r=>String(r.key).toLowerCase()===key);
+          if(lr && !(lr.door && lr.door.cell==='Lamp Cellar')) fail('the render window does not carry the new destination');
+          await sleep(100);
+          door().checked=false; door().onchange();
+          for(let i=0;i<100 && lastSet().value!==null;i++) await sleep(30);
+          if(lastSet().value!==null) fail('switching teleport off did not clear the destination');
+        }
+        await E.showPending();
+        if(!d.querySelector('#edPendBody [data-ref]')) fail('the pending list has no reference change to open');
+        await E.refChange('editRefRevert', {});
+        if(E.live.size) fail('the revert left the reference drawn moved');
+      }
+    }
+  }
+  // The dialogue window: topics by kind, a topic's responses in order, one opening.
+  {
+    await E.showDialogue();
+    const tops=[...d.querySelectorAll('#edDialTopics tr[data-topic]')].map(tr=>tr.dataset.topic);
+    if(JSON.stringify(tops)!=='["Rumors"]') fail('the Topic tab lists '+JSON.stringify(tops));
+    d.querySelector('#edDialTopics tr[data-topic]').onclick();
+    for(let i=0;i<100 && !d.querySelector('#edDialResp tr[data-r]');i++) await sleep(30);
+    const rows=d.querySelectorAll('#edDialResp tr[data-r]');
+    if(rows.length!==2) fail('the topic shows '+rows.length+' responses');
+    else{
+      if(!rows[1].querySelector('.bad')) fail('an orphaned response is not marked');
+      rows[0].ondblclick();
+      for(let i=0;i<100 && !fakeWg.posts.some(p=>p[0]==='editRecord' && p[1].tag==='INFO');i++) await sleep(30);
+      const op=fakeWg.posts.filter(p=>p[0]==='editRecord' && p[1].tag==='INFO').pop();
+      if(!op || op[1].id!=='101' || JSON.stringify(op[1].plugins)!=='["Lamp.esm"]') fail('a response does not open in the record dialog: '+JSON.stringify(op));
+    }
+    // A new response after the first, and one at the top.
+    d.querySelector('#edDialResp [data-after="101"]').onclick({stopPropagation(){}});
+    for(let i=0;i<100 && !fakeWg.newResp;i++) await sleep(30);
+    if(!fakeWg.newResp || fakeWg.newResp.topic!=='Rumors' || fakeWg.newResp.after!=='101') fail('adding a response after another sent '+JSON.stringify(fakeWg.newResp));
+    for(let i=0;i<100 && !/777/.test(d.getElementById('edDlgTitle').textContent);i++) await sleep(30);
+    if(!/777/.test(d.getElementById('edDlgTitle').textContent)) fail('the new response is not in the record dialog');
+    fakeWg.newResp=null;
+    for(let i=0;i<100 && !d.getElementById('edRespTop');i++) await sleep(30);
+    d.getElementById('edRespTop').onclick();
+    for(let i=0;i<100 && !fakeWg.newResp;i++) await sleep(30);
+    if(!fakeWg.newResp || fakeWg.newResp.after!=='') fail('Add at top sent '+JSON.stringify(fakeWg.newResp));
+    d.querySelector('#edDialTabs [data-kind="Greeting"]').onclick();
+    if(d.querySelector('#edDialTopics tr[data-topic]').dataset.topic!=='Greeting 0') fail('the Greeting tab does not list greetings');
+    // Copy topic as: a taken name refused, a new one sent and opened.
+    d.querySelector('#edDialTabs [data-kind="Topic"]').onclick();
+    await E.openTopic('Rumors');
+    d.getElementById('edTopicCopyId').value='Greeting 0';
+    await E.copyTopic('Rumors');
+    if(!d.getElementById('edTopicCopyId').classList.contains('bad')) fail('a taken topic name is not refused');
+    d.getElementById('edTopicCopyId').value='Rumors Copy';
+    const ct=await E.copyTopic('Rumors');
+    if(!ct || !fakeWg.copied || fakeWg.copied.topic!=='Rumors' || fakeWg.copied.newId!=='Rumors Copy') fail('Copy topic as sent '+JSON.stringify(fakeWg.copied));
+    // A journal: stages by index, the quest's name over them.
+    d.querySelector('#edDialTabs [data-kind="Journal"]').onclick();
+    await E.openTopic('MS_Lamp');
+    const firsts=[...d.querySelectorAll('#edDialResp tr[data-r] td:nth-child(2)')].map(td=>td.textContent);
+    if(!/^0/.test(firsts[0]||'') || !/^100/.test(firsts[1]||'') || !/Finished/.test(firsts[1]||'')) fail('the journal stages are not by index: '+JSON.stringify(firsts));
+    if(!/Quest: The Lamp/.test(d.getElementById('edDialResp').textContent)) fail('the quest has no name over its stages');
+    d.getElementById('edDial').hidden=true;
+  }
+  // The Script Edit window: the source, checked as typed, the listing, and saving.
+  {
+    const v=await E.openScript('SCPT', 'payme', null);
+    const ta=d.getElementById('edScriptText');
+    if(!v || !ta || ta.value!=='begin payme\nend') fail('the Script Edit window did not open with the source');
+    else{
+      if(d.getElementById('edScriptListing').textContent!=='0000  Return') fail('the compiled listing is not shown');
+      if(!/Morrowind\.exe/.test(d.getElementById('edScriptNote').textContent)) fail('the window does not say the compiled data is not rebuilt');
+      ta.value='begin payme\nif oops\nend'; ta.oninput();
+      for(let i=0;i<100 && !d.querySelector('#edScriptFind .it.bad');i++) await sleep(30);
+      if(!d.querySelector('#edScriptFind .it.bad')) fail('a finding is not shown as it is typed');
+      ta.value='begin payme\nset x to 1\nend'; await E.checkScript();
+      const n0=fakeWg.posts.length;
+      await E.saveScript();
+      const sv=fakeWg.posts.slice(n0).find(p=>p[0]==='editSet');
+      if(!sv || sv[1].path!=='text' || sv[1].value!=='begin payme\nset x to 1\nend' || sv[1].tag!=='SCPT') fail('saving did not send the text: '+JSON.stringify(sv));
+      delete fakeWg.queued.text;
+    }
+    d.getElementById('edScript').hidden=true;
+  }
+  // The inspector's "Edit record" and "Edit reference" for a clicked object.
+  const Ori=w.eval('Ori'), lamp=R.pickables.find(p=>p.id==='lamp_lit');
+  if(lamp){
+    await Ori.show(lamp);
+    for(let i=0;i<100 && !d.getElementById('edOriEdit');i++) await sleep(30);
+    if(!d.getElementById('edOriEdit')) fail('the inspector has no Edit record in the Editor');
+    if(!d.getElementById('edOriRef')) fail('the inspector has no Edit reference in the Editor');
+    await dragging(E, R, lamp, fail, sleep);
+    await quick(w, E, R, lamp, fail, sleep);
+    Ori.hide();
+    await placing(w, E, R, fail, sleep);
+  }
+  // The Lua panel: the engine's own scan (luacore over the overlay). The fixture has no
+  // scripts, so the answer is an empty one with the release it checked against.
+  const lua=await E.showLua();
+  if(!lua || !Array.isArray(lua.scripts) || !Array.isArray(lua.findings) || typeof lua.report!=='string' || !lua.openmw)
+    fail('lua_scan answered '+JSON.stringify(lua));
+  if(!d.getElementById('edLuaPanel') || d.getElementById('edLuaPanel').hidden) fail('the Lua panel did not open');
+  // The window furniture (51_wg_editor_ui.js): the toolbar holds the window buttons, the
+  // dialogs fold their fields into sections, a panel docks and floats again.
+  if(!d.querySelector('#edTools #edPendBtn') || !d.querySelector('#edTools [data-tb="xform"]')) fail('the Editor toolbar is missing its buttons');
+  if(!d.querySelector('#edTools #edPathBtn') || w.eval('typeof WgPath')!=='object') fail('the Editor toolbar has no Path grid mode');
+  if(w.eval('typeof WgTools.ovl.navmesh')!=='boolean') fail('the Tools overlays have no Navmesh');
+  if(!d.querySelector('#edDlgBody details.edSec')) fail('the dialog has no field sections');
+  const UI=w.eval('WgUI'), lp=d.getElementById('edLuaPanel');
+  UI.place(lp, 'right');
+  if(!lp.parentNode || lp.parentNode.id!=='edRail') fail('a panel did not dock on the right');
+  UI.place(lp, 'float');
+  if(!lp.parentNode || lp.parentNode.id!=='vpwrap') fail('a docked panel did not float again');
+  E.leave();
+  if(d.body.classList.contains('wgEditMode')) fail('leaving the Editor left the page in it');
+  done.push('editor');
 }
 
 // ORI: a few seconds before the report, inspect the first pickable object.

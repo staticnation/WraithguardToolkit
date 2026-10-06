@@ -3,6 +3,9 @@
    The full help - Wraithguard. The game's Toggle Full Help, and more, on the right of the
    viewport while the object inspector (24_ori.js) is on the left:
 
+   - for a door that teleports, where it leads and a "Go through" button - the old object
+     dialogue's green "Open cell door leads to", which this panel replaced (the inspector
+     has one too, but this panel is drawn over it when the window is narrow);
    - the reference's own fields: its owner (an NPC, or a faction and the rank that may
      take it), the global that makes it owned, its lock, key and trap, soul, charge, uses
      and count;
@@ -23,7 +26,7 @@
    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
 const Tfh={
-  el:null, _r:null,
+  el:null, _r:null, _hit:null,
 
   box(){
     if(this.el) return this.el;
@@ -45,11 +48,12 @@ const Tfh={
     d.hidden=false;
   },
 
-  /** Fills the panel from the `ori` answer; hidden when there is nothing to say. */
-  show(r){
-    this._r=r;
+  /** Fills the panel from the `ori` answer and the viewport pick it is for; hidden when
+      there is nothing to say. */
+  show(r, hit){
+    this._r=r; this._hit=hit||null;
     const d=this.box();
-    const h=this.render(r);
+    const h=this.render(r, hit);
     if(!h){ this.hide(); return; }
     d.querySelector('#tfhTitle').textContent=((r.base&&r.base.name)||r.name||r.id||'Full help');
     const body=d.querySelector('#tfhBody');
@@ -70,6 +74,8 @@ const Tfh={
       }catch(e){ box.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; }
       dlg.hidden=true;
     };
+    const go=body.querySelector('#tfhDoorGo');
+    if(go) go.onclick=()=>{ Ori.hide(); goThroughDoor(hit); };
     const view=body.querySelector('#tfhView');
     if(view) view.onclick=()=>this.viewContents(r);
   },
@@ -112,9 +118,9 @@ const Tfh={
   /** One item as a tile: its icon, its count, its name; a leveled list dashed. */
   tile(it){
     const title=(it.name? it.name+' - ' : '')+it.id+(it.tag? ' ('+it.tag+')' : '')+
-      (it.count<0? ' - restocks '+(-it.count) : '')+(Ori.recordLink()? '\nClick: show in Wraithguard\'s conflict viewer' : '');
+      (it.count<0? ' - restocks '+(-it.count) : '')+(Ori.linked()? '\nClick: '+Ori.linkNote().toLowerCase() : '');
     const n=it.count==null? '' : it.count<0? '↻'+(-it.count) : (it.count>1? String(it.count) : '');
-    return '<div class="tfhitem'+(it.list? ' list' : '')+'"'+(Ori.recordLink()? ' data-rec="'+escHtml(it.id)+'" data-tag="'+escHtml(it.tag||'')+'"' : '')+
+    return '<div class="tfhitem'+(it.list? ' list' : '')+'"'+(Ori.linked()? ' data-rec="'+escHtml(it.id)+'" data-tag="'+escHtml(it.tag||'')+'"' : '')+
       ' title="'+escHtml(title)+'">'+
       (it.icon? '<img data-icon="'+escHtml(it.icon)+'" alt="">'
        : it.model? '<img data-model="'+escHtml(it.model)+'" alt="">'
@@ -138,7 +144,7 @@ const Tfh={
     return h;
   },
 
-  render(r){
+  render(r, hit){
     const row=(k,v)=>'<div class="orirow"><span class="k">'+escHtml(k)+'</span><span class="v">'+v+'</span></div>';
     const rd=r.refData||{}, b=r.base||{};
     const id=(t,x)=>Ori.recId(t,x);
@@ -169,6 +175,10 @@ const Tfh={
     if((b.flags||[]).length) base+=row('Flags', escHtml(b.flags.join(', ')));
     const items=b.items||[];
     let h='';
+    const door=hit && typeof doorTarget==='function'? doorTarget(hit.door) : null;
+    if(door)
+      h+='<div class="orisec">Door</div>'+row('Leads to', escHtml(door.label||door.name||'exterior'))+
+         '<div style="margin-top:4px"><button class="btn sm" id="tfhDoorGo" title="Open the cell this door leads to, at its landing marker (Shift+click on a door does the same)">Go through</button></div>';
     if(own) h+='<div class="orisec">Reference</div>'+own;
     if(base) h+='<div class="orisec">'+escHtml(b.tag||'Record')+'</div>'+base;
     if((b.services||[]).length) h+='<div class="orisec">Services</div><div>'+escHtml(b.services.join(', '))+'</div>';

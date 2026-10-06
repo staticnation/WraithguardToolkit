@@ -629,7 +629,11 @@ def _struct_from_json(cls: type, obj: dict[str, Any]) -> Any:  # noqa: ANN401 - 
         if key not in obj:
             continue
         if fname in vec_blobs:
-            kwargs[fname] = _unpack_vec(_unb64zstd(obj[key]), vec_blobs[fname])
+            raw = obj[key]
+            if isinstance(raw, list):  # the editor's form: the numbers themselves
+                kwargs[fname] = bytes(raw) if vec_blobs[fname] == "u8" else [int(v) for v in raw]
+            else:
+                kwargs[fname] = _unpack_vec(_unb64zstd(raw), vec_blobs[fname])
         else:
             kwargs[fname] = _from_json_value(obj[key], hints.get(fname, Any))
     return cls(**kwargs)

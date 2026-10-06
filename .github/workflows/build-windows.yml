@@ -30,7 +30,10 @@ on:
         required: false
         default: ""
   push:
+    # A `v*` tag cuts a release (Release steps are tag-gated). A `build/**` branch is a
+    # dry run: it builds and uploads the binary as an artifact but attaches nothing.
     tags: ["v*"]
+    branches: ["build/**"]
 
 permissions:
   contents: write # create/attach to a Release on tag builds

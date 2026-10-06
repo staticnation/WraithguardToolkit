@@ -107,6 +107,47 @@ impl Index {
     }
 }
 
+impl Index {
+    /// Writes every file whose name starts with `prefix` and ends with one of
+    /// `suffixes` (none: any) under `dest`, its `/` parts as folders. A name that would
+    /// climb out of `dest` (`..`, a drive, a root) is skipped. How many were written.
+    pub fn extract(&self, path: &Path, dest: &Path, prefix: &str, suffixes: &[String]) -> io::Result<usize> {
+        let prefix = normalise(prefix);
+        let mut file = File::open(path)?;
+        let mut n = 0;
+        for name in &self.names {
+            if !name.starts_with(&prefix) || !(suffixes.is_empty() || suffixes.iter().any(|s| name.ends_with(s.as_str()))) {
+                continue;
+            }
+            let parts: Vec<&str> = name.split('/').filter(|p| !p.is_empty()).collect();
+            if parts.iter().any(|p| *p == "." || *p == ".." || p.contains(':') || p.contains('\\')) {
+                continue;
+            }
+            let span = self.spans[name];
+            file.seek(SeekFrom::Start(span.offset))?;
+            let mut data = vec![0u8; span.size as usize];
+            file.read_exact(&mut data)?;
+            let out = parts.iter().fold(dest.to_path_buf(), |p, part| p.join(part));
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&out, &data)?;
+            n += 1;
+        }
+        Ok(n)
+    }
+}
+
+/// `bsa_extract(archive, dest, prefix="", suffixes=None)`: the archive's files under
+/// `prefix` (with one of `suffixes`) written beneath `dest`, Python released; how many.
+#[pyfunction]
+#[pyo3(signature = (archive, dest, prefix=String::new(), suffixes=None))]
+fn bsa_extract(py: Python<'_>, archive: PathBuf, dest: PathBuf, prefix: String, suffixes: Option<Vec<String>>) -> PyResult<usize> {
+    let suffixes: Vec<String> = suffixes.unwrap_or_default().iter().map(|s| s.to_lowercase()).collect();
+    py.detach(|| Index::open(&archive).and_then(|i| i.extract(&archive, &dest, &prefix, &suffixes)))
+        .map_err(|e| py_err(&archive, e))
+}
+
 /// An error for Python: bad data is ValueError, anything else OSError.
 fn py_err(path: &Path, e: io::Error) -> PyErr {
     let msg = format!("{}: {}", path.display(), e);
@@ -151,6 +192,22 @@ impl Archive {
     }
 }
 
+/// `bsa_bytes([(name, data), ...])`: a Morrowind archive holding those files, as the tes3
+/// crate's builder writes one. ValueError for a name it refuses.
+#[pyfunction]
+fn bsa_bytes<'py>(py: Python<'py>, files: Vec<(String, Vec<u8>)>) -> PyResult<Bound<'py, PyBytes>> {
+    let built = py
+        .detach(|| {
+            let mut b = tes3::bsa::Builder::new();
+            for (name, data) in files {
+                b.insert(name, data)?;
+            }
+            b.save_bytes()
+        })
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    Ok(PyBytes::new(py, &built))
+}
+
 #[pyfunction(name = "bsa_normalise")]
 fn py_normalise(name: &str) -> String {
     normalise(name)
@@ -158,6 +215,8 @@ fn py_normalise(name: &str) -> String {
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Archive>()?;
+    m.add_function(wrap_pyfunction!(bsa_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(bsa_extract, m)?)?;
     m.add_function(wrap_pyfunction!(py_normalise, m)?)?;
     Ok(())
 }
@@ -190,6 +249,22 @@ mod tests {
         std::fs::write(&p, b"gone").unwrap();
         assert!(ix.read(&p, "textures/a.dds").is_err());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extracts_a_prefix() {
+        let bytes = build(&[("scripts\\a.lua", b"x"), ("scripts\\sub\\b.TL", b"yy"), ("meshes\\m.nif", b"z")]);
+        let dir = std::env::temp_dir().join(format!("wg_bsa_x_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let arc = dir.join("t.bsa");
+        std::fs::write(&arc, &bytes).unwrap();
+        let idx = Index::open(&arc).unwrap();
+        let n = idx.extract(&arc, &dir.join("out"), "Scripts/", &[".lua".into(), ".tl".into()]).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(std::fs::read(dir.join("out/scripts/sub/b.tl")).unwrap(), b"yy");
+        assert!(!dir.join("out/meshes").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

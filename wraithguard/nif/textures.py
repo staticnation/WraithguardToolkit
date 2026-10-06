@@ -139,23 +139,18 @@ class TextureResolver:
 
     def _build(self) -> None:
         """Walk each folder's texture directory once."""
+        from wraithguard.fsio import walk_files
+
         indexed = 0
-        for folder in self._dirs:
-            root = _texture_root(folder)
-            if root is None:
-                continue
-            try:
-                for path in root.rglob("*"):
-                    if not path.is_file():
-                        continue
-                    indexed += 1
-                    if indexed > _MAX_INDEXED:
-                        LOG.warning("stopped indexing textures at %d files", _MAX_INDEXED)
-                        return
-                    key = path.relative_to(root).as_posix().lower()
-                    self._index.setdefault(key, []).append(path)
-            except OSError as exc:
-                LOG.warning("cannot index textures under %s: %s", root, exc)
+        roots = [r for r in (_texture_root(folder) for folder in self._dirs) if r is not None]
+        # Every texture folder walked at once (in Rust when the backend is built).
+        for root, rels in zip(roots, walk_files(roots, lower=False), strict=True):
+            for rel in rels or []:
+                indexed += 1
+                if indexed > _MAX_INDEXED:
+                    LOG.warning("stopped indexing textures at %d files", _MAX_INDEXED)
+                    return
+                self._index.setdefault(rel.lower(), []).append(root / rel)
         LOG.debug("indexed %d texture(s) across %d folder(s)", indexed, len(self._dirs))
 
     def _open_archives(self, archives: list[Path] | None) -> None:

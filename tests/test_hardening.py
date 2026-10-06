@@ -796,6 +796,9 @@ class TestResourceConflictsCompareContents:
             return real_open(self, *args, **kwargs)
 
         monkeypatch.setattr(Path, "open", refuse)
+        # The read failure is simulated in Python's open; the Rust backend reads files
+        # itself (its own refusal is covered by native/src/fsio.rs's tests).
+        monkeypatch.setattr("wraithguard.fsio._native", lambda _name: None)
 
         conflicts, _stats = mss.detect_resource_conflicts(dirs)
 

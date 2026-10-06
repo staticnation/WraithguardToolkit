@@ -67,6 +67,15 @@ const Ori={
   /** The viewport's object click (`App.R.onPick`). A click opens ORI on the object;
       Shift+click on a door goes through it (ORI's own "Go through" button does too). */
   pick(hit,e){
+    // Wraithguard's editor: Ctrl+click picks several (50_wg_editor.js); a plain click one.
+    if(typeof WgEditor==='object' && WgEditor.on){
+      if(e && (e.ctrlKey||e.metaKey)){
+        // Ctrl+click adds or takes away; one that hits nothing keeps the selection.
+        if(hit) WgEditor.toggleGroup(hit);
+        return;
+      }
+      if(WgEditor._group.length){ WgEditor._group=[]; WgEditor.syncSel(); }
+    }
     if(!hit){ this.hide(); return; }
     if(e && e.shiftKey && doorTarget(hit.door)){ this.hide(); goThroughDoor(hit); return; }
     this.show(hit);
@@ -93,6 +102,7 @@ const Ori={
 
   hide(){
     if(this.el) this.el.hidden=true;
+    if(typeof WgEditor==='object'){ WgEditor._sel=null; if(WgEditor.syncSel) WgEditor.syncSel(); }
     if(typeof Tfh==='object') Tfh.hide();
     // The object's own highlight goes; a highlighted mod's stays.
     if(typeof WgModHl==='object' && WgModHl.active()) WgModHl.apply();
@@ -102,6 +112,8 @@ const Ori={
   /** Shows the inspector for a viewport pick (`App.R.onPick`). */
   async show(hit){
     if(!hit || !hit.refKey){ this.hide(); return; }
+    // Wraithguard: a reference the editor is adding has no record yet; its dialog shows it.
+    if(typeof WgEditor==='object' && WgEditor.showNew(hit)) return;
     this._hit=hit;
     const d=this.box(), ask=++this._ask;
     d.hidden=false;
@@ -120,6 +132,8 @@ const Ori={
     this.wire(body, r);
     // Wraithguard: each asset's providers, a compare of the loose versions, Where used.
     if(typeof WgTools==='object') WgTools.decorateOri(body, r);
+    // Wraithguard: the Editor mode's "Edit record" (F2) for the clicked object.
+    if(typeof WgEditor==='object') WgEditor.decorateOri(body, r);
     OriAcc.apply(body,'ori');
     // The full help - owner, contents, inventory, dialogue - on the right (46_wg_tfh.js).
     if(typeof Tfh==='object') Tfh.show(r, hit);
@@ -131,8 +145,21 @@ const Ori={
 
   /** Wraithguard's conflict viewer link, when the viewer was started from Wraithguard. */
   recordLink(){ return (((window.__WG_VIEW__||{}).extra||{}).links||{}).openRecord||''; },
-  /** Asks Wraithguard to show the record `tag`/`id` in its conflict viewer. */
+  /** In the Editor a record link opens the record there instead (50_wg_editor.js). */
+  inEditor(){ return typeof WgEditor==='object' && WgEditor.on; },
+  /** Whether a record id is a link at all: to the Editor, or to the conflict viewer. */
+  linked(){ return this.inEditor() || !!this.recordLink(); },
+  /** What following a record link does, for its tooltip. */
+  linkNote(){ return this.inEditor()? 'Open this record in the Editor' : 'Show this record in Wraithguard\'s conflict viewer'; },
+  /** Shows the record `tag`/`id`: in the Editor when it is on (its Object Window and its
+   *  dialog), else in Wraithguard's conflict viewer. */
   async openRecord(tag,id){
+    if(this.inEditor()) return WgEditor.showEntry(tag, id);
+    return this.openConflicts(tag, id);
+  },
+  /** Asks Wraithguard to show the record in its conflict viewer (the Editor's record dialog
+   *  keeps a "Conflicts" button for this). */
+  async openConflicts(tag,id){
     const url=this.recordLink();
     if(!url || !id) return;
     try{
@@ -146,15 +173,15 @@ const Ori={
       el.onclick=e=>{ e.preventDefault(); this.openRecord(el.dataset.tag||'', el.dataset.rec); };
     });
   },
-  /** A record id: a link into the conflict viewer when there is one. */
+  /** A record id: a link into the Editor or the conflict viewer when there is one. */
   recId(tag,id){
     if(!id) return '—';
-    if(!this.recordLink()) return '<code>'+escHtml(id)+'</code>';
-    return '<a class="orimod" data-rec="'+escHtml(id)+'" data-tag="'+escHtml(tag||'')+'" title="Show this record in Wraithguard\'s conflict viewer"><code>'+escHtml(id)+'</code></a>';
+    if(!this.linked()) return '<code>'+escHtml(id)+'</code>';
+    return '<a class="orimod" data-rec="'+escHtml(id)+'" data-tag="'+escHtml(tag||'')+'" title="'+escHtml(this.linkNote())+'"><code>'+escHtml(id)+'</code></a>';
   },
   conflictBtn(tag,id){
-    if(!this.recordLink() || !id) return '';
-    return ' <button class="btn sm" data-rec="'+escHtml(id)+'" data-tag="'+escHtml(tag||'')+'" title="Show this record in Wraithguard\'s conflict viewer">Conflicts</button>';
+    if(!this.linked() || !id) return '';
+    return ' <button class="btn sm" data-rec="'+escHtml(id)+'" data-tag="'+escHtml(tag||'')+'" title="'+escHtml(this.linkNote())+'">'+(this.inEditor()? 'Edit' : 'Conflicts')+'</button>';
   },
   render(r){
     const row=(k,v)=>'<div class="orirow"><span class="k">'+escHtml(k)+'</span><span class="v">'+v+'</span></div>';

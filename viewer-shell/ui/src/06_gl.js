@@ -940,6 +940,8 @@ ${SKY_GLSL}
 ${LIGHT_GLSL}
 // -1 nothing is being highlighted, 1 this batch is, 0 it is one of the others
 uniform int   uHi;
+// Wraithguard (round wg-layers): the colour a tinted layer's objects take, uHi == 2.
+uniform vec3  uTintCol;
 /* 1 while a thumbnail is being drawn: what survives the alpha test is written solid.
    A thumbnail is composited against a panel rather than against the scene, and a mesh
    whose texture carries partial alpha - most of Morrowind's foliage - came out a ghost of
@@ -1222,6 +1224,7 @@ void main(){
   // Picking one slot out of a field of grass only reads if the rest recede: a tint
   // on its own disappears among thousands of near-identical blades.
   if(uHi==1) c=mix(c,vec3(1.00,0.82,0.30),0.60);
+  else if(uHi==2) c=mix(c,uTintCol,0.45);
   else if(uHi==0) c=mix(c,uDimCol,0.72);
   /* Plain exponential in distance. A squared ramp was tried — clearer up close, thicker
      far off — and read as too much fog at every distance a person actually looks from,
@@ -2463,6 +2466,7 @@ class Renderer{
     gl.useProgram(this.progGrass.p); gl.uniform1i(this.progGrass.u.uInst,INST_UNIT);   // the instance texture's unit, for good
     this.statics=[];
     this.hlStatics=[];      // the ones being pointed at, drawn again in gold
+    this.tintGroups=[];     // Wraithguard: [{col:[r,g,b], batches}] - layers drawn again in a colour
     this.hlMode='fill';     // round 18dq: 'fill' (the gold wash) or 'outline' (34_outline.js)
     /* Round 18cr: the material groups the still objects are drawn through, and the
        extension that lets a group be one call. `noMultiDraw` is the test hook that walks
@@ -3162,7 +3166,11 @@ class Renderer{
   _meshTex(pr,b){
     const gl=this.gl;
     // Round 18ag: a skinned shape is posed for this instant before any pass draws it.
-    if(b.skin) this._skinUpdate(b.skin, this._skinClock(b));
+    // Wraithguard: a highlight's or tint's copy of a skinned part takes the pose the part
+    // is already in this frame - its own clock (its batch's bounds, its distance) could
+    // re-pose the shared buffers between the actor's draw and the copy's, and the two
+    // would differ and fight.
+    if(b.skin) this._skinUpdate(b.skin, (b._copy && b.skin._skinAt!=null)? b.skin._skinAt : this._skinClock(b));
     this._bindTex0(b.tex||this.white);
     if(b.tex && (b.tex._wrap|0)!==(b.clamp|0)) this._wrapTex0(b.tex, b.clamp|0);
     this._u1i(pr,'uHasTex',b.tex?1:0);
@@ -4617,9 +4625,46 @@ class Renderer{
     this.hiTexKey=key==null? null : key;
     this.dirty=true;
   }
-  setStaticHighlight(items){
+  /** Wraithguard: references drawn again in a colour (the editor's tinted layers):
+   *  `[{col:[r,g,b], items:[pickable...]}]`, or null to clear. */
+  setTintGroups(groups){
+    for(const g of (this.tintGroups||[])) for(const b of g.batches) this._dropVao(b);
+    this.tintGroups=[];
+    for(const g of (groups||[])){
+      if(!g || !g.items || !g.items.length) continue;
+      const keep=this.hlStatics;
+      this.hlStatics=[];
+      this._buildHighlight(g.items);
+      this.tintGroups.push({col:g.col, batches:this.hlStatics});
+      this.hlStatics=keep;
+    }
+    this.dirty=true;
+  }
+  /** Wraithguard: what the highlight shows is `items` (the hover, a pick, a mod's
+   *  objects) plus the editor's selection (`setSelection`), which stays lit whatever
+   *  the hover does. `{alone:true}`: `items` only (a drag's ghost, in place of the
+   *  objects it moves). */
+  setStaticHighlight(items, opts){
+    this._hlItems=items||null;
+    this._hlAlone=!!(opts && opts.alone);
     for(const b of (this.hlStatics||[])) this._dropVao(b);
     this.hlStatics=[];
+    let list=items||[];
+    const sel=this._hlAlone? null : this.selItems;
+    if(sel && sel.length){
+      const have=new Set(list);
+      list=list.concat(sel.filter(s=>s && !have.has(s)));
+    }
+    this._buildHighlight(list);
+    this.dirty=true;
+  }
+  /** Wraithguard: the editor's selected objects, kept lit under any other highlight. */
+  setSelection(items){
+    this.selItems=(items||[]).filter(Boolean);
+    this.setStaticHighlight(this._hlItems, this._hlAlone? {alone:true} : null);
+  }
+  /** The gold copies' batches for `items`, into `hlStatics`. */
+  _buildHighlight(items){
     const list=items||[];
     if(list.length){
       // Grouped by the model's parts array, which is shared by every instance of a mesh
@@ -4642,13 +4687,13 @@ class Renderer{
             // The bin's own copy of a skinned part: the buffers the bin is drawing from.
             const pp=(ph && (part.skin||part.morph) && typeof phasedPart==='function')? phasedPart(part, ph.shift, ph.speed) : part;
             const bt=this.buildStaticBatch(pp,{m,n:mats.length}, part.glTex? part.glTex.gl : null);
+            bt._copy=true;   // a highlight's: posed as the part already is (see `_meshTex`)
             if(ph){ bt.animShift=ph.shift; bt.animSpeed=ph.speed; }
             this.hlStatics.push(bt);
           }
         }
       }
     }
-    this.dirty=true;
   }
   /** A part's vertex data on the GPU, uploaded once and kept on the part (round 17y).
    *
@@ -5039,6 +5084,8 @@ class Renderer{
     for(const b of this.statics) this._dropVao(b);
     for(const b of (this.hlStatics||[])) this._dropVao(b);
     this.hlStatics=[];
+    for(const g of (this.tintGroups||[])) for(const b of g.batches) this._dropVao(b);
+    this.tintGroups=[];
     this.statics=[];
     this._dropGroups();   // round 18cr
     this.disposePaintedStatics();
@@ -6559,6 +6606,9 @@ class Renderer{
       try{ cv.setPointerCapture(e.pointerId); }catch(_){ }
       const mode = e.button===1? 'pan' : (e.button===2? 'orbit' : 'click');
       drag={...pos(e), mode, btn:e.button, x0:e.clientX, y0:e.clientY};
+      /* Wraithguard: a left press on the object the editor has selected may become a drag
+         that moves it (50_wg_editor.js). Still a click until the pointer moves. */
+      if(mode==='click' && this.onGrab) drag.grab=this.onGrab(e)||null;
       // Round 18q: a click is still a point at something; orbiting and panning are not.
       if(mode!=='click') dropHover();
     });
@@ -6629,6 +6679,11 @@ class Renderer{
       if(!drag) return;
       const p=pos(e), dx=p.x-drag.x, dy=p.y-drag.y; drag.x=p.x; drag.y=p.y;
       const c=this.cam;
+      if(drag.grab){
+        if(!drag.grabbing && Math.hypot(e.clientX-drag.x0, e.clientY-drag.y0)>=5){ drag.grabbing=true; dropHover(); }
+        if(drag.grabbing){ drag.grab.move(e); this.dirty=true; }
+        return;
+      }
       if(drag.mode==='click') return;
       if(drag.mode==='orbit'){
         // Round 17g: through `turn`, so this scheme has its own rotation smoothing too.
@@ -6690,7 +6745,7 @@ class Renderer{
         stroke=null;
         if(this.onPaintEnd) this.onPaintEnd();
       }
-      if(drag){ drag=null; }
+      if(drag){ if(drag.grabbing) drag.grab.cancel(); drag=null; }
     });
     const up=e=>{
       if(stroke){
@@ -6707,7 +6762,9 @@ class Renderer{
       if(!drag){ return; }
       const still=Math.hypot(e.clientX-drag.x0, e.clientY-drag.y0)<5;
       try{cv.releasePointerCapture(e.pointerId);}catch(_){ }
+      const grabbed=drag.grabbing? drag.grab : null;
       drag=null;
+      if(grabbed){ if(e.type==='pointercancel') grabbed.cancel(); else grabbed.end(e); return; }
       // Round 17h: a still left click is the pick, in both schemes.
       if(still && e.button===0){
         const a=this.onArrowClick? this.arrowAt(e.clientX,e.clientY) : null;
@@ -8472,6 +8529,12 @@ class Renderer{
          there and nothing would show. */
       if(opaqueP && fillHi && !reflect){
         gl.depthFunc(gl.LEQUAL);
+        /* Wraithguard: pulled a little towards the eye. An NPC is posed for each frame and
+           drawn by its own pass, so the gold copy is not always bit-identical to it: under
+           LEQUAL alone the two z-fought (Static: "the z fighting between the highlight/
+           movable vs the npc itself"). The offset settles every tie for the copy. */
+        gl.enable(gl.POLYGON_OFFSET_FILL);
+        gl.polygonOffset(-1.0,-4.0);
         this._u1i(st,'uHi',1);
         for(const b of this.hlStatics){
           if(!b.n) continue;
@@ -8483,7 +8546,30 @@ class Renderer{
           gl.drawElementsInstanced(gl.TRIANGLES,b.count,gl.UNSIGNED_SHORT,0,b.n);
         }
         this._u1i(st,'uHi',-1);
+        gl.disable(gl.POLYGON_OFFSET_FILL);
         gl.depthFunc(gl.LEQUAL);   // 18dh: the frame's own function, not LESS - the sorted see-through pass draws after this
+      }
+      /* Wraithguard: the editor's tinted layers, the same way - identical geometry over
+         itself under LEQUAL - each in its own colour. */
+      if(opaqueP && !reflect && this.tintGroups && this.tintGroups.length && st.u.uTintCol){
+        gl.depthFunc(gl.LEQUAL);
+        gl.enable(gl.POLYGON_OFFSET_FILL);
+        gl.polygonOffset(-1.0,-4.0);
+        for(const g of this.tintGroups){
+          gl.uniform3fv(st.u.uTintCol, g.col);
+          for(const b of g.batches){
+            if(!b.n) continue;
+            this._ensureVao(b);
+            this._meshTex(st,b);
+            this._meshMode(st,b,true);
+            this._u1i(st,'uHi',2);
+            gl.bindVertexArray(b.vao);
+            gl.drawElementsInstanced(gl.TRIANGLES,b.count,gl.UNSIGNED_SHORT,0,b.n);
+          }
+        }
+        this._u1i(st,'uHi',-1);
+        gl.disable(gl.POLYGON_OFFSET_FILL);
+        gl.depthFunc(gl.LEQUAL);
       }
       /* And the paint on them, over the objects themselves.
        *

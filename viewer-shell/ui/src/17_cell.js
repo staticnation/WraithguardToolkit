@@ -104,7 +104,7 @@ const CellData={
     const rv=(typeof WgTools==='object')? WgTools.cellArgs() : {};
     const key = (interior? 'i:'+String(target.name||'').toLowerCase()
                          : target.x+','+target.y) + (rv.sig? '|'+rv.sig : '');
-    if(this.cache.has(key)) return this.cache.get(key);
+    if(this.cache.has(key)) return this.live(this.cache.get(key));
     /* Round 18bd (F3): which world this read belongs to, taken before the await.
        A cell load in flight when a different install is connected used to be filed
        anyway: `CellData.clear()` runs, the reply lands *after* it, and the outgoing
@@ -207,7 +207,14 @@ const CellData={
                      unresolved:0} : null,
     };
     if(mine) this.cache.set(key,rec);
-    return rec;
+    return this.live(rec);
+  },
+
+  /** Wraithguard: a cell as the editor's pending reference changes would leave it -
+   *  moved, turned, scaled or deleted objects (50_wg_editor.js). The cached record is
+   *  kept as the load order has it; this is a copy, made only when a change touches it. */
+  live(rec){
+    return (typeof WgEditor==='object' && rec)? WgEditor.overlay(rec) : rec;
   },
 
   /** Ground height at a cell-local point, on the triangle the game draws.

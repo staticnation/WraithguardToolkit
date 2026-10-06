@@ -55,7 +55,7 @@ inside the program as well.
   theme (see [Theming the app](#theming-the-app)).
 - `CREDITS.md` - acknowledgements for the projects this tool ports, references,
   and depends on (mlox, plox, tes3conv, modmapper, OpenMW, MOMW, and more).
-- `CHANGELOG.md` - what changed between releases (current: **4.2.1**).
+- `CHANGELOG.md` - what changed between releases (current: **4.3.0**).
 - `CODE_REVIEW.md` - the running engineering log: defects found, and the
   reasoning behind decisions that look odd (including linter suggestions
   deliberately refused because following them would introduce bugs).
@@ -211,15 +211,15 @@ browser. To see which path a build took, run it with `--trace` and read the
 
 **One data folder must be added by hand: the 3D viewer library.** PyInstaller
 follows imports, not data, so the vendored three.js build under
-`wraithguard/viz/assets/` (loaded as `assets/three.cjs`) is not collected
-automatically. Map it into the build:
+`wraithguard/viz/assets/` (loaded as `assets/three.cjs`, beside the Lua charts'
+`assets/mermaid.min.js`) is not collected automatically. Map it into the build:
 
 ```
 --add-data "wraithguard/viz/assets;assets"
 ```
 
-Without it the app runs normally and the texture comparison's lit overlay
-falls back to its CSS view. You do **not** need to add `wraithguard/` or `locale/` by hand:
+Without it the app runs normally, the texture comparison's lit overlay
+falls back to its CSS view, and the Lua flowcharts show as text. You do **not** need to add `wraithguard/` or `locale/` by hand:
 PyInstaller collects the package by following the import graph, and `locale/` is
 a developer directory (no `.mo` catalogues ship yet). Verify any build from the
 Log panel's first line - a build stamp `Wraithguard Toolkit <version> --

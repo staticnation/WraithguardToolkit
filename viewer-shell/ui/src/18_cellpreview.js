@@ -654,6 +654,8 @@ async function _rebuildCellPreview(){
        of this key, every simplified setting reached the engine, rebuilt the landscape,
        and then found a scene that matched on grid position and was kept. */
     App.mode==='cell'? '' : (App.patchSig||''),
+    // Wraithguard: the editor's pending reference changes, drawn in place.
+    typeof WgEditor==='object'? WgEditor.liveSig : '',
   ]);
   /* Two conditions, not one. The key says the scene *would* be the same; the second
      asks whether it is still on the renderer at all. They can disagree — anything that
@@ -675,6 +677,7 @@ async function _rebuildCellPreview(){
     target.kind, App.showAdjacent, App.showCorpses, App.showActors!==false, npcNightHour(), !!App.npcDrawn,
     App.avoidStatics, App.avoidPad, App.avoidMinSize, (App.avoidExclude||[]).join('|'),
     GameData.sig||'', App.mode==='cell'? '' : (App.patchSig||''),
+    typeof WgEditor==='object'? WgEditor.liveSig : '',
   ]);
 
   /* Round 15 item 7: rings of neighbours - 1 is the eight around it, 2 is 25 cells, 3

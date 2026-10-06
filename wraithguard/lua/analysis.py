@@ -9,6 +9,13 @@ per-frame handlers (``onUpdate``, ``onFrame``) into the script's own functions a
 reports loops over large collections (``nearby.actors``, ``world.activeActors``,
 ``types.*.records``, ``cell:getAll()``) and other costly calls made every frame.
 
+The same walk reports the garbage a per-frame handler makes - a table constructor, a
+closure, a string built or a vector made inside a loop (``GC_*``): OpenMW tracks every
+script's memory and runs one collector for the Lua state, which pauses the scripts, so
+garbage made every frame costs every frame. And anything OpenMW's sandbox leaves out of
+Lua (``collectgarbage``, ``loadstring``, ``io``, ``os.clock``, writing into ``string``)
+is an error: the script fails there when it runs (``SANDBOX``).
+
 These are static checks: a script that throttles its own ``onUpdate`` (counts time
 and returns early) is still reported, and the message says so.
 
@@ -18,10 +25,11 @@ Copyright (c) 2026 StaticNation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from wraithguard.lua.api import API, ApiVersion
 from wraithguard.lua.lexer import LuaSyntaxError
-from wraithguard.lua.parser import Node, parse
+from wraithguard.lua.parser import Node, parse_py
 
 #: Collections that hold every actor, item or record in reach, after aliases are
 #: resolved to the package's short name (``local nb = require("openmw.nearby")``).
@@ -41,6 +49,31 @@ _COSTLY_CALLS = {
     "updateAll": "relayouts every UI element",
 }
 _LOOPS = frozenset({"ForIn", "ForNum", "While", "Repeat"})
+#: Globals Lua has and OpenMW's sandbox does not (``components/lua/luastate.cpp``).
+_NOT_IN_SANDBOX = {
+    "collectgarbage": (
+        "collectgarbage is not in OpenMW's sandbox: the call fails. OpenMW runs the "
+        "collector itself (memory limits: [Lua] in settings.cfg); make less garbage instead"
+    ),
+    "load": "load is not in OpenMW's sandbox: scripts cannot compile code at run time",
+    "loadstring": "loadstring is not in OpenMW's sandbox: scripts cannot compile code at run time",
+    "loadfile": "loadfile is not in OpenMW's sandbox: read files with openmw.vfs",
+    "dofile": "dofile is not in OpenMW's sandbox: use require",
+    "setfenv": "setfenv is not in OpenMW's sandbox",
+    "getfenv": "getfenv is not in OpenMW's sandbox",
+    "gcinfo": "gcinfo is not in OpenMW's sandbox",
+    "newproxy": "newproxy is not in OpenMW's sandbox",
+    "module": "module is not in OpenMW's sandbox: return a table from the script instead",
+    "io": "io is not in OpenMW's sandbox: read files with openmw.vfs, keep data with openmw.storage",
+    "debug": "debug is not in OpenMW's sandbox (openmw.debug is a different thing)",
+    "package": "package is not in OpenMW's sandbox",
+}
+_OS_ALLOWED = frozenset({"date", "difftime", "time"})
+_READ_ONLY_PACKAGES = frozenset({"coroutine", "math", "string", "table", "utf8", "os"})
+#: Calls that make a new vector, colour or transform (userdata the collector frees).
+_USERDATA_MAKERS = frozenset(
+    {"vector2", "vector3", "vector4", "rgb", "rgba", "hex", "move", "rotate", "scale"}
+)
 _SEND_EVENT_FUNCS = frozenset({"sendGlobalEvent", "sendMenuEvent"})
 
 
@@ -301,17 +334,23 @@ class _FrameWalker:
         self.seen: set[int] = set()
         self.reported: set[tuple[str, int]] = set()
 
-    def function(self, fn: Node, guarded: bool = False) -> None:
-        """Walk a function's body, once.
+    def function(
+        self, fn: Node, guarded: bool = False, loops: list[str] | None = None, in_loop: bool = False
+    ) -> None:
+        """Walk a function's body, once (from the first call that reaches it).
 
         Args:
             fn: The ``Function`` node.
             guarded: It is called from under a condition (see :meth:`walk`).
+            loops: The big loops the call sits inside (for what the body allocates).
+            in_loop: Whether any loop encloses the call.
         """
         if id(fn) in self.seen:
             return
         self.seen.add(id(fn))
-        self.walk(fn.children[1], [], guarded)
+        # Loops over big collections inside the body are reported as the body's own,
+        # so the walk starts fresh there; garbage it makes is per iteration of the caller.
+        self.walk(fn.children[1], [], guarded, in_loop or bool(loops))
 
     def report(self, severity: str, code: str, line: int, message: str) -> None:
         """Add a finding, once per code and line.
@@ -327,29 +366,39 @@ class _FrameWalker:
         self.reported.add((code, line))
         self.info.findings.append(Finding(severity, code, line, message))
 
-    def walk(self, node: Node, loops: list[str], guarded: bool = False) -> None:
+    def walk(
+        self, node: Node, loops: list[str], guarded: bool = False, in_loop: bool = False
+    ) -> None:
         """Visit a subtree, tracking the big loops it sits inside.
 
         Code under an ``if``, or after an ``if`` that can return, is *guarded*: it
         may well not run every frame (a timer, a mode check, a debug switch), so what
-        it does is reported as a note rather than a warning, and its prints not at all.
+        it does is reported as a note rather than a warning, and its prints and
+        garbage not at all.
 
         Args:
             node: The subtree.
             loops: The big collections iterated by enclosing loops.
             guarded: Whether a condition stands between the handler and this code.
+            in_loop: Whether any loop encloses it (garbage made there is made per
+                iteration).
         """
         if node.kind == "Function":
-            return  # a closure made here runs later, if at all - not this frame
+            # The closure's body runs later, if at all - not this frame; making the
+            # closure is this frame's garbage.
+            self.garbage(
+                node, "GC_CLOSURE", "makes a new function (closure)", loops, guarded, in_loop
+            )
+            return
         if node.kind == "Block":
             for child in node.children:
-                self.walk(child, loops, guarded)
+                self.walk(child, loops, guarded, in_loop)
                 if child.kind == "If" and _returns(child):
                     guarded = True  # an early return: the rest may not run
             return
         if node.kind == "If":
             for child in node.children:
-                self.walk(child, loops, True)
+                self.walk(child, loops, True, in_loop)
             return
         inner = loops
         if node.kind == "ForIn":
@@ -358,9 +407,69 @@ class _FrameWalker:
                 self.big_loop(node, coll, loops, guarded)
                 inner = [*loops, coll]
         elif node.kind in ("Call", "Method"):
-            self.call(node, loops, guarded)
+            self.call(node, loops, guarded, in_loop)
+            if in_loop and self._makes_userdata(node):
+                self.garbage(
+                    node, "GC_USERDATA", "makes a new vector/colour/transform", loops, guarded, True
+                )
+        elif node.kind == "Table":
+            self.garbage(node, "GC_TABLE", "makes a new table", loops, guarded, in_loop)
+        elif node.kind == "Binop" and node.value == ".." and in_loop:
+            self.garbage(node, "GC_STRING", "builds a new string", loops, guarded, True)
+        looping = in_loop or node.kind in _LOOPS
         for child in node.children:
-            self.walk(child, inner, guarded)
+            # A table inside a table constructor is part of the same construction.
+            if node.kind in ("Table", "Field", "Item") and child.kind == "Table":
+                for grand in child.children:
+                    self.walk(grand, inner, guarded, looping)
+                continue
+            self.walk(child, inner, guarded, looping)
+
+    def _makes_userdata(self, node: Node) -> bool:
+        """Whether a call makes a new vector, colour or transform.
+
+        ``util.vector3(...)``, ``util.color.rgb(...)``, ``util.transform.move(...)``.
+
+        Args:
+            node: A ``Call`` or ``Method`` node.
+
+        Returns:
+            True when it does.
+        """
+        if node.kind != "Call":
+            return False
+        name = _dotted(node.children[0], self.symbols.aliases) or ""
+        parts = name.split(".")
+        return len(parts) >= 2 and parts[0] == "util" and parts[-1] in _USERDATA_MAKERS
+
+    def garbage(
+        self, node: Node, code: str, what: str, loops: list[str], guarded: bool, in_loop: bool
+    ) -> None:
+        """Report something the handler allocates for the collector to free.
+
+        Garbage made every frame is what makes the collector run, and OpenMW's Lua
+        collector pauses the scripts while it does; inside a loop it is made per
+        iteration. Guarded code is left out: it is usually a timer or a mode change.
+
+        Args:
+            node: Where it is made.
+            code: ``GC_TABLE``, ``GC_CLOSURE``, ``GC_STRING`` or ``GC_USERDATA``.
+            what: What it makes, for the message.
+            loops: The big loops it sits inside.
+            guarded: Whether it sits under a condition.
+            in_loop: Whether any loop encloses it.
+        """
+        if guarded:
+            return
+        if loops:
+            msg = f"{self.handler} {what} for every one of {loops[-1]}, every frame"
+        elif in_loop:
+            msg = f"{self.handler} {what} on every pass of a loop, every frame"
+        else:
+            msg = f"{self.handler} {what} every frame: hoist it out, or reuse one"
+        self.report(
+            "warn" if in_loop else "info", code, node.line, msg + " (garbage for the collector)"
+        )
 
     def big_loop(self, node: Node, coll: str, loops: list[str], guarded: bool) -> None:
         """Report a loop over a big collection.
@@ -384,13 +493,14 @@ class _FrameWalker:
             msg = f"{self.handler} loops over {coll} {when}{tip}"
             self.report(severity, "PERF_LOOP", node.line, msg)
 
-    def call(self, node: Node, loops: list[str], guarded: bool) -> None:
+    def call(self, node: Node, loops: list[str], guarded: bool, in_loop: bool = False) -> None:
         """Check one call: costly API calls, and calls into the script's functions.
 
         Args:
             node: A ``Call`` or ``Method`` node.
             loops: The big loops it sits inside.
             guarded: Whether it sits under a condition.
+            in_loop: Whether any loop encloses it.
         """
         if node.kind == "Method":
             name = node.value or ""
@@ -399,7 +509,7 @@ class _FrameWalker:
             name = (fn.children[1].value if fn.kind == "Index" else fn.value) or ""
             target = self.symbols.function_of(fn)
             if target is not None:
-                self.function(target, guarded)
+                self.function(target, guarded, loops, in_loop)
         why = _COSTLY_CALLS.get(name)
         if why:
             where = f" inside a loop over {loops[-1]}" if loops else ""
@@ -412,6 +522,89 @@ class _FrameWalker:
             )
         if name == "print" and node.kind == "Call" and not guarded:
             self.report("info", "PERF_PRINT", node.line, f"{self.handler} prints every frame")
+
+
+def bound_names(tree: Node | None) -> set[str]:
+    """Every name a script binds anywhere.
+
+    Locals, parameters, loop variables, and globals it assigns: a name in here is the
+    script's own, whatever else the same name means outside it.
+
+    Args:
+        tree: The script's syntax tree.
+
+    Returns:
+        The names.
+    """
+    out: set[str] = set()
+    if tree is None:
+        return out
+    for n in tree.walk():
+        if n.kind in ("Local", "ForIn"):
+            out.update(c.value for c in n.children[0].children if c.value)
+        elif n.kind == "ForNum" and n.children and n.children[0].value:
+            out.add(n.children[0].value)
+        elif n.kind == "LocalFunction" and n.value:
+            out.add(n.value)
+        elif n.kind == "Params":
+            out.update(c.value for c in n.children if c.kind == "Name" and c.value)
+        elif n.kind == "Assign":
+            out.update(t.value for t in n.children[0].children if t.kind == "Name" and t.value)
+        elif n.kind == "FunctionStat" and n.value and "." not in n.value and ":" not in n.value:
+            out.add(n.value)
+    return out
+
+
+def _sandbox_checks(info: ScriptInfo, chunk: Node) -> None:
+    """What OpenMW's Lua sandbox does not have, used anyway.
+
+    OpenMW gives scripts only part of Lua's standard library (``components/lua/
+    luastate.cpp``): the safe base functions, ``coroutine``, ``math``, ``string``,
+    ``table`` and ``utf8`` (read-only), and ``os.date``/``os.difftime``/``os.time``.
+    Anything else is nil there, and a call to it fails when it runs. A name the script
+    defines itself is its own and not reported.
+
+    Args:
+        info: Where findings go.
+        chunk: The parsed chunk.
+    """
+    own = bound_names(chunk)
+    seen: set[tuple[str, int]] = set()
+
+    def flag(line: int, what: str, msg: str) -> None:
+        """Report once per name and line.
+
+        Args:
+            line: Its line.
+            what: The name.
+            msg: The message.
+        """
+        if (what, line) not in seen:
+            seen.add((what, line))
+            info.findings.append(Finding("error", "SANDBOX", line, msg))
+
+    for n in chunk.walk():
+        if n.kind == "Name" and n.value in _NOT_IN_SANDBOX and n.value not in own:
+            flag(n.line, n.value, _NOT_IN_SANDBOX[n.value])
+        elif n.kind == "Index" and n.value == ".":
+            obj, key = n.children
+            unsandboxed = key.value and key.value not in _OS_ALLOWED
+            if obj.kind == "Name" and obj.value == "os" and "os" not in own and unsandboxed:
+                flag(
+                    n.line,
+                    f"os.{key.value}",
+                    f"os.{key.value} is not in OpenMW's sandbox (only os.date, os.difftime and os.time are)",
+                )
+        elif n.kind == "Assign":
+            for t in n.children[0].children:
+                if t.kind == "Index" and t.children[0].kind == "Name":
+                    pkg = t.children[0].value
+                    if pkg in _READ_ONLY_PACKAGES and pkg not in own:
+                        flag(
+                            t.line,
+                            f"{pkg}=",
+                            f"{pkg} is read-only in OpenMW: this assignment fails",
+                        )
 
 
 def _collect_calls(info: ScriptInfo, chunk: Node) -> None:
@@ -478,8 +671,68 @@ def _check_contexts(info: ScriptInfo, contexts: frozenset[str], api: ApiVersion)
             )
 
 
+def _native_analyze() -> Any:  # noqa: ANN401 - the backend's function, or None
+    """The Rust backend's analysis (``viewer-shell/luacore/src/analysis.rs``), or None."""
+    try:
+        import wraithguard_native
+    except ImportError:
+        return None
+    return getattr(wraithguard_native, "lua_analyze", None)
+
+
 def analyze(src: str, contexts: frozenset[str] | None = None, api: ApiVersion = API) -> ScriptInfo:
-    """Read one script.
+    """Read one script (in Rust when the backend is built).
+
+    Args:
+        src: Its source.
+        contexts: Where it runs (None or empty: unknown - the context checks are
+            skipped).
+        api: The API version to check against.
+
+    Returns:
+        What it declares, and the findings.
+    """
+    native = _native_analyze()
+    if native is None:
+        return analyze_py(src, contexts, api)
+    got = native(
+        src,
+        sorted(contexts or ()),
+        {k: sorted(v) for k, v in api.handlers.items()},
+        sorted(api.per_frame),
+        {k: sorted(v) for k, v in api.packages.items()},
+    )
+    return info_from_native(got)
+
+
+def info_from_native(got: dict[str, Any]) -> ScriptInfo:
+    """A :class:`ScriptInfo` from the backend's dict (``lua_analyze``, ``lua_scan``).
+
+    Args:
+        got: The dict.
+
+    Returns:
+        The info, its tree rebuilt as :class:`.parser.Node` objects.
+    """
+    from wraithguard.lua.parser import _from_native
+
+    return ScriptInfo(
+        interface_name=got["interface_name"],
+        interface_line=int(got["interface_line"]),
+        interface_members=list(got["interface_members"]),
+        engine_handlers=dict(got["engine_handlers"]),
+        event_handlers=dict(got["event_handlers"]),
+        requires=dict(got["requires"]),
+        sent_events=dict(got["sent_events"]),
+        findings=[Finding(*f) for f in got["findings"]],
+        tree=_from_native(got["tree"]) if got["tree"] is not None else None,
+    )
+
+
+def analyze_py(
+    src: str, contexts: frozenset[str] | None = None, api: ApiVersion = API
+) -> ScriptInfo:
+    """Read one script in Python (:func:`analyze`'s fallback, and its reference).
 
     Args:
         src: Its source.
@@ -493,13 +746,14 @@ def analyze(src: str, contexts: frozenset[str] | None = None, api: ApiVersion = 
     contexts = contexts or frozenset()
     info = ScriptInfo()
     try:
-        chunk = parse(src)
+        chunk = parse_py(src)
     except LuaSyntaxError as exc:
         info.findings.append(Finding("error", "SYNTAX", exc.line, str(exc)))
         return info
     info.tree = chunk
     symbols = _Symbols(chunk)
     _collect_calls(info, chunk)
+    _sandbox_checks(info, chunk)
 
     last = chunk.children[-1] if chunk.children else None
     returned = None

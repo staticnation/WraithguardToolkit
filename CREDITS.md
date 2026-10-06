@@ -161,6 +161,15 @@ and their `LICENSE` files are included in their source folders in this repo.
   real compiled scripts** rather than taken from anyone's source - an opcode's
   numeric value is a fact about the game's own data files. `tools/gen_opcodes.py`
   regenerates the table and documents each derivation.
+
+  The **script compiler** (`wraithguard/mwscript/compiler.py`) is a port of MWEdit's
+  (`mwedit/script_compile.cc`, `script_compile_ex.cc`; © 2025 Walrus Tech, originally
+  Dave Humphrey; MIT). Its parse tables, function table, magic effect IDs and animation
+  groups are generated from MWEdit's source by `tools/gen_mwscript_compiler.py`, and
+  MWEdit's compiler test plugin (`data/MwEditScriptTest.esp`, with its licence) is in
+  `tests/fixtures/mwedit/` as the reference it is checked against byte for byte.
+  Its `data/customfunctions.dat` (the MWSE / MW-Enhanced function list MWEdit ships) is
+  generated into the compiler as its default set of extended functions.
 - **Morrowind Dialog Explorer (MWDE)** - © 2018 Sophie Kirschner
   ([pineapplemachine.com/files/mwde](https://pineapplemachine.com/files/mwde)).
   MIT. The **"Read as dialogue"** view (`wraithguard/tes3fields/dialogue.py`)
@@ -216,6 +225,16 @@ reference your scripts at all, say the word and it is done.
   distributed with it; **no code was copied**. We credit it for the field-level
   record-diff *approach* that inspired our field comparison view. All rights
   remain with its author.
+- **The Elder Scrolls Construction Set** (Bethesda) and **Construction Set Extender**
+  (CSSE, the MWSE team) - **no code copied**. The viewer's Editor mode follows the CS's
+  window model as its help documents describe it (the Object Window's record tabs and
+  sortable columns, the Cell View's cells and their references, the render window, an
+  edit dialog per record; the help text read from the Morrowind Modding community's
+  Markdown edition, morrowind-modding/tes3cs-manual, https://tes3cs.pages.dev/), and
+  takes CSSE's additions as its checklist (an Object Window filter on Ctrl+F, changed
+  records marked green, F2 to edit the selected reference's base record; from MWSE's
+  `docs/source/references/general/csse.md`). Window layout and behaviour only; every
+  line of the mode is ours.
 - **xEdit / TES5Edit / SSEEdit** - © the xEdit team. **MPL 1.1; no code copied.**
   Our conflict-colour convention -- a record's overall status colours the row
   **background**, what one plugin does colours the **text** -- is xEdit's, the
@@ -307,6 +326,34 @@ build. It is built by `tools/build_three_cjs.py`, which concatenates upstream's
 unmodified `three.module.js` graph into one `module.exports` with esbuild:
 packaging only, no minify and no source transform. The provenance is therefore a
 command anyone can rerun, not a binary to take on trust.
+
+## mermaid.js - bundled, for the Lua charts
+
+`wraithguard/viz/assets/mermaid.min.js` is **mermaid 12.1.0** (© 2014 - 2022 Knut
+Sveidqvist and contributors), MIT licensed, with its licence text beside it as
+`mermaid-LICENSE.txt` (and in `License/Mermaid`). It is upstream's own
+`dist/mermaid.min.js` from the npm package, unmodified (SHA-256 `6484afc3...518b2`,
+the full hash in `wraithguard/viz/assets/README.txt`). The Lua scripts window's
+flowcharts and call graphs draw with it (`wraithguard/lua/flowchart.py`); it used to
+be loaded from a CDN when a chart opened.
+
+## Teal and htl - the Lua checks (MIT)
+
+`native/` embeds **htl** 0.12.0 (ynishi/htl, MIT OR Apache-2.0), which carries the
+**Teal** compiler `tl.lua` 0.24.8 (Hisham Muhammad and contributors, MIT) and runs it in
+a vendored Lua 5.4 through **mlua** (MIT). They check OpenMW Lua and Teal scripts
+(`native/src/lua/check.rs`).
+
+**OpenMW's Lua API documentation (GPLv3) is read, never shipped.** OpenMW documents its
+Lua API in `files/lua_api/openmw/*.lua` and installs those files to every install's
+`resources/lua_api/`; the built-in interfaces are documented in `resources/vfs/`. They
+are GPLv3. The toolkit contains none of them: `viewer-shell/luacore/src/ldt.rs` reads them from the
+user's own OpenMW install at run time and writes Teal declarations into a temporary
+folder, as OpenMW's own `openmwluadocumentor` does for its published
+`teal_declarations`. The reader was written from the comment format (LDT's `@module`,
+`@type`, `@field`, `@function`, `@param`, `@return`), and its tests use fixtures written
+for them. The same separation as the cell viewer below: the GPL part stays where its
+licence puts it, and the toolkit stays MIT.
 
 ## Archives and textures, and why they are ours
 
@@ -566,6 +613,14 @@ Apache-2.0 (ryu: Apache-2.0 or BSL-1.0), plus their own dependencies:
 - **[serde](https://serde.rs/)** / **serde_json**, **[ryu](https://github.com/dtolnay/ryu)**
   (the shortest float spelling, as tes3conv's JSON writes it), **regex**,
   **base64**, **memmap2**.
+- **[rusqlite](https://github.com/rusqlite/rusqlite)** (MIT), with **SQLite** (public
+  domain) bundled - the viewer reads OpenMW's `navmesh.db` through it.
+
+**OpenMW's navmesh.db is read, not OpenMW's code.** OpenMW (GPLv3) writes the file;
+`viewer-shell/viewcore/src/navmesh.rs` reads it from the file's layout (the SQLite
+schema, the blobs' bytes), with its own LZ4 block decoder written from the LZ4 block
+format's public description. Nothing of OpenMW's source is in it. The polygon mesh it
+reads is Recast's (Mikko Mononen, zlib), as stored.
 
 ## The cell viewer page (GPL-2.0)
 

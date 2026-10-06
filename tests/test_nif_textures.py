@@ -367,16 +367,20 @@ class TestTextureResolverResilience:
 
     def test_an_unreadable_texture_folder_is_skipped(self, tmp_path: Path, monkeypatch) -> None:
         """An OSError while walking a data folder is logged, not fatal."""
-        from pathlib import Path
 
         from wraithguard.nif.textures import TextureResolver
 
         make_texture(tmp_path / "Mod", "a.dds")
 
-        def _boom(self, *a, **k):
+        import os
+
+        def _boom(*a, **k):
             raise OSError("simulated unreadable mount")
 
-        monkeypatch.setattr(Path, "rglob", _boom)
+        # The walk is wraithguard.fsio's: the Python one is made to fail (the Rust
+        # backend's would not see a patched os.walk).
+        monkeypatch.setattr("wraithguard.fsio._native", lambda _name: None)
+        monkeypatch.setattr(os, "walk", _boom)
         # Construction must still succeed with an empty index.
         resolver = TextureResolver([tmp_path / "Mod"])
         assert not resolver.resolve("a.dds").found

@@ -15,9 +15,11 @@ pub mod json;
 pub mod land;
 pub mod lang;
 pub mod layout;
+pub mod luascan;
 pub mod mge;
 pub mod markers;
 pub mod mland;
+pub mod navmesh;
 pub mod nif;
 pub mod npc;
 pub mod objects;
@@ -34,3 +36,6 @@ pub mod vfs;
 pub mod weather;
 pub mod world;
 pub mod worldmap;
+
+/// OpenMW Lua scripts in plain Rust (viewer-shell/luacore), shared with the Python backend.
+pub use luacore;

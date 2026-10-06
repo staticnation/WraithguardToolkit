@@ -46,6 +46,10 @@ HEADER_TYPE: Final = "Header"
 #: type ever joins it.
 _MASTER_INDEXED: Final[frozenset[str]] = frozenset({"Cell"})
 
+#: OpenMW's Lua script list (LUAL): its per-reference entries (LUAI) and the references
+#: serialized in its Lua data (LUAD) name objects by content file as a cell's do.
+_LUAL: Final = "ScriptConfigList"
+
 #: A dialogue response. It is not a free-standing record: it belongs to the
 #: most recent ``Dialogue`` in file order, which is how the engine learns what
 #: topic it answers. Verified on a real plugin -- all 458 of its responses
@@ -86,12 +90,35 @@ class Selection:
     key: str
 
 
+@dataclass(frozen=True, slots=True)
+class NewRecord:
+    """A record the patch makes itself (the editor's "Make a copy as").
+
+    Attributes:
+        record_type: Its ``type``.
+        key: Its id.
+        record: The whole record, as it will be written.
+        source: The plugin whose record it was copied from: a master, so whatever the
+            copy names (a script, a sound, an item) is there when the patch loads. For a
+            dialogue response, the plugin whose version of its topic wins.
+        topic: For a dialogue response, the topic it answers (it is written inside it).
+    """
+
+    record_type: str
+    key: str
+    record: Mapping[str, Any]
+    source: str = ""
+    topic: str = ""
+
+
 def record_key(record: Mapping[str, Any]) -> str:
     """Identify a record within its type.
 
-    Most records are identified by ``id``. Exterior cells and landscapes have
-    none and are identified by their grid, which is why this exists rather than
-    reading ``id`` at every call site.
+    Most records are identified by ``id``. Cells are keyed as the engine keys them
+    (greatness7's merge_to_master, ``types/cells.rs``): an interior by its name, an
+    exterior by its grid - an interior's record carries a placeholder grid of 0, 0, so
+    keying it by grid made every room the same cell, and the same as the exterior at the
+    origin. Landscapes, with no id either, by their grid.
 
     Args:
         record: A decoded record.
@@ -102,6 +129,21 @@ def record_key(record: Mapping[str, Any]) -> str:
     identifier = record.get("id")
     if isinstance(identifier, str) and identifier:
         return identifier
+    if record.get("type") == "Cell" and is_interior(record):
+        return str(record.get("name") or "")
+    if record.get("type") == "PathGrid":
+        # Keyed as the engine finds its cell (merge_to_master, ``types/plugin.rs``): an
+        # interior's by its name - its grid is a placeholder 0, 0, so keying by grid made
+        # every room's path grid one record - an exterior's by its grid. A named grid at
+        # 0, 0 is taken for an interior's, as merge_to_master and the CS take it.
+        data = record.get("data")
+        grid = data.get("grid") if isinstance(data, dict) else None
+        name = str(record.get("cell") or "")
+        at_origin = not (
+            isinstance(grid, (list, tuple)) and len(grid) == 2 and any(int(v) for v in grid)
+        )
+        if name and at_origin:
+            return name
 
     grid = record.get("grid")
     if grid is None:
@@ -111,6 +153,71 @@ def record_key(record: Mapping[str, Any]) -> str:
     if isinstance(grid, (list, tuple)) and len(grid) == 2:
         return f"({int(grid[0])}, {int(grid[1])})"
     return ""
+
+
+def is_interior(record: Mapping[str, Any]) -> bool:
+    """Whether a CELL record is an interior (its ``IS_INTERIOR`` flag).
+
+    Args:
+        record: A decoded ``Cell`` record.
+
+    Returns:
+        True for an interior.
+    """
+    data = record.get("data")
+    flags = data.get("flags") if isinstance(data, dict) else None
+    if isinstance(flags, int):
+        return bool(flags & 0x1)
+    return "IS_INTERIOR" in str(flags or "")
+
+
+def keys_of(record: Mapping[str, Any]) -> set[str]:
+    """Every key a record answers to: :func:`record_key`, and a cell's name.
+
+    The conflict scan keys a cell by its name whenever it has one
+    (``wraithguard_toolkit._tes3conv_record_key``), so a request may name an exterior
+    by name too. A name several exterior cells share (a town over a few grids) is then
+    ambiguous: :func:`find_record` refuses it rather than pick one.
+
+    Args:
+        record: A decoded record.
+
+    Returns:
+        The keys.
+    """
+    out = {record_key(record)}
+    if record.get("type") == "Cell" and record.get("name"):
+        out.add(str(record["name"]))
+    out.discard("")
+    return out
+
+
+def find_record(
+    records: Sequence[Mapping[str, Any]], record_type: str, key: str, plugin: str
+) -> Mapping[str, Any] | None:
+    """The one record of a type a key names in a plugin.
+
+    Args:
+        records: The plugin's decoded records.
+        record_type: The record's type.
+        key: Its key (see :func:`keys_of`).
+        plugin: The plugin's name, for the message.
+
+    Returns:
+        The record, or None when the plugin has none.
+
+    Raises:
+        PatchError: When the key names more than one record (a cell name several
+            exterior cells share).
+    """
+    hits = [r for r in records if r.get("type") == record_type and key in keys_of(r)]
+    if len(hits) > 1:
+        where = ", ".join(record_key(r) for r in hits)
+        raise PatchError(
+            f"{key!r} names {len(hits)} {record_type} records in {plugin} ({where}). "
+            "Choose the one meant by its grid."
+        )
+    return hits[0] if hits else None
 
 
 def master_names(records: Sequence[Mapping[str, Any]]) -> list[str]:
@@ -197,11 +304,52 @@ def remap_references(record: Mapping[str, Any], mapping: Mapping[int, int]) -> d
         PatchError: If a reference carries an index the mapping does not cover,
             which means the source plugin declared fewer masters than it uses.
     """
+    if str(record.get("type")) == _LUAL:
+        return _remap_lual(record, mapping)
     copied = copy.deepcopy(dict(record))
     references = copied.get("references")
     if isinstance(references, list):
         copied["references"] = remap_reference_list(references, mapping)
     return copied
+
+
+def _lual_names_objects(record: Mapping[str, Any]) -> bool:
+    """Whether a LUAL record names placed objects: LUAI entries, or Lua data at all."""
+    for script in record.get("scripts") or []:
+        if not isinstance(script, dict):
+            continue
+        if script.get("instances") or script.get("init_data"):
+            return True
+        if any(isinstance(r, dict) and r.get("data") for r in script.get("records") or []):
+            return True
+    return False
+
+
+def _remap_lual(record: Mapping[str, Any], mapping: Mapping[int, int]) -> dict[str, Any]:
+    """A LUAL record for the patch's master list (the Rust backend's ``lual_remap``).
+
+    Raises:
+        PatchError: Without the backend (the Lua data's references cannot be found
+            without reading it), or for an index the mapping does not reach.
+    """
+    if not _lual_names_objects(record):
+        return copy.deepcopy(dict(record))
+    try:
+        import wraithguard_native
+    except ImportError:
+        wraithguard_native = None  # type: ignore[assignment]
+    remap = getattr(wraithguard_native, "lual_remap", None) if wraithguard_native else None
+    if remap is None:
+        raise PatchError(
+            "this Lua script list names placed objects, which have to follow the patch's "
+            "master list; that needs the Rust backend (native/), which is not built"
+        )
+    import json
+
+    try:
+        return dict(json.loads(remap(json.dumps(dict(record)), dict(mapping))))
+    except ValueError as exc:
+        raise PatchError(f"the Lua script list cannot be carried: {exc}") from exc
 
 
 def remap_reference_list(references: Sequence[Any], mapping: Mapping[int, int]) -> list[Any]:
@@ -249,6 +397,8 @@ def needs_remapping(record: Mapping[str, Any]) -> bool:
     Returns:
         ``True`` when it carries master-indexed references.
     """
+    if str(record.get("type")) == _LUAL:
+        return _lual_names_objects(record)
     return str(record.get("type")) in _MASTER_INDEXED and bool(record.get("references"))
 
 
@@ -502,15 +652,7 @@ def collect(
         if records is None:
             raise PatchError(f"no records were read for {selection.plugin}")
 
-        found = next(
-            (
-                record
-                for record in records
-                if record.get("type") == selection.record_type
-                and record_key(record) == selection.key
-            ),
-            None,
-        )
+        found = find_record(records, selection.record_type, selection.key, selection.plugin)
         if found is None:
             raise PatchError(
                 f"{selection.plugin} has no {selection.record_type} record "
@@ -603,7 +745,7 @@ def carry_forward(
     for record in records:
         if record.get("type") == HEADER_TYPE:
             continue
-        if (str(record.get("type")), record_key(record)) in skip:
+        if any((str(record.get("type")), k) in skip for k in keys_of(record)):
             continue
         if not needs_remapping(record):
             out.append(copy.deepcopy(dict(record)))

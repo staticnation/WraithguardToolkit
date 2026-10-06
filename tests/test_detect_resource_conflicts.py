@@ -73,6 +73,9 @@ class TestWalkFailure:
             return real_walk(top, *args, **kwargs)
 
         monkeypatch.setattr(os, "walk", flaky_walk)
+        # The walk this simulates failing is the Python one; the Rust backend's would
+        # not see the patched os.walk.
+        monkeypatch.setattr("wraithguard.fsio._native", lambda _name: None)
 
         conflicts, stats = core.detect_resource_conflicts([str(dir_a), str(dir_b)])
 

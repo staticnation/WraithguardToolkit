@@ -8,7 +8,7 @@ feed back to their test, ``return`` goes to End, ``break`` leaves its loop, ``go
 jumps to its label. Plain statements in a row share one box.
 
 :func:`expr_text` is a compact unparser for the labels, and :func:`flowchart_html` wraps
-diagrams in a page mermaid.js renders.
+diagrams in a page the bundled mermaid.js (``wraithguard/viz/assets``) renders.
 
 Copyright (c) 2026 StaticNation.
 """
@@ -16,7 +16,7 @@ Copyright (c) 2026 StaticNation.
 from __future__ import annotations
 
 import html
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from wraithguard.lua.parser import Node
@@ -278,7 +278,7 @@ class _Builder:
         for src, label in self.gotos:
             if label in self.labels:
                 self.edges.append((src, self.labels[label], None))
-        return render(self.nodes, self.edges)
+        return render_py(self.nodes, self.edges)
 
 
 def _esc(text: str) -> str:
@@ -293,8 +293,34 @@ def _esc(text: str) -> str:
     return html.escape(text, quote=False).replace('"', "#quot;").replace("\n", "<br/>")
 
 
+def _native_fn(name: str) -> Any:  # noqa: ANN401 - the backend's function, or None
+    """One of the Rust backend's chart functions (``viewer-shell/luacore/src/mermaid.rs``), or None."""
+    try:
+        import wraithguard_native
+    except ImportError:
+        return None
+    return getattr(wraithguard_native, name, None)
+
+
 def render(nodes: dict[str, tuple[str, str]], edges: list[tuple[str, str, str | None]]) -> str:
-    """A graph as a Mermaid flowchart.
+    """A graph as a Mermaid flowchart (written in Rust when the backend is built).
+
+    Args:
+        nodes: Id -> (shape, label).
+        edges: (from, to, label or None).
+
+    Returns:
+        The flowchart text, as :func:`render_py` writes it.
+    """
+    native = _native_fn("lua_mermaid")
+    if native is None:
+        return render_py(nodes, edges)
+    text: str = native([(k, shape, label) for k, (shape, label) in nodes.items()], list(edges))
+    return text
+
+
+def render_py(nodes: dict[str, tuple[str, str]], edges: list[tuple[str, str, str | None]]) -> str:
+    """A graph as a Mermaid flowchart, in Python.
 
     Args:
         nodes: Id -> (shape, label).
@@ -318,7 +344,25 @@ def render(nodes: dict[str, tuple[str, str]], edges: list[tuple[str, str, str | 
 
 
 def flowchart(node: Node) -> str:
-    """The control flow of a function, or of a whole chunk.
+    """The control flow of a function, or of a whole chunk (Rust when it is built).
+
+    Args:
+        node: A ``Function``, ``LocalFunction`` or ``FunctionStat`` node, or a ``Block``.
+
+    Returns:
+        The Mermaid flowchart, as :func:`flowchart_py` draws it.
+    """
+    native = _native_fn("lua_flowchart")
+    if native is None:
+        return flowchart_py(node)
+    from wraithguard.lua.parser import _to_native
+
+    text: str = native(_to_native(node))
+    return text
+
+
+def flowchart_py(node: Node) -> str:
+    """The control flow of a function, or of a whole chunk, in Python.
 
     Args:
         node: A ``Function``, ``LocalFunction`` or ``FunctionStat`` node, or a ``Block``.
@@ -332,12 +376,41 @@ def flowchart(node: Node) -> str:
     return _Builder().build(body)
 
 
-def flowchart_html(title: str, charts: list[tuple[str, str]]) -> str:
-    """A page that renders flowcharts with mermaid.js (from a CDN, at view time).
+#: The name mermaid.js is published under beside a :func:`flowchart_html` page.
+MERMAID_JS = "mermaid.js"
+
+
+def _inline_script(source: str) -> str:
+    r"""A script's source made safe to sit inside a ``<script>`` element.
+
+    ``</script`` would end the element and ``<!--`` can switch the HTML parser into
+    its escaped script state; both only occur in mermaid.js's strings and regular
+    expressions, where ``\/`` and ``\x21`` mean the same characters.
+
+    Args:
+        source: The JavaScript.
+
+    Returns:
+        It, safe to inline.
+    """
+    return source.replace("</script", "<\\/script").replace("<!--", "<\\x21--")
+
+
+def flowchart_html(
+    title: str,
+    charts: list[tuple[str, str]],
+    *,
+    library: str | None = None,
+    library_url: str = MERMAID_JS,
+) -> str:
+    """A page that renders Mermaid charts with the bundled mermaid.js.
 
     Args:
         title: The page title.
         charts: ``(heading, mermaid text)`` pairs.
+        library: mermaid.js's source, to inline it (a page opened from disk).
+        library_url: Where to load mermaid.js from when it is not inlined (its URL
+            on the loopback server).
 
     Returns:
         The HTML.
@@ -347,6 +420,11 @@ def flowchart_html(title: str, charts: list[tuple[str, str]]) -> str:
         "</section>"
         for h, body in charts
     )
+    loader = (
+        f"<script>{_inline_script(library)}</script>"
+        if library is not None
+        else f"<script src='{html.escape(library_url)}'></script>"
+    )
     return (
         "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
         f"<title>{html.escape(title)}</title><style>"
@@ -354,9 +432,9 @@ def flowchart_html(title: str, charts: list[tuple[str, str]]) -> str:
         "h1{font-size:17px;padding:14px 24px;margin:0;background:#1e1e1e}"
         "section{margin:20px;padding:12px;background:#1e1e1e;border-radius:8px}"
         "h2{font-size:14px;margin:0 0 10px}.mermaid svg{background:transparent!important}"
-        f"</style></head><body><h1>{html.escape(title)}</h1>{cards}"
-        "<script type='module'>import mermaid from "
-        "'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';"
-        "mermaid.initialize({startOnLoad:true,theme:'dark',securityLevel:'strict'});"
+        f"</style></head><body><h1>{html.escape(title)}</h1>{cards}{loader}"
+        # Without the library (a broken build) the charts stay as their text.
+        "<script>if(window.mermaid)mermaid.initialize("
+        "{startOnLoad:true,theme:'dark',securityLevel:'strict',maxTextSize:500000});"
         "</script></body></html>"
     )

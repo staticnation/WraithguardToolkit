@@ -100,11 +100,14 @@ RUN python -m pip install --upgrade \
 
 # The Rust backend (native/, on greatness7's tes3 crates), built for this
 # interpreter. The toolchain is only needed for this step, so it is removed after.
-COPY native/ /tmp/native/
+# It takes viewer-shell/luacore (the Lua checks, shared with the viewer) by path, so that
+# goes beside it in the same layout.
+COPY native/ /tmp/src/native/
+COPY viewer-shell/luacore/ /tmp/src/viewer-shell/luacore/
 RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal && \
-    PATH="/root/.cargo/bin:${PATH}" python -m pip install --no-cache-dir /tmp/native && \
-    rm -rf /root/.rustup /root/.cargo /tmp/native && \
+    PATH="/root/.cargo/bin:${PATH}" python -m pip install --no-cache-dir /tmp/src/native && \
+    rm -rf /root/.rustup /root/.cargo /tmp/src && \
     apt-get purge -y curl && rm -rf /var/lib/apt/lists/*
 
 COPY --from=viewer-builder /viewer-shell/target/release/wraithguard-viewer /opt/wraithguard-viewer

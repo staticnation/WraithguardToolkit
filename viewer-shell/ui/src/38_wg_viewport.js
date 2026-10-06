@@ -48,6 +48,8 @@ const WgViewport={
     // already read are read again, so the scene has them at once.
     const nm=$('#setNrmMaps');
     if(nm) nm.onchange=()=>{ App._nrmChosen=true; this.setCellNormalMaps(nm.checked); this.touch(); };
+    const pd=$('#setPad');
+    if(pd) pd.onchange=()=>{ if(typeof WgPad==='object') WgPad.setEnabled(pd.checked); this.touch(); };
     const fc=$('#setFpsCap');
     if(fc) fc.onchange=()=>{ if(App.R){ App.R.opts.fpsCap=+fc.value||0; App.R.dirty=true; } this.touch(); };
     // Ambient occlusion's mode: SSAO or SSGI, one or the other (29_ssao.js).
@@ -94,6 +96,7 @@ const WgViewport={
     // profiles before the option defaulted on, and is ignored.
     return [['zoom_cursor',o.zoomToCursor!==false], ['fps_cap',Math.max(0,+o.fpsCap||0)],
             ['ao_mode',o.ssgi? 'ssgi' : 'ssao'],
+            ['gamepad', typeof WgPad==='object'? WgPad.enabled!==false : true],
             ['cov_heat', typeof WgCoverage==='object'? !!WgCoverage.on : true],
             ['cov_mode', typeof WgCoverage==='object'? String(WgCoverage.mode==='plugin'? 'mods' : WgCoverage.mode) : 'mods'],
             // `cell_maps`, not `normal_maps_cells`: that one saved `true` into profiles
@@ -107,6 +110,8 @@ const WgViewport={
     if(V.zoom_cursor!=null && App.R) App.R.opts.zoomToCursor=!!V.zoom_cursor;
     if(V.fps_cap!=null && App.R) App.R.opts.fpsCap=Math.max(0,+V.fps_cap||0);
     if(V.ao_mode!=null && App.R) App.R.opts.ssgi=String(V.ao_mode)==='ssgi';
+    if(V.gamepad!=null && typeof WgPad==='object') WgPad.setEnabled(!!V.gamepad);
+    { const pd=$('#setPad'); if(pd && typeof WgPad==='object') pd.checked=WgPad.enabled!==false; }
     if(V.cov_heat!=null && typeof WgCoverage==='object') WgCoverage.on=!!V.cov_heat;
     if(V.cov_mode!=null && typeof WgCoverage==='object' && ['mods','conflicts','land'].includes(String(V.cov_mode))) WgCoverage.mode=String(V.cov_mode);
     if(V.cell_maps!=null){ App._nrmChosen=true; this.setCellNormalMaps(!!V.cell_maps); }

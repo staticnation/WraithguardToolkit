@@ -33,10 +33,11 @@ from wraithguard.gui.theme import (
 from wraithguard.gui.widgets import add_tooltip
 from wraithguard.i18n import gettext as _
 from wraithguard.logging_setup import get_logger
-from wraithguard.lua.flowchart import flowchart, flowchart_html
+from wraithguard.lua.callgraph import call_graph_chart
+from wraithguard.lua.flowchart import MERMAID_JS, flowchart, flowchart_html
 from wraithguard.lua.lexer import LuaSyntaxError, tokenize
 from wraithguard.lua.report import all_findings, render
-from wraithguard.lua.scan import scan_cfg
+from wraithguard.viz.library import ViewerError, mermaid_source
 from wraithguard.viz.serve import Payload
 
 if TYPE_CHECKING:
@@ -119,9 +120,15 @@ class LuaViewMixin:
         cfg_var: tk.StringVar
         log_theme_var: tk.StringVar
         _conflict_win: tk.Toplevel | None
+        _openmw_install: str | None
+
+        def _save_settings(self) -> None: ...
 
         def _schedule_ui(
-            self, delay_ms: int, func: Callable[..., Any], *args: Any  # noqa: ANN401
+            self,
+            delay_ms: int,
+            func: Callable[..., Any],
+            *args: Any,  # noqa: ANN401
         ) -> None: ...
         def _resolve_theme(self, name: str) -> dict | None: ...
 
@@ -157,6 +164,18 @@ class LuaViewMixin:
             side="left", fill="x", expand=True
         )
         ttk.Button(top, text=_("Rescan"), command=lambda: self._lua_scan(cfg)).pack(side="right")
+        install = ttk.Button(
+            top, text=_("OpenMW install..."), command=lambda: self._lua_choose_install(cfg)
+        )
+        install.pack(side="right", padx=(0, 6))
+        add_tooltip(
+            install,
+            _(
+                "The OpenMW install whose Lua API the scripts are checked against: its "
+                "resources folder, or the folder holding it. Found on its own when not "
+                "chosen; choosing one keeps it in the settings."
+            ),
+        )
         ttk.Button(top, text=_("Copy report"), command=self._lua_copy_report).pack(
             side="right", padx=(0, 6)
         )
@@ -166,9 +185,18 @@ class LuaViewMixin:
             flow,
             _(
                 "The control flow of the function selected in the Syntax tree tab (or of "
-                "the whole script), as a flowchart in your browser: branches, loops, "
-                "returns, breaks and gotos. Needs an internet connection the first time, "
-                "for the chart library."
+                "the whole script), as a flowchart: branches, loops, returns, breaks and "
+                "gotos."
+            ),
+        )
+        calls = ttk.Button(top, text=_("Call graph"), command=self._lua_call_graph)
+        calls.pack(side="right", padx=(0, 6))
+        add_tooltip(
+            calls,
+            _(
+                "Which of the selected script's functions calls which, from the handlers "
+                "it gives OpenMW (rounded boxes) down. Calls into OpenMW and other "
+                "modules are left out."
             ),
         )
         self._lua_show_info = tk.BooleanVar(value=True)
@@ -271,22 +299,144 @@ class LuaViewMixin:
     def _lua_scan(self, cfg: Path) -> None:
         """Scan ``cfg`` on a worker thread, then fill the window.
 
+        Two phases, not one :func:`~wraithguard.lua.openmw_api.check_cfg` call: the
+        load-order scan is pure Python over files already on disk and reliably
+        fast, but the Teal check that follows it hands each script to an embedded
+        type checker (the Rust/Lua ``native/`` backend) with no timeout or
+        cancellation of its own, checking arbitrary scripts of whatever
+        complexity a mod author wrote. One script that makes the checker's own
+        inference slow -- or never terminate -- must not leave the window on
+        "Reading the load order's scripts..." forever with nothing to show for
+        it. So the fast phase fills the window first, and Teal results arrive
+        as a second update if and when they come back.
+
         Args:
             cfg: The openmw.cfg.
         """
         self._lua_status.set(_("Reading the load order's scripts..."))
 
         def work() -> None:
-            """Scan, then hand the result (or the error) to the UI thread."""
+            """Scan, then hand the result (or the error) to the UI thread.
+
+            Phase 1 is plain Python against the built-in API rules and always fills
+            the window. Phase 2 - reading the install's API documentation and the Teal
+            checks, both through the Rust backend - only refines it afterwards.
+            """
             try:
+                from wraithguard.lua.scan import scan_cfg
+
                 result = scan_cfg(cfg)
             except Exception as exc:  # shown to the user, never fatal
                 LOG.exception("Lua scan failed")
                 self._schedule_ui(0, self._lua_failed, str(exc))
                 return
+            result.api_source = _("Reading the OpenMW install's Lua API...")
             self._schedule_ui(0, self._lua_filled, result)
+            refined = self._lua_refine(cfg, result)
+            self._schedule_ui(0, self._lua_filled, refined)
 
         threading.Thread(target=work, name="wg-lua-scan", daemon=True).start()
+
+    def _lua_refine(self, cfg: Path, first: LuaScan) -> LuaScan:
+        """Phase 2 of a scan (worker thread): the install's API, then the Teal checks.
+
+        Every step here goes through the Rust backend, so each failure is caught and
+        said in the status line rather than losing the scan already shown.
+
+        Args:
+            cfg: The openmw.cfg.
+            first: Phase 1's scan, returned (with a status) when nothing better comes.
+
+        Returns:
+            The best scan there is.
+        """
+        try:
+            from wraithguard.lua.openmw_api import (
+                add_teal_findings,
+                api_from_docs,
+                find_resources,
+                find_teal_declarations,
+                read_docs,
+                teal_setup,
+            )
+            from wraithguard.lua.scan import scan_cfg
+
+            chosen = getattr(self, "_openmw_install", None)
+            found = find_resources(cfg, Path(chosen) if chosen else None)
+            docs = read_docs(found) if found else None
+        except Exception as exc:
+            LOG.exception("reading the OpenMW Lua API failed")
+            first.api_source = _("Built-in API rules (the install's API could not be read: ")
+            first.api_source += f"{exc})"
+            return first
+        result = first
+        if docs is not None:
+            try:
+                api = api_from_docs(docs)
+                result = scan_cfg(cfg, api)
+                result.api = api
+            except Exception as exc:
+                LOG.exception("rescanning against the install's API failed")
+                first.api_source = f"{exc}"
+                return first
+        try:
+            # The install's own documentation first (it is this OpenMW's); without an
+            # install, OpenMW's published declarations when they are kept near it.
+            declared = None
+            if docs is None:
+                declared = find_teal_declarations(found, cfg.parent)
+            setup = teal_setup(docs, declared)
+        except Exception as exc:
+            LOG.exception("Teal setup failed")
+            result.api_source = _("Teal checks off: ") + str(exc)
+            return result
+        if setup is None:
+            result.api_source = _("Teal checks off: the Rust backend (native/) is not built")
+            return result
+        try:
+            n = add_teal_findings(result, setup)
+            result.api_source = _("Teal checked %(n)d script(s) against ") % {"n": n}
+            result.api_source += setup.description
+        except Exception as exc:
+            LOG.exception("Teal check failed")
+            result.api_source = _("Teal checks failed: ") + str(exc)
+        finally:
+            setup.close()
+        return result
+
+    def _lua_choose_install(self, cfg: Path) -> None:
+        """Choose the OpenMW install the scripts are checked against, keep it, rescan.
+
+        Args:
+            cfg: The openmw.cfg being scanned.
+        """
+        from tkinter import filedialog
+
+        from wraithguard.lua.openmw_api import is_resources
+
+        start = getattr(self, "_openmw_install", None) or ""
+        folder = filedialog.askdirectory(
+            parent=getattr(self, "_lua_win", None) or self.root,
+            title=_("The OpenMW install (or its resources folder)"),
+            initialdir=start or None,
+            mustexist=True,
+        )
+        if not folder:
+            return
+        if not (is_resources(Path(folder)) or is_resources(Path(folder) / "resources")):
+            messagebox.showwarning(
+                _("Not an OpenMW install"),
+                _(
+                    "%(folder)s has no resources/lua_api/openmw folder (OpenMW 0.49 or "
+                    "newer has one). Choose the install folder or its resources folder."
+                )
+                % {"folder": folder},
+                parent=getattr(self, "_lua_win", None) or self.root,
+            )
+            return
+        self._openmw_install = folder
+        self._save_settings()
+        self._lua_scan(cfg)
 
     def _lua_failed(self, message: str) -> None:
         """Say the scan failed.
@@ -324,7 +474,10 @@ class LuaViewMixin:
         }
         what = _("%(scripts)d scripts from %(files)d .omwscripts file(s) and %(lual)d addon(s)")
         tally = _("%(error)d errors, %(warn)d warnings, %(info)d notes")
-        self._lua_status.set(f"{what % sources}  -  {tally % counts}")
+        status = f"{what % sources}  -  {tally % counts}"
+        if result.api_source:
+            status += f"  -  {result.api_source}"
+        self._lua_status.set(status)
         self._lua_refill()
 
     def _lua_findings_for(self, path: str) -> list[Finding]:
@@ -568,7 +721,7 @@ class LuaViewMixin:
         return node.line if node is not None else 0
 
     def _lua_flowchart(self) -> None:
-        """Open the selected function's (or the script's) flowchart in the browser."""
+        """Open the selected function's (or the script's) flowchart."""
         sel = self._lua_nav.selection()
         rec = self._lua_records.get(sel[0]) if sel else None
         tree = rec.info.tree if rec is not None and rec.info is not None else None
@@ -581,23 +734,54 @@ class LuaViewMixin:
         target = node
         name = target.value or (_("function at line ") + str(target.line))
         heading = rec.path if target is tree else f"{rec.path} - {name}"
-        page = flowchart_html(heading, [(heading, flowchart(target))])
-        title = _("Lua flowchart")
-        # In the app's own HTML window over the shared loopback server, as every other
-        # page the toolkit shows; a temporary file when no port can be bound.
+        self._lua_show_chart(heading, flowchart(target), _("Lua flowchart"))
+
+    def _lua_call_graph(self) -> None:
+        """Open the selected script's call graph."""
+        sel = self._lua_nav.selection()
+        rec = self._lua_records.get(sel[0]) if sel else None
+        tree = rec.info.tree if rec is not None and rec.info is not None else None
+        if rec is None or tree is None:
+            self._lua_status.set(_("Select a script that parses first."))
+            return
+        heading = f"{rec.path} - " + _("call graph")
+        self._lua_show_chart(heading, call_graph_chart(tree), _("Lua call graph"))
+
+    def _lua_show_chart(self, heading: str, chart: str, title: str) -> None:
+        """Show a Mermaid chart in a page of its own.
+
+        In the app's own HTML window over the shared loopback server, as every other
+        page the toolkit shows, with mermaid.js published beside it; with the library
+        inlined in a file when no port can be bound.
+
+        Args:
+            heading: The page's heading.
+            chart: The Mermaid text.
+            title: The window title.
+        """
+        try:
+            library = mermaid_source()
+        except ViewerError as exc:
+            LOG.warning("%s", exc)
+            library = ""  # the page shows the chart's text
         server_of = getattr(self, "_viewer_server", None)
         server = server_of() if callable(server_of) else None
         opener = getattr(self, "open_html_in_app", None)
         if server is not None and callable(opener):
             session = server.publish_session("luaflow")
+            js = Payload(library.encode("utf-8"), "text/javascript; charset=utf-8")
+            page = flowchart_html(
+                heading, [(heading, chart)], library_url=session.publish(MERMAID_JS, js)
+            )
             url = session.publish("index.html", Payload(page.encode("utf-8"), "text/html"))
             opener(url, title)
             return
+        page = flowchart_html(heading, [(heading, chart)], library=library)
         fallback = getattr(self, "_open_html_view", None)
         if callable(fallback):
-            fallback(page, "lua_flowchart", title)
+            fallback(page, "lua_chart", title)
             return
-        out = Path(tempfile.gettempdir()) / "wraithguard_lua_flowchart.html"
+        out = Path(tempfile.gettempdir()) / "wraithguard_lua_chart.html"
         out.write_text(page, encoding="utf-8")
         open_in_browser(out.as_uri())
 

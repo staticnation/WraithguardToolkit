@@ -45,9 +45,9 @@ Copyright (c) 2026 StaticNation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from wraithguard.lua.lexer import LuaSyntaxError, tokenize
+from wraithguard.lua.lexer import LuaSyntaxError, tokenize_py
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -895,8 +895,28 @@ class _Parser:
         return self.node("Function", start, None, params, body)
 
 
+def _native_parse() -> Any:  # noqa: ANN401 - the backend's function, or None
+    """The Rust backend's parser (``viewer-shell/luacore/src/parser.rs``), or None."""
+    try:
+        import wraithguard_native
+    except ImportError:
+        return None
+    return getattr(wraithguard_native, "lua_parse", None)
+
+
+def _from_native(raw: tuple[Any, ...]) -> Node:
+    """A tree from the backend's nested tuples."""
+    kind, line, col, value, kids = raw
+    return Node(kind, line, col, value, [_from_native(k) for k in kids])
+
+
+def _to_native(node: Node) -> tuple[Any, ...]:
+    """A tree as the backend's nested tuples (the inverse of :func:`_from_native`)."""
+    return (node.kind, node.line, node.col, node.value, [_to_native(k) for k in node.children])
+
+
 def parse(src: str, *, teal: bool = False) -> Node:
-    """Parse a Lua chunk (or, with ``teal``, a Teal one).
+    """Parse a Lua chunk (or, with ``teal``, a Teal one) - in Rust when it is built.
 
     Args:
         src: The source text.
@@ -908,7 +928,35 @@ def parse(src: str, *, teal: bool = False) -> Node:
     Raises:
         LuaSyntaxError: The source is not valid Lua 5.1 / LuaJIT (or Teal).
     """
-    p = _Parser(tokenize(src, teal=teal), teal=teal)
+    native = _native_parse()
+    if native is None:
+        return parse_py(src, teal=teal)
+    try:
+        raw = native(src, teal)
+    except ValueError as exc:
+        info = exc.args
+        if len(info) == 1 and isinstance(info[0], tuple):
+            info = info[0]
+        if len(info) == 3:
+            raise LuaSyntaxError(str(info[0]), int(info[1]), int(info[2])) from None
+        raise
+    return _from_native(raw)
+
+
+def parse_py(src: str, *, teal: bool = False) -> Node:
+    """Parse a Lua chunk in Python (:func:`parse`'s fallback, and its reference).
+
+    Args:
+        src: The source text.
+        teal: It is Teal (a ``.tl`` file): read its types and set them aside.
+
+    Returns:
+        The chunk's ``Block``.
+
+    Raises:
+        LuaSyntaxError: The source is not valid Lua 5.1 / LuaJIT (or Teal).
+    """
+    p = _Parser(tokenize_py(src, teal=teal), teal=teal)
     chunk = p.block()
     if p.tok.kind != "eof":
         raise p.error(f"{p.tok.text!r} where the chunk should have ended")

@@ -15,6 +15,7 @@ left and what each part is for.
 | `src/cellviewer/mod.rs` | The cell/mesh viewer window and its launch arguments (`--openmw-cfg`, `--cell`, `--title`, `--theme`, `--prefs`, `--mesh-view`, `--extra`) | MIT |
 | `src/cellviewer/commands.rs` | The 38 commands the page calls (below) | MIT (from Gardenfell) |
 | `viewcore/` | The engine crate, on greatness7's `tes3` crates | MIT (from Gardenfell) |
+| `luacore/` | OpenMW Lua scripts read and checked (lexer, parser, checks, the load-order scan, API tables, report, Mermaid charts); shared with the Python backend (`native/` takes it by path) | MIT |
 | `ui/src/` | Page modules, concatenated in `ui/ORDER` order by `build.rs` | **GPL-2.0** silo (MGE XE shader ports) |
 | `ui/assets/` | Files shipped beside the page (copied into `ui-dist` by `build.rs`): MGE XE's wave volume `water_NRM.dds`, for setups without MGE XE | GPL-2.0 silo (MGE XE asset) |
 | `ui/viewer_only.html` | Hides what the viewer does not use, opens the cell picker | GPL-2.0 silo |
@@ -70,6 +71,11 @@ not reach the MIT code. See `ui/LICENSE`, `../License/Gardenfell`,
 | `44_wg_precip.js` | 12 KB | Weather effects: OpenMW-style rain around the camera in Rain and Thunderstorm, and the game's snow, blizzard, ash and blight particle meshes carried with the camera. |
 | `45_wg_nav.js` | 3 KB | From Wraithguard's conflict viewer: a record found where it stands, the cell opened on it, and what Wraithguard asks an open viewer to show. |
 | `46_wg_tfh.js` | 10 KB | The full help on the right: owner, lock, contents and inventory with the game's icons, leveled lists, services, travel, spells, dialogue, and the contents in the mesh viewer. |
+| `50_wg_editor.js` | 100 KB | The Editor mode: the Object Window, Cell View, record and reference dialogs, Script Edit, Dialogue, Layers, the Q menu, moving and placing objects, the Lua panel. |
+| `51_wg_editor_ui.js` | 30 KB | The Editor's window furniture: dockable and foldable panels, the toolbar, flyout menus, the dialogs' folding sections, record previews and drag-to-place feedback. |
+| `52_wg_dialogue_views.js` | 20 KB | The Dialogue window's other views: a topic's flow with its choice tree, the topic map, the flags (variables, quests, items) the dialogue writes and tests, and the game's dialogue window rehearsed with an NPC. |
+| `53_wg_record_forms.js` | 14 KB | The record dialog's Construction Set form per record type: fields laid out as the CS has them, flags as checkboxes, a weapon's damage grid, a light's colour and flicker, the art file turning and the inventory image. |
+| `54_wg_pathgrid_edit.js` | 13 KB | The Editor's path grid mode: the loaded cells' PGRD points drawn with their links and edited in the render window (select, drag, add, link, delete, undo), each cell's grid queued whole in the patch pool. |
 | `11_events.js` | 90 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
 ## Engine commands (`src/cellviewer/commands.rs`)
@@ -96,6 +102,9 @@ not reach the MIT code. See `ui/LICENSE`, `../License/Gardenfell`,
 | | `wg_open_record` | 24 (asks Wraithguard to show a record in its conflict viewer, over loopback) |
 | | `find_record` | 45 (where a record stands, for the conflict viewer's Show in Cell Preview) |
 | | `wg_post` | 45 (asks Wraithguard for the next place to show) |
+| | `lua_scan` | 50 (the Editor's Lua panel: the load order's OpenMW Lua scripts checked) |
+| | `editor_record_tag` | 50 (what type a record is, for a link the Editor opens by id) |
+| | `navmesh` | 48 (OpenMW's navmesh.db over the loaded cells: the Navmesh overlay, under path grid editing) |
 | Meshes & textures | `mesh_data` | 03, 10 |
 | | `texture_data` | 03, 10 |
 | | `assets_bundle` | 10 |
@@ -147,6 +156,8 @@ that is not defined, or a `#[tauri::command]` is left unregistered.
 | `toml.rs` | 488 | Small TOML reader/writer (settings, favourites, languages). |
 | `json.rs` | 390 | Minimal JSON for the bridge. |
 | `pool.rs` | 158 | Parallel map (no rayon). |
+| `navmesh.rs` | 610 | OpenMW's navmesh.db (navmeshtool's SQLite cache) read for drawing: its own LZ4 block decoder, the tiles' settings and poly meshes in world units, the file found beside openmw.cfg or in OpenMW's user data folder. Written from the file's layout, not OpenMW's (GPL-3) code; rusqlite (MIT) with SQLite bundled. |
+| `luascan.rs` | 190 | The load order's Lua scripts checked through the overlay (luacore's scan; packed scripts read where they are). |
 
 ## Notes
 

@@ -660,7 +660,9 @@ fn cells(state: State) -> Result<String, String> {
         viewcore::json::escape_into(&c.name, &mut grid);
         grid.push_str("\",\"");
         viewcore::json::escape_into(&c.region, &mut grid);
-        grid.push_str("\"]");
+        // Wraithguard: the Editor's Cell View columns - references, and whether it has a
+        // pathgrid (appended, so readers of the first four are unchanged).
+        grid.push_str(&format!("\",{},{}]", c.refs.len(), u8::from(w.pathgrids_ext.contains_key(g))));
     }
     grid.push(']');
 
@@ -675,7 +677,8 @@ fn cells(state: State) -> Result<String, String> {
         }
         inter.push_str("[\"");
         viewcore::json::escape_into(&c.name, &mut inter);
-        inter.push_str(&format!("\",{}]", c.refs.len()));
+        let path = w.pathgrids_int.contains_key(&viewcore::world::room_key(&c.name));
+        inter.push_str(&format!("\",{},{}]", c.refs.len(), u8::from(path)));
     }
     inter.push(']');
 
@@ -1065,11 +1068,7 @@ fn refs_json_marked(
                         actors.push(',');
                     }
                     first_actor = false;
-                    actors.push('"');
-                    viewcore::json::escape_into(&key, &mut actors);
-                    actors.push_str("\":{\"kind\":\"lev\",\"model\":\"");
-                    viewcore::json::escape_into(&o.model, &mut actors);
-                    actors.push_str("\",\"twin\":null,\"health\":null,\"persistent\":false,\"corpse\":false}");
+                    push_lev(&key, &o.model, &mut actors);
                 }
                 continue;
             }
@@ -1078,36 +1077,7 @@ fn refs_json_marked(
                     actors.push(',');
                 }
                 first_actor = false;
-                actors.push('"');
-                viewcore::json::escape_into(&key, &mut actors);
-                actors.push_str("\":{\"kind\":\"");
-                actors.push_str(if a.creature { "crea" } else { "npc" });
-                actors.push_str("\",\"model\":\"");
-                viewcore::json::escape_into(&a.model, &mut actors);
-                // Round 18ag: and the `x` twin the game draws the living creature with.
-                actors.push_str("\",\"twin\":");
-                match &a.twin {
-                    Some(t) => {
-                        actors.push('"');
-                        viewcore::json::escape_into(t, &mut actors);
-                        actors.push('"');
-                    }
-                    None => actors.push_str("null"),
-                }
-                actors.push_str(",\"health\":");
-                match a.health {
-                    Some(h) => actors.push_str(&h.to_string()),
-                    None => actors.push_str("null"),
-                }
-                actors.push_str(",\"persistent\":");
-                actors.push_str(if a.persistent { "true" } else { "false" });
-                actors.push_str(",\"corpse\":");
-                actors.push_str(if a.corpse() { "true" } else { "false" });
-                // Wraithguard: AI Hello, for the greeting-distance overlay.
-                if let Some(h) = w.hello.get(&key) {
-                    actors.push_str(&format!(",\"hello\":{}", h));
-                }
-                actors.push('}');
+                push_actor(w, &key, a, &mut actors);
                 continue;
             }
             if let Some(li) = w.lights.get(&key) {
@@ -2070,24 +2040,29 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
     // The reference, the cell it stands in, which cell that is for a plugin, and the
     // cell's key in the conflict viewer (an interior's name; an exterior's, or its grid).
     use viewcore::inspect::CellSel;
-    let mut found: Option<(&viewcore::esp::CellRef, String, CellSel, String)> = None;
+    // Also the cell's key as a plugin's records key it (an interior's name, an exterior's
+    // grid), and the plugins with a CELL record for it - the editor reads those.
+    type Found<'a> = (&'a viewcore::esp::CellRef, String, CellSel, String, String, &'a [u32]);
+    let mut found: Option<Found> = None;
     for (g, c) in &w.cells {
         if let Some(r) = c.refs.iter().find(|(n, _)| is_key(n)).map(|(_, r)| r) {
             let label = if c.name.is_empty() { format!("{}, {}", g.0, g.1) } else { format!("{} ({}, {})", c.name, g.0, g.1) };
-            let ck = if c.name.is_empty() { format!("({}, {})", g.0, g.1) } else { c.name.clone() };
-            found = Some((r, label, CellSel::Exterior(g.0, g.1), ck));
+            let grid = format!("({}, {})", g.0, g.1);
+            let ck = if c.name.is_empty() { grid.clone() } else { c.name.clone() };
+            found = Some((r, label, CellSel::Exterior(g.0, g.1), ck, grid, &c.touched_by));
             break;
         }
     }
     if found.is_none() {
         for room in w.interiors.values() {
             if let Some(r) = room.refs.iter().find(|(n, _)| is_key(n)).map(|(_, r)| r) {
-                found = Some((r, room.name.clone(), CellSel::Interior(room.name.clone()), room.name.clone()));
+                let n = room.name.clone();
+                found = Some((r, n.clone(), CellSel::Interior(n.clone()), n.clone(), n, &room.touched_by));
                 break;
             }
         }
     }
-    let (r, cell, cell_sel, cell_key) = found.ok_or_else(|| format!("no reference {key} in the loaded world"))?;
+    let (r, cell, cell_sel, cell_key, ref_cell, cell_by) = found.ok_or_else(|| format!("no reference {key} in the loaded world"))?;
     let name = |i: i32| usize::try_from(i).ok().and_then(|i| w.plugins.get(i)).cloned().unwrap_or_default();
     let lid = r.id.to_ascii_lowercase();
 
@@ -2124,7 +2099,9 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
     if let Some(def) = w.objects.get(&lid) {
         o.str("name", &def.name);
     }
-    o.str("cellKey", &cell_key);
+    o.str("cellKey", &cell_key).str("refCell", &ref_cell).num("refIndex", r.num.index as f64);
+    let cell_plugins: Vec<String> = cell_by.iter().map(|&i| name(i as i32)).collect();
+    o.raw("cellPlugins", &string_array(&cell_plugins));
     /* Wraithguard: the full help. The reference's own fields from the plugin that last
        changed it, and the base record's from the plugin that last defines it - read from
        the files now, as the world keeps only what drawing needs. */
@@ -2366,6 +2343,265 @@ fn find_record(tag: String, id: String, state: State) -> Result<String, String> 
     Ok(o.done())
 }
 
+/* ---- the Editor mode (Wraithguard, 50_wg_editor.js) ------------------------------------
+
+   The Construction Set's Object Window and Cell View, from the world the viewer already
+   loaded: what records each tag has and who defines them, and what references a cell
+   holds without drawing it. A record's contents and every edit are Wraithguard's (the
+   page asks it over the `links` the launch handed over); this only lists. */
+
+/// Every reference in the world by base id (lower case) -> how many are placed.
+fn placed_counts(w: &World) -> HashMap<String, u32> {
+    let mut n: HashMap<String, u32> = HashMap::new();
+    let all = w.cells.values().flat_map(|c| c.refs.values()).chain(w.interiors.values().flat_map(|r| r.refs.values()));
+    for r in all {
+        if !r.deleted {
+            *n.entry(r.id.to_ascii_lowercase()).or_default() += 1;
+        }
+    }
+    n
+}
+
+/// The Object Window's tabs: `[[tag, count]...]`, every tag the load order has records of.
+#[tauri::command(async)]
+fn editor_tags(state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut n: HashMap<viewcore::esp::Tag, u64> = HashMap::new();
+    for defs in w.record_where.values() {
+        if let Some((_, tag)) = defs.last() {
+            *n.entry(*tag).or_default() += 1;
+        }
+    }
+    let mut tags: Vec<(viewcore::esp::Tag, u64)> = n.into_iter().collect();
+    tags.sort();
+    let rows: Vec<String> = tags
+        .iter()
+        .map(|(t, c)| {
+            let mut s = String::from("[\"");
+            viewcore::json::escape_into(&tag_text(t), &mut s);
+            s.push_str(&format!("\",{c}]"));
+            s
+        })
+        .collect();
+    Ok(format!("[{}]", rows.join(",")))
+}
+
+/// The Object Window's rows for one tag: `{plugins:[names], rows:[[id, name, model,
+/// [plugin ix...], placed]...]}`, sorted by id. The id is as the record spells it where
+/// the world kept it (objects), else lower case; `plugins` (load order) are the files
+/// defining it, the last winning.
+#[tauri::command(async)]
+fn editor_records(tag: String, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let want: viewcore::esp::Tag = {
+        let mut t = [b'_'; 4];
+        for (i, b) in tag.bytes().take(4).enumerate() {
+            t[i] = b.to_ascii_uppercase();
+        }
+        t
+    };
+    let placed = placed_counts(&w);
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for (id, defs) in &w.record_where {
+        if defs.last().map(|(_, t)| *t) != Some(want) {
+            continue;
+        }
+        let obj = w.objects.get(id);
+        let shown = obj.map(|o| o.id.as_str()).filter(|s| !s.is_empty()).unwrap_or(id);
+        let mut row = String::from("[\"");
+        viewcore::json::escape_into(shown, &mut row);
+        row.push_str("\",\"");
+        viewcore::json::escape_into(obj.map(|o| o.name.as_str()).unwrap_or(""), &mut row);
+        row.push_str("\",\"");
+        // Lights, statics and the like keep their mesh in `models` rather than `objects`.
+        let model = obj.map(|o| o.model.as_str()).filter(|m| !m.is_empty()).or_else(|| w.models.get(id).map(String::as_str));
+        // Wraithguard: a land texture has no mesh; its texture file stands in the column
+        // (the Editor's preview shows the texture itself).
+        let model = model.or_else(|| if want == *b"LTEX" { w.ltex_file.get(id).map(String::as_str) } else { None });
+        viewcore::json::escape_into(model.unwrap_or(""), &mut row);
+        let mut ixs: Vec<usize> = defs.iter().filter(|(_, t)| *t == want).map(|(p, _)| *p).collect();
+        ixs.dedup();
+        let ixs: Vec<String> = ixs.iter().map(usize::to_string).collect();
+        row.push_str(&format!("\",[{}],{}]", ixs.join(","), placed.get(id).copied().unwrap_or(0)));
+        rows.push((id.clone(), row));
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut o = J::obj();
+    o.raw("plugins", &string_array(&w.plugins));
+    o.raw("rows", &format!("[{}]", rows.into_iter().map(|(_, r)| r).collect::<Vec<_>>().join(",")));
+    Ok(o.done())
+}
+
+/// One actor, `"key":{kind, model, twin, health, persistent, corpse, hello?}`, as the
+/// cell's `actors` map carries it (and `editor_actors`).
+fn push_actor(w: &viewcore::world::World, key: &str, a: &viewcore::world::ActorDef, actors: &mut String) {
+    actors.push('"');
+    viewcore::json::escape_into(key, actors);
+    actors.push_str("\":{\"kind\":\"");
+    actors.push_str(if a.creature { "crea" } else { "npc" });
+    actors.push_str("\",\"model\":\"");
+    viewcore::json::escape_into(&a.model, actors);
+    // Round 18ag: and the `x` twin the game draws the living creature with.
+    actors.push_str("\",\"twin\":");
+    match &a.twin {
+        Some(t) => {
+            actors.push('"');
+            viewcore::json::escape_into(t, actors);
+            actors.push('"');
+        }
+        None => actors.push_str("null"),
+    }
+    actors.push_str(",\"health\":");
+    match a.health {
+        Some(h) => actors.push_str(&h.to_string()),
+        None => actors.push_str("null"),
+    }
+    actors.push_str(",\"persistent\":");
+    actors.push_str(if a.persistent { "true" } else { "false" });
+    actors.push_str(",\"corpse\":");
+    actors.push_str(if a.corpse() { "true" } else { "false" });
+    // Wraithguard: AI Hello, for the greeting-distance overlay.
+    if let Some(h) = w.hello.get(key) {
+        actors.push_str(&format!(",\"hello\":{}", h));
+    }
+    actors.push('}');
+}
+
+/// A leveled creature list placed as a spawn point, as the cell's `actors` map carries it.
+fn push_lev(key: &str, model: &str, actors: &mut String) {
+    actors.push('"');
+    viewcore::json::escape_into(key, actors);
+    actors.push_str("\":{\"kind\":\"lev\",\"model\":\"");
+    viewcore::json::escape_into(model, actors);
+    actors.push_str("\",\"twin\":null,\"health\":null,\"persistent\":false,\"corpse\":false}");
+}
+
+/// Wraithguard: what the render window needs to draw objects it has not seen placed (a
+/// reference the editor adds): `{actors:{...}, models:{id: mesh}}`, as a cell carries
+/// them, for the ids asked.
+#[tauri::command(async)]
+fn editor_actors(ids: Vec<String>, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut actors = String::from("{");
+    let mut models = String::from("{");
+    for id in ids.iter().take(4096) {
+        let key = id.to_ascii_lowercase();
+        if let Some(a) = w.actors.get(&key) {
+            if actors.len() > 1 {
+                actors.push(',');
+            }
+            push_actor(&w, &key, a, &mut actors);
+        } else if let Some(o) = w.objects.get(&key).filter(|o| o.kind == Some(viewcore::objects::ObjKind::LeveledCreature)) {
+            if actors.len() > 1 {
+                actors.push(',');
+            }
+            push_lev(&key, &o.model, &mut actors);
+        }
+        if let Some(m) = w.models.get(&key) {
+            if models.len() > 1 {
+                models.push(',');
+            }
+            models.push('"');
+            viewcore::json::escape_into(&key, &mut models);
+            models.push_str("\":\"");
+            viewcore::json::escape_into(m, &mut models);
+            models.push('"');
+        }
+    }
+    actors.push('}');
+    models.push('}');
+    let mut o = J::obj();
+    o.raw("actors", &actors).raw("models", &models);
+    Ok(o.done())
+}
+
+/// The Cell View's object list for one cell (`x,y`, or `int:<name>`): `{name, rows:[[key,
+/// id, tag, [x,y,z], plugin]...]}` - every reference not deleted, sorted by id; `key` is
+/// the viewport's reference key, `plugin` the file whose version of it wins.
+#[tauri::command(async)]
+fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    // Also the cell's key as plugins' records key it, and the plugins with a CELL record
+    // for it: what the editor's reference dialog asks Wraithguard with.
+    type Cell<'a> = (String, String, &'a [u32], Vec<&'a viewcore::esp::CellRef>);
+    let (name, ref_cell, by, refs): Cell = if let Some(room) = cell.strip_prefix("int:") {
+        let r = w.interiors.get(&viewcore::world::room_key(room)).ok_or_else(|| format!("no interior {room}"))?;
+        (r.name.clone(), r.name.clone(), &r.touched_by, r.refs.values().collect())
+    } else {
+        let (x, y) = cell
+            .split_once(',')
+            .and_then(|(a, b)| Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?)))
+            .ok_or_else(|| format!("not a cell: {cell}"))?;
+        let c = w.cells.get(&(x, y)).ok_or_else(|| format!("no exterior cell {x},{y}"))?;
+        (c.name.clone(), format!("({x}, {y})"), &c.touched_by, c.refs.values().collect())
+    };
+    let mut refs: Vec<&viewcore::esp::CellRef> = refs.into_iter().filter(|r| !r.deleted).collect();
+    refs.sort_by(|a, b| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()).then(a.num.index.cmp(&b.num.index)));
+    let rows: Vec<String> = refs
+        .iter()
+        .map(|r| {
+            let key = viewcore::refkey::RefKey::of(r.num, &w.plugins).map(|k| viewcore::refkey::key_text(&k)).unwrap_or_default();
+            let tag = w
+                .record_where
+                .get(&r.id.to_ascii_lowercase())
+                .and_then(|d| d.last())
+                .map(|(_, t)| tag_text(t))
+                .unwrap_or_default();
+            let mut row = String::from("[\"");
+            viewcore::json::escape_into(&key, &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&r.id, &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&tag, &mut row);
+            row.push_str(&format!("\",[{:.1},{:.1},{:.1}],\"", r.pos[0], r.pos[1], r.pos[2]));
+            viewcore::json::escape_into(plugin_name(&w, usize::try_from(r.plugin).ok()), &mut row);
+            row.push_str("\"]");
+            row
+        })
+        .collect();
+    let mut o = J::obj();
+    let plugins: Vec<String> = by.iter().map(|&i| plugin_name(&w, Some(i as usize)).to_string()).collect();
+    o.str("name", &name).str("refCell", &ref_cell).raw("plugins", &string_array(&plugins));
+    o.raw("rows", &format!("[{}]", rows.join(",")));
+    Ok(o.done())
+}
+
+/// Wraithguard: what kind of record an id is, for the Editor opening one by id alone (a
+/// link in the inspector or the full help, whose caller can only guess the type): `{tag,
+/// plugins}` - the type the winning plugin gives it, and the plugins that define it as that
+/// type, in load order - or `{tag: null}` when no plugin has it.
+#[tauri::command(async)]
+fn editor_record_tag(id: String, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut o = J::obj();
+    match w.record_where.get(&id.trim().to_ascii_lowercase()).and_then(|d| d.last().map(|(_, t)| (d, *t))) {
+        Some((defs, tag)) => {
+            let mut ixs: Vec<usize> = defs.iter().filter(|(_, t)| *t == tag).map(|(p, _)| *p).collect();
+            ixs.dedup();
+            let plugins: Vec<String> = ixs.iter().map(|&i| plugin_name(&w, Some(i)).to_string()).collect();
+            o.str("tag", &tag_text(&tag)).raw("plugins", &string_array(&plugins));
+        }
+        None => {
+            o.raw("tag", "null").raw("plugins", "[]");
+        }
+    }
+    Ok(o.done())
+}
+
+/// Wraithguard: the load order's OpenMW Lua scripts, found and checked by the engine
+/// (`viewcore::luascan`, luacore's scan over the overlay - packed scripts included): `{openmw,
+/// revision, resources, note, scripts:[{path, flags, file, providers, interface,
+/// handlers}], findings:[{path, severity, code, line, message}], report}`. The Editor's
+/// Lua panel. A Morrowind.ini setup has none, and says so in `note`.
+#[tauri::command(async)]
+fn lua_scan(state: State) -> Result<String, String> {
+    let (vfs, order) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone())
+    };
+    viewcore::luascan::scan_json(&vfs, order.as_deref())
+}
+
 /// Wraithguard: a POST to Wraithguard's loopback server, at a URL it handed the viewer
 /// (`links` in the launch's extra file); the answer's text. The viewer asks it for the
 /// next place to show (`poll`).
@@ -2465,6 +2701,20 @@ fn pathgrid(cells: Vec<String>, state: State) -> Result<String, String> {
         out.push(o.done());
     }
     Ok(format!("[{}]", out.join(",")))
+}
+
+/// Wraithguard: OpenMW's navigation mesh over the cells asked for (as `pathgrid` takes
+/// them), read from `navmesh.db` (`viewcore::navmesh`; its `encode` gives the layout).
+/// `db` is a file or folder the user chose; without one the file is looked for beside
+/// the setup's openmw.cfg, then in OpenMW's user data folder.
+#[tauri::command(async)]
+fn navmesh(cells: Vec<String>, db: Option<String>, state: State) -> Result<tauri::ipc::Response, String> {
+    let order = { state.app().order_file.clone() };
+    let chosen = db.filter(|d| !d.trim().is_empty()).map(PathBuf::from);
+    let cands = viewcore::navmesh::candidates(chosen.as_deref(), order.as_deref());
+    let nav = viewcore::navmesh::NavDb::find(&cands)?;
+    let found = nav.cells(&cells)?;
+    Ok(tauri::ipc::Response::new(viewcore::navmesh::encode(&nav.path, &found)))
 }
 
 /// Wraithguard: several meshes' collision, in one answer (as `mesh_collision` gives one):
@@ -2721,6 +2971,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .manage(Mutex::new(App::default()))
         .invoke_handler(tauri::generate_handler![
             pathgrid,
+            navmesh,
             collision_bundle,
             where_used,
             asset_providers,
@@ -2730,6 +2981,12 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             wg_open_record,
             wg_post,
             find_record,
+            editor_tags,
+            editor_records,
+            editor_cell_refs,
+            editor_actors,
+            lua_scan,
+            editor_record_tag,
             ori_dialogue,
             mesh_collision,
             open_install,

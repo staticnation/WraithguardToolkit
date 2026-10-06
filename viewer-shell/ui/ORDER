@@ -41,4 +41,9 @@
 47_wg_overlay.js
 48_wg_tools.js
 49_wg_gamepad.js
+50_wg_editor.js
+51_wg_editor_ui.js
+52_wg_dialogue_views.js
+53_wg_record_forms.js
+54_wg_pathgrid_edit.js
 11_events.js
