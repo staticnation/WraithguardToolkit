@@ -290,6 +290,12 @@ fn passthrough(buf: &[u8], kind: Kind) -> Texture {
     Texture { kind, alpha: Alpha::Opaque, w: 0, h: 0, depth: 1, levels: vec![(0, 0, buf.to_vec())], thumb: None }
 }
 
+/// Wraithguard: a texture from straight RGBA pixels (one level; the page makes the mips) -
+/// a texture a NIF carries inside itself (`nif::embedded_texture`).
+pub fn from_rgba(w: u32, h: u32, px: Vec<u8>) -> Texture {
+    rgba_texture(w, h, px)
+}
+
 fn rgba_texture(w: u32, h: u32, px: Vec<u8>) -> Texture {
     let thumb = shrink(w, h, &px);
     let alpha = classify_alpha(&px);

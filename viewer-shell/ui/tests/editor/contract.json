@@ -1,0 +1,772 @@
+{
+ "_about": "The Editor page / Wraithguard contract: per link the request keys it needs (req) and may send (opt), and what it answers (ans: the keys of the object, \"list\", \"ok\", or null when not pinned yet). Requests come from each handler's docstring (gui/editorlink.py, `body: {...}`); tests/test_editor_contract.py checks this file against them and runs the examples; the page tests (harness.js) check every request the page sends and every stand-in answer against it.",
+ "links": {
+  "editBuild": {
+   "req": [
+    "path"
+   ],
+   "opt": [
+    "mode"
+   ],
+   "ans": [
+    "job"
+   ]
+  },
+  "editBuildCheck": {
+   "req": [
+    "path"
+   ],
+   "opt": [],
+   "ans": [
+    "path",
+    "exists",
+    "inOrder"
+   ]
+  },
+  "editBuildInfo": {
+   "req": [],
+   "opt": [],
+   "ans": [
+    "summary",
+    "last",
+    "suggested",
+    "folders",
+    "defaultName",
+    "order"
+   ]
+  },
+  "editBuildStatus": {
+   "req": [
+    "job",
+    "from"
+   ],
+   "opt": [],
+   "ans": [
+    "job",
+    "state",
+    "lines",
+    "result",
+    "error"
+   ]
+  },
+  "editColumns": {
+   "req": [
+    "tag"
+   ],
+   "opt": [],
+   "ans": [
+    "columns",
+    "rows"
+   ],
+   "example": {
+    "tag": "NPC_"
+   }
+  },
+  "editCopyTopic": {
+   "req": [
+    "topic",
+    "newId"
+   ],
+   "opt": [],
+   "ans": [
+    "id",
+    "type",
+    "responses"
+   ]
+  },
+  "editDialogueFlags": {
+   "req": [],
+   "opt": [
+    "name",
+    "kind"
+   ],
+   "ans": null
+  },
+  "editDialogueFlow": {
+   "req": [
+    "topic"
+   ],
+   "opt": [],
+   "ans": null
+  },
+  "editDialogueMap": {
+   "req": [
+    "topic"
+   ],
+   "opt": [
+    "depth"
+   ],
+   "ans": null
+  },
+  "editDialoguePlay": {
+   "req": [
+    "speaker"
+   ],
+   "opt": [
+    "topic",
+    "choice",
+    "cell",
+    "disposition",
+    "strict"
+   ],
+   "ans": null
+  },
+  "editDuplicate": {
+   "req": [
+    "tag",
+    "id",
+    "newId"
+   ],
+   "opt": [
+    "plugins"
+   ],
+   "ans": [
+    "tag",
+    "id",
+    "type",
+    "winner",
+    "plugins",
+    "fields",
+    "whole",
+    "new"
+   ],
+   "example": {
+    "tag": "NPC_",
+    "id": "fargoth",
+    "newId": "fargoth2"
+   }
+  },
+  "editDuplicateCell": {
+   "req": [
+    "cell",
+    "newName"
+   ],
+   "opt": [],
+   "ans": [
+    "cell",
+    "refs",
+    "pathgrid"
+   ]
+  },
+  "editFilterChoices": {
+   "req": [],
+   "opt": [],
+   "ans": [
+    "types",
+    "functions",
+    "comparisons"
+   ],
+   "example": {}
+  },
+  "editFlowchart": {
+   "req": [
+    "tag",
+    "id"
+   ],
+   "opt": [
+    "plugins",
+    "text"
+   ],
+   "ans": [
+    "shown"
+   ]
+  },
+  "editInsert": {
+   "req": [
+    "tag",
+    "newId"
+   ],
+   "opt": [],
+   "ans": [
+    "tag",
+    "id",
+    "type",
+    "winner",
+    "plugins",
+    "fields",
+    "whole",
+    "new"
+   ],
+   "example": {
+    "tag": "NPC_",
+    "newId": "x_new"
+   }
+  },
+  "editLeveledRoll": {
+   "req": [
+    "tag",
+    "id",
+    "level"
+   ],
+   "opt": [],
+   "ans": [
+    "level",
+    "outcomes",
+    "nested"
+   ]
+  },
+  "editLuaChart": {
+   "req": [
+    "path",
+    "text",
+    "kind"
+   ],
+   "opt": [
+    "line"
+   ],
+   "ans": null
+  },
+  "editMoveResponse": {
+   "req": [
+    "topic",
+    "id",
+    "after"
+   ],
+   "opt": [],
+   "ans": [
+    "id",
+    "type",
+    "responses"
+   ]
+  },
+  "editNew": {
+   "req": [
+    "cell",
+    "uid"
+   ],
+   "opt": [],
+   "ans": [
+    "cell",
+    "uid",
+    "id",
+    "tag",
+    "new",
+    "plugins",
+    "fields"
+   ]
+  },
+  "editNewCell": {
+   "req": [
+    "cell"
+   ],
+   "opt": [],
+   "ans": [
+    "cell",
+    "interior"
+   ],
+   "example": {
+    "cell": "Test Room"
+   }
+  },
+  "editNewRemove": {
+   "req": [
+    "cell",
+    "uid"
+   ],
+   "opt": [],
+   "ans": "ok"
+  },
+  "editNewResponse": {
+   "req": [
+    "topic",
+    "after"
+   ],
+   "opt": [],
+   "ans": null
+  },
+  "editNewSet": {
+   "req": [
+    "cell",
+    "uid",
+    "path",
+    "value"
+   ],
+   "opt": [],
+   "ans": [
+    "cell",
+    "uid",
+    "id",
+    "tag",
+    "new",
+    "plugins",
+    "fields"
+   ]
+  },
+  "editPathgrid": {
+   "req": [
+    "cell"
+   ],
+   "opt": [],
+   "ans": [
+    "key",
+    "grid",
+    "plugins",
+    "queued",
+    "new",
+    "granularity",
+    "points",
+    "edges"
+   ],
+   "example": {
+    "cell": "Vault"
+   }
+  },
+  "editPathgridSet": {
+   "req": [
+    "cell"
+   ],
+   "opt": [
+    "points",
+    "edges",
+    "revert"
+   ],
+   "ans": [
+    "key",
+    "grid",
+    "plugins",
+    "queued",
+    "new",
+    "granularity",
+    "points",
+    "edges"
+   ],
+   "example": {
+    "cell": "Vault",
+    "points": [
+     [
+      0,
+      0,
+      0
+     ]
+    ],
+    "edges": []
+   }
+  },
+  "editPending": {
+   "req": [],
+   "opt": [],
+   "ans": "list",
+   "example": {}
+  },
+  "editPlace": {
+   "req": [
+    "cell",
+    "tag",
+    "id",
+    "translation"
+   ],
+   "opt": [
+    "rotation",
+    "plugins",
+    "defined"
+   ],
+   "ans": [
+    "cell",
+    "uid",
+    "id",
+    "tag",
+    "new",
+    "plugins",
+    "fields"
+   ]
+  },
+  "editPlaceMany": {
+   "req": [
+    "cell",
+    "items"
+   ],
+   "opt": [],
+   "ans": [
+    "placed"
+   ]
+  },
+  "editPreviewPatch": {
+   "req": [
+    "path"
+   ],
+   "opt": [],
+   "ans": "ok"
+  },
+  "editRecord": {
+   "req": [
+    "tag",
+    "id"
+   ],
+   "opt": [
+    "plugins"
+   ],
+   "ans": [
+    "tag",
+    "id",
+    "type",
+    "winner",
+    "plugins",
+    "fields",
+    "whole",
+    "new"
+   ],
+   "example": {
+    "tag": "NPC_",
+    "id": "fargoth"
+   }
+  },
+  "editRedo": {
+   "req": [],
+   "opt": [],
+   "ans": [
+    "done",
+    "what",
+    "undo",
+    "redo"
+   ],
+   "example": {}
+  },
+  "editRef": {
+   "req": [
+    "cell",
+    "origin",
+    "refr"
+   ],
+   "opt": [
+    "plugins"
+   ],
+   "ans": [
+    "cell",
+    "origin",
+    "refr",
+    "id",
+    "winner",
+    "plugins",
+    "fields"
+   ]
+  },
+  "editRefRevert": {
+   "req": [
+    "cell",
+    "origin",
+    "refr"
+   ],
+   "opt": [
+    "plugins",
+    "path"
+   ],
+   "ans": [
+    "cell",
+    "origin",
+    "refr",
+    "id",
+    "winner",
+    "plugins",
+    "fields"
+   ]
+  },
+  "editRefSet": {
+   "req": [
+    "cell",
+    "origin",
+    "refr",
+    "path",
+    "value"
+   ],
+   "opt": [
+    "plugins"
+   ],
+   "ans": [
+    "cell",
+    "origin",
+    "refr",
+    "id",
+    "winner",
+    "plugins",
+    "fields"
+   ]
+  },
+  "editRefsSet": {
+   "req": [
+    "changes"
+   ],
+   "opt": [],
+   "ans": [
+    "changed"
+   ]
+  },
+  "editReplace": {
+   "req": [
+    "tag",
+    "id",
+    "newId"
+   ],
+   "opt": [
+    "plugins",
+    "cell"
+   ],
+   "ans": [
+    "changed",
+    "refs",
+    "scripts"
+   ]
+  },
+  "editReplaceAll": {
+   "req": [
+    "hits",
+    "text",
+    "by"
+   ],
+   "opt": [
+    "whole"
+   ],
+   "ans": [
+    "changed",
+    "failed"
+   ]
+  },
+  "editResult": {
+   "req": [
+    "tag",
+    "id"
+   ],
+   "opt": [
+    "plugins",
+    "text"
+   ],
+   "ans": null
+  },
+  "editRevert": {
+   "req": [
+    "tag",
+    "id"
+   ],
+   "opt": [
+    "plugins",
+    "path"
+   ],
+   "ans": [
+    "tag",
+    "id",
+    "type",
+    "winner",
+    "plugins",
+    "fields",
+    "whole",
+    "new"
+   ],
+   "example": {
+    "tag": "NPC_",
+    "id": "fargoth",
+    "path": "data.level"
+   }
+  },
+  "editReview": {
+   "req": [],
+   "opt": [],
+   "ans": "ok"
+  },
+  "editRevision": {
+   "req": [],
+   "opt": [],
+   "ans": [
+    "rev",
+    "undo",
+    "redo"
+   ],
+   "example": {}
+  },
+  "editScript": {
+   "req": [
+    "tag",
+    "id"
+   ],
+   "opt": [
+    "plugins",
+    "text"
+   ],
+   "ans": null
+  },
+  "editScriptRefs": {
+   "req": [
+    "word"
+   ],
+   "opt": [],
+   "ans": [
+    "word",
+    "hits",
+    "scripts",
+    "capped"
+   ],
+   "example": {
+    "word": "fargoth"
+   }
+  },
+  "editScriptWords": {
+   "req": [],
+   "opt": [],
+   "ans": [
+    "functions",
+    "keywords",
+    "globals"
+   ],
+   "example": {}
+  },
+  "editSearch": {
+   "req": [
+    "tag",
+    "query"
+   ],
+   "opt": [],
+   "ans": [
+    "hits",
+    "count",
+    "capped"
+   ],
+   "example": {
+    "tag": "NPC_",
+    "query": "fargoth"
+   }
+  },
+  "editSearchAll": {
+   "req": [
+    "text"
+   ],
+   "opt": [
+    "whole"
+   ],
+   "ans": [
+    "hits",
+    "count",
+    "capped"
+   ],
+   "example": {
+    "text": "Fargoth"
+   }
+  },
+  "editSet": {
+   "req": [
+    "tag",
+    "id",
+    "path",
+    "value"
+   ],
+   "opt": [
+    "plugins"
+   ],
+   "ans": [
+    "tag",
+    "id",
+    "type",
+    "winner",
+    "plugins",
+    "fields",
+    "whole",
+    "new"
+   ],
+   "example": {
+    "tag": "NPC_",
+    "id": "fargoth",
+    "path": "data.level",
+    "value": "7"
+   }
+  },
+  "editSetMany": {
+   "req": [
+    "tag",
+    "ids",
+    "path",
+    "value"
+   ],
+   "opt": [],
+   "ans": [
+    "changed",
+    "failed",
+    "missing"
+   ],
+   "example": {
+    "tag": "NPC_",
+    "ids": [
+     "fargoth"
+    ],
+    "path": "data.level",
+    "value": "3"
+   }
+  },
+  "editTestRun": {
+   "req": [],
+   "opt": [
+    "cell",
+    "exe",
+    "setup"
+   ],
+   "ans": [
+    "job"
+   ]
+  },
+  "editTestSetups": {
+   "req": [],
+   "opt": [
+    "setups",
+    "use"
+   ],
+   "ans": [
+    "setups",
+    "use"
+   ]
+  },
+  "editTopic": {
+   "req": [
+    "topic"
+   ],
+   "opt": [],
+   "ans": [
+    "id",
+    "type",
+    "responses"
+   ]
+  },
+  "editTopics": {
+   "req": [],
+   "opt": [],
+   "ans": null
+  },
+  "editUndo": {
+   "req": [],
+   "opt": [],
+   "ans": [
+    "done",
+    "what",
+    "undo",
+    "redo"
+   ],
+   "example": {}
+  },
+  "editUses": {
+   "req": [
+    "tag",
+    "id"
+   ],
+   "opt": [
+    "plugins"
+   ],
+   "ans": null
+  },
+  "editVerify": {
+   "req": [],
+   "opt": [],
+   "ans": [
+    "findings",
+    "checked"
+   ],
+   "example": {}
+  },
+  "editWhoCanSay": {
+   "req": [
+    "id"
+   ],
+   "opt": [],
+   "ans": [
+    "npcs",
+    "count",
+    "capped",
+    "unchecked"
+   ]
+  }
+ }
+}

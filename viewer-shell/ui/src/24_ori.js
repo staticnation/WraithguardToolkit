@@ -204,8 +204,11 @@ const Ori={
     h+=row('Base defined in', defs.length? defs.map(x=>mono(x.plugin)).join('<br>') : '—');
     h+='<div class="orisec">Assets</div>';
     h+=row('Mesh', mono(r.mesh)+'<br><span class="from">'+escHtml(r.meshFrom||'not found')+'</span>');
-    for(const t of (r.textures||[]))
-      h+=row('Texture', mono(t.texture)+'<br><span class="from">'+escHtml(t.from||'not found')+'</span>');
+    for(const t of (r.textures||[])){
+      // Wraithguard: a texture the mesh carries inside itself (NiPixelData) has no file.
+      const emb=/^__nifpx\/(\d+)/.exec(String(t.texture||''));
+      h+=row('Texture', (emb? mono('embedded (record '+emb[1]+')') : mono(t.texture))+'<br><span class="from">'+escHtml(t.from||'not found')+'</span>');
+    }
     h+='<div class="orisec">Placement</div>';
     h+=row('Position', mono((r.pos||[]).join(', ')));
     h+=row('Rotation', mono((r.rot||[]).join(', ')));

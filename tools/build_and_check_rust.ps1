@@ -82,6 +82,8 @@ function Invoke-PageTests {
     Push-Location 'viewer-shell/ui/tests'
     try {
         if (-not (Invoke-Native npm @('install', '--no-audit', '--no-fund'))) { return $false }
+        Write-Host "  - the Editor's windows (editor/*.test.js)" -ForegroundColor Cyan
+        if (-not (Invoke-Native node @('editor/run.js'))) { return $false }
         Write-Host "  - cell viewer page" -ForegroundColor Cyan
         if (-not (Invoke-Native node @('boot.js'))) { return $false }
         Write-Host "  - mesh viewer page" -ForegroundColor Cyan

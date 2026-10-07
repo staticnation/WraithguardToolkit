@@ -181,6 +181,11 @@ jobs:
       - name: mesh viewer boots
         working-directory: viewer-shell/ui/tests
         run: WG_MESH_VIEW=1 node boot.js
+      # The Editor's windows on their own (editor/*.test.js), the engine and Wraithguard
+      # answered by the tests: drags, searches, menus, the path grid and navmesh tools.
+      - name: editor windows
+        working-directory: viewer-shell/ui/tests
+        run: node editor/run.js
 
   gui-smoke:
     # The GUI is the one part of this project the gate list above cannot see:

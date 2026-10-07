@@ -130,7 +130,7 @@ const WgTools={
     if(ov){
       ov.innerHTML=
         this.row('Path grids',this.sw('wgOvPathgrid','The cells\' path grids (PGRD): the points NPCs and creatures walk between, and the links between them'))+
-        this.row('Navmesh',this.sw('wgOvNavmesh','OpenMW\'s navigation mesh (navmesh.db, built by openmw-navmeshtool): where actors can walk (green), swim (blue), open doors (orange) and the path grid links it was given (purple). Read from beside openmw.cfg or OpenMW\'s user data folder'))+
+        this.row('Navmesh',this.sw('wgOvNavmesh','OpenMW\'s navigation mesh (navmesh.db, built by openmw-navmeshtool): where actors can walk (green), swim (blue), open doors (orange) and the path grid links it was given (purple). Tiles built before the plugins moved, added or removed an object in them, or changed their land or water, are framed in red; the arcs are the links OpenMW adds through teleport doors as it plays. Read from beside openmw.cfg or OpenMW\'s user data folder'))+
         '<div class="wgNavRow" id="wgNavRow" hidden><select id="wgNavAgent" title="Which actor size\'s mesh to draw: OpenMW builds one per collision box"></select>'+
           '<button class="btn sm" id="wgNavPick" title="Choose the navmesh.db to read">navmesh.db…</button>'+
           '<div class="hint" id="wgNavNote"></div></div>'+
@@ -182,15 +182,29 @@ const WgTools={
 
   /* ---- after every scene ------------------------------------------------------------ */
   afterScene(){
-    this.fillPluginLists();
-    this.reviewMarks();
-    this.landInfo();
-    this.landMarks();
-    for(const k of Object.keys(this.ovl)) if(this.ovl[k]) this.overlay(k);
-    if(this.checkKind && this.checkKind!=='clear') this.runCheck(this.checkKind, true);
-    if(this.measure.a) this.measureDraw();
-    if(typeof WgPath==='object' && WgPath.on) WgPath.load();
-    if(typeof WgEditor==='object' && WgEditor.on) WgEditor.reselect();
+    // Each part on its own: one that fails (a panel not built, an answer that did not
+    // come) is logged and the rest still follow the new cells - the path grid above all.
+    const step=(what, fn)=>{
+      try{
+        const r=fn();
+        if(r && typeof r.catch==='function') r.catch(e=>this.stepFailed(what, e));
+      }catch(e){ this.stepFailed(what, e); }
+    };
+    step('plugin lists', ()=>this.fillPluginLists());
+    step('review marks', ()=>this.reviewMarks());
+    step('land info', ()=>this.landInfo());
+    step('land marks', ()=>this.landMarks());
+    for(const k of Object.keys(this.ovl)) if(this.ovl[k]) step('the '+k+' overlay', ()=>this.overlay(k));
+    if(this.checkKind && this.checkKind!=='clear') step('the check', ()=>this.runCheck(this.checkKind, true));
+    if(this.measure.a) step('the measure', ()=>this.measureDraw());
+    if(typeof WgPath==='object' && WgPath.on) step('the path grid', ()=>WgPath.load());
+    if(typeof WgEditor==='object' && WgEditor.on) step('the selection', ()=>WgEditor.reselect());
+  },
+  /** A part of `afterScene` that failed: said in Messages with where, not lost. */
+  stepFailed(what, e){
+    console.error(e);
+    const at=String((e && e.stack)||'').split('\n').slice(1).find(l=>/:\d+:\d+/.test(l))||'';
+    if(typeof WgLog==='object') WgLog.add('After the cells changed, '+what+' failed: '+String(e && e.message || e)+(at? ' ('+at.trim()+')' : ''), 'err');
   },
 
   /** The plugins touching the loaded cells, in load order - for Review mod - and every
@@ -437,7 +451,7 @@ const WgTools={
   readNav(buf){
     const dv=new DataView(buf); let o=4;
     if(new TextDecoder().decode(new Uint8Array(buf,0,4))!=='GDNM') throw new Error('not a navmesh answer');
-    o++; const pl=dv.getUint16(o,true); o+=2;
+    const ver=dv.getUint8(o); o++; const pl=dv.getUint16(o,true); o+=2;
     const path=new TextDecoder().decode(new Uint8Array(buf,o,pl)); o+=pl;
     const tiles=dv.getUint32(o,true), skipped=dv.getUint32(o+4,true), capped=!!dv.getUint8(o+8); o+=9;
     const na=dv.getUint8(o++), agents=[];
@@ -446,9 +460,139 @@ const WgTools={
     for(let i=0;i<np;i++){
       const a=dv.getUint8(o), area=dv.getUint8(o+1), flags=dv.getUint16(o+2,true), n=dv.getUint8(o+4); o+=5;
       const v=new Float32Array(n*3); for(let j=0;j<n*3;j++){ v[j]=dv.getFloat32(o,true); o+=4; }
-      polys.push({a,area,flags,v});
+      const poly={a,area,flags,v};
+      if(ver>=3){
+        poly.tile=dv.getUint32(o,true); poly.index=dv.getUint16(o+4,true); o+=6;
+        poly.nei=new Uint16Array(n); for(let j=0;j<n;j++){ poly.nei[j]=dv.getUint16(o,true); o+=2; }
+      }
+      polys.push(poly);
     }
-    return {path,tiles,skipped,capped,agents,polys};
+    // Version 2: what each tile was built from (its collision objects), to tell a tile
+    // the plugins have changed under since navmeshtool ran.
+    let tileW=0; const shapes=[], built=[];
+    if(ver>=2 && o<buf.byteLength){
+      tileW=dv.getFloat32(o,true); o+=4;
+      const ns=dv.getUint32(o,true); o+=4;
+      for(let i=0;i<ns;i++){ const l=dv.getUint16(o,true); o+=2; shapes.push(new TextDecoder().decode(new Uint8Array(buf,o,l))); o+=l; }
+      const nt=dv.getUint32(o,true); o+=4;
+      for(let i=0;i<nt;i++){
+        const x=dv.getInt32(o,true), y=dv.getInt32(o+4,true), a=dv.getUint8(o+8), n=dv.getUint32(o+9,true); o+=13;
+        const objs=[];
+        for(let j=0;j<n;j++){ objs.push({s:dv.getUint32(o,true), p:[dv.getFloat32(o+4,true),dv.getFloat32(o+8,true),dv.getFloat32(o+12,true)]}); o+=16; }
+        // Version 3: the land and water it was built from.
+        const water=[], heights=[], flat=[];
+        if(ver>=3){
+          let k=dv.getUint32(o,true); o+=4;
+          for(let j=0;j<k;j++){ water.push({cx:dv.getInt32(o,true), cy:dv.getInt32(o+4,true), size:dv.getInt32(o+8,true), level:dv.getFloat32(o+12,true)}); o+=16; }
+          k=dv.getUint32(o,true); o+=4;
+          for(let j=0;j<k;j++){
+            const h={cx:dv.getInt32(o,true), cy:dv.getInt32(o+4,true), size:dv.getInt32(o+8,true),
+                     w:dv.getUint16(o+12,true), rows:dv.getUint16(o+14,true), mx:dv.getUint16(o+16,true), my:dv.getUint16(o+18,true), orig:dv.getUint16(o+20,true)};
+            o+=22;
+            h.v=new Float32Array(h.w*h.rows); for(let q=0;q<h.v.length;q++){ h.v[q]=dv.getFloat32(o,true); o+=4; }
+            heights.push(h);
+          }
+          k=dv.getUint32(o,true); o+=4;
+          for(let j=0;j<k;j++){ flat.push({cx:dv.getInt32(o,true), cy:dv.getInt32(o+4,true), size:dv.getInt32(o+8,true), z:dv.getFloat32(o+12,true)}); o+=16; }
+        }
+        built.push({x,y,a,objs,water,heights,flat});
+      }
+    }
+    return {path,tiles,skipped,capped,agents,polys,tileW,shapes,built};
+  },
+
+  /** A mesh path as navmeshtool names it: lower case, `/`, under meshes/. */
+  meshKey(m){
+    let k=String(m||'').toLowerCase().replace(/\\/g,'/').replace(/^\/+/,'');
+    if(!k.startsWith('meshes/')) k='meshes/'+k;
+    return k;
+  },
+
+  /** Which tiles were built from objects that are not where the plugins now put them:
+   *  an object the tile has with nothing of that mesh at its place now (moved or gone),
+   *  or a collision mesh navmeshtool knows standing in the tile where the tile has none
+   *  (placed since). Land and water edits are not seen here. `[{x, y, why}]`. */
+  staleTiles(d, agent){
+    if(!d || !d.built || !d.built.length || !(d.tileW>0)) return [];
+    const o=this.origin(), known=new Set(d.shapes);
+    const scene=[];
+    for(const p of this.picks()){
+      if(!p || !p.model || !p.m || String(p.model).startsWith('__')) continue;
+      const k=this.meshKey(p.model);
+      const w=p.wpos? p.wpos : [p.m[3]+o[0], p.m[7]+o[1], p.m[11]];
+      scene.push({k, w});
+    }
+    const near=(a,b)=>Math.abs(a[0]-b[0])<2 && Math.abs(a[1]-b[1])<2 && Math.abs(a[2]-b[2])<2;
+    // Only what stands in a loaded cell can be compared: a neighbour not drawn has none.
+    const cells=((this.sc()||{}).cells)||[], inside=cells.some(c=>c.kind==='int');
+    const loaded=w=>inside || cells.some(c=>c.kind!=='int' && Math.floor(w[0]/8192)===c.gx && Math.floor(w[1]/8192)===c.gy);
+    const out=[], W=d.tileW, M=32;
+    // First, whether the scene and the tiles can be compared at all: when most of what
+    // the tiles were built from is not found (a scene still loading, objects the viewer
+    // does not draw), a red frame would be about the viewer, not the navmesh.
+    let seen=0, hit=0;
+    for(const t of d.built){
+      if(t.a!==agent) continue;
+      for(const ob of t.objs){
+        if(!loaded(ob.p)) continue;
+        seen++;
+        const k=d.shapes[ob.s]||'';
+        if(scene.some(s=>s.k===k && near(s.w, ob.p))) hit++;
+      }
+    }
+    this.nav.comparable= seen===0 || hit/seen>=0.6;
+    if(!this.nav.comparable) return [];
+    for(const t of d.built){
+      if(t.a!==agent) continue;
+      const x0=t.x*W, x1=x0+W, y0=t.y*W, y1=y0+W;
+      let why='';
+      for(const ob of t.objs){
+        if(!loaded(ob.p)) continue;
+        const k=d.shapes[ob.s]||'';
+        if(!scene.some(s=>s.k===k && near(s.w, ob.p))){ why='moved or gone: '+k.replace(/^meshes\//,''); break; }
+      }
+      if(!why){
+        for(const sc of scene){
+          if(!known.has(sc.k)) continue;
+          if(sc.w[0]<x0+M || sc.w[0]>x1-M || sc.w[1]<y0+M || sc.w[1]>y1-M) continue;
+          if(!t.objs.some(ob=>d.shapes[ob.s]===sc.k && near(ob.p, sc.w))){ why='placed since: '+sc.k.replace(/^meshes\//,''); break; }
+        }
+      }
+      if(!why) why=this.groundChanged(t);
+      if(why) out.push({x:t.x, y:t.y, why});
+    }
+    return out;
+  },
+
+  /** What changed in the land or water a tile was built from, or ''. Every height it was
+   *  built from is compared with the loaded cell's own (as drawn: the load order's, or
+   *  Merged Lands' when that preview is on); a cell it took as flat (no LAND) that has
+   *  land now, or the other way round; an interior's water level or its water gone. */
+  groundChanged(t){
+    const cells=((this.sc()||{}).cells)||[];
+    const ext=(cx,cy)=>cells.find(c=>c.kind!=='int' && c.gx===cx && c.gy===cy);
+    for(const h of t.heights||[]){
+      const c=ext(h.cx, h.cy); if(!c) continue;          // not loaded: nothing to compare with
+      const H=c.heights, N=h.orig||65;
+      if(!H) return 'land removed in cell '+h.cx+', '+h.cy;
+      for(let r=0;r<h.rows;r++) for(let q=0;q<h.w;q++){
+        const now=H[(h.my+r)*N + (h.mx+q)], was=h.v[r*h.w+q];
+        if(now==null || Math.abs(now-was)>1) return 'land changed in cell '+h.cx+', '+h.cy+' ('+Math.round(was)+' then, '+Math.round(now)+' now)';
+      }
+    }
+    for(const f of t.flat||[]){
+      const c=ext(f.cx, f.cy); if(!c) continue;
+      if(c.heights) return 'land added in cell '+f.cx+', '+f.cy;
+    }
+    const room=cells.find(c=>c.kind==='int');
+    if(room){
+      const lv=typeof room.water==='number'? room.water : (room.water && typeof room.water.water==='number'? room.water.water : null);
+      const w=(t.water||[])[0];
+      if(w && lv==null) return 'the room\'s water is gone';
+      if(!w && lv!=null) return 'the room has water now';
+      if(w && lv!=null && Math.abs(w.level-lv)>0.5) return 'the water level changed ('+w.level+' then, '+lv+' now)';
+    }
+    return '';
   },
   /** Navmesh polygon outlines for the chosen agent, coloured by what the polygon allows. */
   drawNav(){
@@ -466,7 +610,39 @@ const WgTools={
         L.seg(a,b,col);
       }
     }
+    // Tiles built before the plugins changed under them: a red frame round each.
+    const stale=this.staleTiles(d, this.nav.agent);
+    this.nav.stale=stale;
+    if(stale.length){
+      const W=d.tileW, z=(App.R.cam? App.R.cam.tz : 0);
+      const zOf=(x,y)=>{ const g=R.groundZ? R.groundZ(x-o[0], y-o[1]) : null; return (g!=null && isFinite(g))? g+24 : z; };
+      for(const t of stale){
+        const c=[[t.x*W,t.y*W],[t.x*W+W,t.y*W],[t.x*W+W,t.y*W+W],[t.x*W,t.y*W+W]].map(([x,y])=>[x-o[0], y-o[1], zOf(x,y)]);
+        for(let i=0;i<4;i++) L.seg(c[i], c[(i+1)%4], [1,0.25,0.25]);
+        L.seg(c[0], c[2], [1,0.25,0.25]); L.seg(c[1], c[3], [1,0.25,0.25]);
+      }
+    }
+    // The links OpenMW adds for teleport doors when it plays (not stored in navmesh.db):
+    // an arc from each door to where it leads, when that is in view.
+    const sc=this.sc(), here=sc && sc.cells && sc.cells[0];
+    const room=here && here.kind==='int'? String(here.name||'').toLowerCase() : null;
+    for(const p of this.picks()){
+      const dd=p.door; if(!dd || !dd.pos) continue;
+      const inView = room==null? !dd.cell : String(dd.cell||'').toLowerCase()===room;
+      if(!inView) continue;
+      const a=this.centre(p), b=[dd.pos[0]-o[0], dd.pos[1]-o[1], dd.pos[2]+20];
+      const h=Math.max(64, Math.hypot(b[0]-a[0], b[1]-a[1])*0.15);
+      let prev=a;
+      for(let i=1;i<=16;i++){
+        const t=i/16, q=[a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t+Math.sin(Math.PI*t)*h];
+        L.seg(prev, q, [1,0.75,0.2]); prev=q;
+      }
+    }
     R.setOverlay('navmesh',L,{xray:true});
+    const note=$('#wgNavNote');
+    if(note && d) note.textContent=d.path+' - '+d.tiles+' tiles'+(d.skipped? ', '+d.skipped+' unreadable' : '')+(d.capped? ' (capped)' : '')+
+      (d.built && d.built.length? (this.nav.comparable===false? '; not compared with the plugins (too little of what it was built from is drawn here)'
+        : stale.length? '; '+stale.length+' out of date (red): e.g. '+stale[0].why+'. Run openmw-navmeshtool again' : '; up to date with the plugins (objects)') : '');
   },
   async overlay(k){
     const R=App.R; if(!R) return;
@@ -494,7 +670,6 @@ const WgTools={
       if(this.nav.agent>=d.agents.length) this.nav.agent=0;
       if(sel) sel.innerHTML=d.agents.map((a,i)=>'<option value="'+i+'"'+(i===this.nav.agent?' selected':'')+'>'+
         escHtml(['Box','Rotating box','Cylinder'][a.shape]||'Shape '+a.shape)+' '+a.h.map(v=>Math.round(v*2)).join('×')+'</option>').join('');
-      if(note) note.textContent=d.path+' - '+d.tiles+' tiles'+(d.skipped? ', '+d.skipped+' unreadable' : '')+(d.capped? ' (capped)' : '');
       if(!d.polys.length) toast('No navmesh tiles for the loaded cells','ok',3000);
       this.drawNav();
       return;
@@ -745,7 +920,7 @@ const WgTools={
       const isMesh=el.querySelector('.k').textContent==='Mesh';
       const code=el.querySelector('code'); if(!code) continue;
       const path=code.textContent;
-      if(!path || path==='—') continue;
+      if(!path || path==='—' || /^embedded \(record/.test(path)) continue;   // inside the mesh: no file
       const v=el.querySelector('.v');
       const bar=document.createElement('div'); bar.className='wgBtns';
       bar.innerHTML='<button class="btn sm" data-a="prov" title="Every mod and archive that supplies this file, the winner first">Providers</button>'+

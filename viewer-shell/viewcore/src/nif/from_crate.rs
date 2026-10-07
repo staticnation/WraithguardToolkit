@@ -20,7 +20,7 @@ use super::{
 
 /// `buf` as the crate reads it: Morrowind's handful of 4.0.0.0 files carry the same
 /// layout under an older header, so the header is rewritten to 4.0.0.2 first.
-fn as_4002(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+pub(super) fn as_4002(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
     const V4000: &[u8; 40] = b"NetImmerse File Format, Version 4.0.0.0\n";
     let text_ok = bytes.len() >= 44 && (&bytes[..40] == V4000 || bytes[..40] == NiStream::HEADER);
     if text_ok && bytes[40..44] == 0x0400_0000u32.to_le_bytes() {
@@ -410,11 +410,16 @@ fn fill(rec: &mut Records, i: usize, o: &NiType, ix: &impl Fn(NiKey) -> i32) {
                 }
             }
         }
-        NiType::NiSourceTexture(t) => {
-            if let TextureSource::External(f) = &t.source {
-                rec.mats.tex_file[i] = Some(f.clone());
+        NiType::NiSourceTexture(t) => match &t.source {
+            TextureSource::External(f) => rec.mats.tex_file[i] = Some(f.clone()),
+            // Wraithguard: a texture inside the file (NiPixelData), fetched by its index.
+            TextureSource::Internal(px) => {
+                let at = ix(px.key);
+                if at >= 0 {
+                    rec.mats.tex_file[i] = Some(format!("{}{at}", super::EMBEDDED));
+                }
             }
-        }
+        },
         NiType::NiMaterialProperty(p) => {
             let alpha = p.alpha.clamp(0.0, 1.0);
             rec.mats.material[i] = Some((c3(p.diffuse_color), alpha, c3(p.emissive_color), c3(p.ambient_color)));

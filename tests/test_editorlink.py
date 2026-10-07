@@ -240,3 +240,68 @@ def test_the_patch_path_is_checked(tmp_path):
             host._on_edit_build_check(json.dumps({"path": bad}).encode())
     with pytest.raises(ValueError, match="No such"):
         host._on_edit_build_status(b'{"job": 9}')
+
+
+def test_lua_chart_lists_functions_and_opens_charts(tmp_path):
+    """The Editor's Lua panel: a script's functions to pick from, then a chart opened."""
+    host = _Host(tmp_path)
+    src = "local function a() end\nfunction b() a() end\nreturn { engineHandlers = { onUpdate = b } }\n"
+    got = json.loads(
+        host._on_edit_lua_chart(
+            json.dumps({"path": "scripts/x.lua", "text": src, "kind": "functions"}).encode()
+        ).body
+    )
+    assert [(f["name"], f["line"]) for f in got["functions"]] == [("a", 1), ("b", 2)]
+    shown: list[tuple[str, str, str]] = []
+    host._lua_show_chart = lambda h, c, t: shown.append((h, c, t))  # type: ignore[attr-defined]
+    for kind, line in (("flow", 2), ("calls", None)):
+        body = {"path": "scripts/x.lua", "text": src, "kind": kind, "line": line}
+        assert json.loads(host._on_edit_lua_chart(json.dumps(body).encode()).body) == {
+            "shown": True
+        }
+    assert shown[0][0] == "scripts/x.lua - b" and "flowchart" in shown[0][1].lower()
+    assert shown[1][0].endswith("call graph")
+    with pytest.raises(ValueError):
+        host._on_edit_lua_chart(b'{"path": "x", "text": "", "kind": "nope"}')
+
+
+def test_search_endpoint(tmp_path):
+    host = _Host(tmp_path)
+    got = json.loads(host._on_edit_search(b'{"tag": "NPC_", "query": "data.level=2"}').body)
+    assert got["hits"] == {"fargoth": "data.level: 2"}
+
+
+def test_undo_and_redo_endpoints(tmp_path):
+    host = _Host(tmp_path)
+    _post(host._on_edit_set, tag="NPC_", id="fargoth", path="data.level", value="7")
+    before = host.refreshed
+    got = _post(host._on_edit_undo)
+    assert got["done"] and got["undo"] == 0 and got["redo"] == 1
+    assert not host._queue.fields
+    assert host.refreshed == before + 1
+    assert host.ui_threads == {"fake-tk"}
+    got = _post(host._on_edit_redo)
+    assert got["done"] and got["undo"] == 1 and got["redo"] == 0
+    assert host._queue.fields
+    assert not _post(host._on_edit_redo)["done"]
+
+
+def test_revision_moves_with_the_pool(tmp_path):
+    host = _Host(tmp_path)
+    rev0 = _post(host._on_edit_revision)["rev"]
+    _post(host._on_edit_set, tag="NPC_", id="fargoth", path="data.level", value="7")
+    got = _post(host._on_edit_revision)
+    assert got["rev"] > rev0 and got["undo"] == 1
+    # A change from elsewhere (the Patch Builder) moves it too.
+    rev1 = got["rev"]
+    host._queue.remove_record("Npc", "fargoth")
+    assert _post(host._on_edit_revision)["rev"] > rev1
+
+
+def test_set_many_endpoint(tmp_path):
+    host = _Host(tmp_path)
+    got = _post(
+        host._on_edit_set_many, tag="NPC_", ids=["fargoth", "nobody"], path="data.level", value="5"
+    )
+    assert got == {"changed": 1, "failed": [], "missing": ["nobody"]}
+    assert _post(host._on_edit_revision)["undo"] == 1

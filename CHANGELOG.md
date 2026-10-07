@@ -5,6 +5,134 @@
 
 ### Added
 
+- **Workflow in the Editor:**
+  - Prefabs: the selection kept under a name (the Q menu, or Ctrl+Shift+P) - each
+    record, its place from the group's middle, its turn and size - and placed anywhere
+    with its middle under the pointer, as one change (in an exterior, each object in the
+    square it lands in).
+  - New cells from nothing (the Cell View's right-click): a blank interior under a name,
+    or an exterior square no plugin has; references can be placed in either.
+  - The dialogue condition editor: a response's conditions as rows - type, function,
+    comparison from lists, the id offered from the load order, the value - saved as the
+    record holds them; "Who can say this" lists the NPCs its speaker and id conditions
+    let say it, and names what depends on the game (the cell, functions, variables).
+  - Script Edit: functions, keywords, globals and the load order's ids completed
+    (Ctrl+Space, or as a word is typed); Ctrl+click a word to open what it names; every
+    script naming the word at the cursor.
+  - A leveled list rolled at a chosen level (its dialog): the chance of each item or
+    creature, and of nothing, with lists inside it rolled too - the game's rules
+    ("calculate from all levels", chance none).
+  - Search everything (Ctrl+Shift+F, the toolbar's Search all): text in any field of any
+    record type, and replaced in the fields checked as one change; ids are left to
+    Search & Replace, which repoints what names them.
+- **Editing more at once in the Editor:**
+  - The Object Window picks several rows (Ctrl+click, Shift+click for a run); right-click
+    sets one field on all of them, as one change (one Ctrl+Z puts them all back). A cell
+    of the table that shows a field as it is (a name, a script, a weight, a value...) is
+    edited in place with a double-click - on every selected row when it is one of them.
+  - Transform by numbers (Ctrl+T, or the Q menu): move by, turn by (about the world's
+    axes, about the middle of a group - the group keeps its shape) and scale by (about
+    the middle) for one object or several, sent as one change; snap position, rotation
+    or scale to the last one Ctrl+clicked.
+  - Selection sets: Ctrl+1..9 keeps the selection, 1..9 selects it again and frames it.
+    H hides the selection, Shift+H shows only it (again: everything), C frames the
+    selection (the middle of several).
+  - A field naming a record (script, race, class, faction, body part, sound, region,
+    a response's speaker, a key, an owner...) offers that type's ids as it is typed, and
+    a record dragged from the Object Window onto a field fills it - refused, and said,
+    when the field names another type.
+  - Saved searches (the ★ beside the Object Window's filter, as OpenMW-CS's named
+    filters): a search kept under a name with its tab and "All fields", run again in one
+    click.
+- **Verify** (the Editor toolbar's Verify, Ctrl+Shift+V): what the patch carries,
+  checked as it would be written, in a table filtered by check whose rows open the
+  record. It finds fields naming records that no plugin defines and the patch does not
+  make (scripts, races, classes, factions, body parts, spells, inventory items, leveled
+  list entries, sounds, regions, a response's speaker), leveled lists with empty entries
+  or none, changed scripts that do not compile, responses whose place in their topic
+  names no response, and path grids with points on top of each other, points no link
+  reaches, or links to missing points. The button counts the errors. Also, OpenMW-CS's
+  categories, on the records the patch carries: journals (more than one quest name, an
+  index used twice, a stage with no text); exterior path grid points under the land;
+  placed references naming objects nothing defines; an item whose enchantment costs more
+  than it carries (enchantment points x `fEnchantmentMult`) or an enchantment costing
+  more than its charge; names and descriptions missing; a class's or faction's attribute
+  or skill listed twice; a race's height and weight; region weather chances not adding
+  up to 100; spells, enchantments and potions with no effects; a game setting whose
+  value is not the type its name says; body part meshes, sounds, birthsign images and
+  magic effect icons in no data folder or archive; AI package targets and cells, travel
+  destinations and dialogue filters naming nothing; and the globals every game needs.
+- **Test in OpenMW** (the Editor toolbar's Test in OpenMW, Ctrl+F5): the pool written to
+  a scratch plugin - the pool itself is kept - and OpenMW started on it with the player's
+  own configuration, past the main menu, in the cell on screen (an interior by name, an
+  exterior by its grid). What OpenMW prints goes to the Messages panel while it runs.
+  When OpenMW is not found it asks where it is, and remembers; the right-click chooses
+  another. **Launch setups** (the right-click's "Launch setups...", as OpenMW-CS's debug
+  profiles): named sets of content files loaded before the test plugin and console
+  commands run once the game is in the cell; the right-click picks the one tests use.
+- **The Editor keeps in step with the pool:** a change made elsewhere - in the Patch
+  Builder, by an undo - shows in the Editor within a couple of seconds: the Object
+  Window's marks, the Cell View, the Pending list, the render window's changes, and the
+  open record, reference, topic and path grid. A dialog with a field being typed in is
+  not redrawn under the cursor; it says "changed elsewhere" instead.
+- **Messages panel** (the Editor toolbar's Messages, Ctrl+Shift+M): every result,
+  warning and error a toast showed, kept after the toast goes, with the page's own
+  uncaught errors - a dockable log filtered by kind and text, copied as text for a bug
+  report, cleared. The button counts in red the errors not seen yet.
+- **One undo history for the whole Editor** (Ctrl+Z / Ctrl+Y, the toolbar's Undo and
+  Redo): Wraithguard keeps it at the patch pool, so a field typed in a record, a moved,
+  placed or deleted reference, a path grid, a moved dialogue response and a copied cell
+  are all undone in the order they were made, up to 200 steps. The open record,
+  reference, topic and path grid are read again after each step, a toast names what it
+  touched, and the buttons grey out when there is nothing to undo or redo. The journal
+  follows, so a crash after an undo does not bring the change back.
+- **The Editor's windows are tested in the repository** (`viewer-shell/ui/tests/editor/`):
+  the Object Window, the Build list, dialogue, menus, the navmesh, path grids and undo,
+  run in jsdom against one stand-in for the engine and Wraithguard, by
+  `build_and_check_rust.ps1 -Pages` and CI. A contract file between the page and
+  Wraithguard (each link's request keys and answer keys) is checked from both sides:
+  against the handlers and their real answers in pytest, and against every request the
+  page makes and every stand-in answer in the page tests.
+- **Search & Replace in the current cell:** the Use Report's "In this cell" beside
+  "Replace with" turns only the references placed in the cell on screen into the other
+  record (an exterior's: the one under the view's pivot), and no record's fields change.
+  Either way, the references the patch itself places follow too.
+- **Copy a whole interior** (the Cell View's right-click, "Make a copy as..."): a new
+  cell of the patch's own, with every reference as the load order resolves it - every
+  plugin's merged, deleted ones left out, the pool's changes and the patch's own new
+  references included - placed anew, and its path grid under the new name. An exterior
+  is a grid square and is not copied.
+- **The navmesh against the plugins:** a navmesh tile built from what the plugins no
+  longer have is framed in red, with what changed in the overlay's note. navmeshtool
+  keeps everything each tile was built from in `navmesh.db`, and all of it is compared:
+  its collision objects (moved, removed, or placed since); every land height it used
+  against the loaded cell's own, vertex for vertex; a cell it took as flat (no LAND)
+  that has land now, or the other way round; and an interior's water level. When too
+  little of what the tiles were built from is drawn to compare, it says so instead.
+- **Door links on the navmesh:** the links OpenMW adds through teleport doors as it
+  plays (they are not in `navmesh.db`) drawn as arcs from each door to where it leads.
+- **Path grid points from the navmesh, one for one** (right-click the toolbar's Path
+  grid): a point for each walkable polygon of the navmesh (the overlay's actor size)
+  whose middle is in the cell on screen, and a link for each pair of polygons the mesh
+  joins - inside a tile from Recast's own neighbour record, across tiles where portal
+  edges overlap along their shared border, as the navigator joins them. Nothing is
+  sampled or thinned. Replaces the cell's grid; Ctrl+Z puts it back.
+- **Search every field in the Object Window** ("All fields" beside the filter), as
+  CSSE's filter does: the records of the tab whose fields match - the pool's typed
+  values and the patch's own records included - with what matched in a column of its
+  own. Words must all match: `text` (any field), `path:text` (a field by path, e.g.
+  `script:` or `data.weight:5`), `path=value`, `path!=value`, `path>n`, `path<n`,
+  `path>=n`, `path<=n`; lists are matched by their entries; quote a phrase.
+- **Drag a dialogue response to reorder it** (the Dialogue window, not journals): let go
+  on the upper half of a row to put it before that one, the lower half after. Queued as
+  the response's `prev_id` (and `next_id`), which is how the engine moves a response a
+  later plugin re-places; the topic redraws in the order the engine will read it.
+- **An Ownership column in the Cell View's references**, as the Construction Set has it:
+  the NPC, or the faction and rank, from the plugin that last changed each reference.
+- **Flowcharts and call graphs from the Editor's Lua panel:** each script has
+  "Flowchart" (the whole script, or one of its functions, from a list) and "Calls",
+  opened in Wraithguard's chart window, as the Conflicts window's Lua view has them.
+
 - **An MWScript compiler, in Rust** (`native/src/mwscript/`): script source to the
   bytecode Morrowind.exe runs (`SCDT`), with its locals (`SCVR`) and header (`SCHD`). A
   port of MWEdit's table-driven compiler (MIT), its grammar and function table generated
@@ -505,6 +633,11 @@
 
 ### Changed
 
+- **The Editor's page code split by window:** `50_wg_editor.js` keeps the Editor's
+  state, links and dock; each window (Object Window, Cell View, record and reference
+  dialogs, moving, the Q menu and layers, placing, Dialogue, Script Edit, Lua, Use
+  Report, Build patch, keys) is a `50_wg_editor_*.js` part of its own, in `ui/ORDER`.
+  Nothing it does changed.
 - **A build branch builds Windows too.** `build-windows.yml` now runs on a push to a
   branch under `build/` as the Linux, macOS and Flatpak builds already did, uploading the
   binary as an artifact and attaching nothing, so one test push gives a binary for every
@@ -512,6 +645,23 @@
 
 ### Fixed
 
+- **Path grid mode follows the cell picker.** Moving to another cell with Path grid on
+  kept the old cell's grid on screen until the mode was turned off and on: one part of
+  what follows a change of cells failing stopped the rest, the path grid among them.
+  Each part now runs on its own (a failure is said in Messages, with where), and an
+  answer for cells no longer loaded is dropped. The Cell View's reference list (and the
+  Editor's other lists) are found wherever their pane is docked: one docked into another
+  panel was not found, and every change of cells said "Cannot set properties of null".
+- **Meshes with their textures inside them draw textured.** A NIF can carry its texture
+  in the file (a `NiSourceTexture` with no file name, its pixels in a `NiPixelData`
+  record) - Quests for Clans and Vampire Legends' torture chair and rack do - and the
+  viewer drew those untextured. The pixels are now decoded (RGB and RGBA by their
+  channel masks, paletted, and DXT1/3/5), and the inspector says "embedded" for them
+  instead of "not found".
+- **A texture not where the mesh says is found by its name.** When the path a mesh
+  gives (`textures\rv_DoO\fl\passionflower1.dds` in The Doors of Oblivion's Graphic
+  Herbalism meshes) is not in the setup, the file of that name at the top of Textures
+  is used, as the games do.
 - **The Editor's selection stays lit, and Ctrl+click is reliable.** What is selected
   shared one highlight with the hover, so moving the pointer or the camera put it out;
   the renderer now keeps the selection lit under any other highlight

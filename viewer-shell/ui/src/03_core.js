@@ -176,6 +176,35 @@ const secs = ms => {
   return T('unit.min_s',{m, s:String(Math.round(s-m*60)).padStart(2,'0')});
 };
 
+/** Every message the page gave (toasts, and errors no toast caught), newest last, up to
+ *  `max`. `on(f)` hears each as it comes (`f(null)` when the log is cleared) and returns
+ *  the way to stop. */
+const WgLog={
+  items:[], max:1000, subs:new Set(),
+  add(msg, kind){
+    const e={t:new Date(), msg:String(msg==null? '' : msg), kind:kind||'info'};
+    this.items.push(e);
+    if(this.items.length>this.max) this.items.splice(0, this.items.length-this.max);
+    for(const f of this.subs){ try{ f(e); }catch(_){ } }
+    return e;
+  },
+  clear(){ this.items.length=0; for(const f of this.subs){ try{ f(null); }catch(_){ } } },
+  on(f){ this.subs.add(f); return ()=>this.subs.delete(f); },
+  /** One line per message: `HH:MM:SS  kind  text`. */
+  text(items){
+    const p=n=>String(n).padStart(2,'0');
+    return (items||this.items).map(e=>p(e.t.getHours())+':'+p(e.t.getMinutes())+':'+p(e.t.getSeconds())+'  '+e.kind.padEnd(4)+'  '+e.msg).join('\n');
+  },
+};
+// The page's own failures, which no toast reports, are kept too.
+if(typeof window!=='undefined' && window.addEventListener){
+  window.addEventListener('error', e=>WgLog.add((e.message||'Error')+(e.filename? ' ('+String(e.filename).split('/').pop()+':'+e.lineno+')' : ''), 'err'));
+  // Where it happened, from the stack's first line in the page's code - so a report of
+  // one names the part to fix.
+  const where=r=>{ const l=String((r && r.stack)||'').split('\n').slice(1).find(x=>/:\d+:\d+/.test(x)); return l? ' ('+l.trim().replace(/^at\s+/,'')+')' : ''; };
+  window.addEventListener('unhandledrejection', e=>{ const r=e.reason; WgLog.add('Unhandled: '+String(r && r.message || r)+where(r), 'err'); });
+}
+
 /** A message in the corner.
  *
  *  Round 9 item 4. `opts.go` makes the message a door: it is drawn with a cue line, and
@@ -186,9 +215,13 @@ const secs = ms => {
  *  A message you can act on also waits while the pointer is on it. Reading a sentence
  *  and reaching for it takes longer than reading a word, and a door that closes as you
  *  arrive at it is worse than no door.
+ *
+ *  Every message is also kept in `WgLog`, for the Messages panel: a toast goes, the
+ *  log does not.
  */
 function toast(msg,kind,ms,opts){
   opts=opts||{};
+  WgLog.add(msg, kind);
   const el=document.createElement('div');
   el.className='toast'+(kind?' '+kind:'');
   const body=document.createElement('div');

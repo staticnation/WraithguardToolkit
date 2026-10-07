@@ -12,6 +12,8 @@
      J / U                    link the selected points in a chain / unlink them
      Delete                   delete the selected points and their links
      Ctrl+Z / Ctrl+Y          undo / redo (path grid changes only, while the mode is on)
+     (right-click the button) points from the navmesh: one per walkable polygon of the
+                              cell on screen, linked as the mesh joins them
      Esc                      let the selection go; again, leave the mode
 
    Every change queues the cell's whole path grid in Wraithguard's patch pool
@@ -67,11 +69,19 @@ const WgPath={
   /** Every loaded cell's grid, as the patch would write it. */
   async load(){
     const E=this.E(), specs=this.specs();
-    this.grids.clear();
+    // A newer load (the cells changed again while this one waited) wins: its grids
+    // are the loaded cells', this one's are not.
+    const turn=this._loadN=(this._loadN||0)+1;
+    this.grids.clear(); this.sel=[];
+    this.draw();
+    const got=new Map();
     for(const spec of specs){
-      try{ this.take(spec, await E.ask('editPathgrid', {cell:spec})); }
-      catch(e){ toast(String(e.message||e),'err',4000); }
+      try{ got.set(spec, await E.ask('editPathgrid', {cell:spec})); }
+      catch(e){ if(turn===this._loadN) toast(String(e.message||e),'err',4000); }
+      if(turn!==this._loadN) return;
     }
+    this.grids.clear();
+    for(const [spec, v] of got) this.take(spec, v);
     this.draw();
   },
 
@@ -278,14 +288,109 @@ const WgPath={
     const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
     if(typing || e.altKey) return false;
     const k=String(e.key||'').toLowerCase(), mod=e.ctrlKey||e.metaKey;
-    if(mod && k==='z'){ if(e.shiftKey) this.restore(this.redoStack, this.undoStack); else this.restore(this.undoStack, this.redoStack); return true; }
-    if(mod && k==='y'){ this.restore(this.redoStack, this.undoStack); return true; }
+    // Wraithguard's history covers the path grid too (one Ctrl+Z for everything);
+    // this mode's own steps are for a Wraithguard without it.
+    const pool=this.E().links && this.E().links().editUndo;
+    if(mod && k==='z'){ if(pool){ if(e.shiftKey) this.E().redo(); else this.E().undo(); } else if(e.shiftKey) this.restore(this.redoStack, this.undoStack); else this.restore(this.undoStack, this.redoStack); return true; }
+    if(mod && k==='y'){ if(pool) this.E().redo(); else this.restore(this.redoStack, this.undoStack); return true; }
     if(mod) return false;
     if(e.key==='Delete' || e.key==='Backspace'){ this.remove(); return true; }
     if(k==='j'){ this.chain(true); return true; }
     if(k==='u'){ this.chain(false); return true; }
     if(e.key==='Escape'){ if(this.sel.length){ this.sel=[]; this.draw(); } else this.stop(); return true; }
     return false;
+  },
+
+  /** The cell's path grid made from OpenMW's navmesh, one for one: a point for each
+   *  walkable polygon of the mesh (Tools' Navmesh overlay, its chosen actor size) whose
+   *  middle is in the cell on screen, at that middle; and a link, both ways, for each
+   *  pair of polygons the mesh joins - an edge they share inside a tile, or an
+   *  overlapping stretch of a tile's border where the navigator joins neighbouring tiles.
+   *  Nothing is sampled or thinned. Replaces the cell's grid - Ctrl+Z puts it back. */
+  async fromNavmesh(){
+    const T=(typeof WgTools==='object')? WgTools : null;
+    if(!T) return;
+    if(!this.on) await this.start();
+    let d=T.nav && T.nav.data;
+    if(!d){
+      try{ d=T.nav.data=T.readNav(await Engine.bytes('navmesh', {cells:T.specs(), db:T.navDb()})); }
+      catch(e){ return toast(String(e.message||e),'err',6000); }
+    }
+    const cur=this.E().currentCell();
+    const spec=!cur? null : /^\(/.test(cur.key)? cur.key.replace(/[() ]/g,'') : 'int:'+cur.key;
+    const g=spec && this.grids.get(spec);
+    if(!g) return toast('No cell on screen to fill','warn',3000);
+    const out=this.navGraph(d, (T.nav && T.nav.agent)||0, g.grid? [g.base[0], g.base[1], g.base[0]+CELL, g.base[1]+CELL] : null);
+    if(!out.pts.length) return toast('The navmesh has nothing walkable in this cell (is the overlay\'s actor size the one you want?)','warn',4000);
+    if(out.pts.length>65535) return toast('That is '+out.pts.length+' polygons: more than a path grid holds','warn',5000);
+    this.remember(spec);
+    g.pts=out.pts; g.edges=out.edges; this.sel=[];
+    await this.send(spec);
+    toast(out.pts.length+' points (one per navmesh polygon) and '+(out.edges.length/2)+' links in '+cur.label+' (Ctrl+Z puts the old grid back)','ok',6000);
+  },
+
+  /** The navmesh's polygon graph: `{pts, edges}` - a point per walkable polygon of the
+   *  agent with its middle inside `box` ([x0, y0, x1, y1], world; null: all), edges
+   *  `[a, b]` both ways between polygons the mesh joins. Inside a tile, Recast's own
+   *  neighbour record says which (exact); across tiles, a portal edge joins the portal
+   *  edges of the tile next to it that overlap it along their shared border, at about
+   *  the same height - as the navigator connects tiles. */
+  navGraph(d, agent, box){
+    const P=d.polys.filter(p=>p.a===agent && (p.flags&1));
+    const mids=P.map(p=>{ let x=0,y=0,z=0; const n=p.v.length/3; for(let i=0;i<p.v.length;i+=3){ x+=p.v[i]; y+=p.v[i+1]; z+=p.v[i+2]; } return [x/n, y/n, z/n]; });
+    const keep=mids.map(m=>!box || (m[0]>=box[0] && m[0]<box[2] && m[1]>=box[1] && m[1]<box[3]));
+    const ix=new Map(), pts=[];
+    mids.forEach((m,i)=>{ if(keep[i]){ ix.set(i, pts.length); pts.push([Math.round(m[0]), Math.round(m[1]), Math.round(m[2])]); } });
+    const links=new Set();
+    const join=(a,b)=>{ if(a===b || !keep[a] || !keep[b]) return; const A=ix.get(a), B=ix.get(b); links.add(A<B? A+','+B : B+','+A); };
+    const exact=P.length && P[0].nei;
+    const byLocal=new Map(); P.forEach((p,i)=>{ if(exact) byLocal.set(p.tile+':'+p.index, i); });
+    const portals=new Map();       // border line -> edges on it
+    const W=d.tileW||0;
+    P.forEach((p,pi)=>{
+      const n=p.v.length/3;
+      for(let e=0;e<n;e++){
+        const f=(e+1)%n;
+        let portal=false;
+        if(exact){
+          const nb=p.nei[e];
+          if(nb===0xffff) continue;
+          if(!(nb&0x8000)){ const q=byLocal.get(p.tile+':'+nb); if(q!=null) join(pi, q); continue; }
+          portal=true;
+        }
+        // A border edge (from the record, or - without it - lying on a tile line).
+        const x0=p.v[e*3], y0=p.v[e*3+1], z0=p.v[e*3+2], x1=p.v[f*3], y1=p.v[f*3+1], z1=p.v[f*3+2];
+        const onLine=a=>W>0 && Math.abs(a/W-Math.round(a/W))*W<0.6;
+        let line=null, u0, u1;
+        if(Math.abs(x0-x1)<0.6 && (portal || onLine(x0))){ line='x'+Math.round(x0/(W||1)); u0=y0; u1=y1; }
+        else if(Math.abs(y0-y1)<0.6 && (portal || onLine(y0))){ line='y'+Math.round(y0/(W||1)); u0=x0; u1=x1; }
+        if(!line) continue;
+        const seg= u0<=u1? {pi, tile:p.tile, lo:u0, hi:u1, zlo:z0, zhi:z1} : {pi, tile:p.tile, lo:u1, hi:u0, zlo:z1, zhi:z0};
+        if(!portals.has(line)) portals.set(line, []); portals.get(line).push(seg);
+      }
+    });
+    // No neighbour record (an older engine's answer): edges shared corner for corner.
+    if(!exact){
+      const key=(v,i)=>Math.round(v[i*3]*2)+','+Math.round(v[i*3+1]*2)+','+Math.round(v[i*3+2]*2);
+      const byEdge=new Map();
+      P.forEach((p,pi)=>{ const n=p.v.length/3; for(let i=0;i<n;i++){ const a=key(p.v,i), b=key(p.v,(i+1)%n), k=a<b? a+'|'+b : b+'|'+a; if(!byEdge.has(k)) byEdge.set(k, []); byEdge.get(k).push(pi); } });
+      for(const list of byEdge.values()) for(let a=0;a<list.length;a++) for(let b=a+1;b<list.length;b++) join(list[a], list[b]);
+    }
+    // Height of a border edge at a point along it.
+    const zAt=(s,u)=> s.hi-s.lo<1e-6? (s.zlo+s.zhi)/2 : s.zlo+(s.zhi-s.zlo)*(u-s.lo)/(s.hi-s.lo);
+    for(const list of portals.values()){
+      list.sort((a,b)=>a.lo-b.lo);
+      for(let a=0;a<list.length;a++) for(let b=a+1;b<list.length && list[b].lo<list[a].hi;b++){
+        const A=list[a], B=list[b];
+        if(exact && A.tile===B.tile) continue;          // the same tile's own border pieces
+        const lo=Math.max(A.lo,B.lo), hi=Math.min(A.hi,B.hi);
+        if(hi-lo<=0.01) continue;
+        if(Math.abs(zAt(A,lo)-zAt(B,lo))<=32 || Math.abs(zAt(A,hi)-zAt(B,hi))<=32) join(A.pi, B.pi);
+      }
+    }
+    const edges=[];
+    for(const k of links){ const [a,b]=k.split(',').map(Number); edges.push([a,b],[b,a]); }
+    return {pts, edges};
   },
 
   /** Drops the queued grid of the cells in view (Wraithguard's copy comes back). */

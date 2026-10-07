@@ -181,7 +181,41 @@ class EditorLinkMixin:
             "editTopics": server.register_post("wg_edit_topics", self._on_edit_topics),
             "editTopic": server.register_post("wg_edit_topic", self._on_edit_topic),
             "editColumns": server.register_post("wg_edit_columns", self._on_edit_columns),
+            "editSearch": server.register_post("wg_edit_search", self._on_edit_search),
+            "editUndo": server.register_post("wg_edit_undo", self._on_edit_undo),
+            "editRedo": server.register_post("wg_edit_redo", self._on_edit_redo),
+            "editRevision": server.register_post("wg_edit_revision", self._on_edit_revision),
+            "editVerify": server.register_post("wg_edit_verify", self._on_edit_verify),
+            "editSetMany": server.register_post("wg_edit_set_many", self._on_edit_set_many),
+            "editRefsSet": server.register_post("wg_edit_refs_set", self._on_edit_refs_set),
+            "editNewCell": server.register_post("wg_edit_new_cell", self._on_edit_new_cell),
+            "editPlaceMany": server.register_post("wg_edit_place_many", self._on_edit_place_many),
+            "editLeveledRoll": server.register_post(
+                "wg_edit_leveled_roll", self._on_edit_leveled_roll
+            ),
+            "editWhoCanSay": server.register_post("wg_edit_who_can_say", self._on_edit_who_can_say),
+            "editFilterChoices": server.register_post(
+                "wg_edit_filter_choices", self._on_edit_filter_choices
+            ),
+            "editScriptWords": server.register_post(
+                "wg_edit_script_words", self._on_edit_script_words
+            ),
+            "editScriptRefs": server.register_post(
+                "wg_edit_script_refs", self._on_edit_script_refs
+            ),
+            "editSearchAll": server.register_post("wg_edit_search_all", self._on_edit_search_all),
+            "editReplaceAll": server.register_post(
+                "wg_edit_replace_all", self._on_edit_replace_all
+            ),
+            "editTestRun": server.register_post("wg_edit_test_run", self._on_edit_test_run),
+            "editTestSetups": server.register_post(
+                "wg_edit_test_setups", self._on_edit_test_setups
+            ),
+            "editLuaChart": server.register_post("wg_edit_lua_chart", self._on_edit_lua_chart),
             "editPathgrid": server.register_post("wg_edit_pathgrid", self._on_edit_pathgrid),
+            "editDuplicateCell": server.register_post(
+                "wg_edit_duplicate_cell", self._on_edit_duplicate_cell
+            ),
             "editPathgridSet": server.register_post(
                 "wg_edit_pathgrid_set", self._on_edit_pathgrid_set
             ),
@@ -195,6 +229,9 @@ class EditorLinkMixin:
                 "wg_edit_new_response", self._on_edit_new_response
             ),
             "editCopyTopic": server.register_post("wg_edit_copy_topic", self._on_edit_copy_topic),
+            "editMoveResponse": server.register_post(
+                "wg_edit_move_response", self._on_edit_move_response
+            ),
             "editReplace": server.register_post("wg_edit_replace", self._on_edit_replace),
             "editPlace": server.register_post("wg_edit_place", self._on_edit_place),
             "editNew": server.register_post("wg_edit_new", self._on_edit_new),
@@ -340,8 +377,240 @@ class EditorLinkMixin:
 
         return self._json(self._on_ui_wait(change))
 
+    def _on_edit_set_many(self, body: bytes) -> Payload:
+        """``editSetMany``: one field set to one value on many records of a type.
+
+        The records are found on the server's thread, the change made on the Tk thread
+        as one step (one Ctrl+Z puts them all back).
+
+        Args:
+            body: ``{tag, ids, path, value}``.
+
+        Returns:
+            :meth:`.EditorSession.set_many`, with ``missing`` the ids no plugin defines.
+        """
+        req = self._body(body)
+        tag, ids, path = req.get("tag"), req.get("ids"), req.get("path")
+        if not isinstance(tag, str) or not tag.strip():
+            raise ValueError("bad tag")
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+            raise ValueError("ids is a list of record ids")
+        if not isinstance(path, str) or not path:
+            raise ValueError("bad path")
+        session = self._editor()
+        found_all = {rid: session.find(tag, rid) for rid in ids}
+        founds = [f for f in found_all.values() if f is not None]
+        missing = [rid for rid, f in found_all.items() if f is None]
+        value = req.get("value")
+
+        def change() -> dict[str, Any]:
+            """Set them all and redraw."""
+            out = session.set_many(founds, path, value)
+            self.refresh_patch_views()
+            return out
+
+        out = self._on_ui_wait(change)
+        out["missing"] = missing
+        return self._json(out)
+
+    # -- workflow (wraithguard.patch.workflow) --------------------------------------------
+
+    def _on_edit_new_cell(self, body: bytes) -> Payload:
+        """``editNewCell``: a cell of the patch's own, from nothing.
+
+        Args:
+            body: ``{cell}`` - an interior's name, or ``(x, y)`` for an exterior square.
+
+        Returns:
+            :meth:`.EditorSession.new_cell`, as JSON.
+        """
+        cell = self._body(body).get("cell")
+        if not isinstance(cell, str) or not cell.strip():
+            raise ValueError("bad cell")
+        session = self._editor()
+
+        def make() -> dict[str, Any]:
+            """Make it and redraw."""
+            out = session.new_cell(cell)
+            self.refresh_patch_views()
+            return out
+
+        return self._json(self._on_ui_wait(make))
+
+    def _on_edit_place_many(self, body: bytes) -> Payload:
+        """``editPlaceMany``: several new references at once (a prefab), one change.
+
+        Args:
+            body: ``{cell, items}`` - each item ``tag``, ``id``, ``translation`` and
+                ``rotation`` and ``scale`` when it has them.
+
+        Returns:
+            ``{"placed": [{cell, uid}]}``.
+        """
+        req = self._body(body)
+        cell, items = req.get("cell"), req.get("items")
+        if not isinstance(cell, str) or not cell.strip():
+            raise ValueError("bad cell")
+        if not isinstance(items, list) or not items:
+            raise ValueError("items is a list")
+        session = self._editor()
+        todo: list[tuple[Found, object, object, float]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                raise ValueError("each item is {tag, id, translation}")
+            found = session.find(str(it.get("tag") or ""), str(it.get("id") or ""))
+            if found is None:
+                raise ValueError(
+                    _("%(id)s is not a record of this load order") % {"id": it.get("id")}
+                )
+            scale = it.get("scale")
+            todo.append(
+                (
+                    found,
+                    it.get("translation"),
+                    it.get("rotation"),
+                    float(scale) if isinstance(scale, (int, float)) else 1.0,
+                )
+            )
+
+        def place() -> dict[str, Any]:
+            """Place them all and redraw."""
+            placed = session.place_many(cell, todo)
+            self.refresh_patch_views()
+            return {"placed": [{"cell": n.cell, "uid": n.uid} for n in placed]}
+
+        return self._json(self._on_ui_wait(place))
+
+    def _on_edit_leveled_roll(self, body: bytes) -> Payload:
+        """``editLeveledRoll``: what a leveled list gives at a level (read here).
+
+        Args:
+            body: ``{tag, id, level}``.
+
+        Returns:
+            :func:`.workflow.leveled_roll`, as JSON.
+        """
+        from wraithguard.patch.workflow import leveled_roll
+
+        req = self._body(body)
+        level = req.get("level")
+        if not isinstance(level, int) or isinstance(level, bool) or level < 1:
+            raise ValueError("level is a number from 1")
+        session = self._editor()
+        found = session.find(str(req.get("tag") or ""), str(req.get("id") or ""))
+        if found is None or found.record_type not in ("LeveledItem", "LeveledCreature"):
+            raise ValueError(_("That is not a leveled list"))
+        return self._json(leveled_roll(session, found, level))
+
+    def _on_edit_who_can_say(self, body: bytes) -> Payload:
+        """``editWhoCanSay``: the NPCs a response's speaker conditions let say it.
+
+        Args:
+            body: ``{id}`` - the response.
+
+        Returns:
+            :func:`.workflow.who_can_say`, as JSON.
+        """
+        from wraithguard.patch.verify import as_written
+        from wraithguard.patch.workflow import who_can_say
+
+        session = self._editor()
+        found = session.find("INFO", str(self._body(body).get("id") or ""))
+        if found is None:
+            raise ValueError(_("That response is not in this load order"))
+        return self._json(who_can_say(session, as_written(session, found)))
+
+    def _on_edit_filter_choices(self, _body: bytes) -> Payload:
+        """``editFilterChoices``: what a dialogue condition can be.
+
+        Args:
+            _body: ``{}``.
+
+        Returns:
+            :func:`.workflow.filter_choices`, as JSON.
+        """
+        from wraithguard.patch.workflow import filter_choices
+
+        return self._json(filter_choices())
+
+    def _on_edit_script_words(self, _body: bytes) -> Payload:
+        """``editScriptWords``: what Script Edit completes.
+
+        Args:
+            _body: ``{}``.
+
+        Returns:
+            :func:`.workflow.script_words`, as JSON.
+        """
+        from wraithguard.patch.workflow import script_words
+
+        return self._json(script_words(self._editor()))
+
+    def _on_edit_script_refs(self, body: bytes) -> Payload:
+        """``editScriptRefs``: every script naming a word.
+
+        Args:
+            body: ``{word}``.
+
+        Returns:
+            :func:`.workflow.script_refs`, as JSON.
+        """
+        from wraithguard.patch.workflow import script_refs
+
+        word = self._body(body).get("word")
+        if not isinstance(word, str) or not word.strip():
+            raise ValueError("bad word")
+        return self._json(script_refs(self._editor(), word))
+
+    def _on_edit_search_all(self, body: bytes) -> Payload:
+        """``editSearchAll``: text found in every record type at once.
+
+        Args:
+            body: ``{text, whole?}``.
+
+        Returns:
+            :func:`.workflow.search_all`, as JSON.
+        """
+        from wraithguard.patch.workflow import search_all
+
+        req = self._body(body)
+        text = req.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("bad text")
+        return self._json(search_all(self._editor(), text, bool(req.get("whole"))))
+
+    def _on_edit_replace_all(self, body: bytes) -> Payload:
+        """``editReplaceAll``: the text replaced in the fields chosen, one change.
+
+        Args:
+            body: ``{hits, text, by, whole?}`` - ``hits`` as ``editSearchAll`` gave them.
+
+        Returns:
+            :func:`.workflow.replace_all`, as JSON.
+        """
+        from wraithguard.patch.workflow import replace_all
+
+        req = self._body(body)
+        hits, text, by = req.get("hits"), req.get("text"), req.get("by")
+        if not isinstance(hits, list) or not isinstance(text, str) or not text:
+            raise ValueError("bad request")
+        if not isinstance(by, str):
+            raise ValueError("by is text")
+        session = self._editor()
+
+        def change() -> dict[str, Any]:
+            """Replace and redraw."""
+            out = replace_all(session, hits, text, by, bool(req.get("whole")))
+            self.refresh_patch_views()
+            return out
+
+        return self._json(self._on_ui_wait(change))
+
     def _on_edit_topics(self, _body: bytes) -> Payload:
         """``editTopics``: every topic of the load order (read on the server's thread).
+
+        Args:
+            _body: ``{}``.
 
         Returns:
             :meth:`.EditorSession.topics`, as JSON.
@@ -408,6 +677,9 @@ class EditorLinkMixin:
     def _on_edit_columns(self, body: bytes) -> Payload:
         """``editColumns``: a record type's own columns, for every record of it.
 
+        Args:
+            body: ``{tag}``.
+
         Returns:
             :func:`.columns.table`, as JSON.
         """
@@ -428,6 +700,206 @@ class EditorLinkMixin:
         out = table(tag, versions, settings)
         out["armorClass"] = browser_table(settings)
         return self._json(out)
+
+    def _on_edit_undo(self, _body: bytes) -> Payload:
+        """``editUndo``: the patch pool as it was before its last change.
+
+        Args:
+            _body: ``{}``.
+
+        Returns:
+            :meth:`.EditorSession.undo`, as JSON.
+        """
+        session = self._editor()
+
+        def step() -> dict[str, Any]:
+            """Step back and redraw the Patch Builder."""
+            out = session.undo()
+            self.refresh_patch_views()
+            return out
+
+        return self._json(self._on_ui_wait(step))
+
+    def _on_edit_redo(self, _body: bytes) -> Payload:
+        """``editRedo``: what the last undo took back, made again.
+
+        Args:
+            _body: ``{}``.
+
+        Returns:
+            :meth:`.EditorSession.redo`, as JSON.
+        """
+        session = self._editor()
+
+        def step() -> dict[str, Any]:
+            """Step forward and redraw the Patch Builder."""
+            out = session.redo()
+            self.refresh_patch_views()
+            return out
+
+        return self._json(self._on_ui_wait(step))
+
+    def _on_edit_revision(self, _body: bytes) -> Payload:
+        """``editRevision``: how far the patch pool has changed (read on this thread).
+
+        The Editor's page polls it and reads the pool again only when ``rev`` moved -
+        whatever changed it: the page itself, the Patch Builder, an undo.
+
+        Args:
+            _body: ``{}``.
+
+        Returns:
+            ``{"rev": n, "undo": n, "redo": n}`` as JSON.
+        """
+        session = self._editor()
+        return self._json({"rev": session.queue.revision, **session.can_undo()})
+
+    def _on_edit_verify(self, _body: bytes) -> Payload:
+        """``editVerify``: the verifier's checks over what the patch carries.
+
+        Read on the server's thread, as ``editSearch`` is: it reads every plugin's
+        records of the types the patch's records name.
+
+        Args:
+            _body: ``{}``.
+
+        Returns:
+            :func:`.verify.verify`, as JSON.
+        """
+        from wraithguard.patch.verify import verify
+
+        return self._json(verify(self._editor(), self._vfs_exists()))
+
+    def _vfs_exists(self) -> Callable[[str], bool] | None:
+        """``(vfs path) -> bool`` over the load order's data folders and their archives.
+
+        None when the session's ``openmw.cfg`` is not known (files are then not looked
+        for). Loose files and archives are indexed once per folder (:mod:`.nif.vfs`).
+        """
+        setup = getattr(self, "_editor_setup", None)
+        if setup is None:
+            return None
+        try:  # the archives are the Rust backend's to read
+            from wraithguard.lua.scan import read_cfg_lua
+            from wraithguard.nif.bsa import normalise
+            from wraithguard.nif.vfs import archives_in, loose_index
+        except ImportError:
+            return None
+        try:
+            folders, _content = read_cfg_lua(Path(setup))
+        except OSError:
+            return None
+
+        def exists(path: str) -> bool:
+            """Whether a data folder, loose or archived, has the file."""
+            name = normalise(path)
+            for folder in folders:
+                if name in loose_index(folder) or any(name in a for a in archives_in(folder)):
+                    return True
+            return False
+
+        return exists
+
+    def _on_edit_search(self, body: bytes) -> Payload:
+        """``editSearch``: the Object Window's search by any field (read on this thread).
+
+        Args:
+            body: ``{tag, query}``.
+
+        Returns:
+            :meth:`.EditorSession.search`, as JSON.
+        """
+        req = self._body(body)
+        tag, query = req.get("tag"), req.get("query")
+        if not isinstance(tag, str) or not tag.strip() or not isinstance(query, str):
+            raise ValueError("bad request")
+        return self._json(self._editor().search(tag, query))
+
+    def _on_edit_lua_chart(self, body: bytes) -> Payload:
+        """``editLuaChart``: a Lua script's flowchart or call graph, or its functions.
+
+        From the Editor's Lua panel; a chart opens in Wraithguard's chart window.
+
+        Args:
+            body: ``{path, text, kind, line?}`` - ``kind`` ``"functions"`` (the list to pick
+                from), ``"flow"`` (the whole script's, or the function at ``line``) or
+                ``"calls"``; ``text`` the script as the viewer read it.
+
+        Returns:
+            ``{"functions": [{name, line}]}`` for ``functions``, else ``{"shown": bool}``
+            (False when this Wraithguard has no chart window).
+        """
+        from wraithguard.lua.callgraph import call_graph_chart
+        from wraithguard.lua.flowchart import flowchart
+        from wraithguard.lua.parser import parse
+
+        req = self._body(body)
+        path, text, kind = req.get("path"), req.get("text"), req.get("kind")
+        if (
+            not isinstance(path, str)
+            or not isinstance(text, str)
+            or kind not in ("functions", "flow", "calls")
+        ):
+            raise ValueError("bad request")
+        tree = parse(text, teal=path.lower().endswith(".tl"))
+        kinds = {"Function", "LocalFunction", "FunctionStat"}
+        # One per line: a named function's own body node shares its line.
+        by_line: dict[int, Any] = {}
+        for n in tree.walk():
+            if n.kind in kinds and n.line not in by_line:
+                by_line[n.line] = n
+        functions = [by_line[k] for k in sorted(by_line)]
+        if kind == "functions":
+            return self._json(
+                {
+                    "functions": [
+                        {"name": n.value or _("function at line ") + str(n.line), "line": n.line}
+                        for n in functions
+                    ]
+                }
+            )
+        show = getattr(self, "_lua_show_chart", None)
+        if not callable(show):
+            return self._json({"shown": False})
+        if kind == "calls":
+            heading, chart, title = (
+                f"{path} - " + _("call graph"),
+                call_graph_chart(tree),
+                _("Lua call graph"),
+            )
+        else:
+            line = req.get("line")
+            target = next((n for n in functions if isinstance(line, int) and n.line == line), tree)
+            name = target.value or (_("function at line ") + str(target.line))
+            heading = path if target is tree else f"{path} - {name}"
+            chart, title = flowchart(target), _("Lua flowchart")
+        self._on_ui_wait(lambda: show(heading, chart, title))
+        return self._json({"shown": True})
+
+    def _on_edit_duplicate_cell(self, body: bytes) -> Payload:
+        """``editDuplicateCell``: an interior copied whole under a new name.
+
+        Args:
+            body: ``{cell, newName}``.
+
+        Returns:
+            :meth:`.EditorSession.duplicate_cell`, as JSON.
+        """
+        req = self._body(body)
+        cell, new_name = req.get("cell"), req.get("newName")
+        if not isinstance(cell, str) or not cell.strip():
+            raise ValueError("bad cell")
+        if not isinstance(new_name, str):
+            raise ValueError("bad newName")
+        session = self._editor()
+
+        def change() -> dict[str, Any]:
+            """Queue the copy and redraw the Patch Builder."""
+            out = session.duplicate_cell(cell, new_name)
+            self.refresh_patch_views()
+            return out
+
+        return self._json(self._on_ui_wait(change))
 
     def _on_edit_pathgrid(self, body: bytes) -> Payload:
         """``editPathgrid``: a cell's path grid as the patch would write it.
@@ -484,6 +956,9 @@ class EditorLinkMixin:
     def _on_dialogue_flow(self, body: bytes) -> Payload:
         """``editDialogueFlow``: a topic's responses as a flow, with its choice tree.
 
+        Args:
+            body: ``{topic}``.
+
         Returns:
             :meth:`.DialogueIndex.flow`, as JSON.
         """
@@ -495,6 +970,9 @@ class EditorLinkMixin:
 
     def _on_dialogue_map(self, body: bytes) -> Payload:
         """``editDialogueMap``: the topics, quests and variables around a topic.
+
+        Args:
+            body: ``{topic, depth?}``.
 
         Returns:
             :meth:`.DialogueIndex.neighbourhood`, as JSON.
@@ -509,6 +987,9 @@ class EditorLinkMixin:
     def _on_dialogue_flags(self, body: bytes) -> Payload:
         """``editDialogueFlags``: what the dialogue writes and tests (one, or the list).
 
+        Args:
+            body: ``{name?, kind?}``.
+
         Returns:
             :meth:`.DialogueIndex.flags`, as JSON.
         """
@@ -519,6 +1000,9 @@ class EditorLinkMixin:
 
     def _on_dialogue_play(self, body: bytes) -> Payload:
         """``editDialoguePlay``: the game's dialogue window, rehearsed for an NPC.
+
+        Args:
+            body: ``{speaker, topic?, choice?, cell?, disposition?, strict?}``.
 
         Returns:
             :meth:`.DialogueIndex.play` with ``speaker`` (the NPC as read), as JSON.
@@ -598,6 +1082,29 @@ class EditorLinkMixin:
             made = session.new_response(topic, after)
             self.refresh_patch_views()
             return session.view(made)
+
+        return self._json(self._on_ui_wait(change))
+
+    def _on_edit_move_response(self, body: bytes) -> Payload:
+        """``editMoveResponse``: a response moved to after another (drag to reorder).
+
+        Args:
+            body: ``{topic, id, after}`` (``after`` empty for the top).
+
+        Returns:
+            The topic after the move (:meth:`.EditorSession.topic`).
+        """
+        req = self._body(body)
+        topic, rid, after = req.get("topic"), req.get("id"), req.get("after", "")
+        if not all(isinstance(v, str) for v in (topic, rid, after)) or not str(topic).strip():
+            raise ValueError("bad request")
+        session = self._editor()
+
+        def change() -> dict[str, Any]:
+            """Queue the move and redraw the Patch Builder."""
+            out = session.move_response(str(topic), str(rid), str(after))
+            self.refresh_patch_views()
+            return out
 
         return self._json(self._on_ui_wait(change))
 
@@ -720,7 +1227,8 @@ class EditorLinkMixin:
         """``editReplace``: Search & Replace - the live uses repointed to another record.
 
         Args:
-            body: ``{tag, id, plugins?, newId}``.
+            body: ``{tag, id, plugins?, newId, cell?}`` - with ``cell`` (a cell's key),
+                only the references placed in that cell.
 
         Returns:
             ``{changed, refs, scripts}``: records and references changed, the references
@@ -731,7 +1239,10 @@ class EditorLinkMixin:
         new_id = req.get("newId")
         if not isinstance(new_id, str) or not new_id.strip():
             raise ValueError("bad newId")
-        plan, _report = session.replace_plan(found, new_id.strip())
+        cell = req.get("cell")
+        if cell is not None and (not isinstance(cell, str) or not cell.strip()):
+            raise ValueError("bad cell")
+        plan, _report = session.replace_plan(found, new_id.strip(), cell)
 
         def change() -> int:
             """Queue the plan and redraw the Patch Builder."""
@@ -1034,6 +1545,49 @@ class EditorLinkMixin:
 
         return self._json(self._on_ui_wait(change))
 
+    def _on_edit_refs_set(self, body: bytes) -> Payload:
+        """``editRefsSet``: changes to many placed objects, as one step (one Ctrl+Z).
+
+        For a group moved, turned or scaled together.
+
+        Args:
+            body: ``{changes}`` - a list, each a placed object's ``cell``, ``origin``,
+                ``refr`` (and ``plugins``) or a new one's ``cell`` and ``uid``, with the
+                ``path`` and ``value`` it changes to.
+
+        Returns:
+            ``{"changed": n}``.
+        """
+        from wraithguard.patch.refedit import NewRef as _NewRef
+
+        req = self._body(body)
+        changes = req.get("changes")
+        if not isinstance(changes, list) or not changes:
+            raise ValueError("changes is a list")
+        session = self._editor()
+        steps: list[tuple[FoundRef | NewRef, str, object]] = []
+        for item in changes:
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                raise ValueError("each change is {reference, path, value}")
+            raw = json.dumps(item).encode("utf-8")
+            target = self._new_request(raw)[2] if item.get("uid") else self._ref_request(raw)[2]
+            steps.append((target, item["path"], item.get("value")))
+
+        def change() -> dict[str, Any]:
+            """Every change, as one, then redraw."""
+            with session.batch():
+                for target, path, value in steps:
+                    if isinstance(target, _NewRef):
+                        # A new reference changed twice is found again, as it is now.
+                        now = session.find_new(target.cell, target.uid) or target
+                        session.set_new_field(now, path, value)
+                    else:
+                        session.set_ref_field(target, path, value)
+            self.refresh_patch_views()
+            return {"changed": len(steps)}
+
+        return self._json(self._on_ui_wait(change))
+
     def _on_edit_new_remove(self, body: bytes) -> Payload:
         """``editNewRemove``: take a new reference back out of the patch.
 
@@ -1056,6 +1610,9 @@ class EditorLinkMixin:
     def _on_edit_pending(self, _body: bytes) -> Payload:
         """``editPending``: everything the patch would carry.
 
+        Args:
+            _body: ``{}``.
+
         Returns:
             :meth:`.EditorSession.pending`, as JSON.
         """
@@ -1066,6 +1623,9 @@ class EditorLinkMixin:
 
     def _on_edit_review(self, _body: bytes) -> Payload:
         """``editReview``: open the Patch Builder, where the pool is reviewed and written.
+
+        Args:
+            _body: ``{}``.
 
         Returns:
             ``ok``.
@@ -1101,6 +1661,9 @@ class EditorLinkMixin:
 
     def _on_edit_build_info(self, _body: bytes) -> Payload:
         """``editBuildInfo``: what the viewer's "Build patch" panel starts from.
+
+        Args:
+            _body: ``{}``.
 
         Returns:
             ``{summary, last, suggested, folders, defaultName, order}``.
@@ -1151,6 +1714,9 @@ class EditorLinkMixin:
     def _on_edit_build_check(self, body: bytes) -> Payload:
         """``editBuildCheck``: whether the chosen file is there already.
 
+        Args:
+            body: ``{path}``.
+
         Returns:
             ``{path, exists, inOrder}``: ``inOrder`` when a plugin of the load order has
             its name (a patch written before, most likely - or a mod).
@@ -1173,6 +1739,10 @@ class EditorLinkMixin:
         refuses, with the reason), the plugins read and the patch written on the build's
         own thread - long for a big load order, longer than one request may wait - and
         the pool cleared on the Tk thread once it is written.
+
+        Args:
+            body: ``{path, mode?}`` - ``mode`` ``new`` (the default), ``append`` or
+                ``replace``.
 
         Returns:
             ``{job}``, for ``editBuildStatus``.
@@ -1224,6 +1794,141 @@ class EditorLinkMixin:
         threading.Thread(target=work, name="wg-patch-build", daemon=True).start()
         return self._json({"job": state["job"]})
 
+    def _on_edit_test_run(self, body: bytes) -> Payload:
+        """``editTestRun``: the pool written to a scratch plugin, and OpenMW started on it.
+
+        As ``editBuild`` - the plugin written on a thread of its own, followed by
+        ``editBuildStatus`` - but to :data:`.testrun.TEST_PLUGIN` in a scratch folder,
+        and the pool kept. Once written, OpenMW starts past its menu in ``cell``; what it
+        prints comes back as the job's lines while it runs (``state`` ``"running"``),
+        and the job is ``"done"`` when the game is closed.
+
+        Args:
+            body: ``{cell?, exe?, setup?}`` - ``exe`` the OpenMW to start (the executable
+                or its folder; remembered), when it was not found; ``setup`` a launch
+                setup's name (``""``: none), else the one last chosen.
+
+        Returns:
+            ``{job}``, for ``editBuildStatus``.
+
+        Raises:
+            ValueError: With ``needExe`` in the text when OpenMW is not found, for a
+                build already running, or what the Patch Builder refuses.
+        """
+        import subprocess
+
+        from wraithguard.patch.testrun import (
+            TEST_PLUGIN,
+            find_openmw,
+            launch_args,
+            load_settings,
+            scratch_dir,
+        )
+
+        req = self._body(body)
+        exe_given = req.get("exe") if isinstance(req.get("exe"), str) else None
+        exe = find_openmw(exe_given)
+        if exe is None:
+            raise ValueError(
+                "needExe: "
+                + (
+                    _("%(path)s is not OpenMW") % {"path": exe_given}
+                    if exe_given
+                    else _("Where is OpenMW? Choose openmw.exe (or the folder it is in)")
+                )
+            )
+        cell = req.get("cell") if isinstance(req.get("cell"), str) else None
+        settings = load_settings()
+        name = req.get("setup") if isinstance(req.get("setup"), str) else settings["use"]
+        setup = settings["setups"].get(name) if name else None
+        if name and setup is None:
+            raise ValueError(_("No launch setup is called %(name)s") % {"name": name})
+        running = getattr(self, "_build_state", None)
+        if running is not None and running["state"] == "running":
+            raise ValueError(_("A patch is being written already"))
+        target = scratch_dir() / TEST_PLUGIN
+        target.unlink(missing_ok=True)
+        job = self._on_ui_wait(lambda: self.prepare_patch(target, append=False))
+        state: dict[str, Any] = {
+            "job": (running or {}).get("job", 0) + 1,
+            "state": "running",
+            "lines": [],
+            "result": None,
+            "error": None,
+        }
+        self._build_state = state
+
+        def work() -> None:
+            """Write the plugin (the pool kept), start OpenMW, relay what it prints."""
+            try:
+                result = self.run_patch(job, report=state["lines"].append)
+                argv, script = launch_args(exe, target, cell, setup)
+                if script is not None:
+                    start = scratch_dir() / "start.txt"
+                    start.write_text(script, encoding="utf-8")
+                    argv += ["--script-run", str(start)]
+                state["lines"].append("$ " + " ".join(f'"{a}"' if " " in a else a for a in argv))
+                proc = subprocess.Popen(  # noqa: S603 - the player's own OpenMW, our arguments
+                    argv,
+                    cwd=str(exe.parent),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                state["result"] = {
+                    "output": str(result.output),
+                    "records": result.records,
+                    "pid": proc.pid,
+                    "note": self.patch_written_note(result),
+                }
+                for line in proc.stdout or ():
+                    state["lines"].append(line.rstrip("\n"))
+                state["result"]["exit"] = proc.wait()
+                state["state"] = "done"
+            except Exception as exc:  # noqa: BLE001 - said to the viewer, which shows it
+                LOG.warning("the viewer's test in OpenMW failed: %s", exc)
+                state["error"] = str(exc)
+                state["state"] = "failed"
+
+        threading.Thread(target=work, name="wg-test-run", daemon=True).start()
+        return self._json({"job": state["job"]})
+
+    def _on_edit_test_setups(self, body: bytes) -> Payload:
+        """``editTestSetups``: Test in OpenMW's named launch setups, read or kept.
+
+        A launch setup is OpenMW-CS's debug profile: content files of the load order's
+        data folders loaded before the test plugin, and console commands run once the
+        game is in the cell.
+
+        Args:
+            body: ``{setups?, use?}`` - ``setups`` every setup by name (they replace the
+                ones kept), ``use`` the one Test in OpenMW takes (``""``: none).
+
+        Returns:
+            ``{setups, use}`` as kept.
+        """
+        from wraithguard.patch.testrun import clean_setup, load_settings, save_settings
+
+        req = self._body(body)
+        settings = load_settings()
+        if "setups" in req:
+            raw = req["setups"]
+            if not isinstance(raw, dict):
+                raise ValueError("setups is an object")
+            settings["setups"] = {
+                str(k).strip(): clean_setup(v) for k, v in raw.items() if str(k).strip()
+            }
+        if "use" in req:
+            use = req["use"] if isinstance(req["use"], str) else ""
+            settings["use"] = use if use in settings["setups"] else ""
+        elif settings["use"] not in settings["setups"]:
+            settings["use"] = ""
+        if "setups" in req or "use" in req:
+            save_settings(settings)
+        return self._json({"setups": settings["setups"], "use": settings["use"]})
+
     def _on_edit_build_status(self, body: bytes) -> Payload:
         """``editBuildStatus``: how the build is going.
 
@@ -1256,6 +1961,9 @@ class EditorLinkMixin:
 
     def _on_edit_preview_patch(self, body: bytes) -> Payload:
         """``editPreviewPatch``: a new Cell Preview with a written patch loaded last.
+
+        Args:
+            body: ``{path}``.
 
         Returns:
             ``ok``.

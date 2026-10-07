@@ -71,11 +71,26 @@ not reach the MIT code. See `ui/LICENSE`, `../License/Gardenfell`,
 | `44_wg_precip.js` | 12 KB | Weather effects: OpenMW-style rain around the camera in Rain and Thunderstorm, and the game's snow, blizzard, ash and blight particle meshes carried with the camera. |
 | `45_wg_nav.js` | 3 KB | From Wraithguard's conflict viewer: a record found where it stands, the cell opened on it, and what Wraithguard asks an open viewer to show. |
 | `46_wg_tfh.js` | 10 KB | The full help on the right: owner, lock, contents and inventory with the game's icons, leveled lists, services, travel, spells, dialogue, and the contents in the mesh viewer. |
-| `50_wg_editor.js` | 100 KB | The Editor mode: the Object Window, Cell View, record and reference dialogs, Script Edit, Dialogue, Layers, the Q menu, moving and placing objects, the Lua panel. |
+| `50_wg_editor.js` | 19 KB | The Editor mode (`WgEditor`): its state, the links to Wraithguard, entering and leaving, the dock. Each window's methods follow in the `50_wg_editor_*.js` parts below, added to it. |
+| `50_wg_editor_objects.js` | 12 KB | The Object Window: tabs, rows, search by any field, long lists a page at a time, new records. |
+| `50_wg_editor_cells.js` | 6 KB | The Cell View: every cell, the references in the one selected, the cell on screen, copying an interior. |
+| `50_wg_editor_record.js` | 24 KB | The record dialog: a record's fields and lists, renaming, changes sent to the pool. |
+| `50_wg_editor_ref.js` | 13 KB | The reference dialog: one placed object's position, rotation, scale, ownership, lock, trap, door. |
+| `50_wg_editor_move.js` | 21 KB | Moving the selected object in the render window, box selection, undo/redo (the pool's), copy and paste. |
+| `50_wg_editor_qmenu.js` | 19 KB | The Q menu, its settings and QuickStart, layers, the selection of several (Ctrl+click). |
+| `50_wg_editor_place.js` | 9 KB | Placing new references; the render window drawn as the pending changes leave it. |
+| `50_wg_editor_dialogue.js` | 10 KB | The Dialogue window: topics, responses in the engine's order, drag to reorder. |
+| `50_wg_editor_script.js` | 7 KB | The Script Edit window: checked as typed, compiled, saved to the patch. |
+| `50_wg_editor_lua.js` | 6 KB | The Lua panel: the load order's OpenMW Lua scripts checked, with their charts. |
+| `50_wg_editor_uses.js` | 5 KB | The Use Report and Search & Replace. |
+| `50_wg_editor_build.js` | 18 KB | What waits in the pool, and Build patch. |
+| `50_wg_editor_keys.js` | 5 KB | The Editor's keys, and the page listeners that feed them. |
 | `51_wg_editor_ui.js` | 30 KB | The Editor's window furniture: dockable and foldable panels, the toolbar, flyout menus, the dialogs' folding sections, record previews and drag-to-place feedback. |
 | `52_wg_dialogue_views.js` | 20 KB | The Dialogue window's other views: a topic's flow with its choice tree, the topic map, the flags (variables, quests, items) the dialogue writes and tests, and the game's dialogue window rehearsed with an NPC. |
 | `53_wg_record_forms.js` | 14 KB | The record dialog's Construction Set form per record type: fields laid out as the CS has them, flags as checkboxes, a weapon's damage grid, a light's colour and flicker, the art file turning and the inventory image. |
 | `54_wg_pathgrid_edit.js` | 13 KB | The Editor's path grid mode: the loaded cells' PGRD points drawn with their links and edited in the render window (select, drag, add, link, delete, undo), each cell's grid queued whole in the patch pool. |
+| `55_wg_messages.js` | 5 KB | The Editor's Messages panel: every toast and uncaught page error kept (WgLog, in `03_core.js`), filtered by kind and text, copied as text; the toolbar button counts errors not yet seen. |
+| `56_wg_workflow.js` | 17 KB | The Editor's workflow: prefabs, new cells, the dialogue condition editor and "who can say this", Script Edit's completion, go-to and uses, a leveled list's roll at a level, and search everything with replace. |
 | `11_events.js` | 90 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
 ## Engine commands (`src/cellviewer/commands.rs`)
@@ -156,7 +171,7 @@ that is not defined, or a `#[tauri::command]` is left unregistered.
 | `toml.rs` | 488 | Small TOML reader/writer (settings, favourites, languages). |
 | `json.rs` | 390 | Minimal JSON for the bridge. |
 | `pool.rs` | 158 | Parallel map (no rayon). |
-| `navmesh.rs` | 610 | OpenMW's navmesh.db (navmeshtool's SQLite cache) read for drawing: its own LZ4 block decoder, the tiles' settings and poly meshes in world units, the file found beside openmw.cfg or in OpenMW's user data folder. Written from the file's layout, not OpenMW's (GPL-3) code; rusqlite (MIT) with SQLite bundled. |
+| `navmesh.rs` | 700 | OpenMW's navmesh.db (navmeshtool's SQLite cache) read for drawing: its own LZ4 block decoder, the tiles' settings and poly meshes in world units, the collision objects each tile was built from (to find tiles the plugins changed under), the file found beside openmw.cfg or in OpenMW's user data folder. Written from the file's layout, not OpenMW's (GPL-3) code; rusqlite (MIT) with SQLite bundled. |
 | `luascan.rs` | 190 | The load order's Lua scripts checked through the overlay (luacore's scan; packed scripts read where they are). |
 
 ## Notes

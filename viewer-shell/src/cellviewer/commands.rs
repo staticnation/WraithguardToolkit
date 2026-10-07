@@ -1620,16 +1620,41 @@ fn read_asset(path: String, state: State) -> Result<tauri::ipc::Response, String
 /// the file's own pixels and, at the viewport's size, all of them that can be seen;
 /// the two levels dropped were four fifths of the bytes. Textures without a mip chain
 /// are sent whole: there is nothing smaller to send.
+/// Wraithguard: a texture a NIF carries inside itself (`__nifpx/<record>@<mesh>`): the
+/// mesh read again (as `mesh_payload` found it) and the record's pixels decoded.
+fn embedded_payload(v: &Vfs, path: &str) -> Option<Result<(viewcore::img::Texture, String), String>> {
+    let (ix, owner) = viewcore::nif::embedded_name(path)?;
+    let disk = std::path::Path::new(owner.strip_prefix("file:").unwrap_or(owner));
+    let bytes = if owner.starts_with("file:") || (disk.is_absolute() && disk.is_file()) {
+        std::fs::read(disk).ok()
+    } else {
+        v.resolve_mesh(owner).or_else(|| v.resolve(owner)).and_then(|p| v.load(&p))
+    };
+    let Some(bytes) = bytes else {
+        return Some(Err(viewcore::msg!("eng.not_in_load_order", path = owner)));
+    };
+    Some(match viewcore::nif::embedded_texture(&bytes, ix) {
+        Some((w, h, px)) => Ok((viewcore::img::from_rgba(w, h, px), format!("inside {owner}"))),
+        None => Err(format!("{owner}: its texture record {ix} is not pixel data this viewer reads")),
+    })
+}
+
 fn texture_payload(v: &Vfs, path: &str, bc: bool, extra: viewcore::img::Extra, max_size: u32) -> Result<Vec<u8>, String> {
     let n = viewcore::vfs::norm(path);
-    let p = v
-        .resolve_texture(&n)
-        .or_else(|| v.resolve(&n))
-        .ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = path))?;
-    let bytes = v.load(&p).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = path))?;
-    // Where it came from, for the report: a decode error names the file that failed.
-    let from = p.ident(v);
-    let mut t = viewcore::img::read_with(&bytes, &n, bc, extra).map_err(|e| format!("{e} — {from}"))?;
+    let (mut t, from, bytes) = if let Some(got) = embedded_payload(v, path) {
+        let (t, from) = got?;
+        (t, from, Vec::new())
+    } else {
+        let p = v
+            .resolve_texture(&n)
+            .or_else(|| v.resolve(&n))
+            .ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = path))?;
+        let bytes = v.load(&p).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = path))?;
+        // Where it came from, for the report: a decode error names the file that failed.
+        let from = p.ident(v);
+        let t = viewcore::img::read_with(&bytes, &n, bc, extra).map_err(|e| format!("{e} — {from}"))?;
+        (t, from, bytes)
+    };
     if max_size > 0 && t.levels.len() > 1 {
         while t.levels.len() > 1 && t.levels[0].0.max(t.levels[0].1) > max_size {
             t.levels.remove(0);
@@ -1718,7 +1743,7 @@ fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str) -> Result<(Vec<u8>, Vec<
     }
     // Wraithguard: a Construction Set marker the viewer carries itself (`viewcore::markers`).
     if let Some(bytes) = viewcore::markers::get(path).filter(|_| path.to_ascii_lowercase().starts_with(viewcore::markers::PREFIX)) {
-        return Ok(mesh_payload_of(bytes, None, None));
+        return Ok(mesh_payload_of(bytes, None, None, None));
     }
     /* The corpse stand-in has no file. An NPC is assembled from body parts at runtime,
        so there is nothing on disk to draw or to keep grass out of, and the engine
@@ -1737,7 +1762,7 @@ fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str) -> Result<(Vec<u8>, Vec<
     if path.starts_with("file:") || (disk.is_absolute() && disk.is_file()) {
         let bytes = std::fs::read(disk).map_err(|e| format!("{}: {}", path, e))?;
         let kf = std::fs::read(disk.with_extension("kf")).ok().and_then(|b| viewcore::nif::parse_kf(&b));
-        return Ok(mesh_payload_of(&bytes, kf.as_ref(), None));
+        return Ok(mesh_payload_of(&bytes, kf.as_ref(), None, Some(path)));
     }
     let p = v
         .resolve_mesh(path)
@@ -1753,7 +1778,7 @@ fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str) -> Result<(Vec<u8>, Vec<
     let kf = kf_beside(v, path);
     // Round 17m: and where a light hangs on it, for the LIGH records that name it.
     // Round 18cr: the parts, the particle systems and the light in one read of the file.
-    Ok(mesh_payload_of(&bytes, kf.as_ref(), None))
+    Ok(mesh_payload_of(&bytes, kf.as_ref(), None, Some(path)))
 
 }
 
@@ -1765,11 +1790,19 @@ fn mesh_payload_of(
     bytes: &[u8],
     kf: Option<&viewcore::nif::KfSequence>,
     geom: Option<viewcore::nif::MeshGeom>,
+    owner: Option<&str>,
 ) -> (Vec<u8>, Vec<String>) {
     // One read of the file for both the drawing and the collision (the world no longer
     // reads every mesh's collision at startup - that was for grass generation).
     let (parts, attach, systems, light, read_geom) = match viewcore::nif::read_for_draw_and_geom(bytes, kf) {
-        Some((r, g)) => (r.parts, r.attach, r.systems, r.light, g),
+        Some((mut r, g)) => {
+            /* Wraithguard: a texture the mesh carries inside itself is named after the mesh,
+               so the page fetches it as it fetches the rest (`texture_payload`). */
+            if let Some(o) = owner {
+                viewcore::nif::own_embedded(&mut r, o);
+            }
+            (r.parts, r.attach, r.systems, r.light, g)
+        }
         None => (Vec::new(), None, Vec::new(), None, None),
     };
     payload_of_parts(parts, geom.or(read_geom), attach, systems, light)
@@ -2238,8 +2271,12 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
                     .iter()
                     .map(|t| {
                         let mut d = J::obj();
-                        d.str("texture", t)
-                            .str("from", &v.resolve_texture(t).map(|l| l.ident(v)).unwrap_or_default());
+                        let from = if t.starts_with(viewcore::nif::EMBEDDED) {
+                            "inside the mesh (an embedded texture)".to_string()
+                        } else {
+                            v.resolve_texture(t).map(|l| l.ident(v)).unwrap_or_default()
+                        };
+                        d.str("texture", t).str("from", &from);
                         d.done()
                     })
                     .collect();
@@ -2537,6 +2574,44 @@ fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
     };
     let mut refs: Vec<&viewcore::esp::CellRef> = refs.into_iter().filter(|r| !r.deleted).collect();
     refs.sort_by(|a, b| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()).then(a.num.index.cmp(&b.num.index)));
+    /* Wraithguard: each reference's owner, as the plugin that last changed it writes it -
+       the Construction Set's Ownership column. The world keeps no owners (drawing does not
+       need them), so each plugin that last changed some of these is read once for them. */
+    let sel = match cell.strip_prefix("int:") {
+        Some(_) => viewcore::inspect::CellSel::Interior(ref_cell.clone()),
+        None => {
+            let (x, y) = ref_cell.trim_matches(|c| c == '(' || c == ')').split_once(',').map(|(a, b)| (a.trim().parse().unwrap_or(0), b.trim().parse().unwrap_or(0))).unwrap_or((0, 0));
+            viewcore::inspect::CellSel::Exterior(x, y)
+        }
+    };
+    let mut owners: std::collections::HashMap<i32, std::collections::HashMap<(u32, String), viewcore::inspect::RefDetails>> = std::collections::HashMap::new();
+    for r in &refs {
+        if owners.contains_key(&r.plugin) {
+            continue;
+        }
+        let got = usize::try_from(r.plugin)
+            .ok()
+            .and_then(|i| w.plugin_paths.get(i))
+            .and_then(|p| std::fs::read(p).ok())
+            .map(|buf| viewcore::inspect::cell_details(&buf, &sel))
+            .unwrap_or_default();
+        owners.insert(r.plugin, got);
+    }
+    let owner_of = |r: &viewcore::esp::CellRef| -> String {
+        let Some(d) = owners.get(&r.plugin).and_then(|m| m.get(&(r.num.index & 0x00ff_ffff, r.id.to_ascii_lowercase()))) else {
+            return String::new();
+        };
+        if !d.owner.is_empty() {
+            d.owner.clone()
+        } else if !d.faction.is_empty() {
+            match d.rank {
+                Some(k) => format!("{} (rank {k})", d.faction),
+                None => d.faction.clone(),
+            }
+        } else {
+            String::new()
+        }
+    };
     let rows: Vec<String> = refs
         .iter()
         .map(|r| {
@@ -2555,6 +2630,8 @@ fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
             viewcore::json::escape_into(&tag, &mut row);
             row.push_str(&format!("\",[{:.1},{:.1},{:.1}],\"", r.pos[0], r.pos[1], r.pos[2]));
             viewcore::json::escape_into(plugin_name(&w, usize::try_from(r.plugin).ok()), &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&owner_of(r), &mut row);
             row.push_str("\"]");
             row
         })

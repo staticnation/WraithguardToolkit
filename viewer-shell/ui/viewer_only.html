@@ -386,6 +386,10 @@ body.wgEditMode #edRail.empty{display:none}
 .edKeys .it{white-space:normal;align-items:flex-start;padding:3px 8px}
 .edKeys .it .lb{min-width:0}
 .edKeys .it .kb{flex:0 1 auto;max-width:55%;white-space:normal;text-align:right}
+#edDialResp tr.edDropBefore td{box-shadow:inset 0 2px 0 var(--ac)}#edDialResp tr.edDropAfter td{box-shadow:inset 0 -2px 0 var(--ac)}#edDialResp tr.edDragging{opacity:.5}
+.edAskBg{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.35);display:flex;align-items:flex-start;justify-content:center;padding-top:18vh}
+.edAskBg .edAsk{position:static;width:min(420px,92vw);max-height:none}
+.edAskBg .edAsk input{width:100%;margin-bottom:6px}
 /* The toolbar over the render window. */
 #edTools{position:absolute;z-index:26;display:none;align-items:center;gap:3px;padding:3px 6px;flex-wrap:wrap;
   background:color-mix(in srgb,var(--bg2) 92%,transparent);border:1px solid var(--line2);border-radius:var(--r-box,6px);
@@ -411,6 +415,48 @@ body.wgEditMode #edTools{display:flex}
 #edTools .edTb.badge{position:relative}
 #edTools .edTb.badge::after{content:attr(data-n);position:absolute;top:-6px;right:-6px;min-width:15px;height:15px;border-radius:8px;
   background:#3fb950;color:#0b0b0b;font-size:9.5px;font-weight:700;line-height:15px;text-align:center;padding:0 3px;box-sizing:border-box}
+/* Editing more at once: a cell edited in place, a field a record can be dropped on, the
+   transform panel's numbers. */
+.edObj td .edCellIn{width:100%;box-sizing:border-box;padding:0 3px;height:20px}
+input.edDropField{outline:2px solid var(--ac);outline-offset:1px;background:var(--acd)}
+#edTransform .edTrN{width:64px}
+/* The workflow (56_wg_workflow.js): conditions, the leveled roll, Script Edit's
+   completion and its uses, search everything. */
+.edConds summary{cursor:pointer;font-weight:600;margin:6px 0 2px}
+.edCond{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.edCond .fld{max-width:160px}
+.edCond .edCondV{width:70px}
+.edWho{line-height:1.6;max-height:160px;overflow:auto}
+.edRollT{width:auto;min-width:220px}
+.edComplete{position:absolute;z-index:30;max-height:220px;overflow:auto;background:var(--bg2,#1d1f24);border:1px solid var(--ac);font:12px ui-monospace,Consolas,monospace;min-width:180px}
+.edComplete .it{padding:1px 6px;cursor:pointer}
+.edComplete .it.on{background:var(--acd)}
+#edScriptSrc{position:relative}
+.edRefs .it{cursor:pointer;padding:1px 4px;font-size:11.5px}
+.edRefs .it:hover{background:rgba(255,255,255,.05)}
+.edSaT td{font-size:11.5px;vertical-align:top}
+/* Verify: the findings' table. */
+.edVerTable{width:100%;border-collapse:collapse;font-size:11.5px}
+.edVerTable th{text-align:left;opacity:.7;font-weight:600;padding:2px 4px}
+.edVerTable td{padding:2px 4px;border-top:1px solid rgba(255,255,255,.06);vertical-align:top}
+.edVerTable tr.error td:first-child{color:#f85149}
+.edVerTable tr.warning td:first-child{color:#e3b341}
+.edVerTable tbody tr{cursor:pointer}
+.edVerTable tbody tr:hover{background:rgba(255,255,255,.05)}
+#edTools #edVerifyBtn.badge::after{background:#f85149;color:#fff}
+/* A dialog the pool changed under while a field had the focus. */
+#edDlgTitle .edStale{color:#e3b341;font-weight:400}
+/* Messages: the errors not yet seen are red; the log's rows by kind. */
+#edTools #edMsgBtn.badge::after{background:#f85149;color:#fff}
+#edMsgPanel .orihead{flex-wrap:wrap;row-gap:4px}
+#edMsgKinds{display:inline-flex;flex-wrap:wrap;gap:2px 8px}
+#edMsgKinds label{display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+#edMsgPanel .oribody{font:11.5px/1.45 ui-monospace,Consolas,monospace;user-select:text}
+.edMsg{display:flex;gap:8px;padding:1px 4px;border-left:3px solid transparent;white-space:pre-wrap;word-break:break-word}
+.edMsg .edMsgT{opacity:.55;flex:none}
+.edMsg.err{border-left-color:#f85149;color:#ff9b94}
+.edMsg.warn{border-left-color:#d29922;color:#e3b341}
+.edMsg.ok{border-left-color:#3fb950}
 /* The dialogs' folding sections, big fields and the field filter. */
 .edSecBar{display:flex;gap:4px;align-items:center;margin:6px 0 4px}
 .edSecBar .fld{flex:1;min-width:0}

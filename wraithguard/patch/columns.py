@@ -35,6 +35,7 @@ def _at(path: str) -> Callable[[Mapping[str, Any]], object]:
             cur = cur.get(part)
         return cur
 
+    read.path = path  # type: ignore[attr-defined]  # the field it shows, edited in place
     return read
 
 
@@ -461,8 +462,10 @@ def table(
             (:func:`.armor.settings_from`); Morrowind's own without them.
 
     Returns:
-        ``{columns: [{label, kind, title}], rows: {id lower: [value, ...]}}``, the
-        columns persists and blocked last; empty for a type with no table here.
+        ``{columns: [{label, kind, title, path}], rows: {id lower: [value, ...]}}``,
+        the columns persists and blocked last; empty for a type with no table here.
+        ``path`` is the field a column shows as it is (so a cell can be edited in place),
+        None for one worked out (a flag, a list, an enum in words).
     """
     tag = tag.upper().ljust(4, "_")
     cols = COLUMNS.get(tag)
@@ -484,7 +487,8 @@ def table(
     }
     return {
         "columns": [
-            {"label": label, "kind": kind, "title": title} for label, _g, kind, title in cols
+            {"label": label, "kind": kind, "title": title, "path": getattr(get, "path", None)}
+            for label, get, kind, title in cols
         ],
         "rows": rows,
     }

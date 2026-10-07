@@ -28,6 +28,7 @@ Copyright (c) 2026 StaticNation.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import re
@@ -45,7 +46,7 @@ from wraithguard.patch.refedit import REF_FIELDS, NewRef, RefEdit, refs_naming, 
 from wraithguard.tes3fields.naming import TYPE_TO_TAG
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
     from pathlib import Path
 
     from wraithguard.mwscript.compiler import ScriptCompiler
@@ -338,6 +339,99 @@ def _flatten(record: Mapping[str, Any], parent: str = "") -> dict[str, Any]:
     return out
 
 
+def _pending_diff(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[str]:
+    """What differs between two :meth:`EditorSession.pending` lists, in words.
+
+    Args:
+        before: The pool's entries before.
+        after: And after.
+
+    Returns:
+        The names of the records and references whose entry changed, came or went.
+    """
+
+    def name(p: dict[str, Any]) -> str:
+        """An entry's name: a record's tag and id, or a reference's object and key."""
+        if p.get("ref"):
+            r = p["ref"]
+            return f"{p.get('id', '')} ({r.get('origin', '')}:{r.get('refr', '')})"
+        if p.get("new"):
+            return f"new {p['new'].get('id', p.get('id', ''))}"
+        return f"{p.get('tag') or p.get('type', '')} {p.get('id', '')}"
+
+    def keyed(items: list[dict[str, Any]]) -> dict[str, str]:
+        """Each entry by its name, as comparable text."""
+        return {name(p): json.dumps(p, sort_keys=True, default=str) for p in items}
+
+    a, b = keyed(before), keyed(after)
+    return sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
+
+
+def _split_query(query: str) -> list[str]:
+    """A search's words: spaces part them, except inside double quotes."""
+    import shlex
+
+    try:
+        return [w for w in shlex.split(query) if w.strip()]
+    except ValueError:  # an unclosed quote: the words as they are
+        return [w for w in query.split() if w.strip()]
+
+
+_TERM = re.compile(r"^([A-Za-z_][\w.]*)(!=|>=|<=|=|>|<|:)(.*)$")
+
+
+def _parse_term(word: str) -> tuple[str, str, str]:
+    """``(path, operator, value)`` for one word; a bare word is ``("", ":", word)``."""
+    m = _TERM.match(word)
+    if m:
+        return m.group(1).lower(), m.group(2), m.group(3)
+    return "", ":", word
+
+
+def _as_text(value: object) -> str:
+    """A value as the search reads it."""
+    if isinstance(value, (list, tuple)):
+        return " ".join(_as_text(v) for v in value)
+    if isinstance(value, dict):
+        return " ".join(_as_text(v) for v in value.values())
+    if isinstance(value, bytes):
+        return ""
+    return "" if value is None else str(value)
+
+
+def _match_term(term: tuple[str, str, str], flat: Mapping[str, Any]) -> str | None:
+    """The first field of a flattened record a search word matches.
+
+    Args:
+        term: The word (:func:`_parse_term`).
+        flat: The record, flattened.
+
+    Returns:
+        ``path: value``, or None when no field matches.
+    """
+    path, op, want = term
+    low = want.lower()
+    for k, v in flat.items():
+        if path and path not in k.lower():
+            continue
+        text = _as_text(v)
+        hit = False
+        if op == ":":
+            hit = low in text.lower() if low else text != ""
+        elif op in ("=", "!="):
+            hit = (text.lower() == low) == (op == "=")
+        else:
+            try:
+                a, b = float(text), float(want)
+            except ValueError:
+                continue
+            hit = {">": a > b, "<": a < b, ">=": a >= b, "<=": a <= b}[op]
+        if hit:
+            shown = text if len(text) <= 80 else text[:79] + "..."
+            return f"{k}: {shown}"
+    return None
+
+
 def _native_read(path: Path, tag: str) -> list[dict[str, Any]]:
     """A plugin's records of one tag, through the Rust backend.
 
@@ -503,6 +597,8 @@ class EditorSession:
         self._masters: dict[str, list[str]] = {}
         self._lock = threading.Lock()
         self._script_compiler: tuple[str, ScriptCompiler] | None = None
+        # The undo history starts from the pool as the session finds it.
+        self._history: dict[str, Any] = {"undo": [], "redo": [], "last": queue.snapshot()}
 
     # -- reading ----------------------------------------------------------------------
 
@@ -565,6 +661,73 @@ class EditorSession:
                 return None
             return Found(tag, record_type, made.key, ((PATCH, dict(made.record)),), new=True)
         return Found(tag, record_type, record_key(versions[-1][1]), tuple(versions))
+
+    def search(self, tag: str, query: str, limit: int = 20000) -> dict[str, Any]:
+        """The Object Window's search by any field (CSSE's filter).
+
+        The records of a type whose fields match, as the load order resolves them (the
+        pool's typed values and the patch's own records included).
+
+        The query is words, each of which must match (all of them):
+
+        - ``text`` - any field's value contains it (any case);
+        - ``path:text`` - a field whose path contains ``path`` has a value containing it
+          (``script:``, ``data.weight:5``; ``path:`` alone - the field is set);
+        - ``path=value`` - equal (as text, any case), ``path!=value`` - not equal;
+        - ``path>n``, ``path<n``, ``path>=n``, ``path<=n`` - a number compared.
+
+        Lists are matched by their entries (an inventory's ``[count, id]``, a spell list).
+
+        Args:
+            tag: The tab's tag (``WEAP``).
+            query: The words.
+            limit: The most records answered.
+
+        Returns:
+            ``{"hits": {id (lower case): "path: value" (the first field that matched)},
+            "count": how many matched, "capped": whether it stopped at ``limit``}``.
+
+        Raises:
+            EditorError: For a tag the editor does not know.
+        """
+        tag = tag.upper().ljust(4, "_")[:4]
+        record_type = TAG_TO_TYPE.get(tag)
+        if record_type is None:
+            raise EditorError(f"{tag} is not a record type")
+        terms = [_parse_term(t) for t in _split_query(query)]
+        if not terms:
+            return {"hits": {}, "count": 0, "capped": False}
+        winners: dict[str, dict[str, Any]] = {}
+        for name in self.order:
+            winners.update(
+                {k: r for k, r in self._records(name, tag).items() if r.get("type") == record_type}
+            )
+        for (rtype, key), choices in self.queue.fields.items():
+            if rtype != record_type or key.lower() not in winners:
+                continue
+            rec = copy.deepcopy(winners[key.lower()])
+            for c in choices:
+                if isinstance(c, FieldValue):
+                    set_at(rec, c.path, c.value)
+            winners[key.lower()] = rec
+        for made in self.queue.new_records:
+            if made.record_type == record_type:
+                winners[made.key.lower()] = dict(made.record)
+        hits: dict[str, str] = {}
+        count = 0
+        for key, rec in winners.items():
+            flat = _flatten(rec)
+            first = ""
+            for term in terms:
+                got = _match_term(term, flat)
+                if got is None:
+                    break
+                first = first or got
+            else:
+                count += 1
+                if len(hits) < limit:
+                    hits[key] = first
+        return {"hits": hits, "count": count, "capped": count > limit}
 
     def uses(self, found: Found) -> dict[str, Any]:
         """The record's Use Report: every record of the load order that names it.
@@ -638,8 +801,8 @@ class EditorSession:
         return value
 
     def replace_plan(
-        self, found: Found, new_id: str
-    ) -> tuple[list[tuple[Found, str, object] | RefEdit], dict[str, Any]]:
+        self, found: Found, new_id: str, cell: str | None = None
+    ) -> tuple[list[tuple[Found, str, object] | RefEdit | NewRef], dict[str, Any]]:
         """What Search & Replace would change: each live use's field, with ``new_id``.
 
         Reads the load order (:meth:`uses`); runs off the queue's thread.
@@ -647,6 +810,9 @@ class EditorSession:
         Args:
             found: The record whose uses are repointed.
             new_id: The record they should name instead (of the same type).
+            cell: Only the references placed in this cell (its key: an interior's name,
+                an exterior's ``"(x, y)"``) - "Replace all in the current cell"; no
+                record's fields change. None: every live use.
 
         Returns:
             ``(plan, report)``: ``(using record, field, new value)`` per field and a
@@ -666,9 +832,10 @@ class EditorSession:
         if target.key.lower() == found.key.lower():
             raise EditorError("that is the same record")
         report = self.uses(found)
-        plan: list[tuple[Found, str, object] | RefEdit] = []
+        plan: list[tuple[Found, str, object] | RefEdit | NewRef] = []
+        only = cell.strip().lower() if cell else None
         for use in report["uses"]:
-            if use["type"] == "Cell":
+            if use["type"] == "Cell" or only is not None:
                 continue
             if not use["wins"] or not use["tag"]:
                 continue
@@ -687,15 +854,23 @@ class EditorSession:
                     continue
                 plan.append((user, field, self._swap(current, found.key, target.key)))
         cells = dict.fromkeys(u["key"] for u in report["uses"] if u["type"] == "Cell")
-        for cell in cells:
-            holders = self._cell_plugins(cell, None)
-            versions = [(p, self._records(p, "CELL")[cell.lower()]) for p in holders]
+        for key in cells:
+            if only is not None and key.lower() != only:
+                continue
+            holders = self._cell_plugins(key, None)
+            versions = [(p, self._records(p, "CELL")[key.lower()]) for p in holders]
             masters_of = {p: self._masters_of(p) for p in holders}
             for origin, refr in refs_naming(versions, masters_of, found.key):
-                plan.append(RefEdit(cell, origin, refr, {"id": target.key}, holders))
+                plan.append(RefEdit(key, origin, refr, {"id": target.key}, holders))
+        # The references the patch itself places become it too.
+        for new in self.queue.new_refs:
+            if only is not None and new.cell.lower() != only:
+                continue
+            if str(new.fields.get("id", "")).lower() == found.key.lower():
+                plan.append(replace(new, fields={**new.fields, "id": target.key}))
         return plan, report
 
-    def replace_uses(self, plan: Sequence[tuple[Found, str, object] | RefEdit]) -> int:
+    def replace_uses(self, plan: Sequence[tuple[Found, str, object] | RefEdit | NewRef]) -> int:
         """Queue a Search & Replace plan (:meth:`replace_plan`), on the queue's thread.
 
         Args:
@@ -709,6 +884,10 @@ class EditorSession:
         for item in plan:
             if isinstance(item, RefEdit):
                 self.queue.add_ref_edit(item)
+                refs += 1
+                continue
+            if isinstance(item, NewRef):
+                self.queue.add_new_ref(item)
                 refs += 1
                 continue
             user, field, value = item
@@ -820,6 +999,15 @@ class EditorSession:
                 latest[made.key] = (PATCH, rec)
         if not spelled and not kind:
             raise EditorError(f"no plugin of this load order has the topic {topic_id}")
+        # A response the pool moves (its prev_id queued): the patch's version, read last.
+        for (rtype, key), choices in self.queue.fields.items():
+            if rtype != "DialogueInfo" or key not in latest:
+                continue
+            for c in choices:
+                if isinstance(c, FieldValue) and c.path == "prev_id":
+                    defs.append(Response(key, str(c.value or ""), PATCH))
+                    winner, rec = latest[key]
+                    latest[key] = (winner, {**rec, "prev_id": c.value})
         order = topic_order(defs)
         lost = set(orphans(order))
         rows = []
@@ -854,6 +1042,56 @@ class EditorSession:
                 }
             )
         return {"id": spelled or topic_id, "type": kind, "responses": rows}
+
+    def move_response(self, topic_id: str, info_id: str, after: str = "") -> dict[str, Any]:
+        """Move a response to after another (or to the top) - "drag to reorder".
+
+        The engine moves a response it has seen before when a later plugin gives it a
+        different ``prev_id``, and the patch loads last; so the move is the response's
+        ``prev_id`` (and ``next_id``, naming the one that will follow it, as the
+        Construction Set writes it), queued in the pool. Nothing else changes.
+
+        Args:
+            topic_id: The topic (any case).
+            info_id: The response to move.
+            after: The response it should follow, or empty for the top.
+
+        Returns:
+            The topic after the move (:meth:`topic`).
+
+        Raises:
+            EditorError: For a response or ``after`` not in the topic, or a response
+                placed after itself.
+        """
+        view = self.topic(topic_id)
+        ids = [r["id"] for r in view["responses"]]
+        if info_id not in ids:
+            raise EditorError(f"{info_id} is not a response of {view['id']}")
+        if after and after not in ids:
+            raise EditorError(f"{after} is not a response of {view['id']}")
+        if after == info_id:
+            raise EditorError("a response cannot follow itself")
+        rest = [i for i in ids if i != info_id]
+        at = rest.index(after) + 1 if after else 0
+        following = rest[at] if at < len(rest) else ""
+        if [*rest[:at], info_id, *rest[at:]] == ids:
+            return view  # already there
+        made = self.queue.new_record("DialogueInfo", info_id)
+        if made is not None:
+            record = copy.deepcopy(dict(made.record))
+            record["prev_id"], record["next_id"] = after, following
+            self.queue.add_new_record(replace(made, record=record))
+        else:
+            found = self.find("INFO", info_id)
+            if found is None:
+                raise EditorError(f"{info_id} is not a response of this load order")
+            for path, value in (("prev_id", after), ("next_id", following)):
+                self.queue.add_field(
+                    found.record_type, found.key, FieldValue(path=path, value=value)
+                )
+            self.queue.set_base(found.record_type, found.key, found.winner)
+        self.save_journal()
+        return self.topic(topic_id)
 
     def new_response(self, topic_id: str, after: str = "") -> Found:
         """Add a response to a topic, after another (or at the top), in the patch.
@@ -1247,6 +1485,49 @@ class EditorSession:
             self.queue.add_field(found.record_type, found.key, FieldValue(path=path, value=value))
             self.queue.set_base(found.record_type, found.key, found.winner)
         self.save_journal()
+
+    def set_many(self, founds: Sequence[Found], path: str, raw: object) -> dict[str, Any]:
+        """One field set to one value on many records: one change, one undo step.
+
+        Args:
+            founds: The records (:meth:`find`'s).
+            path: The field's dotted path.
+            raw: The value, as the viewer sent it (coerced per record, as
+                :meth:`set_field` does).
+
+        Returns:
+            ``{"changed": n, "failed": [{"id", "error"}]}`` - a record without the field,
+            or that refuses the value, is left as it was and named.
+        """
+        changed, failed = 0, []
+        with self.batch():
+            for found in founds:
+                error = self._try_set(found, path, raw)
+                if error is None:
+                    changed += 1
+                else:
+                    failed.append({"id": found.key, "error": error})
+        return {"changed": changed, "failed": failed}
+
+    @contextlib.contextmanager
+    def batch(self) -> Iterator[None]:
+        """Changes made inside are one change: one journal save, one undo step."""
+        outer = bool(self.__dict__.get("_batching"))
+        self.__dict__["_batching"] = True
+        try:
+            yield
+        finally:
+            self.__dict__["_batching"] = outer
+            if not outer:
+                self.save_journal()
+
+    def _try_set(self, found: Found, path: str, raw: object) -> str | None:
+        """:meth:`set_field`, its refusal given back as text (None when it was set)."""
+        try:
+            self.set_field(found, path, raw)
+        except EditorError as exc:
+            return str(exc)
+        return None
 
     def revert(self, found: Found, path: str | None = None) -> None:
         """Drop the queued change to one field, or to the whole record.
@@ -1871,9 +2152,13 @@ class EditorSession:
 
         holders = self._cell_plugins(cell, plugins)
         base = "" if found.new else found.winner
-        if not holders:
+        own = self.queue.new_record("Cell", self._cell_key(cell))
+        if holders:
+            rec = self._records(holders[-1], "CELL")[cell.strip().lower()]
+        elif own is not None:  # a cell the patch makes (a new one, or a copy)
+            rec = dict(own.record)
+        else:
             raise EditorError(f"no plugin of this load order has the cell {cell}")
-        rec = self._records(holders[-1], "CELL")[cell.strip().lower()]
         fields: dict[str, Any] = {
             "id": found.key,
             "translation": coerce_ref("translation", translation),
@@ -1886,6 +2171,198 @@ class EditorSession:
         self.queue.add_new_ref(new)
         self.save_journal()
         return new
+
+    #: The longest cell name the game reads (64 bytes with the terminator).
+    MAX_CELL_NAME: Final = 63
+
+    @staticmethod
+    def _cell_key(cell: str) -> str:
+        """A cell as the pool keys it: an interior's name (``int:`` dropped), ``(x, y)``."""
+        name = cell.strip()
+        return name[4:].strip() if name.lower().startswith("int:") else name
+
+    def new_cell(self, cell: str) -> dict[str, Any]:
+        """A cell of the patch's own, from nothing (and the journal saved).
+
+        A blank interior under a name (with water off, and its lighting a dim grey the
+        reference dialog's cell can change), or an exterior square ``(x, y)`` the load
+        order does not have (no land: the game draws it flat, at the sea).
+
+        Args:
+            cell: An interior's name, or ``(x, y)``.
+
+        Returns:
+            ``{"cell": its key, "interior": bool}``.
+
+        Raises:
+            EditorError: For a name that is empty, too long or taken, or a square some
+                plugin has.
+        """
+        from wraithguard.esp.flags import CellFlags
+        from wraithguard.esp.json import record_to_json
+        from wraithguard.esp.records.cell import AtmosphereData, Cell, CellData
+
+        key = self._cell_key(cell)
+        grid = exterior_grid(key)
+        if not key:
+            raise EditorError("a new cell needs a name, or (x, y) for an exterior square")
+        if self.find("CELL", key) is not None:
+            raise EditorError(f"the load order has the cell {key} already")
+        if grid is not None:
+            record = record_to_json(Cell(name="", data=CellData(grid=grid)))
+        else:
+            if len(key.encode("cp1252", "replace")) > self.MAX_CELL_NAME:
+                raise EditorError(f"a cell name is at most {self.MAX_CELL_NAME} characters")
+            grey = b"\x40\x40\x40\x00"
+            record = record_to_json(
+                Cell(
+                    name=key,
+                    data=CellData(cell_flags=CellFlags.IS_INTERIOR, grid=(0, 0)),
+                    atmosphere_data=AtmosphereData(
+                        ambient_color=grey,
+                        sunlight_color=grey,
+                        fog_color=b"\x00\x00\x00\x00",
+                        fog_density=1.0,
+                    ),
+                )
+            )
+        self.queue.add_new_record(NewRecord("Cell", key, record, ""))
+        self.save_journal()
+        return {"cell": key, "interior": grid is None}
+
+    def place_many(
+        self, cell: str, items: Sequence[tuple[Found, object, object, float]]
+    ) -> list[NewRef]:
+        """Several new references at once (a prefab), as one change.
+
+        Args:
+            cell: The cell they go in; for an exterior, each goes in the square its
+                position is in.
+            items: ``(record, translation, rotation, scale)`` each.
+
+        Returns:
+            The references queued.
+        """
+        placed: list[NewRef] = []
+        with self.batch():
+            for found, translation, rotation, scale in items:
+                into = cell
+                if exterior_grid(self._cell_key(cell)) is not None:
+                    gx, gy = grid_of(coerce_ref("translation", translation))  # type: ignore[arg-type]
+                    into = f"({gx}, {gy})"
+                new = self.place(into, found, translation, rotation)
+                if scale and abs(float(scale) - 1.0) > 1e-6:
+                    new = self.set_new_field(new, "scale", float(scale))
+                placed.append(new)
+        return placed
+
+    def duplicate_cell(self, cell: str, new_name: str) -> dict[str, Any]:
+        """Make a copy of a whole interior: a new cell of the patch's own.
+
+        Its references are placed anew and its path grid comes with it.
+
+        The copy is the cell as the load order resolves it - every plugin's references
+        merged, deleted ones left out, and the changes queued in the patch pool applied
+        (references moved, the patch's own new ones included). Each reference becomes
+        one the patch adds (``(0, n)``, numbered when the patch is written), so the copy
+        names nothing of the original's.
+
+        Args:
+            cell: The interior's name (any case; ``int:`` allowed).
+            new_name: The copy's name.
+
+        Returns:
+            ``{cell, refs, pathgrid}``: the copy's name, how many references it got, and
+            whether a path grid came with it.
+
+        Raises:
+            EditorError: For an exterior (a grid square cannot be copied to another), a
+                cell no plugin has, or a name that is empty, too long or taken.
+        """
+        import secrets
+
+        src = cell.strip()
+        if src.lower().startswith("int:"):
+            src = src[4:].strip()
+        if exterior_grid(src) is not None or re.fullmatch(r"-?\d+\s*,\s*-?\d+", src):
+            raise EditorError("only an interior can be copied: an exterior is a grid square")
+        name = new_name.strip()
+        if not name:
+            raise EditorError("the copy needs a name")
+        if len(name.encode("cp1252", "replace")) > self.MAX_CELL_NAME:
+            raise EditorError(f"a cell name is at most {self.MAX_CELL_NAME} characters")
+        if self.find("CELL", name) is not None:
+            raise EditorError(f"there is a cell named {name} already")
+        holders = self._cell_plugins(src, None)
+        if not holders:
+            raise EditorError(f"no plugin of this load order has the cell {src}")
+        versions = [(p, self._records(p, "CELL")[src.lower()]) for p in holders]
+        masters_of = {p: self._masters_of(p) for p in holders}
+        winner = copy.deepcopy(dict(versions[-1][1]))
+        winner.pop("references", None)
+        winner["name"] = name
+        key = record_key(versions[-1][1])
+        # Every reference as the load order resolves it, the pool's changes on top.
+        edits = {
+            (e.origin.lower(), e.refr_index): e
+            for e in self.queue.ref_edits
+            if e.cell.lower() == key.lower()
+        }
+        seen: dict[tuple[str, int], str] = {}
+        for plugin, rec in versions:
+            for ref in rec.get("references") or []:
+                if not isinstance(ref, dict):
+                    continue
+                mast = int(ref.get("mast_index", -1))
+                masters = masters_of.get(plugin, ())
+                origin = (
+                    plugin
+                    if mast == 0
+                    else (masters[mast - 1] if 0 < mast <= len(masters) else None)
+                )
+                if origin is not None:
+                    seen[(origin.lower(), int(ref.get("refr_index", 0)))] = origin
+        placed: list[NewRef] = []
+        for (low, refr), origin in seen.items():
+            won = winning_reference(versions, masters_of, origin, refr)
+            if won is None:
+                continue
+            plugin, ref = won
+            edit = edits.get((low, refr))
+            if edit is not None:
+                ref = {**ref, **dict(edit.changes)}
+            if ref.get("deleted") or not ref.get("id") or ref.get("translation") is None:
+                continue
+            fields = {
+                k: copy.deepcopy(v)
+                for k, v in ref.items()
+                if (k in REF_FIELDS or k == "id")
+                and k not in ("deleted", "moved_cell")
+                and v is not None
+            }
+            placed.append(NewRef(name, f"new-{secrets.token_hex(4)}", fields, plugin, (), ""))
+        placed.extend(
+            NewRef(name, f"new-{secrets.token_hex(4)}", dict(n.fields), n.base_plugin, (), n.tag)
+            for n in self.queue.new_refs
+            if n.cell.lower() == key.lower()
+        )
+        self.queue.add_new_record(NewRecord("Cell", name, winner, versions[-1][0]))
+        for new in placed:
+            self.queue.add_new_ref(new)
+        # The path grid (as the patch would write it) comes too, under the new name.
+        grid = self.find("PGRD", src)
+        has_grid = grid is not None
+        if grid is not None:
+            rec = self._pathgrid_record(grid)
+            rec["cell"] = name
+            data = rec.get("data")
+            if isinstance(data, dict):
+                data["grid"] = [0, 0]
+            self.queue.add_new_record(
+                NewRecord("PathGrid", name, rec, "" if grid.new else grid.winner)
+            )
+        self.save_journal()
+        return {"cell": name, "refs": len(placed), "pathgrid": has_grid}
 
     def find_new(self, cell: str, uid: str) -> NewRef | None:
         """A queued new reference, by its cell and editor name.
@@ -1968,10 +2445,78 @@ class EditorSession:
 
     # -- the journal ------------------------------------------------------------------
 
+    #: The most undo steps kept.
+    UNDO_LIMIT: Final = 200
+
     def save_journal(self) -> None:
-        """Write the whole queue to the journal (see :func:`save_queue`)."""
+        """Write the whole queue to the journal, and keep the pool before as an undo step.
+
+        See :func:`save_queue` for the journal.
+
+        Every change the editor makes ends here, so this is the one place the history
+        is kept: one Ctrl+Z for a field, a moved object, a path grid, a placed or deleted
+        reference, a moved response, a copied cell alike.
+        """
+        if self.__dict__.get("_batching"):
+            return  # the batch saves (and is one undo step) when it ends
+        self._record_step()
         if self.journal is not None:
             save_queue(self.queue, self.journal)
+
+    def _hist(self) -> dict[str, Any]:
+        """The undo history: ``undo``/``redo`` pool snapshots, and the pool ``last`` seen."""
+        return self._history
+
+    def _record_step(self) -> None:
+        """The pool before this change onto the undo list, when it changed."""
+        h = self._hist()
+        now = self.queue.snapshot()
+        if now == h["last"]:
+            return
+        h["undo"].append(h["last"])
+        del h["undo"][: -self.UNDO_LIMIT]
+        h["redo"].clear()
+        h["last"] = now
+
+    def can_undo(self) -> dict[str, int]:
+        """How many steps there are to undo and to redo."""
+        h = self._hist()
+        return {"undo": len(h["undo"]), "redo": len(h["redo"])}
+
+    def undo(self) -> dict[str, Any]:
+        """Put the pool back as it was before the last change (and save the journal).
+
+        A change made to the pool outside the editor since (the Patch Builder) is part
+        of the step it is undone with: the history is of the pool, not of one window.
+
+        Returns:
+            ``{"done": bool, "what": [the records or references it touched],
+            "undo": n, "redo": n}``.
+        """
+        return self._step("undo", "redo")
+
+    def redo(self) -> dict[str, Any]:
+        """Make again what :meth:`undo` took back.
+
+        Returns:
+            As :meth:`undo`.
+        """
+        return self._step("redo", "undo")
+
+    def _step(self, take: str, give: str) -> dict[str, Any]:
+        """Move one step from the ``take`` list to the ``give`` list."""
+        h = self._hist()
+        if not h[take]:
+            return {"done": False, "what": [], **self.can_undo()}
+        before = self.pending()
+        h[give].append(self.queue.snapshot())
+        snap = h[take].pop()
+        self.queue.restore_snapshot(snap)
+        h["last"] = self.queue.snapshot()
+        if self.journal is not None:
+            save_queue(self.queue, self.journal)
+        after = self.pending()
+        return {"done": True, "what": _pending_diff(before, after), **self.can_undo()}
 
     def forget(self) -> None:
         """Remove the journal (the queue was written, or emptied)."""
@@ -1984,7 +2529,10 @@ class EditorSession:
         Returns:
             How many records it brought back.
         """
-        return restore_queue(self.queue, self.journal) if self.journal is not None else 0
+        n = restore_queue(self.queue, self.journal) if self.journal is not None else 0
+        # What the journal brought back is where the history starts, not a step.
+        self._history = {"undo": [], "redo": [], "last": self.queue.snapshot()}
+        return n
 
 
 def save_queue(queue: PatchQueue, journal: Path) -> None:

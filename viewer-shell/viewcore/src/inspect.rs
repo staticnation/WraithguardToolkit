@@ -120,6 +120,48 @@ pub fn ref_details(buf: &[u8], cell: &CellSel, index: u32, id: &str) -> Option<R
     None
 }
 
+/// Wraithguard: every reference's own fields in one cell of `buf`, in one pass - what the
+/// Cell View's Ownership column reads: `(index & 0xffffff, id lower case) -> details`.
+pub fn cell_details(buf: &[u8], cell: &CellSel) -> std::collections::HashMap<(u32, String), RefDetails> {
+    let mut out = std::collections::HashMap::new();
+    let mut recs = Records::new(buf);
+    while let Some(rec) = recs.next_filtered(&|t: Tag| &t == b"CELL") {
+        if !cell_matches(rec.body, cell) {
+            continue;
+        }
+        let mut cur: Option<(u32, RefDetails, String)> = None;
+        let flush = |c: Option<(u32, RefDetails, String)>, out: &mut std::collections::HashMap<(u32, String), RefDetails>| {
+            if let Some((ix, d, nm)) = c {
+                out.insert((ix, nm.to_ascii_lowercase()), d);
+            }
+        };
+        for s in Subs::new(rec.body) {
+            let d = s.data;
+            match &s.tag {
+                b"FRMR" | b"MVRF" => {
+                    flush(cur.take(), &mut out);
+                    if &s.tag == b"FRMR" && d.len() >= 4 {
+                        cur = Some((u32le(d, 0) & 0x00ff_ffff, RefDetails::default(), String::new()));
+                    }
+                }
+                _ => {
+                    let Some((_, r, nm)) = cur.as_mut() else { continue };
+                    match &s.tag {
+                        b"NAME" => *nm = cstring(d),
+                        b"ANAM" => r.owner = cstring(d),
+                        b"BNAM" => r.owner_global = cstring(d),
+                        b"CNAM" => r.faction = cstring(d),
+                        b"INDX" if d.len() >= 4 => r.rank = Some(i32le(d, 0)),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        flush(cur.take(), &mut out);
+    }
+    out
+}
+
 /// A record's id: NAME, or a script's SCHD name.
 fn id_of(tag: Tag, body: &[u8]) -> Option<String> {
     crate::objects::record_id(tag, body)

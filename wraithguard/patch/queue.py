@@ -52,6 +52,9 @@ class PatchQueue:
         self._refs: dict[tuple[str, str, int], RefEdit] = {}
         self._new: dict[tuple[str, str], NewRef] = {}
         self._made: dict[tuple[str, str], NewRecord] = {}
+        # Counts the changes: a window showing the pool asks for it, and reads the pool
+        # again only when it moved (the Editor's page polls it, ``editRevision``).
+        self.revision = 0
 
     @property
     def selections(self) -> list[Selection]:
@@ -86,6 +89,7 @@ class PatchQueue:
         Args:
             edit: The changes.
         """
+        self.revision += 1
         from dataclasses import replace
 
         old = self._refs.get(edit.ident)
@@ -108,6 +112,7 @@ class PatchQueue:
         Args:
             made: The record.
         """
+        self.revision += 1
         self._made[(made.record_type, made.key.lower())] = made
 
     def remove_new_record(self, record_type: str, key: str) -> None:
@@ -117,6 +122,7 @@ class PatchQueue:
             record_type: Its type.
             key: Its id.
         """
+        self.revision += 1
         self._made.pop((record_type, key.lower()), None)
 
     def new_record(self, record_type: str, key: str) -> NewRecord | None:
@@ -142,6 +148,7 @@ class PatchQueue:
         Args:
             new: The reference.
         """
+        self.revision += 1
         from dataclasses import replace
 
         old = self._new.get(new.ident)
@@ -156,6 +163,7 @@ class PatchQueue:
             cell: Its cell's key.
             uid: Its editor name.
         """
+        self.revision += 1
         self._new.pop((cell.lower(), uid), None)
 
     def remove_ref_edit(
@@ -169,6 +177,7 @@ class PatchQueue:
             refr_index: Its index.
             path: One field, or None for all of them.
         """
+        self.revision += 1
         from dataclasses import replace
 
         ident = (cell.lower(), origin.lower(), refr_index)
@@ -184,8 +193,34 @@ class PatchQueue:
         else:
             del self._refs[ident]
 
+    def snapshot(self) -> tuple[Any, ...]:
+        """Every decision, copied: what :meth:`restore_snapshot` puts back (undo).
+
+        Returns:
+            An opaque value; equal snapshots mean the same decisions.
+        """
+        import copy
+
+        return copy.deepcopy(
+            (self._whole, self._fields, self._bases, self._refs, self._new, self._made)
+        )
+
+    def restore_snapshot(self, snap: tuple[Any, ...]) -> None:
+        """Put the decisions of a :meth:`snapshot` back, in place of what is there.
+
+        Args:
+            snap: The snapshot.
+        """
+        self.revision += 1
+        import copy
+
+        whole, fields, bases, refs, new, made = copy.deepcopy(snap)
+        self._whole, self._fields, self._bases = whole, fields, bases
+        self._refs, self._new, self._made = refs, new, made
+
     def clear(self) -> None:
         """Drop every decision."""
+        self.revision += 1
         self._whole.clear()
         self._fields.clear()
         self._bases.clear()
@@ -205,6 +240,7 @@ class PatchQueue:
             key: Its identifying key.
             plugin: The plugin that currently wins it.
         """
+        self.revision += 1
         self._bases[(record_type, key)] = plugin
 
     def base(self, record_type: str, key: str) -> str:
@@ -225,6 +261,7 @@ class PatchQueue:
         Args:
             selection: The record, and the plugin whose version wins.
         """
+        self.revision += 1
         self._drop_whole(selection.record_type, selection.key)
         self._whole.append(selection)
         self._fields.pop((selection.record_type, selection.key), None)
@@ -239,6 +276,7 @@ class PatchQueue:
                 given a literal value (``FieldValue``). Re-deciding the same
                 path replaces the earlier answer, whichever kind either was.
         """
+        self.revision += 1
         choices = self._fields.setdefault((record_type, key), [])
         choices[:] = [entry for entry in choices if entry.path != choice.path]
         choices.append(choice)
@@ -251,6 +289,7 @@ class PatchQueue:
             record_type: The record's type.
             key: Its identifying key.
         """
+        self.revision += 1
         self._drop_whole(record_type, key)
         self._fields.pop((record_type, key), None)
         self._bases.pop((record_type, key), None)
@@ -266,6 +305,7 @@ class PatchQueue:
             key: Its identifying key.
             path: The field's dotted path.
         """
+        self.revision += 1
         choices = self._fields.get((record_type, key))
         if choices is None:
             return

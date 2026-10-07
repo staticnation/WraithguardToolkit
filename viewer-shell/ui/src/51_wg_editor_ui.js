@@ -134,6 +134,42 @@ const WgUI={
     return m;
   },
 
+  /** A small question with a text answer, over the page: the text, or null when it is
+   *  cancelled (Esc, Cancel, a click outside). `list`: answers offered as it is typed. */
+  askText(title, value, placeholder, list){
+    return new Promise(done=>{
+      const bg=document.createElement('div'); bg.className='edAskBg';
+      bg.innerHTML='<div class="edAsk ori"><div class="orihead"><b></b></div><div class="oribody">'+
+        '<input class="fld" spellcheck="false"><div class="wgBtns" style="justify-content:flex-end">'+
+        '<button class="btn sm" data-a="no">Cancel</button><button class="btn sm pri" data-a="ok">OK</button></div></div></div>';
+      bg.querySelector('b').textContent=title;
+      const inp=bg.querySelector('input'); inp.value=value||''; inp.placeholder=placeholder||'';
+      if(list && list.length) this.offer(inp, list);
+      const end=v=>{ bg.remove(); done(v); };
+      bg.querySelector('[data-a="ok"]').onclick=()=>end(inp.value.trim()||null);
+      bg.querySelector('[data-a="no"]').onclick=()=>end(null);
+      bg.addEventListener('pointerdown', e=>{ if(e.target===bg) end(null); });
+      inp.addEventListener('keydown', e=>{ e.stopPropagation(); if(e.key==='Enter') end(inp.value.trim()||null); if(e.key==='Escape') end(null); });
+      document.body.appendChild(bg);
+      setTimeout(()=>{ try{ inp.focus(); inp.select(); }catch(_){ } }, 0);
+    });
+  },
+
+  /** Answers offered under a text field as it is typed (a `<datalist>`, made once per
+   *  field; capped, as a long list is no help). */
+  offer(inp, list){
+    let dl=inp._offer;
+    if(!dl){
+      dl=document.createElement('datalist');
+      dl.id='edOffer'+(this._offerN=(this._offerN||0)+1);
+      (inp.parentNode||document.body).appendChild(dl);
+      inp.setAttribute('list', dl.id);
+      inp._offer=dl;
+    }
+    dl.innerHTML=[...new Set(list)].slice(0, 2000).map(v=>'<option value="'+escHtml(v)+'">').join('');
+    return dl;
+  },
+
   /** A submenu that would leave the window opens to the left instead. */
   fitSub(el, sub){
     const r=el.getBoundingClientRect(), W=window.innerWidth||1200;
@@ -558,7 +594,7 @@ const WgUI={
         b('del', '✕', 'Delete', 'Delete the selected reference (one the patch made is taken back out of it)')+
       '</span><span class="sepv"></span>'+
       '<span class="grp" data-g="snap">'+
-        b('undo', '↶', 'Undo', 'Take back the last change to a placed object made here (Ctrl+Z)')+
+        b('undo', '↶', 'Undo', 'Take back the last change to the patch pool - a field, a move, a path grid, a placed or deleted object, a moved response (Ctrl+Z)')+
         b('redo', '↷', 'Redo', 'Make it again (Ctrl+Y)')+
         b('grid', '#', 'Grid', 'Snap to grid: moves and placing land on the grid (G). The size is in Transform')+
         b('angle', '∠', 'Angle', 'Snap to angle: turns go in steps (Shift+G). The step is in Transform')+
@@ -612,6 +648,57 @@ const WgUI={
       b.onclick=()=>WgEditor.showBuild();
       g.appendChild(b);
     }
+    // Verify: the verifier's checks over what the patch carries.
+    if(!t.querySelector('#edVerifyBtn') && WgEditor.links().editVerify){
+      const b=document.createElement('button');
+      b.className='btn sm edTb'; b.id='edVerifyBtn'; b.dataset.glyph='✔'; b.textContent='Verify';
+      b.title='Verify (Ctrl+Shift+V): what the patch carries, checked as it would be written - IDs named but defined nowhere, leveled list entries, scripts that do not compile, dialogue order, path grids. The number is the errors found';
+      b.onclick=()=>WgEditor.showVerify();
+      g.appendChild(b);
+    }
+    // Search everything: every record type at once, with replace.
+    if(!t.querySelector('#edSearchAllBtn') && WgEditor.links().editSearchAll && typeof WgFlow==='object'){
+      const b=document.createElement('button');
+      b.className='btn sm edTb'; b.id='edSearchAllBtn'; b.dataset.glyph='⌕'; b.textContent='Search all';
+      b.title='Search everything (Ctrl+Shift+F): text in any field of any record type, and replaced in the fields chosen';
+      b.onclick=()=>WgFlow.showSearch();
+      g.appendChild(b);
+    }
+    // Test in OpenMW: the pool as a scratch plugin, the game started on it here.
+    if(!t.querySelector('#edTestBtn') && WgEditor.links().editTestRun){
+      const b=document.createElement('button');
+      b.className='btn sm edTb'; b.id='edTestBtn'; b.dataset.glyph='▶'; b.textContent='Test in OpenMW';
+      b.title='Test in OpenMW (Ctrl+F5): the pool written to a scratch plugin (the pool is kept) and OpenMW started on it, past its menu, in the cell on screen. What it prints goes to Messages. Right-click: choose which OpenMW';
+      b.onclick=()=>WgEditor.testRun();
+      b.oncontextmenu=async ev=>{
+        ev.preventDefault();
+        const at={x:ev.clientX, y:ev.clientY};
+        let S={setups:{}, use:''};
+        if(WgEditor.links().editTestSetups){ try{ S=await WgEditor.testSetups(); }catch(_){ } }
+        const pickSetup=async name=>{ try{ await WgEditor.testSetups({use:name}); }catch(e){ toast(String(e.message||e),'err',4000); } };
+        this.menu(at, [
+          {head:'Test in OpenMW'},
+          {label:'Test in OpenMW', key:'Ctrl+F5', act:()=>WgEditor.testRun()},
+          {label:'Choose which OpenMW…', act:async()=>{ const p=await this.askText('The OpenMW to test with', '', 'openmw.exe, or the folder it is in'); if(p) WgEditor.testRun(p); }},
+          ...(WgEditor.links().editTestSetups? [
+            {head:'Launch setup'},
+            {label:'None', radio:true, checked:!S.use, act:()=>pickSetup('')},
+            ...Object.keys(S.setups).sort().map(n=>({label:n, radio:true, checked:S.use===n, title:'Content: '+(S.setups[n].content.join(', ')||'none')+(S.setups[n].script? '\nStart script:\n'+S.setups[n].script : ''), act:()=>pickSetup(n)})),
+            {label:'Launch setups…', act:()=>WgEditor.showSetups()},
+          ] : []),
+        ]);
+      };
+      g.appendChild(b);
+    }
+    // Messages: what every toast said, kept (55_wg_messages.js).
+    if(!t.querySelector('#edMsgBtn') && typeof WgMessages==='object'){
+      const b=document.createElement('button');
+      b.className='btn sm edTb'; b.id='edMsgBtn'; b.dataset.glyph='✉'; b.textContent='Messages';
+      b.title='Messages: every result, warning and error, kept after its toast goes - filter, copy for a bug report. The number is the errors not yet seen (Ctrl+Shift+M)';
+      b.onclick=()=>WgMessages.toggle();
+      g.appendChild(b);
+      WgMessages.badge();
+    }
     // Path grid mode: the cells' PGRD points edited in the render window.
     if(!t.querySelector('#edPathBtn')){
       const b=document.createElement('button');
@@ -622,6 +709,7 @@ const WgUI={
         {head:'Path grid'},
         {label:WgPath.on? 'Leave path grid mode' : 'Path grid mode', act:()=>WgPath.toggle()},
         {label:'Drop the queued path grids of the loaded cells', act:()=>WgPath.revertAll()},
+        {label:'Points from the navmesh (one per polygon)', title:'The cell on screen\'s grid made from OpenMW\'s navmesh, one for one: a point at the middle of each walkable polygon (the Navmesh overlay\'s actor size), linked wherever the mesh joins two polygons. Replaces the grid (Ctrl+Z undoes)', act:()=>WgPath.fromNavmesh()},
         {label:'Navmesh overlay (Tools)', checked:!!(typeof WgTools==='object' && WgTools.ovl.navmesh), act:()=>{
           WgTools.ovl.navmesh=!WgTools.ovl.navmesh; const sw=document.getElementById('wgOvNavmesh'); if(sw) sw.checked=WgTools.ovl.navmesh; WgTools.overlay('navmesh'); }},
       ]); };
@@ -763,12 +851,21 @@ const WgUI={
       k('Move on the ground plane', 'Drag'), k('Lift / lower', 'Z + drag'), k('Keep to an axis', 'X / Y + drag'),
       k('Onto the surface under the pointer', 'Alt + drag'), k('Turn', 'Shift + drag'), k('Drop to the ground', 'F'),
       k('What can be done to it', 'Q'),
-      k('Centre the view on it', 'C'), k('Delete it', 'Delete'),
+      k('Centre the view on it (the middle of several)', 'C'), k('Delete it', 'Delete'),
       k('Copy it / place a copy under the pointer', 'Ctrl+C / Ctrl+V'),
       k('Duplicate it beside itself', 'Ctrl+D'),
-      k('Undo / redo a change to it', 'Ctrl+Z / Ctrl+Y'),
+      k('Undo / redo the last change - any of them: a field, a move, a path grid, a placed or deleted object, a moved response', 'Ctrl+Z / Ctrl+Y'),
       k('Snap to grid / to angle', 'G / Shift+G'),
       k('Inspector (ORI) / full help (TFH) on or off', 'I / Shift+I'),
+      k('Messages: every result, warning and error, kept', 'Ctrl+Shift+M'),
+      k('Keep the selection as set 1-9 / select set 1-9 again', 'Ctrl+1..9 / 1..9'),
+      k('Hide the selection / show only it (again: everything)', 'H / Shift+H'),
+      k('Transform by numbers: move, turn and scale, one object or several', 'Ctrl+T'),
+      k('Test in OpenMW: the pool as a scratch plugin, the game started in the cell on screen', 'Ctrl+F5'),
+      k('Verify what the patch carries', 'Ctrl+Shift+V'),
+      k('Search everything (every record type), and replace', 'Ctrl+Shift+F'),
+      k('Prefabs: place one under the pointer, or keep the selection as one', 'Ctrl+Shift+P'),
+      k('Script Edit: complete the word / open what it names', 'Ctrl+Space / Ctrl+click'),
       {head:'Path grid mode (toolbar: Path grid)'},
       k('Select a point / add one to the selection', 'Click / Shift+click'), k('Move it', 'Drag (Z: up and down, Alt: onto the surface)'),
       k('A new point, linked to the selected one', 'Shift+click the ground'), k('Link or unlink two points', 'Ctrl+click'),
@@ -815,8 +912,11 @@ const WgUI={
     if(tb('angle')){ tb('angle').classList.toggle('on', E.angleOn); tb('angle').querySelector('.l').textContent=E.angleOn? E.angle+'°' : 'Angle'; }
     if(tb('ori')) tb('ori').classList.toggle('on', E.showOri!==false);
     if(tb('tfh')) tb('tfh').classList.toggle('on', E.showTfh!==false);
-    if(tb('undo')) tb('undo').classList.toggle('off', !E._undo.length);
-    if(tb('redo')) tb('redo').classList.toggle('off', !E._redo.length);
+    // With Wraithguard keeping the history (the pool's), it says what there is; until it
+    // has answered once, the buttons stay on.
+    const H=E.links().editUndo? E._hist : null;
+    if(tb('undo')) tb('undo').classList.toggle('off', H? H.undo===0 : (!E.links().editUndo && !E._undo.length));
+    if(tb('redo')) tb('redo').classList.toggle('off', H? H.redo===0 : (!E.links().editRedo && !E._redo.length));
     const p=t.querySelector('#edPendBtn');
     if(p){
       const n=WgEditor._pendN||0;
@@ -1128,21 +1228,33 @@ const WgUI={
     if(host && host.contains(el) && !(el.closest && el.closest('.edPanel,#edTools,#edDlg,.edDlg,.edFly,.edPopout,button,input,select,textarea,a'))) return cv;
     return null;
   },
+  /** A dialog's field under the pointer, that a dragged record may fill. */
+  fieldAt(x, y){
+    const el=document.elementFromPoint? document.elementFromPoint(x, y) : null;
+    const f=el && el.closest && el.closest('input[data-path]');
+    return f && f.type==='text' && !f.disabled && f.closest('.edDlg,#edDlg,.edPanel')? f : null;
+  },
   dragMove(e){
     const g=$('#edDragImg');
     if(g){ g.style.left=(e.clientX+14)+'px'; g.style.top=(e.clientY+10)+'px'; }
-    const over=!!this.canvasAt(e.clientX, e.clientY);
-    if(g) g.classList.toggle('no', !over);
+    const field=this.fieldAt(e.clientX, e.clientY);
+    document.querySelectorAll('.edDropField').forEach(x=>{ if(x!==field) x.classList.remove('edDropField'); });
+    if(field) field.classList.add('edDropField');
+    const over=!field && !!this.canvasAt(e.clientX, e.clientY) && WgEditor.placeable(this._dragRec && this._dragRec.tag);
+    if(g) g.classList.toggle('no', !over && !field);
     if(over) this.dragOver(e); else this.dropMarker(null);
   },
   dragDrop(e){
-    const rec=this._dragRec, over=this.canvasAt(e.clientX, e.clientY);
+    const rec=this._dragRec, field=this.fieldAt(e.clientX, e.clientY);
+    const over=!field && this.canvasAt(e.clientX, e.clientY);
     this.dragEnd();
-    if(rec && over) WgEditor.placeAt(rec, e.clientX, e.clientY);
-    else if(rec) toast('Let go over the render window to place '+rec.id,'ok',2000);
+    if(rec && field) WgEditor.dropOnField(field, rec);
+    else if(rec && over && WgEditor.placeable(rec.tag)) WgEditor.placeAt(rec, e.clientX, e.clientY);
+    else if(rec) toast(WgEditor.placeable(rec.tag)? 'Let go over the render window to place '+rec.id+', or on a field to fill it' : 'Let go on a field of a record to fill it with '+rec.id,'ok',2500);
   },
   dragEnd(){
     this._dragRec=null; this._dragAt=0; this.dropMarker(null);
+    document.querySelectorAll('.edDropField').forEach(x=>x.classList.remove('edDropField'));
     document.body.classList.remove('edDragging');
     // The picture goes: it was moved with inline left/top, which outlast the class.
     const g=$('#edDragImg'); if(g) g.remove();

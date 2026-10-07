@@ -175,6 +175,14 @@ pub struct Poly {
     pub verts: Vec<[f32; 3]>,
     pub flags: u16,
     pub area: u8,
+    /// Its index in its tile's poly mesh.
+    pub index: u16,
+    /// Per edge (vertex i to i + 1): the polygon of the same tile across it, or
+    /// `0x8000 | side` for an edge on the tile's border (a portal the navigator joins
+    /// to the neighbouring tile), or `0xffff` for none - Recast's own record.
+    pub neighbours: Vec<u16>,
+    /// Which tile of the answer it came from (in the order they were read).
+    pub tile: u32,
 }
 
 /// Reads an unpacked `tiles.data`: `"pnav"`, version 1, user id, cell size and height,
@@ -220,7 +228,8 @@ pub fn read_polys(b: &[u8], scale: f32) -> Option<Vec<Poly>> {
             idx.iter().take_while(|i| **i != 0xffff).map(|i| world(*i as usize)).collect();
         let vs = vs?;
         if vs.len() >= 3 {
-            out.push(Poly { verts: vs, flags: flags[p], area: areas[p] });
+            let neighbours = polys[p * nvp * 2 + nvp..p * nvp * 2 + nvp + vs.len()].to_vec();
+            out.push(Poly { verts: vs, flags: flags[p], area: areas[p], index: p as u16, neighbours, tile: 0 });
         }
     }
     Some(out)
@@ -342,6 +351,119 @@ pub struct Found {
     pub tiles: usize,
     pub skipped: usize,
     pub capped: bool,
+    /// A tile's width in world units (0 when none was read).
+    pub tile_world: f32,
+    /// What each tile was built from: its position, agent, and the collision objects
+    /// in it (`shapes` index, world position) - to tell a tile the plugins have since
+    /// changed under.
+    pub built: Vec<TileBuilt>,
+    /// The mesh files `built` names (`shapes.name`, as navmeshtool wrote it).
+    pub shapes: Vec<String>,
+    shape_ix: std::collections::HashMap<i64, u32>,
+}
+
+/// One tile's build input, as far as the viewer compares it with the scene.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TileBuilt {
+    pub x: i32,
+    pub y: i32,
+    pub agent: u8,
+    pub objects: Vec<(u32, [f32; 3])>,
+    pub ground: Ground,
+}
+
+/// The land and water a tile was built from (the `input` blob's middle).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ground {
+    /// Per cell: grid, cell size, the water's level.
+    pub water: Vec<([i32; 2], i32, f32)>,
+    /// Per cell with land: a rectangle of its height grid.
+    pub heights: Vec<Heights>,
+    /// Per cell without land: grid, cell size, the flat height used instead.
+    pub flat: Vec<([i32; 2], i32, f32)>,
+}
+
+/// A rectangle of one cell's land heights, as the tile was built from it: `width`
+/// columns (along X) by `rows` (along Y), row by row, starting at vertex (`min_x`,
+/// `min_y`) of the cell's `original_size` x `original_size` grid.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Heights {
+    pub cell: [i32; 2],
+    pub cell_size: i32,
+    pub width: u32,
+    pub rows: u32,
+    pub min_x: u32,
+    pub min_y: u32,
+    pub original_size: u32,
+    pub values: Vec<f32>,
+}
+
+/// Reads an unpacked `tiles.input` past the settings and agent (where [`read_input`]
+/// stops): the water (u64 count; per cell i32 x, y, size, f32 level), the land heights
+/// (u64 count; per cell i32 x, y, size, u8 rows, f32 min, f32 max, u64 count and the
+/// f32 heights, u64 original size, u8 min x, u8 min y) and the flat cells (u64 count;
+/// i32 x, y, size, f32 height). The collision objects follow ([`geometry_objects`]).
+pub fn read_ground(b: &[u8]) -> Option<Ground> {
+    let mut c = Cur { b, p: 0 };
+    if c.take(4)? != b"rcst" || c.u32()? != 2 {
+        return None;
+    }
+    c.take(9 * 4 + 6 * 4 + 1 + 12)?;
+    let u64c = |c: &mut Cur| -> Option<usize> {
+        let v = u64::from_le_bytes(c.take(8)?.try_into().ok()?);
+        usize::try_from(v).ok().filter(|n| *n < 1 << 22)
+    };
+    let mut g = Ground::default();
+    for _ in 0..u64c(&mut c)? {
+        let cell = [c.i32()?, c.i32()?];
+        g.water.push((cell, c.i32()?, c.f32()?));
+    }
+    for _ in 0..u64c(&mut c)? {
+        let cell = [c.i32()?, c.i32()?];
+        let cell_size = c.i32()?;
+        let rows = c.u8()? as u32;
+        c.take(8)?; // min, max
+        let n = u64c(&mut c)?;
+        let mut values = Vec::with_capacity(n);
+        for _ in 0..n {
+            values.push(c.f32()?);
+        }
+        let original_size = u32::try_from(u64c(&mut c)?).ok()?;
+        let min_x = c.u8()? as u32;
+        let min_y = c.u8()? as u32;
+        let width = (n as u32).checked_div(rows).unwrap_or(0);
+        g.heights.push(Heights { cell, cell_size, width, rows, min_x, min_y, original_size, values });
+    }
+    for _ in 0..u64c(&mut c)? {
+        let cell = [c.i32()?, c.i32()?];
+        g.flat.push((cell, c.i32()?, c.f32()?));
+    }
+    Some(g)
+}
+
+/// The collision objects a tile was built from: the `input` blob ends with them as a
+/// u64 count and, per object, its `shapes.shape_id` (i64) and transform - position
+/// (3 f32, world units), rotation (3 f32), scale (f32). Found from the end, where the
+/// count is the one that makes the list end the blob exactly.
+pub fn geometry_objects(b: &[u8]) -> Option<Vec<(i64, [f32; 3])>> {
+    const ONE: usize = 8 + 7 * 4;
+    let len = b.len();
+    let mut n = 0usize;
+    while 8 + n * ONE <= len {
+        let at = len - 8 - n * ONE;
+        if u64::from_le_bytes(b[at..at + 8].try_into().ok()?) == n as u64 {
+            let mut out = Vec::with_capacity(n);
+            for k in 0..n {
+                let o = at + 8 + k * ONE;
+                let id = i64::from_le_bytes(b[o..o + 8].try_into().ok()?);
+                let f = |i: usize| f32::from_le_bytes(b[o + 8 + i * 4..o + 12 + i * 4].try_into().unwrap_or([0; 4]));
+                out.push((id, [f(0), f(1), f(2)]));
+            }
+            return Some(out);
+        }
+        n += 1;
+    }
+    None
 }
 
 impl NavDb {
@@ -385,26 +507,37 @@ impl NavDb {
         Ok(blob.and_then(|b| unpack(&b)).and_then(|b| read_input(&b)))
     }
 
+    /// A shape's mesh file (`shapes.name`), or None.
+    pub fn shape_name(&self, id: i64) -> Option<String> {
+        let mut st = self.conn.prepare_cached("SELECT name FROM shapes WHERE shape_id = ?1").ok()?;
+        st.query_row([id], |r| r.get::<_, String>(0)).optional().ok().flatten()
+    }
+
     /// Every tile of `worldspace` in the inclusive tile range, every agent.
     pub fn read(&self, worldspace: &str, x: (i32, i32), y: (i32, i32), into: &mut Found) -> Result<(), String> {
         let mut st = self
             .conn
             .prepare_cached(
-                "SELECT input, data FROM tiles WHERE worldspace = ?1 \
+                "SELECT input, data, tile_position_x, tile_position_y FROM tiles WHERE worldspace = ?1 \
                  AND tile_position_x BETWEEN ?2 AND ?3 AND tile_position_y BETWEEN ?4 AND ?5",
             )
             .map_err(|e| e.to_string())?;
         let rows = st
             .query_map(rusqlite::params![worldspace, x.0, x.1, y.0, y.1], |r| {
-                Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?))
+                Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?, r.get::<_, i32>(2)?, r.get::<_, i32>(3)?))
             })
             .map_err(|e| e.to_string())?;
         for row in rows {
-            let (inp, data) = row.map_err(|e| e.to_string())?;
-            let Some(input) = unpack(&inp).and_then(|b| read_input(&b)) else {
+            let (inp, data, tx, ty) = row.map_err(|e| e.to_string())?;
+            let Some(raw) = unpack(&inp) else {
                 into.skipped += 1;
                 continue;
             };
+            let Some(input) = read_input(&raw) else {
+                into.skipped += 1;
+                continue;
+            };
+            into.tile_world = input.tile_world();
             let Some(polys) = unpack(&data).and_then(|b| read_polys(&b, input.scale)) else {
                 into.skipped += 1;
                 continue;
@@ -419,7 +552,27 @@ impl NavDb {
                 }
             };
             let ai = u8::try_from(ai).unwrap_or(u8::MAX);
-            for p in polys {
+            if let Some(objs) = geometry_objects(&raw) {
+                let mut objects = Vec::with_capacity(objs.len());
+                for (id, pos) in objs {
+                    let ix = match into.shape_ix.get(&id) {
+                        Some(&i) => i,
+                        None => {
+                            let name = self.shape_name(id).unwrap_or_default();
+                            into.shapes.push(name);
+                            let i = (into.shapes.len() - 1) as u32;
+                            into.shape_ix.insert(id, i);
+                            i
+                        }
+                    };
+                    objects.push((ix, pos));
+                }
+                let ground = read_ground(&raw).unwrap_or_default();
+                into.built.push(TileBuilt { x: tx, y: ty, agent: ai, objects, ground });
+            }
+            let tile_seq = (into.tiles - 1) as u32;
+            for mut p in polys {
+                p.tile = tile_seq;
                 if into.polys.len() >= MAX_POLYS {
                     into.capped = true;
                     return Ok(());
@@ -469,13 +622,23 @@ impl NavDb {
 /// The answer the viewer draws:
 ///
 /// ```text
-/// "GDNM" | u8 version 1 | u16 len, db path (UTF-8) | u32 tiles | u32 skipped | u8 capped
+/// "GDNM" | u8 version 3 | u16 len, db path (UTF-8) | u32 tiles | u32 skipped | u8 capped
 ///        | u8 agents, per agent: u8 shape, 3 f32 half extents
-///        | u32 polys, per polygon: u8 agent, u8 area, u16 flags, u8 n, n * 3 f32 (world)
+///        | u32 polys, per polygon: u8 agent, u8 area, u16 flags, u8 n, n * 3 f32 (world),
+///          u32 tile (its order in the answer), u16 index in the tile, n * u16 neighbour
+///          (per edge: Recast's - a polygon of the tile, 0x8000 | side for a portal,
+///          0xffff for none)
+///        | f32 tile width (world units)
+///        | u32 shapes, per shape: u16 len, mesh path (UTF-8)
+///        | u32 tiles built, per tile: i32 x, i32 y, u8 agent, u32 n, n * (u32 shape, 3 f32),
+///          u32 water, per cell: i32 x, i32 y, i32 size, f32 level;
+///          u32 heights, per cell: i32 x, i32 y, i32 size, u16 width, u16 rows, u16 min x,
+///          u16 min y, u16 original size, width * rows f32;
+///          u32 flat, per cell: i32 x, i32 y, i32 size, f32 height
 /// ```
 pub fn encode(path: &Path, f: &Found) -> Vec<u8> {
     let mut o = b"GDNM".to_vec();
-    o.push(1);
+    o.push(3);
     let p = path.display().to_string();
     let pb = &p.as_bytes()[..p.len().min(65535)];
     o.extend_from_slice(&(pb.len() as u16).to_le_bytes());
@@ -501,6 +664,59 @@ pub fn encode(path: &Path, f: &Found) -> Vec<u8> {
             for c in v {
                 o.extend_from_slice(&c.to_le_bytes());
             }
+        }
+        o.extend_from_slice(&p.tile.to_le_bytes());
+        o.extend_from_slice(&p.index.to_le_bytes());
+        for i in 0..n {
+            o.extend_from_slice(&p.neighbours.get(i).copied().unwrap_or(0xffff).to_le_bytes());
+        }
+    }
+    o.extend_from_slice(&f.tile_world.to_le_bytes());
+    o.extend_from_slice(&(f.shapes.len() as u32).to_le_bytes());
+    for name in &f.shapes {
+        let b = &name.as_bytes()[..name.len().min(65535)];
+        o.extend_from_slice(&(b.len() as u16).to_le_bytes());
+        o.extend_from_slice(b);
+    }
+    o.extend_from_slice(&(f.built.len() as u32).to_le_bytes());
+    for t in &f.built {
+        o.extend_from_slice(&t.x.to_le_bytes());
+        o.extend_from_slice(&t.y.to_le_bytes());
+        o.push(t.agent);
+        o.extend_from_slice(&(t.objects.len() as u32).to_le_bytes());
+        for (ix, p) in &t.objects {
+            o.extend_from_slice(&ix.to_le_bytes());
+            for c in p {
+                o.extend_from_slice(&c.to_le_bytes());
+            }
+        }
+        let g = &t.ground;
+        o.extend_from_slice(&(g.water.len() as u32).to_le_bytes());
+        for (cell, size, level) in &g.water {
+            o.extend_from_slice(&cell[0].to_le_bytes());
+            o.extend_from_slice(&cell[1].to_le_bytes());
+            o.extend_from_slice(&size.to_le_bytes());
+            o.extend_from_slice(&level.to_le_bytes());
+        }
+        o.extend_from_slice(&(g.heights.len() as u32).to_le_bytes());
+        for h in &g.heights {
+            o.extend_from_slice(&h.cell[0].to_le_bytes());
+            o.extend_from_slice(&h.cell[1].to_le_bytes());
+            o.extend_from_slice(&h.cell_size.to_le_bytes());
+            for v in [h.width, h.rows, h.min_x, h.min_y, h.original_size] {
+                o.extend_from_slice(&(v.min(65535) as u16).to_le_bytes());
+            }
+            let n = (h.width * h.rows) as usize;
+            for i in 0..n {
+                o.extend_from_slice(&h.values.get(i).copied().unwrap_or(0.0).to_le_bytes());
+            }
+        }
+        o.extend_from_slice(&(g.flat.len() as u32).to_le_bytes());
+        for (cell, size, z) in &g.flat {
+            o.extend_from_slice(&cell[0].to_le_bytes());
+            o.extend_from_slice(&cell[1].to_le_bytes());
+            o.extend_from_slice(&size.to_le_bytes());
+            o.extend_from_slice(&z.to_le_bytes());
         }
     }
     o
@@ -600,6 +816,61 @@ mod tests {
         // vertex 1: x = 10 + 2*0.5 = 11, y(up) = 1 + 4*0.25 = 2, z = 20 -> world (22, 40, 4)
         assert_eq!(p[0].verts[1], [22.0, 40.0, 4.0]);
         assert_eq!(p[0].verts[2], [20.0, 42.0, 2.0]);
+        assert_eq!(p[0].neighbours, vec![0xffff; 3]);
+        assert_eq!(p[0].index, 0);
+    }
+
+    #[test]
+    fn geometry_objects_from_the_end() {
+        let mut b = b"rcst".to_vec();
+        b.extend([7u8; 33]); // settings, agent, mesh, water...: not read here
+        b.extend(2u64.to_le_bytes());
+        for (id, x) in [(118i64, -21913.0f32), (5, 10.0)] {
+            b.extend(id.to_le_bytes());
+            for f in [x, -14045.0, 655.0, 0.0, 0.0, 1.55, 1.0] {
+                b.extend(f.to_le_bytes());
+            }
+        }
+        let got = geometry_objects(&b).unwrap();
+        assert_eq!(got, vec![(118, [-21913.0, -14045.0, 655.0]), (5, [10.0, -14045.0, 655.0])]);
+    }
+
+    #[test]
+    fn reads_the_ground_a_tile_was_built_from() {
+        let mut b = b"rcst".to_vec();
+        b.extend(2u32.to_le_bytes());
+        b.extend([0u8; 9 * 4 + 6 * 4 + 1 + 12]); // settings, agent
+        b.extend(1u64.to_le_bytes()); // water
+        for v in [-3i32, -2, 8192] {
+            b.extend(v.to_le_bytes());
+        }
+        b.extend((-1.0f32).to_le_bytes());
+        b.extend(1u64.to_le_bytes()); // heights
+        for v in [-3i32, -2, 8192] {
+            b.extend(v.to_le_bytes());
+        }
+        b.push(2); // rows
+        b.extend((-480.0f32).to_le_bytes());
+        b.extend(2688.0f32.to_le_bytes());
+        b.extend(6u64.to_le_bytes());
+        for v in [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0] {
+            b.extend(v.to_le_bytes());
+        }
+        b.extend(65u64.to_le_bytes());
+        b.extend([13u8, 11]);
+        b.extend(1u64.to_le_bytes()); // flat
+        for v in [-119i32, -123, 8192] {
+            b.extend(v.to_le_bytes());
+        }
+        b.extend((-2048.0f32).to_le_bytes());
+        b.extend(0u64.to_le_bytes()); // objects
+        let g = read_ground(&b).unwrap();
+        assert_eq!(g.water, vec![([-3, -2], 8192, -1.0)]);
+        let h = &g.heights[0];
+        assert_eq!((h.width, h.rows, h.min_x, h.min_y, h.original_size), (3, 2, 13, 11, 65));
+        assert_eq!(h.values[5], 6.0);
+        assert_eq!(g.flat, vec![([-119, -123], 8192, -2048.0)]);
+        assert_eq!(geometry_objects(&b), Some(vec![]));
     }
 
     #[test]

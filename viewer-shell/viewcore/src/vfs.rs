@@ -382,7 +382,18 @@ impl Vfs {
                 return Some(p);
             }
         }
-        self.resolve_family(&n, Self::TEX_EXTS)
+        if let Some(p) = self.resolve_family(&n, Self::TEX_EXTS) {
+            return Some(p);
+        }
+        /* Not where the mesh says: the file name alone, at the top of Textures. The games
+           look there too - a mesh made against one mod's folders (The Doors of Oblivion's
+           `textures\rv_DoO\fl\...` in a Graphic Herbalism patch) draws with the copy a
+           texture pack put loose in Textures. */
+        let base = n.rsplit('/').next().unwrap_or(&n);
+        if base != n.strip_prefix("textures/").unwrap_or(&n) {
+            return self.resolve_family(&format!("textures/{base}"), Self::TEX_EXTS);
+        }
+        None
     }
 
     /// Meshes are referenced without their `Meshes/` prefix in ESP records.
@@ -479,5 +490,22 @@ impl Vfs {
         }
         out.sort_by_key(|a| a.0.to_ascii_lowercase());
         out
+    }
+}
+
+#[cfg(test)]
+mod texture_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn a_texture_not_where_the_mesh_says_is_found_by_its_name() {
+        let d = std::env::temp_dir().join(format!("wg_vfs_tex_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("Textures")).unwrap();
+        std::fs::write(d.join("Textures").join("tx_ar_flowers_rmx5.dds"), b"DDS ").unwrap();
+        let v = Vfs::with_roots(&[("mod".to_string(), d.clone())]);
+        assert!(v.resolve_texture("textures\\rv_DoO\\fl\\tx_ar_flowers_rmx5.dds").is_some());
+        assert!(v.resolve_texture("textures\\rv_DoO\\fl\\nothing.dds").is_none());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
