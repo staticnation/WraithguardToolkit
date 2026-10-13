@@ -30,9 +30,19 @@ const Engine={
     if(!this.has()) throw new Error('the engine is not running');
     const r=await window.__TAURI__.core.invoke(cmd,args||{});
     if(typeof r!=='string') return r;
+    // Static, 2026-10-13: an answer that does not read as JSON is an error, said with the
+    // command's name and the start of the answer - never handed on as a string for the
+    // caller to mistake for an empty list. Only the commands in TEXT hand back a file's
+    // text, and those return it as it is.
+    if(this.TEXT.has(cmd)){ try{ return JSON.parse(r); }catch(_){ return r; } }
     try{ return JSON.parse(r); }
-    catch(e){ return r; }          // commands that hand back a file's text
+    catch(e){
+      throw new Error('the engine\'s answer to '+cmd+' did not read ('+String(e && e.message || e)+'; '+r.length+' characters, starting '+JSON.stringify(r.slice(0,120))+')');
+    }
   },
+  /** The commands whose answer is a file's text (it may or may not be JSON), and
+   *  `wg_post`, which passes on Wraithguard's own answer for its callers to read. */
+  TEXT:new Set(['viewer_profile_read', 'wg_post']),
 
   /** A command returning raw bytes — meshes and textures, which never become JSON. */
   async bytes(cmd,args){

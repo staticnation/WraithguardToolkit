@@ -3539,6 +3539,40 @@ pub(crate) fn loopback_post(url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod wgor_tests {
+    use super::{pack_rows, ObjRow};
+
+    /// `pack_rows` makes the bytes the page's `unpackRows` is tested on: one fixture,
+    /// `ui/tests/editor/wgor_rows.json`, for both sides (found from either crate).
+    #[test]
+    fn the_rows_pack_as_the_page_reads_them() {
+        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let file = loop {
+            let f = dir.join("ui/tests/editor/wgor_rows.json");
+            if f.is_file() {
+                break f;
+            }
+            assert!(dir.pop(), "wgor_rows.json not found above the crate");
+        };
+        let text = std::fs::read_to_string(file).unwrap();
+        let at = text.find("\"hex\": \"").expect("no hex in the fixture") + 8;
+        let want = &text[at..at + text[at..].find('"').unwrap()];
+        let row = |id: &str, name: &str, model: &str, plugins: Vec<usize>, placed: u32| ObjRow {
+            key: id.to_ascii_lowercase(),
+            id: id.into(),
+            name: name.into(),
+            model: model.into(),
+            plugins,
+            placed,
+        };
+        let rows = [row("Furn_Ä", "Bench \"old\"", "f\\b.nif", vec![0, 1], 7), row("x", "", "", vec![], 0)];
+        let got: String = pack_rows(&["Morrowind.esm".into(), "Grass – Ä.esp".into()], &rows).iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(got, want);
+    }
+}
+
+#[cfg(test)]
 // Before `builder()` on purpose: check-commands' build.rs keeps this file up to
 // `pub fn builder()`, so a test module after it would leave that build.
 #[allow(clippy::items_after_test_module)]

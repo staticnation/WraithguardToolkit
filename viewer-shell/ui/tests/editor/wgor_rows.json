@@ -1,0 +1,27 @@
+{
+ "about": "editor_rows' WGOR layout: pack_rows (commands.rs) must make `hex` from these, and the page's unpackRows must read `hex` back to them.",
+ "plugins": [
+  "Morrowind.esm",
+  "Grass – Ä.esp"
+ ],
+ "rows": [
+  [
+   "Furn_Ä",
+   "Bench \"old\"",
+   "f\\b.nif",
+   [
+    0,
+    1
+   ],
+   7
+  ],
+  [
+   "x",
+   "",
+   "",
+   [],
+   0
+  ]
+ ],
+ "hex": "57474f5201000000020000000d0000004d6f72726f77696e642e65736d10000000477261737320e2809320c3842e65737002000000070000004675726e5fc3840b00000042656e636820226f6c642207000000665c622e6e696602000000000000000100000007000000010000007800000000000000000000000000000000"
+}

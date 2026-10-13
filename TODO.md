@@ -60,9 +60,10 @@ a modder expects, never for code: it is GPL-3.
   counted once per load across the pool; lists asked again on every connect. Still to do:
   - The same for `editor_tags`, `editor_cell_refs` and `cells` (the Cell View), then the
     other big lists (`textures`, `assets`, `texture_usage`, `scopes`).
-  - `Engine.call`: a JSON command whose answer does not parse is an error, not a string
-    (only the commands that hand back a file's text may return text) - find and mark those.
-  - A Rust test of `pack_rows` against the page's `unpackRows` layout (one shared fixture).
+  - Done too: `Engine.call` throws when a JSON command's answer does not parse (command
+    name and the first 120 characters); `Engine.TEXT` lists the two that may hand back
+    text (`viewer_profile_read`, `wg_post`). `pack_rows` and `unpackRows` share a fixture
+    (`ui/tests/editor/wgor_rows.json`; `wgor_tests` in commands.rs, `wgor_rows.test.js`).
   - Find why `editor_records` came back unreadable on Static's setup (the fallback's
     Messages line now carries the first 120 characters).
 

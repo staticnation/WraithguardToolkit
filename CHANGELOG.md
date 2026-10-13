@@ -9,6 +9,9 @@
   actor list in the dialogue views, the models the place view looks up, and the ids the
   record window offers. The JSON list is the fallback, and a list that fails both ways is
   said in Messages instead of being left empty.
+- **An engine answer that does not read is an error.** It used to be handed on as text,
+  which a list then showed as empty; now it is said, with the command and the start of
+  the answer. Only the viewer profile and Wraithguard's own answers may be plain text.
 
 ## 4.4.0
 
