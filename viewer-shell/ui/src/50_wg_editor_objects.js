@@ -51,6 +51,26 @@ Object.assign(WgEditor, {
     return {plugins, rows};
   },
 
+  /** One type's records, `{plugins, rows:[[id, name, model, [plugin ix...], placed]...]}`,
+   *  for every list in the Editor: the bytes (`editor_rows`) first, the JSON list
+   *  (`editor_records`) only if those fail (said in Messages). Throws when both fail. */
+  async recordRows(tag){
+    let first;
+    try{ return this.unpackRows(await Engine.bytes('editor_rows',{tag})); }
+    catch(e){ first=String(e && e.message || e); }
+    let problem;
+    try{
+      const r=await Engine.call('editor_records',{tag});
+      if(r && typeof r==='object' && Array.isArray(r.rows)){
+        if(typeof WgLog==='object') WgLog.add('The '+((this.NAMES||{})[tag]||tag)+' list came the second way: '+first, 'warn');
+        return {plugins:r.plugins||[], rows:r.rows};
+      }
+      const txt=typeof r==='string'? r : JSON.stringify(r);
+      problem='the engine\'s answer was not a list of records ('+(txt==null? 'nothing' : txt.length+' characters, starting '+JSON.stringify(String(txt).slice(0,120)))+')';
+    }catch(e){ problem=String(e && e.message || e); }
+    throw new Error(first+'; then '+problem);
+  },
+
   async loadTag(tag){
     // Static, 2026-10-13: never a silent empty list. A failed call, an answer that is not
     // the rows (`Engine.call` hands back text it cannot read as JSON), or no rows for a tab
@@ -59,21 +79,8 @@ Object.assign(WgEditor, {
     // The rows come as bytes (`editor_rows`, no JSON); should that fail, the JSON list
     // (`editor_records`) is the second way, and only both failing is a problem.
     const want=(this.tags.find(t=>t[0]===tag)||[])[1]|0;
-    let problem=null, got=null, first=null;
-    try{ got=this.unpackRows(await Engine.bytes('editor_rows',{tag})); }
-    catch(e){ first=String(e && e.message || e); }
-    if(!got){
-      try{
-        const r=await Engine.call('editor_records',{tag});
-        if(r && typeof r==='object' && Array.isArray(r.rows)) got={plugins:r.plugins||[], rows:r.rows};
-        else{
-          const txt=typeof r==='string'? r : JSON.stringify(r);
-          problem='the engine\'s answer was not a list of records ('+(txt==null? 'nothing' : txt.length+' characters, starting '+JSON.stringify(String(txt).slice(0,120)))+')';
-        }
-      }catch(e){ problem=String(e && e.message || e); }
-      if(problem && first) problem=first+'; then '+problem;
-      else if(!problem && first && typeof WgLog==='object') WgLog.add('The '+(this.NAMES[tag]||tag)+' list came the second way: '+first, 'warn');
-    }
+    let problem=null, got=null;
+    try{ got=await this.recordRows(tag); }catch(e){ problem=String(e && e.message || e); }
     if(got){ this.plugins=got.plugins; this.rows=got.rows; } else this.rows=[];
     // Rows that came but are none, for a tab counted with some: said in the table (with
     // its Reload), not logged - the call itself worked.

@@ -1,6 +1,15 @@
 # Changelog
 
 
+## Unreleased
+
+### Changed
+
+- **Every record list in the Editor comes as bytes now**, not only the Object Window: the
+  actor list in the dialogue views, the models the place view looks up, and the ids the
+  record window offers. The JSON list is the fallback, and a list that fails both ways is
+  said in Messages instead of being left empty.
+
 ## 4.4.0
 
 ### Added

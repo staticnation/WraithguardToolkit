@@ -51,6 +51,20 @@ a modder expects, never for code: it is GPL-3.
     CS (CSSE) warns on `wg_clash_test`, and Morrowind.exe refuses it.
   - The MO2 and Morrowind.ini load orders (`layout::mo2_profile`, `GameFileN=`,
     `[Archives]`) into ordercore too.
+- Binary data path for the Editor's lists (engine -> page), not JSON (Static, 2026-10-13:
+  the Object Window sat on "0 records" with no error - `Engine.call` hands back text it
+  cannot parse as a string, so a bad JSON answer looked like an empty list). Done: record
+  rows as `WGOR` bytes (`editor_rows`, `pack_rows` in commands.rs; `recordRows` /
+  `unpackRows` on the page) for the Object Window, the actor list, the place and record
+  views, with `editor_records` JSON only as the fallback, said in Messages; placed counts
+  counted once per load across the pool; lists asked again on every connect. Still to do:
+  - The same for `editor_tags`, `editor_cell_refs` and `cells` (the Cell View), then the
+    other big lists (`textures`, `assets`, `texture_usage`, `scopes`).
+  - `Engine.call`: a JSON command whose answer does not parse is an error, not a string
+    (only the commands that hand back a file's text may return text) - find and mark those.
+  - A Rust test of `pack_rows` against the page's `unpackRows` layout (one shared fixture).
+  - Find why `editor_records` came back unreadable on Static's setup (the fallback's
+    Messages line now carries the first 120 characters).
 
 ### 6. The world
 

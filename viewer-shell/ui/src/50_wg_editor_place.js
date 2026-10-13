@@ -90,9 +90,9 @@ Object.assign(WgEditor, {
     if(this._modelTags.has(tag)) return;
     this._modelTags.add(tag);
     try{
-      const r=await Engine.call('editor_records',{tag});
+      const r=await this.recordRows(tag);
       for(const row of r.rows||[]) if(row[2] && !CellData.models.has(row[0].toLowerCase())) CellData.models.set(row[0].toLowerCase(), row[2]);
-    }catch(_){ }
+    }catch(e){ if(typeof WgLog==='object') WgLog.add('The models of '+tag+' did not load: '+String(e && e.message || e), 'err'); }
   },
 
   /** The models of new references' objects the page has not seen placed (a journal
@@ -111,9 +111,9 @@ Object.assign(WgEditor, {
       if(this._modelTags.has(tag)) continue;
       this._modelTags.add(tag);
       try{
-        const r=await Engine.call('editor_records',{tag});
+        const r=await this.recordRows(tag);
         for(const row of r.rows||[]) if(row[2] && !CellData.models.has(row[0].toLowerCase())){ CellData.models.set(row[0].toLowerCase(), row[2]); got=true; }
-      }catch(_){ }
+      }catch(e){ if(typeof WgLog==='object') WgLog.add('The models of '+tag+' did not load: '+String(e && e.message || e), 'err'); }
     }
     if(got){ this._liveSig+=' '; if(typeof schedulePreview==='function' && App.cellSel) schedulePreview(); }
   },

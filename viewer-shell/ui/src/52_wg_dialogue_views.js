@@ -285,9 +285,9 @@ const WgDial={
     if(!this._npcs){
       this._npcs=[];
       try{
-        const [n, c]=await Promise.all([Engine.call('editor_records',{tag:'NPC_'}), Engine.call('editor_records',{tag:'CREA'})]);
-        this._npcs=[...(n.rows||[]), ...(c.rows||[])].map(r=>[r[0], r[1]]);
-      }catch(_){ }
+        const [n, c]=await Promise.all([WgEditor.recordRows('NPC_'), WgEditor.recordRows('CREA')]);
+        this._npcs=[...n.rows, ...c.rows].map(r=>[r[0], r[1]]);
+      }catch(e){ if(typeof WgLog==='object') WgLog.add('The actor list did not load: '+String(e && e.message || e), 'err'); }
     }
     dl.innerHTML=this._npcs.slice(0, 5000).map(([id, name])=>'<option value="'+escHtml(id)+'">'+escHtml(name||'')+'</option>').join('');
   },

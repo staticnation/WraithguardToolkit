@@ -416,7 +416,7 @@ Object.assign(WgEditor, {
     this._ids=this._ids||{};
     if(!this._ids[tag]){
       let rows=[];
-      try{ rows=(await Engine.call('editor_records', {tag})).rows||[]; }catch(_){ }
+      try{ rows=(await this.recordRows(tag)).rows; }catch(e){ if(typeof WgLog==='object') WgLog.add('The '+tag+' ids did not load: '+String(e && e.message || e), 'err'); }
       this._ids[tag]=rows.map(r=>r[0]).concat(this.made.filter(m=>m.tag===tag).map(m=>m.id));
     }
     return this._ids[tag];
