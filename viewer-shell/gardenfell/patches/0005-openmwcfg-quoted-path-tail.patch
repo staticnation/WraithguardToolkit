@@ -1,0 +1,28 @@
+--- a/crates/gardenfell-bytes/src/openmwcfg.rs
++++ b/crates/gardenfell-bytes/src/openmwcfg.rs
+@@ -107,13 +107,21 @@
+ 
+ /// A `MaybeQuotedPath`: the quotes are optional, and inside them OpenMW escapes `"` and `&`
+ /// with `&`.
++/// What follows the closing quote is ignored, as OpenMW does (it uses the quoted part and
++/// logs the rest: `operator>>` for `MaybeQuotedPath`, `std::quoted(.., '"', '&')`).
+ fn unquote(v: &str) -> String {
+     let v = v.trim();
+-    if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') {
+-        v[1..v.len() - 1].replace("&\"", "\"").replace("&&", "&")
+-    } else {
+-        v.to_string()
++    let Some(rest) = v.strip_prefix('"') else { return v.to_string() };
++    let mut out = String::new();
++    let mut chars = rest.chars();
++    while let Some(c) = chars.next() {
++        match c {
++            '&' => out.push(chars.next().unwrap_or('&')),
++            '"' => break,
++            _ => out.push(c),
++        }
+     }
++    out
+ }
+ 
+ /// The folders OpenMW's path tokens stand for on this machine.

@@ -8,12 +8,15 @@
 pub mod bcx;
 pub mod bsa;
 pub mod coverage;
+pub mod distant;
 pub mod esp;
+pub mod rawrec;
 pub mod img;
 pub mod inspect;
 pub mod json;
 pub mod land;
 pub mod lang;
+pub mod lod;
 pub mod layout;
 pub mod luascan;
 pub mod mge;
@@ -21,6 +24,7 @@ pub mod markers;
 pub mod mland;
 pub mod navmesh;
 pub mod nif;
+pub mod nifx;
 pub mod npc;
 pub mod objects;
 pub mod plugins;
@@ -39,3 +43,10 @@ pub mod worldmap;
 
 /// OpenMW Lua scripts in plain Rust (viewer-shell/luacore), shared with the Python backend.
 pub use luacore;
+
+/// Make Greatness7's `tes3` crates the engine's plugin and mesh readers (through
+/// `gardenfell-g7`). Call once at startup, before the first read: a mesh opened on its
+/// own reads no plugin first, so `World::load_with` setting it is not enough.
+pub fn init() {
+    let _ = gardenfell_g7::install();
+}

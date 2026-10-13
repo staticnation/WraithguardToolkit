@@ -1,3 +1,6 @@
+/* Gardenfell, 06_gl.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE.
+   The pieces of this renderer that were ported from MGE XE live in 06_mge.js (GPL-2) and
+   are interpolated into the shaders below where they used to stand. */
 
 /* =====================================================================================
    Minimal Z-up math + WebGL2 renderer with instanced grass
@@ -36,6 +39,12 @@ const M4={
 };
 
 const FOV=48*Math.PI/180;   // vertical field of view, shared by projection and pan scaling
+/* Round 18fh/18fi: how much faster the WASD flight goes while Shift is held with the right
+   button down. The one number to change if the boost feels too little or too much: the
+   speed on the bar stays what it is, and this multiplies it for as long as Shift is held.
+   `cargo tauri dev` rebuilds the page first (18fi); by hand it is `node build.js` in
+   page-source - the app loads the built `ui/index.html`, not this file. */
+const FLY_BOOST=4;
 
 /** The tint for ground painted "grass here whatever else says", as the shader wants it.
  *
@@ -110,21 +119,13 @@ uniform vec3 uEyeG;
    the tangent of half the field of view - so a length L at distance d covers L*uPxK/d
    pixels. What decides where a blade is under a pixel (see far, below). */
 uniform float uPxK;
-out vec2 vUV; out vec2 vUV2; out vec2 vUVD; out vec2 vUVDc; out vec3 vN; out vec3 vW; out vec3 vC; out vec3 vG; out float vH;
+out vec2 vUV; out vec2 vUV2; out vec2 vUVD; out vec2 vUVDc; out vec2 vUVG; out vec3 vN; out vec3 vW; out vec3 vC; out vec3 vG; out float vH;
 out vec2 vEnv;   // a blade has no environment map (18dn); the mesh shaders fill this
 out float vCA;   // the vertex alpha (round 18df)
 /* 1 where the ground map covers this blade, 0 where it does not (round 17u). */
 out float vGK;
 flat out vec2 vLamp;   // a blade is no lamp (round 17w)
-vec2 grassDisplacement(vec3 world, float h, vec2 windVec){
-  float v=length(windVec);
-  vec2 displace=2.0*windVec+0.1;
-  float gtime=uTime*0.5;
-  float ph=world.x+world.y+world.z+gtime;
-  vec2 harmonics=vec2(abs((0.5+0.03*v)*sin(-2.0*3.14*ph)+16.0),
-                      abs((1.0+0.044*v)*sin(-3.0*3.14*ph)+8.0));
-  return clamp(0.02*h,0.0,1.0)*harmonics*displace;
-}
+${MGE_GRASS_WIND_GLSL}
 void main(){
   ${mode==='multi'? 'int base=uRunBase[gl_DrawID>>2][gl_DrawID&3];' : 'int base=uBase;'}
   int t=(base+gl_InstanceID)*2;
@@ -134,7 +135,7 @@ void main(){
   vec3 iPos=i0.xyz;                  // world position
   vec3 iRSA=vec3(i0.w, i1.x, 0.0);   // x=yaw, y=scale, z=unused
   vec3 iNrm=i1.yzw;                  // ground normal (for alignment)
-  vC=aCol.rgb; vCA=aCol.a; vUVDc=vec2(0.0); vLamp=vec2(-1.0);
+  vC=aCol.rgb; vCA=aCol.a; vUVDc=vec2(0.0); vUVG=aUV; vLamp=vec2(-1.0);
   /* How far up the blade this vertex is, for the ground tint's fade - 0 where the tint is
      whole, 1 where it has gone. Round 18a: measured from where the mesh meets the ground
      to a third of the way up to the top. Robin: "Make the grass tint stretch from where
@@ -146,20 +147,32 @@ void main(){
      said otherwise: "leave 2/3 of the mesh that is above the terrain untinted, not paint
      two thirds as it does now." Remiros' tufts run from z = -22 to +26 - the origin in the
      middle - and a blade stands 16 units (plus its rule's height offset) *above* the ground
-     along the ground's normal, so the terrain cuts the mesh at z = -lift/scale, well below
-     zero: everything from there up to zero was taking the full tint, and the fade only
-     started above that. uBlade.z is the rule's lift in world units; divided by the
-     instance's scale it is the ground's z in the mesh's own space, and the tint runs from
-     there (or from the mesh's foot, when it floats above that) to a quarter of the way up
-     to the top. A straight ramp, in the fragment shader: "a gradient from the terrain
-     intersection". Round 18q: a quarter, where it was a third - Robin's own figure,
-     "25% up the mesh on the intersection with the ground".
+     along the ground's normal, so the terrain cuts the mesh at z = -lift/scale (the
+     arithmetic of the day; 18ei below is where it stops dividing), well below zero: everything from there up to zero was taking the full tint, and the fade only
+     started above that. uBlade.z is the rule's lift, and it *is* the ground's z in the
+     mesh's own space, negated - so the tint runs from there (or from the mesh's foot, when
+     it floats above that) to a quarter of the way up to the top. A straight ramp, in the
+     fragment shader: "a gradient from the terrain intersection". Round 18q: a quarter,
+     where it was a third - Robin's own figure, "25% up the mesh on the intersection with
+     the ground".
+
+     Round 18ei: this line used to divide by the instance's scale, and that was right for
+     as long as the lift was a fixed distance in world units - mesh space is world divided
+     by the scale. Round 18eg made the lift travel with the mesh (poisson::lift, z_mod
+     times p.scale), so the blade's origin stands z_mod * s over the ground and the mesh is
+     drawn at aPos * s + iPos: the terrain cuts it at mesh z = -(z_mod * s)/s = -z_mod,
+     the same place at every size. The division had become a second scaling of a number
+     that was already scaled - at s = 0.8 and a lift of 21 it put the ground at -26.25
+     where it is at -21, and the ramp started that far below the surface (bounded by
+     uBlade.x, so the error is at most the mesh's own foot). Dropping it is not a new rule
+     but the point of 18eg arriving here: where the ground meets the mesh no longer depends
+     on how big the blade is.
 
      Round 18bf: "along the ground's normal" above is now exactly true rather than nearly.
      The lift travels up the *mesh* - the surface normal for a blade that follows the
      ground, world up for one that does not - so for a tilted blade the terrain really is
-     the plane at mesh z = -lift/scale, and this ramp starts where the ground meets the
-     mesh instead of a little off it on every slope.
+     the plane at mesh z = -lift, and this ramp starts where the ground meets the mesh
+     instead of a little off it on every slope.
 
      Not clamped here, on purpose. A grass quad is two vertices tall, and a value clamped
      at the vertices is interpolated straight up the face between them - 0 at the foot, 1
@@ -167,7 +180,7 @@ void main(){
      whole height once. The fraction is affine in z, so it interpolates exactly; the
      fragment shader clamps it where it is used. */
   {
-    float ground = -uBlade.z / max(iRSA.y, 1e-3);
+    float ground = -uBlade.z;
     float base = max(uBlade.x, ground);
     float top  = uBlade.x + uBlade.y;
     float run  = (top - base) / 4.0;
@@ -326,12 +339,7 @@ uniform highp isampler2D uBins;     // one texel a column: (offset, count)
    light's bounds radius (the record's times the bounds multiplier) and twice it. */
 uniform int   uLampModel;
 uniform float uLampBounds;          // OpenMW's light bounds multiplier (1 elsewhere)
-/* MGE XE's static tonemap (XE FixedFuncEmu.fx): "curve maps 0 -> 0, 1.0 -> 0.84, up to
-   2.2 -> 1.0". What its per-pixel lighting does instead of clamping the light sum. */
-vec3 gdnTonemap(vec3 c){
-  c = clamp(c, 0.0, 2.2);
-  return (((0.0548303*c - 0.189786)*c - 0.154732)*c + 1.12969)*c;
-}
+${MGE_TONEMAP_GLSL}
 uniform highp isampler2D uIndex;    // the lamp indices, columns end to end
 uniform vec4 uBinGrid;              // xy the grid's origin, z the column size, w the width
 uniform int  uLightN;               // 0 turns the whole thing off
@@ -345,8 +353,10 @@ ivec2 gdnAt(int i, int w){ return ivec2(i % w, i / w); }
 /* The most lamps one column may hold. A column is GDN_BIN units square, and what lands in
    it is the lamps whose reach covers it, so this is not "lamps in the scene" but "lamps
    overlapping this patch of ground" - a number that stays small even in Vivec. The loop
-   below is bounded by it, and the JS side caps each column to match. */
-#define GDN_BIN_MAX 32
+   below is bounded by it, and the JS side caps each column to match (LIGHT_BIN_MAX, which
+   must agree). Round 18hn: 64, from 32 - a modded tomb stacks floors of lights over one
+   column, see _lightGrid. */
+#define GDN_BIN_MAX 64
 
 /* How much of a lamp reaches the faces turned away from it.
    0 is OpenMW's one-sided max(N.L, 0); 1 is its GROUNDCOVER wrap, abs(N.L). Round 17m had
@@ -422,8 +432,12 @@ vec3 gdnLights(vec3 w, vec3 n, float wrap){
     float nl = dot(n, d/max(dist,1e-4));
     /* MGE's PPL is a plain one-sided lambert plus the light's ambient term (lightAmbient,
        0 for a standard lamp); the half-wrap below is the preview's own for the other two,
-       see GDN_WRAP. */
+       see GDN_WRAP. Round 18hm: a wrap below 0 asks for the one-sided lambert under every
+       model - the particles, a sheet facing the eye lit per vertex by the game, where the
+       half-wrap's reason (per-pixel pools on walls the game lights per vertex) does not
+       apply. */
     float lam = uLampModel == 1 ? max(nl, 0.0) + A.w
+              : wrap < 0.0      ? max(nl, 0.0)
                                 : mix(mix(max(nl, 0.0), abs(nl), GDN_WRAP), abs(nl), wrap);
     sum += C.rgb * C.w * GDN_GAIN * lam * ill;
   }
@@ -431,6 +445,23 @@ vec3 gdnLights(vec3 w, vec3 n, float wrap){
 }
 `;
 
+/* Round 18eg item 3: how many cascades the atlas holds. MGE has two, which reach 4,000
+   units; Robin: "we don't need to have exact parity with MGE XE or similar for those, and
+   with that in mind, can we make the shadow distances longer, and the shadow cascade
+   transitions nicer? The only thing I want parity on is how dark the shadows look etc."
+   So three, reaching five times as far (37_shadow.js has the radii), blended across each
+   boundary, with every constant that decides how dark a shadow is left exactly as MGE
+   sets it. Declared here because SKY_GLSL is built before 37_shadow.js.
+   Round 18fa: the count is the frame's now - the nearest box sized to what the camera
+   is looking at, the outermost to where the fog stops a shadow from showing, four-fold
+   steps between (`shadowRadii`, 37_shadow.js) - so this is the most the atlas can hold
+   and `uShadowN` says how many of them a frame drew. */
+const SHADOW_MAX_CASCADES=5;
+/* How wide the blend between one cascade and the next is, as a share of the cascade's
+   half-width. The outer band of each box reads its own answer and the next one's and
+   mixes them, so the step from a fine cascade to a coarse one is a gradient instead of a
+   line across the ground. */
+const SHADOW_BLEND=0.25;   // 18fb: a quarter, from a sixth - Robin: "better fade would be nice"
 const SKY_GLSL=`
 /* The atmosphere's part in a surface shader - round 13, a port of MGE XE's
    XE Common.fx (fogColourScatter / fogColour / fogColourSky), fed the game's own
@@ -453,6 +484,16 @@ uniform vec3  uEye;
    while uClip is 2. */
 uniform int   uClip;
 uniform float uClipZ;
+/* Round 18hi: the view distance in a room. x is where the fade starts, y where it ends
+   (the distance itself), z 1 while it is on. A fragment past y is dropped; between x and
+   y it is dropped through an ordered dither, so an object dissolves across the band
+   rather than being sliced by a plane, and the fog is untouched: the scene fades into
+   what is behind it, which is what it would look like with the far objects absent.
+   Robin: "fade out over a segment in the camera's depth, and when a mesh is fully faded
+   out, it gets culled". The culling half is the renderer's (_cullGroups): a run wholly
+   past y has no fragment that could survive and is not drawn. Radial from the eye, so a
+   turn of the camera moves nothing. */
+uniform vec3  uViewFade;
 uniform vec3  uSunCol;
 uniform vec3  uAmbCol;
 uniform vec3  uSkyCol, uFogColFar, uSunPos, uSunAlt;
@@ -524,36 +565,25 @@ float underExit(vec3 dir){
            : dir.y < -1e-6 ? (uUnderBox.y - uUnderBox.z - uEye.y) / dir.y : 1e9;
   return max(0.0, min(tx, ty));
 }
+/* Round 18eg item 1: how much of the crossing is still to come - 1 at the top of the
+   window, 0 by the time the eye reaches the surface, and 0 once it is under.
+   
+   Stated as what is held *back* rather than as what has arrived, so that nought - which
+   is what a program nobody set it on reads - means the water's fog whole, exactly as it
+   was before this existed. The water surface's own shader shares this function and does
+   not go through airOn; written the other way round it lost its depth colour and drew
+   black. (The 18eb lesson once more: a uniform read unconditionally either gets written
+   unconditionally or means the old behaviour at zero.) */
+uniform float uUnderHold;
 /* The water's own fog over a distance: the clear share in .a, the haze in .rgb. */
 vec4 underFogDist(float wet){
   float f = clamp((uUnderRange.y - wet) / max(1.0, uUnderRange.y - uUnderRange.x), 0.0, 1.0);
+  /* Held on the *clear* share rather than on the haze, so a fragment reads exactly as it
+     did in the air until the eye starts to go in. (No backticks in here.) */
+  f = mix(f, 1.0, clamp(uUnderHold, 0.0, 1.0));
   return vec4(uUnderCol * (1.0 - f), f);
 }
-vec4 fogColourScatter(vec3 dir, float fogdist, float fog, vec3 skyColDir){
-  skyColDir *= 1.0 - fog;
-  if(uNice > 0.001){
-    float suncos = dot(dir, uSunPos);
-    float mie = (1.58 / (1.24 - suncos)) * uSunAlt.z;
-    float rayl = 1.0 - 0.09 * mie;
-    float atmdep = 1.33 * exp(-2.0 * clamp(dir.z, 0.0, 1.0));
-    vec3 sunscatter = mix(uInscatter, uOutscatter, 0.5 * (1.0 + suncos));
-    vec3 att = atmdep * sunscatter * (uSunAlt.x + 0.7 * mie);
-    att = (1.0 - exp(-fogdist * att)) / att;
-    vec3 newSky = mix(uSkyCol, uSkyScatter.rgb, uSkyScatter.a);
-    vec3 color = 0.125 * mie + newSky * rayl;
-    color *= att * (1.17 * atmdep + 0.89) * uSunAlt.y;
-    color = mix(skyColDir, color, uNice);
-    return vec4(color, fog);
-  }
-  return vec4(skyColDir, fog);
-}
-/* MGE's fogColour in the air: the amount in .a (1 = clear), the haze to add in .rgb. */
-vec4 fogColourAir(vec3 dir, float dist){
-  float fogdist = (dist - uFogStart) / uFogRange;
-  float fog = clamp(exp(-fogdist), 0.0, 1.0);
-  fogdist = clamp(0.224 * fogdist, 0.0, 1.0);
-  return fogColourScatter(dir, fogdist, fog, uFogColFar);
-}
+${MGE_SCATTER_GLSL}
 /* Under the water: the water's fog for the way inside the box, the air's for the rest.
    Composed so that a * c + rgb is the water's haze laid over the air-fogged colour. */
 vec4 underFog(vec3 dir, float dist){
@@ -572,19 +602,7 @@ vec4 fogColour(vec3 dir, float dist){
   if(uUnder == 1) return underFog(dir, dist);
   return fogColourAir(dir, dist);
 }
-/* The sky: MGE's fogColourSky. Under the water the horizon is the water's colour and the
-   sky above it is the sky's own, with no scatter - XE Common.fx keeps drawing the sky,
-   which is what shows through the surface from beneath. */
-vec4 fogColourSky(vec3 dir){
-  vec3 s = mix(uFogColFar, uSkyCol, 1.0 - pow(clamp(1.0 - 2.22 * clamp(dir.z - 0.075, 0.0, 1.0), 0.0, 1.0), 1.15));
-  /* Under the water both of those are the water's colour (18dv, set in airOn), so this is
-     that colour flat - the sky at infinite distance, wholly fogged - and the scatter is
-     off, as XE Common.fx switches it off below sea level. 18dy: with the eye still over
-     the line during the crossing (uUnderTop > 0) the sky is the sky, so this waits for
-     the eye itself, as the colours it reads do. */
-  if(uUnder == 1 && uUnderTop <= 0.0) return vec4(s, 0.0);
-  return fogColourScatter(dir, 1.0, 0.0, s);
-}
+${MGE_SKY_GLSL}
 /* Round 18h: 1 while what is being drawn adds onto the picture (an additive blend - a
    flame, a glow, a spark). The fog cannot lay its haze on such a thing: the haze is on
    the picture already, and adding it again is how a torch three cells off became a white
@@ -624,66 +642,23 @@ float airClear(vec3 w){
    the picture from going muddy when the ambient is high. Shadows also fade out with the
    fog, by its square. */
 uniform int   uShadow;        /* 1 when the map for this frame was drawn */
-uniform mat4  uShadowVP[2];   /* world -> cascade clip, near then far */
-uniform highp sampler2D uShadowTex;   // highp: a depth, read at full precision on every driver
+uniform mat4  uShadowVP[${SHADOW_MAX_CASCADES}];   /* world -> cascade clip, nearest first */
+uniform int   uShadowN;       /* how many of them this frame drew (18fa) */
+/* Wraithguard: highp - a depth, read at full precision on every driver (WebGL's default
+   for samplers is lowp, which Mesa honours: Linux shadows banded until this). */
+uniform highp sampler2D uShadowTex;
 uniform vec2  uShadowP;       /* x: one texel of a cascade in clip units; y: the sun-visibility term */
-uniform vec2  uShadowFog;     /* Morrowind's near fog, start and end in units: MGE's nearFogStart, nearFogRange */
-/* MGE's core-mod constants, verbatim. */
-const float GDN_ESM_C = 60.0;
-const float GDN_ESM_BIAS = 2e-3 * GDN_ESM_C;
-const float GDN_ESM_SCALE = 32768.0;
-const float GDN_SHADE = 0.4;
-const vec3  GDN_SHADECOLOR = vec3(1.0, 0.97, 0.81);
-/* The difference between the depth the light saw and the depth this fragment is at, in
-   the near cascade where the fragment is well inside it and the far one otherwise.
-   A margin of four texels keeps the blur kernel from reading the next cascade along. */
-float gdnShadowDz(vec3 w){
-  float m = 1.0 - 8.0 * uShadowP.x;
-  for(int i=0;i<2;i++){
-    vec4 sp = uShadowVP[i] * vec4(w, 1.0);
-    vec3 c = sp.xyz / sp.w;
-    if(i == 0 && (abs(c.x) > m || abs(c.y) > m || abs(c.z) > 1.0)) continue;
-    if(i == 1 && (abs(c.x) > 1.0 || abs(c.y) > 1.0 || abs(c.z) > 1.0)) return 1e-6;
-    vec2 uv = vec2((float(i) + 0.5 * c.x + 0.5) * 0.5, 0.5 * c.y + 0.5);
-    return texture(uShadowTex, uv).r / GDN_ESM_SCALE - (0.5 * c.z + 0.5);
-  }
-  return 1e-6;
-}
-/* MGE's shadowSunEstimate: x / (shade + x), where x is the lambert term weighted by the
-   sun's own luminance and its visibility. */
-float gdnShadowLight(float lambert){
-  float x = max(lambert, 0.0) * dot(uSunCol, vec3(0.36, 0.53, 0.11)) * uShadowP.y;
-  return x / (GDN_SHADE + x);
-}
-/* Darkens a lit colour where the sun cannot reach it. Called just before the fog, which
-   is where MGE's grass shader does it and where its blend over the finished frame
-   effectively lands. */
-vec3 gdnShade(vec3 c, vec3 w, float lambert){
-  if(uShadow != 1 || uNoLight == 1) return c;   /* Unlit draws the textures as painted */
-  /* Wraithguard: nor what adds light - a flame, a glow, a spell's sheet. MGE skips every
-     additive draw when it lays its shadows over the frame (rendershadow.cpp renderShadow:
-     "Additive alphas do not receive shadows"); uFogBlack is 1 for exactly those batches. */
-  if(uFogBlack == 1) return c;
-  float light = gdnShadowLight(lambert);
-  if(light < 2.0 / 255.0) return c;
-  float dz = gdnShadowDz(w);
-  if(dz >= 0.0) return c;
-  float v = (1.0 - clamp(exp(GDN_ESM_C * dz + GDN_ESM_BIAS), 0.0, 1.0)) * light;
-  /* Out with the fog, by its square, as MGE fades it - and four times as fast under the
-     water, where it also clamps the fade up (isAboveSeaLevel). Wraithguard: by the fog
-     MGE fades them by, fogMWScalar - Morrowind's own linear near fog, over the pair MGE's
-     adjustFog fits to the weather (uShadowFog) - not the distant land's exponential fog,
-     which reaches much further and let shadows run on past where the game's stop. */
-  float sd = length(w - uEye);
-  float att = clamp((uShadowFog.y - sd) / max(1.0, uShadowFog.y - uShadowFog.x), 0.0, 1.0);
-  att *= att;
-  v *= uUnder == 1 ? clamp(4.0 * att, 0.0, 1.0) : att;
-  /* The far cascade's own edge, so a shadow does not end on a straight line. */
-  vec4 fp = uShadowVP[1] * vec4(w, 1.0);
-  vec2 fade = clamp(25.0 * (1.0 - abs(fp.xy / fp.w)), 0.0, 1.0);
-  v *= fade.x * fade.y;
-  return c * (1.0 - v * GDN_SHADECOLOR);
-}
+/* Wraithguard: Morrowind's near fog, start and end in units - MGE's nearFogStart and
+   nearFogRange, what it fades shadows by (fogMWScalar); see gdnShade in 06_mge.js. */
+uniform vec2  uShadowFog;
+/* 18fc: each cascade's depth window over MGE's 16,384 units. The far boxes are deeper
+   than MGE's so they hold their own ground (37_shadow.js, SHADOW_ZRANGE), and the
+   exponential is scaled by the same factor so the edge stays 273 units soft in every
+   one of them. 1.0 in the two boxes MGE's window already held. */
+uniform float uShadowZ[${SHADOW_MAX_CASCADES}];
+/* 18fc: the outermost box's radius in units, for the round fade at the end of the world. */
+uniform float uShadowFar;
+${mgeShadowGLSL(SHADOW_MAX_CASCADES, SHADOW_BLEND)}
 /* Fogs a lit colour at world position w: MGE's way under the atmosphere, the flat
    fog by distance from the scene's centre without it. */
 vec3 airFog(vec3 c, vec3 w){
@@ -785,7 +760,7 @@ bool gdnCulled(vec3 wpos, vec3 nrm){
 
 const FS_GRASS=`#version 300 es
 precision highp float;
-in vec2 vUV; in vec2 vUV2; in vec2 vUVD; in vec2 vUVDc; in vec3 vN; in vec3 vW; in vec3 vC; in vec3 vG; in float vH;
+in vec2 vUV; in vec2 vUV2; in vec2 vUVD; in vec2 vUVDc; in vec2 vUVG; in vec3 vN; in vec3 vW; in vec3 vC; in vec3 vG; in float vH;
 in float vCA;
 /* 1 where the ground map covers this blade, 0 where it does not (round 17u). VS_STATIC
    writes 0: a rock takes no ground tint and never did. */
@@ -918,6 +893,9 @@ uniform sampler2D uGloss; uniform int uHasGloss;
 /* And its specular map (the _spec sibling, OpenMW's): rgb the specular colour, alpha the
    shininess over 255, lit by the sun (objects.frag's specular term). */
 uniform sampler2D uSpec; uniform int uHasSpec;
+/* Round 18ev: 1 when the glow map reads a UV set of its own (vUVG), 0 when it reads the
+   base's - which is every glow map in Morrowind and in OAAB. See 10_preview.js. */
+uniform int uHasGlowUV;
 /* Round 17m: the NiUVController's texture matrix for this shape, at this instant —
    xy the tiling, zw the offset, applied as uv*xy + zw, which is the order OpenMW's
    UVController builds it in (scale, then setTrans). (1,1,0,0) is a still shape.
@@ -980,6 +958,7 @@ uniform int   uShowSlope;
 uniform float uMaxAngle, uMinH, uMaxH;
 ${CULL_GLSL}
 out vec4 o;
+${MGE_GRASS_FS_GLSL}
 void main(){
   /* The day/night switch first, before any texture is fetched: a branch that is not the
      one for this hour draws nothing at all. */
@@ -994,6 +973,16 @@ void main(){
   }
   if(uClip==1 && vW.z<uClipZ) discard;
   if(uClip==2 && vW.z>uClipZ) discard;   // 18du: the mirror from under the water keeps what is under it
+  if(uViewFade.z>0.5){                   // 18hi: the room's view distance, see the uniform
+    float dv=distance(vW,uEye);
+    if(dv>=uViewFade.y) discard;
+    if(dv>uViewFade.x){
+      const int bayer[16]=int[16](0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5);
+      ivec2 q=ivec2(mod(gl_FragCoord.xy,4.0));
+      float th=(float(bayer[q.x+q.y*4])+0.5)/16.0;
+      if((dv-uViewFade.x)/max(uViewFade.y-uViewFade.x,1.0)>th) discard;
+    }
+  }
   vec2 auv = vUV*uUVXform.xy + uUVXform.zw;
   if(uHasNrm==1 && uNrmH==1){
     vec3 pn=normalize(vN); if(!gl_FrontFacing) pn=-pn;
@@ -1032,8 +1021,8 @@ void main(){
      into the fragment." A Glow in the Dahrk window's dark map is DXT1, alpha 1 throughout. */
   if(uHasDark==1) t*=texture(uDark, (uUVMaps2&1)!=0 ? vUVD*uUVXform2.xy+uUVXform2.zw : vUVD);
   if(uGrassLit==1){
-    if(uHasTex==1 && t.a < 64.0/255.0) discard;
-    t.a = clamp(1.3*(t.a-128.0/255.0)+128.0/255.0, 0.0, 1.0);
+    if(uHasTex==1 && mgeGrassCut(t.a)) discard;
+    t.a = mgeGrassCoverage(t.a);
   }
   else if(uAlphaFn>=0){
     float ta = t.a*srcA;
@@ -1086,13 +1075,8 @@ void main(){
   }
   float d=max(dot(n,uSun),0.0);
   if(uGrassLit==1 && vC.r>0.5){
-    /* MGE's wrap lighting for grass: the normal turned to face the eye (its
-       -sign(dot(eyevec, n)), which gl_FrontFacing has already done), then
-       lambert = pow(sat((l + w) / (1 + w)), N) * (N + 1) / (2 (1 + w)) + max(0, -l) * back
-       with w 0.6, N 1.5 and a backlight of 0.4. */
-    float l=dot(n,uSun);
-    const float w=0.6, N=1.5;
-    d = pow(clamp((l+w)/(1.0+w),0.0,1.0),N)*(N+1.0)/(2.0*(1.0+w)) + max(0.0,-l)*0.4;
+    // MGE's wrap lighting for grass (06_mge.js); gl_FrontFacing has already turned n to the eye.
+    d = mgeGrassLambert(n, uSun);
   }
   /* Lit the way MGE lights its statics under the atmosphere - sun colour by the
      lambert term plus the ambient, both the ramp's - and the old fixed 0.46 + 0.85
@@ -1214,7 +1198,15 @@ void main(){
     }
     envAdd = texture(uEnv, euv).rgb*luma;
   }
-  vec3 glowAdd = uHasGlow==1 ? texture(uGlow, (uUVMaps2&4)!=0 ? vUV*uUVXform2.xy+uUVXform2.zw : auv).rgb*glowOn : vec3(0.0);
+  /* Round 18ev: the glow's own UV set where it has one. gbase is what it reads when
+     nothing animates it and gxf what an animation transforms - the two differ only for a
+     glow on set 0, where the first is the base's animated UVs and the second its raw
+     ones, exactly as before this round. Tamriel Data's bulb mushrooms are the shape this
+     is for: two UV sets, the glow on the second, and its mask tiled across the whole cap
+     when it was drawn with the first. */
+  vec2 gbase = uHasGlowUV==1 ? vUVG : auv;
+  vec2 gxf   = uHasGlowUV==1 ? vUVG : vUV;
+  vec3 glowAdd = uHasGlow==1 ? texture(uGlow, (uUVMaps2&4)!=0 ? gxf*uUVXform2.xy+uUVXform2.zw : gbase).rgb*glowOn : vec3(0.0);
   vec3 c = uUnlit==1 ? t.rgb*(1.0 + envAdd)*uBright + glowAdd
          : (uLampModel == 1 && uGrassLit == 0) ? gdnTonemap(t.rgb*(light + envAdd) + glowAdd)*uBright
          : uLampModel == 2 ? t.rgb*light*uBright + envAdd + glowAdd
@@ -1356,6 +1348,12 @@ void main(){
     vec2 g=floor(vW.xy/256.0);
     base = mod(g.x+g.y,2.0)<0.5 ? vec3(0.250,0.245,0.215) : vec3(0.305,0.300,0.265);
   }
+  // 18fv: a texture the install does not have at all - grey and white, so it cannot be
+  // mistaken for a real tile whose image failed to load.
+  if(uHasTex==0 && uFlat==2){
+    vec2 g=floor(vW.xy/256.0);
+    base = mod(g.x+g.y,2.0)<0.5 ? vec3(0.58,0.58,0.58) : vec3(0.92,0.92,0.92);
+  }
   if(uVCol==1) base*=vC;
   if(uUnlit==1){
     float ua = 1.0;
@@ -1482,6 +1480,60 @@ vec2 envCoord(vec3 w, vec3 n){
   return vec2(0.5+0.5*dot(rw,uCamR), 0.5-0.5*dot(rw,uCamU));
 }`;
 
+/* Round 18ff: skinning on the GPU. Robin: "Lets move skinning to the GPU."
+
+   A skinned shape - a banner, the silt strider's feelers - arrives with its vertices in
+   skin space, four bone slots and four weights a vertex, and the bones' chains; until
+   this round the page posed it on the CPU every frame and wrote the result over the
+   part's vertex buffers (`skinVerts`, 18ag). Now the bind pose stays in the buffers the
+   part shares with every batch that draws it, the skin-space vertices ride two more
+   attributes, and the vertex shader does the sum: v = Σ w_i · M_i(t) · v_skin / Σ w_i,
+   the same arithmetic `skinVerts` does, with the bones' matrices at this instant in a
+   data texture three RGBA32F texels a bone - the three rows of the 3x4, scale folded
+   into the rotation, translation in w (`_skinUpdate`). Fetched by texelFetch, so no
+   extension and no uniform-array ceiling on how many bones a mesh may have. A phase bin
+   (18ai) is a bone texture of its own over the same vertex buffers, rather than a copy
+   of every buffer re-posed each frame. A vertex no bone claims - sum of weights nought -
+   stays where the file put it, as the CPU left it. The normal goes through the rotation
+   alone: the rows' length is the bone's scale, divided back out, which is what the CPU
+   did by leaving the scale off the normal. A shape with morph targets (18au, the moths)
+   keeps the CPU path: the offsets are per vertex per target and there is nothing to
+   gain by uploading them. `uSkin` is nought on the still majority, which then reads
+   none of this - the attributes are disabled and the sampler unbound.
+   (No backticks in here: a template literal.) */
+const SKIN_GLSL=`
+layout(location=12) in uvec4 aBone;   // four bone slots, 255 for none
+layout(location=13) in vec4 aWt;      // and their weights
+layout(location=14) in vec3 aSkinP;   // the vertex in skin space
+layout(location=15) in vec3 aSkinN;   // and its normal there, when the skin has them
+uniform int uSkin;    // 1 to pose, 2 to pose with the skin's own normals
+uniform highp sampler2D uBones;
+void gdnSkin(inout vec3 p, inout vec3 n){
+  if(uSkin==0) return;
+  int nb=textureSize(uBones,0).x/3;
+  vec3 ap=vec3(0.0), an=vec3(0.0); float ws=0.0;
+  vec3 sp=aSkinP, sn=(uSkin==2)? aSkinN : n;
+  for(int k=0;k<4;k++){
+    int b=int(aBone[k]); float w=aWt[k];
+    if(b>=255 || b>=nb || !(w>0.0)) continue;
+    vec4 r0=texelFetch(uBones,ivec2(b*3,0),0);
+    vec4 r1=texelFetch(uBones,ivec2(b*3+1,0),0);
+    vec4 r2=texelFetch(uBones,ivec2(b*3+2,0),0);
+    ap+=w*vec3(dot(r0.xyz,sp)+r0.w, dot(r1.xyz,sp)+r1.w, dot(r2.xyz,sp)+r2.w);
+    if(uSkin==2){
+      float s=max(length(r0.xyz),1e-6);
+      an+=w*vec3(dot(r0.xyz,sn), dot(r1.xyz,sn), dot(r2.xyz,sn))/s;
+    }
+    ws+=w;
+  }
+  if(ws>0.0){
+    p=ap/ws;
+    if(uSkin==2){ float l=length(an); if(l>0.0) n=an/l; }
+  } else {
+    p=sp; if(uSkin==2) n=sn;
+  }
+}`;
+
 const VS_STATIC=`#version 300 es
 precision highp float;
 layout(location=0) in vec3 aPos;
@@ -1498,26 +1550,69 @@ layout(location=7) in vec2 aUV2;   // the detail map's UV set (round 17h)
 layout(location=8) in vec2 aLamp;
 layout(location=9) in vec2 aUVD;   // the dark map's UV set (round 17y); (0,0) without one
 layout(location=10) in vec2 aUVDc; // the decal's UV set (round 18df); (0,0) without one
+layout(location=11) in vec2 aUVG;  // the glow's own UV set (round 18ev); (0,0) without one
 uniform mat4 uVP;
 /* Round 17y: where the shape's animated node stands this frame, in the mesh's own space
    - the identity on the still majority. The geometry of a shape under a
    NiKeyframeController is baked in that node's frame, and this puts it back. */
 uniform mat4 uAnim;
-out vec2 vUV; out vec2 vUV2; out vec2 vUVD; out vec2 vUVDc; out vec3 vN; out vec3 vW; out vec3 vC; out vec3 vG; out float vH;
+/* Round 18ez: a shape under a NiBillboardNode turns to the eye, per instance. uBB is
+   the mode plus one (0 none; 1 always face the camera; 2 about the up axis only; 3 rigid;
+   4 face the centre), uBBOrigin the node's origin in mesh space, uBBScale the scale
+   above the node. The vertices arrive in the node's own frame: x, y, z about its origin.
+   (No backticks in here: this comment lives inside a template literal - the ninth time
+   that has bitten this project.) */
+uniform int uBB; uniform vec3 uBBOrigin; uniform float uBBScale;
+out vec2 vUV; out vec2 vUV2; out vec2 vUVD; out vec2 vUVDc; out vec2 vUVG; out vec3 vN; out vec3 vW; out vec3 vC; out vec3 vG; out float vH;
 out float vCA;   // the vertex alpha (round 18df)
 out float vGK;   // no ground tint on a rock, and never was (round 17u)
 flat out vec2 vLamp;
 ${ENV_VS_GLSL}
+${SKIN_GLSL}
 void main(){
-  vC=aCol.rgb; vCA=aCol.a; vG=vec3(1.0); vH=1.0; vGK=0.0; vUV2=aUV2; vUVD=aUVD; vUVDc=aUVDc; vLamp=aLamp;
-  vec4 p=uAnim*vec4(aPos,1.0);
-  vec3 w=vec3(dot(iR0,p), dot(iR1,p), dot(iR2,p));
+  vC=aCol.rgb; vCA=aCol.a; vG=vec3(1.0); vH=1.0; vGK=0.0; vUV2=aUV2; vUVD=aUVD; vUVDc=aUVDc; vUVG=aUVG; vLamp=aLamp;
+  // Round 18ff: posed here when the shape is skinned; the bind pose otherwise.
+  vec3 aP=aPos, aN=aNrm; gdnSkin(aP,aN);
   /* The normal through the same rows the position goes through. This used to be
      mat3(iR0.xyz,iR1.xyz,iR2.xyz)*aNrm, and a mat3 built from three vectors takes them
      as *columns* - so every normal went through the transpose, the inverse turn, and a
      rock placed with a yaw was lit from the wrong side (round 17y). */
-  vec3 n=mat3(uAnim)*aNrm;
-  vN=normalize(vec3(dot(iR0.xyz,n), dot(iR1.xyz,n), dot(iR2.xyz,n)));
+  vec3 w; vec3 n;
+  if(uBB>0){
+    /* The node's origin, placed: through the animation above it, if any, and the instance.
+       OpenMW's AutoTransform keeps the node's translation and scale and replaces its
+       rotation every frame with one built from the view; this is that, in the shader,
+       for each instance's own view of the eye. */
+    vec4 o4=uAnim*vec4(uBBOrigin,1.0);
+    vec3 oW=vec3(dot(iR0,o4), dot(iR1,o4), dot(iR2,o4));
+    /* The uniform scale the sprite is drawn at: the instance's (off its first row), the
+       animation chain's above the node (off uAnim's first column - a glowbug's node sits
+       under a keyframed one that scales it to a hundredth), and what was gathered between. */
+    float si=length(iR0.xyz)*length(uAnim[0].xyz)*uBBScale;
+    /* A NIF billboard is an XY quad whose local Z looks at the eye - x right, y up, z out
+       of the picture towards you (OSG's ROTATE_TO_CAMERA, which the NifOsg AutoTransform
+       is built on). OAAB's glowbugs and every one of Morrowind's 173 are laid out so. */
+    vec3 rt, up, toEye;
+    if(uBB==2){
+      // Rotate about up: a yaw to the eye, the vertical kept.
+      vec3 d=uEye-oW; d.z=0.0; float L=length(d);
+      toEye = L>1e-4 ? d/L : vec3(0.0,-1.0,0.0);
+      up    = vec3(0.0,0.0,1.0);
+      rt    = cross(up, toEye);
+    } else {
+      // Face the camera: the camera's own right and up, and back along the view.
+      rt = uCamR; up = uCamU;
+      toEye = cross(rt, up);
+    }
+    w = oW + si*(aP.x*rt + aP.y*up + aP.z*toEye);
+    n = aN.x*rt + aN.y*up + aN.z*toEye;
+    vN=normalize(n);
+  } else {
+    vec4 p=uAnim*vec4(aP,1.0);
+    w=vec3(dot(iR0,p), dot(iR1,p), dot(iR2,p));
+    n=mat3(uAnim)*aN;
+    vN=normalize(vec3(dot(iR0.xyz,n), dot(iR1.xyz,n), dot(iR2.xyz,n)));
+  }
   vW=w; vUV=aUV; vEnv=envCoord(w, vN);
   gl_Position=uVP*vec4(w,1.0);
 }`;
@@ -1547,12 +1642,15 @@ layout(location=4) in vec4 iR1;
 layout(location=5) in vec4 iR2;
 uniform mat4 uVP;
 out vec3 vObj; out vec3 vN; out vec3 vW;
+${SKIN_GLSL}
 void main(){
-  vec4 p=vec4(aPos,1.0);
+  // Round 18ff: a painted banner is tinted where it waves, not where it hangs at rest.
+  vec3 aP=aPos, aN=aNrm; gdnSkin(aP,aN);
+  vec4 p=vec4(aP,1.0);
   vec3 w=vec3(dot(iR0,p), dot(iR1,p), dot(iR2,p));
   // Through the rows, like the position - see VS_STATIC (round 17y).
-  vN=normalize(vec3(dot(iR0.xyz,aNrm), dot(iR1.xyz,aNrm), dot(iR2.xyz,aNrm)));
-  vObj=aPos;
+  vN=normalize(vec3(dot(iR0.xyz,aN), dot(iR1.xyz,aN), dot(iR2.xyz,aN)));
+  vObj=aP;
   vW=w;
   gl_Position=uVP*vec4(w,1.0);
 }`;
@@ -1579,9 +1677,13 @@ const DAB_TEX_W=2048;
    actually holding that much. When a mask does pass it the answer still says how many
    marks it left out, and the statistics panel still shows that. */
 const MAX_TINT_DABS=128000;
-/* The longest shade run one mark can carry: one shade per ray of the brush's fan, with
-   headroom. The shader's run scan is bounded by it; the engine lays at most 47. */
-const MAX_SHADE_RUN=64;
+/* Round 18ht: there is no longest shade run any more. The scan used to be bounded at 64,
+   "one shade per ray of the brush's fan, with headroom", and the fan has been two
+   thousand rays since 18hr: a large brush laid 717 spots on the Corpse Fields' platform
+   and the shader read the first 63, so the viewport showed paint the mask had bitten
+   out. The shade marks ride the bucket grid with boxes of their own now, and a spot
+   bites the mark it rides when the walk meets it — matched by the count back the engine
+   writes in its slot field — so a fragment meets only the spots that can reach it. */
 /* Below this many marks the fragment simply walks them all. A grid costs an index list to
    build, memory to hold and two fetches to enter, and none of that buys anything against
    a list this short — measured on his own small masks, a grid over 385 dabs stores 3,318
@@ -1678,27 +1780,40 @@ float reachAt(vec4 A, vec4 B){
     }
     return B.y*w;
 }
-/* One mark, laid on the accumulators. Lifted out of the loop so the grid and the plain
-   walk hand it the same marks in the same order — the order is the law here ("the last
-   stroke wins"), and a second copy of this body is a second law. */
+/* The ink mark whose shade is still being read: its index, its reach so far, and its
+   second row. Laid on the accumulators when the next ink mark arrives, or at the end of
+   the walk (layPending) — the engine's walk_runs, said in GLSL (round 18ht). No
+   backticks in here: this is inside a template literal. */
+int pendI; float pendA; vec4 pendB;
+
+/* One mark, met by the walk. Lifted out of the loop so the grid and the plain walk hand
+   it the same marks in the same order — the order is the law here ("the last stroke
+   wins"), and a second copy of this body is a second law. An ink mark lays the one
+   pending before it and becomes pending itself; a shade mark (-4) bites the pending
+   mark when it is the one it rides (its slot field is the count of rows back to it),
+   and is otherwise a spot of some other mark that does not reach here, and skipped. */
+void layPending();
 void applyDab(int i){
     vec4 A=rowA(i), B=rowB(i);
-    /* -4 is a shade mark: not ink, but a bite out of the mark before it. It acts
-       through the run scan below and never on its own — the engine's reach_run,
-       said in GLSL. */
-    if(B.w<-3.5) return;
-    float a=reachAt(A,B);
-    if(a<=0.0) return;
-    /* The shade run riding this mark: the marks immediately after it flagged -4, each
-       taking its bite where the stroke's eye could not see this surface. Bounded by the
-       fan's own size — a run is at most one mark per ray. */
-    for(int j=1;j<${MAX_SHADE_RUN};j++){
-      if(i+j>=uCount) break;
-      vec4 SB=rowB(i+j);
-      if(SB.w>-3.5) break;
-      a*=1.0-reachAt(rowA(i+j),SB);
-      if(a<=0.0) return;
+    if(B.w<-3.5){
+      if(pendI>=0 && pendA>0.0 && i-int(B.z+0.5)==pendI){
+        /* A shade of strength 0 is a clip plane (18hu): its xyz is the plane's normal
+           in object space and its feather the offset, and the mark reaches nothing on
+           the far side of it. Any other shade is a spot that bites its own reach. */
+        if(B.y<=0.0){ if(dot(vObj,A.xyz)<=B.x) pendA=0.0; }
+        else pendA*=1.0-reachAt(A,B);
+      }
+      return;
     }
+    layPending();
+    pendI=i; pendA=reachAt(A,B); pendB=B;
+}
+/* The pending ink mark, laid on the accumulators with what its shade left of it. */
+void layPending(){
+    if(pendI<0) return;
+    float a=pendA; vec4 B=pendB;
+    pendI=-1;
+    if(a<=0.0) return;
     int slot=int(B.z);
     /* Below -1 is a colour these grass rules do not have. Skipped rather than drawn or
        erased: the paint is still yours and is waiting for that rule to come back, and
@@ -1738,8 +1853,21 @@ void applyDab(int i){
 }
 
 void main(){
+  /* 18hi: the tint dissolves with the object it sits on, through the same dither at the
+     same distances, or a faded rock would leave its paint hanging in the air. */
+  if(uViewFade.z>0.5){
+    float dv=distance(vW,uEye);
+    if(dv>=uViewFade.y) discard;
+    if(dv>uViewFade.x){
+      const int bayer[16]=int[16](0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5);
+      ivec2 q=ivec2(mod(gl_FragCoord.xy,4.0));
+      float th=(float(bayer[q.x+q.y*4])+0.5)/16.0;
+      if((dv-uViewFade.x)/max(uViewFade.y-uViewFade.x,1.0)>th) discard;
+    }
+  }
   for(int k=0;k<NL;k++){ held[k]=0.0; which[k]=-1; }
   cHeld=0.0; cWhich=-1;
+  pendI=-1; pendA=0.0; pendB=vec4(0.0);
   if(uGridCells<=0){
     /* Few enough marks that finding the near ones costs more than testing them all. */
     for(int i=0;i<uCount;i++) applyDab(i);
@@ -1754,6 +1882,7 @@ void main(){
     int s=gridAt(cell), e=gridAt(cell+1);
     for(int k=s;k<e;k++) applyDab(gridAt(uGridBase+k));
   }
+  layPending();
   vec3 acc=vec3(0.0); float sum=0.0;
   for(int k=0;k<NL;k++){
     if(which[k]>=0 && held[k]>0.002 && uLayerOn[k]>0.5){
@@ -1829,13 +1958,9 @@ out vec4 o;
 void main(){
   vec3 d=normalize(uCamF + uCamR*(vP.x*uTanH*uAspect) + uCamU*(vP.y*uTanH));
   vec3 c=fogColourSky(d).rgb;
-  /* Wraithguard: MGE XE's ordered dither over the sky's gradient (XE Mod Sky.fx, SkyPS:
-     ditherSky[vpos.x % 4][vpos.y % 4]), so a dusk or night sky does not band into steps
-     in an 8-bit frame. Its numbers, a few thousandths either way. */
-  { const float DITHER_SKY[16]=float[16](0.001176, 0.001961, -0.001176, -0.001699, -0.000654, -0.000915, 0.000392, 0.000131,
-                                         -0.000131, -0.001961, 0.000654, 0.000915, 0.001699, 0.001438, -0.000392, -0.001438);
-    ivec2 px=ivec2(gl_FragCoord.xy) % 4;
-    c+=DITHER_SKY[px.x*4+px.y]; }
+  /* Wraithguard: MGE XE's ordered dither over the sky's gradient - the port is in
+     06_mge.js (GPL-2), with the rest of what this renderer took from MGE XE. */
+${MGE_SKY_DITHER_GLSL}
   /* Round 18dv: under the water that is the water's colour, and nothing the sky carries
      survives the whole depth of it - no sun disc, no glare, no clouds, no stars. In the
      game the water plane covers the hemisphere and its refraction has faded to the fog
@@ -2234,7 +2359,10 @@ const LIGHT_BUDGET=512;
 /* How wide a column of the light grid is, in world units. A Morrowind cell is 8192, and a
    lamp's reach is a few hundred, so 1024 puts a handful of lamps in a column and keeps the
    grid itself small: nine cells is a 24x24 grid, forty-nine is 56x56. */
-const LIGHT_BIN=1024, LIGHT_BIN_MAX=32, LIGHT_GRID_MAX=96;
+const LIGHT_BIN=1024, LIGHT_BIN_MAX=64, LIGHT_GRID_MAX=96;   // 18hn: 64 from 32, see _lightGrid
+/* Round 18hi: where the room's view-distance fade begins, as a share of the distance:
+   the last eighth dissolves. See `uViewFade`. */
+const VIEW_FADE_FROM=7/8;
 /* How far above the budget's cut a lamp has to shine to be sent at full strength. See
    `_lightUniforms`: the lamp that did not fit is the zero point, one shining this many
    times as brightly is full, and everything between is faded across that band. */
@@ -2246,7 +2374,7 @@ function quickstep(x){ x=Math.max(0,Math.min(1,x)); x=1-x*x; return 1-x*x; }
 
 /* Round 18i: a light's (constant, linear, quadratic) from `Morrowind.ini
    [LightAttenuation]` - the engine's own NiPointLight::setAttenuationForRadius, as MWSE
-   decompiles it and OpenMW's configureLight reproduces it (gdn_core::renderer has the
+   decompiles it and OpenMW's configureLight reproduces it (gardenfell_install::renderer has the
    same function and the tests against Robin's MWSE readings). `att` is the engine's
    `renderer.attenuation`; null means the game's shipped values, linear 3/r. */
 const LAMP_ATT_VANILLA={useConstant:false, constantValue:0, useLinear:true, linearMethod:1, linearValue:3,
@@ -2270,19 +2398,7 @@ function lampCoefficients(att, radius, interior){
   if(c===0 && l===0 && q===0) c=1;
   return [c,l,q];
 }
-/* MGE XE's decodeMorrowindPointLight (d3d8/cpp/mge/ffeshader.cpp), one light at a time:
-   what its FixedFuncEmu makes of the coefficients above. A standard lamp (constant > 0)
-   keeps its colour and falls off as 1/(q·d² + c); a quadratic-only one is scaled by the
-   shared constant (0.33 when no standard light has set it) and given an ambient term; a
-   linear-only one is the Light spell's - white, brightness 0.25 + 1e-4/l, ambient 1. */
-function mgeDecode(co, colour){
-  const [c,l,q]=co;
-  if(c>0) return {c, l:0, q, amb:0, col:colour};
-  if(q>0) return {c:0.33, l:0, q:0.33*q, amb:1+1e-4/Math.sqrt(q), col:[colour[0]*0.33, colour[1]*0.33, colour[2]*0.33]};
-  if(Math.abs(l-0.10000001)<1e-7) return {c:0.33, l:0, q:5e-5, amb:0, col:colour};
-  if(l>0){ const b=0.25+1e-4/l; return {c:0.33, l:0, q:0.5555*l*l, amb:1, col:[b,b,b]}; }
-  return {c:0.33, l:0, q:0, amb:0, col:colour};
-}
+/* `mgeDecode`, MGE XE's decodeMorrowindPointLight, is in 06_mge.js (GPL-2). */
 /* How many segments a ring is made of. The rings are plain GL_LINES, one pixel wide —
    the only width a desktop driver honours, and the one Robin asked for once he had seen
    the alternative: "Make it into just 1px line again if it's the only thing supported
@@ -2321,6 +2437,11 @@ const NO_MAPS_OFF=Object.freeze({});
    shader (sixteen, 0-15). Every surface program reads it, so it is bound once a frame and
    left alone - which is why it sits past every map a material can ask for. */
 const SHADOW_UNIT=15;
+/* Round 18ff: the bones of a skinned shape, read by the vertex shader alone. Sixteen is
+   past the fragment shader's units, which are all spoken for above; a vertex sampler may
+   sit on any of the thirty-two combined units WebGL2 promises. */
+const BONE_UNIT=16;
+
 /* How many vertices the bake may copy in all (round 18cs, see `_buildGroups`): a whole
    batch is copied once per instance, and a forty-nine cell load of detailed meshes could
    otherwise ask for a few hundred megabytes. Two million is some ninety megabytes. */
@@ -2353,11 +2474,19 @@ layout(location=7) in vec2 aUV2;
 ${mode==='baked'? 'layout(location=8) in int aInst;' : ''}
 layout(location=9) in vec2 aUVD;
 layout(location=10) in vec2 aUVDc;
+layout(location=11) in vec2 aUVG;   // round 18ev
 uniform mat4 uVP;
 uniform mat4 uAnim;
+/* Round 18ez: a shape under a NiBillboardNode turns to the eye, per instance. uBB is
+   the mode plus one (0 none; 1 always face the camera; 2 about the up axis only; 3 rigid;
+   4 face the centre), uBBOrigin the node's origin in mesh space, uBBScale the scale
+   above the node. The vertices arrive in the node's own frame: x, y, z about its origin.
+   (No backticks in here: this comment lives inside a template literal - the ninth time
+   that has bitten this project.) */
+uniform int uBB; uniform vec3 uBBOrigin; uniform float uBBScale;
 uniform highp sampler2D uInst;
 ${mode==='multi'? 'uniform ivec4 uRunBase['+RUN4+'];' : mode==='base'? 'uniform int uBase;' : ''}
-out vec2 vUV; out vec2 vUV2; out vec2 vUVD; out vec2 vUVDc; out vec3 vN; out vec3 vW; out vec3 vC; out vec3 vG; out float vH;
+out vec2 vUV; out vec2 vUV2; out vec2 vUVD; out vec2 vUVDc; out vec2 vUVG; out vec3 vN; out vec3 vW; out vec3 vC; out vec3 vG; out float vH;
 out float vCA;
 out float vGK;
 flat out vec2 vLamp;
@@ -2370,11 +2499,43 @@ void main(){
   vec4 iR1=texelFetch(uInst,at+ivec2(1,0),0);
   vec4 iR2=texelFetch(uInst,at+ivec2(2,0),0);
   vec4 iL =texelFetch(uInst,at+ivec2(3,0),0);
-  vC=aCol.rgb; vCA=aCol.a; vG=vec3(1.0); vH=1.0; vGK=0.0; vUV2=aUV2; vUVD=aUVD; vUVDc=aUVDc; vLamp=iL.xy;
-  vec4 p=uAnim*vec4(aPos,1.0);
-  vec3 w=vec3(dot(iR0,p), dot(iR1,p), dot(iR2,p));
-  vec3 n=mat3(uAnim)*aNrm;
-  vN=normalize(vec3(dot(iR0.xyz,n), dot(iR1.xyz,n), dot(iR2.xyz,n)));
+  vC=aCol.rgb; vCA=aCol.a; vG=vec3(1.0); vH=1.0; vGK=0.0; vUV2=aUV2; vUVD=aUVD; vUVDc=aUVDc; vUVG=aUVG; vLamp=iL.xy;
+  vec3 w; vec3 n;
+  if(uBB>0){
+    /* The node's origin, placed: through the animation above it, if any, and the instance.
+       OpenMW's AutoTransform keeps the node's translation and scale and replaces its
+       rotation every frame with one built from the view; this is that, in the shader,
+       for each instance's own view of the eye. */
+    vec4 o4=uAnim*vec4(uBBOrigin,1.0);
+    vec3 oW=vec3(dot(iR0,o4), dot(iR1,o4), dot(iR2,o4));
+    /* The uniform scale the sprite is drawn at: the instance's (off its first row), the
+       animation chain's above the node (off uAnim's first column - a glowbug's node sits
+       under a keyframed one that scales it to a hundredth), and what was gathered between. */
+    float si=length(iR0.xyz)*length(uAnim[0].xyz)*uBBScale;
+    /* A NIF billboard is an XY quad whose local Z looks at the eye - x right, y up, z out
+       of the picture towards you (OSG's ROTATE_TO_CAMERA, which the NifOsg AutoTransform
+       is built on). OAAB's glowbugs and every one of Morrowind's 173 are laid out so. */
+    vec3 rt, up, toEye;
+    if(uBB==2){
+      // Rotate about up: a yaw to the eye, the vertical kept.
+      vec3 d=uEye-oW; d.z=0.0; float L=length(d);
+      toEye = L>1e-4 ? d/L : vec3(0.0,-1.0,0.0);
+      up    = vec3(0.0,0.0,1.0);
+      rt    = cross(up, toEye);
+    } else {
+      // Face the camera: the camera's own right and up, and back along the view.
+      rt = uCamR; up = uCamU;
+      toEye = cross(rt, up);
+    }
+    w = oW + si*(aPos.x*rt + aPos.y*up + aPos.z*toEye);
+    n = aNrm.x*rt + aNrm.y*up + aNrm.z*toEye;
+    vN=normalize(n);
+  } else {
+    vec4 p=uAnim*vec4(aPos,1.0);
+    w=vec3(dot(iR0,p), dot(iR1,p), dot(iR2,p));
+    n=mat3(uAnim)*aNrm;
+    vN=normalize(vec3(dot(iR0.xyz,n), dot(iR1.xyz,n), dot(iR2.xyz,n)));
+  }
   vW=w; vUV=aUV; vEnv=envCoord(w, vN);
   gl_Position=uVP*vec4(w,1.0);
 }`;
@@ -2434,6 +2595,25 @@ function blendWritesDepth(part, blend){
   return true;
 }
 
+/** Round 18ez: where a billboard part sits in mesh space and how far it can reach - its
+ *  node's origin through the animation chain above it (at the clip's start), and the
+ *  vertices' radius scaled by that chain and by what was gathered between. A glowbug's
+ *  quad is 537 units across in its own frame under a node scaled to a hundredth; framed
+ *  by the raw vertices the jar was a speck in a field of nothing. */
+function billboardReach(part){
+  const bb=part.billboard, v=part.pos;
+  let r=0; for(let i=0;i<v.length;i+=3) r=Math.max(r, Math.hypot(v[i],v[i+1],v[i+2]));
+  r*=bb.scale||1;
+  let o=bb.origin.slice();
+  const A=(part.anim && part.anim.nodes && part.anim.nodes.length && typeof animMatrixAt==='function')? animMatrixAt(part.anim, 0) : null;
+  if(A){
+    const [x,y,z]=o;
+    o=[A[0]*x+A[4]*y+A[8]*z+A[12], A[1]*x+A[5]*y+A[9]*z+A[13], A[2]*x+A[6]*y+A[10]*z+A[14]];
+    r*=Math.hypot(A[0],A[1],A[2]);
+  }
+  return {o, r};
+}
+
 class Renderer{
   constructor(canvas){
     this.cv=canvas;
@@ -2455,6 +2635,12 @@ class Renderer{
     this.progFlat=this._prog(VS_FLAT,FS_FLAT);
     this.progWater=this._prog(VS_WATER,FS_WATER);
     this.progStatic=this._prog(VS_STATIC,FS_GRASS);
+    /* Round 18ff: the bone slots' generic value, for every draw where the attribute is
+       *disabled* - the still majority. WebGL2 refuses a draw (INVALID_OPERATION) when a
+       disabled attribute's generic value is of another type than the shader declares,
+       and the default generic is a float while `aBone` is a uvec4. Context state, not
+       vertex-array state, so once is enough: four "no bone"s. */
+    gl.vertexAttribI4ui(12,255,255,255,255);
     this.progStaticPaint=this._prog(VS_STATIC_PAINT,FS_STATIC_PAINT);
     this.progArrow=this._prog(VS_ARROW,FS_ARROW);
     this.progSky=this._prog(VS_SKY,FS_SKY);
@@ -2463,11 +2649,12 @@ class Renderer{
     for(const pr of [this.progGrass,this.progStatic]){
       gl.useProgram(pr.p); gl.uniform4fv(pr.u.uBrushS,[0,0,0,-1]);
     }
+    this.warmShaders();
     gl.useProgram(this.progGrass.p); gl.uniform1i(this.progGrass.u.uInst,INST_UNIT);   // the instance texture's unit, for good
     this.statics=[];
     this.hlStatics=[];      // the ones being pointed at, drawn again in gold
     this.tintGroups=[];     // Wraithguard: [{col:[r,g,b], batches}] - layers drawn again in a colour
-    this.hlMode='fill';     // round 18dq: 'fill' (the gold wash) or 'outline' (34_outline.js)
+    this.hlMode='outline';  // round 18dq: 'fill' (the gold wash) or 'outline' (34_outline.js); 18fi: outline by default
     /* Round 18cr: the material groups the still objects are drawn through, and the
        extension that lets a group be one call. `noMultiDraw` is the test hook that walks
        the fallback path on a context that has the extension. */
@@ -2517,11 +2704,28 @@ class Renderer{
     this.moveSmooth=12;        // how fast the flying camera's speed follows the keys (round 17h: 12)
     this.orbitSmooth=40;       // round 17f: the same easing on the orbit camera's own moves, 1..100
     this.orbitLookSmooth=30;   // round 17g: the same lag on the orbit camera's turn (round 17h: 30)
+    /* Round 18fh: "Pause rendering when still" - with the camera still, no frame is drawn
+       for the wind, the water or the animated shapes, and the clock they read stands.
+       `_hold` is whether the viewport is held right now and `_holdWhy` why: 'still' (the
+       option), 'covered' (a dialogue over the viewport) or 'hidden' (the window
+       minimised) - the last two hold whatever the option says. See `_loop`. */
+    this.pauseStill=false;
+    this._hold=false; this._holdWhy='';
+    /* Round 18fj: the frame cap - the most frames a second the loop will draw, or 0
+       for as many as the screen offers. A frame that comes due early is put off to the
+       next tick with `dirty` still up; `_capAt` is when the last capped frame was drawn,
+       kept on the cap's own grid so a 144 Hz screen under a cap of 60 draws 60 frames a
+       second and not whatever 144 rounds down to. */
+    this._capAt=0;   // round 18fj's frame grid; the cap itself is `opts.fpsCap` (Wraithguard's Settings)
+    this._clockPaused=0; this._clockHeldAt=null;
+    /* Minimised: the browser stops handing out frames, so the loop cannot notice; the
+       clock is held here, at once, and the loop takes over when frames come back. */
+    try{ document.addEventListener('visibilitychange',()=>{ if(this.hiddenNow()) this._setHold(true,'hidden'); else { this.dirty=true; } }); }catch(_){ }
     try{ this.cv.tabIndex=-1; }catch(_){ }   // so the viewport can take the keyboard
     // The sun starts high and the scene starts a little brighter than daylight: this
     // is a tool for judging placement, not a screenshot of the game, and dark ground
     // hides exactly what the user is trying to look at.
-    this.opts={grid:false,ground:true,markers:true,fog:true,sun:90,bright:1.4,showSlope:true,
+    this.opts={grid:false,ground:true,markers:true,fog:true,sun:90,bright:1.0,showSlope:true,
                /* The same overlay on the placed objects, its own switch: the Highlight
                   culling button cycles off / terrain / terrain + statics, because a
                   cliff's every underside wearing the shade is the loudest thing in the
@@ -2566,6 +2770,9 @@ class Renderer{
                   unless the install says the game has them on. */
                shadows:false,
                unlit:false,   // round 18f: the Unlit switch, every surface at its texture
+               /* Round 18hi: the room's view distance in units, 0 for Far (everything).
+                  Objects past it are not drawn, the last eighth dissolves (`uViewFade`). */
+               viewFar:0,
                // Paint mode: whether the mask is drawn, and whether the window is in it.
                paintShow:false, paintMode:false,
                /* Whether an object's back faces are drawn. Off outdoors; on indoors,
@@ -2609,6 +2816,40 @@ class Renderer{
     if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))
       throw new Error('shader: '+gl.getShaderInfoLog(s));
     return s;
+  }
+  /** Round 18gt: every program the renderer would otherwise build on first use, built now.
+   *
+   *  Robin: "When I go under water for the first time in Gardenfell, I get a slight hitch.
+   *  I suspect we are loading some Underwater effects or so. I want to cache it when
+   *  loading the program." The hitch is the compile: the underwater pass, the MGE water,
+   *  the sunshafts, the SSAO, the shadows, the outline, the FXAA, the depth of field and
+   *  the pivot ball were each compiled on the first frame that needed them, and a shader
+   *  of that size costs the driver tens of milliseconds to compile and link, which is one
+   *  dropped frame at the moment you dive, hover a static for the first time, or first see
+   *  the sun come out. So they are built here, at start-up, one per animation frame so the
+   *  window still paints promptly: the whole list is done long before any install has
+   *  connected. Each part keeps its own `_ensure…` and its draw calls it, so a frame that
+   *  arrives before the warm-up has reached that program builds it then, as before; the
+   *  list only names the functions, and one that is not loaded (a build without the part)
+   *  is skipped. A compile that fails here is left for the draw to report. */
+  warmShaders(){
+    const steps=[
+      '_ensureUnder','_ensureCaustics','_ensureWaterMGE','_ensureBlit','_ensureShafts',
+      '_ensureSSAO','_ensureShadowCasters','_ensureShadowSoften','_ensureOutlineMask',
+      '_ensureOutline','_ensureFXAA','_ensureDof','_ensurePivot','_progGrassF','_progB',
+      ()=>this._progM(!!this._mdraw), '_partInit',
+    ];
+    let i=0;
+    const step=()=>{
+      if(i>=steps.length || (this.gl && this.gl.isContextLost())){ this._warmDone=true; return; }
+      const f=steps[i++];
+      try{
+        if(typeof f==='function') f();
+        else if(typeof this[f]==='function') this[f]();
+      }catch(_){ /* the draw that needs it reports it */ }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
   _prog(vs,fs){
     const gl=this.gl,p=gl.createProgram();
@@ -2981,6 +3222,11 @@ class Renderer{
             unlit:!!part.unlit, vcolMode:part.vcolMode==null? 2 : part.vcolMode, drawMode:part.drawMode|0, dayNight:part.dayNight|0,
             detail:(part.glDetail&&part.glDetail.gl)||null,
             glow:(part.glGlow&&part.glGlow.gl)||null,
+            /* Round 18ey: the flipbook and its frames, as GL textures. The draw picks one
+               by the clock (`_flipTex`); `tex` above stays the first frame, which is what
+               a shape with no flipbook - nearly all of them - draws. */
+            flip:part.flip||null, flipTex:(part.glFlip||null),
+            billboard:part.billboard||null,   // round 18ez
             /* Round 17m: the shape's UV animation and its emissive colour ride with the
                batch, since both are per-shape facts the draw has to set. */
             uvAnim:part.uvAnim||null, uvAnim2:part.uvAnim2||null, emissive:part.emissive||null,
@@ -2993,6 +3239,8 @@ class Renderer{
             /* Round 18df: the decal (slot 6) with its own UVs, and which edges of the base
                map are clamped (see `_wrapTex0`). */
             decal:(part.glDecal&&part.glDecal.gl&&part.uvDecal&&part.uvDecal.length)? part.glDecal.gl : null,
+            // Round 18ev: whether the glow reads a UV set of its own (see `uHasGlowUV`).
+            glowUV:!!(part.uvGlow && part.uvGlow.length),
             clamp:part.clamp|0,
             // Round 18dl: the environment map and the bump map that perturbs it.
             env:(part.glEnv&&part.glEnv.gl)||null, envClamp:part.envClamp|0,
@@ -3163,6 +3411,28 @@ class Renderer{
     gl.activeTexture(gl.TEXTURE0);
     t._wrap=bits;
   }
+  /** Round 18ey: which frame of a flipbook is showing now, as a GL texture, or null when
+   *  the shape has none - which is nearly every shape.
+   *
+   *  `NiFlipController`: the slot's texture is the frame at `(t - texStart) / delta`,
+   *  wrapped by the number of frames, on the controller's own clock - the same `_uvSecs`
+   *  the UV animations and the node animations run on, so a mesh whose water flows *and*
+   *  scrolls keeps the two in step. OpenMW's `FlipController::apply` is the same
+   *  arithmetic. The window is honoured where the file gives one (Tamriel Rebuilt's
+   *  circle says 0..2.08, exactly its thirty-two frames at 0.065s) and taken as the whole
+   *  book where it does not, so a controller with no stop time loops rather than running
+   *  off the end and sticking on the last frame. */
+  _flipTex(b){
+    const f=b.flip, ts=b.flipTex;
+    if(!f || !ts || ts.length<2 || !(f.delta>0)) return null;
+    const span=(f.stop>f.start)? (f.stop-f.start) : (f.delta*ts.length);
+    let u=(this._uvSecs||0)*(f.freq||1)+(f.phase||0)-f.start;
+    if(span>0){ u%=span; if(u<0) u+=span; }
+    let k=Math.floor((u-(f.texStart||0))/f.delta);
+    k=((k%ts.length)+ts.length)%ts.length;
+    const g=ts[k];
+    return (g&&g.gl)||null;
+  }
   _meshTex(pr,b){
     const gl=this.gl;
     // Round 18ag: a skinned shape is posed for this instant before any pass draws it.
@@ -3171,8 +3441,14 @@ class Renderer{
     // re-pose the shared buffers between the actor's draw and the copy's, and the two
     // would differ and fight.
     if(b.skin) this._skinUpdate(b.skin, (b._copy && b.skin._skinAt!=null)? b.skin._skinAt : this._skinClock(b));
-    this._bindTex0(b.tex||this.white);
-    if(b.tex && (b.tex._wrap|0)!==(b.clamp|0)) this._wrapTex0(b.tex, b.clamp|0);
+    // Round 18ff: and the pose is the shader's - the bones, or nothing to do.
+    this._skinUniforms(pr,b);
+    /* Round 18ey: the flipbook's frame for this instant, where there is one. `b.tex` is
+       the first frame - what an exporter writes into the base slot and what the tool drew
+       for ever - so a shape with no flipbook is bound exactly as it was. */
+    const t0=this._flipTex(b)||b.tex||this.white;
+    this._bindTex0(t0);
+    if(b.tex && (t0._wrap|0)!==(b.clamp|0)) this._wrapTex0(t0, b.clamp|0);
     this._u1i(pr,'uHasTex',b.tex?1:0);
     this._u1i(pr,'uAlphaFn',b.tex?b.alpha.fn:-1);
     this._u1f(pr,'uAlphaRef',b.alpha.ref);
@@ -3191,6 +3467,12 @@ class Renderer{
     /* Wraithguard: the mesh viewer's per-map switches ({detail, dark, decal, env, glow,
        normal, specular} - true is off). */
     const off=this.opts.mapsOff||NO_MAPS_OFF;
+    // Round 18ez: the billboard's frame, or none - the shader turns it per instance.
+    if(pr.u.uBB){
+      const bb=b.billboard;
+      this._u1i(pr,'uBB', bb? (bb.mode|0)+1 : 0);
+      if(bb){ this.gl.uniform3fv(pr.u.uBBOrigin, bb.origin); this._u1f(pr,'uBBScale', bb.scale||1); }
+    }
     if(pr.u.uHasDetail){
       const d=off.detail? null : (b.detail||null);
       this._u1i(pr,'uHasDetail',d?1:0);
@@ -3270,6 +3552,11 @@ class Renderer{
       const g=off.glow? null : (b.glow||null);
       this._u1i(pr,'uHasGlow', g?1:0);
       if(g){ this._bindUnit(6,g); this._u1i(pr,'uGlow',6); }
+      /* Round 18ev: and whether this shape's glow reads a UV set of its own. Nought on
+         every vanilla and OAAB shape, where the glow is on set 0 and `vUVG` is not even
+         uploaded - the shader falls back to the base's UVs, which is what it always
+         used. */
+      if(pr.u.uHasGlowUV) this._u1i(pr,'uHasGlowUV', b.glowUV? 1 : 0);
     }
     /* Round 17m: the shape's texture matrix at this instant, and its glow. `_uvSecs` is
        the clock the whole frame shares, so the two sheets of a waterfall stay in the
@@ -3653,7 +3940,7 @@ class Renderer{
       col[i*4]=cc[0]*f; col[i*4+1]=cc[1]*f; col[i*4+2]=cc[2]*f; col[i*4+3]=L.neg? -1 : 1;
     }
     this._lights={n, p, c:col, att};
-    this._lightGrid(list, p, col, att);
+    this._lightGrid(list, p, col, att, e);
   }
   /** Round 18i: which renderer's lamp falloff the install runs, from the engine's
    *  `renderer` reply (25_sky.js keeps it): `model` 0 the fixed pipeline, 1 MGE XE's
@@ -3689,7 +3976,7 @@ class Renderer{
    *  lamps' own reach, so an empty quarter of the view costs no columns. LIGHT_GRID_MAX
    *  caps the side, and a scene wider than that gets larger columns rather than a refused
    *  grid — coarser bins, never a wrong answer. */
-  _lightGrid(list, p, col, att){
+  _lightGrid(list, p, col, att, eye){
     const gl=this.gl, n=list.length;
     if(!n){ this._lgrid=null; return; }
     // Round 18i: the shader's reach - twice the radius, or twice OpenMW's bounds radius.
@@ -3717,13 +4004,35 @@ class Renderer{
       for(let cy=cy0;cy<=cy1;cy++) for(let cx=cx0;cx<=cx1;cx++){
         const k=cy*gw+cx;
         let a=cells[k]; if(!a){ a=cells[k]=[]; }
-        /* Past the per-column cap the lamp is dropped from *that column only*, nearest
-           first — the shader's loop is bounded by the same number, so a column that
-           overflowed would otherwise have its tail silently ignored anyway. Dropping the
-           furthest is the same choice the budget makes, made locally. */
-        if(a.length<LIGHT_BIN_MAX){ a.push(i); total++; }
+        a.push(i);
       }
     }
+    /* Past the per-column cap the lamp is dropped from *that column only* - the shader's
+       loop is bounded by the same number, so a column that overflowed would otherwise have
+       its tail silently ignored anyway. Round 18hn: which lamps go. This used to keep the
+       first LIGHT_BIN_MAX in list order, which is the order the references came in, while
+       the comment said "nearest first"; and the cap was 32. Mordrin Hanin's Tomb (The
+       Wake of Hanin) has 236 lights of radius 512 to 1,000 spread through a room 17,800
+       units tall, and a 2D column under a stack of floors collects every floor's lamps:
+       37 of its 241 columns held more than 32, the fullest 59, and at three of its 41
+       flake emitters every lamp that actually reached the spot had been dropped in favour
+       of lamps on other floors that came earlier in the file. So a column that overflows
+       keeps the lamps worth most to it - the budget's own measure, radius over distance -
+       and the cap is twice what it was. The distance is taken from the column's centre
+       at the eye's height: the column has no height of its own, and two lamps at the same
+       spot on different floors are told apart only by how far each stands from the floor
+       the viewer is on. A lamp thirty floors up ranks below one at head height. */
+    const half=bin*Math.SQRT1_2, ez=eye? eye[2] : 0;
+    for(let k=0;k<gw*gw;k++){
+      const a=cells[k];
+      if(!a || a.length<=LIGHT_BIN_MAX) continue;
+      const ccx=x0+(k%gw+0.5)*bin, ccy=y0+(Math.floor(k/gw)+0.5)*bin;
+      const worth=i=>{ const L=list[i]; const dxy=Math.max(Math.hypot(L.p[0]-ccx, L.p[1]-ccy)-half, 0);
+        return L.r/Math.max(Math.hypot(dxy, L.p[2]-ez), 1); };
+      a.sort((i,j)=>worth(j)-worth(i));
+      a.length=LIGHT_BIN_MAX;
+    }
+    for(let k=0;k<gw*gw;k++){ const a=cells[k]; if(a) total+=a.length; }
     const bins=new Int32Array(gw*gw*2);
     const index=new Int32Array(Math.max(1,total));
     let at=0;
@@ -3769,10 +4078,14 @@ class Renderer{
    *
    *  Two vertices a segment, drawn with `gl.LINES`. Built once, on the unit sphere; the
    *  draw scales it by whatever radius the ball has at this distance. */
+  _ensurePivot(){
+    if(!this.progPivot) this.progPivot=this._prog(VS_PIVOT,FS_PIVOT);
+    return this.progPivot;
+  }
   _pivotGeom(){
     if(this._pivot) return this._pivot;
     const gl=this.gl;
-    if(!this.progPivot) this.progPivot=this._prog(VS_PIVOT,FS_PIVOT);
+    this._ensurePivot();
     const N=PIVOT_SEGS, v=[];
     const ring=(ax,ay)=>{
       const at=t=>{ const c=Math.cos(t), s=Math.sin(t);
@@ -3839,11 +4152,14 @@ class Renderer{
     if(this.hlTex===v) return;
     this.hlTex=v; this.dirty=true;
   }
-  /** Light up every grass instance a slot placed, dimming the rest. Pass null to clear. */
+  /** Light up every grass instance a slot placed, dimming the rest. Pass null to clear.
+   *  Round 18fc: or several slots at once - a list of keys - for a card shared by every
+   *  rule in a multi-selection, so all of those rules' blades of that mesh light up. */
   setGrassHighlight(key){
-    const v=key==null? null : String(key);
+    const keys=key==null? null : (Array.isArray(key)? key.map(String) : [String(key)]);
+    const v=keys? keys.join('\n') : null;
     if(this.hlSlot===v) return;
-    this.hlSlot=v; this.dirty=true;
+    this.hlSlot=v; this._hlSet=keys? new Set(keys) : null; this.dirty=true;
   }
   /** The lamps the cell puts in the scene, and whether anything in it moves.
    *
@@ -3857,6 +4173,9 @@ class Renderer{
    *  goes on drawing only when something asks for it. */
   setStatics(b){
     this.statics=b||[];
+    /* Round 18ej: the sun's still-caster cache keys on this. Bumped here rather than
+       compared by identity, because a caller may hand back the same array it mutated. */
+    this._casterRev=(this._casterRev|0)+1;
     // Round 18q: the objects are in the ground map now, so swapping them changes it.
     this.groundMapStale=true;
     // Round 17y: a moving node or a fading material keeps the frames coming the same way.
@@ -3952,7 +4271,8 @@ class Renderer{
                in one must not share a group. */
             (b.ambient||b.diffuse||[1,1,1]).join(','), b.vcolHas?1:0, id(b.decal), b.clamp|0, b.zwrite===false? 'z':'',
             id(b.env), b.envClamp|0, id(b.bump), b.bump? (b.bumpLuma.join(',')+'/'+b.bumpMat.join(',')) : '',
-            (b.anim||b.uvAnim||b.uvAnim2)? 'own'+this._texId(b) : ''].join('');
+            // Round 18ey: and its flipbook, which swaps unit 0's texture at the draw.
+            (b.anim||b.uvAnim||b.uvAnim2||b.flip||b.billboard)? 'own'+this._texId(b) : ''].join('');
   }
   _texId(t){
     if(!this._texIds) this._texIds=new WeakMap();
@@ -4055,9 +4375,10 @@ class Renderer{
     /* 2. Every part a run draws, once, at its place in the scene buffers; then the baked
        copies, group by group, batch by batch, instance by instance. */
     const parts=new Map();
-    let nv=0, ni=0, anyUv2=false, anyUvd=false, anyUvdc=false;
+    let nv=0, ni=0, anyUv2=false, anyUvd=false, anyUvdc=false, anyUvg=false;
     const sees=p=>{ const vc=vcOf(p); if(p.uv2 && p.uv2.length===vc*2) anyUv2=true; if(p.uvDark && p.uvDark.length===vc*2) anyUvd=true;
-                    if(p.uvDecal && p.uvDecal.length===vc*2) anyUvdc=true; };
+                    if(p.uvDecal && p.uvDecal.length===vc*2) anyUvdc=true;
+                    if(p.uvGlow && p.uvGlow.length===vc*2) anyUvg=true; };   // round 18ev
     for(const b of able){
       if(baked.has(b)) continue;
       const p=b.part;
@@ -4072,6 +4393,7 @@ class Renderer{
     const uv2=anyUv2? new Float32Array(nv*2) : null;
     const uvd=anyUvd? new Float32Array(nv*2) : null;
     const uvdc=anyUvdc? new Float32Array(nv*2) : null;
+    const uvg=anyUvg? new Float32Array(nv*2) : null;   // round 18ev: the glow's own set
     const inst=new Int32Array(nv);
     const idx=new Uint32Array(ni);
     const copy=(p,vb,ib)=>{
@@ -4081,6 +4403,7 @@ class Renderer{
       if(uv2 && p.uv2 && p.uv2.length===vc*2) uv2.set(p.uv2,vb*2);
       if(uvd && p.uvDark && p.uvDark.length===vc*2) uvd.set(p.uvDark,vb*2);
       if(uvdc && p.uvDecal && p.uvDecal.length===vc*2) uvdc.set(p.uvDecal,vb*2);
+      if(uvg && p.uvGlow && p.uvGlow.length===vc*2) uvg.set(p.uvGlow,vb*2);
       const pi=p.idx;
       for(let k=0;k<pi.length;k++) idx[ib+k]=pi[k]+vb;
     };
@@ -4175,6 +4498,7 @@ class Renderer{
     if(uv2) attr(7,uv2,2,gl.FLOAT);
     if(uvd) attr(9,uvd,2,gl.FLOAT);
     if(uvdc) attr(10,uvdc,2,gl.FLOAT);
+    if(uvg) attr(11,uvg,2,gl.FLOAT);   // round 18ev
     if(BR){
       // The baked copies' instance numbers, an integer attribute (round 18cs).
       const b=this._buf(inst); bufs.push(b);
@@ -4202,15 +4526,25 @@ class Renderer{
                   bkBox, bkOff, bkCount, bkInst, baked:BR, bakedVerts:bakeV, bakedInst:bkInst.reduce((a,b)=>a+b,0),
                   batches:able.length, multi, cullVP:null,
                   bytes:(pos.byteLength+nrm.byteLength+uv.byteLength+col.byteLength+idx.byteLength+
-                         (uv2? uv2.byteLength:0)+(uvd? uvd.byteLength:0)+(uvdc? uvdc.byteLength:0)+(BR? inst.byteLength:0)+itex.byteLength)};
+                         (uv2? uv2.byteLength:0)+(uvd? uvd.byteLength:0)+(uvdc? uvdc.byteLength:0)+(uvg? uvg.byteLength:0)+(BR? inst.byteLength:0)+itex.byteLength)};
   }
   /** Which runs of each group are on screen for this view, as the sub-draws of a frame.
    *  Cached on the view matrix: the opaque and the translucent phase of one frame look
    *  through the same one, the reflection through its own. Round 18cs: the bake runs
    *  too, neighbours merged into one index range. */
-  _cullGroups(G,planes,VP,clipZ){
-    if(G.cullVP===VP) return;
-    G.cullVP=VP;
+  _cullGroups(G,planes,VP,clipZ,far,eye){
+    if(G.cullVP===VP && G.cullFar===(far||0)) return;
+    G.cullVP=VP; G.cullFar=far||0;
+    /* Round 18hi: and past the room's view distance (`uViewFade`): a run whose box is
+       wholly further than the distance from the eye has no fragment the shader would
+       keep, so it is skipped before the draw. The nearest point of the box to the eye,
+       radially, the way the shader measures. */
+    const f2=(far>0)? far*far : 0, ex=eye? eye[0] : 0, ey=eye? eye[1] : 0, ez=eye? eye[2] : 0;
+    const tooFar=(box,o)=>{
+      if(!f2) return false;
+      const dx=Math.max(box[o]-ex, 0, ex-box[o+3]), dy=Math.max(box[o+1]-ey, 0, ey-box[o+4]), dz=Math.max(box[o+2]-ez, 0, ez-box[o+5]);
+      return dx*dx+dy*dy+dz*dz>f2;
+    };
     /* Round 18ct: in the reflection, what stands wholly under the water line is skipped
        here rather than discarded fragment by fragment - a jetty's piles, a sunk boat, the
        river bed's clutter. `clipZ` is null in every other pass. */
@@ -4221,6 +4555,7 @@ class Renderer{
     const pl=[p0,p1,p2,p3,p4,p5];
     const seen=(box,o)=>{
       if(box[o+5]<zc) return false;
+      if(tooFar(box,o)) return false;
       for(let i=0;i<6;i++){
         const p=pl[i];
         const x=p[0]>=0? box[o+3] : box[o], y=p[1]>=0? box[o+4] : box[o+1], z=p[2]>=0? box[o+5] : box[o+2];
@@ -4526,6 +4861,7 @@ class Renderer{
     for(let i=0;i<n;i++){
       const o=i*8, r=src[o+3];
       rad[i]=r;
+      if(src[o+7]<-3.5 && src[o+5]<=0) continue;   // a clip plane has no place of its own (18hu)
       for(let k=0;k<3;k++){
         if(src[o+k]-r<lo[k]) lo[k]=src[o+k]-r;
         if(src[o+k]+r>hi[k]) hi[k]=src[o+k]+r;
@@ -4537,7 +4873,7 @@ class Renderer{
        same shape of grid rather than the same number of boxes, which is what lets one
        constant serve both. The median rather than the mean because one enormous mark
        from a cell-wide brush should not coarsen the grid for a thousand small ones. */
-    const sorted=Float32Array.from(rad).sort();
+    const sorted=Float32Array.from(rad.filter((r,i)=>!(src[i*8+7]<-3.5 && src[i*8+5]<=0))).sort();
     const med=sorted[sorted.length>>1]||1;
     let cell=Math.max(med*DAB_GRID_CELL_R,1e-3);
     let N=[1,1,1], cells=0;
@@ -4555,16 +4891,19 @@ class Renderer{
     // land in one flat array with no per-cell allocation.
     const a=new Int32Array(n*3), b=new Int32Array(n*3);
     const counts=new Int32Array(cells);
-    /* Shade marks get no boxes: they act only through the mark before them — the
-       shader reads a parent's shade run forward from the parent's own index — so a
-       list entry for one would be walked and skipped, and a subset list cannot keep a
-       shade beside its parent anyway. Its sphere lies inside the parent's, so the
-       parent's boxes already cover everywhere the run matters. Same rule as the
-       engine's `DabGrid::build`. */
-    const isShade=i=>src[i*8+7]<-3.5;
+    /* Round 18ht: shade marks have boxes of their own, like every other mark. They had
+       none while the shader read a parent's run forward from the parent's own index,
+       which stopped being affordable when a run grew from 47 spots to hundreds; the
+       shader now bites a pending mark with each spot the walk meets, matched by the
+       count back the spot carries, so a spot listed in a box without its parent is
+       simply skipped. Same rule as the engine's `DabGrid::build`. */
+    const isClip=i=>src[i*8+7]<-3.5 && src[i*8+5]<=0;
     for(let i=0;i<n;i++){
-      if(isShade(i)){ for(let k=0;k<3;k++){ a[i*3+k]=1; b[i*3+k]=0; } continue; }
-      const o=i*8, r=rad[i];
+      /* A clip plane (18hu) has no sphere; it is met wherever the mark it rides is, so
+         it takes that mark's box — the row its slot counts back to. */
+      let j=i;
+      if(isClip(i)){ j=i-(src[i*8+6]|0); if(j<0||j>=n) j=i; }
+      const o=j*8, r=rad[j];
       for(let k=0;k<3;k++){
         let f0=Math.floor((src[o+k]-r-lo[k])*inv[k]);
         let f1=Math.floor((src[o+k]+r-lo[k])*inv[k]);
@@ -4706,6 +5045,12 @@ class Renderer{
    *  Freed with the mesh cache (`dropPartGpu`), which is the only thing that lets a part go. */
   _partGpu(part){
     const gl=this.gl;
+    /* Round 18ff: a phase bin's copy of a skinned part (`phasedPart`, an object whose
+       prototype is the part) draws from the part's own buffers - the shader poses it from
+       the copy's bone texture - so the buffers are made on, and kept by, the part. A
+       morph-animated copy writes its buffers each frame and keeps its own. */
+    const proto=Object.getPrototypeOf(part);
+    if(proto && proto.pos===part.pos && !part.morph) part=proto;
     if(part._gpu && part._gpu.gl===gl) return part._gpu;
     /* Round 18cr: off any vertex array first. The index buffer below is bound to make
        it, and ELEMENT_ARRAY_BUFFER is *vertex-array state* - built lazily from inside
@@ -4717,7 +5062,14 @@ class Renderer{
              uv2:(part.uv2 && part.uv2.length)? this._buf(part.uv2) : null,
              uvd:(part.uvDark && part.uvDark.length)? this._buf(part.uvDark) : null,
              uvdc:(part.uvDecal && part.uvDecal.length)? this._buf(part.uvDecal) : null,   // round 18df
+             uvg:(part.uvGlow && part.uvGlow.length)? this._buf(part.uvGlow) : null,        // round 18ev
              col:this._colBuf4(part),
+             /* Round 18ff: the skin's bone slots, weights, skin-space vertices and normals,
+                for the vertex shader to pose from. Nothing on the still majority. */
+             bi:(part.skin && !part.morph)? this._buf(part.skin.idx) : null,
+             bw:(part.skin && !part.morph)? this._buf(part.skin.w) : null,
+             sp:(part.skin && !part.morph)? this._buf(part.skin.pos) : null,
+             sn:(part.skin && !part.morph && part.skin.nrm)? this._buf(part.skin.nrm) : null,
              ib:this._buf(part.idx, gl.ELEMENT_ARRAY_BUFFER)};
     part._gpu=g;
     (this._partGpuAll||(this._partGpuAll=new Set())).add(g);
@@ -4727,7 +5079,7 @@ class Renderer{
   dropPartGpu(){
     const gl=this.gl;
     for(const g of (this._partGpuAll||[])){
-      for(const k of ['pos','nrm','uv','uv2','uvd','uvdc','col','ib']) if(g[k]){ try{ gl.deleteBuffer(g[k]); }catch(_){ } }
+      for(const k of ['pos','nrm','uv','uv2','uvd','uvdc','uvg','col','bi','bw','sp','sn','ib']) if(g[k]){ try{ gl.deleteBuffer(g[k]); }catch(_){ } }
       g.gl=null;
     }
     this._partGpuAll=new Set();
@@ -4762,6 +5114,11 @@ class Renderer{
             nrmH:!!(part.glNrm && part.nrmHeight && part.glNrm.alpha && part.glNrm.alpha!=='opaque'),
             spec:(part.glSpec&&part.glSpec.gl)||null,
             gloss:(part.glGloss&&part.glGloss.gl)||null,
+            /* Round 18ey: the flipbook and its frames, as GL textures. The draw picks one
+               by the clock (`_flipTex`); `tex` above stays the first frame, which is what
+               a shape with no flipbook - nearly all of them - draws. */
+            flip:part.flip||null, flipTex:(part.glFlip||null),
+            billboard:part.billboard||null,   // round 18ez
             dark:(part.glDark&&part.glDark.gl&&part.uvDark&&part.uvDark.length)? part.glDark.gl : null,   // round 17y
             /* Round 17m: the shape's UV animation and its emissive colour ride with the
                batch, since both are per-shape facts the draw has to set. */
@@ -4780,6 +5137,8 @@ class Renderer{
             /* Round 18df: the decal (slot 6) with its own UVs, and which edges of the base
                map are clamped (see `_wrapTex0`). */
             decal:(part.glDecal&&part.glDecal.gl&&part.uvDecal&&part.uvDecal.length)? part.glDecal.gl : null,
+            // Round 18ev: whether the glow reads a UV set of its own (see `uHasGlowUV`).
+            glowUV:!!(part.uvGlow && part.uvGlow.length),
             clamp:part.clamp|0,
             // Round 18dl: the environment map and the bump map that perturbs it.
             env:(part.glEnv&&part.glEnv.gl)||null, envClamp:part.envClamp|0,
@@ -4804,7 +5163,16 @@ class Renderer{
     if(g.uvd){ gl.bindBuffer(gl.ARRAY_BUFFER,g.uvd); gl.enableVertexAttribArray(9); gl.vertexAttribPointer(9,2,gl.FLOAT,false,0,0); }
     // Round 18df: the decal's UV set, when the shape has one.
     if(g.uvdc){ gl.bindBuffer(gl.ARRAY_BUFFER,g.uvdc); gl.enableVertexAttribArray(10); gl.vertexAttribPointer(10,2,gl.FLOAT,false,0,0); }
+    if(g.uvg){ gl.bindBuffer(gl.ARRAY_BUFFER,g.uvg); gl.enableVertexAttribArray(11); gl.vertexAttribPointer(11,2,gl.FLOAT,false,0,0); }   // 18ev
     gl.bindBuffer(gl.ARRAY_BUFFER,g.col); gl.enableVertexAttribArray(6); gl.vertexAttribPointer(6,4,gl.UNSIGNED_BYTE,true,0,0);
+    // Round 18ff: the skin, for the shader to pose (see SKIN_GLSL). Integer slots, so
+    // `vertexAttribIPointer` - a float pointer would hand the shader 255.0 as 1.0.
+    if(g.bi && g.bw && g.sp){
+      gl.bindBuffer(gl.ARRAY_BUFFER,g.bi); gl.enableVertexAttribArray(12); gl.vertexAttribIPointer(12,4,gl.UNSIGNED_BYTE,0,0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,g.bw); gl.enableVertexAttribArray(13); gl.vertexAttribPointer(13,4,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,g.sp); gl.enableVertexAttribArray(14); gl.vertexAttribPointer(14,3,gl.FLOAT,false,0,0);
+      if(g.sn){ gl.bindBuffer(gl.ARRAY_BUFFER,g.sn); gl.enableVertexAttribArray(15); gl.vertexAttribPointer(15,3,gl.FLOAT,false,0,0); }
+    }
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,g.ib);
     const mb=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,mb);
     gl.bufferData(gl.ARRAY_BUFFER,inst.m,gl.STATIC_DRAW);
@@ -4857,6 +5225,46 @@ class Renderer{
     const sk=part.skin, mo=part.morph, g=part._gpu;
     if((!sk && !mo) || !g || g.gl!==this.gl || part._skinAt===secs) return;
     part._skinAt=secs;
+    /* Round 18ff: a skinned shape without morph targets is posed by the vertex shader
+       (SKIN_GLSL). What changes per frame is the bones' matrices - a handful of 3x4s -
+       written into the part's bone texture; the vertex buffers are never touched. The
+       texture is the posed part's own, so a phase bin's copy (`phasedPart`) has one of
+       its own over the buffers it shares with the part. */
+    if(sk && !mo && this.gpuSkin!==false){
+      const gl=this.gl;
+      const t=secs*(part._animSpeed||1)+(part._animShift||0);
+      const mats=skinBoneMats(sk, t), nb=sk.bones.length;
+      let bt=part._skinTex;
+      if(!bt || bt.gl!==gl || bt.n!==nb){
+        if(bt && bt.gl===gl){ try{ gl.deleteTexture(bt.tex); }catch(_){ } }
+        const tex=gl.createTexture();
+        gl.activeTexture(gl.TEXTURE0+BONE_UNIT); gl.bindTexture(gl.TEXTURE_2D,tex);
+        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,nb*3,1,0,gl.RGBA,gl.FLOAT,null);
+        gl.activeTexture(gl.TEXTURE0);
+        bt=part._skinTex={gl, tex, n:nb, data:new Float32Array(nb*12)};
+        if(this._texU) this._texU[BONE_UNIT]=undefined;
+        (this._skinTexAll||(this._skinTexAll=new Set())).add(bt);
+      }
+      // Three rows a bone: the rotation with the scale folded in, the translation in w.
+      const d=bt.data;
+      for(let b=0;b<nb;b++){
+        const M=mats[b], m=M.m, s=M.s, o=b*12;
+        d[o]=m[0]*s; d[o+1]=m[1]*s; d[o+2]=m[2]*s;  d[o+3]=m[9];
+        d[o+4]=m[3]*s; d[o+5]=m[4]*s; d[o+6]=m[5]*s;  d[o+7]=m[10];
+        d[o+8]=m[6]*s; d[o+9]=m[7]*s; d[o+10]=m[8]*s; d[o+11]=m[11];
+      }
+      gl.activeTexture(gl.TEXTURE0+BONE_UNIT); gl.bindTexture(gl.TEXTURE_2D,bt.tex);
+      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,nb*3,1,gl.RGBA,gl.FLOAT,d);
+      gl.activeTexture(gl.TEXTURE0);
+      if(this._texU) this._texU[BONE_UNIT]=bt.tex;
+      part._skinGpu=true;
+      return;
+    }
+    part._skinGpu=false;
     const np=sk? sk.pos.length : part.pos.length;
     if(!part._skinPos || part._skinPos.length!==np){
       part._skinPos=new Float32Array(np);
@@ -4873,6 +5281,23 @@ class Renderer{
     gl.bindBuffer(gl.ARRAY_BUFFER,g.pos); gl.bufferSubData(gl.ARRAY_BUFFER,0,part._skinPos);
     if(part._skinNrm){ gl.bindBuffer(gl.ARRAY_BUFFER,g.nrm); gl.bufferSubData(gl.ARRAY_BUFFER,0,part._skinNrm); }
     gl.bindBuffer(gl.ARRAY_BUFFER,null);
+  }
+  /** Round 18ff: tells a program whether the batch it is about to draw is posed by the
+   *  shader, and hands it the bones when it is. Nought - the bind pose off the buffers -
+   *  for everything else, including a skinned part posed on the CPU (morphs). */
+  _skinUniforms(pr,b){
+    if(!pr.u.uSkin) return;
+    const p=b.skin, bt=p && p._skinGpu && p._skinTex;
+    if(!bt || bt.gl!==this.gl){ this._u1i(pr,'uSkin',0); return; }
+    this._u1i(pr,'uSkin', (p._gpu && p._gpu.sn)? 2 : 1);
+    this._bindUnit(BONE_UNIT, bt.tex);
+    this._u1i(pr,'uBones',BONE_UNIT);
+  }
+  /** Frees every bone texture, with the mesh cache. */
+  dropSkinTex(){
+    const gl=this.gl;
+    for(const bt of (this._skinTexAll||[])){ if(bt.gl===gl){ try{ gl.deleteTexture(bt.tex); }catch(_){ } } bt.gl=null; }
+    this._skinTexAll=new Set();
   }
   /* ---------------- one mesh, on its own, as pixels ----------------
 
@@ -4901,6 +5326,14 @@ class Renderer{
     for(const part of parts){
       batches.push(this.buildStaticBatch(part,{m,n:1},part.glTex? part.glTex.gl : null));
       const v=part.pos;
+      /* Round 18ez: a billboard's vertices sit about its node's origin and turn every
+         which way; what it can reach is a sphere about that origin. */
+      const bb=part.billboard;
+      if(bb){
+        const {o,r}=billboardReach(part);
+        for(let k=0;k<3;k++){ if(o[k]-r<lo[k])lo[k]=o[k]-r; if(o[k]+r>hi[k])hi[k]=o[k]+r; }
+        continue;
+      }
       for(let i=0;i<v.length;i+=3)
         for(let k=0;k<3;k++){ const c=v[i+k];
                               if(c<lo[k])lo[k]=c; if(c>hi[k])hi[k]=c; }
@@ -4922,6 +5355,13 @@ class Renderer{
     let rxy=1, rz=1;
     for(const part of parts){
       const v=part.pos;
+      const bb=part.billboard;
+      if(bb){   // round 18ez: its reach about its origin, in every direction
+        const {o,r}=billboardReach(part);
+        rxy=Math.max(rxy, Math.hypot(o[0]-c[0],o[1]-c[1])+r);
+        rz=Math.max(rz, Math.abs(o[2]-c[2])+r);
+        continue;
+      }
       for(let i=0;i<v.length;i+=3){
         rxy=Math.max(rxy,Math.hypot(v[i]-c[0],v[i+1]-c[1]));
         rz=Math.max(rz,Math.abs(v[i+2]-c[2]));
@@ -4930,8 +5370,10 @@ class Renderer{
     return {batches,c,rxy,rz};
   }
 
-  /** Draws a prepared mesh at one angle and reads the pixels back. */
-  thumbDraw(h,angle,size){
+  /** Draws a prepared mesh at one angle and reads the pixels back. `opts.lit` is
+   *  'material' to light it as the scene would (the material's own ambient) - for a test
+   *  of that rule; a portrait is otherwise lit plainly (18fc, below). */
+  thumbDraw(h,angle,size,opts){
     if(!h) return null;
     const gl=this.gl;
     size=size||96;
@@ -5048,8 +5490,20 @@ class Renderer{
     if(st.u.uLightN)    gl.uniform1i(st.u.uLightN,0);
     if(st.u.uLampModel) gl.uniform1i(st.u.uLampModel,0);
     if(st.u.uPivot)     gl.uniform4fv(st.u.uPivot,[0,0,0,-1]);
+    /* Round 18fc, Robin: "The meshes in the grass card mesh preview squares are too dark,
+       and I can't see the meshes properly." Two more of the scene's leftovers, both since
+       18ee/18de: the sun's shadow was still switched on from the last frame, so `gdnShade`
+       read the scene's cascades for a mesh standing at the world's origin and darkened it
+       by whatever the atlas held there; and the material's own ambient (18de) - 0.1 under
+       a white diffuse on many meshes - took the fill light away, so a crossed grass quad
+       edge-on to the portrait's sun drew at a twentieth. A portrait is lit plainly: no
+       shadow, and the ambient part of the light at the diffuse, which is how every mesh
+       was lit here before 18de. */
+    if(st.u.uShadow)    gl.uniform1i(st.u.uShadow,0);
+    const plain=!(opts && opts.lit==='material');
     for(const b of h.batches){
       this._meshTex(st,b);
+      if(plain && st.u.uMatAmbient) this._u3(st,'uMatAmbient', b.diffuse);
       this._meshMode(st,b,false);   // lit or unlit as the shape says; both sides, as above
       gl.bindVertexArray(b.vao);
       gl.drawElementsInstanced(gl.TRIANGLES,b.count,gl.UNSIGNED_SHORT,0,1);
@@ -5079,6 +5533,7 @@ class Renderer{
   }
 
   disposeStatics(){
+    this._casterRev=(this._casterRev|0)+1;   // round 18ej: the shadow cache is stale
     // Round 17w: the particle systems are the objects', and go with them.
     if(this.clearParticles) this.clearParticles();
     for(const b of this.statics) this._dropVao(b);
@@ -5110,8 +5565,34 @@ class Renderer{
     try{ gl.deleteTexture(t.tex); }catch(_){ }
     if(t.grid){ try{ gl.deleteTexture(t.grid.tex); }catch(_){ } }
   }
+  /** Wraithguard: distant land (57_wg_distant.js) - one mesh past the loaded rings, drawn
+   *  by the terrain's program after the cells; `null` clears it. */
+  setDistant(mesh){
+    const gl=this.gl;
+    if(this.distant){ try{ gl.deleteVertexArray(this.distant.vao); for(const b of this.distant.bufs) gl.deleteBuffer(b); }catch(_){ } }
+    this.distant=null;
+    if(!mesh || !mesh.idx || !mesh.idx.length){ this.dirty=true; return; }
+    const vao=gl.createVertexArray(); gl.bindVertexArray(vao);
+    const bufs=[];
+    bufs.push(this._buf(mesh.pos)); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);
+    bufs.push(this._buf(mesh.nrm)); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,3,gl.FLOAT,false,0,0);
+    bufs.push(this._buf(mesh.uv));  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2,2,gl.FLOAT,false,0,0);
+    bufs.push(this._colBuf(mesh));  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3,3,gl.UNSIGNED_BYTE,true,0,0);
+    const ib=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib); bufs.push(ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,mesh.idx,gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    // Its box, for the water (26_water.js), which goes on over it.
+    let bx0=Infinity,by0=Infinity,bx1=-Infinity,by1=-Infinity;
+    for(let i=0;i<mesh.pos.length;i+=3){
+      const x=mesh.pos[i], y=mesh.pos[i+1];
+      if(x<bx0)bx0=x; if(x>bx1)bx1=x; if(y<by0)by0=y; if(y>by1)by1=y;
+    }
+    this.distant={vao,count:mesh.idx.length,bufs,box:[bx0,by0,bx1,by1]};
+    this.dirty=true;
+  }
   setGround(mesh,tex,tile){
     const gl=this.gl;
+    this._casterRev=(this._casterRev|0)+1;   // round 18ej
     for(const c of (this.cellChunks||[])){ try{ gl.deleteVertexArray(c.vao); }catch(_){ } }
     this.cellChunks=[];
     const vao=gl.createVertexArray(); gl.bindVertexArray(vao);
@@ -5330,6 +5811,7 @@ class Renderer{
        rebuilds the scene with most of its chunks unchanged - the cell preview hands the
        same chunk objects back - and uploading their vertex arrays and coverage maps
        again was paid for nothing. What is freed is what did not come back. */
+    this._casterRev=(this._casterRev|0)+1;   // round 18ej: the terrain casts, so the cache is stale
     const keep=new Set(chunks||[]);
     const held=new Map();
     for(const c of (this.cellChunks||[])){
@@ -5372,7 +5854,7 @@ class Renderer{
         // whenever the view moves and the paint is not, so they cannot hold it directly.
         grid:ch.grid||null,
         inner:ch.inner||16,total:ch.total||(ch.inner||16),
-        layers:(ch.layers||[]).map((L,i)=>({id:L.id||'', tex:L.tex||null, flat:L.flat||null,
+        layers:(ch.layers||[]).map((L,i)=>({id:L.id||'', tex:L.tex||null, flat:L.flat||null, absent:!!L.absent,
           nrm:L.nrm||null, specA:!!L.specA,
           blend:L.blend? this.makeBlendMap(L.blend,L.size||16):null,
           off:ranges.off[i]|0, count:ranges.count[i]|0}))});
@@ -5834,6 +6316,14 @@ class Renderer{
     const ca=Math.cos(c.az), sa=Math.sin(c.az);
     return [c.tx+c.dist*ce*ca, c.ty+c.dist*ce*sa, c.tz+c.dist*se];
   }
+  /** Round 18ht: the way the camera faces, a unit vector from the eye towards its
+      target — what the brush is told so that, standing inside the sphere with nothing
+      blocking, what is behind you takes no paint. */
+  cameraLook(){
+    const c=this.cam;
+    const ce=Math.cos(c.el), se=Math.sin(c.el);
+    return [-ce*Math.cos(c.az), -ce*Math.sin(c.az), -se];
+  }
 
   /** The ray from the eye through a point on screen: `{eye, dir}`, both world. */
   rayAt(clientX,clientY){
@@ -5914,6 +6404,26 @@ class Renderer{
   surfaceAt(clientX,clientY){
     const list=this.pickables;
     if(!list||!list.length) return null;
+    /* Round 18hq: the same point asked twice in one frame (the ring, then the stroke) is
+       one pick. The memo lives only inside the pointer's frame (`moveFrame` clears it on
+       its way out), so a call from anywhere else always picks afresh. */
+    const memo=this._pickMemo;
+    if(memo && memo.seq===this._pickSeq && memo.x===clientX && memo.y===clientY) return memo.res;
+    const t0=performance.now();
+    const res=this._surfaceAt(clientX,clientY);
+    this._pickN=(this._pickN|0)+1; this._pickMs=(this._pickMs||0)+(performance.now()-t0);
+    this._pickMemo={seq:this._pickSeq, x:clientX, y:clientY, res};
+    return res;
+  }
+  /** Round 18hq: how many surface picks since the count was last reset, and their time, for
+   *  the Report's stroke line. `reset` starts the count again. */
+  pickStat(reset){
+    const out={n:this._pickN|0, ms:this._pickMs||0};
+    if(reset){ this._pickN=0; this._pickMs=0; }
+    return out;
+  }
+  _surfaceAt(clientX,clientY){
+    const list=this.pickables;
     const {eye,dir}=this.rayAt(clientX,clientY);
     const near=[];
     for(const o of list){
@@ -6070,40 +6580,142 @@ class Renderer{
       const oneSided = part.drawMode!==3;
       // A clockwise-wound shape (draw mode 2) shows the other side: the sign flips.
       const sgn = part.drawMode===2? -1 : 1;
-      for(let k=0;k<I.length;k+=3){
+      /* One triangle, Möller–Trumbore, into `bestT` when it is the nearest so far. Two-sided
+         outdoors: Morrowind meshes are full of single-sided geometry seen from behind, and
+         a back face you can see is a face you can click. Indoors that argument inverts — a
+         back face is precisely the one that is *not* drawn — so the same rule that lets you
+         see into a room has to let you point into it. Robin: "I want the raycast to test to
+         the actual thing I as a user see. So if there is an interior room, and I see an
+         object in that room, I want the object to be selected when I point my mouse there,
+         even if I also point it through the backface of that room."
+
+         `det = dot(e1, cross(d, e2)) = -dot(d, cross(e1, e2))`, so a positive determinant
+         is a ray running against the triangle's own geometric normal — which by the
+         measured winding (§64 567) is the side that gets drawn. The pick and the cull are
+         then the same test, written twice because one is on the GPU. */
+      const tri=k=>{
         const a0=I[k]*3, b0=I[k+1]*3, c0=I[k+2]*3;
         const ax=V[a0],ay=V[a0+1],az=V[a0+2];
         const e1x=V[b0]-ax, e1y=V[b0+1]-ay, e1z=V[b0+2]-az;
         const e2x=V[c0]-ax, e2y=V[c0+1]-ay, e2z=V[c0+2]-az;
-        /* Möller–Trumbore. Two-sided outdoors: Morrowind meshes are full of single-sided
-           geometry seen from behind, and a back face you can see is a face you can click.
-           Indoors that argument inverts — a back face is precisely the one that is *not*
-           drawn — so the same rule that lets you see into a room has to let you point into
-           it. Robin: "I want the raycast to test to the actual thing I as a user see. So
-           if there is an interior room, and I see an object in that room, I want the
-           object to be selected when I point my mouse there, even if I also point it
-           through the backface of that room."
-
-           `det = dot(e1, cross(d, e2)) = -dot(d, cross(e1, e2))`, so a positive
-           determinant is a ray running against the triangle's own geometric normal — which
-           by the measured winding (§64 567) is the side that gets drawn. The pick and the
-           cull are then the same test, written twice because one is on the GPU. */
         const hx=dy*e2z-dz*e2y, hy=dz*e2x-dx*e2z, hz=dx*e2y-dy*e2x;
         const dt=e1x*hx+e1y*hy+e1z*hz;
-        if(oneSided? dt*sgn<1e-9 : (dt>-1e-9 && dt<1e-9)) continue;
+        if(oneSided? dt*sgn<1e-9 : (dt>-1e-9 && dt<1e-9)) return;
         const iv=1/dt;
         const sx=px-ax, sy=py-ay, sz=pz-az;
         const u=(sx*hx+sy*hy+sz*hz)*iv;
-        if(u<0||u>1) continue;
+        if(u<0||u>1) return;
         const qx=sy*e1z-sz*e1y, qy=sz*e1x-sx*e1z, qz=sx*e1y-sy*e1x;
         const v=(dx*qx+dy*qy+dz*qz)*iv;
-        if(v<0||u+v>1) continue;
+        if(v<0||u+v>1) return;
         const t=(e2x*qx+e2y*qy+e2z*qz)*iv;
-        if(t<=1e-4) continue;
+        if(t<=1e-4) return;
         if(t<(bestT==null?limit:bestT)) bestT=t;
+      };
+      /* Round 18hq: through the part's grid when it has one — a still part of some size,
+         gridded the first time it is picked (`_pickGrid`), the same shape as the engine's
+         `triaccel.rs`. A 17,000-triangle floor piece in the Corpse Fields went from 17,000
+         tests a pick to a few dozen. An animated part is posed per pick and keeps the flat
+         loop, as does a small one. */
+      const G=(V===part.pos)? this._pickGrid(part) : null;
+      if(!G){
+        for(let k=0;k<I.length;k+=3) tri(k);
+        continue;
       }
+      this._pickGridWalk(G, px,py,pz, dx,dy,dz, limit, tri, ()=>bestT);
     }
     return bestT;
+  }
+
+  /** Round 18hq: a uniform grid over a still part's triangles, built once per part the
+   *  first time the pointer asks about it and kept on the part (`part._pick`), so the
+   *  hundreds of placements of one mesh share it. About two triangles a cell, cells in
+   *  proportion to the box's sides, at most 64 along any axis. `null` for a part too small
+   *  to be worth one, which keeps the flat loop. */
+  _pickGrid(part){
+    if(part._pick!==undefined) return part._pick;
+    const I=part.idx, V=part.pos, nt=(I.length/3)|0;
+    if(nt<256 || !V || !V.length){ part._pick=null; return null; }
+    let x0=Infinity,y0=Infinity,z0=Infinity,x1=-Infinity,y1=-Infinity,z1=-Infinity;
+    for(let q=0;q<V.length;q+=3){
+      const x=V[q],y=V[q+1],z=V[q+2];
+      if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; if(z<z0)z0=z; if(z>z1)z1=z;
+    }
+    if(!isFinite(x0+x1+y0+y1+z0+z1)){ part._pick=null; return null; }
+    const ex=Math.max(x1-x0,1e-3), ey=Math.max(y1-y0,1e-3), ez=Math.max(z1-z0,1e-3);
+    // nx*ny*nz about nt/2, each axis in proportion to its length.
+    const sc=Math.cbrt((nt/2)/(ex*ey*ez));
+    const nx=Math.min(64,Math.max(1,Math.round(ex*sc))), ny=Math.min(64,Math.max(1,Math.round(ey*sc))), nz=Math.min(64,Math.max(1,Math.round(ez*sc)));
+    const cx=ex/nx, cy=ey/ny, cz=ez/nz;
+    const ncell=nx*ny*nz;
+    const count=new Int32Array(ncell+1);
+    const lo=new Int32Array(nt*3), hi=new Int32Array(nt*3);
+    const cell=(v,o,n,c)=>Math.min(n-1,Math.max(0,Math.floor((v-o)/c)));
+    for(let k=0;k<nt;k++){
+      const a=I[k*3]*3, b=I[k*3+1]*3, c=I[k*3+2]*3;
+      const tx0=Math.min(V[a],V[b],V[c]), tx1=Math.max(V[a],V[b],V[c]);
+      const ty0=Math.min(V[a+1],V[b+1],V[c+1]), ty1=Math.max(V[a+1],V[b+1],V[c+1]);
+      const tz0=Math.min(V[a+2],V[b+2],V[c+2]), tz1=Math.max(V[a+2],V[b+2],V[c+2]);
+      const ix0=cell(tx0,x0,nx,cx), ix1=cell(tx1,x0,nx,cx), iy0=cell(ty0,y0,ny,cy), iy1=cell(ty1,y0,ny,cy), iz0=cell(tz0,z0,nz,cz), iz1=cell(tz1,z0,nz,cz);
+      lo[k*3]=ix0; lo[k*3+1]=iy0; lo[k*3+2]=iz0; hi[k*3]=ix1; hi[k*3+1]=iy1; hi[k*3+2]=iz1;
+      for(let z=iz0;z<=iz1;z++) for(let y=iy0;y<=iy1;y++) for(let x=ix0;x<=ix1;x++) count[(z*ny+y)*nx+x+1]++;
+    }
+    for(let i=1;i<=ncell;i++) count[i]+=count[i-1];
+    const list=new Int32Array(count[ncell]);
+    const fill=count.slice(0,ncell);
+    for(let k=0;k<nt;k++){
+      for(let z=lo[k*3+2];z<=hi[k*3+2];z++) for(let y=lo[k*3+1];y<=hi[k*3+1];y++) for(let x=lo[k*3];x<=hi[k*3];x++){
+        const ci=(z*ny+y)*nx+x; list[fill[ci]++]=k*3;
+      }
+    }
+    part._pick={x0,y0,z0,x1,y1,z1,nx,ny,nz,cx,cy,cz,off:count,list,seen:new Int32Array(nt),q:0,tris:nt};
+    return part._pick;
+  }
+
+  /** Round 18hq: the ray through the grid's cells in order (Amanatides and Woo), testing
+   *  each cell's triangles once per query (`seen` is stamped), stopping as soon as the
+   *  nearest hit so far lies before the next cell. `tri(k)` tests one triangle; `best()`
+   *  says the nearest `t` found so far, or null. */
+  _pickGridWalk(G,px,py,pz,dx,dy,dz,limit,tri,best){
+    // Where the ray enters and leaves the box.
+    let t0=0, t1=limit==null? Infinity : limit;
+    const o=[px,py,pz], d=[dx,dy,dz], bl=[G.x0,G.y0,G.z0], bh=[G.x1,G.y1,G.z1];
+    for(let k=0;k<3;k++){
+      if(Math.abs(d[k])<1e-12){ if(o[k]<bl[k]||o[k]>bh[k]) return; continue; }
+      let a=(bl[k]-o[k])/d[k], b=(bh[k]-o[k])/d[k];
+      if(a>b){ const s2=a; a=b; b=s2; }
+      if(a>t0) t0=a;
+      if(b<t1) t1=b;
+      if(t0>t1) return;
+    }
+    const n=[G.nx,G.ny,G.nz], cs=[G.cx,G.cy,G.cz];
+    const ix=[0,0,0], step=[0,0,0], tMax=[0,0,0], tDelta=[0,0,0];
+    for(let k=0;k<3;k++){
+      const p=o[k]+d[k]*t0;
+      ix[k]=Math.min(n[k]-1,Math.max(0,Math.floor((p-bl[k])/cs[k])));
+      if(d[k]>0){ step[k]=1; tMax[k]=t0+((bl[k]+(ix[k]+1)*cs[k])-p)/d[k]; tDelta[k]=cs[k]/d[k]; }
+      else if(d[k]<0){ step[k]=-1; tMax[k]=t0+((bl[k]+ix[k]*cs[k])-p)/d[k]; tDelta[k]=-cs[k]/d[k]; }
+      else { step[k]=0; tMax[k]=Infinity; tDelta[k]=Infinity; }
+    }
+    const q=++G.q, seen=G.seen, list=G.list, off=G.off;
+    for(let guard=0; guard<n[0]+n[1]+n[2]+3; guard++){
+      const ci=(ix[2]*G.ny+ix[1])*G.nx+ix[0];
+      for(let i=off[ci];i<off[ci+1];i++){
+        const k=list[i], ti=k/3|0;
+        if(seen[ti]===q) continue;
+        seen[ti]=q;
+        tri(k);
+      }
+      // The cell's far side along the ray: a hit before it cannot be beaten by a later cell.
+      const next=Math.min(tMax[0],tMax[1],tMax[2]);
+      const b=best();
+      if(b!=null && b<=next) return;
+      if(next>t1) return;
+      const ax=tMax[0]<=tMax[1]? (tMax[0]<=tMax[2]? 0 : 2) : (tMax[1]<=tMax[2]? 1 : 2);
+      ix[ax]+=step[ax];
+      if(ix[ax]<0||ix[ax]>=n[ax]) return;
+      tMax[ax]+=tDelta[ax];
+    }
   }
 
   /** A translucent sheet at a fixed height, standing in for the water surface.
@@ -6367,11 +6979,25 @@ class Renderer{
        takes over what the right one did: a still click opens the object, and in
        paint mode it is the brush. */
     let look=null;
-    this.fly={speed:1500, vel:[0,0,0], keys:{}, active:false, last:0};
+    this.fly={speed:1500, vel:[0,0,0], keys:{}, active:false, last:0, boost:false};
     const keyOf=e=>{ const c=e.code||''; return /^Key[WASDQE]$/.test(c)? c[3] : null; };
     const typing=e=>{ const t=e.target; return !!(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||t.isContentEditable)); };
+    /* Round 18fh, Robin: "when I am in WASD navigation mode and hold right mouse button
+       AND hold SHIFT, my current speed that I am flying at is doubled. This should NOT be
+       reflected in the speed number [...] Releasing Shift puts me back exactly where I
+       was." So the boost is a flag beside the speed, never a change to it: `_flyStep`
+       doubles the top speed while it is up, the number and the slider stand, and the bar
+       wears an outline (`onFlyBoost`). Only while the right button is down - a Shift
+       pressed with nothing held is a Shift pressed. Read from the modifier itself as well
+       as from the key, so a window that comes back with Shift already down is right. */
+    const boost=e=>{
+      const on=!!look && this.nav==='wasd' && !!e.shiftKey;
+      if(this.fly.boost!==on){ this.fly.boost=on; if(this.onFlyBoost) this.onFlyBoost(on); }
+    };
+    this._flyBoost=boost;
     window.addEventListener('keydown',e=>{
       if(this.nav!=='wasd' || typing(e)) return;
+      boost(e);
       const k=keyOf(e); if(!k) return;
       /* Wraithguard: and while a controller is being read (49_wg_gamepad.js), so the Deck's
          back buttons, bound to E and Q in Steam, lift and drop the camera without the
@@ -6380,6 +7006,7 @@ class Renderer{
       if(look || pad){ this.fly.keys[k]=true; e.preventDefault(); }
     });
     window.addEventListener('keyup',e=>{
+      boost(e);
       const k=keyOf(e); if(k) this.fly.keys[k]=false;
     });
     /* Round 17i: Ctrl held, in the orbit scheme, shows the pivot the view turns around
@@ -6393,7 +7020,7 @@ class Renderer{
     window.addEventListener('keyup',ctrl);
     cv.addEventListener('pointermove',ctrl);
     window.addEventListener('blur',()=>{ if(this._ctrlDown){ this._ctrlDown=false; this.dirty=true; } });
-    window.addEventListener('blur',()=>{ this.fly.keys={}; });
+    window.addEventListener('blur',()=>{ this.fly.keys={}; boost({shiftKey:false}); });
     /* Pointing at something lights it up, using the same pick the right button uses. The
        two must agree: a highlight that lands on a different object from the one the menu
        would act on is worse than no highlight, because it teaches the wrong thing about
@@ -6472,12 +7099,47 @@ class Renderer{
       }
     };
 
-    cv.addEventListener('pointermove',e=>{
+    /* Round 18hq: the brush's picks happen once a frame, not once a pointer event.
+       `onBrushMove` picks the surface under the pointer for the ring and `addPoint` picks
+       it again for the stroke, and in a room each pick is a ray through every object
+       whose box it enters, triangle by triangle: 133,000 triangles and 4 ms a call in the
+       Corpse Fields, twice an event, with a mouse reporting 125 to 1,000 times a second.
+       That was the whole main thread, and the ring and the marks fell behind the pointer.
+       Robin: "What is slow, is that the paint is lagging behind the brush." So a move only
+       notes where the pointer is, and the next animation frame does the one pick for both
+       at the latest position (`surfaceAt` remembers its answer within the frame). The
+       engine walks between the anchors it is given at a quarter radius, so the points a
+       pointer reported between two frames were never needed. `moveNow` runs the frame's
+       work early when a button comes up or the window loses focus, so a stroke keeps its
+       last point. */
+    let moveLatest=null, movePending=false;
+    const moveFrame=()=>{
+      movePending=false;
+      const e=moveLatest; moveLatest=null;
+      if(!e) return;
+      this._pickSeq=(this._pickSeq|0)+1;
       /* The ring under the cursor, whether or not a button is down. It is the only thing
          that says how big the brush is before you commit a stroke with it, so it has to
-         be there while you are still deciding. */
-      if(this.opts.paintMode && this.onBrushMove) this.onBrushMove(e);
-      if(stroke){ addPoint(e); return; }
+         be there while you are still deciding.
+         Round 18gp, Robin: "Whenever I hold right mouse button to either fly around and
+         rotate camera in WASD navigation mode, or hold right mouse button in Orbit mode to
+         orbit around something, I want to hide the paint brush." Not while the camera is
+         being driven: the press below puts the ring out, and the first move after the
+         button comes up puts it back where the pointer is. */
+      if(this.opts.paintMode && this.onBrushMove && !look && !drag) this.onBrushMove(e);
+      if(stroke){ addPoint(e); flush(); }
+      this._pickMemo=null;                 // the answer is this frame's and no later one's
+    };
+    const moveNow=()=>{ if(movePending && moveLatest) moveFrame(); };
+    this._moveNow=moveNow;
+    cv.addEventListener('pointermove',e=>{
+      this._ptr=[e.clientX, e.clientY];       // 18gr: where the ring follows the camera's glide to
+      if(stroke || (this.opts.paintMode && this.onBrushMove && !look && !drag)){
+        moveLatest={clientX:e.clientX, clientY:e.clientY, pointerId:e.pointerId};
+        if(!movePending){ movePending=true; requestAnimationFrame(moveFrame); }
+      }
+      if(stroke) return;
+      if(look) boost(e);                     // 18fh: Shift read off the move, in case the key went unseen
       if(drag || look) return;               // orbiting or flying, not pointing
       if(hoverArrow(e)) return;              // an arrow swallows the pick under it
       hoverAt={x:e.clientX,y:e.clientY};
@@ -6502,8 +7164,12 @@ class Renderer{
          reasons. Whatever put a highlight up, the camera moving takes it down. */
       this.setStaticHighlight(null);
     };
+    /* Round 18gr: whether the camera is in hand right now, for `_loop`'s ring follow. The
+       look and the drag are this closure's, so the loop asks rather than reads. */
+    this._camHeld=()=>!!(look || (drag && drag.mode!=='click'));
     cv.addEventListener('pointerleave',()=>{
       this.hovered=false;
+      this._ptr=null;
       this.setBrush(null);
       this.setArrowHover(null); this.cv.style.cursor='';
       dropHover();
@@ -6533,8 +7199,12 @@ class Renderer{
       // The keys the viewport answers to - TAB here, W A S D while flying - need it
       // focused; a press in the picture is what focuses it.
       try{ cv.focus({preventScroll:true}); }catch(_){ }
-      // Round 17h: the brush is the left button in both schemes.
-      if(e.button===0 && this.opts.paintMode && this.onPaint){
+      /* Round 17h: the brush is the left button in both schemes. Round 18hb: unless it is
+         pressed on a cell arrow, which is a click and not a stroke, and is answered by
+         `up` the way it is outside paint mode. Robin: "I can't click the cell arrows when
+         I am in paint mode. I want them to work as usual." */
+      const onArrow=e.button===0 && this.arrows && this.onArrowClick && !!this.arrowAt(e.clientX,e.clientY);
+      if(e.button===0 && this.opts.paintMode && this.onPaint && !onArrow){
         e.preventDefault();
         try{ cv.setPointerCapture(e.pointerId); }catch(_){ }
         stroke={pts:[],pending:false,id:e.pointerId};
@@ -6549,6 +7219,7 @@ class Renderer{
         dropHover();                       // round 18q: not while the head is turning
         this.fly.active=true; this.fly.last=performance.now();
         this.fly.keys={};
+        boost(e);                          // 18fh: Shift already down as the button goes down
         this.setBrush(null);
         /* Round 17c, Robin: the keys went to whatever had the focus - the speed bar, a
            text field. The viewport takes it: whatever was focused lets go, and W A S D
@@ -6610,7 +7281,8 @@ class Renderer{
          that moves it (50_wg_editor.js). Still a click until the pointer moves. */
       if(mode==='click' && this.onGrab) drag.grab=this.onGrab(e)||null;
       // Round 18q: a click is still a point at something; orbiting and panning are not.
-      if(mode!=='click') dropHover();
+      // Round 18gp: and neither is a place for the brush ring, as in the WASD look above.
+      if(mode!=='click'){ dropHover(); this.setBrush(null); }
     });
     cv.addEventListener('pointermove',e=>{
       if(look){
@@ -6716,6 +7388,7 @@ class Renderer{
     const endLook=(pointerId)=>{
       const home=look && look.home;
       look=null; this.fly.active=false;
+      boost({shiftKey:false});   // 18fh: the boost is the button's; it goes with it
       // The keys let go with the button; the move eases out on its own.
       this.fly.keys={};
       try{ if(pointerId!=null) cv.releasePointerCapture(pointerId); }catch(_){ }
@@ -6726,8 +7399,17 @@ class Renderer{
       const done=this._park(true, home);
       // Nothing turns any more, so nothing needs to wait for that one to land.
       this._lookPark=null;
-      if(done && done.then) done.then(()=>cv.classList.remove('nocursor'));
-      else cv.classList.remove('nocursor');
+      /* Round 18gq: and the brush ring comes back with the pointer, at the place the pointer
+         comes back to. The press hid it (`setBrush(null)`), and the move handler that would
+         redraw it does not run until the hand moves again, which after a look it may not for
+         a while. The orbit release has the same line in `up`; this one has to wait for the
+         park, because the ring belongs under the pointer and the pointer is still on its
+         way home. Where there is no shell to park it, `done` is null and this runs at once. */
+      const ring=()=>{
+        if(home && this.opts.paintMode && this.onBrushMove) this.onBrushMove({clientX:home[0], clientY:home[1]});
+      };
+      if(done && done.then) done.then(()=>{ cv.classList.remove('nocursor'); ring(); });
+      else { cv.classList.remove('nocursor'); ring(); }
       if(this.onFlyState) this.onFlyState(false);
     };
     /* The window losing focus ends the look too: alt-tabbing away with the button down
@@ -6741,6 +7423,7 @@ class Renderer{
     window.addEventListener('blur',()=>{
       if(look) endLook(look.id);
       if(stroke){
+        moveNow();                         // 18hq: the frame's point, before the stroke closes
         flush();
         stroke=null;
         if(this.onPaintEnd) this.onPaintEnd();
@@ -6749,6 +7432,7 @@ class Renderer{
     });
     const up=e=>{
       if(stroke){
+        moveNow();                         // 18hq: the frame's point, before the stroke closes
         flush();
         stroke=null;
         try{cv.releasePointerCapture(e.pointerId);}catch(_){ }
@@ -6761,6 +7445,7 @@ class Renderer{
       }
       if(!drag){ return; }
       const still=Math.hypot(e.clientX-drag.x0, e.clientY-drag.y0)<5;
+      const wasCamera=drag.mode!=='click';
       try{cv.releasePointerCapture(e.pointerId);}catch(_){ }
       const grabbed=drag.grabbing? drag.grab : null;
       drag=null;
@@ -6818,34 +7503,59 @@ class Renderer{
         this.dirty=true;
         return;
       }
-      /* Wraithguard: zoom to cursor (Settings, Orbit navigation). The pivot and the
-         distance are both scaled about the point under the pointer, which leaves that
-         point where it is on screen - the object, else the ground, else a point on the
-         ray at the current view distance. */
-      if(this.opts.zoomToCursor){
-        const nd=clamp(g.dist*f,40,60000), k=g.dist>0? nd/g.dist : 1;
-        const P=this._zoomAnchor(e.clientX,e.clientY);
-        if(P && k!==1){
-          g.tx=P[0]+(g.tx-P[0])*k; g.ty=P[1]+(g.ty-P[1])*k; g.tz=P[2]+(g.tz-P[2])*k;
-          g.dist=nd;
-          this.dirty=true;
-          return;
+      // A plain zoom moves the eye, so it moves `viewDist` with it: the scale stays.
+      const nd=clamp(g.dist*f,40,60000);
+      /* Round 18fg, Robin: "Zoom to mouse cursor [...] use a pivot that is anchored where
+         the mouse cursor is placed, to make sure I zoom in and out to the cursor (similar
+         to how it's done in the map cell picker today)." Blender's *Zoom to Mouse
+         Position*, and the same arithmetic as the map's `onWheel`: the thing under the
+         cursor stays under the cursor. With the view's direction unchanged, that holds
+         exactly when the eye moves along the line through itself and the point Q under
+         the cursor - E' = Q + f·(E - Q) - and since E = P + dist·u the pivot does the same
+         thing: P' = Q + f·(P - Q), with f the ratio the distance actually took (the clamp
+         included). Both go into the goal, which `_orbitStep` eases with one rate, and a
+         straight line eased from both ends is still the same line, so Q holds through
+         every frame of the glide too. Q is the ground or the object under the cursor
+         when there is one (the same ray the pick and the brush use), else the point on
+         the pivot's own depth plane - what Blender does without auto depth - so a wheel
+         turned at the sky still zooms, towards where the cursor points. Everything else
+         is as it was: the orbit turns about the (moved) pivot, the pan and the Ctrl
+         wheel are untouched, and with the switch off this is the plain zoom of old. */
+      // Wraithguard: the switch is our Settings' (`opts.zoomToCursor`, 38_wg_viewport.js).
+      if(this.opts.zoomToCursor && g.dist>0){
+        const q=this.zoomAnchorAt(e.clientX,e.clientY);
+        if(q){
+          const k=nd/g.dist;
+          g.tx=q[0]+k*(g.tx-q[0]); g.ty=q[1]+k*(g.ty-q[1]); g.tz=q[2]+k*(g.tz-q[2]);
         }
       }
-      // A plain zoom moves the eye, so it moves `viewDist` with it: the scale stays.
-      g.dist=clamp(g.dist*f,40,60000);
+      g.dist=nd;
       this.dirty=true;
     },{passive:false});
   }
-  /** What zoom-to-cursor zooms towards: the drawn object under the pointer, else the
-      ground, else the point on the ray as far away as the view is. */
-  _zoomAnchor(x,y){
-    const s=this.surfaceAt(x,y);
-    if(s && s.p) return s.p;
-    const gnd=this.groundAt(x,y);
-    if(gnd) return gnd;
-    const {eye,dir}=this.rayAt(x,y), d=this.viewDist();
-    return [eye[0]+dir[0]*d, eye[1]+dir[1]*d, eye[2]+dir[2]*d];
+  /** Wraithguard: what the gamepad's zoom anchors on (49_wg_gamepad.js) - Gardenfell's
+   *  `zoomAnchorAt`, which the wheel uses too. */
+  _zoomAnchor(x,y){ return this.zoomAnchorAt(x,y); }
+  /** Round 18fg: the point the wheel zooms towards - what stands under the cursor, or
+   *  failing that where the cursor's ray crosses the plane through the orbit's *goal*
+   *  pivot facing the eye. World coordinates, or null when the ray runs away from that
+   *  plane (it cannot, from inside the view, but the arithmetic is guarded anyway). */
+  zoomAnchorAt(clientX,clientY){
+    const {eye,dir}=this.rayAt(clientX,clientY);
+    let best=null, bt=Infinity;
+    const take=(p)=>{ if(!p) return; const t=(p[0]-eye[0])*dir[0]+(p[1]-eye[1])*dir[1]+(p[2]-eye[2])*dir[2];
+                      if(t>0 && t<bt){ bt=t; best=p; } };
+    try{ take(this.groundAt(clientX,clientY)); }catch(_){ }
+    try{ const h=this.surfaceAt(clientX,clientY); if(h && h.p) take(h.p); }catch(_){ }
+    if(best) return best;
+    const g=this._orbitGoal(), c=this.cam;
+    const ce=Math.cos(c.el), se=Math.sin(c.el), ca=Math.cos(c.az), sa=Math.sin(c.az);
+    const u=[ce*ca, ce*sa, se];                       // from the pivot towards the eye
+    const eg=[g.tx+g.dist*u[0], g.ty+g.dist*u[1], g.tz+g.dist*u[2]];
+    const denom=-(dir[0]*u[0]+dir[1]*u[1]+dir[2]*u[2]);
+    if(!(denom>1e-6)) return null;
+    const t=g.dist/denom;
+    return [eg[0]+dir[0]*t, eg[1]+dir[1]*t, eg[2]+dir[2]*t];
   }
   /** A turn of the view by `dAz`,`dEl` radians.
    *
@@ -7063,6 +7773,25 @@ class Renderer{
       if(g!=null && isFinite(g) && eye[2] <= g) return null;   // under the ground: dirt
     }
     const over = eye[2] >= w.z;
+    /* Round 18eg item 1: how far into the crossing the eye is - 0 where it begins, one
+       near plane over the line, and 1 at the surface itself.
+       
+       Robin: "The fog change on touching water - is it possible to make that change come
+       a little bit later, similar to how the other water effects are triggered? Currently
+       it feels a little bit abrubt when the clipping plane touches water and I get a
+       color fog change above the water surface." Measured at the moment the crossing
+       began, with the eye sixteen units over the line: the water in view went from
+       (159,170,201) to (112,124,146) and the near water from (95,111,101) to (61,78,94)
+       between one unit of descent and the next - a third of the light, in a step, while
+       the eye was still well clear of the surface. The effect was right and its timing
+       was a switch.
+       
+       So the crossing's own effects - the water's fog over the wet part of each ray, the
+       light's blend below the line, and the underwater pass over those pixels - come in
+       over those sixteen units instead, and are whole exactly as the eye submerges, where
+       the eye-under case takes over unchanged. The wobble and the rays still wait for the
+       eye itself, as MGE's do; this is what makes the fog wait with them. */
+    const into = over? Math.max(0, Math.min(1, (w.z + reach - eye[2]) / Math.max(1e-6, reach))) : 1;
     const k=(fogScale==null || !(fogScale>0))? 1 : fogScale;
     const f=(typeof Sky==='object' && Sky.underwaterFog)? Sky.underwaterFog(o.hour, o.room||null, fogCol) : null;
     if(f){
@@ -7080,7 +7809,7 @@ class Renderer{
     }
     // No sky module (a harness): vanilla's day, the ini's own colour over the frame's fog.
     const col=[12/255*0.85+fogCol[0]*0.15, 30/255*0.85+fogCol[1]*0.15, 37/255*0.85+fogCol[2]*0.15];
-    return {col, start:7168*(1-2.5)*k, end:7168*k, source:'vanilla', over};
+    return {col, start:7168*(1-2.5)*k, end:7168*k, source:'vanilla', over, into};
   }
   /** Undoes a Ctrl-pull without moving the eye or changing anything you can see.
    *
@@ -7211,7 +7940,9 @@ class Renderer{
     }
     const wl=Math.hypot(want[0],want[1],want[2]);
     const keyed=k.W||k.A||k.S||k.D||k.Q||k.E;
-    if(wl>0){ const s=f.speed/(keyed? wl : Math.max(1,wl)); want=[want[0]*s, want[1]*s, want[2]*s]; }
+    // Round 18fh: Shift with the button held flies FLY_BOOST times as fast; the speed itself stands.
+    const top=f.speed*(f.boost? FLY_BOOST : 1);
+    if(wl>0){ const s=top/(keyed? wl : Math.max(1,wl)); want=[want[0]*s, want[1]*s, want[2]*s]; }
     /* Ease (round 17d, Robin's "Camera position smoothing"): the velocity closes on the
        wanted one the way the look closes on the mouse - `vel = lerp(vel, want,
        1 - exp(-dt·k))`, k the slider 1..100. Low is a slow, soft start and stop; 100 is
@@ -7264,22 +7995,102 @@ class Renderer{
     const o=this.opts;
     return o.wind>0? Math.min(1,o.wind) : 0;
   }
+  /* ---- round 18fh: the pausable clock and the hold ------------------------------------
+     Robin: "add a 'Pause rendering when still' option, and when it's toggled on, and the
+     camera doesn't move, pause the rendering in the viewport on the frame it's at and
+     pause the clocks running animations and shader animations so the viewport don't
+     update. No matter what the setting says, always pause rendering and clocks when the
+     program is minimized, and whenever there is a pop up that covers the viewport (like
+     the settings menu or the export .esp dialogue). Exception is the object dialogue
+     during which the scene can still render and update as usual."
+
+     Every animation in the viewport reads one clock, `clock()`: the shapes' controllers
+     and skins (`_uvSecs`), the grass's wind, the clouds' drift, the water's normals, the
+     underwater volume, the weather and the particles - each used to read
+     `performance.now()` for itself. `clock()` is `performance.now()` less the time spent
+     held, so a hold stops every one of them on the same instant and a release resumes
+     them there rather than fast-forwarding through the pause. The loop, held, sets no
+     frame for the wind, the water or the moving shapes - the three things that keep it
+     drawing on their own - and so the picture stands; a frame *asked for* (a slider, a
+     stroke, a rescatter, the hold ending) is still drawn, since a change made with a
+     dialogue open should show, except while the window is hidden, where nothing can be
+     seen and nothing is drawn. "Still" is the camera unchanged since the last tick with
+     no drag, no glide and no flight going; a dialogue is any `.modal` up but the object
+     dialogue (`#mAvoidEx`); hidden is the document's own word for the window minimised. */
+  /** The wall clock in ms, with one rule for the tests: a clock that has gone
+   *  *backwards* was pinned (`performance.now=()=>secs*1000`, which t_lights, t_render
+   *  and t_tint do to draw a frame at an instant of their choosing), and a pinned clock
+   *  means exactly what it says - so the time spent held so far is forgotten, and the
+   *  animations are at the instant the test named. Real time never runs backwards. */
+  _nowMs(){
+    const now=(typeof performance==='object')? performance.now() : Date.now();
+    if(this._lastNow!=null && now<this._lastNow-1){
+      this._clockPaused=0;
+      if(this._clockHeldAt!=null) this._clockHeldAt=now;
+    }
+    this._lastNow=now;
+    return now;
+  }
+  /** The viewport's clock, in seconds, standing while the viewport is held. */
+  clock(){
+    const now=this._nowMs();
+    return ((this._clockHeldAt!=null? this._clockHeldAt : now)-this._clockPaused)/1000;
+  }
+  _holdClock(on){
+    const now=this._nowMs();
+    if(on){ if(this._clockHeldAt==null) this._clockHeldAt=now; }
+    else if(this._clockHeldAt!=null){ this._clockPaused+=Math.max(0,now-this._clockHeldAt); this._clockHeldAt=null; }
+  }
+  _setHold(on,why){
+    on=!!on;
+    if(on!==this._hold){ this._hold=on; this._holdClock(on); if(on && this.fly){ this.fly.last=0; } }
+    this._holdWhy=on? (why||'') : '';
+  }
+  /** Whether the viewport is held right now, and why (`holdWhy`). */
+  held(){ return this._hold; }
+  holdWhy(){ return this._holdWhy; }
+  /** The window minimised (or the page otherwise out of sight). `_forceHidden` is the
+   *  tests' way of saying so, since a document's visibility cannot be set by script. */
+  hiddenNow(){
+    if(this._forceHidden || this._minimized) return true;
+    try{ return document.visibilityState==='hidden'; }catch(_){ return false; }
+  }
+  /** The shell's word that the window is minimised (11_events.js asks the window on
+   *  every resize): held at once, since the frames may stop before the loop can look. */
+  setMinimized(on){
+    on=!!on;
+    if(on===!!this._minimized) return;
+    this._minimized=on;
+    if(on) this._setHold(true,'hidden'); else this.dirty=true;
+  }
+  /** A dialogue up over the viewport - any modal but the object dialogue, which Robin
+   *  wants the scene to go on moving behind. */
+  coveredNow(){
+    try{
+      const ms=document.querySelectorAll('.modal:not([hidden])');
+      for(const m of ms){ if(m.id!=='mAvoidEx') return true; }
+    }catch(_){ }
+    return false;
+  }
+  /** Whether the camera moved this tick, or is being moved: a drag, a glide, a flight. */
+  _camMoving(){
+    const c=this.cam; if(!c) return false;
+    const sig=c.tx+','+c.ty+','+c.tz+','+c.dist+','+c.az+','+c.el+','+(c.vs==null? 1 : c.vs);
+    const moved=sig!==this._camSig; this._camSig=sig;
+    if(moved) return true;
+    if(this._turn && (Math.abs(this._turn.az)>1e-9 || Math.abs(this._turn.el)>1e-9)) return true;
+    if(this.fly && this.nav==='wasd'){
+      const k=this.fly.keys||{};
+      if(k.W||k.A||k.S||k.D||k.Q||k.E) return true;
+      const v=this.fly.vel||[0,0,0]; if(v[0]||v[1]||v[2]) return true;
+    }
+    if(this._orbitG && this.nav!=='wasd'){
+      const g=this._orbitG;
+      if(Math.abs(g.tx-c.tx)>1e-9 || Math.abs(g.ty-c.ty)>1e-9 || Math.abs(g.tz-c.tz)>1e-9 || Math.abs(g.dist-c.dist)>1e-9) return true;
+    }
+    return false;
+  }
   _loop(){
-    // The wind moves every frame, so while it blows there is always a frame to draw.
-    if(this.windNow()>0 && this.batches && this.batches.length) this.dirty=true;
-    /* Round 17m: and so do the animated shapes — a waterfall's texture slides whether or
-       not anything else in the picture moves. Only while there is one on screen: a cell
-       with no moving shape goes on drawing a frame when something asks for it, as it
-       always has. */
-    if(this._anyUvAnim) this.dirty=true;
-    /* Round 18bd: and the water. Its normals slide through `uTime` on their own, so it
-       was never the shader that was still — it was that nothing asked for a frame.
-       Robin: "In simplified preview, the water shaders doesn't move when the wind is
-       still and time doesn't pass. The water should always animate in all different
-       preview modes." Asked of the same two things `wantsOffscreen` asks, so a sheet
-       that is not being drawn costs nothing, and the plain translucent sheet — which has
-       no clock at all — does not keep the loop awake either. */
-    if(this.water && (this.opts.mgeWater!==false || this.underNow)) this.dirty=true;   // 18dt: the wobble moves too
     // Round 17b: the rest of a smoothed turn.
     this._drainTurn(performance.now());
     // Round 17: the flying camera, while it is moving or asked to.
@@ -7292,6 +8103,54 @@ class Renderer{
     }
     // Round 17f: and the orbit camera easing towards where the pan and the wheel put it.
     else if(this._orbitStep(performance.now())) this.dirty=true;
+    /* Round 18gr, Robin: "I also want to update its position during the smoothed motion, so
+       it doesn't get stuck, and then teleport to where the cursor is when the cursor moves."
+       The ring sits on the ground under the pointer, and the ground moves under a still
+       pointer for as long as the camera glides on after the hand has stopped: the WASD
+       velocity easing out, the orbit camera closing on where the pan or the wheel put it.
+       So every frame the camera has moved and nobody is holding it, the ring is placed again
+       under the last pointer position the viewport saw, the same call a pointer move makes.
+       Not while a look or a camera drag is on, when the ring is out by design (18gp), and
+       not when the pointer has left the picture. */
+    if(this.opts.paintMode && this.onBrushMove && this._ptr && !(this._camHeld && this._camHeld())){
+      const c=this.cam;
+      const sig=c? c.tx+','+c.ty+','+c.tz+','+c.dist+','+c.az+','+c.el+','+(c.vs==null? 1 : c.vs) : '';
+      if(sig!==this._ringSig){
+        this._ringSig=sig;
+        this.onBrushMove({clientX:this._ptr[0], clientY:this._ptr[1]});
+      }
+    }
+    /* Round 18fh: is the viewport held? The window hidden or a dialogue up holds it
+       whatever the option says; the option holds it while the camera stands. The camera
+       steps above come first so that a glide still in progress counts as moving. */
+    const hidden=this.hiddenNow();
+    /* Round 18hh: and a cell being loaded holds the last frame. Robin: "When loading a new
+       cell, freeze the rendered image from the last cell until load is complete, so when
+       I get a new image after the loading time, the new cell is fully loaded and it
+       switches only then from the frozen view to the new cell view." The load installs
+       the scene in pieces (terrain, then objects, then grass), and each used to be drawn
+       as it came; held, the canvas keeps what it last showed, and the first frame drawn
+       again is the whole of the new cell. `frozen` is set and cleared by the cell load
+       (`rebuildCellPreview`), never by the loop. */
+    const why=hidden? 'hidden' : this.frozen? 'loading' : this.coveredNow()? 'covered' : (this.pauseStill && !this._camMoving())? 'still' : '';
+    this._setHold(!!why, why);
+    if(!why){
+      // The wind moves every frame, so while it blows there is always a frame to draw.
+      if(this.windNow()>0 && this.batches && this.batches.length) this.dirty=true;
+      /* Round 17m: and so do the animated shapes — a waterfall's texture slides whether or
+         not anything else in the picture moves. Only while there is one on screen: a cell
+         with no moving shape goes on drawing a frame when something asks for it, as it
+         always has. */
+      if(this._anyUvAnim) this.dirty=true;
+      /* Round 18bd: and the water. Its normals slide through `uTime` on their own, so it
+         was never the shader that was still — it was that nothing asked for a frame.
+         Robin: "In simplified preview, the water shaders doesn't move when the wind is
+         still and time doesn't pass. The water should always animate in all different
+         preview modes." Asked of the same two things `wantsOffscreen` asks, so a sheet
+         that is not being drawn costs nothing, and the plain translucent sheet — which has
+         no clock at all — does not keep the loop awake either. */
+      if(this.water && (this.opts.mgeWater!==false || this.underNow)) this.dirty=true;   // 18dt: the wobble moves too
+    }
     /* Round 18bd (F15): everything inside the guard, and the next frame asked for in a
        `finally`. `_tellLegend` and `_tellNorth` call out to the page (`renderLegend`, the
        compass writer), and an exception from either — a removed element, a malformed
@@ -7307,14 +8166,23 @@ class Renderer{
        `FRAME_RING` of them, and the report reads the median, the tail and the worst. */
     this._tick=(this._tick|0)+1;
     try{
-      /* Wraithguard: nothing is drawn while the window is minimized or hidden, or while a
-         dialogue covers most of the viewport (`covered`, asked of the page); the frame is
-         kept owing and drawn when the view is back. And a frame-rate cap (Settings): a
-         frame that comes sooner than the cap allows waits for a later tick. */
-      const paused=document.hidden || (this.covered && this.covered());
-      const capMs=this.opts.fpsCap>0? 1000/this.opts.fpsCap : 0;
-      const tooSoon=capMs>0 && this._drawAt!=null && performance.now()-this._drawAt < capMs-1;
-      if(this.dirty && !paused && !tooSoon){
+      /* Wraithguard: nothing is drawn while a dialogue covers most of the viewport
+         (`covered`, asked of the page); the frame is kept owing and drawn when the view is
+         back. Round 18fj: the cap (Wraithguard's Settings, `opts.fpsCap`). A frame due
+         before its slot is not drawn this tick - the flag stays up and the next tick asks
+         again. The slot is stepped from the last capped frame rather than reset to now, so
+         the frames land on the cap's own grid; a frame that is more than a slot late (a
+         stall, a hold ending) starts a new grid from now rather than firing several to
+         catch up. */
+      const paused=hidden || (this.covered && this.covered());
+      let capped=false;
+      if(this.dirty && !paused && this.opts.fpsCap>0){
+        const now=performance.now(), gap=1000/this.opts.fpsCap;
+        const due=(this._capAt||0)+gap;
+        if(now+0.5<due) capped=true;
+        else this._capAt = (now-due>gap)? now : due;
+      }
+      if(this.dirty && !paused && !capped){
         this.dirty=false;
         const now=performance.now();
         if(this._drawTick===this._tick-1){
@@ -7326,6 +8194,12 @@ class Renderer{
         this.draw();
         this._tellLegend();
         this._tellNorth();
+        /* Round 18fh: held, a frame that asks for the next one from inside itself - the
+           particles did, and anything else that animates by re-arming `dirty` as it draws
+           - does not get it: a frame asked for outright is drawn once, and a frame that
+           only wants to keep going is what the hold is for. Nothing else can set the flag
+           between these two lines, so a flag up here was set by the draw. */
+        if(this._hold) this.dirty=false;
       }
     }catch(e){ console.error(e); }
     finally{ requestAnimationFrame(this._loop); }
@@ -7571,7 +8445,7 @@ class Renderer{
     /* Round 17m: the clock the animated shapes and the lamps read. One number a frame,
        so every waterfall in the picture is at the same instant and the phases the files
        carry are the only thing that separates them. */
-    this._uvSecs=(typeof performance==='object'? performance.now() : Date.now())/1000;
+    this._uvSecs=this.clock();   // round 18fh: the pausable clock, one number a frame
     this._lightUniforms();
     /* What this frame actually submitted, counted across every pass that culls — the
        grass and the objects both, since round 17u. Reset here rather than in one of the
@@ -7603,11 +8477,9 @@ class Renderer{
        weather's start and fall-off are numbers about the weather, not about where anyone
        is standing. The slider is the control for a preview that wants to see further. */
     const fogScale=1/Math.max(0.05, o.fogDensity==null? 1 : o.fogDensity);
-    /* MGE's three sun-altitude terms, worked out here rather than per fragment. */
+    /* MGE's three sun-altitude terms, worked out here rather than per fragment (06_mge.js). */
     const sp=now? now.sunPos : sun;
-    const sunalt=Math.pow(1+sp[2],10);
-    const sunAlt=[2.8+4.3/sunalt, Math.max(0,Math.min(1,1-Math.pow(2,-1.9*sunalt))),
-                  Math.max(0,Math.min(1,Math.exp(-4*sp[2])))*Math.max(0,Math.min(1,sunalt))];
+    const sunAlt=mgeSunAltitude(sp);
     /* Round 18i: MGE's per-weather sun and ambient multipliers ([lighting.weather.clear]
        in mgeXE.toml, [Per Pixel Lighting] in MGE.ini) scale what its per-pixel lighting
        gives the sun and the scene ambient (buildPplDrawData) - the objects, not the sky. */
@@ -7649,14 +8521,16 @@ class Renderer{
        white light, no weather at all) is left as it is - there is nothing there to blend
        - and a room takes it on the room's own ambient and sunlight. */
     const lit = !!(room || (scat&&now));
-    const tint = c => (under && lit)? Sky.underwaterTint(c) : c;
+    // 18fc: the water's colour as deep as the eye is, when Wonders of Water acts.
+    const uwK = (under && under.wow)? under.wow.scale : 1;
+    const tint = c => (under && lit)? Sky.underwaterTint(c, uwK) : c;
     const sunCol = tint(room? room.sunlight : (scat&&now)? mul(now.sun, lm.sunMult) : [1,1,1]);
     const ambCol = tint(room? room.ambient : (scat&&now)? mul(now.ambient, lm.ambMult) : [1,1,1]);
     /* The sky's own colour takes the sky blend, not the fog's: the probe reads them
        separately and under the water they differ (0.1117,0.1776,0.2161 against
        0.1639,0.2241,0.2587 in his frame). `uFogColFar` stays the fog blend, which is
        what the game clears the screen to and therefore what MGE captures as horizonCol. */
-    const underSky = (under && lit)? Sky.underwaterTint(room? room.fog : now.sky) : null;
+    const underSky = (under && lit)? Sky.underwaterTint(room? room.fog : now.sky, uwK) : null;
     /* What the frame settled on, for the tests and the probes - the same three colours
        the uniforms below get. `skyNow` is the weather's, `lightNow` is what reached the
        shaders after the multipliers and the water. */
@@ -7689,6 +8563,13 @@ class Renderer{
       if(u.uNoLight) gl.uniform1i(u.uNoLight, o.unlit?1:0);   // round 18f
       if(u.uFogBlack) gl.uniform1i(u.uFogBlack, 0);             // round 18h: set per additive batch
       if(u.uEye) gl.uniform3fv(u.uEye,curEye);
+      /* Round 18hi: the room's view distance, on the objects' programs and never on the
+         grass, which has a distance of its own (`uGrassFar`). The page sets `viewFar` only
+         while the scene is an interior (`syncViewFar`) and 0 outdoors, so the renderer
+         asks no questions about the room itself: a room lit like an exterior is still a
+         room to the slider. */
+      if(u.uViewFade){ const vf=(pr===this.progGrass || pr===this.progGrassF)? 0 : (+o.viewFar||0);
+        gl.uniform3f(u.uViewFade, vf*VIEW_FADE_FROM, vf, vf>0? 1 : 0); }
       if(u.uClip) gl.uniform1i(u.uClip, curClip==null? 0 : curClipMode);
       if(u.uClipZ) gl.uniform1f(u.uClipZ, curClip==null? -1e9 : curClip);
       if(u.uSunCol) gl.uniform3fv(u.uSunCol,sunCol);
@@ -7741,12 +8622,18 @@ class Renderer{
         if(u.uUnderTop) gl.uniform1f(u.uUnderTop, (on && underFog.over)? Math.max(0, eye[2]-(w? w.z : 0)) : 0);
         /* 18dz: and the light's blend for the crossing. Off once the eye is under, where
            the whole frame's sun and ambient carry it already (18dx), and off in the air. */
+        /* Round 18eg item 1: how far into the crossing, which fades the crossing's own
+           fog in. One once the eye is under, and written every frame for 18eb's reason. */
+        const into=(on && underFog.into!=null)? underFog.into : 1;
+        if(u.uUnderHold) gl.uniform1f(u.uUnderHold, 1 - into);
         if(u.uUnderMix){
           const cross=!!(on && underFog.over && lit && typeof Sky==='object' && Sky.underwaterMix);
           const m=cross? Sky.underwaterMix() : null;
-          if(m) gl.uniform4f(u.uUnderMix, m.col[0], m.col[1], m.col[2], m.weight);
+          // The blend fades in with the fog, so the line under the water arrives with it.
+          const wgt=m? m.weight*into : 0;
+          if(m) gl.uniform4f(u.uUnderMix, m.col[0], m.col[1], m.col[2], wgt);
           else gl.uniform4f(u.uUnderMix, 0,0,0, 0);
-          this.underMixNow = m? [m.col[0],m.col[1],m.col[2],m.weight] : [0,0,0,0];   // for the tests
+          this.underMixNow = m? [m.col[0],m.col[1],m.col[2],wgt] : [0,0,0,0];   // for the tests
         }
       }
       /* Round 18ee: the sun's shadow. Written every frame whether or not the map was
@@ -7758,8 +8645,11 @@ class Renderer{
         gl.uniform1i(u.uShadow, sm? 1 : 0);
         if(sm){
           if(u.uShadowVP) gl.uniformMatrix4fv(u.uShadowVP, false, sm.vp);
+          if(u.uShadowN) gl.uniform1i(u.uShadowN, sm.n|0);
           if(u.uShadowP) gl.uniform2f(u.uShadowP, sm.rcp, sm.sunK);
           if(u.uShadowFog) gl.uniform2f(u.uShadowFog, sm.fog[0], sm.fog[1]);
+          if(u.uShadowZ) gl.uniform1fv(u.uShadowZ, sm.zf);           // 18fc
+          if(u.uShadowFar) gl.uniform1f(u.uShadowFar, sm.far||0);    // 18fc
           if(u.uShadowTex) gl.uniform1i(u.uShadowTex, SHADOW_UNIT);
         }
       }
@@ -7839,10 +8729,13 @@ class Renderer{
        at full strength, out of the picture the surface refracts. The particles already
        had a side; this gives the geometry one, by the clip the mirror pass already uses -
        `waterSplit` with the below phase keeps what is under the line, and the late pass
-       keeps what is over it, so a crystal half in the water is cut exactly at it. */
+       keeps what is over it, so a crystal half in the water is cut exactly at it.
+       Round 18ep: and `splitUp` turns the pair over for the eye under the water, where it
+       is what stands ABOVE the line that has the surface between it and the eye. See
+       26_water.js for the measurement. */
     curEye=eye; curReflect=!!reflect;
     curClip = reflect? pass.clipZ : (pass.waterSplit!=null? pass.waterSplit : null);
-    curClipMode = reflect? ((pass.clipMode)? pass.clipMode : 1) : (belowP? 2 : 1);
+    curClipMode = reflect? ((pass.clipMode)? pass.clipMode : 1) : ((belowP !== !!pass.splitUp)? 2 : 1);
     cam=camBasis(pass);   // 18dl: the pass's frame, for the environment maps
     /* Round 18cs: the pass's frustum, once for every cull below - the reflection's
        narrowed to the water's screen rectangle when the water pass names one
@@ -7890,7 +8783,7 @@ class Renderer{
          mCloudSpeed * 0.003` with the weather's Cloud Speed (1.25 for Clear in the game's
          ini), accumulated frame by frame so nothing jumps when a clock wraps. */
       {
-        const t=performance.now()/1000;
+        const t=this.clock();   // 18fh: held with the rest, so a paused sky does not jump
         const dt=this._cloudLast==null? 0 : Math.min(0.5, Math.max(0, t-this._cloudLast));
         this._cloudLast=t;
         const speed=(now && now.cloudSpeed!=null)? +now.cloudSpeed : 1.25;
@@ -8020,7 +8913,7 @@ class Renderer{
             // Round 18df: a tile some mesh clamped wraps again here (see `_wrapTex0`).
             if(tex._wrap){ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); tex._wrap=0; } }
           this._u1i(g,'uHasTex',L.tex?1:0);
-          this._u1i(g,'uFlat', (!L.tex&&L.flat)?1:0);
+          this._u1i(g,'uFlat', L.absent? 2 : (!L.tex&&L.flat)?1:0);   // 2: the install has no such texture (18fv)
           this._u3(g,'uFlatCol', L.flat||FLAT_LAND);
           // Wraithguard: the layer's normal map on unit 3, and its _diffusespec highlight.
           const ln=(o.normalMaps===true && L.nrm)? L.nrm : null;
@@ -8036,6 +8929,27 @@ class Renderer{
       onUnit(0);
       this._tex0=undefined;   // unit 0 holds a land texture now, whatever the shadow says
       this._u1i(g,'uHasLNrm',0); this._u1i(g,'uSpecA',0);   // the overlays after are marks, not land
+
+      /* Wraithguard: distant land (57_wg_distant.js) - the ground past the rings, one
+         mesh, its colour per vertex (no texture: white times the vertex colour), lit and
+         fogged by this same program. Drawn whole: it rings the view, so the frustum keeps
+         most of it anyway, and a few hundred thousand coarse triangles are one call. */
+      if(this.distant && o.distant!==false){
+        gl.disable(gl.BLEND); gl.depthMask(true); blendOn=false;
+        this._u1i(g,'uFirstLayer',1); gl.uniform1i(g.u.uUseBlend,0);
+        this._u1i(g,'uHasTex',0); this._u1i(g,'uFlat',1); this._u3(g,'uFlatCol',[1,1,1]);
+        gl.uniform1i(g.u.uVCol,1); gl.uniform1i(g.u.uGrid,0); gl.uniform1i(g.u.uShowSlope,0);
+        gl.uniform4fv(g.u.uBrushS,[0,0,0,-1]);
+        gl.uniform2f(g.u.uBlendXf,1.0,0.0);
+        onUnit(1); gl.bindTexture(gl.TEXTURE_2D,this.white); t1=this.white; onUnit(0);
+        gl.bindVertexArray(this.distant.vao);
+        gl.drawElements(gl.TRIANGLES,this.distant.count,gl.UNSIGNED_INT,0);
+        // Back as the overlays below expect them.
+        gl.uniform1i(g.u.uUseBlend, o.blend===false?0:1);
+        gl.uniform1i(g.u.uGrid,o.grid?1:0); gl.uniform1i(g.u.uShowSlope,o.showSlope?1:0);
+        this._cullUniforms(g,o.showSlope);
+        if(this.brush && o.paintMode) gl.uniform4fv(g.u.uBrushS,[0,0,this.brush.r,this.brush.inner]);
+      }
 
       /* Painted ground, over the terrain and under everything else.
        *
@@ -8208,12 +9122,12 @@ class Renderer{
        object placed by id, a mesh from outside the grass folder) is drawn still. */
     const windNow=this.windNow();
     gl.uniform1f(s.u.uWind, windNow);
-    gl.uniform1f(s.u.uTime, (performance.now()/1000)%3600);
+    gl.uniform1f(s.u.uTime, this.clock()%3600);   // 18fh: the pausable clock
     gl.uniform1i(s.u.uGround,2);
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, tintK>0? this.groundMap.tex : this.white);
     gl.uniform4fv(s.u.uGroundXf, tintK>0? this.groundMap.xf : [0,0,0,0]);
-    const hl=this.hlSlot;
+    const hl=this.hlSlot, hlSet=this._hlSet||null;
     /* Round 17u: and the grass is culled too. It was not before — 15.2 million triangles
        of it went in every frame on Robin's 49-cell Balmora, whichever way he was facing.
        Round 17v: a batch is one rule slot's blades across *every* loaded cell now, with a
@@ -8295,7 +9209,7 @@ class Renderer{
       // switch only stands in for a batch that does not say.
       this._u1i(s,'uAlign', b.align==null? (o.align?1:0) : (b.align?1:0));
       this._u1f(s,'uWind', b.wind===false? 0 : windNow);                      // round 18aw
-      this._u1i(s,'uHi', hl==null? -1 : (b.key===hl? 1 : 0));
+      this._u1i(s,'uHi', hl==null? -1 : ((hlSet && hlSet.has(b.key))? 1 : 0));
       const it=b.hold.it;
       if(curInst!==it){ gl.activeTexture(gl.TEXTURE0+INST_UNIT); gl.bindTexture(gl.TEXTURE_2D,it.tex); gl.activeTexture(gl.TEXTURE0); curInst=it; }
       gl.bindVertexArray(b.vao);
@@ -8388,7 +9302,7 @@ class Renderer{
       const G=(this._groups && this._groups.src===this.statics)? this._groups : null;
       if(G && G.all.length){
         gl.activeTexture(gl.TEXTURE0+INST_UNIT); gl.bindTexture(gl.TEXTURE_2D,G.instTex); gl.activeTexture(gl.TEXTURE0);
-        this._cullGroups(G,planes,VP, reflect? pass.clipZ : null);
+        this._cullGroups(G,planes,VP, reflect? pass.clipZ : null, +o.viewFar||0, curEye);
         gl.bindVertexArray(G.vao);
         /* Round 18cs: two programs - the bakes' (one index range a group, no uniform
            between) and the runs' (by instance). Round 18ct: the runs first, then the
@@ -8612,6 +9526,9 @@ class Renderer{
         const drawTint=()=>{
           for(const b of pnt){
             if(!b.n || !b.count || !b.dabTex) continue;
+            // Round 18ff: a painted banner is tinted where it waves.
+            if(b.skin) this._skinUpdate(b.skin, this._uvSecs||0);
+            this._skinUniforms(pp,b);
             this._meshMode(pp,b,true);   // the same faces the object itself shows
             gl.uniform1i(pp.u.uCount,b.dabTex.count|0);
             gl.uniform3fv(pp.u.uPal,b.pal);
@@ -8654,9 +9571,15 @@ class Renderer{
        the water, in the real pass only. See 28_particles.js. */
     if((clearP||belowP) && !reflect && o.particles!==false && this.drawParticles && (this._parts || (this.wantsPrecip && this.wantsPrecip()))){   // Wraithguard: or the weather's (44_wg_precip.js)
       this._gpuMark('particles');
-      // With water: what is under it before the surface, what is over it after. Without: all.
-      const side = !this.water? 0 : belowP? -1 : (phase==='translucent'? 1 : 0);
-      if(!belowP || this.water) this.drawParticles(VP,eye,airOn,sun,fogK,side);
+      /* With water: what is under it before the surface, what is over it after. Without:
+         all. Round 18ep: and `splitUp` swaps those two for the eye under the water - a
+         puff floating over the line is what the surface stands in front of there, and one
+         sunk beside the viewer wants no surface drawn over it. The last argument says
+         which of the pair this is, so the simulation still steps once and the second pass
+         reuses what the first packed, whichever side each carries. */
+      const up = !!pass.splitUp;
+      const side = !this.water? 0 : belowP? (up? 1 : -1) : (phase==='translucent'? (up? -1 : 1) : 0);
+      if(!belowP || this.water) this.drawParticles(VP,eye,airOn,sun,fogK,side,belowP);
     }
     };   // drawScene
 
@@ -8665,7 +9588,12 @@ class Renderer{
        later pass, reflection included, samples the same one. It hands the framebuffer,
        the viewport and the sampler units back as it found them. */
     this._eyeNow=eye;   // Wraithguard: for `_skinClock`, which steps far actors' poses
-    if(o.shadows && this.drawShadowMap) this.drawShadowMap(eye, now, room, scat);
+    if(o.shadows && this.drawShadowMap){
+      /* Round 18fa: how far this frame's fog lets a shadow show, which is how far the
+         outermost cascade reaches - the same numbers the fog uniforms are set from. */
+      this._shadowReach=this.shadowReach? this.shadowReach(fr, fogScale, fogK, !!(o.fog && !room)) : null;
+      this.drawShadowMap(eye, now, room, scat, sunCol);
+    }
 
     /* Round 15 items 8-10: the water drawn MGE XE's way (26_water.js) - the scene twice,
        into offscreen targets, and a surface that refracts, reflects and glints. Off, the

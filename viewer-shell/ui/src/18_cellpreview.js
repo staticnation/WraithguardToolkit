@@ -1,3 +1,4 @@
+/* Gardenfell, 18_cellpreview.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 
 /* =====================================================================================
    Cell preview: real terrain, real texture mask, placed statics
@@ -383,6 +384,33 @@ const DOOR_EYE_EL=0.40;
  *  it goes: this much short of the surface, and never nearer the marker than the floor. */
 const DOOR_EYE_CLEAR=48;
 const DOOR_EYE_MIN=96;
+/** Round 18hg: an eye that had to be pulled in also swings round toward the way the
+ *  player arrives facing, so from close up it looks back more squarely at the door it
+ *  came through. Robin: "When I open a new cell through a door, and it is moved because
+ *  it would end up inside geometry, also make it turn toward the marker a bit so it
+ *  looks more in the direction of the door I came from." The swing grows with how far
+ *  in the eye came: the 45 degrees off the facing (`DOOR_EYE_TURN`) scaled by the
+ *  fraction of the standoff lost, and never more than this. A camera that stands at its
+ *  full distance is left as it was. */
+const DOOR_EYE_SWING_MAX=25*Math.PI/180;
+
+/* Round 18gx: the camera on one placed thing. The pivot is the reference's own position
+   and the standoff follows the mesh's size (its radius as placed, from the engine's
+   geometry), never closer than a doorway is framed: a fern is looked at from a few steps
+   away, a menhir from across a yard. `origin` is the scene's, as `frameAt` wants the
+   point; left out, the scene that is up supplies it. False when there is no scene to
+   place the camera in. */
+const FOCUS_FRAME_MIN=DOOR_FRAME_SPAN*0.6;
+const FOCUS_FRAME_PER_RADIUS=2.2;
+function focusCamera(pos, r, origin){
+  const R=App.R;
+  const o=origin||(App._scene&&App._scene.origin);
+  if(!R||!o) return false;
+  const span=Math.max(FOCUS_FRAME_MIN, (+r||0)*FOCUS_FRAME_PER_RADIUS);
+  R.frameAt(span, pos[2], pos[0]-o[0], pos[1]-o[1]);
+  R._orbitG=null; R.dirty=true;
+  return true;
+}
 /** The camera a door framed (`App._doorEye`), pulled in to clear whatever stands between
  *  the marker and where the eye would be: the nearest drawn surface on that line, by the
  *  same triangles the pointer picks, and the ground, marched the way `groundAt` marches
@@ -395,29 +423,102 @@ function settleDoorEye(R,groundAt){
   if(!d || !R || !R.cam) return null;
   const c=R.cam;
   if(c.az!==d.az || c.el!==d.el || c.dist!==d.dist || c.tx!==d.pivot[0] || c.ty!==d.pivot[1] || c.tz!==d.pivot[2]) return null;
-  const eye=R.cameraEye();
-  const dir=[eye[0]-c.tx, eye[1]-c.ty, eye[2]-c.tz];
-  const L=Math.hypot(dir[0],dir[1],dir[2]); if(!(L>1)) return null;
-  for(let k=0;k<3;k++) dir[k]/=L;
-  let t=c.dist;
-  /* From a step out along the line rather than from the marker itself: the marker is on
-     the floor, and a ray that starts on a surface finds that surface at nought. */
-  const from=[c.tx+dir[0]*DOOR_EYE_CLEAR, c.ty+dir[1]*DOOR_EYE_CLEAR, c.tz+dir[2]*DOOR_EYE_CLEAR];
-  const hit=(typeof R.pickRay==='function')? R.pickRay(from,dir) : null;
-  if(hit && hit.t+DOOR_EYE_CLEAR<t) t=hit.t+DOOR_EYE_CLEAR;
-  /* `groundAt` is the ground of the scene being built - not `R.groundZ`, which until the
-     scene is installed still answers for the one on screen. */
-  if(typeof groundAt==='function'){
-    const step=16;
-    for(let s=DOOR_EYE_CLEAR; s<t; s+=step){
-      const x=c.tx+dir[0]*s, y=c.ty+dir[1]*s, z=c.tz+dir[2]*s;
-      const g=groundAt(x,y);
-      if(g!=null && z<g){ t=s; break; }
+  /* How far out the eye can stand on the line it is on now: the nearest drawn surface
+     on that line, then the ground. `groundAt` is the ground of the scene being built -
+     not `R.groundZ`, which until the scene is installed still answers for the one on
+     screen. */
+  const clear=()=>{
+    const eye=R.cameraEye();
+    const dir=[eye[0]-c.tx, eye[1]-c.ty, eye[2]-c.tz];
+    const L=Math.hypot(dir[0],dir[1],dir[2]); if(!(L>1)) return null;
+    for(let k=0;k<3;k++) dir[k]/=L;
+    let t=c.dist;
+    /* From a step out along the line rather than from the marker itself: the marker is on
+       the floor, and a ray that starts on a surface finds that surface at nought. */
+    const from=[c.tx+dir[0]*DOOR_EYE_CLEAR, c.ty+dir[1]*DOOR_EYE_CLEAR, c.tz+dir[2]*DOOR_EYE_CLEAR];
+    const hit=(typeof R.pickRay==='function')? R.pickRay(from,dir) : null;
+    if(hit && hit.t+DOOR_EYE_CLEAR<t) t=hit.t+DOOR_EYE_CLEAR;
+    if(typeof groundAt==='function'){
+      const step=16;
+      for(let s=DOOR_EYE_CLEAR; s<t; s+=step){
+        const x=c.tx+dir[0]*s, y=c.ty+dir[1]*s, z=c.tz+dir[2]*s;
+        const g=groundAt(x,y);
+        if(g!=null && z<g){ t=s; break; }
+      }
     }
+    return t;
+  };
+  const full=c.dist;
+  let t=clear(); if(t==null) return null;
+  let swing=0, lost=0;
+  if(t<full){
+    /* Round 18hg: pulled in, so it also swings toward the facing (see `DOOR_EYE_SWING_MAX`),
+       by as much of the 45 degrees as of the standoff was lost, capped. The line the eye
+       stands on is a new one then, so what is in the way is asked again on it; the eye
+       is never left further out than the first line allowed, which a swing into open air
+       would otherwise permit. */
+    if(d.facing!=null){
+      lost=Math.max(0, Math.min(1, 1-t/full));
+      swing=Math.min(DOOR_EYE_SWING_MAX, Math.abs(DOOR_EYE_TURN)*lost);
+      c.az=d.az+swing*(DOOR_EYE_TURN<0? 1 : -1);
+      const t2=clear();
+      if(t2!=null && t2<t) t=t2;
+    }
+    c.dist=Math.max(DOOR_EYE_MIN, t-DOOR_EYE_CLEAR); R.dirty=true;
   }
-  if(t<c.dist){ c.dist=Math.max(DOOR_EYE_MIN, t-DOOR_EYE_CLEAR); R.dirty=true; }
+  App._doorSettled={full, dist:c.dist, swing, lost};   // for the tests
   return c.dist;
 }
+/** Goes through a door: loads the cell on its far side and frames the camera on the
+ *  marker there. The object dialogue's "Open cell door leads to" since round 17y, and a
+ *  Shift+click on the door in the viewport since round 18hf (Robin: "Holding shift and
+ *  clicking a door that leads to another cell, should immediately load the other cell").
+ *  Nothing happens for a reference that is no teleporting door. */
+function goThroughDoor(hit){
+  const target=hit && doorTarget(hit.door);
+  if(!target) return false;
+  App.mode='cell';
+  App.cellSel=target;
+  /* Round 18a, Robin: "Make the camera focus on the location the (invisible) door
+     marker is in the new cell after it has loaded." The DODT is that marker - where
+     the player lands and which way they face - and the build that follows frames
+     on it instead of on the cell's middle (see `doorAim` in buildCellPreview). */
+  App._doorAim={pos:[+hit.door.pos[0]||0, +hit.door.pos[1]||0, +hit.door.pos[2]||0],
+                rot:(hit.door.rot && +hit.door.rot[2])||0,
+                key:target.kind==='int'? 'i:'+(target.name||'') : target.x+','+target.y};
+  /* Round 18cy: for the visit history - the door being used, seen from where the
+     eye is now (the step back looks at it from there), and the marker the step
+     forward lands on again. */
+  if(typeof CellHistory==='object')
+    App._histVia={via:'door', door:CellHistory.doorSeen(hit),
+                  doorAim:{pos:App._doorAim.pos.slice(), rot:App._doorAim.rot}};
+  if(typeof syncCellButton==='function') syncCellButton();
+  schedulePreview();
+  return true;
+}
+App.goThroughDoor=goThroughDoor;
+
+/** The tip beside the pointer while Shift is held over a door (round 18hf): "Left click
+ *  to go <cell>". Robin: "While hovering a door and holding shift, a tooltip should open
+ *  that says what Cell the door leads to". `App._hoverHit` is the last hover pick and
+ *  `App._shiftHeld` the key, both kept by 11_events.js; this draws the tip or hides it. */
+function syncDoorTip(){
+  const el=document.getElementById('doorTip'); if(!el) return;
+  const hit=App._hoverHit, R=App.R;
+  const target=(App._shiftHeld && !App.paintMode && !App.inspect && hit)? doorTarget(hit.door) : null;
+  if(!target || !R || !R._ptr){ el.hidden=true; return; }
+  const cell=target.label||target.name||'';
+  el.innerHTML=T('vp.door_tip',{cell:'<b>'+escHtml(cell)+'</b>'});
+  el.hidden=false;
+  // Beside the pointer, inside the viewport: to the right and below, unless that runs out.
+  const wrap=document.getElementById('vpwrap'); const wr=wrap? wrap.getBoundingClientRect() : {left:0,top:0,width:innerWidth,height:innerHeight};
+  const x=R._ptr[0]-wr.left+16, y=R._ptr[1]-wr.top+18;
+  const w=el.offsetWidth, h=el.offsetHeight;
+  el.style.left=Math.max(4, Math.min(wr.width-w-4, x))+'px';
+  el.style.top=Math.max(4, Math.min(wr.height-h-4, y))+'px';
+}
+App.syncDoorTip=syncDoorTip;
+
 function doorTarget(door){
   if(!door || !door.pos) return null;
   /* The name as the door writes it: the engine keys interiors by their exact name (any
@@ -570,6 +671,13 @@ function why(e){
   return String((e && e.message) || e || '').split('\n')[0].trim();
 }
 
+/** The cell or room a selection or a scene's centre names, as one string, so two of them
+ *  can be told the same or not (round 18hh). */
+function sceneKeyOf(c){
+  if(!c) return '';
+  return c.kind==='int'? 'i:'+(c.name||'') : (c.kind||'ext')+':'+(c.x!=null? c.x : c.gx)+','+(c.y!=null? c.y : c.gy);
+}
+
 function rebuildCellPreview(raw){
   /* The simplified viewport's "choose a rule" notice belongs to the simplified viewport.
      Said here as well as in `_rebuildPreview`, because this is the function that owns the
@@ -580,6 +688,14 @@ function rebuildCellPreview(raw){
   // strokes queued behind one another were ten rescatters where one would do.
   const my=(App.previewAsk=(App.previewAsk|0)+1);
   tellPreviewAsk(my);
+  /* Round 18hh: a load of another cell or room holds the last frame until it is whole
+     (`frozen`, read by the renderer's loop). Not a rebuild of the cell on screen: a
+     stroke's end or a slider rescatters that one, and the view should go on answering the
+     hand meanwhile. 18hj: set at the ask, not when the queue reaches it - with a cell
+     still loading ahead of this one in the queue (nine cells a load, since one ring is the
+     default), the frame stood unfrozen until the earlier load was done. */
+  { const R=App.R, want=App.mode==='cell'? App.cellSel : null;
+    if(R && want && (!App._scene || !App._scene.centre || sceneKeyOf(App._scene.centre)!==sceneKeyOf(want))) R.frozen=true; }
   /* Round 18bd (F1): the busy card always comes down, and a failure is said somewhere a
      person can see it.
      There are seven `Busy.show` calls in the rebuild and one `Busy.hide`, with five early
@@ -593,12 +709,24 @@ function rebuildCellPreview(raw){
      Hidden only by the newest ask, because a superseded run is not the one the card
      belongs to any more and its successor is still working. */
   const next=_cellQueue
-    .then(()=>{ if(my!==App.previewAsk) return; _cellAsk=my; return _rebuildCellPreview(); })
+    .then(()=>{
+      if(my!==App.previewAsk) return;
+      _cellAsk=my;
+      return _rebuildCellPreview();
+    })
     .catch(e=>{
       console.error(e);
       if(my===App.previewAsk) setCellStatus(T('cell.status_failed',{err:why(e)}),'warn');
     })
-    .finally(()=>{ if(my===App.previewAsk) Busy.hide(); });
+    .finally(()=>{
+      if(my!==App.previewAsk) return;
+      Busy.hide();
+      /* The newest ask is done, whole or failed: the frame is let go either way, and the
+         hold with it, now rather than at the loop's next tick, so a frame drawn straight
+         after the load (the tests draw one) runs the clock; the loop puts any other hold
+         back on its next tick. */
+      if(App.R && App.R.frozen){ App.R.frozen=false; App.R._setHold(false); App.R.dirty=true; }
+    });
   _cellQueue=next;
   /* `raw` is `_rebuildPreview`'s, which awaits this from inside the other queue and would
      otherwise wait on itself; everyone else waits for the scene of the newest ask. */
@@ -695,6 +823,14 @@ async function _rebuildCellPreview(){
   if(reuse){
     // Nothing about the scene changed; go straight to the grass.
     const sc=App._scene;
+    /* Round 18ha: the brush's world is a fact about the scene, and `_rebuildPreview`
+       puts it back to the ground's (pairs) before every rebuild, trusting the cell build
+       to set it per scene. This fast path is a cell build too. Without this line a stroke
+       in a room, whose end rescatters the room through here, left the brush speaking in
+       pairs over a floor that has no ground, so the next stroke found nothing to land
+       on: Robin, "I can only paint one stroke of paint in interiors after loading a new
+       cell [...] no other stroke will take after the first one." */
+    R.opts.paintFree = !!(sc.centre && sc.centre.kind==='int');
     return scatterIntoScene(R,sc.cells,sc.origin,sc.centre,sc.texAgg,
                             sc.texMissing,sc.statics,sceneKey,sc.ring,sc.world,sc.failed,
                             {fresh:false, scene:{panKey:sc.panKey, anchor:sc.anchor, chunks:sc.chunks, aim:sc.aim, cz:sc.cz}});
@@ -859,12 +995,19 @@ async function _rebuildCellPreview(){
      Taken once, for the target it was set for; a different cell chosen in between drops it. */
   const doorAim=(App._doorAim && App._doorAim.key===tkey)? App._doorAim : null;
   App._doorAim=null;
+  /* Round 18gx: a cell opened to look at one thing in it (the placements dialogue's
+     Preview, `goToPlace` with a position) is framed on that thing, the way a door arrival
+     is framed on its marker. Taken once, for the target it was set for. */
+  const focusAim=(App._focusAim && App._focusAim.key===tkey)? App._focusAim : null;
+  App._focusAim=null;
   /* Round 18cy: the visit history (32_cellhistory.js). A step through it arrives with a
      plan for the camera, taken here; any other Real cell load is a person asking for a
      cell, and is recorded - now, while the camera still stands where the cell being left
      had it. `App._histVia` is how they asked (the arrows and the door button say; the
      picker and everything else is a pick). */
   let histPlan=null;
+  // Round 18hh: how this load was asked for, read before the history takes the note.
+  const arrivedVia=(App._histVia && App._histVia.via)||null;
   if(App.mode==='cell' && typeof CellHistory==='object'){
     const step=App._histStep;
     if(step && step.key===tkey){ histPlan=step.plan; CellHistory.settle(); }
@@ -876,7 +1019,11 @@ async function _rebuildCellPreview(){
   }
   const hp=histPlan && ((histPlan.kind==='door' && histPlan.door) || (histPlan.kind==='carry' && histPlan.cam)
                         || (histPlan.kind==='restore' && histPlan.cam))? histPlan : null;
-  if(doorAim){
+  if(focusAim){
+    focusCamera(focusAim.pos, focusAim.r, origin);
+    App._framedKey=fkey; App._restoreCam=null;
+  }
+  else if(doorAim){
     const ax=doorAim.pos[0]-origin[0], ay=doorAim.pos[1]-origin[1];
     R.frameAt(DOOR_FRAME_SPAN, doorAim.pos[2], ax, ay);
     const facing=Math.atan2(Math.cos(doorAim.rot), Math.sin(doorAim.rot));   // the bearing the player faces
@@ -888,7 +1035,7 @@ async function _rebuildCellPreview(){
        found." The objects are not placed yet - `settleDoorEye`, once they are, walks the
        line from the marker to the eye and stops the eye short of the first thing in the
        way. Remembered as set, so a camera the person has since moved is left alone. */
-    App._doorEye={az:R.cam.az, el:R.cam.el, dist:R.cam.dist, pivot:[R.cam.tx,R.cam.ty,R.cam.tz]};
+    App._doorEye={az:R.cam.az, el:R.cam.el, dist:R.cam.dist, pivot:[R.cam.tx,R.cam.ty,R.cam.tz], facing};
   }
   else if(hp && hp.kind==='door'){
     /* Round 18cy: back through a door - looking at the door itself, from the side the eye
@@ -923,7 +1070,12 @@ async function _rebuildCellPreview(){
     R._orbitG=null; R.dirty=true;
     App._framedKey=fkey; App._restoreCam=null;
   }
-  else if(App._restoreCam && App._restoreCam.key===fkey){
+  else if(App._restoreCam && App._restoreCam.key===fkey && App._framedKey!==fkey){
+    /* Round 18hb: and only on the way back from the editor, which is when `_framedKey`
+       was cleared. A camera saved for this scene and never taken (the return went down
+       the cached-scene fast path, which takes nothing) used to wait here for the next
+       full rebuild of the same cell and jump the view to wherever the editor was entered
+       from. */
     // Back from the mesh editor to the same scene: the camera it left with (round 15).
     /* Round 18bo: and the orbit pivot goes on whatever the restored view is pointed at.
        Robin: "I want the orbit pivot to reset every time I go back to the full cell preview
@@ -943,16 +1095,34 @@ async function _rebuildCellPreview(){
     App._refocusOrbit = R.nav==='orbit';
     Object.assign(R.cam, App._restoreCam.cam); App._restoreCam=null; App._framedKey=fkey; R.dirty=true;
   }
-  else if(pan && pan.aim && App._framedKey!==fkey){
+  else if(pan && pan.aim && App._framedKey!==fkey && arrivedVia==='arrow'){
     /* Round 17y: a step to the next cell carries the camera with it - the same view over
        the new cell, your zoom and angle kept, a cell's width further on - rather than
        framing the cell afresh as a first load does. Walking a coastline is what the arrows
-       are for, and a walk that reset the zoom at every step was not one. */
+       are for, and a walk that reset the zoom at every step was not one.
+       Round 18hh: the arrows only. A pan is any exterior within reach of the anchored
+       origin, which a cell picked from the picker a few cells away is too, and the camera
+       carried over to it kept its old height over new ground. Robin: "When I switch
+       between cells using the cell picker, the cell is not always recentered [...] I
+       sometimes end up finding the camera under the ground." The scene still pans (the
+       chunks are kept); the camera is framed afresh, as any picked cell's is. */
     const dx=aim[0]-pan.aim[0], dy=aim[1]-pan.aim[1], dz=(cz-(pan.cz||0));
     R.cam.tx+=dx; R.cam.ty+=dy; R.cam.tz+=dz;
     if(R.fly && R.fly.pos){ R.fly.pos[0]+=dx; R.fly.pos[1]+=dy; R.fly.pos[2]+=dz; }
     R._orbitG=null; R.dirty=true;
     App._framedKey=fkey; App._restoreCam=null;
+  }
+  else if(App._framedKey===fkey && prev && prev.origin && (origin[0]!==prev.origin[0] || origin[1]!==prev.origin[1])){
+    /* Round 18hb: the same cell, the camera already framed, and the scene's origin moved
+       under it (a rebuild that could not keep the anchored origin, after a setting
+       changed): the camera is expressed about the origin, so it is carried by the
+       difference and the view is the same view. Robin, after a clearance change: "my
+       camera was moved far away [...] The camera should never change due to something
+       like that." */
+    const dx=prev.origin[0]-origin[0], dy=prev.origin[1]-origin[1];
+    R.cam.tx+=dx; R.cam.ty+=dy;
+    if(R.fly && R.fly.pos){ R.fly.pos[0]+=dx; R.fly.pos[1]+=dy; }
+    R._orbitG=null; R.dirty=true;
   }
   else if(App._framedKey!==fkey){ R.frameAt(span,cz,aim[0],aim[1]); App._framedKey=fkey; App._restoreCam=null; }
 
@@ -1038,6 +1208,12 @@ async function _rebuildCellPreview(){
       // Unpainted ground has no file to load when the vanilla one is only inside a
       // BSA, and a missing-texture checker there would be a lie: the game draws dirt.
       if(!L.tex && L.id===DEFAULT_LTEX) L.flat=DEFAULT_LTEX_COLOR;
+      /* 18fv: a texture the install has no record of at all - the synthetic patch minted
+         one so the rule could be previewed (patch.rs) - wears the grey and white
+         checker, so it reads as "no such texture" rather than "image not found". Robin:
+         "When there is no id that matches the Land texture on a rule, preview it with the
+         gray and white checker board terrain texture." */
+      if(L.id && !L.tex && !L.flat && GameData.scanned && !GameData.knowsTexture(L.id)) L.absent=true;
       // Worth naming rather than leaving as an unexplained checker on the ground.
       if(L.id && !L.tex && !L.flat) texMissing.add(L.id);
       if(L.id){
@@ -1115,6 +1291,7 @@ async function _rebuildCellPreview(){
     await Busy.tick();
     const byMesh=new Map();
     App._sceneMarkers=[];   // Wraithguard: the editor markers, not drawn, for the overlay (48_wg_tools.js)
+    const bareLights=[];   // 18hl: light records with no mesh, placed below with the rest
     for(const c of cells){
 
       const off=cellOffsetFrom(origin,c);
@@ -1175,7 +1352,19 @@ async function _rebuildCellPreview(){
               : (actor.kind==='npc'||!actor.model)? CORPSE_SLAB : actor.model;
         }else{
           model=CellData.models.get(key);
-          if(!model) continue;
+          if(!model){
+            /* Round 18hl: a light record with no mesh at all. Modders paint caves with
+               these (The Wake of Hanin's tomb has two hundred, purple and blue), and
+               since there is nothing to draw the reference was dropped here, light and
+               all, which left such a room lit by its ambient alone. The light is placed
+               at the reference itself (there is no AttachLight to hang it on) and it
+               keeps no hours anywhere. Robin: "keep all lights without a mesh always on
+               no matter if interior or exterior. They are used for different lights
+               than lamps etc. (like bioluminescence and such)". */
+            const li=CellData.lights.get(key);
+            if(li) bareLights.push({p:[ref.pos[0]-c.origin[0]+off[0], ref.pos[1]-c.origin[1]+off[1], ref.pos[2]], li});
+            continue;
+          }
           // Editor markers are not drawn, for the same reason the engine does not avoid
           // them: the game does not draw them either.
           if(isMarkerMesh(model)){
@@ -1185,8 +1374,24 @@ async function _rebuildCellPreview(){
           }
         }
         const local=[ref.pos[0]-c.origin[0]+off[0], ref.pos[1]-c.origin[1]+off[1], ref.pos[2]];
-        let a=byMesh.get(model); if(!a){ a=[]; byMesh.set(model,a); }
-        const entry={ref,local,id:ref.id,model,cellKey:c.gx+','+c.gy};
+        /* Round 18ez: a reference the game never animates - a static, whatever file it
+           names - is drawn from the mesh's rest pose with no clock, and is grouped apart
+           from the same mesh's animated references so the two can be different batches
+           of two different faces of the file. `still` comes from the engine, per
+           reference, off the record's class (see `refs_json`). An actor never says it. */
+        const still=!actor && !!ref.still;
+        const face=still? model+'|still' : model;
+        let a=byMesh.get(face); if(!a){ a=[]; byMesh.set(face,a); }
+        /* Round 18hi: the run key is a tile, not the cell. The renderer culls instances in
+           runs (17r), one per key, and a run's box is the box of its instances; by cell a
+           room was one run per batch with the whole room's box, and standing in the
+           Corpse Fields looking one way still submitted 90 percent of its 44 million
+           triangles (perf-interiors-plan.md). By tile a room is as many runs as it spans,
+           and an exterior cell is sixteen a layer rather than one. Three dimensions,
+           because that room stacks its areas 32,000 units tall. The cell comes first in
+           the key so a cell's runs stay together. */
+        const entry={ref,local,id:ref.id,model,still,cellKey:c.gx+','+c.gy,
+                     tileKey:c.gx+','+c.gy+'|'+Math.floor(local[0]/CULL_TILE)+','+Math.floor(local[1]/CULL_TILE)+','+Math.floor(local[2]/CULL_TILE)};
         /* Round 17m: a reference to a LIGH record carries a light. Where exactly is not
            known until the mesh is read — the game hangs it on a node called AttachLight
            when the mesh has one — so the entry is marked here and placed below. */
@@ -1194,6 +1399,15 @@ async function _rebuildCellPreview(){
         if(li) entry.light=li;
         a.push(entry);
       }
+    }
+    /* Round 18hl: the mesh-less lights, into the same list the lamps go to. (-2,-2) is
+       "keeps no hours" to the shader and the point light alike (`lampLitAt`). */
+    for(const {p,li} of bareLights){
+      cellLights.push({
+        p, on:-2, off:-2, always:true, bare:true,
+        r:Math.max(16, li.radius||0),
+        c:[(li.colour[0]||0)/255, (li.colour[1]||0)/255, (li.colour[2]||0)/255],
+        neg:!!li.negative});
     }
     /* Every distinct mesh in the cell, asked for at once. This was a `for` loop with an
        `await` in it: one round trip after another, a hundred of them for a busy cell,
@@ -1206,7 +1420,14 @@ async function _rebuildCellPreview(){
     /* Round 16b: bundled - a few round trips carrying every mesh and every texture
        the page does not have, instead of one per file (`loadMeshes`, 10_preview.js).
        The bar counts them in as they land. */
-    const loaded=await loadMeshes(meshList.map(([model])=>(model===CORPSE_SLAB || model.startsWith(NPC_MESH_PREFIX) || model.startsWith('__wg/'))? model : 'Meshes\\'+model),
+    /* Gardenfell 18ez: the list is keyed by face (`model` or `model|still`); the path and
+       the stance come from the entry. Wraithguard's own models - the corpse slab, an NPC
+       assembled by the engine, a marker the viewer carries - are asked for by name. */
+    const loaded=await loadMeshes(meshList.map(([face,list])=>{
+        const model=list[0].model, still=list[0].still;
+        if(model===CORPSE_SLAB || model.startsWith(NPC_MESH_PREFIX) || model.startsWith('__wg/')) return model;
+        return {path:'Meshes\\'+model, still};
+      }),
       (done,total)=>{
         Busy.show(T('busy.placing_objects'), T('busy.n_of_meshes',{done, total})+'\n'+LoadProf.live(), 0.5+0.35*done/Math.max(1,total));
         // And to the console every 10 bundles, so the numbers survive a hang or a crash.
@@ -1216,7 +1437,8 @@ async function _rebuildCellPreview(){
     /* Wraithguard: what the loaded cells ask for and the setup does not have - meshes that
        did not load, and textures that did not - for the review tools' Missing files. */
     { const miss=[];
-      meshList.forEach(([model,list],mi)=>{
+      meshList.forEach(([face,list],mi)=>{
+        const model=list[0].model;   // 18ez: the key is the face, the path is the entry's
         const info=loaded[mi];
         if(!info || info.err){ if(!model.startsWith(NPC_MESH_PREFIX) && model!==CORPSE_SLAB) miss.push({kind:'mesh', name:model, count:list.length, err:(info&&info.err)||''}); return; }
         const seen=new Set();
@@ -1227,7 +1449,9 @@ async function _rebuildCellPreview(){
       });
       App._sceneMissing=miss; }
     for(let mi=0; mi<meshList.length; mi++){
-      const [model,list]=meshList[mi];
+      // Round 18ez: the key is the face (`model` or `model|still`); the model is the list's.
+      const list=meshList[mi][1];
+      const model=list[0].model;
       const info=loaded[mi];
       if(!info||info.err) continue;
       /* Round 17w: a mesh with no geometry but a particle system — the waterfall mist,
@@ -1243,7 +1467,7 @@ async function _rebuildCellPreview(){
          stays one per mesh part and the *instances* are grouped instead. Sorted by cell,
          each cell's instances are contiguous, so a run of visible cells is one draw at an
          offset rather than a batch of its own. */
-      list.sort((a,b)=> a.cellKey<b.cellKey? -1 : a.cellKey>b.cellKey? 1 : 0);
+      list.sort((a,b)=> a.tileKey<b.tileKey? -1 : a.tileKey>b.tileKey? 1 : 0);   // 18hi: by tile, cell first
       const m=new Float32Array(list.length*12);
       list.forEach((r,k)=>m.set(refMatrix(r.local,r.ref.rot,r.ref.scale),k*12));
       const groups=(hasParts && info.visAabb)? cellRuns(list, m, info.visAabb) : [];
@@ -1400,6 +1624,8 @@ async function _rebuildCellPreview(){
         parts:info.parts,
         // Round 18al: the phase bin this instance plays in, or null for a still mesh.
         phase:phaseOf[k],
+        // Round 18ez: drawn from the rest pose, the game never opening its `.kf`.
+        still:!!r.still,
         aabb:worldAabb(info.visAabb,Array.from(m.slice(k*12,k*12+12))),
         plugin:pluginName(r.ref.from), refKey:r.ref.key||'',
         shape:info.colSource||'none', radius:info.colRadius||0,
@@ -1479,6 +1705,17 @@ async function _rebuildCellPreview(){
   R.disposeStatics();
   { const tg=performance.now(); R.setStatics(staticBatches);
     if(typeof LoadProf==='object') LoadProf.groupsMs=performance.now()-tg; }
+  /* Wraithguard: the land past the rings (57_wg_distant.js), then what stands on it
+     (58_wg_distant_objects.js) - only now, with the cell's own objects placed, and not
+     awaited. Started with the terrain, the land's first read (every land texture's colour)
+     took the engine's workers while the cell's meshes were still coming, and the cell
+     waited on it (Static, 2026-10-13: stuck at 84 of 92 meshes). */
+  if(typeof WgDistant==='object')
+    WgDistant.refresh(R, centre, origin, rings)
+      .catch(e=>{ WgDistant.err=String(e&&e.message||e); })
+      .then(()=>{ if(typeof WgDistantObjects==='object' && R.statics===staticBatches)   // still this scene
+        return WgDistantObjects.refresh(R, centre, origin, rings, staticBatches)
+          .catch(e=>{ WgDistantObjects.err=String(e&&e.message||e); }); });
   for(const [sys,mm,lamp,model] of pendingSystems) R.addParticleSystems(sys,mm,lamp,model);
   R.setPickables(pickables);
   /* Wraithguard: a record the conflict viewer sent here (45_wg_nav.js) - inspect it once
@@ -1597,6 +1834,11 @@ async function _rebuildCellPreview(){
     : null;
   R.opts.room=room;
   if(App.syncAtmosphereSwitch) App.syncAtmosphereSwitch(!!room);
+  /* Round 18hi: the view distance pill, for any interior, a room lit like an exterior
+     included; it is the walls that make the slider worth having, not the light. 18hj: and
+     outdoors, in a real cell, the rings pill in its place; the simplified patch has
+     neither, having no neighbours and no far end. */
+  if(App.syncViewPills) App.syncViewPills(indoors? 'int' : (App.mode==='cell'? 'ext' : null));
 
   /* Four arrows just past the edges of the drawn ground, one cell per click. Walking a
      coastline is what people do with a cell preview, and doing it through the picker
@@ -2022,10 +2264,10 @@ async function scatterIntoScene(R,cells,origin,centre,texAgg,texMissing,
   if(typeof refreshCullField==='function') Promise.resolve().then(refreshCullField).catch(e=>console.error(e));
 
   const totalRefs=cells.reduce((a,c)=>a+c.refs.length,0);
-  const prov={sources:new Map(),replaced:0,deleted:0,movedOut:0,movedIn:0,unresolved:0};
+  const prov={sources:new Map(),replaced:0,deleted:0,keptDeleted:0,movedOut:0,movedIn:0,unresolved:0};
   for(const c of cells){
     const p=c.prov; if(!p) continue;
-    prov.replaced+=p.replaced; prov.deleted+=p.deleted;
+    prov.replaced+=p.replaced; prov.deleted+=p.deleted; prov.keptDeleted+=(p.keptDeleted|0);
     prov.movedOut+=p.movedOut; prov.movedIn+=p.movedIn; prov.unresolved+=p.unresolved;
     for(const [k,v] of p.sources) prov.sources.set(k,(prov.sources.get(k)||0)+v);
   }
@@ -2133,6 +2375,10 @@ function drawCellStats(d){
     [T('cell.st_references'), d.cell.refs.length],
     ...opt(sub(T('cell.st_overridden')), d.prov?d.prov.replaced:0),
     ...opt(sub(T('cell.st_deleted')), d.prov?d.prov.deleted:0),
+    /* 18fc: a later plugin's record for a reference an earlier one deleted. The game
+       keeps the deleted flag and edits the hidden thing, so the record is dropped here
+       too - the row says why a flag a patch re-places is not on the screen. */
+    ...opt(sub(T('cell.st_kept_deleted')), d.prov?d.prov.keptDeleted:0, T('cell.st_kept_deleted_tip')),
     ...opt(sub(T('cell.st_moved_out')), d.prov?d.prov.movedOut:0),
     ...opt(sub(T('cell.st_moved_in')), d.prov?d.prov.movedIn:0),
     /* "found", not "drawn": the objects are read whenever they are drawn or avoided,
@@ -2189,6 +2435,7 @@ function drawCellStats(d){
   if(real && typeof CellHistory==='object') CellHistory.sync();
   if(starred) paintStatsStar();
 }
+
 
 /** The star on the statistics box's cell row (round 18cy): the loaded cell's, as the
     picker files it (`cellFavKey`), filled or an outline, toggled by a click. */
@@ -2295,7 +2542,7 @@ async function refreshCullField(){
   const radius=(c.curve[0]>-NO || c.curve[1]<NO)? (+T.curveRadius||512) : 0;
   const gxs=cells.map(x=>x.gx), gys=cells.map(x=>x.gy);
   const g0=[Math.min(...gxs), Math.min(...gys)], g1=[Math.max(...gxs), Math.max(...gys)];
-  const key=JSON.stringify([GameData.sig||'', App.paintRev|0, App.seed, App.avoidStatics, App.avoidPad,
+  const key=JSON.stringify([GameData.sig||'', App.paintRev|0, App.seed, App.avoidStatics, App.avoidPad, App.avoidPadIn,
                             App.avoidMinSize, (App.avoidExclude||[]).join('|'),
                             (App.cfg.canopies||[]).map(k=>k.id+':'+(k.match||[]).join(',')).join('|'),
                             g0, g1, Math.round(reach), Math.round(radius),
@@ -2349,17 +2596,23 @@ const frac2=(a,b,c)=>{ const v=Math.sin(a*12.9898+b*78.233+c)*43758.5453; return
 /** Round 17r's cell runs for an instance list: the instances are sorted by cell, so each
  *  cell's are contiguous and a run of visible cells is one draw at an offset. `list[k]`
  *  stands at `m[k*12..]`. */
+/** Round 18hi: the tile a run is keyed by, in scene units. 2,048 is a quarter of a cell:
+ *  small enough that a view from inside a big room meets a few dozen runs of a batch and
+ *  not the whole batch, large enough that a cell is sixteen runs a layer and not a
+ *  thousand (runs of one batch that are adjacent in the list still merge into one draw,
+ *  so the count to watch is calls submitted, which `_cullGroups` keeps low). */
+const CULL_TILE=2048;
 function cellRuns(list, m, visAabb){
   const groups=[];
   for(let k=0;k<list.length;k++){
     const g=groups[groups.length-1];
     const box=worldAabb(visAabb, m.subarray(k*12,k*12+12));
-    if(g && g.key===list[k].cellKey){
+    if(g && g.key===(list[k].tileKey||list[k].cellKey)){
       g.n++;
       if(box.x0<g.b[0])g.b[0]=box.x0; if(box.y0<g.b[1])g.b[1]=box.y0; if(box.z0<g.b[2])g.b[2]=box.z0;
       if(box.x1>g.b[3])g.b[3]=box.x1; if(box.y1>g.b[4])g.b[4]=box.y1; if(box.z1>g.b[5])g.b[5]=box.z1;
     }else{
-      groups.push({key:list[k].cellKey, at:k, n:1,
+      groups.push({key:list[k].tileKey||list[k].cellKey, at:k, n:1,
                    b:[box.x0,box.y0,box.z0,box.x1,box.y1,box.z1]});
     }
   }
@@ -2429,7 +2682,12 @@ function phasedPart(part, shift, speed){
   let pp=part._phased.get(key);
   if(!pp){
     pp=Object.create(part);
-    pp._gpu=null; pp._skinAt=undefined; pp._skinPos=null; pp._skinNrm=null;
+    /* Round 18ff: a skinned part is posed by the shader from a bone texture of the bin's
+       own (`_skinTex`, set on the copy), over the vertex buffers it shares with the part
+       - so `_gpu` is left to fall through to the part's. A morph-animated part is still
+       posed on the CPU into buffers the bin writes each frame, so it keeps a copy. */
+    if(part.morph) pp._gpu=null;
+    pp._skinAt=undefined; pp._skinPos=null; pp._skinNrm=null; pp._skinTex=null; pp._skinGpu=false;
     pp._animShift=shift; pp._animSpeed=(speed==null? 1 : speed);
     part._phased.set(key, pp);
   }
@@ -2588,6 +2846,7 @@ function cellMatches(c,q,kind){
   return c.label.toLowerCase().includes(q) || c.sub.toLowerCase().includes(q) ||
          (c.kind==='ext' && (c.x+','+c.y).includes(q.replace(/\s+/g,'')));
 }
+
 
 function openCellPicker(){
   if(!GameData.scanned){ toast(T('connect.setup_first'),'warn'); return; }
@@ -2781,7 +3040,7 @@ function openCellPicker(){
     };
   }
   syncInt();
-  Favourites.load().then(render);
+  Favourites.load().then(()=>{ render(); if(isMap()) CellMap.redraw(); });
   $('#cellFilter').oninput=render;
   $('#cellFilter').value='';
   showView();
@@ -2856,7 +3115,11 @@ function bindCellMode(){
     syncCellButton();
     schedulePreview();
   };
-  $('#pvAdjacent').onchange=e=>{ App.showAdjacent=+e.target.value||0; schedulePreview(); };
+  /* Wraithguard: the rings in their pill and in Preview, Cell - either sets them, both show it. */
+  { const a=$('#pvAdjacent'), b=$('#pvAdjacentRow');
+    const set=v=>{ App.showAdjacent=+v||0; for(const s of [a,b]) if(s) s.value=String(App.showAdjacent); schedulePreview(); };
+    if(a) a.onchange=e=>set(e.target.value);
+    if(b) b.onchange=e=>set(e.target.value); }
   /* Round 16b: a new cap means the textures on the GPU are the wrong size, so they and
      the meshes that hold them are forgotten and the cell is loaded again. */
   $('#pvTexDetail').onchange=e=>{ App.textureDetail=+e.target.value||0; dropMeshes(); dropTextures();

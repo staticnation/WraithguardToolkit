@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::esp::{CellRef, RefNum};
 use crate::vfs::{norm, Vfs};
-use crate::world::{Gone, World};
+use crate::world::{CellHistory, History, World};
 
 /// One cell where something stands: how many times, and the first one's placement.
 #[derive(Clone, Debug, PartialEq)]
@@ -160,8 +160,14 @@ pub fn land_places(w: &World, tex: &str) -> Vec<Place> {
 
 /// How contested a cell's references are: those two or more plugins supplied a version
 /// of, and those a plugin deleted or moved away.
-pub fn conflicts(refs: &HashMap<RefNum, CellRef>, gone: &[Gone]) -> usize {
-    refs.values().filter(|r| r.touched.iter().any(|t| Some(t) != r.touched.first())).count() + gone.len()
+pub fn conflicts(refs: &HashMap<RefNum, CellRef>, hist: &History, cell: &CellHistory) -> usize {
+    refs.values()
+        .filter(|r| {
+            let t = &hist.of(&r.num).touched;
+            t.iter().any(|x| Some(x) != t.first())
+        })
+        .count()
+        + cell.gone.len()
 }
 
 #[cfg(test)]

@@ -619,6 +619,10 @@ const WgUI={
         {head:'Toolbar'},
         {label:'At the top of the render window', radio:true, checked:(p.pos||'top')==='top', act:()=>this.dockToolbar('top')},
         {label:'At the bottom', radio:true, checked:p.pos==='bottom', act:()=>this.dockToolbar('bottom')},
+        {label:'Across the top of the window', radio:true, checked:p.pos==='wintop', act:()=>this.dockToolbar('wintop'),
+         title:'A full-width bar under the title bar, taking its own room: it never covers the 3D view'},
+        {label:'Across the bottom of the window', radio:true, checked:p.pos==='winbottom', act:()=>this.dockToolbar('winbottom'),
+         title:'A full-width bar along the bottom of the window, taking its own room'},
         {label:'Floating (drag the grip)', radio:true, checked:p.pos==='float', act:()=>this.dockToolbar('float')},
         {sep:true},
         {label:'Standing up (a column)', checked:!!p.vert, act:()=>{ p.vert=!p.vert; this.state().tb=p; this.save(); this.applyToolbar(); }},
@@ -721,9 +725,33 @@ const WgUI={
     const t=this.tb; if(!t) return;
     const p=this.state().tb||{};
     const pos=p.pos||'top';
-    t.className=[pos, p.vert? 'vert' : '', p.words===false? 'iconly' : ''].filter(Boolean).join(' ');
+    /* Static, 2026-10-12: docked to the window itself - a full-width bar above or below
+       the main area, in the page's own flow, so the render window shrinks for it rather
+       than being covered. Always a row there. */
+    const win=pos==='wintop' || pos==='winbottom';
+    t.className=[pos, (p.vert && !win)? 'vert' : '', p.words===false? 'iconly' : ''].filter(Boolean).join(' ');
     if(pos==='float' && p.x!=null){ t.style.left=p.x+'px'; t.style.top=p.y+'px'; }
     else{ t.style.left=''; t.style.top=''; }
+    const host=this.toolbarHost(win? pos : null);
+    if(host && t.parentNode!==host){
+      host.appendChild(t);
+      const bar=document.getElementById('edTbWin');
+      if(bar) bar.classList.toggle('used', win);
+      if(App.R && App.R.resize) requestAnimationFrame(()=>App.R.resize());
+    }
+  },
+
+  /** Where the toolbar lives: the render window, or (`wintop`/`winbottom`) the
+   *  full-width bar, made once and moved to above or below the main area. */
+  toolbarHost(win){
+    if(!win) return $('#vpwrap');
+    const app=$('#app'), main=$('#main'); if(!app || !main) return $('#vpwrap');
+    let bar=document.getElementById('edTbWin');
+    if(!bar){ bar=document.createElement('div'); bar.id='edTbWin'; }
+    bar.className=win;
+    if(win==='wintop'){ if(bar.nextSibling!==main) app.insertBefore(bar, main); }
+    else if(main.nextSibling!==bar) app.insertBefore(bar, main.nextSibling);
+    return bar;
   },
 
   dockToolbar(pos){

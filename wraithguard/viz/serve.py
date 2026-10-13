@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import secrets
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -49,6 +50,8 @@ _HOST = "127.0.0.1"
 
 #: How long to wait for the server thread to stop before giving up on it.
 _SHUTDOWN_TIMEOUT = 2.0
+#: How long the server waits after a socket error before serving again.
+_RETRY_S = 0.5
 
 #: Largest POST body accepted. An edit list is a few kilobytes of JSON; this is
 #: generous for that and small enough that a runaway request cannot exhaust
@@ -432,10 +435,45 @@ class ViewerServer:
         handler = _make_handler(self)
         self._server = ThreadingHTTPServer((_HOST, 0), handler)
         self._thread = threading.Thread(
-            target=self._server.serve_forever, name="mlox-viewer", daemon=True
+            target=self._serve, args=(self._server,), name="mlox-viewer", daemon=True
         )
         self._thread.start()
         LOG.info("viewer server listening on %s:%d", _HOST, self.port)
+
+    def _serve(self, server: ThreadingHTTPServer) -> None:
+        """Serve until stopped, outliving a socket error the system raises in passing.
+
+        Windows refuses ``select`` with WinError 10055 (no buffer space) when the whole
+        machine is short of memory - seen while the cell viewer ran a long draw distance
+        (2026-10-13). ``serve_forever`` let it end the thread, and every later request from
+        the viewer (the Editor, a mesh's Save) went unanswered until Wraithguard restarted.
+        Now the error is logged and the loop starts again once the moment has passed.
+
+        Args:
+            server: The server this thread serves; when it is no longer the live one
+                (:meth:`stop`), the loop ends.
+        """
+        while self._server is server and self._serve_once(server):
+            time.sleep(_RETRY_S)
+
+    def _serve_once(self, server: ThreadingHTTPServer) -> bool:
+        """One run of ``serve_forever``.
+
+        Args:
+            server: The server to run.
+
+        Returns:
+            Whether to serve again: True after a socket error while still the live
+            server, False once it was shut down.
+        """
+        try:
+            server.serve_forever()
+        except OSError as exc:
+            if self._server is not server:
+                return False
+            LOG.warning("viewer server: %s; serving again in a moment", exc)
+            return True
+        return False  # shut down by stop()
 
     def stop(self) -> None:
         """Stop listening and drop every payload.

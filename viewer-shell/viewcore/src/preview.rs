@@ -390,6 +390,57 @@ pub fn mesh_bytes_all(
         put_u32(&mut o, i as u32);
         put_str(&mut o, &p.gloss_tex);
     }
+    /* Gardenfell 18ev: the glow maps that read a UV set of their own - a count, then per
+       entry the part's index and its UVs. Only the parts that name a set the shape carries
+       (none of vanilla, none of OAAB); a glow on set 0 sends nothing. After the gloss maps
+       here (Gardenfell has it after the environment maps; the page reads in this order). */
+    let glow_uv: Vec<(usize, &crate::nif::DrawPart)> = parts
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| !p.uv_glow.is_empty() && p.uv_glow.len() == (p.pos.len() / 3) * 2)
+        .collect();
+    put_u32(&mut o, glow_uv.len() as u32);
+    for (i, p) in glow_uv {
+        put_u32(&mut o, i as u32);
+        for v in &p.uv_glow {
+            put_f32(&mut o, *v);
+        }
+    }
+    /* Gardenfell 18ey: the flipbooks - a count, then per entry the part's index, the slot it
+       flips, the time the first frame shows and the seconds a frame lasts, the controller's
+       clock, and the frames as sized names. Tamriel Rebuilt's water circles, OAAB's flowing
+       water; nothing in vanilla. */
+    let flips: Vec<(usize, &crate::nif::FlipAnim)> =
+        parts.iter().enumerate().filter_map(|(i, p)| p.flip.as_ref().map(|f| (i, f))).collect();
+    put_u32(&mut o, flips.len() as u32);
+    for (i, f) in flips {
+        put_u32(&mut o, i as u32);
+        put_u32(&mut o, f.slot);
+        put_f32(&mut o, f.tex_start);
+        put_f32(&mut o, f.delta);
+        put_f32(&mut o, f.frequency);
+        put_f32(&mut o, f.phase);
+        put_f32(&mut o, f.start);
+        put_f32(&mut o, f.stop);
+        put_u32(&mut o, f.frames.len() as u32);
+        for name in &f.frames {
+            put_str(&mut o, name);
+        }
+    }
+    /* Gardenfell 18ez: the billboards - a count, then per entry the part's index, one byte
+       of mode, the node's origin in mesh space and the scale above it. The glowbugs; a few
+       flares and glows on lamps. Last in the payload. */
+    let bbs: Vec<(usize, &crate::nif::Billboard)> =
+        parts.iter().enumerate().filter_map(|(i, p)| p.billboard.as_ref().map(|b| (i, b))).collect();
+    put_u32(&mut o, bbs.len() as u32);
+    for (i, b) in bbs {
+        put_u32(&mut o, i as u32);
+        o.push(b.mode);
+        for v in b.origin {
+            put_f32(&mut o, v);
+        }
+        put_f32(&mut o, b.scale);
+    }
     o
 }
 
@@ -438,7 +489,7 @@ fn link_json(l: &crate::nif::AnimLink) -> String {
         None => "null".to_string(),
     };
     format!(
-        "{{\"pre\":{},\"preS\":{},\"local\":{},\"localS\":{},\"flags\":{},\"freq\":{},\"phase\":{},\"start\":{},\"stop\":{},\"rot\":[{}],\"xyz\":{},\"trans\":[{}],\"scale\":{}}}",
+        "{{\"pre\":{},\"preS\":{},\"local\":{},\"localS\":{},\"flags\":{},\"freq\":{},\"phase\":{},\"start\":{},\"stop\":{},\"rot\":[{}],\"xyz\":{},\"xyzOrder\":{},\"trans\":[{}],\"scale\":{}}}",
         m12(&l.pre.0),
         num(l.pre.1),
         m12(&l.local.0),
@@ -450,6 +501,8 @@ fn link_json(l: &crate::nif::AnimLink) -> String {
         num(l.ctrl.stop),
         rot.join(","),
         xyz,
+        // Gardenfell 18hu: the XYZ rotation keys' axis order.
+        l.data.rot_order,
         trans.join(","),
         keys2(&l.data.scales)
     )

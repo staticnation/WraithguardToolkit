@@ -1410,6 +1410,10 @@ def _tes3conv_record_key(
     if not rtype or str(rtype).lower() in ("header", "tes3"):
         return None
     rid = rec.get("id") or rec.get("name")
+    if str(rtype) == "StartScript" and rec.get("script"):
+        # OpenMW keys a start script by NAME, the script it starts; tes3conv calls
+        # NAME `script` and DATA (never read) `id` (patch.records.record_key).
+        rid = rec["script"]
     if rid is None or str(rid) == "":
         grid = rec.get("grid")
         if grid is None and isinstance(rec.get("data"), dict):

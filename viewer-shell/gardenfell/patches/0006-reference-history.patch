@@ -1,0 +1,91 @@
+--- a/crates/gardenfell-world/src/world.rs
++++ b/crates/gardenfell-world/src/world.rs
+@@ -911,6 +911,61 @@
+     pub moved_in: usize,
+ }
+ 
++/// One version of a reference's placement: what it is, where, and how big.
++#[derive(Clone, Debug, Default, PartialEq)]
++pub struct Pose {
++    pub id: String,
++    pub pos: [f32; 3],
++    pub rot: [f32; 3],
++    pub scale: f32,
++}
++
++impl Pose {
++    /// The placement a reference's version states.
++    pub fn of(r: &CellRef) -> Pose {
++        Pose { id: r.id.clone(), pos: r.pos, rot: r.rot, scale: r.scale }
++    }
++}
++
++/// Every version of one reference the load order supplied, oldest first.
++#[derive(Clone, Debug, Default, PartialEq)]
++pub struct RefHistory {
++    /// Every plugin (load-order index) that supplied a version, in load order; the last
++    /// is the reference's `plugin`.
++    pub touched: Vec<i32>,
++    /// Each version's placement, beside `touched` (one per entry, the last the one in
++    /// force): what a later plugin moved, rotated or swapped.
++    pub poses: Vec<Pose>,
++}
++
++impl RefHistory {
++    /// Records plugin `pi`'s version of `r` in `refs` (a field of [`History`], passed on
++    /// its own so the merge can hold a cell's history at the same time).
++    fn supplied(refs: &mut HashMap<RefNum, RefHistory>, r: &CellRef, pi: usize) {
++        let h = refs.entry(r.num).or_default();
++        h.touched.push(pi as i32);
++        h.poses.push(Pose::of(r));
++    }
++}
++
++/// What each plugin did, kept beside the merged world rather than inside its cells and
++/// references, so nothing that builds a `Cell` or a `CellRef` has to know about it.
++#[derive(Clone, Debug, Default)]
++pub struct History {
++    /// By reference number (unique across the load order, so a reference moved to another
++    /// cell keeps its history).
++    pub refs: HashMap<RefNum, RefHistory>,
++}
++
++impl History {
++    /// A reference's history; empty for one the merge never saw.
++    pub fn of(&self, num: &RefNum) -> &RefHistory {
++        static EMPTY: RefHistory = RefHistory { touched: Vec::new(), poses: Vec::new() };
++        self.refs.get(num).unwrap_or(&EMPTY)
++    }
++
++}
++
+ #[derive(Default)]
+ pub struct World {
+     pub plugins: Vec<String>,
+@@ -1043,6 +1098,8 @@
+     /// built for a texture, and for every real cell.
+     pub patch_rule: Option<PatchRule>,
+     pub stats: LoadStats,
++    /// What each plugin did to the references and cells (see [`History`]).
++    pub history: History,
+ }
+ 
+ /// See [`World::patch_rule`].
+@@ -1576,6 +1633,8 @@
+                     let mut evict: Vec<(RefNum, Where)> = Vec::new();
+                     for mut r in rc.refs {
+                         r.plugin = pi as i32;
++                        // Every version of the reference, and its placement in each.
++                        RefHistory::supplied(&mut w.history.refs, &r, pi);
+                         if drop_mismatched_move(&mut r, opts) {
+                             w.stats.refs_move_dropped += 1;
+                         }
+@@ -1685,6 +1744,8 @@
+                     // because this is the only place that knows both the reference and
+                     // where its plugin sits in the order.
+                     r.plugin = pi as i32;
++                    // Every version of the reference, and its placement in each.
++                    RefHistory::supplied(&mut w.history.refs, &r, pi);
+                     if drop_mismatched_move(&mut r, opts) {
+                         w.stats.refs_move_dropped += 1;
+                     }

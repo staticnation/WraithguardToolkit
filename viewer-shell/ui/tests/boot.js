@@ -151,7 +151,7 @@ const eng=spawn(process.env.WG_VIEW_SERVE||require('path').join(__dirname,'../..
 let nextId=1; const waiting=new Map(); let buf='';
 eng.stdout.on('data',d=>{buf+=d; let nl; while((nl=buf.indexOf('\n'))>=0){const line=buf.slice(0,nl); buf=buf.slice(nl+1); let m; try{m=JSON.parse(line);}catch(e){continue;} if(m.ready) continue; const w=waiting.get(m.id); if(w){waiting.delete(m.id); w(m);}}});
 function engineCall(cmd,args){ return new Promise((res,rej)=>{ const id=nextId++; waiting.set(id,m=>{ if('err' in m) rej(m.err); else if('b64' in m){ const b=Buffer.from(m.b64,'base64'); res(b.buffer.slice(b.byteOffset,b.byteOffset+b.length)); } else res(m.ok); }); eng.stdin.write(JSON.stringify({id,cmd,args:args||{}})+'\n'); }); }
-const errors=[], calls=[];
+const errors=[], calls=[], replies={};
 // A throw inside a page event handler surfaces here in jsdom: record it, keep going.
 const short=e=>String(e&&e.stack||e).split('\n').filter(l=>!l.includes('node_modules')).slice(0,4).join(' | ');
 process.on('uncaughtException',e=>errors.push('uncaught: '+short(e)));
@@ -161,7 +161,7 @@ vc.on('jsdomError',e=>errors.push('jsdomError: '+(e.detail&&e.detail.stack||e.me
 vc.on('error',(...a)=>errors.push('console.error: '+a.map(String).join(' ').slice(0,300)));
 const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'http://tauri.localhost/index.html',
   beforeParse(w){
-    w.__TAURI__={core:{invoke:(cmd,args)=>{calls.push(cmd); return engineCall(cmd,args);}},
+    w.__TAURI__={core:{invoke:(cmd,args)=>{calls.push(cmd); return engineCall(cmd,args).then(r=>{ if(!(r instanceof ArrayBuffer)) replies[cmd]=typeof r==='string'? r : JSON.stringify(r); return r; });}},
                  dialog:{open:async()=>null,save:async()=>null}};
     w.__WG_VIEW__= MESH ? {cfg:CFG, meshView:true, extra:{meshes:[
         {path:'meshes/x/anim.nif', label:'Load order'},
@@ -275,9 +275,14 @@ async function features(w){
   done.push('ten weathers');
   // Shadows: each Shadow detail builds its map at that size.
   Sky.weather='Clear'; R.opts.weather='Clear'; R.opts.shadows=true;
+  /* Since Gardenfell 18fa the cascades (up to SHADOW_MAX_CASCADES) sit side by side in one
+     atlas, so a cascade is at most MAX_TEXTURE_SIZE / that many: 1638 on this stub's 8192,
+     2048 on the 16384 that Windows (ANGLE) and the Steam Deck report. */
+  const shCap=Math.floor(8192/w.eval('SHADOW_MAX_CASCADES'));
   for(const res of [512,1024,2048]){
     R.opts.shadowRes=res; R.shadowDrawn=false; frame();
-    if(!(R._shT && R._shT.res===res && R._shT.ok)) fail('no '+res+' shadow map ('+JSON.stringify(R._shT&&{res:R._shT.res,ok:R._shT.ok})+')');
+    const want=Math.min(res, shCap);
+    if(!(R._shT && R._shT.res===want && R._shT.ok)) fail('no '+want+' shadow map for detail '+res+' ('+JSON.stringify(R._shT&&{res:R._shT.res,ok:R._shT.ok})+')');
     if(R.shadowDrawn!==true) fail('the shadow pass did not run at '+res);
   }
   done.push('shadows');
@@ -364,6 +369,52 @@ async function tools(w, R, fail, done, sleep){
     if(!tfh || tfh.hidden || !tfh.querySelector('#tfhDoorGo')) fail('the full help has no Go through for '+door.id);
     Ori.hide();
     done.push('door buttons');
+  }
+  /* Gardenfell's pieces brought in on 2026-10-12: the viewport pills, the post effects on
+     unless the install says, the left panel's width, the find bar. */
+  { const d=w.document, top=d.getElementById('vpTop');
+    if(!top || !top.contains(d.getElementById('pvBright')) || !top.contains(d.getElementById('p_grassfar'))) fail('the viewport pills are missing');
+    if(d.getElementById('vpCells').hidden) fail('an exterior cell does not show the rings pill');
+    if(!d.getElementById('vpView').hidden) fail('an exterior cell shows the room view-distance pill');
+    w.eval("App.syncViewPills('int')");
+    const vf=d.getElementById('p_viewfar');
+    vf.value='2'; vf.dispatchEvent(new w.Event('input',{bubbles:true}));
+    if(R.opts.viewFar!==2*8192) fail('the view distance pill does not reach the renderer: '+R.opts.viewFar);
+    vf.value=vf.max; vf.dispatchEvent(new w.Event('input',{bubbles:true}));
+    if(R.opts.viewFar!==0) fail('the view distance at its top is not no limit: '+R.opts.viewFar);
+    w.eval("App.syncViewPills('ext')");
+    for(const [id,k] of [['p_shafts','sunshafts'],['p_fxaa','fxaa'],['p_dof','dof']])
+      if(!!R.opts[k]!==d.getElementById(id).checked) fail(id+' and the renderer disagree');
+    w.eval("Panels.set('left',420,false)");
+    if(d.documentElement.style.getPropertyValue('--left-w')!=='420px') fail('the left panel width does not apply');
+    if(!w.eval("JSON.stringify(PrevSettings.native())").includes('panel_left')) fail('the profile does not keep the left panel width');
+    w.eval("Panels.reset(false)");
+    d.dispatchEvent(new w.KeyboardEvent('keydown',{key:'f',ctrlKey:true,bubbles:true}));
+    if(d.getElementById('findBar').hidden) fail('Ctrl+F did not open the find bar');
+    d.getElementById('findText') && d.getElementById('findText').focus();
+    w.eval('Finder.close()');
+    if(!d.getElementById('findBar').hidden) fail('the find bar did not close');
+    done.push('gardenfell ui');
+  }
+  /* Distant land (57_wg_distant.js): off, as this fixture's install draws none; switched
+     on, the land past the rings arrives as one mesh, its nearest point exactly the rings'
+     edge; saved once switched; switched off, gone. */
+  { const d=w.document, e=d.getElementById('p_distant');
+    if(!e) fail('there is no Distant land switch');
+    else{
+      if(w.eval('WgDistant.wanted()') || e.checked) fail('distant land is on though the install draws none');
+      e.checked=true; e.dispatchEvent(new w.Event('change',{bubbles:true}));
+      await w.eval('WgDistant.refresh(App.R, App._scene.centre, App._scene.origin, adjacentRings())');
+      const st=JSON.parse(w.eval('JSON.stringify(WgDistant.stats)')||'null');
+      const rings=w.eval('adjacentRings()');
+      if(!R.distant || !st || !(st.cells>0) || !(st.triangles>0)) fail('distant land was not built: '+JSON.stringify(st)+' '+w.eval('WgDistant.err'));
+      else if(Math.abs(st.nearest-(rings*8192+4096))>1) fail('distant land is not at the rings\' edge: '+st.nearest+' for '+rings+' rings');
+      if(!w.eval("JSON.stringify(PrevSettings.native())").includes('distant_land')) fail('the Distant land switch is not saved');
+      e.checked=false; e.dispatchEvent(new w.Event('change',{bubbles:true}));
+      await w.eval('WgDistant.refresh(App.R, App._scene.centre, App._scene.origin, adjacentRings())');
+      if(R.distant) fail('distant land stays after it is switched off');
+      done.push('distant land ('+(st? st.cells+' cells, '+st.triangles+' triangles' : '-')+')');
+    }
   }
   await editor(w, R, fail, done, sleep);
 }
@@ -758,7 +809,13 @@ async function editor(w, R, fail, done, sleep){
     if(d.querySelector('#edDialTopics tr[data-topic]').dataset.topic!=='Greeting 0') fail('the Greeting tab does not list greetings');
     // Copy topic as: a taken name refused, a new one sent and opened.
     d.querySelector('#edDialTabs [data-kind="Topic"]').onclick();
-    await E.openTopic('Rumors');
+    // The tab's own opening may still be in flight, and the latest opening wins: wait for
+    // Rumors to be the one drawn, not only for this call to return.
+    for(let i=0;i<100;i++){
+      await E.openTopic('Rumors');
+      if(d.getElementById('edTopicCopyId') && E.dialTopic && /rumors/i.test(E.dialTopic.topic||E._dialSel||'')) break;
+      await sleep(30);
+    }
     d.getElementById('edTopicCopyId').value='Greeting 0';
     await E.copyTopic('Rumors');
     if(!d.getElementById('edTopicCopyId').classList.contains('bad')) fail('a taken topic name is not refused');
@@ -822,6 +879,18 @@ async function editor(w, R, fail, done, sleep){
   if(!lp.parentNode || lp.parentNode.id!=='edRail') fail('a panel did not dock on the right');
   UI.place(lp, 'float');
   if(!lp.parentNode || lp.parentNode.id!=='vpwrap') fail('a docked panel did not float again');
+  // The toolbar docked to the window (2026-10-12): a full-width bar before or after #main.
+  UI.dockToolbar('wintop');
+  { const tb=d.getElementById('edTools'), bar=d.getElementById('edTbWin'), main=d.getElementById('main');
+    if(!bar || tb.parentNode!==bar || bar.nextElementSibling!==main || !bar.classList.contains('used')) fail('the toolbar did not dock across the top of the window');
+    UI.dockToolbar('winbottom');
+    if(tb.parentNode!==bar || bar.previousElementSibling!==main) fail('the toolbar did not dock across the bottom of the window');
+    UI.dockToolbar('top');
+    if(tb.parentNode!==d.getElementById('vpwrap') || bar.classList.contains('used')) fail('the toolbar did not go back over the render window');
+  }
+  // In the Editor, Ctrl+F is the Object Window's filter, not the find bar.
+  d.dispatchEvent(new w.KeyboardEvent('keydown',{key:'f',ctrlKey:true,bubbles:true}));
+  if(!d.getElementById('findBar').hidden) fail('Ctrl+F in the Editor opened the find bar');
   E.leave();
   if(d.body.classList.contains('wgEditMode')) fail('leaving the Editor left the page in it');
   done.push('editor');
@@ -838,6 +907,7 @@ setTimeout(async ()=>{
   console.log('calls:',[...new Set(calls)].join(' '));
   const w=dom.window;
   if(MESH){
+    let done_mesh='';
     // The mesh viewer: the install opened for its files only, no cell work at all, and
     // the meshes drawn with their shape list.
     for(const c of ['preview_cell','world_map','cell_data']) if(calls.includes(c)) errors.push('the mesh viewer ran '+c);
@@ -845,7 +915,31 @@ setTimeout(async ()=>{
     if(!n) errors.push('the mesh viewer drew nothing');
     if(!w.eval("!!(App.R&&App.R.statics.some(b=>b.nrm))")) errors.push('the normal map beside tr.dds was not found');
     if(!w.eval("!!(App.R&&App.R.statics.some(b=>b.spec))")) errors.push('the specular map beside tr.dds was not found');
-    console.log('mesh view:', n, 'batches;', w.eval("(document.getElementById('mvStats')||{}).textContent||''"));
+    /* The Draw order panel (native/src/nif_order.rs's report, through Wraithguard's
+       `inspect`): a row per shape, and with an edit target Optimise queues the reorder. */
+    try{
+      const r=w.eval(`(()=>{
+        const V=WgMeshView, cur=V.list[V.idx]; if(!cur) return 'no mesh';
+        cur.inspect={tree:[{index:0,type:'NiNode',name:'Root',children:[]}], blocks:{}, complete:true, draw_order:[
+          {block:3, shapes:['Tri A'], vertices:25, triangles:32, unused_vertices:0,
+           before:{acmr:1.2,atvr:1.5,overfetch:1.6,overdraw:1.3}, after:{acmr:0.8,atvr:1.0,overfetch:1.0,overdraw:1.1}},
+          {block:5, shapes:['Tri B'], vertices:4, triangles:2, skipped:'already in good order',
+           before:{acmr:0.5,atvr:1,overfetch:1,overdraw:1}, after:{acmr:0.6,atvr:1,overfetch:1,overdraw:1}}]};
+        cur.edit={url:'http://127.0.0.1:1/apply', filename:'x.nif'};
+        V.pending={}; V.panel();
+        const rows=document.querySelectorAll('.mvOrder tbody tr').length;
+        const btn=document.getElementById('mvOpt'); if(!btn) return 'no Optimise button';
+        btn.click(); const on=!!V.pending.optimize && btn.classList.contains('on');
+        btn.click(); const off=!V.pending.optimize;
+        const good=document.querySelectorAll('.mvOrder b.good').length;
+        cur.inspect.draw_order.forEach(e=>e.skipped='already in good order'); V.panel();
+        const none=!document.getElementById('mvOpt');
+        return [rows, on, off, good, none].join(',');
+      })()`);
+      if(r!=='2,true,true,3,true') errors.push('the Draw order panel: '+r);
+      else done_mesh='draw order';
+    }catch(e){ errors.push('draw order: '+short(e)); }
+    console.log('mesh view:', n, 'batches;', w.eval("(document.getElementById('mvStats')||{}).textContent||''"), done_mesh||'');
     console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
     try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);
   }
@@ -858,6 +952,19 @@ setTimeout(async ()=>{
   else if(ori) console.log('ori:', ori.replace(/\s+/g,' ').slice(0,200));
   if(loaded && !d.querySelector('#oriBody details.oriacc')) errors.push('ORI sections are not folded into accordions');
   if(loaded) try{ await features(w); }catch(e){ errors.push('feature checks: '+short(e)); }
+  /* R2 (Gardenfell 18hu's command layer, engine side): the keys the page does not read yet
+     arrive, and the `still` flag is taken. */
+  try{
+    if(!/"refsKeptDeleted":\d+/.test(replies.open_install||'') || !/"landsFlaggedOut":\d+/.test(replies.open_install||''))
+      errors.push('open_install sends no 18hu load counts');
+    const wr=await engineCall('world_map',{}), wm=typeof wr==='string'? JSON.parse(wr) : wr;
+    if(!/^rgb\(\d+, \d+, \d+\)$/.test(wm.sea||'')) errors.push('world_map sends no sea colour: '+wm.sea);
+    const m=w.eval("(App.R&&App.R.statics||[]).map(b=>b.relPath||b.path).filter(Boolean)[0]||''")||'meshes/x/lamp.nif';
+    const a=await engineCall('mesh_data',{path:m}), b=await engineCall('mesh_data',{path:m, still:true});
+    if(!(a.byteLength>0 && b.byteLength>0)) errors.push('mesh_data with still answered nothing');
+    const ab=await engineCall('assets_bundle',{meshes:[m], have:[], still:[true]});
+    if(!(ab.byteLength>8)) errors.push('assets_bundle with still answered nothing');
+  }catch(e){ errors.push('R2 checks: '+short(e)); }
   console.log('scene:', w.eval("(document.getElementById('stats')||{}).textContent||''").replace(/\s+/g,' ').slice(0,160));
   console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
   try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);

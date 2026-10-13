@@ -32,13 +32,83 @@ class _Host(EditorLinkMixin):
         self._ui = threading.Thread(target=self._loop, name="fake-tk", daemon=True)
         self._ui.start()
         records = {
-            "NPC_": [{"type": "Npc", "id": "fargoth", "name": "Fargoth", "data": {"level": 2}}]
+            "NPC_": [
+                {
+                    "type": "Npc",
+                    "id": "fargoth",
+                    "name": "Fargoth",
+                    "data": {"level": 2},
+                    "script": "FargothScript",
+                },
+                {"type": "Npc", "id": "hrisskar", "name": "Hrisskar", "data": {"level": 5}},
+            ],
+            "TES3": [{"type": "Header", "masters": []}],
+            "CELL": [
+                {
+                    "type": "Cell",
+                    "flags": "",
+                    "id": "Vault",
+                    "name": "Vault",
+                    "data": {"flags": "IS_INTERIOR", "grid": [0, 0]},
+                    "references": [
+                        {
+                            "mast_index": 0,
+                            "refr_index": 1,
+                            "id": "fargoth",
+                            "temporary": False,
+                            "translation": [0.0, 0.0, 0.0],
+                            "rotation": [0.0, 0.0, 0.0],
+                        }
+                    ],
+                }
+            ],
+            "LEVI": [
+                {
+                    "type": "LeveledItem",
+                    "id": "random_dagger",
+                    "leveled_item_flags": "CALCULATE_FROM_ALL_LEVELS",
+                    "chance_none": 0,
+                    "items": [["iron dagger", 1], ["steel dagger", 5]],
+                }
+            ],
+            "SCPT": [
+                {
+                    "type": "Script",
+                    "id": "FargothScript",
+                    "text": "begin FargothScript\r\nshort done\r\nend\r\n",
+                }
+            ],
+            "DIAL": [{"type": "Dialogue", "id": "Background", "dialogue_type": "Topic"}],
+            "INFO": [
+                {
+                    "type": "DialogueInfo",
+                    "id": "101",
+                    "prev_id": "",
+                    "next_id": "102",
+                    "text": "I'm Fargoth.",
+                    "flags": "",
+                    "speaker_id": "fargoth",
+                    "script_text": "Journal MS_Q 10\r\n",
+                    "data": {"disposition": 0},
+                },
+                {
+                    "type": "DialogueInfo",
+                    "id": "102",
+                    "prev_id": "101",
+                    "next_id": "",
+                    "text": "Who knows.",
+                    "flags": "",
+                    "data": {"disposition": 0},
+                },
+            ],
         }
         self._editor_session = EditorSession(
             [("Morrowind.esm", tmp_path / "Morrowind.esm")],
             self._queue,
             journal=tmp_path / "journal.json",
             read=lambda _p, tag: records.get(tag, []),
+            read_all=lambda _p: [r for recs in records.values() for r in recs],
+            read_dialogue=lambda _p: records["DIAL"] + records["INFO"],
         )
 
     def _loop(self) -> None:

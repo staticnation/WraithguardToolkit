@@ -57,6 +57,8 @@ pub mod lua;
 pub mod merge;
 pub mod mwscript;
 pub mod nif;
+pub mod nif_order;
+pub mod order;
 pub mod uses;
 
 /// The extension module. `gil_used = false`: nothing here relies on the GIL
@@ -76,6 +78,7 @@ fn wraithguard_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     lua::register(m)?;
     merge::register(m)?;
     mwscript::register(m)?;
+    order::register(m)?;
     uses::register(m)?;
     Ok(())
 }

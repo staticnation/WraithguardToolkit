@@ -24,6 +24,25 @@ end payme
 """
 
 
+QUIRKS = """begin x
+short a
+if ( a = 1 )
+    set a to = ( a + 1 )
+elseif ( a <> 2 )
+    yakov->GetDeadCount
+    PositionCell 0 0 0 0 Ald-ruhn
+    AddTopic S'Bakha
+    Player->AddItem 1gr_comp2_wb 1
+endif
+if ( a == 1 )
+    set a to a-1
+    set a to 1.5e3
+    AddItem "Zurgim_gro-Burug" 2
+endif
+end
+"""
+
+
 def _msgs(text: str, **kw: object) -> list[tuple[int, str, str]]:
     return [(f.line, f.level, f.message) for f in check_script(text, **kw)]  # type: ignore[arg-type]
 
@@ -65,7 +84,9 @@ def test_session_script_view(tmp_path):
     from wraithguard.patch.queue import PatchQueue
 
     recs = {
-        "SCPT": [{"type": "Script", "id": "payme", "text": "begin payme\nset gdays to 1\nend"}],
+        # CRLF, as the game and the CS store a script (an LF one draws its own warning,
+        # tests/test_script_crlf.py).
+        "SCPT": [{"type": "Script", "id": "payme", "text": "begin payme\r\nset gdays to 1\r\nend"}],
         "GLOB": [{"type": "GlobalVariable", "id": "GDays"}],
         "STAT": [{"type": "Static", "id": "rock"}],
     }
@@ -85,6 +106,42 @@ def test_session_script_view(tmp_path):
 
     with pytest.raises(EditorError, match="not a script"):
         s.script_view(rock)  # type: ignore[arg-type]
+
+
+def test_what_the_cs_compiles_and_the_game_gets_wrong():
+    msgs = _msgs(QUIRKS)
+    assert (
+        3,
+        "warning",
+        "a single '=' in a condition: the CS reads it as '==', MWEdit refuses it; write '=='",
+    ) in msgs
+    assert (4, "warning", "a stray '=' after 'to'") in msgs
+    assert (
+        5,
+        "warning",
+        "'<>' is not 'not equal' (the game reads it as '<' or '>'): use '!='",
+    ) in msgs
+    assert any(m[0] == 6 and m[2].startswith("GetDeadCount takes the id after it") for m in msgs)
+    tail = "needs quotes: an id with a hyphen, an apostrophe or a leading digit is misread without them"
+    assert (7, "warning", f"Ald-ruhn {tail}") in msgs
+    assert (8, "warning", f"S'Bakha {tail}") in msgs
+    assert (9, "warning", f"1gr_comp2_wb {tail}") in msgs
+    # Not flagged: '==', a subtraction in 'set', a number with an exponent, a quoted id.
+    assert not [m for m in msgs if m[0] >= 11]
+
+
+def test_a_long_elseif_chain():
+    body = "".join(f"elseif ( a == {i} )\n" for i in range(1, 21))
+    msgs = _msgs("begin x\nshort a\nif ( a == 0 )\n" + body + "endif\nend")
+    chain = [m for m in msgs if "'elseif's in one chain" in m[2]]
+    assert chain == [
+        (
+            23,
+            "warning",
+            "20 'elseif's in one chain: the game can fail on a late branch "
+            "(RightEval/LeftEval); split it",
+        )
+    ]
 
 
 def test_rust_checks_match_the_python_ones():
@@ -107,6 +164,10 @@ def test_rust_checks_match_the_python_ones():
         "set a to 1",
         "",
         "begin x\nend\nDisable",
+        QUIRKS,
+        "begin x\nshort a\nif ( a == 0 )\n"
+        + "".join(f"elseif ( a == {i} )\n" for i in range(1, 22))
+        + "endif\nend",
     ]
     for text in texts:
         want = [(f.line, f.level, f.message) for f in check_script_py(text, "x", ["GDays"])]

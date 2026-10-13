@@ -146,6 +146,27 @@ jobs:
         run: cargo test --manifest-path viewer-shell/viewcore/Cargo.toml
       - name: luacore tests
         run: cargo test --manifest-path viewer-shell/luacore/Cargo.toml
+      # The openmw.cfg reader both viewcore and native/ use, against the shared cases
+      # (tests/fixtures/openmw_cfg_cases.json).
+      - name: ordercore tests
+        run: cargo test --manifest-path viewer-shell/ordercore/Cargo.toml
+      # Greatness7's tes3 crate against Gardenfell's readers, record for record and mesh
+      # for mesh (tests/differential*.rs), and our tests inside the vendored crates
+      # (patches 0004, 0007, 0008). Robin's own suite is not run here: 32 of its tests
+      # read his generated fixture, which is not in our repository (VENDOR.md).
+      - name: gardenfell-g7 and the carried patches
+        run: |
+          set -e
+          cargo test --manifest-path viewer-shell/gardenfell-g7/Cargo.toml
+          cargo test --manifest-path viewer-shell/gardenfell/Cargo.toml -p gardenfell-world --test wraithguard
+          cargo test --manifest-path viewer-shell/gardenfell/Cargo.toml -p gardenfell-install --test wraithguard_weather
+          cargo test --manifest-path viewer-shell/gardenfell/Cargo.toml -p gardenfell-bsa --test wraithguard_bsa
+          cargo test --manifest-path viewer-shell/gardenfell/Cargo.toml -p gardenfell-install --test wraithguard_providers
+          cargo test --manifest-path viewer-shell/gardenfell/Cargo.toml -p gardenfell-nif --lib
+      # meshoptimizer's vertex fetch order and analysers, ported (beside Gardenfell's
+      # triorder), against the C++'s own values (tests/oracle_values.tsv).
+      - name: meshopt-port tests
+        run: cargo test --manifest-path viewer-shell/meshopt-port/Cargo.toml
       # Clippy on our own crates (not the forks or dependencies), strict: a warning fails
       # the job. The style lints this code base has chosen not to follow are allowed in
       # each crate's Cargo.toml ([lints.clippy]), with the reason beside each. The viewer
@@ -155,7 +176,7 @@ jobs:
       - name: clippy
         run: |
           set -e
-          for m in native/Cargo.toml viewer-shell/luacore/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
+          for m in native/Cargo.toml viewer-shell/luacore/Cargo.toml viewer-shell/ordercore/Cargo.toml viewer-shell/gardenfell-g7/Cargo.toml viewer-shell/meshopt-port/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
             echo "::group::clippy $m"
             cargo clippy --all-targets --manifest-path "$m" -- -D warnings
             echo "::endgroup::"

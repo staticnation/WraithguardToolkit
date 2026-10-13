@@ -1,3 +1,4 @@
+/* Gardenfell, 13_mo2.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 
 
 /* Round 18ab. The connect is a window, and nothing a read finds inside it may be filed
@@ -121,6 +122,8 @@ async function openInstallRun(kind, path, profile, plugins){
 
   VFS.connected=true;
   App.installKind=kind;
+  // The Editor's lists are this world's now: asked again, not left on a timer.
+  if(typeof WgEditor==='object' && WgEditor.worldChanged) WgEditor.worldChanged();
   /* Round 18bd (E9): the history goes only when this is *another* install. The header of
      `22_history.js` has always said a connect clears it; only the rule-set switch actually
      did, so after a connect you could step back into a state taken against the install you
@@ -226,7 +229,13 @@ async function openInstallRun(kind, path, profile, plugins){
     /* The overlay itself, trimmed — see `overlayLogLine`. */
     {k:'ok', t:T('connect.log_overlay',{roots:overlayLogLine(r.roots)})},
     {k:r.refsOverridden? 'warn':'ok',
-     t:T('connect.log_refs',{kept:r.refsKept, overridden:r.refsOverridden, deleted:r.refsDeleted, moved:r.refsMoved})},
+     t:T('connect.log_refs',{kept:r.refsKept, overridden:r.refsOverridden, deleted:r.refsDeleted, moved:r.refsMoved})
+       +(r.refsKeptDeleted? T('connect.log_refs_kept_deleted',{n:r.refsKeptDeleted}) : '')},   // 18fc
+    // 18gf: the merge rules that changed, counted, so a plugin digest that moved can be read.
+    ...((r.refsMoveDropped||r.refsRelocated||r.cellsDeleted||r.recordsDeletedByFlag||r.landsDefaulted||r.landsFlaggedOut)
+      ? [{k:'ok', t:T('connect.log_merge_rules',{dropped:r.refsMoveDropped||0, relocated:r.refsRelocated||0, cells:r.cellsDeleted||0,
+                                                 flag:r.recordsDeletedByFlag||0, lands:r.landsDefaulted||0, blocks:r.landsFlaggedOut||0})}]
+      : []),
     /* Round 18al: the Code Patch, when the game folder carries its record, and the one
        feature that bears on the scene. Robin: "There are some banners that move in
        Gardenfell that doesn't in my load order … What makes them not move in the game?"
@@ -285,18 +294,19 @@ async function openInstallRun(kind, path, profile, plugins){
      to share the engine's cores with the map; the card counts the cells as they land.
      Best effort, like the scene: a map that could not be read is a line in the log and
      the picker reads it again when opened. */
-  card.show(T('busy.reading_install'), T('busy.reading_map'), 0.92);
+  card.show(T('busy.reading_install'), T('busy.reading_map'), 0.90);
   await Busy.tick();
   const tMap=performance.now();
   let mapLine=null;
   try{
     if(typeof CellMap==='object' && CellMap.load){
-      await CellMap.load((done,total)=>card.show(T('busy.reading_install'), T('busy.reading_map_n',{done, total}), 0.92+0.08*(total? done/total : 1)));
+      await CellMap.load((done,total)=>card.show(T('busy.reading_install'), T('busy.reading_map_n',{done, total}), 0.90+0.05*(total? done/total : 1)));
       const w=CellMap.world;
       mapLine={k:'ok', t:T('connect.log_map',{cells:(w&&w.total)||0, ms:Math.round(performance.now()-tMap)})};
     }
   }catch(e){ console.error(e); mapLine={k:'warn', t:T('connect.log_map_failed',{err:Text.word(String((e&&e.message)||e))})}; }
   ct.map=performance.now()-tMap;
+  // (Gardenfell 18ga's install-wide mesh scan, for its mesh editor's retextures, is not here.)
   ct.line={k:'ok', t:T('connect.log_page',{probe:msOf(ct.probe), open:msOf(ct.open), listing:msOf(ct.list), scene:msOf(ct.scene)})};
   App.connectLog.push(ct.line);
   if(mapLine) App.connectLog.push(mapLine);

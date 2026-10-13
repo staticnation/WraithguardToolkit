@@ -1,0 +1,31 @@
+--- a/crates/gardenfell-nif/src/nif.rs
++++ b/crates/gardenfell-nif/src/nif.rs
+@@ -1185,10 +1185,27 @@
+ /// stderr with the byte it stopped at, so a failure names itself the way the byte reader's
+ /// did. The game's engine is NetImmerse 4.0.0.2 and reads nothing else (18gf, backend-plan
+ /// N8), so a 4.1 or 10.x file is refused here as it is there.
++/// What reads a mesh's bytes into the typed model: [`Stream::parse`] unless another
++/// reader is set.
++pub type StreamReader = fn(&[u8]) -> Result<Stream, String>;
++
++static STREAM_READER: std::sync::OnceLock<StreamReader> = std::sync::OnceLock::new();
++
++/// Read meshes with another reader than this crate's own (a program embedding the engine
++/// with a reader of its own, whose blocks it converts to these). Set once, before the
++/// first mesh is read; later calls are refused.
++pub fn set_stream_reader(reader: StreamReader) -> Result<(), StreamReader> {
++    STREAM_READER.set(reader)
++}
++
+ fn read_stream(buf: &[u8]) -> Option<Stream> {
+     // One look at the environment for the whole file, not one per record.
+     let dbg = std::env::var_os("GDN_NIF_DEBUG").is_some();
+-    let s = match Stream::parse(buf) {
++    let parsed = match STREAM_READER.get() {
++        Some(r) => r(buf),
++        None => Stream::parse(buf).map_err(|e| e.to_string()),
++    };
++    let s = match parsed {
+         Ok(s) => s,
+         Err(e) => {
+             if dbg {

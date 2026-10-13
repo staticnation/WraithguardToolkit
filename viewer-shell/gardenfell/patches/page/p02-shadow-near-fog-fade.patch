@@ -1,0 +1,70 @@
+--- a/page-source/06_gl.js
++++ b/page-source/06_gl.js
+@@ -653,6 +653,9 @@
+ uniform float uShadowZ[${SHADOW_MAX_CASCADES}];
+ /* 18fc: the outermost box's radius in units, for the round fade at the end of the world. */
+ uniform float uShadowFar;
++/* Morrowind's near fog, start and end in units: MGE's nearFogStart and nearFogRange, what it
++   fades shadows by (fogMWScalar; gdnShade in 06_mge.js). */
++uniform vec2  uShadowFog;
+ ${mgeShadowGLSL(SHADOW_MAX_CASCADES, SHADOW_BLEND)}
+ /* Fogs a lit colour at world position w: MGE's way under the atmosphere, the flat
+    fog by distance from the scene's centre without it. */
+@@ -8343,6 +8346,7 @@
+           if(u.uShadowP) gl.uniform2f(u.uShadowP, sm.rcp, sm.sunK);
+           if(u.uShadowZ) gl.uniform1fv(u.uShadowZ, sm.zf);           // 18fc
+           if(u.uShadowFar) gl.uniform1f(u.uShadowFar, sm.far||0);    // 18fc
++          if(u.uShadowFog && sm.fog) gl.uniform2f(u.uShadowFog, sm.fog[0], sm.fog[1]);
+           if(u.uShadowTex) gl.uniform1i(u.uShadowTex, SHADOW_UNIT);
+         }
+       }
+--- a/page-source/06_mge.js
++++ b/page-source/06_mge.js
+@@ -199,8 +199,12 @@
+   float v = gdnShadowLoss(w) * light;
+   if(v <= 0.0) return c;
+   /* Out with the fog, by its square, as MGE fades it - and four times as fast under the
+-     water, where it also clamps the fade up (isAboveSeaLevel). */
+-  float att = airClear(w);
++     water, where it also clamps the fade up (isAboveSeaLevel). By the fog MGE fades them
++     by, fogMWScalar - Morrowind's own linear near fog, over the pair MGE's adjustFog fits
++     to the weather (uShadowFog) - not the distant land's exponential fog, which reaches
++     much further and lets shadows run on past where the game's stop. */
++  float sd = length(w - uEye);
++  float att = clamp((uShadowFog.y - sd) / max(1.0, uShadowFog.y - uShadowFog.x), 0.0, 1.0);
+   att *= att;
+   v *= uUnder == 1 ? clamp(4.0 * att, 0.0, 1.0) : att;
+   /* The end of the world (18fc): the outermost box's own edge, and the last of its depth
+--- a/page-source/37_shadow.js
++++ b/page-source/37_shadow.js
+@@ -224,6 +224,12 @@
+     if(!this.progShadowStatic) this.progShadowStatic=this._prog(VS_STATIC,FS_SHADOW_CAST);
+     return this.progShadowStatic;
+   },
++  /** How far the shadows reach: MGE's fogMWScalar, Morrowind's own linear near fog
++   *  (nearFogStart .. nearFogRange), the pair the SSAO fades by too (`ssaoFade`:
++   *  `adjustFog`'s fit, the Fog density slider applied). For `uShadowFog`. */
++  _shadowNearFog(now,scat){
++    return this.ssaoFade? this.ssaoFade(now,scat) : [1280, 7168];
++  },
+   _ensureShadowSoften(){
+     if(!this.progShadowSoften) this.progShadowSoften=this._prog(VS_BLIT,FS_SHADOW_SOFTEN);
+     return this.progShadowSoften;
+@@ -821,7 +827,7 @@
+     if(still && !mov.list.length && !mov.groups.size){
+       gl.activeTexture(gl.TEXTURE0+SHADOW_UNIT); gl.bindTexture(gl.TEXTURE_2D,T.texA); gl.activeTexture(gl.TEXTURE0);
+       this._gpuMark(null);
+-      this._shadowNow={vp, n:N, rcp:1/res, sunK, res, mats, radii, zf, far:radii[N-1], zback};
++      this._shadowNow={vp, n:N, rcp:1/res, sunK, res, mats, radii, zf, far:radii[N-1], zback, fog:this._shadowNearFog(now,scat)};
+       this.shadowDrawn=true;
+       this._shadowStat=stat;
+       if(this._passLog) this._passLog.push('shadow:'+res+':0');
+@@ -926,7 +932,7 @@
+     /* MGE's sun-visibility term, on the CPU: (0.25 + 0.75 * sunVis), which is what keeps
+        a shadow from being drawn at full strength under a sun the weather has half
+        hidden. No atmosphere, no weather: the sun is whole. */
+-    this._shadowNow={vp, n:N, rcp:1/res, sunK, res, mats, radii, zf, far:radii[N-1], zback};
++    this._shadowNow={vp, n:N, rcp:1/res, sunK, res, mats, radii, zf, far:radii[N-1], zback, fog:this._shadowNearFog(now,scat)};
+     this.shadowDrawn=true;
+     this._shadowStat=stat;
+     if(this._passLog) this._passLog.push('shadow:'+res+':'+stat.drawn);

@@ -17,6 +17,8 @@ publish = false
 # greatness7's tes3 (MIT OR Apache-2.0), for the LUAL records content files carry.
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp"] }
 regex = "1"
+# The openmw.cfg reader (the cfg chain, OpenMW's rules): `resources=` for find_resources.
+ordercore = { path = "../ordercore" }
 
 [lints.clippy]
 type_complexity = "allow"

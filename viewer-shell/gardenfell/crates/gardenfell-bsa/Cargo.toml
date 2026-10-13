@@ -1,0 +1,10 @@
+[package]
+name = "gardenfell-bsa"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+publish = false
+
+[dependencies]
+gardenfell-bytes = { path = "../gardenfell-bytes" }

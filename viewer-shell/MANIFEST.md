@@ -37,7 +37,8 @@ not reach the MIT code. See `ui/LICENSE`, `../License/Gardenfell`,
 | `03_core.js` | 16 KB | Engine bridge (`Engine.call/bytes/pick`), DOM helpers, constants. Everything depends on it. |
 | `04_img.js` | 2 KB | Image helpers the page still does itself. |
 | `05_text.js` | 49 KB | All UI wording and i18n (`T()`). |
-| `06_gl.js` | 490 KB | WebGL2 renderer: terrain, instanced meshes, lighting, fog/tonemap, camera, picking. *Contains MGE XE ports.* |
+| `06_mge.js` | 13 KB | The MGE XE ports the renderer interpolates as GLSL: tonemap, atmosphere and sky, sun-shadow receiver, point-light decode, the grass wind and cutout, the sky dither. **GPL-2.0** (Gardenfell 18hu split them out of 06_gl.js). |
+| `06_gl.js` | 553 KB | WebGL2 renderer: terrain, instanced meshes, lighting, fog, shadows' cascades, flipbooks and billboards, camera, picking. MIT; its MGE XE pieces are in 06_mge.js. |
 | `07_ini.js` | 4 KB | The small config model the settings still read. |
 | `09_ui.js` | 30 KB | App state and panel rendering. |
 | `10_preview.js` | 63 KB | Asset loading (meshes/textures through the engine), animation playback (`animVisibleAt`), preview rebuild scheduling. |
@@ -177,7 +178,8 @@ that is not defined, or a `#[tauri::command]` is left unregistered.
 ## Notes
 
 - Dropping an optional effect (SSAO, FXAA, depth of field, shadows, underwater)
-  does not remove the GPL: `06_gl.js` and `26_water.js` also carry MGE XE ports.
+  does not remove the GPL: `06_mge.js` (used by every pass) and `26_water.js` also carry
+  MGE XE ports. Each part's first line says which licence it carries (Gardenfell 18hu).
 - The viewer runs on the OS webview: WebView2 on Windows (the `-webview2.zip`
   release bundles a fixed-version runtime), WebKitGTK on Linux (the system's, or
   the GNOME runtime's in the Flatpak), WKWebView on macOS.

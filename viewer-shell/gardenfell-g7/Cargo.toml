@@ -1,0 +1,28 @@
+# The bridge between Greatness7's `tes3` crates and Gardenfell's engine: plugins (and,
+# next, meshes) read by G7's crate and handed to Robin Hjelte's engine code in its own
+# types, through the two reader hooks (viewer-shell/gardenfell/patches). So G7's updates
+# arrive with a version bump and Robin's with a copy; this crate is the one seam between
+# them. Ours, MIT; Robin's crates stay unmodified.
+[package]
+name = "gardenfell-g7"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[dependencies]
+tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp", "nif"] }
+bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
+gardenfell-bytes = { path = "../gardenfell/crates/gardenfell-bytes" }
+gardenfell-tes3 = { path = "../gardenfell/crates/gardenfell-tes3" }
+gardenfell-world = { path = "../gardenfell/crates/gardenfell-world" }
+gardenfell-nif = { path = "../gardenfell/crates/gardenfell-nif" }
+
+[lints.clippy]
+
+# Our fork of tes3 (LUAL, Greatness7/tes3#7; the NIF fix), as viewcore and native/ have
+# it. A [patch] only counts in the package being built: this one is for building alone.
+[patch."https://github.com/Greatness7/tes3"]
+tes3 = { git = "https://github.com/staticnation/tes3" }
+bytes_io = { git = "https://github.com/staticnation/tes3" }

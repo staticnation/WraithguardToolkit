@@ -5,7 +5,10 @@
 //! the compiler lets through - the `begin`/`end` frame and a `begin` that names another
 //! script, `if`/`while` blocks out of balance, a local declared twice, `set` on a name that
 //! is neither a local, a global nor `object.variable`, a statement that is no function the
-//! game (or MWSE, or MW-Enhanced) knows. Each finding is `(line, level, message)`, lines
+//! game (or MWSE, or MW-Enhanced) knows; and what the Construction Set compiles and the game
+//! gets wrong (simania.nl's "Script quirks": a single `=` in a condition, `<>`, a stray `=`
+//! after `set ... to`, `<id>->GetDeadCount`, an unquoted id with a hyphen, an apostrophe or
+//! a leading digit, 20 or more `elseif`s in one chain). Each finding is `(line, level, message)`, lines
 //! from 1, `level` `error` or `warning`; the messages are the Python module's, word for word.
 
 use std::collections::{HashMap, HashSet};
@@ -40,6 +43,81 @@ fn ref_word_re() -> &'static Regex {
 fn word_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"^\s*([A-Za-z_]\w*)").expect("pattern"))
+}
+
+fn re(cell: &'static OnceLock<Regex>, pattern: &str) -> &'static Regex {
+    cell.get_or_init(|| Regex::new(pattern).expect("pattern"))
+}
+
+static NUMBER: OnceLock<Regex> = OnceLock::new();
+static LEADING_DIGIT: OnceLock<Regex> = OnceLock::new();
+static HYPHENATED: OnceLock<Regex> = OnceLock::new();
+static TOKEN_SPLIT: OnceLock<Regex> = OnceLock::new();
+static GETDEADCOUNT: OnceLock<Regex> = OnceLock::new();
+static STRAY_TO: OnceLock<Regex> = OnceLock::new();
+
+/// How many `elseif`s in one chain before the game may fail on a late branch.
+pub const ELSEIF_CHAIN: usize = 20;
+
+/// `code` with every quoted span (quotes included) blanked to spaces.
+fn unquoted(code: &str) -> String {
+    let mut quoted = false;
+    code.chars()
+        .map(|ch| {
+            if ch == '"' {
+                quoted = !quoted;
+                ' '
+            } else if quoted {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect()
+}
+
+/// What the CS compiles and the game gets wrong, on one statement line (warnings).
+fn quirks(code: &str, first: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let u = unquoted(code);
+    let lu = u.to_lowercase();
+    if matches!(first, "if" | "elseif" | "while") {
+        let c: Vec<char> = u.chars().collect();
+        for i in 0..c.len() {
+            let before = if i > 0 { Some(c[i - 1]) } else { None };
+            let after = c.get(i + 1).copied();
+            if c[i] == '=' && !matches!(before, Some('=' | '!' | '<' | '>')) && after != Some('=') {
+                out.push("a single '=' in a condition: the CS reads it as '==', MWEdit refuses it; write '=='".to_string());
+                break;
+            }
+        }
+    }
+    if u.contains("<>") {
+        out.push("'<>' is not 'not equal' (the game reads it as '<' or '>'): use '!='".to_string());
+    }
+    if first == "set"
+        && let Some(m) = re(&STRAY_TO, r"\bto\s*=").find(&lu)
+        && !lu[m.end()..].starts_with('=')
+    {
+        out.push("a stray '=' after 'to'".to_string());
+    }
+    if re(&GETDEADCOUNT, r"->\s*getdeadcount\b").is_match(&lu) {
+        out.push("GetDeadCount takes the id after it ('GetDeadCount <id>'); with '<id>->' in front, the lines under it are ignored".to_string());
+    }
+    let mut seen: HashSet<&str> = HashSet::new();
+    for tok in re(&TOKEN_SPLIT, r"->|[\s(),:]+").split(&u) {
+        if tok.is_empty() || seen.contains(tok) {
+            continue;
+        }
+        let bad = (tok.contains('\'') && tok.chars().any(char::is_alphanumeric))
+            || (re(&LEADING_DIGIT, r"^\d+[A-Za-z_]").is_match(tok) && !re(&NUMBER, r"^\d+(\.\d*)?([eE][+-]?\d+)?$").is_match(tok))
+            || (!matches!(first, "set" | "if" | "elseif" | "while") && re(&HYPHENATED, r"^[A-Za-z_]\w*-[A-Za-z_][\w-]*$").is_match(tok));
+        if bad {
+            seen.insert(tok);
+            out.push(format!("{tok} needs quotes: an id with a hyphen, an apostrophe or a leading digit is misread without them"));
+        }
+    }
+    out
 }
 
 fn known() -> &'static HashSet<String> {
@@ -100,7 +178,8 @@ pub fn check_script(text: &str, script_id: &str, globals: &[String]) -> Vec<Find
     let mut found: Vec<Finding> = Vec::new();
     let known_globals: HashSet<String> = globals.iter().map(|g| g.to_lowercase()).collect();
     let mut local: HashMap<String, usize> = HashMap::new();
-    let mut stack: Vec<(&'static str, usize, bool)> = Vec::new();
+    // (block, line, seen else, elseifs)
+    let mut stack: Vec<(&'static str, usize, bool, usize)> = Vec::new();
     let (mut began, mut ended) = (false, false);
     let normal = text.replace("\r\n", "\n");
     for (i, raw) in normal.split('\n').enumerate() {
@@ -135,7 +214,7 @@ pub fn check_script(text: &str, script_id: &str, globals: &[String]) -> Vec<Find
             continue;
         }
         if first == "end" && words.len() <= 2 && !low.contains("->") {
-            for (block, at, _) in stack.drain(..) {
+            for (block, at, _, _) in stack.drain(..) {
                 found.push((at, "error", format!("'{block}' is never closed")));
             }
             ended = true;
@@ -150,9 +229,12 @@ pub fn check_script(text: &str, script_id: &str, globals: &[String]) -> Vec<Find
             }
             continue;
         }
+        for message in quirks(code, first) {
+            found.push((n, "warning", message));
+        }
         match first {
             "if" | "while" => {
-                stack.push((if first == "if" { "if" } else { "while" }, n, false));
+                stack.push((if first == "if" { "if" } else { "while" }, n, false, 0));
                 continue;
             }
             "elseif" | "else" => {
@@ -162,6 +244,11 @@ pub fn check_script(text: &str, script_id: &str, globals: &[String]) -> Vec<Find
                             found.push((n, "error", format!("'{first}' after 'else'")));
                         } else if first == "else" {
                             top.2 = true;
+                        } else {
+                            top.3 += 1;
+                            if top.3 == ELSEIF_CHAIN {
+                                found.push((n, "warning", format!("{ELSEIF_CHAIN} 'elseif's in one chain: the game can fail on a late branch (RightEval/LeftEval); split it")));
+                            }
                         }
                     }
                     _ => found.push((n, "error", format!("'{first}' without an 'if'"))),
@@ -204,7 +291,7 @@ pub fn check_script(text: &str, script_id: &str, globals: &[String]) -> Vec<Find
     if !began {
         found.push((1, "error", "the script is empty".into()));
     } else if !ended && !found_end(text) {
-        for (block, at, _) in stack.drain(..) {
+        for (block, at, _, _) in stack.drain(..) {
             found.push((at, "error", format!("'{block}' is never closed")));
         }
         found.push((line_count(text).max(1), "error", "the script has no 'end'".into()));
@@ -242,5 +329,24 @@ mod tests {
         assert_eq!(bare[0].2, "a script starts with 'begin <name>'");
         assert_eq!(bare[1].2, "the script has no 'end'");
         assert!(check_script("begin x\nplayer->AddItem gold_001 1\nend", "y", &[]).iter().any(|f| f.2.contains("does not name this script (y)")));
+    }
+
+    /// The Python module's `test_what_the_cs_compiles_and_the_game_gets_wrong`, word for word.
+    #[test]
+    fn what_the_cs_compiles_and_the_game_gets_wrong() {
+        let text = "begin x\nshort a\nif ( a = 1 )\n    set a to = ( a + 1 )\nelseif ( a <> 2 )\n    yakov->GetDeadCount\n    PositionCell 0 0 0 0 Ald-ruhn\n    AddTopic S'Bakha\n    Player->AddItem 1gr_comp2_wb 1\nendif\nif ( a == 1 )\n    set a to a-1\n    set a to 1.5e3\n    AddItem \"Zurgim_gro-Burug\" 2\nendif\nend\n";
+        let m = msgs(text);
+        assert!(m.contains(&(3, "warning".into(), "a single '=' in a condition: the CS reads it as '==', MWEdit refuses it; write '=='".into())));
+        assert!(m.contains(&(4, "warning".into(), "a stray '=' after 'to'".into())));
+        assert!(m.contains(&(5, "warning".into(), "'<>' is not 'not equal' (the game reads it as '<' or '>'): use '!='".into())));
+        assert!(m.iter().any(|f| f.0 == 6 && f.2.starts_with("GetDeadCount takes the id after it")));
+        let tail = "needs quotes: an id with a hyphen, an apostrophe or a leading digit is misread without them";
+        assert!(m.contains(&(7, "warning".into(), format!("Ald-ruhn {tail}"))));
+        assert!(m.contains(&(8, "warning".into(), format!("S'Bakha {tail}"))));
+        assert!(m.contains(&(9, "warning".into(), format!("1gr_comp2_wb {tail}"))));
+        assert!(!m.iter().any(|f| f.0 >= 11), "{m:?}");
+        let body: String = (1..=20).map(|i| format!("elseif ( a == {i} )\n")).collect();
+        let chain: Vec<_> = msgs(&format!("begin x\nshort a\nif ( a == 0 )\n{body}endif\nend")).into_iter().filter(|f| f.2.contains("'elseif's in one chain")).collect();
+        assert_eq!(chain, vec![(23, "warning".to_string(), "20 'elseif's in one chain: the game can fail on a late branch (RightEval/LeftEval); split it".to_string())]);
     }
 }

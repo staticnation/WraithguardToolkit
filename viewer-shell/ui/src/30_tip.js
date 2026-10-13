@@ -1,3 +1,4 @@
+/* Gardenfell, 30_tip.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    The tooltip — round 18ay.
 

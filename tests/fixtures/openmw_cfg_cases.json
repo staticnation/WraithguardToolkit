@@ -1,0 +1,270 @@
+{
+  "_about": "openmw.cfg cases, run by every reader of one (viewer-shell/ordercore's tests, tests/test_openmw_cfg.py for the native binding and the Python fallback). Each case is built in an empty folder: `dirs` are made, `files` written (paths relative to it, '/' separated), then `cfg` is read with the tokens given (folders relative to it). `expect` gives what OpenMW's documentation says is loaded: paths relative to the case's folder, data folders lowest priority first, `warnings` how many lines could not be followed. Rules: openmw.readthedocs.io/en/latest/reference/modding/paths.html.",
+  "cases": [
+    {
+      "name": "plain",
+      "dirs": ["Data Files", "Mods/A"],
+      "files": {
+        "openmw.cfg": "data=\"Data Files\"\ndata=Mods/A\ncontent=Morrowind.esm\ncontent=A.esp\nfallback-archive=Morrowind.bsa\n",
+        "Data Files/Morrowind.esm": "",
+        "Mods/A/A.esp": ""
+      },
+      "cfg": "openmw.cfg",
+      "expect": {
+        "data": ["Data Files", "Mods/A"],
+        "missing_data": [],
+        "content": ["Morrowind.esm", "A.esp"],
+        "groundcover": [],
+        "archives": ["Morrowind.bsa"],
+        "plugins": ["Morrowind.esm", "A.esp"],
+        "located": [["Morrowind.esm", "Data Files/Morrowind.esm"], ["A.esp", "Mods/A/A.esp"]],
+        "files": ["openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "spaces round the equals sign, comments, blank lines",
+      "dirs": ["Data Files"],
+      "files": {
+        "openmw.cfg": "# my setup\n\n   data = Data Files  \n  # content=Commented.esp\ncontent = Morrowind.esm\n",
+        "Data Files/Morrowind.esm": ""
+      },
+      "cfg": "openmw.cfg",
+      "expect": {
+        "data": ["Data Files"],
+        "missing_data": [],
+        "content": ["Morrowind.esm"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["Morrowind.esm"],
+        "located": [["Morrowind.esm", "Data Files/Morrowind.esm"]],
+        "files": ["openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "quoted path with escapes and a tail after the quote",
+      "dirs": ["Q & dir", "B"],
+      "files": {
+        "openmw.cfg": "data=\"Q && dir\" ignored text\ndata=\"B\"\ncontent=X.esp\n"
+      },
+      "cfg": "openmw.cfg",
+      "expect": {
+        "data": ["Q & dir", "B"],
+        "missing_data": [],
+        "content": ["X.esp"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["X.esp"],
+        "located": [["X.esp", null]],
+        "files": ["openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "data-local is the last data folder wherever it is written",
+      "dirs": ["Local", "Data Files", "Mods/A"],
+      "files": {
+        "openmw.cfg": "data-local=Local\ndata=Data Files\ndata=Mods/A\ncontent=A.esp\n",
+        "Mods/A/A.esp": "",
+        "Local/A.esp": ""
+      },
+      "cfg": "openmw.cfg",
+      "expect": {
+        "data": ["Data Files", "Mods/A", "Local"],
+        "missing_data": [],
+        "content": ["A.esp"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["A.esp"],
+        "located": [["A.esp", "Local/A.esp"]],
+        "files": ["openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "groundcover loads after content; scripts lists are not plugins",
+      "dirs": ["D"],
+      "files": {
+        "openmw.cfg": "data=D\ncontent=Morrowind.esm\ngroundcover=Grass.esp\ncontent=Scripts.omwscripts\ncontent=Late.omwaddon\n",
+        "D/Grass.esp": ""
+      },
+      "cfg": "openmw.cfg",
+      "expect": {
+        "data": ["D"],
+        "missing_data": [],
+        "content": ["Morrowind.esm", "Scripts.omwscripts", "Late.omwaddon"],
+        "groundcover": ["Grass.esp"],
+        "archives": [],
+        "plugins": ["Morrowind.esm", "Late.omwaddon", "Grass.esp"],
+        "located": [["Morrowind.esm", null], ["Late.omwaddon", null], ["Grass.esp", "D/Grass.esp"]],
+        "files": ["openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "a plugin is found without case, in the highest folder that has it",
+      "dirs": ["Low", "High"],
+      "files": {
+        "openmw.cfg": "data=Low\ndata=High\ncontent=MOD.ESP\n",
+        "Low/mod.esp": "",
+        "High/Mod.esp": ""
+      },
+      "cfg": "openmw.cfg",
+      "expect": {
+        "data": ["Low", "High"],
+        "missing_data": [],
+        "content": ["MOD.ESP"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["MOD.ESP"],
+        "located": [["MOD.ESP", "High/Mod.esp"]],
+        "files": ["openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "a missing data folder is reported, not loaded",
+      "dirs": ["Here"],
+      "files": {
+        "openmw.cfg": "data=Here\ndata=Gone\ncontent=X.esp\n"
+      },
+      "cfg": "openmw.cfg",
+      "expect": {
+        "data": ["Here"],
+        "missing_data": ["Gone"],
+        "content": ["X.esp"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["X.esp"],
+        "located": [["X.esp", null]],
+        "files": ["openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "names are compared exactly: upper-case options are not OpenMW's",
+      "dirs": ["D"],
+      "files": {
+        "openmw.cfg": "data=D\nCONTENT=Upper.esp\ncontent=Lower.esp\n"
+      },
+      "cfg": "openmw.cfg",
+      "expect": {
+        "data": ["D"],
+        "missing_data": [],
+        "content": ["Lower.esp"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["Lower.esp"],
+        "located": [["Lower.esp", null]],
+        "files": ["openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "chained cfgs: depth first as OpenMW's code reads them, lower priority first, paths from each cfg's own folder",
+      "dirs": ["Base/Data", "Base/Game/Data", "Base/Game/Profile/Data", "Base/Other/Data"],
+      "files": {
+        "Base/openmw.cfg": "data=Data\ncontent=Morrowind.esm\nconfig=Game\nconfig=Other\nuser-data=.\n",
+        "Base/Game/openmw.cfg": "data=Data\ncontent=Game.esp\nconfig=Profile\n",
+        "Base/Other/openmw.cfg": "data=Data\ncontent=Other.esp\n",
+        "Base/Game/Profile/openmw.cfg": "data=Data\ncontent=Profile.esp\nuser-data=saves\n"
+      },
+      "cfg": "Base/openmw.cfg",
+      "expect": {
+        "data": ["Base/Data", "Base/Game/Data", "Base/Game/Profile/Data", "Base/Other/Data"],
+        "missing_data": [],
+        "content": ["Morrowind.esm", "Game.esp", "Profile.esp", "Other.esp"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["Morrowind.esm", "Game.esp", "Profile.esp", "Other.esp"],
+        "located": [],
+        "files": ["Base/openmw.cfg", "Base/Game/openmw.cfg", "Base/Game/Profile/openmw.cfg", "Base/Other/openmw.cfg"],
+        "user_data": "Base/Game/Profile/saves",
+        "warnings": 0
+      }
+    },
+    {
+      "name": "replace=config in a chained cfg drops every cfg before it but the first",
+      "dirs": ["Base/Data", "Base/A/Data", "Base/B/Data"],
+      "files": {
+        "Base/openmw.cfg": "data=Data\ncontent=Morrowind.esm\nconfig=A\nconfig=B\n",
+        "Base/A/openmw.cfg": "data=Data\ncontent=A.esp\n",
+        "Base/B/openmw.cfg": "replace=config\ndata=Data\ncontent=B.esp\n"
+      },
+      "cfg": "Base/openmw.cfg",
+      "expect": {
+        "data": ["Base/Data", "Base/B/Data"],
+        "missing_data": [],
+        "content": ["Morrowind.esm", "B.esp"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["Morrowind.esm", "B.esp"],
+        "located": [],
+        "files": ["Base/openmw.cfg", "Base/B/openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "replace drops the lower cfgs' values of that option only",
+      "dirs": ["Base/Data", "Base/P/Data"],
+      "files": {
+        "Base/openmw.cfg": "data=Data\ncontent=Morrowind.esm\ncontent=Old.esp\nconfig=P\n",
+        "Base/P/openmw.cfg": "replace=content\ncontent=Morrowind.esm\ncontent=New.esp\ndata=Data\n"
+      },
+      "cfg": "Base/openmw.cfg",
+      "expect": {
+        "data": ["Base/Data", "Base/P/Data"],
+        "missing_data": [],
+        "content": ["Morrowind.esm", "New.esp"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["Morrowind.esm", "New.esp"],
+        "located": [],
+        "files": ["Base/openmw.cfg", "Base/P/openmw.cfg"],
+        "warnings": 0
+      }
+    },
+    {
+      "name": "tokens: userdata and userconfig resolve; local is a warning",
+      "dirs": ["UD/data", "UC/profile", "D"],
+      "files": {
+        "openmw.cfg": "data=D\ndata-local=\"?userdata?data\"\nconfig=?userconfig?profile\ndata=?local?vfs-mw\ncontent=X.esp\n",
+        "UC/profile/openmw.cfg": "content=Y.esp\n"
+      },
+      "cfg": "openmw.cfg",
+      "tokens": {"userdata": "UD", "userconfig": "UC"},
+      "expect": {
+        "data": ["D", "UD/data"],
+        "missing_data": [],
+        "content": ["X.esp", "Y.esp"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["X.esp", "Y.esp"],
+        "located": [],
+        "files": ["openmw.cfg", "UC/profile/openmw.cfg"],
+        "warnings": 1
+      }
+    },
+    {
+      "name": "a chained cfg named twice is read once",
+      "dirs": ["P"],
+      "files": {
+        "openmw.cfg": "config=P\nconfig=P\ncontent=A.esp\n",
+        "P/openmw.cfg": "config=..\ncontent=B.esp\n"
+      },
+      "cfg": "openmw.cfg",
+      "expect": {
+        "data": [],
+        "missing_data": [],
+        "content": ["A.esp", "B.esp"],
+        "groundcover": [],
+        "archives": [],
+        "plugins": ["A.esp", "B.esp"],
+        "located": [],
+        "files": ["openmw.cfg", "P/openmw.cfg"],
+        "warnings": 0
+      }
+    }
+  ]
+}

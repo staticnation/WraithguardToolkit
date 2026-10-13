@@ -1,3 +1,4 @@
+/* Gardenfell, 16_gamedata_ui.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 
 /* =====================================================================================
    Pickers, datalists and the "matches nothing" report
@@ -136,8 +137,10 @@ const Busy={
       btn.onclick=stop||null;
     }
     $('#busyLbl').textContent=label||'Working…';
-    $('#busySub').textContent=sub||'';
-    $('#busySub').classList.toggle('multi', /\n/.test(sub||''));
+    // Round 18ey: through `_sub`, so the journal sees every step, not only the ones that
+    // came in by the second line's own door.
+    this._sub(sub);
+    $('#busySub').classList.toggle('multi', /\n/.test(sub||''));   // Wraithguard: a multi-line step
     const fill=$('#busyFill'), pct=$('#busyPct');
     if(frac==null||!isFinite(frac)){
       fill.classList.add('indet'); fill.style.width='';
@@ -153,7 +156,20 @@ const Busy={
   sub(text){ if(this._owner) return; this._sub(text); },
   _sub(text){
     const el=$('#busySub'); if(el) el.textContent=text||'';
+    /* Round 18ey: and written down. The card's second line is how a long connect says
+       which step it is on, and it is also the only evidence of what order the steps ran
+       in - which `t_plugins` used to gather by *sampling the DOM every fifteen
+       milliseconds*, so a phase that fell between two ticks was a phase that never
+       happened. That is the whole of the "the card is still up while the scene is being
+       drawn" flake: the two samples it caught said "resolving the overlay" and "indexing
+       cells and assets", and the drawing between them was simply not looked at. A journal
+       cannot miss a step. Capped, because a connect is not a session. */
+    const j=Busy._log||(Busy._log=[]);
+    if(text && j[j.length-1]!==text){ j.push(String(text)); if(j.length>200) j.shift(); }
   },
+  /** The steps this card has named, in order, since `clear()`. */
+  steps(){ return (Busy._log||[]).slice(); },
+  clearSteps(){ Busy._log=[]; },
 
   /* ---- the clock (round 18bo) ------------------------------------------------------
    *

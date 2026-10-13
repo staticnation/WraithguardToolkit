@@ -1,0 +1,33 @@
+--- a/page-source/06_gl.js
++++ b/page-source/06_gl.js
+@@ -644,7 +644,9 @@
+ uniform int   uShadow;        /* 1 when the map for this frame was drawn */
+ uniform mat4  uShadowVP[${SHADOW_MAX_CASCADES}];   /* world -> cascade clip, nearest first */
+ uniform int   uShadowN;       /* how many of them this frame drew (18fa) */
+-uniform sampler2D uShadowTex;
++/* highp: a depth, read at full precision on every driver. WebGL's default for a sampler
++   is lowp, which Mesa honours (Linux, WebKitGTK): the shadows band there without it. */
++uniform highp sampler2D uShadowTex;
+ uniform vec2  uShadowP;       /* x: one texel of a cascade in clip units; y: the sun-visibility term */
+ /* 18fc: each cascade's depth window over MGE's 16,384 units. The far boxes are deeper
+    than MGE's so they hold their own ground (37_shadow.js, SHADOW_ZRANGE), and the
+--- a/page-source/26_water.js
++++ b/page-source/26_water.js
+@@ -58,7 +58,7 @@
+ precision highp sampler3D;
+ in vec3 vW; in vec4 vRefl; in float vClipW;
+ uniform sampler2D uSceneCol;   // the frame so far, resolved
+-uniform sampler2D uSceneDepth; // and its depth
++uniform highp sampler2D uSceneDepth; // and its depth (highp: see uShadowTex in 06_gl.js)
+ uniform sampler2D uReflCol;    // the scene from under the water
+ uniform sampler3D uWater3d;    // MGE's water_NRM.dds
+ uniform int   uHas3d;
+@@ -204,7 +204,7 @@
+    centervis 0.3, sunrayocclude 0.85, brightnessadd 1.1. */
+ const FS_SHAFT_MASK=`#version 300 es
+ precision highp float;
+-in vec2 vUV; uniform sampler2D uDepth; uniform vec2 uRcpRes; out vec4 o;
++in vec2 vUV; uniform highp sampler2D uDepth; uniform vec2 uRcpRes; out vec4 o;
+ void main(){
+   // The sky is where nothing was drawn: the cleared depth. Four taps, as the .fx.
+   float d = step(0.99999, texture(uDepth, vUV).r)

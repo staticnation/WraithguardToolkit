@@ -1,0 +1,200 @@
+--- a/crates/gardenfell-install/src/weather.rs
++++ b/crates/gardenfell-install/src/weather.rs
+@@ -41,6 +41,12 @@
+ /// name the one it wants.
+ pub const WEATHERS: [&str; 1] = ["Clear"];
+ 
++/// Wraithguard (carried patch 0004): all ten weathers, for a front end that shows a cell
++/// under any of them - their sky, fog and water only, no particles. Opt in with the
++/// `*_with` readers below; the plain ones read [`WEATHERS`].
++pub const ALL_WEATHERS: [&str; 10] =
++    ["Clear", "Cloudy", "Foggy", "Overcast", "Rain", "Thunderstorm", "Ashstorm", "Blight", "Snow", "Blizzard"];
++
+ // The ini readers live in `crate::ini` (18ge), shared with `renderer`; re-exported so the
+ // names used across this file still resolve.
+ pub(crate) use crate::ini::{lookup, num, section};
+@@ -79,6 +85,11 @@
+ /// the key are the ini's spaces (`Sky_Pre-Sunrise_Time` → `Sky Pre-Sunrise Time`).
+ /// Returns None when the text has no `fallback=Weather_` line at all.
+ pub fn openmw_to_ini(text: &str) -> Option<String> {
++    openmw_to_ini_with(text, &WEATHERS)
++}
++
++/// [`openmw_to_ini`] for the named weathers.
++pub fn openmw_to_ini_with(text: &str, weathers: &[&str]) -> Option<String> {
+     let mut timing = String::from("[Weather]\n");
+     let mut blocks: Vec<(String, String)> = Vec::new();
+     let mut any = false;
+@@ -108,7 +119,7 @@
+         let (key, value) = (&rest[..comma], rest[comma + 1..].trim());
+         any = true;
+         // The first token is a weather name when a block of that name exists.
+-        let weather = WEATHERS.iter().find(|w| key.starts_with(&format!("{w}_"))).copied();
++        let weather = weathers.iter().find(|w| key.starts_with(&format!("{w}_"))).copied();
+         match weather {
+             Some(w) => {
+                 let k = key[w.len() + 1..].replace('_', " ");
+@@ -137,10 +148,15 @@
+ /// The `[Weather]` timings and every `[Weather X]` block of an ini, as JSON.
+ /// An `openmw.cfg` is accepted too — its `fallback=Weather_…` lines are the same values.
+ pub fn ini_json(text: &str) -> String {
+-    let converted = openmw_to_ini(text);
++    ini_json_with(text, &WEATHERS)
++}
++
++/// [`ini_json`] for the named weathers.
++pub fn ini_json_with(text: &str, weathers: &[&str]) -> String {
++    let converted = openmw_to_ini_with(text, weathers);
+     let text = converted.as_deref().unwrap_or(text);
+     let w = section(text, "Weather");
+-    let found = WEATHERS.iter().any(|n| !section(text, &format!("Weather {n}")).is_empty());
++    let found = weathers.iter().any(|n| !section(text, &format!("Weather {n}")).is_empty());
+     let mut out = format!("{{\"found\":{found},\"openmw\":{},\"timing\":{{", converted.is_some());
+     let keys = [
+         ("sunrise", "Sunrise Time", 6.0),
+@@ -176,7 +192,7 @@
+     }
+     out.push_str("},\"weathers\":{");
+     let mut first = true;
+-    for name in WEATHERS {
++    for name in weathers {
+         let sec = section(text, &format!("Weather {name}"));
+         if sec.is_empty() {
+             continue;
+@@ -202,6 +218,7 @@
+         escape_into(lookup(&sec, "Cloud Texture").unwrap_or(""), &mut out);
+         out.push('"');
+         out.push_str(&format!(",\"cloudSpeed\":{}", num(&sec, "Cloud Speed", 1.0)));
++        out.push_str(&format!(",\"glareView\":{}", num(&sec, "Glare View", 1.0)));
+         out.push('}');
+     }
+     out.push_str("},\"water\":");
+@@ -392,6 +409,11 @@
+ /// that resolver landed on, and reports the file and the reasoning so a wrong answer is
+ /// visible rather than three months of unexplained fog.
+ pub fn mge_json(layout: &crate::layout::Layout) -> String {
++    mge_json_with(layout, &WEATHERS)
++}
++
++/// [`mge_json`] for the named weathers.
++pub fn mge_json_with(layout: &crate::layout::Layout, weathers: &[&str]) -> String {
+     let found = crate::mge::find(layout);
+     let text = found
+         .config
+@@ -408,14 +430,14 @@
+     match found.kind {
+         Some(crate::mge::ConfigKind::Toml) if !text.is_empty() => {
+             match crate::toml::parse(&text) {
+-                Ok(doc) => toml_fog(&doc, &mut out),
++                Ok(doc) => toml_fog(&doc, &mut out, weathers),
+                 Err(e) => {
+                     trouble = format!(" — could not be read ({})", e);
+-                    ini_fog("", &mut out);
++                    ini_fog("", &mut out, weathers);
+                 }
+             }
+         }
+-        _ => ini_fog(&text, &mut out),
++        _ => ini_fog(&text, &mut out, weathers),
+     }
+     out.push_str(",\"file\":\"");
+     crate::json::escape_into(
+@@ -436,7 +458,7 @@
+ }
+ 
+ /// `mge3\MGE.ini`, as MGE XE and MGE XE UF write it.
+-fn ini_fog(text: &str, out: &mut String) {
++fn ini_fog(text: &str, out: &mut String, weathers: &[&str]) {
+     let dl = section(text, "Distant Land");
+     let dw = section(text, "Distant Land Weather");
+     let on = |k: &str, d: bool| -> bool {
+@@ -448,7 +470,7 @@
+     out.push_str(&format!(",\"expFog\":{},\"scattering\":{}", on("Use Exponential Fog", true), on("Use Atmosphere Scattering", true)));
+     out.push_str(&format!(",\"drawDistance\":{}", num(&dl, "Draw Distance", 5.0)));
+     out.push_str(",\"weathers\":{");
+-    for (i, name) in WEATHERS.iter().enumerate() {
++    for (i, name) in weathers.iter().enumerate() {
+         if i > 0 {
+             out.push(',');
+         }
+@@ -467,7 +489,7 @@
+ /// `[distant_land.fog]` `above_water_start`/`above_water_end`, `exponential`,
+ /// `atmosphere_scattering`, and a `[distant_land.weather.<name>]` table per weather with
+ /// `fog_ratio` and `fog_offset`. Weather tables are lowercased there.
+-fn toml_fog(doc: &crate::toml::Table, out: &mut String) {
++fn toml_fog(doc: &crate::toml::Table, out: &mut String, weathers: &[&str]) {
+     let get = |path: &[&str]| -> Option<&crate::toml::Value> {
+         let mut cur = doc.get(path[0])?;
+         for k in &path[1..] {
+@@ -495,7 +517,7 @@
+     ));
+     out.push_str(&format!(",\"drawDistance\":{}", f(&["distant_land", "draw_distance"], 5.0)));
+     out.push_str(",\"weathers\":{");
+-    for (i, name) in WEATHERS.iter().enumerate() {
++    for (i, name) in weathers.iter().enumerate() {
+         if i > 0 {
+             out.push(',');
+         }
+@@ -511,6 +533,11 @@
+ 
+ /// Everything the page's sky needs, in one reply.
+ pub fn atmosphere_json(order_file: &Path, vfs: &Vfs, layout: &crate::layout::Layout) -> String {
++    atmosphere_json_with(order_file, vfs, layout, &WEATHERS)
++}
++
++/// [`atmosphere_json`] for the named weathers.
++pub fn atmosphere_json_with(order_file: &Path, vfs: &Vfs, layout: &crate::layout::Layout, weathers: &[&str]) -> String {
+     // An openmw.cfg is its whole chain (round 18gn): since 0.46 the `fallback=` lines live
+     // in the install's file, not the user's, so one file alone has no weather in it.
+     let ini = crate::openmwcfg::order_text(order_file);
+@@ -518,9 +545,9 @@
+     // Round 18fc: and Wonders of Water, when the load order has it.
+     format!(
+         "{{\"ini\":{},\"adjuster\":{},\"mge\":{},\"renderer\":{},\"wondersOfWater\":{}}}",
+-        ini_json(&ini),
++        ini_json_with(&ini, weathers),
+         adjuster_json(vfs),
+-        mge_json(layout),
++        mge_json_with(layout, weathers),
+         crate::renderer::renderer_json(layout, &ini),
+         wonders_json(vfs, layout)
+     )
+--- a/crates/gardenfell-install/tests/wraithguard_weather.rs
++++ b/crates/gardenfell-install/tests/wraithguard_weather.rs
+@@ -0,0 +1,36 @@
++//! Wraithguard (carried patch 0004): the ten weathers are opt-in. The plain readers keep
++//! round 17h's Clear only; the `*_with` readers given `ALL_WEATHERS` read every block.
++
++use gardenfell_bytes::json::parse;
++use gardenfell_install::weather::{ini_json, ini_json_with, openmw_to_ini_with, ALL_WEATHERS};
++
++const INI: &str = "[Weather]\nSunrise Time=6\n\
++[Weather Clear]\nCloud Speed=1.25\nGlare View=1\n\
++[Weather Foggy]\nCloud Speed=1.25\nGlare View=0.25\n\
++[Weather Blizzard]\nCloud Speed=7.5\nGlare View=0\n";
++
++#[test]
++fn the_plain_reader_is_still_clear_only() {
++    let v = parse(&ini_json(INI)).unwrap();
++    let w = v.get("weathers").unwrap();
++    assert!(w.get("Clear").is_some());
++    assert!(w.get("Foggy").is_none() && w.get("Blizzard").is_none(), "round 17h unchanged");
++}
++
++#[test]
++fn all_weathers_reads_every_block_and_its_glare_view() {
++    let v = parse(&ini_json_with(INI, &ALL_WEATHERS)).unwrap();
++    let w = v.get("weathers").unwrap();
++    let glare = |n: &str| w.get(n).unwrap().get("glareView").unwrap().as_f64().unwrap();
++    assert_eq!(glare("Clear"), 1.0);
++    assert_eq!(glare("Foggy"), 0.25);
++    assert_eq!(glare("Blizzard"), 0.0);
++    assert!(w.get("Rain").is_none(), "a weather the ini has no block for is left out");
++}
++
++#[test]
++fn openmw_fallbacks_go_to_their_own_weather() {
++    let cfg = "fallback=Weather_Clear_Cloud_Speed,1.25\nfallback=Weather_Cloudy_Glare_View,0.5\n";
++    let ini = openmw_to_ini_with(cfg, &ALL_WEATHERS).unwrap();
++    assert!(ini.contains("[Weather Cloudy]\nGlare View=0.5"), "{ini}");
++}

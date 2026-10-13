@@ -9,7 +9,11 @@ line at a time:
 - a variable declared twice, or ``set`` on a name that is neither a local, a global nor
   another object's variable (``obj.var``); ``set`` without ``to``;
 - a statement that starts with a name the game has no function for (the opcode table,
-  MWEdit's and MWSE's function lists) and that is not a variable.
+  MWEdit's and MWSE's function lists) and that is not a variable;
+- what the Construction Set compiles and the game then gets wrong (simania.nl's
+  "Script quirks"): a single ``=`` in a condition, ``<>`` for "not equal", a stray ``=``
+  after ``set ... to``, ``<id>->GetDeadCount``, an unquoted id with a hyphen, an
+  apostrophe or a leading digit, and a chain of 20 or more ``elseif``s.
 
 Each finding is ``(line, level, message)``, lines from 1, ``level`` ``error`` (it will not
 compile) or ``warning`` (it compiles, or the compiler is lenient, and probably is wrong).
@@ -49,6 +53,15 @@ KEYWORDS: Final[frozenset[str]] = frozenset(
 
 _DECL = re.compile(r"^(short|long|float)\s+([A-Za-z_][\w]*)", re.IGNORECASE)
 _WORD = re.compile(r"^\s*(?:\"[^\"]*\"|[\w.]+)\s*->\s*([A-Za-z_]\w*)|^\s*([A-Za-z_]\w*)")
+_NUMBER = re.compile(r"^\d+(\.\d*)?([eE][+-]?\d+)?$")
+_LEADING_DIGIT = re.compile(r"^\d+[A-Za-z_]")
+_HYPHENATED = re.compile(r"^[A-Za-z_]\w*-[A-Za-z_][\w-]*$")
+_TOKEN_SPLIT = re.compile(r"->|[\s(),:]+")
+_GETDEADCOUNT = re.compile(r"->\s*getdeadcount\b")
+_STRAY_TO = re.compile(r"\bto\s*=")
+
+#: How many ``elseif``s in one chain before the game may fail on a late branch.
+ELSEIF_CHAIN: Final = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +89,63 @@ def _code(line: str) -> str:
             break
         out.append(ch)
     return "".join(out).strip()
+
+
+def _unquoted(code: str) -> str:
+    """``code`` with every quoted span (quotes included) blanked to spaces."""
+    out, quoted = [], False
+    for ch in code:
+        if ch == '"':
+            quoted = not quoted
+            out.append(" ")
+        else:
+            out.append(" " if quoted else ch)
+    return "".join(out)
+
+
+def _quirks(code: str, first: str) -> list[str]:
+    """What the CS compiles and the game gets wrong, on one statement line (warnings)."""
+    out: list[str] = []
+    u = _unquoted(code)
+    lu = u.lower()
+    if first in ("if", "elseif", "while"):
+        for i, ch in enumerate(u):
+            before = u[i - 1] if i else ""
+            after = u[i + 1] if i + 1 < len(u) else ""
+            if ch == "=" and before not in ("=", "!", "<", ">") and after != "=":
+                out.append(
+                    "a single '=' in a condition: the CS reads it as '==', MWEdit refuses it; write '=='"
+                )
+                break
+    if "<>" in u:
+        out.append("'<>' is not 'not equal' (the game reads it as '<' or '>'): use '!='")
+    if first == "set":
+        m = _STRAY_TO.search(lu)
+        if m and lu[m.end() : m.end() + 1] != "=":
+            out.append("a stray '=' after 'to'")
+    if _GETDEADCOUNT.search(lu):
+        out.append(
+            "GetDeadCount takes the id after it ('GetDeadCount <id>'); "
+            "with '<id>->' in front, the lines under it are ignored"
+        )
+    seen: set[str] = set()
+    for tok in _TOKEN_SPLIT.split(u):
+        if not tok or tok in seen:
+            continue
+        bad = (
+            ("'" in tok and any(c.isalnum() for c in tok))
+            or (_LEADING_DIGIT.match(tok) is not None and _NUMBER.match(tok) is None)
+            or (
+                first not in ("set", "if", "elseif", "while") and _HYPHENATED.match(tok) is not None
+            )
+        )
+        if bad:
+            seen.add(tok)
+            out.append(
+                f"{tok} needs quotes: an id with a hyphen, an apostrophe or a leading digit "
+                "is misread without them"
+            )
+    return out
 
 
 def check_script(
@@ -123,7 +193,7 @@ def check_script_py(
     found: list[Finding] = []
     known_globals = {g.lower() for g in globals_}
     local: dict[str, int] = {}
-    stack: list[tuple[str, int, bool]] = []  # (block, line, seen else)
+    stack: list[tuple[str, int, bool, int]] = []  # (block, line, seen else, elseifs)
     began = ended = False
 
     def say(n: int, level: str, message: str) -> None:
@@ -154,7 +224,7 @@ def check_script_py(
             say(n, "error", "a second 'begin'")
             continue
         if first == "end" and len(low.split()) <= 2 and "->" not in low:
-            for block, at, _else in stack:
+            for block, at, _else, _n in stack:
                 say(at, "error", f"'{block}' is never closed")
             stack.clear()
             ended = True
@@ -167,8 +237,10 @@ def check_script_py(
             else:
                 local[var] = n
             continue
+        for message in _quirks(code, first):
+            say(n, "warning", message)
         if first in ("if", "while"):
-            stack.append((first, n, False))
+            stack.append((first, n, False, 0))
             continue
         if first in ("elseif", "else"):
             if not stack or stack[-1][0] != "if":
@@ -176,7 +248,17 @@ def check_script_py(
             elif stack[-1][2]:
                 say(n, "error", f"'{first}' after 'else'")
             elif first == "else":
-                stack[-1] = (stack[-1][0], stack[-1][1], True)
+                stack[-1] = (stack[-1][0], stack[-1][1], True, stack[-1][3])
+            else:
+                block, at, seen_else, count = stack[-1]
+                stack[-1] = (block, at, seen_else, count + 1)
+                if count + 1 == ELSEIF_CHAIN:
+                    say(
+                        n,
+                        "warning",
+                        f"{ELSEIF_CHAIN} 'elseif's in one chain: the game can fail on a late "
+                        "branch (RightEval/LeftEval); split it",
+                    )
             continue
         if first in ("endif", "endwhile"):
             want = "if" if first == "endif" else "while"
@@ -203,7 +285,7 @@ def check_script_py(
     if not began:
         say(1, "error", "the script is empty")
     elif not ended and not found_end(text):
-        for block, at, _else in stack:
+        for block, at, _else, _n in stack:
             say(at, "error", f"'{block}' is never closed")
         say(max(1, len(text.splitlines())), "error", "the script has no 'end'")
     found.sort(key=lambda f: f.line)
@@ -219,4 +301,4 @@ def found_end(text: str) -> bool:
     return False
 
 
-__all__ = ["KEYWORDS", "Finding", "check_script", "check_script_py", "found_end"]
+__all__ = ["ELSEIF_CHAIN", "KEYWORDS", "Finding", "check_script", "check_script_py", "found_end"]

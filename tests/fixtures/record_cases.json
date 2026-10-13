@@ -1,0 +1,77 @@
+{
+  "_about": "Which version of a record wins and what a placed object is, as OpenMW resolves them; run by viewer-shell/ordercore's tests and tests/test_record_index.py. Each case is a load order: `plugins` in order, each a list of [tag, id, deleted]. `expect.live` is every live record as [tag, lower-case id, [defining plugin indices, the last winning]], sorted; `expect.placed` maps a lower-case id to the type a placed object of it is (null: none). Rules: every type is kept on its own; within a type the last plugin wins and a deletion takes the record out; a placed object is the object type whose tag is greatest as a little-endian number (in effect by its last letter), not the one loaded last.",
+  "cases": [
+    {
+      "name": "the last plugin wins within a type",
+      "plugins": [[["WEAP", "Iron Sword", false]], [["WEAP", "iron sword", false]]],
+      "expect": {
+        "live": [["WEAP", "iron sword", [0, 1]]],
+        "placed": {"iron sword": "WEAP"}
+      }
+    },
+    {
+      "name": "one id as two object types: both live, the tag decides what is placed",
+      "plugins": [[["WEAP", "wg_clash", false]], [["MISC", "wg_clash", false]]],
+      "expect": {
+        "live": [["MISC", "wg_clash", [1]], ["WEAP", "wg_clash", [0]]],
+        "placed": {"wg_clash": "WEAP"}
+      }
+    },
+    {
+      "name": "loaded the other way round, the same type is placed",
+      "plugins": [[["MISC", "wg_clash", false]], [["WEAP", "wg_clash", false]]],
+      "expect": {
+        "live": [["MISC", "wg_clash", [0]], ["WEAP", "wg_clash", [1]]],
+        "placed": {"wg_clash": "WEAP"}
+      }
+    },
+    {
+      "name": "NPC_ outranks every other object type",
+      "plugins": [[["BODY", "b", false], ["NPC_", "b", false], ["STAT", "b", false]]],
+      "expect": {
+        "live": [["BODY", "b", [0]], ["NPC_", "b", [0]], ["STAT", "b", [0]]],
+        "placed": {"b": "NPC_"}
+      }
+    },
+    {
+      "name": "a leveled item list outranks a leveled creature list",
+      "plugins": [[["LEVI", "lev", false]], [["LEVC", "lev", false]]],
+      "expect": {
+        "live": [["LEVC", "lev", [1]], ["LEVI", "lev", [0]]],
+        "placed": {"lev": "LEVI"}
+      }
+    },
+    {
+      "name": "a deletion takes the record out, and the other type is placed",
+      "plugins": [[["WEAP", "x", false], ["MISC", "x", false]], [["WEAP", "x", true]]],
+      "expect": {
+        "live": [["MISC", "x", [0]]],
+        "placed": {"x": "MISC"}
+      }
+    },
+    {
+      "name": "defined again after a deletion: only the plugins after it count",
+      "plugins": [[["STAT", "s", false]], [["STAT", "s", true]], [["STAT", "S", false]]],
+      "expect": {
+        "live": [["STAT", "s", [2]]],
+        "placed": {"s": "STAT"}
+      }
+    },
+    {
+      "name": "types that are not objects are kept but never placed",
+      "plugins": [[["SPEL", "fire", false], ["ENCH", "fire", false]]],
+      "expect": {
+        "live": [["ENCH", "fire", [0]], ["SPEL", "fire", [0]]],
+        "placed": {"fire": null}
+      }
+    },
+    {
+      "name": "an object type and another type: the object is placed",
+      "plugins": [[["SPEL", "z", false]], [["ACTI", "z", false]]],
+      "expect": {
+        "live": [["ACTI", "z", [1]], ["SPEL", "z", [0]]],
+        "placed": {"z": "ACTI"}
+      }
+    }
+  ]
+}

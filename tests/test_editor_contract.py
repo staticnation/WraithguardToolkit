@@ -11,10 +11,13 @@ from __future__ import annotations
 import ast
 import json
 import re
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
-from tests.test_editorlink import _Host, _post
+from tests.test_editorlink import _Builder, _post
+from wraithguard.patch import testrun
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACT = ROOT / "viewer-shell/ui/tests/editor/contract.json"
@@ -73,17 +76,78 @@ def test_the_contract_asks_what_each_handler_documents():
         assert (links[link]["req"], links[link]["opt"]) == (need, may), link
 
 
-def test_examples_answer_as_the_contract_says(tmp_path):
-    host = _Host(tmp_path)
+#: When an example runs, for those that need another's effect: a reference placed first
+#: (``$placed``), and the build and test run last, as a build empties the pool (editSet
+#: before them, after undo and revert, so there is something to write).
+PHASE: dict[str, int] = {
+    "editNew": 1,
+    "editNewSet": 1,
+    "editNewRemove": 2,
+    "editSet": 2,
+    "editTestRun": 3,  # keeps the pool
+    "editBuild": 4,
+    "editBuildStatus": 5,
+    "editPreviewPatch": 5,
+}
+
+
+def _fill(value: Any, slots: dict[str, Any]) -> Any:
+    """An example's body with ``$tmp``, ``$placed`` and ``$job`` filled in."""
+    if isinstance(value, dict):
+        return {k: _fill(v, slots) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_fill(v, slots) for v in value]
+    if isinstance(value, str) and value.startswith("$"):
+        name, _, rest = value[1:].partition("/")
+        return f"{slots[name]}/{rest}" if rest else slots[name]
+    return value
+
+
+def test_examples_answer_as_the_contract_says(tmp_path, monkeypatch):
+    monkeypatch.setattr(testrun, "scratch_dir", lambda: tmp_path)
+    monkeypatch.setattr(testrun, "_remembered_file", lambda: tmp_path / "openmw_test.json")
+    # The "game" is this Python: it refuses OpenMW's arguments and exits.
+    monkeypatch.setattr(testrun, "find_openmw", lambda _given=None: Path(sys.executable))
+    host = _Builder(tmp_path)
     handlers = _registered()
-    for link, entry in _contract().items():
+    slots: dict[str, Any] = {"tmp": tmp_path.as_posix()}
+    links = sorted(_contract().items(), key=lambda kv: PHASE.get(kv[0], 0))
+    for link, entry in links:
         if "example" not in entry:
             continue
-        body = entry["example"]
-        assert set(entry["req"]) <= set(body) <= set(entry["req"]) | set(entry["opt"]), link
-        got = _post(getattr(host, handlers[link]), **body)
-        want = entry["ans"]
-        if want == "list":
-            assert isinstance(got, list), link
-        elif isinstance(want, list):
-            assert isinstance(got, dict) and set(want) <= set(got), (link, sorted(got))
+        runs = [(entry["example"], entry["ans"])]
+        if "alt" in entry:
+            runs.append((entry["alt_example"], entry["alt"]))
+        for example, want in runs:
+            assert set(entry["req"]) <= set(example) <= set(entry["req"]) | set(entry["opt"]), link
+            body = json.dumps(_fill(example, slots)).encode("utf-8")
+            raw = getattr(host, handlers[link])(body).body
+            if want == "ok":
+                assert raw == b"ok", link
+                continue
+            got = json.loads(raw)
+            if want == "list":
+                assert isinstance(got, list), link
+            elif isinstance(want, list):
+                assert isinstance(got, dict) and set(want) <= set(got), (link, sorted(got))
+            if link == "editPlace":
+                slots["placed"] = got["uid"]
+            if isinstance(got, dict) and "job" in got:
+                slots["job"] = got["job"]
+                _wait(host, got["job"])
+
+
+def _wait(host: _Builder, job: int) -> None:
+    """Wait for a build or test run to finish (it must, for the next example)."""
+    for _ in range(300):
+        state = _post(host._on_edit_build_status, job=job, **{"from": 0})
+        if state["state"] != "running":
+            assert state["state"] == "done", state
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"job {job} did not finish")
+
+
+def test_every_links_answer_is_pinned_with_an_example():
+    links = _contract().items()
+    assert [link for link, entry in links if entry["ans"] is None or "example" not in entry] == []

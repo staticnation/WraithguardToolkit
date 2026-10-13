@@ -1,3 +1,5 @@
+/* Gardenfell, 26_water.js. Copyright (c) 2026 Robin Hjelte. GNU General Public License, version 2
+   (see page-source/LICENSE): this file carries code ported from MGE XE, which is GPL-2.0. */
 /* =====================================================================================
    The water, MGE XE's way — round 15 items 8, 9 and 10.
 
@@ -603,6 +605,33 @@ Object.assign(Renderer.prototype,{
     return t;
   },
 
+  /* Round 18gt: the programs this part builds on first use, each behind its own `_ensure`,
+     so `warmShaders` (06_gl.js) can build them at start-up instead: the first frame under
+     the water used to pay for compiling the underwater pass, and the first frame with the
+     MGE water for these. The lazy sites call the same functions, so a frame that arrives
+     before the warm-up has got there still works as it did. */
+  _ensureWaterMGE(){
+    if(!this.progWaterMGE){
+      this.progWaterMGE=this._prog(VS_WATER_MGE,FS_WATER_MGE);
+      this.progWSkirt=this._prog(VS_WATER_MGE,FS_WSKIRT);
+    }
+    return this.progWaterMGE;
+  },
+  _ensureBlit(){
+    if(!this.progBlit) this.progBlit=this._prog(VS_BLIT,FS_BLIT);
+    return this.progBlit;
+  },
+  _ensureShafts(){
+    if(!this.progShaftMask){
+      this.progShaftMask=this._prog(VS_BLIT,FS_SHAFT_MASK);
+      this.progShaftBlurR=this._prog(VS_BLIT,FS_SHAFT_BLURR);
+      this.progShaftRays=this._prog(VS_BLIT,FS_SHAFT_RAYS);
+      this.progShaftBlurT=this._prog(VS_BLIT,FS_SHAFT_BLURT);
+      this.progShaftCombine=this._prog(VS_BLIT,FS_SHAFT_COMBINE);
+    }
+    return this.progShaftMask;
+  },
+
   /** MGE's wave volume, asked for once; null until it arrives or when the install has none. */
   waterVolume(){
     if(this._wnrm!==undefined) return this._wnrm;
@@ -740,9 +769,14 @@ Object.assign(Renderer.prototype,{
     const gl=this.gl, w=this.water;
     if(!w) return null;
     const base = this.slab? this.slab.base : w.z-2000;
-    const box = this.slab? this.slab.box : [w.centre[0]-w.half, w.centre[1]-w.half, w.centre[0]+w.half, w.centre[1]+w.half];
-    const edges = (this.slab && this.slab.edges) || null;
-    const key=[w.z,box.join(','),base,this.slab? this.slab.rev : 0].join('|');
+    let box = this.slab? this.slab.box : [w.centre[0]-w.half, w.centre[1]-w.half, w.centre[0]+w.half, w.centre[1]+w.half];
+    /* Wraithguard: with distant land drawn (57_wg_distant.js) the sea goes on over it, to
+       its edge, and the walls at the slab's edge are left out - there is seabed under them
+       now, and a wall standing in open water would show through the surface. */
+    const far=(this.distant && this.opts.distant!==false && this.distant.box)? this.distant.box : null;
+    if(far) box=[Math.min(box[0],far[0]), Math.min(box[1],far[1]), Math.max(box[2],far[2]), Math.max(box[3],far[3])];
+    const edges = far? null : ((this.slab && this.slab.edges) || null);
+    const key=[w.z,box.join(','),base,this.slab? this.slab.rev : 0, far? 'far' : ''].join('|');
     if(this._wm && this._wm.key===key) return this._wm;
     /* Round 18bd (F17): the buffers too. `_slabRev` bumps on every terrain rebuild, and
        deleting a vertex array does not free the buffers it referenced — so a long session
@@ -771,7 +805,7 @@ Object.assign(Renderer.prototype,{
       }
       // The depth gradient spans the band that is actually there, not the slab's depth.
       zb=Math.min(low, z-1);
-    }else{
+    }else if(!far){
       const x0=box[0], x1=box[2], y0=box[1], y1=box[3];
       quad([x0,y0,z],[x1,y0,z],[x1,y0,zb],[x0,y0,zb]);
       quad([x1,y0,z],[x1,y1,z],[x1,y1,zb],[x1,y0,zb]);
@@ -858,10 +892,7 @@ Object.assign(Renderer.prototype,{
     const gl=this.gl, o=this.opts, c=this.cam;
     const T=this._waterTargets();
     if(!T.ok) return false;
-    if(!this.progWaterMGE){
-      this.progWaterMGE=this._prog(VS_WATER_MGE,FS_WATER_MGE);
-      this.progWSkirt=this._prog(VS_WATER_MGE,FS_WSKIRT);
-    }
+    this._ensureWaterMGE();
     const water=!!(this.water && o.mgeWater!==false);
     const W=T.W, H=T.H;
     // What the sunshafts need to know about this frame, once the scene is resolved.
@@ -958,14 +989,30 @@ Object.assign(Renderer.prototype,{
     /* Round 18f: the particles under the water line, into the picture the surface will
        refract - a puff that sank is seen through the water, dimmed by its depth, as the
        game shows it, rather than drawn over the surface at full strength. */
-    /* Round 18eb: the split is for the eye in the air. Its whole point is to get what
-       stands under the line into the picture the surface refracts - and with the eye
-       already under the water there is no refraction to get into, the surface is overhead,
-       and the split only costs the see-through things their depth writes (`_clearNoZ`),
-       which is what makes a crossed pair of cut-out quads blend with itself instead of one
-       half hiding the other. Under the water the game's own order is the right one. */
-    const split = this.underNow? null : wz;
-    drawScene(VP,eye,{phase:'particlesBelow', waterSplit:split});
+    /* Round 18ep: the split runs under the water too - the other way up. 18eb turned it
+       off there on the reasoning that "the surface is overhead, so there is no refraction
+       to get into", and the measurement says otherwise: the surface IS drawn from below,
+       and everything standing above the line is seen through it. A white wall above the
+       line, read from 300 units under it, came out 41,60,70 opaque and 48,70,81 blended -
+       the blended one exactly what it reads with no surface between at all. The surface
+       took nothing off it, because the whole see-through pass was drawn after the surface.
+       That is Robin's complaint in one pair of numbers: "telvanni crystal, BC moss, and
+       particles being much more visible through the water surface from being under water
+       than other meshes".
+       So the two halves swap sides with the eye. In the air the pre-surface half keeps
+       what is UNDER the line (into the picture the surface refracts) and the late half
+       what is over it; under the water it is the other way round - the pre-surface half
+       keeps what is ABOVE the line, so the surface overhead covers it as it covers the
+       opaque things up there, and the late half keeps what is under the line, which shares
+       the eye's own medium with nothing between and wants no surface over it.
+       18eb's one real point survives, and lands on the better side: only the pre-surface
+       half loses its depth writes (`_clearNoZ`), and under the water that half is now the
+       few things above the line rather than the kelp and the moss all around the eye - so
+       a crossed pair of cut-out quads submerged with the viewer still blends with itself
+       instead of one half hiding the other. */
+    const splitUp = !!this.underNow;
+    const split = wz;
+    drawScene(VP,eye,{phase:'particlesBelow', waterSplit:split, splitUp});
 
     // 3. Resolved into textures the water can read.
     this._gpuMark('water');
@@ -1039,7 +1086,7 @@ Object.assign(Renderer.prototype,{
     gl.uniform2f(wp.u.uRcpRes,1/W,1/H);
     gl.uniform2f(wp.u.uNearFar,near,far);
     gl.uniform3f(wp.u.uViewF,fwd[0]/fl,fwd[1]/fl,fwd[2]/fl);
-    gl.uniform1f(wp.u.uTime,(performance.now()/1000)%3600);
+    gl.uniform1f(wp.u.uTime,this.clock()%3600);   // 18fh: the pausable clock
     gl.uniform1f(wp.u.uWindLen,this.windNow()*2);
     gl.uniform1i(wp.u.uBelow, this.underNow? 1 : 0);   // 18dt
     // Wraithguard: the colour over the water - its hue, and 0 (none) .. 1 (opaque).
@@ -1100,7 +1147,7 @@ Object.assign(Renderer.prototype,{
        surface, tested against the scene's depth. Drawn before the surface they were under
        its reflection wherever the surface lay behind them (round 17x). */
     gl.disable(gl.CULL_FACE);
-    drawScene(VP,eye,{phase:'translucent', waterSplit:split});
+    drawScene(VP,eye,{phase:'translucent', waterSplit:split, splitUp});
     this._waterFrame=true;
     return true;
   },
@@ -1148,8 +1195,7 @@ Object.assign(Renderer.prototype,{
     if(!shafts && this.underFogNow && this.drawUnderwater && this.drawUnderwater(T,f,dst)) this.underDrawn=true;
     else if(!shafts){
       gl.bindFramebuffer(gl.FRAMEBUFFER,dst);
-      if(!this.progBlit) this.progBlit=this._prog(VS_BLIT,FS_BLIT);
-      const bp=this.progBlit; gl.useProgram(bp.p);
+      const bp=this._ensureBlit(); gl.useProgram(bp.p);
       gl.viewport(0,0,T.W,T.H);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,T.colTex);
       gl.uniform1i(bp.u.uTex,0);
@@ -1174,13 +1220,7 @@ Object.assign(Renderer.prototype,{
      behind, and the plain copy is drawn instead. */
   drawSunshafts(T,f,dst){
     const gl=this.gl;
-    if(!this.progShaftMask){
-      this.progShaftMask=this._prog(VS_BLIT,FS_SHAFT_MASK);
-      this.progShaftBlurR=this._prog(VS_BLIT,FS_SHAFT_BLURR);
-      this.progShaftRays=this._prog(VS_BLIT,FS_SHAFT_RAYS);
-      this.progShaftBlurT=this._prog(VS_BLIT,FS_SHAFT_BLURT);
-      this.progShaftCombine=this._prog(VS_BLIT,FS_SHAFT_COMBINE);
-    }
+    this._ensureShafts();
     const now=f.now, W=T.W, H=T.H, RW=T.RW, RH=T.RH;
     // The sun on the screen: its direction through the frame's view and projection.
     const sd=now.sunDir;

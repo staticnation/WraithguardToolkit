@@ -1,3 +1,6 @@
+/* Gardenfell, 33_fxaa.js. Copyright (c) 2026 Robin Hjelte. GNU General Public License, version 2
+   (see page-source/LICENSE): a port of FXAA 3.11, NVIDIA's, under the notice carried below,
+   as MGE XE carries it, and MGE XE is GPL-2.0. */
 /* =====================================================================================
    FXAA - round 18do, a port of the FXAA 3.11 shader Robin's game runs (Timothy Lottes,
    NVIDIA; J. Böttcher's MGE XE port 1.2, "FXAA.fx", the last entry of his post chain).
@@ -16,9 +19,23 @@
    which saves a full-screen pass and changes no number. The unrolled `#if PS > n`
    cascade is a loop over the step table.
 
-   Provenance, for the licence file: FXAA 3.11 is NVIDIA's, under its BSD-3 licence
-   (License/FXAA/LICENSE, from the FXAA3_11.h NVIDIA publishes in its GameWorks samples); the MGE XE port is J. Böttcher's, posted for MGE XE
-   by Hrnchamd; the tuning is Robin's copy. (No backticks inside the shader strings: template literals.) */
+   Provenance, for the licence file: FXAA 3.11 is NVIDIA's, under the notice below, which
+   its header carries and which travels with every copy (Wraithguard keeps NVIDIA's licence
+   file too: License/FXAA/LICENSE, from the FXAA3_11.h NVIDIA publishes in its GameWorks
+   samples); the MGE XE port is J. Böttcher's, posted for MGE XE by Hrnchamd; the tuning is
+   Robin's copy. (No backticks inside the shader strings: template literals.)
+
+   NVIDIA FXAA 3.11 by TIMOTHY LOTTES
+   COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THIS SOFTWARE IS PROVIDED *AS IS* AND
+   NVIDIA AND ITS SUPPLIERS DISCLAIM ALL WARRANTIES, EITHER EXPRESS OR IMPLIED, INCLUDING,
+   BUT NOT LIMITED TO, NONINFRINGEMENT, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+   FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL NVIDIA OR ITS SUPPLIERS BE LIABLE FOR ANY
+   SPECIAL, INCIDENTAL, INDIRECT, OR CONSEQUENTIAL DAMAGES WHATSOEVER (INCLUDING, WITHOUT
+   LIMITATION, DAMAGES FOR LOSS OF BUSINESS PROFITS, BUSINESS INTERRUPTION, LOSS OF
+   BUSINESS INFORMATION, OR ANY OTHER PECUNIARY LOSS) ARISING OUT OF THE USE OF OR
+   INABILITY TO USE THIS SOFTWARE, EVEN IF NVIDIA HAS BEEN ADVISED OF THE POSSIBILITY OF
+   SUCH DAMAGES. */
 
 const FXAA_SUBPIX=0.32, FXAA_EDGE_THRESHOLD=0.063, FXAA_EDGE_THRESHOLD_MIN=0.0312;
 const FXAA_STEPS=[1.0,1.5,2.0,2.0,2.0,3.0,8.0];   // preset 24
@@ -130,6 +147,11 @@ void main(){
 }`;
 
 Object.assign(Renderer.prototype,{
+  /** The FXAA program, built once; `warmShaders` (06_gl.js, round 18gt) builds it at start-up. */
+  _ensureFXAA(){
+    if(!this.progFXAA) this.progFXAA=this._prog(VS_BLIT,FS_FXAA);
+    return this.progFXAA;
+  },
   /** The full-size target the finished frame is drawn into when FXAA is on, for the
    *  pass to read; clamped and linear, as the .fx's sampler. Rebuilt with the frame. */
   _fxaaTarget(W,H){
@@ -162,8 +184,7 @@ Object.assign(Renderer.prototype,{
   drawFXAA(W,H){
     const gl=this.gl, t=this._fxaaT;
     if(!t || !t.ok) return false;
-    if(!this.progFXAA) this.progFXAA=this._prog(VS_BLIT,FS_FXAA);
-    const pr=this.progFXAA; gl.useProgram(pr.p);
+    const pr=this._ensureFXAA(); gl.useProgram(pr.p);
     gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,W,H);
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.depthMask(false);
     gl.bindVertexArray(null);

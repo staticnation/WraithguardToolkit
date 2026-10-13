@@ -1,3 +1,4 @@
+/* Gardenfell, 09_ui.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 
 /* =====================================================================================
    Application state + UI
@@ -67,7 +68,7 @@ const App={
   avoidExclude:[],      // glob patterns for objects grass may sit inside anyway
   exportScope:'world', exportPrefix:'', exportAuthor:'Gardenfell', exportDesc:'',
   cellSel:null,         // nothing loaded until a cell is chosen
-  showAdjacent:0,           // rings of neighbours loaded with the cell: 0..3 (round 15; was a bool)
+  showAdjacent:0,           // rings of neighbours loaded with the cell: 0..3 (round 15; was a bool). Wraithguard keeps 0; Gardenfell 18hj defaults to 1
   texOn:{},             // per-land-texture grass switches in cell mode
   /* Per-rule switches, keyed by `selKey` — the texture and the scope, which is what
      tells one rule from another to a person. Several rules can govern one texture, and
@@ -85,6 +86,7 @@ const App={
   /* Round 18q: a grass card's sections start folded, and stay wherever you leave them
      (`fold_card_*` in the profile's viewport block). 18ac added the third. */
   cardShut:{overrides:true, conditions:true, drift:true},
+  cardShutBy:{},   // round 18er: and the cards that have been told otherwise
   /* Whether the asset picker shows tiles rather than lines. Shared by the mesh and the
      texture picker: they are the same dialogue looking at two lists, and remembering two
      answers to one question is how they end up disagreeing about which one you asked. */
@@ -100,10 +102,11 @@ const App={
      `syncConfig`. */
   adopting:false,
   avoidStatics:false,   // skip grass that would sit inside a placed object
-  avoidPad:0,
+  avoidPad:80,          // the clearance outdoors (18ha: 64 by default, was 0; 18hb: 80)
+  avoidPadIn:32,        // and indoors, where rooms are smaller (18ha)
   avoidMinSize:8,       // colliders smaller than this radius are stepped over
   avoidHeight:96,
-  hiTex:true,           // hovering a ground texture lights up the ground it covers
+  hiTex:true,           // hovering a ground texture lights up the ground it covers - always (18fv: the switch is gone)
   hiSlot:true,          // hovering a grass slot lights up the instances it placed
   hiObj:true,           // pointing at an object, or at a never-avoid pattern, lights it
   /* Painting ground. The mask itself is the engine's — see `paint.rs` — and these two
@@ -177,12 +180,48 @@ function syncCullMask(slot){
 /** Attaches enter/leave to one element. Leave always clears, whatever the toggle. */
 function onHover(el,enter){
   if(!el) return;
-  el.addEventListener('pointerenter',enter);
-  el.addEventListener('pointerleave',()=>{
+  el._hoverEnter=enter;
+  el.addEventListener('pointerenter',()=>{ Hover.el=el; enter(); });
+  el.addEventListener('pointerleave',()=>{ if(Hover.el===el) Hover.el=null; Hover.clear(); });
+}
+/* Round 18fs: the element under the pointer, so a rebuild can tell when it has just
+   removed it. Robin: "When hovering a rule element in the left panel, so that the ground
+   is highlighted, and clicking the enable / disable button, and then immediately after
+   moving the cursor away from the list [...] the highlight stays on the ground forever."
+   A row taken out of the document while the pointer is on it never gets its
+   `pointerleave`, so the highlight it switched on has nobody to switch it off. Every
+   list rebuild ends in `Hover.check()`: if the element that lit the highlight is gone,
+   the highlight goes with it. Should the pointer still be over the list, the browser's
+   own synthetic move enters the new row under it and lights that one instead. */
+const Hover={
+  el:null,
+  // Where the pointer last was, so a rebuild can ask what is under it now.
+  x:-1, y:-1,
+  clear(){
     hoverTexture(null); hoverSlot(-1,-1);
     if(App.R && App.R.setStaticHighlight) App.R.setStaticHighlight(null);
-  });
-}
+  },
+  check(){
+    if(!Hover.el || Hover.el.isConnected) return;
+    Hover.el=null; Hover.clear();
+    /* The pointer is still where it was; what is under it is the question. Chrome does
+       re-enter the new element by a synthetic move of its own, but on its own clock -
+       under a busy page it came late or not at all (t_panel, 18fv) - so the element under
+       the pointer is looked up here and entered directly: whichever ancestor carries a
+       hover of its own is the one lit. */
+    if(Hover.x<0) return;
+    let n=document.elementFromPoint(Hover.x, Hover.y);
+    while(n && !n._hoverEnter) n=n.parentElement;
+    if(n){ Hover.el=n; n._hoverEnter(); }
+  },
+};
+document.addEventListener('pointermove',e=>{
+  Hover.x=e.clientX; Hover.y=e.clientY;
+  /* And the leave the browser cannot give: an element entered by `check` above was never
+     hovered as far as the browser knows, so its `pointerleave` never comes. The move
+     itself says where the pointer is; off the element, the highlight goes out. */
+  if(Hover.el && e.target instanceof Node && !Hover.el.contains(e.target)){ Hover.el=null; Hover.clear(); }
+},{passive:true});
 
 function activeSel(){ return App.cfg.selectors[App.active]||null; }
 
@@ -308,17 +347,21 @@ function syncSectionBadges(){
    name costs six measurements rather than fifty. An element that is not on screen measures
    zero both ways and keeps its full text: it is measured again the next time it is
    written, which is every refresh. */
-function fitMiddle(el, text){
+/** `suffix` (18fe) is written whole after the name and never shortened - the rules pill's
+ *  " · 128 rules" - so what gives way is always the name's middle. Robin: "Always write
+ *  out the full ' · 128 rules', so when the string is too long, we shorten the grass
+ *  rules name the way we did before." */
+function fitMiddle(el, text, suffix){
   if(!el) return;
-  const full=String(text==null? '' : text);
-  el.textContent=full;
+  const full=String(text==null? '' : text), tail0=String(suffix==null? '' : suffix);
+  el.textContent=full+tail0;
   const fits=()=>el.scrollWidth<=el.clientWidth+1;
   if(el.clientWidth<=0 || fits()) return;
-  let lo=0, hi=full.length-1, best='…';
+  let lo=0, hi=full.length-1, best='…'+tail0;
   while(lo<=hi){
     const keep=(lo+hi)>>1;                 // characters of the name kept, head and tail
     const head=Math.ceil(keep/2), tail=keep-head;
-    el.textContent=full.slice(0,head)+'…'+(tail? full.slice(full.length-tail) : '');
+    el.textContent=full.slice(0,head)+'…'+(tail? full.slice(full.length-tail) : '')+tail0;
     if(fits()){ best=el.textContent; lo=keep+1; } else hi=keep-1;
   }
   el.textContent=best;
@@ -651,7 +694,337 @@ function cullWantsField(c){
   return !!c && (c.curve[0]>-NO || c.curve[1]<NO || c.obs[0]>-NO || c.obs[1]<NO || !!c.canopy);
 }
 
+/* Gardenfell's section fold (round 18er), for the Preview's section headings
+   (11_events.js); the rest of 09_ui.js's 18er-18hb changes are the grass rule panel. */
+/* Round 18er: a fold that moves. Robin: "Lets see if we can animate collapsing and
+   revealing collapsable sections."
 
+   **The class goes on at once and only the picture takes its time.** Everything that asks
+   whether a section is folded - `syncSectionBadges`, the profile's `collect`, every test
+   that clicks a heading and reads `closed` a moment later - gets the same answer in the
+   same tick it always did. What `folding` does is keep the body drawn, and give it a
+   height transition, for the few frames its height is running down to nothing; against
+   the `display:none` the closed class already carries (01_head.html).
 
+   **The tidy-up is a timer, and that is the whole lesson of this change.** The first cut
+   used `Element.animate` and removed `folding` in its `onfinish`. In the test harness
+   that never fires: the animation sits at `playState:"running"` with `currentTime` stuck
+   at 0 and `startTime` null, because nothing is driving the document's animation clock
+   there - ten of them piled up in one run. An end state that waits on a clock is an end
+   state that can never arrive, and a section stuck half-folded is a great deal worse than
+   one that folds instantly. So the picture is a CSS transition (which is free to not run,
+   and simply snaps where the clock is frozen) and the cleanup is `setTimeout`, which
+   fires wherever the code is.
 
+   A person who has asked for less motion gets the fold they had before this round. */
+const FOLD_MS=170;
+/** The class and the picture. `cls` is the class that says "shut" - `closed` for a
+ *  section, `folded` for the whole rules list - and it lands in this tick whatever the
+ *  height does afterwards. */
+function foldBox(box, body, shut, cls, after){
+  if(!box) return null;
+  box.classList.toggle(cls||'closed', !!shut);
+  return foldHeight(body, shut, after);
+}
+/** The picture alone, for a body whose shut state is not a class on anything - the rules
+ *  list's groups, where a folded group has no rows in the document at all and the fold is
+ *  the last thing that sees them (round 18eu).
+ *
+ *  `after` runs exactly once, whichever way the fold ends: on the transition, on the
+ *  timer, when there is nothing to animate, or when another fold takes this body over -
+ *  because for the groups it is the call that drops the rows, and a fold that swallowed it
+ *  would leave the list showing rows it has already decided are not there. */
+function foldHeight(body, shut, after){
+  const fire=()=>{ if(after){ const f=after; after=null; f(); } };
+  if(!body){ fire(); return null; }
+  /* Whatever the last fold left running, stopped - the timer and the listener both, or a
+     fold that is overtaken half way tidies up after the one that replaced it - and its
+     own `after` settled before this one starts. */
+  if(body._foldT){ clearTimeout(body._foldT); body._foldT=0; }
+  if(body._foldEnd){ body.removeEventListener('transitionend', body._foldEnd); body._foldEnd=null; }
+  if(body._foldAfter){ const f=body._foldAfter; body._foldAfter=null; f(); }
+  body._foldAfter=after? fire : null;
+  const clear=()=>{ body.style.height=''; body.style.paddingTop=''; body.style.paddingBottom='';
+                    body.classList.remove('folding'); };
+  let reduce=false;
+  try{ reduce=!!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); }catch(_){ }
+  if(reduce){ clear(); fire(); return null; }
+  /* Where it stands now, so a second click part way through carries on from there
+     rather than jumping to one end and running back. */
+  const cur=body.classList.contains('folding')? body.getBoundingClientRect().height : null;
+  body.classList.add('folding');
+  /* Cleared before anything is read, or every number below is the last fold's target
+     rather than the body's own. */
+  body.style.height=''; body.style.paddingTop=''; body.style.paddingBottom='';
+  const cs=getComputedStyle(body);
+  const pt=cs.paddingTop, pb=cs.paddingBottom;
+  const h=body.scrollHeight;          // content *and* padding, measured drawn
+  const from=(cur!=null)? cur : (shut? h : 0);
+  body.style.height=from+'px';
+  /* Round 18et: the padding goes with it. `box-sizing:border-box` means an element told
+     `height:0` is still as tall as its own padding, so without this the fold ran down to
+     21px and then jumped the rest of the way when `display:none` arrived - the "small lag
+     at the very end" Robin reported. Only on a fold that starts from rest: one that
+     overtakes another picks up the paddings where that one left them. */
+  if(cur==null && !shut){ body.style.paddingTop='0px'; body.style.paddingBottom='0px'; }
+  void body.offsetHeight;             // a state to move *from*, or there is no transition
+  body.style.height=(shut? 0 : h)+'px';
+  body.style.paddingTop=shut? '0px' : pt;
+  body.style.paddingBottom=shut? '0px' : pb;
+  /* **The end state is made true by two things, and only one of them can be trusted.**
+     The height's own `transitionend` is what makes the fold end when it looks like it has
+     ended - waiting on the timer alone left a tail of dead frames after the motion had
+     stopped. But a transition that never runs never ends: the test harness's animation
+     clock does not advance at all (18er), and a fold whose height does not actually change
+     fires nothing either. So the timer stays, as the thing that always fires. */
+  const done=()=>{
+    if(body._foldT){ clearTimeout(body._foldT); body._foldT=0; }
+    if(body._foldEnd){ body.removeEventListener('transitionend', body._foldEnd); body._foldEnd=null; }
+    body._foldAfter=null;
+    clear();
+    fire();
+  };
+  body._foldEnd=(e)=>{ if(e.target===body && e.propertyName==='height') done(); };
+  body.addEventListener('transitionend', body._foldEnd);
+  body._foldT=setTimeout(done, FOLD_MS+60);
+  return body._foldT;
+}
 
+/* Gardenfell 18hb and 18hf, brought in 2026-10-12 (Static): the left column's width by
+   dragging its edge, and the page's own find bar on Ctrl+F. */
+/* Round 18hb: the side columns, dragged to size on their inner edges.
+   Robin: "I would like us to make the right and left side panels to be resizable, by
+   clicking and dragging them. Keep the current size as the default value, and save down
+   the current value to the profile. In the Theme section of the Settings menu, add a
+   button to 'Reset panel sizes' that sets them to the default values." The grip is the
+   column's own edge (`.colgrip`, astride the border line, no thickness of its own), the
+   widths are CSS variables on the root, and the profile carries them as `panel_left` and
+   `panel_right` under `[viewport]` (19_settings.js). */
+const Panels={
+  DEF:{left:310, right:396},
+  MIN:{left:220, right:280},
+  w:{left:310, right:396},
+  /* Neither column may push the viewport under 360 pixels. Wraithguard's page has no
+     right column (Gardenfell's was the grass rules); a column that is not there takes no
+     room. */
+  max(side){
+    const other=side==='left'? 'right' : 'left';
+    const there=!!document.getElementById(other);
+    return Math.max(this.MIN[side], window.innerWidth-360-(there? this.w[other] : 0));
+  },
+  clamp(side,v){ return Math.round(Math.min(this.max(side), Math.max(this.MIN[side], +v||this.DEF[side]))); },
+  apply(){
+    const r=document.documentElement.style;
+    r.setProperty('--left-w', this.w.left+'px');
+    r.setProperty('--right-w', this.w.right+'px');
+    if(typeof App==='object' && App.R && App.R.resize) App.R.resize();
+  },
+  set(side,v,save){
+    const w=this.clamp(side,v);
+    if(w===this.w[side]) return;
+    this.w[side]=w; this.apply();
+    if(save && typeof PrevSettings==='object' && PrevSettings.touch) PrevSettings.touch();
+  },
+  reset(save){
+    this.w={...this.DEF}; this.apply();
+    if(save!==false && typeof PrevSettings==='object' && PrevSettings.touch) PrevSettings.touch();
+  },
+  init(){
+    for(const side of ['left','right']){
+      const col=document.getElementById(side); if(!col || col.querySelector('.colgrip')) continue;
+      const g=document.createElement('div'); g.className='colgrip'; g.dataset.side=side;
+      col.appendChild(g);
+      g.addEventListener('pointerdown',e=>{
+        if(e.button!==0) return;
+        e.preventDefault();
+        const x0=e.clientX, w0=this.w[side];
+        try{ g.setPointerCapture(e.pointerId); }catch(_){ }
+        document.body.classList.add('colresizing');
+        const move=ev=>{ const d=ev.clientX-x0; this.set(side, side==='left'? w0+d : w0-d, false); };
+        const up=ev=>{
+          g.removeEventListener('pointermove',move); g.removeEventListener('pointerup',up); g.removeEventListener('pointercancel',up);
+          try{ g.releasePointerCapture(ev.pointerId); }catch(_){ }
+          document.body.classList.remove('colresizing');
+          if(this.w[side]!==w0 && typeof PrevSettings==='object' && PrevSettings.touch) PrevSettings.touch();
+        };
+        g.addEventListener('pointermove',move); g.addEventListener('pointerup',up); g.addEventListener('pointercancel',up);
+      });
+    }
+    const b=document.getElementById('setPanelsReset');
+    if(b) b.onclick=()=>this.reset(true);
+    this.apply();
+  },
+};
+
+/* Round 18hf: the find bar. Robin: "When I click 'CTRL+F' I want the search bar that
+   opens up to spawn centered just under the brightness meter in the viewport, unless i
+   have a dialogue open, then I want it centered at the very top of the window. Use the
+   same spacing from the top as between the viewport and the brightness slider window."
+   The bar that opened before was the webview's own, which goes where the webview puts
+   it; this one is the page's, so it goes where Robin says. It searches the text on screen
+   (every visible text node outside itself; a folded section or a hidden dialogue is not
+   on screen), paints the matches through the CSS highlight API with the current one in
+   the warning colour, and scrolls the current one into view. */
+const Finder={
+  GAP:12,                 // the pills' own distance from the viewport's top edge
+  q:'', ranges:[], at:-1, _timer:0, _mo:null,
+  el(){ return document.getElementById('findBar'); },
+  input(){ return document.getElementById('findText'); },
+  isOpen(){ const b=this.el(); return !!b && !b.hidden; },
+  /** Where the bar stands: under the row of pills in the viewport (18hi: the brightness,
+      the grass distance and, in a room, the view distance, centred as one), or at the top
+      of the window while a dialogue is open, with the pills' own gap in both. */
+  place(){
+    const b=this.el(); if(!b || b.hidden) return;
+    const modal=this.topModal();
+    const pill=document.getElementById('vpTop');
+    let x, y;
+    if(!modal && pill && pill.offsetParent!==null){
+      const r=pill.getBoundingClientRect();
+      x=r.left+r.width/2; y=r.bottom+this.GAP;
+    }else{
+      x=window.innerWidth/2; y=this.GAP;
+    }
+    b.style.left=Math.round(x)+'px'; b.style.top=Math.round(y)+'px';
+    b.dataset.over=modal? 'dialogue' : 'viewport';
+  },
+  open(){
+    const b=this.el(), i=this.input(); if(!b || !i) return;
+    b.hidden=false; this.place();
+    i.focus({preventScroll:true}); i.select();
+    if(this.q) this.search(this.q, true);
+    // Dialogues open and close while the bar is up; it follows them.
+    if(!this._mo && typeof MutationObserver==='function'){
+      let due=false;
+      this._mo=new MutationObserver(()=>{ if(due) return; due=true; setTimeout(()=>{
+        due=false; this.place();
+        // A dialogue came or went: what can be read changed, so the matches are asked again.
+        if(this.q.trim() && this.topModal()!==this._root) this.search(this.q, true);
+      },0); });
+      // Attributes and children both: a dialogue is shown by its `hidden` going, or made new.
+      this._mo.observe(document.body,{attributes:true, attributeFilter:['hidden','class','style'], childList:true, subtree:true});
+    }
+  },
+  close(){
+    const b=this.el(); if(!b || b.hidden) return;
+    b.hidden=true; this.clearMarks();
+    if(this._mo){ this._mo.disconnect(); this._mo=null; }
+    const i=this.input(); if(i && document.activeElement===i) i.blur();
+  },
+  toggle(){ if(this.isOpen()) this.close(); else this.open(); },
+  /** The dialogue on top, when one is open: the open modal with the highest z-index,
+      the last in the document among equals. Round 18hh, Robin: "When a dialogue window is
+      open, only search in the top most open dialogue [...] Make sure it's always the top
+      most dialogue that is searched when I have several dialogues open." */
+  topModal(){
+    let best=null, bz=-Infinity;
+    for(const m of document.querySelectorAll('.modal:not([hidden])')){
+      const z=parseInt(getComputedStyle(m).zIndex,10)||0;
+      if(z>=bz){ bz=z; best=m; }
+    }
+    return best;
+  },
+  /** Every visible text node in what can be read right now, in document order: the
+      dialogue on top when one is open, the whole window otherwise, the bar itself apart. */
+  textNodes(){
+    const out=[], bar=this.el();
+    const root=this.topModal()||document.body;
+    this._root=this.topModal();
+    const skip=new Set(['SCRIPT','STYLE','TEMPLATE','NOSCRIPT','CANVAS','SVG','TITLE']);
+    const walker=document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT, {
+      acceptNode:n=>{
+        if(n.nodeType===1){
+          if(n===bar || skip.has(n.tagName) || n.hidden) return NodeFilter.FILTER_REJECT;
+          const cs=getComputedStyle(n);
+          if(cs.display==='none' || cs.visibility==='hidden') return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_SKIP;
+        }
+        return /\S/.test(n.nodeValue)? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      }});
+    let n; while((n=walker.nextNode())) out.push(n);
+    return out;
+  },
+  search(q, keep){
+    this.q=q;
+    const needle=q.trim().toLowerCase();
+    const prev=this.ranges[this.at];
+    this.ranges=[];
+    if(needle){
+      for(const node of this.textNodes()){
+        const hay=node.nodeValue.toLowerCase();
+        let i=hay.indexOf(needle);
+        while(i>=0){
+          const r=document.createRange(); r.setStart(node,i); r.setEnd(node,i+needle.length);
+          this.ranges.push(r);
+          i=hay.indexOf(needle,i+needle.length);
+        }
+      }
+    }
+    // The same match stays current across a retype when it still exists; else the first.
+    let at=-1;
+    if(keep && prev && this.ranges.length){
+      at=this.ranges.findIndex(r=>r.startContainer===prev.startContainer && r.startOffset===prev.startOffset);
+    }
+    this.at=this.ranges.length? (at>=0? at : 0) : -1;
+    this.paint(true);
+  },
+  step(d){
+    if(!this.ranges.length){ this.paint(false); return; }
+    this.at=(this.at+d+this.ranges.length)%this.ranges.length;
+    this.paint(true);
+  },
+  paint(scroll){
+    const count=document.getElementById('findCount');
+    if(count){
+      if(!this.q.trim()){ count.textContent=''; count.classList.remove('none'); }
+      else if(!this.ranges.length){ count.textContent=T('find.none'); count.classList.add('none'); }
+      else { count.textContent=T('find.count',{i:this.at+1, n:this.ranges.length}); count.classList.remove('none'); }
+    }
+    if(typeof CSS!=='undefined' && CSS.highlights && typeof Highlight==='function'){
+      CSS.highlights.set('gf-find', new Highlight(...this.ranges));
+      CSS.highlights.set('gf-find-current', new Highlight(...(this.at>=0? [this.ranges[this.at]] : [])));
+    }else if(this.at>=0){
+      // No highlight API: the current match is the selection, which is at least visible.
+      const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(this.ranges[this.at]);
+    }
+    if(scroll && this.at>=0){
+      const r=this.ranges[this.at];
+      const el=r.startContainer.parentElement;
+      if(el && el.scrollIntoView) el.scrollIntoView({block:'center', inline:'nearest'});
+      this.place();
+    }
+  },
+  clearMarks(){
+    this.ranges=[]; this.at=-1;
+    if(typeof CSS!=='undefined' && CSS.highlights){ CSS.highlights.delete('gf-find'); CSS.highlights.delete('gf-find-current'); }
+    const count=document.getElementById('findCount'); if(count){ count.textContent=''; count.classList.remove('none'); }
+  },
+  init(){
+    const b=this.el(), i=this.input(); if(!b || !i) return;
+    /* On the document, capturing, and registered at start-up: a dialogue's own key
+       handler is registered when it opens and so runs after this one, which is what
+       keeps Enter and Escape typed into the bar from pressing the dialogue's buttons. */
+    document.addEventListener('keydown',e=>{
+      /* Wraithguard: not Ctrl+Shift+F (the Editor's search of every record), and not while
+         the Editor is open - there Ctrl+F is the Object Window's filter (50_wg_editor_keys). */
+      if((e.ctrlKey||e.metaKey) && !e.altKey && !e.shiftKey && (e.key==='f'||e.key==='F')
+         && !document.body.classList.contains('wgEditMode')){
+        e.preventDefault(); e.stopImmediatePropagation();     // the webview's own bar stays shut
+        this.open();
+        return;
+      }
+      if(document.activeElement!==i || i.closest('#findBar').hidden) return;
+      if(e.key==='Enter'){
+        e.preventDefault(); e.stopImmediatePropagation();
+        if(i.value!==this.q) this.search(i.value, true); else this.step(e.shiftKey? -1 : 1);
+      }else if(e.key==='Escape'){
+        e.preventDefault(); e.stopImmediatePropagation();
+        this.close();
+      }
+    },true);
+    i.addEventListener('input',()=>{ clearTimeout(this._timer); this._timer=setTimeout(()=>this.search(i.value, true),90); });
+    const on=(id,fn)=>{ const el=document.getElementById(id); if(el) el.onclick=fn; };
+    on('findNext',()=>this.step(1)); on('findPrev',()=>this.step(-1)); on('findClose',()=>this.close());
+    window.addEventListener('resize',()=>this.place());
+  },
+};

@@ -1,3 +1,4 @@
+/* Gardenfell, 11_events.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 
 /* =====================================================================================
    Wiring
@@ -137,12 +138,29 @@ function boot(){
      appear." The viewport, the swatches and the cover buttons already swallow theirs; this
      is the same swallow for the rest of the page, on the document so it holds for every
      panel built later. The one exception is a text field: its menu is the edit menu -
-     cut, copy, paste - not the page's, and it has no Back or Reload in it. */
+     cut, copy, paste - not the page's, and it has no Back or Reload in it.
+
+     Round 18eu: which is why the exception asks what kind of `input` it is rather than
+     asking whether it is an `input`. Robin: "I noticed that sliders still take right click
+     input to open the browser menu (with Update, Save as etc. option). Lets remove that /
+     consume that input there, as we do in all other places except text input fields." A
+     slider is an `<input type="range">` and there is nothing to cut or copy in one, so the
+     menu it opened was the page's own - the very menu this was written to stop. The list
+     is of the types that hold no text; everything else, including a number field and an
+     `input` with no type at all, is a text field and keeps its edit menu. */
+  const NO_EDIT_MENU=/^(range|checkbox|radio|color|button|submit|reset|file|image)$/;
   document.addEventListener('contextmenu',e=>{
     const t=e.target;
-    if(t && t.nodeType===1 && (t.isContentEditable || /^(INPUT|TEXTAREA)$/.test(t.tagName))) return;
+    if(t && t.nodeType===1){
+      if(t.isContentEditable || t.tagName==='TEXTAREA') return;
+      if(t.tagName==='INPUT' && !NO_EDIT_MENU.test(String(t.type||'text').toLowerCase())) return;
+    }
     e.preventDefault();
   });
+  // Gardenfell 18hb: the left column's grip, its width from the profile when it loads.
+  Panels.init();
+  // Gardenfell 18hf: the find bar, on Ctrl+F (not in the Editor, whose Ctrl+F is its filter).
+  Finder.init();
   /* Round 18cz: the mouse's own back and forward buttons walk the cell visit history.
      Robin: "if I press mouse buttons for 'back' and 'forward' (usually buttons for use in
      a browser) while my cursor is hovering the viewport, or any of the buttons or windows
@@ -238,13 +256,19 @@ function boot(){
   /* collapsible sections in the left column (built as static markup, so they
      need the handler sectionBox() gives the dynamic ones) */
   $$('#left .sect > .sh').forEach(h=>{
-    h.onclick=()=>{ h.parentElement.classList.toggle('closed'); syncSectionBadges(); };
+    h.onclick=()=>{ const s=h.parentElement;
+      /* Round 18er: through `foldBox`, so the body runs down rather than vanishing. The
+         class still lands in this tick - `syncSectionBadges` on the next line reads it. */
+      foldBox(s, s.querySelector(':scope > .sbody'), !s.classList.contains('closed'));
+      syncSectionBadges(); };
   });
 
 
   $('#p_fog').onchange=()=>{ if(App.R){ App.R.opts.fog=$('#p_fog').checked; App.R.dirty=true; } };
-  /* Round 15 item 4: the fog density and the sunshafts only mean anything under a sky,
-     so they fold away with the switch. */
+  /* Round 15 item 4: the fog density only means anything under a sky, so it folds away
+     with the switch. (The sunshafts folded with it too until round 18gi, which is how
+     that switch and Particles went missing in every room, where the switch is forced
+     off; see 02_body.html.) */
   const skyPane=()=>{ const e=$('#skyPane'); if(e) e.hidden=!$('#p_sky').checked; };
   const applySky=()=>{ if(App.R){ App.R.opts.scatter=$('#p_sky').checked; App.R.dirty=true; } skyPane(); };
   $('#p_sky').onchange=applySky;
@@ -282,7 +306,8 @@ function boot(){
   // Round 18a: the ambient occlusion (29_ssao.js), off unless asked for.
   { const e=$('#p_ssao'); if(e) e.onchange=()=>{ if(App.R){ App.R.opts.ssao=e.checked; App.R.dirty=true; } }; }
   // Round 18do: FXAA (33_fxaa.js), off unless asked for.
-  { const e=$('#p_fxaa'); if(e) e.onchange=()=>{ if(App.R){ App.R.opts.fxaa=e.checked; App.R.dirty=true; } }; }
+  // Applied at start too: the switch starts on (Static, 2026-10-12: on unless the install says).
+  { const e=$('#p_fxaa'); if(e){ const apply=()=>{ if(App.R){ App.R.opts.fxaa=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
   /* Round 18dy: the depth of field (36_dof.js). The switch is the eye's own blur; the
      distance blur in fog runs under the water whatever it says, which is what Robin
      asked for and what the shader does on its own - its fog term is nought wherever the
@@ -297,11 +322,35 @@ function boot(){
   { const e=$('#p_under'); if(e){ const apply=()=>{ if(App.R){ App.R.opts.underwater=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
   // Round 18f: the Unlit switch.
   { const e=$('#p_unlit'); if(e) e.onchange=()=>{ if(App.R){ App.R.opts.unlit=e.checked; App.R.dirty=true; } if(typeof PrevSettings==='object' && PrevSettings.touch) PrevSettings.touch(); }; }
-  // Round 16: the sunshafts, inside the atmosphere pane - they need its sky.
-  $('#p_shafts').onchange=()=>{ if(App.R){ App.R.opts.sunshafts=$('#p_shafts').checked; App.R.dirty=true; } };
+  // Round 16: the sunshafts. They need a sky to draw, and the switch stays reachable
+  // without one (round 18gi).
+  { const apply=()=>{ if(App.R){ App.R.opts.sunshafts=$('#p_shafts').checked; App.R.dirty=true; } };
+    $('#p_shafts').onchange=apply; apply(); }   // applied at start: the switch starts on
   // Wraithguard: NPCs, creatures and spawn points - a change of what the scene holds.
   { const e=$('#p_actors'); if(e) e.onchange=()=>{ App.showActors=e.checked; if(typeof schedulePreview==='function') schedulePreview(); }; }
   { const e=$('#p_npcdrawn'); if(e) e.onchange=()=>{ App.npcDrawn=e.checked; if(typeof schedulePreview==='function') schedulePreview(); }; }
+  // Round 18fh: pause the viewport while the camera stands still.
+  { const e=$('#p_pause'); if(e){ const apply=()=>{ if(App.R){ App.R.pauseStill=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
+  /* Gardenfell 18fj's frame-cap switch is not here: Wraithguard's Settings has the cap
+     (38_wg_viewport.js, `opts.fpsCap`), and the renderer paces by it (06_gl.js). */
+  /* Wraithguard: distant land (57_wg_distant.js). The switch shows what is drawn - the
+     install's answer until it is touched, then the user's (saved, 19_settings.js). */
+  { const e=$('#p_distant');
+    if(e && typeof WgDistant==='object'){
+      WgDistant.sync=()=>{ e.checked=WgDistant.wanted(); };
+      e.onchange=()=>{ WgDistant.on=e.checked; WgDistant._key=null;
+        if(App.R){ App.R.opts.distant=e.checked; App.R.dirty=true; }
+        if(typeof schedulePreview==='function') schedulePreview(); };
+      WgDistant.sync(); } }
+  /* Wraithguard: distant objects (58_wg_distant_objects.js) - their switch follows Distant
+     land until touched; the simplify mode is plain unless chosen. */
+  { const e=$('#p_distobj'), sel=$('#p_distmode');
+    if(e && typeof WgDistantObjects==='object'){
+      WgDistantObjects.sync=()=>{ e.checked=WgDistantObjects.wanted(); if(sel) sel.value=WgDistantObjects.mode; };
+      const again=()=>{ WgDistantObjects._key=null; if(App.R) WgDistantObjects.refresh(App.R).catch(()=>{}); };
+      e.onchange=()=>{ WgDistantObjects.on=e.checked; again(); };
+      if(sel) sel.onchange=()=>{ WgDistantObjects.mode=sel.value==='texture'? 'texture' : 'plain'; again(); };
+      WgDistantObjects.sync(); } }
   // Round 17w: the meshes' particle systems, on by default.
   { const e=$('#p_particles');
     /* Round 18q: and the nocturnal moths, which are an effect on a lamp rather than a
@@ -332,7 +381,47 @@ function boot(){
     $('#wcClose').onclick=()=>{ win.close().catch(()=>{}); };
     const syncMax=()=>{ win.isMaximized().then(m=>bar.classList.toggle('max',!!m)).catch(()=>{}); };
     syncMax();
-    if(win.onResized) win.onResized(syncMax).catch(()=>{});
+    /* Round 18el. Robin: "I want the window of the program to remember its size and
+       position between sessions, and to reset to that size when I open the program."
+       The shell puts it back (`restore_window`, cellviewer/mod.rs); this is the half that
+       remembers (Wraithguard: brought in from Gardenfell 2026-10-12).
+
+       Written when the window settles rather than while it moves: a drag across a desk is
+       hundreds of events and each one would be a file written. Half a second of stillness
+       is the end of a gesture.
+
+       **The size kept is the un-maximised one.** A maximised window reports the screen,
+       and storing that would mean un-maximising handed back a screen-sized window floating
+       in the middle of nowhere. So while it is maximised only the flag is sent, over the
+       last size it had loose - which is also why `last` starts from what the window is
+       now rather than from nothing. */
+    /* Round 18fi: what is written is the *outer* rectangle - the window as it sits on the
+       desk, frame and all - and the shell takes the frame off when it puts it back
+       (`place_window`), since `set_size` sets the inner one. Robin: "when I put it into
+       one of PowerToys Fancy zones, and then close it, it's always a little bit bigger
+       when I restart the app" - the frame, added back once per start. */
+    let last=null, pend=0;
+    const remember=()=>{
+      Promise.all([win.outerPosition(), win.outerSize(), win.isMaximized()])
+        .then(([p,s,m])=>{
+          if(!m) last={x:Math.round(p.x), y:Math.round(p.y), w:Math.round(s.width), h:Math.round(s.height)};
+          if(!last) return;
+          return Engine.call('window_set', {...last, max:!!m});
+        })
+        .catch(()=>{});
+    };
+    const settle=()=>{ clearTimeout(pend); pend=setTimeout(remember,500); };
+    remember();                                    // what it opened as, in case nothing moves
+    /* Round 18fh: minimised, the viewport is held - no frame, no clock - whatever the
+       "Pause rendering when still" switch says. The window shrinks to nothing on the way
+       down, so a resize is the moment to ask; the document's own visibility is asked as
+       well (`hiddenNow`), for a webview that hides itself. */
+    const syncMin=()=>{ if(win.isMinimized) win.isMinimized().then(m=>{ if(App.R && App.R.setMinimized) App.R.setMinimized(!!m); }).catch(()=>{}); };
+    if(win.onResized) win.onResized(()=>{ syncMax(); syncMin(); settle(); }).catch(()=>{});
+    if(win.onMoved) win.onMoved(settle).catch(()=>{});
+    window.addEventListener('beforeunload',()=>{ clearTimeout(pend); remember(); });
+    /* And once more on the way out, because a window closed straight after a move would
+       otherwise lose that last gesture to the half-second wait. */
   })();
 
   /* viewport toolbar */
@@ -351,17 +440,34 @@ function boot(){
      kept in step by each writing into the other. Two controls for one value is one
      control too many; `#p_sun` is the survivor because it is the id the profile and
      the tests already know. */
-  const lightSlider=(id,valId,apply)=>{
+  const lightSlider=(id,valId,apply,unit)=>{
     const e=$(id); if(!e) return;
-    const paint=()=>{ $(valId).textContent=e.value; apply(+e.value); if(App.R) App.R.dirty=true; };
+    const paint=()=>{ $(valId).textContent=unit? e.value+unit : e.value; apply(+e.value); if(App.R) App.R.dirty=true; };
     e.oninput=paint; paint();
   };
-  lightSlider('#pvBright','#pvBrightV',v=>{ if(App.R) App.R.opts.bright=v/100; });
+  // Round 18hi: the pill's readout carries its unit. Robin: "add a %".
+  lightSlider('#pvBright','#pvBrightV',v=>{ if(App.R) App.R.opts.bright=v/100; },' %');
   lightSlider('#p_tint','#p_tintV',v=>{ if(App.R) App.R.opts.tint=v/100; });
   lightSlider('#p_wind','#p_windV',v=>{ if(App.R) App.R.opts.wind=v/100; });
+  /* Round 18hf/18hi (Gardenfell): each pill's icon puts its control back to the default,
+     through the control's own events, so the value, the renderer and the profile follow. */
+  const resetButton=(btnId,sliderId,home)=>{
+    const b=$(btnId), e=$(sliderId); if(!b || !e) return;
+    const reset=()=>{ if(+e.value===home) return; e.value=home;
+      e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true})); };
+    b.onclick=reset;
+    b.onkeydown=ev=>{ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); reset(); } };
+  };
+  resetButton('#vpBrightReset','#pvBright',140);   // Wraithguard's default brightness
+  /* Round 18hi: the readings that are words ("Off", "No limit", "2 cells") are drawn again
+     on a language switch (`App.reword`); the pills are always on screen. */
+  const pillPaints=[];
+  App.repaintPills=()=>{ for(const f of pillPaints) f(); };
   /* Round 17v: grass distance, said in cells and kept in world units — a cell is 8192,
      and "three cells" is a thing to picture where "24576" is not. Zero is off, and the
-     value says so rather than showing a nought that looks like a setting of nothing. */
+     value says so rather than showing a nought that looks like a setting of nothing.
+     In its pill at the top of the viewport (Gardenfell 18hi), with Wraithguard's own
+     meaning kept: 0 is no limit (Gardenfell 18hj puts that at the slider's top). */
   {
     const e=$('#p_grassfar'), v=$('#p_grassfarV');
     if(e&&v){
@@ -371,8 +477,101 @@ function boot(){
         if(App.R){ App.R.opts.grassFar=n*8192; App.R.dirty=true; }
       };
       e.oninput=paint; paint();
+      pillPaints.push(paint);
     }
+    resetButton('#vpGrassReset','#p_grassfar',0);
   }
+  /* Round 18hi: the view distance in a room. Robin: "Make the view distance slider in such
+     a way where max is the feature is OFF and everything is viewed. Instead of writing OFF,
+     write 'Far', and then when drawing it down, it's done in 0.25 cell steps." So the top
+     of the range is Far and the renderer gets 0, which it reads as no limit; anything under
+     it is that many cells in world units, and the last eighth of the way fades (06_gl.js,
+     `uViewFade`). The pill is shown only when the scene is a room (`syncViewPills`):
+     outdoors the rings decide how much is loaded, and the camera's pill holds those instead
+     (18hj). 18hj: half-cell steps to 8, the top above it Far. Robin: "Change the view
+     distance to be in increments of 0.5, where 8 is maximum." */
+  {
+    const e=$('#p_viewfar'), v=$('#p_viewfarV');
+    if(e&&v){
+      /* The scene says whether it is a room (`scatterIntoScene`, the mesh editor): the
+         pill shows indoors, and the renderer's distance is the slider's indoors and 0
+         outdoors, so a limit set in a room is not carried out under the sky, not by a
+         drag, not by the profile's load firing the slider, not by a reword. Robin: "only
+         the view distance slider shows and hides when moving from interior to exterior." */
+      let indoors=false;
+      const apply=()=>{
+        const far=+e.value>=+e.max, n=(indoors && !far)? +e.value : 0;
+        if(App.R && App.R.opts.viewFar!==n*8192){ App.R.opts.viewFar=n*8192; App.R.dirty=true; }
+      };
+      const paint=()=>{
+        const far=+e.value>=+e.max, n=far? 0 : +e.value;
+        v.textContent = far? T('vp.viewfar_far') : T('vp.viewfar_cells',{n:+n.toFixed(2)});
+        apply();
+      };
+      e.oninput=paint; paint();
+      pillPaints.push(paint);
+      /* Round 18hj: one call for both of the camera's pills. `kind` is what the scene is:
+         'int' shows the view distance, 'ext' (a real exterior cell) the rings of
+         neighbours, anything else (the simplified patch, the mesh editor) neither. */
+      App.syncViewPills=(kind)=>{
+        indoors=kind==='int';
+        const pill=$('#vpView'); if(pill) pill.hidden=!indoors;
+        /* Wraithguard: hidden in an interior only - before any cell is loaded it is how many
+           cells the first load brings, and hiding it then left no way to choose (Static). */
+        const cells=$('#vpCells'); if(cells) cells.hidden=kind==='int';
+        apply();
+      };
+      App.syncViewFar=(on)=>App.syncViewPills(on? 'int' : null);   // the 18hi name, for anything still saying it
+    }
+    resetButton('#vpViewReset','#p_viewfar',8.5);
+    /* Round 18hj: the camera outdoors puts the rings back to one. Robin: "Lets make 1 ring -
+       9 cells the default value for that, so when people press the camera in exteriors,
+       they get 9 cells loaded." Through the select's own change, which reloads the cell. */
+    { const b=$('#vpCellsReset'), sel=$('#pvAdjacent');
+      if(b && sel){
+        const reset=()=>{ if(sel.value==='0') return; sel.value='0';   /* Wraithguard's default: this cell only */ sel.dispatchEvent(new Event('change',{bubbles:true})); };
+        b.onclick=reset;
+        b.onkeydown=ev=>{ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); reset(); } };
+      } }
+  }
+  /* Round 18hi: the row of pills is centred in the viewport, as Robin asked ("always
+     keep the collection of those elements centered horizontally"); but the cell's stats
+     box stands in the top left corner and is up to 320 px wide, and in a narrow window a
+     centred row of two or three pills would lie across it, over its star and its history
+     arrows (t_visits found the click landing on the pill). So the row is centred when it
+     has the room and otherwise stands clear to the right of the box, as near the middle as
+     it can; the find bar follows the row (`Finder.place`). Measured again whenever the
+     viewport, the row or the box changes size. */
+  const placePills=()=>{
+    const row=$('#vpTop'), wrap=$('#vpwrap'); if(!row || !wrap) return;
+    const W=wrap.clientWidth;
+    const st=$('#stats');
+    let clear=0;
+    if(st && !st.hidden && st.offsetParent!==null){
+      const r=st.getBoundingClientRect(), b=wrap.getBoundingClientRect();
+      clear=r.right-b.left+8;
+    }
+    /* 18hj: four pills can be wider than the room to the right of the box (the 1400 px
+       test window leaves about 690 for the viewport). Then the row is allowed to wrap onto
+       a second line, centred in that room, rather than lie over the box or run off the
+       edge; with the box gone the width limit goes too. Measured with the limit off, so a
+       row that has wrapped once is not measured as narrow and kept wrapped for good. */
+    row.style.maxWidth='';
+    const w=row.offsetWidth;
+    let x=W/2;
+    if(clear && x-w/2<clear){
+      const avail=W-clear-12;
+      if(w<=avail) x=clear+w/2;
+      else{ row.style.maxWidth=Math.max(120,avail)+'px'; x=clear+Math.max(120,avail)/2; }
+    }
+    row.style.left=Math.round(x)+'px';
+  };
+  App.placePills=placePills;
+  if(typeof ResizeObserver==='function'){
+    const ro=new ResizeObserver(placePills);
+    for(const id of ['#vpwrap','#vpTop','#stats']){ const el=$(id); if(el) ro.observe(el); }
+  }
+  placePills();
   lightSlider('#p_fogd','#p_fogdV',v=>{ if(App.R) App.R.opts.fogDensity=v/100; });   // round 15 item 3
   // Wraithguard: the colour over the water (26_water.js) - its hue, and 0..1 of it.
   lightSlider('#p_whue','#p_whueV',v=>{ if(App.R) App.R.opts.waterHue=v; });
@@ -448,7 +647,10 @@ function boot(){
       if(!sw.checked){ raf=0; return; }
       /* A frame gap over a quarter second is a stall, not elapsed time: coming back to a
          backgrounded tab should not fast-forward a day. */
-      const dt=(held||!last)? 0 : Math.min(0.25,(now-last)/1000);
+      // Round 18fh: and it stands while the viewport is held (the option, a dialogue,
+      // the window minimised) - the mark still moves, so the pause is not paid back.
+      const paused=!!(App.R && App.R.held && App.R.held());
+      const dt=(held||!last||paused)? 0 : Math.min(0.25,(now-last)/1000);
       last=now;
       // The slider beside it is game *minutes* a real second.
       if(dt>0) App.setHour(App.hour + dt*(+k.value)/60);
@@ -459,6 +661,18 @@ function boot(){
        told the number on its own rather than only through the ticking hour. */
     const pace=()=>{ if(App.R){ App.R.opts.timeScale=+k.value||20; App.R.dirty=true; } };
     App.syncTimeScale=pace;
+    /* Round 18ey: the step, reachable, so the clock's rule can be asked about without
+       waiting on the browser to hand out animation frames. Robin: "better fix the flaky
+       tests as they add a bunch of time every iteration" - and this was the worst of them.
+       Measured rather than guessed at: with six suites sharing the machine, frames here
+       came more than five seconds apart, and the clock needs *two* before it has moved at
+       all (the first only sets the mark). So `t_lights`' "on, it does" waited six seconds
+       for something that needed ten, failed, and passed on its own straight after. A
+       budget cannot fix that; it can only make the failure rarer and the suite slower.
+       What the claim is actually about - dt times the scale, held stops it, release
+       resumes without paying the pause back - is arithmetic, and arithmetic can be asked
+       directly. One claim still waits for a real frame, because something has to. */
+    App.timeStep=step;
     const sync=()=>{
       if(row) row.hidden=!sw.checked;
       if(kv) kv.textContent=k.value;
@@ -525,7 +739,7 @@ function boot(){
   // The highlights are off-by-choice rather than off-by-default: they cost nothing
   // until the pointer is over something, and clearing them on toggle-off matters
   // more than the toggle itself, or a stale glow outlives the hover.
-  tog('#tbHiTex',null,on=>{ App.hiTex=on; if(!on&&App.R) App.R.setTexHighlight(null); });
+  // 18fv: the Highlight texture switch is gone (texture highlighting is always on, `App.hiTex`).
   tog('#tbHiSlot',null,on=>{ App.hiSlot=on; if(!on&&App.R) App.R.setGrassHighlight(null); });
   /* One switch for both ways of pointing at an object: the pointer in the viewport, and
      a never-avoid pattern in the left column. They are the same question — which objects
@@ -533,7 +747,9 @@ function boot(){
   /* Round 18dq: three states, like Highlight culling - off, the gold fill, the outline
      (34_outline.js). Robin: "add it to the toggle for 'Highlight objects' in the
      viewport upper right corner (similar to how we toggle through Highlight culling)". */
-  App.hiObjMode=App.hiObjMode||'fill';
+  // Round 18fi, Robin: "Make the highlight object: Outline the default option." A profile
+  // that says nothing starts on the outline; `fill` is the one that has to be asked for.
+  App.hiObjMode=App.hiObjMode||'outline';
   App.syncHiObjButton=()=>{
     const b=$('#tbHiObj'); if(!b) return;
     const on=!!App.hiObj;
@@ -574,11 +790,45 @@ function boot(){
        and lighting all of it on every hover would shout over the texture panel's own
        per-face highlight. */
     if(App.inspect) return;
+    // Round 18hf: what is under the pointer, for the door tip, whether or not it is lit.
+    App._hoverHit=hit||null; if(App.syncDoorTip) App.syncDoorTip();
     // Wraithguard: a highlighted mod owns the highlight while it is on (40_wg_modhl.js).
     if(typeof WgModHl==='object' && WgModHl.active()) return;
     if(!App.hiObj) return;
     App.R.setStaticHighlight(hit? [hit] : null);
   };
+  /* Round 18hf: the Shift key and the pointer, for the door tip (`syncDoorTip` in
+     18_cellpreview.js). The key is read off the keyboard events rather than off a pointer
+     event, so the tip appears the moment Shift goes down over a door, not on the next
+     move; a window that loses focus lets go of it, since the key-up never arrives. */
+  App._shiftHeld=false;
+  /* Round 18hk, Robin: "hovering, and then pressing down shift should immediately reveal
+     the tooltip". The hover pick that fills `App._hoverHit` runs on pointer moves and only
+     when what is under the pointer changes, so a pointer that has rested since a load (a
+     Shift+click through a door leaves it where it was, over the new cell) or since the
+     hit was dropped had nothing on record when Shift went down, and the tip waited for a
+     move. Shift going down with nothing on record now picks under the pointer's last
+     position itself, so the tip stands up from the key alone; a hit the hover already
+     found is kept, being the same pick a frame fresher. Capture phase, so nothing that stops a keydown on its
+     way up can keep the key from being seen. */
+  const shift=(down)=>{
+    if(App._shiftHeld===down) return;
+    App._shiftHeld=down;
+    if(down && !App._hoverHit && App.R && App.R._ptr && !App.paintMode && !App.inspect && typeof App.R.pickAt==='function'){
+      try{ App._hoverHit=App.R.pickAt(App.R._ptr[0],App.R._ptr[1])||null; }catch(_){ }
+    }
+    if(App.syncDoorTip) App.syncDoorTip();
+  };
+  document.addEventListener('keydown',e=>{ if(e.key==='Shift') shift(true); },true);
+  document.addEventListener('keyup',e=>{ if(e.key==='Shift') shift(false); },true);
+  window.addEventListener('blur',()=>shift(false));
+  if(App.R && App.R.cv){
+    App.R.cv.addEventListener('pointermove',e=>{
+      if(App._shiftHeld!==!!e.shiftKey) shift(!!e.shiftKey);
+      else if(App._shiftHeld && App.syncDoorTip) App.syncDoorTip();   // the tip follows the pointer
+    });
+    App.R.cv.addEventListener('pointerleave',()=>{ App._hoverHit=null; if(App.syncDoorTip) App.syncDoorTip(); });
+  }
 
   /** Reads the visible geometry of whatever is standing in the cells on screen.
    *
@@ -692,6 +942,7 @@ function boot(){
      yet (this runs from `applyNative` at start-up too) is simply skipped. */
   App.reword=()=>{
     const run=f=>{ try{ if(typeof f==='function') f(); }catch(e){ console.warn('reword:',e); } };
+    run(App.repaintPills);   // 18hi: the pills' word readings
     run(typeof syncCellButton==='function'? syncCellButton : null);
     run(syncVpHint); run(syncNav);
     run(typeof Profiles==='object' && Profiles.showName? ()=>Profiles.showName() : null);
@@ -701,8 +952,10 @@ function boot(){
     // Round 18cg: the theme names are catalogued strings, and the picker holds five of them.
     run(typeof Themes==='object' && Themes.fill? ()=>Themes.fill() : null);
     run(App.syncCullButton);
+    // 18fi: the Highlight objects button writes its own label (its outline state, the
+    // default now), so it is reworded here like the culling button's.
+    run(App.syncHiObjButton);
     run(()=>{ if(App.installKind) markInstall(App.installKind); });
-    run(()=>{ const f=$('#folderState'); if(f && f.title) f.title=T('top.folder_report_title'); });
     if(App.R && typeof App.R._tellLegend==='function'){ App.R._legendSig=null; run(()=>App.R._tellLegend()); }
   };
   if(App.R){
@@ -712,6 +965,9 @@ function boot(){
        change arrives. `touch` is debounced and muted while a profile is being adopted. */
     App.R.onNavChange=()=>{ syncNav(); if(typeof PrevSettings==='object') PrevSettings.touch(); };
     App.R.onSpeedChange=(v,announce)=>{ showSpeed(v,announce); if(announce && typeof PrevSettings==='object') PrevSettings.touch(); };
+    // Round 18fh: Shift with the right button held doubles the flight; the bar says so
+    // with an outline and nothing else - the number is the speed, and it has not changed.
+    App.R.onFlyBoost=on=>{ const sp=$('#vpSpeed'); if(sp) sp.classList.toggle('boost',!!on); };
     App.R.onFlyState=on=>{ App._flying=on;
       // Round 17h: the green border while the right button is held in the WASD scheme.
       const w=$('#vpwrap'); if(w) w.classList.toggle('flying',!!on);
@@ -888,24 +1144,6 @@ function markInstall(kind,label,title){
  * it, and somebody swapping from their MO2 setup to a plain Data Files folder to check
  * something has not asked to throw their work away. The rules are a saved set now, so
  * there is nothing to lose by keeping them and everything to lose by not. */
-/* Round 18cn: one slider, two homes. Robin: "Move the Grass distance slider to sit beneath
-   the Patch size in the simplified preview, and beneath the texture detail in the Full cell
-   preview." Two rows was the other way to read that and it is the wrong one - there is one
-   range input, one id, one value and one `oninput`, and a second copy would be a second
-   thing to keep in step in exchange for nothing. So the row itself moves: `appendChild` of
-   a node that already has a parent *moves* it rather than copying it, the input keeps its
-   value across the move because it is the same input, and nothing is rebound.
-
-   Called on the same lines that hide and show the panes, so the row cannot end up parked in
-   a pane nobody can see. Idempotent - it checks where the row already is - because those
-   lines run on every mode change and on every install switch. */
-function placeGrassFar(cell){
-  const row=$('#grassfarRow');
-  const slot=$(cell? '#grassfarSlotCell' : '#grassfarSlotSimple');
-  if(row && slot && row.parentNode!==slot) slot.appendChild(row);
-}
-App.placeGrassFar=placeGrassFar;
-
 function unloadForSwitch(){
   dropMeshes(); dropTextures(); App.loadLog=[]; App.connectLog=[]; App.lastToml='';
   App.gitd=undefined;   // round 17x: the window mod's settings belong to the install
@@ -1347,13 +1585,34 @@ function openLog(){
           const sum=r.reduce((a,x)=>a+x.ms,0);
           // The passes' names as `draw` marks them, said in full (the sunshafts' stretch ends with the present).
           const PASS={sky:'sky', ground:'ground', grass:'grass', objects:'objects', translucent:'see-through objects',
-                      particles:'particles', water:'water', occlusion:'ambient occlusion', sunshafts:'sunshafts and present', present:'present'};
+                      particles:'particles', water:'water', occlusion:'ambient occlusion', sunshafts:'sunshafts and present', present:'present',
+                      shadow:'sun shadows'};
           const label=n=>n.startsWith('reflection:')? 'reflection: '+(PASS[n.slice(11)]||n.slice(11)) : (PASS[n]||n);
           const parts=r.filter(x=>x.ms>=0.05).map(x=>label(x.name)+' '+x.ms.toFixed(1));
           byLine.textContent='GPU by pass ('+sum.toFixed(1)+' ms in all): '+(parts.length? parts.join(' · ') : 'nothing measurable');
         }catch(_){ byLine.textContent='GPU by pass: the timer failed'; }
       };
       setTimeout(pollBy,50);
+    }
+    /* Round 18hq: the last stroke, so a report of the brush lagging comes with its numbers.
+       Robin: "What is slow, is that the paint is lagging behind the brush." */
+    const ss=App._strokeStat;
+    if(ss && ss.closed && ss.calls){
+      line({k:'ok', t:'last stroke: '+ss.frames+' frame'+(ss.frames===1?'':'s')+' into '+ss.calls+' engine call'+(ss.calls===1?'':'s')+
+                     ' ('+(ss.pts/ss.calls).toFixed(1)+' points a call, '+ss.maxPts+' at most), engine '+(ss.ms/ss.calls).toFixed(1)+' ms a call, '+
+                     ss.maxMs.toFixed(1)+' worst, '+ss.ms.toFixed(0)+' ms in all of '+ss.wall.toFixed(0)+' ms; '+
+                     ss.picks+' surface pick'+(ss.picks===1?'':'s')+(ss.picks? ' at '+(ss.pickMs/ss.picks).toFixed(2)+' ms each' : '')});
+      /* Round 18ht: and what it reached. Robin, one click with the largest brush: "a lot
+         of meshes in the mesh doesn't get any paint at all still" — the next such report
+         comes with which ones, and why. */
+      const rc=ss.reach;
+      if(rc && (rc.reached>0 || rc.excluded>0)){
+        const why=(rc.missed||[]).map(m=>m.model+' ('+m.why+')').join(', ');
+        line({k: rc.unpainted? 'w' : 'ok',
+              t:'last stroke reached '+rc.reached+' object'+(rc.reached===1?'':'s')+' and painted '+rc.painted+
+                (rc.excluded? '; '+rc.excluded+' kept out by your never-paint list' : '')+
+                (rc.unpainted? '; not painted: '+why+(rc.unpainted>(rc.missed||[]).length? ' and '+(rc.unpainted-(rc.missed||[]).length)+' more' : '') : '')});
+      }
     }
     const fs=R.frameStats? R.frameStats() : null;
     line({k:'ok', t: fs? 'on screen: the last '+fs.n+' frames — median '+fs.median.toFixed(1)+' ms, 95th '+
@@ -1363,6 +1622,42 @@ function openLog(){
     if(calls) line({k:'ok', t:'WebGL calls last frame: '+n(calls.total)+' ('+n(calls.draws)+' draws'+
                       (calls.multi? ', '+n(calls.multi)+' multi-draw' : '')+', '+n(calls.uniforms)+' uniforms, '+
                       n(calls.binds)+' binds)'});
+    /* Round 18ej. Robin: "If you need it, implement performance data for shadows in the
+       report and I can capture info for you." Two frames apart: one with the still-caster
+       cache thrown away, which is what a frame that moves the camera pays, and one that
+       keeps it, which is what a frame that does not pays. The counts are the pass's own
+       (`_shadowStat`), the milliseconds are whole frames submit-to-last-pixel over ten of
+       each, so the difference between them is what the cache is worth on this machine. */
+    if(R.opts && R.opts.shadows && R.drawShadowMap){
+      let cold=null, warm=null, coldMs=null, warmMs=null;
+      try{
+        const ten=(fresh)=>{
+          let sum=0, st=null;
+          for(let i=0;i<10;i++){
+            if(fresh) R._shCache=null;
+            const a=performance.now(); R.dirty=true; R.draw(); wait(); sum+=performance.now()-a;
+            if(R._shadowStat) st=R._shadowStat;
+          }
+          return {ms:sum/10, st};
+        };
+        const A=ten(true), B=ten(false);
+        cold=A.st; coldMs=A.ms; warm=B.st; warmMs=B.ms;
+      }catch(_){ }
+      const m=x=>x>=1e6? (x/1e6).toFixed(2)+' M' : n(Math.round(x));
+      if(cold){
+        const movers=cold.movers|0;
+        /* Round 18fa: the boxes are the frame's, so the line says what they were -
+           the radii, and the fog's reach that sized the last of them. */
+        const radii=(cold.radii||[]).map(r=>n(Math.round(r))).join(' / ');
+        line({k:'ok', t:'sun shadows: '+(cold.cascades|0)+' cascades at '+n(cold.res|0)+
+              (radii? ' reaching '+radii : '')+(cold.reach? ' (the fog lets a shadow show to '+n(cold.reach)+')' : '')+
+              ', '+n(movers)+(movers===1? ' caster moves' : ' casters move')+
+              ' — a fresh map is '+n(cold.drawn)+' draws and '+m(cold.tris)+' triangles'+
+              (warm? ', a kept one '+n(warm.drawn)+' draws and '+m(warm.tris)+' triangles' : '')+
+              (coldMs!=null && warmMs!=null? ' · the frame '+coldMs.toFixed(1)+' ms drawing it again, '+
+                 warmMs.toFixed(1)+' ms keeping it' : '')});
+      }
+    }
     line({k:'ok', t:'objects: '+n((R.statics||[]).length)+' batches, '+n(Math.round(tris))+
                     ' triangles in the scene'});
     // Round 18cr: how the still objects are drawn - see `_buildGroups` in 06_gl.js.

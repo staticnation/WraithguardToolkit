@@ -73,8 +73,12 @@ viewer-shell/ui/tests/node_modules/
 # The cell viewer's per-user files, written beside the app at run time.
 wraithguard_cellviewer.profile.json
 wraithguard_cellviewer.profile.toml
+wraithguard_cellviewer.window.json
 wraithguard_cellviewer_extra.json
 wraithguard_cellviewer_setup.cfg
 
 # A local archive of viewer-shell/, not part of the source.
 viewer-shell.zip
+
+# Robin's generated Gardenfell test fixture: local only (holds real Morrowind.ini copies).
+viewer-shell/gardenfell/fixture/

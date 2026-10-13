@@ -146,6 +146,7 @@ const WgMeshView={
       h+='<div class="orisec">Blocks'+(this.layout!=='one' && this.list.length>1? ' · '+escHtml(cur.label) : '')+'</div>'+
          '<div id="mvTree" class="nifTree">'+this.treeHtml(cur.inspect.tree)+'</div>'+
          '<div id="mvFields"></div>';
+      h+=this.drawOrderHtml(cur);
       if(cur.edit) h+='<div class="orirow"><button class="btn sm" id="mvSave">Save edited .nif…</button>'+
                      '<span class="from" id="mvSaveSt" style="margin-left:8px"></span></div>';
       else if(cur.inspect.complete===false) h+='<div class="from">This mesh does not parse completely; read-only.</div>';
@@ -154,6 +155,10 @@ const WgMeshView={
     const tr=b.querySelector('#mvTree');
     if(tr) tr.onclick=e=>{ const li=e.target.closest('[data-bi]'); if(li) this.select(+li.dataset.bi); };
     const sv=b.querySelector('#mvSave'); if(sv) sv.onclick=()=>this.save();
+    const op=b.querySelector('#mvOpt'); if(op) op.onclick=()=>{
+      if(this.pending.optimize) delete this.pending.optimize; else this.pending.optimize={op:'optimize'};
+      op.classList.toggle('on', !!this.pending.optimize); this.status();
+    };
     if(this.sel!=null) this.select(this.sel);
     this.status();
     this.shapeList();
@@ -179,6 +184,39 @@ const WgMeshView={
       schedulePreview();
     });
     const cb=b.querySelector('#mvCol'); if(cb) cb.onchange=()=>{ this.showCol=cb.checked; schedulePreview(); };
+  },
+
+  /** Wraithguard: how each shape draws, as the file has it and as Optimise would put it
+      (`inspect.draw_order`, native/src/nif_order.rs): the vertex cache (vertices shaded
+      per triangle, 0.5 the best a grid can do, 3 the worst), the vertex fetch (bytes read
+      over the buffer, 1 the best) and overdraw (pixels shaded over pixels covered, from
+      the three axes). With `edit`, Optimise queues the reorder as an edit; Save writes it. */
+  drawOrderHtml(cur){
+    const rows=(cur.inspect && cur.inspect.draw_order)||[];
+    if(!rows.length) return '';
+    const n=v=>(v==null||!isFinite(v))? '—' : (+v).toFixed(2);
+    const pair=(e,k)=>{
+      const a=e.before&&e.before[k], b=e.after&&e.after[k];
+      if(e.skipped) return n(a);
+      const cls=b<a-1e-6? ' class="good"' : '';
+      return n(a)+' → <b'+cls+'>'+n(b)+'</b>';
+    };
+    const can=rows.some(e=>!e.skipped);
+    let h='<div class="orisec" title="How the GPU will work through each shape. Optimise puts the triangles and vertices in the order it draws fastest (as greatness7\'s Blender exporter does); the picture does not change.">Draw order</div>'+
+      '<table class="edT mvOrder"><thead><tr><th>Shape</th><th title="Vertices shaded per triangle (lower is better)">Cache</th>'+
+      '<th title="Bytes read over the vertex buffer\'s size (1 is best)">Fetch</th><th title="Pixels shaded over pixels covered (1 is best)">Overdraw</th></tr></thead><tbody>';
+    for(const e of rows){
+      const name=(e.shapes&&e.shapes.length? e.shapes.join(', ') : 'block '+e.block);
+      h+='<tr title="block '+e.block+' · '+e.vertices+' vertices, '+e.triangles+' triangles'+
+        (e.unused_vertices? ' · '+e.unused_vertices+' not used by any triangle (kept, at the end)' : '')+'">'+
+        '<td>'+escHtml(name)+(e.skipped? ' <span class="from">('+escHtml(e.skipped)+')</span>' : '')+'</td>'+
+        '<td>'+pair(e,'acmr')+'</td><td>'+pair(e,'overfetch')+'</td><td>'+pair(e,'overdraw')+'</td></tr>';
+    }
+    h+='</tbody></table>';
+    if(cur.edit && can) h+='<div class="orirow"><button class="btn sm'+(this.pending.optimize?' on':'')+'" id="mvOpt" '+
+      'title="Queue the new order as an edit; Save writes it. Only the shapes it improves are changed.">Optimise draw order</button></div>';
+    else if(!can) h+='<div class="from">Nothing to gain: every shape is in good order or cannot be reordered.</div>';
+    return h;
   },
 
   /** The block tree as nested lists: index, type, name, note. */
@@ -232,7 +270,8 @@ const WgMeshView={
   /** Save: pick where, then Wraithguard applies the edits and the result is written there. */
   async save(){
     const cur=this.list[this.idx]; if(!cur || !cur.edit) return;
-    const edits=Object.values(this.pending||{});
+    // Field edits first, the reorder last (it moves no blocks, so either order holds).
+    const edits=Object.values(this.pending||{}).sort((a,b)=>(a.op==='optimize')-(b.op==='optimize'));
     if(!edits.length){ this.status('no edits to save'); return; }
     const T=window.__TAURI__;
     if(!T || !T.dialog || !T.core){ this.status('saving needs the Wraithguard viewer'); return; }
@@ -245,6 +284,7 @@ const WgMeshView={
       await T.core.invoke('wg_save_edited', {url:cur.edit.url, body:JSON.stringify({edits}), out:String(out)});
       this.pending={};
       document.querySelectorAll('#mvFields .orirow.dirty').forEach(x=>x.classList.remove('dirty'));
+      const ob=$('#mvOpt'); if(ob) ob.classList.remove('on');
       this.status('saved ✓ '+out);
     }catch(e){ this.status('error: '+e); }
   },

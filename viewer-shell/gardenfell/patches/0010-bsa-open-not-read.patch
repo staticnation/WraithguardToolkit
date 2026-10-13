@@ -1,0 +1,261 @@
+--- a/crates/gardenfell-bsa/src/bsa.rs
++++ b/crates/gardenfell-bsa/src/bsa.rs
+@@ -19,10 +19,14 @@
+ //!   data block                            at 12 + hash_offset + 8 × count
+ //! ```
+ //!
+-//! Read whole into memory once and kept: the three vanilla archives are half a gigabyte
+-//! between them, which is a real cost, but it is the same cost the game pays, and a
+-//! lookup after that is a hash probe and a slice. Archives are opened once per connect
+-//! and shared through the same `Arc` the overlay is.
++//! **Opened, not read.** [`Bsa::open`] reads the header and the tables - the index - and
++//! keeps the file open; an entry's bytes are read from the file when asked for
++//! ([`Bsa::read`], a positioned read, so threads share the handle). The archive used to be
++//! read whole into memory and kept: half a gigabyte for the vanilla three, which a lookup
++//! repaid, but a modded install lists many more archives (Tamriel Data and Project
++//! Cyrodiil alone are gigabytes), all of them resident at once, and a machine that runs
++//! out of memory pages every lookup. [`Bsa::parse`] still holds an archive given as bytes.
++//! Archives are opened once per connect and shared through the same `Arc` the overlay is.
+ //!
+ //! **Priority.** A loose file always beats an archive — that is the game's rule and the
+ //! whole reason mods ship loose. Among archives the load order's own listing decides, and
+@@ -46,25 +50,88 @@
+ //! see [`archives_loaded`].
+ 
+ use std::collections::HashMap;
++use std::fs::File;
+ use std::path::{Path, PathBuf};
++use std::sync::OnceLock;
+ 
+ /// One open archive.
+ pub struct Bsa {
+     pub path: PathBuf,
+-    data: Vec<u8>,
+-    /// Lowercase forward-slash path → (offset within `data`, size).
+-    index: HashMap<String, (usize, usize)>,
++    store: Store,
++    /// Lowercase forward-slash path → (offset within the archive, size, entry number).
++    index: HashMap<String, (usize, usize, usize)>,
+     /// Every name as the archive spells it, for listings.
+     names: Vec<String>,
+ }
+ 
++/// Where an archive's entries are.
++enum Store {
++    /// All of it, in memory ([`Bsa::parse`]).
++    Mem(Vec<u8>),
++    /// The open file, read from on demand ([`Bsa::open`]); `kept` holds the entries
++    /// [`Bsa::get`] has lent out, by entry number.
++    File { file: File, kept: Vec<OnceLock<Vec<u8>>> },
++}
++
++/// `buf.len()` bytes of `file` from `at`, without moving a shared cursor: threads read one
++/// handle at once.
++fn read_at(file: &File, buf: &mut [u8], at: u64) -> std::io::Result<()> {
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::FileExt;
++        file.read_exact_at(buf, at)
++    }
++    #[cfg(windows)]
++    {
++        use std::os::windows::fs::FileExt;
++        let mut done = 0;
++        while done < buf.len() {
++            let n = file.seek_read(&mut buf[done..], at + done as u64)?;
++            if n == 0 {
++                return Err(std::io::ErrorKind::UnexpectedEof.into());
++            }
++            done += n;
++        }
++        Ok(())
++    }
++    #[cfg(not(any(unix, windows)))]
++    {
++        use std::io::{Read, Seek, SeekFrom};
++        let mut f = file.try_clone()?;
++        f.seek(SeekFrom::Start(at))?;
++        f.read_exact(buf)
++    }
++}
++
+ impl Bsa {
++    /// The archive at `path`: its header and tables read, the file kept open for the rest.
+     pub fn open(path: &Path) -> Result<Bsa, String> {
+-        let data = std::fs::read(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+-        Self::parse(path, data)
++        let err = |e: std::io::Error| format!("{}: {}", path.display(), e);
++        let file = File::open(path).map_err(err)?;
++        let total = file.metadata().map_err(err)?.len() as usize;
++        let mut head = [0u8; 12];
++        read_at(&file, &mut head, 0).map_err(|_| format!("{}: truncated at byte 0", path.display()))?;
++        let hash_off = u32::from_le_bytes([head[4], head[5], head[6], head[7]]) as usize;
++        let count = u32::from_le_bytes([head[8], head[9], head[10], head[11]]) as usize;
++        // Everything before the data block: the header, the records, the names, the hashes.
++        let tables_len = (12 + hash_off).saturating_add(count.saturating_mul(8)).min(total);
++        let mut tables = vec![0u8; tables_len];
++        read_at(&file, &mut tables, 0).map_err(err)?;
++        let (index, names) = Self::tables(path, &tables, total)?;
++        let kept = (0..names.len()).map(|_| OnceLock::new()).collect();
++        Ok(Bsa { path: path.to_path_buf(), store: Store::File { file, kept }, index, names })
+     }
+ 
++    /// An archive held as bytes.
+     pub fn parse(path: &Path, data: Vec<u8>) -> Result<Bsa, String> {
++        let (index, names) = Self::tables(path, &data, data.len())?;
++        Ok(Bsa { path: path.to_path_buf(), store: Store::Mem(data), index, names })
++    }
++
++    /// The index from the archive's first bytes (`data`: at least up to the data block),
++    /// with `total` the whole archive's length, which an entry must lie within.
++    #[allow(clippy::type_complexity)]
++    fn tables(path: &Path, data: &[u8], total: usize) -> Result<(HashMap<String, (usize, usize, usize)>, Vec<String>), String> {
+         let u32at = |o: usize| -> Result<u32, String> {
+             data.get(o..o + 4)
+                 .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+@@ -79,7 +146,7 @@
+         let name_offs = recs + 8 * count;
+         let names_at = name_offs + 4 * count;
+         let data_at = 12 + hash_off + 8 * count;
+-        if data_at > data.len() || names_at > data.len() {
++        if data_at > total || names_at > data.len() {
+             return Err(format!("{}: header points past the end of the file", path.display()));
+         }
+         let mut index = HashMap::with_capacity(count);
+@@ -108,14 +175,14 @@
+             (`bytes::decode`), so this does the same. Bytes are bytes on both sides. */
+             let name = crate::bytes::decode(&data[start..end]);
+             let at = data_at + off;
+-            if at + size > data.len() {
++            if at + size > total {
+                 // A record past the end is a damaged archive; skip the record, keep the rest.
+                 continue;
+             }
+-            index.insert(crate::paths::norm(&name), (at, size));
++            index.insert(crate::paths::norm(&name), (at, size, names.len()));
+             names.push(name);
+         }
+-        Ok(Bsa { path: path.to_path_buf(), data, index, names })
++        Ok((index, names))
+     }
+ 
+     pub fn len(&self) -> usize {
+@@ -130,10 +197,32 @@
+         self.index.contains_key(key)
+     }
+ 
+-    /// The bytes of one entry, by normalised key.
++    /// The bytes of one entry, by normalised key, read for the caller: nothing is kept.
++    /// This is what the overlay loads through (`Vfs::load`).
++    pub fn read(&self, key: &str) -> Option<Vec<u8>> {
++        let &(at, size, _) = self.index.get(key)?;
++        match &self.store {
++            Store::Mem(d) => Some(d[at..at + size].to_vec()),
++            Store::File { file, .. } => {
++                let mut b = vec![0u8; size];
++                read_at(file, &mut b, at as u64).ok()?;
++                Some(b)
++            }
++        }
++    }
++
++    /// The bytes of one entry, by normalised key, lent. From a file, an entry is read the
++    /// first time it is asked for and kept for the archive's life - fine for a tool or a
++    /// test that looks at a few; [`Bsa::read`] is the one for loading many.
+     pub fn get(&self, key: &str) -> Option<&[u8]> {
+-        let &(at, size) = self.index.get(key)?;
+-        Some(&self.data[at..at + size])
++        let &(at, size, slot) = self.index.get(key)?;
++        match &self.store {
++            Store::Mem(d) => Some(&d[at..at + size]),
++            Store::File { kept, .. } => {
++                let b = kept[slot].get_or_init(|| self.read(key).unwrap_or_default());
++                (b.len() == size).then_some(b.as_slice())
++            }
++        }
+     }
+ 
+     /// Every entry name as the archive spells it.
+--- a/crates/gardenfell-bsa/tests/wraithguard_bsa.rs
++++ b/crates/gardenfell-bsa/tests/wraithguard_bsa.rs
+@@ -0,0 +1,68 @@
++//! Wraithguard (carried patch 0010): an archive is opened, not read. The file-backed
++//! archive (`open`) and the in-memory one (`parse`) give the same bytes for every entry,
++//! through `read` and through `get`.
++
++use gardenfell_bsa::bsa::Bsa;
++
++/// A version-0x100 archive with `files` (backslash names), laid out as Morrowind's are.
++fn archive(files: &[(&str, &[u8])]) -> Vec<u8> {
++    let n = files.len();
++    let mut names = Vec::new();
++    let mut name_offs = Vec::new();
++    for (name, _) in files {
++        name_offs.push(names.len() as u32);
++        names.extend_from_slice(name.as_bytes());
++        names.push(0);
++    }
++    let hash_off = (8 * n + 4 * n + names.len()) as u32;
++    let mut out = Vec::new();
++    for v in [0x100u32, hash_off, n as u32] {
++        out.extend_from_slice(&v.to_le_bytes());
++    }
++    let mut off = 0u32;
++    for (_, data) in files {
++        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
++        out.extend_from_slice(&off.to_le_bytes());
++        off += data.len() as u32;
++    }
++    for o in &name_offs {
++        out.extend_from_slice(&o.to_le_bytes());
++    }
++    out.extend_from_slice(&names);
++    out.extend(std::iter::repeat(0u8).take(8 * n)); // the hashes, not read
++    for (_, data) in files {
++        out.extend_from_slice(data);
++    }
++    out
++}
++
++#[test]
++fn opened_and_parsed_archives_give_the_same_bytes() {
++    let big = vec![7u8; 1 << 20];
++    let files: [(&str, &[u8]); 3] =
++        [("meshes\\a.nif", b"mesh"), ("textures\\b.dds", &big), ("textures\\c.dds", b"")];
++    let bytes = archive(&files);
++    let path = std::env::temp_dir().join(format!("wg_bsa_{}.bsa", std::process::id()));
++    std::fs::write(&path, &bytes).unwrap();
++    let opened = Bsa::open(&path).expect("opens");
++    let parsed = Bsa::parse(&path, bytes).expect("parses");
++    assert_eq!(opened.len(), 3);
++    for key in ["meshes/a.nif", "textures/b.dds", "textures/c.dds"] {
++        let want = parsed.get(key).expect("in memory").to_vec();
++        assert_eq!(opened.read(key).as_deref(), Some(&want[..]), "read {key}");
++        assert_eq!(opened.get(key), Some(&want[..]), "get {key}");
++        assert_eq!(parsed.read(key).as_deref(), Some(&want[..]));
++    }
++    assert!(opened.read("textures/none.dds").is_none());
++    std::fs::remove_file(&path).ok();
++}
++
++#[test]
++fn a_damaged_archive_is_refused_not_panicked_on() {
++    let path = std::env::temp_dir().join(format!("wg_bsa_bad_{}.bsa", std::process::id()));
++    std::fs::write(&path, [0u8, 1, 0, 0, 9]).unwrap();
++    assert!(Bsa::open(&path).is_err());
++    std::fs::write(&path, [0u8, 1, 0, 0]).unwrap();
++    assert!(Bsa::open(&path).is_err(), "shorter than a header");
++    std::fs::remove_file(&path).ok();
++}
+--- a/crates/gardenfell-install/src/vfs.rs
++++ b/crates/gardenfell-install/src/vfs.rs
+@@ -302,7 +302,8 @@
+     pub fn load(&self, loc: &Loc) -> Option<Vec<u8>> {
+         match loc {
+             Loc::Disk(p) => std::fs::read(p).ok(),
+-            Loc::Packed { archive, key } => self.archives.get(*archive)?.get(key).map(|b| b.to_vec()),
++            // Read for the caller, not lent: an archive keeps nothing it hands out here.
++            Loc::Packed { archive, key } => self.archives.get(*archive)?.read(key),
+         }
+     }
+ 

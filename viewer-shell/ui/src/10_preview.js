@@ -1,3 +1,4 @@
+/* Gardenfell, 10_preview.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 
 
 
@@ -61,24 +62,37 @@ function dropMeshes(){
   if(App.R && App.R.dropBatchGpu) App.R.dropBatchGpu();
   // Round 17y: and the parts' own vertex data, which lives as long as the parts do.
   if(App.R && App.R.dropPartGpu) App.R.dropPartGpu();
+  if(App.R && App.R.dropSkinTex) App.R.dropSkinTex();   // round 18ff: the bone textures go with the parts
 }
 
-function loadMesh(relPath){
+/* Round 18ez: a mesh has two faces in the cache - as the file animates, and at its rest
+   pose with no `.kf` bound (`|still`). Robin: "For static pointing at an x mesh with a
+   .kf beside it, how does the game understand that it is animated or not?" The class,
+   not the mesh - see `mesh_payload` in the shell - and a static and an activator can
+   share one file, so the same path is asked for both ways when a cell has both. The
+   still face is asked for only when a reference needs it; nearly every mesh has one
+   face in the cache and it is the one it always had. */
+function meshKey(relPath, still){
   const key=VFS.norm(relPath).toLowerCase();
+  return key? (still? key+'|still' : key) : '';
+}
+function loadMesh(relPath, still){
+  const key=meshKey(relPath, still);
   if(!key) return Promise.resolve(null);
   if(App.meshCache.has(key)) return Promise.resolve(App.meshCache.get(key));
   const inflight=_meshLoading.get(key);
   if(inflight) return inflight;
-  const p=readMesh(key,relPath).finally(()=>{ if(_meshLoading.get(key)===p) _meshLoading.delete(key); });
+  const p=readMesh(key,relPath,!!still).finally(()=>{ if(_meshLoading.get(key)===p) _meshLoading.delete(key); });
   _meshLoading.set(key,p);
   return p;
 }
 
-async function readMesh(key,relPath){
+async function readMesh(key,relPath,still){
   const rec=newMeshRec(relPath);
+  rec.still=!!still;
   const keep=meshKeeper(key,rec);
   let ab;
-  try{ ab=await Engine.bytes('mesh_data',{path:VFS.norm(relPath)}); }
+  try{ ab=await Engine.bytes('mesh_data',{path:VFS.norm(relPath), still:!!still}); }
   catch(e){
     rec.err=String(e.message||e);
     App.loadLog.push({k:'e', t:T('report.mesh_missing',{path:relPath})});
@@ -235,12 +249,19 @@ function quatMat3(q){
           2*(x*z-w*y),   2*(y*z+w*x),   1-2*(x*x+y*y)];
 }
 
-/** Three Euler channels (radians about x, y, z, applied z·y·x as the format has it) as a
- *  row-major 3x3. */
-function eulerMat3(rx,ry,rz){
-  const cx=Math.cos(rx), sx=Math.sin(rx), cy=Math.cos(ry), sy=Math.sin(ry), cz=Math.cos(rz), sz=Math.sin(rz);
-  const X=[1,0,0, 0,cx,-sx, 0,sx,cx], Y=[cy,0,sy, 0,1,0, -sy,0,cy], Z=[cz,-sz,0, sz,cz,0, 0,0,1];
-  return mul3x3(mul3x3(Z,Y),X);
+/** Three Euler channels as a row-major 3x3, composed in the file's own axis order (18gf):
+ *  channel i turns about axis order[i], the first channel applied first, so the matrix is
+ *  R(ax2)·R(ax1)·R(ax0). Order 0 is XYZ, which is z·y·x as every file read before stated.
+ *  The nine orders are the format's: 0 XYZ, 1 XZY, 2 YZX, 3 YXZ, 4 ZXY, 5 ZYX, 6 XYX, 7 YZY,
+ *  8 ZXZ. */
+const EULER_AXES=[[0,1,2],[0,2,1],[1,2,0],[1,0,2],[2,0,1],[2,1,0],[0,1,0],[1,2,1],[2,0,2]];
+function rotAbout(axis,a){
+  const c=Math.cos(a), s=Math.sin(a);
+  return axis===0? [1,0,0, 0,c,-s, 0,s,c] : axis===1? [c,0,s, 0,1,0, -s,0,c] : [c,-s,0, s,c,0, 0,0,1];
+}
+function eulerMat3(rx,ry,rz,order){
+  const ax=EULER_AXES[order|0]||EULER_AXES[0], e=[rx,ry,rz];
+  return mul3x3(mul3x3(rotAbout(ax[2],e[2]),rotAbout(ax[1],e[1])),rotAbout(ax[0],e[0]));
 }
 function mul3x3(a,b){
   return [a[0]*b[0]+a[1]*b[3]+a[2]*b[6], a[0]*b[1]+a[1]*b[4]+a[2]*b[7], a[0]*b[2]+a[1]*b[5]+a[2]*b[8],
@@ -266,7 +287,7 @@ function animNodeAt(L, secs){
   if(L.rot && L.rot.length){ const q=quatAt(L.rot,t); if(q) rot=quatMat3(q); }
   else if(L.xyz){
     const e=[0,1,2].map(k=>{ const v=keyAt(L.xyz[k],t); return v? v[0] : 0; });
-    rot=eulerMat3(e[0],e[1],e[2]);
+    rot=eulerMat3(e[0],e[1],e[2],L.xyzOrder);
   }
   if(L.trans && L.trans.length){ const v=keyAt(L.trans,t); if(v) tr=v; }
   if(L.scale && L.scale.length){ const v=keyAt(L.scale,t); if(v) sc=v[0]; }
@@ -514,7 +535,7 @@ function decodeMesh(ab,rec){
                     glow:glow||null, glowUV,
                     twoSided:drawMode===3, drawMode, unlit, vcolMode, dayNight, zwrite,
                     matAlpha, diffuse, ambient:null, emissive, uvAnim,
-                    colA:null, decal:null, uvDecal:null, clamp:0, uvAnim2:null,
+                    colA:null, decal:null, uvDecal:null, uvGlow:null, clamp:0, uvAnim2:null, flip:null, billboard:null,
                     env:null, envClamp:0, bump:null, bumpLuma:null, bumpMat:null});
   }
   /* Round 17w: the mesh's particle systems — a waterfall's mist, a candle's flame, a
@@ -731,6 +752,66 @@ function decodeMesh(ab,rec){
       if(p) p.gloss=tex||null;
     }
   }
+  /* Round 18ev: the glow maps that read a UV set of their own - a count, then per entry a
+     part index and its UVs. The map's *name* has come up with the part since 17p; what was
+     missing was the set it reads, and 17p's note said so in as many words - "every glow map
+     in Morrowind and in OAAB names 0 [...] a shape asking for another set is drawn with set
+     0 rather than dropped, and the count is what would say the assumption had broken".
+     Tamriel Data's bulb mushrooms are the shape that broke it: two UV sets, the glow on the
+     second, and drawn with the first its mask was tiled across the whole cap and then
+     scrolled by its own animation. Nothing in vanilla and nothing in OAAB sends this, so a
+     glow on set 0 is the empty case and is drawn exactly as it was. */
+  if(o+4<=dv.byteLength){
+    const ngu=dv.getUint32(o,true); o+=4;
+    for(let i=0;i<ngu && o+4<=dv.byteLength;i++){
+      const pi=dv.getUint32(o,true); o+=4;
+      const p=rec.parts[pi];
+      const nv=p? p.pos.length/3 : 0;
+      if(!p || o+nv*8>dv.byteLength) break;
+      p.uvGlow=new Float32Array(ab.slice(o,o+nv*8)); o+=nv*8;
+    }
+  }
+  /* Round 18ey: the flipbooks. Robin: "These meshes: TR\\x\\TR_water_Circle2048_DG.NIF,
+     CAP\\nb_ex_vivec_p_water_01.nif (there are several of this type), have animated
+     textures in the game, but not in the tool." A NiFlipController swaps one map's texture
+     for the next every `delta` seconds; Tamriel Rebuilt's circle has thirty-two frames of
+     water at 0.065 s. The base slot names the first frame, which is what was drawn, for
+     ever. Nothing in vanilla's statics sends this, so the empty case costs a count. */
+  if(o+4<=dv.byteLength){
+    const nf=dv.getUint32(o,true); o+=4;
+    for(let i=0;i<nf && o+40<=dv.byteLength;i++){
+      const pi=dv.getUint32(o,true); o+=4;
+      const slot=dv.getUint32(o,true); o+=4;
+      const f={slot, texStart:dv.getFloat32(o,true), delta:dv.getFloat32(o+4,true),
+               freq:dv.getFloat32(o+8,true), phase:dv.getFloat32(o+12,true),
+               start:dv.getFloat32(o+16,true), stop:dv.getFloat32(o+20,true), frames:[]};
+      o+=24;
+      const n=dv.getUint32(o,true); o+=4;
+      let bad=false;
+      for(let k=0;k<n;k++){
+        if(o+2>dv.byteLength){ bad=true; break; }
+        f.frames.push(str());
+      }
+      if(bad) break;
+      const p=rec.parts[pi];
+      if(p && f.frames.length>1 && f.delta>0) p.flip=f;
+    }
+  }
+  /* Round 18ez: the billboards - a shape under a NiBillboardNode, kept in the node's own
+     frame, with the node's origin in mesh space and the mode (0 always face the camera,
+     1 turn about the up axis only, 2 rigid, 3 face the centre). The shader turns it per
+     instance; see `VS_STATIC_M`. Robin: "Fix the billboards to turn towards the eye." */
+  if(o+4<=dv.byteLength){
+    const nb=dv.getUint32(o,true); o+=4;
+    for(let i=0;i<nb && o+21<=dv.byteLength;i++){
+      const pi=dv.getUint32(o,true); o+=4;
+      const mode=dv.getUint8(o); o+=1;
+      const origin=[dv.getFloat32(o,true), dv.getFloat32(o+4,true), dv.getFloat32(o+8,true)]; o+=12;
+      const scale=dv.getFloat32(o,true); o+=4;
+      const p=rec.parts[pi];
+      if(p) p.billboard={mode, origin, scale};
+    }
+  }
   rec.tris=rec.parts.reduce((a,p)=>a+p.idx.length/3,0);
   /* The bounds of what is *drawn*, which is not `rec.aabb` above — that one is the
      collision shape's, and for a mesh with no collision at all it is null.
@@ -750,6 +831,17 @@ function decodeMesh(ab,rec){
       const samples=moving? (span>0? 12 : 1) : 1;
       for(let k=0;k<samples;k++){
         const A=moving? animMatrixAt(p.anim, samples>1? (k/samples)*span : 0) : null;
+        /* Round 18ez: a billboard's vertices sit about its node's origin and turn every
+           which way, so the box is the sphere they can reach, about that origin. */
+        const bb=p.billboard;
+        if(bb){
+          const {o,r}=billboardReach(p);
+          const [ox,oy,oz]=o;
+          if(ox-r<x0)x0=ox-r; if(ox+r>x1)x1=ox+r;
+          if(oy-r<y0)y0=oy-r; if(oy+r>y1)y1=oy+r;
+          if(oz-r<z0)z0=oz-r; if(oz+r>z1)z1=oz+r;
+          continue;
+        }
         for(let i=0;i<v.length;i+=3){
           let x=v[i], y=v[i+1], z=v[i+2];
           if(A){ const ax=A[0]*x+A[4]*y+A[8]*z+A[12], ay=A[1]*x+A[5]*y+A[9]*z+A[13], az=A[2]*x+A[6]*y+A[10]*z+A[14]; x=ax; y=ay; z=az; }
@@ -858,6 +950,21 @@ async function attachMeshTextures(rec){
   // Round 18df: and the decal - a poster on a wall, a sign on its post.
   const withDecal=rec.parts.filter(p=>p.decal);
   await inFlight(withDecal, 8, async p=>{ p.glDecal=await loadTexture(p.decal); });
+  /* Round 18ey: and every frame of a flipbook. Asked for together with the rest rather
+     than on the frame it is first shown, because a flipbook runs at fifteen frames a
+     second and a texture that arrives late is a hole in the water. Tamriel Rebuilt's
+     circle is thirty-two 256-pixel frames, which is one tile's worth of memory and the
+     same eight-at-a-time queue as everything else. The first frame is already loaded as
+     the base map, so it is a cache hit. */
+  const withFlip=rec.parts.filter(p=>p.flip && p.flip.frames.length>1);
+  for(const p of withFlip){
+    p.glFlip=new Array(p.flip.frames.length).fill(null);
+    await inFlight(p.flip.frames.map((f,i)=>({f,i})), 8, async e=>{ p.glFlip[e.i]=await loadTexture(e.f); });
+    /* A frame that would not load leaves the flipbook where it was: a gap that showed the
+       white placeholder every third of a second would read as a fault rather than as a
+       missing file, and the still first frame is what the tool drew before this round. */
+    if(p.glFlip.some(t=>!t || !t.gl)) { p.glFlip=null; p.flip=null; }
+  }
   // Round 18dl: and the environment map, and the bump map that perturbs it.
   // The gloss map only matters where the mesh viewer draws (its studio views).
   if(App.loadNormalMaps){
@@ -871,6 +978,10 @@ async function attachMeshTextures(rec){
   // Round 17w: and the particle systems' sheets — mist, flame, smoke.
   const systems=(rec.particles||[]).filter(s=>s.tex);
   await inFlight(systems, 8, async s=>{ s.glTex=await loadTexture(s.tex); });
+  // Round 18hn: and a system's glow map, when it has one (OAAB's crystal flakes carry
+  // their own sheet in the glow slot, which is what makes them glow in a dark cave).
+  const systemsGlow=(rec.particles||[]).filter(s=>s.glow);
+  await inFlight(systemsGlow, 8, async s=>{ s.glGlow=await loadTexture(s.glow); });
   for(const p of withTex){
     if(!rec.thumb && p.glTex && p.glTex.thumb){ rec.thumb=p.glTex.thumb; break; }
   }
@@ -908,16 +1019,19 @@ const LoadProf={engine:0, engineKnown:false, wait:0, bundles:0, tex:0, texN:0, t
   take(){ return {engine:this.engine, engineKnown:this.engineKnown, wait:this.wait, bundles:this.bundles, tex:this.tex, texN:this.texN, texBytes:this.texBytes, mesh:this.mesh, meshN:this.meshN, build:this.build, groupsMs:this.groupsMs}; }};
 async function loadMeshes(relPaths,onProgress){
   const out=new Array(relPaths.length);
-  const need=new Map();   // key -> {relPath, resolve, reject, promise}
-  relPaths.forEach((rp,i)=>{
-    const key=VFS.norm(rp).toLowerCase();
+  const need=new Map();   // key -> {relPath, still, resolve, reject, promise}
+  relPaths.forEach((ask,i)=>{
+    // Round 18ez: an entry is a path, or `{path, still}` for the rest-pose face.
+    const rp=(ask && typeof ask==='object')? ask.path : ask;
+    const still=!!(ask && typeof ask==='object' && ask.still);
+    const key=meshKey(rp, still);
     if(!key){ out[i]=Promise.resolve(null); return; }
     if(App.meshCache.has(key)){ out[i]=Promise.resolve(App.meshCache.get(key)); return; }
     const inflight=_meshLoading.get(key);
     if(inflight){ out[i]=inflight; return; }
     let e=need.get(key);
     if(!e){
-      e={relPath:rp};
+      e={relPath:rp, still};
       e.promise=new Promise((res,rej)=>{ e.resolve=res; e.reject=rej; }).finally(()=>{ if(_meshLoading.get(key)===e.promise) _meshLoading.delete(key); });
       _meshLoading.set(key,e.promise);
       need.set(key,e);
@@ -932,7 +1046,7 @@ async function loadMeshes(relPaths,onProgress){
   const bc=!!(App.R && App.R.bcFormats());
   const maxSize=textureDetail();
   await inFlight(batches, 6, async batch=>{
-    const recs=batch.map(e=>newMeshRec(e.relPath));
+    const recs=batch.map(e=>{ const r=newMeshRec(e.relPath); r.still=!!e.still; return r; });
     const world=worldToken();
     try{
       const have=[...App.texGL.keys(), ..._texLoading.keys()];
@@ -943,7 +1057,9 @@ async function loadMeshes(relPaths,onProgress){
          thousand meshes waited minutes on them). */
       let maps=[];
       if(App.loadNormalMaps){ const s=normalMapSuffixes(); maps=[s.nh, s.n, s.spec]; }
-      const ab=await Engine.bytes('assets_bundle',{meshes:batch.map(e=>VFS.norm(e.relPath)), have, bc, maxSize, bcx, maps});
+      // Round 18ez: and which of them are asked for still (a reference the game never animates).
+      const ab=await Engine.bytes('assets_bundle',{meshes:batch.map(e=>VFS.norm(e.relPath)), have, bc, maxSize, bcx, maps,
+                                                     still:batch.map(e=>!!e.still)});
       const took=performance.now()-tw;
       LoadProf.wait+=took; LoadProf.bundles++;
       const b=readBundle(ab);
@@ -987,12 +1103,12 @@ async function loadMeshes(relPaths,onProgress){
          mesh the old way, one trip each, so nothing is lost but time. */
       for(let k=0;k<batch.length;k++){
         const e=batch[k];
-        try{ recs[k]=await readMeshInto(VFS.norm(e.relPath).toLowerCase(), e.relPath, recs[k]); }
+        try{ recs[k]=await readMeshInto(meshKey(e.relPath, e.still), e.relPath, recs[k], !!e.still); }
         catch(e2){ recs[k].err=String(e2.message||e2); }
       }
     }
     for(let k=0;k<batch.length;k++){
-      const key=VFS.norm(batch[k].relPath).toLowerCase();
+      const key=meshKey(batch[k].relPath, batch[k].still);
       /* Judged against the token taken *before* the bundle was asked for, the same one
          its textures are judged against. Building the keeper here instead would date
          the read to the moment it finished, which is always current and so never
@@ -1007,9 +1123,9 @@ async function loadMeshes(relPaths,onProgress){
 }
 
 /** `readMesh` for a record that already exists — the bundle's fallback. */
-async function readMeshInto(key,relPath,rec){
+async function readMeshInto(key,relPath,rec,still){
   let ab;
-  try{ ab=await Engine.bytes('mesh_data',{path:VFS.norm(relPath)}); }
+  try{ ab=await Engine.bytes('mesh_data',{path:VFS.norm(relPath), still:!!still}); }
   catch(e){ rec.err=String(e.message||e); App.loadLog.push({k:'e', t:T('report.mesh_missing',{path:relPath})}); return rec; }
   decodeMesh(ab,rec);
   await attachMeshTextures(rec);

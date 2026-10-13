@@ -14,6 +14,25 @@ bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
 # Wraithguard: OpenMW Lua scripts read and checked (the Editor's Lua panel), the same code
 # the Python backend binds (native/ takes it by path too).
 luacore = { path = "../luacore" }
+# Wraithguard: the openmw.cfg reader (data folders, content, groundcover, archives, chained
+# cfgs), by OpenMW's documented rules - the one the Python backend uses too.
+ordercore = { path = "../ordercore" }
+# Wraithguard: meshoptimizer's simplifier, ported (distant objects' models, src/lod.rs).
+meshopt-port = { path = "../meshopt-port" }
+# Wraithguard: Greatness7's `tes3` crate reading for Gardenfell's engine (the hooks of
+# patches 0001/0002), so G7's updates arrive with a version bump.
+gardenfell-g7 = { path = "../gardenfell-g7" }
+# Wraithguard: Gardenfell's engine crates (Robin Hjelte, MIT), vendored unmodified in
+# viewer-shell/gardenfell (VENDOR.md); viewcore's modules re-export them and add ours on top
+# (REBASE-18hu.md, R1c). The grass crates are not among them.
+gardenfell-bytes = { path = "../gardenfell/crates/gardenfell-bytes" }
+gardenfell-text = { path = "../gardenfell/crates/gardenfell-text" }
+gardenfell-tes3 = { path = "../gardenfell/crates/gardenfell-tes3" }
+gardenfell-nif = { path = "../gardenfell/crates/gardenfell-nif" }
+gardenfell-bsa = { path = "../gardenfell/crates/gardenfell-bsa" }
+gardenfell-install = { path = "../gardenfell/crates/gardenfell-install" }
+gardenfell-world = { path = "../gardenfell/crates/gardenfell-world" }
+
 # Wraithguard: OpenMW's navmesh.db (an SQLite file) read for the navmesh overlay. rusqlite
 # is MIT; "bundled" builds SQLite (public domain) from source, so no system library is
 # needed on any of the three OSes. Only the read-only API is used.

@@ -1,3 +1,5 @@
+/* Gardenfell, 35_underwater.js. Copyright (c) 2026 Robin Hjelte. GNU General Public License, version 2
+   (see page-source/LICENSE): this file carries code ported from MGE XE, which is GPL-2.0. */
 /* =====================================================================================
    Under the water - round 18dt.
 
@@ -62,11 +64,15 @@ vec3 toWorld(vec2 t){
 /* 1 where this pixel takes the underwater pass. Everywhere with the eye under the line;
    during the crossing, only where what the pixel shows stands under it. Read off the
    *undistorted* pixel, so the mask does not chase the wobble it is masking. */
+uniform float uCrossHold; // 18eg item 1: how much of the crossing is still to come, 1 to 0
 float crossMask(){
   if(uCrossTop <= 0.0) return 1.0;
   float dd=linZ(texture(uDepth,vUV).r);
   vec3 wp=uEyeP + dd*toWorld(vUV);
-  return step(wp.z, uWaterZ);
+  /* Faded in over the crossing rather than switched on at the top of it (18eg item 1):
+     what the pass does to the pixels under the line arrives with the fog that goes with
+     them, and both are whole as the eye submerges. */
+  return step(wp.z, uWaterZ) * (1.0 - clamp(uCrossHold, 0.0, 1.0));
 }
 /* A value noise standing in for the volume where the install has none. */
 float hash3(vec3 p){ p=fract(p*0.3183099+vec3(0.1,0.2,0.3)); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
@@ -147,7 +153,7 @@ in vec2 vUV;
 uniform sampler2D uTex; uniform highp sampler2D uDepth;   // highp: see uSceneDepth in 26_water.js
 uniform sampler3D uWater3d; uniform int uHas3d;
 uniform vec3 uCamF, uCamR, uCamU, uEyeP, uSunV;
-uniform float uTanH, uAspect, uTimeP, uWaterZ, uStrength, uSunVisP;
+uniform float uTanH, uAspect, uTimeP, uWaterZ, uStrength, uSunVisP, uPxH;
 uniform vec2 uNearFar;
 uniform vec3 uFogCol; uniform float uFogK;
 ${SKY_GLSL}
@@ -172,6 +178,36 @@ void main(){
   vec3 w=uEyeP + d*toWorld(vUV);
   float uz=w.z-uWaterZ;
   if(uz>=0.0 || d>=uNearFar.y*0.999){ o=vec4(c,1.0); return; }
+  /* Round 18em, Robin: "I don't want the caustics effects to be seen on the outside of
+     the terrain skirt. Currently it's visible all around it, and I want it gone."
+
+     Two things are wrong at that edge and they want different answers.
+
+     A **silhouette** - the world position leaping from one surface to the next - makes
+     MGE's own fwidth term below go the other way round: it is there to fade the pattern
+     where it would alias, and at a jump the derivative is enormous, the term clamps to 1
+     and the pass draws at full strength along the outline. The depth's own derivative
+     says so: one pixel across is d * 2 * tanH / height in world units at this distance,
+     and a surface changes depth by a few of those where a silhouette changes it by
+     hundreds.
+
+     The skirt is the **other** thing, and measuring it is what took the round: its walls
+     are not a jump at all. They hang straight down off the terrain's edge, continuous
+     with it, so depth runs on smoothly and only the *facing* changes - and a wall seen
+     from above is so foreshortened that fwidth(sunray) is huge on it, which again
+     clamps the pattern to full strength. Hence a line the whole way round.
+
+     So the surface's own facing decides, reconstructed from the depth: caustics are the
+     sun's light gathered onto a floor, and a wall standing on its edge catches none of
+     it. Vertical is nought. That is both what removes the skirt - nothing in Morrowind's
+     landscape stands vertical, only this invented box does - and closer to what caustics
+     are than MGE's own version, which has no normals to hand and so lights every face
+     alike. The darkening rides on the same factor, or the wall would still be dimmed. */
+  float px=d*2.0*uTanH/max(uPxH,1.0);
+  if(fwidth(d) > 6.0*px){ o=vec4(c,1.0); return; }
+  vec3 face=cross(dFdx(w), dFdy(w));
+  float lie=clamp(abs(normalize(face).z), 0.0, 1.0);
+  if(lie < 0.08){ o=vec4(c,1.0); return; }
   float fog=airClear(w);
   vec3 sunray=vec3(w.xy, uz) - uSunV*(uz/uSunV.z);
   float sunF=1.0-pow(1.0-uSunVisP,2.0);
@@ -179,11 +215,25 @@ void main(){
   float strength=0.05*uStrength*clamp(0.75*sunF+0.35*length(far),0.0,1.0);
   float caust=strength*volB(vec3(sunray.xy/1104.0, 0.4*uTimeP));
   caust*=clamp(125.0/max(d,1.0)*min(fwidth(sunray.x),fwidth(sunray.y)),0.0,1.0);
-  c*=1.0+(caust-0.3)*clamp(exp(uz/400.0),0.0,1.0)*clamp(uz/-30.0,0.0,1.0)*fog;
+  c*=1.0+(caust-0.3)*lie*clamp(exp(uz/400.0),0.0,1.0)*clamp(uz/-30.0,0.0,1.0)*fog;
   o=vec4(c,1.0);
 }`;
 
 Object.assign(Renderer.prototype,{
+  /* Round 18gt, Robin: "When I go under water for the first time in Gardenfell, I get a
+     slight hitch. I suspect we are loading some Underwater effects." It was this program:
+     built on the first frame under the water, and the compile of a shader this size is the
+     hitch. Behind `_ensure` now, so `warmShaders` (06_gl.js) builds it at start-up and the
+     first dive finds it ready; the draw calls the same function, so nothing depends on the
+     warm-up having run. */
+  _ensureUnder(){
+    if(!this.progUnder) this.progUnder=this._prog(VS_BLIT,FS_UNDERWATER);
+    return this.progUnder;
+  },
+  _ensureCaustics(){
+    if(!this.progCaustics) this.progCaustics=this._prog(VS_BLIT,FS_CAUSTICS);
+    return this.progCaustics;
+  },
   /** Whether this frame gets MGE's caustics: an exterior with water, the MGE water on, and
    *  a caustics intensity above zero. The intensity is a Preview control (`opts.caustics`,
    *  0..100, MGE XE's default 50): Wraithguard runs on MoMW's OpenMW setups, which have no
@@ -203,8 +253,7 @@ Object.assign(Renderer.prototype,{
   drawCaustics(T,f,dst,airOn){
     const gl=this.gl;
     if(!f || !this.wantsCaustics()) return false;
-    if(!this.progCaustics) this.progCaustics=this._prog(VS_BLIT,FS_CAUSTICS);
-    const pr=this.progCaustics; gl.useProgram(pr.p);
+    const pr=this._ensureCaustics(); gl.useProgram(pr.p);
     gl.bindFramebuffer(gl.FRAMEBUFFER,dst); gl.viewport(0,0,T.W,T.H);
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.depthMask(false);
     gl.bindVertexArray(null);
@@ -227,9 +276,10 @@ Object.assign(Renderer.prototype,{
     const sv=f.sun||[0.3,0.2,0.93];
     gl.uniform3f(pr.u.uSunV, sv[0], sv[1], Math.max(0.05, sv[2]));
     gl.uniform1f(pr.u.uSunVisP, f.now? f.now.sunVis : 1);
-    gl.uniform1f(pr.u.uTimeP,(performance.now()/1000)%3600);
+    gl.uniform1f(pr.u.uTimeP,this.clock()%3600);   // 18fh: the pausable clock
     gl.uniform1f(pr.u.uWaterZ,this.water.z);
     gl.uniform1f(pr.u.uStrength,this.causticsIntensity());
+    gl.uniform1f(pr.u.uPxH,T.H);   // 18em: a pixel's own size, for the edge test
     gl.drawArrays(gl.TRIANGLES,0,3);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,null);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_3D,null);
@@ -244,8 +294,7 @@ Object.assign(Renderer.prototype,{
   drawUnderwater(T,f,dst){
     const gl=this.gl, u=this.underFogNow||this.underNow;
     if(!u || !f || !this.water) return false;
-    if(!this.progUnder) this.progUnder=this._prog(VS_BLIT,FS_UNDERWATER);
-    const pr=this.progUnder; gl.useProgram(pr.p);
+    const pr=this._ensureUnder(); gl.useProgram(pr.p);
     gl.bindFramebuffer(gl.FRAMEBUFFER,dst||null); gl.viewport(0,0,T.W,T.H);
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.depthMask(false);
     gl.bindVertexArray(null);
@@ -274,13 +323,14 @@ Object.assign(Renderer.prototype,{
        the luminance of that colour, 0.98 for a clear day unblended and 0.23 blended, so
        the rays were running four times over. No number in the port changed. */
     const sun0 = now? now.sun : [1,1,1];
-    const sunPost = (typeof Sky==='object' && Sky.underwaterTint)? Sky.underwaterTint(sun0) : sun0;
+    const sunPost = (typeof Sky==='object' && Sky.underwaterTint)? Sky.underwaterTint(sun0, (u && u.wow)? u.wow.scale : 1) : sun0;   // 18fc
     gl.uniform3fv(pr.u.uSunColP, sunPost);
     gl.uniform1f(pr.u.uSunVisP, now? now.sunVis : 1);
-    gl.uniform1f(pr.u.uTimeP,(performance.now()/1000)%3600);
+    gl.uniform1f(pr.u.uTimeP,this.clock()%3600);   // 18fh: the pausable clock
     gl.uniform1f(pr.u.uWaterZ,this.water.z);
     /* 18dz: nought with the eye under the line, its height over it while it crosses. */
     gl.uniform1f(pr.u.uCrossTop, (u && u.over)? Math.max(0, f.eye[2]-this.water.z) : 0);
+    if(pr.u.uCrossHold) gl.uniform1f(pr.u.uCrossHold, (u && u.over && u.into!=null)? 1-u.into : 0);
     gl.uniform1i(pr.u.uInterior, this.opts.room? 1 : 0);
     gl.uniform4f(pr.u.uBox, this.water.centre[0], this.water.centre[1], this.water.half, 1);
     gl.drawArrays(gl.TRIANGLES,0,3);

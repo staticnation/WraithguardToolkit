@@ -62,20 +62,11 @@ impl ScriptFiles for VfsScripts<'_> {
 
 /// Every `content=` name of an openmw.cfg's text, in order - scripts lists and addons as
 /// well as plugins (the load order's own reader keeps only plugins).
+///
+/// Read by `ordercore::cfg`, OpenMW's documented rules (option names exact, as OpenMW's
+/// are), as the load order is.
 pub fn content_of(cfg_text: &str) -> Vec<String> {
-    cfg_text
-        .lines()
-        .filter_map(|l| {
-            let (k, v) = l.split_once('=')?;
-            if !k.trim().eq_ignore_ascii_case("content") {
-                return None;
-            }
-            let v = v.trim();
-            let b = v.as_bytes();
-            let v = if b.len() >= 2 && b[0] == b[b.len() - 1] && (b[0] == b'"' || b[0] == b'\'') { &v[1..v.len() - 1] } else { v };
-            (!v.is_empty()).then(|| v.to_string())
-        })
-        .collect()
+    ordercore::cfg::read_text(cfg_text, Path::new(""), &ordercore::cfg::Tokens::default()).content
 }
 
 /// The scan as the page reads it: `{openmw, revision, resources, note, scripts,
@@ -94,8 +85,10 @@ pub fn scan_json(vfs: &Vfs, order_file: Option<&Path>) -> Result<String, String>
             .str("report", "");
         return Ok(o.done());
     };
-    let text = std::fs::read_to_string(cfg).map_err(|e| format!("{}: {e}", cfg.display()))?;
-    let content = content_of(&text);
+    // The cfg and every cfg it chains, as the load order is read (`ordercore::cfg`).
+    let content = ordercore::cfg::read(cfg, &ordercore::cfg::Tokens::for_cfg(cfg))
+        .map_err(|e| format!("{}: {e}", cfg.display()))?
+        .content;
     let resources = luacore::findings::find_resources(Some(cfg), None);
     let api = luacore::api::for_install(resources.as_deref());
     let mut files = VfsScripts::new(vfs);
@@ -198,8 +191,9 @@ mod tests {
 
     #[test]
     fn content_lines_of_every_kind() {
-        let cfg = "data=\"x\"\ncontent=Morrowind.esm\ncontent = My.omwscripts\nCONTENT=\"Q.omwaddon\"\ngroundcover=g.esp\n";
-        assert_eq!(content_of(cfg), ["Morrowind.esm", "My.omwscripts", "Q.omwaddon"]);
+        // OpenMW's option names are exact: `CONTENT=` is not one of its lines.
+        let cfg = "data=\"x\"\ncontent=Morrowind.esm\ncontent = My.omwscripts\nCONTENT=Q.omwaddon\ncontent=Q2.omwaddon\ngroundcover=g.esp\n";
+        assert_eq!(content_of(cfg), ["Morrowind.esm", "My.omwscripts", "Q2.omwaddon"]);
     }
 
     #[test]

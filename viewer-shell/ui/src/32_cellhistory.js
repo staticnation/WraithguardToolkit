@@ -1,3 +1,4 @@
+/* Gardenfell, 32_cellhistory.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    THE CELL VISIT HISTORY — round 18cy.
 

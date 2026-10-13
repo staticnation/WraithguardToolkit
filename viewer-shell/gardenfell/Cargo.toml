@@ -1,0 +1,31 @@
+# Gardenfell's engine crates, as Robin Hjelte ships them (round 18hu), for the viewer.
+#
+# Only the seven that are not grass: the grass crates (gardenfell-scatter,
+# gardenfell-rules) and the grass app's shell (gardenfell-session) are left out, by our
+# agreement with Robin that Wraithguard is not a grass generator. The crates under
+# crates/ are his, unmodified (VENDOR.md); this file is ours: his workspace root with
+# only these members. `page-source/catalog.json` and `languages/gardenfell.en.toml` are
+# here because gardenfell-text compiles them in at those paths.
+[workspace]
+resolver = "2"
+members = [
+    "crates/gardenfell-bytes",
+    "crates/gardenfell-text",
+    "crates/gardenfell-tes3",
+    "crates/gardenfell-nif",
+    "crates/gardenfell-bsa",
+    "crates/gardenfell-install",
+    "crates/gardenfell-world",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+strip = true

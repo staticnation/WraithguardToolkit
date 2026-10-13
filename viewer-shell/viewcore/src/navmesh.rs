@@ -272,34 +272,12 @@ pub fn user_data_dirs() -> Vec<PathBuf> {
 }
 
 /// The `user-data=` folder a cfg names (the last line wins), its `?userdata?` and
-/// `?userconfig?` tokens filled in, a relative path taken from the cfg's folder.
+/// `?userconfig?` tokens filled in, a relative path taken from the cfg's folder - read by
+/// `ordercore::cfg`, as the rest of the cfg is. `?local?` and `?global?` (the install's
+/// folders, not known from a cfg) give None.
 pub fn cfg_user_data(cfg_text: &str, cfg_dir: &Path) -> Option<PathBuf> {
-    let line = cfg_text
-        .lines()
-        .filter_map(|l| {
-            let (k, v) = l.trim().split_once('=')?;
-            (k.trim() == "user-data").then(|| v.trim().to_string())
-        })
-        .next_back()?;
-    let v = line.trim_matches('"').replace("&&", "&").replace("&\"", "\"");
-    if v.is_empty() {
-        return None;
-    }
-    let tok = |t: &str, dir: Option<PathBuf>| -> Option<Option<PathBuf>> {
-        let rest = v.strip_prefix(t)?;
-        Some(dir.map(|d| d.join(rest.trim_start_matches(['/', '\\']))))
-    };
-    if let Some(p) = tok("?userdata?", user_data_dirs().into_iter().next()) {
-        return p;
-    }
-    if let Some(p) = tok("?userconfig?", crate::profiles::openmw_cfg().and_then(|c| c.parent().map(Path::to_path_buf))) {
-        return p;
-    }
-    if v.starts_with('?') {
-        return None; // ?local? / ?global?: the install's folders, not known here
-    }
-    let p = PathBuf::from(&v);
-    Some(if p.is_absolute() { p } else { cfg_dir.join(p) })
+    let tokens = ordercore::cfg::Tokens::for_cfg(&cfg_dir.join("openmw.cfg"));
+    ordercore::cfg::read_text(cfg_text, cfg_dir, &tokens).user_data
 }
 
 /// Where to look for `navmesh.db`, in order: a path the user chose; the cfg's

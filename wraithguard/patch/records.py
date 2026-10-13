@@ -126,6 +126,15 @@ def record_key(record: Mapping[str, Any]) -> str:
     Returns:
         A stable key, empty when the record carries nothing to identify it.
     """
+    if record.get("type") == "StartScript":
+        # OpenMW keys a start script by its NAME, the script it starts
+        # (``ESM::StartScript::load``: NAME is ``mId``; DATA is kept, never read).
+        # greatness7's types call DATA ``id`` and NAME ``script``, so ``id`` here
+        # would key it as no engine does, and the viewer, which keys it as OpenMW
+        # does, asked for records Wraithguard could not find.
+        script = record.get("script")
+        if isinstance(script, str) and script:
+            return script
     identifier = record.get("id")
     if isinstance(identifier, str) and identifier:
         return identifier

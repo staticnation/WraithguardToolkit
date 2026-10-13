@@ -207,7 +207,18 @@ fn open_overlay(kind: &str, path: &str, profile: Option<&str>) -> Result<Opened,
         .collect();
 
     let order_file = l.order_file.to_string_lossy().to_string();
-    let order = read_load_order(&l.order_file);
+    let mut order = read_load_order(&l.order_file);
+    /* Wraithguard: and the `groundcover=` plugins after them, as OpenMW loads them - their
+       references are the grass the viewer draws (`World::groundcover`, addGroundcoverRuns).
+       Gardenfell's `read_load_order` reads `content=` only (it makes its own grass), and
+       since the 18hu rebase no grass was drawn at all (Static, 2026-10-13). */
+    if viewcore::luascan::is_openmw_cfg(&l.order_file) {
+        for g in viewcore::world::read_groundcover(&l.order_file) {
+            if !order.iter().any(|o| o.eq_ignore_ascii_case(&g)) {
+                order.push(g);
+            }
+        }
+    }
     if order.is_empty() {
         /* Round 18ab. A config can name every directory in a setup and still not say what
            to load. Robin's does: 912 `data=` lines, the vanilla Data Files among them, and
@@ -340,11 +351,23 @@ fn open_install(
        the indoors half is `World::indoor_plain`. */
     let mcp = viewcore::mge::mcp_features(&l);
     let mcp_still = mcp.as_ref().map(|f| f.contains(&viewcore::mge::MCP_IMPROVED_ANIMATION)).unwrap_or(false);
-    let world = World::load_with(&paths, &vfs, true, &viewcore::world::LoadOpts { script_plays: true });
+    /* Wraithguard: the engine the setup runs decides how a malformed MVRF reads (an
+       openmw.cfg: OpenMW's positional rule); `World::load_with` adds OpenMW's rule for an
+       id defined as two kinds. */
+    let world = World::load_with(
+        &paths,
+        &vfs,
+        true,
+        &viewcore::world::LoadOpts { script_plays: true, ..viewcore::world::LoadOpts::for_order_file(&l.order_file) },
+    );
     let mut world = world;
     // Wraithguard: which plugins are grass (`groundcover=`), so their references go to
     // the grass renderer.
-    let gc = viewcore::world::read_groundcover_text(&std::fs::read_to_string(&l.order_file).unwrap_or_default());
+    let gc = if viewcore::luascan::is_openmw_cfg(&l.order_file) {
+        viewcore::world::read_groundcover(&l.order_file)
+    } else {
+        Vec::new() // a Morrowind.ini has no groundcover
+    };
     world.groundcover = world
         .plugins
         .iter()
@@ -383,7 +406,17 @@ fn open_install(
         .int("refsKept", s.refs_merged as u64)
         .int("refsOverridden", s.refs_overridden as u64)
         .int("refsDeleted", s.refs_deleted as u64)
+        // Gardenfell 18fc: later records for a deleted reference, dropped.
+        .int("refsKeptDeleted", s.refs_kept_deleted as u64)
         .int("refsMoved", s.refs_moved as u64)
+        // Gardenfell 18gf: the merge rules that changed, so the connect log can say what
+        // moved a digest.
+        .int("refsMoveDropped", s.refs_move_dropped as u64)
+        .int("refsRelocated", s.refs_relocated as u64)
+        .int("cellsDeleted", s.cells_deleted as u64)
+        .int("recordsDeletedByFlag", s.records_deleted_by_flag as u64)
+        .int("landsDefaulted", s.lands_defaulted as u64)
+        .int("landsFlaggedOut", s.lands_flagged_out as u64)
         .int("msRead", s.ms_read as u64)
         .int("msParse", s.ms_parse as u64)
         .int("msMerge", s.ms_merge as u64)
@@ -514,7 +547,8 @@ fn map_palette(state: &State) -> Result<(std::sync::Arc<World>, std::sync::Arc<s
     if let Some(p) = have {
         return Ok((w, p));
     }
-    let pal = std::sync::Arc::new(viewcore::worldmap::palette(&w, &v));
+    // Wraithguard: the cheap read (`viewcore::distant::palette`): small mips, not whole files.
+    let pal = std::sync::Arc::new(viewcore::distant::palette(&w, &v));
     {
         let mut app = state.app();
         // The world may have moved on while the textures were being read; a palette for
@@ -548,7 +582,10 @@ fn world_map(state: State) -> Result<String, String> {
     }
     list.push(']');
     let mut out = J::obj();
-    out.int("tile", viewcore::worldmap::TILE as u64).raw("cells", &list);
+    out.int("tile", viewcore::worldmap::TILE as u64)
+        // Gardenfell 18hp: the open sea's colour, so the page needs no literal of its own.
+        .str("sea", &viewcore::worldmap::open_sea_css())
+        .raw("cells", &list);
     if cells.is_empty() {
         out.raw("min", "null").raw("max", "null");
     } else {
@@ -568,6 +605,17 @@ fn world_map_tiles(from: u32, count: u32, state: State) -> Result<tauri::ipc::Re
     let a = (from as usize).min(cells.len());
     let b = (a + count as usize).min(cells.len());
     Ok(tauri::ipc::Response::new(viewcore::worldmap::pack(&w, &pal, &cells[a..b])))
+}
+
+/// Wraithguard: distant land (`viewcore::distant`) - every exterior within `radius`
+/// cells of (`x`, `y`) and outside the `inner` rings the scene loads whole, coarse
+/// heights and the ground's colour at each point. Read with the map's palette, which the
+/// first call reads (as `world_map` does) and every later one reuses.
+#[tauri::command(async)]
+fn distant_land(x: i32, y: i32, inner: i32, radius: i32, state: State) -> Result<tauri::ipc::Response, String> {
+    let (w, pal) = map_palette(&state)?;
+    let radius = radius.clamp(0, 64);
+    Ok(tauri::ipc::Response::new(viewcore::distant::pack(&w, &pal, (x, y), inner.max(0), radius)))
 }
 
 /// Every land texture the loaded world knows about.
@@ -861,7 +909,8 @@ fn cell_data(
 
     // References, each already carrying the mesh it draws.
     let reviewed = cell.and_then(|c| {
-        review_items(&w, &c.refs, &c.gone, review.as_deref(), without.unwrap_or(false), &|p| viewcore::review::in_grid(p, gx, gy))
+        let gone = &w.history.exterior((gx, gy)).gone;
+        review_items(&w, &c.refs, gone, review.as_deref(), without.unwrap_or(false), &|p| viewcore::review::in_grid(p, gx, gy))
     });
     let (refs, models, actors, lights) = match &reviewed {
         Some(items) => refs_json_marked(&w, items, false),
@@ -940,8 +989,9 @@ fn refs_json(
     src: Option<&HashMap<viewcore::esp::RefNum, viewcore::esp::CellRef>>,
     indoors: bool,
 ) -> (String, String, String, String) {
-    let items: Vec<(viewcore::esp::CellRef, viewcore::review::Mark)> = src
-        .map(|m| m.values().map(|r| (r.clone(), viewcore::review::Mark::None)).collect())
+    // Every version stands (`usize::MAX`: all the history has).
+    let items: Vec<viewcore::review::Item> = src
+        .map(|m| m.values().map(|r| (r.clone(), viewcore::review::Mark::None, usize::MAX)).collect())
         .unwrap_or_default();
     refs_json_marked(w, &items, indoors)
 }
@@ -956,16 +1006,20 @@ fn review_items(
     review: Option<&str>,
     without: bool,
     here: &dyn Fn(&[f32; 3]) -> bool,
-) -> Option<Vec<(viewcore::esp::CellRef, viewcore::review::Mark)>> {
+) -> Option<Vec<viewcore::review::Item>> {
     let name = review.filter(|s| !s.is_empty())?;
     let p = w.plugins.iter().position(|n| n.eq_ignore_ascii_case(name))? as i32;
-    Some(if without { viewcore::review::without(refs, gone, p, here) } else { viewcore::review::with(refs, p) })
+    Some(if without {
+        viewcore::review::without(refs, &w.history, gone, p, here)
+    } else {
+        viewcore::review::with(refs, &w.history, p)
+    })
 }
 
 /// [`refs_json`] over references already chosen, each with its review mark.
 fn refs_json_marked(
     w: &viewcore::world::World,
-    items: &[(viewcore::esp::CellRef, viewcore::review::Mark)],
+    items: &[viewcore::review::Item],
     indoors: bool,
 ) -> (String, String, String, String) {
     let mut refs = String::from("[");
@@ -984,9 +1038,9 @@ fn refs_json_marked(
     let mut first_model = true;
     let mut first_actor = true;
     {
-        let mut named: Vec<&(viewcore::esp::CellRef, viewcore::review::Mark)> = items.iter().collect();
-        named.sort_by_key(|(r, _)| (r.num.content_file, r.num.index));
-        for (r, mark) in named {
+        let mut named: Vec<&viewcore::review::Item> = items.iter().collect();
+        named.sort_by_key(|(r, _, _)| (r.num.content_file, r.num.index));
+        for (r, mark, versions) in named {
             let key = r.id.to_ascii_lowercase();
             let actor = w.actors.get(&key);
             /* Wraithguard: a leveled creature list placed in the cell - a spawn point. Sent
@@ -997,7 +1051,10 @@ fn refs_json_marked(
             } else {
                 None
             };
-            if actor.is_none() && lev.is_none() && !w.models.contains_key(&key) {
+            /* Gardenfell 18hl: a LIGH record with no mesh is in `lights` and not in `models`;
+               it has something to shine, so it goes to the page with an empty model and the
+               page places its light at the reference (`bareLights`). */
+            if actor.is_none() && lev.is_none() && !w.models.contains_key(&key) && !w.lights.contains_key(&key) {
                 continue;
             }
             if !first {
@@ -1036,14 +1093,30 @@ fn refs_json_marked(
                 refs.push_str(mark.name());
                 refs.push('"');
             }
-            if r.touched.len() > 1 {
+            let h = w.history.of(&r.num);
+            let n = (*versions).min(h.touched.len());
+            if n > 1 {
                 refs.push_str(&format!(
                     ",\"hist\":[{}]",
-                    r.touched.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(",")
+                    h.touched[..n].iter().map(|t| t.to_string()).collect::<Vec<_>>().join(",")
                 ));
-                let d = viewcore::review::moved_by(r);
+                let d = viewcore::review::moved_by(r, &h.poses[..n.min(h.poses.len())]);
                 if d > 0.5 {
                     refs.push_str(&format!(",\"moved\":{:.1}", d));
+                }
+            }
+            /* Gardenfell 18ez: a reference whose class the game never animates, on a mesh
+               with a `.kf` beside it: the page asks for that mesh `still` (see
+               `mesh_payload`). Said only when it changes the picture, so every reader of a
+               reference sees what it saw. Actors and leveled spawns have their own rules. */
+            if actor.is_none() && lev.is_none() && !w.anim_ids.contains(&key) {
+                let has_kf = w
+                    .models
+                    .get(&key)
+                    .map(|m| w.kf_meshes.contains(&m.replace('\\', "/").to_ascii_lowercase()))
+                    .unwrap_or(false);
+                if has_kf {
+                    refs.push_str(",\"still\":true");
                 }
             }
             // Wraithguard: grass from a `groundcover=` plugin.
@@ -1191,7 +1264,8 @@ fn interior_data(name: String, review: Option<String>, without: Option<bool>, st
         .ok_or_else(|| viewcore::msg!("eng.no_install"))?;
     let room = w.room(&name).ok_or_else(|| viewcore::msg!("eng.no_interior", name = name))?;
 
-    let reviewed = review_items(&w, &room.refs, &room.gone, review.as_deref(), without.unwrap_or(false), &|_| true);
+    let gone = &w.history.interior(&viewcore::world::room_key(&name)).gone;
+    let reviewed = review_items(&w, &room.refs, gone, review.as_deref(), without.unwrap_or(false), &|_| true);
     let (refs, models, actors, lights) = match &reviewed {
         Some(items) => refs_json_marked(&w, items, !room.quasi),
         None => refs_json(&w, Some(&room.refs), !room.quasi),
@@ -1309,7 +1383,8 @@ fn atmosphere(state: State) -> Result<String, String> {
     let Some(order) = order else { return Err(viewcore::msg!("eng.no_install_is")) };
     let Some(vfs) = vfs else { return Err(viewcore::msg!("eng.no_install_is")) };
     let layout = layout.unwrap_or_default();
-    Ok(viewcore::weather::atmosphere_json(&order, &vfs, &layout))
+    // All ten weathers (patch 0004); Gardenfell's own reader keeps Clear only.
+    Ok(viewcore::weather::atmosphere_json_with(&order, &vfs, &layout, &viewcore::weather::ALL_WEATHERS))
 }
 
 
@@ -1640,6 +1715,13 @@ fn embedded_payload(v: &Vfs, path: &str) -> Option<Result<(viewcore::img::Textur
 }
 
 fn texture_payload(v: &Vfs, path: &str, bc: bool, extra: viewcore::img::Extra, max_size: u32) -> Result<Vec<u8>, String> {
+    /* Wraithguard: a distant object's texture (`lod_payload` names them `__far/...`): the same
+       file at 128 pixels at most, under its own name so the page keeps it apart from the
+       full-size copy a near object of the same texture uses. */
+    let (path, max_size) = match path.strip_prefix(FAR_TEX).or_else(|| path.strip_prefix("__far\\")) {
+        Some(p) => (p, if max_size == 0 { FAR_TEX_SIZE } else { max_size.min(FAR_TEX_SIZE) }),
+        None => (path, max_size),
+    };
     let n = viewcore::vfs::norm(path);
     let (mut t, from, bytes) = if let Some(got) = embedded_payload(v, path) {
         let (t, from) = got?;
@@ -1649,7 +1731,27 @@ fn texture_payload(v: &Vfs, path: &str, bc: bool, extra: viewcore::img::Extra, m
             .resolve_texture(&n)
             .or_else(|| v.resolve(&n))
             .ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = path))?;
-        let bytes = v.load(&p).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = path))?;
+        // Wraithguard: a DDS is read only as far as the Texture detail keeps (its header,
+        // then from the first level kept to the end; `img::dds_trim`): a 4096 texture at
+        // 512 is a third of a megabyte read, not twenty.
+        let is_dds = match &p {
+            viewcore::vfs::Loc::Disk(d) => d.extension().is_some_and(|e| e.eq_ignore_ascii_case("dds")),
+            viewcore::vfs::Loc::Packed { key, .. } => key.ends_with(".dds"),
+        };
+        let trimmed = if is_dds && max_size > 0 {
+            v.load_range(&p, 0, viewcore::img::DDS_HEAD)
+                .and_then(|head| viewcore::img::dds_trim(&head, max_size))
+                .and_then(|(at, mut head)| {
+                    head.extend(v.load_range(&p, at, usize::MAX)?);
+                    Some(head)
+                })
+        } else {
+            None
+        };
+        let bytes = match trimmed {
+            Some(b) => b,
+            None => v.load(&p).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = path))?,
+        };
         // Where it came from, for the report: a decode error names the file that failed.
         let from = p.ident(v);
         let t = viewcore::img::read_with(&bytes, &n, bc, extra).map_err(|e| format!("{e} — {from}"))?;
@@ -1661,6 +1763,15 @@ fn texture_payload(v: &Vfs, path: &str, bc: bool, extra: viewcore::img::Extra, m
         }
         t.w = t.levels[0].0;
         t.h = t.levels[0].1;
+    }
+    // Wraithguard: one level of straight RGBA (no mips in the file, or a format decoded
+    // here) has none to drop, so it is halved down to the detail instead of sent whole.
+    if max_size > 0 && t.levels.len() == 1 && matches!(t.kind, viewcore::img::Kind::Rgba) && t.w.max(t.h) > max_size {
+        let (w, h, px) = std::mem::take(&mut t.levels[0]);
+        let (w, h, px) = viewcore::img::shrink_rgba(w, h, px, max_size);
+        t.levels[0] = (w, h, px);
+        t.w = w;
+        t.h = h;
     }
 
     let mut head = J::obj();
@@ -1725,7 +1836,10 @@ fn extra_of(bcx: &Option<Vec<String>>) -> viewcore::img::Extra {
 /// where a season of avoidance bugs came from. It now draws what the engine read.
 /// The bytes `mesh_data` answers with, and the textures the mesh names - the bundle
 /// (below) fetches those in the same call.
-fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str) -> Result<(Vec<u8>, Vec<String>), String> {
+/// `still`: the reference's class never animates (Gardenfell 18ez; see `refs_json_marked`),
+/// so the `.kf` beside the mesh is not played. False draws the file as it animates - the
+/// mesh viewer, and every request from a page that does not send the flag.
+fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str, still: bool) -> Result<(Vec<u8>, Vec<String>), String> {
     /* Wraithguard: an NPC, assembled from its skeleton, body parts and what it wears
        (`viewcore::npc`). The page asks for it by `__npc/<id>`. */
     if let Some((id, opts)) = viewcore::npc::npc_request(path) {
@@ -1740,6 +1854,10 @@ fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str) -> Result<(Vec<u8>, Vec<
             None => (None, None),
         };
         return Ok(payload_of_parts(a.parts, None, attach, a.systems, light));
+    }
+    // Wraithguard: a distant object's model, simplified (`viewcore::lod`): `__lod/<level>/<mode>/<model>`.
+    if let Some(rest) = path.strip_prefix("__lod/").or_else(|| path.strip_prefix("__lod\\")) {
+        return lod_payload(v, rest);
     }
     // Wraithguard: a Construction Set marker the viewer carries itself (`viewcore::markers`).
     if let Some(bytes) = viewcore::markers::get(path).filter(|_| path.to_ascii_lowercase().starts_with(viewcore::markers::PREFIX)) {
@@ -1775,13 +1893,206 @@ fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str) -> Result<(Vec<u8>, Vec<
        replacer's mesh takes the game's own `.kf` from the archive when it ships none of
        its own, which is what the game does too. A mesh with none is the still thing it
        always was. */
-    let kf = kf_beside(v, path);
+    /* Gardenfell 18ey/18ez: **and only when the game would ever open it.** A `.kf` is
+       played through the animation system, which belongs to ACTI, CONT, DOOR, LIGH
+       (OpenMW's `useAnim()`) and to actors; a STAT never gets one, even when its `model`
+       names an `x` file with a `.kf` beside it. `still` is the reference's answer. */
+    let kf = if still { None } else { kf_beside(v, path) };
     // Round 17m: and where a light hangs on it, for the LIGH records that name it.
     // Round 18cr: the parts, the particle systems and the light in one read of the file.
     Ok(mesh_payload_of(&bytes, kf.as_ref(), None, Some(path)))
 
 }
 
+
+/// Wraithguard: a model's drawable parts as the file has them (no `.kf`: a distant copy
+/// stands still), or None when it cannot be read.
+fn model_parts(v: &Vfs, model: &str) -> Option<Vec<viewcore::nif::DrawPart>> {
+    let p = v.resolve_mesh(model).or_else(|| v.resolve(model))?;
+    let bytes = v.load(&p)?;
+    let (mut r, _) = viewcore::nif::read_for_draw_and_geom(&bytes, None)?;
+    viewcore::nif::own_embedded(&mut r, model);
+    Some(r.parts)
+}
+
+/// Wraithguard: the payload of a distant object's model (`viewcore::lod`): `rest` is
+/// `<tier>/<mode>/<model>`, the tier the model's own size puts it in. The parts simplified, and nothing a far copy needs - no
+/// collision, no particles, no light. The texture-aware mode reads each part's base
+/// texture's small image, from the head of the file only when it is a DDS.
+fn lod_payload(v: &Vfs, rest: &str) -> Result<(Vec<u8>, Vec<String>), String> {
+    let mut it = rest.splitn(3, ['/', '\\']);
+    let tier: u8 = it.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let mode = viewcore::lod::Mode::parse(it.next().unwrap_or("plain"));
+    let model = it.next().filter(|m| !m.is_empty()).ok_or_else(|| format!("__lod/{rest}: no model"))?;
+    let mut parts = model_parts(v, model).ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = model))?;
+    let swatch = |tex: &str| -> Option<viewcore::lod::Swatch> {
+        let n = viewcore::vfs::norm(tex);
+        let p = v.resolve_texture(&n).or_else(|| v.resolve(&n))?;
+        let bytes = v
+            .load_range(&p, 0, viewcore::img::DDS_HEAD)
+            .and_then(|head| viewcore::img::dds_trim(&head, 128))
+            .and_then(|(at, mut head)| {
+                head.extend(v.load_range(&p, at, usize::MAX)?);
+                Some(head)
+            })
+            .or_else(|| v.load(&p))?;
+        viewcore::img::read_with(&bytes, &n, true, viewcore::img::Extra::default()).ok()?.thumb
+    };
+    viewcore::lod::simplify_parts(&mut parts, tier.min(2), mode, &swatch);
+    // Its textures small, under their own names (`texture_payload`).
+    let far = |t: &mut String| {
+        if !t.is_empty() && !t.starts_with(viewcore::nif::EMBEDDED) && !t.starts_with(FAR_TEX) {
+            *t = format!("{FAR_TEX}{t}");
+        }
+    };
+    for p in parts.iter_mut() {
+        for t in [&mut p.tex, &mut p.detail_tex, &mut p.glow_tex, &mut p.gloss_tex, &mut p.dark_tex, &mut p.decal_tex, &mut p.env_tex, &mut p.bump_tex] {
+            far(t);
+        }
+        if let Some(f) = p.flip.as_mut() {
+            for t in f.frames.iter_mut() {
+                far(t);
+            }
+        }
+    }
+    Ok(payload_of_parts(parts, None, None, Vec::new(), None))
+}
+
+/// Wraithguard: the prefix a distant object's texture is named by, and the most it is.
+const FAR_TEX: &str = "__far/";
+const FAR_TEX_SIZE: u32 = 128;
+
+/// Wraithguard: the most distant objects one scene draws - instances and models - so a long
+/// draw distance on a big install cannot run the page out of memory (Static, 2026-10-13:
+/// the viewer closed itself). What is kept is what looks biggest from the centre.
+const DISTANT_MAX_REFS: usize = 30_000;
+const DISTANT_MAX_MODELS: usize = 1_500;
+
+/// Wraithguard: how far a model reaches from its origin (`viewcore::lod::radius`), read
+/// once per model and world and kept.
+fn model_radius(v: &Vfs, rev: u64, model: &str) -> f32 {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, f32>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    let key = format!("{rev}|{}", model.to_ascii_lowercase());
+    if let Some(r) = cache.lock().ok().and_then(|c| c.get(&key).copied()) {
+        return r;
+    }
+    let r = model_parts(v, model).map(|p| viewcore::lod::radius(&p)).unwrap_or(0.0);
+    if let Ok(mut c) = cache.lock() {
+        c.insert(key, r);
+    }
+    r
+}
+
+/// Wraithguard: distant objects (OpenMW's object paging, for the viewer) - the references
+/// placed in every exterior within `radius` cells of (`x`, `y`) and outside the `inner`
+/// rings, grouped by model, as `{"models":[{"m":model,"r":radius,"t":tier,"refs":[[x,y,z,
+/// rx,ry,rz,scale],...]}],"refs":n,"beyond":n,"over":n}`. Budgeted as MGE XE budgets its
+/// distant statics (`viewcore::lod`): each reference is near, far or very far by its radius
+/// times its scale, and drawn only within its tier's band of the cells past the rings;
+/// `t` is the model's own tier, which its one simplified copy is made for. Left out too:
+/// what is deleted, actors (they move), grass from `groundcover=` plugins (drawn only
+/// near), and markers (not drawn in the game).
+#[tauri::command(async)]
+fn distant_objects(x: i32, y: i32, inner: i32, radius: i32, state: State) -> Result<String, String> {
+    let (w, v, rev) = {
+        let app = state.app();
+        (
+            app.world.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?,
+            app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?,
+            app.world_rev,
+        )
+    };
+    let (radius, inner) = (radius.clamp(0, 64), inner.max(0));
+    let span = (radius - inner).max(1);
+    type Placed = ([f32; 3], [f32; 3], f32, i32);
+    let mut by_model: HashMap<String, Vec<Placed>> = HashMap::new();
+    for gy in y - radius..=y + radius {
+        for gx in x - radius..=x + radius {
+            let d = (gx - x).abs().max((gy - y).abs());
+            if d <= inner {
+                continue;
+            }
+            let Some(c) = w.cells.get(&(gx, gy)) else { continue };
+            for r in c.refs.values() {
+                if r.deleted || usize::try_from(r.plugin).map(|p| w.groundcover.contains(&p)).unwrap_or(false) {
+                    continue;
+                }
+                let key = r.id.to_ascii_lowercase();
+                if w.actors.contains_key(&key) {
+                    continue;
+                }
+                let Some(m) = w.models.get(&key) else { continue };
+                if m.is_empty() || m.to_ascii_lowercase().contains("marker") {
+                    continue;
+                }
+                let low = m.to_ascii_lowercase();
+                let m = if low.starts_with("meshes\\") || low.starts_with("meshes/") { m.clone() } else { format!("meshes\\{m}") };
+                by_model.entry(m).or_default().push((r.pos, r.rot, r.scale, d - inner));
+            }
+        }
+    }
+    let models: Vec<String> = by_model.keys().cloned().collect();
+    let radii = viewcore::pool::par_map(&models, |_, m| model_radius(&v, rev, m));
+    let (cx, cy) = (x as f32 * 8192.0 + 4096.0, y as f32 * 8192.0 + 4096.0);
+    // Every reference within its tier's band, with how big it looks from the centre.
+    let mut beyond = 0usize;
+    let mut seen: Vec<(f32, usize, usize)> = Vec::new(); // (apparent size, model, ref)
+    for (mi, (m, rad)) in models.iter().zip(radii.iter()).enumerate() {
+        for (ri, (pos, _, scale, d)) in by_model[m].iter().enumerate() {
+            let size = rad * scale;
+            if *rad <= 0.0 || *d > viewcore::lod::band_end(viewcore::lod::tier_of(size), span) {
+                beyond += 1;
+                continue;
+            }
+            let dist = ((pos[0] - cx).powi(2) + (pos[1] - cy).powi(2)).sqrt().max(1.0);
+            seen.push((size / dist, mi, ri));
+        }
+    }
+    // Within the budget, biggest first: the instances, and the models they need.
+    seen.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut chosen: Vec<Vec<usize>> = vec![Vec::new(); models.len()];
+    let (mut kept, mut used_models, mut over) = (0usize, 0usize, 0usize);
+    for (_, mi, ri) in seen {
+        if kept >= DISTANT_MAX_REFS || (chosen[mi].is_empty() && used_models >= DISTANT_MAX_MODELS) {
+            over += 1;
+            continue;
+        }
+        if chosen[mi].is_empty() {
+            used_models += 1;
+        }
+        chosen[mi].push(ri);
+        kept += 1;
+    }
+    let mut out = String::from("{\"models\":[");
+    let mut first_model = true;
+    for (mi, m) in models.iter().enumerate() {
+        if chosen[mi].is_empty() {
+            continue;
+        }
+        let list = &by_model[m];
+        let mut refs = String::new();
+        for &ri in &chosen[mi] {
+            let (pos, rot, scale, _) = &list[ri];
+            if !refs.is_empty() {
+                refs.push(',');
+            }
+            refs.push_str(&format!(
+                "[{:.1},{:.1},{:.1},{:.5},{:.5},{:.5},{:.4}]",
+                pos[0], pos[1], pos[2], rot[0], rot[1], rot[2], scale
+            ));
+        }
+        if !first_model {
+            out.push(',');
+        }
+        first_model = false;
+        out.push_str("{\"m\":\"");
+        viewcore::json::escape_into(m, &mut out);
+        out.push_str(&format!("\",\"r\":{:.1},\"t\":{},\"refs\":[{refs}]}}", radii[mi], viewcore::lod::tier_of(radii[mi])));
+    }
+    out.push_str(&format!("],\"refs\":{kept},\"beyond\":{beyond},\"over\":{over}}}"));
+    Ok(out)
+}
 
 /// A mesh's payload from its bytes: the drawable parts, the collision geometry (`geom`
 /// when the world has it cached, else parsed here), attach point, particles and light,
@@ -1839,6 +2150,16 @@ fn payload_of_parts(
                 texs.push(t.clone());
             }
         }
+        /* Gardenfell 18ey: and every frame of a flipbook. It runs at fifteen frames a second,
+           so a frame the page has to come back for is a hole in the water for as long as
+           the trip takes (Tamriel Rebuilt's water circle: thirty-two 256-pixel frames). */
+        if let Some(f) = &part.flip {
+            for t in &f.frames {
+                if !t.is_empty() && !texs.iter().any(|x| x == t) {
+                    texs.push(t.clone());
+                }
+            }
+        }
     }
     /* Round 17w: the mesh's particle systems ride along, and their textures are bundled
        with the parts' — a waterfall's mist and a candle's flame are textures like any
@@ -1864,12 +2185,12 @@ fn kf_beside(v: &Vfs, path: &str) -> Option<viewcore::nif::KfSequence> {
 }
 
 #[tauri::command(async)]
-fn mesh_data(path: String, state: State) -> Result<tauri::ipc::Response, String> {
+fn mesh_data(path: String, still: Option<bool>, state: State) -> Result<tauri::ipc::Response, String> {
     let (v, w) = {
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.world.clone())
     };
-    Ok(tauri::ipc::Response::new(mesh_payload(&v, w.as_deref(), &path)?.0))
+    Ok(tauri::ipc::Response::new(mesh_payload(&v, w.as_deref(), &path, still.unwrap_or(false))?.0))
 }
 
 /// Wraithguard's mesh viewer: a mesh's collision shape, for drawing over it.
@@ -1936,6 +2257,9 @@ pub(crate) fn collision_payload(v: &Vfs, path: &str) -> Result<Vec<u8>, String> 
 ///        | u32 nTex  | per texture: u16 len, name as the mesh spells it, u8 ok, u32 len, GDN2 texture or the error
 /// ```
 #[tauri::command(async)]
+// Each parameter is a named field of the page's request, not a positional argument
+// anybody has to keep in order; the eighth is Gardenfell 18ez's `still`.
+#[allow(clippy::too_many_arguments)]
 fn assets_bundle(
     meshes: Vec<String>,
     have: Vec<String>,
@@ -1943,6 +2267,8 @@ fn assets_bundle(
     max_size: Option<u32>,
     bcx: Option<Vec<String>>,
     maps: Option<Vec<String>>,
+    // Gardenfell 18ez: one flag a mesh, aligned with `meshes`; absent means none is still.
+    still: Option<Vec<bool>>,
     state: State,
 ) -> Result<tauri::ipc::Response, String> {
     let extra = extra_of(&bcx);
@@ -1958,7 +2284,12 @@ fn assets_bundle(
        through the shell, and the page's decoding. */
     let clock = std::time::Instant::now();
     let got: Vec<Result<(Vec<u8>, Vec<String>), String>> =
-        viewcore::pool::par_map(&meshes, |_, m| mesh_payload(&v, w.as_deref(), m));
+        {
+            let still = still.unwrap_or_default();
+            let asks: Vec<(&String, bool)> =
+                meshes.iter().enumerate().map(|(i, m)| (m, still.get(i).copied().unwrap_or(false))).collect();
+            viewcore::pool::par_map(&asks, |_, (m, st)| mesh_payload(&v, w.as_deref(), m, *st))
+        };
     // Every texture the meshes name that the page does not hold, once each.
     let have: std::collections::HashSet<String> = have.iter().map(|h| viewcore::vfs::norm(h)).collect();
     let mut want: Vec<String> = Vec::new();
@@ -2082,15 +2413,15 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
             let label = if c.name.is_empty() { format!("{}, {}", g.0, g.1) } else { format!("{} ({}, {})", c.name, g.0, g.1) };
             let grid = format!("({}, {})", g.0, g.1);
             let ck = if c.name.is_empty() { grid.clone() } else { c.name.clone() };
-            found = Some((r, label, CellSel::Exterior(g.0, g.1), ck, grid, &c.touched_by));
+            found = Some((r, label, CellSel::Exterior(g.0, g.1), ck, grid, &w.history.exterior(*g).touched_by));
             break;
         }
     }
     if found.is_none() {
-        for room in w.interiors.values() {
+        for (k, room) in &w.interiors {
             if let Some(r) = room.refs.iter().find(|(n, _)| is_key(n)).map(|(_, r)| r) {
                 let n = room.name.clone();
-                found = Some((r, n.clone(), CellSel::Interior(n.clone()), n.clone(), n, &room.touched_by));
+                found = Some((r, n.clone(), CellSel::Interior(n.clone()), n.clone(), n, &w.history.interior(k).touched_by));
                 break;
             }
         }
@@ -2106,7 +2437,7 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
     let created = w.plugins.iter().find(|p| p.eq_ignore_ascii_case(&created)).cloned().unwrap_or(created);
     o.str("createdBy", &created);
     o.str("lastChangedBy", &name(r.plugin));
-    let touched: Vec<String> = r.touched.iter().map(|&i| name(i)).collect();
+    let touched: Vec<String> = w.history.of(&r.num).touched.iter().map(|&i| name(i)).collect();
     o.raw("touchedBy", &string_array(&touched));
     o.raw("pos", &format!("[{:.1},{:.1},{:.1}]", r.pos[0], r.pos[1], r.pos[2]))
         .raw("rot", &format!("[{:.4},{:.4},{:.4}]", r.rot[0], r.rot[1], r.rot[2]))
@@ -2266,7 +2597,7 @@ fn ori(key: String, model: Option<String>, state: State) -> Result<String, Strin
                 v.resolve_mesh(&mesh).map(|l| l.ident(v)).unwrap_or_default()
             };
             o.str("meshFrom", &src);
-            if let Ok((_, texs)) = mesh_payload(v, Some(&w), &mesh) {
+            if let Ok((_, texs)) = mesh_payload(v, Some(&w), &mesh, false) {
                 let rows: Vec<String> = texs
                     .iter()
                     .map(|t| {
@@ -2387,14 +2718,42 @@ fn find_record(tag: String, id: String, state: State) -> Result<String, String> 
    holds without drawing it. A record's contents and every edit are Wraithguard's (the
    page asks it over the `links` the launch handed over); this only lists. */
 
-/// Every reference in the world by base id (lower case) -> how many are placed.
-fn placed_counts(w: &World) -> HashMap<String, u32> {
-    let mut n: HashMap<String, u32> = HashMap::new();
-    let all = w.cells.values().flat_map(|c| c.refs.values()).chain(w.interiors.values().flat_map(|r| r.refs.values()));
-    for r in all {
-        if !r.deleted {
+/// Every reference in the world by base id (lower case) -> how many are placed. Counted
+/// once per world (`rev`), the cells split across the pool, and kept: every Object Window
+/// tab reads it, and it holds every reference the load order places, grass included.
+fn placed_counts(w: &World, rev: u64) -> std::sync::Arc<HashMap<String, u32>> {
+    type Kept = (u64, std::sync::Arc<HashMap<String, u32>>);
+    static KEPT: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
+    if let Some((r, n)) = KEPT.lock().ok().and_then(|k| k.clone()) {
+        if r == rev {
+            return n;
+        }
+    }
+    let cells: Vec<_> = w.cells.values().map(|c| &c.refs).collect();
+    let rooms: Vec<_> = w.interiors.values().map(|c| &c.refs).collect();
+    let mut parts = viewcore::pool::par_map(&cells, |_, refs| {
+        let mut n: HashMap<String, u32> = HashMap::new();
+        for r in refs.values().filter(|r| !r.deleted) {
             *n.entry(r.id.to_ascii_lowercase()).or_default() += 1;
         }
+        n
+    });
+    parts.extend(viewcore::pool::par_map(&rooms, |_, refs| {
+        let mut n: HashMap<String, u32> = HashMap::new();
+        for r in refs.values().filter(|r| !r.deleted) {
+            *n.entry(r.id.to_ascii_lowercase()).or_default() += 1;
+        }
+        n
+    }));
+    let mut n: HashMap<String, u32> = HashMap::new();
+    for p in parts {
+        for (k, v) in p {
+            *n.entry(k).or_default() += v;
+        }
+    }
+    let n = std::sync::Arc::new(n);
+    if let Ok(mut k) = KEPT.lock() {
+        *k = Some((rev, n.clone()));
     }
     n
 }
@@ -2403,11 +2762,11 @@ fn placed_counts(w: &World) -> HashMap<String, u32> {
 #[tauri::command(async)]
 fn editor_tags(state: State) -> Result<String, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    // Wraithguard: every live record in its own type's tab - an id defined as a weapon
+    // and a misc item is in both, as OpenMW keeps both (`ordercore::records`).
     let mut n: HashMap<viewcore::esp::Tag, u64> = HashMap::new();
-    for defs in w.record_where.values() {
-        if let Some((_, tag)) = defs.last() {
-            *n.entry(*tag).or_default() += 1;
-        }
+    for (tag, _id, _v) in w.records.iter() {
+        *n.entry(*tag).or_default() += 1;
     }
     let mut tags: Vec<(viewcore::esp::Tag, u64)> = n.into_iter().collect();
     tags.sort();
@@ -2423,50 +2782,140 @@ fn editor_tags(state: State) -> Result<String, String> {
     Ok(format!("[{}]", rows.join(",")))
 }
 
-/// The Object Window's rows for one tag: `{plugins:[names], rows:[[id, name, model,
-/// [plugin ix...], placed]...]}`, sorted by id. The id is as the record spells it where
-/// the world kept it (objects), else lower case; `plugins` (load order) are the files
-/// defining it, the last winning.
-#[tauri::command(async)]
-fn editor_records(tag: String, state: State) -> Result<String, String> {
-    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let want: viewcore::esp::Tag = {
-        let mut t = [b'_'; 4];
-        for (i, b) in tag.bytes().take(4).enumerate() {
-            t[i] = b.to_ascii_uppercase();
-        }
-        t
-    };
-    let placed = placed_counts(&w);
-    let mut rows: Vec<(String, String)> = Vec::new();
-    for (id, defs) in &w.record_where {
-        if defs.last().map(|(_, t)| *t) != Some(want) {
+/// One Object Window row: the id as shown, name, model, the plugins defining it (load-order
+/// indices, the last winning) and how many are placed.
+struct ObjRow {
+    key: String,
+    id: String,
+    name: String,
+    model: String,
+    plugins: Vec<usize>,
+    placed: u32,
+}
+
+fn tag_of(tag: &str) -> viewcore::esp::Tag {
+    let mut t = [b'_'; 4];
+    for (i, b) in tag.bytes().take(4).enumerate() {
+        t[i] = b.to_ascii_uppercase();
+    }
+    t
+}
+
+/// The Object Window's rows for one tag, sorted by id: straight from the record index the
+/// world was loaded with (`ordercore::records`) - nothing the scene has drawn. The id is as
+/// the record spells it where the world kept it (objects), else as the winning plugin does.
+fn object_rows(w: &World, rev: u64, want: viewcore::esp::Tag) -> Vec<ObjRow> {
+    let placed = placed_counts(w, rev);
+    let mut rows: Vec<ObjRow> = Vec::new();
+    // Wraithguard: this type's live records (`ordercore::records`), whatever else the id is.
+    for (tag, id, v) in w.records.iter() {
+        if *tag != want {
             continue;
         }
-        let obj = w.objects.get(id);
-        let shown = obj.map(|o| o.id.as_str()).filter(|s| !s.is_empty()).unwrap_or(id);
-        let mut row = String::from("[\"");
-        viewcore::json::escape_into(shown, &mut row);
-        row.push_str("\",\"");
-        viewcore::json::escape_into(obj.map(|o| o.name.as_str()).unwrap_or(""), &mut row);
-        row.push_str("\",\"");
+        // The world's object, model and name are the placed type's: another type's row
+        // shows its id alone.
+        let is_placed = w.records.is_placed(tag, id);
+        let obj = w.objects.get(id).filter(|_| is_placed);
+        let shown = obj.map(|o| o.id.as_str()).filter(|s| !s.is_empty()).unwrap_or(&v.id);
         // Lights, statics and the like keep their mesh in `models` rather than `objects`.
-        let model = obj.map(|o| o.model.as_str()).filter(|m| !m.is_empty()).or_else(|| w.models.get(id).map(String::as_str));
+        let model = obj
+            .map(|o| o.model.as_str())
+            .filter(|m| !m.is_empty())
+            .or_else(|| w.models.get(id).filter(|_| is_placed).map(String::as_str));
         // Wraithguard: a land texture has no mesh; its texture file stands in the column
         // (the Editor's preview shows the texture itself).
         let model = model.or_else(|| if want == *b"LTEX" { w.ltex_file.get(id).map(String::as_str) } else { None });
-        viewcore::json::escape_into(model.unwrap_or(""), &mut row);
-        let mut ixs: Vec<usize> = defs.iter().filter(|(_, t)| *t == want).map(|(p, _)| *p).collect();
-        ixs.dedup();
-        let ixs: Vec<String> = ixs.iter().map(usize::to_string).collect();
-        row.push_str(&format!("\",[{}],{}]", ixs.join(","), placed.get(id).copied().unwrap_or(0)));
-        rows.push((id.clone(), row));
+        // A body part is never placed, so it has no object or model above; its mesh is in
+        // the NPC tables (the parts an NPC is assembled from), and the preview needs it.
+        let model = model.or_else(|| {
+            if want == *b"BODY" {
+                w.npc.bodies.get(&id.to_ascii_lowercase()).map(|b| b.model.as_str()).filter(|m| !m.is_empty())
+            } else {
+                None
+            }
+        });
+        rows.push(ObjRow {
+            key: id.to_string(),
+            id: shown.to_string(),
+            name: obj.map(|o| o.name.clone()).unwrap_or_default(),
+            model: model.unwrap_or("").to_string(),
+            plugins: v.plugins.clone(),
+            // The references placed are of the type the id is placed as.
+            placed: if is_placed { placed.get(id).copied().unwrap_or(0) } else { 0 },
+        });
     }
-    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    rows.sort_by(|a, b| a.key.cmp(&b.key));
+    rows
+}
+
+fn world_and_rev(state: &State) -> Result<(std::sync::Arc<World>, u64), String> {
+    let app = state.app();
+    let w = app.world.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    Ok((w, app.world_rev))
+}
+
+/// The Object Window's rows for one tag as JSON: `{plugins:[names], rows:[[id, name,
+/// model, [plugin ix...], placed]...]}` - for the Editor's other lists (dialogue, place,
+/// record), and the Object Window's fallback when `editor_rows` fails.
+#[tauri::command(async)]
+fn editor_records(tag: String, state: State) -> Result<String, String> {
+    let (w, rev) = world_and_rev(&state)?;
+    let rows: Vec<String> = object_rows(&w, rev, tag_of(&tag))
+        .into_iter()
+        .map(|r| {
+            let mut row = String::from("[\"");
+            viewcore::json::escape_into(&r.id, &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&r.name, &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&r.model, &mut row);
+            let ixs: Vec<String> = r.plugins.iter().map(usize::to_string).collect();
+            row.push_str(&format!("\",[{}],{}]", ixs.join(","), r.placed));
+            row
+        })
+        .collect();
     let mut o = J::obj();
     o.raw("plugins", &string_array(&w.plugins));
-    o.raw("rows", &format!("[{}]", rows.into_iter().map(|(_, r)| r).collect::<Vec<_>>().join(",")));
+    o.raw("rows", &format!("[{}]", rows.join(",")));
     Ok(o.done())
+}
+
+/// Wraithguard: the Object Window's rows for one tag, as bytes (no JSON to go wrong):
+/// `"WGOR"`, u32 version 1, u32 plugin count, each plugin a string; u32 row count, each row
+/// id, name, model (strings), u32 plugin count, that many u32 indices, u32 placed. A string
+/// is u32 byte length + UTF-8. All little-endian.
+#[tauri::command(async)]
+fn editor_rows(tag: String, state: State) -> Result<tauri::ipc::Response, String> {
+    let (w, rev) = world_and_rev(&state)?;
+    Ok(tauri::ipc::Response::new(pack_rows(&w.plugins, &object_rows(&w, rev, tag_of(&tag)))))
+}
+
+fn pack_rows(plugins: &[String], rows: &[ObjRow]) -> Vec<u8> {
+    fn u32_(o: &mut Vec<u8>, v: usize) {
+        o.extend_from_slice(&(v.min(u32::MAX as usize) as u32).to_le_bytes());
+    }
+    fn str_(o: &mut Vec<u8>, s: &str) {
+        u32_(o, s.len());
+        o.extend_from_slice(s.as_bytes());
+    }
+    let mut o = b"WGOR".to_vec();
+    u32_(&mut o, 1);
+    u32_(&mut o, plugins.len());
+    for p in plugins {
+        str_(&mut o, p);
+    }
+    u32_(&mut o, rows.len());
+    for r in rows {
+        str_(&mut o, &r.id);
+        str_(&mut o, &r.name);
+        str_(&mut o, &r.model);
+        u32_(&mut o, r.plugins.len());
+        for &p in &r.plugins {
+            u32_(&mut o, p);
+        }
+        u32_(&mut o, r.placed as usize);
+    }
+    o
 }
 
 /// One actor, `"key":{kind, model, twin, health, persistent, corpse, hello?}`, as the
@@ -2562,15 +3011,16 @@ fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
     // for it: what the editor's reference dialog asks Wraithguard with.
     type Cell<'a> = (String, String, &'a [u32], Vec<&'a viewcore::esp::CellRef>);
     let (name, ref_cell, by, refs): Cell = if let Some(room) = cell.strip_prefix("int:") {
-        let r = w.interiors.get(&viewcore::world::room_key(room)).ok_or_else(|| format!("no interior {room}"))?;
-        (r.name.clone(), r.name.clone(), &r.touched_by, r.refs.values().collect())
+        let k = viewcore::world::room_key(room);
+        let r = w.interiors.get(&k).ok_or_else(|| format!("no interior {room}"))?;
+        (r.name.clone(), r.name.clone(), &w.history.interior(&k).touched_by, r.refs.values().collect())
     } else {
         let (x, y) = cell
             .split_once(',')
             .and_then(|(a, b)| Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?)))
             .ok_or_else(|| format!("not a cell: {cell}"))?;
         let c = w.cells.get(&(x, y)).ok_or_else(|| format!("no exterior cell {x},{y}"))?;
-        (c.name.clone(), format!("({x}, {y})"), &c.touched_by, c.refs.values().collect())
+        (c.name.clone(), format!("({x}, {y})"), &w.history.exterior((x, y)).touched_by, c.refs.values().collect())
     };
     let mut refs: Vec<&viewcore::esp::CellRef> = refs.into_iter().filter(|r| !r.deleted).collect();
     refs.sort_by(|a, b| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()).then(a.num.index.cmp(&b.num.index)));
@@ -2711,8 +3161,9 @@ fn cell_coverage(state: State) -> Result<String, String> {
     let mut ext: Vec<String> = w
         .cells
         .values()
-        .filter(|c| !c.touched_by.is_empty())
-        .map(|c| format!("[{},{},{}]", c.grid.0, c.grid.1, ix(&c.touched_by)))
+        .map(|c| (c, &w.history.exterior(c.grid).touched_by))
+        .filter(|(_, by)| !by.is_empty())
+        .map(|(c, by)| format!("[{},{},{}]", c.grid.0, c.grid.1, ix(by)))
         .collect();
     ext.sort();
     /* Wraithguard: and per exterior, how contested its references are and how many
@@ -2722,19 +3173,20 @@ fn cell_coverage(state: State) -> Result<String, String> {
     let extc: Vec<String> = grids
         .into_iter()
         .filter_map(|g| {
-            let conf = w.cells.get(&g).map(|c| viewcore::usage::conflicts(&c.refs, &c.gone)).unwrap_or(0);
+            let conf = w.cells.get(&g).map(|c| viewcore::usage::conflicts(&c.refs, &w.history, w.history.exterior(g))).unwrap_or(0);
             let land = w.land_edits.get(&g).map(|v| v.len()).unwrap_or(0);
             (conf > 0 || land > 1).then(|| format!("[{},{},{},{}]", g.0, g.1, conf, land))
         })
         .collect();
     let mut int: Vec<String> = w
         .interiors
-        .values()
-        .filter(|r| !r.touched_by.is_empty())
-        .map(|r| {
+        .iter()
+        .map(|(k, r)| (r, &w.history.interior(k).touched_by))
+        .filter(|(_, by)| !by.is_empty())
+        .map(|(r, by)| {
             let mut name = String::new();
             viewcore::json::escape_into(&r.name, &mut name);
-            format!("[\"{}\",{}]", name, ix(&r.touched_by))
+            format!("[\"{}\",{}]", name, ix(by))
         })
         .collect();
     int.sort();
@@ -2876,14 +3328,14 @@ fn where_used(kind: String, name: String, state: State) -> Result<String, String
 #[tauri::command(async)]
 fn asset_providers(path: String, kind: String, state: State) -> Result<String, String> {
     let v = { state.app().vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))? };
-    let n = viewcore::vfs::norm(&path);
-    let rel = match kind.as_str() {
-        "mesh" if !n.starts_with("meshes/") => format!("meshes/{n}"),
-        "texture" if !n.starts_with("textures/") => format!("textures/{n}"),
-        _ => n,
+    /* The places in the order the resolver looks (patch 0003), so the first row - the
+       winner - is the file the viewer draws: for a texture `.dds` before the spelled name,
+       in every folder and then every archive, with and without `textures/`. */
+    let list = match kind.as_str() {
+        "texture" => v.texture_providers(&path),
+        "mesh" => v.mesh_providers(&path),
+        _ => v.providers(&path, &[]),
     };
-    let exts: &[&str] = if kind == "texture" { Vfs::TEX_EXTS } else { &[] };
-    let list = v.providers(&rel, exts);
     let rows: Vec<String> = list
         .iter()
         .enumerate()
@@ -2968,6 +3420,85 @@ fn viewer_profile_write(text: String) -> Result<String, String> {
     Ok(p.display().to_string())
 }
 
+/// Where the viewer's window was when it last settled (Gardenfell 18el/18fi, brought in
+/// 2026-10-12): the outer rectangle in physical pixels, and whether it was maximised.
+pub struct WindowBox {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+    pub max: bool,
+}
+
+/// Beside the viewer profile: the window is a fact about this machine, not a setting.
+fn window_box_path() -> Result<PathBuf, String> {
+    Ok(viewer_prefs_path()?.with_file_name("wraithguard_cellviewer.window.json"))
+}
+
+/// The remembered window, when there is one and it is a window at all. Read by the shell
+/// before the window is shown (`cellviewer::restore_window`); check-commands, which has no
+/// window, never asks.
+#[allow(dead_code)]
+pub(crate) fn window_box() -> Option<WindowBox> {
+    window_box_of(&std::fs::read_to_string(window_box_path().ok()?).ok()?)
+}
+
+/// [`window_box`] from the file's text: `None` for anything that is not a window.
+fn window_box_of(text: &str) -> Option<WindowBox> {
+    let v = viewcore::json::parse(text).ok()?;
+    let i = |k: &str| v.get(k).and_then(|x| x.as_i64());
+    let b = WindowBox {
+        x: i32::try_from(i("x")?).ok()?,
+        y: i32::try_from(i("y")?).ok()?,
+        w: u32::try_from(i("w")?).ok()?,
+        h: u32::try_from(i("h")?).ok()?,
+        max: v.get("max").and_then(|x| x.as_bool()).unwrap_or(false),
+    };
+    (b.w >= 200 && b.h >= 150).then_some(b)
+}
+
+/// The file's text for a window.
+fn window_box_text(b: &WindowBox) -> String {
+    format!("{{\"x\":{},\"y\":{},\"w\":{},\"h\":{},\"max\":{}}}", b.x, b.y, b.w, b.h, b.max)
+}
+
+#[cfg(test)]
+// Items follow (the command); the module sits beside what it tests.
+#[allow(clippy::items_after_test_module)]
+mod window_box_tests {
+    use super::*;
+
+    #[test]
+    fn a_window_comes_back_as_written() {
+        let b = window_box_of(&window_box_text(&WindowBox { x: -1920, y: 40, w: 1600, h: 1000, max: true })).unwrap();
+        assert_eq!((b.x, b.y, b.w, b.h, b.max), (-1920, 40, 1600, 1000, true));
+    }
+
+    #[test]
+    fn what_is_not_a_window_is_refused() {
+        assert!(window_box_of("").is_none());
+        assert!(window_box_of("not json").is_none());
+        assert!(window_box_of(r#"{"x":0,"y":0,"w":10,"h":10}"#).is_none(), "too small to be a window");
+        assert!(window_box_of(r#"{"x":0,"y":0,"w":-5,"h":800}"#).is_none());
+        assert!(window_box_of(r#"{"x":0,"y":0,"w":800,"h":600}"#).is_some_and(|b| !b.max), "max defaults to off");
+    }
+}
+
+/// Remembers the window's outer rectangle and whether it is maximised, for the next start
+/// (the page sends it when the window settles; while maximised, the last loose size).
+#[tauri::command(async)]
+fn window_set(x: i32, y: i32, w: u32, h: u32, max: bool) -> Result<String, String> {
+    let p = window_box_path()?;
+    if let Some(d) = p.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {}", d.display(), e))?;
+    }
+    let tmp = p.with_extension("json.tmp");
+    let text = window_box_text(&WindowBox { x, y, w, h, max });
+    std::fs::write(&tmp, text).map_err(|e| format!("{}: {}", tmp.display(), e))?;
+    std::fs::rename(&tmp, &p).map_err(|e| format!("{}: {}", p.display(), e))?;
+    Ok("{\"saved\":true}".to_string())
+}
+
 /// The mesh viewer's Save: posts the block edits to Wraithguard's loopback handler
 /// (`url`, which Wraithguard gave in the extra file) and writes the edited file it
 /// answers with to `out`, the path the user picked. Only `http://127.0.0.1:<port>/`
@@ -3047,6 +3578,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(App::default()))
         .invoke_handler(tauri::generate_handler![
+            window_set,
             pathgrid,
             navmesh,
             collision_bundle,
@@ -3060,6 +3592,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             find_record,
             editor_tags,
             editor_records,
+            editor_rows,
             editor_cell_refs,
             editor_actors,
             lua_scan,
@@ -3079,6 +3612,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             picker_set,
             world_map,
             world_map_tiles,
+            distant_land,
+            distant_objects,
             atmosphere,
             favourites_list,
             favourite_set,

@@ -6,7 +6,9 @@ its index in the file. greatness7's ``tes3::nif`` applies them through typed set
 and writes the file (``wraithguard_native.nif_edit``, ``native/src/nif.rs``). The
 fields it can set: names; flags; translation, velocity and scale; a material's
 colours, shine and alpha; the alpha test reference; a texture's file; a string extra
-data's value; a controller's frequency, phase, start and stop. Written the crate's
+data's value; a controller's frequency, phase, start and stop. And ``{"op": "optimize"}``,
+the viewer's "Optimise draw order": every shape it improves put in the order a GPU
+draws fastest, the picture unchanged (``native/src/nif_order.rs``). Written the crate's
 way: the blocks reachable from the roots, in walk order.
 """
 

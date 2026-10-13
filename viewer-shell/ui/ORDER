@@ -4,6 +4,7 @@
 03_core.js
 04_img.js
 05_text.js
+06_mge.js
 06_gl.js
 07_ini.js
 09_ui.js
@@ -61,4 +62,6 @@
 54_wg_pathgrid_edit.js
 55_wg_messages.js
 56_wg_workflow.js
+57_wg_distant.js
+58_wg_distant_objects.js
 11_events.js

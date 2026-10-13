@@ -217,20 +217,5 @@ const Ori={
   },
 };
 
-/** Opens the cell a door leads to and frames the view on its landing marker (DODT), the
-    same act as choosing that cell in the picker. The door is remembered in the visit
-    history, so stepping back returns to it. */
-function goThroughDoor(hit){
-  const target=doorTarget(hit && hit.door);
-  if(!target) return;
-  App.mode='cell';
-  App.cellSel=target;
-  App._doorAim={pos:[+hit.door.pos[0]||0, +hit.door.pos[1]||0, +hit.door.pos[2]||0],
-                rot:(hit.door.rot && +hit.door.rot[2])||0,
-                key:target.kind==='int'? 'i:'+(target.name||'') : target.x+','+target.y};
-  if(typeof CellHistory==='object')
-    App._histVia={via:'door', door:CellHistory.doorSeen(hit),
-                  doorAim:{pos:App._doorAim.pos.slice(), rot:App._doorAim.rot}};
-  if(typeof syncCellButton==='function') syncCellButton();
-  schedulePreview();
-}
+/* `goThroughDoor` is Gardenfell's (18_cellpreview.js, round 18hf), which this file's
+   Shift+click and door button call: the same act, one copy. */

@@ -1,3 +1,4 @@
+/* Gardenfell, 12_browser.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 
 /* =====================================================================================
    Asset browser — pick a mesh or a texture rather than typing its path.

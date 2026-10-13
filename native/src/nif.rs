@@ -452,7 +452,7 @@ fn editable(o: &NiType, field: &str) -> Option<&'static str> {
 /// The block panel's data: `{"tree": [...], "blocks": {"<i>": {"type", "fields"}},
 /// "complete": true}`.
 pub fn blocks(bytes: &[u8]) -> io::Result<Value> {
-    let stream = load(bytes)?;
+    let mut stream = load(bytes)?;
     let (keys, index) = order(&stream);
     let links: HashMap<String, usize> = keys.iter().enumerate().map(|(i, k)| (format!("{k:?}").trim_start_matches("NiKey(").trim_end_matches(')').to_string(), i)).collect();
     let mut blocks = serde_json::Map::new();
@@ -478,7 +478,10 @@ pub fn blocks(bytes: &[u8]) -> io::Result<Value> {
             .collect();
         blocks.insert(i.to_string(), json!({"type": type_name(o), "fields": fields}));
     }
-    Ok(json!({"tree": tree(&stream, &keys, &index), "blocks": blocks, "complete": true}))
+    let tree = tree(&stream, &keys, &index);
+    // What Optimise would do to each shape (a dry run; nothing in `stream` changes).
+    let draw_order = crate::nif_order::report(&mut stream, &index);
+    Ok(json!({"tree": tree, "blocks": blocks, "complete": true, "draw_order": draw_order}))
 }
 
 // ---- edit --------------------------------------------------------------------------
@@ -551,13 +554,18 @@ fn set(o: &mut NiType, field: &str, v: &Value) -> io::Result<()> {
     Ok(())
 }
 
-/// `edits` (`[{"op": "set_field", "block", "name", "value"}]`, block by file index)
-/// applied, and the file saved.
+/// `edits` (`[{"op": "set_field", "block", "name", "value"}]`, block by file index;
+/// `{"op": "optimize"}` puts every shape in draw order, `nif_order`) applied, and the
+/// file saved.
 pub fn edit(bytes: &[u8], edits: &[Value]) -> io::Result<Vec<u8>> {
     let mut stream = load(bytes)?;
-    let (keys, _) = order(&stream);
+    let (keys, index) = order(&stream);
     for (n, e) in edits.iter().enumerate() {
         let op = e.get("op").and_then(Value::as_str).unwrap_or("set_field");
+        if op == "optimize" {
+            crate::nif_order::optimize(&mut stream, &index);
+            continue;
+        }
         if op != "set_field" {
             return Err(bad(format!("edit {n}: unknown op {op:?}")));
         }

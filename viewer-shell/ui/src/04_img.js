@@ -1,3 +1,4 @@
+/* Gardenfell, 04_img.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    The two things about images the page still does for itself.
 

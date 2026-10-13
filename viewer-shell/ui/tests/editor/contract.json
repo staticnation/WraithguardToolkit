@@ -1,5 +1,5 @@
 {
- "_about": "The Editor page / Wraithguard contract: per link the request keys it needs (req) and may send (opt), and what it answers (ans: the keys of the object, \"list\", \"ok\", or null when not pinned yet). Requests come from each handler's docstring (gui/editorlink.py, `body: {...}`); tests/test_editor_contract.py checks this file against them and runs the examples; the page tests (harness.js) check every request the page sends and every stand-in answer against it.",
+ "_about": "The Editor page / Wraithguard contract: per link the request keys it needs (req) and may send (opt), and what it answers (ans: the keys of the object, \"list\", \"ok\"; alt: a second shape, answered to alt_example). Requests come from each handler's docstring (gui/editorlink.py, `body: {...}`); tests/test_editor_contract.py checks this file against them and runs the examples (`$tmp`, `$placed` and `$job` in one are filled in as it runs); the page tests (harness.js) check every request the page sends and every stand-in answer against it.",
  "links": {
   "editBuild": {
    "req": [
@@ -10,7 +10,10 @@
    ],
    "ans": [
     "job"
-   ]
+   ],
+   "example": {
+    "path": "$tmp/Mods/Patch.esp"
+   }
   },
   "editBuildCheck": {
    "req": [
@@ -21,7 +24,10 @@
     "path",
     "exists",
     "inOrder"
-   ]
+   ],
+   "example": {
+    "path": "$tmp/Mods/Patch.esp"
+   }
   },
   "editBuildInfo": {
    "req": [],
@@ -33,7 +39,8 @@
     "folders",
     "defaultName",
     "order"
-   ]
+   ],
+   "example": {}
   },
   "editBuildStatus": {
    "req": [
@@ -47,7 +54,11 @@
     "lines",
     "result",
     "error"
-   ]
+   ],
+   "example": {
+    "job": "$job",
+    "from": 0
+   }
   },
   "editColumns": {
    "req": [
@@ -72,7 +83,11 @@
     "id",
     "type",
     "responses"
-   ]
+   ],
+   "example": {
+    "topic": "Background",
+    "newId": "Background2"
+   }
   },
   "editDialogueFlags": {
    "req": [],
@@ -80,14 +95,36 @@
     "name",
     "kind"
    ],
-   "ans": null
+   "ans": [
+    "flags"
+   ],
+   "example": {},
+   "alt": [
+    "kind",
+    "name",
+    "writers",
+    "readers"
+   ],
+   "alt_example": {
+    "name": "MS_Q",
+    "kind": "journal"
+   }
   },
   "editDialogueFlow": {
    "req": [
     "topic"
    ],
    "opt": [],
-   "ans": null
+   "ans": [
+    "id",
+    "type",
+    "responses",
+    "into",
+    "outof"
+   ],
+   "example": {
+    "topic": "Background"
+   }
   },
   "editDialogueMap": {
    "req": [
@@ -96,7 +133,15 @@
    "opt": [
     "depth"
    ],
-   "ans": null
+   "ans": [
+    "centre",
+    "nodes",
+    "edges",
+    "capped"
+   ],
+   "example": {
+    "topic": "Background"
+   }
   },
   "editDialoguePlay": {
    "req": [
@@ -109,7 +154,15 @@
     "disposition",
     "strict"
    ],
-   "ans": null
+   "ans": [
+    "topics",
+    "line",
+    "speaker"
+   ],
+   "example": {
+    "speaker": "fargoth",
+    "topic": "Background"
+   }
   },
   "editDuplicate": {
    "req": [
@@ -146,7 +199,11 @@
     "cell",
     "refs",
     "pathgrid"
-   ]
+   ],
+   "example": {
+    "cell": "Vault",
+    "newName": "Vault Copy"
+   }
   },
   "editFilterChoices": {
    "req": [],
@@ -169,7 +226,11 @@
    ],
    "ans": [
     "shown"
-   ]
+   ],
+   "example": {
+    "tag": "SCPT",
+    "id": "FargothScript"
+   }
   },
   "editInsert": {
    "req": [
@@ -203,7 +264,12 @@
     "level",
     "outcomes",
     "nested"
-   ]
+   ],
+   "example": {
+    "tag": "LEVI",
+    "id": "random_dagger",
+    "level": 5
+   }
   },
   "editLuaChart": {
    "req": [
@@ -214,7 +280,14 @@
    "opt": [
     "line"
    ],
-   "ans": null
+   "ans": [
+    "functions"
+   ],
+   "example": {
+    "path": "scripts/x.lua",
+    "text": "local function f()\n  return 1\nend\nreturn { f = f }\n",
+    "kind": "functions"
+   }
   },
   "editMoveResponse": {
    "req": [
@@ -227,7 +300,12 @@
     "id",
     "type",
     "responses"
-   ]
+   ],
+   "example": {
+    "topic": "Background",
+    "id": "102",
+    "after": ""
+   }
   },
   "editNew": {
    "req": [
@@ -243,7 +321,11 @@
     "new",
     "plugins",
     "fields"
-   ]
+   ],
+   "example": {
+    "cell": "Vault",
+    "uid": "$placed"
+   }
   },
   "editNewCell": {
    "req": [
@@ -264,7 +346,11 @@
     "uid"
    ],
    "opt": [],
-   "ans": "ok"
+   "ans": "ok",
+   "example": {
+    "cell": "Vault",
+    "uid": "$placed"
+   }
   },
   "editNewResponse": {
    "req": [
@@ -272,7 +358,20 @@
     "after"
    ],
    "opt": [],
-   "ans": null
+   "ans": [
+    "tag",
+    "id",
+    "type",
+    "winner",
+    "plugins",
+    "fields",
+    "whole",
+    "new"
+   ],
+   "example": {
+    "topic": "Background",
+    "after": "101"
+   }
   },
   "editNewSet": {
    "req": [
@@ -290,7 +389,13 @@
     "new",
     "plugins",
     "fields"
-   ]
+   ],
+   "example": {
+    "cell": "Vault",
+    "uid": "$placed",
+    "path": "scale",
+    "value": "2"
+   }
   },
   "editPathgrid": {
    "req": [
@@ -368,7 +473,17 @@
     "new",
     "plugins",
     "fields"
-   ]
+   ],
+   "example": {
+    "cell": "Vault",
+    "tag": "NPC_",
+    "id": "fargoth",
+    "translation": [
+     1,
+     2,
+     3
+    ]
+   }
   },
   "editPlaceMany": {
    "req": [
@@ -378,14 +493,31 @@
    "opt": [],
    "ans": [
     "placed"
-   ]
+   ],
+   "example": {
+    "cell": "Vault",
+    "items": [
+     {
+      "tag": "NPC_",
+      "id": "fargoth",
+      "translation": [
+       4,
+       5,
+       6
+      ]
+     }
+    ]
+   }
   },
   "editPreviewPatch": {
    "req": [
     "path"
    ],
    "opt": [],
-   "ans": "ok"
+   "ans": "ok",
+   "example": {
+    "path": "$tmp/Mods/Patch.esp"
+   }
   },
   "editRecord": {
    "req": [
@@ -438,7 +570,12 @@
     "winner",
     "plugins",
     "fields"
-   ]
+   ],
+   "example": {
+    "cell": "Vault",
+    "origin": "Morrowind.esm",
+    "refr": 1
+   }
   },
   "editRefRevert": {
    "req": [
@@ -458,7 +595,13 @@
     "winner",
     "plugins",
     "fields"
-   ]
+   ],
+   "example": {
+    "cell": "Vault",
+    "origin": "Morrowind.esm",
+    "refr": 1,
+    "path": "scale"
+   }
   },
   "editRefSet": {
    "req": [
@@ -479,7 +622,14 @@
     "winner",
     "plugins",
     "fields"
-   ]
+   ],
+   "example": {
+    "cell": "Vault",
+    "origin": "Morrowind.esm",
+    "refr": 1,
+    "path": "scale",
+    "value": "2"
+   }
   },
   "editRefsSet": {
    "req": [
@@ -488,7 +638,18 @@
    "opt": [],
    "ans": [
     "changed"
-   ]
+   ],
+   "example": {
+    "changes": [
+     {
+      "cell": "Vault",
+      "origin": "Morrowind.esm",
+      "refr": 1,
+      "path": "scale",
+      "value": "2"
+     }
+    ]
+   }
   },
   "editReplace": {
    "req": [
@@ -504,7 +665,12 @@
     "changed",
     "refs",
     "scripts"
-   ]
+   ],
+   "example": {
+    "tag": "NPC_",
+    "id": "fargoth",
+    "newId": "hrisskar"
+   }
   },
   "editReplaceAll": {
    "req": [
@@ -518,7 +684,12 @@
    "ans": [
     "changed",
     "failed"
-   ]
+   ],
+   "example": {
+    "hits": [],
+    "text": "Fargoth",
+    "by": "Fargoth"
+   }
   },
   "editResult": {
    "req": [
@@ -529,7 +700,14 @@
     "plugins",
     "text"
    ],
-   "ans": null
+   "ans": [
+    "messages",
+    "speaker_script"
+   ],
+   "example": {
+    "tag": "INFO",
+    "id": "101"
+   }
   },
   "editRevert": {
    "req": [
@@ -559,7 +737,8 @@
   "editReview": {
    "req": [],
    "opt": [],
-   "ans": "ok"
+   "ans": "ok",
+   "example": {}
   },
   "editRevision": {
    "req": [],
@@ -580,7 +759,19 @@
     "plugins",
     "text"
    ],
-   "ans": null
+   "ans": [
+    "id",
+    "text",
+    "findings",
+    "listing",
+    "compiled",
+    "compile",
+    "queued"
+   ],
+   "example": {
+    "tag": "SCPT",
+    "id": "FargothScript"
+   }
   },
   "editScriptRefs": {
    "req": [
@@ -697,7 +888,10 @@
    ],
    "ans": [
     "job"
-   ]
+   ],
+   "example": {
+    "cell": "Vault"
+   }
   },
   "editTestSetups": {
    "req": [],
@@ -708,7 +902,8 @@
    "ans": [
     "setups",
     "use"
-   ]
+   ],
+   "example": {}
   },
   "editTopic": {
    "req": [
@@ -719,12 +914,16 @@
     "id",
     "type",
     "responses"
-   ]
+   ],
+   "example": {
+    "topic": "Background"
+   }
   },
   "editTopics": {
    "req": [],
    "opt": [],
-   "ans": null
+   "ans": "list",
+   "example": {}
   },
   "editUndo": {
    "req": [],
@@ -745,7 +944,17 @@
    "opt": [
     "plugins"
    ],
-   "ans": null
+   "ans": [
+    "tag",
+    "id",
+    "uses",
+    "live",
+    "cells"
+   ],
+   "example": {
+    "tag": "SCPT",
+    "id": "FargothScript"
+   }
   },
   "editVerify": {
    "req": [],
@@ -766,7 +975,10 @@
     "count",
     "capped",
     "unchecked"
-   ]
+   ],
+   "example": {
+    "id": "101"
+   }
   }
  }
 }

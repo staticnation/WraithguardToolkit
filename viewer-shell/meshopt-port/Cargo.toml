@@ -1,0 +1,26 @@
+# meshoptimizer's algorithms, ported to Rust line for line (std only, no C++), beside
+# Gardenfell's `triorder` (Robin Hjelte's port of the vertex cache and overdraw passes,
+# gardenfell-nif). This crate has what `triorder` does not: the vertex fetch order and
+# the remaps that go with it, the vertex fetch, overdraw and coverage analysers, and (round
+# 6) the simplifier. Ported from meshoptimizer 1.3, the version `triorder` is, and checked
+# against the C++'s own output (tests/, tools/meshopt_oracle). Offered to Robin.
+[package]
+name = "meshopt-port"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+license = "MIT"
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+# The tests read meshes through Robin's NIF reader and order them with his `triorder`,
+# as the viewer does.
+gardenfell-nif = { path = "../gardenfell/crates/gardenfell-nif" }
+
+[lints.clippy]
+# Kept as the C++ has them, so a line here can be read against its line there.
+needless_range_loop = "allow"
+too_many_arguments = "allow"
+manual_div_ceil = "allow"

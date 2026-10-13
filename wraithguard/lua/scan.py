@@ -24,12 +24,10 @@ Copyright (c) 2026 StaticNation.
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from wraithguard.configurator.cfglines import cfg_line_value, unescape_cfg_value
 from wraithguard.logging_setup import get_logger
 from wraithguard.lua.analysis import Finding, ScriptInfo, analyze, info_from_native
 from wraithguard.lua.api import API, ApiVersion, contexts_for_flags
@@ -42,7 +40,6 @@ LOG = get_logger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_KEY_RE = re.compile(r"^\s*([A-Za-z-]+)\s*=", re.ASCII)
 _ACTOR_FLAGS = frozenset({"NPC", "CREATURE"})
 
 
@@ -105,34 +102,21 @@ class LuaScan:
 
 
 def read_cfg_lua(cfg: Path) -> tuple[list[Path], list[str]]:
-    """The data folders and content files an openmw.cfg declares.
+    """The data folders and content files an openmw.cfg (and the cfgs it chains) loads.
+
+    Read by :func:`wraithguard.openmw_cfg.read_cfg`, the viewer's reader.
 
     Args:
         cfg: The openmw.cfg.
 
     Returns:
-        ``(data folders, content names)``, both in file order; ``data-local=``
-        comes after every ``data=``, as OpenMW orders it. Relative folders are taken
-        from the cfg's own folder.
+        ``(data folders, content names)`` in load order: the folders that exist,
+        ``data-local`` last (it overrides every ``data=``).
     """
-    data: list[Path] = []
-    local: list[Path] = []
-    content: list[str] = []
-    for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
-        m = _KEY_RE.match(line)
-        if not m:
-            continue
-        key = m.group(1).lower()
-        raw = cfg_line_value(line) or ""
-        if key in ("data", "data-local"):
-            value = unescape_cfg_value(raw) if '"' in line else raw
-            path = Path(value)
-            if not path.is_absolute():
-                path = cfg.parent / path
-            (data if key == "data" else local).append(path)
-        elif key == "content" and raw:
-            content.append(raw)
-    return data + local, content
+    from wraithguard.openmw_cfg import read_cfg
+
+    got = read_cfg(cfg)
+    return [Path(d) for d in got["data"]], list(got["content"])
 
 
 def read_cfg_archives(cfg: Path, data_dirs: Sequence[Path]) -> list[Path]:
@@ -145,13 +129,9 @@ def read_cfg_archives(cfg: Path, data_dirs: Sequence[Path]) -> list[Path]:
     Returns:
         The archives found, in the cfg's order.
     """
-    names: list[str] = []
-    for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
-        m = _KEY_RE.match(line)
-        if m and m.group(1).lower() == "fallback-archive":
-            raw = cfg_line_value(line) or ""
-            if raw:
-                names.append(unescape_cfg_value(raw) if '"' in line else raw)
+    from wraithguard.openmw_cfg import read_cfg
+
+    names: list[str] = list(read_cfg(cfg)["archives"])
     vfs = _Vfs(data_dirs)
     out: list[Path] = []
     for name in names:

@@ -1,0 +1,144 @@
+Gardenfell: where its parts come from
+
+Gardenfell is Robin Hjelte's. The engine crates under crates/ and the command line are
+MIT (see LICENSE and each crate's own LICENSE). The page under page-source/ is built from
+parts, each saying at its top which licence it carries: MIT for Robin's own, GPL-2.0 for
+the seven renderer parts that carry code ported from MGE XE, which is GPL-2.0; the built
+Gardenfell.html and ui/index.html contain them all and are GPL-2.0 as a whole. This file
+names every piece that was taken from somewhere else or written to match something
+else's behaviour, so that nobody has to read the source to find out.
+
+What the engine grew from:
+
+  crates/                     the scattering and the engine side began from
+                              grass-experiments, Greatness7's Rust project, with
+                              wazabear and herbert, who helped on it. Shared with Robin
+                              under free permission ("Sure, free perms. It was planned to
+                              be MIT license if we ever got it releasable. Give credit to
+                              wazabear and herbert since they helped on it."); the
+                              collision semantics of the placement pass and the shape of
+                              the scatter are its, rewritten here as Gardenfell's own MIT
+                              code.
+
+Code ported into the page (GPL-2.0, MGE XE, https://github.com/Hrnchamd/MGE-XE, with
+the fork by G7 that Robin runs):
+
+  page-source/06_mge.js       what the renderer (06_gl.js, MIT) took from MGE XE, kept
+                              in one file and interpolated into its shaders: the grass
+                              wind (XE Mod Grass.fx, grassDisplacement), the grass cutout
+                              and wrap lighting, the static tonemap of XE FixedFuncEmu.fx,
+                              XE Common.fx's fogColourScatter, fogColour and fogColourSky
+                              with the sun-altitude terms, the shadow receiver of XE Mod
+                              Shadow.fx with its core-mod constants verbatim, and the
+                              point-light decode of ffeshader.cpp
+  page-source/26_water.js     XE Mod Water.fx and Sunshafts.fx
+  page-source/29_ssao.js      SSAO HQ.fx, based on ssao v09 by Knu, as distributed with
+                              MGE XE; used with the author's permission, given to Robin:
+                              "Totally OK to use code in the shader"
+  page-source/35_underwater.js  the under-water effects and XE Mod Caustics.fx
+  page-source/36_dof.js       Depth of Field.fx (v12 by Knu, tweaked by peachykeen)
+  page-source/37_shadow.js    rendershadow.cpp: the cascades, their placement and the
+                              caster rules, at MGE XE's numbers
+
+Code ported into the page under its own notice:
+
+  page-source/33_fxaa.js      FXAA 3.11 by Timothy Lottes, NVIDIA, under NVIDIA's notice,
+                              which the file carries; the MGE XE port is J. Böttcher's,
+                              and the tuning is his.
+
+Code ported into the engine (MIT, meshoptimizer, https://github.com/zeux/meshoptimizer):
+
+  crates/gardenfell-nif/src/triorder.rs  the vertex cache ordering (vcacheoptimizer.cpp,
+                              Tom Forsyth's algorithm with meshoptimizer's score table)
+                              and the overdraw ordering (overdrawoptimizer.cpp, Sander,
+                              Nehab and Barczak's cluster sort), ported line for line.
+                              meshoptimizer's notice, which the MIT licence asks be kept
+                              with the port:
+
+                              Copyright (c) 2016-2025 Arseny Kapoulkine
+
+                              Permission is hereby granted, free of charge, to any person
+                              obtaining a copy of this software and associated
+                              documentation files (the "Software"), to deal in the
+                              Software without restriction, including without limitation
+                              the rights to use, copy, modify, merge, publish, distribute,
+                              sublicense, and/or sell copies of the Software, and to
+                              permit persons to whom the Software is furnished to do so,
+                              subject to the following conditions:
+
+                              The above copyright notice and this permission notice shall
+                              be included in all copies or substantial portions of the
+                              Software.
+
+                              THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+                              KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+                              WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+                              PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+                              OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+                              OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+                              OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+                              SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Fonts:
+
+  page-source/fonts/          the wordmark is Alegreya, by Juan Pablo del Peral and Huerta
+                              Tipografica, under the SIL Open Font License 1.1
+                              (Alegreya-OFL.txt beside it). What the page embeds is a
+                              SemiBold instance of the variable font, subset to Latin and
+                              renamed "Gardenfell Wordmark", as the OFL asks of a modified
+                              version; the folder's README has the recipe.
+
+Behaviour matched in the engine, from reading another program's source and writing our
+own (no code copied; a line each so a reader knows what was looked at):
+
+  crates/gardenfell-rules     the .ini configuration format of Yacoby's Groundcover
+  crates/gardenfell-scatter   Generator (https://github.com/Yacoby/mw-groundcover-generator),
+                              which Gardenfell imports, and the placement conventions a
+                              config written for it expects (the height offset, the
+                              texture matching, the scale and rotation randomisation),
+                              kept so that the community's configs mean here what they
+                              meant there; where Gardenfell differs on purpose the code
+                              says so at the spot
+  crates/gardenfell-tes3      the record and subrecord layouts of the TES3 file formats,
+  crates/gardenfell-nif       and the NIF block types and flag values, were read from
+                              Greatness7's tes3 (https://github.com/Greatness7/tes3,
+                              its libs/nif/src/types/ for the NIF), with his permission
+                              given to Robin; the readers here are our own
+  crates/gardenfell-nif       how a NIF is read and drawn follows OpenMW's nifosg where
+                              the format alone does not decide (controllers, the morpher,
+                              the texture source byte, bounds)
+  crates/gardenfell-world     the load-order merge follows what the game and OpenMW do
+                              with deleted, moved and overridden references, read
+                              against Greatness7's merge_to_master as well
+                              (https://github.com/Greatness7/merge_to_master), with the
+                              differences recorded in esp-format.md
+  crates/gardenfell-install   plugins.rs orders the addons an openmw.cfg does not select
+                              as OpenMW's launcher orders them, written from that
+                              description (alphabetical, each master pulled up to just
+                              before the first file naming it, Bloodmoon after Tribunal);
+                              renderer.rs reads an OpenMW install's settings.cfg with the
+                              defaults OpenMW ships in settings-default.cfg (values, which
+                              are data), and computes a light's attenuation as
+                              NiPointLight::setAttenuationForRadius does, which MWSE
+                              (MIT) decompiles and OpenMW's configureLight reproduces
+  page-source/25_sky.js       the time-of-day interpolation of colours is OpenMW's
+                              TimeOfDayInterpolator, which reproduces the game's; the
+                              scattering constants are MGE XE's own (distantinit.cpp, data)
+                              and the fog distances follow how MGE XE turns its ini values
+                              into start and end (adjustFog), a formula and not its code,
+                              and OpenMW's FogManager::configure for an OpenMW install.
+                              The file is MIT.
+  page-source/27_weather.js   the weather particles are placed and turned as OpenMW's
+  page-source/28_particles.js SkyManager and nifosg do
+  page-source/10_preview.js   the controller cycle functions (interpKey, the Cycle,
+                              Reverse and Clamp modes, the slerp) follow OpenMW's
+
+Data:
+
+  The light attenuation defaults and the OpenMW settings defaults are the values those
+  programs ship. The fixture install under fixture/ is generated by mkfixture.js and every
+  plugin, mesh and texture under page-source/ has a generator beside it (t_fixtures
+  checks); none of it is Bethesda's. Three meshes some tests read when they are present,
+  ashcloud.nif and ex_stronghold_wall00.nif (Bethesda, out of Morrowind.bsa) and
+  rr_basket.nif (RR Better Meshes), sit only on the machine the tests run on and are kept
+  out of the repository by .gitignore; without them those tests say so and skip.

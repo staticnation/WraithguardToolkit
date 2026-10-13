@@ -19,19 +19,81 @@ Object.assign(WgEditor, {
     });
   },
 
+  /** The world changed (a connect): the tabs and the rows are asked for again. */
+  async worldChanged(){
+    this._cols=null; this._rowsProblem=null;
+    if(!this.on) return;                                  // `enter` asks when it opens
+    try{ this.tags=await Engine.call('editor_tags',{}); }catch(_){ }
+    if(!Array.isArray(this.tags)) this.tags=[];
+    if(!this.tags.some(t=>t[0]===this.tag) && this.tags.length) this.tag=this.tags[0][0];
+    this.fillTabs();
+    await this.loadTag(this.tag);
+  },
+
+  /** `editor_rows`' bytes -> {plugins, rows:[[id, name, model, [plugin ix...], placed]...]}
+   *  (the layout is beside `pack_rows` in commands.rs). Throws on anything malformed. */
+  unpackRows(buf){
+    const dv=new DataView(buf), td=new TextDecoder('utf-8'), u8=new Uint8Array(buf);
+    let at=0;
+    const need=n=>{ if(at+n>buf.byteLength) throw new Error('the rows ended early, at byte '+at+' of '+buf.byteLength); };
+    const u32=()=>{ need(4); const v=dv.getUint32(at,true); at+=4; return v; };
+    const str=()=>{ const n=u32(); need(n); const s=td.decode(u8.subarray(at,at+n)); at+=n; return s; };
+    need(8);
+    if(String.fromCharCode(u8[0],u8[1],u8[2],u8[3])!=='WGOR') throw new Error('the rows are not WGOR bytes');
+    at=4; if(u32()!==1) throw new Error('the rows are a version this page does not read');
+    const plugins=[]; for(let i=u32(); i>0; i--) plugins.push(str());
+    const rows=[];
+    for(let i=u32(); i>0; i--){
+      const id=str(), name=str(), model=str(), ix=[];
+      for(let k=u32(); k>0; k--) ix.push(u32());
+      rows.push([id, name, model, ix, u32()]);
+    }
+    return {plugins, rows};
+  },
+
   async loadTag(tag){
-    try{
-      const r=await Engine.call('editor_records',{tag});
-      this.plugins=r.plugins||[]; this.rows=r.rows||[];
-    }catch(e){ toast(String(e.message||e),'err',5000); this.rows=[]; }
-    if(tag===this.tag) this.drawRows();
+    // Static, 2026-10-13: never a silent empty list. A failed call, an answer that is not
+    // the rows (`Engine.call` hands back text it cannot read as JSON), or no rows for a tab
+    // the engine counts records in - each is said in Messages and in the table, with a
+    // Reload, rather than shown as "0 records".
+    // The rows come as bytes (`editor_rows`, no JSON); should that fail, the JSON list
+    // (`editor_records`) is the second way, and only both failing is a problem.
+    const want=(this.tags.find(t=>t[0]===tag)||[])[1]|0;
+    let problem=null, got=null, first=null;
+    try{ got=this.unpackRows(await Engine.bytes('editor_rows',{tag})); }
+    catch(e){ first=String(e && e.message || e); }
+    if(!got){
+      try{
+        const r=await Engine.call('editor_records',{tag});
+        if(r && typeof r==='object' && Array.isArray(r.rows)) got={plugins:r.plugins||[], rows:r.rows};
+        else{
+          const txt=typeof r==='string'? r : JSON.stringify(r);
+          problem='the engine\'s answer was not a list of records ('+(txt==null? 'nothing' : txt.length+' characters, starting '+JSON.stringify(String(txt).slice(0,120)))+')';
+        }
+      }catch(e){ problem=String(e && e.message || e); }
+      if(problem && first) problem=first+'; then '+problem;
+      else if(!problem && first && typeof WgLog==='object') WgLog.add('The '+(this.NAMES[tag]||tag)+' list came the second way: '+first, 'warn');
+    }
+    if(got){ this.plugins=got.plugins; this.rows=got.rows; } else this.rows=[];
+    // Rows that came but are none, for a tab counted with some: said in the table (with
+    // its Reload), not logged - the call itself worked.
+    const failed=!!problem;
+    if(!problem && !this.rows.length && want>0) problem='the engine counts '+want+' but sent none';
+    if(tag===this.tag){
+      this._rowsProblem=problem? {tag, text:problem} : null;
+      if(failed && typeof WgLog==='object') WgLog.add('The '+(this.NAMES[tag]||tag)+' list did not load: '+problem, 'err');
+      this.drawRows();
+    }
     // The type's own columns, as the Construction Set has them (Wraithguard reads them).
     if(this.canEdit() && this.links().editColumns && !(this._cols||{})[tag]){
       try{
         const c=await this.ask('editColumns', {tag});
         this._cols=this._cols||{}; this._cols[tag]=c;
         if(tag===this.tag && c.columns && c.columns.length) this.drawRows();
-      }catch(_){ }
+      }catch(e){
+        // Said, not swallowed: without them the table shows only the engine's columns.
+        if(typeof WgLog==='object') WgLog.add('The '+(this.NAMES[tag]||tag)+' columns did not load: '+String(e && e.message || e).replace(/^Wraithguard answered \d+:\s*/,''), 'err');
+      }
     }
   },
 
@@ -118,12 +180,15 @@ Object.assign(WgEditor, {
       h+='<tr class="'+(ed?'edited':'')+'" data-id="'+escHtml(r[0])+'">'+cols.map(t=>cell(t, r)).join('')+'</tr>';
     }
     h+='</tbody></table>';
+    const P=this._rowsProblem && this._rowsProblem.tag===this.tag && !this.rows.length? this._rowsProblem : null;
+    if(P) h+='<div class="edEmpty err" style="padding:8px 10px;color:var(--err,#e06c6c)">The list did not load: '+escHtml(P.text)+' <button class="btn sm" data-reload>Reload</button></div>';
     h+=this.moreHtml(rows.length, 'objects');
     const keep=box.scrollTop;
     box.innerHTML=h;
     box.scrollTop=keep;
     WgUI.sizeColumns(box.querySelector('table'), 'objects:'+this.tag+':'+cols.length);
     this.wireMore(box, 'objects', rows.length, ()=>this.drawRows());
+    const rl=box.querySelector('[data-reload]'); if(rl) rl.onclick=()=>this.worldChanged();
     box.querySelectorAll('th').forEach(th=>th.onclick=()=>{
       const k=+th.dataset.col; this.sort={col:k, dir:this.sort.col===k? -this.sort.dir : 1}; this.drawRows();
     });

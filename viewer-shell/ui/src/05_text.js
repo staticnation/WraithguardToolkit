@@ -1,3 +1,4 @@
+/* Gardenfell, 05_text.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    Everything the interface says that has no element of its own.
 
@@ -33,12 +34,12 @@ const TX_STRINGS = {
     ["Copied",
      "Load-order report, what a copy button says for a moment after it has copied."],
   "report.copyfail":
-    ["Could not copy \u2014 select the text and copy it by hand",
+    ["Could not copy. Select the text and copy it by hand",
      "Load-order report, said when the clipboard refused the write."],
   /* Round 17y: a room without a sky holds the Atmosphere switch off; this is the reason
      on hover. Round 17y also: the door button in the object dialogue. */
   "preview.sky_room":
-    ["Off in a room: an interior has no sky unless its cell is flagged to behave like an exterior. Your setting comes back when you leave.",
+    ["Off in interiors: an interior has no sky unless its cell is flagged to behave like an exterior. Your setting comes back when you leave.",
      "Left column, the tooltip on the dimmed Atmosphere row while an interior is up."],
   /* Said in script, so it has no element to take a default from: the never-accept-paint
      button changes what it says depending on whether this mesh is already on the list. */
@@ -79,10 +80,10 @@ const TX_STRINGS = {
      gate, and a card can only narrow what the rule already allowed. */
   /* Round 18q: the card's two folded sections, its name, and the canopy list. */
   "preview.mode_hint_simple":
-    ["A synthetic patch: instant, good for judging density and clustering.",
+    ["Terrain patch: Good for judging density and clustering.",
      "Left column, under the mode picker while Simplified is chosen."],
   "preview.mode_hint_cell":
-    ["The real landscape and every placed object. Slower; the only way to see clipping.",
+    ["The real landscape and every placed object. Slower, but the only way to see clipping.",
      "Left column, under the mode picker while Real cell is chosen."],
   "vp.nav_wasd_text":
     ["WASD navigation",
@@ -94,10 +95,10 @@ const TX_STRINGS = {
     ["Sky:",
      "Left column, under the Weather picker — the lead-in before the list of files the sky's colours were read from."],
   "preview.sky_src_none":
-    ["Sky: the game's own colours, until an install is connected.",
+    ["Sky: using default values, until an install is connected.",
      "Left column, under the atmosphere rows while nothing is connected."],
   "preview.sky_src_builtin":
-    ["no weather in the ini, the game's own colours",
+    ["no weather in the ini, using default values",
      "Left column, under the atmosphere rows — the ini or openmw.cfg had no [Weather] blocks."],
   /* Round 17m: the file is named, because it is no longer always MGE.ini — G7's fork of
      MGE XE keeps everything in mgeXE.toml — and because a detector whose guess is
@@ -118,8 +119,20 @@ const TX_STRINGS = {
   "preview.sky_src_renderer":
     ["{label} lighting",
      "Left column, under the atmosphere rows — the renderer whose lighting model the preview follows, by its own name (e.g. 'MGE-XE G7 Fork v0.20.0', 'OpenMW', 'Morrowind.exe, no MGE')."],
+  "preview.sky_src_wow":
+    ["Wonders of Water",
+     "Left column, under the atmosphere rows — the MWSE mod Wonders of Water is installed and its depth rule is followed under the water."],
+  "preview.renderer_wow":
+    ["Wonders of Water: under the surface the fog's start and end are × max(1 − depth/{units}, {min}) and the water's color × (1 − depth/{units}). Settings from {file}.",
+     "Hover text on the sources line — what Wonders of Water does to the underwater fog, and which config it was read from."],
+  "preview.renderer_wow_off":
+    ["Wonders of Water is installed but not acting: it is disabled or its depth-based clarity is off in {file}, or this install does not run MWSE on MGE XE.",
+     "Hover text on the sources line — Wonders of Water was found but the preview does not follow it, and why."],
+  "preview.renderer_wow_defaults":
+    ["the mod's own defaults (no Wonders of Water.json in the overwrite folder)",
+     "Hover text on the sources line — where Wonders of Water's settings came from when no config file was found."],
   "preview.renderer_model_mge":
-    ["MGE XE per-pixel lighting: 1/(q·d² + c) per lamp, the linear term dropped as its shader drops it; the lit colour tonemapped, not clamped; the grass takes sun and ambient only.",
+    ["MGE XE per-pixel lighting: 1/(q·d² + c) per lamp, with the linear term dropped as in its shader. The lit color is tonemapped, not clamped. Grass takes sun and ambient only.",
      "Hover text on the sources line — what the MGE lighting model is."],
   "preview.renderer_model_ffp":
     ["fixed pipeline (per vertex in the game): 1/(c + l·d + q·d²) per lamp, the sum clamped to white.",
@@ -145,7 +158,7 @@ const TX_STRINGS = {
     ["Cancel",
      "The option that changes nothing, in the second confirmation and the paste dialogue."],
   "top.connected_title":
-    ["Connected — click to connect a different {kind} install",
+    ["Connected. Click to connect a different {kind} install",
      "Top bar, the tooltip on the connect button of the install that is live; {kind} is \"MO2\", \"OpenMW\" or \"Data Files\"."],
   /* Round 18bv: the export report. Robin: "Why not make a new report button that appears
      in the message box after an export ... On pressing it, we open up an export report
@@ -191,7 +204,7 @@ const TX_STRINGS = {
     ["tint slider {pct}%",
      "Load-order report, under Ground tint; {pct} is the slider."],
   "report.tint_off":
-    [" — off, so nothing below is read by the grass",
+    [" (off, so nothing below is read by the grass)",
      "After that line while the tint is off."],
   "report.textures":
     ["Textures",
@@ -206,14 +219,14 @@ const TX_STRINGS = {
     ["native engine · {n} worker threads",
      "Top bar, the tooltip on the folder state; {n} is the engine's thread count."],
   "profiles.start_failed":
-    ["Could not open your profiles — starting from defaults. {err}",
+    ["Could not open your profiles. Starting from defaults. {err}",
      "Toast at start-up when the profile store could not be read."],
   /* Round 18ap: keyed for the language packs (wording-plan.md) — what 11_events.js says, first half. */
   "vp.noctx_title":
     ["3D preview unavailable",
      "The viewport, the big line when WebGL could not start."],
   "vp.noctx_body":
-    ["The rule editor and .toml export still work — only the viewport is affected.",
+    ["The rule editor and .toml export still work. Only the viewport is affected.",
      "The viewport, under that line, after the browser's own reason."],
   "paint.n_cells.one":
     ["{n} cell",
@@ -248,7 +261,7 @@ const TX_STRINGS = {
     ["Choose a cell to load.",
      "Left column, Preview: the status line under the cell button before one is chosen."],
   "connect.failed_partway":
-    ["The install could not be opened: {err}. Nothing is loaded — try connecting again.",
+    ["The install could not be opened: {err}. Nothing is loaded. Try connecting again.",
      "Toast when a connect threw part-way through and the page was left empty."],
   "cell.status_failed":
     ["That cell would not load: {err}",
@@ -275,7 +288,7 @@ const TX_STRINGS = {
     ["Scattering grass",
      "The busy card, and the bottom bar, while grass is scattered."],
   "busy.scattering_sub":
-    ["Scattering grass — {sub}",
+    ["Scattering grass: {sub}",
      "The bottom bar's form of that with progress; {sub} is \"cell 3 of 9\"."],
   "busy.cell_n_of":
     ["cell {done} of {total}",
@@ -285,7 +298,7 @@ const TX_STRINGS = {
      "The busy card while the grass is built for drawing."],
   /* Round 18ap: keyed for the language packs — the cell status line, the statistics box, the land-texture list and the cell picker (18_cellpreview.js). */
   "cell.status_loaded":
-    ["{name} — {cells}, {refs}",
+    ["{name}: {cells}, {refs}",
      "Left column, Preview: the status line under the cell button once a cell is loaded. {name} is the cell, {cells} and {refs} are the two counts below."],
   "cell.n_cells":
     ["{n} cell(s)",
@@ -309,8 +322,17 @@ const TX_STRINGS = {
     ["{n} reference(s) point at a master that is not loaded, so they cannot be identified and may duplicate",
      "The status line, appended when references name a master that is not in the load order."],
   "vp.recentred":
-    ["View recentred",
+    ["View recentered",
      "Toast after the recentre-view shortcut puts the camera back."],
+  "vp.door_tip":
+    ["Left click to go to {cell}",
+     "Viewport, round 18hf: the tip beside the pointer while Shift is held over a door that leads somewhere; {cell} is the cell's name. A Shift+click goes through."],
+  "find.count":
+    ["{i} of {n}",
+     "The find bar: which match is shown of how many."],
+  "find.none":
+    ["No matches",
+     "The find bar: the text typed is nowhere on screen."],
   "cell.st_water":
     ["water",
      "Statistics box (viewport, Real cell mode): the row for an interior's water."],
@@ -324,7 +346,7 @@ const TX_STRINGS = {
     ["Level from {level} · water flag from {flag}",
      "Statistics box: the water row's tooltip — which plugin set the level and which set the flag."],
   "cell.st_water_nobody":
-    ["nobody — the flag alone",
+    ["nobody (the flag alone)",
      "Statistics box: the water tooltip's {level} when no plugin set a level."],
   "cell.st_cell":
     ["cell",
@@ -350,6 +372,12 @@ const TX_STRINGS = {
   "cell.st_moved_in":
     ["moved in",
      "Statistics box, under references: references a later plugin moved into this cell."],
+  "cell.st_kept_deleted":
+    ["kept deleted",
+     "Statistics box, under references: records a later plugin wrote for a reference an earlier plugin had deleted. The game keeps the deleted flag, so they change nothing on screen."],
+  "cell.st_kept_deleted_tip":
+    ["A later plugin re-placed or moved a reference an earlier plugin had deleted. In the game deletion is a flag the reference keeps, so the later record edits a hidden object and nothing appears. The Construction Set shows it, the game does not.",
+     "Tooltip on the 'kept deleted' statistics row."],
   "cell.st_objects":
     ["objects found",
      "Statistics box: how many placed objects the loaded cells hold."],
@@ -375,7 +403,7 @@ const TX_STRINGS = {
     ["moths",
      "Statistics box: how many lamps in the scene carry Nocturnal Moths (only when that mod is installed)."],
   "cell.st_moths_tip":
-    ["MWSE - Nocturnal Moths is installed. {from} names {meshes} lantern mesh(es); {lamps} of the lamps in this scene wear one. They are drawn during the Lights picker’s night hours, and the Particles switch carries them.",
+    ["Nocturnal Moths (MWSE) is installed. {from} names {meshes} lantern mesh(es), and {lamps} of the lamps in this scene wear one. They are drawn during the Lights picker's night hours, and follow the Particles switch.",
      "Statistics box: the moths row's tooltip. {from} is where the lantern list came from (the mod's own list, or the one it ships with)."],
   "cell.moths_from_own":
     ["the mod’s own list",
@@ -408,7 +436,7 @@ const TX_STRINGS = {
     ["interior",
      "Left column, Preview: the cell button for an interior with no name."],
   "cell.btn_loaded_title":
-    ["{cell} — loaded; click to choose another",
+    ["{cell} is loaded. Click to choose another.",
      "The cell button's tooltip once a cell is loaded."],
   "cell.btn_title":
     ["Choose a cell to load",
@@ -435,7 +463,7 @@ const TX_STRINGS = {
     ["Interiors",
      "The cell picker: the filter button for interiors (shown when interiors are listed)."],
   "cell.pick_show_int_title":
-    ["Interiors have no landscape, so nothing is scattered in one yet — this is the first step towards them",
+    ["Interiors have no landscape, so nothing is scattered in one yet. This is the first step toward them.",
      "The cell picker: the Show interiors switch's tooltip."],
   "cell.pick_show_int":
     ["Show interiors",
@@ -473,7 +501,7 @@ const TX_STRINGS = {
     ["The map could not be read: {err}",
      "The cell picker's map, when the engine could not paint it; {err} is the engine's message."],
   "cell.map_empty":
-    ["Nothing to map — this load order has no exterior landscape.",
+    ["Nothing to map. This load order has no exterior landscape.",
      "The cell picker's map, when the world has no cell with a landscape."],
   "cell.map_tip_where":
     ["({x}, {y}) · {region}",
@@ -493,9 +521,23 @@ const TX_STRINGS = {
   "cell.map_current":
     ["loaded now",
      "The map's hover note: added after the name of the cell that is currently loaded."],
+  /* Round 18ff: the painted-cell marks. The palette glyph in a map cell's top-left corner
+     and beside the star in the list says the cell has paint in it; its note, and a line
+     in the map's hover note, say with what. {colours} is a comma-joined list of the
+     colours' names: the two cover colours by their tool names, and rule colours by the
+     rule they stand for. */
+  "cell.painted_tip":
+    ["Painted with {colours}",
+     "The painted-cell mark's note, and a line of the map's hover note on a painted cell. {colours} is the list of colour names."],
+  "cell.painted_objects":
+    ["some of it on objects standing here",
+     "Added after the painted line when part of the paint lies on objects (rocks, trees) in the cell rather than on its ground."],
+  "cell.painted_unknown_colour":
+    ["a color no longer in the palette",
+     "Stands in the painted line for a colour whose swatch has been removed."],
   /* Round 18ap: keyed for the language packs — the object dialogue (verdicts, paint, canopies) and the two pattern lists (18_cellpreview.js). */
   "connect.cell_preview":
-    ["Connect a setup first — cell preview needs the plugin data.",
+    ["Connect a setup first. Cell preview needs the plugin data.",
      "Toast when Real cell mode is chosen before a setup is connected."],
   /* Round 18ap: keyed for the language packs — the statics export list (18_cellpreview.js). */
   /* Round 18ap: keyed for the language packs — the rules list, the rule head, the paste dialogue, the pickers and the scope field (09_ui.js). */
@@ -506,7 +548,7 @@ const TX_STRINGS = {
     ["Create",
      "The name-it dialogue's confirming button when the caller gives no wording."],
   "name.taken":
-    ["There is already a rule called that. Both will work — they are told apart by what they are, not by what they are called — but the two will be hard to tell apart in a list.",
+    ["There is already a rule called that. Both will work, since they are told apart by what they are and not by their name, but the two will be hard to tell apart in a list.",
      "The name-it dialogue: the warning under the field when the name is already in use."],
   /* Round 18ap: keyed for the language packs — the slots and bans sections and the grass card (09_ui.js). */
   "card.tag_no_folder":
@@ -525,7 +567,7 @@ const TX_STRINGS = {
     ["Click for the plugin load order and asset report",
      "Top bar: the connected-setup label's tooltip."],
   "report.order_read":
-    ["Read from {source} — {n} plugin(s), in the order the game loads them. Later entries override earlier ones. This should match MO2's right pane top-to-bottom.",
+    ["Read from {source}: {n} plugin(s), in the order the game loads them. Later entries override earlier ones. This should match MO2's right pane top-to-bottom.",
      "The report dialogue: where the load order came from; {source} is bold."],
   "report.order_none":
     ["<b>No plugin load order found.</b> Looked for the MO2 profile's Morrowind.ini [Game Files], then loadorder.txt / plugins.txt, then Morrowind.ini in Data Files. Texture and region checking stays off until one is found.",
@@ -548,7 +590,7 @@ const TX_STRINGS = {
   /* Round 18ap: keyed for the language packs — the land-texture picker and the colour rule picker. */
   /* Round 18ap: keyed for the language packs — the files folder and its move (19_settings.js). */
   "profiles.not_saved_read":
-    ["profile not saved — settings could not be read: {err}",
+    ["profile not saved, settings could not be read: {err}",
      "The report dialogue: a warning when the settings could not be gathered for saving."],
   "profiles.not_saved":
     ["profile not saved: {err}",
@@ -653,8 +695,22 @@ const TX_STRINGS = {
     ["map: {cells} cells read ahead in {ms} ms",
      "The connect log: the cell picker's map, read at the connect so the picker opens at once."],
   "connect.log_map_failed":
-    ["map: not read ahead — {err}",
+    ["map: not read ahead ({err})",
      "The connect log, when the cell picker's map could not be read at the connect; {err} is the reason. The picker reads it again when opened."],
+  /* Round 18ga: the mesh table behind the retextures panel and the texture grid is built at the
+     connect, as its last step, so the mesh editor never waits on it. */
+  "busy.reading_meshes":
+    ["indexing meshes for retextures…",
+     "The connect's busy card, while every mesh is fingerprinted for the retextures panel and the texture grid, before the mesh count is known."],
+  "busy.reading_meshes_n":
+    ["indexing meshes for retextures… {done} of {total}",
+     "The connect's busy card, while every mesh is fingerprinted: {done} and {total} are mesh counts."],
+  "connect.log_mesh_scan":
+    ["retextures: {meshes} meshes indexed in {ms} ms, {read} read from file",
+     "The connect log: the mesh table behind the retextures panel and the texture grid. {read} is how many files were opened; the rest came from the disk index."],
+  "connect.log_mesh_scan_failed":
+    ["retextures: not indexed ahead ({err})",
+     "The connect log, when the mesh table could not be built at the connect; {err} is the reason. The mesh editor builds it when needed."],
   "busy.indexing":
     ["indexing cells and assets…",
      "The busy overlay's second line: reading the plugins and listing the assets."],
@@ -677,13 +733,13 @@ const TX_STRINGS = {
     ["{meshes} mesh files and {textures} textures indexed",
      "The connect log: the asset index."],
   "connect.log_archives.one":
-    ["{n} archive read — {names} — {packed} packed files behind the loose ones",
+    ["{n} archive read ({names}), {packed} packed files behind the loose ones",
      "The connect log: the .bsa archives read (one)."],
   "connect.log_archives.other":
-    ["{n} archives read — {names} — {packed} packed files behind the loose ones",
+    ["{n} archives read ({names}), {packed} packed files behind the loose ones",
      "The connect log: the .bsa archives read."],
   "connect.log_no_archives":
-    ["no .bsa archives read — the load order names none and the install has none",
+    ["no .bsa archives read. The load order names none and the install has none",
      "The connect log when no archive was read."],
   "connect.log_order":
     ["load order from {file}",
@@ -703,11 +759,17 @@ const TX_STRINGS = {
   "connect.log_refs":
     ["{kept} references kept, {overridden} overridden, {deleted} deleted, {moved} moved",
      "The connect log: how the plugins' references merged."],
+  "connect.log_refs_kept_deleted":
+    [", {n} kept deleted (edited after an earlier plugin deleted them, and the game keeps the flag)",
+     "The connect log: appended to the references line when a later plugin edited references an earlier one had deleted."],
+  "connect.log_merge_rules":
+    ["{dropped} moves dropped (the MVRF named another reference), {relocated} references taken out of a cell an earlier move put them in, {cells} cells deleted, {flag} records deleted by their header flag alone, {lands} landscapes given flat default ground (no heights in the record), {blocks} landscape blocks switched off by their DATA flags",
+     "The connect log: the merge rules that round 18gf changed, each with its count. Shown only when at least one count is above zero, so a plugin that comes out different can be explained."],
   "connect.log_mcp":
     ["Morrowind Code Patch: {n} features applied",
      "The connect log: the Code Patch was found."],
   "connect.log_mcp_banners":
-    ["\"Improved animation support\" is on, under which the game's scripted banners hang still; here they wave outdoors all the same",
+    ["\"Improved animation support\" is on, so the game's scripted banners hang still. Here they wave outdoors all the same",
      "The connect log: appended when that Code Patch feature is on."],
   "connect.log_missing":
     ["plugin not found in the overlay: {list}",
@@ -716,13 +778,13 @@ const TX_STRINGS = {
     ["{n} active mods",
      "The toast after connecting (MO2): the mod count, before the plugin count."],
   "connect.toast":
-    ["{plugins} plugins, {cells} cells — {ms} ms",
+    ["{plugins} plugins, {cells} cells ({ms} ms)",
      "The toast after connecting a setup."],
   /* Round 18bi: the plugin chooser. Robin asked for it so a mod creator can see their own
      work without the rest of a 562-plugin order underneath it. */
   /* Round 18ap: keyed for the language packs — the simplified preview and mesh loading (10_preview.js). */
   "report.mesh_missing":
-    ["mesh missing — {path}",
+    ["mesh missing: {path}",
      "The report dialogue: a mesh the engine could not read."],
   "report.not_a_mesh":
     ["the engine sent something that is not a mesh",
@@ -735,10 +797,10 @@ const TX_STRINGS = {
      "A grass card's swatch tooltip: the engine's mesh bundle had no entry for it."],
   /* Round 18ap: keyed for the language packs — the asset browser (12_browser.js). */
   "browse.fav_failed":
-    ["Could not save that favourite: {err}",
+    ["Could not save that favorite: {err}",
      "Toast when starring an entry could not be saved."],
   "browse.star_on_title":
-    ["Starred — kept at the top of every picker of this kind",
+    ["Starred. Kept at the top of every picker of this kind",
      "The star on a picker row: its tooltip while starred."],
   "browse.star_off_title":
     ["Star this, to keep it at the top of every picker of this kind",
@@ -760,13 +822,48 @@ const TX_STRINGS = {
   /* Round 18ap: keyed for the language packs — leftovers found by the markup walk. */
   "preview.grassfar_cells.one":
     ["{n} cell",
-     "Left column, Preview: the grass-distance slider's value."],
+     "Viewport, the grass distance pill: the slider's value."],
   "preview.grassfar_cells.other":
     ["{n} cells",
      "Left column, Preview: the grass-distance slider's value."],
   "preview.grassfar_off":
     ["Off",
      "Left column, Preview: the grass-distance slider's value at zero."],
+  /* Gardenfell 18hi: the room's view distance, in its pill at the top of the viewport. */
+  "vp.viewfar_cells.one":
+    ["{n} cell",
+     "Viewport, the view distance pill (interiors): the slider's value, in half cells."],
+  "vp.viewfar_cells.other":
+    ["{n} cells",
+     "Viewport, the view distance pill (interiors): the slider's value, in half cells."],
+  "vp.viewfar_far":
+    ["No limit",
+     "Viewport, the view distance pill: the slider at its top, where everything is drawn."],
+  /* Wraithguard: distant land (57_wg_distant.js). */
+  "preview.distant":
+    ["Distant land",
+     "Left column, Preview, Scene: the switch for the ground past the loaded rings."],
+  "preview.distant_objects":
+    ["Distant objects",
+     "Left column, Preview, Scene: the switch for what stands on the distant land."],
+  "preview.distant_objects_title":
+    ["The buildings, rocks and trees on the distant land, as OpenMW pages them: simplified, the further the more, and only what is big enough to see from here. Follows Distant land until switched. Preview only.",
+     "Left column, Preview, Scene: the Distant objects switch's tooltip."],
+  "preview.distant_simplify":
+    ["Distant simplify",
+     "Left column, Preview, Scene: how the distant objects are simplified."],
+  "preview.distant_simplify_title":
+    ["How the distant objects are simplified. Plain keeps the shape first. Texture-aware keeps more where the texture on the surface is busy and where it bends, so detailed walls and carvings hold up better.",
+     "Left column, Preview, Scene: the Distant simplify control's tooltip."],
+  "preview.distant_simplify_plain":
+    ["Plain",
+     "Left column, Preview, Scene, Distant simplify: shape first."],
+  "preview.distant_simplify_texture":
+    ["Texture-aware",
+     "Left column, Preview, Scene, Distant simplify: more kept where the texture is busy."],
+  "preview.distant_title":
+    ["The exteriors past the loaded rings, out to your install's view distance: their ground, coarse, coloured as it is, and the sea over it. On when the install draws distant land (OpenMW's distant terrain, MGE's distant land) and when the viewer cannot tell. Preview only.",
+     "Left column, Preview, Scene: the Distant land switch's tooltip."],
   /* Round 18aq: the language picker in Settings (19_settings.js). */
   /* Round 18cg: the colour themes, by name. Names rather than descriptions — the row a
      name sits in is painted in that theme's own colours, so what it looks like is shown
@@ -796,34 +893,34 @@ const TX_STRINGS = {
     ["The Firmament",
      "Settings, Theme: a palette — dark greys and starlight, Masser's rust for the warm colours; the quiet one."],
   "settings.theme_unknown":
-    ["A theme this version has not got",
+    ["A theme this version does not have",
      "Settings, Theme: the entry for a theme the profile names and this build has no colours for; its code is shown beside it."],
   "settings.lang_english":
     ["English (built in)",
      "Settings, Language: the picker's first entry — the wording built into the program."],
   "settings.lang_pack_option":
-    ["{name} — {translated} of {total} translated",
+    ["{name} ({translated} of {total} translated)",
      "Settings, Language: a pack in the picker, by its own name, with its coverage."],
   "settings.lang_pack_broken":
-    ["{name} — could not be read",
+    ["{name} (could not be read)",
      "Settings, Language: a pack file the engine could not read, greyed in the picker."],
   "settings.lang_pack_missing_option":
-    ["{code} — not found",
+    ["{code} (not found)",
      "Settings, Language: the picker entry for the language the profile asks for when no pack provides it."],
   "settings.lang_note":
-    ["Packs are gardenfell.<code>.toml files in {dir} — the languages folder under where your files are kept, so they move with the rest. Drop one there and choose it here; the choice is saved in your profile. Text the program draws as you work catches up as it is redrawn.",
+    ["Packs are gardenfell.<code>.toml files in {dir}, the languages folder under where your files are kept. Drop one there and choose it here. The choice is saved in your profile. Text already drawn updates as it is redrawn.",
      "Settings, Language: the note under the picker; {dir} is the languages folder."],
   "settings.lang_missing_note":
-    ["This profile asks for {file}, which is not in that folder — English until it is.",
+    ["This profile asks for {file}, which is not in that folder. English is used until it is.",
      "Settings, Language: the note when the profile's pack is not on this machine."],
   "settings.lang_broken_note":
     ["{file} could not be read: {err}",
      "Settings, Language: the note when the chosen pack file will not parse."],
   "settings.lang_pack_note":
-    ["{name} by {author}, made for the cell viewer {madeFor} — {translated} of {total} strings translated; the rest show English.",
+    ["{name} by {author}, made for the cell viewer {madeFor}. {translated} of {total} strings translated, the rest show English.",
      "Settings, Language: the note describing the chosen pack."],
   "settings.lang_orphans_note":
-    ["{n} of its keys are not in this version of the cell viewer any more — kept in the file, not used. Refresh this pack to sort them to the end.",
+    ["{n} of its keys are no longer in this version of the cell viewer. They are kept in the file but not used. Refreshing this pack sorts them to the end.",
      "Settings, Language: appended when the pack has keys the catalogue lacks."],
   "settings.lang_problems_note.one":
     ["{n} line could not be used:",
@@ -835,13 +932,13 @@ const TX_STRINGS = {
     ["line {line}, {key}: {what}",
      "Settings, Language: one refused line of the pack — its line number, key and reason."],
   "settings.lang_problems_toast":
-    ["{name}: {n} line(s) could not be used — Settings says which.",
+    ["{name}: {n} line(s) could not be used. Settings says which.",
      "Toast when a pack with refused lines is applied."],
   "settings.lang_missing_toast":
-    ["This profile asks for the language pack {file}, which is not in {dir}. English until it is.",
+    ["This profile asks for the language pack {file}, which is not in {dir}. English is used until it is.",
      "Toast at start-up (and on switching profile) when the profile names a pack the machine lacks."],
   "settings.lang_switched":
-    ["Now speaking {name}. Text the program draws as you work catches up as it is redrawn.",
+    ["Language set to {name}. Text already drawn updates as it is redrawn.",
      "Toast after a language pack is chosen."],
   "settings.lang_switched_english":
     ["Back to English.",
@@ -851,19 +948,19 @@ const TX_STRINGS = {
     ["New language file",
      "Settings, Language: the title of the two questions Create new language file asks."],
   "settings.lang_new_code_body":
-    ["The language's code, as in BCP 47 — sv, de, pt-BR, zh-Hans. It names the file: gardenfell.<code>.toml.",
+    ["The language's code, as in BCP 47 (sv, de, pt-BR, zh-Hans). It names the file: gardenfell.<code>.toml.",
      "Settings, Language: the first question — the code."],
   "settings.lang_new_next":
     ["Next",
      "Settings, Language: the button that takes the code and asks for the name."],
   "settings.lang_new_taken":
-    ["A pack with that code is already in the languages folder — choose it in the picker, or pick another code.",
+    ["A pack with that code is already in the languages folder. Choose it in the picker, or pick another code.",
      "Settings, Language: the warning under the code field when a pack for that code exists."],
   "settings.lang_new_name_body":
-    ["What the language calls itself — Svenska, Deutsch, Português do Brasil. This is what the picker shows for {file}.",
+    ["What the language calls itself (Svenska, Deutsch, Português do Brasil). This is what the picker shows for {file}.",
      "Settings, Language: the second question — the name; {file} is the pack file about to be made."],
   "settings.lang_created":
-    ["Created {file} — every string listed with its English above. Fill it in, then choose it here; Refresh this pack brings it up to date after a new version of Gardenfell.",
+    ["Created {file}. Every string is listed with its English above. Fill it in, then choose it here. Refresh this pack brings it up to date after a new version of Gardenfell.",
      "Toast after Create new language file."],
   "settings.lang_create_failed":
     ["Could not create the language file: {err}",
@@ -872,7 +969,7 @@ const TX_STRINGS = {
     ["Could not open the folder: {err}",
      "Toast when Open folder or Open languages folder could not start the file browser; {err} is the engine's reason."],
   "settings.lang_updated":
-    ["Refreshed {file} — {added} new strings added empty, {orphans} no longer used; the old file is kept as {backup}.",
+    ["Refreshed {file}. {added} new strings added empty, {orphans} no longer used. The old file is kept as {backup}.",
      "Toast after Refresh this pack."],
   "settings.lang_update_failed":
     ["Could not refresh the pack: {err}",
@@ -880,7 +977,7 @@ const TX_STRINGS = {
   /* Round 18ar: engine messages worded from the catalogue — the rules validation (validate.rs). */
   /* Round 18ar: engine messages worded from the catalogue — profiles, rules sets, connecting, the preview patch, language packs. */
   "eng.not_mo2_folder":
-    ["{path} does not look like an MO2 folder — expected mods\\ and profiles\\ inside it",
+    ["{path} does not look like an MO2 folder. Expected mods\\ and profiles\\ inside it.",
      "An engine error (layout.rs, main.rs): connecting MO2 from the wrong folder."],
   "eng.mo2_dir_missing":
     ["ModOrganizer.ini points {key} at {path}, which is not there",
@@ -892,10 +989,10 @@ const TX_STRINGS = {
     ["no profiles found in MO2",
      "An engine error (layout.rs, main.rs): the MO2 folder has no profiles."],
   "eng.mo2_profile_missing":
-    ["profile \"{wanted}\" is missing; using \"{used}\"",
+    ["profile \"{wanted}\" is missing, using \"{used}\"",
      "A connect warning (layout.rs): the remembered MO2 profile is gone."],
   "eng.mo2_no_game_path":
-    ["could not find the game's Data Files from ModOrganizer.ini gamePath — vanilla assets and the DLC will be missing",
+    ["could not find the game's Data Files from ModOrganizer.ini gamePath. Vanilla assets and the DLC will be missing.",
      "A connect warning (layout.rs)."],
   "eng.mo2_modlist_unreadable":
     ["cannot read {path}\\modlist.txt: {err}",
@@ -904,7 +1001,7 @@ const TX_STRINGS = {
     ["{n} enabled mod(s) listed in modlist.txt are not in mods\\",
      "A connect warning (layout.rs)."],
   "eng.mo2_no_order":
-    ["no plugin load order found — looked for [Game Files] in {path}\\Morrowind.ini and in the game folder",
+    ["no plugin load order found. Looked for [Game Files] in {path}\\Morrowind.ini and in the game folder.",
      "An engine error (layout.rs): MO2 connect found no load order."],
   "eng.openmw_no_data":
     ["no usable data= directories in {path}",
@@ -912,23 +1009,38 @@ const TX_STRINGS = {
   "eng.openmw_data_missing":
     ["{n} data= director(ies) in openmw.cfg do not exist",
      "A connect warning (layout.rs)."],
+  "eng.openmw_chain":
+    ["openmw.cfg read as a chain of {n} files, in OpenMW's order: {files}",
+     "A connect log line (layout.rs): the OpenMW config files read, when there was more than one."],
+  "eng.code_page_ini":
+    ["Plugin text is read and written as {page}, the code page the Morrowind.ini is written in.",
+     "A connect log line (layout.rs): the code page the install's text is in, when it is not Windows-1252. The Russian edition writes Windows-1251."],
+  "eng.code_page_openmw":
+    ["Plugin text is read and written as {page}, as encoding={name} in openmw.cfg says.",
+     "A connect log line (layout.rs): the code page an OpenMW install names, when it is not Windows-1252."],
   "eng.not_a_folder":
     ["{path} is not a folder",
      "An engine error (layout.rs): the chosen Data Files path is not a folder."],
+  "eng.data_files_stepped_in":
+    ["{picked} holds no plugins, so its Data Files folder is used instead.",
+     "A connect log line (layout.rs): the game folder was picked for Connect Data Files and the tool stepped into its Data Files."],
+  "eng.ini_in_data_files":
+    ["{file} was passed over: the load order is read from the Morrowind.ini in the game folder, beside Data Files.",
+     "A connect log line (layout.rs): a second Morrowind.ini sits inside Data Files; the game folder's own is the one read."],
   "eng.no_meshes_folder":
-    ["no Meshes\\ folder here — is this really Data Files?",
+    ["no Meshes\\ folder here. This does not look like Data Files.",
      "A connect warning (layout.rs)."],
   "eng.pack_no_language":
-    ["no [language] table — a pack starts with [language] and its code",
+    ["no [language] table. A pack starts with [language] and its code.",
      "An engine error (lang.rs): a language pack without its header."],
   "eng.pack_no_code":
-    ["[language] has no code — \"sv\", \"pt-BR\", \"zh-Hans\"",
+    ["[language] has no code (for example \"sv\", \"pt-BR\", \"zh-Hans\")",
      "An engine error (lang.rs): a language pack whose header has no code."],
   "eng.pack_bad_code":
-    ["[language] code {code} is not a language tag — letters, digits and hyphens only",
+    ["[language] code {code} is not a language tag. Letters, digits and hyphens only.",
      "An engine error (lang.rs): a language pack with a malformed code. {code} is quoted."],
   "eng.pack_code_en":
-    ["en is English itself, the wording built in — a pack needs a code of its own, such as en-GB",
+    ["en is the built-in English. A pack needs a code of its own, such as en-GB.",
      "An engine error (lang.rs): Create new language file was given the code en."],
   "eng.pack_not_found":
     ["no language pack {file} in {dirs}",
@@ -937,13 +1049,13 @@ const TX_STRINGS = {
     ["not a string",
      "A language pack line refused (lang.rs): the value is not a string."],
   "eng.pack_placeholders":
-    ["placeholders differ — the English has {english}, this has {pack}",
+    ["placeholders differ. The English has {english}, this has {pack}.",
      "A language pack line refused (lang.rs): its placeholders differ from the English's."],
   "eng.pack_stray_lt":
-    ["a stray < — write &lt; for a less-than sign",
+    ["a stray <: write &lt; for a less-than sign",
      "A language pack line refused (lang.rs): a < that is not a tag."],
   "eng.pack_tag":
-    ["uses <{tag}>, which the English does not — a pack may use only the tags its English uses",
+    ["uses <{tag}>, which the English does not. A pack may use only the tags its English uses.",
      "A language pack line refused (lang.rs): a tag the English does not use."],
   /* Round 18ar: engine messages worded from the catalogue — the desktop shell commands (src-tauri/src/main.rs). */
   "eng.no_install":
@@ -956,7 +1068,7 @@ const TX_STRINGS = {
     ["no interior called {name}",
      "An engine error (src-tauri/src/main.rs): an interior the load order does not have."],
   "eng.pack_exists":
-    ["{file} is already there — choose it in Settings, or give the new one another code",
+    ["{file} is already there. Choose it in Settings, or give the new one another code.",
      "An engine error (src-tauri/src/main.rs): Create new language file found the pack already on disk."],
   "eng.pack_missing_file":
     ["no language pack {file}",
@@ -971,7 +1083,7 @@ const TX_STRINGS = {
     ["could not read {path}",
      "An engine error (src-tauri/src/main.rs): a file in the load order that would not read."],
   "eng.order_no_plugins":
-    ["{file} lists no plugins — expected [Game Files] GameFile0=… or content=… lines",
+    ["{file} lists no plugins. Expected [Game Files] GameFile0=… or content=… lines.",
      "An engine error (src-tauri/src/main.rs): connecting a setup whose load-order file names no plugins."],
 };
 

@@ -489,6 +489,9 @@ def test_scan_load_order(tmp_path):
 def test_read_cfg_and_main(tmp_path, capsys):
     mod = tmp_path / "mods" / "a"
     _write(mod / "A.omwscripts", "GLOBAL: scripts/a.lua\n")
+    # Folders that are not there are reported, not loaded (as OpenMW and the viewer).
+    (tmp_path / "mods" / "b").mkdir()
+    (tmp_path / "local").mkdir()
     cfg = tmp_path / "openmw.cfg"
     cfg.write_text(
         'data="mods/a"\ndata=mods/b\ndata-local=local\n'
@@ -952,7 +955,11 @@ def test_rust_teal_mapping_matches_the_python_one(tmp_path):
     (resources / "lua_api" / "openmw").mkdir(parents=True)
     assert oa.find_resources(None, resources.parent) == oa.find_resources_py(None, resources.parent)
     cfg = tmp_path / "openmw.cfg"
-    cfg.write_text('data="x"\nResources = "OpenMW/resources"\n', encoding="utf-8")
+    # The shared cfg reader (`read_cfg`), as OpenMW: keys are matched as written, so a
+    # `Resources=` line names nothing; spaces round the `=` and quotes are fine.
+    cfg.write_text(
+        'data="x"\nResources = "elsewhere"\nresources = "OpenMW/resources"\n', encoding="utf-8"
+    )
     assert oa.find_resources(cfg) == oa.find_resources_py(cfg) == resources
 
 
@@ -990,3 +997,17 @@ def test_rust_charts_match_the_python_ones():
     from wraithguard.lua.flowchart import render as render_chart
 
     assert render_chart(nodes, edges) == render_py(nodes, edges)
+
+
+def test_find_resources_follows_the_cfg_chain(tmp_path, monkeypatch):
+    """``resources=`` set in a chained cfg (``config=``), read as OpenMW reads it."""
+    from wraithguard.lua.openmw_api import find_resources_py
+
+    monkeypatch.delenv("WG_OPENMW_RESOURCES", raising=False)
+    res = tmp_path / "OpenMW" / "resources"
+    (res / "lua_api" / "openmw").mkdir(parents=True)
+    (tmp_path / "user").mkdir()
+    (tmp_path / "user" / "openmw.cfg").write_text(f'resources="{res}"\n', encoding="utf-8")
+    cfg = tmp_path / "openmw.cfg"
+    cfg.write_text(f'config="{tmp_path / "user"}"\n', encoding="utf-8")
+    assert find_resources_py(cfg) == res

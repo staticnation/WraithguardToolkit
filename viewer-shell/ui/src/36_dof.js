@@ -1,3 +1,5 @@
+/* Gardenfell, 36_dof.js. Copyright (c) 2026 Robin Hjelte. GNU General Public License, version 2
+   (see page-source/LICENSE): this file carries code ported from MGE XE, which is GPL-2.0. */
 /* =====================================================================================
    Depth of field - round 18dy, a port of "Depth of Field.fx" (v12 by Knu, tweaked by
    peachykeen; MGE XE 0), the entry second from last in Robin's own shader chain.
@@ -112,6 +114,12 @@ void main(){
 }`;
 
 Object.assign(Renderer.prototype,{
+  /** The two depth-of-field programs, built once; `warmShaders` (06_gl.js, round 18gt)
+   *  builds them at start-up. */
+  _ensureDof(){
+    if(!this.progDofCoc){ this.progDofCoc=this._prog(VS_BLIT,FS_DOF_COC); this.progDofBlur=this._prog(VS_BLIT,FS_DOF_BLUR); }
+    return this.progDofCoc;
+  },
   /** What the pass should do this frame, or null for nothing.
    *
    *  'full' with the switch on. 'fog' with it off but the fog starting behind the eye,
@@ -170,7 +178,7 @@ Object.assign(Renderer.prototype,{
     if(!mode || !src || !src.ok) return false;
     const mid=this._dofTarget('A',T.W,T.H);
     if(!mid.ok) return false;
-    if(!this.progDofCoc){ this.progDofCoc=this._prog(VS_BLIT,FS_DOF_COC); this.progDofBlur=this._prog(VS_BLIT,FS_DOF_BLUR); }
+    this._ensureDof();
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.depthMask(false);
     gl.bindVertexArray(null);
     const pair=this.dofFogPair()||[0,1];

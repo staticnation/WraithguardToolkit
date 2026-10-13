@@ -45,6 +45,15 @@ encoding_rs = "0.8"
 # OpenMW Lua scripts in plain Rust (lexer, parser, checks, the load-order scan, the API
 # tables, reports and charts), shared with the viewer's engine (viewer-shell/luacore).
 luacore = { path = "../viewer-shell/luacore" }
+# The openmw.cfg reader (data folders, content, groundcover, archives, chained cfgs) the
+# viewer's engine uses, so the Editor reads a setup as the viewer does
+# (viewer-shell/ordercore).
+ordercore = { path = "../viewer-shell/ordercore" }
+# The mesh viewer's Optimise (src/nif_order.rs): Gardenfell's triangle order (`triorder`,
+# Robin Hjelte's port of meshoptimizer's vertex cache and overdraw passes) and our port
+# of its vertex fetch order and analysers. Both std only.
+gardenfell-nif = { path = "../viewer-shell/gardenfell/crates/gardenfell-nif" }
+meshopt-port = { path = "../viewer-shell/meshopt-port" }
 # The Teal compiler (tl 0.24.8, MIT) in an embedded Lua 5.4 (mlua, vendored), for checking
 # OpenMW Lua and Teal scripts (src/lua). ynishi/htl, MIT OR Apache-2.0. Without its `pkg`
 # feature: no project manifests here, only files and folders of declarations.

@@ -43,7 +43,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from wraithguard.configurator.cfglines import cfg_line_value, unescape_cfg_value
 from wraithguard.logging_setup import get_logger
 from wraithguard.lua.analysis import Finding, bound_names
 from wraithguard.lua.api import API, ApiVersion, for_version
@@ -56,7 +55,6 @@ if TYPE_CHECKING:
 
 LOG = get_logger(__name__)
 
-_KEY_RE = re.compile(r"^\s*resources\s*=", re.IGNORECASE)
 _INVALID_KEY_RE = re.compile(
     r"^invalid key '([^']*)' in .*?\b(?:type|of type) (?:record )?([A-Za-z0-9_]+__[A-Za-z0-9_]+)\b"
 )
@@ -115,10 +113,10 @@ def find_resources(cfg: Path | None = None, explicit: Path | None = None) -> Pat
 def find_resources_py(cfg: Path | None = None, explicit: Path | None = None) -> Path | None:
     """The ``resources`` folder of the OpenMW install a setup runs on, in Python.
 
-    Tried in order: ``explicit``; ``WG_OPENMW_RESOURCES``; a ``resources=`` line in the
-    cfg (relative to the cfg's folder), and the folder OpenMW's global openmw.cfg names
-    when the cfg's own ``data=`` folders sit in an install; then the usual install places
-    (the newest first). Only a folder with ``lua_api/openmw`` counts.
+    Tried in order: ``explicit``; ``WG_OPENMW_RESOURCES``; the ``resources=`` the cfg chain
+    sets, read as OpenMW reads it (:func:`wraithguard.openmw_cfg.read_cfg`: the
+    highest-priority cfg's value, relative to that cfg, tokens resolved); then the usual
+    install places (the newest first). Only a folder with ``lua_api/openmw`` counts.
 
     Args:
         cfg: The setup's openmw.cfg.
@@ -135,14 +133,14 @@ def find_resources_py(cfg: Path | None = None, explicit: Path | None = None) -> 
     if env:
         tried.append(Path(env))
     if cfg is not None:
+        from wraithguard.openmw_cfg import read_cfg
+
         try:
-            for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
-                if _KEY_RE.match(line):
-                    raw = unescape_cfg_value(cfg_line_value(line) or "")
-                    p = Path(raw)
-                    tried.append(p if p.is_absolute() else cfg.parent / p)
+            resources = read_cfg(cfg).get("resources")
         except OSError:
-            pass  # an unreadable cfg names no folder; the other places are still tried
+            resources = None  # an unreadable cfg names no folder; the others are still tried
+        if resources:
+            tried.append(Path(resources))
     for pattern in _INSTALL_GLOBS:
         base = Path(pattern).expanduser()
         if "*" in pattern:

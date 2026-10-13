@@ -1208,7 +1208,9 @@ class EditorLinkMixin:
         source = text if text is not None else str(values.get("script_text") or "")
         compiler = session.script_compiler(extra)
         return self._json(
-            session.result_check(source, str(values.get("speaker_id") or ""), compiler)
+            session.result_check(
+                source, str(values.get("speaker_id") or ""), compiler, stored=text is None
+            )
         )
 
     def _on_edit_uses(self, body: bytes) -> Payload:

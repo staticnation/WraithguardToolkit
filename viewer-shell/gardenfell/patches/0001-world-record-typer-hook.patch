@@ -1,0 +1,38 @@
+--- a/crates/gardenfell-world/src/world.rs
++++ b/crates/gardenfell-world/src/world.rs
+@@ -626,6 +626,26 @@
+ /// Nothing here reads a byte of the file itself; the few questions the typed form does
+ /// not answer (was there a `DATA` at all, which spelling the water came in, is this
+ /// `DELE` the cell's or a reference's) are asked of the raw record's subrecord tags.
++/// What types a record for the world: `(record) -> its typed form, None for a kind it
++/// does not type, or why it refused`. [`Object::from_raw`] unless another reader is set.
++pub type RecordTyper = fn(&raw::Record) -> Result<Option<Object>, String>;
++
++static RECORD_TYPER: std::sync::OnceLock<RecordTyper> = std::sync::OnceLock::new();
++
++/// Type records with another reader than this crate's own (a program embedding the engine
++/// with a reader of its own, whose types it converts to these). Set once, before the first
++/// plugin is read; later calls are refused.
++pub fn set_record_typer(typer: RecordTyper) -> Result<(), RecordTyper> {
++    RECORD_TYPER.set(typer)
++}
++
++fn type_record(rec: &raw::Record) -> Result<Option<Object>, String> {
++    match RECORD_TYPER.get() {
++        Some(t) => t(rec),
++        None => Object::from_raw(rec).map_err(|e| e.to_string()),
++    }
++}
++
+ pub fn parse_plugin_named(
+     buf: &[u8],
+     name: &str,
+@@ -655,7 +675,7 @@
+         if !keeps(&rec.tag, want_land) {
+             continue;
+         }
+-        let obj = match Object::from_raw(&rec) {
++        let obj = match type_record(&rec) {
+             Ok(Some(o)) => o,
+             Ok(None) => continue,
+             Err(e) => {

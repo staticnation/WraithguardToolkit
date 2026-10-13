@@ -1,4 +1,5 @@
 <script>
+/* Gardenfell, 03_core.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 'use strict';
 /* =====================================================================================
    Gardenfell — Morrowind Groundcover Generator config studio

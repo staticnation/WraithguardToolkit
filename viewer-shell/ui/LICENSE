@@ -10,27 +10,35 @@ Why GPL: the page's renderer carries ports of MGE XE shaders, and MGE XE is
 GPL-2.0 (its licence text is carried at ../../License/MGE-XE/LICENSE and in full
 below).
 
+Since Gardenfell 18hu each of Robin's parts says at its top which licence it carries:
+most are MIT, and the ones holding MGE XE code are GPL-2.0 (06_mge.js, 26_water.js,
+29_ssao.js, 33_fxaa.js, 35_underwater.js, 36_dof.js, 37_shadow.js). The page is built from
+all of them, so the page as a whole is GPL-2.0, as this file says; MIT parts are
+compatible with that. Wraithguard's own additions to that MGE XE code (the sky dither,
+the shadow receiver's fixes) sit with Robin's in 06_mge.js; its other ports are in its own
+parts (42_wg_bloom.js and the rest named below).
+
 MGE XE: "MGE was written by Timeslip, LizTail, Krzymar, and Phal. MGE XE is
 currently being developed by Hrnchamd." (MGE XE Readme, Credits.) The "G7" branch
 named below is Greatness7's fork of MGE XE. The shaders ported here, each by file,
 with the credit its own header gives:
 
   * XE Common.fx (MGE XE 0.16.0) - the fog colour and scattering
-    (fogColourScatter / fogColour / fogColourSky): 06_gl.js, fed by 25_sky.js.
-  * XE FixedFuncEmu.fx - the static tonemap and light attenuation: 06_gl.js.
+    (fogColourScatter / fogColour / fogColourSky): 06_mge.js, fed by 25_sky.js.
+  * XE FixedFuncEmu.fx - the static tonemap and light attenuation: 06_mge.js.
   * XE Mod Shadow.fx + XE Mod Shadow Data.fx (MGE XE 0.16.0, G7 fork) - the sun
-    shadow receiver: 06_gl.js, 37_shadow.js.
+    shadow receiver: 06_mge.js, 37_shadow.js.
   * XE Mod Water.fx (MGE XE 0.16.0, G7 branch) - the water plane: 26_water.js.
   * XE Mod Caustics.fx (MGE XE 0.16.0) - outdoor water caustics: 35_underwater.js.
-  * XE Mod Grass.fx (MGE XE 0.16.0) - grass/groundcover wind (grassDisplacement):
-    06_gl.js.
+  * XE Mod Grass.fx (MGE XE 0.16.0) - grass/groundcover wind (grassDisplacement) and
+    the cutout and wrap lighting: 06_mge.js.
   * Sunshafts.fx - "Sun shaft rays by phal v0.02a; many tweaks by Hrnchamd for MGE
     XE 0.11.0": 26_water.js.
   * Underwater Effects.fx and Underwater Interior Effects.fx - Hrnchamd:
     35_underwater.js.
   * SSAO HQ.fx - "based on ssao v09 by Knu", shipped with MGE XE: 29_ssao.js.
   * Bloom Fine.fx - Hrnchamd, v2: 42_wg_bloom.js.
-  * XE Mod Sky.fx (MGE XE 0.16.0) - the sky's ordered dither: 06_gl.js.
+  * XE Mod Sky.fx (MGE XE 0.16.0) - the sky's ordered dither: 06_mge.js.
   * Depth of Field.fx - "v12 by Knu, tweaked by peachykeen": 36_dof.js.
   * XE Mod Water.fx's dynamic ripples (the displaced WaterVS, and the radial water
     mesh from distantinit.cpp initWater) and FILTER_WATER_REFLECTION: 26_water.js.

@@ -1,0 +1,13 @@
+--- a/page-source/06_mge.js
++++ b/page-source/06_mge.js
+@@ -190,6 +190,10 @@
+    effectively lands. */
+ vec3 gdnShade(vec3 c, vec3 w, float lambert){
+   if(uShadow != 1 || uNoLight == 1) return c;   /* Unlit draws the textures as painted */
++  /* Nor what adds light - a flame, a glow, a spell's sheet. MGE skips every additive draw
++     when it lays its shadows over the frame (rendershadow.cpp renderShadow: "Additive
++     alphas do not receive shadows"); uFogBlack is 1 for exactly those batches. */
++  if(uFogBlack == 1) return c;
+   float light = gdnShadowLight(lambert);
+   if(light < 2.0 / 255.0) return c;
+   float v = gdnShadowLoss(w) * light;

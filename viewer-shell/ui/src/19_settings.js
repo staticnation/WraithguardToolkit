@@ -1,3 +1,4 @@
+/* Gardenfell, 19_settings.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 
 /* =====================================================================================
    Preview settings.
@@ -26,11 +27,13 @@ const PrevSettings={
     ['ssao','#p_ssao','bool'],   // round 18a
     ['fxaa','#p_fxaa','bool'],   // round 18do
     ['underwater','#p_under','bool'],   // round 18dt
+    ['pauseStill','#p_pause','bool'],   // round 18fh
     ['dof','#p_dof','bool'],            // round 18dy
     ['bloom','#p_bloom','bool'],        // Wraithguard: 42_wg_bloom.js
     ['shadows','#p_shadows','bool'],       // round 18ee
     ['shadowRes','#p_shadowres','val'],    // Wraithguard: 0 = the install's
     ['unlit','#p_unlit','bool'], // round 18f
+    ['viewFar','#p_viewfar','num'],   // Gardenfell 18hi: a room's view distance in cells; the top is no limit
     ['brushFeather','#paintFeather','num'],
     ['brushOpacity','#paintOpacity','num'],
   ],
@@ -122,11 +125,14 @@ const PrevSettings={
       ['ssao',!!+o.ssao],        // round 18a
       ['fxaa',!!+o.fxaa],        // round 18do
       ['underwater',!!+o.underwater],   // round 18dt
+      ['pause_still',!!+o.pauseStill],  // round 18fh
       ['dof',!!+o.dof],                 // round 18dy
       ['bloom',!!+o.bloom],             // Wraithguard: 42_wg_bloom.js
       ['shadows',!!+o.shadows],         // round 18ee
       ['shadow_detail',String(o.shadowRes||'0')],
       ['unlit',!!+o.unlit],      // round 18f
+      // Gardenfell 18hi/18hj: the view distance, its top (no limit) written as 0.
+      ['view_distance',(()=>{ const e=$('#p_viewfar'); return (e && +o.viewFar>=+e.max)? 0 : n(o.viewFar); })()],
       ['fog_density',n(o.fogd)], // round 15 item 3
       /* `mode` and `cell` used to be written here too. They are the only two things the
          viewport ever saved that were not a setting: one said which preview was open and
@@ -136,6 +142,12 @@ const PrevSettings={
       ['show_corpses',!!+o.showCorpses],
       // Which parts of the window you have folded away is about the window.
       ['fold_textures',!!App.selFolded],
+      // Gardenfell 18hb: the left column's width in pixels; absent means the default.
+      ['panel_left',Panels.w.left],
+      // Wraithguard: only once switched; until then it follows the install (57_wg_distant.js).
+      ['distant_land', (typeof WgDistant==='object' && WgDistant.on!=null)? !!WgDistant.on : null],
+      ['distant_objects', (typeof WgDistantObjects==='object' && WgDistantObjects.on!=null)? !!WgDistantObjects.on : null],
+      ['distant_simplify', (typeof WgDistantObjects==='object')? WgDistantObjects.mode : null],
       /* And which of the list's two groups are folded. Written as two flags rather than
          as the object the page holds, because a `[viewport]` value is a key and a scalar —
          the engine carries these and never looks inside them. */
@@ -151,7 +163,7 @@ const PrevSettings={
       ['show_cull',App.R? App.R.opts.showSlope!==false : true],
       ['show_cull_statics',App.R? !!App.R.opts.showSlopeStatics : false],
       ['show_cull_mesh',App.R? !!App.R.opts.showSlopeMesh : false],   // round 18l: the editor's
-      ['highlight_objects', !App.hiObj? 'off' : (App.hiObjMode||'fill')],   // round 18dq: off, fill, outline
+      ['highlight_objects', !App.hiObj? 'off' : (App.hiObjMode||'outline')],   // round 18dq: off, fill, outline
       /* The brush, not the paint. What you painted is the engine's and goes in the
          profile's own `[paint]` block; these three are the size of the tool in your hand,
          which is window state like everything else here. The mode itself is deliberately
@@ -341,6 +353,16 @@ const PrevSettings={
     // Absent in a profile written before the Advanced scope existed, which reads as
     // nothing ticked — the state that scope opens in anyway.
 
+    // Gardenfell 18hb: the left column's width. A profile without it keeps the default.
+    if(V.panel_left!=null) Panels.set('left', +V.panel_left, false);
+    if(V.distant_land!=null && typeof WgDistant==='object'){ WgDistant.on=!!V.distant_land; WgDistant._key=null; if(WgDistant.sync) WgDistant.sync(); }
+    if(typeof WgDistantObjects==='object'){
+      if(V.distant_objects!=null) WgDistantObjects.on=!!V.distant_objects;
+      if(V.distant_simplify==='texture' || V.distant_simplify==='plain') WgDistantObjects.mode=V.distant_simplify;
+      WgDistantObjects._key=null; if(WgDistantObjects.sync) WgDistantObjects.sync();
+    }
+    // Gardenfell 18hj: a view distance of 0 is no limit, the slider's top.
+    if(V.view_distance!=null && +V.view_distance<=0){ const e=$('#p_viewfar'); if(e) V.view_distance=+e.max; }
     for(const [k,sel,kind] of [['relief','#p_relief','num'],['base','#p_base','num'],
                                ['patch','#p_patch','val'],   // round 18bf (§I9)
                                ['full','#p_full','bool'], ['road','#p_road','bool'],
@@ -355,11 +377,13 @@ const PrevSettings={
                                ['ssao','#p_ssao','bool'],
                                ['fxaa','#p_fxaa','bool'],
                                ['underwater','#p_under','bool'],
+                               ['pause_still','#p_pause','bool'],   // round 18fh
                                ['dof','#p_dof','bool'],
                                ['bloom','#p_bloom','bool'],
                                ['shadows','#p_shadows','bool'],
                                ['shadow_detail','#p_shadowres','val'],
                                ['unlit','#p_unlit','bool'],
+                               ['view_distance','#p_viewfar','num'],   // Gardenfell 18hi
                                ['brush_feather','#paintFeather','num'],
                                ['brush_opacity','#paintOpacity','num']])
       if(V[k]!=null) setEl(sel,V[k],kind);
@@ -389,7 +413,8 @@ const PrevSettings={
     if(V.show_adjacent!=null){
       // A bool from before round 15 is one ring; a number is the ring count.
       App.showAdjacent = V.show_adjacent===true? 1 : (V.show_adjacent===false? 0 : Math.max(0,Math.min(3,+V.show_adjacent||0)));
-      const e=$('#pvAdjacent'); if(e) e.value=String(App.showAdjacent); }
+      const e=$('#pvAdjacent'); if(e) e.value=String(App.showAdjacent);
+      const r=$('#pvAdjacentRow'); if(r) r.value=String(App.showAdjacent); }
     if(V.show_interiors!=null) App.showInteriors=!!V.show_interiors;
     if(V.navigation!=null && App.R) App.R.setNav(String(V.navigation));
     if(V.fly_speed!=null && App.R) App.R.setFlySpeed(+V.fly_speed||1500,false);
@@ -426,7 +451,9 @@ const PrevSettings={
     if(V.highlight_objects!=null){
       const v=String(V.highlight_objects);
       App.hiObj = v!=='off' && v!=='false';
-      App.hiObjMode = v==='outline'? 'outline' : 'fill';
+      // 18fi: outline unless the profile says fill - an older profile's `true` means the
+      // default, which is the outline now.
+      App.hiObjMode = v==='fill'? 'fill' : 'outline';
       if(App.R){ App.R.hlMode=App.hiObjMode; if(!App.hiObj) App.R.setStaticHighlight(null); }
       if(App.syncHiObjButton) App.syncHiObjButton();
     }

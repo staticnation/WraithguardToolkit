@@ -869,3 +869,186 @@ fn shrink(w: u32, h: u32, px: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     }
     Some((tw, th, out))
 }
+
+/* ---- Wraithguard: reading a DDS only as far as the texture detail needs ----------------
+
+   A 4096 DXT5 is 21 MB on disk with its mips, and at a Texture detail of 512 the page
+   keeps the 512 level and smaller: about 0.35 MB. Reading the whole file to drop the
+   rest was most of a cell's load on a large modded install (1.2 GB read for one cell,
+   15 MB of it sent). So the header is read first (`DDS_HEAD` bytes), `dds_trim` says
+   where the first level the detail keeps starts and rewrites the header with that level
+   as the top, and only the bytes from there to the end are read. The result is an
+   ordinary DDS that `read_with` takes as it is - which also means the alpha check runs on
+   the level actually shown, and a format decoded here (BC4/5/7 without the GPU's
+   support, uncompressed) decodes the small level, not the 4096 one. */
+
+/// The most a DDS header takes: 128 bytes, and 20 more for a DX10 one.
+pub const DDS_HEAD: usize = 148;
+
+/// From a DDS's first bytes (`DDS_HEAD`, or the whole file if shorter): where its first
+/// mip level no larger than `max_size` on a side starts, and the header rewritten for
+/// that level as the top (its size, its pitch or linear size, and the mips left).
+///
+/// None means read the file whole: not a DDS, no mip chain, nothing to drop, a cube map
+/// or a volume (their levels are laid out by face or slice), or a format this does not
+/// size.
+pub fn dds_trim(head: &[u8], max_size: u32) -> Option<(usize, Vec<u8>)> {
+    if max_size == 0 || head.len() < 128 || &head[0..4] != b"DDS " {
+        return None;
+    }
+    let flags = u32le(head, 8);
+    let (h, w) = (u32le(head, 12).max(1), u32le(head, 16).max(1));
+    let mips = u32le(head, 28);
+    let caps2 = u32le(head, 112);
+    if mips <= 1 || w.max(h) <= max_size || flags & 0x80_0000 != 0 || caps2 & (0x200 | 0x20_0000) != 0 {
+        return None;
+    }
+    let pf_flags = u32le(head, 80);
+    let four = &head[84..88];
+    let (off, size): (usize, Box<dyn Fn(u32, u32) -> usize>) = if pf_flags & 0x4 != 0 {
+        let bb = if four == b"DX10" {
+            if head.len() < 148 {
+                return None;
+            }
+            match u32le(head, 128) {
+                70..=72 | 79..=81 => 8,
+                73..=78 | 82..=84 | 97..=99 => 16,
+                _ => return None,
+            }
+        } else {
+            match four {
+                b"DXT1" | b"ATI1" | b"BC4U" | b"BC4S" => 8,
+                b"DXT2" | b"DXT3" | b"DXT4" | b"DXT5" | b"ATI2" | b"BC5U" | b"BC5S" => 16,
+                _ => return None,
+            }
+        };
+        let off = if four == b"DX10" { 148 } else { 128 };
+        (off, Box::new(move |lw: u32, lh: u32| (lw.div_ceil(4).max(1) * lh.div_ceil(4).max(1)) as usize * bb))
+    } else {
+        let bpp = (u32le(head, 88) / 8) as usize;
+        if !(1..=4).contains(&bpp) {
+            return None;
+        }
+        (128, Box::new(move |lw: u32, lh: u32| lw as usize * lh as usize * bpp))
+    };
+    let (mut lw, mut lh, mut at) = (w, h, off);
+    let mut k = 0;
+    while k + 1 < mips && lw.max(lh) > max_size {
+        at += size(lw, lh);
+        lw = (lw / 2).max(1);
+        lh = (lh / 2).max(1);
+        k += 1;
+    }
+    let mut out = head[..off].to_vec();
+    out[12..16].copy_from_slice(&lh.to_le_bytes());
+    out[16..20].copy_from_slice(&lw.to_le_bytes());
+    let pitch = if pf_flags & 0x4 != 0 { size(lw, lh) } else { size(lw, 1) };
+    out[20..24].copy_from_slice(&(pitch as u32).to_le_bytes());
+    out[28..32].copy_from_slice(&(mips - k).to_le_bytes());
+    Some((at, out))
+}
+
+/// Straight RGBA halved (a 2×2 box; an odd edge takes its last row or column twice)
+/// until its longer side is at most `max_size`: a texture with no mips to drop - decoded
+/// here, the page mips it - is not sent at 4096 when the detail asks for 512.
+pub fn shrink_rgba(mut w: u32, mut h: u32, mut px: Vec<u8>, max_size: u32) -> (u32, u32, Vec<u8>) {
+    while max_size > 0 && w.max(h) > max_size && w > 1 && h > 1 {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let mut out = vec![0u8; nw as usize * nh as usize * 4];
+        for y in 0..nh as usize {
+            let (y0, y1) = ((y * 2).min(h as usize - 1), (y * 2 + 1).min(h as usize - 1));
+            for x in 0..nw as usize {
+                let (x0, x1) = ((x * 2).min(w as usize - 1), (x * 2 + 1).min(w as usize - 1));
+                for c in 0..4 {
+                    let p = |xx: usize, yy: usize| px[(yy * w as usize + xx) * 4 + c] as u32;
+                    out[(y * nw as usize + x) * 4 + c] = ((p(x0, y0) + p(x1, y0) + p(x0, y1) + p(x1, y1) + 2) / 4) as u8;
+                }
+            }
+        }
+        (w, h, px) = (nw, nh, out);
+    }
+    (w, h, px)
+}
+
+#[cfg(test)]
+mod trim_tests {
+    use super::*;
+
+    /// A DXT1 or DXT5 DDS of `w` x `h` with its full mip chain, each level's blocks
+    /// filled with its level number.
+    fn dds(w: u32, h: u32, four: &[u8; 4]) -> Vec<u8> {
+        let bb = if four == b"DXT1" { 8 } else { 16 };
+        let mut levels = Vec::new();
+        let (mut lw, mut lh) = (w, h);
+        loop {
+            levels.push((lw, lh));
+            if lw == 1 && lh == 1 {
+                break;
+            }
+            lw = (lw / 2).max(1);
+            lh = (lh / 2).max(1);
+        }
+        let mut b = vec![0u8; 128];
+        b[0..4].copy_from_slice(b"DDS ");
+        b[4..8].copy_from_slice(&124u32.to_le_bytes());
+        b[8..12].copy_from_slice(&(0x1007u32 | 0x20000 | 0x80000).to_le_bytes());
+        b[12..16].copy_from_slice(&h.to_le_bytes());
+        b[16..20].copy_from_slice(&w.to_le_bytes());
+        b[28..32].copy_from_slice(&(levels.len() as u32).to_le_bytes());
+        b[76..80].copy_from_slice(&32u32.to_le_bytes());
+        b[80..84].copy_from_slice(&4u32.to_le_bytes());
+        b[84..88].copy_from_slice(four);
+        b[108..112].copy_from_slice(&0x401008u32.to_le_bytes());
+        for (i, (lw, lh)) in levels.iter().enumerate() {
+            let n = (lw.div_ceil(4) * lh.div_ceil(4)) as usize * bb;
+            b.extend(std::iter::repeat_n(i as u8, n));
+        }
+        b
+    }
+
+    #[test]
+    fn only_the_levels_the_detail_keeps_are_read() {
+        let full = dds(1024, 512, b"DXT5");
+        let (at, head) = dds_trim(&full[..DDS_HEAD], 256).expect("trimmed");
+        let trimmed = [head, full[at..].to_vec()].concat();
+        let t = read_with(&trimmed, "x.dds", true, Extra::default()).unwrap();
+        let whole = read_with(&full, "x.dds", true, Extra::default()).unwrap();
+        // The same levels from 256 x 128 down, byte for byte.
+        let kept: Vec<_> = whole.levels.iter().filter(|(w, h, _)| (*w).max(*h) <= 256).cloned().collect();
+        assert_eq!(t.levels, kept);
+        assert_eq!((t.w, t.h), (256, 128));
+        assert_eq!(t.levels[0].2[0], 2, "level 2 is the new top");
+        assert!(trimmed.len() * 10 < full.len(), "{} of {}", trimmed.len(), full.len());
+    }
+
+    #[test]
+    fn a_texture_already_small_enough_or_without_mips_is_read_whole() {
+        let small = dds(256, 256, b"DXT1");
+        assert!(dds_trim(&small[..DDS_HEAD], 512).is_none(), "nothing to drop");
+        assert!(dds_trim(&small[..DDS_HEAD], 0).is_none(), "the install's own detail");
+        let mut one = dds(1024, 1024, b"DXT1");
+        one[28..32].copy_from_slice(&1u32.to_le_bytes());
+        assert!(dds_trim(&one[..DDS_HEAD], 256).is_none(), "no mips");
+        let mut cube = dds(1024, 1024, b"DXT1");
+        cube[112..116].copy_from_slice(&0xFE00u32.to_le_bytes());
+        assert!(dds_trim(&cube[..DDS_HEAD], 256).is_none(), "a cube map");
+        assert!(dds_trim(b"not a dds at all", 256).is_none());
+    }
+
+    #[test]
+    fn a_detail_below_the_smallest_level_keeps_the_last() {
+        let full = dds(64, 64, b"DXT1");
+        assert!(dds_trim(&full[..DDS_HEAD], 0).is_none(), "no detail: read whole");
+        let (_, head) = dds_trim(&full[..DDS_HEAD], 1).unwrap();
+        assert_eq!(u32le(&head, 28), 1, "one level left: 1 x 1");
+    }
+
+    #[test]
+    fn rgba_is_halved_to_the_detail() {
+        let px: Vec<u8> = (0..(8 * 4 * 4)).map(|i| (i % 251) as u8).collect();
+        let (w, h, out) = shrink_rgba(8, 4, px, 2);
+        assert_eq!((w, h, out.len()), (2, 1, 2 * 4));
+        let (w, h, _) = shrink_rgba(8, 4, vec![0; 128], 0);
+        assert_eq!((w, h), (8, 4), "no detail: untouched");
+    }
+}

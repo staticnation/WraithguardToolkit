@@ -1,3 +1,4 @@
+/* Gardenfell, 28_particles.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    The particle systems — round 17w.
 
@@ -33,10 +34,13 @@
    **What is drawn** is a camera-facing quad per particle, `size` units from centre to
    edge (the record's size is a radius), textured with the system's sheet, coloured by the
    controller's colour and the keys, blended as its NiAlphaProperty says — a flame is
-   additive (src alpha, one), smoke and mist are the usual alpha blend. Lit by the ambient
-   alone plus the material's emissive (OpenMW's way, and the game's by Robin's screenshots
-   - see FS_PART), so the mist over a waterfall takes the hour's light and a flame does
-   not need to. Depth-tested and not depth-written; drawn in the real pass only — the
+   additive (src alpha, one), smoke and mist are the usual alpha blend. Lit as the game
+   lights each of its two kinds (round 18hn, see FS_PART): a rotating system by the
+   ambient and its emissive, an auto-normal system as a sheet facing the camera under the
+   sun, the lamps and the ambient; the colour routed as the NiVertexColorProperty says
+   (18hm); and a glow map, when the system has one, added unlit on top. So the mist over
+   a waterfall takes the hour's ambient, a torch's white emissive burns at full whatever
+   the hour, and a cave's crystal flakes glow. Depth-tested and not depth-written; drawn in the real pass only — the
    reflection has no grass either. Round 18f: where there is water, twice - what is under
    the water line before the surface, into the picture the surface tints or refracts, and
    what is over it after (`drawParticles`, `side`). Robin, of the waterfall mist: "They
@@ -86,8 +90,20 @@ const FS_PART=`#version 300 es
 precision highp float;
 in vec2 vUV; in vec4 vCol; in vec3 vW;
 uniform sampler2D uTex; uniform int uHasTex;
+/* Round 18hn: the glow map, the texturing property's slot 4, added onto the lit colour
+   unlit as the statics' is (FS_GRASS, glowAdd). Unit 1. */
+uniform sampler2D uGlow; uniform int uHasGlow;
 uniform float uMatAlpha;
-uniform vec3 uEmissive;
+/* The NiMaterialProperty's three colours, and how the NiVertexColorProperty routes the
+   particle's own colour (round 18hm): 0 the material's diffuse and ambient are used and
+   the particle colour is not (SOURCE_IGNORE), 1 the particle colour is the emissive
+   (SOURCE_EMISSIVE), 2 the particle colour is diffuse and ambient (SOURCE_AMB_DIFF, the
+   default). uLit is 0 for lighting mode 0: the texture times the colour, nothing else. */
+uniform vec3 uEmissive, uMatDiffuse, uMatAmbient;
+uniform int uVColMode;
+/* Round 18hn: the lighting kind, 0 rotating (ambient and emissive), 1 auto-normal (a lit
+   sheet). See the fragment's note. */
+uniform int uPartLight;
 uniform vec3 uSun; uniform float uBright;
 uniform int uLit;
 uniform vec3 uFogCol; uniform float uFogK;   // the flat fog, when there is no sky
@@ -96,33 +112,89 @@ uniform vec3 uFogCol; uniform float uFogK;   // the flat fog, when there is no s
    what is over it and is drawn after; 0 draws everything, where there is no water. */
 uniform float uWaterZ; uniform int uSide;
 ${SKY_GLSL}
+${LIGHT_GLSL}
 out vec4 o;
 void main(){
   if(uSide<0 && vW.z>=uWaterZ) discard;
   if(uSide>0 && vW.z<uWaterZ) discard;
+  /* Round 18hj: a particle dissolves with the room's view distance exactly as the objects
+     do (FS_GRASS, uViewFade): the same band, the same dither, so a flame does not hang in
+     the air after its sconce has gone. Robin: "Particles should also fade out with the
+     camera view distance, currently they don't resulting in floating particles". */
+  if(uViewFade.z>0.5){
+    float dv=distance(vW,uEye);
+    if(dv>=uViewFade.y) discard;
+    if(dv>uViewFade.x){
+      const int bayer[16]=int[16](0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5);
+      ivec2 q=ivec2(mod(gl_FragCoord.xy,4.0));
+      float th=(float(bayer[q.x+q.y*4])+0.5)/16.0;
+      if((dv-uViewFade.x)/max(uViewFade.y-uViewFade.x,1.0)>th) discard;
+    }
+  }
   vec4 t = uHasTex==1 ? texture(uTex, vUV) : vec4(1.0);
-  vec3 c = t.rgb*vCol.rgb;
-  /* Lit the way OpenMW lights a particle (nifloader, handleParticleSystem: "Particles
-     don't have normals, so can't be diffuse lit" - the material's diffuse is set black
-     and its colour mode to AMBIENT): the particle's colour times the ambient light, plus
-     the material's emissive. A flame's emissive is white, so it burns at full strength at
-     midnight and at noon alike; the smoke beside it has none and takes the ambient.
+  /* Lit the way the game lights a particle: two kinds and a glow map (round 18hn,
+     measured by Robin in a cell with no light at all, the Caverns of Karstaag, and read
+     against the engine's own class notes). uPartLight says which kind.
 
-     Round 17x had this; 18a lit them as sheets facing the eye, sun and lamps included,
-     after "the waterfall mist is rendering too dark"; 18d puts it back at Robin's word,
-     with four screenshots of the Vivec canalworks fall at 06:00, noon, 18:00 and midnight:
-     "You are correct that the particles for waterfall splashes are unlit. Let's change
-     back to that." Measured off those: the splash at the fall's foot is ~0.4 of its
-     texture at noon, ~0.33 and ~0.17 at the two dusks, ~0.11 at midnight - the ambient
-     and nothing else, the sun playing no part. */
-  if(uLit==1){
-    vec3 amb = (uScat==1 || uRoom==1) ? uAmbCol : vec3(0.55);
-    if(uNoLight==1) amb = vec3(1.0);   // the Unlit switch (round 18f)
-    c *= min(amb + uEmissive, vec3(1.0));
+     0, a NiRotatingParticles. Its data carries no normals and the engine generates none,
+     so the fixed pipeline has no diffuse term for it: the ambient and the emissive and
+     nothing else. The waterfall mist went black in that cell; round 18d's four canalworks
+     screenshots (the splash at ~0.4 of its texture at noon, ~0.33 and ~0.17 at the two
+     dusks, ~0.11 at midnight, "the sun playing no part") were this. The torch's flames and
+     the candles' are this kind too and burn by their white emissive. What 17x and 18d
+     drew, back for this kind.
+
+     1, a NiAutoNormalParticles. NetImmerse's note on the class (MWSE carries it): "Normals
+     are not provided in the particle data, but are automatically generated to face the
+     camera when rendered." A lit sheet whose normal points at the eye: the sun by that
+     normal's lambert, the scene ambient, every lamp in reach by a one-sided lambert and
+     the install's falloff, the material routed by the NiVertexColorProperty as a shape's
+     is (MGE XE's FixedFuncEmu has no particle case; this is what it does to any vertex).
+     The Dwemer steam and the furn mist went black in that cell: lit, by nothing. Round
+     18hm's model, kept for this kind. OpenMW lights both kinds this way with one fixed
+     normal (0.3,0.3,0.3).
+
+     And the glow map. OAAB's crystal flakes (The Wake of Hanin's tomb) are an auto-normal
+     system whose texturing property names its own sheet twice, in the base slot and in
+     the glow slot, so the game adds the sheet unlit on top of the lit sheet: at the
+     texture's full brightness in that lightless cell, at every distance and angle, with
+     the lamps' colours as a faint cast on top in the tomb, brighter under the fixed
+     pipeline than under per-pixel lighting's tonemap. OpenMW draws them dim, which Robin
+     confirmed on his OpenMW; the game is the reference here. (A rule keyed on their
+     NiParticleRotation modifier was tried first and disproved by swapping the modifier
+     between the flakes and the furn mist in that cell: nothing changed.) The glow goes
+     inside the tonemap and under the clamp's product as the statics' does.
+
+     The routing, MGE's three (vertexMaterialNone / DiffAmb / Emissive), alpha included:
+     the material's diffuse alpha when the material is the colour source, the particle's
+     when it is. The alpha blend stays the NiAlphaProperty's.
+     (No backticks in here.) */
+  vec3 glowAdd = uHasGlow==1 ? texture(uGlow, vUV).rgb : vec3(0.0);
+  vec3 c; float alpha = t.a;
+  if(uLit==0){
+    // Lighting mode 0: the fixed pipeline with lighting off draws the current colour times the texture.
+    c = t.rgb*vCol.rgb + glowAdd; alpha *= vCol.a;
+  } else {
+    vec3 n = normalize(uEye - vW);
+    float d = max(dot(n, uSun), 0.0);
+    vec3 sunU = underLight(uSunCol, vW), ambU = underLight(uAmbCol, vW);
+    // The same sky terms the statics take (FS_GRASS): the ramp's under the atmosphere, the fixed pair without.
+    vec3 dif = (uScat==1 || uRoom==1) ? d*sunU : 0.85*d*sunU;
+    vec3 amb = (uScat==1 || uRoom==1) ? ambU : 0.46*ambU;
+    if(uPartLight==0){ dif = vec3(0.0); }                               // no normals: no diffuse at all
+    else { dif += gdnLights(vW, n, -1.0); }                              // -1: one-sided, the game's lambert on a sheet
+    vec3 light;
+    if(uVColMode==0){ light = uMatDiffuse*dif + uMatAmbient*amb + uEmissive; alpha *= uMatAlpha; }
+    else if(uVColMode==1){ light = uMatDiffuse*dif + uMatAmbient*amb + vCol.rgb; alpha *= uMatAlpha; }
+    else { light = vCol.rgb*(dif + amb) + uEmissive; alpha *= vCol.a; }
+    // The Unlit switch (round 18f): the texture times the colour as painted, no sun, no ambient, no lamps.
+    if(uNoLight==1) light = uVColMode==2 ? vCol.rgb : vec3(1.0);
+    // Clamped under the fixed pipeline and OpenMW, tonemapped under MGE's per-pixel lighting, as the statics are.
+    c = uLampModel == 1 ? gdnTonemap(t.rgb*light + glowAdd) : min(t.rgb*min(light, vec3(1.0)) + glowAdd, vec3(1.0));
   }
   c *= uBright;
   c = airFog(c, vW);
-  o = vec4(c, t.a*vCol.a*uMatAlpha);
+  o = vec4(c, alpha);
 }`;
 
 /* GL blend factors by the NiAlphaProperty's four-bit codes. */
@@ -227,6 +299,15 @@ Object.assign(Renderer.prototype,{
     return {
       tex:(s.glTex&&s.glTex.gl)||null, blend, diffuse:s.diffuse||[1,1,1], matAlpha:s.matAlpha==null?1:+s.matAlpha,
       emissive:s.emissive||[0,0,0],
+      /* Round 18hm: the material's ambient and the NiVertexColorProperty's routing (see
+         FS_PART). A payload from before this round has neither: white ambient, the
+         particle colour as diffuse and ambient, lit - the game's defaults. */
+      ambient:s.ambient||[1,1,1], vcolMode:s.vcolMode==null? 2 : (s.vcolMode|0),
+      /* Round 18hn: the lighting kind the engine worked out from the shape type (0
+         rotating, 1 auto-normal). An older payload has none: it is read from what it does
+         carry, the data's type. And the glow map's texture, when the system has one. */
+      partLight: s.lighting!=null ? (s.lighting|0) : ((s.data&&s.data.rotating)? 0 : 1),
+      glow:(s.glGlow&&s.glGlow.gl)||null,
       vel:(+s.velocity||0)*k, velR:(+s.velocityRandom||0)*k,
       vDir:+s.verticalDir||0, vAng:+s.verticalAngle||0, hDir:+s.horizontalDir||0, hAng:+s.horizontalAngle||0,
       col:s.color||[1,1,1,1], size:Math.max(0.01,(+s.size||1)*k),
@@ -237,7 +318,7 @@ Object.assign(Renderer.prototype,{
       grow:+s.grow||0, fade:+s.fade||0, keys,
       spin:(s.rotation!=null)? +s.rotation : 0,
       rotating:!!(s.data&&s.data.rotating) || s.rotation!=null,
-      lit:true,
+      lit:!s.unlit,
     };
   },
 
@@ -250,7 +331,7 @@ Object.assign(Renderer.prototype,{
   },
 
   /** Steps every run near the eye by `dt` and draws what is alive. */
-  drawParticles(VP, eye, airOn, sun, fogK, side){
+  drawParticles(VP, eye, airOn, sun, fogK, side, first){
     const P=this._parts;
     if(!P || !P.groups.size) return;
     const gl=this.gl, o=this.opts;
@@ -262,10 +343,14 @@ Object.assign(Renderer.prototype,{
        particles are drawn twice: what is under the line before the surface (`side` -1),
        into the picture the surface tints or refracts, and what is over it after (+1).
        The simulation steps once, on the first of the two; the second reuses what the
-       first packed. */
+       first packed.
+       Round 18ep: which side comes first depends on where the eye is - under the water it
+       is the puffs ABOVE the line that go in before the surface - so `first` says which of
+       the pair this call is rather than the sign of `side` saying it. Without water there
+       is no pair and nothing is ever reused. */
     side = side|0;
-    const again = side>0 && P.packedFor!=null;
-    const now=performance.now()/1000;
+    const again = !first && !!this.water && P.packedFor!=null;
+    const now=this.clock();   // 18fh: the pausable clock
     const dt = again? 0 : (P.last==null? 0 : Math.min(PART_DT_MAX, Math.max(0, now-P.last)));
     if(!again) P.last=now;
     const h=o.hour;
@@ -278,7 +363,7 @@ Object.assign(Renderer.prototype,{
     gl.uniform3fv(pr.u.uRight,right); gl.uniform3fv(pr.u.uUp,up);
     gl.uniform3fv(pr.u.uSun,sun);
     gl.uniform1f(pr.u.uBright, o.bright==null?1.0:o.bright);
-    gl.uniform1i(pr.u.uTex,0);
+    gl.uniform1i(pr.u.uTex,0); gl.uniform1i(pr.u.uGlow,1);
     gl.uniform3fv(pr.u.uFogCol,this.backdrop());   // 18dd (airOn sets it again for the pass)
     if(fogK!=null) gl.uniform1f(pr.u.uFogK,fogK);
     airOn(pr);
@@ -312,11 +397,17 @@ Object.assign(Renderer.prototype,{
       let need=count*9;
       if(!g.pack || g.pack.length<need) g.pack=new Float32Array(Math.max(need, g.pack? g.pack.length*2 : 0));
       B=g.pack;
+      /* Round 18hj: past the room's view distance nothing of a particle survives the shader,
+         so it is not packed either; its emitter still steps, so coming back into reach finds
+         it where it would have been. The limit is 0 (none) outside a room. */
+      const far=+o.viewFar||0, ex=eye[0], ey=eye[1], ez=eye[2];
       for(const r of g.runs){
         const p=r.p, n=r.n;
         for(let i=0;i<n;i++){
           if(drawn+at/9>=PART_MAX_DRAW) break;
           const k=i*12, age=p[k+6], life=p[k+7];
+          if(far>0){ const dx=p[k]-ex, dy=p[k+1]-ey, dz=p[k+2]-ez, sz0=p[k+8]*r.sc;
+            if(dx*dx+dy*dy+dz*dz>(far+sz0)*(far+sz0)) continue; }
           let sz=p[k+8]*r.sc;
           if(t.grow>0 && age<t.grow) sz*=age/t.grow;
           if(t.fade>0 && life-age<t.fade) sz*=Math.max(0,(life-age)/t.fade);
@@ -343,20 +434,32 @@ Object.assign(Renderer.prototype,{
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, t.tex||this.white);
       gl.uniform1i(pr.u.uHasTex, t.tex?1:0);
+      // Round 18hn: the glow map on unit 1, the white stand-in when there is none.
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, t.glow||this.white);
+      gl.uniform1i(pr.u.uHasGlow, t.glow?1:0);
+      gl.activeTexture(gl.TEXTURE0);
       gl.uniform3fv(pr.u.uEmissive, t.emissive);
+      gl.uniform3fv(pr.u.uMatDiffuse, t.diffuse);
+      gl.uniform3fv(pr.u.uMatAmbient, t.ambient);
+      gl.uniform1i(pr.u.uVColMode, t.vcolMode);
+      gl.uniform1i(pr.u.uPartLight, t.partLight);
       gl.uniform1f(pr.u.uMatAlpha, t.matAlpha);
       gl.uniform1i(pr.u.uLit, t.lit?1:0);
       gl.drawElementsInstanced(gl.TRIANGLES,6,gl.UNSIGNED_SHORT,0,n);
       drawn+=n; live+=count;
     }
     P.drawn=drawn; P.live=live;
-    if(!again) P.packedFor = side<0? now : null;   // the pass over the water may follow
+    if(!again) P.packedFor = first? now : null;   // 18ep: the other half of the pair may follow
     gl.bindVertexArray(null);
     gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
     // Something is moving, so the next frame has to be drawn: this is what animates.
-    if(any) this.dirty=true;
+    // Round 18fh: unless the viewport is held - then the flames stand with everything
+    // else, and this asking for another frame was what kept the GPU at full tilt
+    // behind a dialogue and with "Pause rendering when still" on.
+    if(any && !this._hold) this.dirty=true;
   },
 
   /** Steps one run: ages and moves what is alive, drops the dead, emits the new.

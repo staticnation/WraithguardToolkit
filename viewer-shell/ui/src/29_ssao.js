@@ -1,3 +1,5 @@
+/* Gardenfell, 29_ssao.js. Copyright (c) 2026 Robin Hjelte. GNU General Public License, version 2
+   (see page-source/LICENSE): this file carries code ported from MGE XE, which is GPL-2.0. */
 /* =====================================================================================
    Screen-space ambient occlusion — round 18a, redone in 18c as a port of MGE XE's.
 
@@ -525,16 +527,22 @@ Object.assign(Renderer.prototype,{
    *  no grass - so the blades are not in the depth it reads. `T` is the water's target
    *  set, `P` and `V` the projection and view the scene was drawn with. Returns whether it
    *  did anything; `ssaoApply` then wants calling once the grass is drawn. */
-  ssaoCompute(T,P,V){
-    const gl=this.gl, W=T.W, H=T.H;
-    const A=this._ssaoTargets(W,H);
-    if(!A.ok) return false;
-    if(this.opts.ssgi) return this._ssgiCompute(T,P,V,A);
+  /** The three SSAO programs, built once; `warmShaders` (06_gl.js, round 18gt) builds them
+   *  at start-up so the first frame with the effect on does not pay for them. */
+  _ensureSSAO(){
     if(!this.progSSAO){
       this.progSSAO=this._prog(VS_SSAO,FS_SSAO);
       this.progSSAOBlur=this._prog(VS_SSAO,FS_SSAO_BLUR);
       this.progSSAOApply=this._prog(VS_SSAO,FS_SSAO_APPLY);
     }
+    return this.progSSAO;
+  },
+  ssaoCompute(T,P,V){
+    const gl=this.gl, W=T.W, H=T.H;
+    const A=this._ssaoTargets(W,H);
+    if(!A.ok) return false;
+    if(this.opts.ssgi) return this._ssgiCompute(T,P,V,A);   // Wraithguard: SSGI in place of SSAO
+    this._ensureSSAO();
     // The depth, resolved to a texture the passes can read.
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER,T.sceneFB);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,T.resolveFB);

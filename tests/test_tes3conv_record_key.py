@@ -50,6 +50,11 @@ class TestIdAndName:
             "MyScript",
         )
 
+    def test_a_start_script_is_keyed_by_the_script_it_starts(self) -> None:
+        # OpenMW's key is NAME (tes3conv's "script"), not DATA (its "id").
+        rec = {"type": "StartScript", "id": "29502286025904836", "script": "BMStartUpScript"}
+        assert core._tes3conv_record_key(rec) == ("StartScript", "BMStartUpScript")
+
     def test_an_id_present_but_empty_falls_through_to_the_next_source(self) -> None:
         result = core._tes3conv_record_key({"type": "Cell", "id": "", "grid": [3, -2]})
         assert result == ("Cell", "(3, -2)")

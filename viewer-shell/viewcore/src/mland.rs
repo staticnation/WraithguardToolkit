@@ -17,7 +17,8 @@
 use std::io::{Read, Seek, SeekFrom};
 
 use crate::land::{Land, SUBDIV, VERTS};
-use crate::world::{decode_land, World, DEFAULT_LTEX};
+use crate::land::decode_land;
+use crate::world::{World, DEFAULT_LTEX};
 
 /// How a vertex two plugins both moved is settled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

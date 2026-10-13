@@ -283,6 +283,70 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "gardenfell-bsa"
+version = "0.1.0"
+dependencies = [
+ "gardenfell-bytes",
+]
+
+[[package]]
+name = "gardenfell-bytes"
+version = "0.1.0"
+
+[[package]]
+name = "gardenfell-g7"
+version = "0.1.0"
+dependencies = [
+ "bytes_io",
+ "gardenfell-bytes",
+ "gardenfell-nif",
+ "gardenfell-tes3",
+ "gardenfell-world",
+ "tes3",
+]
+
+[[package]]
+name = "gardenfell-install"
+version = "0.1.0"
+dependencies = [
+ "gardenfell-bsa",
+ "gardenfell-bytes",
+ "gardenfell-tes3",
+ "gardenfell-text",
+]
+
+[[package]]
+name = "gardenfell-nif"
+version = "0.1.0"
+dependencies = [
+ "gardenfell-bytes",
+]
+
+[[package]]
+name = "gardenfell-tes3"
+version = "0.1.0"
+dependencies = [
+ "gardenfell-bytes",
+]
+
+[[package]]
+name = "gardenfell-text"
+version = "0.1.0"
+dependencies = [
+ "gardenfell-bytes",
+]
+
+[[package]]
+name = "gardenfell-world"
+version = "0.1.0"
+dependencies = [
+ "gardenfell-bytes",
+ "gardenfell-install",
+ "gardenfell-nif",
+ "gardenfell-tes3",
+]
+
+[[package]]
 name = "glam"
 version = "0.30.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -361,6 +425,7 @@ dependencies = [
 name = "luacore"
 version = "0.1.0"
 dependencies = [
+ "ordercore",
  "regex",
  "tes3",
 ]
@@ -379,6 +444,10 @@ checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "meshopt-port"
+version = "0.1.0"
 
 [[package]]
 name = "multiversion_no_op"
@@ -426,6 +495,10 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "ordercore"
+version = "0.1.0"
 
 [[package]]
 name = "paste"
@@ -660,7 +733,17 @@ name = "viewcore"
 version = "0.1.0"
 dependencies = [
  "bytes_io",
+ "gardenfell-bsa",
+ "gardenfell-bytes",
+ "gardenfell-g7",
+ "gardenfell-install",
+ "gardenfell-nif",
+ "gardenfell-tes3",
+ "gardenfell-text",
+ "gardenfell-world",
  "luacore",
+ "meshopt-port",
+ "ordercore",
  "rusqlite",
  "tes3",
 ]

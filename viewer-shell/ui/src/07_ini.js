@@ -1,3 +1,4 @@
+/* Gardenfell, 07_ini.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 
 /* =====================================================================================
    The config model — the thing the editor edits.
@@ -56,7 +57,7 @@ function newConfig(){
            global:{iZPositionModifier:0, sObjectPrefix:'GRS_'},
            // No starter section: adding one from the cell's own texture list is a
            // click, and a placeholder only ever gets deleted.
-           globalExtra:{}, selectors:[], header:'',
+           selectors:[], header:'',
            // Round 18k: the named canopies (`{id, name, match:[patterns]}`), in the rules file.
            canopies:[],
            filler:DEFAULT_FILLER };

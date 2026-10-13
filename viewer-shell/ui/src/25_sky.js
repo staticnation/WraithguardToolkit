@@ -1,3 +1,4 @@
+/* Gardenfell, 25_sky.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    The game's sky — round 13.
 
@@ -11,7 +12,7 @@
    Weather Adjuster, an MWSE mod, swaps the ramp and the constants per *region*.
 
    This module holds the ramp and answers "what colour is everything at this hour" —
-   `Sky.at(hour)`. The engine reads the three files (`gdn_core::weather`); the shaders
+   `Sky.at(hour)`. The engine reads the three files (`gardenfell_install::weather`); the shaders
    in 06_gl.js are a port of MGE's formulas fed from here. Nothing in it touches where
    grass goes.
 
@@ -76,17 +77,33 @@ const Sky={
     if(!s || !s.found) return null;
     return {enabled:!!s.enabled, resolution:(s.resolution!=null && isFinite(s.resolution) && s.resolution>0)? +s.resolution : null};
   },
+  /* Wraithguard: not taken - the install's post chain still decides sunshafts, FXAA, DOF and
+     bloom here (the viewer previews what the install will look like). Gardenfell's note:
+     Round 18ew: **the post chain no longer decides anything but the occlusion.** Robin:
+     "Depth of field, FXAA and Sunshafts I want to have always on, no matter what the
+     install says. MGE water should also be always on. Sun shadows and fog distance can be
+     kept as is now, read from the install."
+     So those four start on in the markup and nothing here reaches for them. The occlusion
+     keeps its handshake because it is the one 18i was written for and the one 18v then
+     pinned *off* in a new profile's own file - a profile written before either round still
+     has no `ssao` key, and this is what answers it. The sun's shadows keep theirs at his
+     word. `installPost` still reads all four, because the Settings note reports what the
+     install has whether or not the preview follows it. */
   applyInstallPost(){
     // Wraithguard: the normal and specular maps in cells, as the setup has them.
     if(typeof WgViewport==='object' && WgViewport.installMaps) WgViewport.installMaps();
     const u=App._postUnset; const p=this.installPost();
-    if(!u || !p) return;
+    if(!u) return;
     const set=(sel,v)=>{ const el=document.getElementById(sel); if(!el || el.checked===v) return; el.checked=v; el.dispatchEvent(new Event('change')); };
-    if(u.ssao){ set('p_ssao', p.ssao); u.ssao=false; }
-    if(u.sunshafts){ set('p_shafts', p.sunshafts); u.sunshafts=false; }
-    if(u.fxaa){ set('p_fxaa', p.fxaa); u.fxaa=false; }
-    if(u.dof){ set('p_dof', p.dof); u.dof=false; }
-    if(u.bloom){ set('p_bloom', p.bloom); u.bloom=false; }
+    // Wraithguard keeps the handshake for all of these: the install decides when it says
+    // anything (`p` null when it says nothing). Sunshafts, FXAA and DOF start on in the
+    // markup, as Gardenfell 18ew has them, so "else on" (Static, 2026-10-12). The `&& p`
+    // guard is 18ew's.
+    if(u.ssao && p){ set('p_ssao', p.ssao); u.ssao=false; }
+    if(u.sunshafts && p){ set('p_shafts', p.sunshafts); u.sunshafts=false; }
+    if(u.fxaa && p){ set('p_fxaa', p.fxaa); u.fxaa=false; }
+    if(u.dof && p){ set('p_dof', p.dof); u.dof=false; }
+    if(u.bloom && p){ set('p_bloom', p.bloom); u.bloom=false; }
     /* The sun's shadows are not one of the post chain's shaders - they are Distant
        Land's own pass - so they have their own reply and their own first-run handshake. */
     const sh=this.installShadows();
@@ -275,8 +292,69 @@ const Sky={
   /* MGE's fog distances for the weather, in units: `adjustFog` in distantland.cpp with
      Use Exponential Fog. Start and end in cells from MGE.ini scaled by the weather's
      ratio, the exp curve rescaled by 4.4 so every start reaches the same fog at the end. */
+  /* Round 18ey: OpenMW's per-weather distant-fog pair, `dlFactor` and `dlOffset`.
+     Hardcoded in the game rather than configurable - OpenMW's `weather.cpp` passes them
+     to each Weather's constructor - so they are a table here too. Clear is 1.0 / 0.0,
+     which is why its distant fog comes out at exactly the `distant land fog start` and
+     `end` in settings.cfg (16384 and 40960, or 2 and 5 cells - the same numbers MGE XE
+     defaults to). The other nine went with the weather picker in round 17h and their
+     factors go in beside this one when it comes back; Robin: "Prepare for it to be per
+     weather, but as we only have clear for now, we use that portion only for now." */
+  OMW_DL:{Clear:[1.0, 0.0]},
+  /* Round 18ey: the fog an OpenMW install draws, in cells, or null for anything else.
+     Robin: "Use the OpenMW view distance to set fog distances."
+     Until this round an OpenMW install got MGE XE's built-in 2-5 cells, because
+     `installFog` reads `mge3\MGE.ini` and OpenMW has none - plausible-looking numbers
+     from the wrong engine. OpenMW's own rule is `FogManager::configure`, and it has two
+     branches:
+       `use distant fog = false` (the default): no fog at all when the weather's land fog
+         depth is nought, and otherwise `start = viewDistance x (1 - depth)`, `end =
+         viewDistance`. So the view distance *is* the fog distance, which is the thing he
+         asked for, and the depth is the weather's - `Land Fog Day Depth` in the ini, or
+         the `fallback=Weather_Clear_Land_Fog_Day_Depth` line in openmw.cfg, both of which
+         the weather reader already carries as `fogDepthDay`.
+       `use distant fog = true`: `start = factor x (dlStart - offset x dlEnd)`, `end =
+         factor x (1 - offset) x dlEnd`, off `[Fog] distant land fog start`/`end` and the
+         weather's own factor and offset.
+     The night depth is read and carried and deliberately not used yet: the game crossfades
+     between the two over the sunrise and sunset windows, and guessing that blend would be
+     inventing a rule rather than reading one. Day is what the preview's default hour is. */
+  openmwFog(){
+    const r=this.data && this.data.renderer;
+    const f=r && r.fog;
+    // Only when the install really is OpenMW: an MGE install's renderer block has no fog.
+    if(!f || f.viewingDistance==null) return null;
+    const CELL=8192;
+    const w=(this.data.ini && this.data.ini.weathers && this.data.ini.weathers[this.weather]) || {};
+    if(f.useDistantFog){
+      const [ff,fo]=this.OMW_DL[this.weather] || this.OMW_DL.Clear;
+      const dls=f.distantLandFogStart!=null? +f.distantLandFogStart : 16384;
+      const dle=f.distantLandFogEnd!=null? +f.distantLandFogEnd : 40960;
+      return {start:(ff*(dls-fo*dle))/CELL, end:(ff*(1-fo)*dle)/CELL,
+              exp:!!f.exponential, why:'distant', depth:null};   // `why` is a tag, not prose
+    }
+    const vd=+f.viewingDistance || 7168;
+    const depth=w.fogDepthDay!=null? +w.fogDepthDay : 0.7;
+    /* Depth nought is the game's "no fog": start 0, end the largest float there is. The
+       preview wants a number it can divide by, so the fog is pushed out past anything
+       drawn rather than given an infinity that would come back NaN. */
+    if(!(depth>0)) return {start:1e4/CELL, end:1e5/CELL, exp:!!f.exponential, why:'nofog', depth:0};
+    return {start:(vd*(1-depth))/CELL, end:vd/CELL, exp:!!f.exponential, why:'viewdist', depth};
+  },
   fogRange(){
     const weather=this.weather;
+    const o=this.openmwFog();
+    if(o){
+      const CELL=8192, SCALE=4.4;
+      const s=o.start*CELL, e=Math.max(o.start+0.001, o.end)*CELL;
+      const expStart=s/SCALE, expDiv=(e-expStart)/SCALE;
+      return {start:expStart, divisor:Math.max(1,expDiv), linearStart:s, linearEnd:e,
+              /* OpenMW's own `[Fog] exponential fog`, which is off by default where MGE's
+                 is on: drawing OpenMW's distances with MGE's curve would be a blend of two
+                 engines that matches neither. Scattering is left as it was - it is MGE's
+                 atmosphere model and nothing in settings.cfg bears on it. */
+              exp:o.exp, scattering:((this.data && this.data.mge) || {}).scattering!==false};
+    }
     const m=(this.data && this.data.mge) || {};
     const w=(m.weathers||{})[weather] || {};
     const ff = w.fogRatio!=null? +w.fogRatio : 1.0;
@@ -343,6 +421,8 @@ const Sky={
     // Round 18i: and the renderer whose lighting the preview follows, by its own name.
     const r=this.data.renderer;
     if(r && r.label) parts.push(T('preview.sky_src_renderer',{label:r.label}));
+    // Round 18fc: and Wonders of Water, when the install runs it.
+    if(this.wondersActive()) parts.push(T('preview.sky_src_wow'));
     return T('preview.sky_src')+' '+parts.join(' · ');
   },
   /* Round 18i: the hover on the sources line - which renderer, which files, which
@@ -368,6 +448,16 @@ const Sky={
       : T('preview.renderer_att_default',{file}));
     const known=['ssao','sunshafts','bloom','dof','underwater','fxaa'].filter(k=>post[k]);
     lines.push(T('preview.renderer_post',{list: post.found? (known.length? known.join(', ') : 'none') : 'no chain read'}));
+    /* Round 18fc: Wonders of Water's rule, and where its settings came from - the
+       person's own config in the manager's overwrite folder, or the mod's defaults. */
+    const wow=this.data.wondersOfWater;
+    if(wow && wow.found){
+      const on=this.wondersActive();
+      lines.push(T(on? 'preview.renderer_wow' : 'preview.renderer_wow_off',
+                   {units:String(wow.depthUnits||1500), min:String(wow.minVision==null? 0.1 : wow.minVision),
+                    file: wow.configFile || T('preview.renderer_wow_defaults')}));
+      if(wow.trouble) lines.push(wow.trouble);
+    }
     return lines.join('\n');
   },
   /* Round 17h: what the *install* says the fog is, for the "Reset to install" button
@@ -381,6 +471,29 @@ const Sky={
     const m=(this.data && this.data.mge) || {};
     const w=(m.weathers||{}).Clear || {};
     const r=this.fogRange();
+    /* Round 18ey: an OpenMW install answers out of its own settings.cfg, so the button's
+       hover says which entry the distances came from rather than naming an MGE.ini that
+       is not there. `ratio` and `offset` are MGE's two words for the same shape - the
+       weather's factor and offset - so the line reads the same either way. */
+    const o=this.openmwFog();
+    if(o){
+      const f=(this.data.renderer && this.data.renderer.fog) || {};
+      const [ff,fo]=this.OMW_DL[this.weather] || this.OMW_DL.Clear;
+      /* `how` is the engine's own line about which renderer it found and how - the same
+         string the MGE path shows. Naming the individual settings.cfg entries here would
+         be new prose in the page, and the wording round has not opened yet (Robin: "I
+         will let you know when I am ready for that, and we shouldn't act on that before I
+         am"), so the numbers speak and the entry names wait their turn. */
+      return {density:100, found:true,
+              start:+o.start.toFixed(3), end:+o.end.toFixed(3),
+              ratio:o.why==='distant'? ff : 1, offset:o.why==='distant'? fo : 0,
+              exp:o.exp, cells:[r.linearStart/8192, r.linearEnd/8192],
+              from:o.why, view:(+f.viewingDistance)||7168, depth:o.depth,
+              source:'settings.cfg',
+              path:(this.data.renderer && this.data.renderer.file) || '',
+              how:(this.data.renderer && this.data.renderer.how) || '',
+              dll:''};
+    }
     return {density:100, found:!!m.found,
             start:m.fogStart!=null? +m.fogStart : 2, end:m.fogEnd!=null? +m.fogEnd : 5,
             ratio:w.fogRatio!=null? +w.fogRatio : 1, offset:w.fogOffset!=null? +w.fogOffset : 0,
@@ -388,7 +501,7 @@ const Sky={
             /* Round 17m: the file the engine actually read, its full path, and the
                reasoning — the resolver picks between mgeXE.toml and mge3\MGE.ini by
                asking the d3d8.dll which one it reads, and under Root Builder that dll is
-               not even in the game folder. `gdn_core::mge` has the whole story. */
+               not even in the game folder. `gardenfell_install::mge` has the whole story. */
             source: m.found? (m.name||'') : (this.data? T('preview.sky_src_mge_default') : ''),
             path: m.file||'', how: m.how||'', dll: m.dll||''};
   },
@@ -415,19 +528,51 @@ const Sky={
      renders at (140,137,123), five times too bright, which was the whole of the gap
      Robin spotted: "Maybe the lighting change when going into water?" */
   /** The blend's two halves on their own, for a shader that has to do it per fragment. */
-  underwaterMix(){
+  underwaterMix(scale){
     const W=((this.data||{}).ini||{}).water||{};
-    const uw=(W.underwaterColor && W.underwaterColor.length>=3)? W.underwaterColor.map(Number) : [12/255,30/255,37/255];
+    const k=(scale==null || !isFinite(scale))? 1 : Math.max(0,Math.min(1,+scale));
+    const uw=((W.underwaterColor && W.underwaterColor.length>=3)? W.underwaterColor.map(Number) : [12/255,30/255,37/255]).map(v=>v*k);
     const wgt=Math.max(0,Math.min(1,(W.colorWeight!=null && isFinite(W.colorWeight))? +W.colorWeight : 0.85));
     return {col:uw, weight:wgt};
   },
-  underwaterTint(col){
+  /* `scale` (18fc): what Wonders of Water does to the water's colour with depth - the
+     game's `[Water]` colour times (1 - depth/1500) - so the same blend the eye takes at
+     the surface darkens as it goes down. One where nothing scales it. */
+  underwaterTint(col, scale){
     if(!col || col.length<3) return col;
     const W=((this.data||{}).ini||{}).water||{};
-    const uw=(W.underwaterColor && W.underwaterColor.length>=3)? W.underwaterColor.map(Number) : [12/255,30/255,37/255];
+    const k=(scale==null || !isFinite(scale))? 1 : Math.max(0,Math.min(1,+scale));
+    const uw=((W.underwaterColor && W.underwaterColor.length>=3)? W.underwaterColor.map(Number) : [12/255,30/255,37/255]).map(v=>v*k);
     const wgt=Math.max(0,Math.min(1,(W.colorWeight!=null && isFinite(W.colorWeight))? +W.colorWeight : 0.85));
     return [uw[0]*wgt+col[0]*(1-wgt), uw[1]*wgt+col[1]*(1-wgt), uw[2]*wgt+col[2]*(1-wgt)];
   },
+  /* Round 18fc: Wonders of Water (NullCascade, MWSE-Lua), when the install runs it.
+     Robin: "For MGE XE installs that support MWSE mods, if I have Wonders of Waters
+     installed, I want its rules for fog depending on depth under water to be reflected in
+     Gardenfell." The engine finds the mod through the overlay and reads its config from
+     the manager's overwrite folder, or reports the mod's defaults (weather.rs
+     `wonders_json`, which quotes the rule). What the mod does, per frame, with the head
+     `depth` units under the surface:
+       depthFactor = clamp(depth / 1500, 0, 1)
+       vision      = max(1 - depthFactor, 0.1)         (Night Eye would add to the 1)
+       MGE's below-water fog start and end  x vision
+       the game's [Water] underwater colour x (1 - depthFactor)
+     Its per-weather "clarity" is read and then not used by the mod's own fog, so it is
+     not modelled either. It only runs where MWSE runs, on MGE XE - the mod is an MWSE
+     script that sets MGE's own render config - so an OpenMW install with the same files
+     in its data folders is left alone. `null` where it does not act. */
+  wondersOfWater(depth){
+    const d=this.data||{}, w=d.wondersOfWater, r=d.renderer||{};
+    if(!w || !w.found || w.enabled===false || w.waterClarity===false) return null;
+    if(r.engine!=='mgexe' || w.mwse===false) return null;
+    const units=(w.depthUnits>0)? +w.depthUnits : 1500;
+    const minV=(w.minVision!=null && isFinite(w.minVision))? +w.minVision : 0.1;
+    const f=Math.max(0, Math.min(1, Math.max(0, +depth||0)/units));
+    return {depthFactor:f, vision:Math.max(1-f, minV), scale:1-f, units, minVision:minV,
+            configFile:w.configFile||null, source:T('preview.sky_src_wow')};
+  },
+  /** Whether the mod acts on this install at all - for the sources line. */
+  wondersActive(){ return !!this.wondersOfWater(0); },
   /* Round 18dt: the game's fog with the eye under the water, for this install at this
      hour. Robin: "Fog range and color should be dependant on install."
 
@@ -479,13 +624,14 @@ const Sky={
      The engine reads the block (`weather.rs` `water_json`), MGE's pair (`mge_json`) and
      OpenMW's (`renderer.rs`); vanilla's numbers stand behind anything missing. `source`
      names the file the range came from, for the hover. Units, not cells. */
-  underwaterFog(hour, room, fogNow){
+  underwaterFog(hour, room, fogNow, wow){
     hour = ((+hour||0)%24+24)%24;
     const d=this.data||{};
     const W=(d.ini && d.ini.water)||{};
     const g=(k,dv)=> (W[k]!=null && isFinite(W[k]))? +W[k] : dv;
     const base=fogNow || (room && room.fog) || [0.5,0.5,0.5];
-    const col=this.underwaterTint(base);
+    // 18fc: `wow` is Wonders of Water's state for this depth (`wondersOfWater`), or null.
+    const col=this.underwaterTint(base, wow? wow.scale : 1);
     const r=d.renderer||{};
     const eng=r.engine||'vanilla';
     const T3=this.timing();
@@ -512,7 +658,15 @@ const Sky={
       start=view*(1-amount); end=view;
       source=(d.ini && d.ini.openmw)? 'openmw.cfg' : 'Morrowind.ini';
     }
-    return {col, start, end, source, amount, engine:eng, found:!!W.found};
+    /* 18fc: Wonders of Water closes the fog in with depth - MGE's own below-water pair
+       times its vision factor (`wondersOfWater`). It sets MGE's render config, so it
+       only ever reaches the MGE branch above; the source line says so. */
+    if(wow && eng==='mgexe'){
+      start*=wow.vision; end*=wow.vision;
+      if(!(end>start)) end=start+1;
+      source=source+' · '+wow.source;
+    }
+    return {col, start, end, source, amount, engine:eng, found:!!W.found, wow:(eng==='mgexe'? wow : null)||null};
   },
   showSources(){
     const el=document.getElementById('p_skySrc');

@@ -1,0 +1,18 @@
+[package]
+name = "gardenfell-world"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+publish = false
+
+[dependencies]
+gardenfell-bytes = { path = "../gardenfell-bytes" }
+gardenfell-tes3 = { path = "../gardenfell-tes3" }
+gardenfell-nif = { path = "../gardenfell-nif" }
+gardenfell-install = { path = "../gardenfell-install" }
+
+# Only the tests read archives directly (`bsa.rs`, `lights.rs`, the round 18gf and 18gg
+# suites); the crate itself reaches them through the install's VFS.
+[dev-dependencies]
+gardenfell-bsa = { path = "../gardenfell-bsa" }

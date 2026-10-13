@@ -456,6 +456,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "gardenfell-bytes"
+version = "0.1.0"
+
+[[package]]
+name = "gardenfell-nif"
+version = "0.1.0"
+dependencies = [
+ "gardenfell-bytes",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -646,6 +657,7 @@ dependencies = [
 name = "luacore"
 version = "0.1.0"
 dependencies = [
+ "ordercore",
  "regex",
  "tes3",
 ]
@@ -732,6 +744,10 @@ dependencies = [
  "tracing-subscriber",
  "uncased",
 ]
+
+[[package]]
+name = "meshopt-port"
+version = "0.1.0"
 
 [[package]]
 name = "mlua"
@@ -866,6 +882,10 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "ordercore"
+version = "0.1.0"
 
 [[package]]
 name = "outref"
@@ -1578,10 +1598,13 @@ dependencies = [
  "base64",
  "bytes_io",
  "encoding_rs",
+ "gardenfell-nif",
  "htl-core",
  "luacore",
  "memmap2",
  "merge_to_master",
+ "meshopt-port",
+ "ordercore",
  "pyo3",
  "pythonize",
  "regex",

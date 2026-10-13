@@ -1,0 +1,146 @@
+--- a/crates/gardenfell-world/src/world.rs
++++ b/crates/gardenfell-world/src/world.rs
+@@ -953,6 +953,26 @@
+     pub poses: Vec<Pose>,
+ }
+ 
++/// A reference a plugin took out of a cell: the version that was there, the plugin that
++/// took it (load-order index), and whether it was moved away rather than deleted.
++#[derive(Clone, Debug)]
++pub struct Gone {
++    pub r: CellRef,
++    pub by: i32,
++    pub moved: bool,
++}
++
++/// What the load order did to one cell (an interior, or an exterior grid).
++#[derive(Clone, Debug, Default)]
++pub struct CellHistory {
++    /// Every plugin (load-order index) with a CELL record for it, in load order (a
++    /// reference moved in does not count).
++    pub touched_by: Vec<u32>,
++    /// The references a later plugin took out of it - deleted, or moved away - with the
++    /// plugin that did it, so a front end can say what a plugin removed.
++    pub gone: Vec<Gone>,
++}
++
+ impl RefHistory {
+     /// Records plugin `pi`'s version of `r` in `refs` (a field of [`History`], passed on
+     /// its own so the merge can hold a cell's history at the same time).
+@@ -970,6 +990,10 @@
+     /// By reference number (unique across the load order, so a reference moved to another
+     /// cell keeps its history).
+     pub refs: HashMap<RefNum, RefHistory>,
++    /// By interior key (as `World::interiors`).
++    pub interiors: HashMap<String, CellHistory>,
++    /// By exterior grid.
++    pub exteriors: HashMap<(i32, i32), CellHistory>,
+ }
+ 
+ impl History {
+@@ -979,6 +1003,27 @@
+         self.refs.get(num).unwrap_or(&EMPTY)
+     }
+ 
++    /// An interior's history; empty for one no plugin had.
++    pub fn interior(&self, key: &str) -> &CellHistory {
++        static EMPTY: CellHistory = CellHistory { touched_by: Vec::new(), gone: Vec::new() };
++        self.interiors.get(key).unwrap_or(&EMPTY)
++    }
++
++    /// An exterior cell's history; empty for one no plugin had.
++    pub fn exterior(&self, grid: (i32, i32)) -> &CellHistory {
++        static EMPTY: CellHistory = CellHistory { touched_by: Vec::new(), gone: Vec::new() };
++        self.exteriors.get(&grid).unwrap_or(&EMPTY)
++    }
++
++}
++
++impl CellHistory {
++    /// Records that plugin `pi` has a CELL record for this cell.
++    fn touched(&mut self, pi: usize) {
++        if !self.touched_by.contains(&(pi as u32)) {
++            self.touched_by.push(pi as u32);
++        }
++    }
+ }
+ 
+ #[derive(Default)]
+@@ -1611,6 +1656,7 @@
+                                 where_is.remove(n);
+                             }
+                         }
++                        w.history.interiors.remove(&key);
+                         room_levels.remove(&key);
+                         continue;
+                     }
+@@ -1619,6 +1665,8 @@
+                         ..Interior::default()
+                     });
+                     room.name = rc.name.clone();
++                    let hist = w.history.interiors.entry(key.clone()).or_default();
++                    hist.touched(pi);
+                     /* **Whether** a room has water is the last record's DATA flag; **how
+                        high** is the last level anybody stated. Two facts, two sources, and
+                        they have to be kept apart:
+@@ -1684,7 +1732,9 @@
+                         if let Some(target) = r.moved_to {
+                             w.stats.refs_moved += 1;
+                             room.prov.moved_out += 1;
+-                            room.refs.remove(&r.num);
++                            if let Some(old) = room.refs.remove(&r.num) {
++                                hist.gone.push(Gone { r: old, by: pi as i32, moved: true });
++                            }
+                             leave(&mut where_is, r.num, &here, &mut evict);
+                             where_is.insert(r.num, Where::Ext(target));
+                             if !r.deleted {
+@@ -1711,7 +1761,9 @@
+                         if r.deleted {
+                             w.stats.refs_deleted += 1;
+                             room.prov.deleted += 1;
+-                            room.refs.remove(&r.num);
++                            if let Some(old) = room.refs.remove(&r.num) {
++                                hist.gone.push(Gone { r: old, by: pi as i32, moved: false });
++                            }
+                             continue;
+                         }
+                         if room.refs.insert(r.num, r).is_some() {
+@@ -1749,6 +1801,7 @@
+                             where_is.remove(n);
+                         }
+                     }
++                    w.history.exteriors.remove(&rc.grid);
+                     continue;
+                 }
+                 let cell = w.cells.entry(rc.grid).or_insert_with(|| Cell {
+@@ -1762,6 +1815,8 @@
+                 if !rc.name.is_empty() {
+                     cell.name = rc.name.clone();
+                 }
++                let hist = w.history.exteriors.entry(rc.grid).or_default();
++                hist.touched(pi);
+                 if !rc.region.is_empty() {
+                     cell.region = rc.region.clone();
+                 }
+@@ -1794,7 +1849,9 @@
+                     if let Some(target) = r.moved_to {
+                         w.stats.refs_moved += 1;
+                         cell.prov.moved_out += 1;
+-                        cell.refs.remove(&r.num);
++                        if let Some(old) = cell.refs.remove(&r.num) {
++                            hist.gone.push(Gone { r: old, by: pi as i32, moved: true });
++                        }
+                         leave(&mut where_is, r.num, &here, &mut evict);
+                         where_is.insert(r.num, Where::Ext(target));
+                         if !r.deleted {
+@@ -1808,7 +1865,9 @@
+                     if r.deleted {
+                         w.stats.refs_deleted += 1;
+                         cell.prov.deleted += 1;
+-                        cell.refs.remove(&r.num);
++                        if let Some(old) = cell.refs.remove(&r.num) {
++                            hist.gone.push(Gone { r: old, by: pi as i32, moved: false });
++                        }
+                         continue;
+                     }
+                     if cell.refs.insert(r.num, r).is_some() {

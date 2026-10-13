@@ -1,0 +1,13 @@
+[package]
+name = "gardenfell-install"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+publish = false
+
+[dependencies]
+gardenfell-bytes = { path = "../gardenfell-bytes" }
+gardenfell-text = { path = "../gardenfell-text" }
+gardenfell-tes3 = { path = "../gardenfell-tes3" }
+gardenfell-bsa = { path = "../gardenfell-bsa" }

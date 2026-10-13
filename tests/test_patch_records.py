@@ -83,6 +83,12 @@ class TestRecordIdentity:
         """Better to have no key than a key that collides with another record."""
         assert record_key({"type": "Header"}) == ""
 
+    def test_a_start_script_is_keyed_by_the_script_it_starts(self) -> None:
+        """As OpenMW keys it (NAME); tes3conv's ``id`` is DATA, which nothing reads."""
+        sscr = {"type": "StartScript", "id": "29502286025904836", "script": "ab01CellChangedScript"}
+        assert record_key(sscr) == "ab01CellChangedScript"
+        assert record_key({"type": "StartScript", "id": "only_data", "script": ""}) == "only_data"
+
 
 class TestTheMasterListIsRead:
     """The mapping depends on it, so reading it wrong is reading everything wrong."""

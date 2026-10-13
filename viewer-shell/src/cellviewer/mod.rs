@@ -74,6 +74,7 @@ fn view_request(args: &[String]) -> Value {
 /// `args` are everything after `--cell-viewer`; `context` is the binary's one
 /// `tauri::generate_context!()` (see `main`). Returns the process exit code.
 pub fn run(args: &[String], context: tauri::Context<tauri::Wry>) -> i32 {
+    viewcore::init();
     // Where the viewer profile lives (commands::viewer_profile_*). Set before any
     // thread exists.
     if let Some(p) = flag(args, "--prefs") {
@@ -84,14 +85,18 @@ pub fn run(args: &[String], context: tauri::Context<tauri::Wry>) -> i32 {
 
     let result = commands::builder()
         .setup(move |app| {
-            WebviewWindowBuilder::new(app, "cellviewer", WebviewUrl::App("index.html".into()))
+            let win = WebviewWindowBuilder::new(app, "cellviewer", WebviewUrl::App("index.html".into()))
                 .title(&title)
                 .inner_size(1600.0, 1000.0)
                 // The page draws its own title bar (drag region, min/max/close) when
                 // `__TAURI__.window` is there, as it is here.
                 .decorations(false)
                 .initialization_script(&init)
+                // Built hidden, put back where it was, then shown: no jump on screen.
+                .visible(false)
                 .build()?;
+            restore_window(&win);
+            let _ = win.show();
             Ok(())
         })
         .run(context);
@@ -102,6 +107,44 @@ pub fn run(args: &[String], context: tauri::Context<tauri::Wry>) -> i32 {
             eprintln!("wraithguard-viewer: fatal error: {e}");
             1
         }
+    }
+}
+
+/// Puts the window back where it was (`commands::window_box`, written by the page through
+/// `window_set`), before it is on screen. From Gardenfell's shell (Robin Hjelte, MIT;
+/// rounds 18el and 18fi), on Wraithguard's own file.
+///
+/// A remembered rectangle is used only when it is *reachable*: one that overlaps none of
+/// the monitors there now (a second screen unplugged) is dropped for the default, since this
+/// window has no system title bar to drag it back by. Overlap rather than containment: a
+/// window hanging half off a screen is somewhere a person may have left it.
+fn restore_window(win: &tauri::WebviewWindow) {
+    let Some(b) = commands::window_box() else { return };
+    let (x0, y0) = (b.x as i64, b.y as i64);
+    let (x1, y1) = (x0 + b.w as i64, y0 + b.h as i64);
+    let seen = win.available_monitors().unwrap_or_default();
+    let reachable = seen.is_empty()
+        || seen.iter().any(|m| {
+            let (p, s) = (m.position(), m.size());
+            let (mx0, my0) = (p.x as i64, p.y as i64);
+            let (mx1, my1) = (mx0 + s.width as i64, my0 + s.height as i64);
+            x0 < mx1 && x1 > mx0 && y0 < my1 && y1 > my0
+        });
+    if !reachable {
+        return;
+    }
+    /* Gardenfell 18fi: the page writes the *outer* size (the window on the desk, frame and
+       all) and `set_size` sets the inner one, so the frame - on Windows a frameless window
+       still has an invisible resize border - is taken off, or every start grows the window
+       by it (Robin, under PowerToys FancyZones). */
+    let (dw, dh) = match (win.outer_size(), win.inner_size()) {
+        (Ok(o), Ok(i)) => (o.width.saturating_sub(i.width), o.height.saturating_sub(i.height)),
+        _ => (0, 0),
+    };
+    let _ = win.set_size(tauri::PhysicalSize::new(b.w.saturating_sub(dw).max(1), b.h.saturating_sub(dh).max(1)));
+    let _ = win.set_position(tauri::PhysicalPosition::new(b.x, b.y));
+    if b.max {
+        let _ = win.maximize();
     }
 }
 

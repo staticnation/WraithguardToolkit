@@ -1,8 +1,9 @@
 //! Wraithguard: one mod's part in a cell - what it added, changed, moved and took away,
 //! and the cell as it would stand with that mod left out of the load order.
 //!
-//! The merge (`world.rs`) keeps each reference's every version (`CellRef::touched` and
-//! `poses`, oldest first) and what each plugin took out of a cell (`Cell::gone`). Leaving
+//! The merge (`world.rs`) keeps each reference's every version (`World::history`: its
+//! `RefHistory`, oldest first) and what each plugin took out of a cell (`CellHistory::gone`),
+//! beside the cells rather than in them. Leaving
 //! plugin `p` out is replaying the order without it: a reference keeps its latest version
 //! from anybody else; one only `p` ever supplied is not there; one `p` deleted or moved
 //! away is back where it stood before.
@@ -10,7 +11,12 @@
 use std::collections::HashMap;
 
 use crate::esp::{CellRef, RefNum};
-use crate::world::Gone;
+use crate::world::{Gone, History, Pose};
+
+/// A reference to send, its mark, and how many of its versions (oldest first, in
+/// `History::of`) stand: all of them, or fewer for one this put back as it was before
+/// the plugin under review.
+pub type Item = (CellRef, Mark, usize);
 
 /// What a reference is, relative to the plugin under review.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,35 +47,43 @@ impl Mark {
 }
 
 /// The references as they stand, each marked for plugin `p`.
-pub fn with(refs: &HashMap<RefNum, CellRef>, p: i32) -> Vec<(CellRef, Mark)> {
+pub fn with(refs: &HashMap<RefNum, CellRef>, hist: &History, p: i32) -> Vec<Item> {
     refs.values()
         .map(|r| {
-            let m = if r.touched.last() != Some(&p) {
+            let t = &hist.of(&r.num).touched;
+            let m = if t.last() != Some(&p) {
                 Mark::None
-            } else if r.touched.first() == Some(&p) {
+            } else if t.first() == Some(&p) {
                 Mark::Added
             } else {
                 Mark::Changed
             };
-            (r.clone(), m)
+            (r.clone(), m, t.len())
         })
         .collect()
 }
 
 /// The references with plugin `p` left out. `here` says whether a position is in this
 /// cell (a reference `p` moved in goes back to the cell it came from).
-pub fn without(refs: &HashMap<RefNum, CellRef>, gone: &[Gone], p: i32, here: &dyn Fn(&[f32; 3]) -> bool) -> Vec<(CellRef, Mark)> {
-    let mut out: Vec<(CellRef, Mark)> = Vec::new();
+pub fn without(
+    refs: &HashMap<RefNum, CellRef>,
+    hist: &History,
+    gone: &[Gone],
+    p: i32,
+    here: &dyn Fn(&[f32; 3]) -> bool,
+) -> Vec<Item> {
+    let mut out: Vec<Item> = Vec::new();
     for r in refs.values() {
-        if r.touched.last() != Some(&p) {
-            out.push((r.clone(), Mark::None));
+        let h = hist.of(&r.num);
+        if h.touched.last() != Some(&p) {
+            out.push((r.clone(), Mark::None, h.touched.len()));
             continue;
         }
-        let n = r.touched.len();
-        let Some(j) = (0..n.saturating_sub(1)).rev().find(|&j| r.touched[j] != p) else {
+        let n = h.touched.len();
+        let Some(j) = (0..n.saturating_sub(1)).rev().find(|&j| h.touched[j] != p) else {
             continue; // only `p` ever supplied it
         };
-        let Some(pose) = r.poses.get(j) else { continue };
+        let Some(pose) = h.poses.get(j) else { continue };
         if !here(&pose.pos) {
             continue; // `p` moved it here; without `p` it is still where it was
         }
@@ -78,16 +92,17 @@ pub fn without(refs: &HashMap<RefNum, CellRef>, gone: &[Gone], p: i32, here: &dy
         v.pos = pose.pos;
         v.rot = pose.rot;
         v.scale = pose.scale;
-        v.plugin = r.touched[j];
-        v.touched.truncate(j + 1);
-        v.poses.truncate(j + 1);
-        out.push((v, Mark::Reverted));
+        v.plugin = h.touched[j];
+        out.push((v, Mark::Reverted, j + 1));
     }
     for g in gone {
         if g.by != p || refs.contains_key(&g.r.num) {
             continue;
         }
-        out.push((g.r.clone(), Mark::Restored));
+        // The versions before the one `p` took it out with.
+        let t = &hist.of(&g.r.num).touched;
+        let n = t.iter().rposition(|&x| x == p).unwrap_or(t.len());
+        out.push((g.r.clone(), Mark::Restored, n));
     }
     out
 }
@@ -97,10 +112,11 @@ pub fn in_grid(pos: &[f32; 3], gx: i32, gy: i32) -> bool {
     (pos[0] / 8192.0).floor() as i32 == gx && (pos[1] / 8192.0).floor() as i32 == gy
 }
 
-/// How far a reference has moved from where its first plugin put it (0 for one version).
-pub fn moved_by(r: &CellRef) -> f32 {
-    match r.poses.first() {
-        Some(p) if r.poses.len() > 1 => {
+/// How far a reference has moved from where its first plugin put it, over the versions
+/// `poses` (0 for one version).
+pub fn moved_by(r: &CellRef, poses: &[Pose]) -> f32 {
+    match poses.first() {
+        Some(p) if poses.len() > 1 => {
             let d = [r.pos[0] - p.pos[0], r.pos[1] - p.pos[1], r.pos[2] - p.pos[2]];
             (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
         }
@@ -111,36 +127,43 @@ pub fn moved_by(r: &CellRef) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::esp::Pose;
+    use crate::world::RefHistory;
 
-    fn r(ix: u32, touched: &[i32], xs: &[f32]) -> CellRef {
+    /// A reference whose versions came from `touched`, standing at each of `xs` in turn
+    /// (the standing one is the last); its history goes into `hist`.
+    fn r(hist: &mut History, ix: u32, touched: &[i32], xs: &[f32]) -> CellRef {
         let poses: Vec<Pose> = xs.iter().map(|&x| Pose { id: "rock".into(), pos: [x, 0., 0.], rot: [0.; 3], scale: 1.0 }).collect();
         let last = poses.last().cloned().unwrap_or_default();
-        CellRef {
-            num: RefNum { content_file: 0, index: ix },
-            id: "rock".into(),
-            pos: last.pos,
-            plugin: *touched.last().unwrap(),
-            touched: touched.to_vec(),
-            poses,
-            ..Default::default()
-        }
+        let num = RefNum { content_file: 0, index: ix };
+        hist.refs.insert(num, RefHistory { touched: touched.to_vec(), poses });
+        CellRef { num, id: "rock".into(), pos: last.pos, plugin: *touched.last().unwrap(), ..Default::default() }
     }
 
     #[test]
     fn leaving_a_mod_out_replays_the_order_without_it() {
+        let mut hist = History::default();
         let mut refs = HashMap::new();
-        for c in [r(1, &[0], &[10.]), r(2, &[1], &[20.]), r(3, &[0, 1], &[30., 35.]), r(4, &[0, 1, 2], &[40., 45., 48.])] {
+        for c in [
+            r(&mut hist, 1, &[0], &[10.]),
+            r(&mut hist, 2, &[1], &[20.]),
+            r(&mut hist, 3, &[0, 1], &[30., 35.]),
+            r(&mut hist, 4, &[0, 1, 2], &[40., 45., 48.]),
+        ] {
             refs.insert(c.num, c);
         }
-        let gone = vec![Gone { r: r(5, &[0], &[50.]), by: 1, moved: false }, Gone { r: r(6, &[0], &[60.]), by: 2, moved: false }];
-        let marks: HashMap<u32, Mark> = with(&refs, 1).into_iter().map(|(c, m)| (c.num.index, m)).collect();
+        // Taken out: 5 by plugin 1, 6 by plugin 2 (the deleting version is in the history).
+        let gone = vec![
+            Gone { r: r(&mut hist, 5, &[0, 1], &[50., 50.]), by: 1, moved: false },
+            Gone { r: r(&mut hist, 6, &[0, 2], &[60., 60.]), by: 2, moved: false },
+        ];
+        let marks: HashMap<u32, Mark> = with(&refs, &hist, 1).into_iter().map(|(c, m, _)| (c.num.index, m)).collect();
         assert_eq!((marks[&1], marks[&2], marks[&3], marks[&4]), (Mark::None, Mark::Added, Mark::Changed, Mark::None));
-        let out: HashMap<u32, (f32, Mark)> = without(&refs, &gone, 1, &|_| true).into_iter().map(|(c, m)| (c.num.index, (c.pos[0], m))).collect();
+        let out: HashMap<u32, (f32, Mark, usize)> =
+            without(&refs, &hist, &gone, 1, &|_| true).into_iter().map(|(c, m, n)| (c.num.index, (c.pos[0], m, n))).collect();
         assert!(!out.contains_key(&2), "only the mod placed it");
-        assert_eq!(out[&3], (30., Mark::Reverted));
-        assert_eq!(out[&4], (48., Mark::None), "a later plugin's version still wins");
-        assert_eq!(out[&5], (50., Mark::Restored));
+        assert_eq!(out[&3], (30., Mark::Reverted, 1), "back to its first version");
+        assert_eq!(out[&4], (48., Mark::None, 3), "a later plugin's version still wins");
+        assert_eq!(out[&5], (50., Mark::Restored, 1), "as it stood before the deletion");
         assert!(!out.contains_key(&6), "another plugin's deletion stands");
     }
 }

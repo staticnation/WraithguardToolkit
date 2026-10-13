@@ -36,6 +36,11 @@ fn b(a: &Val, k: &str) -> bool {
     a.get(k).and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
+/// An optional array of flags (`None` when the page did not send it).
+fn bools(a: &Val, k: &str) -> Option<Vec<bool>> {
+    a.get(k).and_then(|v| v.as_arr()).map(|xs| xs.iter().map(|x| x.as_bool().unwrap_or(false)).collect())
+}
+
 fn strs(a: &Val, k: &str) -> Vec<String> {
     a.get(k)
         .and_then(|v| v.as_arr())
@@ -98,6 +103,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "find_record" => Reply::Json(t::find_record(s(a, "tag"), s(a, "id"), st())?),
         "editor_tags" => Reply::Json(t::editor_tags(st())?),
         "editor_records" => Reply::Json(t::editor_records(s(a, "tag"), st())?),
+        "editor_rows" => Reply::Bytes(t::editor_rows(s(a, "tag"), st())?.0),
         "editor_cell_refs" => Reply::Json(t::editor_cell_refs(s(a, "cell"), st())?),
         "editor_actors" => Reply::Json(t::editor_actors(strs(a, "ids"), st())?),
         "lua_scan" => Reply::Json(t::lua_scan(st())?),
@@ -109,6 +115,8 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "picker_set" => Reply::Json(t::picker_set(s(a, "mode"))?),
         "world_map" => Reply::Json(t::world_map(st())?),
         "world_map_tiles" => Reply::Bytes(t::world_map_tiles(i(a, "from").max(0) as u32, i(a, "count").max(0) as u32, st())?.0),
+        "distant_land" => Reply::Bytes(t::distant_land(i(a, "x"), i(a, "y"), i(a, "inner"), i(a, "radius"), st())?.0),
+        "distant_objects" => Reply::Json(t::distant_objects(i(a, "x"), i(a, "y"), i(a, "inner"), i(a, "radius"), st())?),
         "textures" => Reply::Json(t::textures(st())?),
         "scopes" => Reply::Json(t::scopes(st())?),
         "cells" => Reply::Json(t::cells(st())?),
@@ -129,7 +137,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         }
         // Text, not JSON: the caller wants the file's bytes.
         "texture_data" => Reply::Bytes(t::texture_data(s(a, "path"), Some(b(a, "bc")), a.get("maxSize").and_then(|v| v.as_i64()).map(|v| v.max(0) as u32), Some(strs(a, "bcx")), st())?.0),
-        "assets_bundle" => Reply::Bytes(t::assets_bundle(strs(a, "meshes"), strs(a, "have"), Some(b(a, "bc")), a.get("maxSize").and_then(|v| v.as_i64()).map(|v| v.max(0) as u32), Some(strs(a, "bcx")), Some(strs(a, "maps")), st())?.0),
+        "assets_bundle" => Reply::Bytes(t::assets_bundle(strs(a, "meshes"), strs(a, "have"), Some(b(a, "bc")), a.get("maxSize").and_then(|v| v.as_i64()).map(|v| v.max(0) as u32), Some(strs(a, "bcx")), Some(strs(a, "maps")), bools(a, "still"), st())?.0),
         // Spelled by hand here, as every argument in this file is; renaming one is a
         // two-file edit and the symptom of forgetting is the engine insisting a value is
         // missing while the page plainly sent it.
@@ -162,7 +170,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
             Reply::Raw("true".into())
         }
         "read_asset" => Reply::Bytes(t::read_asset(s(a, "path"), st())?.0),
-        "mesh_data" => Reply::Bytes(t::mesh_data(s(a, "path"), st())?.0),
+        "mesh_data" => Reply::Bytes(t::mesh_data(s(a, "path"), a.get("still").and_then(|v| v.as_bool()), st())?.0),
         "mesh_collision" => Reply::Bytes(t::mesh_collision(s(a, "path"), st())?.0),
         "cpu_threads" => Reply::Raw(t::cpu_threads().to_string()),
         other => return Err(format!("no such command: {other}")),
@@ -254,6 +262,7 @@ fn serve_one(line: &str, app: &Mutex<App>) -> String {
 }
 
 fn run() -> i32 {
+    viewcore::init();
     /* Leaked on purpose. The workers below borrow the state for as long as they live, and
        they live for as long as the session does — a `serve` session that is over is a
        process that is over, so there is nothing for a drop to do. */

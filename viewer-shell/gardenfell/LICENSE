@@ -1,0 +1,43 @@
+Gardenfell is licensed in two parts, because two licences apply.
+
+The engine and the command line, everything under crates/ (the gardenfell-* library
+crates, gardenfell-session among them, gdn_cli and gdn_tauri_check) and the desktop shell's own Rust source
+under src-tauri/, are under the MIT License. Each crate carries the licence as its own
+LICENSE file, and the text is below.
+
+The page under page-source/ is built from parts, and each part says at its top which
+licence it carries. Most are MIT. Seven (06_mge.js, 26_water.js, 29_ssao.js, 33_fxaa.js,
+35_underwater.js, 36_dof.js, 37_shadow.js) are under the GNU General Public License,
+version 2, because they carry code ported from MGE XE, which is GPL-2.0. The built page
+(Gardenfell.html, ui/index.html) contains all of them and is distributed under the
+GPL-2.0 as a whole; an MIT part taken on its own stays MIT. The texts and the list are in
+page-source/LICENSE. The desktop application as installed carries the page, and so it is
+distributed under the GPL-2.0 as a whole; a program that uses only the crates, or only
+the page's MIT parts, is bound by the MIT terms alone.
+
+NOTICE, beside this file, names every piece that came from elsewhere or was written to
+match another program's behaviour.
+
+----------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2026 Robin Hjelte
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

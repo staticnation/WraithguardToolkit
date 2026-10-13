@@ -1,3 +1,4 @@
+/* Gardenfell, 34_outline.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    The outline highlight - round 18dq.
 
@@ -35,7 +36,7 @@
    Both passes need the offscreen frame (`wantsOffscreen`). No plugin state, no export.
    (No backticks inside the shader strings: template literals.) */
 
-const OUTLINE_W=2;          // pixels, either side of the silhouette
+const OUTLINE_W=3;          // pixels, either side of the silhouette
 const OUTLINE_GHOST=0.42;   // the hidden part's opacity
 const OUTLINE_COL=[1.00,0.82,0.30];
 
@@ -87,6 +88,16 @@ void main(){
 }`;
 
 Object.assign(Renderer.prototype,{
+  /** The two outline programs, built once; `warmShaders` (06_gl.js, round 18gt) builds them
+   *  at start-up so the first hover over a static does not pay for them. */
+  _ensureOutlineMask(){
+    if(!this.progOutlineMask) this.progOutlineMask=this._prog(VS_STATIC,FS_OUTLINE_MASK);
+    return this.progOutlineMask;
+  },
+  _ensureOutline(){
+    if(!this.progOutline) this.progOutline=this._prog(VS_BLIT,FS_OUTLINE);
+    return this.progOutline;
+  },
   /** The mask target at the frame's size, its depth the frame's resolved depth texture. */
   _outlineTarget(T){
     const gl=this.gl, W=T.W, H=T.H, t=this._olT;
@@ -118,8 +129,7 @@ Object.assign(Renderer.prototype,{
     if(!this.wantsOutline() || !this._frame) return false;
     const A=this._outlineTarget(T);
     if(!A.ok) return false;
-    if(!this.progOutlineMask) this.progOutlineMask=this._prog(VS_STATIC,FS_OUTLINE_MASK);
-    const pr=this.progOutlineMask; gl.useProgram(pr.p);
+    const pr=this._ensureOutlineMask(); gl.useProgram(pr.p);
     gl.uniformMatrix4fv(pr.u.uVP,false,this._frame.VP);
     gl.bindFramebuffer(gl.FRAMEBUFFER,A.fb); gl.viewport(0,0,T.W,T.H);
     gl.disable(gl.BLEND); gl.depthMask(false);
@@ -149,8 +159,7 @@ Object.assign(Renderer.prototype,{
     const gl=this.gl, A=this._olT;
     if(!A || !this._olReady) return false;
     this._olReady=false;
-    if(!this.progOutline) this.progOutline=this._prog(VS_BLIT,FS_OUTLINE);
-    const pr=this.progOutline; gl.useProgram(pr.p);
+    const pr=this._ensureOutline(); gl.useProgram(pr.p);
     gl.bindFramebuffer(gl.FRAMEBUFFER,dst||null); gl.viewport(0,0,T.W,T.H);
     gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);

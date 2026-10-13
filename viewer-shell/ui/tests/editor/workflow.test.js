@@ -22,7 +22,7 @@ module.exports = async (t) => {
       if (url === 'roll') return { level: b.level, outcomes: [{ id: 'gold_001', chance: 0.75 }, { id: '', chance: 0.25 }], nested: [] };
       if (url === 'sw') return { functions: ['AddItem', 'AddSpell'], keywords: ['begin', 'end'], globals: ['Day'] };
       if (url === 'sr') return { word: b.word, hits: [{ script: 'OtherScript', line: 3, text: 'set myVar to 1' }], scripts: 1, capped: false };
-      if (url === 'scr') return { id: b.id, text: 'begin x\nend\n', findings: [], listing: '', compiled: false, compile: { ok: true, bytes: 0, messages: [] } };
+      if (url === 'scr') return { id: b.id, text: 'begin x\nend\n', findings: [], listing: '', compiled: false, compile: { ok: true, bytes: 0, messages: [] }, queued: false };
       if (url === 'sa') return { hits: [{ tag: 'MISC', id: 'gold_001', path: 'name', value: 'Gold' }], count: 1, capped: false };
       if (url === 'ra') return { changed: b.hits.length, failed: [] };
       if (url === 'r') return { tag: b.tag, id: b.id, type: 'x', winner: 'M.esm', plugins: ['M.esm'], whole: false, new: false,

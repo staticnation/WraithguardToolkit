@@ -58,6 +58,64 @@ LOG = get_logger(__name__)
 TAG_TO_TYPE: Final[dict[str, str]] = {tag.ljust(4, "_"): name for name, tag in TYPE_TO_TAG.items()}
 
 
+#: The fields that hold MWScript source: a script's text and a response's result.
+SCRIPT_TEXT: Final[frozenset[tuple[str, str]]] = frozenset(
+    {("Script", "text"), ("DialogueInfo", "script_text")}
+)
+
+
+def crlf(text: str) -> str:
+    """Script source with CRLF line ends, as the Construction Set writes it.
+
+    A browser's text box gives back bare LF. Scripts saved that way have broken in the
+    game: a line ending in a comment took the next line with it (OpenMW-CS once saved LF,
+    and Greatness7 found such scripts in a dump of 15k+ mods). So every line end the
+    Editor stores is CRLF, whatever it was typed with.
+
+    Args:
+        text: The source.
+
+    Returns:
+        It, every CRLF, LF or lone CR made CRLF.
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
+
+
+def bare_lf_lines(text: str) -> list[int]:
+    """The lines of a script that end in a bare LF, not CRLF (see :func:`crlf`).
+
+    Args:
+        text: The source, as the plugin stores it.
+
+    Returns:
+        Their numbers, from 1.
+    """
+    return [n for n, line in enumerate(text.split("\n")[:-1], start=1) if not line.endswith("\r")]
+
+
+def bare_lf_finding(text: str) -> dict[str, Any] | None:
+    """The warning for a script or result script a plugin stores with bare LFs, or None.
+
+    Args:
+        text: The source, as the plugin stores it.
+
+    Returns:
+        ``{"line", "level", "message"}`` at the first such line, or None.
+    """
+    bare = bare_lf_lines(text)
+    if not bare:
+        return None
+    return {
+        "line": bare[0],
+        "level": "warning",
+        "message": (
+            f"{len(bare)} line(s) end in LF, not CRLF: a line ending in a comment"
+            " can swallow the next one in the game. An edit saved here stores"
+            " CRLF."
+        ),
+    }
+
+
 def tag_of(record_type: str) -> str:
     """A tes3conv ``type``'s four-character tag (``Npc`` -> ``NPC_``), or ``""``."""
     tag = TYPE_TO_TAG.get(record_type, "")
@@ -169,6 +227,20 @@ REF_KINDS: Final[dict[str, str]] = {
 
 #: An exterior cell's side, in units.
 CELL_SIZE: Final = 8192
+
+
+#: The types a placed object can be: one id space (``ordercore::records::OBJECT_TYPES``).
+OBJECT_TAGS: Final[frozenset[str]] = frozenset(
+    {
+        "ACTI", "ALCH", "APPA", "ARMO", "BODY", "BOOK", "CLOT", "CONT", "CREA", "DOOR", "INGR",
+        "LEVC", "LEVI", "LIGH", "LOCK", "MISC", "NPC_", "PROB", "REPA", "STAT", "WEAP",
+    }
+)  # fmt: skip
+
+
+def _deletes(record: Mapping[str, Any]) -> bool:
+    """Whether a plugin's version of a record deletes it (``DELETED`` in its flags)."""
+    return "DELETED" in (f.strip() for f in str(record.get("flags") or "").split("|"))
 
 
 def exterior_grid(cell: str) -> tuple[int, int] | None:
@@ -654,6 +726,11 @@ class EditorSession:
         for name in names:
             rec = self._records(name, tag).get(want)
             if rec is not None and rec.get("type") == record_type:
+                if _deletes(rec):
+                    # A deletion takes the record out (as OpenMW does): the versions
+                    # before it no longer count, and a later plugin may define it again.
+                    versions = []
+                    continue
                 versions.append((self._paths[name.lower()][0], rec))
         if not versions:
             made = self.queue.new_record(record_type, rid.strip())
@@ -1244,14 +1321,18 @@ class EditorSession:
             from wraithguard.mwscript.tes3conv import listing_for_bytecode_field
 
             listing = listing_for_bytecode_field(bytecode, str(found.record.get("text") or ""))
-        findings = check_script(source, found.key, self.script_globals())
+        findings: list[dict[str, Any]] = [
+            {"line": f.line, "level": f.level, "message": f.message}
+            for f in check_script(source, found.key, self.script_globals())
+        ]
+        if text is None and (lf := bare_lf_finding(source)):
+            findings.append(lf)
+            findings.sort(key=lambda f: int(f["line"]))
         result = (compiler or self.script_compiler()).compile(source)
         return {
             "id": found.key,
             "text": source,
-            "findings": [
-                {"line": f.line, "level": f.level, "message": f.message} for f in findings
-            ],
+            "findings": findings,
             "listing": listing,
             "compiled": bool(bytecode),
             "compile": {
@@ -1322,7 +1403,11 @@ class EditorSession:
         return compiler
 
     def result_check(
-        self, text: str, speaker: str = "", compiler: ScriptCompiler | None = None
+        self,
+        text: str,
+        speaker: str = "",
+        compiler: ScriptCompiler | None = None,
+        stored: bool = False,
     ) -> dict[str, Any]:
         """A dialogue response's result script, compiled for its errors.
 
@@ -1330,14 +1415,22 @@ class EditorSession:
             text: The result.
             speaker: The responding actor (its script's locals are the result's).
             compiler: :meth:`script_compiler`'s, when the caller has it.
+            stored: ``text`` is the result as the plugin stores it (not as typed): a
+                result with bare LFs is warned about, as Script Edit warns on a script.
 
         Returns:
             ``{"messages": [{"line", "level", "message"}], "speaker_script": bool}``.
         """
         compiler = compiler or self.script_compiler()
-        messages = compiler.check_result(text, speaker)
+        messages: list[dict[str, Any]] = [
+            {"line": m.line, "level": m.level, "message": m.text}
+            for m in compiler.check_result(text, speaker)
+        ]
+        if stored and (lf := bare_lf_finding(text)):
+            messages.append(lf)
+            messages.sort(key=lambda m: int(m["line"]))
         return {
-            "messages": [{"line": m.line, "level": m.level, "message": m.text} for m in messages],
+            "messages": messages,
             "speaker_script": bool(speaker) and compiler.script_locals(speaker) is not None,
         }
 
@@ -1362,6 +1455,7 @@ class EditorSession:
         """
         if found.record_type != "Script":
             raise EditorError(f"{found.key} is not a script")
+        text = crlf(text)
         self.set_field(found, "text", text)
         compiler = self.script_compiler()
         result = compiler.compile(text)
@@ -1465,6 +1559,8 @@ class EditorSession:
         """
         if path in IDENTITY or path in READ_ONLY or path.startswith("references"):
             raise EditorError(f"{path} cannot be changed here")
+        if (found.record_type, path) in SCRIPT_TEXT and isinstance(raw, str):
+            raw = crlf(raw)
         current, present = value_at(found.record, path)
         if not present:
             raise EditorError(f"{found.key} has no field {path}")
@@ -1572,6 +1668,17 @@ class EditorSession:
             raise EditorError(f"an id is at most {MAX_ID} bytes")
         if self.find(tag, rid) is not None:
             raise EditorError(f"{rid} is already a {record_type} id in this load order")
+        if tag in OBJECT_TAGS:
+            # Objects share one id space: the Construction Set refuses two types with one
+            # id ("Matching IDs") and Morrowind.exe will not load them (OpenMW keeps both
+            # and places one), so a new object may not take another type's id.
+            for other in sorted(OBJECT_TAGS - {tag}):
+                clash = self.find(other, rid)
+                if clash is not None:
+                    raise EditorError(
+                        f"{rid} is already a {clash.record_type} id in this load order: "
+                        "two object types with one id break the game"
+                    )
         return rid
 
     def insert(self, tag: str, new_id: str) -> Found:
@@ -1602,6 +1709,10 @@ class EditorSession:
         rid = self._new_id(tag, record_type, new_id)
         record = record_to_json(cls())
         record["id"] = rid
+        if record_type == "StartScript":
+            # Keyed by the script it starts, as OpenMW keys it (record_key); DATA
+            # (``id``) must be there but is never read, so it takes the same text.
+            record["script"] = rid
         if record_type == "Script":
             record["text"] = f"begin {rid}\n\nend\n"
         self.queue.add_new_record(NewRecord(record_type, rid, record, ""))
@@ -1631,6 +1742,8 @@ class EditorSession:
         rid = self._new_id(found.tag, found.record_type, new_id)
         record = copy.deepcopy(found.record)
         record["id"] = rid
+        if found.record_type == "StartScript":
+            record["script"] = rid  # its key (see `new`)
         if found.record_type == "Script":
             # The text names the script: its `begin` line takes the new id.
             record["text"] = re.sub(
@@ -2704,27 +2817,14 @@ def restore_queue(queue: PatchQueue, journal: Path) -> int:
     return n
 
 
-def _listing(folder: Path) -> dict[str, Path]:
-    """A folder's files by lower-case name (empty when it cannot be read).
-
-    Args:
-        folder: The folder.
-
-    Returns:
-        Name -> path.
-    """
-    try:
-        return {p.name.lower(): p for p in folder.iterdir() if p.is_file()}
-    except OSError:
-        return {}
-
-
 def plugins_from_cfg(cfg: Path) -> list[tuple[str, Path]]:
     """A setup's load order with each plugin's file: what :class:`EditorSession` reads.
 
-    The ``content=`` plugins of an openmw.cfg, each found in the last ``data=`` folder
-    that has it (names compared without case, as OpenMW does). ``.omwscripts`` and
-    plugins no folder has are left out.
+    The cfg's plugins as the viewer loads them (:func:`wraithguard.openmw_cfg.read_cfg`,
+    the viewer's reader): the ``content=`` plugins, then the ``groundcover=`` ones, the
+    cfgs it chains included; each found in the highest-priority data folder that has it
+    (names compared without case, as OpenMW does). ``.omwscripts`` and plugins no folder
+    has are left out.
 
     Args:
         cfg: The openmw.cfg (the viewer's setup).
@@ -2732,18 +2832,11 @@ def plugins_from_cfg(cfg: Path) -> list[tuple[str, Path]]:
     Returns:
         ``(name, path)`` in load order.
     """
-    from wraithguard.lua.scan import read_cfg_lua
+    from pathlib import Path as _Path
 
-    dirs, content = read_cfg_lua(cfg)
-    listings = [_listing(d) for d in dirs]
-    out: list[tuple[str, Path]] = []
-    for name in content:
-        if not name.lower().endswith((".esm", ".esp", ".omwaddon", ".omwgame")):
-            continue
-        hit = next((lst[name.lower()] for lst in reversed(listings) if name.lower() in lst), None)
-        if hit is not None:
-            out.append((name, hit))
-    return out
+    from wraithguard.openmw_cfg import read_cfg
+
+    return [(name, _Path(p)) for name, p in read_cfg(cfg)["located"] if p is not None]
 
 
 __all__ = [

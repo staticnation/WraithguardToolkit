@@ -1,3 +1,4 @@
+/* Gardenfell, 31_cellmap.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    THE CELL PICKER'S MAP — round 18cp.
 
@@ -8,7 +9,7 @@
 
    A revealed OpenMW map is every cell's *local* map — a top-down picture of the ground —
    pasted onto the world at eighteen pixels a cell. The engine paints those pictures
-   (`gdn_core::worldmap`: the ground textures' colours blended, under the vertex colours,
+   (`gardenfell_world::worldmap`: the ground textures' colours blended, under the vertex colours,
    under the sea) because it holds every cell's landscape and the page holds one; what
    crosses the shell is a 32×32 tile per cell, in batches, and this file is everything
    that happens to them afterwards.
@@ -24,9 +25,10 @@
    **Where the colours come from.** The tiles and the sea are the *scene* — a picture of
    Morrowind — and are painted in fixed colours the way the viewport is, whatever the
    window is wearing. Everything drawn *on* the picture is chrome and reads the theme:
-   the grid is `--line2`, a match's ring and the hovered cell are the accent, the loaded
-   cell and its ring are `--info` (the palette's stand-in for blue, which is what a "you
-   are here" wants), a star is `--warn`, and the dimming is the window's own `--bg`.
+   the grid is `--line2` (`--tx2` on a pale theme, since 18hh), a match's ring and the
+   hovered cell are the accent, the loaded cell and its ring are `--num` (18hh; they were
+   `--info`, the palette's stand-in for blue, which Robin did not want here), a star is
+   `--warn`, and the dimming is the window's own `--bg`.
 
    **Drawing a whole continent.** Robin's world runs from (−139, −58) to (49, 22) — some
    fifteen thousand landscapes in a 189 × 81 box — and at six pixels a cell all of it is
@@ -82,8 +84,11 @@ const CellMap={
      is on the map. See `home`. */
   ISLAND:{x0:-18, y0:-15, x1:23, y1:25},
   /* The sea, where there is no landscape at all — the same blue the tiles lay over a
-     seabed, at its deep end, so open water and a drowned cell read as one water. */
-  SEA:'rgb(35, 74, 104)',
+     seabed, at its deep end, so open water and a drowned cell read as one water. Round
+     18hp: the engine's `world_map` sends the colour (`worldmap::open_sea_css`), so this is
+     only what the map paints before the first answer; it used to be a literal kept equal to
+     the engine's constants by hand, and was a level off in two channels. */
+  SEA:'rgb(35, 75, 103)',
 
   world:null,        // {sig, min, max, cells, tiles:Map, land:Set, done, total, levels, near}
   loading:null,
@@ -175,6 +180,7 @@ const CellMap={
     const job=(async()=>{
       const head=await Engine.call('world_map');
       const cells=(head&&head.cells)||[];
+      if(head&&typeof head.sea==='string') this.SEA=head.sea;   // 18hp: one source, the engine's
       const w={sig, min:head.min, max:head.max, cells, tiles:new Map(), land:new Set(cells.map(c=>c[0]+','+c[1])),
                done:false, total:cells.length, got:0, levels:[], filterFor:null};
       const old=this.world; this.world=w;
@@ -512,7 +518,19 @@ const CellMap={
     const s=getComputedStyle(document.body);
     const g=k=>s.getPropertyValue(k).trim();
     this._font=s.fontFamily;
-    return (this._th={ac:g('--ac'), ac2:g('--ac2'), line:g('--line2'), bg:g('--bg'), info:g('--info'),
+    /* Round 18hh: the grid line is `--line2`, the window's own rule, on the dark themes;
+       on a pale theme that rule is a light tan over the picture, and the picture is the
+       same picture whatever the window wears, so there it is the window's dim ink
+       (`--tx2`) instead. Robin: "For Redoran Bone theme, I don't like that the map has
+       light lines for its grid. Make them dark similar to how the default theme handles
+       it." Pale is read off the background rather than off the theme's name. */
+    const bg=g('--bg');
+    const lum=(()=>{ const m=/^#([0-9a-f]{6})$/i.exec(bg); if(!m) return 0;
+      const n=parseInt(m[1],16); return (0.2126*(n>>16)+0.7152*((n>>8)&255)+0.0722*(n&255))/255; })();
+    /* And the loaded cell is `--num` (round 18hh), not `--info`: Robin, "I don't like the
+       Mauve color for the outline on the map for selected cells." The number colour is
+       the one secondary every theme sets apart from the accent and the star. */
+    return (this._th={ac:g('--ac'), ac2:g('--ac2'), line:lum>0.5? g('--tx2') : g('--line2'), bg, info:g('--num')||g('--info'),
                       warn:g('--warn'), tx:g('--tx')});
   },
   forgetTheme(){ this._th=null; this._font=null; this.redraw(); },
@@ -689,6 +707,8 @@ const CellMap={
     }
 
     lap('stars');
+
+    lap('painted');
     // 6. The loaded cell and its adjacent ring.
     const sel=App.cellSel;
     if(sel && sel.kind==='ext'){
@@ -696,8 +716,10 @@ const CellMap={
       const [rx,ry,rw,rh]=this.rect(sel.x,sel.y);
       if(r>0){
         const [ax,ay]=this.rect(sel.x-r,sel.y+r), [bx,by,bw,bh]=this.rect(sel.x+r,sel.y-r);
-        c.setLineDash([4,3]); c.strokeStyle=th.info; c.lineWidth=1;
-        c.strokeRect(ax+0.5,ay+0.5,(bx+bw)-ax-1,(by+bh)-ay-1);
+        // Round 18hh: two pixels wide, as the cell's own outline is (Robin: "Make the
+        // dotted line also 2 px wide"), with the dash lengthened to keep its rhythm.
+        c.setLineDash([6,4]); c.strokeStyle=th.info; c.lineWidth=2;
+        c.strokeRect(ax+1,ay+1,(bx+bw)-ax-2,(by+bh)-ay-2);
         c.setLineDash([]);
       }
       c.strokeStyle=th.info; c.lineWidth=2;
@@ -714,6 +736,31 @@ const CellMap={
       c.strokeRect(rx+1,ry+1,rw-2,rh-2);
     }
   },
+  /** The Paint tool's palette glyph (`.ic-palette` in 01_head.html), drawn at `size`
+   *  pixels with its top-left corner at (x, y), in whatever fill and stroke are set. The
+   *  same path and the same four dabs as the mask, so the mark on the map is the mark on
+   *  the button. Round 18hp: the line and the dabs are set in screen pixels (a 1.5 px
+   *  stroke, dabs 1.2 px across their radius) rather than in the drawing's 16 units and
+   *  scaled down with it, which at the map's sizes left a line under a pixel wide. Robin:
+   *  "when it gets so small, it becomes kind of thin, especially when compared to the
+   *  star"; of the six variants in `baseline/rounds/r38/paint-glyph-proposals.html`,
+   *  "Lets try B with 1.5px". */
+  palette(c,x,y,size){
+    if(!this._palPath){
+      this._palPath=new Path2D('M8 1.5c3.7 0 6.7 2.5 6.7 5.6 0 1.9-1.5 2.7-2.9 2.7h-1.2c-1.1 0-2 .8-2 1.8 0 .4.1.7.1 1 0 .8-.6 1.4-1.5 1.4-3.7 0-6.7-3-6.7-6.7S4.3 1.5 8 1.5z');
+      this._palDots=[[5.2,5.5],[8.6,4.4],[11.4,6.3],[4.3,9.3]];
+    }
+    const k=size/16;
+    c.save();
+    c.translate(x,y); c.scale(k,k);
+    c.lineWidth=this.PAL_STROKE/k; c.lineCap='round'; c.lineJoin='round';
+    c.stroke(this._palPath);
+    for(const [dx,dy] of this._palDots){ c.beginPath(); c.arc(dx,dy,this.PAL_DAB/k,0,Math.PI*2); c.fill(); }
+    c.restore();
+  },
+  /** The glyph's line and dab radius, in screen pixels at every zoom (18hp). */
+  PAL_STROKE:1.5,
+  PAL_DAB:1.2,
   /** A hex or rgb() colour at an alpha, for the canvas. */
   rgba(col,a){
     const m=/^#([0-9a-f]{6})$/i.exec(col||'');
@@ -905,11 +952,27 @@ const CellMap={
     // and held through every frame of the glide.
     const u=v.cx0+px/v.z, s=v.cy0+py/v.z;
     this.ptr={px,py};
-    this.zoom={goal:z2, px, py, u, s, last:0};
-    this.zoomStep(performance.now());
+    /* Round 18eu: a notch changes where the glide is going; it does not start a second
+       glide. Robin: "zooming in and out on the map creates lag. Either something is
+       performance heavy, or the soft scrolling is canceling out each other in a weird way
+       when several zooms are qued at the same time." The second one. `onWheel` used to
+       call `zoomStep` straight out, and `zoomStep` reschedules itself, with nothing saying
+       one at a time - so eight notches left **eight** chains walking the same `this.zoom`.
+       Measured: one notch is one step and one `hoverAt` an animation frame; eight notches
+       was eight of each, every frame, for the length of the glide. The draw was never
+       eight (`redraw` coalesces on its own rAF), which is why this reads as a hitch rather
+       than as a slideshow - it is the seven extra hover lookups and their tooltip work.
+       And they did not even share the motion out: `dt` comes off one `last` on the shared
+       object, so the first chain of each frame moved the zoom and the other seven measured
+       nought and moved nothing.
+       `last` carries over, so a notch arriving mid-glide does not cost the next frame a
+       dead step working out that no time has passed. */
+    this.zoom={goal:z2, px, py, u, s, last:(this.zoom? this.zoom.last : 0)};
+    if(!this._zoomRAF) this._zoomRAF=requestAnimationFrame(t=>this.zoomStep(t));
   },
   /** One frame of the zoom's glide. Returns true while it is still going. */
   zoomStep(now){
+    this._zoomRAF=0;
     const g=this.zoom, v=this.view; if(!g||!v){ this.zoom=null; return false; }
     const dt=g.last? Math.min(0.1,Math.max(0,(now-g.last)/1000)) : 0; g.last=now;
     const R=(typeof App==='object' && App.R)||null;
@@ -926,7 +989,7 @@ const CellMap={
     this.clamp();
     this.hoverAt();          // under the pointer where it is, not where the notch was (18cx)
     this.redraw();
-    if(this.zoom) requestAnimationFrame(t=>this.zoomStep(t));
+    if(this.zoom) this._zoomRAF=requestAnimationFrame(t=>this.zoomStep(t));
     return !!this.zoom;
   },
   onClick(e){

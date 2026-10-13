@@ -1,0 +1,22 @@
+# The load order, read one way for every part of Wraithguard: the openmw.cfg reader
+# (data folders, content and groundcover plugins, archives, chained cfgs). Used by
+# viewcore (the viewer's engine) and native/ (the Python backend), so the Editor and the
+# viewer cannot disagree about what a setup loads.
+#
+# Beside viewcore rather than in native/ so the viewer's builds (which copy only
+# viewer-shell/) have it; native/ takes it by path, as it does luacore.
+[package]
+name = "ordercore"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+# The shared case file (tests/fixtures/openmw_cfg_cases.json) is JSON.
+serde_json = "1"
+
+[lints.clippy]

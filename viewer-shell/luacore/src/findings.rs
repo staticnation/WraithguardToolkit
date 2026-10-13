@@ -10,7 +10,7 @@ use regex::Regex;
 
 use super::analysis::Finding;
 use super::lexer::py_repr;
-use super::omwscripts::{py_splitlines, py_strip};
+use super::omwscripts::py_strip;
 use super::scan::read_text;
 
 static INVALID_KEY: LazyLock<Regex> = LazyLock::new(|| {
@@ -371,36 +371,11 @@ fn glob_one(pattern: &str) -> Vec<PathBuf> {
     out
 }
 
-/// `key=value` as `cfglines.cfg_line_value` reads it: matched surrounding quotes taken off.
-fn cfg_line_value(line: &str) -> Option<&str> {
-    let (_, v) = line.split_once('=')?;
-    let v = py_strip(v);
-    let b = v.as_bytes();
-    if b.len() >= 2 && b[0] == b[b.len() - 1] && (b[0] == b'"' || b[0] == b'\'') {
-        return Some(&v[1..v.len() - 1]);
-    }
-    Some(v)
-}
-
-/// `cfglines.unescape_cfg_value`: `&` escapes the character after it.
-fn unescape_cfg_value(inner: &str) -> String {
-    let mut out = String::new();
-    let mut it = inner.chars();
-    while let Some(c) = it.next() {
-        if c == '&' {
-            if let Some(n) = it.next() {
-                out.push(n);
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
 /// The `resources` folder of the OpenMW install a setup runs on: `explicit` (or its
-/// `resources`), `WG_OPENMW_RESOURCES`, the cfg's `resources=` lines, then the usual
-/// install places (the newest first). Only a folder with `lua_api/openmw` counts.
+/// `resources`), `WG_OPENMW_RESOURCES`, the `resources=` the cfg chain sets (read as
+/// OpenMW reads it, `ordercore::cfg`: the highest-priority cfg's value, relative to that
+/// cfg, tokens resolved), then the usual install places (the newest first). Only a folder
+/// with `lua_api/openmw` counts.
 pub fn find_resources(cfg: Option<&Path>, explicit: Option<&Path>) -> Option<PathBuf> {
     let mut tried: Vec<PathBuf> = Vec::new();
     if let Some(e) = explicit {
@@ -410,20 +385,8 @@ pub fn find_resources(cfg: Option<&Path>, explicit: Option<&Path>) -> Option<Pat
     if let Some(env) = std::env::var_os("WG_OPENMW_RESOURCES").filter(|v| !v.is_empty()) {
         tried.push(PathBuf::from(env));
     }
-    if let Some(cfg) = cfg
-        && let Ok(text) = read_text(cfg)
-    {
-        for line in py_splitlines(&text) {
-            let t = line.trim_start_matches(super::omwscripts::py_space);
-            let is_key = t.len() >= 9
-                && t.is_char_boundary(9)
-                && t[..9].eq_ignore_ascii_case("resources")
-                && t[9..].trim_start_matches(super::omwscripts::py_space).starts_with('=');
-            if is_key {
-                let p = PathBuf::from(unescape_cfg_value(cfg_line_value(line).unwrap_or("")));
-                tried.push(if p.is_absolute() { p } else { cfg.parent().unwrap_or(Path::new("")).join(p) });
-            }
-        }
+    if let Some(r) = cfg.and_then(|cfg| ordercore::cfg::read(cfg, &ordercore::cfg::Tokens::for_cfg(cfg)).ok()).and_then(|c| c.resources) {
+        tried.push(r);
     }
     for pattern in INSTALL_GLOBS {
         let base = if pattern.starts_with('~') { expand_user(pattern).to_string_lossy().replace('\\', "/") } else { pattern.to_string() };
@@ -442,6 +405,20 @@ pub fn find_resources(cfg: Option<&Path>, explicit: Option<&Path>) -> Option<Pat
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `resources=` set in a chained cfg (`config=`), read as OpenMW reads it (ordercore).
+    #[test]
+    fn find_resources_follows_the_cfg_chain() {
+        let dir = std::env::temp_dir().join(format!("wg_res_chain_{}", std::process::id()));
+        let res = dir.join("OpenMW").join("resources");
+        std::fs::create_dir_all(res.join("lua_api").join("openmw")).unwrap();
+        std::fs::create_dir_all(dir.join("user")).unwrap();
+        std::fs::write(dir.join("user").join("openmw.cfg"), format!("resources=\"{}\"\n", res.display())).unwrap();
+        std::fs::write(dir.join("openmw.cfg"), format!("config=\"{}\"\n", dir.join("user").display())).unwrap();
+        let found = find_resources(Some(&dir.join("openmw.cfg")), None);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(found, Some(res));
+    }
 
     #[test]
     fn ratio_matches_difflib() {

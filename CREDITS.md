@@ -105,7 +105,11 @@ and their `LICENSE` files are included in their source folders in this repo.
   brought into this repo and adapted - its code, not an imitation of it:
   - **The engine**, `viewer-shell/viewcore` (MIT, Robin's notice kept): the
     install's files and archives, the load order merged into a world, meshes and
-    textures read for drawing, the sky and weather.
+    textures read for drawing, the sky and weather. Since the 18hu rebase it is a
+    layer over seven of his engine crates, vendored unmodified in
+    `viewer-shell/gardenfell` (his `LICENSE` and `NOTICE`; `VENDOR.md` lists them,
+    with the patches we carry and offer back). `viewer-shell/gardenfell-g7` (ours,
+    MIT) has greatness7's `tes3` crate read for them.
   - **The command layer**, `viewer-shell/src/cellviewer/commands.rs` (MIT): what
     the page calls.
   - **The page**, `viewer-shell/ui` (**GPL-2.0**): the WebGL2 renderer, terrain,
@@ -115,11 +119,14 @@ and their `LICENSE` files are included in their source folders in this repo.
     frontend loaded into the webview, so the GPL does not reach the MIT code. See
     `viewer-shell/ui/LICENSE`, `License/Gardenfell` and `License/MGE-XE`.
 
-  What we changed: stripped it to a viewer (grass generation, painting, the
+  Rebased on Robin's 18hu page in October 2026 (`viewer-shell/R3-LEDGER.md`); his
+  parts now carry his licence line at their top, and the MGE XE ports sit in his
+  `06_mge.js`. What we changed: stripped it to a viewer (grass generation, painting, the
   statics setup, ESP export and the profile/rules managers are gone from the page,
   the commands and the engine); it opens Wraithguard's own setup (the sort panels'
-  current state); the engine reads with greatness7's `tes3` crates and keeps its
-  own readers as the fallback; and ours are the ORI inspector, `groundcover=`
+  current state); the engine reads with greatness7's `tes3` crates and keeps
+  Robin's readers as the fallback (his pill bar, side panel sizing, find bar and window
+  memory came in with it, the window placement in `cellviewer/mod.rs` too); and ours are the ORI inspector, `groundcover=`
   loading, the mod-coverage map in the cell picker, mod highlighting, the viewport
   settings, the mesh-viewer mode with its block editor, and the water changes
   credited at the end of this file. `viewer-shell/MANIFEST.md` lists every part.
@@ -135,6 +142,18 @@ and their `LICENSE` files are included in their source folders in this repo.
   - Its start-up discipline -- *read a thing once and reuse it rather than
     re-reading it every pass* -- shaped our first, Python cell previewer, before
     that previewer was replaced by Gardenfell's own.
+
+- **meshoptimizer** ([`zeux/meshoptimizer`](https://github.com/zeux/meshoptimizer)) -
+  © 2016-2026 Arseny Kapoulkine. MIT. Licence text at `License/meshoptimizer`.
+  `viewer-shell/meshopt-port` is a line-for-line Rust port of version 1.3's vertex fetch
+  order and remaps, its vertex fetch, overdraw and coverage analysers, and its whole
+  simplifier (`simplify`, with attributes, with update, sloppy, prune, points, scale),
+  beside
+  Gardenfell's own port of its vertex cache and overdraw passes (`triorder`, Robin
+  Hjelte); the two together are the mesh viewer's "Optimise draw order"
+  (`native/src/nif_order.rs`), the same pipeline as greatness7's Blender exporter. No
+  C++ is built or shipped; the C++ is only run, from its own repository, to
+  make the values the port is tested against (`tools/meshopt_oracle`).
 
 - **momw-configurator** - © Modding-OpenMW.com (johnnyhostile). MIT.
   We read its `cfg/custom.go` to reimplement its customization-apply logic
@@ -219,6 +238,19 @@ abot - if you would rather we credit this differently, drop the mention, or not
 reference your scripts at all, say the word and it is done.
 
 ## Approach referenced (no code copied)
+
+- **MGE XE** (Greatness7's Rust rewrite, `MGE-XE-main`) - **GPL-2; no code copied.** The
+  Cell Preview's distant objects (`viewer-shell/viewcore/src/lod.rs`, `distant_objects`)
+  budget as its distant statics do: near/far/very-far size tiers and their default
+  thresholds and bands, and its static simplifier's settings (error-driven, welded,
+  normals/UVs/colours as weighted attributes, borders locked).
+
+- **Zhao, Jiang & Guo**, "A novel quadratic error metric mesh simplification algorithm
+  for 3D building models based on 'local-vertex' texture features" (ISPRS Archives
+  XLVIII-3/W2-2022, Urban Geoinformatics 2022). The Cell Preview's texture-aware
+  simplify mode for distant objects (`viewer-shell/viewcore/src/lod.rs`) follows its
+  idea - keep more where the texture under the surface is busy and where it bends -
+  through meshoptimizer's own per-vertex priority, not the paper's own cost function.
 
 - **TES3 Conflictsolver Editor** - ©2026 kirgan 
   (a Mini-TES3Edit–style patch tool). No license file is

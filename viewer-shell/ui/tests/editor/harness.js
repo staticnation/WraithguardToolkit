@@ -37,7 +37,8 @@ function checkAnswer(link, ans) {
   const c = CONTRACT[link]; if (!c || !Array.isArray(c.ans)) return;
   if (!ans || typeof ans !== 'object' || Array.isArray(ans) || !Object.keys(ans).length) return;
   const miss = c.ans.filter(k => !(k in ans));
-  if (miss.length) violations.push(link + ': a stand-in answer without ' + miss.join(', ') + ' (Wraithguard answers ' + c.ans.join(', ') + ')');
+  if (miss.length && Array.isArray(c.alt) && c.alt.every(k => k in ans)) return;  // its other shape
+  if (miss.length)violations.push(link + ': a stand-in answer without ' + miss.join(', ') + ' (Wraithguard answers ' + c.ans.join(', ') + ')');
 }
 
 /** The source of a module, its top-level `const X=` / `class X` made globals of the
@@ -87,7 +88,24 @@ function page(opts = {}) {
         }
         return __engine(c,a||{});
       },
-      async bytes(c,a){ return __engine(c,a||{}); },
+      async bytes(c,a){
+        // The Object Window's rows as the engine packs them (pack_rows in commands.rs),
+        // from the test's own editor_records answer.
+        if(c==='editor_rows'){
+          const r=await __engine('editor_records',a||{}), te=new TextEncoder(), out=[];
+          const u=v=>{ const b=new Uint8Array(4); new DataView(b.buffer).setUint32(0,v,true); out.push(b); };
+          const s=t=>{ const b=te.encode(String(t)); u(b.length); out.push(b); };
+          out.push(te.encode('WGOR')); u(1);
+          const pl=(r&&r.plugins)||[], rows=(r&&r.rows)||[];
+          u(pl.length); pl.forEach(s);
+          u(rows.length);
+          for(const x of rows){ s(x[0]); s(x[1]); s(x[2]); u(x[3].length); x[3].forEach(u); u(x[4]|0); }
+          const all=new Uint8Array(out.reduce((n,b)=>n+b.length,0)); let at=0;
+          for(const b of out){ all.set(b,at); at+=b.length; }
+          return all.buffer;
+        }
+        return __engine(c,a||{});
+      },
       async pick(){ return null; },
     };`);
   w.__WG_VIEW__ = { extra: { links: opts.links || {} } };

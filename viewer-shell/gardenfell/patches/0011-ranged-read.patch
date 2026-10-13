@@ -1,0 +1,93 @@
+--- a/crates/gardenfell-bsa/src/bsa.rs
++++ b/crates/gardenfell-bsa/src/bsa.rs
+@@ -211,6 +211,28 @@
+         }
+     }
+ 
++    /// The size of one entry, by normalised key, without reading it.
++    pub fn size(&self, key: &str) -> Option<usize> {
++        self.index.get(key).map(|&(_, size, _)| size)
++    }
++
++    /// `len` bytes of one entry from `start` (fewer at its end), by normalised key, read
++    /// for the caller. A reader that needs only part of a file - a DDS's smaller mip
++    /// levels, after its header - reads that part and not the rest.
++    pub fn read_range(&self, key: &str, start: usize, len: usize) -> Option<Vec<u8>> {
++        let &(at, size, _) = self.index.get(key)?;
++        let start = start.min(size);
++        let len = len.min(size - start);
++        match &self.store {
++            Store::Mem(d) => Some(d[at + start..at + start + len].to_vec()),
++            Store::File { file, .. } => {
++                let mut b = vec![0u8; len];
++                read_at(file, &mut b, (at + start) as u64).ok()?;
++                Some(b)
++            }
++        }
++    }
++
+     /// The bytes of one entry, by normalised key, lent. From a file, an entry is read the
+     /// first time it is asked for and kept for the archive's life - fine for a tool or a
+     /// test that looks at a few; [`Bsa::read`] is the one for loading many.
+--- a/crates/gardenfell-install/src/vfs.rs
++++ b/crates/gardenfell-install/src/vfs.rs
+@@ -307,6 +307,31 @@
+         }
+     }
+ 
++    /// The size of the file at `loc`, without reading it.
++    pub fn size(&self, loc: &Loc) -> Option<usize> {
++        match loc {
++            Loc::Disk(p) => std::fs::metadata(p).ok().map(|m| m.len() as usize),
++            Loc::Packed { archive, key } => self.archives.get(*archive)?.size(key),
++        }
++    }
++
++    /// `len` bytes of the file at `loc` from `start` (fewer at its end): part of a file,
++    /// for a reader that needs no more (a DDS's header, then only the mip levels it
++    /// keeps). A loose file is seeked, an archive entry read at its offset.
++    pub fn load_range(&self, loc: &Loc, start: usize, len: usize) -> Option<Vec<u8>> {
++        match loc {
++            Loc::Disk(p) => {
++                use std::io::{Read, Seek, SeekFrom};
++                let mut f = std::fs::File::open(p).ok()?;
++                f.seek(SeekFrom::Start(start as u64)).ok()?;
++                let mut b = Vec::with_capacity(len.min(1 << 26));
++                f.take(len as u64).read_to_end(&mut b).ok()?;
++                Some(b)
++            }
++            Loc::Packed { archive, key } => self.archives.get(*archive)?.read_range(key, start, len),
++        }
++    }
++
+     /// The extensions a texture may actually be on disk under, `.dds` first.
+     ///
+     /// Morrowind's own records name `.tga` and the files behind them are frequently
+--- a/crates/gardenfell-bsa/tests/wraithguard_bsa.rs
++++ b/crates/gardenfell-bsa/tests/wraithguard_bsa.rs
+@@ -66,3 +66,25 @@
+     assert!(Bsa::open(&path).is_err(), "shorter than a header");
+     std::fs::remove_file(&path).ok();
+ }
++
++/// Carried patch 0011: part of an entry, from the open file and from memory alike, cut
++/// at the entry's end.
++#[test]
++fn part_of_an_entry_is_read_without_the_rest() {
++    let data: Vec<u8> = (0..=255u8).cycle().take(5000).collect();
++    let files: [(&str, &[u8]); 2] = [("meshes\\a.nif", b"mesh"), ("textures\\b.dds", &data)];
++    let bytes = archive(&files);
++    let path = std::env::temp_dir().join(format!("wg_bsa_range_{}.bsa", std::process::id()));
++    std::fs::write(&path, &bytes).unwrap();
++    let opened = Bsa::open(&path).expect("opens");
++    let parsed = Bsa::parse(&path, bytes).expect("parses");
++    for a in [&opened, &parsed] {
++        assert_eq!(a.size("textures/b.dds"), Some(5000));
++        assert_eq!(a.read_range("textures/b.dds", 100, 28).as_deref(), Some(&data[100..128]));
++        assert_eq!(a.read_range("textures/b.dds", 4990, 100).as_deref(), Some(&data[4990..]), "cut at the end");
++        assert_eq!(a.read_range("textures/b.dds", 9000, 10).as_deref(), Some(&[][..]), "past the end: nothing");
++        assert_eq!(a.read_range("meshes/a.nif", 0, 4).as_deref(), Some(&b"mesh"[..]), "not the next entry");
++        assert!(a.read_range("textures/none.dds", 0, 4).is_none());
++    }
++    std::fs::remove_file(&path).ok();
++}

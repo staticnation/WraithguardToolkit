@@ -1,3 +1,4 @@
+/* Gardenfell, 15_esp.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    What the install contains, as the engine reported it.
 

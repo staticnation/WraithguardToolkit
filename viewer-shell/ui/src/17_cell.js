@@ -1,3 +1,4 @@
+/* Gardenfell, 17_cell.js. Copyright (c) 2026 Robin Hjelte. MIT License; see page-source/LICENSE. */
 /* =====================================================================================
    One cell's contents, as the engine read them.
 
@@ -187,6 +188,10 @@ const CellData={
                             from:(r.from==null? -1 : r.from|0),
                             // Round 17y: where a door leads - {pos, rot, cell} - or absent.
                             door:r.door||null,
+                            /* Round 18ez: a reference the game never animates - its
+                               class gets no animation object, so its `.kf` is never
+                               opened. Sent only when true; see `refs_json`. */
+                            still:!!r.still,
                             // Wraithguard: grass from a `groundcover=` plugin.
                             gc:!!r.gc,
                             // Wraithguard: its review mark, every plugin that supplied a
@@ -203,6 +208,7 @@ const CellData={
          wire. */
       prov: d.prov? {sources:new Map(Object.entries(d.prov.sources||{})),
                      replaced:d.prov.replaced|0, deleted:d.prov.deleted|0,
+                     keptDeleted:d.prov.keptDeleted|0,   // 18fc: edits to deleted references, dropped
                      movedOut:d.prov.movedOut|0, movedIn:d.prov.movedIn|0,
                      unresolved:0} : null,
     };

@@ -1,0 +1,226 @@
+--- a/crates/gardenfell-install/src/vfs.rs
++++ b/crates/gardenfell-install/src/vfs.rs
+@@ -54,6 +54,13 @@
+     }
+ }
+ 
++/// Which place a hit of [`Vfs::family_walk`] came from: a root or an archive, by index.
++#[derive(Clone, Copy)]
++enum Place {
++    Root(usize),
++    Archive(usize),
++}
++
+ // `norm` lives in `crate::paths` (18ge), re-exported so `vfs::norm` still resolves.
+ pub use crate::paths::norm;
+ 
+@@ -235,6 +242,51 @@
+         self.packed(&key)
+     }
+ 
++    /// Every place that supplies `rel`, in the order [`Vfs::resolve_family`] looks (`exts`
++    /// as it reads them; none for the path as spelled): the first is the file
++    /// `resolve_family` loads, each one after it the file that would answer were the ones
++    /// before it gone. `(label, location)`: the folder's label, or the archive's file name.
++    ///
++    /// The list and the resolver are one walk ([`Vfs::family_walk`]), so the list cannot
++    /// name a file the resolver would not load, whatever order the resolver keeps.
++    pub fn providers(&self, rel: &str, exts: &[&str]) -> Vec<(String, Loc)> {
++        let mut out: Vec<(String, Loc)> = Vec::new();
++        self.family_walk(rel, exts, &mut |from, loc| {
++            let label = match from {
++                Place::Root(r) => self.roots[r].label.clone(),
++                Place::Archive(a) => {
++                    self.archives[a].path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
++                }
++            };
++            out.push((label, loc));
++            false
++        });
++        out
++    }
++
++    /// [`Vfs::providers`] for a texture, looked for as [`Vfs::resolve_texture`] looks: the
++    /// `textures/` spelling's places, then the spelling as given.
++    pub fn texture_providers(&self, rel: &str) -> Vec<(String, Loc)> {
++        let n = norm(rel);
++        let mut out = Vec::new();
++        if !n.starts_with("textures/") {
++            out.extend(self.providers(&format!("textures/{}", n), Self::TEX_EXTS));
++        }
++        out.extend(self.providers(&n, Self::TEX_EXTS));
++        out
++    }
++
++    /// [`Vfs::providers`] for a mesh, looked for as [`Vfs::resolve_mesh`] looks.
++    pub fn mesh_providers(&self, rel: &str) -> Vec<(String, Loc)> {
++        let n = norm(rel);
++        let mut out = Vec::new();
++        if !n.starts_with("meshes/") {
++            out.extend(self.providers(&format!("meshes/{}", n), &[]));
++        }
++        out.extend(self.providers(&n, &[]));
++        out
++    }
++
+     /// A loose file only — what a plugin is, always.
+     pub fn resolve_disk(&self, rel: &str) -> Option<&Path> {
+         let key = norm(rel);
+@@ -274,6 +326,18 @@
+     /// The rule the game follows, and now this: the first *mod* that supplies any member
+     /// of the family wins, and within one mod `.dds` wins.
+     pub fn resolve_family(&self, rel: &str, exts: &[&str]) -> Option<Loc> {
++        let mut found = None;
++        self.family_walk(rel, exts, &mut |_, loc| {
++            found = Some(loc);
++            true
++        });
++        found
++    }
++
++    /// `resolve_family`'s walk: every place that has a candidate, in the order it is
++    /// asked, handed to `visit` until it answers true. [`Vfs::resolve_family`] stops at the
++    /// first; [`Vfs::providers`] takes them all.
++    fn family_walk(&self, rel: &str, exts: &[&str], visit: &mut dyn FnMut(Place, Loc) -> bool) {
+         let key = norm(rel);
+         let stem = match key.rfind('.') {
+             Some(i) if !key[i..].contains('/') => &key[..i],
+@@ -294,19 +358,24 @@
+                 cands.push(c);
+             }
+         }
+-        for r in &self.roots {
++        for (ri, r) in self.roots.iter().enumerate() {
+             for c in &cands {
+                 if let Some(p) = r.index.get(c) {
+-                    return Some(Loc::Disk(p.clone()));
++                    if visit(Place::Root(ri), Loc::Disk(p.clone())) {
++                        return;
++                    }
+                 }
+             }
+         }
++        // A candidate in every archive before the next candidate, the last-loaded archive
++        // first - `packed`'s order.
+         for c in &cands {
+-            if let Some(l) = self.packed(c) {
+-                return Some(l);
++            for (ai, a) in self.archives.iter().enumerate().rev() {
++                if a.has(c) && visit(Place::Archive(ai), Loc::Packed { archive: ai, key: c.clone() }) {
++                    return;
++                }
+             }
+         }
+-        None
+     }
+ 
+     /// A texture by the name a record or a NIF gave it, wherever it really lives.
+--- a/crates/gardenfell-install/tests/wraithguard_providers.rs
++++ b/crates/gardenfell-install/tests/wraithguard_providers.rs
+@@ -0,0 +1,106 @@
++//! Wraithguard (carried patch 0003): `Vfs::providers` lists every place that has a file,
++//! and its first is the file the resolver loads - checked here in the three cases where
++//! the first version of the list disagreed (Robin's review, 2026-10-12): one mod with two
++//! spellings, archives that hold different spellings, and a texture found without the
++//! `textures/` prefix.
++
++use gardenfell_install::vfs::{Loc, Vfs};
++use std::path::{Path, PathBuf};
++
++/// A scratch folder for one test, empty.
++fn scratch(name: &str) -> PathBuf {
++    let d = std::env::temp_dir().join(format!("wg_prov_{}_{}", name, std::process::id()));
++    let _ = std::fs::remove_dir_all(&d);
++    std::fs::create_dir_all(&d).unwrap();
++    d
++}
++
++fn put(dir: &Path, rel: &str, bytes: &[u8]) {
++    let p = dir.join(rel);
++    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
++    std::fs::write(p, bytes).unwrap();
++}
++
++/// A version-0x100 archive holding `files` (backslash names), written to `path`.
++fn bsa(path: &Path, files: &[(&str, &[u8])]) {
++    let n = files.len();
++    let (mut names, mut offs) = (Vec::new(), Vec::new());
++    for (name, _) in files {
++        offs.push(names.len() as u32);
++        names.extend_from_slice(name.as_bytes());
++        names.push(0);
++    }
++    let mut out = Vec::new();
++    for v in [0x100u32, (12 * n + names.len()) as u32, n as u32] {
++        out.extend_from_slice(&v.to_le_bytes());
++    }
++    let mut off = 0u32;
++    for (_, d) in files {
++        out.extend_from_slice(&(d.len() as u32).to_le_bytes());
++        out.extend_from_slice(&off.to_le_bytes());
++        off += d.len() as u32;
++    }
++    for o in &offs {
++        out.extend_from_slice(&o.to_le_bytes());
++    }
++    out.extend_from_slice(&names);
++    out.extend(std::iter::repeat(0u8).take(8 * n));
++    for (_, d) in files {
++        out.extend_from_slice(d);
++    }
++    std::fs::write(path, out).unwrap();
++}
++
++/// The list's first entry is the resolver's answer, and the list holds every place.
++fn agrees(v: &Vfs, rel: &str, places: usize) -> Loc {
++    let got = v.resolve_texture(rel).expect("the resolver finds it");
++    let list = v.texture_providers(rel);
++    assert_eq!(list.first().map(|(_, l)| l), Some(&got), "{rel}: {list:?}");
++    assert_eq!(list.len(), places, "{rel}: {list:?}");
++    got
++}
++
++#[test]
++fn one_mod_with_both_spellings_lists_the_dds_first() {
++    let d = scratch("both");
++    put(&d.join("mod"), "textures/tx_rock.tga", b"tga");
++    put(&d.join("mod"), "textures/tx_rock.dds", b"dds");
++    let v = Vfs::with_roots(&[("mod".into(), d.join("mod"))]);
++    let got = agrees(&v, "tx_rock.tga", 2);
++    assert_eq!(v.load(&got).unwrap(), b"dds");
++    std::fs::remove_dir_all(&d).ok();
++}
++
++#[test]
++fn archives_list_the_dds_in_every_archive_before_the_spelled_name() {
++    let d = scratch("arch");
++    bsa(&d.join("old.bsa"), &[("textures\\tx_rock.dds", b"old dds")]);
++    bsa(&d.join("new.bsa"), &[("textures\\tx_rock.tga", b"new tga")]);
++    let mut v = Vfs::with_roots(&[]);
++    assert!(v.add_archives(&[d.join("old.bsa"), d.join("new.bsa")]).is_empty());
++    let got = agrees(&v, "tx_rock.tga", 2);
++    assert_eq!(v.load(&got).unwrap(), b"old dds");
++    std::fs::remove_dir_all(&d).ok();
++}
++
++#[test]
++fn a_texture_without_the_prefix_is_listed_where_it_is_found() {
++    let d = scratch("noprefix");
++    put(&d.join("mod"), "tx_loose.dds", b"top level");
++    let v = Vfs::with_roots(&[("mod".into(), d.join("mod"))]);
++    let got = agrees(&v, "tx_loose.tga", 1);
++    assert_eq!(v.load(&got).unwrap(), b"top level");
++    std::fs::remove_dir_all(&d).ok();
++}
++
++#[test]
++fn meshes_list_as_the_mesh_resolver_looks() {
++    let d = scratch("mesh");
++    put(&d.join("hi"), "meshes/x/a.nif", b"hi");
++    put(&d.join("lo"), "meshes/x/a.nif", b"lo");
++    let v = Vfs::with_roots(&[("hi".into(), d.join("hi")), ("lo".into(), d.join("lo"))]);
++    let list = v.mesh_providers("x\\a.nif");
++    assert_eq!(list.first().map(|(_, l)| l), v.resolve_mesh("x\\a.nif").as_ref());
++    assert_eq!(list.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["hi", "lo"]);
++    std::fs::remove_dir_all(&d).ok();
++}

@@ -1,6 +1,198 @@
 # Changelog
 
 
+## 4.4.0
+
+### Added
+
+- **Cell Preview: pills over the view, a find bar, a side panel you can size, and a
+  window that comes back where you left it** (from Gardenfell 18hu). Brightness and
+  grass distance sit in pills at the top of the view, with view distance in an interior
+  and neighbour rings in an exterior; each icon resets its own. Ctrl+F finds a name
+  in the lists (in the Editor, Ctrl+F stays the Editor's own filter). Drag the left
+  panel's edge to size it; Settings, "Side panel", puts it back. The window opens at its
+  last size and place, maximized if it was, or at the default if that screen is gone.
+- **Script Edit warns about what the Construction Set compiles and the game gets
+  wrong** (simania.nl's "Script quirks"): a single `=` in a condition (the CS reads it
+  as `==`, MWEdit refuses it), `<>` for "not equal" (the game reads it as `<` or `>`),
+  a stray `=` after `set ... to`, `<id>->GetDeadCount` (the id goes after; with it in
+  front the lines under it are ignored), an unquoted id with a hyphen, an apostrophe or
+  a leading digit (`Zurgim_gro-Burug`, `S'Bakha`, `1gr_comp2_wb`), and a chain of 20 or
+  more `elseif`s (the game can fail on a late branch). Run over the 1,364 scripts of
+  Morrowind, Tribunal and Bloodmoon: only the single `=` turns up there, 79 times.
+- **A response's result script with bare LF line ends is warned about**, as Script Edit
+  already warns about a script: a line ending in a comment can swallow the next one in
+  the game. An edit saved in the Editor stores CRLF.
+- **Cell Preview: distant land.** The exteriors past the loaded rings are drawn now,
+  out to your install's view distance, instead of the world ending at the edge of the
+  loaded cells: their ground, coarser the further it is (a point every 512 units next to
+  the rings, then every 1024, then 2048), each point coloured as the ground there is (the
+  land texture's colour times the record's vertex colour), and the water going on over
+  it to the same distance - the same sea as close by, deep where the seabed is deep; a
+  cell with no landscape is open sea over OpenMW's default seabed. Lit and fogged as the land is, loaded after
+  the cell so the cell itself is no slower. On when the install draws distant land
+  (OpenMW's `[Terrain] distant terrain`, MGE's distant land) and when the viewer cannot
+  tell; Preview, Scene, "Distant land" switches it, and the switch is remembered once
+  touched.
+- **Cell Preview: distant objects.** What stands on the distant land - buildings, rocks,
+  trees - is drawn too, as OpenMW's object paging does: each model simplified once (about
+  half its triangles next to the rings, a quarter further out, a tenth at the edge), and
+  only what is big enough for its distance - near, far and very-far size tiers, each
+  drawn to its own band, as MGE XE budgets its distant statics; one simplified copy per
+  model, its textures small, with caps on instances and models.
+  Actors, grass and markers are left out, as OpenMW leaves them. "Distant objects" in
+  Preview, Scene follows Distant land until switched; "Distant simplify" chooses how:
+  **plain** keeps the shape first, **texture-aware** keeps more where the texture on the
+  surface is busy and where it bends (after Zhao, Jiang & Guo, ISPRS 2022). Loaded after
+  the cell and the land, so neither waits for it.
+- **Mesh viewer: Draw order, and Optimise.** Under the block tree, how each shape
+  draws: vertices shaded per triangle (the vertex cache), bytes read over the vertex
+  buffer (the vertex fetch) and overdraw, as the file has them and as they would be. With
+  a mesh you can save, "Optimise draw order" queues the reorder as an edit and Save writes
+  it: the triangles and vertices in the order a GPU draws fastest, as greatness7's Blender
+  exporter writes them (vertex cache, overdraw, then vertex fetch). The picture does not
+  change: every triangle keeps its corners, and skin weights, morph targets, every UV set
+  and the match groups move with their vertices; no vertex is dropped. A shape already in
+  good order (meshoptimizer's passes can make one slightly worse) is left as it is, and
+  so is one that cannot be moved whole (a skin partition, skin or morph data shared with
+  another shape). Checked on every mesh in a 768-file corpus: 4,432 shapes come back the
+  same, 2,150 of them reordered.
+- **The Editor's toolbar can run across the top or bottom of the window** (right-click
+  it: "Across the top of the window" / "Across the bottom of the window"), as a bar of
+  its own instead of floating over the view. The docks it had stay.
+- **Script Edit warns about a plugin's script with LF line ends.** It says how many lines
+  end in a bare LF instead of CRLF, from the first one; any edit saved in the Editor
+  stores CRLF.
+- **Every Editor link's answer is pinned in the contract, with an example the tests
+  run** (developers). New pins: editScript, editResult, editUses, editTopics,
+  editLuaChart, editNewResponse and the four dialogue views; editDialogueFlags' single-flag
+  answer is its second shape (`alt`). The 26 links pinned without an example now have one
+  (the build, test run, placed and new references, cell copy, replace, topics, leveled
+  roll); `$tmp`, `$placed` and `$job` in an example are filled in as the tests run.
+- **openmw.cfg is read one way everywhere, by OpenMW's documented rules.** A new shared
+  crate (`viewer-shell/ordercore`) is the one reader for the viewer, the Editor and the
+  Lua tools, in place of six. It follows chained cfgs (`config=`, OpenMW 0.48+) and
+  `replace=`, and the `?userdata?`/`?userconfig?` tokens (a Flatpak OpenMW's own folders
+  inside its sandbox); a token it cannot know (`?local?`, `?global?`) is a connect
+  warning instead of a wrong path.
+
+### Changed
+
+- **Cell Preview's "Preview" section starts open.** It is the heading the other sections
+  sit under, and it started closed.
+- **Sunshafts, FXAA and depth of field start on unless the install turns them off.**
+  They follow the install's post chain where it has one (as before) and are on where
+  it says nothing; each still has its switch in Preview, Effects. Bloom still follows
+  the install.
+- **The viewer reads only the texture sizes it shows.** With a Texture detail set (512,
+  say), a DDS was read whole - a 4K replacer is about 21 MB with its mips - and the levels
+  above the detail thrown away: one cell on a large modded install read 1.2 GB of
+  textures to show 15 MB, most of its load. Now the header is read first and then only
+  the levels kept (a 4096 texture at 512: about a third of a megabyte), from loose files
+  and archives alike. A texture with no mips, or one decoded to pixels, is shrunk to the
+  detail before it is sent. "The install's own" detail reads everything, as before.
+- **The viewer no longer reads every archive into memory.** The 18hu rebase had brought
+  in a reader that loaded each BSA whole and kept it; on a large modded setup that was
+  gigabytes resident and the cell load slowed with every bundle until it froze in
+  "Placing objects". An archive is now opened and read from as needed (on an 800 MB
+  archive: 21 s and 804 MB to open before, under a millisecond and 4 MB now).
+- **The viewer's page is rebased on Gardenfell 18hu too** (Robin's newest page, without
+  its grass tools; every decision in `viewer-shell/R3-LEDGER.md`). What shows:
+  - Animated water textures play (flipbooks: Tamriel Rebuilt's and OAAB's water circles).
+  - Glowbugs and lamp flares turn to face the camera (billboards).
+  - Glow maps on their own UV set draw right (Tamriel Data's bulb mushrooms).
+  - A static whose mesh has a `.kf` beside it stands still, as in the game (OpenMW plays
+    a `.kf` only for activators, containers, doors, lights and actors).
+  - Lights with no mesh light the scene.
+  - Shadows: up to five cascades reaching as far as the fog, still objects' shadows
+    cached between frames.
+  - Hold Shift over a door to see where it leads.
+  - Preview, Scene: "Pause rendering when still".
+  - Highlight objects draws an outline by default (was the fill), and the Highlight
+    texture switch is gone (texture highlighting is always on).
+  - The frame cap paces frames evenly; zoom to cursor anchors better at the sky.
+  - The connect log reports the load order's merge counts (deleted references kept,
+    moves dropped, cells deleted, and so on).
+- **The viewer's engine is rebased on Gardenfell 18hu** (Robin Hjelte's newest engine
+  crates, vendored unmodified in `viewer-shell/gardenfell` with ten carried patches
+  offered back to him). Greatness7's `tes3` crate still reads every plugin and mesh: a
+  new crate, `viewer-shell/gardenfell-g7`, converts what it reads into Gardenfell's
+  types, so updates to either arrive as a version bump or a copy. Checked both ways:
+  768 records in 41 plugins and 851 meshes read the same through either reader, none
+  differ. Nothing grass-related came across. Comes with Gardenfell's strict NIF reader,
+  its vertex-cache ordering (`triorder`) and its cfg chain reading.
+
+### Fixed
+
+- **The Lua checks find OpenMW's `resources` folder through the whole cfg chain.** A
+  `resources=` set in a chained cfg (`config=`) was missed, and every `resources=` line
+  was tried rather than the one OpenMW uses; it is now read by the shared openmw.cfg
+  reader, as OpenMW reads it.
+- **The Object Window no longer sits silently on "0 records".** Its rows now come from
+  the engine as bytes (`editor_rows`) built straight from the load order's record index,
+  with the JSON list kept only as a second way if that fails. Placed counts are counted
+  once per load, across all cores, and kept. The lists are asked for again whenever an
+  install is opened, and a list that fails both ways is said in Messages and in the
+  table with a Reload button, instead of a timer retrying and giving up quietly.
+- **Grass from your `groundcover=` plugins is drawn again.** Since the viewer was rebased
+  on Gardenfell 18hu it read only the `content=` plugins, so the groundcover plugins never
+  loaded and no grass showed. They load after the content plugins again, as OpenMW loads
+  them, and their grass is drawn and editable as before. (Wraithguard still never
+  generates grass.)
+- **The viewer's link to Wraithguard survives a low-memory moment.** When Windows ran
+  short of memory, the local server the viewer talks to (the Editor, a mesh's Save) hit a
+  socket error (WinError 10055) and stopped for good, and the viewer's requests went
+  unanswered until Wraithguard was restarted. It now logs the error and serves again.
+- **Start scripts (SSCR) open in the Editor.** Opening one from the Object Window said
+  it was "not a record any plugin of this load order defines": the list names a start
+  script by the script it starts, as OpenMW does, and Wraithguard looked it up by its
+  DATA string, which OpenMW never reads. Wraithguard now keys it as OpenMW does, in the
+  Editor and in the conflict scan (two mods starting the same script are one record).
+- **The Object Window's selected row stays in its columns.** A style brought in with the
+  18hu rebase, meant for a list this page does not have, turned any selected row into a
+  flex row: its values bunched into the first column and pushed the rest aside. The
+  same applied to the other Editor tables and the mesh viewer's block tree.
+- **Body parts have a preview in the Object Window.** The hover card and the selection
+  card were blank for body parts (the record window showed the mesh): the list took a
+  model only from things that can be placed, which a body part is not.
+- **The viewer's "supplied by" list names the file it draws.** For a texture whose mod
+  ships both spellings, or archives holding different spellings, or one found without
+  the `textures/` prefix, the list's winner could be a different file from the one drawn
+  (or the list was empty). The list is now the resolver's own walk.
+- **An id defined as two object types draws as the one OpenMW places.** If one plugin
+  makes `x` a weapon and a later one a misc item, OpenMW keeps both and places the
+  weapon: the type is decided by the record tag (in effect its last letter: WEAP over
+  MISC, NPC_ over everything), not by load order. The viewer drew the later plugin's
+  type; it now draws the placed one, and the Object Window lists the id under both
+  types (the reference count under the placed one). The rule is in `ordercore::records`,
+  checked by shared cases (`tests/fixtures/record_cases.json`).
+- **A new object may not take another object type's id.** Insert and Duplicate refused
+  only an id the same type had, so a misc item could be made with a weapon's id: the
+  Construction Set flags that ("Matching IDs") and Morrowind.exe will not load it. The
+  Editor now refuses it and names the type that has the id.
+- **A deleted record is gone.** The Object Window still listed a record a later plugin
+  deleted, with the deleting plugin among its definitions, and the Editor opened the
+  deleted version. A deletion now takes the record out, as OpenMW does; a plugin after
+  it may define it again.
+- **A cfg written with spaces round `=` (`data = ...`) connects.** The viewer said it
+  had no usable data folders, and ignored `content = ...` lines.
+- **`data-local` overrides every `data=` folder, wherever it is written.** The viewer
+  ranked it by its line, so with it at the top (as OpenMW's own cfg has it) every mod
+  folder overrode it.
+- **The Editor sees groundcover plugins' records**, as the viewer draws them.
+- **A quoted data folder with text after the closing quote is read** (the text is
+  ignored, as OpenMW does), and `CONTENT=` is no longer read as a content line by the Lua
+  panel alone (OpenMW's option names are lower case).
+
+- **Scripts saved from the Editor have CRLF line ends.** Script Edit's text box gives
+  back bare LF, and the script was stored that way. The CS writes CRLF, and scripts saved
+  with LF have broken in the game (a line ending in a comment took the next line with
+  it). A script's text and a response's result script now always go into the pool as
+  CRLF; typing the same text back is no change.
+- **The Object Window fills on a slow load.** A tab opened before the engine had read
+  the load order's records (a busy machine, a big load order) stayed empty; it now asks
+  again until they are there.
+
 ## 4.3.0
 
 ### Added
@@ -652,6 +844,10 @@
   answer for cells no longer loaded is dropped. The Cell View's reference list (and the
   Editor's other lists) are found wherever their pane is docked: one docked into another
   panel was not found, and every change of cells said "Cannot set properties of null".
+- **A topic opened twice quickly shows the latest.** An earlier opening that answered
+  late drew over a later one (and wiped what was marked on it).
+- **The Object Window's own columns say why when they do not load** (in Messages),
+  instead of the table quietly showing only the engine's.
 - **Meshes with their textures inside them draw textured.** A NIF can carry its texture
   in the file (a `NiSourceTexture` with no file name, its pixels in a `NiPixelData`
   record) - Quests for Clans and Vampire Legends' torture chair and rack do - and the
