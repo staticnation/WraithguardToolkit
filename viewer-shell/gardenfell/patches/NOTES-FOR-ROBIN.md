@@ -160,6 +160,12 @@ binding path with synthetic data, checking key count, boundary interpolation and
 an unchanged source sequence. The customer's stalled report contains NPC batches;
 this is a confirmed size regression, not proof of the stall's final cause.
 
+Skeleton binding now removes only `PartAnim::nodes`, which skinning replaces,
+and keeps the part's alpha and visibility controllers. Previously clearing the
+whole `PartAnim` also removed material fades and show/hide keys. The synthetic
+binding regression covers both moving and baked skins, alpha and visibility
+independently and together, and unskinned parts.
+
 ## 0009 world: what each plugin did to a cell
 
 `World::history.interiors` / `.exteriors` (`CellHistory`): `touched_by`, every plugin
