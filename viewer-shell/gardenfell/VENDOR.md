@@ -73,6 +73,8 @@ Greatness7's `tes3` crate reads, and Robin's code runs on what it read.
   including boundary keys for interpolation). The binding call lost during the 4.4
   rebase is restored in this patch; the synthetic skeleton binding regression test
   runs with `cargo test -p gardenfell-nif --lib`, without the external fixture.
+  Skeleton binding clears node-motion links while preserving the part's alpha and
+  visibility tracks; regression coverage checks both moving and baked skins.
 - `patches/0009-cell-history.patch`: `History::interiors` / `exteriors`
   (`CellHistory`): every plugin with a CELL record for a cell, and the references a
   later plugin deleted or moved away (`Gone`). Also beside the cells, not in `Cell`.
