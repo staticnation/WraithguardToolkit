@@ -259,7 +259,7 @@
 +pub mod skeleton;
 --- a/crates/gardenfell-nif/src/nif/skeleton.rs
 +++ b/crates/gardenfell-nif/src/nif/skeleton.rs
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,396 @@
 +//! Parts hung on another file's skeleton: an NPC's body parts and what it wears, bound by
 +//! bone name to the skeleton the race uses (`base_anim.nif`), with an idle playing. From
 +//! Wraithguard (Static), whose viewer assembles NPCs this way.
@@ -415,9 +415,82 @@
 +    }
 +    let moves = sk.bones.iter().any(|b| !b.chain.is_empty());
 +    rebake_skin(p);
-+    p.anim = None;
++    if let Some(a) = p.anim.as_mut() {
++        // Skinning replaces node motion, but material fades and visibility still apply.
++        a.nodes.clear();
++        if a.alpha.is_none() && a.vis.is_empty() {
++            p.anim = None;
++        }
++    }
 +    if !moves {
 +        p.skin = None;
++    }
++}
++
++#[cfg(test)]
++mod binding_tests {
++    use super::*;
++
++    #[test]
++    fn binding_preserves_alpha_and_visibility_but_replaces_node_motion() {
++        let mut stream = Stream::new();
++        stream.blocks.push(ni::NiType::NiNode(ni::NiNode::default()));
++        stream.roots = vec![Link::new(0)];
++        let bytes = stream.write().expect("synthetic skeleton");
++        let skel = Skeleton::read(&bytes, None).expect("skeleton reads");
++        let link = AnimLink {
++            pre: (IDENT, 1.0), local: (IDENT, 1.0),
++            ctrl: KfCtrl::default(), data: KfData::default(),
++        };
++        let track = AlphaAnim {
++            flags: 8, frequency: 2.0, phase: 0.25, start: 1.0, stop: 3.0,
++            keys: vec![(1.0, 0.0), (3.0, 1.0)],
++        };
++        for moves in [false, true] {
++            for alpha in [false, true] {
++                for vis in [false, true] {
++                    let anim = PartAnim {
++                        nodes: vec![link.clone()],
++                        alpha: alpha.then(|| track.clone()),
++                        vis: if vis { vec![track.clone(), track.clone()] } else { Vec::new() },
++                    };
++                    let expected = format!("{:?}", (&anim.alpha, &anim.vis));
++                    let mut post = IDENT;
++                    post[9] = 4.0;
++                    let mut p = DrawPart {
++                        pos: vec![0.0; 3],
++                        anim: Some(anim),
++                        skin: Some(SkinAnim {
++                            pos: vec![1.0, 2.0, 3.0],
++                            idx: vec![0, 255, 255, 255], w: vec![1.0, 0.0, 0.0, 0.0],
++                            bones: vec![BoneAnim {
++                                name: "missing bone".into(),
++                                chain: if moves { vec![link.clone()] } else { Vec::new() },
++                                post: (post, 1.0), trafo: (IDENT, 1.0),
++                            }],
++                            ..Default::default()
++                        }),
++                        ..Default::default()
++                    };
++                    bind_to_skeleton(&mut p, &skel);
++                    assert_eq!(p.pos, vec![5.0, 2.0, 3.0], "skin still rebakes");
++                    assert_eq!(p.skin.is_some(), moves, "only moving skin is retained");
++                    if alpha || vis {
++                        let a = p.anim.expect("non-motion animation survives binding");
++                        assert!(a.nodes.is_empty());
++                        assert_eq!(format!("{:?}", (&a.alpha, &a.vis)), expected);
++                    } else {
++                        assert!(p.anim.is_none(), "empty animation is discarded");
++                    }
++                }
++            }
++        }
++        let mut rigid = DrawPart {
++            anim: Some(PartAnim { nodes: vec![link], ..Default::default() }),
++            ..Default::default()
++        };
++        bind_to_skeleton(&mut rigid, &skel);
++        assert_eq!(rigid.anim.unwrap().nodes.len(), 1, "unskinned parts retain node motion");
 +    }
 +}
 +
