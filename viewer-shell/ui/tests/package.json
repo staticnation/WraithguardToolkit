@@ -2,6 +2,12 @@
   "name": "wraithguard-cellviewer-tests",
   "private": true,
   "description": "Boot check for the cell viewer page (jsdom + the headless engine).",
-  "scripts": { "boot": "node boot.js", "editor": "node editor/run.js" },
-  "dependencies": { "jsdom": "^26" }
+  "scripts": {
+    "boot": "node boot.js",
+    "editor": "node editor/run.js",
+    "preview": "node --test --test-timeout=5000 preview_loading.test.js report_loading.test.js cache_races.test.js"
+  },
+  "dependencies": {
+    "jsdom": "^26"
+  }
 }

@@ -416,7 +416,8 @@ fn load(vfs: &Vfs, model: &str) -> Option<Vec<u8>> {
 /// same name (another load order, a replacer switched on) is a different key.
 fn loc_key(vfs: &Vfs, model: &str) -> String {
     match vfs.resolve_mesh(model).or_else(|| vfs.resolve(model)) {
-        Some(l) => format!("{l:?}"),
+        // Archive indexes are local to one VFS; the path identifies the actual archive.
+        Some(l) => l.ident(vfs),
         None => String::new(),
     }
 }
@@ -801,6 +802,34 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn npc_cache_distinguishes_archive_zero_in_different_installs() {
+        fn setup(path: &str, value: u8) -> Vfs {
+            // One-file Morrowind BSA: file table, name offset, name, hash, payload.
+            let name = b"meshes\\body.nif\0";
+            let mut bytes = Vec::new();
+            for n in [0x100u32, 12 + name.len() as u32, 1, 1, 0, 0] {
+                bytes.extend_from_slice(&n.to_le_bytes());
+            }
+            bytes.extend_from_slice(name);
+            bytes.extend_from_slice(&[0; 8]);
+            bytes.push(value);
+            Vfs { archives: vec![crate::bsa::Bsa::parse(std::path::Path::new(path), bytes).unwrap()], ..Default::default() }
+        }
+        let old = setup("old/install.bsa", 1);
+        let new = setup("new/install.bsa", 2);
+        let old_key = loc_key(&old, "body.nif");
+        let new_key = loc_key(&new, "body.nif");
+        assert!(!old_key.is_empty());
+        assert_ne!(old_key, new_key);
+        static FILES: std::sync::OnceLock<Cache<Vec<u8>>> = std::sync::OnceLock::new();
+        let current = cached(&FILES, new_key.clone(), || load(&new, "body.nif").unwrap());
+        // An outgoing request finishes after the incoming install has cached its file.
+        cached(&FILES, old_key, || load(&old, "body.nif").unwrap());
+        assert_eq!(cached(&FILES, new_key, || panic!("must be cached")).as_slice(), &[2]);
+        assert_eq!(current.as_slice(), &[2]);
+    }
 
     fn sub(tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
         let mut v = tag.to_vec();
