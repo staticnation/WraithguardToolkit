@@ -152,6 +152,14 @@ Additions to `nif.rs`, and a new `nif/skeleton.rs`; nothing existing changes beh
 Useful to you if Gardenfell ever shows NPCs or creatures in the preview; otherwise we
 carry it.
 
+2026-10-14 correction to 0008: the patch added `KfData::window` but missed its call
+in `bind_kf`, which Wraithguard 4.3 used. Binding a short idle therefore retained
+all of the animation file's keys and copied them into each body part's bone chains.
+The patch now windows the bound tracks and tests the complete skeleton read/bone
+binding path with synthetic data, checking key count, boundary interpolation and
+an unchanged source sequence. The customer's stalled report contains NPC batches;
+this is a confirmed size regression, not proof of the stall's final cause.
+
 ## 0009 world: what each plugin did to a cell
 
 `World::history.interiors` / `.exteriors` (`CellHistory`): `touched_by`, every plugin

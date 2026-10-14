@@ -193,6 +193,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: preview loading races
+        working-directory: viewer-shell/ui/tests
+        run: npm run preview
       - name: cell viewer boots
         working-directory: viewer-shell/ui/tests
         run: |

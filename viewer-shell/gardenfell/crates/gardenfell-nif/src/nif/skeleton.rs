@@ -252,7 +252,7 @@ pub fn prepend_systems(sys: &mut [ParticleSystem], m: &[f32; 12], s: f32) {
 
 #[cfg(test)]
 mod kf_window_tests {
-    use super::KfData;
+    use super::*;
 
     #[test]
     fn a_clip_keeps_its_keys_and_one_either_side() {
@@ -270,4 +270,54 @@ mod kf_window_tests {
         assert_eq!(w.trans.len(), 1);
         assert!(KfData::default().window(0.0, 1.0).is_empty());
     }
+
+    #[test]
+    fn skeleton_binding_keeps_only_the_active_clips_keys() {
+        let mut stream = Stream::new();
+        let mut root = ni::NiNode::default();
+        root.base.base.name = "root".into();
+        root.children = vec![Link::new(1)];
+        stream.blocks.push(ni::NiType::NiNode(root));
+        let mut bone = ni::NiNode::default();
+        bone.base.base.name = "Bone".into();
+        stream.blocks.push(ni::NiType::NiNode(bone));
+        stream.roots = vec![Link::new(0)];
+        let sequence = KfSequence {
+            text_keys: vec![(10.5, "Idle: Start".into()), (20.5, "Idle: Stop".into())],
+            tracks: vec![KfTrack {
+                node: "Bone".into(),
+                ctrl: KfCtrl::default(),
+                data: KfData {
+                    scales: (0..1000).map(|i| (i as f32, i as f32)).collect(),
+                    trans: (0..1000).map(|i| (i as f32, [i as f32, 0.0, 0.0])).collect(),
+                    rot: (0..1000).map(|i| (i as f32, [1.0, 0.0, 0.0, 0.0])).collect(),
+                    rot_xyz: Some(std::array::from_fn(|_| (0..1000).map(|i| (i as f32, i as f32)).collect())),
+                    ..Default::default()
+                },
+            }],
+        };
+        let bytes = stream.write().expect("synthetic skeleton");
+        let skel = Skeleton::read(&bytes, Some(&sequence)).expect("skeleton reads");
+        let bone = skel.bone("Bone", (IDENT, 1.0)).expect("bone binds");
+        assert_eq!(bone.chain.len(), 1);
+        let link = &bone.chain[0];
+        assert_eq!((link.ctrl.start, link.ctrl.stop), (10.5, 20.5));
+        let data = &link.data;
+        assert_eq!(data.scales.len(), 12, "unplayed clips must not be copied into bone chains");
+        assert_eq!(data.trans.len(), 12);
+        assert_eq!(data.rot.len(), 12);
+        for channel in data.rot_xyz.as_ref().unwrap() {
+            assert_eq!(channel.len(), 12);
+        }
+        assert_eq!(data.scales.first().unwrap().0, 10.0);
+        assert_eq!(data.scales.last().unwrap().0, 21.0);
+        let original = &sequence.tracks[0].data;
+        assert_eq!(original.scales.len(), 1000, "the source sequence stays intact");
+        for time in [10.5, 11.0, 15.25, 20.5] {
+            assert_eq!(key1_at(&data.scales, time), key1_at(&original.scales, time));
+            assert_eq!(key_at(&data.trans, time), key_at(&original.trans, time));
+            assert_eq!(key_at(&data.rot, time), key_at(&original.rot, time));
+        }
+    }
+
 }

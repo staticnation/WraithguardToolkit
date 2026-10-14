@@ -38,6 +38,8 @@ const COL_SOURCE=['collision','visible','bounds','none'];
    that is finished. */
 const _meshLoading=new Map();
 const _texLoading=new Map();
+let _meshEpoch=0;      // resets within one install also invalidate pending mesh reads
+let _textureEpoch=0;   // cache resets also invalidate reads and decodes still in flight
 
 /** Forgets every loaded mesh, and the GPU objects keyed by them.
  *
@@ -47,14 +49,14 @@ const _texLoading=new Map();
  *  the driver until the window closed. Whatever tears one down owns tearing down the
  *  other, which is §30's rule about the scene cache in a smaller place. */
 function dropMeshes(){
-  App.meshCache.clear();
+  App.meshCache.clear(); _meshEpoch++;
   /* And the reads still in the air. A fetch started under the install being left will
      answer about *that* install — "not found" for a mesh only the other one has — and
      `loadMesh` hands a pending read to whoever asks next. Forgetting them here means a
      caller after the switch starts its own read against the world it can actually see;
      the old promise still resolves for whoever already holds it, and `meshKeeper`
      keeps its answer out of the cache. */
-  _meshLoading.clear(); _texLoading.clear();
+  _meshLoading.clear(); _texLoading.clear(); _textureEpoch++;
   /* And the pictures drawn from them. A thumbnail is a picture of a mesh in *this*
      install; keeping it across a switch would show a rock from a mod that is no longer
      loaded, on a card naming a mesh that now resolves somewhere else. */
@@ -123,13 +125,16 @@ function newMeshRec(relPath){
    connect counter, which ticks at both ends of a connect — must still be current, which
    refuses anything that spanned a boundary. And no connect may be open, which refuses
    the poisonous kind: a read made wholly inside the window, of an install already on
-   its way out, whose token is current precisely because nothing moved around it. */
+   its way out, whose token is current precisely because nothing moved around it.
+
+   The mesh epoch also rejects reads across a cache reset within the same world,
+   such as a texture-detail change. Bundles capture it before queuing any batches. */
 function worldToken(){
   return ((typeof GameData!=='undefined')? GameData.sig : '')+'/'+(App.swapEpoch|0);
 }
-function meshKeeper(key,rec,world){
+function meshKeeper(key,rec,world,meshEpoch=_meshEpoch){
   if(world==null) world=worldToken();
-  return ()=>{ if(!App.swapping && worldToken()===world) App.meshCache.set(key,rec);
+  return ()=>{ if(!App.swapping && worldToken()===world && _meshEpoch===meshEpoch) App.meshCache.set(key,rec);
                return rec; };
 }
 
@@ -1004,20 +1009,28 @@ const BUNDLE=8;
    wall time on purpose - it is the transport plus the engine, as the page felt it. The
    texture and mesh sums are main-thread time and so are real. */
 const LoadProf={engine:0, engineKnown:false, wait:0, bundles:0, tex:0, texN:0, texBytes:0, mesh:0, meshN:0, build:0, groupsMs:null,
-  slow:null,
-  reset(){ this.engine=0; this.engineKnown=false; this.wait=0; this.bundles=0; this.tex=0; this.texN=0; this.texBytes=0; this.mesh=0; this.meshN=0; this.build=0; this.groupsMs=null; this.slow=null; },
+  slow:null, pending:new Map(), decoding:new Map(), nextId:0,
+  reset(){ this.engine=0; this.engineKnown=false; this.wait=0; this.bundles=0; this.tex=0; this.texN=0; this.texBytes=0; this.mesh=0; this.meshN=0; this.build=0; this.groupsMs=null; this.slow=null; this.pending.clear(); this.decoding.clear(); },
   /** One line on where the time has gone so far, for the busy card while it loads. */
-  live(){
+  live(full=false){
     const s=v=>(v/1000).toFixed(1)+' s', mb=v=>(v/1048576).toFixed(0)+' MB';
     let t='engine '+s(this.engine)+' · wait '+s(this.wait)+'\ntextures '+this.texN+' ('+mb(this.texBytes)+', decode '+s(this.tex)+') · mesh decode '+s(this.mesh);
     if(this.slow){
-      const names=this.slow.meshes.map(m=>m.split('/').pop()).slice(0,3).join(', ');
-      t+='\nslowest bundle '+s(this.slow.ms)+' (engine '+s(this.slow.engine||0)+', '+mb(this.slow.bytes)+', '+this.slow.tex+' tex): '+names+(this.slow.meshes.length>3? '…' : '');
+      const names=this.slow.meshes.slice(0,full? undefined : 3).map(m=>full? m : m.split('/').pop()).join(', ');
+      t+='\nslowest bundle '+s(this.slow.ms)+' (engine '+s(this.slow.engine||0)+', '+mb(this.slow.bytes)+', '+this.slow.tex+' tex): '+names+(!full && this.slow.meshes.length>3? '…' : '');
     }
+    const now=performance.now();
+    for(const [id,b] of [...this.pending].slice(0,full? undefined : 3)){
+      t+='\nbundle #'+id+' '+b.stage+' '+s(now-b.started)+': '+(full? '\n  '+b.meshes.join('\n  ') : b.meshes.slice(0,3).map(m=>m.split('/').pop()).join(', ')+(b.meshes.length>3? '…' : ''));
+    }
+    if(!full && this.pending.size>3) t+='\n'+(this.pending.size-3)+' more bundles pending';
+    for(const [,d] of [...this.decoding].slice(0,full? undefined : 3)) t+='\ndecoding '+d.path+' '+s(now-d.started);
+    if(!full && this.decoding.size>3) t+='\n'+(this.decoding.size-3)+' more textures decoding';
     return t;
   },
   take(){ return {engine:this.engine, engineKnown:this.engineKnown, wait:this.wait, bundles:this.bundles, tex:this.tex, texN:this.texN, texBytes:this.texBytes, mesh:this.mesh, meshN:this.meshN, build:this.build, groupsMs:this.groupsMs}; }};
 async function loadMeshes(relPaths,onProgress){
+  const world=worldToken(), textureEpoch=_textureEpoch, meshEpoch=_meshEpoch;
   const out=new Array(relPaths.length);
   const need=new Map();   // key -> {relPath, still, resolve, reject, promise}
   relPaths.forEach((ask,i)=>{
@@ -1045,9 +1058,13 @@ async function loadMeshes(relPaths,onProgress){
   for(let i=0;i<entries.length;i+=BUNDLE) batches.push(entries.slice(i,i+BUNDLE));
   const bc=!!(App.R && App.R.bcFormats());
   const maxSize=textureDetail();
+  const pulse=onProgress? setInterval(()=>onProgress(done,total),1000) : null;
+  try{
   await inFlight(batches, 6, async batch=>{
     const recs=batch.map(e=>{ const r=newMeshRec(e.relPath); r.still=!!e.still; return r; });
-    const world=worldToken();
+    const id=++LoadProf.nextId;
+    const pending={started:performance.now(), stage:'requesting', meshes:batch.map(e=>VFS.norm(e.relPath))};
+    LoadProf.pending.set(id,pending);
     try{
       const have=[...App.texGL.keys(), ..._texLoading.keys()];
       const tw=performance.now();
@@ -1062,6 +1079,7 @@ async function loadMeshes(relPaths,onProgress){
                                                      still:batch.map(e=>!!e.still)});
       const took=performance.now()-tw;
       LoadProf.wait+=took; LoadProf.bundles++;
+      pending.stage='reading bundle';
       const b=readBundle(ab);
       if(b.ms!=null){ LoadProf.engine+=b.ms; LoadProf.engineKnown=true; }
       /* Wraithguard: the slowest bundle so far and what was in it, shown live under the
@@ -1069,10 +1087,15 @@ async function loadMeshes(relPaths,onProgress){
       if(!LoadProf.slow || took>LoadProf.slow.ms){
         LoadProf.slow={ms:took, engine:b.ms, bytes:ab.byteLength, tex:b.textures.length, meshes:batch.map(e=>VFS.norm(e.relPath))};
       }
+      pending.stage='decoding textures';
       // The textures first, so the meshes' lookups below are hits.
       await Promise.all(b.textures.map(async t=>{
         const key=VFS.norm(t.name).toLowerCase();
-        if(App.texGL.has(key) || _texLoading.get(key)) return;
+        // A returned bundle may belong to a cache that was cleared while it travelled.
+        if(App.swapping || worldToken()!==world || _textureEpoch!==textureEpoch) return;
+        if(App.texGL.has(key)) return;
+        const inflight=_texLoading.get(key);
+        if(inflight) return inflight;
         const p=(async()=>{
           const rec={gl:null,err:null,thumb:null,w:0,h:0};
           // Round 18cs: the decode's own main-thread time (`rec.msDecode`), not the wall
@@ -1081,11 +1104,12 @@ async function loadMeshes(relPaths,onProgress){
           if(t.ok){ await decodeTexture(t.data,rec,t.name);
                     LoadProf.tex+=rec.msDecode||0; LoadProf.texN++; LoadProf.texBytes+=rec.bytes||0; }
           else { rec.err=t.err; App.loadLog.push({k:'e',t:t.name+': '+t.err}); }
-          keepTexture(key,rec,world); return rec;
-        })().finally(()=>_texLoading.delete(key));
+          keepTexture(key,rec,world,textureEpoch); return rec;
+        })().finally(()=>{ if(_texLoading.get(key)===p) _texLoading.delete(key); });
         _texLoading.set(key,p);
         await p;
       }));
+      pending.stage='decoding meshes';
       for(let k=0;k<batch.length;k++){
         const e=batch[k], rec=recs[k], m=b.meshes[k];
         if(!m || !m.ok){
@@ -1101,11 +1125,14 @@ async function loadMeshes(relPaths,onProgress){
     }catch(err){
       /* The bundle itself failed (an older engine without the command, say): each
          mesh the old way, one trip each, so nothing is lost but time. */
+      pending.stage='fallback mesh reads';
       for(let k=0;k<batch.length;k++){
         const e=batch[k];
         try{ recs[k]=await readMeshInto(meshKey(e.relPath, e.still), e.relPath, recs[k], !!e.still); }
         catch(e2){ recs[k].err=String(e2.message||e2); }
       }
+    }finally{
+      LoadProf.pending.delete(id);
     }
     for(let k=0;k<batch.length;k++){
       const key=meshKey(batch[k].relPath, batch[k].still);
@@ -1113,12 +1140,13 @@ async function loadMeshes(relPaths,onProgress){
          its textures are judged against. Building the keeper here instead would date
          the read to the moment it finished, which is always current and so never
          refuses anything — the hole round 18ab's poisoned cache came through. */
-      meshKeeper(key,recs[k],world)();
+      meshKeeper(key,recs[k],world,meshEpoch)();
       batch[k].resolve(recs[k]);
     }
     done+=batch.length;
     if(onProgress) onProgress(done,total);
   });
+  }finally{ if(pulse!=null) clearInterval(pulse); }
   return Promise.all(out);
 }
 
@@ -1213,8 +1241,9 @@ const _meshThumbBusy=new Map();
 /** Throws the cache away — the meshes belong to an install, and so do their pictures. */
 function clearMeshThumbs(){ _meshThumb.clear(); _meshThumbBusy.clear(); }
 
-function keepTexture(key,rec,world){
-  if(!App.swapping && (world==null || worldToken()===world)){
+function keepTexture(key,rec,world,textureEpoch){
+  if(!App.swapping && (world==null || worldToken()===world) &&
+     (textureEpoch==null || _textureEpoch===textureEpoch)){
     // Round 18bd (F4): a key that already holds a different texture gives it up first.
     const had=App.texGL.get(key);
     if(had && had!==rec) dropTexRec(had);
@@ -1247,7 +1276,7 @@ function dropTextures(){
     for(const rec of App.texGL.values()) dropTexRec(rec);
     App.texGL.clear();
   }
-  _texLoading.clear();
+  _texLoading.clear(); _textureEpoch++;
   /* Round 18dh: and the two places that keep a texture of their own out of this map -
      the MGE water's wave volume (`waterVolume`) and the sky's cloud sheets (`cloudTex`).
      Both were deleted with the rest and kept being sampled: change "Texture detail" and
@@ -1259,8 +1288,8 @@ function dropTextures(){
 
 async function readTexture(key,relPath){
   const rec={gl:null,err:null,thumb:null,w:0,h:0};
-  const world=worldToken();
-  if(!VFS.ok()){ rec.err=T('card.tag_no_folder'); return keepTexture(key,rec,world); }
+  const world=worldToken(), textureEpoch=_textureEpoch;
+  if(!VFS.ok()){ rec.err=T('card.tag_no_folder'); return keepTexture(key,rec,world,textureEpoch); }
   try{
     /* One ask, and the engine does the reading, the resolving and — for anything that is
        not already blocks the GPU takes — the decoding. It used to be a `read_asset` and
@@ -1274,13 +1303,15 @@ async function readTexture(key,relPath){
     rec.err=e.message||String(e);
     App.loadLog.push({k:'e',t:relPath+': '+rec.err});
   }
-  return keepTexture(key,rec,world);
+  return keepTexture(key,rec,world,textureEpoch);
 }
 
 /** The engine's texture payload onto the GPU, into `rec`. Throws on a bad payload. */
 async function decodeTexture(buf,rec,relPath){
   // The main thread's own time in here, the browser's off-thread decode left out (18cs).
   let spent=0, t0=performance.now();
+  const id=++LoadProf.nextId;
+  LoadProf.decoding.set(id,{path:relPath, started:t0});
   try{
     const t=readTextureBytes(buf);
     rec.w=t.w; rec.h=t.h; rec.kind=t.kind; rec.from=t.from||'';
@@ -1320,6 +1351,8 @@ async function decodeTexture(buf,rec,relPath){
   }catch(e){
     rec.err=e.message||String(e);
     App.loadLog.push({k:'e',t:relPath+': '+rec.err});
+  }finally{
+    LoadProf.decoding.delete(id);
   }
   rec.msDecode=spent+(performance.now()-t0);
   return rec;

@@ -636,9 +636,15 @@ Object.assign(Renderer.prototype,{
   waterVolume(){
     if(this._wnrm!==undefined) return this._wnrm;
     this._wnrm=null;
-    const bundled=()=>this.bundledWaterVolume().then(v=>{ if(v){ this._wnrm=v; this.dirty=true; } });
+    const token=this._waterLoad={};
+    const mine=()=>this._waterLoad===token;
+    const bundled=()=>{
+      if(!mine()) return;
+      return this.bundledWaterVolume().then(v=>{ if(mine() && v){ this._wnrm=v; this.dirty=true; } });
+    };
     if(typeof loadTexture!=='function' || typeof VFS==='undefined' || !VFS.ok()){ bundled(); return null; }
     loadTexture('textures\\MGE\\water_NRM.dds').then(t=>{
+      if(!mine()) return;
       if(t && t.gl && t.is3d){ this._wnrm=t.gl; this.dirty=true; } else bundled();
     }).catch(()=>bundled());
     return null;
@@ -671,7 +677,7 @@ Object.assign(Renderer.prototype,{
     return this._wnrmBundled;
   },
   /** Forgotten with the install: another one may have MGE's file, or not. */
-  dropWaterVolume(){ this._wnrm=undefined; },
+  dropWaterVolume(){ this._waterLoad=null; this._wnrm=undefined; },
 
   /** The offscreen targets at the canvas's size: the multisampled scene, its resolve,
       and the half-size reflection. Rebuilt when the canvas grows or shrinks. */
