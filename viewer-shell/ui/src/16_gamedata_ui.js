@@ -95,7 +95,8 @@ const Busy={
    */
   _owner:0,
   claim(){
-    const tag=++this._owner;
+    // Unique even after done/free: a retired job must never own a later card.
+    const tag=this._owner={};
     const mine=()=>this._owner===tag;
     return {
       show:(label,sub,frac,stop)=>{ if(mine()) this._paint(label,sub,frac,stop,true); },

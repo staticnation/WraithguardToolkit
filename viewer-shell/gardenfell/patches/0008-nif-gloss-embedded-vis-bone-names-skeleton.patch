@@ -146,7 +146,17 @@
      if !rec.skel_animated {
          rec.skel_animated = rec.kfctrls.iter().flatten().any(|c| {
              c.flags & 0x0008 != 0
-@@ -2105,6 +2151,9 @@
+@@ -2019,7 +2065,8 @@
+             }
+         }
+         let data_i = rec.kfdatas.len();
+-        rec.kfdatas.push(Some(t.data.clone()));
++        // Only the selected clip plays; keep its boundary keys for interpolation.
++        rec.kfdatas.push(Some(t.data.window(start, stop)));
+         rec.kfctrls.push(Some(KfCtrl {
+             next: -1,
+             flags: 0x0008, // on, and looping (cycle bits 1-2 clear)
+@@ -2105,6 +2152,9 @@
      /// emissiveMapUV).xyz`), after the lighting and after the fog, which is why a lamp
      /// reads as lit at midnight and stays visible through fog at a distance. Round 17p.
      pub glow_tex: String,
@@ -156,7 +166,7 @@
      /// Which UV set the glow map names.
      ///
      /// Round 17p assumed this was always 0 - "every glow map in Morrowind and in OAAB
-@@ -2263,6 +2312,7 @@
+@@ -2263,6 +2313,7 @@
          tex: String::new(),
          detail_tex: String::new(),
          glow_tex: String::new(),
@@ -164,7 +174,7 @@
          glow_uv_set: 0,
          uv2: Vec::new(),
          dark_tex: String::new(),
-@@ -2378,7 +2428,8 @@
+@@ -2378,7 +2429,8 @@
              }
          }
      }
@@ -174,7 +184,7 @@
  }
  
  /// Round 18ag: a skinned shape's per-frame form - the bones with their chains, and the
-@@ -2431,6 +2482,39 @@
+@@ -2431,6 +2483,39 @@
      Some(SkinAnim { pos, nrm, idx, w, bones })
  }
  
@@ -214,7 +224,7 @@
  fn draw_parts(rec: &Records) -> Vec<DrawPart> {
      let ident = [1., 0., 0., 0., 1., 0., 0., 0., 1., 0., 0., 0.];
      // Round 18ag: the parent of every node, so a bone's chain can be built upward.
-@@ -2828,6 +2912,13 @@
+@@ -2828,6 +2913,13 @@
                          }
                      }
                  }
@@ -228,7 +238,7 @@
                  if part.dark_tex.is_empty() {
                      if let Some(Some((src, uv_set))) = rec.mats.dark_source.get(pi) {
                          if let Some(Some(f)) = rec.mats.tex_file.get(*src as usize) {
-@@ -3027,8 +3118,9 @@
+@@ -3027,8 +3119,9 @@
              // A skinned shape is already in the mesh's space (`skin_records`), so no
              // node above it moves it here — its bones are a different question.
              let chain = if n.skinned { Vec::new() } else { chain };
@@ -240,7 +250,7 @@
              }
              /* Round 18ag: and here is that question. Under an animated skeleton the
              shape keeps its skin-space data and its bones, each bone with the
-@@ -4102,3 +4194,6 @@
+@@ -4102,3 +4195,6 @@
      }
      tris
  }
@@ -249,7 +259,7 @@
 +pub mod skeleton;
 --- a/crates/gardenfell-nif/src/nif/skeleton.rs
 +++ b/crates/gardenfell-nif/src/nif/skeleton.rs
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,323 @@
 +//! Parts hung on another file's skeleton: an NPC's body parts and what it wears, bound by
 +//! bone name to the skeleton the race uses (`base_anim.nif`), with an idle playing. From
 +//! Wraithguard (Static), whose viewer assembles NPCs this way.
@@ -504,7 +514,7 @@
 +
 +#[cfg(test)]
 +mod kf_window_tests {
-+    use super::KfData;
++    use super::*;
 +
 +    #[test]
 +    fn a_clip_keeps_its_keys_and_one_either_side() {
@@ -522,4 +532,54 @@
 +        assert_eq!(w.trans.len(), 1);
 +        assert!(KfData::default().window(0.0, 1.0).is_empty());
 +    }
++
++    #[test]
++    fn skeleton_binding_keeps_only_the_active_clips_keys() {
++        let mut stream = Stream::new();
++        let mut root = ni::NiNode::default();
++        root.base.base.name = "root".into();
++        root.children = vec![Link::new(1)];
++        stream.blocks.push(ni::NiType::NiNode(root));
++        let mut bone = ni::NiNode::default();
++        bone.base.base.name = "Bone".into();
++        stream.blocks.push(ni::NiType::NiNode(bone));
++        stream.roots = vec![Link::new(0)];
++        let sequence = KfSequence {
++            text_keys: vec![(10.5, "Idle: Start".into()), (20.5, "Idle: Stop".into())],
++            tracks: vec![KfTrack {
++                node: "Bone".into(),
++                ctrl: KfCtrl::default(),
++                data: KfData {
++                    scales: (0..1000).map(|i| (i as f32, i as f32)).collect(),
++                    trans: (0..1000).map(|i| (i as f32, [i as f32, 0.0, 0.0])).collect(),
++                    rot: (0..1000).map(|i| (i as f32, [1.0, 0.0, 0.0, 0.0])).collect(),
++                    rot_xyz: Some(std::array::from_fn(|_| (0..1000).map(|i| (i as f32, i as f32)).collect())),
++                    ..Default::default()
++                },
++            }],
++        };
++        let bytes = stream.write().expect("synthetic skeleton");
++        let skel = Skeleton::read(&bytes, Some(&sequence)).expect("skeleton reads");
++        let bone = skel.bone("Bone", (IDENT, 1.0)).expect("bone binds");
++        assert_eq!(bone.chain.len(), 1);
++        let link = &bone.chain[0];
++        assert_eq!((link.ctrl.start, link.ctrl.stop), (10.5, 20.5));
++        let data = &link.data;
++        assert_eq!(data.scales.len(), 12, "unplayed clips must not be copied into bone chains");
++        assert_eq!(data.trans.len(), 12);
++        assert_eq!(data.rot.len(), 12);
++        for channel in data.rot_xyz.as_ref().unwrap() {
++            assert_eq!(channel.len(), 12);
++        }
++        assert_eq!(data.scales.first().unwrap().0, 10.0);
++        assert_eq!(data.scales.last().unwrap().0, 21.0);
++        let original = &sequence.tracks[0].data;
++        assert_eq!(original.scales.len(), 1000, "the source sequence stays intact");
++        for time in [10.5, 11.0, 15.25, 20.5] {
++            assert_eq!(key1_at(&data.scales, time), key1_at(&original.scales, time));
++            assert_eq!(key_at(&data.trans, time), key_at(&original.trans, time));
++            assert_eq!(key_at(&data.rot, time), key_at(&original.rot, time));
++        }
++    }
++
 +}

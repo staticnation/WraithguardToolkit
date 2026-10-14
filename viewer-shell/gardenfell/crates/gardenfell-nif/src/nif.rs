@@ -2065,7 +2065,8 @@ fn bind_kf(rec: &mut Records, kf: &KfSequence) {
             }
         }
         let data_i = rec.kfdatas.len();
-        rec.kfdatas.push(Some(t.data.clone()));
+        // Only the selected clip plays; keep its boundary keys for interpolation.
+        rec.kfdatas.push(Some(t.data.window(start, stop)));
         rec.kfctrls.push(Some(KfCtrl {
             next: -1,
             flags: 0x0008, // on, and looping (cycle bits 1-2 clear)

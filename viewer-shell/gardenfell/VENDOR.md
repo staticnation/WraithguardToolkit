@@ -69,7 +69,10 @@ Greatness7's `tes3` crate reads, and Robin's code runs on what it read.
   additions the viewer draws with - the gloss map, embedded textures' names,
   NiVisController visibility, bone names, skinned parts kept whole, and
   `nif/skeleton.rs` (a skeleton read once; body parts bound to it by bone name, as
-  OpenMW binds them; `KfData::window` to carry only one clip's keys).
+  OpenMW binds them; `bind_kf` uses `KfData::window` to carry only one clip's keys,
+  including boundary keys for interpolation). The binding call lost during the 4.4
+  rebase is restored in this patch; the synthetic skeleton binding regression test
+  runs with `cargo test -p gardenfell-nif --lib`, without the external fixture.
 - `patches/0009-cell-history.patch`: `History::interiors` / `exteriors`
   (`CellHistory`): every plugin with a CELL record for a cell, and the references a
   later plugin deleted or moved away (`Gone`). Also beside the cells, not in `Cell`.

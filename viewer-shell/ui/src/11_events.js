@@ -1445,6 +1445,18 @@ function openLog(){
      the numbers Robin pastes into a bug report — load times, frame cost, the ground map's
      bake — and stays English by design (wording-plan.md, "What is in scope"); the wording
      guard skips it. The headings above them are catalogued like any other. */
+  // A stalled load never reaches loadTimes. Capture its full paths while it is pending.
+  if(typeof LoadProf==='object' && (LoadProf.pending.size || LoadProf.decoding.size)){
+    const h=document.createElement('div');
+    h.style.cssText='font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;'+
+      'color:var(--tx2);margin:16px 0 8px';
+    h.textContent='Loading now (snapshot)';
+    const rows=LoadProf.live(true).split('\n').map(t=>{
+      const d=document.createElement('div'); d.className='logline'; d.textContent=t; return d;
+    });
+    // Keep current diagnostics above even a long plugin list, with the usual Copy button.
+    b.prepend(h,...rows);
+  }
   /* Round 16b: where the last loads' time went. Robin: "the placing objects step was
      heavy" - and the sandbox cannot say what his machine does, so the report says it. */
   if(App.loadTimes && App.loadTimes.length){
