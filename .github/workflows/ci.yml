@@ -193,11 +193,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install viewer test dependencies
+        working-directory: viewer-shell/ui/tests
+        run: npm ci --no-audit --no-fund
+      - name: preview loading races
+        working-directory: viewer-shell/ui/tests
+        run: npm run preview
       - name: cell viewer boots
         working-directory: viewer-shell/ui/tests
-        run: |
-          npm install --no-audit --no-fund
-          node boot.js
+        run: node boot.js
       # And the mesh viewer: files only (no cell work), both copies drawn, normal map found.
       - name: mesh viewer boots
         working-directory: viewer-shell/ui/tests

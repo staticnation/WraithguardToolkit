@@ -99,11 +99,13 @@ const Tfh={
     const ph=()=>img.replaceWith(Object.assign(document.createElement('div'),{className:'ph'}));
     const m=img.dataset.model||'';
     const key=m.toLowerCase();
+    const world=worldToken(), meshEpoch=_meshEpoch;
     try{
       if(typeof _meshThumb==='object' && _meshThumb.has(key)){ const u=_meshThumb.get(key); if(u) img.src=u; else ph(); return; }
       const R=App.R;
       if(!R || !R.thumbBegin || typeof loadMeshes!=='function'){ ph(); return; }
       const [rec]=await loadMeshes([/^meshes[\\/]/i.test(m)? m : 'Meshes\\'+m]);
+      if(App.swapping || worldToken()!==world || _meshEpoch!==meshEpoch || App.R!==R) return;
       const h=(rec && !rec.err && rec.parts && rec.parts.length)? R.thumbBegin(rec.parts) : null;
       let url='';
       if(h){

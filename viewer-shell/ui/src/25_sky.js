@@ -386,9 +386,15 @@ const Sky={
     if(!name || typeof loadTexture!=='function') return null;
     const key=String(name).toLowerCase();
     if(this._clouds.has(key)){ const t=this._clouds.get(key); return t&&t.gl? t.gl : null; }
-    this._clouds.set(key,null);
-    loadTexture(name).then(t=>{ this._clouds.set(key,t||{gl:null}); if(App.R) App.R.dirty=true; })
-                     .catch(()=>this._clouds.set(key,{gl:null}));
+    const pending={gl:null};
+    this._clouds.set(key,pending);
+    const keep=t=>{
+      // A reset, or another request after it, owns the slot now.
+      if(this._clouds.get(key)!==pending) return;
+      this._clouds.set(key,t||{gl:null});
+      if(App.R) App.R.dirty=true;
+    };
+    loadTexture(name).then(keep).catch(()=>keep(null));
     return null;
   },
 

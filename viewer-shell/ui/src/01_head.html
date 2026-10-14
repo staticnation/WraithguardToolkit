@@ -2318,6 +2318,9 @@ select.vpbtn{color:var(--tx2);max-width:190px}
 /* ---------- modal ---------- */
 .modal{position:fixed;inset:0;background:rgba(10,10,9,.72);display:flex;align-items:center;justify-content:center;z-index:150;backdrop-filter:blur(2px)}
 .modal[hidden]{display:none}
+/* Report must stay readable while a loading refresh raises the busy overlay. */
+#mLog{z-index:340}
+#mLog .logline{white-space:pre-wrap;overflow-wrap:anywhere}
 .mbox{background:var(--bg2);border:1px solid var(--line2);border-radius:9px;width:min(860px,92vw);max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.65)}
 .mhead{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line)}
 .mhead b{font-size:14px;flex:1}
