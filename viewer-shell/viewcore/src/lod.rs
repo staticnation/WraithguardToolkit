@@ -121,11 +121,14 @@ pub fn radius(parts: &[DrawPart]) -> f32 {
 pub type Swatch = (u32, u32, Vec<u8>);
 
 /// The index list with identical vertices welded: every index points at the first vertex
-/// with the same position, normal, UV and colour. The vertices themselves are untouched.
+/// with the same position, normal, every UV set, colour and alpha. The vertices
+/// themselves are untouched.
 fn weld(p: &DrawPart, idx: &[u32], n: usize) -> Vec<u32> {
     let has_nrm = p.nrm.len() == n * 3;
-    let has_uv = p.uv.len() == n * 2;
+    let uvs: Vec<&[f32]> = [&p.uv, &p.uv2, &p.uv_dark, &p.uv_decal, &p.uv_glow]
+        .into_iter().filter(|uv| uv.len() == n * 2).map(|uv| uv.as_slice()).collect();
     let has_col = p.col.len() == n * 3;
+    let has_alpha = p.col_alpha.len() == n;
     let mut first: HashMap<Vec<u32>, u32> = HashMap::with_capacity(n);
     let mut canon = vec![0u32; n];
     for i in 0..n {
@@ -133,11 +136,14 @@ fn weld(p: &DrawPart, idx: &[u32], n: usize) -> Vec<u32> {
         if has_nrm {
             key.extend(p.nrm[i * 3..i * 3 + 3].iter().map(|f| f.to_bits()));
         }
-        if has_uv {
-            key.extend(p.uv[i * 2..i * 2 + 2].iter().map(|f| f.to_bits()));
+        for uv in &uvs {
+            key.extend(uv[i * 2..i * 2 + 2].iter().map(|f| f.to_bits()));
         }
         if has_col {
             key.extend(p.col[i * 3..i * 3 + 3].iter().map(|&c| c as u32));
+        }
+        if has_alpha {
+            key.push(p.col_alpha[i] as u32);
         }
         canon[i] = *first.entry(key).or_insert(i as u32);
     }
@@ -342,6 +348,33 @@ mod tests {
         };
         let w = weld(&p, &[0, 1, 2, 3, 5, 4], 6);
         assert_eq!(w, vec![0, 1, 2, 1, 5, 2]);
+    }
+
+    #[test]
+    fn welding_preserves_secondary_uv_and_vertex_alpha_seams() {
+        let raw = [0, 1, 2, 3, 5, 4];
+        for channel in 0..5 {
+            let mut p = DrawPart {
+                pos: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0],
+                ..Default::default()
+            };
+            if channel == 4 {
+                p.col_alpha = vec![255; 6];
+                p.col_alpha[3] = 128;
+            } else {
+                let uv = match channel {
+                    0 => &mut p.uv2,
+                    1 => &mut p.uv_dark,
+                    2 => &mut p.uv_decal,
+                    _ => &mut p.uv_glow,
+                };
+                *uv = vec![0.0; 12];
+                uv[6] = 1.0;
+            }
+            // Vertices 1 and 3 share position/base attributes, but differ in this
+            // channel. Vertex 4 is still identical to 2 and should be welded.
+            assert_eq!(weld(&p, &raw, 6), vec![0, 1, 2, 3, 5, 2], "channel {channel}");
+        }
     }
 
     #[test]

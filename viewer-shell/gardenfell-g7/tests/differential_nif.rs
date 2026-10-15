@@ -121,3 +121,26 @@ fn g7_and_robin_read_every_mesh_the_same() {
     assert!(equal > 0, "no mesh compared");
     assert!(diffs.is_empty(), "{} meshes read differently", diffs.len());
 }
+
+#[test]
+fn legacy_4000_meshes_keep_the_43_reader_compatibility() {
+    use gardenfell_g7::meshes::read_stream;
+    use gardenfell_nif::netimmerse::stream::{HEADER, VERSION};
+
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../ui/tests/fixture/Data Files/meshes/x/lamp.nif");
+    let original = std::fs::read(path).unwrap();
+    let expected = read_stream(&original).expect("4.0.0.2 fixture reads");
+    assert_eq!(&original[..HEADER.len()], HEADER.as_bytes());
+    for header in [HEADER.as_bytes(), b"NetImmerse File Format, Version 4.0.0.0\n"] {
+        let mut legacy = original.clone();
+        legacy[..HEADER.len()].copy_from_slice(header);
+        legacy[HEADER.len()..HEADER.len() + 4].copy_from_slice(&0x0400_0000u32.to_le_bytes());
+        let read = read_stream(&legacy).expect("4.3 accepted equivalent 4.0.0.0 meshes");
+        assert_eq!(read.version, VERSION);
+        assert!(same(&read, &expected), "legacy header must preserve every mesh block");
+    }
+    let mut unsupported = original;
+    unsupported[HEADER.len()..HEADER.len() + 4].copy_from_slice(&0x0a01_0000u32.to_le_bytes());
+    assert!(read_stream(&unsupported).is_err(), "other versions need their own layouts");
+}

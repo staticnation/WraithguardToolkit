@@ -167,10 +167,28 @@ impl Conv<r::NiBoundingVolume> for g::NiBoundingVolume {
 /// The engine's mesh hook: G7's crate reads the file and every block is converted; a file
 /// either does not take is read by Robin's reader (the same model either way).
 pub fn read_stream(buf: &[u8]) -> Result<Stream, String> {
-    match g7_stream(buf) {
+    let buf = as_4002(buf);
+    match g7_stream(&buf) {
         Some(s) => Ok(s),
-        None => Stream::parse(buf).map_err(|e| e.to_string()),
+        None => Stream::parse(&buf).map_err(|e| e.to_string()),
     }
+}
+
+/// Keep Wraithguard 4.3's compatibility with Morrowind's 4.0.0.0 meshes: their
+/// layout is the same as 4.0.0.2, so both readers can use the newer header.
+fn as_4002(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    const V4000: &[u8] = b"NetImmerse File Format, Version 4.0.0.0\n";
+    let at = HEADER.len();
+    if bytes.len() >= at + 4
+        && (&bytes[..at] == V4000 || &bytes[..at] == HEADER.as_bytes())
+        && bytes[at..at + 4] == 0x0400_0000u32.to_le_bytes()
+    {
+        let mut normalized = bytes.to_vec();
+        normalized[..at].copy_from_slice(HEADER.as_bytes());
+        normalized[at..at + 4].copy_from_slice(&VERSION.to_le_bytes());
+        return std::borrow::Cow::Owned(normalized);
+    }
+    std::borrow::Cow::Borrowed(bytes)
 }
 
 /// G7's parse converted, or None when it does not read the file or a block is one this

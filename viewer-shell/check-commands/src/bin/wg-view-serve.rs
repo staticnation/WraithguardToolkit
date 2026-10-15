@@ -113,6 +113,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         // Round 18cj: the colour theme, remembered for the next start-up.
         "theme_set" => Reply::Json(t::theme_set(s(a, "code"))?),
         "picker_set" => Reply::Json(t::picker_set(s(a, "mode"))?),
+        "window_set" => Reply::Json(t::window_set(i(a, "x"), i(a, "y"), i(a, "w").max(0) as u32, i(a, "h").max(0) as u32, b(a, "max"))?),
         "world_map" => Reply::Json(t::world_map(st())?),
         "world_map_tiles" => Reply::Bytes(t::world_map_tiles(i(a, "from").max(0) as u32, i(a, "count").max(0) as u32, st())?.0),
         "distant_land" => Reply::Bytes(t::distant_land(i(a, "x"), i(a, "y"), i(a, "inner"), i(a, "radius"), st())?.0),
@@ -375,7 +376,7 @@ mod registry {
             // The `fn` line, possibly after further attributes.
             for next in lines.by_ref() {
                 let t = next.trim_start();
-                if t.starts_with('#') {
+                if t.starts_with('#') || t.starts_with("//") || t.is_empty() {
                     continue;
                 }
                 let t = t.strip_prefix("pub ").unwrap_or(t);

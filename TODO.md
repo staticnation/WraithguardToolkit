@@ -226,8 +226,8 @@ Plan:
 3. The simplifier is ported (2026-10-13, round 6): all of meshoptimizer 1.3's
    `simplifier.cpp` in `meshopt-port::simplify`, bit for bit with the C++ on the test
    set and all 4,431 NifCorpus parts (39 values each: four option sets, attributes with
-   locks/protect/priority, with update, sloppy, prune, points, scale). Not wired into
-   anything yet. When it is: texture-aware weighting after Zhao, Jiang & Guo (ISPRS
+   locks/protect/priority, with update, sloppy, prune, points, scale). Wired into distant
+   objects as described below. Texture-aware weighting after Zhao, Jiang & Guo (ISPRS
    2022, "QEM simplification ... based on 'local-vertex' texture features"): measure the
    texture detail under each vertex's UVs (the DDS around them) with its curvature, and
    mark the busiest vertices `VERTEX_PRIORITY` or raise their UV weight - ours, a layer
@@ -261,8 +261,9 @@ Plan:
    - The rings selector is back in Preview, Cell ("Neighbour cells") as well as its pill.
    - Distant land and objects start only after the cell's objects are placed (they had
      held a load up at 84 of 92 meshes).
-   Then: simplification for distant LODs (attribute-aware, keeping UV seams and
-   normals), and checks for degenerate and duplicate triangles in the asset checks.
+   Distant LOD simplification is wired in (attribute-aware, keeping UV seams and
+   normals). Welding also preserves detail, dark, decal and glow UV seams and vertex
+   alpha. Still to do: checks for degenerate and duplicate triangles in the asset checks.
    Robin parked quantisation and simplification (his `meshopt-plan.md`); the port is in
    the offering to him, so whichever of us wires it in does it once.
 
