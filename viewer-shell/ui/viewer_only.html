@@ -369,7 +369,8 @@ body.wgEditMode #edRail.empty{display:none}
 /* Flyouts, and the Q menu's submenus. */
 .edFly{position:fixed;z-index:70;min-width:210px;padding:4px 0;font-size:12px;max-height:none;overflow:visible;width:auto}
 .edFly .it{position:relative;display:flex;align-items:center;gap:8px;padding:4px 10px;cursor:pointer;white-space:nowrap}
-.edFly .it:hover{background:var(--acd)}
+.edFly .it:hover,.edFly .it:focus{background:var(--acd)}
+.edFly .it:focus{outline:1px solid var(--ac);outline-offset:-1px}
 .edFly .it.off{opacity:.5;cursor:default}
 .edFly .it.off:hover{background:none}
 .edFly .it .ck{flex:0 0 12px;width:12px;color:var(--ac)}

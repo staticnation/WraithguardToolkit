@@ -117,7 +117,10 @@ const CellData={
        refuses a read that spanned a connect, and no connect may be open, which refuses a
        read made wholly inside one. */
     const world=(typeof worldToken==='function')? worldToken() : null;
-    const d = interior
+    /* Wraithguard: a cell the patch makes itself is in no plugin of the load order, so the
+       engine has no such cell; it is empty but for what the patch places in it. */
+    const own=(typeof WgEditor==='object' && WgEditor.pendingCell)? WgEditor.pendingCell(target) : null;
+    const d = own? WgEditor.emptyCell(target) : interior
       ? await Engine.call('interior_data',{name:String(target.name||''), review:rv.review||'', without:!!rv.without})
       : await Engine.call('cell_data',{gx:target.x|0, gy:target.y|0, review:rv.review||'', without:!!rv.without, land:rv.land||''});
 

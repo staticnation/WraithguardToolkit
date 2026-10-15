@@ -504,6 +504,7 @@ Object.assign(WgEditor, {
     const render=list=>list.map(it=>it[0]==='-'? '<hr class="edQsep">'
       : it[0]==='>'? '<div class="it sub"><span class="lb">'+escHtml(it[1])+'</span><span class="ar">▸</span><div class="edFly edFlySub ori">'+render(it[2])+'</div></div>'
       : '<div class="it" data-q="'+escHtml(it[0])+'"><span class="lb">'+escHtml(it[1])+'</span>'+(it[2]? '<span class="kb">'+escHtml(it[2])+'</span>' : '')+'</div>').join('');
+    const opener=document.activeElement;
     m.classList.add('edFly');
     m.innerHTML='<div class="oribody">'+render(items)+'</div>';
     m.hidden=false;
@@ -514,9 +515,12 @@ Object.assign(WgEditor, {
     m.querySelectorAll('.it.sub').forEach(el=>{
       const sub=el.querySelector('.edFlySub');
       el.onmouseenter=()=>WgUI.fitSub(el, sub);
-      el.onclick=e=>{ if(e.target.closest('[data-q]')) return; e.stopPropagation(); el.classList.toggle('open'); WgUI.fitSub(el, sub); };
+      el.onclick=e=>{ if(e.target.closest('[data-q]')) return; e.stopPropagation(); WgUI.toggleSub(el); };
     });
-    m.querySelectorAll('[data-q]').forEach(el=>el.onclick=e=>{ if(e) e.stopPropagation(); m.hidden=true; act(el.dataset.q); });
+    // The same menu as the page's other flyouts: menu items with roles, and the arrow keys,
+    // Enter, Esc and Tab (WgUI.menuKey); the focus goes back to where it was when it closes.
+    WgUI.menuOpened(m, opener);
+    m.querySelectorAll('[data-q]').forEach(el=>el.onclick=e=>{ if(e) e.stopPropagation(); WgUI.menuReturn(m); m.hidden=true; act(el.dataset.q); });
     return true;
   },
 

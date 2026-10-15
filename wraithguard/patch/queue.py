@@ -231,8 +231,8 @@ class PatchQueue:
         self.revision += 1
         whole, fields, _bases, refs, new, made = snap
         for sel in whole:
-            for i, cur in enumerate(self._whole):
-                if cur == sel:
+            for i, held in enumerate(self._whole):
+                if held == sel:
                     del self._whole[i]
                     break
         for key, chosen in fields.items():
@@ -240,8 +240,8 @@ class PatchQueue:
             if live is None:
                 continue
             for choice in chosen:
-                for i, cur in enumerate(live):
-                    if cur == choice:
+                for i, held_choice in enumerate(live):
+                    if held_choice == choice:
                         del live[i]
                         break
             if not live:
@@ -249,12 +249,16 @@ class PatchQueue:
         from dataclasses import replace
 
         for ident, edit in refs.items():
-            cur = self._refs.get(ident)
-            if cur is None:
+            held_edit = self._refs.get(ident)
+            if held_edit is None:
                 continue
-            rest = {k: v for k, v in cur.changes.items() if k not in edit.changes or edit.changes[k] != v}
+            rest = {
+                k: v
+                for k, v in held_edit.changes.items()
+                if k not in edit.changes or edit.changes[k] != v
+            }
             if rest:
-                self._refs[ident] = replace(cur, changes=rest)
+                self._refs[ident] = replace(held_edit, changes=rest)
             else:
                 del self._refs[ident]
         for ident, ref in new.items():

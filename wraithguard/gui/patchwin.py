@@ -676,9 +676,7 @@ class PatchBuilderMixin:
             new_records=job["new_records"],
         )
 
-    def finish_patch(
-        self, result: PatchResult, job: dict[str, Any] | None = None
-    ) -> PatchResult:
+    def finish_patch(self, result: PatchResult, job: dict[str, Any] | None = None) -> PatchResult:
         """After a write: the queue is spent (and its journal with it). Tk thread.
 
         Args:

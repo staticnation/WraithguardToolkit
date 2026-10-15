@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.4.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-14 18:05\n"
+"POT-Creation-Date: 2026-10-15 16:04\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -834,123 +834,123 @@ msgstr ""
 msgid "Conflict report saved: %(path)s"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:283
+#: wraithguard/gui/editorlink.py:291
 msgid "Wraithguard is busy (a dialog is open?) - try again"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:308
-#: wraithguard/gui/editorlink.py:1368
-#: wraithguard/gui/editorlink.py:1444
+#: wraithguard/gui/editorlink.py:316
+#: wraithguard/gui/editorlink.py:1381
+#: wraithguard/gui/editorlink.py:1457
 msgid "The editor is not connected to a load order - reopen the viewer"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:317
+#: wraithguard/gui/editorlink.py:325
 msgid "%(id)s is not a record any plugin of this load order defines"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:464
+#: wraithguard/gui/editorlink.py:472
 msgid "%(id)s is not a record of this load order"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:502
+#: wraithguard/gui/editorlink.py:510
 msgid "That is not a leveled list"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:520
+#: wraithguard/gui/editorlink.py:528
 msgid "That response is not in this load order"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:866
+#: wraithguard/gui/editorlink.py:879
 #: wraithguard/gui/luaview.py:747
 msgid "call graph"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:868
+#: wraithguard/gui/editorlink.py:881
 #: wraithguard/gui/luaview.py:748
 msgid "Lua call graph"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:873
-#: wraithguard/gui/editorlink.py:856
+#: wraithguard/gui/editorlink.py:886
+#: wraithguard/gui/editorlink.py:869
 #: wraithguard/gui/luaview.py:735
 msgid "function at line "
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:875
+#: wraithguard/gui/editorlink.py:888
 #: wraithguard/gui/luaview.py:737
 msgid "Lua flowchart"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1018
+#: wraithguard/gui/editorlink.py:1031
 msgid "Choose who to talk to (an NPC's id)"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1024
+#: wraithguard/gui/editorlink.py:1037
 msgid "%(id)s is not an NPC or creature of this load order"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1176
+#: wraithguard/gui/editorlink.py:1189
 msgid "flowchart"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1180
+#: wraithguard/gui/editorlink.py:1193
 msgid "Script flowchart"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1372
+#: wraithguard/gui/editorlink.py:1385
 msgid "No plugin of this load order has reference %(ref)s in %(cell)s"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1513
+#: wraithguard/gui/editorlink.py:1526
 msgid "That new reference is no longer in the patch"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1706
+#: wraithguard/gui/editorlink.py:1719
 msgid "Choose where the patch goes"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1709
+#: wraithguard/gui/editorlink.py:1722
 msgid "The patch needs a full path, folder and all"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1711
+#: wraithguard/gui/editorlink.py:1724
 msgid "A patch is a plugin: name it .esp (or .omwaddon)"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1713
+#: wraithguard/gui/editorlink.py:1726
 msgid "%(folder)s is not a folder"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1761
+#: wraithguard/gui/editorlink.py:1774
 msgid "%(name)s exists: choose Append or Replace"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1764
-#: wraithguard/gui/editorlink.py:1850
+#: wraithguard/gui/editorlink.py:1777
+#: wraithguard/gui/editorlink.py:1863
 msgid "A patch is being written already"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1837
+#: wraithguard/gui/editorlink.py:1850
 msgid "%(path)s is not OpenMW"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1839
+#: wraithguard/gui/editorlink.py:1852
 msgid "Where is OpenMW? Choose openmw.exe (or the folder it is in)"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1847
+#: wraithguard/gui/editorlink.py:1860
 msgid "No launch setup is called %(name)s"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1949
+#: wraithguard/gui/editorlink.py:1962
 msgid "No such patch build"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1978
+#: wraithguard/gui/editorlink.py:1991
 msgid "%(name)s is not written yet"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:1981
+#: wraithguard/gui/editorlink.py:1994
 msgid "Cell Preview cannot be opened from here"
 msgstr ""
 
@@ -1407,55 +1407,55 @@ msgstr ""
 msgid "%(count)d record(s) will be written to:\n%(path)s\n\nIt carries whole records chosen by you, and loads last. Your mods are NOT modified, and deleting the patch restores your previous behaviour completely.\n\nLoad it LAST, and back up your saves."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:478
+#: wraithguard/gui/patchwin.py:479
 msgid "Patch failed"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:480
+#: wraithguard/gui/patchwin.py:481
 msgid "Patch written"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:486
+#: wraithguard/gui/patchwin.py:487
 msgid "Preview the patch?"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:487
+#: wraithguard/gui/patchwin.py:488
 msgid "Open Cell Preview with the patch loaded last, to see it in the cells it changes? (Review a mod shows what it changes; Without it shows the cells as they were.)"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:510
+#: wraithguard/gui/patchwin.py:511
 msgid "Cannot read the plugins without the built-in reader (wraithguard_native) or a tes3conv binary. Reinstall Wraithguard, or set a tes3conv path in the Conflicts window, and try again."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:559
+#: wraithguard/gui/patchwin.py:560
 msgid "Nothing is queued: there is no patch to write."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:566
+#: wraithguard/gui/patchwin.py:567
 msgid "%(what)s is no longer in the scan, so there is no way to tell which plugin its unchosen fields should come from. Rescan and queue it again."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:580
+#: wraithguard/gui/patchwin.py:581
 msgid "%(name)s could not be decoded, so there is nothing to append to. Write again and replace it, or check the file opens in another tool first."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:702
+#: wraithguard/gui/patchwin.py:711
 msgid " (%(carried)d carried forward from before)"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:706
+#: wraithguard/gui/patchwin.py:715
 msgid "%(records)d record(s) written to:\n%(path)s%(carried)s\n\nDeclares %(masters)d master(s). Add it to your load order LAST."
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:745
+#: wraithguard/gui/patchwin.py:754
 msgid "Write the patch as"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:749
+#: wraithguard/gui/patchwin.py:758
 msgid "Morrowind plugin"
 msgstr ""
 
-#: wraithguard/gui/patchwin.py:749
+#: wraithguard/gui/patchwin.py:758
 #: wraithguard_toolkit_gui.py:2865
 #: wraithguard_toolkit_gui.py:3736
 msgid "All files"

@@ -119,7 +119,7 @@ Object.assign(WgEditor, {
   /** The Object Window on a record: its tab, its row selected, scrolled to and previewed
    *  (the filter set to it when the list is too long to show it). */
   async reveal(tag, id){
-    if(!this.el || !this.tags.some(t=>t[0]===tag)) return false;
+    if(!this.el || !this.allTabs().some(t=>t[0]===tag)) return false;
     if(this.tag!==tag){
       this.tag=tag;
       this.fillTabs();

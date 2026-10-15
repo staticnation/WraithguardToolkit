@@ -127,7 +127,9 @@ class EditorLinkMixin:
         def run_patch(  # noqa: D102
             self, job: dict[str, Any], report: Callable[[str], Any] | None = None
         ) -> PatchResult: ...
-        def finish_patch(self, result: PatchResult, job: dict[str, Any] | None = None) -> PatchResult: ...  # noqa: D102
+        def finish_patch(  # noqa: D102
+            self, result: PatchResult, job: dict[str, Any] | None = None
+        ) -> PatchResult: ...
         def patch_written_note(self, result: PatchResult) -> str: ...  # noqa: D102
 
     # -- the session --------------------------------------------------------------------
@@ -687,7 +689,8 @@ class EditorLinkMixin:
             body: ``{tag}``.
 
         Returns:
-            :func:`.columns.table`, as JSON.
+            :func:`.columns.table`, as JSON - the values as the patch would leave them
+            (queued edits and the patch's own records included).
         """
         from wraithguard.patch.columns import table
 
@@ -698,6 +701,10 @@ class EditorLinkMixin:
         session = self._editor()
         tag = tag.strip().upper().ljust(4, "_")[:4]
         versions = [session._records(name, tag) for name in session.order]
+        # What the patch would leave (queued values, the records it makes) is the last
+        # layer, so a column shows an edit the moment it is queued, not the original.
+        # The queue is the UI thread's: only the small overlay is taken there.
+        versions.append(self._on_ui_wait(lambda: session.column_overlay(tag)))
         if tag != "ARMO":
             return self._json(table(tag, versions))
         from wraithguard.patch.armor import browser_table, settings_from

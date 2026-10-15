@@ -18,12 +18,64 @@ Object.assign(WgEditor, {
     this.drawCells();
   },
 
+  /** The cells the patch makes itself (`editNewCell`, "Make a copy as…"): the engine lists
+   *  only the loaded world's, so these are merged in from the pending list - an interior by
+   *  its name, an exterior square by `(x, y)`; their references are the patch's own. */
+  pendingCells(){
+    const out=[], seen=new Set((this.cells||[]).map(c=>c.kind==='int'? 'i:'+String(c.name).toLowerCase() : c.x+','+c.y));
+    for(const p of this.made||[]){
+      if(p.tag!=='CELL' || p.id==null) continue;
+      const id=String(p.id), m=id.match(/^\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)$/);
+      const c= m? {kind:'ext', x:+m[1], y:+m[2], name:'', label:'Wilderness ('+(+m[1])+', '+(+m[2])+')'}
+                : {kind:'int', name:id, label:id};
+      const k=c.kind==='int'? 'i:'+id.toLowerCase() : c.x+','+c.y;
+      if(seen.has(k)) continue;
+      seen.add(k);
+      c.refs=(this.liveNew.get(c.kind==='int'? id.toLowerCase() : '('+c.x+', '+c.y+')')||[]).length;
+      c.path=false; c.pending=true;
+      out.push(c);
+    }
+    return out;
+  },
+
+  /** The engine's cells and the patch's own. */
+  allCells(){
+    const mine=this.pendingCells();
+    if(!mine.length) return this.cells||[];
+    const ext=mine.filter(c=>c.kind==='ext').sort((a,b)=>a.x-b.x || a.y-b.y);
+    return [...mine.filter(c=>c.kind==='int'), ...(this.cells||[]), ...ext];
+  },
+
+  /** The patch-made cell a target (`{kind, name | x, y}`) or a cell string (`int:Name`,
+   *  `x,y`) names, or null - a cell of the load order is not one. */
+  pendingCell(target){
+    if(typeof target==='string'){
+      if(target.startsWith('int:')) target={kind:'int', name:target.slice(4)};
+      else{ const [x,y]=target.split(',').map(Number); target={kind:'ext', x, y}; }
+    }
+    if(!target) return null;
+    return this.pendingCells().find(c=>target.kind==='int'
+      ? c.kind==='int' && String(c.name).toLowerCase()===String(target.name||'').toLowerCase()
+      : c.kind==='ext' && c.x===(target.x|0) && c.y===(target.y|0)) || null;
+  },
+
+  /** The cell key the patch's endpoints and `liveNew` know a pending cell by. */
+  pendingKey(c){ return c.kind==='int'? String(c.name) : '('+c.x+', '+c.y+')'; },
+
+  /** What the engine would answer for a cell of the patch's own (`interior_data`,
+   *  `cell_data`): nothing in it but what the patch places - an empty room, or a square
+   *  with no land (drawn flat, at the sea). `overlay` then adds the patch's references. */
+  emptyCell(target){
+    return {name:target.kind==='int'? String(target.name||'') : '', ltex:{}, models:{}, lights:{}, actors:{},
+            refs:[], hasLand:false, water:null, quasi:false, ambi:null};
+  },
+
   drawCells(){
     const box=this.part('edCellList'); if(!box) return;
     const f=this.cellFilter.trim().toLowerCase();
-    let list=this.cells||[];
+    let list=this.allCells();
     if(f) list=list.filter(c=>c.label.toLowerCase().includes(f));
-    const edOf=c=>this.editedCells.has(c.kind==='int'? String(c.name).toLowerCase() : '('+c.x+', '+c.y+')');
+    const edOf=c=>c.pending || this.editedCells.has(c.kind==='int'? String(c.name).toLowerCase() : '('+c.x+', '+c.y+')');
     if(this.cellsModOnly) list=list.filter(edOf);
     // The Construction Set's columns: name, grid, references, pathgrid; sortable.
     const CS=[['Cell name', c=>c.kind==='int'? c.name : (c.name||'Wilderness')],
@@ -41,7 +93,7 @@ Object.assign(WgEditor, {
       const k=c.kind==='int'? 'int:'+c.name : c.x+','+c.y;
       const ed=edOf(c);
       const cls=[this.cellSel===k? 'sel' : '', ed? 'edited' : ''].filter(Boolean).join(' ');
-      h+='<tr data-cell="'+escHtml(k)+'"'+(cls? ' class="'+cls+'"' : '')+(ed? ' title="The patch changes or adds references here"' : '')+'>'+
+      h+='<tr data-cell="'+escHtml(k)+'"'+(cls? ' class="'+cls+'"' : '')+(c.pending? ' title="A cell of the patch\'s own: no plugin of the load order has it"' : ed? ' title="The patch changes or adds references here"' : '')+'>'+
         '<td>'+escHtml(CS[0][1](c))+'</td><td class="ctr">'+escHtml(CS[1][1](c))+'</td><td class="num">'+escHtml(String(CS[2][1](c)))+'</td>'+
         '<td class="ctr'+(c.path? ' yes' : '')+'">'+CS[3][1](c)+'</td></tr>';
     }
@@ -86,7 +138,15 @@ Object.assign(WgEditor, {
     const mine=this._refsN=(this._refsN||0)+1;   // only the latest cell asked for may draw
     box.innerHTML='<div class="hint">…</div>';
     let r;
-    try{ r=await Engine.call('editor_cell_refs',{cell}); }
+    const fresh=this.pendingCell(cell);
+    if(fresh){
+      // A cell of the patch's own: the engine has no such cell; its references are the patch's.
+      const key=this.pendingKey(fresh);
+      r={refCell:key, plugins:null, name:fresh.label, rows:(this.liveNew.get(key.toLowerCase())||[])
+        .filter(a=>a.fields && !a.fields.deleted)
+        .map(a=>['new:'+a.uid, a.fields.id||'', a.tag||'', (a.fields.translation||[0,0,0]).slice(), '(this patch)', ''])};
+    }
+    else try{ r=await Engine.call('editor_cell_refs',{cell}); }
     catch(e){ if(mine===this._refsN) box.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return; }
     if(mine!==this._refsN) return;
     this.refs=r.rows||[];
@@ -108,7 +168,8 @@ Object.assign(WgEditor, {
       tr.oncontextmenu=e=>{
         e.preventDefault();
         const at=x[0].lastIndexOf(':');
-        if(e.shiftKey || at<0 || !refCell) this.openRecord(x[2], x[1], null);
+        if(x[0].startsWith('new:') && refCell && !e.shiftKey) this.openRef({cell:refCell.toLowerCase(), uid:x[0].slice(4)});
+        else if(e.shiftKey || at<0 || !refCell) this.openRecord(x[2], x[1], null);
         else this.openRef({cell:refCell, origin:x[0].slice(0,at), refr:+x[0].slice(at+1), plugins:cellPlugins});
       };
     });

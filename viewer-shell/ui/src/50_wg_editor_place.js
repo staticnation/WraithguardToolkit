@@ -52,7 +52,9 @@ Object.assign(WgEditor, {
     if(!world && this.gridOn && this.grid>0) at.world=at.world.map((v,i)=> i<2? Math.round(v/this.grid)*this.grid : v);
     const cellArg= sel.kind==='int'? 'int:'+sel.name : Math.floor(at.world[0]/CELL)+','+Math.floor(at.world[1]/CELL);
     let cell;
-    try{ cell=await Engine.call('editor_cell_refs',{cell:cellArg}); }
+    const fresh=this.pendingCell(cellArg);
+    if(fresh) cell={refCell:this.pendingKey(fresh), plugins:null, rows:[], name:fresh.label};   // the patch's own: no engine cell
+    else try{ cell=await Engine.call('editor_cell_refs',{cell:cellArg}); }
     catch(e){ return toast('No cell there to place into: '+String(e.message||e),'warn',5000); }
     if(rec.model) CellData.models.set(String(rec.id).toLowerCase(), rec.model);
     await this.actorsFor([rec.id]);

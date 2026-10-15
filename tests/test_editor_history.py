@@ -117,7 +117,7 @@ def test_a_batch_that_fails_leaves_nothing_behind(tmp_path):
     s = _session(tmp_path)
     sword = s.find("WEAP", "iron sword")
     assert sword is not None
-    with pytest.raises(Exception), s.batch():  # noqa: B017, PT011
+    with pytest.raises(Exception), s.batch():  # noqa: B017
         s.set_field(sword, "name", "A")
         s.set_field(sword, "no.such.field", 1)
     assert ("Weapon", "iron sword") not in s.queue.fields

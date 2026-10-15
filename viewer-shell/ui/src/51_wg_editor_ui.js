@@ -47,12 +47,13 @@ const WgUI={
   /* ---- flyout menus ------------------------------------------------------------------ */
 
   /** Takes every open flyout down. */
-  closeMenus(){ document.querySelectorAll('.edFly.edFlyRoot').forEach(m=>m.remove()); },
+  closeMenus(){ document.querySelectorAll('.edFly.edFlyRoot').forEach(m=>{ this.menuReturn(m); m.remove(); }); },
 
   /** A flyout at an element (under it) or at `{x, y}`. Items: `{label, title, key, act,
    *  checked, radio, disabled, sub:[items]}`, `{sep:true}` or `{head:'text'}`. */
   menu(at, items){
     this.closeMenus();
+    const opener=document.activeElement;
     const m=this.menuEl(items);
     m.classList.add('edFlyRoot');
     document.body.appendChild(m);
@@ -62,7 +63,115 @@ const WgUI={
     const W=window.innerWidth||1200, H=window.innerHeight||800;
     m.style.left=Math.max(2, Math.min(x, W-(m.offsetWidth||240)-4))+'px';
     m.style.top=Math.max(2, Math.min(y, H-(m.offsetHeight||200)-4))+'px';
+    this.menuOpened(m, opener);
     return m;
+  },
+
+  /* ---- flyout menus: semantics and the keyboard ----------------------------------------
+     One behaviour for both flyout makers (`menu` here and the Q menu's `showMenu`): the
+     items are menu items (focusable, with roles), Up/Down/Home/End move among them, Right
+     opens a submenu and Left or Esc leaves it, Enter or Space does the item, Esc closes
+     the menu and gives the focus back to where it was, Tab leaves it. */
+
+  /** The items of one flyout that can be moved to (not its submenus' items, not the
+   *  greyed ones or the information rows). */
+  menuItems(fly){
+    return [...fly.querySelectorAll('.it')].filter(el=>el.closest('.edFly')===fly &&
+      !el.classList.contains('info') && !el.classList.contains('off') && !el.hidden);
+  },
+
+  /** A flyout just shown: its items made menu items, and the focus put on the first. */
+  menuOpened(m, opener){
+    m._wgReturn=opener && opener!==document.body && !m.contains(opener)? opener : null;
+    this.menuSemantics(m);
+    this.focusItem(this.menuItems(m)[0]);
+  },
+
+  /** Roles and focusability for a flyout and everything in it. */
+  menuSemantics(root){
+    root.setAttribute('role','menu');
+    root.querySelectorAll('.edFly').forEach(f=>f.setAttribute('role','menu'));
+    root.querySelectorAll('.edFlyHead').forEach(h=>h.setAttribute('role','presentation'));
+    root.querySelectorAll('.it').forEach(el=>{
+      if(el.classList.contains('info')){ el.setAttribute('role','none'); return; }
+      if(!el.getAttribute('role')) el.setAttribute('role','menuitem');
+      el.tabIndex=-1;
+      if(el.classList.contains('off')) el.setAttribute('aria-disabled','true');
+      if(el.classList.contains('sub')){
+        el.setAttribute('aria-haspopup','menu');
+        el.setAttribute('aria-expanded', el.classList.contains('open')? 'true' : 'false');
+      }
+    });
+  },
+
+  focusItem(el){ if(el && el.focus){ try{ el.focus({preventScroll:true}); }catch(_){ } } },
+
+  /** A submenu's item opened (`on`) or closed, as the page and a screen reader see it. */
+  openSub(el, on){
+    el.classList.toggle('open', !!on);
+    el.setAttribute('aria-expanded', on? 'true' : 'false');
+    const sub=el.querySelector('.edFlySub');
+    if(on && sub) this.fitSub(el, sub);
+  },
+  toggleSub(el){ this.openSub(el, !el.classList.contains('open')); },
+
+  /** The focus back to what had it when the flyout opened - when it is still in the flyout
+   *  (or nowhere): a click on something else has moved it already. */
+  menuReturn(m){
+    const to=m._wgReturn; m._wgReturn=null;
+    const a=document.activeElement;
+    if(!to || !to.isConnected || !to.focus) return;
+    if(a && a!==document.body && !m.contains(a)) return;
+    try{ to.focus({preventScroll:true}); }catch(_){ }
+  },
+
+  /** The outermost flyout of a submenu's. */
+  menuRoot(fly){
+    let root=fly;
+    for(let up=root.parentElement && root.parentElement.closest('.edFly'); up; up=root.parentElement && root.parentElement.closest('.edFly')) root=up;
+    return root;
+  },
+  closeMenuRoot(fly){
+    const root=this.menuRoot(fly);
+    if(root.classList.contains('edFlyRoot')) this.closeMenus();
+    else{ this.menuReturn(root); root.hidden=true; }
+  },
+
+  /** A key pressed while the focus is on a flyout's item: true when the menu took it
+   *  (the caller then keeps it from the page). Typing in a field of a flyout is left to it. */
+  menuKey(e){
+    const a=document.activeElement;
+    if(!a || !a.closest || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName || '')) return false;
+    const fly=a.closest('.edFly');
+    if(!fly || e.ctrlKey || e.metaKey || e.altKey) return false;
+    const k=e.key, sub=fly.classList.contains('edFlySub');
+    const items=this.menuItems(fly), cur=a.classList.contains('it') && items.includes(a)? a : null;
+    const go=n=>{
+      if(!items.length) return true;
+      for(const it of items) if(it.classList.contains('sub') && it!==items[(n+items.length)%items.length]) this.openSub(it, false);
+      this.focusItem(items[(n+items.length)%items.length]);
+      return true;
+    };
+    if(k==='ArrowDown') return go(cur? items.indexOf(cur)+1 : 0);
+    if(k==='ArrowUp') return go(cur? items.indexOf(cur)-1 : items.length-1);
+    if(k==='Home') return go(0);
+    if(k==='End') return go(items.length-1);
+    const opens=cur && cur.classList.contains('sub');
+    if(k==='ArrowRight' || (opens && (k==='Enter' || k===' '))){
+      if(opens){
+        this.openSub(cur, true);
+        this.focusItem(this.menuItems(cur.querySelector('.edFlySub'))[0]);
+      }
+      return true;
+    }
+    if(k==='ArrowLeft' || k==='Escape'){
+      if(sub){ const parent=fly.parentElement; this.openSub(parent, false); this.focusItem(parent); }
+      else if(k==='Escape') this.closeMenuRoot(fly);
+      return true;
+    }
+    if(k==='Tab'){ this.closeMenuRoot(fly); return false; }
+    if((k==='Enter' || k===' ') && cur){ cur.click(); return true; }
+    return false;
   },
 
   menuEl(items){
@@ -75,13 +184,14 @@ const WgUI={
       const el=document.createElement('div');
       el.className='it'+(it.info? ' info' : it.disabled? ' off' : '')+(it.sub? ' sub' : '');
       if(it.title) el.title=it.title;
+      if(it.checked!==undefined){ el.setAttribute('role', it.radio? 'menuitemradio' : 'menuitemcheckbox'); el.setAttribute('aria-checked', it.checked? 'true' : 'false'); }
       el.innerHTML='<span class="ck">'+(it.checked? (it.radio? '●' : '✓') : '')+'</span><span class="lb">'+escHtml(it.label)+'</span>'+
         (it.key? '<span class="kb">'+escHtml(it.key)+'</span>' : '')+(it.sub? '<span class="ar">▸</span>' : '');
       if(it.sub){
         const sub=this.menuEl(it.sub);
         sub.classList.add('edFlySub');
         el.appendChild(sub);
-        el.onclick=e=>{ e.stopPropagation(); el.classList.toggle('open'); this.fitSub(el, sub); };
+        el.onclick=e=>{ if(e.target.closest && e.target.closest('.edFlySub')) return; e.stopPropagation(); this.toggleSub(el); };
         el.onmouseenter=()=>this.fitSub(el, sub);
       }else if(!it.disabled && !it.info){
         el.onclick=e=>{ e.stopPropagation(); this.closeMenus(); if(it.act) it.act(); };
@@ -109,6 +219,8 @@ const WgUI={
       '<div class="edKeysCols">'+secs.map(s=>'<section class="edKeysSec"><div class="edFlyHead">'+escHtml(s.head)+'</div>'+
         s.items.map(it=>'<div class="it info"><span class="lb">'+escHtml(it.label)+'</span><span class="kb">'+escHtml(it.key||'')+'</span></div>').join('')+
         '</section>').join('')+'</div>';
+    const opener=document.activeElement;
+    m._wgReturn=opener && opener!==document.body? opener : null;
     document.body.appendChild(m);
     const W=window.innerWidth||1200, H=window.innerHeight||800;
     let x, y;
@@ -1322,7 +1434,9 @@ document.addEventListener('pointerdown', e=>{
   if(!e.target.closest || !e.target.closest('.edFly')) WgUI.closeMenus();
 }, true);
 // On the window, so a flyout takes Esc before the editor's own keys (on the document) do.
+// The keys of a flyout the focus is in (arrows, Enter, Esc...) are the flyout's, not the editor's.
 window.addEventListener('keydown', e=>{
+  if(WgUI.menuKey(e)){ e.preventDefault(); e.stopPropagation(); return; }
   if(e.key==='Escape' && document.querySelector('.edFly.edFlyRoot')){ WgUI.closeMenus(); e.preventDefault(); e.stopPropagation(); }
 }, true);
 window.addEventListener('blur', ()=>WgUI.hideHover());

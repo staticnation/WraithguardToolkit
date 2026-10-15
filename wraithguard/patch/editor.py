@@ -739,6 +739,59 @@ class EditorSession:
             return Found(tag, record_type, made.key, ((PATCH, dict(made.record)),), new=True)
         return Found(tag, record_type, record_key(versions[-1][1]), tuple(versions))
 
+    def column_overlay(self, tag: str) -> dict[str, dict[str, Any]]:
+        """The records of a type as the patch would leave them, for the Object Window's columns.
+
+        Only what the queue touches: a record taken whole from one plugin, a field taken
+        from one plugin or typed, and the records the patch makes itself. Read on the
+        thread that owns the queue; the result is the caller's (copies), so the table can
+        be worked out away from it.
+
+        Args:
+            tag: The type's tag (``NPC_``).
+
+        Returns:
+            Lower-case key -> record, to be laid over the load order's versions.
+        """
+        tag = tag.upper().ljust(4, "_")[:4]
+        record_type = TAG_TO_TYPE.get(tag)
+        if record_type is None:
+            return {}
+        winners: dict[str, dict[str, Any]] = {}
+        for name in self.order:
+            winners.update(
+                {k: r for k, r in self._records(name, tag).items() if r.get("type") == record_type}
+            )
+        out: dict[str, dict[str, Any]] = {}
+        for sel in self.queue.selections:
+            if sel.record_type != record_type:
+                continue
+            rec = self._records(sel.plugin, tag).get(sel.key.lower())
+            if rec is not None:
+                out[sel.key.lower()] = copy.deepcopy(rec)
+        for (rtype, key), choices in self.queue.fields.items():
+            if rtype != record_type:
+                continue
+            low = key.lower()
+            base = out.get(low) or winners.get(low)
+            if base is None:
+                continue
+            rec = out[low] = copy.deepcopy(base)
+            for choice in choices:
+                if isinstance(choice, FieldValue):
+                    set_at(rec, choice.path, copy.deepcopy(choice.value))
+                elif isinstance(choice, FieldChoice):
+                    other = self._records(choice.plugin, tag).get(low)
+                    if other is None:
+                        continue
+                    value, present = value_at(other, choice.path)
+                    if present:
+                        set_at(rec, choice.path, copy.deepcopy(value))
+        for made in self.queue.new_records:
+            if made.record_type == record_type:
+                out[made.key.lower()] = copy.deepcopy(dict(made.record))
+        return out
+
     def search(self, tag: str, query: str, limit: int = 20000) -> dict[str, Any]:
         """The Object Window's search by any field (CSSE's filter).
 

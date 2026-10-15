@@ -375,3 +375,35 @@ def test_set_many_endpoint(tmp_path):
     )
     assert got == {"changed": 1, "failed": [], "missing": ["nobody"]}
     assert _post(host._on_edit_revision)["undo"] == 1
+
+
+def _level(table: dict, rid: str) -> object:
+    labels = [c["label"] for c in table["columns"]]
+    return table["rows"][rid][labels.index("Level")]
+
+
+def test_category_columns_show_what_the_patch_would_leave(tmp_path):
+    """A queued edit and a record the patch makes show in the type's own columns.
+
+    The columns used to be read from the plugins alone, so an inline edit looked lost
+    (the Modified marker said it was queued, the Level column still said 2).
+    """
+    host = _Host(tmp_path)
+    before = _post(host._on_edit_columns, tag="NPC_")
+    assert _level(before, "fargoth") == 2 and _level(before, "hrisskar") == 5
+
+    _post(host._on_edit_set, tag="NPC_", id="fargoth", path="data.level", value="7")
+    after = _post(host._on_edit_columns, tag="NPC_")
+    assert _level(after, "fargoth") == 7  # the queued value, not the plugin's 2
+    assert _level(after, "hrisskar") == 5  # untouched records are as they were
+    # The plugin's own record is not changed by the overlay (it is the cache's).
+    session = host._editor_session
+    assert session._records("Morrowind.esm", "NPC_")["fargoth"]["data"]["level"] == 2
+
+    made = _post(host._on_edit_insert, tag="NPC_", newId="Newcomer")
+    assert made["id"] == "Newcomer"
+    again = _post(host._on_edit_columns, tag="NPC_")
+    assert "newcomer" in again["rows"]  # the patch's own record has a row
+
+    _post(host._on_edit_revert, tag="NPC_", id="fargoth", path="data.level")
+    assert _level(_post(host._on_edit_columns, tag="NPC_"), "fargoth") == 2

@@ -4,12 +4,29 @@
    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
 Object.assign(WgEditor, {
+  /** The tabs: the engine's record types (`editor_tags`, with their counts of records in the
+   *  load order), and those the patch has records of that the load order has none of (a
+   *  type the patch made the first record of), and the tab on screen when it is one still
+   *  empty (just chosen with "+ Type", before its first record is made). Sorted by tag. */
+  allTabs(){
+    const have=new Map((Array.isArray(this.tags)? this.tags : []).map(([tag,n])=>[tag,n]));
+    for(const p of this.made||[]) if(p.tag && !have.has(p.tag)) have.set(p.tag, 0);
+    if(this.tag && !have.has(this.tag) && this._newType===this.tag) have.set(this.tag, 0);
+    return [...have].sort((a,b)=>a[0]<b[0]? -1 : a[0]>b[0]? 1 : 0);
+  },
+
+  /** The record types the editor can make a first record of (the dialogue panel makes
+   *  dialogue; skills, magic effects, game settings and land textures are the engine's). */
+  NOT_MADE:new Set(['DIAL','GMST','LTEX','SKIL','MGEF']),
+  creatableTags(){ return Object.keys(this.NAMES).filter(tag=>!this.NOT_MADE.has(tag)); },
+
   fillTabs(){
     const t=this.part('edTabs'); if(!t) return;
     const changed={};
     for(const k of this.edited){ const tag=k.slice(0,4); changed[tag]=(changed[tag]||0)+1; }
-    t.innerHTML=this.tags.map(([tag,n])=>
-      '<button class="btn sm'+(tag===this.tag?' on':'')+(changed[tag]?' edited':'')+'" data-tag="'+escHtml(tag)+'" title="'+escHtml(tag)+' - '+n+' records'+(changed[tag]? ', '+changed[tag]+' in the patch' : '')+'">'+
+    const tabs=this.allTabs();
+    t.innerHTML=tabs.map(([tag,n])=>
+      '<button class="btn sm'+(tag===this.tag?' on':'')+(changed[tag]?' edited':'')+'" data-tag="'+escHtml(tag)+'" title="'+escHtml(tag)+' - '+(n? n+' records' : 'none in the load order')+(changed[tag]? ', '+changed[tag]+' in the patch' : '')+'">'+
       escHtml(this.NAMES[tag]||tag)+(changed[tag]? ' <span class="from">'+changed[tag]+'</span>' : '')+'</button>').join('');
     t.querySelectorAll('[data-tag]').forEach(b=>b.onclick=()=>{
       this.tag=b.dataset.tag; this.resetLimit('objects');
@@ -17,15 +34,50 @@ Object.assign(WgEditor, {
       this._search=null;
       this.loadTag(this.tag).then(()=>{ if(this.filterAll && this.filter.trim()) this.searchSoon(); });
     });
+    // "+ Type": a record type the load order has none of yet (the first of it is made here).
+    let nb=this.part('edTabsNew');
+    if(!nb){
+      const row=t.parentNode && t.parentNode.querySelector('.edTabsMore');
+      if(row){
+        nb=document.createElement('button');
+        nb.id='edTabsNew'; nb.className='btn dim sm';
+        nb.textContent='＋ Type';
+        nb.title='A record type this load order has none of yet - the first record of it is made by the patch';
+        nb.onclick=()=>this.newTypeMenu(nb);
+        row.appendChild(nb);
+      }
+    }
+    if(nb) nb.hidden=!this.canEdit();
+  },
+
+  /** "+ Type": the types with no tab, to choose one from. */
+  newTypeMenu(at){
+    const have=new Set(this.allTabs().map(t=>t[0]));
+    const items=this.creatableTags().filter(tag=>!have.has(tag))
+      .sort((a,b)=>String(this.NAMES[a]).localeCompare(String(this.NAMES[b])))
+      .map(tag=>({label:this.NAMES[tag]+' ('+tag+')', act:()=>this.startType(tag)}));
+    WgUI.menu(at, [{head:'Record types with none yet'}, ...(items.length? items : [{label:'Every type already has a tab', info:true}])]);
+  },
+
+  /** A type with no records in the load order chosen: its (empty) tab on screen, the id box
+   *  ready for the first record's id ("New" makes it; the tab then stays with it). */
+  async startType(tag){
+    this._newType=tag; this.tag=tag; this.resetLimit('objects'); this._search=null;
+    this.fillTabs();
+    await this.loadTag(tag);
+    const box=this.part('edNewId'); if(box){ try{ box.focus(); }catch(_){ } }
+    toast('No '+(this.NAMES[tag]||tag).toLowerCase()+' records yet - type an id and press New','info',4000);
   },
 
   /** The world changed (a connect): the tabs and the rows are asked for again. */
   async worldChanged(){
-    this._cols=null; this._rowsProblem=null;
+    this._cols=null; this._colGen=(this._colGen|0)+1; this._rowsProblem=null;
     if(!this.on) return;                                  // `enter` asks when it opens
     try{ this.tags=await Engine.call('editor_tags',{}); }catch(_){ }
     if(!Array.isArray(this.tags)) this.tags=[];
-    if(!this.tags.some(t=>t[0]===this.tag) && this.tags.length) this.tag=this.tags[0][0];
+    // The tab on screen stays when the patch has records of it, though the load order has none.
+    const tabs=this.allTabs();
+    if(!tabs.some(t=>t[0]===this.tag) && tabs.length) this.tag=tabs[0][0];
     this.fillTabs();
     await this.loadTag(this.tag);
   },
@@ -80,7 +132,11 @@ Object.assign(WgEditor, {
     // (`editor_records`) is the second way, and only both failing is a problem.
     const want=(this.tags.find(t=>t[0]===tag)||[])[1]|0;
     let problem=null, got=null;
-    try{ got=await this.recordRows(tag); }catch(e){ problem=String(e && e.message || e); }
+    // A type the load order has no record of (the patch makes its first) has nothing to ask
+    // the engine for: its rows are the patch's own, which `drawRows` adds.
+    const inWorld=!(this.tags||[]).length || this.tags.some(t=>t[0]===tag);
+    if(!inWorld) got={plugins:[], rows:[]};
+    else try{ got=await this.recordRows(tag); }catch(e){ problem=String(e && e.message || e); }
     // A later tab may be showing by now: its rows and plugins are not this answer's to replace.
     if(tag!==this.tag){
       this._fieldsOf=this._fieldsOf||{};
@@ -97,16 +153,36 @@ Object.assign(WgEditor, {
       this.drawRows();
     }
     // The type's own columns, as the Construction Set has them (Wraithguard reads them).
-    if(this.canEdit() && this.links().editColumns && !(this._cols||{})[tag]){
-      try{
-        const c=await this.ask('editColumns', {tag});
-        this._cols=this._cols||{}; this._cols[tag]=c;
-        if(tag===this.tag && c.columns && c.columns.length) this.drawRows();
-      }catch(e){
-        // Said, not swallowed: without them the table shows only the engine's columns.
-        if(typeof WgLog==='object') WgLog.add('The '+(this.NAMES[tag]||tag)+' columns did not load: '+String(e && e.message || e).replace(/^Wraithguard answered \d+:\s*/,''), 'err');
-      }
+    await this.loadColumns(tag);
+  },
+
+  /** A type's own columns (`editColumns`), as the patch would leave the records: queued
+   *  values and the patch's own records included. Kept per tab; `force` asks again. An
+   *  answer that was asked for before the cache was dropped (an edit landed since) is
+   *  not kept - the drop asked again. */
+  async loadColumns(tag, force=false){
+    if(!this.canEdit() || !this.links().editColumns) return;
+    if(!force && (this._cols||{})[tag]) return;
+    const gen=this._colGen|0;
+    try{
+      const c=await this.ask('editColumns', {tag});
+      if(gen!==(this._colGen|0)) return;
+      this._cols=this._cols||{}; this._cols[tag]=c;
+      if(tag===this.tag && c.columns && c.columns.length && this.el) this.drawRows();
+    }catch(e){
+      // Said, not swallowed: without them the table shows only the engine's columns.
+      if(typeof WgLog==='object') WgLog.add('The '+(this.NAMES[tag]||tag)+' columns did not load: '+String(e && e.message || e).replace(/^Wraithguard answered \d+:\s*/,''), 'err');
     }
+  },
+
+  /** The patch changed: the columns read before it show the values from before it. The
+   *  other tabs' are dropped (asked again when shown); this tab's stay on screen until the
+   *  fresh ones arrive, so the table does not flicker back to the engine's columns. */
+  refreshColumns(){
+    this._colGen=(this._colGen|0)+1;
+    const mine=(this._cols||{})[this.tag];
+    this._cols=mine? {[this.tag]:mine} : {};
+    return this.loadColumns(this.tag, true);
   },
 
   /** "All fields": Wraithguard searches every field of the tab's records (`editSearch`),

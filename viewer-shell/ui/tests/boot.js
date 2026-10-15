@@ -67,7 +67,8 @@ const fakeServer=http.createServer((req,res)=>{
     const name=req.url.split('?')[0].slice(1), b=body? JSON.parse(body) : {};
     fakeWg.posts.push([name,b]);
     let out;
-    if(name==='editRecord') out=fakeView();
+    // The record asked for, as the real one answers (the page drops an answer for another record).
+    if(name==='editRecord') out=Object.assign(fakeView(), b.tag && b.id? {tag:b.tag, id:b.id} : {});
     else if(name==='editUses') out={tag:b.tag, id:b.id, live:3, cells:2, uses:[
       {plugin:'Lamp.esm', type:'LeveledItem', tag:'LEVI', key:'l_lamps', paths:['items.0.0'], count:1, wins:true},
       {plugin:'Lamp.esm', type:'Container', tag:'CONT', key:'old_chest', paths:['inventory.0.1'], count:1, wins:false},
@@ -659,6 +660,9 @@ async function editor(w, R, fail, done, sleep){
       for(let i=0;i<100 && !d.getElementById('edDelete');i++) await sleep(30);
     }
     d.getElementById('edUsesPanel').hidden=true;
+    // The use opened another record (l_lamps); the steps below are about lamp_lit's, so back to it.
+    await E.openRecord('LIGH', 'lamp_lit', ['Lamp.esm']);
+    for(let i=0;i<100 && !d.getElementById('edDelete');i++) await sleep(30);
     // Delete record: the DELETED flag, and Undelete takes it off.
     d.getElementById('edDelete').onclick();
     for(let i=0;i<100 && !/DELETED/.test(fakeWg.queued.flags||'');i++) await sleep(30);

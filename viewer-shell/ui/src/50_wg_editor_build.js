@@ -26,9 +26,15 @@ Object.assign(WgEditor, {
     for(const p of list){
       if((p.tag==='CELL' || p.tag==='PGRD') && p.id!=null) this.editedCells.add(String(p.id).toLowerCase());
     }
-    if(this.el && this.tags.length) this.fillTabs();
-    if(this.el && this.cells && cellsBefore!==[...this.editedCells].sort().join('|')) this.drawCells();
+    if(this.el && this.allTabs().length) this.fillTabs();
+    const cellsChanged=cellsBefore!==[...this.editedCells].sort().join('|');
     this.setLive(list);
+    // The cells the patch makes are in the Cell View too (with their reference counts, from
+    // the new references `setLive` has just read): redrawn when they, or their counts, moved.
+    const cellSig=JSON.stringify(this.pendingCells().map(c=>[c.kind, c.name, c.x, c.y, c.refs]));
+    const cellsMoved=cellSig!==this._pendCellSig; this._pendCellSig=cellSig;
+    if(this.el && this.cells && (cellsChanged || cellsMoved)) this.drawCells();
+    if(this.el && cellsMoved && this.cellSel && this.pendingCell(this.cellSel)) this.loadRefs(this.cellSel);
     this._pendN=list.length;
     const b=document.getElementById('edPendBtn');
     if(b) b.textContent=list.length? 'Pending ('+list.length+')' : 'Pending';
@@ -39,6 +45,13 @@ Object.assign(WgEditor, {
     if(rv){
       this._rev=rv.rev; this._hist={undo:rv.undo|0, redo:rv.redo|0};
       if(typeof WgUI==='object') WgUI.refresh();
+    }
+    // The Object Window's category columns are worked out from the queue (a queued Level 7
+    // shows as 7): they are read again whenever the queue has moved.
+    const firstRead=this._colsRev===undefined;
+    if(!rv || rv.rev!==this._colsRev){
+      this._colsRev=rv? rv.rev : null;
+      if(!firstRead && this.el && this.allTabs().length) this.refreshColumns();
     }
     return list;
   },
