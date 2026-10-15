@@ -9,12 +9,23 @@ Object.assign(WgEditor, {
   async refreshPending(){
     if(!this.canEdit()) return [];
     this._hist=null;
+    // The revision is read first: an edit that lands between the two reads then leaves the
+    // stored revision behind the queue's, and the next poll fetches the list again, instead
+    // of a stale list passing for the current one.
+    let rv=null;
+    if(this.links().editRevision){ try{ rv=await this.ask('editRevision', {}); }catch(_){ } }
+    const seq=this._pendSeq=(this._pendSeq||0)+1;
     let list=[];
     try{ list=await this.ask('editPending', {}); }catch(_){ return []; }
+    if(seq!==this._pendSeq) return list;   // a newer refresh is on its way; it draws
     this.edited=new Set(list.filter(p=>p.tag).map(p=>p.tag+':'+String(p.id).toLowerCase()));
     this.made=list.filter(p=>p.made && p.tag);
     const cellsBefore=[...this.editedCells].sort().join('|');
     this.editedCells=new Set(list.filter(p=>p.ref||p.new).map(p=>String((p.ref||p.new).cell).toLowerCase()));
+    // A cell's own record and its path grid are edits to that cell too (Modified only).
+    for(const p of list){
+      if((p.tag==='CELL' || p.tag==='PGRD') && p.id!=null) this.editedCells.add(String(p.id).toLowerCase());
+    }
     if(this.el && this.tags.length) this.fillTabs();
     if(this.el && this.cells && cellsBefore!==[...this.editedCells].sort().join('|')) this.drawCells();
     this.setLive(list);
@@ -25,8 +36,8 @@ Object.assign(WgEditor, {
     if(this.pend && !this.pend.hidden) this.drawPending(list);
     // The revision this list is of, so the poll does not read it again (and the
     // toolbar's Undo / Redo know what there is).
-    if(this.links().editRevision){
-      try{ const r=await this.ask('editRevision', {}); this._rev=r.rev; this._hist={undo:r.undo|0, redo:r.redo|0}; }catch(_){ }
+    if(rv){
+      this._rev=rv.rev; this._hist={undo:rv.undo|0, redo:rv.redo|0};
       if(typeof WgUI==='object') WgUI.refresh();
     }
     return list;

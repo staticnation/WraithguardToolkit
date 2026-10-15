@@ -58,6 +58,7 @@ module.exports = async (t) => {
   // The condition editor, on a response.
   E.record = { tag: 'INFO', id: '123', plugins: null };
   E.dialog().hidden = false;
+  E.record = { tag: 'INFO', id: '123', plugins: null };
   E.drawRecord({ tag: 'INFO', id: '123', type: 'DialogueInfo', winner: 'M.esm', plugins: ['M.esm'], whole: false, new: false,
     fields: [{ path: 'filters', value: [{ index: 0, filter_type: 'NotRace', function: 'PcLevel', comparison: 'Equal', id: 'Khajiit', value: { type: 'Integer', data: 0 } }], editable: true, kind: 'list', options: [] }] });
   await p.wait(10);
@@ -75,6 +76,7 @@ module.exports = async (t) => {
   t.ok(/1 NPC/.test(conds.textContent) && /Journal MS_Q/.test(conds.textContent), 'who can say it, and what is not checked');
 
   // A leveled list rolled.
+  E.record = { tag: 'LEVI', id: 'l_gold', plugins: null };
   E.drawRecord({ tag: 'LEVI', id: 'l_gold', type: 'LeveledItem', winner: 'M.esm', plugins: ['M.esm'], whole: false, new: false, fields: [] });
   const lv = d.querySelector('#edRollLv'); lv.value = '7';
   d.querySelector('#edRollGo').onclick();

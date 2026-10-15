@@ -81,6 +81,11 @@ Object.assign(WgEditor, {
     const want=(this.tags.find(t=>t[0]===tag)||[])[1]|0;
     let problem=null, got=null;
     try{ got=await this.recordRows(tag); }catch(e){ problem=String(e && e.message || e); }
+    // A later tab may be showing by now: its rows and plugins are not this answer's to replace.
+    if(tag!==this.tag){
+      this._fieldsOf=this._fieldsOf||{};
+      return;
+    }
     if(got){ this.plugins=got.plugins; this.rows=got.rows; } else this.rows=[];
     // Rows that came but are none, for a tab counted with some: said in the table (with
     // its Reload), not logged - the call itself worked.
@@ -298,7 +303,7 @@ Object.assign(WgEditor, {
   rowsMenu(e, ids){
     WgUI.menu({x:e.clientX, y:e.clientY}, [
       {head:ids.length+' '+(this.NAMES[this.tag]||this.tag)+' records'},
-      {label:'Set a field on all of them…', act:()=>this.setManyAsk(ids), disabled:!this.links().editSetMany},
+      {label:'Set a field on all of them…', act:()=>this.setManyAsk(ids, this.tag), disabled:!this.links().editSetMany},
       {label:'Open the first', act:()=>this.openRecord(this.tag, ids[0], null)},
       {label:'Clear the selection', act:()=>{ this._rowsSel.clear(); this.drawRows(); }},
     ]);
@@ -306,31 +311,33 @@ Object.assign(WgEditor, {
 
   /** The fields a record of the tab has that can be changed, from one of them (`{path,
    *  value, options}`), read once per tab. */
-  async editableFields(id){
+  async editableFields(id, tag=this.tag){
     this._fieldsOf=this._fieldsOf||{};
-    if(this._fieldsOf[this.tag]) return this._fieldsOf[this.tag];
-    const v=await this.ask('editRecord', {tag:this.tag, id});
+    if(this._fieldsOf[tag]) return this._fieldsOf[tag];
+    const v=await this.ask('editRecord', {tag, id});
     const out=(v.fields||[]).filter(f=>f.editable && !Array.isArray(f.value) && (f.value==null || typeof f.value!=='object'));
-    this._fieldsOf[this.tag]=out;
+    this._fieldsOf[tag]=out;
     return out;
   },
 
   /** "Set a field on all of them": which field (offered from the type's), what value. */
-  async setManyAsk(ids){
+  async setManyAsk(ids, tag=this.tag){
+    // The type and the ids are the ones the menu opened on: a tab switched while the prompts
+    // are up must not turn the request into one about other records.
     let fields=[];
-    try{ fields=await this.editableFields(ids[0]); }catch(_){ }
+    try{ fields=await this.editableFields(ids[0], tag); }catch(_){ }
     const path=await WgUI.askText('Set which field on '+ids.length+' records?', '', 'a field, e.g. data.value', fields.map(f=>f.path));
     if(!path) return null;
     const f=fields.find(x=>x.path===path);
     const value=await WgUI.askText(path+' on '+ids.length+' records', f && f.value!=null? String(f.value) : '', 'the value', f && f.options && f.options.length? f.options : null);
     if(value==null) return null;
-    return this.setMany(ids, path, value);
+    return this.setMany(ids, path, value, tag);
   },
 
   /** `editSetMany`: one value on many records, one step (Ctrl+Z puts all of them back). */
-  async setMany(ids, path, value){
+  async setMany(ids, path, value, tag=this.tag){
     let r;
-    try{ r=await this.ask('editSetMany', {tag:this.tag, ids, path, value}); }
+    try{ r=await this.ask('editSetMany', {tag, ids, path, value}); }
     catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); return null; }
     const left=(r.failed||[]).length+(r.missing||[]).length;
     toast(path+' set on '+r.changed+' record'+(r.changed===1?'':'s')+(left? ' - '+left+' left as they were (see Messages)' : ''), left? 'warn' : 'ok', 4000);
@@ -343,7 +350,7 @@ Object.assign(WgEditor, {
    *  this one is among them), Esc leaves it. */
   editCell(td, id, col){
     if(td.querySelector('input')) return;
-    const sel=this.selectedRows(), ids=sel.length>1 && sel.includes(id)? sel : [id];
+    const sel=this.selectedRows(), ids=sel.length>1 && sel.includes(id)? sel : [id], tag=this.tag;
     const before=td.textContent;
     td.innerHTML='<input class="fld edCellIn" spellcheck="false">';
     const inp=td.firstChild; inp.value=before;
@@ -352,7 +359,7 @@ Object.assign(WgEditor, {
       if(!inp.isConnected) return;
       const v=inp.value;
       td.textContent=before;
-      if(ok && v!==before) await this.setMany(ids, col.path, v);
+      if(ok && v!==before) await this.setMany(ids, col.path, v, tag);
     };
     inp.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter') done(true); if(e.key==='Escape') done(false); };
     inp.onblur=()=>done(false);

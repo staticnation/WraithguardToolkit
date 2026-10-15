@@ -259,7 +259,14 @@ Object.assign(WgEditor, {
   async groupAction(a, group){
     const last=group[group.length-1], rest=group.slice(0, -1);
     const rnd=(lo, hi)=>lo+Math.random()*(hi-lo);
-    const each=async(fn)=>{ for(const g of a==='pos'||a==='rot'||a==='scl'? rest : group){ const c=fn(g); if(c && c.length) await this.sendRef(g.ref, c); } };
+    const each=async(fn)=>{
+      let ok=true;
+      for(const g of a==='pos'||a==='rot'||a==='scl'? rest : group){
+        const c=fn(g);
+        if(c && c.length && await this.sendRef(g.ref, c)===false) ok=false;
+      }
+      return ok;
+    };
     if(a==='clear') return this.clearGroup();
     if(a==='transform') return this.showTransform();
     if(a==='prefab') return WgFlow.keepPrefab();
@@ -271,7 +278,7 @@ Object.assign(WgEditor, {
       for(const g of group){ this._sel={hit:g.hit, ref:g.ref}; this.drop(); }
       return;
     }
-    await each(g=>{
+    const ok=await each(g=>{
       const h=g.hit;
       if(a==='pos') return [['translation', last.hit.wpos.slice()]];
       if(a==='rot') return [['rotation', (last.hit.rot||[0,0,0]).slice()]];
@@ -283,7 +290,7 @@ Object.assign(WgEditor, {
       if(a==='scl1') return [['scale', 1]];
       return null;
     });
-    toast(group.length+' changed','ok',2000);
+    if(ok) toast(group.length+' changed','ok',2000);
   },
 
   /* ---- selection sets, isolate, hide, frame ------------------------------------------ */
@@ -360,16 +367,19 @@ Object.assign(WgEditor, {
    *  `[[ref, [[path, value]...]]]`. */
   async sendRefs(list){
     list=list.filter(([, c])=>c && c.length);
-    if(!list.length) return;
+    if(!list.length) return true;
     if(!this.links().editRefsSet || list.length===1){
-      for(const [ref, c] of list) await this.sendRef(ref, c);
-      return;
+      let all=true;
+      for(const [ref, c] of list) if(await this.sendRef(ref, c)===false) all=false;
+      return all;
     }
     const changes=[];
     for(const [ref, c] of list) for(const [path, value] of c) changes.push(Object.assign(this.refBody(ref), {path, value}));
+    let ok=true;
     try{ await this.ask('editRefsSet', {changes}); }
-    catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); }
+    catch(e){ ok=false; toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); }
     await this.refreshPending();
+    return ok;
   },
 
   /** The middle of a group (the mean of their positions). */
@@ -401,7 +411,8 @@ Object.assign(WgEditor, {
   async transformBy(d, deg, f){
     const group=this.transformTargets();
     if(!group.length) return toast('Select an object (Ctrl+click for several) first','warn',2500);
-    await this.sendRefs(this.transformPlan(group, d, deg, f));
+    // Said only when it happened: a rejected group has already shown its reason.
+    if(await this.sendRefs(this.transformPlan(group, d, deg, f))===false) return;
     toast(group.length===1? 'Changed' : group.length+' changed together','ok',1800);
   },
 

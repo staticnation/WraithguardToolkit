@@ -218,6 +218,55 @@ class PatchQueue:
         self._whole, self._fields, self._bases = whole, fields, bases
         self._refs, self._new, self._made = refs, new, made
 
+    def consume(self, snap: tuple[Any, ...]) -> None:
+        """Drop only the decisions a :meth:`snapshot` holds, keeping later ones.
+
+        A build runs on a worker while the queue stays editable. When it finishes, what
+        it wrote is spent; anything queued or changed since must survive for the next
+        build, so each decision is dropped only while it still equals the one captured.
+
+        Args:
+            snap: The snapshot taken when the build's job was prepared.
+        """
+        self.revision += 1
+        whole, fields, _bases, refs, new, made = snap
+        for sel in whole:
+            for i, cur in enumerate(self._whole):
+                if cur == sel:
+                    del self._whole[i]
+                    break
+        for key, chosen in fields.items():
+            live = self._fields.get(key)
+            if live is None:
+                continue
+            for choice in chosen:
+                for i, cur in enumerate(live):
+                    if cur == choice:
+                        del live[i]
+                        break
+            if not live:
+                del self._fields[key]
+        from dataclasses import replace
+
+        for ident, edit in refs.items():
+            cur = self._refs.get(ident)
+            if cur is None:
+                continue
+            rest = {k: v for k, v in cur.changes.items() if k not in edit.changes or edit.changes[k] != v}
+            if rest:
+                self._refs[ident] = replace(cur, changes=rest)
+            else:
+                del self._refs[ident]
+        for ident, ref in new.items():
+            if self._new.get(ident) == ref:
+                del self._new[ident]
+        for ident, rec in made.items():
+            if self._made.get(ident) == rec:
+                del self._made[ident]
+        used = {(s.record_type, s.key) for s in self._whole} | set(self._fields)
+        for ident in [i for i in self._bases if i not in used]:
+            del self._bases[ident]
+
     def clear(self) -> None:
         """Drop every decision."""
         self.revision += 1

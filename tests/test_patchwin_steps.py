@@ -93,3 +93,21 @@ def test_the_steps(tmp_path, monkeypatch):
     with pytest.raises(PatchServiceError, match="could not be decoded"):
         host.prepare_patch(target, append=True)
     assert host.prepare_patch(target, append=False)["carried"] == []
+
+
+def test_finish_keeps_decisions_queued_during_the_build(tmp_path):
+    host = _Host(tmp_path)
+    host.patch_queue().add_whole(Selection("Mod.esp", "Npc", "fargoth"))
+    job = host.prepare_patch(tmp_path / "Patch.esp", append=False)
+    host.patch_queue().add_whole(Selection("Mod.esp", "Npc", "hrisskar"))
+    host.finish_patch(PatchResult(output=job["target"]), job)
+    assert host.patch_queue().selections == [Selection("Mod.esp", "Npc", "hrisskar")]
+
+
+def test_clear_patch_does_not_need_a_build_job(tmp_path, monkeypatch):
+    host = _Host(tmp_path)
+    host.patch_queue().add_whole(Selection("Mod.esp", "Npc", "fargoth"))
+    monkeypatch.setattr(patchwin.messagebox, "askokcancel", lambda *_a, **_k: True)
+    host._clear_patch()
+    assert len(host.patch_queue()) == 0
+    assert host.refreshed == 1

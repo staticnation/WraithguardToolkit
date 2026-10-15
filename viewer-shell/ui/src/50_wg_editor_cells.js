@@ -83,10 +83,12 @@ Object.assign(WgEditor, {
 
   async loadRefs(cell){
     const box=this.part('edRefList'); if(!box) return;
+    const mine=this._refsN=(this._refsN||0)+1;   // only the latest cell asked for may draw
     box.innerHTML='<div class="hint">…</div>';
     let r;
     try{ r=await Engine.call('editor_cell_refs',{cell}); }
-    catch(e){ box.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return; }
+    catch(e){ if(mine===this._refsN) box.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return; }
+    if(mine!==this._refsN) return;
     this.refs=r.rows||[];
     const refCell=r.refCell||'', cellPlugins=r.plugins||null;
     const nm=this.part('edCellName'); if(nm) nm.textContent=(r.name||cell)+' - '+this.refs.length+' references';

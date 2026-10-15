@@ -109,3 +109,17 @@ def test_a_batch_is_one_step(tmp_path):
     assert s.can_undo()["undo"] == 1
     s.undo()
     assert ("Weapon", "iron sword") not in s.queue.fields
+
+
+def test_a_batch_that_fails_leaves_nothing_behind(tmp_path):
+    import pytest
+
+    s = _session(tmp_path)
+    sword = s.find("WEAP", "iron sword")
+    assert sword is not None
+    with pytest.raises(Exception), s.batch():  # noqa: B017, PT011
+        s.set_field(sword, "name", "A")
+        s.set_field(sword, "no.such.field", 1)
+    assert ("Weapon", "iron sword") not in s.queue.fields
+    assert len(s.queue) == 0
+    assert s.can_undo()["undo"] == 0

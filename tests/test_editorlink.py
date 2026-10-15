@@ -253,7 +253,7 @@ class _Builder(_Host):
             remapped=0,
         )
 
-    def finish_patch(self, result: Any) -> Any:
+    def finish_patch(self, result: Any, job: Any = None) -> Any:
         self.finished.append(threading.current_thread().name)
         self._queue.clear()
         self._last = result.output

@@ -9,6 +9,7 @@ Object.assign(WgEditor, {
   /** A placed object's dialog: `ref` is {cell, origin, refr, plugins?} - the cell as its
    *  records key it, the plugin that created the reference and its index there. */
   async openRef(ref){
+    this.record=null;
     this.refRec=Object.assign({}, ref);
     const d=this.dialog();
     d.hidden=false;
@@ -19,8 +20,9 @@ Object.assign(WgEditor, {
       return;
     }
     body.innerHTML='<div class="hint">Reading the cell from every plugin that has it…</div>';
-    try{ this.drawRef(await this.ask(ref.uid? 'editNew' : 'editRef', this.refReq())); }
-    catch(e){ body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; }
+    const mine=this.refRec;
+    try{ const v=await this.ask(ref.uid? 'editNew' : 'editRef', this.refReq()); if(this.refRec===mine) this.drawRef(v); }
+    catch(e){ if(this.refRec!==mine) return; body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; }
   },
 
   refReq(extra){ return Object.assign(this.refBody(this.refRec), extra||{}); },
@@ -31,7 +33,16 @@ Object.assign(WgEditor, {
     lock_level:'Lock level', key:'Key', trap:'Trap', soul:'Soul', charge_left:'Charge', health_left:'Health',
     object_count:'Count', blocked:'Blocked', temporary:'Temporary', moved_cell:'Moved to cell', destination:'Door to'},
 
+  /** Whether an engine answer is about the reference the dialog is on now. */
+  refIsCurrent(v){
+    const r=this.refRec;
+    if(!r || !v) return false;
+    if(r.uid || v.new) return !!r.uid && !!v.new && String(r.uid)===String(v.uid);
+    return (String(v.origin)+':'+String(v.refr)).toLowerCase()===this.refKeyOf(r);
+  },
+
   drawRef(v){
+    if(!this.refIsCurrent(v)) return false;   // a late answer for a reference no longer shown
     const d=this.dialog(), body=d.querySelector('#edDlgBody');
     this.refRec.cell=v.cell;
     if(!v.new) this.refRec.origin=v.origin;
@@ -201,7 +212,7 @@ Object.assign(WgEditor, {
         }
         link='editNewSet';
       }
-      this.drawRef(await this.ask(link, this.refReq(extra)));
+      this.drawRef(await this.ask(link, this.refReq(extra)));   // drawRef ignores an answer for another reference
       await this.refreshPending();
     }catch(e){
       if(el) el.classList.add('bad');

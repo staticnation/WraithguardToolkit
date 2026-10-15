@@ -127,7 +127,7 @@ class EditorLinkMixin:
         def run_patch(  # noqa: D102
             self, job: dict[str, Any], report: Callable[[str], Any] | None = None
         ) -> PatchResult: ...
-        def finish_patch(self, result: PatchResult) -> PatchResult: ...  # noqa: D102
+        def finish_patch(self, result: PatchResult, job: dict[str, Any] | None = None) -> PatchResult: ...  # noqa: D102
         def patch_written_note(self, result: PatchResult) -> str: ...  # noqa: D102
 
     # -- the session --------------------------------------------------------------------
@@ -149,7 +149,13 @@ class EditorLinkMixin:
         self._editor_setup = setup
         plugins = plugins_from_cfg(setup)
         current: EditorSession | None = getattr(self, "_editor_session", None)
-        if current is None or current.order != [n for n, _p in plugins]:
+        # The same names from another folder are another setup: its files, its records.
+        same = current is not None and current.order == [n for n, _p in plugins]
+        if same and current is not None:
+            same = {k: (n, str(p)) for k, (n, p) in current._paths.items()} == {
+                n.lower(): (n, str(p)) for n, p in plugins
+            }
+        if current is None or not same:
             current = EditorSession(plugins, self.patch_queue(), journal_path())
             self._editor_session = current
         return current
@@ -1778,7 +1784,7 @@ class EditorLinkMixin:
             """Read, write, then spend the pool (on the Tk thread)."""
             try:
                 result = self.run_patch(job, report=state["lines"].append)
-                self._on_ui_wait(lambda: self.finish_patch(result))
+                self._on_ui_wait(lambda: self.finish_patch(result, job))
                 state["result"] = {
                     "output": str(result.output) if result.output else None,
                     "records": result.records,

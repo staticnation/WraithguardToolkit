@@ -194,3 +194,27 @@ def test_a_base_set_by_the_editor_fills_in_for_the_scan():
     queue.add_field("Npc", "fargoth", FieldValue(path="name", value="x"))
     (merge,) = queue.merges(lambda _t, _k: "")
     assert merge.base_plugin == ""
+
+
+def test_consume_keeps_edits_made_after_the_snapshot() -> None:
+    """A build spends what it captured; a reference edited meanwhile stays queued."""
+    from wraithguard.patch.refedit import RefEdit
+
+    q = PatchQueue()
+    q.add_ref_edit(RefEdit("Cell", "a.esm", 1, {"scale": 1.5}))
+    snap = q.snapshot()
+    q.add_ref_edit(RefEdit("Cell", "a.esm", 2, {"scale": 2.0}))  # queued during the build
+    q.add_ref_edit(RefEdit("Cell", "a.esm", 1, {"rot": 3}))  # same ref, a new field
+    q.consume(snap)
+    left = {e.refr_index: dict(e.changes) for e in q.ref_edits}
+    assert left == {2: {"scale": 2.0}, 1: {"rot": 3}}
+
+
+def test_consume_empties_a_queue_nothing_touched() -> None:
+    """With no edits during the build the queue ends empty, as clear() left it."""
+    from wraithguard.patch.refedit import RefEdit
+
+    q = PatchQueue()
+    q.add_ref_edit(RefEdit("Cell", "a.esm", 1, {"scale": 1.5}))
+    q.consume(q.snapshot())
+    assert len(q) == 0

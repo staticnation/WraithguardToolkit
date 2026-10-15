@@ -1607,14 +1607,26 @@ class EditorSession:
 
     @contextlib.contextmanager
     def batch(self) -> Iterator[None]:
-        """Changes made inside are one change: one journal save, one undo step."""
+        """Changes made inside are one change: one journal save, one undo step.
+
+        All or nothing: when a step raises, the outermost batch puts the queue back as
+        it was before the first step, so a rejected group leaves nothing half-applied
+        (and nothing journalled).
+        """
         outer = bool(self.__dict__.get("_batching"))
+        before = None if outer else self.queue.snapshot()
         self.__dict__["_batching"] = True
+        failed = False
         try:
             yield
+        except BaseException:
+            failed = True
+            if before is not None:
+                self.queue.restore_snapshot(before)
+            raise
         finally:
             self.__dict__["_batching"] = outer
-            if not outer:
+            if not outer and not failed:
                 self.save_journal()
 
     def _try_set(self, found: Found, path: str, raw: object) -> str | None:

@@ -473,7 +473,8 @@ class PatchBuilderMixin:
         ):
             return
         try:
-            result = self.finish_patch(self.run_patch(self.prepare_patch(target, append=append)))
+            job = self.prepare_patch(target, append=append)
+            result = self.finish_patch(self.run_patch(job), job)
         except PatchServiceError as exc:
             messagebox.showerror(_("Patch failed"), str(exc))
             return
@@ -608,6 +609,8 @@ class PatchBuilderMixin:
             "sizes": self._plugin_sizes(order),
             "session": session,
             "count": len(queue),
+            # What this build captured: finishing spends exactly this, not later edits.
+            "snapshot": queue.snapshot(),
         }
 
     @staticmethod
@@ -673,16 +676,24 @@ class PatchBuilderMixin:
             new_records=job["new_records"],
         )
 
-    def finish_patch(self, result: PatchResult) -> PatchResult:
+    def finish_patch(
+        self, result: PatchResult, job: dict[str, Any] | None = None
+    ) -> PatchResult:
         """After a write: the queue is spent (and its journal with it). Tk thread.
 
         Args:
             result: What was written.
+            job: The job it was written from; only its decisions are spent, so an
+                edit made while the build ran stays queued.
 
         Returns:
             ``result``.
         """
-        self.patch_queue().clear()
+        snap = (job or {}).get("snapshot")
+        if snap is None:
+            self.patch_queue().clear()
+        else:
+            self.patch_queue().consume(snap)
         self.refresh_patch_views()
         if result.output is not None:
             self._last_patch_path = Path(result.output)

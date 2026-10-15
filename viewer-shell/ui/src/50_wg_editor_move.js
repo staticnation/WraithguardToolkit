@@ -277,26 +277,30 @@ Object.assign(WgEditor, {
   /** Queue changes to a reference (`[[path, value], ...]`), one after another; the dialog,
    *  when it shows that reference, and the render window follow. */
   async sendRef(ref, changes, opts){
-    if(!changes.length) return;
+    if(!changes.length) return true;
     if(!(opts && opts.noUndo)){
       // What it was, from the object as the render window has it, so Ctrl+Z puts it back.
       const prior=this.priorOf(ref, changes);
       if(prior){ this._undo.push({ref:Object.assign({}, ref), changes:changes.map(c=>c.slice()), prior}); this._redo=[]; }
       if(this._undo.length>200) this._undo.shift();
     }
-    let v=null;
+    let v=null, ok=true;
     try{
       for(const [path, value] of changes)
         v=await this.ask(ref.uid? 'editNewSet' : 'editRefSet', Object.assign(this.refBody(ref), {path, value}));
     }catch(e){
+      ok=false;
       toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000);
     }
     // A new reference dragged into the next exterior cell now belongs to that one.
     if(v && ref.uid && v.cell) ref.cell=v.cell;
     const same=this.refRec && this.dlg && !this.dlg.hidden && this.refKeyOf(this.refRec)===this.refKeyOf(ref);
     if(v && same) this.drawRef(v);
-    if(!this.refRec || !same) this.refRec=Object.assign({}, ref);
+    // A dialog open on another reference keeps its own target: a transform must not move it.
+    const dlgOpen=this.dlg && !this.dlg.hidden;
+    if(!this.refRec || (!same && !dlgOpen)) this.refRec=Object.assign({}, ref);
     await this.refreshPending();
+    return ok;
   },
 
   /** A position snapped to the grid (the world's coordinates, not the scene's: `off` is

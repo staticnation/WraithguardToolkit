@@ -94,8 +94,9 @@ Object.assign(WgEditor, {
       return;
     }
     body.innerHTML='<div class="hint">Reading '+escHtml(id)+' from every plugin that defines it…</div>';
-    try{ this.drawRecord(await this.ask('editRecord', this.req())); }
-    catch(e){ body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; }
+    const mine=this.record;
+    try{ const v=await this.ask('editRecord', this.req()); if(this.record===mine) this.drawRecord(v); }
+    catch(e){ if(this.record!==mine) return; body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; }
   },
 
   /** A record named by a link (the inspector, the full help, a list): shown here - its
@@ -312,6 +313,9 @@ Object.assign(WgEditor, {
   },
 
   drawRecord(v){
+    // A late answer for a record that is no longer the dialog's is dropped, whole.
+    const cur=this.record;
+    if(!cur || String(cur.tag)!==String(v.tag) || String(cur.id).toLowerCase()!==String(v.id).toLowerCase()) return false;
     const d=this.dialog(), body=d.querySelector('#edDlgBody');
     this.record.id=v.id;
     d.querySelector('#edDlgTitle').textContent=(this.NAMES[v.tag]||v.tag)+' - '+v.id;
