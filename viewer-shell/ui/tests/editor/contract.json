@@ -340,6 +340,23 @@
     "cell": "Test Room"
    }
   },
+  "editNewLand": {
+   "req": [
+    "cell"
+   ],
+   "opt": [
+    "height",
+    "texture"
+   ],
+   "ans": [
+    "cell",
+    "land",
+    "madeCell"
+   ],
+   "example": {
+    "cell": "(40, -12)"
+   }
+  },
   "editNewRemove": {
    "req": [
     "cell",

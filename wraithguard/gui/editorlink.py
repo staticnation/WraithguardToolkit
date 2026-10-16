@@ -197,6 +197,7 @@ class EditorLinkMixin:
             "editSetMany": server.register_post("wg_edit_set_many", self._on_edit_set_many),
             "editRefsSet": server.register_post("wg_edit_refs_set", self._on_edit_refs_set),
             "editNewCell": server.register_post("wg_edit_new_cell", self._on_edit_new_cell),
+            "editNewLand": server.register_post("wg_edit_new_land", self._on_edit_new_land),
             "editPlaceMany": server.register_post("wg_edit_place_many", self._on_edit_place_many),
             "editLeveledRoll": server.register_post(
                 "wg_edit_leveled_roll", self._on_edit_leveled_roll
@@ -440,6 +441,37 @@ class EditorLinkMixin:
         def make() -> dict[str, Any]:
             """Make it and redraw."""
             out = session.new_cell(cell)
+            self.refresh_patch_views()
+            return out
+
+        return self._json(self._on_ui_wait(make))
+
+    def _on_edit_new_land(self, body: bytes) -> Payload:
+        """``editNewLand``: flat land for an exterior square that has none.
+
+        Args:
+            body: ``{cell, height?, texture?}`` - the square as ``(x, y)``; ``height`` in
+                game units (0, the sea's level, when absent); ``texture`` a land texture's
+                id for the whole square (the default ground when absent).
+
+        Returns:
+            :meth:`.EditorSession.new_land`, as JSON.
+        """
+        data = self._body(body)
+        cell = data.get("cell")
+        if not isinstance(cell, str) or not cell.strip():
+            raise ValueError("bad cell")
+        height = data.get("height", 0.0)
+        if isinstance(height, bool) or not isinstance(height, int | float):
+            raise ValueError("bad height")
+        texture = data.get("texture", "")
+        if not isinstance(texture, str):
+            raise ValueError("bad texture")
+        session = self._editor()
+
+        def make() -> dict[str, Any]:
+            """Make it and redraw."""
+            out = session.new_land(cell, float(height), texture)
             self.refresh_patch_views()
             return out
 

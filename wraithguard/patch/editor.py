@@ -41,6 +41,7 @@ from wraithguard.mwscript.rename import replace_id
 from wraithguard.patch.enums import enum_options
 from wraithguard.patch.fieldtypes import field_kind, flag_options, flags_name, int_bounds
 from wraithguard.patch.merge import IDENTITY, FieldChoice, FieldValue, set_at, value_at
+from wraithguard.patch.newland import LandError, flat_land
 from wraithguard.patch.records import NewRecord, Selection, master_names, record_key
 from wraithguard.patch.refedit import REF_FIELDS, NewRef, RefEdit, refs_naming, winning_reference
 from wraithguard.tes3fields.naming import TYPE_TO_TAG
@@ -2407,6 +2408,53 @@ class EditorSession:
         self.queue.add_new_record(NewRecord("Cell", key, record, ""))
         self.save_journal()
         return {"cell": key, "interior": grid is None}
+
+    def new_land(self, cell: str, height: float = 0.0, texture: str = "") -> dict[str, Any]:
+        """Flat land for an exterior square the load order has none for (and the journal saved).
+
+        What the Construction Set allocates on the first brush stroke over a square with
+        no land: every vertex at one height (0 is the sea's level, so the square is
+        flooded until it is raised), normals straight up, one texture over the square.
+        The square's cell record is made with it when neither the load order nor the
+        patch has one. Land the load order already has is edited, not made again.
+
+        Args:
+            cell: The square, ``(x, y)``.
+            height: Where every vertex sits, in game units.
+            texture: A land texture's id for the whole square; empty for the default ground.
+
+        Returns:
+            ``{"cell": its key, "land": True, "madeCell": bool}``.
+
+        Raises:
+            EditorError: For something that is not a square, a square with land already
+                (a plugin's or the patch's), a height out of range or a texture no
+                plugin has.
+        """
+        grid = exterior_grid(self._cell_key(cell))
+        if grid is None:
+            raise EditorError("land belongs to an exterior square: give (x, y)")
+        key = f"({grid[0]}, {grid[1]})"
+        if self.find("LAND", key) is not None:
+            raise EditorError(f"{key} has land already")
+        index, source = 0, ""
+        if texture.strip():
+            found = self.find("LTEX", texture.strip())
+            if found is None:
+                raise EditorError(f"no plugin has a land texture {texture.strip()}")
+            index = int(found.versions[-1][1].get("index") or 0) + 1
+            source = found.versions[-1][0]
+        try:
+            record = flat_land(grid, height, index)
+        except LandError as exc:
+            raise EditorError(str(exc)) from exc
+        made_cell = self.find("CELL", key) is None
+        with self.batch():
+            if made_cell:
+                self.new_cell(key)
+            self.queue.add_new_record(NewRecord("Landscape", key, record, source))
+            self.save_journal()
+        return {"cell": key, "land": True, "madeCell": made_cell}
 
     def place_many(
         self, cell: str, items: Sequence[tuple[Found, object, object, float]]

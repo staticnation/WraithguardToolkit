@@ -9,7 +9,7 @@ module.exports = async (t) => {
   const engineCalls = [];
   const p = page({
     modules: EDITOR,
-    links: { editRecord: 'r', editPending: 'pend', editPlace: 'place', editNewCell: 'nc' },
+    links: { editRecord: 'r', editPending: 'pend', editPlace: 'place', editNewCell: 'nc', editNewLand: 'nl' },
     engine: (c, args) => {
       engineCalls.push([c, args]);
       if (c === 'editor_tags') return [['STAT', 1]];
@@ -19,6 +19,7 @@ module.exports = async (t) => {
     },
     answer: (url, body) => {
       if (url === 'pend') return pending;
+      if (url === 'nl') return { cell: body.cell, land: true, madeCell: true };
       if (url === 'place') return { cell: 'new room', uid: 'u9', tag: body.tag, id: body.id, new: true, plugins: [], fields: [] };
       return {};
     },
@@ -69,4 +70,15 @@ module.exports = async (t) => {
   await E.refreshPending();
   t.ok(names().includes('40,-12'), 'a new exterior square is listed: ' + names());
   t.ok(E.pendingCell('40,-12') && E.pendingKey(E.pendingCell('40,-12')) === '(40, -12)', 'and keyed as the patch keys it');
+
+  // Flat land: asked for as a square, the patch's land and cell then listed; its tab is not a record type's.
+  const WF = w.WgFlow;
+  const r = await WF.newLand('(7, -3)');
+  t.ok(r && r.land && p.posts.some(x => x[0] === 'nl' && x[1].cell === '(7, -3)'), 'newLand asks the patch for the square: ' + JSON.stringify(p.posts.filter(x => x[0] === 'nl')));
+  await WF.newLand('7,-3');
+  t.ok(p.posts.filter(x => x[0] === 'nl').pop()[1].cell === '(7, -3)', 'a Cell View key is a square too');
+  pending = [{ tag: 'CELL', id: '(7, -3)', made: {} }, { tag: 'LAND', id: '(7, -3)', made: {} }];
+  await E.refreshPending();
+  const tabs = [...d.querySelectorAll('#edTabs [data-tag]')].map(b => b.dataset.tag);
+  t.ok(!tabs.includes('CELL') && !tabs.includes('LAND'), 'the patch\'s cells and land are not Object Window tabs: ' + tabs);
 };

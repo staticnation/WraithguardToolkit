@@ -122,6 +122,8 @@ Object.assign(WgEditor, {
           {sep:true},
           {label:'New interior…', disabled:!this.links().editNewCell, title:'A blank interior of the patch\'s own, under a name', act:()=>WgFlow.newCell(false)},
           {label:'New exterior square…', disabled:!this.links().editNewCell, title:'A grid square no plugin has, of the patch\'s own (no land: the game draws it flat, at the sea)', act:()=>WgFlow.newCell(true)},
+          {label:'New exterior square with land…', disabled:!this.links().editNewLand, title:'A grid square no plugin has, with flat land at the sea\'s level (what the Construction Set makes on the first brush stroke)', act:()=>WgFlow.newCell(true, true)},
+          {label:'Add flat land to this square', disabled:inner || !this.links().editNewLand, title:inner? 'Land belongs to an exterior square' : 'Flat land at the sea\'s level, for a square with none (the patch refuses one that has land)', act:()=>WgFlow.newLand(k)},
         ]);
       };
     });

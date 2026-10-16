@@ -10,7 +10,8 @@ Object.assign(WgEditor, {
    *  empty (just chosen with "+ Type", before its first record is made). Sorted by tag. */
   allTabs(){
     const have=new Map((Array.isArray(this.tags)? this.tags : []).map(([tag,n])=>[tag,n]));
-    for(const p of this.made||[]) if(p.tag && !have.has(p.tag)) have.set(p.tag, 0);
+    // Only the record types the Object Window lists: the patch's cells and land are the Cell View's.
+    for(const p of this.made||[]) if(p.tag && this.NAMES[p.tag] && !have.has(p.tag)) have.set(p.tag, 0);
     if(this.tag && !have.has(this.tag) && this._newType===this.tag) have.set(this.tag, 0);
     return [...have].sort((a,b)=>a[0]<b[0]? -1 : a[0]>b[0]? 1 : 0);
   },

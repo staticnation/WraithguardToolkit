@@ -407,3 +407,53 @@ def test_category_columns_show_what_the_patch_would_leave(tmp_path):
 
     _post(host._on_edit_revert, tag="NPC_", id="fargoth", path="data.level")
     assert _level(_post(host._on_edit_columns, tag="NPC_"), "fargoth") == 2
+
+
+def test_new_land_makes_the_square_and_its_flat_land(tmp_path):
+    """Land for a square nothing has: its cell and a flat ``LAND`` record, one change."""
+    host = _Host(tmp_path)
+    out = _post(host._on_edit_new_land, cell="(40, -12)", height=100)
+    assert out == {"cell": "(40, -12)", "land": True, "madeCell": True}
+    session = host._editor_session
+    made = {(m.record_type, m.key) for m in session.queue.new_records}
+    assert made == {("Cell", "(40, -12)"), ("Landscape", "(40, -12)")}
+    pend = _post(host._on_edit_pending)
+    assert {(p["tag"], p["id"]) for p in pend if p.get("made")} >= {("LAND", "(40, -12)")}
+    # Land is not made twice, and an interior has none.
+    with pytest.raises(Exception, match="has land already"):
+        _post(host._on_edit_new_land, cell="(40, -12)")
+    with pytest.raises(Exception, match="exterior square"):
+        _post(host._on_edit_new_land, cell="Some room")
+    # One undo takes the cell and its land away together.
+    _post(host._on_edit_undo)
+    assert not session.queue.new_records
+
+
+def test_new_land_in_a_square_the_patch_has_the_cell_of_makes_only_land(tmp_path):
+    host = _Host(tmp_path)
+    _post(host._on_edit_new_cell, cell="(41, -12)")
+    out = _post(host._on_edit_new_land, cell="(41, -12)")
+    assert out["madeCell"] is False
+    assert len(host._editor_session.queue.new_records) == 2
+
+
+def test_new_land_refuses_a_bad_height_and_an_unknown_texture(tmp_path):
+    host = _Host(tmp_path)
+    with pytest.raises(Exception, match="height"):
+        _post(host._on_edit_new_land, cell="(5, 5)", height=99999999)
+    with pytest.raises(Exception, match="land texture"):
+        _post(host._on_edit_new_land, cell="(5, 5)", texture="nothing")
+    assert not host._editor_session.queue.new_records  # nothing half made
+
+
+def test_new_land_passes_verify_and_is_queued_as_the_patchs_record(tmp_path):
+    """The patch's land is checked like any record it makes, and queued with its height."""
+    host = _Host(tmp_path)
+    _post(host._on_edit_new_land, cell="(40, -12)", height=-50, texture="")
+    report = _post(host._on_edit_verify)
+    assert not [p for p in report.get("problems", []) if "40, -12" in str(p)]
+    session = host._editor_session
+    saved = {(m.record_type, m.key) for m in session.queue.new_records}
+    assert ("Landscape", "(40, -12)") in saved
+    land = next(m for m in session.queue.new_records if m.record_type == "Landscape")
+    assert land.record["vertex_heights"]["offset"] == -50.0

@@ -883,6 +883,16 @@ async function editor(w, R, fail, done, sleep){
   if(!lp.parentNode || lp.parentNode.id!=='edRail') fail('a panel did not dock on the right');
   UI.place(lp, 'float');
   if(!lp.parentNode || lp.parentNode.id!=='vpwrap') fail('a docked panel did not float again');
+  // The toolbar's home, with nothing saved: across the top of the window, a full-width bar before #main.
+  { delete UI.state().tb; UI.applyToolbar();
+    const tb=d.getElementById('edTools'), bar=d.getElementById('edTbWin'), main=d.getElementById('main');
+    if(!bar) fail('the toolbar has no window bar by default');
+    else if(tb.parentNode!==bar) fail('the toolbar does not start in the window bar');
+    else if(bar.nextElementSibling!==main) fail('the toolbar\'s bar does not start just before #main');
+    else if(!bar.classList.contains('used')) fail('the toolbar\'s bar does not start in use');
+    UI.dockToolbar('top');
+    if(tb.parentNode!==d.getElementById('vpwrap') || bar.classList.contains('used')) fail('the toolbar did not go over the render window');
+  }
   // The toolbar docked to the window (2026-10-12): a full-width bar before or after #main.
   UI.dockToolbar('wintop');
   { const tb=d.getElementById('edTools'), bar=d.getElementById('edTbWin'), main=d.getElementById('main');

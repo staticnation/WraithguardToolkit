@@ -80,7 +80,7 @@ const WgFlow={
 
   /* ---- new cells ------------------------------------------------------------------- */
 
-  async newCell(exterior){
+  async newCell(exterior, land=false){
     const name=await WgUI.askText(exterior? 'A new exterior square at' : 'A new interior named', '', exterior? '(x, y), e.g. (40, -12)' : 'e.g. Vivec, My Shop');
     if(!name) return null;
     let cell=name.trim();
@@ -89,9 +89,24 @@ const WgFlow={
       if(!m) return toast('An exterior square is two numbers: (x, y)','warn',3000);
       cell='('+(+m[1])+', '+(+m[2])+')';
     }
+    if(land) return this.newLand(cell);
     try{
       const r=await this.ask('editNewCell', {cell});
       toast((r.interior? 'Interior ' : 'Exterior square ')+r.cell+' made by the patch - open it from the Cell View (double-click), then drag records into it from the Object Window','ok',4000);
+      await WgEditor.refreshPending();
+      return r;
+    }catch(e){ toast(this.err(e),'err',5000); return null; }
+  },
+
+  /** Flat land for an exterior square (`k` is `x,y`, `(x, y)`, or a Cell View key): its cell
+   *  too when nothing has one. At the sea's level the square is flooded until it is raised. */
+  async newLand(k){
+    const m=String(k).match(/(-?\d+)\s*,\s*(-?\d+)/);
+    if(!m) return toast('Land belongs to an exterior square: two numbers, (x, y)','warn',3000);
+    const cell='('+(+m[1])+', '+(+m[2])+')';
+    try{
+      const r=await this.ask('editNewLand', {cell});
+      toast('Flat land at the sea\'s level for '+r.cell+(r.madeCell? ' (and its cell)' : '')+', made by the patch - raise it with the terrain tools','ok',4500);
       await WgEditor.refreshPending();
       return r;
     }catch(e){ toast(this.err(e),'err',5000); return null; }

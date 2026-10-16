@@ -694,7 +694,7 @@ const WgUI={
     t.id='edTools';
     const b=(id, glyph, label, title)=>'<button class="btn sm edTb" data-tb="'+id+'" title="'+escHtml(title)+'"><span class="g">'+glyph+'</span><span class="l">'+escHtml(label)+'</span></button>';
     t.innerHTML=
-      '<span class="edTbGrip" title="Drag to move the toolbar; double-click to put it back at the top; right-click for where it docks">⋮⋮</span>'+
+      '<span class="edTbGrip" title="Drag to move the toolbar; double-click to put it back across the top of the window; right-click for where it docks">⋮⋮</span>'+
       '<span class="grp" data-g="win"></span><span class="sepv"></span>'+
       '<span class="grp" data-g="sel">'+
         b('record', '✎', 'Record', 'Edit the selected object\'s base record (F2)')+
@@ -723,15 +723,15 @@ const WgUI={
     t.querySelectorAll('[data-tb]').forEach(el=>el.onclick=e=>this.tbAction(el.dataset.tb, el, e));
     const grip=t.querySelector('.edTbGrip');
     grip.addEventListener('pointerdown', e=>this.dragToolbar(e));
-    grip.addEventListener('dblclick', ()=>this.dockToolbar('top'));
+    grip.addEventListener('dblclick', ()=>this.dockToolbar(this.TB_HOME));
     grip.addEventListener('contextmenu', e=>{
       e.preventDefault();
       const p=this.state().tb||{};
       this.menu({x:e.clientX, y:e.clientY}, [
         {head:'Toolbar'},
-        {label:'At the top of the render window', radio:true, checked:(p.pos||'top')==='top', act:()=>this.dockToolbar('top')},
+        {label:'At the top of the render window', radio:true, checked:(p.pos||this.TB_HOME)==='top', act:()=>this.dockToolbar('top')},
         {label:'At the bottom', radio:true, checked:p.pos==='bottom', act:()=>this.dockToolbar('bottom')},
-        {label:'Across the top of the window', radio:true, checked:p.pos==='wintop', act:()=>this.dockToolbar('wintop'),
+        {label:'Across the top of the window', radio:true, checked:(p.pos||this.TB_HOME)==='wintop', act:()=>this.dockToolbar('wintop'),
          title:'A full-width bar under the title bar, taking its own room: it never covers the 3D view'},
         {label:'Across the bottom of the window', radio:true, checked:p.pos==='winbottom', act:()=>this.dockToolbar('winbottom'),
          title:'A full-width bar along the bottom of the window, taking its own room'},
@@ -833,10 +833,14 @@ const WgUI={
     }
   },
 
+  /** Where the toolbar sits until it is moved: across the top of the window, in the page's own
+   *  flow, so the render window shrinks for it rather than being covered. */
+  TB_HOME:'wintop',
+
   applyToolbar(){
     const t=this.tb; if(!t) return;
     const p=this.state().tb||{};
-    const pos=p.pos||'top';
+    const pos=p.pos||this.TB_HOME;
     /* Static, 2026-10-12: docked to the window itself - a full-width bar above or below
        the main area, in the page's own flow, so the render window shrinks for it rather
        than being covered. Always a row there. */
@@ -845,12 +849,13 @@ const WgUI={
     if(pos==='float' && p.x!=null){ t.style.left=p.x+'px'; t.style.top=p.y+'px'; }
     else{ t.style.left=''; t.style.top=''; }
     const host=this.toolbarHost(win? pos : null);
+    const bar=document.getElementById('edTbWin');
     if(host && t.parentNode!==host){
       host.appendChild(t);
-      const bar=document.getElementById('edTbWin');
-      if(bar) bar.classList.toggle('used', win);
       if(App.R && App.R.resize) requestAnimationFrame(()=>App.R.resize());
     }
+    // Whether the bar takes room is the position's to say, whatever moved the toolbar into it.
+    if(bar) bar.classList.toggle('used', win);
   },
 
   /** Where the toolbar lives: the render window, or (`wintop`/`winbottom`) the
@@ -975,7 +980,7 @@ const WgUI={
       {sep:true},
       {label:'Fold every panel', act:()=>document.querySelectorAll('.edPanel').forEach(d=>this.fold(d, true))},
       {label:'Close every panel', act:()=>document.querySelectorAll('.edPanel').forEach(d=>{ d.hidden=true; })},
-      {label:'Put the panels and toolbar back', title:'Every panel floating where it started, the toolbar at the top, the column as it was',
+      {label:'Put the panels and toolbar back', title:'Every panel floating where it started, the toolbar across the top of the window, the column as it was',
        act:()=>this.resetLayout()},
     ];
   },
