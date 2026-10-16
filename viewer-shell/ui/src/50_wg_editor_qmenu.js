@@ -460,7 +460,9 @@ Object.assign(WgEditor, {
   quickMenu(x, y){
     const group=this.group();
     if(group.length>1) return this.groupMenu(x, y, group);
-    const sel=this.selected(); if(!sel) return false;
+    // One picked by a box or Ctrl+click is a selection of one: the same menu as a clicked one.
+    const sel=this.selected() || (group.length===1? {hit:group[0].hit, ref:group[0].ref} : null);
+    if(!sel) return false;
     if(!this.qm){
       const m=document.createElement('div');
       m.id='edQ'; m.className='ori'; m.hidden=true;

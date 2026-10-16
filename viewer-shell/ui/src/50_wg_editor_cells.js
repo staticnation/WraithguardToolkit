@@ -76,6 +76,24 @@ Object.assign(WgEditor, {
             refs:[], hasLand:false, water:null, quasi:false, ambi:null};
   },
 
+  /** Shows a cell in the Cell View: the filter and "Modified only" off, the list long enough
+   *  to hold it, its row selected and scrolled to, and its references listed. A cell the
+   *  patch has just made would otherwise sit among thousands, out of sight.
+   *  @param k {string} `int:Name` or `x,y`. */
+  revealCell(k){
+    this.cellFilter=''; this.cellsModOnly=false;
+    const f=this.part('edCellFilter'); if(f) f.value='';
+    const m=this.part('edCellsMod'); if(m) m.checked=false;
+    this.cellSel=k;
+    this.drawCells();
+    const at=(this._cellKeys||[]).indexOf(k);
+    if(at>=this.limit('cells')){ this._limits=this._limits||{}; this._limits.cells=at+25; this.drawCells(); }
+    const box=this.part('edCellList');
+    const row=box && [...box.querySelectorAll('tr[data-cell]')].find(tr=>tr.dataset.cell===k);
+    if(row && row.scrollIntoView) row.scrollIntoView({block:'center'});
+    if(row) this.loadRefs(k);
+  },
+
   drawCells(){
     const box=this.part('edCellList'); if(!box) return;
     const f=this.cellFilter.trim().toLowerCase();
@@ -94,6 +112,7 @@ Object.assign(WgEditor, {
       const key=c=>sc.col===1? (c.kind==='int'? -1e9 : c.x*1e5+c.y) : (typeof g(c)==='number'? g(c) : String(g(c)).toLowerCase());
       list=list.slice().sort((a,b)=>{ const x=key(a), y=key(b); return (x<y?-1:x>y?1:0)*sc.dir; });
     }
+    this._cellKeys=list.map(c=>c.kind==='int'? 'int:'+c.name : c.x+','+c.y);   // for revealCell
     let h='<table class="edT"><thead><tr>'+CS.map(([l],k)=>'<th data-ccol="'+k+'">'+l+(k===sc.col? (sc.dir>0?' ▲':' ▼') : '')+'</th>').join('')+'</tr></thead><tbody>';
     for(const c of list.slice(0,this.limit('cells'))){
       const k=c.kind==='int'? 'int:'+c.name : c.x+','+c.y;

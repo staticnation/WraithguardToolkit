@@ -94,6 +94,7 @@ const WgFlow={
       const r=await this.ask('editNewCell', {cell});
       toast((r.interior? 'Interior ' : 'Exterior square ')+r.cell+' made by the patch - open it from the Cell View (double-click), then drag records into it from the Object Window','ok',4000);
       await WgEditor.refreshPending();
+      WgEditor.revealCell(r.interior? 'int:'+r.cell : String(r.cell).replace(/[()\s]/g,''));
       return r;
     }catch(e){ toast(this.err(e),'err',5000); return null; }
   },
@@ -108,6 +109,7 @@ const WgFlow={
       const r=await this.ask('editNewLand', {cell});
       toast('Flat land at the sea\'s level for '+r.cell+(r.madeCell? ' (and its cell)' : '')+', made by the patch - raise it with the terrain tools','ok',4500);
       await WgEditor.refreshPending();
+      if(r.madeCell) WgEditor.revealCell((+m[1])+','+(+m[2]));   // its cell is new: show it
       return r;
     }catch(e){ toast(this.err(e),'err',5000); return null; }
   },

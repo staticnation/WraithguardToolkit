@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 
     from wraithguard.mwscript.compiler import ScriptCompiler
     from wraithguard.patch.queue import PatchQueue
+    from wraithguard.patch.recordcache import RecordCache
 
 LOG = get_logger(__name__)
 
@@ -646,6 +647,7 @@ class EditorSession:
         read: Callable[[Path, str], list[dict[str, Any]]] = _native_read,
         read_all: Callable[[Path], list[dict[str, Any]]] = _native_read_all,
         read_dialogue: Callable[[Path], list[dict[str, Any]]] = _native_read_dialogue,
+        disk_cache: RecordCache | None = None,
     ) -> None:
         """Start a session.
 
@@ -656,6 +658,7 @@ class EditorSession:
             read: Reads one plugin's records of one tag.
             read_all: Reads all of one plugin's records (the Use Report).
             read_dialogue: Reads one plugin's topics and responses, in file order.
+            disk_cache: Where records read once are kept between runs (None: not kept).
         """
         self.order = [name for name, _ in plugins]
         self._paths = {name.lower(): (name, path) for name, path in plugins}
@@ -665,6 +668,8 @@ class EditorSession:
         self._read = read
         self._read_all = read_all
         self._read_dialogue = read_dialogue
+        self._disk = disk_cache
+        self._home: dict[str, dict[int, list[tuple[str, str]]]] = {}
         self._dialogue_cache: dict[str, list[dict[str, Any]]] = {}
         self._cache: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         self._masters: dict[str, list[str]] = {}
@@ -694,7 +699,12 @@ class EditorSession:
         found: dict[str, dict[str, Any]] = {}
         if name_path is not None:
             try:
-                for rec in self._read(name_path[1], tag):
+                recs = self._disk.get(name_path[1], tag) if self._disk else None
+                if recs is None:
+                    recs = self._read(name_path[1], tag)
+                    if self._disk:
+                        self._disk.put(name_path[1], tag, recs)
+                for rec in recs:
                     key = record_key(rec)
                     if key:
                         found[key.lower()] = rec
@@ -2007,21 +2017,57 @@ class EditorSession:
         Returns:
             The cell's key.
         """
+        want = origin.lower()
+        for plugin in self.order:
+            for at, key in self._home_index(plugin).get(refr_index, ()):
+                if at == want:
+                    return key
+        return None
+
+    def _home_index(self, plugin: str) -> dict[int, list[tuple[str, str]]]:
+        """One plugin's exterior references by index: ``refr_index -> [(origin, cell key)]``.
+
+        Walking every reference of every exterior cell is the slow part of finding where a
+        moved object lives, so each plugin is walked once (and the result kept on disk with
+        the plugin's records), not once per lookup.
+
+        Args:
+            plugin: The plugin's name.
+
+        Returns:
+            The index (origins in lower case).
+        """
         from wraithguard.patch.refedit import _origin
 
-        for plugin in self.order:
+        low = plugin.lower()
+        with self._lock:
+            hit = self._home.get(low)
+        if hit is not None:
+            return hit
+        path = self._paths[low][1]
+        rows: list[Any] | None = self._disk.get(path, "HOME") if self._disk else None
+        if rows is None:
             masters = self._masters_of(plugin)
-            name = self._paths[plugin.lower()][0]
+            name = self._paths[low][0]
+            rows = []
             for key, rec in self._records(plugin, "CELL").items():
                 if exterior_grid(key) is None:
                     continue
+                cell = record_key(rec)
                 for ref in rec.get("references") or []:
-                    if not isinstance(ref, dict) or ref.get("refr_index") != refr_index:
+                    if not isinstance(ref, dict) or ref.get("refr_index") is None:
                         continue
                     at = _origin(name, masters, int(ref.get("mast_index", -1)))
-                    if at is not None and at.lower() == origin.lower():
-                        return record_key(rec)
-        return None
+                    if at is not None:
+                        rows.append((int(ref["refr_index"]), at.lower(), cell))
+            if self._disk:
+                self._disk.put(path, "HOME", rows)
+        index: dict[int, list[tuple[str, str]]] = {}
+        for idx, at, cell in rows:
+            index.setdefault(idx, []).append((at, cell))
+        with self._lock:
+            self._home[low] = index
+        return index
 
     def _ref_queued(self, found: FoundRef) -> dict[str, Any]:
         """The changes queued for a placed object."""

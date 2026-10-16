@@ -63,6 +63,7 @@ Object.assign(WgEditor, {
       const r=await this.ask('editDuplicateCell', {cell:name, newName:to});
       toast(r.cell+': '+r.refs+' reference'+(r.refs===1?'':'s')+(r.pathgrid? ' and its path grid' : '')+' queued in the patch. It is drawn once the patch is built and loaded','ok',7000);
       await this.refreshPending();
+      this.revealCell('int:'+r.cell);   // in the Cell View, selected, wherever it sorts
     }catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); }
   },
 

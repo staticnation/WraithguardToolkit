@@ -82,3 +82,6 @@ viewer-shell.zip
 
 # Robin's generated Gardenfell test fixture: local only (holds real Morrowind.ini copies).
 viewer-shell/gardenfell/fixture/
+
+# Page boot test fixture (a fake install the test builds/reads; per-machine, not source)
+viewer-shell/ui/tests/fixture

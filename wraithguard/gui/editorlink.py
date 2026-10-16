@@ -73,6 +73,7 @@ Copyright (c) 2026 StaticNation.
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import threading
@@ -90,6 +91,7 @@ if TYPE_CHECKING:
 
     from wraithguard.patch.editor import EditorSession, Found, FoundRef
     from wraithguard.patch.queue import PatchQueue
+    from wraithguard.patch.recordcache import RecordCache
     from wraithguard.patch.refedit import NewRef
     from wraithguard.patch.service import PatchResult
     from wraithguard.viz.serve import ViewerServer
@@ -98,6 +100,20 @@ LOG = get_logger(__name__)
 
 #: How long a request waits for the Tk thread (a modal dialog open there holds it).
 _UI_WAIT_S = 20.0
+
+
+def record_cache() -> RecordCache:
+    """The editor's on-disk cache of plugin records (one per app folder, shared by sessions)."""
+    global _RECORD_CACHE
+    if _RECORD_CACHE is None:
+        from wraithguard.patch.recordcache import RecordCache
+
+        _RECORD_CACHE = RecordCache(app_base_dir() / "wraithguard_record_cache.sqlite3")
+        atexit.register(_RECORD_CACHE.close)
+    return _RECORD_CACHE
+
+
+_RECORD_CACHE: RecordCache | None = None
 
 
 def journal_path() -> Path:
@@ -158,7 +174,9 @@ class EditorLinkMixin:
                 n.lower(): (n, str(p)) for n, p in plugins
             }
         if current is None or not same:
-            current = EditorSession(plugins, self.patch_queue(), journal_path())
+            current = EditorSession(
+                plugins, self.patch_queue(), journal_path(), disk_cache=record_cache()
+            )
             self._editor_session = current
         return current
 

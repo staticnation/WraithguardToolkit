@@ -19,7 +19,7 @@ Object.assign(WgEditor, {
     const k=String(e.key||'').toLowerCase();
     if(!typing && (k==='z'||k==='x'||k==='y') && !e.ctrlKey && !e.metaKey) this.held.add(k);
     if(k==='f' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && this.selected()) return this.drop();
-    if(k==='q' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && (this.selected() || this.group().length>1) && !(App.R && App.R.fly && App.R.fly.active)){
+    if(k==='q' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && (this.selected() || this.group().length>=1) && !(App.R && App.R.fly && App.R.fly.active)){
       this.quickMenu(this._pointer? this._pointer[0] : null, this._pointer? this._pointer[1] : null);
       return true;
     }
