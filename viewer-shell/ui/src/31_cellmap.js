@@ -771,6 +771,12 @@ const CellMap={
   },
   /** A cell the picker knows — in the world's grid, whether or not it has a landscape. */
   known(x,y){ return this.cellsByKey.has(x+','+y); },
+  /** An empty square the Editor can open (to build in): inside the world's own extent. */
+  openable(c){
+    const w=this.world;
+    return !!(w && w.min && w.max && c.x>=w.min[0] && c.x<=w.max[0] && c.y>=w.min[1] && c.y<=w.max[1]
+      && typeof WgEditor==='object' && WgEditor.canEdit && WgEditor.canEdit());
+  },
 
   /* ---- the pointer ----------------------------------------------------------------- */
   bind(cv){
@@ -928,7 +934,7 @@ const CellMap={
   hoverAt(){
     const p=this.ptr, was=this.hover;
     let c=null;
-    if(p && !this.drag){ c=this.cellAt(p.px,p.py); if(c && !this.known(c.x,c.y)) c=null; }
+    if(p && !this.drag){ c=this.cellAt(p.px,p.py); if(c && !this.known(c.x,c.y) && !this.openable(c)) c=null; }
     this.hover=c;
     if((was&&was.x)!==(c&&c.x) || (was&&was.y)!==(c&&c.y)) this.redraw();
     if(p) this.showTip(c, p.px, p.py); else this.showTip(null);
@@ -998,7 +1004,14 @@ const CellMap={
     if(Math.hypot(e.clientX-pr.x, e.clientY-pr.y)>4) return;   // a drag, not a click
     const [px,py]=this.local(e);
     const c=this.cellAt(px,py);
-    if(!c||!this.known(c.x,c.y)) return;
+    if(!c) return;
+    if(!this.known(c.x,c.y)){
+      /* Wraithguard: an empty square can be opened in the Editor - nothing is made until an
+         object is placed in it (or the patch is given its cell). */
+      if(this.openable(c) && this.onPick)
+        this.onPick({kind:'ext', x:c.x, y:c.y, name:'', label:'Empty ('+c.x+', '+c.y+')', empty:true});
+      return;
+    }
     const cell=this.cellsByKey.get(c.x+','+c.y);
     if(this.onPick) this.onPick(cell);
   },
@@ -1014,7 +1027,12 @@ const CellMap={
 
   /* ---- the note under the pointer -------------------------------------------------- */
   tipText(c){
-    const cell=this.cellsByKey.get(c.x+','+c.y); if(!cell) return '';
+    const cell=this.cellsByKey.get(c.x+','+c.y);
+    if(!cell){
+      // An empty square, in the Editor: said to be openable (`onClick`).
+      return this.openable(c)?
+        'Empty ('+c.x+', '+c.y+')\nNo cell here - click to open it; placing an object makes its cell' : '';
+    }
     const region=cell.region||'';
     /* Two lines, joined here rather than in the catalogue: a newline inside a catalogue
        string breaks the language template, whose English rides in a comment. */

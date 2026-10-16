@@ -428,19 +428,26 @@ class EditorLinkMixin:
         """``editNewCell``: a cell of the patch's own, from nothing.
 
         Args:
-            body: ``{cell}`` - an interior's name, or ``(x, y)`` for an exterior square.
+            body: ``{cell, absent?}`` - an interior's name, or ``(x, y)`` for an exterior
+                square; ``absent`` true when the viewer's world has just found no such cell
+                (the load order is then not read again to check).
 
         Returns:
             :meth:`.EditorSession.new_cell`, as JSON.
         """
-        cell = self._body(body).get("cell")
+        data = self._body(body)
+        cell = data.get("cell")
         if not isinstance(cell, str) or not cell.strip():
             raise ValueError("bad cell")
+        absent = data.get("absent") is True
         session = self._editor()
+        if not absent:
+            # Reading every plugin's cells is long: here, on the request's own thread, not Tk's.
+            session.warm("CELL")
 
         def make() -> dict[str, Any]:
             """Make it and redraw."""
-            out = session.new_cell(cell)
+            out = session.new_cell(cell, absent)
             self.refresh_patch_views()
             return out
 
@@ -1506,6 +1513,8 @@ class EditorLinkMixin:
         if not isinstance(cell, str) or not cell:
             raise ValueError("bad cell")
         cell_plugins = self._names(place.get("plugins"), "plugins")
+        if not cell_plugins and session.queue.new_record("Cell", cell.strip()) is None:
+            session.warm("CELL")  # a cell looked up in every plugin: read off the Tk thread
 
         def change() -> dict[str, Any]:
             """Queue it and redraw the Patch Builder."""

@@ -120,9 +120,18 @@ const CellData={
     /* Wraithguard: a cell the patch makes itself is in no plugin of the load order, so the
        engine has no such cell; it is empty but for what the patch places in it. */
     const own=(typeof WgEditor==='object' && WgEditor.pendingCell)? WgEditor.pendingCell(target) : null;
-    const d = own? WgEditor.emptyCell(target) : interior
-      ? await Engine.call('interior_data',{name:String(target.name||''), review:rv.review||'', without:!!rv.without})
-      : await Engine.call('cell_data',{gx:target.x|0, gy:target.y|0, review:rv.review||'', without:!!rv.without, land:rv.land||''});
+    let d;
+    if(own) d=WgEditor.emptyCell(target);
+    else try{
+      d = interior
+        ? await Engine.call('interior_data',{name:String(target.name||''), review:rv.review||'', without:!!rv.without})
+        : await Engine.call('cell_data',{gx:target.x|0, gy:target.y|0, review:rv.review||'', without:!!rv.without, land:rv.land||''});
+    }catch(err){
+      /* An exterior square nothing in the load order has (opened from the Cell map to be
+         built in): in the editor it is an empty square - placing an object makes its cell. */
+      if(interior || !(typeof WgEditor==='object' && WgEditor.canEdit && WgEditor.canEdit() && WgEditor.isEmptySquare && WgEditor.isEmptySquare(target))) throw err;
+      d=WgEditor.emptyCell(target);
+    }
 
     /* Still the world this read was asked of? Everything below files something in
        page-wide state — the LTEX table, the model, light and actor maps, the cache — and

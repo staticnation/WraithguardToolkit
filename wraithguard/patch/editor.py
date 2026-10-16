@@ -704,6 +704,19 @@ class EditorSession:
             self._cache[(low, tag)] = found
         return found
 
+    def warm(self, tag: str) -> None:
+        """Read every plugin's records of a tag now, so a later lookup is a dictionary hit.
+
+        Looking a cell up with no plugin list reads the CELL records of the whole load
+        order the first time (hundreds of files). Run on the Tk thread that is long enough
+        to stall every editor request behind it; callers off that thread warm first.
+
+        Args:
+            tag: The tag (``CELL``).
+        """
+        for name in self.order:
+            self._records(name, tag)
+
     def find(self, tag: str, rid: str, plugins: Sequence[str] | None = None) -> Found | None:
         """A record, from every plugin that defines it.
 
@@ -723,6 +736,10 @@ class EditorSession:
         names = [p for p in (plugins or self.order) if p.lower() in self._rank]
         names.sort(key=lambda p: self._rank[p.lower()])
         want = rid.strip().lower()
+        if self.queue.new_record(record_type, rid.strip()) is not None:
+            # A record the patch makes is in no plugin (its id was checked free when made):
+            # nothing to read, which for a CELL would be every plugin of the load order.
+            names = []
         versions: list[tuple[str, dict[str, Any]]] = []
         for name in names:
             rec = self._records(name, tag).get(want)
@@ -2298,6 +2315,8 @@ class EditorSession:
 
         The viewer's list, checked, or every plugin looked in.
         """
+        if not plugins and self.queue.new_record("Cell", cell.strip()) is not None:
+            return ()  # the patch's own cell: no plugin has it, and none need reading
         known = [p for p in (plugins or self.order) if p.lower() in self._rank]
         known.sort(key=lambda p: self._rank[p.lower()])
         want = cell.strip().lower()
@@ -2360,7 +2379,7 @@ class EditorSession:
         name = cell.strip()
         return name[4:].strip() if name.lower().startswith("int:") else name
 
-    def new_cell(self, cell: str) -> dict[str, Any]:
+    def new_cell(self, cell: str, absent: bool = False) -> dict[str, Any]:
         """A cell of the patch's own, from nothing (and the journal saved).
 
         A blank interior under a name (with water off, and its lighting a dim grey the
@@ -2369,6 +2388,8 @@ class EditorSession:
 
         Args:
             cell: An interior's name, or ``(x, y)``.
+            absent: The viewer's world has already been looked in and has no such cell, so
+                the load order is not read again to check (that is every plugin's CELLs).
 
         Returns:
             ``{"cell": its key, "interior": bool}``.
@@ -2385,7 +2406,9 @@ class EditorSession:
         grid = exterior_grid(key)
         if not key:
             raise EditorError("a new cell needs a name, or (x, y) for an exterior square")
-        if self.find("CELL", key) is not None:
+        if self.queue.new_record("Cell", key) is not None or (
+            not absent and self.find("CELL", key) is not None
+        ):
             raise EditorError(f"the load order has the cell {key} already")
         if grid is not None:
             record = record_to_json(Cell(name="", data=CellData(grid=grid)))

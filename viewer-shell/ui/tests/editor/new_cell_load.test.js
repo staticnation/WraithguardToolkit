@@ -36,4 +36,15 @@ module.exports = async (t) => {
   let failed = null;
   try { await w.CellData.loadCell({ kind: 'int', name: 'Elsewhere' }); } catch (e) { failed = e; }
   t.ok(failed && asked.includes('interior_data'), 'a cell the patch did not make is still the engine\'s');
+
+  // An empty square opened from the Cell map: the engine has nothing, so it is drawn empty - in the Editor only.
+  w.WgEditor.cells = [{ kind: 'ext', x: 1, y: 1, name: '', label: 'x', refs: 0, path: false }];
+  asked.length = 0;
+  const failing = w.Engine.call;
+  w.Engine.call = async (n, ...r) => { if (n === 'cell_data') { asked.push(n); throw new Error('no such cell'); } return failing.call(w.Engine, n, ...r); };
+  const open = await w.CellData.loadCell({ kind: 'ext', x: 77, y: 5 });
+  t.ok(open.refs.length === 0 && open.heights === null, 'an empty square opens empty in the editor');
+  let known = null;
+  try { await w.CellData.loadCell({ kind: 'ext', x: 1, y: 1 }); } catch (e) { known = e; }
+  t.ok(known, 'a square the engine lists that fails is still an error');
 };

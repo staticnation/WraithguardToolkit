@@ -46,6 +46,12 @@ Object.assign(WgEditor, {
     return [...mine.filter(c=>c.kind==='int'), ...(this.cells||[]), ...ext];
   },
 
+  /** An exterior square the engine has no cell for (an open-sea square opened from the Cell
+   *  map to be built in): the page draws it empty, and placing in it makes its cell. */
+  isEmptySquare(t){
+    return !!t && t.kind==='ext' && !(this.cells||[]).some(c=>c.kind==='ext' && c.x===(t.x|0) && c.y===(t.y|0));
+  },
+
   /** The patch-made cell a target (`{kind, name | x, y}`) or a cell string (`int:Name`,
    *  `x,y`) names, or null - a cell of the load order is not one. */
   pendingCell(target){

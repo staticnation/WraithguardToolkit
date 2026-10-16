@@ -61,10 +61,18 @@ Object.assign(WgEditor, {
       const sq=sel.kind!=='int' && /no exterior cell/i.test(String(e && e.message || e)) && this.links().editNewCell;
       if(!sq) return toast('No cell there to place into: '+String(e.message||e),'warn',5000);
       const key='('+cellArg.split(',').map(Number).join(', ')+')';
-      try{ await this.ask('editNewCell', {cell:key}); }
-      catch(e2){ return toast('No cell there to place into: '+String(e2.message||e2),'warn',5000); }
-      toast('There was no cell '+key+': the patch makes it','info',3500);
+      let made=true;
+      try{ await this.ask('editNewCell', {cell:key, absent:true}); /* the engine has just said it has no such cell */ }
+      catch(e2){
+        // "Has the cell already": the patch made it a moment ago (a request that timed out
+        // was carried out all the same), and this page's pending list has not heard. Read
+        // the list again; the cell is the patch's own, and the placement goes on.
+        if(!/already/i.test(String(e2 && e2.message || e2))) return toast('No cell there to place into: '+String(e2.message||e2),'warn',5000);
+        made=false;
+      }
       await this.refreshPending();
+      if(!made && !this.pendingCell(cellArg)) return toast('No cell there to place into: the load order has the cell '+key+' already','warn',5000);
+      if(made) toast('There was no cell '+key+': the patch makes it','info',3500);
       cell={refCell:key, plugins:null, rows:[], name:key};
     }
     if(rec.model) CellData.models.set(String(rec.id).toLowerCase(), rec.model);

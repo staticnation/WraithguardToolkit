@@ -123,3 +123,50 @@ def test_a_batch_that_fails_leaves_nothing_behind(tmp_path):
     assert ("Weapon", "iron sword") not in s.queue.fields
     assert len(s.queue) == 0
     assert s.can_undo()["undo"] == 0
+
+
+def test_warm_reads_a_tag_once_so_a_later_lookup_reads_nothing(tmp_path):
+    reads: list[tuple[str, str]] = []
+
+    def read(path, tag):
+        reads.append((path.name, tag))
+        return [r for r in PLUGINS[path.name] if r["type"] == _TAGS.get(tag)]
+
+    s = EditorSession(
+        [(n, tmp_path / n) for n in PLUGINS], PatchQueue(), journal=tmp_path / "j.json", read=read
+    )
+    s.warm("CELL")
+    n = len(reads)
+    assert n == len(PLUGINS)
+    s.find("CELL", "Vault")
+    s.new_cell("(3, 4)")
+    assert len(reads) == n  # nothing was read after the warm-up
+
+
+def _counting_session(tmp_path):
+    reads: list[tuple[str, str]] = []
+
+    def read(path, tag):
+        reads.append((path.name, tag))
+        return [r for r in PLUGINS[path.name] if r["type"] == _TAGS.get(tag)]
+
+    s = EditorSession(
+        [(n, tmp_path / n) for n in PLUGINS], PatchQueue(), journal=tmp_path / "j.json", read=read
+    )
+    return s, reads
+
+
+def test_a_cell_the_engine_found_absent_is_made_without_reading_the_load_order(tmp_path):
+    s, reads = _counting_session(tmp_path)
+    s.new_cell("(-28, 34)", absent=True)
+    assert not [r for r in reads if r[1] == "CELL"]
+
+
+def test_a_pending_cell_is_found_and_removed_without_reading_any_plugin(tmp_path):
+    s, reads = _counting_session(tmp_path)
+    s.new_cell("(-28, 34)", absent=True)
+    found = s.find("CELL", "(-28, 34)")
+    assert found is not None and found.new
+    s.revert(found)
+    assert s.queue.new_record("Cell", "(-28, 34)") is None
+    assert not [r for r in reads if r[1] == "CELL"]
