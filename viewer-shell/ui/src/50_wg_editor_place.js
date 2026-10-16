@@ -55,7 +55,18 @@ Object.assign(WgEditor, {
     const fresh=this.pendingCell(cellArg);
     if(fresh) cell={refCell:this.pendingKey(fresh), plugins:null, rows:[], name:fresh.label};   // the patch's own: no engine cell
     else try{ cell=await Engine.call('editor_cell_refs',{cell:cellArg}); }
-    catch(e){ return toast('No cell there to place into: '+String(e.message||e),'warn',5000); }
+    catch(e){
+      // A square the world has land for but no cell record (open sea, the seabed): as in the
+      // Construction Set, putting an object there makes the cell - here, the patch's own.
+      const sq=sel.kind!=='int' && /no exterior cell/i.test(String(e && e.message || e)) && this.links().editNewCell;
+      if(!sq) return toast('No cell there to place into: '+String(e.message||e),'warn',5000);
+      const key='('+cellArg.split(',').map(Number).join(', ')+')';
+      try{ await this.ask('editNewCell', {cell:key}); }
+      catch(e2){ return toast('No cell there to place into: '+String(e2.message||e2),'warn',5000); }
+      toast('There was no cell '+key+': the patch makes it','info',3500);
+      await this.refreshPending();
+      cell={refCell:key, plugins:null, rows:[], name:key};
+    }
     if(rec.model) CellData.models.set(String(rec.id).toLowerCase(), rec.model);
     await this.actorsFor([rec.id]);
     let v;

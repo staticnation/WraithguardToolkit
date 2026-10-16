@@ -14,7 +14,7 @@ module.exports = async (t) => {
       engineCalls.push([c, args]);
       if (c === 'editor_tags') return [['STAT', 1]];
       if (c === 'cells') return { grid: [], interiors: [['Old room', 3, false]] };
-      if (c === 'editor_cell_refs') throw new Error('No interior called ' + String(args.cell));
+      if (c === 'editor_cell_refs') throw new Error(String(args.cell).includes(',') ? 'no exterior cell ' + args.cell : 'No interior called ' + String(args.cell));
       return {};
     },
     answer: (url, body) => {
@@ -81,4 +81,13 @@ module.exports = async (t) => {
   await E.refreshPending();
   const tabs = [...d.querySelectorAll('#edTabs [data-tag]')].map(b => b.dataset.tag);
   t.ok(!tabs.includes('CELL') && !tabs.includes('LAND'), 'the patch\'s cells and land are not Object Window tabs: ' + tabs);
+
+  // Placing on a square with land but no cell record (the open sea): the patch makes the cell, then places.
+  pending = [];
+  w.App.cellSel = { kind: 'ext', x: 3, y: 38 };
+  const nPost = p.posts.length;
+  const sea = await E.placeAt({ tag: 'MISC', id: 'gold_100', model: 'm\\gold.nif' }, null, null, [4 * 8192 + 10, 38 * 8192 + 10, 0]);
+  const sent = p.posts.slice(nPost).map(x => x[0] + ':' + (x[1].cell || ''));
+  t.ok(sent[0] === 'nc:(4, 38)' && sent.includes('place:(4, 38)'), 'the cell is made, then the object placed in it: ' + sent.join());
+  t.ok(sea && sea.uid === 'u9', 'and the placement went through');
 };
