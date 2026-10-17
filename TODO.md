@@ -82,16 +82,23 @@ a modder expects, never for code: it is GPL-3.
 ## Record cache (SQLite: `wraithguard/patch/recordcache.py`)
 
 The editor keeps what it reads from the plugins in `wraithguard_record_cache.sqlite3`
-(records by plugin and tag, a key index, the moved-reference index), valid while a
-plugin's size and time are unchanged. What else should be kept there, in the order to do it:
+(records by plugin and tag, a key index, the moved-reference index, use reports), valid
+while a plugin's size and time are unchanged and the native reader is the build that made
+it. What is done, and what is left, in the order to do it:
 
-- Done, to move to the CHANGELOG with the next release: the parser guard (a cache made by
-  another build of the native reader is emptied), dialogue, and plugin headers/masters.
-- Done, to move to the CHANGELOG with the next release: the Use Report (the result is kept by
-  record type and key under a signature of every plugin's size and time, so any plugin or
-  order change makes it a new report) and Verify's id lookups (every id of a tag comes from
-  the key index in one query instead of reading every plugin's records). Verify's findings
-  themselves are not cached: they depend on the patch, which changes with every edit.
+**Done, to move to the CHANGELOG with the next release** (the first three are already there):
+the parser guard, dialogue, plugin headers/masters; the key index (which plugins have a
+cell, an id, a square's land) with background and parallel indexing; the Use Report kept
+under a signature of every plugin's size and time; Verify's id lookups from the key index
+(one native pass per plugin indexes every tag Verify asks about - `INDEXED_TAGS` - in the
+background and again before a Verify, so the first Verify is not a read of every plugin per
+tag); a size limit (record bodies of the largest tag go first, the keys stay); two caches
+on one file tested.
+
+**Open:**
+- Use Report, first click per record: a repeat click is a query, the first still scans every
+  plugin. A per-plugin table of which ids each record mentions (record type, key, id, path)
+  would make the first click a query too. The biggest item left in the editor.
 - "Search all fields": an FTS5 index of the plugins' own fields, with the patch's pending
   edits layered over the hits at query time.
 - Load-order tooling outside the editor (per-plugin headers, record counts, conflict sets
@@ -101,8 +108,16 @@ plugin's size and time are unchanged. What else should be kept there, in the ord
   205,535-file index (4 s) in a 621-plugin load order. The biggest time and the riskiest:
   a stale cache there draws a wrong scene, so it needs invalidation on the whole load
   order, not per plugin.
-- Not worth caching: the queue and journal (persisted already), the pending list, search
-  results - they change with every edit.
+- The size limit drops bodies but the file does not shrink (SQLite keeps freed pages for
+  reuse): a `VACUUM` when more than half the file is free, off the request threads.
+- Measure on the real 621-plugin load order: the first indexing, how much of it the viewer's
+  requests feel, the file's size, and the cost of the per-lookup `stat` of every plugin (a
+  memo was not added: it is hundreds of calls per lookup, which should be milliseconds).
+
+**Decided, not changed:** a record a plugin deletes still counts as present in the key index
+(a name another plugin deleted is refused, not reused) - the safe direction; `find` still
+sees the deletion. Not worth caching: the queue and journal (persisted already), the pending
+list, search results, Verify's findings - they change with every edit.
 
 ## MWScript compiler: TESCS and MWEdit differences
 
