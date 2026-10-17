@@ -93,12 +93,17 @@ under a signature of every plugin's size and time; Verify's id lookups from the 
 (one native pass per plugin indexes every tag Verify asks about - `INDEXED_TAGS` - in the
 background and again before a Verify, so the first Verify is not a read of every plugin per
 tag); a size limit (record bodies of the largest tag go first, the keys stay); two caches
-on one file tested.
+on one file tested; the Use Report index (a query for the first click per record, the same
+answers as the scan - tested against it).
 
 **Open:**
-- Use Report, first click per record: a repeat click is a query, the first still scans every
-  plugin. A per-plugin table of which ids each record mentions (record type, key, id, path)
-  would make the first click a query too. The biggest item left in the editor.
+- Use Report index (`usesindex.py`, written, not yet run on the real load order): measure the
+  first indexing (it parses every plugin whole, one at a time, in small steps; on Python
+  with the GIL on it is minutes of background Python), the size of the `uses` table (a row
+  per distinct string per record; strings over 64 characters are not kept, and the cache's
+  size limit drops the whole index last), and whether a rebuild after one plugin changes is
+  acceptable (that plugin only). The scan stays for ids with a space or a dash. If the table
+  is too big, keep only the strings of fields that can name a record.
 - "Search all fields": an FTS5 index of the plugins' own fields, with the patch's pending
   edits layered over the hits at query time.
 - Load-order tooling outside the editor (per-plugin headers, record counts, conflict sets

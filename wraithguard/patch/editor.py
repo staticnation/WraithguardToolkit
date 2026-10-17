@@ -33,7 +33,9 @@ import copy
 import json
 import os
 import re
+import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
@@ -55,6 +57,7 @@ if TYPE_CHECKING:
     from wraithguard.mwscript.compiler import ScriptCompiler
     from wraithguard.patch.queue import PatchQueue
     from wraithguard.patch.recordcache import RecordCache
+    from wraithguard.patch.uses import Use
 
 LOG = get_logger(__name__)
 
@@ -733,6 +736,7 @@ class EditorSession:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._indexer: threading.Thread | None = None
+        self._use_indexer: threading.Thread | None = None
         self._script_compiler: tuple[str, ScriptCompiler] | None = None
         # The undo history starts from the pool as the session finds it.
         self._history: dict[str, Any] = {"undo": [], "redo": [], "last": queue.snapshot()}
@@ -1198,12 +1202,13 @@ class EditorSession:
         from wraithguard.patch.uses import Use, native_use_report, use_report
 
         plugins = [self._paths[n.lower()] for n in self.order]
+        indexed = self._uses_from_index(plugins, found)
         # Every plugin is scanned for the id, which depends on the plugins alone: kept for
         # the load order as it is (any plugin changing, or the order, makes it a new one).
         sig = self._disk.load_order_signature([p for _n, p in plugins]) if self._disk else None
         kind, want = f"uses:{found.record_type}", found.key.lower()
         kept = self._disk.get_report(sig, kind, want) if self._disk and sig else None
-        found_uses: list[Use] | None = [Use(*row) for row in kept] if kept is not None else None
+        found_uses: list[Use] | None = [Use(*row) for row in kept] if kept is not None else indexed
         if found_uses is None:
             found_uses = (
                 native_use_report(plugins, found.record_type, found.key)
@@ -1237,6 +1242,122 @@ class EditorSession:
             "live": sum(u.count for u in found_uses if u.wins),
             "cells": sum(u.count for u in found_uses if u.record_type == "Cell"),
         }
+
+    def _uses_from_index(
+        self, plugins: Sequence[tuple[str, Path]], found: Found
+    ) -> list[Use] | None:
+        """The Use Report from the use-report index, when it has every plugin as it now is.
+
+        The index holds what a scan would find for each string a record holds, so this is
+        the same report as the scan's. None (and the scan runs, and the missing plugins are
+        indexed in the background for the next click) when the index cannot answer: an id
+        the index does not take (:func:`.usesindex.indexable`), or a plugin not yet indexed.
+
+        Args:
+            plugins: The load order, ``(name, path)``.
+            found: The record.
+
+        Returns:
+            The uses, each marked with whether its version wins; or None.
+        """
+        from wraithguard.patch.uses import Use
+        from wraithguard.patch.usesindex import indexable
+
+        disk = self._disk
+        if disk is None or not indexable(found.key):
+            return None
+        paths = [p for _n, p in plugins]
+        want = found.key.strip().lower()
+        rows = disk.uses_for(paths, want)
+        if rows is None:
+            self.start_use_indexing()
+            return None
+        rows = [r for r in rows if not (r[1] == found.record_type and r[2].lower() == want)]
+        owners = disk.definers(paths, {(t, k.lower()) for _p, t, k, _ps, _n in rows if t != "Cell"})
+        if owners is None:
+            return None
+        name_of = {p: n for n, p in plugins}
+        merged: dict[tuple[Path, str, str], Use] = {}
+        for path, rtype, key, use_paths, count in rows:
+            use = merged.setdefault((path, rtype, key), Use(name_of[path], rtype, key))
+            use.paths.extend(use_paths)
+            use.count += count
+        for (path, rtype, key), use in merged.items():
+            last = owners.get((rtype, key.lower()), [path])[-1]
+            use.wins = rtype == "Cell" or last == path
+        return list(merged.values())
+
+    def index_uses(self, plugins: Sequence[Path] | None = None, workers: int | None = None) -> int:
+        """Index the strings of every plugin that is not indexed as it now is.
+
+        Reads each such plugin whole (the use-report index holds every string a record
+        has), so it is long the first time; run it off the threads that answer requests.
+
+        Args:
+            plugins: The plugin files to index (None: the load order's).
+            workers: Threads to read with (None: half the cores).
+
+        Returns:
+            How many plugins were indexed.
+        """
+        from wraithguard.patch.usesindex import index_rows
+
+        if self._disk is None:
+            return 0
+        disk = self._disk
+        todo = disk.missing_uses(list(plugins) if plugins is not None else self._plugin_paths())
+
+        def one(path: Path) -> bool:
+            """Read one plugin whole and index its strings."""
+            if self._stop.is_set():
+                return False
+
+            def breathe() -> None:
+                """Let the window and the requests have the interpreter; stop if asked."""
+                if self._stop.is_set():
+                    raise InterruptedError
+                # Free-threaded Python can still be running with the GIL (an extension that
+                # does not say it is safe turns it back on): then this thread must give the
+                # window and the requests their turns; with it off they run beside it.
+                if getattr(sys, "_is_gil_enabled", lambda: True)():
+                    time.sleep(0.002)
+
+            try:
+                disk.put_uses(path, index_rows(self._read_all(path), breathe))
+            except InterruptedError:
+                return False
+            except (OSError, ValueError) as exc:
+                LOG.warning("editor: cannot index the uses in %s: %s", path, exc)
+                return False
+            return True
+
+        count = workers if workers is not None else min(8, max(1, (os.cpu_count() or 2) // 2))
+        if count <= 1 or len(todo) <= 1:
+            return sum(one(p) for p in todo)
+        with ThreadPoolExecutor(max_workers=count, thread_name_prefix="wg-uses") as pool:
+            return sum(pool.map(one, todo))
+
+    def start_use_indexing(self) -> None:
+        """Index the strings of the load order in the background (once per session).
+
+        Started by the first Use Report that had to scan, so the next click is a query.
+        """
+        if self._disk is None:
+            return
+
+        def run() -> None:
+            """Index; a failure is logged and the Use Report scans."""
+            try:
+                # One plugin at a time: a big plugin is a lot of memory once decoded.
+                self.index_uses(workers=1)
+            except Exception:
+                LOG.exception("editor: indexing the load order's uses failed")
+
+        with self._lock:
+            if self._use_indexer is not None:
+                return
+            self._use_indexer = threading.Thread(target=run, name="wg-use-index", daemon=True)
+            self._use_indexer.start()
 
     @staticmethod
     def _field_of(record: Mapping[str, Any], path: str) -> str:

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import logging
 import os
 import pickle
@@ -38,7 +39,7 @@ LOG = logging.getLogger(__name__)
 SCHEMA: Final = 2
 
 #: The tables that hold what the native reader made of the plugins (emptied together).
-_DERIVED: Final = ("records", "keys", "key_stamps", "reports")
+_DERIVED: Final = ("records", "keys", "key_stamps", "reports", "uses", "use_plugins")
 
 #: Reports kept for the load order as it is (the oldest go first). One report per record
 #: looked at, whatever the number of plugins; a report for any other load order is useless
@@ -49,6 +50,9 @@ _REPORTS_KEPT: Final = 2000
 #: read again when needed; the key index, which is small, stays). Land and dialogue are the
 #: large ones.
 MAX_BYTES: Final = 1 << 30
+
+#: The pseudo-tag the use-report index is stamped under (in ``key_stamps``).
+_USES_TAG: Final = "~USE"
 
 #: Plugins asked about in one SQL statement (SQLite's limit on parameters is far above).
 _CHUNK: Final = 400
@@ -158,6 +162,16 @@ class RecordCache:
                 " size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, PRIMARY KEY (plugin, tag))"
             )
             conn.execute(
+                "CREATE TABLE IF NOT EXISTS use_plugins (pid INTEGER PRIMARY KEY,"
+                " plugin TEXT NOT NULL UNIQUE)"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS uses (value TEXT NOT NULL, pid INTEGER NOT NULL,"
+                " rtype TEXT NOT NULL, key TEXT NOT NULL, paths TEXT NOT NULL, n INTEGER NOT NULL)"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS uses_value ON uses (value, pid)")
+            conn.execute("CREATE INDEX IF NOT EXISTS uses_pid ON uses (pid)")
+            conn.execute(
                 "CREATE TABLE IF NOT EXISTS reports (sig TEXT NOT NULL, kind TEXT NOT NULL,"
                 " key TEXT NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sig, kind, key))"
             )
@@ -187,11 +201,21 @@ class RecordCache:
             for row in conn.execute("SELECT DISTINCT plugin FROM key_stamps")
             if row[0] not in gone and not Path(row[0]).exists()
         ]
+        gone += [
+            row[0]
+            for row in conn.execute("SELECT plugin FROM use_plugins")
+            if row[0] not in gone and not Path(row[0]).exists()
+        ]
         for table in ("records", "keys", "key_stamps"):
             conn.executemany(
                 f"DELETE FROM {table} WHERE plugin=?",  # noqa: S608 - fixed table names
                 [(g,) for g in gone],
             )
+        conn.executemany(
+            "DELETE FROM uses WHERE pid IN (SELECT pid FROM use_plugins WHERE plugin=?)",
+            [(g,) for g in gone],
+        )
+        conn.executemany("DELETE FROM use_plugins WHERE plugin=?", [(g,) for g in gone])
 
     def get(self, plugin: Path, tag: str) -> list[Any] | None:
         """One plugin's cached records of a tag, when they are still current.
@@ -289,6 +313,14 @@ class RecordCache:
                 self.max_bytes,
                 order[0],
             )
+        if self._used(conn) > self.max_bytes:
+            # The record bodies are gone and it is still over: the use-report index goes,
+            # last, since it is the largest thing kept and the Use Report scans without it.
+            conn.execute("DELETE FROM uses")
+            conn.execute("DELETE FROM use_plugins")
+            conn.execute("DELETE FROM key_stamps WHERE tag=?", (_USES_TAG,))
+            conn.commit()
+            LOG.info("editor: record cache over %d bytes: dropped the use index", self.max_bytes)
 
     def size_bytes(self) -> int:
         """The bytes of the database in use (0 when the cache is out)."""
@@ -363,6 +395,128 @@ class RecordCache:
             except sqlite3.Error:
                 return None
         return [p for p, st in stamps if st is None or have.get(st[0]) != (st[1], st[2])]
+
+    def put_uses(self, plugin: Path, rows: Iterable[tuple[str, str, str, str, int]]) -> None:
+        """Index every string a plugin's records hold (the use-report index).
+
+        Args:
+            plugin: The plugin file.
+            rows: ``(value, record type, record key, paths as JSON, count)`` (usesindex).
+        """
+        stamp = _stamp(plugin)
+        if stamp is None:
+            return
+        key, size, mtime = stamp
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return
+            try:
+                conn.execute("INSERT OR IGNORE INTO use_plugins (plugin) VALUES (?)", (key,))
+                pid = conn.execute("SELECT pid FROM use_plugins WHERE plugin=?", (key,)).fetchone()[
+                    0
+                ]
+                conn.execute("DELETE FROM uses WHERE pid=?", (pid,))
+                conn.executemany(
+                    "INSERT INTO uses VALUES (?, ?, ?, ?, ?, ?)",
+                    [(v, pid, t, k, p, n) for v, t, k, p, n in rows],
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO key_stamps VALUES (?, ?, ?, ?)",
+                    (key, _USES_TAG, size, mtime),
+                )
+                conn.commit()
+                self._trim(conn)
+            except sqlite3.Error as exc:
+                LOG.warning("editor: use index write failed: %s", exc)
+
+    def missing_uses(self, plugins: Sequence[Path]) -> list[Path]:
+        """The plugins whose strings are not indexed as they now are (all if the cache is out)."""
+        return self.missing_keys(plugins, _USES_TAG)
+
+    def uses_for(
+        self, plugins: Sequence[Path], value: str
+    ) -> list[tuple[Path, str, str, list[str], int]] | None:
+        """Every record that holds a string, from the use-report index.
+
+        Args:
+            plugins: The load order's plugin files.
+            value: The string, lower case.
+
+        Returns:
+            ``(plugin, record type, record key, paths, count)`` rows in load order and,
+            within a plugin, file order; None when the index cannot answer (some plugin is
+            not indexed as it now is, or the cache is out). Definition rows (count 0) are
+            left out.
+        """
+        stale = self._stale_of(plugins, _USES_TAG)
+        if stale is None or stale:
+            return None
+        order = {st[0]: i for i, p in enumerate(plugins) if (st := _stamp(p)) is not None}
+        by_name = {st[0]: p for p in plugins if (st := _stamp(p)) is not None}
+        out: list[tuple[int, int, Path, str, str, list[str], int]] = []
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return None
+            try:
+                for plug, rtype, key, paths, n, rowid in conn.execute(
+                    "SELECT p.plugin, u.rtype, u.key, u.paths, u.n, u.rowid FROM uses u"
+                    " JOIN use_plugins p ON p.pid = u.pid WHERE u.value=? AND u.n > 0",
+                    (value,),
+                ):
+                    if plug in order:
+                        out.append(
+                            (order[plug], rowid, by_name[plug], rtype, key, json.loads(paths), n)
+                        )
+            except (sqlite3.Error, ValueError):
+                return None
+        out.sort(key=lambda r: (r[0], r[1]))
+        return [(p, t, k, paths, n) for _o, _r, p, t, k, paths, n in out]
+
+    def definers(
+        self, plugins: Sequence[Path], records: Iterable[tuple[str, str]]
+    ) -> dict[tuple[str, str], list[Path]] | None:
+        """Which plugins define each record, in load order, from the use-report index.
+
+        Args:
+            plugins: The load order's plugin files.
+            records: ``(record type, key in lower case)`` pairs.
+
+        Returns:
+            Each pair's defining plugins (load order), or None when the index cannot answer.
+        """
+        stale = self._stale_of(plugins, _USES_TAG)
+        if stale is None or stale:
+            return None
+        order = {st[0]: i for i, p in enumerate(plugins) if (st := _stamp(p)) is not None}
+        by_name = {st[0]: p for p in plugins if (st := _stamp(p)) is not None}
+        wanted = set(records)
+        values = sorted({key for _t, key in wanted})
+        found: dict[tuple[str, str], set[str]] = {}
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return None
+            try:
+                for i in range(0, len(values), _CHUNK):
+                    part = values[i : i + _CHUNK]
+                    marks = ",".join("?" * len(part))
+                    for plug, rtype, key in conn.execute(
+                        "SELECT p.plugin, u.rtype, u.key FROM uses u"  # noqa: S608 - marks only
+                        " JOIN use_plugins p ON p.pid = u.pid"
+                        f" WHERE u.n = 0 AND u.value IN ({marks})",
+                        part,
+                    ):
+                        pair = (rtype, key.lower())
+                        if pair in wanted and plug in order:
+                            found.setdefault(pair, set()).add(plug)
+            except sqlite3.Error:
+                return None
+        return {
+            pair: [by_name[n] for n in sorted(names, key=order.__getitem__)]
+            for pair, names in found.items()
+        }
 
     def keys_current(self, plugin: Path, tag: str) -> bool:
         """Whether a plugin's keys of a tag are indexed and the plugin is unchanged since."""

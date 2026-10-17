@@ -20,6 +20,20 @@
 - **The Use Report is kept** for the load order as it is: a second click on the same record
   scans no plugin, and any plugin or order change starts it fresh. The cache has a size limit
   (the largest tag's record bodies go first; the key index stays).
+- **The Use Report's first click per record is a query too.** Every string a record holds is
+  indexed per plugin in the cache (and each record's own id, so a use a later plugin took
+  out is told from a live one), built in the background one plugin at a time, pausing for
+  the window while the GIL is on. A click before a plugin is indexed scans as before and
+  starts the indexing; the index answers the same uses, counts, paths and winners as the
+  scan (tested). Ids with a space or dash, or over 64 characters, still scan. Past the size
+  limit the use index is the last thing dropped.
+- **The Use Report's first click on a record is a query too**, once the load order has been
+  indexed. Every string each record holds is kept by value (with where it is and how many
+  times, a script's words, and which plugins define each record, so a use a later plugin took
+  out is still told from a live one), and the report is read from that index; it is the same
+  report the scan makes. The first report scans as before and starts the indexing, one plugin
+  at a time and in small steps so the window is not held up; an id with a space or a dash, a
+  plugin changed since it was indexed, or a cache over its size limit is scanned instead.
 
 ### Changed
 

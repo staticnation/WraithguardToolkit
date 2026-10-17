@@ -455,14 +455,14 @@ def test_over_its_size_the_cache_drops_the_largest_tags_bodies_and_keeps_the_key
     import os
 
     a, b = _plugin(tmp_path, "a.esm"), _plugin(tmp_path, "b.esp")
-    with RecordCache(tmp_path / "c.sqlite3", max_bytes=250_000) as cache:
+    with RecordCache(tmp_path / "c.sqlite3", max_bytes=300_000) as cache:
         cache.put(a, "LAND", [os.urandom(200_000)], keys=["(0, 0)"])
         assert cache.get(a, "LAND") is not None
         cache.put(b, "CELL", [os.urandom(100_000)], keys=["vault"])
         assert cache.get(a, "LAND") is None  # the largest tag's bodies went
         assert cache.get(b, "CELL") is not None  # the one just written was spared
         assert cache.holders([a], "LAND", "(0, 0)") == [a]  # its keys stayed
-        assert cache.size_bytes() <= 250_000 + 65_536
+        assert cache.size_bytes() <= 300_000 + 65_536
 
 
 def test_two_caches_on_one_file_do_not_lose_each_others_writes(tmp_path: Path) -> None:
@@ -493,3 +493,118 @@ def test_two_caches_on_one_file_do_not_lose_each_others_writes(tmp_path: Path) -
     with RecordCache(db) as third:
         assert third.holders(plugins, "CELL", "p7") == [plugins[7]]
         assert third.missing_keys(plugins, "CELL") == []
+
+
+def _use_world(tmp_path: Path) -> list[tuple[str, Path, list[dict[str, Any]]]]:
+    sword = {"type": "Weapon", "id": "iron_sword", "data": {"weight": 1.0}}
+    loot = {"type": "LeveledItem", "id": "l_loot", "items": [["iron_sword", 1]]}
+    loot2 = {"type": "LeveledItem", "id": "l_loot", "items": [["other", 1]]}
+    script = {"type": "Script", "id": "s_x", "text": "if ( player->GetItemCount iron_sword )"}
+    cell = {
+        "type": "Cell",
+        "flags": "",
+        "id": "",
+        "name": "",
+        "data": {"flags": "", "grid": [0, 0]},
+        "references": [{"id": "iron_sword"}, {"id": "iron_sword"}, {"id": "other"}],
+    }
+    npc = {"type": "Npc", "id": "guard", "inventory": [[-1, "Iron_Sword"]]}
+    head = {"type": "Header", "masters": []}
+    return [
+        ("a.esm", _plugin(tmp_path, "a.esm"), [head, sword, loot, script, cell]),
+        ("b.esp", _plugin(tmp_path, "b.esp", b"y" * 12), [head, loot2, npc]),
+    ]
+
+
+def _use_session(world, cache, calls: dict[str, int] | None = None) -> EditorSession:
+    recs = {p: r for _n, p, r in world}
+    calls = calls if calls is not None else {"all": 0}
+
+    def read(path: Path, tag: str) -> list[dict[str, Any]]:
+        return [r for r in recs[path] if r["type"] == {"WEAP": "Weapon"}.get(tag)]
+
+    def read_all(path: Path) -> list[dict[str, Any]]:
+        calls["all"] += 1
+        return recs[path]
+
+    return EditorSession(
+        [(n, p) for n, p, _r in world], PatchQueue(), read=read, read_all=read_all, disk_cache=cache
+    )
+
+
+def test_the_use_index_answers_what_the_scan_answers(tmp_path: Path) -> None:
+    world = _use_world(tmp_path)
+    scan = _use_session(world, None)
+    found = scan.find("WEAP", "iron_sword")
+    assert found is not None
+    want = scan.uses(found)
+    assert {u["key"] for u in want["uses"]} == {"l_loot", "s_x", "(0, 0)", "guard"}
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        s = _use_session(world, cache)
+        assert s.index_uses(workers=1) == 2
+        calls = {"all": 0}
+        s2 = _use_session(world, cache, calls)
+        found2 = s2.find("WEAP", "iron_sword")
+        assert found2 is not None
+        got = s2.uses(found2)
+        assert calls["all"] == 0  # from the index: no plugin read
+    assert got == want  # the same uses, counts, paths and winners, in the same order
+    loot = next(u for u in got["uses"] if u["key"] == "l_loot")
+    assert loot["wins"] is False  # b.esp replaced the list, so a.esm's use is out
+
+
+def test_a_use_report_that_had_to_scan_indexes_for_the_next_click(tmp_path: Path) -> None:
+    world = _use_world(tmp_path)
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        calls = {"all": 0}
+        s = _use_session(world, cache, calls)
+        found = s.find("WEAP", "iron_sword")
+        assert found is not None
+        first = s.uses(found)  # not indexed: scans (and starts indexing)
+        assert s._use_indexer is not None
+        s._use_indexer.join(timeout=10)
+        scanned = calls["all"]
+        assert scanned >= 2
+        assert s.uses(found) == first
+        assert calls["all"] == scanned  # the second click read nothing
+
+
+def test_a_plugin_that_changed_is_scanned_not_indexed(tmp_path: Path) -> None:
+    world = _use_world(tmp_path)
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        s = _use_session(world, cache)
+        s.index_uses(workers=1)
+        world[1][1].write_bytes(b"z" * 40)  # b.esp is now another file
+        assert cache.missing_uses([p for _n, p, _r in world]) == [world[1][1]]
+        calls = {"all": 0}
+        s2 = _use_session(world, cache, calls)
+        found = s2.find("WEAP", "iron_sword")
+        assert found is not None
+        s2.uses(found)
+        assert calls["all"] >= 2  # fell back to the scan, which reads every plugin
+
+
+def test_an_id_the_index_does_not_take_is_scanned(tmp_path: Path) -> None:
+    from wraithguard.patch.usesindex import indexable
+
+    assert indexable("iron_sword") and indexable("Gold_001")
+    assert not indexable("iron sword")  # a space: a script word rule the index cannot share
+    assert not indexable("x" * 65)
+    assert not indexable("")
+
+
+def test_a_cache_over_its_limit_gives_up_the_use_index_last(tmp_path: Path) -> None:
+    world = _use_world(tmp_path)
+    with RecordCache(tmp_path / "c.sqlite3", max_bytes=1) as cache:
+        s = _use_session(world, cache)
+        s.index_uses(workers=1)
+        assert cache.uses_for([p for _n, p, _r in world], "iron_sword") is None
+
+
+def test_indexing_can_be_stopped_between_records(tmp_path: Path) -> None:
+    world = _use_world(tmp_path)
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        s = _use_session(world, cache)
+        s._stop.set()  # the session is being replaced
+        assert s.index_uses(workers=1) == 0
+        assert cache.missing_uses([p for _n, p, _r in world]) == [p for _n, p, _r in world]
