@@ -93,7 +93,7 @@ under a signature of every plugin's size and time; Verify's id lookups from the 
 (one native pass per plugin indexes every tag Verify asks about - `INDEXED_TAGS` - in the
 background and again before a Verify, so the first Verify is not a read of every plugin per
 tag); a size limit (record bodies of the largest tag go first, the keys stay); two caches
-on one file tested; the Use Report index (a query for the first click per record, the same
+on one file tested; the file shrinks (a VACUUM after a trim that frees over half of it); the Use Report index (a query for the first click per record, the same
 answers as the scan - tested against it).
 
 **Open:**
@@ -113,8 +113,6 @@ answers as the scan - tested against it).
   205,535-file index (4 s) in a 621-plugin load order. The biggest time and the riskiest:
   a stale cache there draws a wrong scene, so it needs invalidation on the whole load
   order, not per plugin.
-- The size limit drops bodies but the file does not shrink (SQLite keeps freed pages for
-  reuse): a `VACUUM` when more than half the file is free, off the request threads.
 - Measure on the real 621-plugin load order: the first indexing, how much of it the viewer's
   requests feel, the file's size, and the cost of the per-lookup `stat` of every plugin (a
   memo was not added: it is hundreds of calls per lookup, which should be milliseconds).

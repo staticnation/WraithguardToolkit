@@ -608,3 +608,14 @@ def test_indexing_can_be_stopped_between_records(tmp_path: Path) -> None:
         s._stop.set()  # the session is being replaced
         assert s.index_uses(workers=1) == 0
         assert cache.missing_uses([p for _n, p, _r in world]) == [p for _n, p, _r in world]
+
+
+def test_a_trim_that_frees_most_of_the_file_gives_the_disk_back(tmp_path: Path) -> None:
+    import os
+
+    plugin = _plugin(tmp_path, "a.esm")
+    db = tmp_path / "c.sqlite3"
+    with RecordCache(db, max_bytes=2_000_000) as cache:
+        cache.put(plugin, "LAND", [{"type": "Landscape", "blob": os.urandom(6_000_000)}], ["x"])
+        assert cache.get(plugin, "LAND") is None  # over the limit: its bodies went
+    assert db.stat().st_size < 1_000_000  # and the file is not still holding their pages

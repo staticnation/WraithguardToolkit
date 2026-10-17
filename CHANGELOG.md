@@ -26,7 +26,8 @@
   the window while the GIL is on. A click before a plugin is indexed scans as before and
   starts the indexing; the index answers the same uses, counts, paths and winners as the
   scan (tested). Ids with a space or dash, or over 64 characters, still scan. Past the size
-  limit the use index is the last thing dropped.
+  limit the use index is the last thing dropped, and a trim that frees most of the file
+  compacts it, so the file shrinks on disk too.
 - **The Use Report's first click on a record is a query too**, once the load order has been
   indexed. Every string each record holds is kept by value (with where it is and how many
   times, a script's words, and which plugins define each record, so a use a later plugin took

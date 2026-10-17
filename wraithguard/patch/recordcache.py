@@ -321,6 +321,28 @@ class RecordCache:
             conn.execute("DELETE FROM key_stamps WHERE tag=?", (_USES_TAG,))
             conn.commit()
             LOG.info("editor: record cache over %d bytes: dropped the use index", self.max_bytes)
+            dropped += 1
+        if dropped:
+            self._shrink(conn)
+
+    @staticmethod
+    def _shrink(conn: sqlite3.Connection) -> None:
+        """Give the disk back when more than half the file is free pages.
+
+        Dropping bodies frees pages for reuse but SQLite does not shrink the file by
+        itself; a ``VACUUM`` rewrites it. It holds the database for the time it takes, so
+        it runs only after a trim (rare) and only when it would save at least half.
+        """
+        pages = conn.execute("PRAGMA page_count").fetchone()[0]
+        free = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        if pages < 1024 or free * 2 <= pages:
+            return
+        try:
+            conn.commit()
+            conn.execute("VACUUM")
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # the file itself, not its log
+        except sqlite3.Error as exc:
+            LOG.warning("editor: record cache could not be compacted: %s", exc)
 
     def size_bytes(self) -> int:
         """The bytes of the database in use (0 when the cache is out)."""
