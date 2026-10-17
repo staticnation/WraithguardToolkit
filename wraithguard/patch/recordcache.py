@@ -6,6 +6,13 @@ while that plugin's size and modification time are the ones it was read at; a pl
 changed is simply read again. The cache is only ever a shortcut: any failure of it (a
 locked, corrupt or missing database) is a miss, never an error in the editor.
 
+Beside the records is a key index: which record keys (a cell's name or ``(x, y)``, an id)
+each plugin has of a tag, with the same size-and-time stamp. "Is this cell name free?" and
+"which plugins have this cell?" are then one indexed query over the whole load order rather
+than reading (and unpickling) every plugin's records. The index is filled whenever records
+are cached and can be filled alone (:meth:`put_keys`), which keeps no record bodies: land
+records are large.
+
 Copyright (c) 2026 StaticNation, GPL-2.0.
 """
 
@@ -19,12 +26,18 @@ import sqlite3
 import threading
 import zlib
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
 
 LOG = logging.getLogger(__name__)
 
 #: Bumped when what is stored changes shape; an older database is emptied, not read.
-SCHEMA: Final = 1
+SCHEMA: Final = 2
+
+#: Plugins asked about in one SQL statement (SQLite's limit on parameters is far above).
+_CHUNK: Final = 400
 
 
 def _stamp(plugin: Path) -> tuple[str, int, int] | None:
@@ -82,6 +95,15 @@ class RecordCache:
                 " size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, data BLOB NOT NULL,"
                 " PRIMARY KEY (plugin, tag))"
             )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS keys (tag TEXT NOT NULL, key TEXT NOT NULL,"
+                " plugin TEXT NOT NULL, PRIMARY KEY (tag, key, plugin)) WITHOUT ROWID"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS keys_plugin ON keys (plugin, tag)")
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS key_stamps (plugin TEXT NOT NULL, tag TEXT NOT NULL,"
+                " size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, PRIMARY KEY (plugin, tag))"
+            )
             self._forget_missing(conn)
             conn.commit()
         except (sqlite3.Error, OSError) as exc:
@@ -103,7 +125,16 @@ class RecordCache:
             for row in conn.execute("SELECT DISTINCT plugin FROM records")
             if not Path(row[0]).exists()
         ]
-        conn.executemany("DELETE FROM records WHERE plugin=?", [(g,) for g in gone])
+        gone += [
+            row[0]
+            for row in conn.execute("SELECT DISTINCT plugin FROM key_stamps")
+            if row[0] not in gone and not Path(row[0]).exists()
+        ]
+        for table in ("records", "keys", "key_stamps"):
+            conn.executemany(
+                f"DELETE FROM {table} WHERE plugin=?",  # noqa: S608 - fixed table names
+                [(g,) for g in gone],
+            )
 
     def get(self, plugin: Path, tag: str) -> list[Any] | None:
         """One plugin's cached records of a tag, when they are still current.
@@ -135,13 +166,16 @@ class RecordCache:
                 return None
         return out if isinstance(out, list) else None
 
-    def put(self, plugin: Path, tag: str, records: list[Any]) -> None:
+    def put(
+        self, plugin: Path, tag: str, records: list[Any], keys: Iterable[str] | None = None
+    ) -> None:
         """Keep a plugin's records of a tag, as the plugin is now.
 
         Args:
             plugin: The plugin file.
             tag: The four-letter tag.
             records: What was read.
+            keys: The records' keys (lower case), to index too; None leaves the index as it is.
         """
         stamp = _stamp(plugin)
         if stamp is None:
@@ -160,9 +194,121 @@ class RecordCache:
                     "INSERT OR REPLACE INTO records VALUES (?, ?, ?, ?, ?)",
                     (key, tag, size, mtime, blob),
                 )
+                if keys is not None:
+                    self._write_keys(conn, key, tag, size, mtime, keys)
                 conn.commit()
             except sqlite3.Error as exc:
                 LOG.warning("editor: record cache write failed: %s", exc)
+
+    @staticmethod
+    def _write_keys(
+        conn: sqlite3.Connection,
+        plugin: str,
+        tag: str,
+        size: int,
+        mtime: int,
+        keys: Iterable[str],
+    ) -> None:
+        """Replace one plugin's indexed keys of a tag (the caller commits)."""
+        conn.execute("DELETE FROM keys WHERE plugin=? AND tag=?", (plugin, tag))
+        conn.executemany(
+            "INSERT OR IGNORE INTO keys VALUES (?, ?, ?)", [(tag, k, plugin) for k in set(keys)]
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO key_stamps VALUES (?, ?, ?, ?)", (plugin, tag, size, mtime)
+        )
+
+    def put_keys(self, plugin: Path, tag: str, keys: Iterable[str]) -> None:
+        """Index a plugin's keys of a tag without keeping its records.
+
+        Args:
+            plugin: The plugin file.
+            tag: The four-letter tag.
+            keys: The records' keys (lower case).
+        """
+        stamp = _stamp(plugin)
+        if stamp is None:
+            return
+        key, size, mtime = stamp
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return
+            try:
+                self._write_keys(conn, key, tag, size, mtime, keys)
+                conn.commit()
+            except sqlite3.Error as exc:
+                LOG.warning("editor: key index write failed: %s", exc)
+
+    def _stale_of(self, plugins: Sequence[Path], tag: str) -> list[Path] | None:
+        """The plugins whose keys are not indexed as they now are; None if the cache is out."""
+        stamps = [(p, _stamp(p)) for p in plugins]
+        have: dict[str, tuple[int, int]] = {}
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return None
+            try:
+                keyed = [st[0] for _p, st in stamps if st is not None]
+                for i in range(0, len(keyed), _CHUNK):
+                    part = keyed[i : i + _CHUNK]
+                    marks = ",".join("?" * len(part))
+                    for row in conn.execute(
+                        "SELECT plugin, size, mtime_ns FROM key_stamps"  # noqa: S608 - marks only
+                        f" WHERE tag=? AND plugin IN ({marks})",
+                        [tag, *part],
+                    ):
+                        have[row[0]] = (row[1], row[2])
+            except sqlite3.Error:
+                return None
+        return [p for p, st in stamps if st is None or have.get(st[0]) != (st[1], st[2])]
+
+    def keys_current(self, plugin: Path, tag: str) -> bool:
+        """Whether a plugin's keys of a tag are indexed and the plugin is unchanged since."""
+        return self._stale_of([plugin], tag) == []
+
+    def missing_keys(self, plugins: Sequence[Path], tag: str) -> list[Path]:
+        """The plugins whose keys of a tag still have to be indexed (all, if the cache is out)."""
+        stale = self._stale_of(plugins, tag)
+        return list(plugins) if stale is None else stale
+
+    def holders(self, plugins: Sequence[Path], tag: str, key: str) -> list[Path] | None:
+        """Which of these plugins have a key, from the index.
+
+        Args:
+            plugins: The load order's plugin files.
+            tag: The four-letter tag.
+            key: The record's key, lower case.
+
+        Returns:
+            The plugins that have it (in the order given), or None when the index cannot
+            answer: some plugin is not indexed as it now is, or the cache is out.
+        """
+        stale = self._stale_of(plugins, tag)
+        if stale is None or stale:
+            return None
+        stamped = [(p, st[0]) for p in plugins if (st := _stamp(p)) is not None]
+        found: set[str] = set()
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return None
+            try:
+                listed = [name for _p, name in stamped]
+                for i in range(0, len(listed), _CHUNK):
+                    part = listed[i : i + _CHUNK]
+                    marks = ",".join("?" * len(part))
+                    found.update(
+                        row[0]
+                        for row in conn.execute(
+                            "SELECT plugin FROM keys"  # noqa: S608 - marks only
+                            f" WHERE tag=? AND key=? AND plugin IN ({marks})",
+                            [tag, key, *part],
+                        )
+                    )
+            except sqlite3.Error:
+                return None
+        return [p for p, name in stamped if name in found]
 
     def clear(self) -> None:
         """Forget everything cached."""
@@ -172,6 +318,8 @@ class RecordCache:
                 return
             try:
                 conn.execute("DELETE FROM records")
+                conn.execute("DELETE FROM keys")
+                conn.execute("DELETE FROM key_stamps")
                 conn.commit()
             except sqlite3.Error:
                 return

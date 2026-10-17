@@ -90,8 +90,15 @@ const WgFlow={
       cell='('+(+m[1])+', '+(+m[2])+')';
     }
     if(land) return this.newLand(cell);
+    // The viewer's own cell list is the whole load order's: a name or square in it is taken, and
+    // one that is not is free - so Python need not read every plugin's cells to find out (that
+    // took minutes and held up every other request, which then timed out).
+    const world=WgEditor.cells||[], known=world.length>0;
+    if(known && world.some(c=>exterior? c.kind==='ext' && c.x===+cell.match(/-?\d+/g)[0] && c.y===+cell.match(/-?\d+/g)[1]
+                                      : c.kind==='int' && String(c.name).toLowerCase()===cell.toLowerCase()))
+      return toast('The load order has the cell '+cell+' already','warn',3500);
     try{
-      const r=await this.ask('editNewCell', {cell});
+      const r=await this.ask('editNewCell', known? {cell, absent:true} : {cell});
       toast((r.interior? 'Interior ' : 'Exterior square ')+r.cell+' made by the patch - open it from the Cell View (double-click), then drag records into it from the Object Window','ok',4000);
       await WgEditor.refreshPending();
       WgEditor.revealCell(r.interior? 'int:'+r.cell : String(r.cell).replace(/[()\s]/g,''));
@@ -104,9 +111,20 @@ const WgFlow={
   async newLand(k){
     const m=String(k).match(/(-?\d+)\s*,\s*(-?\d+)/);
     if(!m) return toast('Land belongs to an exterior square: two numbers, (x, y)','warn',3000);
-    const cell='('+(+m[1])+', '+(+m[2])+')';
+    const cell='('+(+m[1])+', '+(+m[2])+')', gx=+m[1], gy=+m[2];
+    // Ask the engine (it has the whole load order's land, cheaply) rather than have Python read
+    // every plugin's LAND and CELL records: a square with land is refused here, and what the
+    // viewer found is passed on so the scan is skipped.
+    const body={cell};
+    if((WgEditor.cells||[]).length){
+      let d=null;
+      try{ d=await Engine.call('cell_data',{gx, gy, review:'', without:false, land:''}); }catch(_){ d=null; }   // no such square: no land
+      if(d && d.hasLand) return toast('The load order has land at '+cell+' already','warn',3500);
+      body.noLand=true;
+      body.hasCell=WgEditor.cells.some(c=>c.kind==='ext' && c.x===gx && c.y===gy);
+    }
     try{
-      const r=await this.ask('editNewLand', {cell});
+      const r=await this.ask('editNewLand', body);
       toast('Flat land at the sea\'s level for '+r.cell+(r.madeCell? ' (and its cell)' : '')+', made by the patch - raise it with the terrain tools','ok',4500);
       await WgEditor.refreshPending();
       if(r.madeCell) WgEditor.revealCell((+m[1])+','+(+m[2]));   // its cell is new: show it

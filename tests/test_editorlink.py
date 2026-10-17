@@ -457,3 +457,32 @@ def test_new_land_passes_verify_and_is_queued_as_the_patchs_record(tmp_path):
     assert ("Landscape", "(40, -12)") in saved
     land = next(m for m in session.queue.new_records if m.record_type == "Landscape")
     assert land.record["vertex_heights"]["offset"] == -50.0
+
+
+def test_new_land_and_cell_skip_the_load_order_scan_when_the_viewer_has_looked(tmp_path):
+    """``noLand``/``hasCell``/``absent`` say the viewer's world was looked in: no plugin is read."""
+    host = _Host(tmp_path)
+    session = host._editor_session
+    reads: list[str] = []
+    real = session._records
+
+    def counting(name, tag):
+        reads.append(tag)
+        return real(name, tag)
+
+    session._records = counting  # type: ignore[method-assign]
+    out = _post(host._on_edit_new_land, cell="(60, 60)", noLand=True, hasCell=False)
+    assert out == {"cell": "(60, 60)", "land": True, "madeCell": True}
+    assert "LAND" not in reads and "CELL" not in reads
+    # A square the viewer says has its cell: only land is made.
+    out = _post(host._on_edit_new_land, cell="(61, 60)", noLand=True, hasCell=True)
+    assert out["madeCell"] is False and "CELL" not in reads
+    _post(host._on_edit_new_cell, cell="Nowhere Room", absent=True)
+    assert "CELL" not in reads
+    # The patch's own land and cells are still refused, scan or not.
+    with pytest.raises(Exception, match="has land already"):
+        _post(host._on_edit_new_land, cell="(60, 60)", noLand=True, hasCell=False)
+    with pytest.raises(Exception, match="already"):
+        _post(host._on_edit_new_cell, cell="Nowhere Room", absent=True)
+    with pytest.raises(Exception, match="hasCell"):
+        _post(host._on_edit_new_land, cell="(5, 5)", hasCell="yes")

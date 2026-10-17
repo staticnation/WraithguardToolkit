@@ -348,7 +348,9 @@
    ],
    "opt": [
     "height",
-    "texture"
+    "texture",
+    "noLand",
+    "hasCell"
    ],
    "ans": [
     "cell",

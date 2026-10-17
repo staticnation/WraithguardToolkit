@@ -167,6 +167,7 @@ class EditorLinkMixin:
         self._editor_setup = setup
         plugins = plugins_from_cfg(setup)
         current: EditorSession | None = getattr(self, "_editor_session", None)
+        current_before = current
         # The same names from another folder are another setup: its files, its records.
         same = current is not None and current.order == [n for n, _p in plugins]
         if same and current is not None:
@@ -177,7 +178,10 @@ class EditorLinkMixin:
             current = EditorSession(
                 plugins, self.patch_queue(), journal_path(), disk_cache=record_cache()
             )
+            if current_before is not None:
+                current_before.close()  # the old setup's background indexing stops
             self._editor_session = current
+            current.start_indexing()
         return current
 
     def editor_links(self, server: ViewerServer, setup: Path) -> dict[str, str]:
@@ -460,8 +464,9 @@ class EditorLinkMixin:
         absent = data.get("absent") is True
         session = self._editor()
         if not absent:
-            # Reading every plugin's cells is long: here, on the request's own thread, not Tk's.
-            session.warm("CELL")
+            # Indexing every plugin's cells is long the first time: here, on the request's own
+            # thread, not Tk's (after it, and after the background indexing, a query).
+            session.ensure_index("CELL")
 
         def make() -> dict[str, Any]:
             """Make it and redraw."""
@@ -475,9 +480,12 @@ class EditorLinkMixin:
         """``editNewLand``: flat land for an exterior square that has none.
 
         Args:
-            body: ``{cell, height?, texture?}`` - the square as ``(x, y)``; ``height`` in
-                game units (0, the sea's level, when absent); ``texture`` a land texture's
-                id for the whole square (the default ground when absent).
+            body: ``{cell, height?, texture?, noLand?, hasCell?}`` - the square as
+                ``(x, y)``; ``height`` in game units (0, the sea's level, when absent);
+                ``texture`` a land texture's id for the whole square (the default ground
+                when absent); ``noLand`` true when the viewer's world has just found no
+                land there and ``hasCell`` whether it has the square's cell (the load
+                order is then not read again to check: that is every plugin's records).
 
         Returns:
             :meth:`.EditorSession.new_land`, as JSON.
@@ -492,11 +500,22 @@ class EditorLinkMixin:
         texture = data.get("texture", "")
         if not isinstance(texture, str):
             raise ValueError("bad texture")
+        no_land = data.get("noLand") is True
+        has_cell = data.get("hasCell")
+        if has_cell is not None and not isinstance(has_cell, bool):
+            raise ValueError("bad hasCell")
         session = self._editor()
+        # Reading every plugin's records is long: here, on the request's own thread, not Tk's.
+        if not no_land:
+            session.ensure_index("LAND")
+        if has_cell is None:
+            session.ensure_index("CELL")
+        if texture.strip():
+            session.warm("LTEX")
 
         def make() -> dict[str, Any]:
             """Make it and redraw."""
-            out = session.new_land(cell, float(height), texture)
+            out = session.new_land(cell, float(height), texture, no_land, has_cell)
             self.refresh_patch_views()
             return out
 
@@ -1532,7 +1551,7 @@ class EditorLinkMixin:
             raise ValueError("bad cell")
         cell_plugins = self._names(place.get("plugins"), "plugins")
         if not cell_plugins and session.queue.new_record("Cell", cell.strip()) is None:
-            session.warm("CELL")  # a cell looked up in every plugin: read off the Tk thread
+            session.ensure_index("CELL")  # a cell looked up in every plugin: off the Tk thread
 
         def change() -> dict[str, Any]:
             """Queue it and redraw the Patch Builder."""

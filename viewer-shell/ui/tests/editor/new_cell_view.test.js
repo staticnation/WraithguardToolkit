@@ -75,6 +75,8 @@ module.exports = async (t) => {
   const WF = w.WgFlow;
   const r = await WF.newLand('(7, -3)');
   t.ok(r && r.land && p.posts.some(x => x[0] === 'nl' && x[1].cell === '(7, -3)'), 'newLand asks the patch for the square: ' + JSON.stringify(p.posts.filter(x => x[0] === 'nl')));
+  const body = p.posts.filter(x => x[0] === 'nl').pop()[1];
+  t.ok(body.noLand === true && body.hasCell === false, 'the viewer says no land and no cell, so Python need not scan: ' + JSON.stringify(body));
   await WF.newLand('7,-3');
   t.ok(p.posts.filter(x => x[0] === 'nl').pop()[1].cell === '(7, -3)', 'a Cell View key is a square too');
   pending = [{ tag: 'CELL', id: '(7, -3)', made: {} }, { tag: 'LAND', id: '(7, -3)', made: {} }];
@@ -90,4 +92,15 @@ module.exports = async (t) => {
   const sent = p.posts.slice(nPost).map(x => x[0] + ':' + (x[1].cell || ''));
   t.ok(sent[0] === 'nc:(4, 38)' && sent.includes('place:(4, 38)'), 'the cell is made, then the object placed in it: ' + sent.join());
   t.ok(sea && sea.uid === 'u9', 'and the placement went through');
+
+  // New interior from the Cell View: the viewer's own list settles whether the name is free.
+  const say = (name) => { w.WgUI.askText = async () => name; };
+  say('Brand new room');
+  await WF.newCell(false);
+  const nc = p.posts.filter(x => x[0] === 'nc').pop();
+  t.ok(nc && nc[1].cell === 'Brand new room' && nc[1].absent === true, 'a free name is sent with absent, so Python does not scan every plugin: ' + JSON.stringify(nc && nc[1]));
+  const before2 = p.posts.filter(x => x[0] === 'nc').length;
+  say('old ROOM');
+  await WF.newCell(false);
+  t.ok(p.posts.filter(x => x[0] === 'nc').length === before2, 'a name the load order has is refused without a request');
 };

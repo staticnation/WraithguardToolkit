@@ -31,8 +31,10 @@ from __future__ import annotations
 import contextlib
 import copy
 import json
+import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final
 
@@ -674,6 +676,8 @@ class EditorSession:
         self._cache: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         self._masters: dict[str, list[str]] = {}
         self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._indexer: threading.Thread | None = None
         self._script_compiler: tuple[str, ScriptCompiler] | None = None
         # The undo history starts from the pool as the session finds it.
         self._history: dict[str, Any] = {"undo": [], "redo": [], "last": queue.snapshot()}
@@ -703,7 +707,7 @@ class EditorSession:
                 if recs is None:
                     recs = self._read(name_path[1], tag)
                     if self._disk:
-                        self._disk.put(name_path[1], tag, recs)
+                        self._disk.put(name_path[1], tag, recs, self._keys_of(recs, tag))
                 for rec in recs:
                     key = record_key(rec)
                     if key:
@@ -713,6 +717,137 @@ class EditorSession:
         with self._lock:
             self._cache[(low, tag)] = found
         return found
+
+    @staticmethod
+    def _keys_of(recs: Sequence[dict[str, Any]], tag: str) -> list[str]:
+        """The lower-case keys of the records of a tag (what :meth:`find` would look up)."""
+        record_type = TAG_TO_TYPE.get(tag)
+        keys = []
+        for rec in recs:
+            if record_type is not None and rec.get("type") != record_type:
+                continue
+            key = record_key(rec)
+            if key:
+                keys.append(key.lower())
+        return keys
+
+    def _plugin_paths(self) -> list[Path]:
+        """The load order's plugin files, in load order."""
+        return [self._paths[name.lower()][1] for name in self.order]
+
+    def holders(self, tag: str, rid: str) -> list[str] | None:
+        """The plugins that have a record, from the on-disk key index.
+
+        One indexed query over the whole load order, with no plugin read - when every
+        plugin is indexed as it now is. A record a plugin deletes still counts as its.
+
+        Args:
+            tag: The tag (``CELL``).
+            rid: The record's id, or ``(x, y)`` for an exterior cell.
+
+        Returns:
+            The plugin names that have it, in load order; None when the index cannot say
+            (a plugin not indexed yet or changed, or no cache): read the plugins instead.
+        """
+        if self._disk is None:
+            return None
+        tag = tag.upper().ljust(4, "_")
+        paths = self._plugin_paths()
+        got = self._disk.holders(paths, tag, rid.strip().lower())
+        if got is None:
+            return None
+        by_path = {id(path): name for name, path in zip(self.order, paths, strict=True)}
+        return [by_path[id(path)] for path in got]
+
+    def in_load_order(self, tag: str, rid: str) -> bool:
+        """Whether the patch or any plugin has a record: the key index first, then a read.
+
+        Args:
+            tag: The tag (``CELL``, ``LAND``).
+            rid: The record's id, or ``(x, y)``.
+
+        Returns:
+            True when the patch makes it or a plugin defines it.
+        """
+        record_type = TAG_TO_TYPE.get(tag.upper().ljust(4, "_"))
+        if record_type is None:
+            return False
+        if self.queue.new_record(record_type, rid.strip()) is not None:
+            return True
+        indexed = self.holders(tag, rid)
+        if indexed is not None:
+            return bool(indexed)
+        return self.find(tag, rid) is not None
+
+    def ensure_index(self, tag: str, workers: int | None = None) -> int:
+        """Index the keys of a tag for every plugin not indexed as it now is.
+
+        Reads each missing plugin (the long part, the first time only) on a few threads at
+        once - Python here is the free-threaded build, and the reader is native, so they run
+        side by side - keeps its keys and not its records, so land is not held in memory.
+        Call off the Tk thread.
+
+        Args:
+            tag: The tag.
+            workers: How many plugins to read at once (None: about half the cores, to 8).
+
+        Returns:
+            How many plugins were indexed now.
+        """
+        if self._disk is None:
+            return 0
+        tag = tag.upper().ljust(4, "_")
+        disk = self._disk
+        todo = disk.missing_keys(self._plugin_paths(), tag)
+
+        def one(path: Path) -> bool:
+            """Read one plugin and index its keys; whether that was done."""
+            if self._stop.is_set():
+                return False
+            try:
+                recs = self._read(path, tag)
+            except (OSError, ValueError) as exc:
+                LOG.warning("editor: cannot index %s: %s", path, exc)
+                return False
+            disk.put_keys(path, tag, self._keys_of(recs, tag))
+            return True
+
+        count = workers if workers is not None else min(8, max(1, (os.cpu_count() or 2) // 2))
+        if count <= 1 or len(todo) <= 1:
+            return sum(one(path) for path in todo)
+        with ThreadPoolExecutor(max_workers=count, thread_name_prefix="wg-index") as pool:
+            return sum(pool.map(one, todo))
+
+    def start_indexing(self, tags: Sequence[str] = ("CELL", "LAND")) -> None:
+        """Index the load order's keys in the background (once per session).
+
+        So that by the time a cell is made or a record looked up, "does the load order have
+        it" is a query and not a read of every plugin.
+
+        Args:
+            tags: The tags to index.
+        """
+        if self._disk is None:
+            return
+
+        def run() -> None:
+            """Index each tag in turn; a failure is logged and the lookup reads instead."""
+            try:
+                for tag in tags:
+                    # Half the usual width: the viewer and the editor's own requests share the cores.
+                    self.ensure_index(tag, max(1, min(8, (os.cpu_count() or 2) // 2) // 2))
+            except Exception:
+                LOG.exception("editor: indexing the load order's keys failed")
+
+        with self._lock:
+            if self._indexer is not None:
+                return
+            self._indexer = threading.Thread(target=run, name="wg-key-index", daemon=True)
+            self._indexer.start()
+
+    def close(self) -> None:
+        """Stop the background indexing (the session is being replaced)."""
+        self._stop.set()
 
     def warm(self, tag: str) -> None:
         """Read every plugin's records of a tag now, so a later lookup is a dictionary hit.
@@ -2363,6 +2498,10 @@ class EditorSession:
         """
         if not plugins and self.queue.new_record("Cell", cell.strip()) is not None:
             return ()  # the patch's own cell: no plugin has it, and none need reading
+        if not plugins:
+            indexed = self.holders("CELL", cell)
+            if indexed is not None:
+                return tuple(indexed)  # one query, no plugin read
         known = [p for p in (plugins or self.order) if p.lower() in self._rank]
         known.sort(key=lambda p: self._rank[p.lower()])
         want = cell.strip().lower()
@@ -2453,7 +2592,7 @@ class EditorSession:
         if not key:
             raise EditorError("a new cell needs a name, or (x, y) for an exterior square")
         if self.queue.new_record("Cell", key) is not None or (
-            not absent and self.find("CELL", key) is not None
+            not absent and self.in_load_order("CELL", key)
         ):
             raise EditorError(f"the load order has the cell {key} already")
         if grid is not None:
@@ -2478,7 +2617,14 @@ class EditorSession:
         self.save_journal()
         return {"cell": key, "interior": grid is None}
 
-    def new_land(self, cell: str, height: float = 0.0, texture: str = "") -> dict[str, Any]:
+    def new_land(
+        self,
+        cell: str,
+        height: float = 0.0,
+        texture: str = "",
+        no_land: bool = False,
+        has_cell: bool | None = None,
+    ) -> dict[str, Any]:
         """Flat land for an exterior square the load order has none for (and the journal saved).
 
         What the Construction Set allocates on the first brush stroke over a square with
@@ -2491,6 +2637,10 @@ class EditorSession:
             cell: The square, ``(x, y)``.
             height: Where every vertex sits, in game units.
             texture: A land texture's id for the whole square; empty for the default ground.
+            no_land: The viewer's world has just been looked in and has no land there, so
+                the load order is not read again to check (that is every plugin's LANDs).
+            has_cell: Whether the viewer's world has the square's cell (None: not known,
+                and the load order is read to find out).
 
         Returns:
             ``{"cell": its key, "land": True, "madeCell": bool}``.
@@ -2504,7 +2654,9 @@ class EditorSession:
         if grid is None:
             raise EditorError("land belongs to an exterior square: give (x, y)")
         key = f"({grid[0]}, {grid[1]})"
-        if self.find("LAND", key) is not None:
+        if self.queue.new_record("Landscape", key) is not None or (
+            not no_land and self.in_load_order("LAND", key)
+        ):
             raise EditorError(f"{key} has land already")
         index, source = 0, ""
         if texture.strip():
@@ -2517,10 +2669,13 @@ class EditorSession:
             record = flat_land(grid, height, index)
         except LandError as exc:
             raise EditorError(str(exc)) from exc
-        made_cell = self.find("CELL", key) is None
+        if has_cell is None:
+            made_cell = not self.in_load_order("CELL", key)
+        else:
+            made_cell = not has_cell and self.queue.new_record("Cell", key) is None
         with self.batch():
             if made_cell:
-                self.new_cell(key)
+                self.new_cell(key, absent=True)  # its absence is settled above
             self.queue.add_new_record(NewRecord("Landscape", key, record, source))
             self.save_journal()
         return {"cell": key, "land": True, "madeCell": made_cell}
