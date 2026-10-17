@@ -3,6 +3,15 @@
 
 ## Unreleased
 
+### Added
+
+- **The Editor keeps what it reads from the plugins between runs**
+  (`wraithguard_record_cache.sqlite3`, next to the patch journal). Plugin records, the
+  moved-reference index, dialogue and plugin headers are read once and then come from the
+  cache; a plugin that changed is read again, and a cache made by another build of the
+  native reader is emptied, so it is never wrong, only sometimes empty. A cache that cannot
+  be opened is skipped, never an error.
+
 ### Changed
 
 - **Every record list in the Editor comes as bytes now**, not only the Object Window: the

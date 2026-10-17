@@ -171,8 +171,10 @@ def test_a_removed_plugins_keys_are_forgotten(tmp_path: Path) -> None:
     cache = RecordCache(db)
     cache.put_keys(here, "CELL", ["x"])  # opens the database: the missing plugin is dropped
     import sqlite3
+    from contextlib import closing
 
-    rows = sqlite3.connect(db).execute("SELECT COUNT(*) FROM keys WHERE key='room'").fetchone()
+    with closing(sqlite3.connect(db)) as raw:
+        rows = raw.execute("SELECT COUNT(*) FROM keys WHERE key='room'").fetchone()
     assert rows[0] == 0
 
 
@@ -291,3 +293,54 @@ def test_a_closed_session_stops_indexing(tmp_path: Path) -> None:
     s.close()
     assert s.ensure_index("CELL", workers=2) == 0
     assert reads == []
+
+
+def test_a_cache_made_by_another_build_of_the_reader_is_emptied(tmp_path: Path) -> None:
+    db = tmp_path / "c.sqlite3"
+    plugin = _plugin(tmp_path)
+    with RecordCache(db, parser="reader-1") as old:
+        old.put(plugin, "CELL", [CELL], ["vault"])
+        assert old.get(plugin, "CELL") == [CELL]
+    with RecordCache(db, parser="reader-1") as same:
+        assert same.get(plugin, "CELL") == [CELL]  # the same build: kept
+        assert same.keys_current(plugin, "CELL")
+    with RecordCache(db, parser="reader-2") as new:
+        assert new.get(plugin, "CELL") is None  # another build: not trusted
+        assert not new.keys_current(plugin, "CELL")  # the key index with it
+
+
+def test_a_reader_signature_of_digits_is_not_mistaken_for_a_change(tmp_path: Path) -> None:
+    db = tmp_path / "c.sqlite3"
+    plugin = _plugin(tmp_path)
+    with RecordCache(db, parser="12345") as first:
+        first.put(plugin, "CELL", [CELL])
+    with RecordCache(db, parser="12345") as again:
+        assert again.get(plugin, "CELL") == [CELL]
+
+
+def test_dialogue_and_masters_come_from_the_cache_in_a_second_session(tmp_path: Path) -> None:
+    plugin = _plugin(tmp_path, "a.esm")
+    topic = {"type": "Dialogue", "id": "hello", "dialogue_type": "Topic"}
+    reads: list[str] = []
+
+    def read(path: Path, tag: str) -> list[dict[str, Any]]:
+        reads.append(tag)
+        return [{"type": "Header", "masters": [["Morrowind.esm", 1]]}] if tag == "TES3" else []
+
+    def read_dialogue(path: Path) -> list[dict[str, Any]]:
+        reads.append("DIAL+INFO")
+        return [topic]
+
+    db = tmp_path / "c.sqlite3"
+    for _run in range(2):
+        with RecordCache(db) as cache:
+            s = EditorSession(
+                [("a.esm", plugin)],
+                PatchQueue(),
+                read=read,
+                read_dialogue=read_dialogue,
+                disk_cache=cache,
+            )
+            assert s._dialogue("a.esm") == [topic]
+            s._masters_of("a.esm")
+    assert sorted(reads) == ["DIAL+INFO", "TES3"]  # read once, not once per run

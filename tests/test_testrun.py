@@ -71,6 +71,33 @@ def test_the_link_writes_the_plugin_keeps_the_pool_and_starts_the_game(tmp_path,
     assert host._queue.fields, "the pool is kept"
 
 
+def test_the_games_output_pipe_is_closed_when_it_has_run(tmp_path, monkeypatch):
+    import subprocess
+
+    started: list[subprocess.Popen[str]] = []
+    real = subprocess.Popen
+
+    def popen(*args, **kwargs):
+        proc = real(*args, **kwargs)
+        started.append(proc)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(testrun, "scratch_dir", lambda: tmp_path)
+    monkeypatch.setattr(testrun, "_remembered_file", lambda: tmp_path / "openmw_test.json")
+    host = _Builder(tmp_path)
+    _post(host._on_edit_set, tag="NPC_", id="fargoth", path="data.level", value="7")
+    job = _post(host._on_edit_test_run, cell="(1, 2)", exe=sys.executable)["job"]
+    for _ in range(200):
+        st = _post(host._on_edit_build_status, job=job, **{"from": 0})
+        if st["state"] != "running":
+            break
+        time.sleep(0.05)
+    assert st["state"] == "done", st
+    assert len(started) == 1 and started[0].stdout is not None
+    assert started[0].stdout.closed
+
+
 def test_no_openmw_asks_where_it_is(tmp_path, monkeypatch):
     monkeypatch.setattr(testrun, "find_openmw", lambda given=None: None)
     host = _Builder(tmp_path)

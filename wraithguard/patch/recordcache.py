@@ -36,8 +36,37 @@ LOG = logging.getLogger(__name__)
 #: Bumped when what is stored changes shape; an older database is emptied, not read.
 SCHEMA: Final = 2
 
+#: The tables that hold what the native reader made of the plugins (emptied together).
+_DERIVED: Final = ("records", "keys", "key_stamps")
+
 #: Plugins asked about in one SQL statement (SQLite's limit on parameters is far above).
 _CHUNK: Final = 400
+
+
+def parser_signature() -> str:
+    """Which build of the native reader made what is cached.
+
+    A new build can read records differently, and the plugins' own sizes and times would
+    not show it, so the cache is stamped with the reader: its version and the size and
+    time of its file (a rebuild changes those even when the version number does not).
+
+    Returns:
+        A short text, or ``""`` when the native reader is not there.
+    """
+    try:
+        import wraithguard_native
+    except ImportError:
+        return ""
+    where = getattr(wraithguard_native, "__file__", None)
+    mark = ""
+    if where:
+        try:
+            st = Path(where).stat()
+        except OSError:
+            mark = ""
+        else:
+            mark = f"{st.st_size}:{st.st_mtime_ns}"
+    return f"{getattr(wraithguard_native, '__version__', '')}:{mark}"
 
 
 def _stamp(plugin: Path) -> tuple[str, int, int] | None:
@@ -62,13 +91,16 @@ class RecordCache:
     One connection is shared by every thread (the editor reads from several), under a lock.
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, parser: str = "") -> None:
         """Remember where the database is; it is opened on first use.
 
         Args:
             path: The database file (created when needed).
+            parser: Which build of the native reader the records are made by
+                (:func:`parser_signature`); a database made by another is emptied.
         """
         self.path = path
+        self.parser = parser
         self._lock = threading.Lock()
         self._conn: sqlite3.Connection | None = None
         self._dead = False
@@ -87,9 +119,17 @@ class RecordCache:
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER)")
             row = conn.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
-            if row is None or row[0] != SCHEMA:
-                conn.execute("DROP TABLE IF EXISTS records")
+            made = conn.execute("SELECT v FROM meta WHERE k='parser'").fetchone()
+            if row is None or row[0] != SCHEMA or made is None or made[0] != f"p:{self.parser}":
+                # Another shape, or made by another build of the reader: none of it is
+                # to be trusted, the key index with the records.
+                for table in _DERIVED:
+                    conn.execute(f"DROP TABLE IF EXISTS {table}")
                 conn.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (SCHEMA,))
+                # Prefixed: the column is INTEGER-typed, which would turn digits-only text into a number.
+                conn.execute(
+                    "INSERT OR REPLACE INTO meta VALUES ('parser', ?)", (f"p:{self.parser}",)
+                )
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS records (plugin TEXT NOT NULL, tag TEXT NOT NULL,"
                 " size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, data BLOB NOT NULL,"

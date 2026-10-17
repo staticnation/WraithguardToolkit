@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.4.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 00:14\n"
+"POT-Creation-Date: 2026-10-17 00:33\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -942,15 +942,15 @@ msgstr ""
 msgid "No launch setup is called %(name)s"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:2040
+#: wraithguard/gui/editorlink.py:2045
 msgid "No such patch build"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:2069
+#: wraithguard/gui/editorlink.py:2074
 msgid "%(name)s is not written yet"
 msgstr ""
 
-#: wraithguard/gui/editorlink.py:2072
+#: wraithguard/gui/editorlink.py:2077
 msgid "Cell Preview cannot be opened from here"
 msgstr ""
 

@@ -79,6 +79,30 @@ a modder expects, never for code: it is GPL-3.
   joined by a box.
 - Remappable Editor shortcuts (a key binding page), with the controller bindings below.
 
+## Record cache (SQLite: `wraithguard/patch/recordcache.py`)
+
+The editor keeps what it reads from the plugins in `wraithguard_record_cache.sqlite3`
+(records by plugin and tag, a key index, the moved-reference index), valid while a
+plugin's size and time are unchanged. What else should be kept there, in the order to do it:
+
+- Done, to move to the CHANGELOG with the next release: the parser guard (a cache made by
+  another build of the native reader is emptied), dialogue, and plugin headers/masters.
+- The Use Report: cache the result by record type and key under a signature of every
+  plugin's size and time (any plugin change invalidates it). Every click scans all plugin
+  bytes today.
+- Verify: derived from all plugins, so cacheable under the same load-order signature.
+- "Search all fields": an FTS5 index of the plugins' own fields, with the patch's pending
+  edits layered over the hits at query time.
+- Load-order tooling outside the editor (per-plugin headers, record counts, conflict sets
+  for the Patch Builder and the conflict viewer): read that code first, probably a large
+  win, the same hundreds of plugins.
+- The viewer engine (Rust): the world's read (5 s), parse (8.7 s) and merge (54 s) and the
+  205,535-file index (4 s) in a 621-plugin load order. The biggest time and the riskiest:
+  a stale cache there draws a wrong scene, so it needs invalidation on the whole load
+  order, not per plugin.
+- Not worth caching: the queue and journal (persisted already), the pending list, search
+  results - they change with every edit.
+
 ## MWScript compiler: TESCS and MWEdit differences
 
 **Wait for G7 first:** Greatness7's compiler goes into the tes3 crate, and he has

@@ -106,9 +106,11 @@ def record_cache() -> RecordCache:
     """The editor's on-disk cache of plugin records (one per app folder, shared by sessions)."""
     global _RECORD_CACHE
     if _RECORD_CACHE is None:
-        from wraithguard.patch.recordcache import RecordCache
+        from wraithguard.patch.recordcache import RecordCache, parser_signature
 
-        _RECORD_CACHE = RecordCache(app_base_dir() / "wraithguard_record_cache.sqlite3")
+        _RECORD_CACHE = RecordCache(
+            app_base_dir() / "wraithguard_record_cache.sqlite3", parser=parser_signature()
+        )
         atexit.register(_RECORD_CACHE.close)
     return _RECORD_CACHE
 
@@ -1970,15 +1972,20 @@ class EditorLinkMixin:
                     encoding="utf-8",
                     errors="replace",
                 )
-                state["result"] = {
-                    "output": str(result.output),
-                    "records": result.records,
-                    "pid": proc.pid,
-                    "note": self.patch_written_note(result),
-                }
-                for line in proc.stdout or ():
-                    state["lines"].append(line.rstrip("\n"))
-                state["result"]["exit"] = proc.wait()
+                try:
+                    state["result"] = {
+                        "output": str(result.output),
+                        "records": result.records,
+                        "pid": proc.pid,
+                        "note": self.patch_written_note(result),
+                    }
+                    for line in proc.stdout or ():
+                        state["lines"].append(line.rstrip("\n"))
+                    state["result"]["exit"] = proc.wait()
+                finally:
+                    # Our end of the game's output pipe: read to its end or not, it is closed.
+                    if proc.stdout is not None:
+                        proc.stdout.close()
                 state["state"] = "done"
             except Exception as exc:  # noqa: BLE001 - said to the viewer, which shows it
                 LOG.warning("the viewer's test in OpenMW failed: %s", exc)

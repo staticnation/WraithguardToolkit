@@ -703,11 +703,9 @@ class EditorSession:
         found: dict[str, dict[str, Any]] = {}
         if name_path is not None:
             try:
-                recs = self._disk.get(name_path[1], tag) if self._disk else None
-                if recs is None:
-                    recs = self._read(name_path[1], tag)
-                    if self._disk:
-                        self._disk.put(name_path[1], tag, recs, self._keys_of(recs, tag))
+                recs = self._through_cache(
+                    name_path[1], tag, lambda p: self._read(p, tag), self._keys_of
+                )
                 for rec in recs:
                     key = record_key(rec)
                     if key:
@@ -717,6 +715,31 @@ class EditorSession:
         with self._lock:
             self._cache[(low, tag)] = found
         return found
+
+    def _through_cache(
+        self,
+        path: Path,
+        tag: str,
+        read: Callable[[Path], list[dict[str, Any]]],
+        keys: Callable[[list[dict[str, Any]], str], list[str]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """What ``read`` makes of a plugin, from the disk cache when it is there.
+
+        Args:
+            path: The plugin file.
+            tag: What is read (a record tag, or a name of the caller's for a kind of read).
+            read: Reads the plugin, on a miss.
+            keys: The records' keys to index with them, or None to leave the index alone.
+
+        Returns:
+            The records.
+        """
+        recs = self._disk.get(path, tag) if self._disk else None
+        if recs is None:
+            recs = read(path)
+            if self._disk:
+                self._disk.put(path, tag, recs, keys(recs, tag) if keys else None)
+        return recs
 
     @staticmethod
     def _keys_of(recs: Sequence[dict[str, Any]], tag: str) -> list[str]:
@@ -1218,7 +1241,7 @@ class EditorSession:
         name_path = self._paths.get(low)
         if name_path is not None:
             try:
-                found = self._read_dialogue(name_path[1])
+                found = self._through_cache(name_path[1], "DIAL+INFO", self._read_dialogue)
             except (OSError, ValueError) as exc:
                 LOG.warning("editor: cannot read %s: %s", name_path[1], exc)
         with self._lock:
@@ -2091,7 +2114,9 @@ class EditorSession:
         masters: list[str] = []
         if name_path is not None:
             try:
-                masters = master_names(self._read(name_path[1], "TES3"))
+                masters = master_names(
+                    self._through_cache(name_path[1], "TES3", lambda p: self._read(p, "TES3"))
+                )
             except (OSError, ValueError) as exc:
                 LOG.warning("editor: cannot read %s: %s", name_path[1], exc)
         with self._lock:
