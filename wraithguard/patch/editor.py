@@ -59,6 +59,45 @@ if TYPE_CHECKING:
 LOG = get_logger(__name__)
 
 #: Record tag (four characters, as the files have it: ``NPC_``) -> tes3conv ``type``.
+#: Tags whose keys are indexed in the background: cells and land first (a new cell or land
+#: asks about them), then every type a record can name (what Verify looks ids up in).
+INDEXED_TAGS: Final[tuple[str, ...]] = (
+    "CELL",
+    "LAND",
+    "GLOB",
+    "SCPT",
+    "SPEL",
+    "RACE",
+    "CLAS",
+    "FACT",
+    "REGN",
+    "BSGN",
+    "SOUN",
+    "ENCH",
+    "DIAL",
+    "ACTI",
+    "ALCH",
+    "APPA",
+    "ARMO",
+    "BODY",
+    "BOOK",
+    "CLOT",
+    "CONT",
+    "CREA",
+    "DOOR",
+    "INGR",
+    "LEVC",
+    "LEVI",
+    "LIGH",
+    "LOCK",
+    "MISC",
+    "NPC_",
+    "PROB",
+    "REPA",
+    "STAT",
+    "WEAP",
+)
+
 TAG_TO_TYPE: Final[dict[str, str]] = {tag.ljust(4, "_"): name for name, tag in TYPE_TO_TAG.items()}
 
 
@@ -523,6 +562,22 @@ def _native_read(path: Path, tag: str) -> list[dict[str, Any]]:
     return list(wraithguard_native.plugin_records(path.read_bytes(), keep=[tag.encode("ascii")]))
 
 
+def _native_read_many(path: Path, tags: Sequence[str]) -> list[dict[str, Any]]:
+    """A plugin's records of several tags in one pass, through the Rust backend.
+
+    Args:
+        path: The plugin.
+        tags: The four-letter tags.
+
+    Returns:
+        The records (of every one of the tags, in file order).
+    """
+    import wraithguard_native
+
+    keep = [tag.encode("ascii") for tag in tags]
+    return list(wraithguard_native.plugin_records(path.read_bytes(), keep=keep))
+
+
 def _native_read_all(path: Path) -> list[dict[str, Any]]:
     """All of a plugin's records, through the Rust backend.
 
@@ -754,6 +809,28 @@ class EditorSession:
                 keys.append(key.lower())
         return keys
 
+    def plugin_ids(self, tag: str) -> set[str]:
+        """Every id (lower case) a tag has over the load order's plugins.
+
+        From the key index when it has every plugin as it now is - one query, where reading
+        the records of every plugin only to list their ids is minutes cold - else from the
+        records (which fill the index for next time).
+
+        Args:
+            tag: The tag.
+
+        Returns:
+            The ids.
+        """
+        if self._disk:
+            keys = self._disk.all_keys(self._plugin_paths(), tag)
+            if keys is not None:
+                return keys
+        have: set[str] = set()
+        for plugin in self.order:
+            have |= set(self._records(plugin, tag))
+        return have
+
     def _plugin_paths(self) -> list[Path]:
         """The load order's plugin files, in load order."""
         return [self._paths[name.lower()][1] for name in self.order]
@@ -841,11 +918,71 @@ class EditorSession:
         with ThreadPoolExecutor(max_workers=count, thread_name_prefix="wg-index") as pool:
             return sum(pool.map(one, todo))
 
-    def start_indexing(self, tags: Sequence[str] = ("CELL", "LAND")) -> None:
+    def ensure_index_many(
+        self, tags: Sequence[str], workers: int | None = None, per_read: int = 12
+    ) -> int:
+        """Index several tags' keys with one read of each plugin per group of tags.
+
+        :meth:`ensure_index` for one tag reads every plugin; for thirty tags that is thirty
+        reads of each. The native reader takes a list of tags and parses the file once for
+        all of them, so the tags go in groups (``per_read``: land and dialogue are large, so
+        not every tag at once). Only plugins not indexed as they now are, for the tags in
+        the group, are read. Off the Tk thread.
+
+        Args:
+            tags: The tags.
+            workers: How many plugins to read at once (None: about half the cores, to 8).
+            per_read: How many tags one read of a plugin serves.
+
+        Returns:
+            How many plugin reads were made.
+        """
+        if self._disk is None:
+            return 0
+        disk = self._disk
+        wanted = list(dict.fromkeys(t.upper().ljust(4, "_") for t in tags))
+        paths = self._plugin_paths()
+        reads = 0
+        for i in range(0, len(wanted), per_read):
+            group = wanted[i : i + per_read]
+            todo: dict[Path, list[str]] = {}
+            for tag in group:
+                for path in disk.missing_keys(paths, tag):
+                    todo.setdefault(path, []).append(tag)
+
+            def one(item: tuple[Path, list[str]], group: list[str] = group) -> bool:
+                """Read one plugin for its unindexed tags of the group and index their keys."""
+                path, need = item
+                if self._stop.is_set():
+                    return False
+                try:
+                    recs = self._read_tags(path, need)
+                except (OSError, ValueError) as exc:
+                    LOG.warning("editor: cannot index %s: %s", path, exc)
+                    return False
+                for tag in need:
+                    disk.put_keys(path, tag, self._keys_of(recs, tag))
+                return True
+
+            count = workers if workers is not None else min(8, max(1, (os.cpu_count() or 2) // 2))
+            if count <= 1 or len(todo) <= 1:
+                reads += sum(one(item) for item in todo.items())
+            else:
+                with ThreadPoolExecutor(max_workers=count, thread_name_prefix="wg-index") as pool:
+                    reads += sum(pool.map(one, todo.items()))
+        return reads
+
+    def _read_tags(self, path: Path, tags: Sequence[str]) -> list[dict[str, Any]]:
+        """A plugin's records of several tags: one native pass, or one read per tag."""
+        if self._read is _native_read:
+            return _native_read_many(path, tags)
+        return [rec for tag in tags for rec in self._read(path, tag)]
+
+    def start_indexing(self, tags: Sequence[str] = INDEXED_TAGS) -> None:
         """Index the load order's keys in the background (once per session).
 
-        So that by the time a cell is made or a record looked up, "does the load order have
-        it" is a query and not a read of every plugin.
+        So that by the time a cell is made, a record looked up or Verify run, "does the load
+        order have it" is a query and not a read of every plugin.
 
         Args:
             tags: The tags to index.
@@ -854,11 +991,10 @@ class EditorSession:
             return
 
         def run() -> None:
-            """Index each tag in turn; a failure is logged and the lookup reads instead."""
+            """Index the tags; a failure is logged and the lookups read instead."""
             try:
-                for tag in tags:
-                    # Half the usual width: the viewer and the editor's own requests share the cores.
-                    self.ensure_index(tag, max(1, min(8, (os.cpu_count() or 2) // 2) // 2))
+                # Half the usual width: the viewer and the editor's own requests share the cores.
+                self.ensure_index_many(tags, max(1, min(8, (os.cpu_count() or 2) // 2) // 2))
             except Exception:
                 LOG.exception("editor: indexing the load order's keys failed")
 
@@ -1059,16 +1195,29 @@ class EditorSession:
             "wins"}], "live", "cells"}`` - ``live`` the uses in versions the load order
             uses, ``cells`` the references placed.
         """
-        from wraithguard.patch.uses import native_use_report, use_report
+        from wraithguard.patch.uses import Use, native_use_report, use_report
 
         plugins = [self._paths[n.lower()] for n in self.order]
-        found_uses = (
-            native_use_report(plugins, found.record_type, found.key)
-            if self._read_all is _native_read_all
-            else None
-        )
+        # Every plugin is scanned for the id, which depends on the plugins alone: kept for
+        # the load order as it is (any plugin changing, or the order, makes it a new one).
+        sig = self._disk.load_order_signature([p for _n, p in plugins]) if self._disk else None
+        kind, want = f"uses:{found.record_type}", found.key.lower()
+        kept = self._disk.get_report(sig, kind, want) if self._disk and sig else None
+        found_uses: list[Use] | None = [Use(*row) for row in kept] if kept is not None else None
         if found_uses is None:
-            found_uses = use_report(plugins, self._read_all, found.record_type, found.key)
+            found_uses = (
+                native_use_report(plugins, found.record_type, found.key)
+                if self._read_all is _native_read_all
+                else None
+            )
+            if found_uses is None:
+                found_uses = use_report(plugins, self._read_all, found.record_type, found.key)
+            if self._disk and sig:
+                spent = [
+                    (u.plugin, u.record_type, u.key, list(u.paths), u.count, u.wins)
+                    for u in found_uses
+                ]
+                self._disk.put_report(sig, kind, want, spent)
         rows = [
             {
                 "plugin": u.plugin,

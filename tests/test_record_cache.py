@@ -344,3 +344,152 @@ def test_dialogue_and_masters_come_from_the_cache_in_a_second_session(tmp_path: 
             assert s._dialogue("a.esm") == [topic]
             s._masters_of("a.esm")
     assert sorted(reads) == ["DIAL+INFO", "TES3"]  # read once, not once per run
+
+
+def _weapon_session(tmp_path: Path, plugin: Path, calls: dict[str, int], cache: RecordCache):
+    sword = {"type": "Weapon", "id": "iron sword", "data": {"weight": 1.0}}
+    holder = {"type": "LeveledItem", "id": "l_loot", "items": [["iron sword", 1]]}
+
+    def read(path: Path, tag: str) -> list[dict[str, Any]]:
+        calls["read"] += 1
+        return [sword] if tag == "WEAP" else []
+
+    def read_all(path: Path) -> list[dict[str, Any]]:
+        calls["all"] += 1
+        return [sword, holder]
+
+    return EditorSession(
+        [("a.esm", plugin)], PatchQueue(), read=read, read_all=read_all, disk_cache=cache
+    )
+
+
+def test_a_use_report_is_kept_until_a_plugin_changes(tmp_path: Path) -> None:
+    plugin = _plugin(tmp_path, "a.esm")
+    db = tmp_path / "c.sqlite3"
+    calls = {"read": 0, "all": 0}
+    answers = []
+    for _run in range(2):
+        with RecordCache(db) as cache:
+            s = _weapon_session(tmp_path, plugin, calls, cache)
+            found = s.find("WEAP", "iron sword")
+            assert found is not None
+            answers.append(s.uses(found))
+    assert calls["all"] == 1  # the second run scanned nothing
+    assert answers[0] == answers[1]
+    assert [u["key"] for u in answers[0]["uses"]] == ["l_loot"]
+    plugin.write_bytes(b"x" * 99)  # the plugin changed: the report is not the same load order's
+    with RecordCache(db) as cache:
+        s = _weapon_session(tmp_path, plugin, calls, cache)
+        found = s.find("WEAP", "iron sword")
+        assert found is not None
+        s.uses(found)
+    assert calls["all"] == 2
+
+
+def test_the_ids_of_a_tag_come_from_the_index_in_a_second_session(tmp_path: Path) -> None:
+    plugin = _plugin(tmp_path, "a.esm")
+    db = tmp_path / "c.sqlite3"
+    calls = {"read": 0, "all": 0}
+    for run in range(2):
+        with RecordCache(db) as cache:
+            s = _weapon_session(tmp_path, plugin, calls, cache)
+            assert s.plugin_ids("WEAP") == {"iron sword"}
+        if run == 0:
+            assert calls["read"] >= 1
+    first = calls["read"]
+    with RecordCache(db) as cache:
+        s = _weapon_session(tmp_path, plugin, calls, cache)
+        assert s.plugin_ids("WEAP") == {"iron sword"}
+    assert calls["read"] == first  # a later run read no plugin for its ids
+
+
+def test_a_load_order_signature_follows_order_and_content(tmp_path: Path) -> None:
+    a, b = _plugin(tmp_path, "a.esm"), _plugin(tmp_path, "b.esp")
+    sig = RecordCache.load_order_signature
+    assert sig([a, b]) == sig([a, b])
+    assert sig([a, b]) != sig([b, a])  # which wins depends on the order
+    assert sig([a, tmp_path / "gone.esp"]) is None  # a plugin that cannot be seen: not cached
+
+
+def test_reports_of_an_older_load_order_go_when_a_new_one_is_kept(tmp_path: Path) -> None:
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        cache.put_report("old", "uses:Weapon", "sword", [("a.esm", "Weapon", "x", [], 1, True)])
+        assert cache.get_report("old", "uses:Weapon", "sword") is not None
+        cache.put_report("new", "uses:Weapon", "sword", [])
+        assert cache.get_report("old", "uses:Weapon", "sword") is None
+        assert cache.get_report("new", "uses:Weapon", "sword") == []
+
+
+def test_reports_are_capped_by_count_not_by_plugin_count(tmp_path: Path) -> None:
+    import wraithguard.patch.recordcache as rc
+
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        for i in range(rc._REPORTS_KEPT + 5):
+            cache.put_report("sig", "uses:Weapon", f"k{i}", [])
+        assert cache.get_report("sig", "uses:Weapon", "k0") is None  # the oldest went
+        assert cache.get_report("sig", "uses:Weapon", f"k{rc._REPORTS_KEPT + 4}") == []
+
+
+def test_several_tags_are_indexed_with_one_pass_per_plugin_group(tmp_path: Path) -> None:
+    contents = {"a.esm": [_cell("Vault", interior=True)], "b.esp": [_cell(grid=(2, 3))]}
+    s = _session(tmp_path, contents, [])
+    assert s.ensure_index_many(("CELL", "GLOB", "SCPT"), workers=1) == 2
+    assert s.holders("CELL", "vault") == ["a.esm"]
+    assert s.holders("GLOB", "anything") == []  # indexed (empty), so the answer is "none"
+    assert s.holders("SCPT", "anything") == []
+    assert s.ensure_index_many(("CELL", "GLOB", "SCPT"), workers=1) == 0  # nothing left to read
+
+
+def test_verify_asks_the_index_for_ids_after_one_pass(tmp_path: Path) -> None:
+    reads: list[str] = []
+    s = _session(tmp_path, {"a.esm": [_cell("Vault", interior=True)]}, reads)
+    s.ensure_index_many(("CELL",), workers=1)
+    reads.clear()
+    assert s.plugin_ids("CELL") == {"vault"}
+    assert reads == []
+
+
+def test_over_its_size_the_cache_drops_the_largest_tags_bodies_and_keeps_the_keys(
+    tmp_path: Path,
+) -> None:
+    import os
+
+    a, b = _plugin(tmp_path, "a.esm"), _plugin(tmp_path, "b.esp")
+    with RecordCache(tmp_path / "c.sqlite3", max_bytes=250_000) as cache:
+        cache.put(a, "LAND", [os.urandom(200_000)], keys=["(0, 0)"])
+        assert cache.get(a, "LAND") is not None
+        cache.put(b, "CELL", [os.urandom(100_000)], keys=["vault"])
+        assert cache.get(a, "LAND") is None  # the largest tag's bodies went
+        assert cache.get(b, "CELL") is not None  # the one just written was spared
+        assert cache.holders([a], "LAND", "(0, 0)") == [a]  # its keys stayed
+        assert cache.size_bytes() <= 250_000 + 65_536
+
+
+def test_two_caches_on_one_file_do_not_lose_each_others_writes(tmp_path: Path) -> None:
+    import threading
+
+    db = tmp_path / "c.sqlite3"
+    plugins = [_plugin(tmp_path, f"p{i}.esp") for i in range(40)]
+    errors: list[BaseException] = []
+
+    def work(cache: RecordCache, mine: list[Path]) -> None:
+        try:
+            for p in mine:
+                cache.put_keys(p, "CELL", [p.stem])
+                cache.holders(mine, "CELL", p.stem)
+        except BaseException as exc:  # noqa: BLE001 - the point is that none escapes
+            errors.append(exc)
+
+    with RecordCache(db) as first, RecordCache(db) as second:
+        threads = [
+            threading.Thread(target=work, args=(first, plugins[0::2])),
+            threading.Thread(target=work, args=(second, plugins[1::2])),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+    assert errors == []
+    with RecordCache(db) as third:
+        assert third.holders(plugins, "CELL", "p7") == [plugins[7]]
+        assert third.missing_keys(plugins, "CELL") == []

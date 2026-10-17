@@ -652,9 +652,7 @@ def verify(
     def ids_of(tag: str) -> set[str]:
         """Every id of a tag: the plugins' and the patch's own."""
         if tag not in known:
-            have: set[str] = set()
-            for plugin in session.order:
-                have |= set(session._records(plugin, tag))
+            have = set(session.plugin_ids(tag))
             have |= {m.key.lower() for m in session.queue.new_records if _tag(m.record_type) == tag}
             known[tag] = have
         return known[tag]

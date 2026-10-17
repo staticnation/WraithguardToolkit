@@ -857,9 +857,12 @@ class EditorLinkMixin:
         Returns:
             :func:`.verify.verify`, as JSON.
         """
+        from wraithguard.patch.editor import INDEXED_TAGS
         from wraithguard.patch.verify import verify
 
-        return self._json(verify(self._editor(), self._vfs_exists()))
+        session = self._editor()
+        session.ensure_index_many(INDEXED_TAGS)  # the ids it looks up: one pass, then queries
+        return self._json(verify(session, self._vfs_exists()))
 
     def _vfs_exists(self) -> Callable[[str], bool] | None:
         """``(vfs path) -> bool`` over the load order's data folders and their archives.

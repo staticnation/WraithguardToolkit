@@ -19,6 +19,7 @@ Copyright (c) 2026 StaticNation, GPL-2.0.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import logging
 import os
 import pickle
@@ -37,7 +38,17 @@ LOG = logging.getLogger(__name__)
 SCHEMA: Final = 2
 
 #: The tables that hold what the native reader made of the plugins (emptied together).
-_DERIVED: Final = ("records", "keys", "key_stamps")
+_DERIVED: Final = ("records", "keys", "key_stamps", "reports")
+
+#: Reports kept for the load order as it is (the oldest go first). One report per record
+#: looked at, whatever the number of plugins; a report for any other load order is useless
+#: and goes as soon as a new one is kept.
+_REPORTS_KEPT: Final = 2000
+
+#: How much of the file the record bodies may take before the largest tag's go (they are
+#: read again when needed; the key index, which is small, stays). Land and dialogue are the
+#: large ones.
+MAX_BYTES: Final = 1 << 30
 
 #: Plugins asked about in one SQL statement (SQLite's limit on parameters is far above).
 _CHUNK: Final = 400
@@ -91,14 +102,16 @@ class RecordCache:
     One connection is shared by every thread (the editor reads from several), under a lock.
     """
 
-    def __init__(self, path: Path, parser: str = "") -> None:
+    def __init__(self, path: Path, parser: str = "", max_bytes: int = MAX_BYTES) -> None:
         """Remember where the database is; it is opened on first use.
 
         Args:
             path: The database file (created when needed).
             parser: Which build of the native reader the records are made by
                 (:func:`parser_signature`); a database made by another is emptied.
+            max_bytes: The size the database may reach before record bodies are dropped.
         """
+        self.max_bytes = max_bytes
         self.path = path
         self.parser = parser
         self._lock = threading.Lock()
@@ -143,6 +156,10 @@ class RecordCache:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS key_stamps (plugin TEXT NOT NULL, tag TEXT NOT NULL,"
                 " size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, PRIMARY KEY (plugin, tag))"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS reports (sig TEXT NOT NULL, kind TEXT NOT NULL,"
+                " key TEXT NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sig, kind, key))"
             )
             self._forget_missing(conn)
             conn.commit()
@@ -237,8 +254,52 @@ class RecordCache:
                 if keys is not None:
                     self._write_keys(conn, key, tag, size, mtime, keys)
                 conn.commit()
+                self._trim(conn, keep=tag)
             except sqlite3.Error as exc:
                 LOG.warning("editor: record cache write failed: %s", exc)
+
+    @staticmethod
+    def _used(conn: sqlite3.Connection) -> int:
+        """The bytes of the database in use (free pages not counted)."""
+        pages = conn.execute("PRAGMA page_count").fetchone()[0]
+        free = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        size = conn.execute("PRAGMA page_size").fetchone()[0]
+        return int((pages - free) * size)
+
+    def _trim(self, conn: sqlite3.Connection, keep: str = "") -> None:
+        """Past the size limit, drop the record bodies of the tag that takes most.
+
+        The key index stays (it is small and answers most lookups); a dropped tag is read
+        from the plugins again when something asks for its records. The tag just written is
+        spared while another can go, so a cache cannot empty the thing it was asked to keep.
+        """
+        dropped = 0
+        while self._used(conn) > self.max_bytes:
+            rows = conn.execute(
+                "SELECT tag FROM records GROUP BY tag ORDER BY SUM(LENGTH(data)) DESC"
+            ).fetchall()
+            order = [r[0] for r in rows if r[0] != keep] or [r[0] for r in rows]
+            if not order or dropped > 64:
+                break
+            conn.execute("DELETE FROM records WHERE tag=?", (order[0],))
+            conn.commit()
+            dropped += 1
+            LOG.info(
+                "editor: record cache over %d bytes: dropped the %s records",
+                self.max_bytes,
+                order[0],
+            )
+
+    def size_bytes(self) -> int:
+        """The bytes of the database in use (0 when the cache is out)."""
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return 0
+            try:
+                return self._used(conn)
+            except sqlite3.Error:
+                return 0
 
     @staticmethod
     def _write_keys(
@@ -350,6 +411,116 @@ class RecordCache:
                 return None
         return [p for p, name in stamped if name in found]
 
+    def all_keys(self, plugins: Sequence[Path], tag: str) -> set[str] | None:
+        """Every key of a tag over these plugins, from the index.
+
+        Args:
+            plugins: The load order's plugin files.
+            tag: The four-letter tag.
+
+        Returns:
+            The keys (lower case), or None when the index cannot answer (some plugin is
+            not indexed as it now is, or the cache is out).
+        """
+        stale = self._stale_of(plugins, tag)
+        if stale is None or stale:
+            return None
+        names = [st[0] for p in plugins if (st := _stamp(p)) is not None]
+        out: set[str] = set()
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return None
+            try:
+                for i in range(0, len(names), _CHUNK):
+                    part = names[i : i + _CHUNK]
+                    marks = ",".join("?" * len(part))
+                    out.update(
+                        row[0]
+                        for row in conn.execute(
+                            "SELECT DISTINCT key FROM keys"  # noqa: S608 - marks only
+                            f" WHERE tag=? AND plugin IN ({marks})",
+                            [tag, *part],
+                        )
+                    )
+            except sqlite3.Error:
+                return None
+        return out
+
+    @staticmethod
+    def load_order_signature(plugins: Sequence[Path]) -> str | None:
+        """One text for a load order: which plugins, in what order, as they now are.
+
+        Args:
+            plugins: The plugin files, in load order.
+
+        Returns:
+            A hash of every plugin's path, size and time, or None when one cannot be
+            looked at (nothing is then cached under it).
+        """
+        digest = hashlib.sha256()
+        for plugin in plugins:
+            stamp = _stamp(plugin)
+            if stamp is None:
+                return None
+            digest.update(repr(stamp).encode())
+        return digest.hexdigest()
+
+    def get_report(self, sig: str, kind: str, key: str) -> list[Any] | None:
+        """A report kept for a load order (:meth:`load_order_signature`).
+
+        Args:
+            sig: The load order's signature.
+            kind: What the report is (``uses:Weapon``).
+            key: What it is about (a record's key, lower case).
+
+        Returns:
+            What was kept, or None.
+        """
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return None
+            try:
+                row = conn.execute(
+                    "SELECT data FROM reports WHERE sig=? AND kind=? AND key=?", (sig, kind, key)
+                ).fetchone()
+                out = None if row is None else pickle.loads(zlib.decompress(row[0]))  # noqa: S301
+            except (sqlite3.Error, zlib.error, pickle.UnpicklingError, EOFError, ValueError):
+                return None
+        return out if isinstance(out, list) else None
+
+    def put_report(self, sig: str, kind: str, key: str, value: list[Any]) -> None:
+        """Keep a report for a load order; the oldest are dropped past a limit.
+
+        Args:
+            sig: The load order's signature.
+            kind: What the report is.
+            key: What it is about.
+            value: The report (anything that pickles).
+        """
+        try:
+            blob = zlib.compress(pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL), 3)
+        except (pickle.PicklingError, TypeError, AttributeError):
+            return
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO reports VALUES (?, ?, ?, ?)", (sig, kind, key, blob)
+                )
+                conn.execute("DELETE FROM reports WHERE sig != ?", (sig,))
+                conn.execute(
+                    "DELETE FROM reports WHERE rowid IN"
+                    " (SELECT rowid FROM reports ORDER BY rowid DESC LIMIT -1 OFFSET ?)",
+                    (_REPORTS_KEPT,),
+                )
+                conn.commit()
+            except sqlite3.Error as exc:
+                LOG.warning("editor: report cache write failed: %s", exc)
+
     def clear(self) -> None:
         """Forget everything cached."""
         with self._lock:
@@ -360,6 +531,7 @@ class RecordCache:
                 conn.execute("DELETE FROM records")
                 conn.execute("DELETE FROM keys")
                 conn.execute("DELETE FROM key_stamps")
+                conn.execute("DELETE FROM reports")
                 conn.commit()
             except sqlite3.Error:
                 return

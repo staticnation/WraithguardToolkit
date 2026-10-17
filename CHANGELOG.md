@@ -11,6 +11,15 @@
   cache; a plugin that changed is read again, and a cache made by another build of the
   native reader is emptied, so it is never wrong, only sometimes empty. A cache that cannot
   be opened is skipped, never an error.
+- **The Editor answers "does the load order have this?" without reading every plugin.** A key
+  index in the same cache says which plugins have a cell, an id or a square's land, so a new
+  cell or new land, Verify's id checks and a cell's plugin list are one query. It is filled in
+  the background (several plugins at once, one pass per plugin for all the tags Verify asks
+  about) and before a Verify or a new cell asks, off the window's thread. A new cell or land
+  checks the viewer's own cell list first, so it no longer waits on a scan of every plugin.
+- **The Use Report is kept** for the load order as it is: a second click on the same record
+  scans no plugin, and any plugin or order change starts it fresh. The cache has a size limit
+  (the largest tag's record bodies go first; the key index stays).
 
 ### Changed
 

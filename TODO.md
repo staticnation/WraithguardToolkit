@@ -87,10 +87,11 @@ plugin's size and time are unchanged. What else should be kept there, in the ord
 
 - Done, to move to the CHANGELOG with the next release: the parser guard (a cache made by
   another build of the native reader is emptied), dialogue, and plugin headers/masters.
-- The Use Report: cache the result by record type and key under a signature of every
-  plugin's size and time (any plugin change invalidates it). Every click scans all plugin
-  bytes today.
-- Verify: derived from all plugins, so cacheable under the same load-order signature.
+- Done, to move to the CHANGELOG with the next release: the Use Report (the result is kept by
+  record type and key under a signature of every plugin's size and time, so any plugin or
+  order change makes it a new report) and Verify's id lookups (every id of a tag comes from
+  the key index in one query instead of reading every plugin's records). Verify's findings
+  themselves are not cached: they depend on the patch, which changes with every edit.
 - "Search all fields": an FTS5 index of the plugins' own fields, with the patch's pending
   edits layered over the hits at query time.
 - Load-order tooling outside the editor (per-plugin headers, record counts, conflict sets
