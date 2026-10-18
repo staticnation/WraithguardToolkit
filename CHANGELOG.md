@@ -11,10 +11,6 @@
   cache; a plugin that changed is read again, and a cache made by another build of the
   native reader is emptied, so it is never wrong, only sometimes empty. A cache that cannot
   be opened is skipped, never an error.
-- **The first Check Conflicts after launch no longer reads every plugin again.** The native
-  session keeps each plugin's record keys and cells in the record cache between runs (valid
-  while the plugin's size and time and the native reader are unchanged); a plugin that failed
-  to read is tried again, not remembered.
 - **The Editor answers "does the load order have this?" without reading every plugin.** A key
   index in the same cache says which plugins have a cell, an id or a square's land, so a new
   cell or new land, Verify's id checks and a cell's plugin list are one query. It is filled in
@@ -29,6 +25,13 @@
   its columns (every plugin's records of that type) and the answers queued behind each other
   until they timed out; the rows now show at once, and only the tab that is stopped on asks.
   The background indexing also waits for a request the viewer is waiting on, between plugins.
+- **Opening a record or quest from the viewer's inspector no longer reports an error.** The
+  conflict viewer answers the click with the text `ok`; the page read every answer as JSON and
+  said the engine's answer did not read, though the conflict viewer had opened.
+- **Two Wraithguards (or two caches) opening the cache file at the same moment no longer lose it.**
+  The one that set the file up could be refused at once with "database is locked", after which
+  its cache was off for the whole session and its writes were dropped; setup now waits its turn,
+  and a lock is never taken for a cache that cannot work.
 - **A viewer that hangs up no longer fills the console with tracebacks.** An aborted or reset
   connection (the viewer's own timeout, or closing its window) is not an error on the editor's side.
 - **The cache file is rewritten smaller when the app closes** if more than half of it is free

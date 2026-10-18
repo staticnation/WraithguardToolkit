@@ -831,3 +831,34 @@ def test_the_cache_stats_tool_reads_the_current_schema(tmp_path: Path) -> None:
     )
     assert out.returncode == 0, out.stderr
     assert "a.esm" in out.stdout and "Traceback" not in out.stderr
+
+
+def test_many_caches_opening_one_fresh_file_at_once_all_get_it(tmp_path: Path) -> None:
+    """Setting the file up from several threads together (two Wraithguards starting at once)."""
+    import threading
+
+    db = tmp_path / "c.sqlite3"
+    plugins = [_plugin(tmp_path, f"p{i}.esp") for i in range(24)]
+    caches = [RecordCache(db) for _ in range(6)]
+    results: list[bool] = []
+    barrier = threading.Barrier(len(caches))
+
+    def work(cache: RecordCache, mine: list[Path]) -> None:
+        barrier.wait()  # all open the empty file in the same instant
+        for p in mine:
+            cache.put_keys(p, "CELL", [p.stem])
+        results.append(cache.holders(mine, "CELL", mine[0].stem) == [mine[0]])
+
+    threads = [
+        threading.Thread(target=work, args=(c, plugins[i :: len(caches)]))
+        for i, c in enumerate(caches)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    for c in caches:
+        c.close()
+    assert results == [True] * len(caches)  # none was left without its cache
+    with RecordCache(db) as last:
+        assert last.missing_keys(plugins, "CELL") == []  # and none of the writes was lost

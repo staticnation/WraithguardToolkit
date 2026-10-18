@@ -120,15 +120,9 @@ answers as the scan - tested against it).
   decoded plugin each).
 - "Search all fields": an FTS5 index of the plugins' own fields, with the patch's pending
   edits layered over the hits at query time.
-- Load-order tooling outside the editor: read, and mostly already fast. The conflict scan
-  (`_scan_touch`) reads each plugin's keys through the session: tes3conv has its sidecar files,
-  and the native session computes them in Rust and keeps them in memory per run. Done: the native
-  session also keeps each plugin's keys and cells in the record cache (tag `~KC`), so the first
-  scan after launch reads no plugin that has not changed. Not done: the built-in Python parser
-  path (`parse_plugin_records`, used only without the native backend) is uncached; the cell
-  map's and the Patch Builder's own reads were not looked at; the sort/mlox side was not looked
-  at at all (rules are text, not plugins). Measure the first conflict scan after launch before
-  and after.
+- Load-order tooling outside the editor (per-plugin headers, record counts, conflict sets
+  for the Patch Builder and the conflict viewer): read that code first, probably a large
+  win, the same hundreds of plugins.
 - The viewer engine (Rust): the world's read (5 s), parse (8.7 s) and merge (54 s) and the
   205,535-file index (4 s) in a 621-plugin load order. The biggest time and the riskiest:
   a stale cache there draws a wrong scene, so it needs invalidation on the whole load

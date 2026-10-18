@@ -26,6 +26,7 @@ import os
 import pickle
 import sqlite3
 import threading
+import time
 import zlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -61,6 +62,9 @@ MAX_BYTES: Final = 1 << 30
 
 #: The pseudo-tag the use-report index is stamped under (in ``key_stamps``).
 _USES_TAG: Final = "~USE"
+
+#: Times to open the file again when another connection is setting it up.
+_OPEN_TRIES: Final = 12
 
 #: Plugins asked about in one SQL statement (SQLite's limit on parameters is far above).
 _CHUNK: Final = 400
@@ -131,17 +135,48 @@ class RecordCache:
         self._dead = False
 
     def _db(self) -> sqlite3.Connection | None:
-        """The open connection, made on first use; None when the cache cannot be had."""
+        """The open connection, made on first use; None when the cache cannot be had.
+
+        Another connection setting the file up at the same moment (a second Wraithguard, or
+        a second cache over the same file) is waited for and tried again; only a failure that
+        waiting cannot cure (not a database, no permission) ends the cache for good.
+        """
         if self._dead:
             return None
         if self._conn is not None:
             return self._conn
+        delay = 0.05
+        for attempt in range(_OPEN_TRIES):
+            try:
+                self._conn = self._open()
+            except sqlite3.OperationalError as exc:
+                text = str(exc).lower()
+                if ("locked" in text or "busy" in text) and attempt + 1 < _OPEN_TRIES:
+                    time.sleep(delay)
+                    delay = min(delay * 2, 1.0)
+                    continue
+                LOG.warning("editor: record cache unavailable (%s): %s", self.path, exc)
+                self._dead = not ("locked" in text or "busy" in text)  # a lock is for now
+                return None
+            except (sqlite3.Error, OSError) as exc:
+                LOG.warning("editor: record cache unavailable (%s): %s", self.path, exc)
+                self._dead = True
+                return None
+            return self._conn
+        return None
+
+    def _open(self) -> sqlite3.Connection:
+        """Open the file and make it ready (raises; the half-made connection is closed)."""
         conn: sqlite3.Connection | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(self.path, timeout=5.0, check_same_thread=False)
+            conn = sqlite3.connect(self.path, timeout=30.0, check_same_thread=False)
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
+            # The one that sets the file up takes the write lock first (and waits for the others
+            # to finish theirs), then looks at what is there: a read followed by a write under a
+            # deferred transaction is refused at once when another connection wrote in between.
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER)")
             row = conn.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
             made = conn.execute("SELECT v FROM meta WHERE k='parser'").fetchone()
@@ -191,15 +226,12 @@ class RecordCache:
             )
             self._forget_missing(conn)
             conn.commit()
-        except (sqlite3.Error, OSError) as exc:
-            LOG.warning("editor: record cache unavailable (%s): %s", self.path, exc)
-            self._dead = True
+        except BaseException:
             if conn is not None:
-                # Opened, then refused (a file that is not a database): do not leave it open.
+                # Opened, then refused (a file that is not a database, a lock): do not leave it open.
                 with contextlib.suppress(sqlite3.Error):
                     conn.close()
-            return None
-        self._conn = conn
+            raise
         return conn
 
     @staticmethod
