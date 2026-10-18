@@ -205,6 +205,8 @@ async function openInstallRun(kind, path, profile, plugins){
   App.connectLog=[
     {k:'ok', t:T('connect.log_plugins',{plugins:r.plugins, size:mb(r.bytes), records:r.records})},
     {k:'ok', t:T('connect.log_times',{read:r.msRead, parse:r.msParse, merge:r.msMerge})},
+    // Wraithguard: what the merge's time is made of (an older engine does not say).
+    ...(r.msMergeLoop==null? [] : [{k:'ok', t:T('connect.log_merge_split',{loop:r.msMergeLoop, wait:r.msGeomWait})}]),
     /* Round 18cr: the overlay's own steps, and the page's. Robin: start-up "feels a bit
        slow", and the line above was the only clock on it. `ct.scene` is filled in when
        the first scene stands (below), so the line is built then. */

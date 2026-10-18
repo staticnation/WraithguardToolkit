@@ -1227,6 +1227,13 @@ pub struct LoadStats {
     pub ms_read: u128,
     pub ms_parse: u128,
     pub ms_merge: u128,
+    /// Wraithguard: `ms_merge` is the merge loop and the wait for the read of the meshes'
+    /// geometry that runs beside it (the step ends when both are done), so one number cannot
+    /// say which is long. These split it: how long the loop alone took (from the merge's start
+    /// to its last plugin), and how long the loop then waited on the mesh read. A wait near
+    /// zero means the loop is the bound; a long one, the mesh read is.
+    pub ms_merge_loop: u128,
+    pub ms_geometry_wait: u128,
     pub ms_meshes: u128,
 }
 
@@ -1429,6 +1436,8 @@ impl World {
         /* The superset's reads, started here and collected after the merge. A scoped
            thread rather than the pool directly: the pool would block this thread, and
            the merge is what this thread is for. Inside, `par_map` owns the machine. */
+        let mut ms_merge_loop: u128 = 0;
+        let mut ms_geometry_wait: u128 = 0;
         let pre: HashMap<String, GeomRead> = std::thread::scope(|sc| {
             let reader = (!pre_list.is_empty()).then(|| {
                 let (pa, pl) = (&pre_anim, &pre_list);
@@ -1894,13 +1903,17 @@ impl World {
                 }
             }
         }
-            match reader {
+            ms_merge_loop = t2.elapsed().as_millis();
+            let t_wait = std::time::Instant::now();
+            let got = match reader {
                 Some(h) => match h.join() {
                     Ok(v) => pre_list.iter().map(|m| m.to_ascii_lowercase()).zip(v).collect(),
                     Err(_) => HashMap::new(),   // a panic in a read: read again below
                 },
                 None => HashMap::new(),
-            }
+            };
+            ms_geometry_wait = t_wait.elapsed().as_millis();
+            got
         });
         /* Round 18ez: which of the meshes the load order draws have a `.kf` beside them.
            One resolve per distinct mesh, against the overlay's index. */
@@ -1924,6 +1937,8 @@ impl World {
         w.stats.cells = w.cells.len();
         w.stats.lands = w.lands.len();
         w.stats.ms_merge = t2.elapsed().as_millis();
+        w.stats.ms_merge_loop = ms_merge_loop;
+        w.stats.ms_geometry_wait = ms_geometry_wait;
         // Round 18ax: every leveled list draws as its creatures' one mesh, or the marker.
         crate::records::resolve_leveled(&mut w.objects);
 

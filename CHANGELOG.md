@@ -11,6 +11,9 @@
   cache; a plugin that changed is read again, and a cache made by another build of the
   native reader is emptied, so it is never wrong, only sometimes empty. A cache that cannot
   be opened is skipped, never an error.
+- **The connect log splits the merge's time.** One more line says how long the merge of the
+  plugins took on its own and how long it then waited on the read of the meshes' geometry
+  that runs beside it, so the long step of opening a big install can be told apart.
 - **The Editor answers "does the load order have this?" without reading every plugin.** A key
   index in the same cache says which plugins have a cell, an id or a square's land, so a new
   cell or new land, Verify's id checks and a cell's plugin list are one query. It is filled in
