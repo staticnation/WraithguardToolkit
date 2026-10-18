@@ -49,6 +49,7 @@ def main() -> int:
             "keys",
             "key_stamps",
             "uses",
+            "use_records",
             "use_plugins",
             "reports",
         ):
@@ -68,7 +69,8 @@ def main() -> int:
             con.execute("SELECT COUNT(*) FROM key_stamps WHERE tag='~USE'").fetchone()[0],
         )
         top = con.execute(
-            "SELECT p.plugin, COUNT(*) FROM uses u JOIN use_plugins p ON p.pid=u.pid GROUP BY u.pid ORDER BY 2 DESC LIMIT 5"
+            "SELECT p.plugin, COUNT(*) FROM uses u JOIN use_records r ON r.rid=u.rid"
+            " JOIN use_plugins p ON p.pid=r.pid GROUP BY r.pid ORDER BY 2 DESC LIMIT 5"
         ).fetchall()
         print("biggest plugins in the use index (rows):")
         for plugin, n in top:

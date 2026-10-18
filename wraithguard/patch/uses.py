@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 from wraithguard.patch.records import record_key
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Sequence
     from pathlib import Path
 
 #: Record types whose text is source code naming ids as words.
@@ -121,6 +121,34 @@ def uses_in(
     return out
 
 
+def script_hits(
+    plugin: Path, records: Iterable[dict[str, Any]], want: str
+) -> list[tuple[Path, str, str, list[str], int]]:
+    """The scripts that have an id as words in their text, as :func:`uses_in` counts them.
+
+    For an id the use-report index cannot answer the script part of (it has a space or a
+    dash, so it is not one word); the strings equal to it still come from the index.
+
+    Args:
+        plugin: The plugin file the records are of.
+        records: Its script records.
+        want: The id, lower case.
+
+    Returns:
+        ``(plugin, "Script", key, ["text"], hits)`` per script with at least one hit.
+    """
+    word = re.compile(rf"(?<![\w]){re.escape(want)}(?![\w])", re.IGNORECASE)
+    out: list[tuple[Path, str, str, list[str], int]] = []
+    for rec in records:
+        if rec.get("type") not in _SCRIPT_TYPES:
+            continue
+        text = rec.get("text")
+        hits = len(word.findall(text)) if isinstance(text, str) else 0
+        if hits:
+            out.append((plugin, "Script", record_key(rec), ["text"], hits))
+    return out
+
+
 def use_report(
     plugins: Sequence[tuple[str, Path]],
     read: Callable[[Path], list[dict[str, Any]]],
@@ -191,4 +219,4 @@ def native_use_report(
     ]
 
 
-__all__ = ["Use", "native_use_report", "use_report", "uses_in"]
+__all__ = ["Use", "native_use_report", "script_hits", "use_report", "uses_in"]

@@ -28,6 +28,7 @@ to make it serve something it should not:
 from __future__ import annotations
 
 import secrets
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -43,6 +44,33 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
 LOG = get_logger(__name__)
+
+#: Windows socket errors for a peer that went away (aborted, reset, shut down): the viewer
+#: closed the request - it timed out, or the window was closed - before the answer was written.
+_PEER_GONE = frozenset({10053, 10054, 10058})
+
+
+class _QuietServer(ThreadingHTTPServer):
+    """The threading server that does not print a traceback when the viewer hangs up.
+
+    ``socketserver`` prints the traceback of anything that escapes a request thread. A client
+    that abandons a request (the viewer's own timeout, or closing the window) makes the write of
+    the answer, or the read of the next request, raise ``ConnectionAbortedError`` or
+    ``ConnectionResetError``: nothing is wrong on this side, and a screenful of tracebacks hides
+    the errors that are.
+    """
+
+    def handle_error(self, request: object, client_address: object) -> None:
+        """Say nothing of a peer that is gone; anything else prints as before."""
+        exc = sys.exc_info()[1]
+        gone = isinstance(exc, ConnectionError | TimeoutError) or (
+            isinstance(exc, OSError) and getattr(exc, "winerror", None) in _PEER_GONE
+        )
+        if gone:
+            LOG.debug("viewer link: the client went away (%s)", exc)
+            return
+        super().handle_error(request, client_address)  # type: ignore[arg-type]
+
 
 #: Loopback only. Spelled out rather than left to a default, because the
 #: difference between this and "" (all interfaces) is the whole security model.
@@ -164,6 +192,7 @@ class ViewerServer:
         self._lazy: dict[str, Callable[[], Payload | None]] = {}
         self._post_handlers: dict[str, Callable[[bytes], Payload]] = {}
         self._token = secrets.token_urlsafe(24)
+        self._active = 0  # POST handlers running now (see active_posts)
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
@@ -399,6 +428,10 @@ class ViewerServer:
             self._post_handlers[key] = handler
         return f"http://{_HOST}:{self.port}/{key}?t={self._token}"
 
+    def active_posts(self) -> int:
+        """How many POST handlers are running now: what the viewer is waiting on."""
+        return self._active
+
     def apply_post(self, key: str, token: str, body: bytes) -> Payload | None:
         """Run the POST handler registered at ``key`` on ``body``.
 
@@ -421,7 +454,13 @@ class ViewerServer:
             handler = self._post_handlers.get(key)
         if handler is None:
             return None
-        return handler(body)
+        with self._lock:
+            self._active += 1
+        try:
+            return handler(body)
+        finally:
+            with self._lock:
+                self._active -= 1
 
     def start(self) -> None:
         """Begin listening on an ephemeral loopback port.
@@ -433,7 +472,7 @@ class ViewerServer:
         if self._server is not None:
             return
         handler = _make_handler(self)
-        self._server = ThreadingHTTPServer((_HOST, 0), handler)
+        self._server = _QuietServer((_HOST, 0), handler)
         self._thread = threading.Thread(
             target=self._serve, args=(self._server,), name="mlox-viewer", daemon=True
         )

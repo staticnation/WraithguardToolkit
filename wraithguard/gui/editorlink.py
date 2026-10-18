@@ -180,6 +180,9 @@ class EditorLinkMixin:
             current = EditorSession(
                 plugins, self.patch_queue(), journal_path(), disk_cache=record_cache()
             )
+            viewer = getattr(self, "_link_server", None)
+            if viewer is not None:
+                current.foreground = viewer.active_posts  # the indexers give way to a click
             if current_before is not None:
                 current_before.close()  # the old setup's background indexing stops
             self._editor_session = current
@@ -196,7 +199,11 @@ class EditorLinkMixin:
         Returns:
             Link name -> URL, for the launch's extra file.
         """
-        self._editor_for(setup)
+        self._link_server = server  # the session asks it what is in flight
+        session = self._editor_for(setup)
+        active = getattr(server, "active_posts", None)  # a stand-in server may not count
+        if callable(active):
+            session.foreground = active
         return {
             "editRecord": server.register_post("wg_edit_record", self._on_edit_record),
             "editSet": server.register_post("wg_edit_set", self._on_edit_set),

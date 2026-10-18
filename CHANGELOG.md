@@ -17,6 +17,21 @@
   the background (several plugins at once, one pass per plugin for all the tags Verify asks
   about) and before a Verify or a new cell asks, off the window's thread. A new cell or land
   checks the viewer's own cell list first, so it no longer waits on a scan of every plugin.
+- **The Use Report's index takes about a third of the room.** Each record's plugin, type and key
+  were repeated on every string it holds, with an index of their own; they are kept once now and
+  the strings are one clustered table (a real 621-plugin load order had made it 763 MB). It is
+  rebuilt once on the first start after this version.
+- **Clicking down the Object Window's tabs no longer piles up requests.** Each tab asked for
+  its columns (every plugin's records of that type) and the answers queued behind each other
+  until they timed out; the rows now show at once, and only the tab that is stopped on asks.
+  The background indexing also waits for a request the viewer is waiting on, between plugins.
+- **A viewer that hangs up no longer fills the console with tracebacks.** An aborted or reset
+  connection (the viewer's own timeout, or closing its window) is not an error on the editor's side.
+- **The cache file is rewritten smaller when the app closes** if more than half of it is free
+  pages (rewrites of the index leave them behind; SQLite never gives them back by itself).
+- **The Use Report's index is built in the background right after the key index**, and an id
+  with a space or a dash is answered from it too (its strings from the index, its script words
+  from a search of the scripts' text only).
 - **The Use Report is kept** for the load order as it is: a second click on the same record
   scans no plugin, and any plugin or order change starts it fresh. The cache has a size limit
   (the largest tag's record bodies go first; the key index stays).

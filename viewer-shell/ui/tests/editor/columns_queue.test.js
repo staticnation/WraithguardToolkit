@@ -73,4 +73,18 @@ module.exports = async (t) => {
   await E.worldChanged();
   await p.wait(30);
   t.ok(asked() > before && levelCell() === '9', 'a new world asks again: ' + (asked() - before));
+
+  // Clicking down a row of tabs: only the tab stopped on has its columns asked for, and the rows
+  // of every tab are on screen at once (not waiting for columns that may be slow or time out).
+  w.WgEditor.tags = [['NPC_', 1], ['WEAP', 1], ['LIGH', 1], ['MISC', 1]];
+  w.WgEditor._cols = {};
+  const before2 = asked();
+  const tabsEl = [...d.querySelectorAll('#edTabs [data-tag]')];
+  t.ok(tabsEl.length >= 1, 'tabs are drawn');
+  for (const tag of ['WEAP', 'LIGH', 'MISC']) {
+    w.WgEditor.tag = tag; w.WgEditor._fromTab = true;
+    await w.WgEditor.loadTag(tag);          // returns without waiting for the columns
+  }
+  await p.wait(500);
+  t.ok(asked() - before2 === 1, 'one columns request for the tab stopped on, not one per click: ' + (asked() - before2));
 };

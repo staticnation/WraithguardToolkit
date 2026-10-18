@@ -517,3 +517,38 @@ class TestPayloadBundle:
         assert bundle["index.html"].content_type.startswith("text/html")
         assert bundle["three.js"].content_type.startswith("text/javascript")
         assert bundle["g0.bin"].body == b"\x00\x01"
+
+
+def test_a_client_that_hangs_up_prints_no_traceback(capsys: pytest.CaptureFixture[str]) -> None:
+    """A reset or aborted connection is the viewer going away, not an error here."""
+    from wraithguard.viz.serve import _QuietServer
+
+    server = _QuietServer.__new__(_QuietServer)  # no socket: only the error hook is under test
+
+    def raised(exc: BaseException) -> None:
+        """Hand the hook an exception the way ``socketserver`` does: while it is handled."""
+        try:
+            raise exc
+        except BaseException:  # noqa: BLE001 - the hook reads ``sys.exc_info``
+            server.handle_error(object(), ("127.0.0.1", 1))
+
+    raised(ConnectionAbortedError(10053, "aborted"))
+    raised(ConnectionResetError(10054, "reset"))
+    assert capsys.readouterr().err == ""
+    raised(ValueError("a real bug"))
+    assert "a real bug" in capsys.readouterr().err  # anything else still shows
+
+
+def test_the_server_counts_the_posts_it_is_running(server: ViewerServer) -> None:
+    seen: list[int] = []
+
+    def handler(_body: bytes) -> Payload:
+        seen.append(server.active_posts())
+        return Payload(b"{}", "application/json")
+
+    url = server.register_post("count", handler)
+    assert server.active_posts() == 0
+    status, _out, _disposition = post(url, b"")
+    assert status == 200
+    assert seen == [1]  # inside the handler it is one
+    assert server.active_posts() == 0  # and none after

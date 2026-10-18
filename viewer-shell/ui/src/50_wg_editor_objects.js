@@ -30,7 +30,7 @@ Object.assign(WgEditor, {
       '<button class="btn sm'+(tag===this.tag?' on':'')+(changed[tag]?' edited':'')+'" data-tag="'+escHtml(tag)+'" title="'+escHtml(tag)+' - '+(n? n+' records' : 'none in the load order')+(changed[tag]? ', '+changed[tag]+' in the patch' : '')+'">'+
       escHtml(this.NAMES[tag]||tag)+(changed[tag]? ' <span class="from">'+changed[tag]+'</span>' : '')+'</button>').join('');
     t.querySelectorAll('[data-tag]').forEach(b=>b.onclick=()=>{
-      this.tag=b.dataset.tag; this.resetLimit('objects');
+      this.tag=b.dataset.tag; this.resetLimit('objects'); this._fromTab=true;
       t.querySelectorAll('.on').forEach(x=>x.classList.remove('on')); b.classList.add('on');
       this._search=null;
       this.loadTag(this.tag).then(()=>{ if(this.filterAll && this.filter.trim()) this.searchSoon(); });
@@ -154,16 +154,38 @@ Object.assign(WgEditor, {
       this.drawRows();
     }
     // The type's own columns, as the Construction Set has them (Wraithguard reads them).
-    await this.loadColumns(tag);
+    this.scheduleColumns(tag);   // not waited for: the rows are on screen, the columns follow
   },
 
   /** A type's own columns (`editColumns`), as the patch would leave the records: queued
    *  values and the patch's own records included. Kept per tab; `force` asks again. An
    *  answer that was asked for before the cache was dropped (an edit landed since) is
    *  not kept - the drop asked again. */
+  /** A tab's columns, soon: at once for a load that was not a click on a tab (the first, a new
+   *  world), and for a click only if the tab is still the one on screen 200 ms later. Clicking
+   *  down a row of tabs asked for every tab's columns (each is every plugin's records of that
+   *  type) and the answers queued up behind each other until they timed out; now only the tab
+   *  that is stopped on is asked for. The rows are on screen already, either way. */
+  scheduleColumns(tag){
+    clearTimeout(this._colTimer);
+    const viaTab=this._fromTab; this._fromTab=false;
+    if(!this.canEdit() || !this.links().editColumns || (this._cols||{})[tag]) return;
+    if(!viaTab){ this.loadColumns(tag); return; }
+    this._colTimer=setTimeout(()=>{ if(this.tag===tag) this.loadColumns(tag); }, 200);
+  },
+
   async loadColumns(tag, force=false){
     if(!this.canEdit() || !this.links().editColumns) return;
     if(!force && (this._cols||{})[tag]) return;
+    // One request per tab at a time: asked again while it is out, it is the same answer.
+    this._colAsk=this._colAsk||new Map();
+    if(!force && this._colAsk.has(tag)) return this._colAsk.get(tag);
+    const run=this._loadColumns(tag).finally(()=>{ if(this._colAsk.get(tag)===run) this._colAsk.delete(tag); });
+    this._colAsk.set(tag, run);
+    return run;
+  },
+
+  async _loadColumns(tag){
     const gen=this._colGen|0;
     try{
       const c=await this.ask('editColumns', {tag});

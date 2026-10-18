@@ -352,7 +352,7 @@ def _weapon_session(tmp_path: Path, plugin: Path, calls: dict[str, int], cache: 
 
     def read(path: Path, tag: str) -> list[dict[str, Any]]:
         calls["read"] += 1
-        return [sword] if tag == "WEAP" else []
+        return {"WEAP": [sword], "LEVI": [holder]}.get(tag, [])
 
     def read_all(path: Path) -> list[dict[str, Any]]:
         calls["all"] += 1
@@ -368,13 +368,18 @@ def test_a_use_report_is_kept_until_a_plugin_changes(tmp_path: Path) -> None:
     db = tmp_path / "c.sqlite3"
     calls = {"read": 0, "all": 0}
     answers = []
-    for _run in range(2):
+    after_first = 0
+    for run in range(2):
         with RecordCache(db) as cache:
             s = _weapon_session(tmp_path, plugin, calls, cache)
             found = s.find("WEAP", "iron sword")
             assert found is not None
             answers.append(s.uses(found))
-    assert calls["all"] == 1  # the second run scanned nothing
+            if s._use_indexer is not None:
+                s._use_indexer.join(timeout=20)  # the first scan starts the strings' index
+        if run == 0:
+            after_first = calls["all"]
+    assert calls["all"] == after_first  # the second run read no plugin whole
     assert answers[0] == answers[1]
     assert [u["key"] for u in answers[0]["uses"]] == ["l_loot"]
     plugin.write_bytes(b"x" * 99)  # the plugin changed: the report is not the same load order's
@@ -383,7 +388,9 @@ def test_a_use_report_is_kept_until_a_plugin_changes(tmp_path: Path) -> None:
         found = s.find("WEAP", "iron sword")
         assert found is not None
         s.uses(found)
-    assert calls["all"] == 2
+        if s._use_indexer is not None:
+            s._use_indexer.join(timeout=20)
+    assert calls["all"] > after_first
 
 
 def test_the_ids_of_a_tag_come_from_the_index_in_a_second_session(tmp_path: Path) -> None:
@@ -619,3 +626,208 @@ def test_a_trim_that_frees_most_of_the_file_gives_the_disk_back(tmp_path: Path) 
         cache.put(plugin, "LAND", [{"type": "Landscape", "blob": os.urandom(6_000_000)}], ["x"])
         assert cache.get(plugin, "LAND") is None  # over the limit: its bodies went
     assert db.stat().st_size < 1_000_000  # and the file is not still holding their pages
+
+
+def test_closing_a_mostly_free_file_compacts_it(tmp_path: Path) -> None:
+    import os
+    import sqlite3
+
+    db = tmp_path / "c.sqlite3"
+    plugins = [_plugin(tmp_path, f"p{i}.esp") for i in range(4)]
+    cache = RecordCache(db)
+    for p in plugins:
+        cache.put(p, "LAND", [os.urandom(1_500_000)], keys=["x"])  # ~6 MB, incompressible
+    cache.clear()  # the bodies go: their pages are free, the file is as big as ever
+    probe = sqlite3.connect(db)
+    pages = probe.execute("PRAGMA page_count").fetchone()[0]
+    free = probe.execute("PRAGMA freelist_count").fetchone()[0]
+    probe.close()
+    assert pages >= 1024 and free * 2 > pages
+    cache.close()
+    after = sqlite3.connect(db)
+    pages_after = after.execute("PRAGMA page_count").fetchone()[0]
+    after.close()
+    assert pages_after < pages // 4
+
+
+def test_a_cache_that_is_mostly_in_use_is_not_rewritten_on_close(tmp_path: Path) -> None:
+    import os
+
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        cache.put(_plugin(tmp_path, "a.esm"), "LAND", [os.urandom(40_000)], keys=["x"])
+        assert cache.compact() is False
+
+
+def test_stats_say_what_the_cache_holds(tmp_path: Path) -> None:
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        a = _plugin(tmp_path, "a.esm")
+        cache.put_keys(a, "CELL", ["room"])
+        cache.put_uses(a, [("room", "Cell", "(0, 0)", '["x"]', 1)])
+        st = cache.stats()
+    assert st["rows_keys"] == 1 and st["rows_uses"] == 1 and st["rows_use_plugins"] == 1
+    assert st["used"] > 0 and st["pages"] >= st["free"]
+
+
+def test_the_use_index_is_built_right_after_the_key_index(tmp_path: Path) -> None:
+    plugin = _plugin(tmp_path, "a.esm")
+    calls = {"read": 0, "all": 0}
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        s = _weapon_session(tmp_path, plugin, calls, cache)
+        s.start_indexing(("WEAP", "LEVI"))  # the tags whose keys say which version wins
+        assert s._indexer is not None
+        s._indexer.join(timeout=20)
+        assert s._use_indexer is not None  # the index thread went on to the strings
+        assert calls["all"] == 1
+        assert cache.missing_uses([plugin]) == []
+        calls["all"] = 0
+        found = s.find("WEAP", "iron sword")
+        assert found is not None
+        report = s.uses(found)  # the first click: a query, no plugin read
+        assert [u["key"] for u in report["uses"]] == ["l_loot"]
+        assert calls["all"] == 0
+        s.start_use_indexing()  # already running or done: starts nothing more
+
+
+def test_an_id_with_a_space_gets_the_same_report_from_the_index_as_from_the_scan(
+    tmp_path: Path,
+) -> None:
+    from wraithguard.patch.editor import TAG_TO_TYPE
+    from wraithguard.patch.uses import use_report
+
+    records = [
+        {"type": "Weapon", "id": "iron sword", "data": {"weight": 1.0}},
+        {"type": "LeveledItem", "id": "l_loot", "items": [["iron sword", 1]]},
+        {
+            "type": "Script",
+            "id": "swordscript",
+            "text": 'if ( GetItemCount "iron sword" > 0 )\n  Say "Iron Sword"\nendif',
+        },
+        {
+            "type": "Cell",
+            "name": "Vault",
+            "data": {"grid": (0, 0), "flags": "IS_INTERIOR"},
+            "references": [{"id": "iron sword"}, {"id": "IRON SWORD"}, {"id": "other"}],
+        },
+    ]
+    plugin = _plugin(tmp_path, "a.esm")
+    calls = {"all": 0}
+
+    def read(path: Path, tag: str) -> list[dict[str, Any]]:
+        return [r for r in records if TAG_TO_TYPE.get(tag) == r["type"]]
+
+    def read_all(path: Path) -> list[dict[str, Any]]:
+        calls["all"] += 1
+        return records
+
+    scan = use_report([("a.esm", plugin)], read_all, "Weapon", "iron sword")
+    calls["all"] = 0
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        s = EditorSession(
+            [("a.esm", plugin)], PatchQueue(), read=read, read_all=read_all, disk_cache=cache
+        )
+        s.start_indexing(("WEAP", "LEVI", "SCPT", "CELL"))
+        assert s._indexer is not None
+        s._indexer.join(timeout=20)
+        assert cache.missing_uses([plugin]) == []
+        calls["all"] = 0
+        found = s.find("WEAP", "iron sword")
+        assert found is not None
+        report = s.uses(found)
+        assert calls["all"] == 0  # answered from the index and the scripts' text
+    got = {
+        (u["type"], u["key"], tuple(sorted(u["paths"])), u["count"], u["wins"])
+        for u in report["uses"]
+    }
+    want = {(u.record_type, u.key, tuple(sorted(u.paths)), u.count, u.wins) for u in scan}
+    assert got == want
+    assert ("Script", "swordscript", ("text",), 2, True) in got  # both words, either case
+
+
+def test_the_use_index_keeps_a_record_once_and_answers_the_same(tmp_path: Path) -> None:
+    a, b = _plugin(tmp_path, "a.esm"), _plugin(tmp_path, "b.esp")
+    rows_a = [
+        ("iron_sword", "Cell", "Vault", '["references"]', 3),
+        ("vault", "Cell", "Vault", '["name"]', 1),
+        ("vault", "Cell", "Vault", '["id"]', 0),  # a definition row: the record itself
+        ("iron_sword", "Script", "sw", '["text"]', 2),
+        ("iron_sword", "Script", "sw", '["name"]', 1),  # the same string twice in one record
+        ("sw", "Script", "sw", '["id"]', 0),
+    ]
+    rows_b = [("sw", "Script", "SW", '["id"]', 0)]  # a later plugin redefines the script
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        cache.put_uses(a, rows_a)
+        cache.put_uses(b, rows_b)
+        got = cache.uses_for([a, b], "iron_sword")
+        assert got == [
+            (a, "Cell", "Vault", ["references"], 3),
+            (a, "Script", "sw", ["text", "name"], 3),  # one pair, both paths, counts summed
+        ]
+        assert cache.uses_for([a, b], "vault") == [(a, "Cell", "Vault", ["name"], 1)]
+        assert cache.definers([a, b], {("Script", "sw"), ("Cell", "vault")}) == {
+            ("Script", "sw"): [a, b],  # defined by both, in load order
+            ("Cell", "vault"): [a],
+        }
+        st = cache.stats()
+        assert st["rows_use_records"] == 3  # Vault, sw, SW: once each, however many strings
+        assert st["rows_uses"] == 3  # the definition rows are not stored as strings
+        cache.put_uses(a, rows_a)  # indexed again: replaced, not added to
+        assert cache.stats()["rows_use_records"] == 3 and cache.stats()["rows_uses"] == 3
+        assert cache.uses_for([a, b], "iron_sword") == got
+
+
+def test_a_removed_plugin_takes_its_use_index_with_it(tmp_path: Path) -> None:
+    db = tmp_path / "c.sqlite3"
+    gone, here = _plugin(tmp_path, "gone.esp"), _plugin(tmp_path, "a.esm")
+    with RecordCache(db) as cache:
+        cache.put_uses(gone, [("x", "Cell", "C", '["name"]', 1)])
+        cache.put_uses(here, [("y", "Cell", "D", '["name"]', 1)])
+    gone.unlink()
+    with RecordCache(db) as cache:
+        st = cache.stats()
+    assert st["rows_use_records"] == 1 and st["rows_uses"] == 1 and st["rows_use_plugins"] == 1
+
+
+def test_the_background_indexer_waits_for_a_request_in_flight(tmp_path: Path) -> None:
+    import threading
+    import time
+
+    reads: list[str] = []
+    s = _session(
+        tmp_path, {f"p{i}.esp": [_cell(f"Room {i}", interior=True)] for i in range(3)}, reads
+    )
+    busy = {"n": 1}
+    s.foreground = lambda: busy["n"]
+    done = threading.Event()
+
+    def work() -> None:
+        s.ensure_index_many(("CELL",), workers=1, polite=True)
+        done.set()
+
+    t = threading.Thread(target=work)
+    t.start()
+    time.sleep(0.4)
+    assert reads == []  # a request is in flight: nothing read yet
+    busy["n"] = 0
+    assert done.wait(10)
+    t.join(10)
+    assert len(reads) == 3
+
+
+def test_the_cache_stats_tool_reads_the_current_schema(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    a = _plugin(tmp_path, "a.esm")
+    with RecordCache(tmp_path / "c.sqlite3") as cache:
+        cache.put_uses(a, [("x", "Cell", "C", '["name"]', 1), ("c", "Cell", "C", '["id"]', 0)])
+    import pathlib
+
+    tool = pathlib.Path(__file__).resolve().parent.parent / "tools" / "cache_stats.py"
+    out = subprocess.run(  # noqa: S603 - our own tool, with a path under tmp_path
+        [sys.executable, str(tool), str(tmp_path / "c.sqlite3")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert out.returncode == 0, out.stderr
+    assert "a.esm" in out.stdout and "Traceback" not in out.stderr

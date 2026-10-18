@@ -97,13 +97,27 @@ on one file tested; the file shrinks (a VACUUM after a trim that frees over half
 answers as the scan - tested against it).
 
 **Open:**
-- Use Report index (`usesindex.py`, written, not yet run on the real load order): measure the
-  first indexing (it parses every plugin whole, one at a time, in small steps; on Python
-  with the GIL on it is minutes of background Python), the size of the `uses` table (a row
-  per distinct string per record; strings over 64 characters are not kept, and the cache's
-  size limit drops the whole index last), and whether a rebuild after one plugin changes is
-  acceptable (that plugin only). The scan stays for ids with a space or a dash. If the table
-  is too big, keep only the strings of fields that can name a record.
+- Use Report index (`usesindex.py`, written, not yet run on the real load order): it now starts
+  by itself right after the key index (two plugins at a time on free-threaded Python, one with
+  the GIL on), so the first click is a query; a Use Report that had to scan still starts it.
+  Ids with a space or a dash (most of Morrowind's) get their strings from the index and their
+  script words from a search of the scripts' text only. To measure on the real load order:
+  the log says what the first indexing cost ("use index: N plugins in S s; R rows, F MB in
+  use", and any plugin that took over 5 s), and `tools/cache_stats.py` shows the table sizes
+  and the biggest plugins. First real measurement (621 plugins): 5,823,819 `uses` rows and a
+  763 MB file (131 bytes a row: each row repeated its record's type and key, and carried a
+  separate index and a definition row per record). The schema is now normalised (schema 3):
+  a record is kept once (`use_records`), its strings are one clustered table (`uses`, no index
+  of its own), and a definition is the record row; on a synthetic plugin that is 2.8 times
+  smaller (81 MB to 29 MB) and a query 3 times faster, the insert about twice as slow. Measured
+  again on a fresh cache of the real load order: 356 MB, 5,354,231 `uses` rows and 464,355
+  `use_records` (a third fewer bytes per row than the 131 before, but about 2.1 times smaller
+  in all, not 2.8: the real strings are longer than the synthetic ones). Still the biggest
+  part of the cache; the next step down is keeping only the strings of fields that can name
+  a record, if 356 MB is too much. If
+  the `uses` table is still too big, keep only the strings of fields
+  that can name a record; if the first indexing is too slow, more workers (memory: one whole
+  decoded plugin each).
 - "Search all fields": an FTS5 index of the plugins' own fields, with the patch's pending
   edits layered over the hits at query time.
 - Load-order tooling outside the editor (per-plugin headers, record counts, conflict sets

@@ -735,6 +735,10 @@ class EditorSession:
         self._masters: dict[str, list[str]] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        #: How many requests the viewer has in flight (set by the editor link): the background
+        #: indexers wait for them to finish between plugins, so a click is not queued behind
+        #: hundreds of megabytes of reading.
+        self.foreground: Callable[[], int] = lambda: 0
         self._indexer: threading.Thread | None = None
         self._use_indexer: threading.Thread | None = None
         self._script_compiler: tuple[str, ScriptCompiler] | None = None
@@ -923,7 +927,11 @@ class EditorSession:
             return sum(pool.map(one, todo))
 
     def ensure_index_many(
-        self, tags: Sequence[str], workers: int | None = None, per_read: int = 12
+        self,
+        tags: Sequence[str],
+        workers: int | None = None,
+        per_read: int = 12,
+        polite: bool = False,
     ) -> int:
         """Index several tags' keys with one read of each plugin per group of tags.
 
@@ -937,6 +945,8 @@ class EditorSession:
             tags: The tags.
             workers: How many plugins to read at once (None: about half the cores, to 8).
             per_read: How many tags one read of a plugin serves.
+            polite: Wait for the viewer's requests between plugins (the background does; a
+                request that is itself waiting on the index does not).
 
         Returns:
             How many plugin reads were made.
@@ -957,6 +967,8 @@ class EditorSession:
             def one(item: tuple[Path, list[str]], group: list[str] = group) -> bool:
                 """Read one plugin for its unindexed tags of the group and index their keys."""
                 path, need = item
+                if polite:
+                    self._yield_to_requests()
                 if self._stop.is_set():
                     return False
                 try:
@@ -998,15 +1010,41 @@ class EditorSession:
             """Index the tags; a failure is logged and the lookups read instead."""
             try:
                 # Half the usual width: the viewer and the editor's own requests share the cores.
-                self.ensure_index_many(tags, max(1, min(8, (os.cpu_count() or 2) // 2) // 2))
+                self.ensure_index_many(
+                    tags, max(1, min(8, (os.cpu_count() or 2) // 2) // 2), polite=True
+                )
             except Exception:
                 LOG.exception("editor: indexing the load order's keys failed")
+                return
+            # Then the strings of every record (the Use Report's index), so the first click is
+            # already a query. Not if a Use Report that had to scan has started it first.
+            with self._lock:
+                mine = self._use_indexer is None
+                if mine:
+                    self._use_indexer = threading.current_thread()
+            if mine and not self._stop.is_set():
+                try:
+                    self.index_uses(workers=self._use_workers(), polite=True)
+                except Exception:
+                    LOG.exception("editor: indexing the load order's uses failed")
 
         with self._lock:
             if self._indexer is not None:
                 return
             self._indexer = threading.Thread(target=run, name="wg-key-index", daemon=True)
             self._indexer.start()
+
+    def _yield_to_requests(self, limit: float = 4.0) -> None:
+        """Wait (at most ``limit`` seconds) while the viewer has a request in flight.
+
+        Only the background indexers call this: they have all the time there is, and a request
+        the page is waiting on does not. The wait is bounded so a page that is always busy
+        cannot stop the indexing for good.
+        """
+        waited = 0.0
+        while waited < limit and not self._stop.is_set() and self.foreground() > 0:
+            self._stop.wait(0.05)
+            waited += 0.05
 
     def close(self) -> None:
         """Stop the background indexing (the session is being replaced)."""
@@ -1260,18 +1298,24 @@ class EditorSession:
         Returns:
             The uses, each marked with whether its version wins; or None.
         """
-        from wraithguard.patch.uses import Use
+        from wraithguard.patch.uses import Use, script_hits
         from wraithguard.patch.usesindex import indexable
 
         disk = self._disk
-        if disk is None or not indexable(found.key):
+        want = found.key.strip().lower()
+        if disk is None or not want:
             return None
         paths = [p for _n, p in plugins]
-        want = found.key.strip().lower()
         rows = disk.uses_for(paths, want)
         if rows is None:
             self.start_use_indexing()
             return None
+        if not indexable(found.key):
+            # An id with a space or a dash (most of Morrowind's): the index has every string
+            # equal to it, but a script's words are not the id's words, so the scripts' text
+            # is searched here - scripts only (a cached tag, a small part of any plugin).
+            for name, path in plugins:
+                rows.extend(script_hits(path, self._records(name, "SCPT").values(), want))
         rows = [r for r in rows if not (r[1] == found.record_type and r[2].lower() == want)]
         owners = disk.definers(paths, {(t, k.lower()) for _p, t, k, _ps, _n in rows if t != "Cell"})
         if owners is None:
@@ -1287,7 +1331,12 @@ class EditorSession:
             use.wins = rtype == "Cell" or last == path
         return list(merged.values())
 
-    def index_uses(self, plugins: Sequence[Path] | None = None, workers: int | None = None) -> int:
+    def index_uses(
+        self,
+        plugins: Sequence[Path] | None = None,
+        workers: int | None = None,
+        polite: bool = False,
+    ) -> int:
         """Index the strings of every plugin that is not indexed as it now is.
 
         Reads each such plugin whole (the use-report index holds every string a record
@@ -1296,6 +1345,7 @@ class EditorSession:
         Args:
             plugins: The plugin files to index (None: the load order's).
             workers: Threads to read with (None: half the cores).
+            polite: Wait for the viewer's requests between plugins and now and then within one.
 
         Returns:
             How many plugins were indexed.
@@ -1309,6 +1359,8 @@ class EditorSession:
 
         def one(path: Path) -> bool:
             """Read one plugin whole and index its strings."""
+            if polite:
+                self._yield_to_requests()
             if self._stop.is_set():
                 return False
 
@@ -1316,14 +1368,25 @@ class EditorSession:
                 """Let the window and the requests have the interpreter; stop if asked."""
                 if self._stop.is_set():
                     raise InterruptedError
+                if polite:
+                    self._yield_to_requests(1.0)
                 # Free-threaded Python can still be running with the GIL (an extension that
                 # does not say it is safe turns it back on): then this thread must give the
                 # window and the requests their turns; with it off they run beside it.
                 if getattr(sys, "_is_gil_enabled", lambda: True)():
                     time.sleep(0.002)
 
+            began = time.monotonic()
             try:
-                disk.put_uses(path, index_rows(self._read_all(path), breathe))
+                rows = index_rows(self._read_all(path), breathe)
+                disk.put_uses(path, rows)
+                if time.monotonic() - began > 5.0:
+                    LOG.info(
+                        "editor: use index: %s took %.0f s (%d rows)",
+                        path.name,
+                        time.monotonic() - began,
+                        len(rows),
+                    )
             except InterruptedError:
                 return False
             except (OSError, ValueError) as exc:
@@ -1332,10 +1395,32 @@ class EditorSession:
             return True
 
         count = workers if workers is not None else min(8, max(1, (os.cpu_count() or 2) // 2))
+        started = time.monotonic()
         if count <= 1 or len(todo) <= 1:
-            return sum(one(p) for p in todo)
-        with ThreadPoolExecutor(max_workers=count, thread_name_prefix="wg-uses") as pool:
-            return sum(pool.map(one, todo))
+            done = sum(one(p) for p in todo)
+        else:
+            with ThreadPoolExecutor(max_workers=count, thread_name_prefix="wg-uses") as pool:
+                done = sum(pool.map(one, todo))
+        if done:
+            # What the first indexing cost, and what the index weighs: the numbers the TODO asks for.
+            st = disk.stats()
+            LOG.info(
+                "editor: use index: %d plugins in %.0f s; %d rows, file %.1f MB in use",
+                done,
+                time.monotonic() - started,
+                st.get("rows_uses", 0),
+                st.get("used", 0) / 1e6,
+            )
+        return done
+
+    @staticmethod
+    def _use_workers() -> int:
+        """Plugins decoded whole at once for the use index: 2 with the GIL off, else 1.
+
+        Each worker holds one whole decoded plugin (a big one is a lot of memory); with the
+        GIL on, more would only take turns.
+        """
+        return 1 if getattr(sys, "_is_gil_enabled", lambda: True)() else 2
 
     def start_use_indexing(self) -> None:
         """Index the strings of the load order in the background (once per session).
@@ -1349,7 +1434,7 @@ class EditorSession:
             """Index; a failure is logged and the Use Report scans."""
             try:
                 # One plugin at a time: a big plugin is a lot of memory once decoded.
-                self.index_uses(workers=1)
+                self.index_uses(workers=1, polite=True)
             except Exception:
                 LOG.exception("editor: indexing the load order's uses failed")
 

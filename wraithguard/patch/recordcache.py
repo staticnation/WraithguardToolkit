@@ -36,10 +36,18 @@ if TYPE_CHECKING:
 LOG = logging.getLogger(__name__)
 
 #: Bumped when what is stored changes shape; an older database is emptied, not read.
-SCHEMA: Final = 2
+SCHEMA: Final = 3
 
 #: The tables that hold what the native reader made of the plugins (emptied together).
-_DERIVED: Final = ("records", "keys", "key_stamps", "reports", "uses", "use_plugins")
+_DERIVED: Final = (
+    "records",
+    "keys",
+    "key_stamps",
+    "reports",
+    "uses",
+    "use_records",
+    "use_plugins",
+)
 
 #: Reports kept for the load order as it is (the oldest go first). One report per record
 #: looked at, whatever the number of plugins; a report for any other load order is useless
@@ -165,12 +173,18 @@ class RecordCache:
                 "CREATE TABLE IF NOT EXISTS use_plugins (pid INTEGER PRIMARY KEY,"
                 " plugin TEXT NOT NULL UNIQUE)"
             )
+            # One row per record (which plugin, what type, its key: kept once, not once per
+            # string it holds) and one per (string, record) - a clustered table, no index of its own.
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS uses (value TEXT NOT NULL, pid INTEGER NOT NULL,"
-                " rtype TEXT NOT NULL, key TEXT NOT NULL, paths TEXT NOT NULL, n INTEGER NOT NULL)"
+                "CREATE TABLE IF NOT EXISTS use_records (rid INTEGER PRIMARY KEY,"
+                " pid INTEGER NOT NULL, rtype TEXT NOT NULL, key TEXT NOT NULL)"
             )
-            conn.execute("CREATE INDEX IF NOT EXISTS uses_value ON uses (value, pid)")
-            conn.execute("CREATE INDEX IF NOT EXISTS uses_pid ON uses (pid)")
+            conn.execute("CREATE INDEX IF NOT EXISTS use_records_pid ON use_records (pid)")
+            conn.execute("CREATE INDEX IF NOT EXISTS use_records_key ON use_records (lower(key))")
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS uses (value TEXT NOT NULL, rid INTEGER NOT NULL,"
+                " paths TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (value, rid)) WITHOUT ROWID"
+            )
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS reports (sig TEXT NOT NULL, kind TEXT NOT NULL,"
                 " key TEXT NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sig, kind, key))"
@@ -211,11 +225,22 @@ class RecordCache:
                 f"DELETE FROM {table} WHERE plugin=?",  # noqa: S608 - fixed table names
                 [(g,) for g in gone],
             )
-        conn.executemany(
-            "DELETE FROM uses WHERE pid IN (SELECT pid FROM use_plugins WHERE plugin=?)",
-            [(g,) for g in gone],
-        )
+        for (plugin,) in [(g,) for g in gone]:
+            RecordCache._drop_uses(conn, plugin)
         conn.executemany("DELETE FROM use_plugins WHERE plugin=?", [(g,) for g in gone])
+
+    @staticmethod
+    def _drop_uses(conn: sqlite3.Connection, plugin: str) -> None:
+        """Remove what the use index holds of one plugin (the caller commits)."""
+        conn.execute(
+            "DELETE FROM uses WHERE rid IN (SELECT r.rid FROM use_records r"
+            " JOIN use_plugins p ON p.pid = r.pid WHERE p.plugin=?)",
+            (plugin,),
+        )
+        conn.execute(
+            "DELETE FROM use_records WHERE pid IN (SELECT pid FROM use_plugins WHERE plugin=?)",
+            (plugin,),
+        )
 
     def get(self, plugin: Path, tag: str) -> list[Any] | None:
         """One plugin's cached records of a tag, when they are still current.
@@ -317,6 +342,7 @@ class RecordCache:
             # The record bodies are gone and it is still over: the use-report index goes,
             # last, since it is the largest thing kept and the Use Report scans without it.
             conn.execute("DELETE FROM uses")
+            conn.execute("DELETE FROM use_records")
             conn.execute("DELETE FROM use_plugins")
             conn.execute("DELETE FROM key_stamps WHERE tag=?", (_USES_TAG,))
             conn.commit()
@@ -418,6 +444,37 @@ class RecordCache:
                 return None
         return [p for p, st in stamps if st is None or have.get(st[0]) != (st[1], st[2])]
 
+    @staticmethod
+    def _pack_uses(
+        rows: Iterable[tuple[str, str, str, str, int]], last_rid: int
+    ) -> tuple[list[tuple[int, str, str]], list[tuple[str, int, str, int]]]:
+        """The rows of one plugin as records and (string, record) pairs.
+
+        The rows come record by record (:func:`.usesindex.index_rows`), so a record is a run
+        of rows with the same type and key; its definition row (count 0) only says that it
+        exists, which the record row does. A string a record holds twice (as a value and as a
+        script word, say) is one pair.
+        """
+        records: list[tuple[int, str, str]] = []
+        merged: dict[tuple[str, int], list[Any]] = {}
+        rid = last_rid
+        current: tuple[str, str] | None = None
+        for value, rtype, key, paths, n in rows:
+            if (rtype, key) != current:
+                rid += 1
+                current = (rtype, key)
+                records.append((rid, rtype, key))
+            if n == 0:
+                continue
+            pair = merged.setdefault((value, rid), [[], 0])
+            pair[0].extend(json.loads(paths))
+            pair[1] += n
+        strings = [
+            (value, rid, "r" if p == ["references"] else json.dumps(p), n)
+            for (value, rid), (p, n) in sorted(merged.items())
+        ]
+        return records, strings
+
     def put_uses(self, plugin: Path, rows: Iterable[tuple[str, str, str, str, int]]) -> None:
         """Index every string a plugin's records hold (the use-report index).
 
@@ -438,11 +495,18 @@ class RecordCache:
                 pid = conn.execute("SELECT pid FROM use_plugins WHERE plugin=?", (key,)).fetchone()[
                     0
                 ]
-                conn.execute("DELETE FROM uses WHERE pid=?", (pid,))
-                conn.executemany(
-                    "INSERT INTO uses VALUES (?, ?, ?, ?, ?, ?)",
-                    [(v, pid, t, k, p, n) for v, t, k, p, n in rows],
+                self._drop_uses(conn, key)
+                records, strings = self._pack_uses(
+                    rows,
+                    int(
+                        conn.execute("SELECT COALESCE(MAX(rid), 0) FROM use_records").fetchone()[0]
+                    ),
                 )
+                conn.executemany(
+                    "INSERT INTO use_records VALUES (?, ?, ?, ?)",
+                    [(rid, pid, t, k) for rid, t, k in records],
+                )
+                conn.executemany("INSERT INTO uses VALUES (?, ?, ?, ?)", strings)
                 conn.execute(
                     "INSERT OR REPLACE INTO key_stamps VALUES (?, ?, ?, ?)",
                     (key, _USES_TAG, size, mtime),
@@ -482,14 +546,23 @@ class RecordCache:
             if conn is None:
                 return None
             try:
-                for plug, rtype, key, paths, n, rowid in conn.execute(
-                    "SELECT p.plugin, u.rtype, u.key, u.paths, u.n, u.rowid FROM uses u"
-                    " JOIN use_plugins p ON p.pid = u.pid WHERE u.value=? AND u.n > 0",
+                for plug, rtype, key, paths, n, rid in conn.execute(
+                    "SELECT p.plugin, r.rtype, r.key, u.paths, u.n, r.rid FROM uses u"
+                    " JOIN use_records r ON r.rid = u.rid"
+                    " JOIN use_plugins p ON p.pid = r.pid WHERE u.value=?",
                     (value,),
                 ):
                     if plug in order:
                         out.append(
-                            (order[plug], rowid, by_name[plug], rtype, key, json.loads(paths), n)
+                            (
+                                order[plug],
+                                rid,
+                                by_name[plug],
+                                rtype,
+                                key,
+                                ["references"] if paths == "r" else json.loads(paths),
+                                n,
+                            )
                         )
             except (sqlite3.Error, ValueError):
                 return None
@@ -525,9 +598,9 @@ class RecordCache:
                     part = values[i : i + _CHUNK]
                     marks = ",".join("?" * len(part))
                     for plug, rtype, key in conn.execute(
-                        "SELECT p.plugin, u.rtype, u.key FROM uses u"  # noqa: S608 - marks only
-                        " JOIN use_plugins p ON p.pid = u.pid"
-                        f" WHERE u.n = 0 AND u.value IN ({marks})",
+                        "SELECT p.plugin, r.rtype, r.key FROM use_records r"  # noqa: S608 - marks only
+                        " JOIN use_plugins p ON p.pid = r.pid"
+                        f" WHERE lower(r.key) IN ({marks})",
                         part,
                     ):
                         pair = (rtype, key.lower())
@@ -712,11 +785,63 @@ class RecordCache:
             except sqlite3.Error:
                 return
 
+    def stats(self) -> dict[str, int]:
+        """What the cache holds: the file's pages and rows per table (0s when it is out).
+
+        Returns:
+            ``pages``, ``free`` (pages), ``page_size``, ``used`` (bytes), and a ``rows_<table>``
+            for each table.
+        """
+        out: dict[str, int] = {}
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return out
+            try:
+                out["pages"] = conn.execute("PRAGMA page_count").fetchone()[0]
+                out["free"] = conn.execute("PRAGMA freelist_count").fetchone()[0]
+                out["page_size"] = conn.execute("PRAGMA page_size").fetchone()[0]
+                out["used"] = (out["pages"] - out["free"]) * out["page_size"]
+                for table in (
+                    "records",
+                    "keys",
+                    "key_stamps",
+                    "uses",
+                    "use_records",
+                    "use_plugins",
+                    "reports",
+                ):
+                    query = "SELECT COUNT(*) FROM " + table  # noqa: S608 - fixed names above
+                    out[f"rows_{table}"] = conn.execute(query).fetchone()[0]
+            except sqlite3.Error:
+                return out
+        return out
+
+    def compact(self) -> bool:
+        """Give the disk back when more than half the file is free pages.
+
+        Returns:
+            Whether the file was rewritten.
+        """
+        with self._lock:
+            conn = self._db()
+            if conn is None:
+                return False
+            before = conn.execute("PRAGMA page_count").fetchone()[0]
+            self._shrink(conn)
+            return bool(conn.execute("PRAGMA page_count").fetchone()[0] < before)
+
     def close(self) -> None:
-        """Close the database (it reopens on next use)."""
+        """Close the database (it reopens on next use), compacting it first if it is mostly free.
+
+        Rewrites that leave free pages behind (a plugin indexed again, a trim) never shrink the
+        file by themselves; closing is when nothing is waiting on the cache, so a file that is
+        more than half free pages is rewritten here (a second or two for a few hundred MB).
+        """
         with self._lock:
             if self._conn is not None:
                 try:
+                    self._shrink(self._conn)
                     self._conn.close()
                 except sqlite3.Error:
                     # Closing is cleanup only: a connection that will not close cleanly
