@@ -184,6 +184,8 @@ if TYPE_CHECKING:
 
     from wraithguard_native import PluginLinter
 
+    from wraithguard.patch.recordcache import RecordCache
+
 # ---------------------------------------------------------------------------
 # mlox [VER]/[SIZE]/[DESC] predicate functions (ported from mlox's ruleParser).
 # These let [Requires]/[Conflict]/[Note] rules test a plugin's version, file
@@ -1926,6 +1928,10 @@ class Tes3ConvSession:
             shutil.rmtree(self.dump_dir, ignore_errors=True)
 
 
+#: What the native session's keys-and-cells read is kept under in the record cache.
+_KEYS_CELLS_TAG = "~KC"
+
+
 class NativeEspSession(Tes3ConvSession):
     """A :class:`Tes3ConvSession` read in process by the Rust backend, with no JSON.
 
@@ -1953,17 +1959,26 @@ class NativeEspSession(Tes3ConvSession):
 
     engine_name = "native"
 
-    def __init__(self, dump_dir: str | None = None, keep: bool = False) -> None:
+    def __init__(
+        self,
+        dump_dir: str | None = None,
+        keep: bool = False,
+        disk_cache: RecordCache | None = None,
+    ) -> None:
         """Open a native session.
 
         Args:
             dump_dir: Where :func:`dump_tes3conv_json` writes, or ``None`` for a temp
                 dir removed on :meth:`cleanup`. Nothing else is written there.
             keep: Leave that folder in place on cleanup even if it is a temp dir.
+            disk_cache: Where each plugin's keys and cells are kept between runs, so
+                the first scan after launch does not read every plugin again (None:
+                they are kept in memory only, as before).
         """
         import threading
 
         super().__init__(exe="", dump_dir=dump_dir, keep=keep)
+        self._disk = disk_cache
         self._memo_lock = threading.Lock()
         #: plugin path -> (its (mtime_ns, size) when read, keys, cells)
         self._memo: dict[
@@ -2018,10 +2033,25 @@ class NativeEspSession(Tes3ConvSession):
             hit = self._memo.get(key)
         if hit is not None and hit[0] == stamp:
             return hit[1], hit[2]
-        out = self._native_keys(path)
+        out = self._kept_keys(path)
+        if out is None:
+            out = self._native_keys(path)
+            if self._disk is not None and (out[0] or out[1]):  # an unreadable plugin is not kept
+                self._disk.put(Path(path), _KEYS_CELLS_TAG, [out[0], out[1]])
         with self._memo_lock:
             self._memo[key] = (stamp, out[0], out[1])
         return out
+
+    def _kept_keys(
+        self, path: str | Path
+    ) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]] | None:
+        """The plugin's keys and cells from the disk cache, while the file is as it was."""
+        if self._disk is None:
+            return None
+        kept = self._disk.get(Path(path), _KEYS_CELLS_TAG)
+        if kept is None or len(kept) != 2:
+            return None
+        return list(kept[0]), list(kept[1])
 
     @staticmethod
     def _native_keys(
@@ -2127,7 +2157,10 @@ def native_backend() -> bool:
 
 
 def open_record_session(
-    conv: str | None, dump_dir: str | None = None, keep: bool = False
+    conv: str | None,
+    dump_dir: str | None = None,
+    keep: bool = False,
+    disk_cache: RecordCache | None = None,
 ) -> Tes3ConvSession | None:
     """The session the conflict tools read plugins through.
 
@@ -2140,13 +2173,15 @@ def open_record_session(
         dump_dir: The folder :func:`dump_tes3conv_json` writes to (tes3conv also
             spools there).
         keep: Leave that folder in place on cleanup.
+        disk_cache: The editor's record cache, for the native session to keep each
+            plugin's keys and cells in between runs (tes3conv has its own sidecars).
 
     Returns:
         The session, or ``None``.
     """
     if not native_backend():
         return Tes3ConvSession(conv, dump_dir=dump_dir, keep=keep) if conv else None
-    return NativeEspSession(dump_dir=dump_dir, keep=keep)
+    return NativeEspSession(dump_dir=dump_dir, keep=keep, disk_cache=disk_cache)
 
 
 def diff_record_fields(

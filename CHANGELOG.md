@@ -11,6 +11,10 @@
   cache; a plugin that changed is read again, and a cache made by another build of the
   native reader is emptied, so it is never wrong, only sometimes empty. A cache that cannot
   be opened is skipped, never an error.
+- **The first Check Conflicts after launch no longer reads every plugin again.** The native
+  session keeps each plugin's record keys and cells in the record cache between runs (valid
+  while the plugin's size and time and the native reader are unchanged); a plugin that failed
+  to read is tried again, not remembered.
 - **The Editor answers "does the load order have this?" without reading every plugin.** A key
   index in the same cache says which plugins have a cell, an id or a square's land, so a new
   cell or new land, Verify's id checks and a cell's plugin list are one query. It is filled in

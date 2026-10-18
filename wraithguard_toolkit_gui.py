@@ -249,7 +249,7 @@ from wraithguard.gui import (  # noqa: E402
 )
 from wraithguard.gui.cellpreview import CellPreviewMixin  # noqa: E402
 from wraithguard.gui.conflicts import ConflictWindowsMixin  # noqa: E402
-from wraithguard.gui.editorlink import EditorLinkMixin  # noqa: E402
+from wraithguard.gui.editorlink import EditorLinkMixin, record_cache  # noqa: E402
 from wraithguard.gui.journalview import JournalViewMixin  # noqa: E402
 from wraithguard.gui.luaview import LuaViewMixin  # noqa: E402
 from wraithguard.gui.patchwin import PatchBuilderMixin  # noqa: E402
@@ -3324,7 +3324,12 @@ class App(
             except Exception:  # noqa: BLE001
                 # retiring a replaced engine session; failure must not block the new one
                 pass
-        s = core.open_record_session(conv, dump_dir=str(self._tes3conv_json_dir()), keep=keep)
+        s = core.open_record_session(
+            conv,
+            dump_dir=str(self._tes3conv_json_dir()),
+            keep=keep,
+            disk_cache=record_cache(),
+        )
         self._session = s
         return s
 
