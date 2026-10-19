@@ -3,16 +3,64 @@
 Open work only. Done items go to `CHANGELOG.md`; what a finished item taught us goes
 beside its code, or in `viewer-shell/gardenfell/VENDOR.md` for the vendored crates.
 
+## The road to one program
+
+Static's plan (2026-10-16/17): land editing, then the Editor's fine details, then the Python
+GUI moved into the viewer, so everything is Rust and the page, with no Python, in one
+program, and a clearer UI on the way. In order:
+
+1. **Close what is open now.** Measure the merge after patch 0014, then exteriors (below);
+   the Aikido leftovers; confirm phase 2a in the game; the R4 visual checks; send Robin
+   0011-0014.
+2. **Land editing** ("The world": raise, lower, smooth, flatten; textures and vertex colours).
+3. **The Editor's fine details** (Foundations 2b and 2c, the two-types warning, the MO2 and
+   Morrowind.ini orders into ordercore, `editor_records` unreadable, the region map, cell
+   borders, path grid tools, shortcuts).
+4. **The port, backend first**, so each step ships on its own and Python only shrinks:
+   1. *The Editor's calls into Python.* The page reaches Wraithguard through 16 links
+      (`links()`: record, set-many, refs-set, undo, redo, revision, columns, search-all,
+      new cell, new land, verify, test setups, test run, build, review, poll), served by
+      `gui/editorlink.py` over `wraithguard/patch` (14k lines) and its SQLite record cache.
+      Each becomes a Tauri command; `recordcache.py` becomes Rust (rusqlite), and its
+      pickled rows a plain format. After this the Editor runs without the Python app.
+   2. *Load order.* Sort (`rules/` for mlox, MOMW's `plugin-order.yml`, `sort/`), Export
+      (openmw.cfg, customizations.toml), the rule panels, the rule maker, Update rules and
+      Sources (`net/updaters.py`), into ordercore and a Load order page. Today's main
+      window, so the biggest UI piece.
+   3. *Conflicts.* Record conflicts (`gui/conflicts.py`, 3.8k lines), resource conflicts,
+      the cell map (the viewer's coverage map already does most; `viz/cellmap.py` retires).
+   4. *Tools.* Merge Lands (`land/`; `native/src/land.rs` is most of it), Merge Settings,
+      Lint (`native/src/lint.rs`), Save Check, tes3cmd, Remove Master, Backups, the Lua view
+      (luacore has it), the journal and plugin views, the help (`viz/docs.py`).
+   5. *Drop Tk and PyInstaller.* One Tauri build per platform; the Flatpak loses its Python
+      runtime (and the `LD_LIBRARY_PATH` workaround); `native/` (pyo3) folds into viewcore
+      and ordercore as its last Python caller goes.
+
+   Each Tk window is redesigned as it moves, not copied: that is the UI cleanup.
+5. **Later, not blocking the port:** a sound engine (plan in `viewer-shell/SOUND.md`: decode
+   in Rust with Symphonia, play in the page with Web Audio; its step 1, a player for sound
+   records and files, could come with step 3); the MWScript compiler work (waits
+   on G7); LUAL upstream; controllers (the Deck); the MGE extras; OpenMW Lua per release;
+   Teal in the viewer.
+
 ## Security and dependencies
 
-Aikido's findings that wait on someone else (4.5.0 fixed pyo3, mio, the CI checkouts and
-the container user):
+Aikido after the 4.5.0 push (2026-10-19 rescan): 33 solved; glib, gtk, string_cache and
+jsonptr ignored as Tauri-pinned (below). Left:
 
-- **tes3 fork, done locally (2026-10-19):** zstd 0.14 and `pastey`, in
-  `subset sort\tes3`. Push it, then `cargo update -p tes3` in `native/`, `viewer-shell/`,
-  `viewcore/`, `check-commands/` and merge_to_master. `paste` stays in `native/` through
-  merge_to_master's `lending-iterator` (its `macro_rules_attribute` 0.1); only
-  merge_to_master dropping `lending-iterator` removes it.
+- **`paste`:** merge_to_master no longer uses `lending-iterator` (its one `windows_mut`
+  is a `split_at_mut` loop now; done locally). Push merge_to_master, then
+  `cargo update -p merge_to_master` in `native/`.
+- **`assert` in `tools/gen_tes3_schema.py`:** explicit checks now (done locally).
+- **To ignore, with these reasons:** path traversal and file inclusion (a desktop app
+  opening the files its user picks); the two `engine_behaviour.json` "secrets" (SHA-256
+  hashes of test outputs); pickle (Wraithguard's own cache file; gone with 4.1 of the port);
+  SSRF in `updaters.py` (http/https only, a host required, a size cap, hostile URLs
+  tested); CSP and clickjacking on `none.com` (not our site: remove it under Domains).
+- **`innerHTML` (40 places in the page):** plugin text is untrusted (a mod can put markup in
+  a name), so check each place escapes what it inserts (`escHtml`). Then a CSP
+  (`tauri.conf.json` has `"csp": null`), which first needs the page's ~230 inline `on...=`
+  handlers moved to `addEventListener`: do it page by page with the port.
 - **Tauri 2:** glib/gtk 0.18 (Linux GTK3, unmaintained), string_cache 0.9 (html5ever) and
   jsonptr 0.7 (json-patch) are pinned by Tauri; even 2.12.4 keeps them. Recheck on each
   Tauri release. In Aikido: "waiting on upstream", and the two `engine_behaviour.json`
@@ -71,7 +119,7 @@ for code: it is GPL-3.
   joined by a box.
 - Remappable Editor shortcuts (a key binding page), with the controller bindings below.
 
-## Record cache (`wraithguard/patch/recordcache.py`)
+## Record cache (`wraithguard/patch/recordcache.py`; moves to Rust in step 4.1)
 
 - If the cache's 356-420 MB is too much (the `uses` table is most of it): keep only the
   strings of fields that can name a record. If the first indexing is too slow: more

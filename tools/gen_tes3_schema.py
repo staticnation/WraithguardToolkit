@@ -236,7 +236,8 @@ def parse_csv(path: Path) -> dict[str, dict[str, object]]:
             # element and the declared size covers all of them.
             repeat = declared // parsed
         fields = sections[current]["fields"]
-        assert isinstance(fields, list)  # noqa: S101 - built as a list above
+        if not isinstance(fields, list):  # built as a list above; said, not assumed
+            raise TypeError("fields is not a list")
         fields.append(
             {
                 "name": name,
@@ -335,7 +336,8 @@ def emit(sections: dict[str, dict[str, object]]) -> str:
     ]
     for name, section in sections.items():
         fields = section["fields"]
-        assert isinstance(fields, list)  # noqa: S101 - built as a list above
+        if not isinstance(fields, list):  # built as a list above; said, not assumed
+            raise TypeError("fields is not a list")
         if not fields:
             continue
         lines.append(f"    {_quote(name)}: Record(")
@@ -350,7 +352,8 @@ def emit(sections: dict[str, dict[str, object]]) -> str:
             lines.append(f"                size={_quote(str(field['size']))},")
             lines.append(f"                description={_quote(str(field['description']))},")
             members = field["members"]
-            assert isinstance(members, list)  # noqa: S101 - built as a list above
+            if not isinstance(members, list):  # built as a list above; said, not assumed
+                raise TypeError("members is not a list")
             if members:
                 lines.append("                members=(")
                 for base, dims, member_name in members:
@@ -362,7 +365,8 @@ def emit(sections: dict[str, dict[str, object]]) -> str:
             if field["repeat"] != 1:
                 lines.append(f"                repeat={field['repeat']!r},")
             variants = field["variants"]
-            assert isinstance(variants, list)  # noqa: S101 - built as a list above
+            if not isinstance(variants, list):  # built as a list above; said, not assumed
+                raise TypeError("variants is not a list")
             if variants:
                 rendered = ", ".join(_quote(v) for v in variants)
                 lines.append(f"                variants=({rendered},),")
