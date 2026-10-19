@@ -284,7 +284,8 @@ class _Renderer:
             The heading markup, with an anchor id.
         """
         match = _HEADING.match(self.lines[self.index])
-        assert match is not None  # noqa: S101 - guarded by the caller's dispatch
+        if match is None:  # the caller's dispatch guards this; said, not assumed
+            raise ValueError(f"not a heading: {self.lines[self.index]!r}")
         self.index += 1
         level = len(match.group("level"))
         text = match.group("text")

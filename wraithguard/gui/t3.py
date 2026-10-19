@@ -627,7 +627,8 @@ class Tes3cmdMixin:
                             fail += 0 if r.returncode == 0 else 1
                             continue
                         # staged: stage plugin + masters, run there, copy back
-                        assert staging is not None  # set on the staged path  # noqa: S101
+                        if staging is None:  # set on the staged path; said, not assumed
+                            raise RuntimeError("tes3cmd: the staged path has no staging folder")
                         staged, missing = core.stage_for_tes3cmd(staging, f, index)
                         if staged is None:
                             skipped += 1

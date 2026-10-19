@@ -733,6 +733,18 @@ const TX_STRINGS = {
   "connect.log_times":
     ["read {read} ms · parse {parse} ms · merge {merge} ms",
      "The connect log: how long each step took."],
+  "connect.log_merge_parts":
+    ["merge loop by part: {parts}",
+     "The connect log: the whole merge loop split into its parts, each timed in full (they add up to the loop). setup is before the first plugin; objects, tables and definitions are each plugin's records; interiors and exteriors its cells and their references (the history and inserts above are inside exteriors); moves the references moved between cells; freeing what each plugin leaves to free."],
+  "connect.log_merge_defs":
+    ["of definitions: lights {lights} ms · models {models} ms ({nModels} records) · actors {actors} ms · inside those, x twin lookups {twins} ms ({nTwins}) and .kf reads {kf} ms ({nKf} files)",
+     "The connect log: the merge's definitions part split, each timed in full. The twin lookups (is there an x-prefixed animated mesh beside this one) and the .kf reads happen inside the model and actor loops."],
+  "connect.log_twins_ahead":
+    ["x twins answered before the loop (in setup): {ms} ms for {meshes} meshes and {kf} .kf files, read in parallel",
+     "The connect log: whether each animated mesh has an x-prefixed twin, and whether each twin's .kf makes it move by itself, asked once for every mesh before the merge loop and on all cores, rather than one record at a time inside it."],
+  "connect.log_index_saved":
+    ["file index: {reused} folders taken from the saved index, {walked} read again",
+     "The connect log: the saved file index. A folder whose files or subfolders changed since the last connect is read again; the others come from the index Wraithguard keeps beside itself."],
   "connect.log_merge_split":
     ["merge: the plugins in load order {loop} ms (of it, sampled: recording each reference's history {history} ms, putting it in its cell {inserts} ms) · then waiting on the meshes' geometry {wait} ms",
      "The connect log: the merge's time split. The merge reads every mesh the world could draw beside it, and the step ends when both are done; a wait near zero means the merge itself is the long part. The two sampled times are estimates from every 64th reference."],

@@ -8,15 +8,18 @@ beside its code, or in `viewer-shell/gardenfell/VENDOR.md` for the vendored crat
 Aikido's findings that wait on someone else (4.5.0 fixed pyo3, mio, the CI checkouts and
 the container user):
 
-- **In our tes3 fork:** zstd 0.13 -> 0.14 (zstd-safe 7 -> 8) behind `serde-zstd`, and
-  `paste` (unmaintained) -> `pastey` in the macros; then `cargo update` in `native/` and
-  `viewer-shell/`. zstd's advisories are for APIs tes3 does not use, so this is hygiene.
+- **tes3 fork, done locally (2026-10-19):** zstd 0.14 and `pastey`, in
+  `subset sort\tes3`. Push it, then `cargo update -p tes3` in `native/`, `viewer-shell/`,
+  `viewcore/`, `check-commands/` and merge_to_master. `paste` stays in `native/` through
+  merge_to_master's `lending-iterator` (its `macro_rules_attribute` 0.1); only
+  merge_to_master dropping `lending-iterator` removes it.
 - **Tauri 2:** glib/gtk 0.18 (Linux GTK3, unmaintained), string_cache 0.9 (html5ever) and
   jsonptr 0.7 (json-patch) are pinned by Tauri; even 2.12.4 keeps them. Recheck on each
   Tauri release. In Aikido: "waiting on upstream", and the two `engine_behaviour.json`
   "secrets" are SHA-256 hashes of test outputs (false positives).
-- CI: actions/checkout and setup-node/python/upload-artifact are on v4/v5 (Node 20, now
-  forced to Node 24); move to the Node 24 majors. `ubuntu-latest` becomes Ubuntu 26 on
+- CI: every action is pinned to a commit of its current major (2026-10-19); moving to the
+  Node 24 majors (checkout 7, setup-python 7, upload-artifact 7, cache 6, ...) is a
+  separate step: read each one's breaking changes, then re-pin. `ubuntu-latest` becomes Ubuntu 26 on
   2026-10-19: watch the Linux and Flatpak builds.
 
 ## Forks: LUAL, Clippy
@@ -90,20 +93,17 @@ pending list, search results, Verify's findings.
 Measured on 621 plugins: read 5 s, parse 8.7 s, merge loop 51.8 s (the mesh read beside
 it waits 19 ms), the 205,535-file index 4 s; about 6 us a reference across 8.6M.
 
-- Measure the merge after 4.5.0's history sizing (the connect log's merge line has sampled
-  history and insert times). If the history still dominates: keep it only for references
-  with more than one version (a `History::of` that falls back to the cell's reference;
-  callers in `commands.rs`, `viewcore/src/review.rs`, `usage.rs`), or `Pose.id` as an
-  `Arc<str>`.
-- The file index is now reused while its folders' times are unchanged (`viewcore::vfsindex`,
-  Gardenfell patch 0012): check `msIndex` and `indexReused` in the next connect log.
+- The merge by part (Static, 2026-10-19; loop 39-59 s once warm): exteriors 17.8-27.4 s
+  (history in it 6.2-9.9 s, sampled), definitions 11.9-13.8 s, interiors 5.7-8.8 s,
+  tables 2.3-10.3 s, the rest under 0.5 s. Definitions were nearly all the twins' `.kf`
+  reads (9.5-11.4 s for 614 files, one by one) and twin lookups (2.1 s): now asked ahead
+  on the pool (patch 0014) - check `x twins answered before the loop` and that
+  definitions dropped. Next: exteriors (the history is a third of it; the rest is the
+  per-reference bookkeeping) and tables (`record_where`, one entry per id-bearing record).
+- The file index is reused: all 1233 folders from the saved index, 0.7-2.1 s (checking
+  the folders' times). Was 4.2 s.
 - A cache of the merged world would need invalidation on the whole load order and a
   mappable flat file, not SQLite; only if the above is not enough.
-- A cell load at 2 rings took over 20 minutes on Static's setup (4.4.0): one bundle
-  was 927 MB for 46 textures and the page waited longer than the engine worked. Tell apart
-  distant land/objects, groundcover and the DDS trim (reload with each off), then fix. The
-  Report now has each load's timeline (objects placed, grass, distant land, distant
-  objects) and every bundle's textures (format, size before and after, bytes read, cut).
 
 ## MWScript compiler: TESCS and MWEdit differences
 
@@ -129,7 +129,7 @@ still use the vanilla CS, so:
 ## Gardenfell 18hu rebase (viewer-shell/REBASE-18hu.md)
 
 - Send Robin the patch offering (`Gardenfell-offering-2026-10-12.zip`, with 0011 and
-  meshopt-port). His `fixture/` stays out of the repo (real `Morrowind.ini` copies under
+  meshopt-port; 0012-0014 are in `NOTES-FOR-ROBIN.md` too, rebuild the zip). His `fixture/` stays out of the repo (real `Morrowind.ini` copies under
   `ru/`); put it in `viewer-shell/gardenfell/fixture` locally to run his suite.
 - Tell Greatness7: his crate refuses an NPC_ with a FILL subrecord that Robin's reads; one
   corpus mesh panics inside `bytemuck` (caught, falls back).

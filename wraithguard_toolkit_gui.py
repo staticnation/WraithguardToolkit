@@ -3219,7 +3219,8 @@ class App(
         writer = QueueWriter(self.log_queue)
         # on_export() only starts this worker once a plan exists; state it so
         # the contract is checked rather than assumed.
-        assert self._current_plan is not None  # noqa: S101
+        if self._current_plan is None:
+            raise RuntimeError("export started with no plan")
         try:
             with redirect_stdout(writer.as_stream()), redirect_stderr(writer.as_stream()):
                 result = core.write_plan(
@@ -5178,7 +5179,8 @@ class App(
             writer.write(f"  ERROR: {err}\n")
             self.status_var.set(_("Save check failed: %(error)s") % {"error": err})
             return
-        assert files is not None  # err is None here  # noqa: S101
+        if files is None:  # err is None here, so files is set; said, not assumed
+            raise RuntimeError("savegame check returned no files and no error")
         writer.write(f"  Save depends on {len(files)} content file(s).\n")
         if missing:
             for m in missing:

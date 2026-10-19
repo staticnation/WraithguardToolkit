@@ -33,9 +33,10 @@ def open_in_browser(target: str) -> None:
     release/reacquire around that blocking Win32 call has been seen to come
     back with no active thread state, which aborts the *whole interpreter*
     with a fatal error -- one no ``try/except`` can catch, since it never
-    reaches Python's exception machinery at all. Windows' own shell ``start``
-    verb via :mod:`subprocess` reaches the same ``ShellExecute`` without going
-    through that code path, so it is used first there; :func:`webbrowser.open`
+    reaches Python's exception machinery at all. ``explorer.exe`` run via
+    :mod:`subprocess` reaches the same ``ShellExecute`` without going through
+    that code path (and without cmd.exe parsing the target), so it is used
+    first there; :func:`webbrowser.open`
     remains the way in on every other platform, and the fallback if the shell
     call itself fails to even launch.
 
@@ -44,13 +45,16 @@ def open_in_browser(target: str) -> None:
     """
     if sys.platform == "win32":
         try:
-            # The empty "" is the window-title argument `start` expects before
-            # the target; shell=True is what makes `start` itself resolve,
-            # since it is a cmd.exe builtin, not an .exe on PATH.
-            subprocess.Popen(["start", "", target], shell=True, close_fds=True)  # noqa: S602, S607
+            # Explorer opens a URL or a file with its default handler, the same
+            # ShellExecute `start` reached, but with no cmd.exe in between: the
+            # target is one argument, never a command line, so a mod path with
+            # `&`, `|` or `^` in it opens instead of breaking (or running what
+            # follows it). By full path, so nothing on PATH stands in for it.
+            explorer = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "explorer.exe"
+            subprocess.Popen([str(explorer), target], close_fds=True)  # noqa: S603
             return
         except OSError:
-            trace(f"view: shell 'start' failed for {target}, falling back")
+            trace(f"view: explorer failed for {target}, falling back")
     try:
         webbrowser.open(target)
     except webbrowser.Error:

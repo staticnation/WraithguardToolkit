@@ -100,7 +100,33 @@ Greatness7's `tes3` crate reads, and Robin's code runs on what it read.
   index from a stale one by those folders' times (`viewcore::vfsindex`). Additive.
   Tests: `viewcore/src/vfsindex.rs`.
 
-All eleven are offered to Robin, with `patches/NOTES-FOR-ROBIN.md` saying why each.
+- `patches/0013-merge-timing.patch`: the merge's clock, for the connect log - `LoadStats`
+  gains `ms_merge_loop` and `ms_geometry_wait` (the loop, and its wait on the mesh read
+  beside it), `ms_merge_history` and `ms_merge_inserts` (every 64th exterior reference
+  timed, scaled), `ms_merge_parts` (the whole loop by part, `MERGE_PARTS`, nothing
+  sampled: they add up to the loop), and `ms_defs` and `defs_counts` (inside definitions:
+  the lights, models and actors, and the twin lookups and `.kf` reads within them). And
+  three sizings: the history's table once for every reference before the loop, each
+  exterior cell's map for its record's references, and a reference's first version with
+  room for one (`RefHistory::supplied`). The first timers and the sizings went in with
+  4.5.0's merge work (2026-10-18) without a patch, which is why 0006 stopped reversing
+  cleanly: the sizing sits inside 0006's lines. Made against the file as of commit
+  1a21c43 (this list's hash); the series 0001-0014 now reverses to it exactly (checked
+  2026-10-19). What the merge does is unchanged. Tests: the boot check
+  (`ui/tests/boot.js`, the parts named).
+
+- `patches/0014-twins-ahead.patch`: the merge's twin questions answered before its loop,
+  on the pool (`twins_ahead`): every animated-class model's `x` twin, by its mesh, and
+  whether each twin's `.kf` has an `Idle` with length, both asked once per mesh and in
+  parallel; the loop reads the answers (a twin not asked ahead is still looked up there).
+  `twin_moves_unbidden` is split into `twin_kf` and `kf_has_idle` so both use the same
+  key and read. `LoadStats` gains `ms_twins_ahead` and `twins_ahead`. On Static's setup
+  the loop asked 35,073 twins (2.1 s) and read 614 `.kf` files one by one (9.5-11.4 s).
+  The answers do not depend on the order they are asked in, so the merge's result is the
+  same. Tests: Robin's `round18cr` twins test needs his fixture (not here); the boot check
+  reads the counts.
+
+0001-0011 are offered to Robin (0012-0014 not yet), with `patches/NOTES-FOR-ROBIN.md` saying why each.
 Applied in order to his 18hu source they give exactly the files here (checked); his
 tests: 503 pass with his fixture (his 491 and 12 of ours). Only 0006 and 0009 add
 a field to an existing struct, and only to `World`, which every caller builds with

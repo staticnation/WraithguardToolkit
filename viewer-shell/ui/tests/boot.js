@@ -971,6 +971,13 @@ setTimeout(async ()=>{
   try{
     if(!/"refsKeptDeleted":\d+/.test(replies.open_install||'') || !/"landsFlaggedOut":\d+/.test(replies.open_install||''))
       errors.push('open_install sends no 18hu load counts');
+    // Wraithguard: the merge loop by part, every part named, and the saved index's counts.
+    const parts=(/"msMergeParts":(\{[^}]*\})/.exec(replies.open_install||'')||[])[1];
+    const pk=parts? Object.keys(JSON.parse(parts)).join(',') : '';
+    if(pk!=='setup,objects,tables,definitions,interiors,exteriors,moves,freeing') errors.push('open_install sends no merge parts: '+parts);
+    if(!/"msDefs":\[\d+(,\d+){4}\],"defsCounts":\[\d+,\d+,\d+\]/.test(replies.open_install||'')) errors.push('open_install sends no definitions split');
+    if(!/"msTwinsAhead":\d+,"twinsAhead":\[\d+,\d+\]/.test(replies.open_install||'')) errors.push('open_install sends no twins-ahead counts');
+    if(!/"indexReused":\d+,"indexWalked":\d+/.test(replies.open_install||'')) errors.push('open_install sends no saved-index counts');
     const wr=await engineCall('world_map',{}), wm=typeof wr==='string'? JSON.parse(wr) : wr;
     if(!/^rgb\(\d+, \d+, \d+\)$/.test(wm.sea||'')) errors.push('world_map sends no sea colour: '+wm.sea);
     const m=w.eval("(App.R&&App.R.statics||[]).map(b=>b.relPath||b.path).filter(Boolean)[0]||''")||'meshes/x/lamp.nif';

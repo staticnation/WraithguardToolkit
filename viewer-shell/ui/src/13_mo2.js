@@ -224,11 +224,16 @@ async function openInstallRun(kind, path, profile, plugins){
     {k:'ok', t:T('connect.log_times',{read:r.msRead, parse:r.msParse, merge:r.msMerge})},
     // Wraithguard: what the merge's time is made of (an older engine does not say).
     ...(r.msMergeLoop==null? [] : [{k:'ok', t:T('connect.log_merge_split',{loop:r.msMergeLoop, wait:r.msGeomWait, history:r.msMergeHistory==null? '?' : r.msMergeHistory, inserts:r.msMergeInserts==null? '?' : r.msMergeInserts})}]),
+    ...(r.msMergeParts==null? [] : [{k:'ok', t:T('connect.log_merge_parts',{parts:Object.entries(r.msMergeParts).map(([k,v])=>k+' '+v+' ms').join(' · ')})}]),
+    ...(r.msDefs==null? [] : [{k:'ok', t:T('connect.log_merge_defs',{lights:r.msDefs[0], models:r.msDefs[1], actors:r.msDefs[2], twins:r.msDefs[3], kf:r.msDefs[4],
+                                                                   nModels:r.defsCounts[0], nTwins:r.defsCounts[1], nKf:r.defsCounts[2]})}]),
+    ...(r.msTwinsAhead==null? [] : [{k:'ok', t:T('connect.log_twins_ahead',{ms:r.msTwinsAhead, meshes:r.twinsAhead[0], kf:r.twinsAhead[1]})}]),
     /* Round 18cr: the overlay's own steps, and the page's. Robin: start-up "feels a bit
        slow", and the line above was the only clock on it. `ct.scene` is filled in when
        the first scene stands (below), so the line is built then. */
     {k:'ok', t:T('connect.log_overlay_times',{layout:msOf(ct.layout), index:msOf(ct.index), files:(ct.files||0).toLocaleString(),
                                              roots:(r.roots||[]).length, archives:msOf(ct.archives), plugins:msOf(ct.plugins), headers:msOf(ct.headers)})},
+    ...(r.indexReused==null? [] : [{k:'ok', t:T('connect.log_index_saved',{reused:r.indexReused, walked:r.indexWalked})}]),
     {k:'ok', t:T('connect.log_cells',{cells:r.cells, lands:r.lands})},
     {k:'ok', t:T('connect.log_indexed',{meshes:Assets.meshes.length, textures:Assets.textures.length})},
     /* The archives (round 11 item 10): which, and how much they hold. A load order with

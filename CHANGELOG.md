@@ -1,10 +1,16 @@
 # Changelog
 
 
-## Unreleased
+## 4.5.0
 
 ### Added
 
+- **The connect log times the whole merge loop by part** (setup, objects, tables,
+  definitions, interiors, exteriors, moves, freeing), each in full, so the parts add up to the
+  loop; and **says how much of the file index came from the saved one** (folders taken from it,
+  folders read again). The definitions part is split again (lights, models, actors, and the
+  `x` twin lookups and `.kf` reads inside them, with their counts). Gardenfell patch 0013
+  carries the merge's timers.
 - **The Report says what a slow cell load waited on.** Under each load in Loading: when
   the cell's objects were placed and when its grass, the distant land and the distant
   objects started and finished; its textures by format, how many were read only in part
@@ -19,20 +25,6 @@
   only a folder that changed is walked again; on a large install the walk was about 4 s
   of every connect. The connect log gives roots reused and walked (`indexReused`,
   `indexWalked`).
-
-### Changed
-
-- **The Editor's other lists and the connect's lists come as bytes too** (`WGTB`, one
-  format for every list: named tables of typed columns): the record types, the cells and a
-  cell's references, the land textures, the cell and region names, where each texture is
-  painted, and the overlay's mesh and texture files. The JSON commands stay as the fallback
-  for an engine without the byte ones, said in Messages; the engine refusing (no such
-  cell) is said as it is, not asked a second time.
-
-## 4.5.0
-
-### Added
-
 - **The Editor keeps what it reads from the plugins between runs**
   (`wraithguard_record_cache.sqlite3`, next to the patch journal). Plugin records, the
   moved-reference index, dialogue and plugin headers are read once and then come from the
@@ -72,6 +64,18 @@
 
 ### Changed
 
+- **Connecting a big install is faster: the merge asks its animated-mesh questions ahead.**
+  Whether each animated mesh has an `x` twin, and whether each twin's `.kf` makes it move by
+  itself, were asked one record at a time inside the merge loop: on 621 plugins, 614 `.kf`
+  files read one after another (9.5-11.4 s) and 35,073 twin lookups (2.1 s). They are now
+  asked once per mesh, on all cores, before the loop (Gardenfell patch 0014); the answers
+  are the same. The connect log says how long that took.
+- **The Editor's other lists and the connect's lists come as bytes too** (`WGTB`, one
+  format for every list: named tables of typed columns): the record types, the cells and a
+  cell's references, the land textures, the cell and region names, where each texture is
+  painted, and the overlay's mesh and texture files. The JSON commands stay as the fallback
+  for an engine without the byte ones, said in Messages; the engine refusing (no such
+  cell) is said as it is, not asked a second time.
 - **The Use Report's index takes about a third of the room.** Each record's plugin, type and
   key were repeated on every string it holds, with an index of their own; they are kept once
   now and the strings are one clustered table (a real 621-plugin load order had made it
@@ -87,6 +91,9 @@
 
 ### Fixed
 
+- **Saving the viewer's settings no longer says "profile not saved".** The save answered with
+  the file's path as bare text, which the page read as JSON; the file had been written. It now
+  answers `{"path": ...}`.
 - **Opening a record or quest from the viewer's inspector no longer reports an error.** The
   conflict viewer answers the click with the text `ok`; the page read every answer as JSON and
   said the engine's answer did not read, though the conflict viewer had opened.
@@ -102,6 +109,16 @@
 
 ### Security
 
+- **Opening a page or file on Windows no longer goes through cmd.exe.** `open_in_browser`
+  ran `start "" <target>` with `shell=True`, so a target with `&`, `|` or `^` in it (a mod
+  folder can have one) broke the command or ran what followed. It now runs `explorer.exe`
+  (by full path) with the target as one argument; same handler, no shell.
+- **The CI workflows pin every action to a commit** (the latest of each one's current major),
+  and the build workflows grant nothing at the workflow level: `contents: write` only on the
+  job that attaches the release, `contents: read` elsewhere.
+- **tes3 fork: zstd 0.13 -> 0.14 (zstd-safe 7 -> 8), and `paste` (unmaintained) ->
+  `pastey`.** Takes effect once the fork is pushed and the lockfiles updated.
+- Four `assert`s that stated a contract are explicit checks now (`python -O` drops asserts).
 - **pyo3 0.26 -> 0.29 and pythonize 0.26 -> 0.29** in the native backend
   (GHSA-36hh-v3qg-5jq4, an out-of-bounds read; GHSA-chgr-c6px-7xpp, a race condition).
 - **mio 1.2.3 -> 1.2.4** in the viewer (a use-after-free in Windows named pipes; the viewer

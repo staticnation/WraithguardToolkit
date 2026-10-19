@@ -466,6 +466,17 @@ fn open_install(
         .int("msGeomWait", s.ms_geometry_wait as u64)
         .int("msMergeHistory", s.ms_merge_history as u64)
         .int("msMergeInserts", s.ms_merge_inserts as u64)
+        // Wraithguard: the whole loop by part, `{"setup": ms, "objects": ms, ...}`.
+        .raw("msMergeParts", &format!("{{{}}}", viewcore::world::MERGE_PARTS.iter()
+            .zip(s.ms_merge_parts).map(|(k, v)| format!("\"{k}\":{v}")).collect::<Vec<_>>().join(",")))
+        // Wraithguard: inside definitions - lights, models, actors, twin lookups, .kf reads
+        // (ms), and model records, twin lookups, .kf files read (counts).
+        .raw("msDefs", &format!("[{}]", s.ms_defs.map(|v| v.to_string()).join(",")))
+        .raw("defsCounts", &format!("[{}]", s.defs_counts.map(|v| v.to_string()).join(",")))
+        // Wraithguard: the twins answered ahead, before the loop - ms, then meshes asked
+        // and .kf files read.
+        .int("msTwinsAhead", s.ms_twins_ahead as u64)
+        .raw("twinsAhead", &format!("[{}]", s.twins_ahead.map(|v| v.to_string()).join(",")))
         /* Round 18cr: and the overlay's own clock - the layout, the index walk, the
            archives, the plugin listing - whether it was built here or by the probe
            before (`overlayReused` says which, so the page adds it to the right step). */
@@ -3764,6 +3775,9 @@ fn viewer_profile_read() -> Result<String, String> {
 }
 
 /// Writes the viewer profile (through a temporary file, so a crash never leaves half of one).
+/// Answers `{"path": ...}`: the page reads every answer but `TEXT`'s as JSON, and a bare
+/// Windows path ("C:\\Users\\...") is not JSON, so every save said "profile not saved"
+/// although the file was written (Static's report, 2026-10-19).
 #[tauri::command(async)]
 fn viewer_profile_write(text: String) -> Result<String, String> {
     let p = viewer_prefs_path()?;
@@ -3773,7 +3787,7 @@ fn viewer_profile_write(text: String) -> Result<String, String> {
     let tmp = p.with_extension("json.tmp");
     std::fs::write(&tmp, text).map_err(|e| format!("{}: {}", tmp.display(), e))?;
     std::fs::rename(&tmp, &p).map_err(|e| format!("{}: {}", p.display(), e))?;
-    Ok(p.display().to_string())
+    Ok(J::obj().str("path", &p.display().to_string()).done())
 }
 
 /// Where the viewer's window was when it last settled (Gardenfell 18el/18fi, brought in

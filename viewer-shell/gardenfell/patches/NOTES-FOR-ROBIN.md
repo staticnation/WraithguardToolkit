@@ -6,8 +6,8 @@ them on its vendored copy of your seven engine crates (bytes, text, tes3, nif, b
 install, world) until you take them or say no; either answer is fine, we keep the
 copy otherwise unmodified so your next release drops straight in. With your fixture
 folder (thank you for it) your whole suite passes with the first ten applied: 1553
-pass, 0 fail, against 1541 without them; the 12 more are tests we add. 0011 came a day
-later (additive; see "Applying them").
+pass, 0 fail, against 1541 without them; the 12 more are tests we add. 0011-0014 came
+later (see "Applying them").
 
 ## 0001 world: a record typer hook
 
@@ -209,13 +209,91 @@ reads from there to the end: a 4096 DXT5 at 512 is about a third of a megabyte i
 21. The trim is ours (`viewcore::img::dds_trim`), happy to send it if you want it in your
 `img`. Tests: `crates/gardenfell-bsa/tests/wraithguard_bsa.rs`.
 
+## 0012 install: a root's index kept between connects
+
+`Root::index_one` (one root walked exactly as `Vfs::with_roots` walks it, plus every
+folder the walk read, with its modified time), `Root::from_index` (a root rebuilt from
+such a list without touching the disk), `Root::index` (a root's list, to save) and
+`Vfs::from_roots` (a `Vfs` from roots already built). The walk itself is unchanged; it
+only also says which folders it read. Additive; nothing of yours calls them.
+
+Why: on Static's setup (1233 data folders, 205,556 files) the walk was 4.2 s of every
+connect. Wraithguard saves the roots' lists beside itself and, next time, takes a root
+from the file when none of its folders' times changed, walking only the ones that did
+(`viewcore::vfsindex`, a small binary file; happy to send it). Measured on his setup,
+2026-10-19: all 1233 folders taken from the saved index, the index step 0.7-2.1 s
+(checking the folders' times is what is left). Tests: `viewcore/src/vfsindex.rs` (on our
+side; the patch's functions are what they call).
+
+## 0013 world: the merge's clock
+
+Timers only, plus one `reserve`; what the merge does is unchanged. `LoadStats` gains:
+
+- `ms_merge_loop` and `ms_geometry_wait`: your `ms_merge` is the merge loop and the mesh
+  read beside it, whichever is longer; these split it into the loop alone and the time
+  the loop then waited on the read (near zero on Static's setup: the loop is the bound).
+- `ms_merge_history` and `ms_merge_inserts`: every 64th exterior reference timed, scaled
+  up: recording its version in 0006's history, and putting it in its cell.
+- `ms_merge_parts` (names in `MERGE_PARTS`): the whole loop by part, every moment of it
+  in exactly one part (a small lap timer, `Laps`, one `Instant` per plugin section and per
+  cell record): setup, objects, tables, definitions (lights, models, actors), interiors,
+  exteriors, moves, freeing.
+- `ms_defs` and `defs_counts`: inside definitions, timed in full: the lights, the models,
+  the actors, and inside those the `x_twin` lookups and the twins' `.kf` reads (`timed`,
+  a small wrapper); with the model records, the lookups and the `.kf` files read.
+
+And three sizings: the history's table (`history.refs`) once for every reference the
+plugins supply, before the loop, rather than rehashed at each doubling; each exterior
+cell's map for its record's references; and a reference's first version with room for
+one (`RefHistory::supplied`: a `Vec` takes room for four on its first push, and nearly
+every reference has one version - about 250 bytes each across 8.6M).
+
+Why: Static's 621 plugins (8.6M references) take 40-130 s in the merge, and we wanted to
+know where before changing anything. Two connects on his setup, 2026-10-19 (the first
+with the machine busy, so slower throughout):
+
+| part | 1st | 2nd |
+|---|---|---|
+| setup | 0.2 s | 0.2 s |
+| objects | 0.3 s | 0.2 s |
+| tables | 6.4 s | 2.3 s |
+| definitions | 19.9 s | 12.7 s |
+| interiors | 9.1 s | 5.7 s |
+| exteriors | 94.9 s | 17.8 s |
+| (of it, history, sampled) | 29.0 s | 6.2 s |
+| moves, freeing | 0.1 s | 0.0 s |
+| loop | 130.8 s | 39.0 s |
+
+Definitions are the steady surprise: one creature or animated model calls `x_twin` (a
+VFS lookup) and the twin's `.kf` is read (`twin_moves_unbidden`, once per path), and the
+exteriors swing with how busy the machine is, which reads like memory pressure on
+millions of map entries. The `ms_defs` split is there to tell which; we will look on our side first and send what we find.
+Tests: none of its own (timers); our page's boot check reads the parts back.
+
+## 0014 world: the twin questions answered before the merge loop
+
+`twins_ahead`, run just before the loop: every animated-class model's `x` twin, by its
+mesh as written, and whether each twin's `.kf` has an `Idle` with length, each asked
+once and on the pool. The loop reads the answers (a mesh it was not asked about is still
+looked up there, as before). `twin_moves_unbidden` is split into `twin_kf` (the path and
+the cache key) and `kf_has_idle` (the read), so both paths ask the same question the same
+way. `LoadStats` gains `ms_twins_ahead` and `twins_ahead` (meshes asked, `.kf` read).
+
+Why: 0013's timers on Static's setup put the definitions part at 12-14 s, and nearly all
+of it was this: 614 `.kf` files read and parsed one after another (9.5-11.4 s), and
+35,073 twin lookups (2.1 s), most of them the same mesh asked again by each plugin that
+redefines an object. The answers do not depend on when they are asked, so the merge's
+result is unchanged; ahead of the loop it asks the superset (every definition, winning
+or not), which is the set the loop visited anyway. Your `round18cr` twins test is the one
+that covers it; we could not run it here without your fixture.
+
 ## Applying them
 
 In order, from the repository root: `for p in patches/0*.patch; do patch -p1 < $p; done`.
 Checked: the series on your 18hu source gives exactly the tree Wraithguard vendors, and
 your whole workspace (all ten crates, the CLI and the Tauri check) builds with it. Your
 full suite, with your fixture: 1553 pass / 0 fail, against 1541 / 0 without the
-patches; the 12 more are the tests we add. That check was made with 0001-0010; 0011 came after (2026-10-13). It only adds functions, so it cannot break a caller, but it has not been through your full suite yet.
+patches; the 12 more are the tests we add. That check was made with 0001-0010; 0011 (2026-10-13) and 0012-0014 (2026-10-19) came after. 0011 and 0012 only add functions; 0013 adds timers, fields to `LoadStats` (built with `..Default::default()` everywhere we could find) and three `reserve`/capacity sizings; 0014 asks the twin questions ahead of the loop with the same answers. None of them should break a caller, but they have not been through your full suite yet.
 
 ## Your page: three fixes to the shadow receiver (`page/`)
 

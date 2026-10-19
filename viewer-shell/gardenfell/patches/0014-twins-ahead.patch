@@ -1,0 +1,126 @@
+--- a/crates/gardenfell-world/src/world.rs
++++ b/crates/gardenfell-world/src/world.rs
+@@ -540,23 +540,65 @@
+ /// A banner's `Idle` is one instant; a creature's, or the port strider's, is a loop.
+ /// Cached by the `.kf`'s path, since a mesh serves many records.
+ fn twin_moves_unbidden(vfs: &Vfs, twin: &str, seen: &mut HashMap<String, bool>) -> bool {
+-    let Some(dot) = twin.rfind('.') else { return false };
++    let Some((kfp, key)) = twin_kf(twin) else { return false };
++    if let Some(&v) = seen.get(&key) {
++        return v;
++    }
++    let moves = kf_has_idle(vfs, &kfp);
++    seen.insert(key, moves);
++    moves
++}
++
++/// The `.kf` beside a twin mesh, and the key `twin_moves_unbidden` caches it by.
++fn twin_kf(twin: &str) -> Option<(String, String)> {
++    let dot = twin.rfind('.')?;
+     if twin[dot..].contains(['\\', '/']) {
+-        return false;
++        return None;
+     }
+     let kfp = format!("{}.kf", &twin[..dot]);
+     let key = kfp.to_ascii_lowercase().replace('\\', "/");
+-    if let Some(&v) = seen.get(&key) {
+-        return v;
+-    }
+-    let moves = vfs
+-        .resolve_mesh(&kfp)
++    Some((kfp, key))
++}
++
++/// Whether the `.kf` at `kfp` has an `Idle` with length (read and parsed whole).
++fn kf_has_idle(vfs: &Vfs, kfp: &str) -> bool {
++    vfs.resolve_mesh(kfp)
+         .and_then(|loc| vfs.load(&loc))
+         .and_then(|b| crate::nif::parse_kf(&b))
+         .map(|kf| kf.clip("Idle").is_some())
+-        .unwrap_or(false);
+-    seen.insert(key, moves);
+-    moves
++        .unwrap_or(false)
++}
++
++/// Wraithguard: the merge's twin questions, answered ahead and on the pool - every
++/// animated-class model's `x` twin (by its mesh, exactly as written), and whether each
++/// twin's `.kf` moves unbidden (by the key `twin_moves_unbidden` uses). The merge asked
++/// both one record at a time: on a 621-plugin load order, 35,073 twin lookups (2.1 s)
++/// and 614 `.kf` files read in turn (9.5-11.4 s). The answers do not depend on the order
++/// they are asked in, so the merge's result is unchanged; this asks the superset (every
++/// definition, winning or not), which is the same set the merge visited.
++fn twins_ahead(parsed: &[PluginData], vfs: &Vfs) -> (HashMap<String, Option<String>>, HashMap<String, bool>) {
++    let mut meshes: Vec<String> = Vec::new();
++    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
++    for d in parsed {
++        for md in &d.models {
++            if md.animated_class && !md.deleted && !md.mesh.is_empty() && seen.insert(md.mesh.as_str()) {
++                meshes.push(md.mesh.clone());
++            }
++        }
++    }
++    let twins: Vec<Option<String>> = pool::par_map(&meshes, |_, m| x_twin(vfs, m));
++    let mut kfs: Vec<(String, String)> = Vec::new();
++    let mut keys: std::collections::HashSet<String> = std::collections::HashSet::new();
++    for t in twins.iter().flatten() {
++        if let Some((kfp, key)) = twin_kf(t) {
++            if keys.insert(key.clone()) {
++                kfs.push((kfp, key));
++            }
++        }
++    }
++    let moves: Vec<bool> = pool::par_map(&kfs, |_, (kfp, _)| kf_has_idle(vfs, kfp));
++    let kf_seen = kfs.into_iter().zip(moves).map(|((_, key), m)| (key, m)).collect();
++    (meshes.into_iter().zip(twins).collect(), kf_seen)
+ }
+ 
+ fn is_model_tag(t: Tag) -> bool {
+@@ -1255,6 +1297,10 @@
+     /// twins' `.kf` reads. Then the counts: model records, twin lookups, `.kf` files read.
+     pub ms_defs: [u128; 5],
+     pub defs_counts: [u64; 3],
++    /// Wraithguard: `twins_ahead` before the loop (inside its setup part): how long, and
++    /// how many meshes it asked for a twin and `.kf` files it read.
++    pub ms_twins_ahead: u128,
++    pub twins_ahead: [u64; 2],
+     pub ms_meshes: u128,
+ }
+ 
+@@ -1462,8 +1508,12 @@
+         /* The last water level anybody stated for a room, by name — which is not the same
+            thing as the level in the last record about it. See the merge below. */
+         let mut room_levels: HashMap<String, (f32, usize)> = HashMap::new();
+-        // Round 18ak: each twin's `.kf` read once, by path.
+-        let mut kf_seen: HashMap<String, bool> = HashMap::new();
++        // Round 18ak: each twin's `.kf` read once, by path. Wraithguard: answered ahead,
++        // on the pool, with every animated model's twin (`twins_ahead`).
++        let t_twins = std::time::Instant::now();
++        let (twin_of, mut kf_seen) = twins_ahead(&parsed, vfs);
++        let ms_twins_ahead = t_twins.elapsed().as_millis();
++        let n_kf_ahead = kf_seen.len() as u64;
+         /* Round 18fc: every reference a plugin has deleted so far, by identity. **Deletion
+            is a flag on the reference, not its removal** - the game keeps the object and
+            hides it, so a later plugin's full record for the same identity moves or
+@@ -1647,7 +1697,11 @@
+                        Make them wave as they did before. Only outdoors though, no interior
+                        banners wave in the wind" - the outdoors half is `indoor_plain`. */
+                     let mesh = if md.animated_class {
+-                        match timed(&mut defs_ns[3], &mut defs_n[1], || x_twin(vfs, &md.mesh)) {
++                        let twin = timed(&mut defs_ns[3], &mut defs_n[1], || match twin_of.get(&md.mesh) {
++                            Some(t) => t.clone(),
++                            None => x_twin(vfs, &md.mesh),
++                        });
++                        match twin {
+                             Some(t) if {
+                                 let cached = kf_seen.len();
+                                 let tk = std::time::Instant::now();
+@@ -2047,6 +2101,8 @@
+         w.stats.ms_merge_parts = laps.ns.map(|n| n / 1_000_000);
+         w.stats.ms_defs = defs_ns.map(|n| n / 1_000_000);
+         w.stats.defs_counts = defs_n;
++        w.stats.ms_twins_ahead = ms_twins_ahead;
++        w.stats.twins_ahead = [twin_of.len() as u64, n_kf_ahead];
+         // Round 18ax: every leveled list draws as its creatures' one mesh, or the marker.
+         crate::records::resolve_leveled(&mut w.objects);
+ 

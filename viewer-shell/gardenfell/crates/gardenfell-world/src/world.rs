@@ -540,23 +540,65 @@ pub fn x_twin(vfs: &Vfs, mesh: &str) -> Option<String> {
 /// A banner's `Idle` is one instant; a creature's, or the port strider's, is a loop.
 /// Cached by the `.kf`'s path, since a mesh serves many records.
 fn twin_moves_unbidden(vfs: &Vfs, twin: &str, seen: &mut HashMap<String, bool>) -> bool {
-    let Some(dot) = twin.rfind('.') else { return false };
-    if twin[dot..].contains(['\\', '/']) {
-        return false;
-    }
-    let kfp = format!("{}.kf", &twin[..dot]);
-    let key = kfp.to_ascii_lowercase().replace('\\', "/");
+    let Some((kfp, key)) = twin_kf(twin) else { return false };
     if let Some(&v) = seen.get(&key) {
         return v;
     }
-    let moves = vfs
-        .resolve_mesh(&kfp)
+    let moves = kf_has_idle(vfs, &kfp);
+    seen.insert(key, moves);
+    moves
+}
+
+/// The `.kf` beside a twin mesh, and the key `twin_moves_unbidden` caches it by.
+fn twin_kf(twin: &str) -> Option<(String, String)> {
+    let dot = twin.rfind('.')?;
+    if twin[dot..].contains(['\\', '/']) {
+        return None;
+    }
+    let kfp = format!("{}.kf", &twin[..dot]);
+    let key = kfp.to_ascii_lowercase().replace('\\', "/");
+    Some((kfp, key))
+}
+
+/// Whether the `.kf` at `kfp` has an `Idle` with length (read and parsed whole).
+fn kf_has_idle(vfs: &Vfs, kfp: &str) -> bool {
+    vfs.resolve_mesh(kfp)
         .and_then(|loc| vfs.load(&loc))
         .and_then(|b| crate::nif::parse_kf(&b))
         .map(|kf| kf.clip("Idle").is_some())
-        .unwrap_or(false);
-    seen.insert(key, moves);
-    moves
+        .unwrap_or(false)
+}
+
+/// Wraithguard: the merge's twin questions, answered ahead and on the pool - every
+/// animated-class model's `x` twin (by its mesh, exactly as written), and whether each
+/// twin's `.kf` moves unbidden (by the key `twin_moves_unbidden` uses). The merge asked
+/// both one record at a time: on a 621-plugin load order, 35,073 twin lookups (2.1 s)
+/// and 614 `.kf` files read in turn (9.5-11.4 s). The answers do not depend on the order
+/// they are asked in, so the merge's result is unchanged; this asks the superset (every
+/// definition, winning or not), which is the same set the merge visited.
+fn twins_ahead(parsed: &[PluginData], vfs: &Vfs) -> (HashMap<String, Option<String>>, HashMap<String, bool>) {
+    let mut meshes: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for d in parsed {
+        for md in &d.models {
+            if md.animated_class && !md.deleted && !md.mesh.is_empty() && seen.insert(md.mesh.as_str()) {
+                meshes.push(md.mesh.clone());
+            }
+        }
+    }
+    let twins: Vec<Option<String>> = pool::par_map(&meshes, |_, m| x_twin(vfs, m));
+    let mut kfs: Vec<(String, String)> = Vec::new();
+    let mut keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for t in twins.iter().flatten() {
+        if let Some((kfp, key)) = twin_kf(t) {
+            if keys.insert(key.clone()) {
+                kfs.push((kfp, key));
+            }
+        }
+    }
+    let moves: Vec<bool> = pool::par_map(&kfs, |_, (kfp, _)| kf_has_idle(vfs, kfp));
+    let kf_seen = kfs.into_iter().zip(moves).map(|((_, key), m)| (key, m)).collect();
+    (meshes.into_iter().zip(twins).collect(), kf_seen)
 }
 
 fn is_model_tag(t: Tag) -> bool {
@@ -1244,7 +1286,52 @@ pub struct LoadStats {
     /// it in its cell. The rest of `ms_merge_loop` is neither.
     pub ms_merge_history: u128,
     pub ms_merge_inserts: u128,
+    /// Wraithguard: the whole of `ms_merge_loop`, by part (every part timed, nothing
+    /// sampled; the parts add up to the loop). In order, [`MERGE_PARTS`]: before the
+    /// first plugin, each plugin's object definitions, its small tables, its lights,
+    /// models and actors, its interiors, its exteriors (the history and the inserts are
+    /// inside this one), moved and evicted references, and what each plugin leaves to free.
+    pub ms_merge_parts: [u128; 8],
+    /// Wraithguard: inside the definitions part, timed in full: the lights, the models,
+    /// the actors (each loop whole), and, inside those, the `x` twin lookups and the
+    /// twins' `.kf` reads. Then the counts: model records, twin lookups, `.kf` files read.
+    pub ms_defs: [u128; 5],
+    pub defs_counts: [u64; 3],
+    /// Wraithguard: `twins_ahead` before the loop (inside its setup part): how long, and
+    /// how many meshes it asked for a twin and `.kf` files it read.
+    pub ms_twins_ahead: u128,
+    pub twins_ahead: [u64; 2],
     pub ms_meshes: u128,
+}
+
+/// Wraithguard: the names of [`LoadStats::ms_merge_parts`], in its order.
+pub const MERGE_PARTS: [&str; 8] =
+    ["setup", "objects", "tables", "definitions", "interiors", "exteriors", "moves", "freeing"];
+
+/// Wraithguard: `f`, its time added to `ns` and counted in `n` (the definitions' timers).
+fn timed<T>(ns: &mut u128, n: &mut u64, f: impl FnOnce() -> T) -> T {
+    let t = std::time::Instant::now();
+    let v = f();
+    *ns += t.elapsed().as_nanos();
+    *n += 1;
+    v
+}
+
+/// Wraithguard: a stopwatch over the merge's parts - `to(part)` closes the running part
+/// and starts the next, so every moment of the loop lands in exactly one.
+struct Laps {
+    at: std::time::Instant,
+    part: usize,
+    ns: [u128; 8],
+}
+
+impl Laps {
+    fn to(&mut self, part: usize) {
+        let now = std::time::Instant::now();
+        self.ns[self.part] += now.duration_since(self.at).as_nanos();
+        self.at = now;
+        self.part = part;
+    }
 }
 
 impl World {
@@ -1407,6 +1494,9 @@ impl World {
         let (pre_list, pre_anim): (Vec<String>, std::collections::HashSet<String>) =
             if opts.overlap_geometry { pre_geometry(&parsed, vfs) } else { (Vec::new(), Default::default()) };
         let t2 = std::time::Instant::now();
+        let mut laps = Laps { at: t2, part: 0, ns: [0; 8] };
+        let mut defs_ns = [0u128; 5];
+        let mut defs_n = [0u64; 3];
         let mut w = World { plugins: names, plugin_paths: paths.to_vec(), plugin_failures, ..Default::default() };
         // VTEX 0 belongs to no plugin, so its file has to be stated rather than read.
         w.ltex_file.insert(DEFAULT_LTEX.to_string(), DEFAULT_LTEX_FILE.to_string());
@@ -1418,8 +1508,12 @@ impl World {
         /* The last water level anybody stated for a room, by name — which is not the same
            thing as the level in the last record about it. See the merge below. */
         let mut room_levels: HashMap<String, (f32, usize)> = HashMap::new();
-        // Round 18ak: each twin's `.kf` read once, by path.
-        let mut kf_seen: HashMap<String, bool> = HashMap::new();
+        // Round 18ak: each twin's `.kf` read once, by path. Wraithguard: answered ahead,
+        // on the pool, with every animated model's twin (`twins_ahead`).
+        let t_twins = std::time::Instant::now();
+        let (twin_of, mut kf_seen) = twins_ahead(&parsed, vfs);
+        let ms_twins_ahead = t_twins.elapsed().as_millis();
+        let n_kf_ahead = kf_seen.len() as u64;
         /* Round 18fc: every reference a plugin has deleted so far, by identity. **Deletion
            is a flag on the reference, not its removal** - the game keeps the object and
            hides it, so a later plugin's full record for the same identity moves or
@@ -1469,11 +1563,13 @@ impl World {
             parsed.iter().map(|d| d.cells.iter().map(|c| c.refs.len()).sum::<usize>()).sum(),
         );
         for (pi, d) in parsed.into_iter().enumerate() {
+            laps.to(2);
             w.stats.records += d.records;
             w.stats.records_deleted_by_flag += d.deleted_by_flag;
             w.stats.lands_defaulted += d.lands_defaulted;
             w.stats.lands_flagged_out += d.lands_flagged_out;
             w.masters.push(d.masters.clone());
+            laps.to(1);
             /* Round 18av: the object index and the id index. A deleted definition takes
                the record out of the picker; a later definition wins the kind, model and
                name, and every defining plugin is remembered for the masters question. */
@@ -1501,6 +1597,7 @@ impl World {
                     e.defined_in.push(pi);
                 }
             }
+            laps.to(2);
             for (id, tag) in d.ids {
                 w.record_where.entry(id).or_default().push((pi, tag));
             }
@@ -1530,6 +1627,8 @@ impl World {
                a record arriving in one takes the id out of the others, and a deletion takes
                it out of all of them, whichever kind the deleting record was. Counted, so a
                digest that moved can be read against the connect log. */
+            laps.to(3);
+            let t_defs = std::time::Instant::now();
             let lit: std::collections::HashSet<String> =
                 d.lights.iter().map(|l| l.id.to_ascii_lowercase()).collect();
             for l in d.lights {
@@ -1543,7 +1642,10 @@ impl World {
                     w.lights.insert(k, l);
                 }
             }
+            let t_models = std::time::Instant::now();
+            defs_ns[0] += t_models.duration_since(t_defs).as_nanos();
             for md in d.models {
+                defs_n[0] += 1;
                 if !is_placed(&md.tag, &md.id) {
                     continue;
                 }
@@ -1595,8 +1697,21 @@ impl World {
                        Make them wave as they did before. Only outdoors though, no interior
                        banners wave in the wind" - the outdoors half is `indoor_plain`. */
                     let mesh = if md.animated_class {
-                        match x_twin(vfs, &md.mesh) {
-                            Some(t) if twin_moves_unbidden(vfs, &t, &mut kf_seen) => {
+                        let twin = timed(&mut defs_ns[3], &mut defs_n[1], || match twin_of.get(&md.mesh) {
+                            Some(t) => t.clone(),
+                            None => x_twin(vfs, &md.mesh),
+                        });
+                        match twin {
+                            Some(t) if {
+                                let cached = kf_seen.len();
+                                let tk = std::time::Instant::now();
+                                let m = twin_moves_unbidden(vfs, &t, &mut kf_seen);
+                                if kf_seen.len() > cached {
+                                    defs_ns[4] += tk.elapsed().as_nanos();
+                                    defs_n[2] += 1;
+                                }
+                                m
+                            } => {
                                 w.indoor_plain.remove(&k);
                                 t
                             }
@@ -1631,6 +1746,8 @@ impl World {
                     w.models.insert(k, mesh);
                 }
             }
+            let t_actors = std::time::Instant::now();
+            defs_ns[1] += t_actors.duration_since(t_models).as_nanos();
             for mut a in d.actors {
                 if !is_placed(if a.creature { b"CREA" } else { b"NPC_" }, &a.id) {
                     continue;
@@ -1647,7 +1764,11 @@ impl World {
                 } else {
                     // Round 18ag: a creature's twin, looked up once here (an NPC has no
                     // mesh of its own to twin).
-                    a.twin = if a.creature && !a.model.is_empty() { x_twin(vfs, &a.model) } else { None };
+                    a.twin = if a.creature && !a.model.is_empty() {
+                        timed(&mut defs_ns[3], &mut defs_n[1], || x_twin(vfs, &a.model))
+                    } else {
+                        None
+                    };
                     /* Round 18ey: an actor is animated too - a living creature walks by
                        the `.kf` beside its twin - so both files it may be drawn from count
                        as meshes the game animates. The corpse is drawn from the plain file
@@ -1664,7 +1785,9 @@ impl World {
                     w.actors.insert(k, a);
                 }
             }
+            defs_ns[2] += t_actors.elapsed().as_nanos();
             for rc in d.cells {
+                laps.to(if is_interior(rc.flags) { 4 } else { 5 });
                 if is_interior(rc.flags) {
                     /* Kept by name, and the later plugin wins — the same rule exteriors
                        follow, said with a name instead of a grid. An interior with no name
@@ -1800,6 +1923,7 @@ impl World {
                             w.stats.refs_merged += 1;
                         }
                     }
+                    laps.to(6);
                     w.stats.refs_relocated += evict_all(&mut w.cells, &mut w.interiors, evict);
                     /* A reference moved *out* of a room lands on the grid it was moved
                        to, which is an exterior — that is what a grid is. Dropping these
@@ -1916,6 +2040,7 @@ impl World {
                         w.stats.refs_merged += 1;
                     }
                 }
+                laps.to(6);
                 w.stats.refs_relocated += evict_all(&mut w.cells, &mut w.interiors, evict);
                 // A moved reference lands in the cell it was moved to, which may
                 // be one we have not seen yet.
@@ -1932,7 +2057,9 @@ impl World {
                     dst.refs.insert(r.num, r);
                 }
             }
+            laps.to(7);
         }
+            laps.to(7);
             ms_merge_loop = t2.elapsed().as_millis();
             let t_wait = std::time::Instant::now();
             let got = match reader {
@@ -1971,6 +2098,11 @@ impl World {
         w.stats.ms_geometry_wait = ms_geometry_wait;
         w.stats.ms_merge_history = ns_history / 1_000_000;
         w.stats.ms_merge_inserts = ns_inserts / 1_000_000;
+        w.stats.ms_merge_parts = laps.ns.map(|n| n / 1_000_000);
+        w.stats.ms_defs = defs_ns.map(|n| n / 1_000_000);
+        w.stats.defs_counts = defs_n;
+        w.stats.ms_twins_ahead = ms_twins_ahead;
+        w.stats.twins_ahead = [twin_of.len() as u64, n_kf_ahead];
         // Round 18ax: every leveled list draws as its creatures' one mesh, or the marker.
         crate::records::resolve_leveled(&mut w.objects);
 

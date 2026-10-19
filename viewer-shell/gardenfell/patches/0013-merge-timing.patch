@@ -1,0 +1,289 @@
+--- a/crates/gardenfell-world/src/world.rs
++++ b/crates/gardenfell-world/src/world.rs
+@@ -977,7 +977,13 @@
+     /// Records plugin `pi`'s version of `r` in `refs` (a field of [`History`], passed on
+     /// its own so the merge can hold a cell's history at the same time).
+     fn supplied(refs: &mut HashMap<RefNum, RefHistory>, r: &CellRef, pi: usize) {
+-        let h = refs.entry(r.num).or_default();
++        // Wraithguard: nearly every reference has one version. `Vec::push` on an empty Vec
++        // takes room for four (a `Pose` is 56 bytes with its id: about 250 bytes a reference,
++        // across 8.6M of them), so the first push is sized for one; a second grows it.
++        let h = refs.entry(r.num).or_insert_with(|| RefHistory {
++            touched: Vec::with_capacity(1),
++            poses: Vec::with_capacity(1),
++        });
+         h.touched.push(pi as i32);
+         h.poses.push(Pose::of(r));
+     }
+@@ -1227,9 +1233,61 @@
+     pub ms_read: u128,
+     pub ms_parse: u128,
+     pub ms_merge: u128,
++    /// Wraithguard: `ms_merge` is the merge loop and the mesh read beside it, whichever is
++    /// longer. These split it: how long the loop alone took (from the merge's start to its
++    /// last plugin), and how long the loop then waited on the mesh read. A wait near zero
++    /// means the loop is the bound; a long one, the mesh read is.
++    pub ms_merge_loop: u128,
++    pub ms_geometry_wait: u128,
++    /// Wraithguard: where the exterior references' time goes, sampled (every 64th reference
++    /// is timed and the sample scaled): recording each version in the history, and putting
++    /// it in its cell. The rest of `ms_merge_loop` is neither.
++    pub ms_merge_history: u128,
++    pub ms_merge_inserts: u128,
++    /// Wraithguard: the whole of `ms_merge_loop`, by part (every part timed, nothing
++    /// sampled; the parts add up to the loop). In order, [`MERGE_PARTS`]: before the
++    /// first plugin, each plugin's object definitions, its small tables, its lights,
++    /// models and actors, its interiors, its exteriors (the history and the inserts are
++    /// inside this one), moved and evicted references, and what each plugin leaves to free.
++    pub ms_merge_parts: [u128; 8],
++    /// Wraithguard: inside the definitions part, timed in full: the lights, the models,
++    /// the actors (each loop whole), and, inside those, the `x` twin lookups and the
++    /// twins' `.kf` reads. Then the counts: model records, twin lookups, `.kf` files read.
++    pub ms_defs: [u128; 5],
++    pub defs_counts: [u64; 3],
+     pub ms_meshes: u128,
+ }
+ 
++/// Wraithguard: the names of [`LoadStats::ms_merge_parts`], in its order.
++pub const MERGE_PARTS: [&str; 8] =
++    ["setup", "objects", "tables", "definitions", "interiors", "exteriors", "moves", "freeing"];
++
++/// Wraithguard: `f`, its time added to `ns` and counted in `n` (the definitions' timers).
++fn timed<T>(ns: &mut u128, n: &mut u64, f: impl FnOnce() -> T) -> T {
++    let t = std::time::Instant::now();
++    let v = f();
++    *ns += t.elapsed().as_nanos();
++    *n += 1;
++    v
++}
++
++/// Wraithguard: a stopwatch over the merge's parts - `to(part)` closes the running part
++/// and starts the next, so every moment of the loop lands in exactly one.
++struct Laps {
++    at: std::time::Instant,
++    part: usize,
++    ns: [u128; 8],
++}
++
++impl Laps {
++    fn to(&mut self, part: usize) {
++        let now = std::time::Instant::now();
++        self.ns[self.part] += now.duration_since(self.at).as_nanos();
++        self.at = now;
++        self.part = part;
++    }
++}
++
+ impl World {
+     /// One interior by name, however it is spelled — round 18bd (E8). See [`room_key`].
+     pub fn room(&self, name: &str) -> Option<&Interior> {
+@@ -1390,6 +1448,9 @@
+         let (pre_list, pre_anim): (Vec<String>, std::collections::HashSet<String>) =
+             if opts.overlap_geometry { pre_geometry(&parsed, vfs) } else { (Vec::new(), Default::default()) };
+         let t2 = std::time::Instant::now();
++        let mut laps = Laps { at: t2, part: 0, ns: [0; 8] };
++        let mut defs_ns = [0u128; 5];
++        let mut defs_n = [0u64; 3];
+         let mut w = World { plugins: names, plugin_paths: paths.to_vec(), plugin_failures, ..Default::default() };
+         // VTEX 0 belongs to no plugin, so its file has to be stated rather than read.
+         w.ltex_file.insert(DEFAULT_LTEX.to_string(), DEFAULT_LTEX_FILE.to_string());
+@@ -1429,6 +1490,11 @@
+         /* The superset's reads, started here and collected after the merge. A scoped
+            thread rather than the pool directly: the pool would block this thread, and
+            the merge is what this thread is for. Inside, `par_map` owns the machine. */
++        let mut ms_merge_loop: u128 = 0;
++        let mut ms_geometry_wait: u128 = 0;
++        let mut ns_history: u128 = 0;
++        let mut ns_inserts: u128 = 0;
++        let mut n_refs: u64 = 0;
+         let pre: HashMap<String, GeomRead> = std::thread::scope(|sc| {
+             let reader = (!pre_list.is_empty()).then(|| {
+                 let (pa, pl) = (&pre_anim, &pre_list);
+@@ -1441,12 +1507,19 @@
+         // Which type each id is placed as, when plugins define it as more than one.
+         let placed = if opts.openmw_kinds { placed_types(&parsed) } else { HashMap::new() };
+         let is_placed = |tag: &Tag, id: &str| placed.get(&id.to_ascii_lowercase()).map_or(true, |t| t == tag);
++        /* Wraithguard: the history holds an entry for every reference any plugin supplied;
++           room for them all at once, rather than a rehash of millions at every doubling. */
++        w.history.refs.reserve(
++            parsed.iter().map(|d| d.cells.iter().map(|c| c.refs.len()).sum::<usize>()).sum(),
++        );
+         for (pi, d) in parsed.into_iter().enumerate() {
++            laps.to(2);
+             w.stats.records += d.records;
+             w.stats.records_deleted_by_flag += d.deleted_by_flag;
+             w.stats.lands_defaulted += d.lands_defaulted;
+             w.stats.lands_flagged_out += d.lands_flagged_out;
+             w.masters.push(d.masters.clone());
++            laps.to(1);
+             /* Round 18av: the object index and the id index. A deleted definition takes
+                the record out of the picker; a later definition wins the kind, model and
+                name, and every defining plugin is remembered for the masters question. */
+@@ -1474,6 +1547,7 @@
+                     e.defined_in.push(pi);
+                 }
+             }
++            laps.to(2);
+             for (id, tag) in d.ids {
+                 w.record_where.entry(id).or_default().push((pi, tag));
+             }
+@@ -1503,6 +1577,8 @@
+                a record arriving in one takes the id out of the others, and a deletion takes
+                it out of all of them, whichever kind the deleting record was. Counted, so a
+                digest that moved can be read against the connect log. */
++            laps.to(3);
++            let t_defs = std::time::Instant::now();
+             let lit: std::collections::HashSet<String> =
+                 d.lights.iter().map(|l| l.id.to_ascii_lowercase()).collect();
+             for l in d.lights {
+@@ -1516,7 +1592,10 @@
+                     w.lights.insert(k, l);
+                 }
+             }
++            let t_models = std::time::Instant::now();
++            defs_ns[0] += t_models.duration_since(t_defs).as_nanos();
+             for md in d.models {
++                defs_n[0] += 1;
+                 if !is_placed(&md.tag, &md.id) {
+                     continue;
+                 }
+@@ -1568,8 +1647,17 @@
+                        Make them wave as they did before. Only outdoors though, no interior
+                        banners wave in the wind" - the outdoors half is `indoor_plain`. */
+                     let mesh = if md.animated_class {
+-                        match x_twin(vfs, &md.mesh) {
+-                            Some(t) if twin_moves_unbidden(vfs, &t, &mut kf_seen) => {
++                        match timed(&mut defs_ns[3], &mut defs_n[1], || x_twin(vfs, &md.mesh)) {
++                            Some(t) if {
++                                let cached = kf_seen.len();
++                                let tk = std::time::Instant::now();
++                                let m = twin_moves_unbidden(vfs, &t, &mut kf_seen);
++                                if kf_seen.len() > cached {
++                                    defs_ns[4] += tk.elapsed().as_nanos();
++                                    defs_n[2] += 1;
++                                }
++                                m
++                            } => {
+                                 w.indoor_plain.remove(&k);
+                                 t
+                             }
+@@ -1604,6 +1692,8 @@
+                     w.models.insert(k, mesh);
+                 }
+             }
++            let t_actors = std::time::Instant::now();
++            defs_ns[1] += t_actors.duration_since(t_models).as_nanos();
+             for mut a in d.actors {
+                 if !is_placed(if a.creature { b"CREA" } else { b"NPC_" }, &a.id) {
+                     continue;
+@@ -1620,7 +1710,11 @@
+                 } else {
+                     // Round 18ag: a creature's twin, looked up once here (an NPC has no
+                     // mesh of its own to twin).
+-                    a.twin = if a.creature && !a.model.is_empty() { x_twin(vfs, &a.model) } else { None };
++                    a.twin = if a.creature && !a.model.is_empty() {
++                        timed(&mut defs_ns[3], &mut defs_n[1], || x_twin(vfs, &a.model))
++                    } else {
++                        None
++                    };
+                     /* Round 18ey: an actor is animated too - a living creature walks by
+                        the `.kf` beside its twin - so both files it may be drawn from count
+                        as meshes the game animates. The corpse is drawn from the plain file
+@@ -1637,7 +1731,9 @@
+                     w.actors.insert(k, a);
+                 }
+             }
++            defs_ns[2] += t_actors.elapsed().as_nanos();
+             for rc in d.cells {
++                laps.to(if is_interior(rc.flags) { 4 } else { 5 });
+                 if is_interior(rc.flags) {
+                     /* Kept by name, and the later plugin wins — the same rule exteriors
+                        follow, said with a name instead of a grid. An interior with no name
+@@ -1773,6 +1869,7 @@
+                             w.stats.refs_merged += 1;
+                         }
+                     }
++                    laps.to(6);
+                     w.stats.refs_relocated += evict_all(&mut w.cells, &mut w.interiors, evict);
+                     /* A reference moved *out* of a room lands on the grid it was moved
+                        to, which is an exterior — that is what a grid is. Dropping these
+@@ -1821,6 +1918,7 @@
+                     cell.region = rc.region.clone();
+                 }
+                 w.cell_flags.insert(rc.grid, rc.flags);
++                cell.refs.reserve(rc.refs.len());
+                 let mut moves: Vec<((i32, i32), CellRef)> = Vec::new();
+                 let here = Where::Ext(rc.grid);
+                 let mut evict: Vec<(RefNum, Where)> = Vec::new();
+@@ -1830,7 +1928,13 @@
+                     // where its plugin sits in the order.
+                     r.plugin = pi as i32;
+                     // Every version of the reference, and its placement in each.
++                    n_refs += 1;
++                    let sample = n_refs & 63 == 0;
++                    let t_hist = sample.then(std::time::Instant::now);
+                     RefHistory::supplied(&mut w.history.refs, &r, pi);
++                    if let Some(t) = t_hist {
++                        ns_history += t.elapsed().as_nanos() * 64;
++                    }
+                     if drop_mismatched_move(&mut r, opts) {
+                         w.stats.refs_move_dropped += 1;
+                     }
+@@ -1870,13 +1974,19 @@
+                         }
+                         continue;
+                     }
+-                    if cell.refs.insert(r.num, r).is_some() {
++                    let t_ins = sample.then(std::time::Instant::now);
++                    let replaced = cell.refs.insert(r.num, r).is_some();
++                    if let Some(t) = t_ins {
++                        ns_inserts += t.elapsed().as_nanos() * 64;
++                    }
++                    if replaced {
+                         w.stats.refs_overridden += 1;
+                         cell.prov.replaced += 1;
+                     } else {
+                         w.stats.refs_merged += 1;
+                     }
+                 }
++                laps.to(6);
+                 w.stats.refs_relocated += evict_all(&mut w.cells, &mut w.interiors, evict);
+                 // A moved reference lands in the cell it was moved to, which may
+                 // be one we have not seen yet.
+@@ -1893,14 +2003,20 @@
+                     dst.refs.insert(r.num, r);
+                 }
+             }
++            laps.to(7);
+         }
+-            match reader {
++            laps.to(7);
++            ms_merge_loop = t2.elapsed().as_millis();
++            let t_wait = std::time::Instant::now();
++            let got = match reader {
+                 Some(h) => match h.join() {
+                     Ok(v) => pre_list.iter().map(|m| m.to_ascii_lowercase()).zip(v).collect(),
+                     Err(_) => HashMap::new(),   // a panic in a read: read again below
+                 },
+                 None => HashMap::new(),
+-            }
++            };
++            ms_geometry_wait = t_wait.elapsed().as_millis();
++            got
+         });
+         /* Round 18ez: which of the meshes the load order draws have a `.kf` beside them.
+            One resolve per distinct mesh, against the overlay's index. */
+@@ -1924,6 +2040,13 @@
+         w.stats.cells = w.cells.len();
+         w.stats.lands = w.lands.len();
+         w.stats.ms_merge = t2.elapsed().as_millis();
++        w.stats.ms_merge_loop = ms_merge_loop;
++        w.stats.ms_geometry_wait = ms_geometry_wait;
++        w.stats.ms_merge_history = ns_history / 1_000_000;
++        w.stats.ms_merge_inserts = ns_inserts / 1_000_000;
++        w.stats.ms_merge_parts = laps.ns.map(|n| n / 1_000_000);
++        w.stats.ms_defs = defs_ns.map(|n| n / 1_000_000);
++        w.stats.defs_counts = defs_n;
+         // Round 18ax: every leveled list draws as its creatures' one mesh, or the marker.
+         crate::records::resolve_leveled(&mut w.objects);
+ 
