@@ -977,7 +977,13 @@ impl RefHistory {
     /// Records plugin `pi`'s version of `r` in `refs` (a field of [`History`], passed on
     /// its own so the merge can hold a cell's history at the same time).
     fn supplied(refs: &mut HashMap<RefNum, RefHistory>, r: &CellRef, pi: usize) {
-        let h = refs.entry(r.num).or_default();
+        // Wraithguard: nearly every reference has one version. `Vec::push` on an empty Vec
+        // takes room for four (a `Pose` is 56 bytes with its id: about 250 bytes a reference,
+        // across 8.6M of them), so the first push is sized for one; a second grows it.
+        let h = refs.entry(r.num).or_insert_with(|| RefHistory {
+            touched: Vec::with_capacity(1),
+            poses: Vec::with_capacity(1),
+        });
         h.touched.push(pi as i32);
         h.poses.push(Pose::of(r));
     }
@@ -1227,13 +1233,17 @@ pub struct LoadStats {
     pub ms_read: u128,
     pub ms_parse: u128,
     pub ms_merge: u128,
-    /// Wraithguard: `ms_merge` is the merge loop and the wait for the read of the meshes'
-    /// geometry that runs beside it (the step ends when both are done), so one number cannot
-    /// say which is long. These split it: how long the loop alone took (from the merge's start
-    /// to its last plugin), and how long the loop then waited on the mesh read. A wait near
-    /// zero means the loop is the bound; a long one, the mesh read is.
+    /// Wraithguard: `ms_merge` is the merge loop and the mesh read beside it, whichever is
+    /// longer. These split it: how long the loop alone took (from the merge's start to its
+    /// last plugin), and how long the loop then waited on the mesh read. A wait near zero
+    /// means the loop is the bound; a long one, the mesh read is.
     pub ms_merge_loop: u128,
     pub ms_geometry_wait: u128,
+    /// Wraithguard: where the exterior references' time goes, sampled (every 64th reference
+    /// is timed and the sample scaled): recording each version in the history, and putting
+    /// it in its cell. The rest of `ms_merge_loop` is neither.
+    pub ms_merge_history: u128,
+    pub ms_merge_inserts: u128,
     pub ms_meshes: u128,
 }
 
@@ -1438,6 +1448,9 @@ impl World {
            the merge is what this thread is for. Inside, `par_map` owns the machine. */
         let mut ms_merge_loop: u128 = 0;
         let mut ms_geometry_wait: u128 = 0;
+        let mut ns_history: u128 = 0;
+        let mut ns_inserts: u128 = 0;
+        let mut n_refs: u64 = 0;
         let pre: HashMap<String, GeomRead> = std::thread::scope(|sc| {
             let reader = (!pre_list.is_empty()).then(|| {
                 let (pa, pl) = (&pre_anim, &pre_list);
@@ -1450,6 +1463,11 @@ impl World {
         // Which type each id is placed as, when plugins define it as more than one.
         let placed = if opts.openmw_kinds { placed_types(&parsed) } else { HashMap::new() };
         let is_placed = |tag: &Tag, id: &str| placed.get(&id.to_ascii_lowercase()).map_or(true, |t| t == tag);
+        /* Wraithguard: the history holds an entry for every reference any plugin supplied;
+           room for them all at once, rather than a rehash of millions at every doubling. */
+        w.history.refs.reserve(
+            parsed.iter().map(|d| d.cells.iter().map(|c| c.refs.len()).sum::<usize>()).sum(),
+        );
         for (pi, d) in parsed.into_iter().enumerate() {
             w.stats.records += d.records;
             w.stats.records_deleted_by_flag += d.deleted_by_flag;
@@ -1830,6 +1848,7 @@ impl World {
                     cell.region = rc.region.clone();
                 }
                 w.cell_flags.insert(rc.grid, rc.flags);
+                cell.refs.reserve(rc.refs.len());
                 let mut moves: Vec<((i32, i32), CellRef)> = Vec::new();
                 let here = Where::Ext(rc.grid);
                 let mut evict: Vec<(RefNum, Where)> = Vec::new();
@@ -1839,7 +1858,13 @@ impl World {
                     // where its plugin sits in the order.
                     r.plugin = pi as i32;
                     // Every version of the reference, and its placement in each.
+                    n_refs += 1;
+                    let sample = n_refs & 63 == 0;
+                    let t_hist = sample.then(std::time::Instant::now);
                     RefHistory::supplied(&mut w.history.refs, &r, pi);
+                    if let Some(t) = t_hist {
+                        ns_history += t.elapsed().as_nanos() * 64;
+                    }
                     if drop_mismatched_move(&mut r, opts) {
                         w.stats.refs_move_dropped += 1;
                     }
@@ -1879,7 +1904,12 @@ impl World {
                         }
                         continue;
                     }
-                    if cell.refs.insert(r.num, r).is_some() {
+                    let t_ins = sample.then(std::time::Instant::now);
+                    let replaced = cell.refs.insert(r.num, r).is_some();
+                    if let Some(t) = t_ins {
+                        ns_inserts += t.elapsed().as_nanos() * 64;
+                    }
+                    if replaced {
                         w.stats.refs_overridden += 1;
                         cell.prov.replaced += 1;
                     } else {
@@ -1939,6 +1969,8 @@ impl World {
         w.stats.ms_merge = t2.elapsed().as_millis();
         w.stats.ms_merge_loop = ms_merge_loop;
         w.stats.ms_geometry_wait = ms_geometry_wait;
+        w.stats.ms_merge_history = ns_history / 1_000_000;
+        w.stats.ms_merge_inserts = ns_inserts / 1_000_000;
         // Round 18ax: every leveled list draws as its creatures' one mesh, or the marker.
         crate::records::resolve_leveled(&mut w.objects);
 

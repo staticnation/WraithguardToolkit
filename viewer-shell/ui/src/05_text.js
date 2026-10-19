@@ -721,8 +721,8 @@ const TX_STRINGS = {
     ["read {read} ms · parse {parse} ms · merge {merge} ms",
      "The connect log: how long each step took."],
   "connect.log_merge_split":
-    ["merge: the plugins in load order {loop} ms · then waiting on the meshes' geometry {wait} ms",
-     "The connect log: the merge's time split in two. The merge reads every mesh the world could draw beside it, and the step ends when both are done; a wait near zero means the merge itself is the long part."],
+    ["merge: the plugins in load order {loop} ms (of it, sampled: recording each reference's history {history} ms, putting it in its cell {inserts} ms) · then waiting on the meshes' geometry {wait} ms",
+     "The connect log: the merge's time split. The merge reads every mesh the world could draw beside it, and the step ends when both are done; a wait near zero means the merge itself is the long part. The two sampled times are estimates from every 64th reference."],
   "connect.log_overlay_times":
     ["overlay: layout {layout} ms · index {index} ms ({files} files in {roots} folders) · archives {archives} ms · plugin list {plugins} ms · headers {headers} ms",
      "The connect log: how long the engine took to work the install out, step by step, before any plugin was read."],

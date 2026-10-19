@@ -423,6 +423,8 @@ fn open_install(
         // Wraithguard: the merge's two halves - the loop, and the wait on the mesh read.
         .int("msMergeLoop", s.ms_merge_loop as u64)
         .int("msGeomWait", s.ms_geometry_wait as u64)
+        .int("msMergeHistory", s.ms_merge_history as u64)
+        .int("msMergeInserts", s.ms_merge_inserts as u64)
         /* Round 18cr: and the overlay's own clock - the layout, the index walk, the
            archives, the plugin listing - whether it was built here or by the probe
            before (`overlayReused` says which, so the page adds it to the right step). */

@@ -127,15 +127,19 @@ answers as the scan - tested against it).
   205,535-file index (4 s) in a 621-plugin load order. The biggest time and the riskiest:
   a stale cache there draws a wrong scene, so it needs invalidation on the whole load
   order, not per plugin. Not a SQLite job for the merged world (8.6M references; row by row
-  it costs what the merge does): a flat file that can be mapped, if at all. First, find
-  what the 54 s is: the "merge" step is the single-threaded merge loop and, beside it, the
-  read of every mesh the world could draw, and ends when both are done. The connect log now
-  has a line splitting them (`merge: the plugins in load order N ms - then waiting on the
-  meshes' geometry M ms`; `msMergeLoop`/`msGeomWait`, `world.rs`). Read it on the real load
-  order (needs a Rust build): a wait near 0 means the loop is the bound (profile it; about
-  6 us a reference is a lot, so look for per-reference clones before caching anything); a long
-  wait means the mesh read is (a geometry cache keyed by mesh path, size, time and reader
-  build). The 4 s file index could be reused while the 1233 folders' times are unchanged.
+  it costs what the merge does): a flat file that can be mapped, if at all. Measured (the
+  connect log's split line, 621 plugins): the merge loop is the whole 51.8 s, the mesh read
+  beside it waits only 19 ms, so no geometry cache is needed. About 6 us a reference. First
+  suspect, fixed but not yet measured: each reference version is recorded in
+  `history.refs` (`RefHistory::supplied`), cloning its id into a `Pose` and pushing onto two
+  `Vec`s that take room for four on the first push - about 250 bytes and three allocations
+  a reference, 2+ GB across 8.6M. They are now sized for one, and the history map and each
+  cell's map are reserved up front. The line now also gives sampled times for recording the
+  history and for the cell insert; if the loop is still long, they say which. If the history
+  still dominates: keep it only for references that have more than one version (a
+  `History::of` that falls back to the cell's reference changes its callers in `commands.rs`,
+  `viewcore/src/review.rs` and `usage.rs`), or make `Pose.id` an `Arc<str>`. The 4 s file
+  index could be reused while the 1233 folders' times are unchanged.
 - Measure on the real 621-plugin load order: the first indexing, how much of it the viewer's
   requests feel, the file's size, and the cost of the per-lookup `stat` of every plugin (a
   memo was not added: it is hundreds of calls per lookup, which should be milliseconds).

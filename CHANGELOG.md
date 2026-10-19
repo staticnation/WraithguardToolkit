@@ -14,6 +14,10 @@
 - **The connect log splits the merge's time.** One more line says how long the merge of the
   plugins took on its own and how long it then waited on the read of the meshes' geometry
   that runs beside it, so the long step of opening a big install can be told apart.
+- **Opening a big install does less allocation in the merge.** Each reference's history
+  entry is sized for the one version nearly every reference has (it took room for four, about
+  250 bytes each), and the history and each cell's references are reserved up front. The merge
+  line also shows sampled times for the history and the cell inserts.
 - **The Editor answers "does the load order have this?" without reading every plugin.** A key
   index in the same cache says which plugins have a cell, an id or a square's land, so a new
   cell or new land, Verify's id checks and a cell's plugin list are one query. It is filled in
