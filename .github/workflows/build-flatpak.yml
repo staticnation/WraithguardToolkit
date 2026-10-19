@@ -23,8 +23,7 @@ on:
     tags: ["v*"]
     branches: ["build/**"]
 
-permissions:
-  contents: write # attach to a Release on tag builds
+permissions: {} # each job says what it needs (below)
 
 concurrency:
   group: build-flatpak-${{ github.ref }}
@@ -32,6 +31,8 @@ concurrency:
 
 jobs:
   python:
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     steps:
       - name: Fetch free-threaded CPython 3.14 (python-build-standalone)
@@ -88,7 +89,7 @@ jobs:
           print(f"{rel['tag_name']}: {name} ({len(data) // 1048576} MB), SHA-256 OK")
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: python-3.14t
           path: build/flatpak/python.tar.gz
@@ -96,22 +97,24 @@ jobs:
           retention-days: 1
 
   flatpak:
+    permissions:
+      contents: write # create/attach to a Release on tag builds (the only job that does)
     needs: python
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
       options: --privileged
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false   # nothing here pushes; the token is not left in .git
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: python-3.14t
           path: build/flatpak
 
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
         with:
           manifest-path: packaging/flatpak/io.github.staticnation.WraithguardToolkit.yml
           bundle: wraithguard-toolkit-linux-x86_64.flatpak
@@ -119,7 +122,7 @@ jobs:
 
       - name: Publish the release asset (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: wraithguard-toolkit-linux-x86_64.flatpak
           fail_on_unmatched_files: false
