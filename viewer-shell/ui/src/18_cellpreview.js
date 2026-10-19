@@ -843,7 +843,13 @@ async function _rebuildCellPreview(){
      was heavy". Wall time per phase, and what the objects phase moved. */
   const timing={label:(target.label||target.name||'')+(targets.length>1? ' + '+(targets.length-1)+' cells':''),
                 t0:performance.now(), cells:0, terrain:0, objects:0,
-                meshes:0, textures:0, bytes:0, calls:0, meshCached:0, texCached:0};
+                meshes:0, textures:0, bytes:0, calls:0, meshCached:0, texCached:0,
+                detail:textureDetail()};
+  /* Wraithguard (slow cell loads, 2026-10): when each later part of the load started and
+     ended, in ms from the start - the cell's objects placed, then its grass, the distant
+     land and the distant objects, which run after it and not awaited - so the Report can
+     say which of them a slow load was waiting on. */
+  const mark=k=>{ (timing.marks||(timing.marks={}))[k]=Math.round(performance.now()-timing.t0); };
   const meshesBefore=App.meshCache.size, texBefore=App.texGL.size;
   const engineBefore=Engine.stats? {calls:Engine.stats.calls, bytes:Engine.stats.bytes} : null;
   /* A cell that fails to load is counted rather than passed over. `cell_data` answers
@@ -1705,17 +1711,24 @@ async function _rebuildCellPreview(){
   R.disposeStatics();
   { const tg=performance.now(); R.setStatics(staticBatches);
     if(typeof LoadProf==='object') LoadProf.groupsMs=performance.now()-tg; }
+  mark('placed');
   /* Wraithguard: the land past the rings (57_wg_distant.js), then what stands on it
      (58_wg_distant_objects.js) - only now, with the cell's own objects placed, and not
      awaited. Started with the terrain, the land's first read (every land texture's colour)
      took the engine's workers while the cell's meshes were still coming, and the cell
      waited on it (Static, 2026-10-13: stuck at 84 of 92 meshes). */
-  if(typeof WgDistant==='object')
+  if(typeof WgDistant==='object'){
+    mark('land');
     WgDistant.refresh(R, centre, origin, rings)
       .catch(e=>{ WgDistant.err=String(e&&e.message||e); })
-      .then(()=>{ if(typeof WgDistantObjects==='object' && R.statics===staticBatches)   // still this scene
-        return WgDistantObjects.refresh(R, centre, origin, rings, staticBatches)
-          .catch(e=>{ WgDistantObjects.err=String(e&&e.message||e); }); });
+      .then(()=>{ mark('landDone'); timing.land=WgDistant.stats? Object.assign({},WgDistant.stats) : null;
+        if(typeof WgDistantObjects==='object' && R.statics===staticBatches){   // still this scene
+          mark('far');
+          return WgDistantObjects.refresh(R, centre, origin, rings, staticBatches)
+            .catch(e=>{ WgDistantObjects.err=String(e&&e.message||e); })
+            .then(()=>{ mark('farDone'); timing.far=WgDistantObjects.stats? Object.assign({},WgDistantObjects.stats) : null;
+                        console.info('load timeline', timing.label, JSON.stringify(timing.marks)); });
+        } }); }
   for(const [sys,mm,lamp,model] of pendingSystems) R.addParticleSystems(sys,mm,lamp,model);
   R.setPickables(pickables);
   /* Wraithguard: a record the conflict viewer sent here (45_wg_nav.js) - inspect it once
@@ -1867,9 +1880,11 @@ async function _rebuildCellPreview(){
   }
 
   timing.chunksKept=chunksKept; timing.pan=!!pan;
+  mark('grass');
   return scatterIntoScene(R,cells,origin,centre,texAgg,texMissing,
                           {tris,drawn},sceneKey,ring,world,failed,
-                          {fresh:true, pan, scene:{panKey, anchor, chunks, aim, cz}});
+                          {fresh:true, pan, scene:{panKey, anchor, chunks, aim, cz}})
+    .finally(()=>mark('grassDone'));
 }
 
 /** The cheap half: scatter grass into a scene that is already built and drawn.

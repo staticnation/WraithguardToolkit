@@ -112,6 +112,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 
 COPY --from=viewer-builder /viewer-shell/target/release/wraithguard-viewer /opt/wraithguard-viewer
 
+# The build runs as an ordinary user, not root. Its id matches the person running the
+# container by default (1000), so the build/ and dist/ it writes into the mounted /src are
+# theirs; pass `--build-arg UID=$(id -u) --build-arg GID=$(id -g)` when yours differ.
+ARG UID=1000
+ARG GID=1000
+RUN groupadd --gid "${GID}" wraithguard && \
+    useradd --uid "${UID}" --gid "${GID}" --create-home --shell /bin/bash wraithguard
+USER wraithguard
+
 WORKDIR /src
 
 CMD ["/bin/bash", "-lc", "\

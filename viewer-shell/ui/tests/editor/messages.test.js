@@ -9,7 +9,8 @@ module.exports = async (t) => {
   const p = page({
     modules: EDITOR,
     links: { editRecord: 'r', editPending: 'pend' },
-    engine: (c) => c === 'editor_tags' ? [['WEAP', 1]] : c === 'editor_records' ? { plugins: [], rows: [] } : {},
+    engine: (c) => c === 'editor_tags' ? [['WEAP', 1]] : c === 'editor_records' ? { plugins: [], rows: [] }
+      : c === 'cells' ? { grid: [], count: 0, interiors: [], interiorCount: 0 } : {},
     answer: (url) => url === 'pend' ? [] : {},
   });
   const { w, d } = p;

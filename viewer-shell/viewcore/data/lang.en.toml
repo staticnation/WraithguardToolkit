@@ -97,6 +97,25 @@ notes    = ""
 # en: resolving the overlay…
 "busy.resolving_overlay" = ""
 
+# The connect's busy card while the engine indexes the install's files: {n} is the
+# number of mod folders.
+# en: indexing the files of {n} folders…
+"busy.connect_index" = ""
+
+# The connect's busy card while the engine opens the load order's .bsa archives.
+# en: opening the archives…
+"busy.connect_archives" = ""
+
+# The connect's busy card while the engine reads, parses and merges the load order: {n}
+# is the number of plugins. Usually the longest step.
+# en: reading and merging {n} plugins…
+"busy.connect_load" = ""
+
+# The connect's busy card after the plugins are merged, while the engine finishes the
+# world.
+# en: putting the world together…
+"busy.connect_finish" = ""
+
 # The busy card, and the bottom bar, while grass is scattered.
 # en: Scattering grass
 "busy.scattering" = ""

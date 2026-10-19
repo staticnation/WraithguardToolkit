@@ -1010,7 +1010,12 @@ const BUNDLE=8;
    texture and mesh sums are main-thread time and so are real. */
 const LoadProf={engine:0, engineKnown:false, wait:0, bundles:0, tex:0, texN:0, texBytes:0, mesh:0, meshN:0, build:0, groupsMs:null,
   slow:null, pending:new Map(), decoding:new Map(), nextId:0,
-  reset(){ this.engine=0; this.engineKnown=false; this.wait=0; this.bundles=0; this.tex=0; this.texN=0; this.texBytes=0; this.mesh=0; this.meshN=0; this.build=0; this.groupsMs=null; this.slow=null; this.pending.clear(); this.decoding.clear(); },
+  /* Wraithguard (slow cell loads, 2026-10): every bundle of the objects phase as it
+     landed - its meshes, and each texture's format, its own size and the size it came
+     as, the bytes read for it and which cut applied (`texture_payload`) - for the
+     Report's bundle lines. `list` is this phase's; `take` hands it over with the sums. */
+  list:[],
+  reset(){ this.engine=0; this.engineKnown=false; this.wait=0; this.bundles=0; this.tex=0; this.texN=0; this.texBytes=0; this.mesh=0; this.meshN=0; this.build=0; this.groupsMs=null; this.slow=null; this.pending.clear(); this.decoding.clear(); this.list=[]; },
   /** One line on where the time has gone so far, for the busy card while it loads. */
   live(full=false){
     const s=v=>(v/1000).toFixed(1)+' s', mb=v=>(v/1048576).toFixed(0)+' MB';
@@ -1028,7 +1033,8 @@ const LoadProf={engine:0, engineKnown:false, wait:0, bundles:0, tex:0, texN:0, t
     if(!full && this.decoding.size>3) t+='\n'+(this.decoding.size-3)+' more textures decoding';
     return t;
   },
-  take(){ return {engine:this.engine, engineKnown:this.engineKnown, wait:this.wait, bundles:this.bundles, tex:this.tex, texN:this.texN, texBytes:this.texBytes, mesh:this.mesh, meshN:this.meshN, build:this.build, groupsMs:this.groupsMs}; }};
+  take(){ const list=this.list; this.list=[];   // later bundles (distant objects) are not this load's objects
+          return {engine:this.engine, engineKnown:this.engineKnown, wait:this.wait, bundles:this.bundles, tex:this.tex, texN:this.texN, texBytes:this.texBytes, mesh:this.mesh, meshN:this.meshN, build:this.build, groupsMs:this.groupsMs, list}; }};
 async function loadMeshes(relPaths,onProgress){
   const world=worldToken(), textureEpoch=_textureEpoch, meshEpoch=_meshEpoch;
   const out=new Array(relPaths.length);
@@ -1088,6 +1094,8 @@ async function loadMeshes(relPaths,onProgress){
         LoadProf.slow={ms:took, engine:b.ms, bytes:ab.byteLength, tex:b.textures.length, meshes:batch.map(e=>VFS.norm(e.relPath))};
       }
       pending.stage='decoding textures';
+      const detail={id, ms:took, engine:b.ms, bytes:ab.byteLength, meshes:pending.meshes, tex:[]};
+      LoadProf.list.push(detail);
       // The textures first, so the meshes' lookups below are hits.
       await Promise.all(b.textures.map(async t=>{
         const key=VFS.norm(t.name).toLowerCase();
@@ -1104,6 +1112,8 @@ async function loadMeshes(relPaths,onProgress){
           if(t.ok){ await decodeTexture(t.data,rec,t.name);
                     LoadProf.tex+=rec.msDecode||0; LoadProf.texN++; LoadProf.texBytes+=rec.bytes||0; }
           else { rec.err=t.err; App.loadLog.push({k:'e',t:t.name+': '+t.err}); }
+          detail.tex.push(Object.assign({name:t.name, kind:rec.kind||'', w:rec.w|0, h:rec.h|0, gpu:rec.bytes||0,
+                                         dec:rec.msDecode||0, err:rec.err||''}, rec.meta||{}));
           keepTexture(key,rec,world,textureEpoch); return rec;
         })().finally(()=>{ if(_texLoading.get(key)===p) _texLoading.delete(key); });
         _texLoading.set(key,p);
@@ -1315,6 +1325,9 @@ async function decodeTexture(buf,rec,relPath){
   try{
     const t=readTextureBytes(buf);
     rec.w=t.w; rec.h=t.h; rec.kind=t.kind; rec.from=t.from||'';
+    /* Wraithguard: what the engine says it cost (see LoadProf.list) - absent from an engine
+       older than these fields. */
+    if(t.srcW!=null) rec.meta={ext:t.ext||'', srcW:t.srcW|0, srcH:t.srcH|0, read:t.read|0, cut:t.cut||'', us:t.us|0};
     /* Round 17n: what the alpha channel is for — 'opaque', 'binary' or 'soft', worked out
        by the engine at full resolution (`img::classify_alpha`). A NiAlphaProperty says
        how to draw a shape but not what its texture holds, and the two want opposite

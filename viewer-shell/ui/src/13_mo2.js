@@ -109,9 +109,26 @@ async function openInstallRun(kind, path, profile, plugins){
   // Round 18cr: the page's own clock on each step of the connect, for the log (see the
   // `connect.log_page` line below).
   const ct=App.connectTimes=Object.assign({}, App.connectTimes||{}, {tOpen:performance.now()});
+  /* Wraithguard: which step the engine is on, asked while it works - `open_install` is one
+     call that runs a minute on a large install, and the card used to say "resolving the
+     overlay" through all of it (Static, 2026-10-18: 1m 05s at 8%). An engine without
+     `connect_stage` simply leaves the card as it is. */
+  const steps={index:['busy.connect_index',0.10], archives:['busy.connect_archives',0.14],
+               load:['busy.connect_load',0.18], finish:['busy.connect_finish',0.5]};
+  let asking=false, lastStep='';
+  const stepPoll=setInterval(async()=>{
+    if(asking) return; asking=true;
+    try{
+      const st=await Engine.call('connect_stage',{});
+      const s=st && steps[st.step];
+      if(s && st.step!==lastStep){ lastStep=st.step; card.show(T('busy.reading_install'),T(s[0],{n:st.n}),s[1]); }
+    }catch(_){ clearInterval(stepPoll); }
+    finally{ asking=false; }
+  },400);
   try{ r=await Engine.call('open_install',{kind, path, profile:profile||null,
                                           ...(plugins? {plugins} : {})}); }
-  catch(e){ card.done(); toast(Text.word(String(e.message||e)),'err',12000); return null; }
+  catch(e){ clearInterval(stepPoll); card.done(); toast(Text.word(String(e.message||e)),'err',12000); return null; }
+  finally{ clearInterval(stepPoll); }
   ct.open=performance.now()-ct.tOpen;
   if(!r.overlayReused){ ct.layout=r.msLayout; ct.index=r.msIndex; ct.archives=r.msArchives; ct.plugins=r.msPlugins; ct.files=r.files; }
 
@@ -139,8 +156,8 @@ async function openInstallRun(kind, path, profile, plugins){
   await Busy.tick();
   const tList=performance.now();
   const [tex,sc,cl,use_,as_]=await Promise.all([
-    Engine.call('textures'), Engine.call('scopes'), Engine.call('cells'),
-    Engine.call('texture_usage'), Engine.call('assets'),
+    // Wraithguard: as bytes (WGTB, 50_wg_editor.js), the JSON commands the fallback.
+    listLandTextures(), listScopes(), listCells(), listTextureUsage(), listAssets(),
   ]);
   ct.list=performance.now()-tList;
 

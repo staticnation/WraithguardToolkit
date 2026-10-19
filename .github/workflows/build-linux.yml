@@ -37,6 +37,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nothing here pushes; the token is not left in .git
 
       - name: System packages
         # Tauri v2's Linux build prerequisites (webkit2gtk-4.1) and Tk for the toolkit.

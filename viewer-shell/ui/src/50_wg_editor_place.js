@@ -54,7 +54,7 @@ Object.assign(WgEditor, {
     let cell;
     const fresh=this.pendingCell(cellArg);
     if(fresh) cell={refCell:this.pendingKey(fresh), plugins:null, rows:[], name:fresh.label};   // the patch's own: no engine cell
-    else try{ cell=await Engine.call('editor_cell_refs',{cell:cellArg}); }
+    else try{ cell=await listCellRefs(cellArg); }
     catch(e){
       // A square the world has land for but no cell record (open sea, the seabed): as in the
       // Construction Set, putting an object there makes the cell - here, the patch's own.

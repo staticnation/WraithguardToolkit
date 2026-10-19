@@ -181,10 +181,43 @@ struct Opened {
     /// Round 18cr: what the overlay cost, for the connect log - the layout, the index
     /// walk over every root, the archives, the plugin listing; milliseconds each.
     ms: [u64; 4],
+    /// Wraithguard: how many roots came from the saved index and how many were walked.
+    index_stats: viewcore::vfsindex::Stats,
 }
 
 /// The install identity a pending overlay belongs to. A connect to anything else rebuilds.
 type InstallId = (String, String, Option<String>);
+
+/* Wraithguard: which step a connect is on, for the busy card. `open_install` is one call
+   that runs a minute on a large install (621 plugins: the file index, the archives, then
+   reading, parsing and merging every plugin), and the card said "resolving the overlay"
+   all through it (Static, 2026-10-18: 1m 05s at 8%). The page asks `connect_stage` while
+   it waits; the steps are the ones this file can see from outside the world's load. */
+static CONNECT_STEP: Mutex<(&str, u64, Option<std::time::Instant>)> = Mutex::new(("", 0, None));
+
+fn connect_step(step: &'static str, n: u64) {
+    if let Ok(mut s) = CONNECT_STEP.lock() {
+        *s = (step, n, Some(std::time::Instant::now()));
+    }
+}
+
+/// Clears the step when a connect ends, however it ends.
+struct ConnectDone;
+impl Drop for ConnectDone {
+    fn drop(&mut self) {
+        connect_step("", 0);
+    }
+}
+
+/// The connect's current step (`index`, `archives`, `load`, `finish`; empty when none is
+/// running), its count (roots for `index`, plugins for `load`) and how long it has run.
+#[tauri::command(async)]
+fn connect_stage() -> String {
+    let (step, n, at) = CONNECT_STEP.lock().map(|s| *s).unwrap_or(("", 0, None));
+    let mut o = J::obj();
+    o.str("step", step).int("n", n).int("ms", at.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0));
+    o.done()
+}
 
 fn open_overlay(kind: &str, path: &str, profile: Option<&str>) -> Result<Opened, String> {
     let p = PathBuf::from(path);
@@ -241,16 +274,21 @@ fn open_overlay(kind: &str, path: &str, profile: Option<&str>) -> Result<Opened,
     }
 
     let ms_layout = lap(&mut since);
-    let mut vfs = Vfs::with_roots(&dirs);
+    /* Wraithguard: the index from the last connect where its folders are unchanged
+       (`vfsindex`): walking every file of every root was about 4 s on a large install. */
+    let cache = app_dir().ok().map(|d| d.join(viewcore::vfsindex::FILE));
+    connect_step("index", dirs.len() as u64);
+    let (mut vfs, index_stats) = viewcore::vfsindex::overlay(&dirs, cache.as_deref());
     let ms_index = lap(&mut since);
     // The archives (round 11 item 10), opened by the overlay itself since round 18bo so
     // that `gdn_cli` cannot end up with a different one — see `Vfs::add_archives_named_by`.
     let mut warnings = l.warnings.clone();
+    connect_step("archives", 0);
     warnings.extend(vfs.add_archives_named_by(&l.order_file));
     let ms_archives = lap(&mut since);
     let on_disk = vfs.plugin_files();
     let ms_plugins = lap(&mut since);
-    Ok(Opened { l, vfs, order, on_disk, order_file, dirs, warnings, ms: [ms_layout, ms_index, ms_archives, ms_plugins] })
+    Ok(Opened { l, vfs, order, on_disk, order_file, dirs, warnings, ms: [ms_layout, ms_index, ms_archives, ms_plugins], index_stats })
 }
 
 /// Every plugin an install has, read and put in the order that install would show them.
@@ -294,6 +332,7 @@ fn open_install(
        Taken rather than borrowed: it is good for exactly one load, so a later
        `open_install` that never went through a probe always reads the disk afresh rather
        than trusting an index of unknown age. */
+    let _done = ConnectDone;
     let want: InstallId = (kind.clone(), path.clone(), profile.clone());
     let reuse = {
         let mut app = state.app();
@@ -303,7 +342,7 @@ fn open_install(
         }
     };
     let reused = reuse.is_some();
-    let Opened { l, vfs, order, on_disk, order_file, dirs, mut warnings, ms: ms_overlay } =
+    let Opened { l, vfs, order, on_disk, order_file, dirs, mut warnings, ms: ms_overlay, index_stats } =
         match reuse {
             Some(o) => o,
             None => open_overlay(&kind, &path, profile.as_deref())?,
@@ -354,6 +393,7 @@ fn open_install(
     /* Wraithguard: the engine the setup runs decides how a malformed MVRF reads (an
        openmw.cfg: OpenMW's positional rule); `World::load_with` adds OpenMW's rule for an
        id defined as two kinds. */
+    connect_step("load", paths.len() as u64);
     let world = World::load_with(
         &paths,
         &vfs,
@@ -361,6 +401,7 @@ fn open_install(
         &viewcore::world::LoadOpts { script_plays: true, ..viewcore::world::LoadOpts::for_order_file(&l.order_file) },
     );
     let mut world = world;
+    connect_step("finish", 0);
     // Wraithguard: which plugins are grass (`groundcover=`), so their references go to
     // the grass renderer.
     let gc = if viewcore::luascan::is_openmw_cfg(&l.order_file) {
@@ -430,6 +471,8 @@ fn open_install(
            before (`overlayReused` says which, so the page adds it to the right step). */
         .int("msLayout", ms_overlay[0]).int("msIndex", ms_overlay[1])
         .int("msArchives", ms_overlay[2]).int("msPlugins", ms_overlay[3])
+        // Wraithguard: the saved file index - roots taken from it, roots walked again.
+        .int("indexReused", index_stats.reused as u64).int("indexWalked", index_stats.walked as u64)
         .bool("overlayReused", reused)
         .raw("order", &string_array(&order))
         /* Per opened plugin, in `order` order, the masters its header names — the report
@@ -632,6 +675,37 @@ fn distant_land(x: i32, y: i32, inner: i32, radius: i32, state: State) -> Result
 fn textures(state: State) -> Result<String, String> {
     let app = state.app();
     let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut out = String::from("[");
+    for (i, (id, file)) in land_textures(w).iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"id\":\"");
+        viewcore::json::escape_into(id, &mut out);
+        out.push_str("\",\"file\":\"");
+        viewcore::json::escape_into(file, &mut out);
+        out.push_str("\"}");
+    }
+    out.push(']');
+    Ok(out)
+}
+
+/// Wraithguard: `textures` as bytes (`WGTB`): `textures` (`ss`: id, file).
+#[tauri::command(async)]
+fn textures_bytes(state: State) -> Result<tauri::ipc::Response, String> {
+    let app = state.app();
+    let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let list = land_textures(w);
+    let mut t = Tables::new();
+    t.table("textures", "ss", list.len());
+    for (id, file) in &list {
+        t.s(id).s(file);
+    }
+    Ok(tauri::ipc::Response::new(t.done()))
+}
+
+/// Every land texture's id and the file it draws, the unpainted ground first.
+fn land_textures(w: &viewcore::world::World) -> Vec<(String, String)> {
     let mut ids: Vec<String> = Vec::new();
     for m in &w.ltex_by_plugin {
         for id in m.values() {
@@ -644,22 +718,12 @@ fn textures(state: State) -> Result<String, String> {
     // Unpainted ground has no LTEX record, but it is still a texture a user can
     // target, so it belongs in the list beside the real ones.
     ids.insert(0, viewcore::world::DEFAULT_LTEX.to_string());
-
-    let mut out = String::from("[");
-    for (i, id) in ids.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push_str("{\"id\":\"");
-        viewcore::json::escape_into(id, &mut out);
-        out.push_str("\",\"file\":\"");
-        if let Some(f) = w.ltex_file.get(&id.to_ascii_lowercase()) {
-            viewcore::json::escape_into(f, &mut out);
-        }
-        out.push_str("\"}");
-    }
-    out.push(']');
-    Ok(out)
+    ids.into_iter()
+        .map(|id| {
+            let file = w.ltex_file.get(&id.to_ascii_lowercase()).cloned().unwrap_or_default();
+            (id, file)
+        })
+        .collect()
 }
 
 /// Named cells and regions, for the scope picker.
@@ -667,6 +731,36 @@ fn textures(state: State) -> Result<String, String> {
 fn scopes(state: State) -> Result<String, String> {
     let app = state.app();
     let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let (cells, regions) = scope_names(w);
+    let mut out = J::obj();
+    out.raw("cells", &string_array(&cells))
+        .raw("regions", &string_array(&regions));
+    Ok(out.done())
+}
+
+/// Wraithguard: `scopes` as bytes (`WGTB`): `cells` (`s`) and `regions` (`s`).
+#[tauri::command(async)]
+fn scopes_bytes(state: State) -> Result<tauri::ipc::Response, String> {
+    let app = state.app();
+    let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let (cells, regions) = scope_names(w);
+    Ok(tauri::ipc::Response::new(pack_names(&[("cells", &cells), ("regions", &regions)])))
+}
+
+/// Tables of one string column each, in the order given.
+fn pack_names(lists: &[(&str, &[String])]) -> Vec<u8> {
+    let mut t = Tables::new();
+    for (name, list) in lists {
+        t.table(name, "s", list.len());
+        for v in list.iter() {
+            t.s(v);
+        }
+    }
+    t.done()
+}
+
+/// The named cells and the regions, sorted and each once.
+fn scope_names(w: &viewcore::world::World) -> (Vec<String>, Vec<String>) {
     let mut cells: Vec<String> = w
         .cells
         .values()
@@ -678,10 +772,7 @@ fn scopes(state: State) -> Result<String, String> {
     let mut regions: Vec<String> = w.regions.values().cloned().collect();
     regions.sort();
     regions.dedup();
-    let mut out = J::obj();
-    out.raw("cells", &string_array(&cells))
-        .raw("regions", &string_array(&regions));
-    Ok(out.done())
+    (cells, regions)
 }
 
 /// Every exterior cell in the merged world.
@@ -698,31 +789,28 @@ fn scopes(state: State) -> Result<String, String> {
 fn cells(state: State) -> Result<String, String> {
     let app = state.app();
     let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let (grid_rows, ints) = cell_lists(w);
 
     // [x, y, name, region] per cell, flat, because a few thousand small objects
     // is measurably slower to hand across than one array.
     let mut grid = String::from("[");
-    let mut first = true;
-    for (g, c) in &w.cells {
-        if !first {
+    for (i, c) in grid_rows.iter().enumerate() {
+        if i > 0 {
             grid.push(',');
         }
-        first = false;
-        grid.push_str(&format!("[{},{},", g.0, g.1));
+        grid.push_str(&format!("[{},{},", c.x, c.y));
         grid.push('"');
         viewcore::json::escape_into(&c.name, &mut grid);
         grid.push_str("\",\"");
         viewcore::json::escape_into(&c.region, &mut grid);
         // Wraithguard: the Editor's Cell View columns - references, and whether it has a
         // pathgrid (appended, so readers of the first four are unchanged).
-        grid.push_str(&format!("\",{},{}]", c.refs.len(), u8::from(w.pathgrids_ext.contains_key(g))));
+        grid.push_str(&format!("\",{},{}]", c.refs, u8::from(c.pathgrid)));
     }
     grid.push(']');
 
     // [name, references] per interior, sorted, so the picker's list is stable between
     // scans of the same install rather than in hash order.
-    let mut ints: Vec<&viewcore::world::Interior> = w.interiors.values().collect();
-    ints.sort_by_key(|a| a.name.to_lowercase());
     let mut inter = String::from("[");
     for (i, c) in ints.iter().enumerate() {
         if i > 0 {
@@ -730,17 +818,80 @@ fn cells(state: State) -> Result<String, String> {
         }
         inter.push_str("[\"");
         viewcore::json::escape_into(&c.name, &mut inter);
-        let path = w.pathgrids_int.contains_key(&viewcore::world::room_key(&c.name));
-        inter.push_str(&format!("\",{},{}]", c.refs.len(), u8::from(path)));
+        inter.push_str(&format!("\",{},{}]", c.refs, u8::from(c.pathgrid)));
     }
     inter.push(']');
 
     let mut out = J::obj();
     out.raw("grid", &grid)
-        .int("count", w.cells.len() as u64)
+        .int("count", grid_rows.len() as u64)
         .raw("interiors", &inter)
-        .int("interiorCount", w.interiors.len() as u64);
+        .int("interiorCount", ints.len() as u64);
     Ok(out.done())
+}
+
+/// Wraithguard: `cells` as bytes (`WGTB`): `grid` (`iissuu`: x, y, name, region,
+/// references, has a pathgrid) and `interiors` (`suu`: name, references, has a pathgrid).
+#[tauri::command(async)]
+fn cells_bytes(state: State) -> Result<tauri::ipc::Response, String> {
+    let app = state.app();
+    let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let (grid, ints) = cell_lists(w);
+    Ok(tauri::ipc::Response::new(pack_cells(&grid, &ints)))
+}
+
+/// One place in the cell lists: an exterior (with its grid square and region) or an
+/// interior (`x`, `y` and `region` unused).
+struct CellRow {
+    x: i32,
+    y: i32,
+    name: String,
+    region: String,
+    refs: usize,
+    pathgrid: bool,
+}
+
+fn pack_cells(grid: &[CellRow], ints: &[CellRow]) -> Vec<u8> {
+    let mut t = Tables::new();
+    t.table("grid", "iissuu", grid.len());
+    for c in grid {
+        t.i(c.x as i64).i(c.y as i64).s(&c.name).s(&c.region).u(c.refs as u64).u(u64::from(c.pathgrid));
+    }
+    t.table("interiors", "suu", ints.len());
+    for c in ints {
+        t.s(&c.name).u(c.refs as u64).u(u64::from(c.pathgrid));
+    }
+    t.done()
+}
+
+/// The exteriors (in the world's order) and the interiors (by name, case aside).
+fn cell_lists(w: &viewcore::world::World) -> (Vec<CellRow>, Vec<CellRow>) {
+    let grid = w
+        .cells
+        .iter()
+        .map(|(g, c)| CellRow {
+            x: g.0,
+            y: g.1,
+            name: c.name.clone(),
+            region: c.region.clone(),
+            refs: c.refs.len(),
+            pathgrid: w.pathgrids_ext.contains_key(g),
+        })
+        .collect();
+    let mut ints: Vec<&viewcore::world::Interior> = w.interiors.values().collect();
+    ints.sort_by_key(|a| a.name.to_lowercase());
+    let ints = ints
+        .into_iter()
+        .map(|c| CellRow {
+            x: 0,
+            y: 0,
+            name: c.name.clone(),
+            region: String::new(),
+            refs: c.refs.len(),
+            pathgrid: w.pathgrids_int.contains_key(&viewcore::world::room_key(&c.name)),
+        })
+        .collect();
+    (grid, ints)
 }
 
 /// Which cells and regions each texture is painted in, for the scope picker.
@@ -766,6 +917,42 @@ fn texture_usage(state: State) -> Result<String, String> {
     }
     s.push('}');
     Ok(s)
+}
+
+/// Wraithguard: `texture_usage` as bytes (`WGTB`): `textures` (`s`: every texture, in the
+/// map's order) and `uses` (`sus`: texture, 0 a cell / 1 a region, its name), so a texture
+/// that is in the map with nothing under it keeps its entry.
+#[tauri::command(async)]
+fn texture_usage_bytes(state: State) -> Result<tauri::ipc::Response, String> {
+    let app = state.app();
+    let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let usage = w.texture_usage();
+    let n: usize = usage.values().map(|(c, r)| c.len() + r.len()).sum();
+    let mut t = Tables::new();
+    t.table("textures", "s", usage.len());
+    for tex in usage.keys() {
+        t.s(tex);
+    }
+    t.table("uses", "sus", n);
+    for (tex, (cells, regions)) in &usage {
+        for c in cells {
+            t.s(tex).u(0).s(c);
+        }
+        for r in regions {
+            t.s(tex).u(1).s(r);
+        }
+    }
+    Ok(tauri::ipc::Response::new(t.done()))
+}
+
+/// Wraithguard: `assets` as bytes (`WGTB`): `meshes` (`s`) and `textures` (`s`) - on a big
+/// install hundreds of thousands of names, the list a JSON answer least wants to be.
+#[tauri::command(async)]
+fn assets_bytes(state: State) -> Result<tauri::ipc::Response, String> {
+    let v = vfs_of(&state)?;
+    let meshes = v.list("meshes/", &[".nif"]);
+    let textures = v.list("textures/", viewcore::vfs::Vfs::TEX_EXTS);
+    Ok(tauri::ipc::Response::new(pack_names(&[("meshes", &meshes), ("textures", &textures)])))
 }
 
 /// The mesh and texture files the overlay exposes, for the asset browsers.
@@ -1728,33 +1915,51 @@ fn texture_payload(v: &Vfs, path: &str, bc: bool, extra: viewcore::img::Extra, m
         None => (path, max_size),
     };
     let n = viewcore::vfs::norm(path);
+    /* Wraithguard: what this texture cost and what was done to it, for the Report's
+       bundle lines (slow cell loads, 2026-10): the file's own size before the detail cut,
+       the bytes read from disk, which cut applied ("dds" a partial read, "levels" mips
+       dropped after a whole read, "halved" straight RGBA shrunk here), its format by
+       extension, and the engine's time on it. */
+    let clock = std::time::Instant::now();
+    let mut cuts: Vec<&str> = Vec::new();
+    let mut orig: Option<(u32, u32)> = None;
+    let mut ext = String::new();
     let (mut t, from, bytes) = if let Some(got) = embedded_payload(v, path) {
         let (t, from) = got?;
+        ext.push_str("nif");
         (t, from, Vec::new())
     } else {
         let p = v
             .resolve_texture(&n)
             .or_else(|| v.resolve(&n))
             .ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = path))?;
+        ext = match &p {
+            viewcore::vfs::Loc::Disk(d) => d.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default(),
+            viewcore::vfs::Loc::Packed { key, .. } => key.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default(),
+        };
         // Wraithguard: a DDS is read only as far as the Texture detail keeps (its header,
         // then from the first level kept to the end; `img::dds_trim`): a 4096 texture at
         // 512 is a third of a megabyte read, not twenty.
-        let is_dds = match &p {
-            viewcore::vfs::Loc::Disk(d) => d.extension().is_some_and(|e| e.eq_ignore_ascii_case("dds")),
-            viewcore::vfs::Loc::Packed { key, .. } => key.ends_with(".dds"),
-        };
-        let trimmed = if is_dds && max_size > 0 {
-            v.load_range(&p, 0, viewcore::img::DDS_HEAD)
-                .and_then(|head| viewcore::img::dds_trim(&head, max_size))
-                .and_then(|(at, mut head)| {
-                    head.extend(v.load_range(&p, at, usize::MAX)?);
-                    Some(head)
-                })
-        } else {
-            None
-        };
+        let is_dds = ext == "dds";
+        let mut trimmed = None;
+        if is_dds && max_size > 0 {
+            if let Some(head) = v.load_range(&p, 0, viewcore::img::DDS_HEAD) {
+                if let Some((at, mut cut)) = viewcore::img::dds_trim(&head, max_size) {
+                    if let Some(rest) = v.load_range(&p, at, usize::MAX) {
+                        // The header's own size, before `dds_trim` rewrote it for the level kept.
+                        orig = Some((u32::from_le_bytes([head[16], head[17], head[18], head[19]]),
+                                     u32::from_le_bytes([head[12], head[13], head[14], head[15]])));
+                        cut.extend(rest);
+                        trimmed = Some(cut);
+                    }
+                }
+            }
+        }
         let bytes = match trimmed {
-            Some(b) => b,
+            Some(b) => {
+                cuts.push("dds");
+                b
+            }
             None => v.load(&p).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = path))?,
         };
         // Where it came from, for the report: a decode error names the file that failed.
@@ -1762,9 +1967,14 @@ fn texture_payload(v: &Vfs, path: &str, bc: bool, extra: viewcore::img::Extra, m
         let t = viewcore::img::read_with(&bytes, &n, bc, extra).map_err(|e| format!("{e} — {from}"))?;
         (t, from, bytes)
     };
+    let (src_w, src_h) = orig.unwrap_or((t.w, t.h));
     if max_size > 0 && t.levels.len() > 1 {
+        let had = t.levels.len();
         while t.levels.len() > 1 && t.levels[0].0.max(t.levels[0].1) > max_size {
             t.levels.remove(0);
+        }
+        if t.levels.len() < had {
+            cuts.push("levels");
         }
         t.w = t.levels[0].0;
         t.h = t.levels[0].1;
@@ -1777,6 +1987,7 @@ fn texture_payload(v: &Vfs, path: &str, bc: bool, extra: viewcore::img::Extra, m
         t.levels[0] = (w, h, px);
         t.w = w;
         t.h = h;
+        cuts.push("halved");
     }
 
     let mut head = J::obj();
@@ -1786,6 +1997,12 @@ fn texture_payload(v: &Vfs, path: &str, bc: bool, extra: viewcore::img::Extra, m
        two want opposite treatment: cutting a gradient at a threshold turned Vivec's
        waterfalls into hard stencils. Read at full resolution in `img::read`. */
     head.str("alpha", t.alpha.name());
+    head.str("ext", &ext)
+        .int("srcW", src_w as u64)
+        .int("srcH", src_h as u64)
+        .int("read", bytes.len() as u64)
+        .str("cut", &cuts.join("+"))
+        .int("us", clock.elapsed().as_micros().min(u64::MAX as u128) as u64);
     let levels: Vec<String> = t
         .levels
         .iter()
@@ -2767,6 +2984,36 @@ fn placed_counts(w: &World, rev: u64) -> std::sync::Arc<HashMap<String, u32>> {
 #[tauri::command(async)]
 fn editor_tags(state: State) -> Result<String, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let rows: Vec<String> = tag_counts(&w)
+        .iter()
+        .map(|(t, c)| {
+            let mut s = String::from("[\"");
+            viewcore::json::escape_into(t, &mut s);
+            s.push_str(&format!("\",{c}]"));
+            s
+        })
+        .collect();
+    Ok(format!("[{}]", rows.join(",")))
+}
+
+/// Wraithguard: `editor_tags` as bytes (`WGTB`): one table, `tags` (`su`: tag, count).
+#[tauri::command(async)]
+fn editor_tags_bytes(state: State) -> Result<tauri::ipc::Response, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    Ok(tauri::ipc::Response::new(pack_tags(&tag_counts(&w))))
+}
+
+fn pack_tags(tags: &[(String, u64)]) -> Vec<u8> {
+    let mut t = Tables::new();
+    t.table("tags", "su", tags.len());
+    for (tag, c) in tags {
+        t.s(tag).u(*c);
+    }
+    t.done()
+}
+
+/// Every tag the load order has records of, with how many, in tag order.
+fn tag_counts(w: &viewcore::world::World) -> Vec<(String, u64)> {
     // Wraithguard: every live record in its own type's tab - an id defined as a weapon
     // and a misc item is in both, as OpenMW keeps both (`ordercore::records`).
     let mut n: HashMap<viewcore::esp::Tag, u64> = HashMap::new();
@@ -2775,16 +3022,7 @@ fn editor_tags(state: State) -> Result<String, String> {
     }
     let mut tags: Vec<(viewcore::esp::Tag, u64)> = n.into_iter().collect();
     tags.sort();
-    let rows: Vec<String> = tags
-        .iter()
-        .map(|(t, c)| {
-            let mut s = String::from("[\"");
-            viewcore::json::escape_into(&tag_text(t), &mut s);
-            s.push_str(&format!("\",{c}]"));
-            s
-        })
-        .collect();
-    Ok(format!("[{}]", rows.join(",")))
+    tags.into_iter().map(|(t, c)| (tag_text(&t), c)).collect()
 }
 
 /// One Object Window row: the id as shown, name, model, the plugins defining it (load-order
@@ -2923,6 +3161,59 @@ fn pack_rows(plugins: &[String], rows: &[ObjRow]) -> Vec<u8> {
     o
 }
 
+/* Wraithguard: `WGTB`, the Editor's other lists as bytes - the same reason as `WGOR`
+   (a JSON answer the page cannot read looked like an empty list, Static 2026-10-13), in
+   one shape for every list rather than a format each:
+
+   "WGTB" | u32 version 1 | u32 table count | per table: name (string), column types
+   (string, one letter a column: `s` string, `u` u32, `i` i32, `d` f64), u32 row count,
+   then the rows' values in order. A string is u32 byte length + UTF-8; little-endian.
+
+   The page's `unpackTables` (03_core.js) reads it; `ui/tests/editor/wgtb_tables.json` is
+   the one fixture both sides are tested against. The writer does not check a row against
+   its column letters: each list is built in one place and the fixture holds the format. */
+struct Tables {
+    o: Vec<u8>,
+    tables: u32,
+}
+
+impl Tables {
+    fn new() -> Self {
+        let mut o = b"WGTB".to_vec();
+        o.extend_from_slice(&1u32.to_le_bytes());
+        o.extend_from_slice(&0u32.to_le_bytes()); // the table count, set by `done`
+        Tables { o, tables: 0 }
+    }
+    fn table(&mut self, name: &str, cols: &str, rows: usize) -> &mut Self {
+        self.tables += 1;
+        self.s(name).s(cols);
+        self.o.extend_from_slice(&(rows.min(u32::MAX as usize) as u32).to_le_bytes());
+        self
+    }
+    fn s(&mut self, v: &str) -> &mut Self {
+        self.o.extend_from_slice(&(v.len() as u32).to_le_bytes());
+        self.o.extend_from_slice(v.as_bytes());
+        self
+    }
+    fn u(&mut self, v: u64) -> &mut Self {
+        self.o.extend_from_slice(&(v.min(u32::MAX as u64) as u32).to_le_bytes());
+        self
+    }
+    fn i(&mut self, v: i64) -> &mut Self {
+        self.o.extend_from_slice(&(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).to_le_bytes());
+        self
+    }
+    fn d(&mut self, v: f64) -> &mut Self {
+        self.o.extend_from_slice(&v.to_le_bytes());
+        self
+    }
+    fn done(mut self) -> Vec<u8> {
+        let n = self.tables.to_le_bytes();
+        self.o[8..12].copy_from_slice(&n);
+        self.o
+    }
+}
+
 /// One actor, `"key":{kind, model, twin, health, persistent, corpse, hello?}`, as the
 /// cell's `actors` map carries it (and `editor_actors`).
 fn push_actor(w: &viewcore::world::World, key: &str, a: &viewcore::world::ActorDef, actors: &mut String) {
@@ -3012,6 +3303,77 @@ fn editor_actors(ids: Vec<String>, state: State) -> Result<String, String> {
 #[tauri::command(async)]
 fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let c = cell_refs_of(&w, &cell)?;
+    let rows: Vec<String> = c
+        .rows
+        .iter()
+        .map(|r| {
+            let mut row = String::from("[\"");
+            viewcore::json::escape_into(&r.key, &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&r.id, &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&r.tag, &mut row);
+            row.push_str(&format!("\",[{:.1},{:.1},{:.1}],\"", r.pos[0], r.pos[1], r.pos[2]));
+            viewcore::json::escape_into(&r.plugin, &mut row);
+            row.push_str("\",\"");
+            viewcore::json::escape_into(&r.owner, &mut row);
+            row.push_str("\"]");
+            row
+        })
+        .collect();
+    let mut o = J::obj();
+    o.str("name", &c.name).str("refCell", &c.ref_cell).raw("plugins", &string_array(&c.plugins));
+    o.raw("rows", &format!("[{}]", rows.join(",")));
+    Ok(o.done())
+}
+
+/// Wraithguard: `editor_cell_refs` as bytes (`WGTB`): `meta` (`ss`: name, refCell, one
+/// row), `plugins` (`s`) and `rows` (`sssdddss`: key, id, tag, x, y, z, plugin, owner;
+/// the position to a tenth, as the JSON gives it).
+#[tauri::command(async)]
+fn editor_cell_refs_bytes(cell: String, state: State) -> Result<tauri::ipc::Response, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    Ok(tauri::ipc::Response::new(pack_cell_refs(&cell_refs_of(&w, &cell)?)))
+}
+
+/// One cell's references for the Cell View, as `cell_refs_of` lists them.
+struct CellRefs {
+    name: String,
+    ref_cell: String,
+    plugins: Vec<String>,
+    rows: Vec<RefRow>,
+}
+
+struct RefRow {
+    key: String,
+    id: String,
+    tag: String,
+    pos: [f32; 3],
+    plugin: String,
+    owner: String,
+}
+
+fn pack_cell_refs(c: &CellRefs) -> Vec<u8> {
+    // To a tenth exactly as the JSON writes it (`{:.1}`, which rounds a tie to even).
+    let tenth = |v: f32| format!("{v:.1}").parse::<f64>().unwrap_or(0.0);
+    let mut t = Tables::new();
+    t.table("meta", "ss", 1).s(&c.name).s(&c.ref_cell);
+    t.table("plugins", "s", c.plugins.len());
+    for p in &c.plugins {
+        t.s(p);
+    }
+    t.table("rows", "sssdddss", c.rows.len());
+    for r in &c.rows {
+        t.s(&r.key).s(&r.id).s(&r.tag).d(tenth(r.pos[0])).d(tenth(r.pos[1])).d(tenth(r.pos[2])).s(&r.plugin).s(&r.owner);
+    }
+    t.done()
+}
+
+/// The Cell View's references for one cell (`x,y`, or `int:<name>`): every reference not
+/// deleted, sorted by id, each with its viewport key, its record's type, where it stands,
+/// the plugin whose version wins and its owner.
+fn cell_refs_of(w: &viewcore::world::World, cell: &str) -> Result<CellRefs, String> {
     // Also the cell's key as plugins' records key it, and the plugins with a CELL record
     // for it: what the editor's reference dialog asks Wraithguard with.
     type Cell<'a> = (String, String, &'a [u32], Vec<&'a viewcore::esp::CellRef>);
@@ -3067,35 +3429,24 @@ fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
             String::new()
         }
     };
-    let rows: Vec<String> = refs
+    let rows: Vec<RefRow> = refs
         .iter()
-        .map(|r| {
-            let key = viewcore::refkey::RefKey::of(r.num, &w.plugins).map(|k| viewcore::refkey::key_text(&k)).unwrap_or_default();
-            let tag = w
+        .map(|r| RefRow {
+            key: viewcore::refkey::RefKey::of(r.num, &w.plugins).map(|k| viewcore::refkey::key_text(&k)).unwrap_or_default(),
+            id: r.id.clone(),
+            tag: w
                 .record_where
                 .get(&r.id.to_ascii_lowercase())
                 .and_then(|d| d.last())
                 .map(|(_, t)| tag_text(t))
-                .unwrap_or_default();
-            let mut row = String::from("[\"");
-            viewcore::json::escape_into(&key, &mut row);
-            row.push_str("\",\"");
-            viewcore::json::escape_into(&r.id, &mut row);
-            row.push_str("\",\"");
-            viewcore::json::escape_into(&tag, &mut row);
-            row.push_str(&format!("\",[{:.1},{:.1},{:.1}],\"", r.pos[0], r.pos[1], r.pos[2]));
-            viewcore::json::escape_into(plugin_name(&w, usize::try_from(r.plugin).ok()), &mut row);
-            row.push_str("\",\"");
-            viewcore::json::escape_into(&owner_of(r), &mut row);
-            row.push_str("\"]");
-            row
+                .unwrap_or_default(),
+            pos: [r.pos[0], r.pos[1], r.pos[2]],
+            plugin: plugin_name(w, usize::try_from(r.plugin).ok()).to_string(),
+            owner: owner_of(r),
         })
         .collect();
-    let mut o = J::obj();
-    let plugins: Vec<String> = by.iter().map(|&i| plugin_name(&w, Some(i as usize)).to_string()).collect();
-    o.str("name", &name).str("refCell", &ref_cell).raw("plugins", &string_array(&plugins));
-    o.raw("rows", &format!("[{}]", rows.join(",")));
-    Ok(o.done())
+    let plugins: Vec<String> = by.iter().map(|&i| plugin_name(w, Some(i as usize)).to_string()).collect();
+    Ok(CellRefs { name, ref_cell, plugins, rows })
 }
 
 /// Wraithguard: what kind of record an id is, for the Editor opening one by id alone (a
@@ -3578,6 +3929,74 @@ mod wgor_tests {
 }
 
 #[cfg(test)]
+mod wgtb_tests {
+    use super::{pack_cell_refs, pack_cells, pack_tags, CellRefs, CellRow, RefRow};
+
+    /// The cases `ui/tests/editor/wgtb_tables.json` holds, packed: the page's
+    /// `unpackTables` is tested on the same file's bytes (found from either crate).
+    fn cases() -> [(&'static str, Vec<u8>); 3] {
+        let tags = pack_tags(&[("ACTI".into(), 12), ("NPC_".into(), 0)]);
+        let cell = |x, y, name: &str, region: &str, refs, pathgrid| CellRow {
+            x,
+            y,
+            name: name.into(),
+            region: region.into(),
+            refs,
+            pathgrid,
+        };
+        let cells = pack_cells(
+            &[cell(-3, 7, "Ald-ruhn", "West Gash Region", 40, true), cell(0, -12, "", "", 0, false)],
+            &[cell(0, 0, "Vivec, Ä \"Arena\"", "", 5, false)],
+        );
+        let refs = pack_cell_refs(&CellRefs {
+            name: "Seyda Neen".into(),
+            ref_cell: "(-2, -9)".into(),
+            plugins: vec!["Morrowind.esm".into(), "Grass – Ä.esp".into()],
+            rows: vec![RefRow {
+                key: "1:00000a".into(),
+                id: "furn_ä \\".into(),
+                tag: "STAT".into(),
+                pos: [-12345.67, 0.04, 3.25],
+                plugin: "Morrowind.esm".into(),
+                owner: "fargoth (rank 2)".into(),
+            }],
+        });
+        [("tags", tags), ("cells", cells), ("cellRefs", refs)]
+    }
+
+    fn hex(b: &[u8]) -> String {
+        b.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[test]
+    fn the_lists_pack_as_the_page_reads_them() {
+        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let file = loop {
+            let f = dir.join("ui/tests/editor/wgtb_tables.json");
+            if f.is_file() {
+                break f;
+            }
+            assert!(dir.pop(), "wgtb_tables.json not found above the crate");
+        };
+        let text = std::fs::read_to_string(file).unwrap();
+        for (name, bytes) in cases() {
+            let at = text.find(&format!("\"{name}Hex\": \"")).unwrap_or_else(|| panic!("no {name}Hex in the fixture"));
+            let at = at + name.len() + 8;
+            let want = &text[at..at + text[at..].find('"').unwrap()];
+            assert_eq!(hex(&bytes), want, "{name}");
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_the_fixture_hex() {
+        for (name, bytes) in cases() {
+            println!("{name}Hex {}", hex(&bytes));
+        }
+    }
+}
+
+#[cfg(test)]
 // Before `builder()` on purpose: check-commands' build.rs keeps this file up to
 // `pub fn builder()`, so a test module after it would leave that build.
 #[allow(clippy::items_after_test_module)]
@@ -3618,6 +4037,14 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .manage(Mutex::new(App::default()))
         .invoke_handler(tauri::generate_handler![
             window_set,
+            connect_stage,
+            editor_tags_bytes,
+            cells_bytes,
+            editor_cell_refs_bytes,
+            textures_bytes,
+            scopes_bytes,
+            texture_usage_bytes,
+            assets_bytes,
             pathgrid,
             navmesh,
             collision_bundle,

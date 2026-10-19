@@ -5,6 +5,34 @@
 
 ### Added
 
+- **The Report says what a slow cell load waited on.** Under each load in Loading: when
+  the cell's objects were placed and when its grass, the distant land and the distant
+  objects started and finished; its textures by format, how many were read only in part
+  (a DDS at the Texture detail), how many were read whole and cut down here, and which
+  came above the detail; and every bundle of the objects phase, slowest first, with its
+  meshes and each texture's size before and after, bytes read and time.
+- **The connect's busy card says which step it is on** - indexing the files of N folders,
+  opening the archives, reading and merging N plugins, putting the world together -
+  instead of "resolving the overlay" for the whole minute a large install can take.
+- **The file index is kept between connects** (`wraithguard_overlay_index.bin`, beside the
+  viewer). A mod folder whose folders all kept their modified times is taken from it, and
+  only a folder that changed is walked again; on a large install the walk was about 4 s
+  of every connect. The connect log gives roots reused and walked (`indexReused`,
+  `indexWalked`).
+
+### Changed
+
+- **The Editor's other lists and the connect's lists come as bytes too** (`WGTB`, one
+  format for every list: named tables of typed columns): the record types, the cells and a
+  cell's references, the land textures, the cell and region names, where each texture is
+  painted, and the overlay's mesh and texture files. The JSON commands stay as the fallback
+  for an engine without the byte ones, said in Messages; the engine refusing (no such
+  cell) is said as it is, not asked a second time.
+
+## 4.5.0
+
+### Added
+
 - **The Editor keeps what it reads from the plugins between runs**
   (`wraithguard_record_cache.sqlite3`, next to the patch journal). Plugin records, the
   moved-reference index, dialogue and plugin headers are read once and then come from the
@@ -24,56 +52,91 @@
   the background (several plugins at once, one pass per plugin for all the tags Verify asks
   about) and before a Verify or a new cell asks, off the window's thread. A new cell or land
   checks the viewer's own cell list first, so it no longer waits on a scan of every plugin.
-- **The Use Report's index takes about a third of the room.** Each record's plugin, type and key
-  were repeated on every string it holds, with an index of their own; they are kept once now and
-  the strings are one clustered table (a real 621-plugin load order had made it 763 MB). It is
-  rebuilt once on the first start after this version.
-- **Clicking down the Object Window's tabs no longer piles up requests.** Each tab asked for
-  its columns (every plugin's records of that type) and the answers queued behind each other
-  until they timed out; the rows now show at once, and only the tab that is stopped on asks.
-  The background indexing also waits for a request the viewer is waiting on, between plugins.
-- **Opening a record or quest from the viewer's inspector no longer reports an error.** The
-  conflict viewer answers the click with the text `ok`; the page read every answer as JSON and
-  said the engine's answer did not read, though the conflict viewer had opened.
-- **Two Wraithguards (or two caches) opening the cache file at the same moment no longer lose it.**
-  The one that set the file up could be refused at once with "database is locked", after which
-  its cache was off for the whole session and its writes were dropped; setup now waits its turn,
-  and a lock is never taken for a cache that cannot work.
-- **A viewer that hangs up no longer fills the console with tracebacks.** An aborted or reset
-  connection (the viewer's own timeout, or closing its window) is not an error on the editor's side.
-- **The cache file is rewritten smaller when the app closes** if more than half of it is free
-  pages (rewrites of the index leave them behind; SQLite never gives them back by itself).
-- **The Use Report's index is built in the background right after the key index**, and an id
-  with a space or a dash is answered from it too (its strings from the index, its script words
-  from a search of the scripts' text only).
-- **The Use Report is kept** for the load order as it is: a second click on the same record
-  scans no plugin, and any plugin or order change starts it fresh. The cache has a size limit
-  (the largest tag's record bodies go first; the key index stays).
-- **The Use Report's first click per record is a query too.** Every string a record holds is
-  indexed per plugin in the cache (and each record's own id, so a use a later plugin took
-  out is told from a live one), built in the background one plugin at a time, pausing for
-  the window while the GIL is on. A click before a plugin is indexed scans as before and
-  starts the indexing; the index answers the same uses, counts, paths and winners as the
-  scan (tested). Ids with a space or dash, or over 64 characters, still scan. Past the size
-  limit the use index is the last thing dropped, and a trim that frees most of the file
-  compacts it, so the file shrinks on disk too.
-- **The Use Report's first click on a record is a query too**, once the load order has been
-  indexed. Every string each record holds is kept by value (with where it is and how many
-  times, a script's words, and which plugins define each record, so a use a later plugin took
-  out is still told from a live one), and the report is read from that index; it is the same
-  report the scan makes. The first report scans as before and starts the indexing, one plugin
-  at a time and in small steps so the window is not held up; an id with a space or a dash, a
-  plugin changed since it was indexed, or a cache over its size limit is scanned instead.
+- **The Use Report reads from an index instead of scanning every plugin.** Every string each
+  record holds is kept per plugin in the cache, by value (with where it is, how many times, a
+  script's words, and which plugins define each record, so a use a later plugin took out is
+  still told from a live one), and the report is read from it: the same uses, counts, paths
+  and winners as the scan (tested). The index is built in the background right after the key
+  index, one plugin at a time in small steps so the window is not held up. A click before a
+  plugin is indexed, on a plugin changed since, or past the cache's size limit scans as before
+  and starts the indexing; an id with a space or a dash is answered from the index too (its
+  script words from a search of the scripts' text only). A finished report is kept for the
+  load order as it is, so a second click scans nothing; any plugin or order change starts it
+  fresh.
+- **New cells and land of the patch's own** (Cell View's menu): a new interior under a name,
+  a new exterior square no plugin has, or one with flat land at the sea's level - what the
+  Construction Set makes on the first brush stroke. Editing references into a cell that does
+  not exist yet makes it, and the new cell shows in the Cell View at once.
+- **`tools/cache_stats.py`**: what the record cache holds - rows per table, record bodies by
+  tag, and the plugins with the biggest share of the use index.
 
 ### Changed
 
-- **Every record list in the Editor comes as bytes now**, not only the Object Window: the
-  actor list in the dialogue views, the models the place view looks up, and the ids the
-  record window offers. The JSON list is the fallback, and a list that fails both ways is
-  said in Messages instead of being left empty.
-- **An engine answer that does not read is an error.** It used to be handed on as text,
-  which a list then showed as empty; now it is said, with the command and the start of
-  the answer. Only the viewer profile and Wraithguard's own answers may be plain text.
+- **The Use Report's index takes about a third of the room.** Each record's plugin, type and
+  key were repeated on every string it holds, with an index of their own; they are kept once
+  now and the strings are one clustered table (a real 621-plugin load order had made it
+  763 MB). It is rebuilt once on the first start after this version.
+- **The cache has a size limit** (the largest tag's record bodies go first; the key index and
+  then the use index are the last things dropped), and **the file is rewritten smaller when the
+  app closes** if more than half of it is free pages (rewrites of the index leave them behind;
+  SQLite never gives them back by itself).
+- **Clicking down the Object Window's tabs no longer piles up requests.** Each tab asked for
+  its columns (every plugin's records of that type) and the answers queued behind each other
+  until they timed out; the rows now show at once, and only the tab that is stopped on asks.
+  The background indexing also waits, between plugins, for a request the viewer is waiting on.
+
+### Fixed
+
+- **Opening a record or quest from the viewer's inspector no longer reports an error.** The
+  conflict viewer answers the click with the text `ok`; the page read every answer as JSON and
+  said the engine's answer did not read, though the conflict viewer had opened.
+- **Two Wraithguards (or two caches) opening the cache file at the same moment no longer lose
+  it.** The one that set the file up could be refused at once with "database is locked", after
+  which its cache was off for the whole session and its writes were dropped; setup now waits
+  its turn, and a lock is never taken for a cache that cannot work.
+- **A viewer that hangs up no longer fills the console with tracebacks.** An aborted or reset
+  connection (the viewer's own timeout, or closing its window) is not an error on the editor's
+  side.
+- **The Editor's Q menu** acts on a single selected item again, and the menu and other
+  regressions from the Gardenfell 18hu rebase are fixed.
+
+### Security
+
+- **pyo3 0.26 -> 0.29 and pythonize 0.26 -> 0.29** in the native backend
+  (GHSA-36hh-v3qg-5jq4, an out-of-bounds read; GHSA-chgr-c6px-7xpp, a race condition).
+- **mio 1.2.3 -> 1.2.4** in the viewer (a use-after-free in Windows named pipes; the viewer
+  does not use them, through tokio or otherwise).
+- **CI checkouts no longer leave the GitHub token in `.git`** (`persist-credentials: false`;
+  no workflow pushes).
+- **The container build (`Dockerfile.wraithguard`) runs as an ordinary user**, not root.
+- Known and waiting on upstream: glib/gtk 0.18 (Linux GTK3, unmaintained), string_cache 0.9 and
+  jsonptr 0.7 all come from Tauri 2, whose newest release still pins them; zstd 0.13 and paste
+  come from the tes3 crates (zstd's advisories are for its seekable and prepared-dictionary
+  APIs, which tes3 does not use).
+
+## 4.4.1
+
+### Changed
+
+- **Every record list in the Editor comes as bytes**, not JSON: the Object Window, the actor
+  list in the dialogue views, the models the place view looks up, and the ids the record
+  window offers. The JSON list is the fallback, and a list that fails both ways is said in
+  Messages instead of being left empty. The Object Window's lists are asked for again on every
+  connect, with a Reload in the table when one does not load.
+- **An engine answer that does not read is an error.** It used to be handed on as text, which
+  a list then showed as empty; now it is said, with the command and the start of the answer.
+  Only the viewer profile and Wraithguard's own answers may be plain text.
+
+### Fixed
+
+- **Loading races in the viewer**: a busy card, a cloud or water texture, a texture bundle or
+  a mesh read that finishes after the install was switched or the cache reset can no longer
+  overwrite, delete or refill what replaced it. A load that stalls now says what it is waiting
+  on (pending bundles and decodes) in the busy card and the Report, which keeps every mesh path.
+- **NPC animation clip windowing** is restored: a skeleton keeps only the active clips' keys
+  (and one either side), as before the rebase.
+- **Skeleton binding keeps a part's alpha and visibility tracks** while it replaces the node's
+  own motion (moving and baked skins both tested; carried as a patch to Robin's crate).
 
 ## 4.4.0
 

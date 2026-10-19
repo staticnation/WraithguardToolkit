@@ -979,6 +979,58 @@ setTimeout(async ()=>{
     const ab=await engineCall('assets_bundle',{meshes:[m], have:[], still:[true]});
     if(!(ab.byteLength>8)) errors.push('assets_bundle with still answered nothing');
   }catch(e){ errors.push('R2 checks: '+short(e)); }
+  /* Wraithguard: the lists as bytes (WGTB) answer exactly what their JSON commands do, on a
+     real world: the tags, the cells, and one cell's references. */
+  try{
+    const viaJson=async(cmd,args)=>{ const r=await engineCall(cmd,args); return typeof r==='string'? JSON.parse(r) : r; };
+    const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+    const order=c=>({...c, grid:c.grid.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1])});
+    const tags=await w.listTags(), tagsJ=await viaJson('editor_tags',{});
+    if(!same(tags,tagsJ)) errors.push('editor_tags_bytes differs from editor_tags: '+JSON.stringify(tags).slice(0,200)+' vs '+JSON.stringify(tagsJ).slice(0,200));
+    const cells=await w.listCells(), cellsJ=await viaJson('cells',{});
+    if(!same(order(cells),order(cellsJ))) errors.push('cells_bytes differs from cells');
+    const sortKeys=o=>Object.fromEntries(Object.entries(o).sort(([a],[b])=>a<b?-1:a>b?1:0));
+    for(const [fn, cmd, norm] of [['listLandTextures','textures',x=>x], ['listScopes','scopes',x=>x],
+        ['listTextureUsage','texture_usage',sortKeys], ['listAssets','assets',x=>x]]){
+      const a=norm(await w[fn]()), b=norm(await viaJson(cmd,{}));
+      if(!same(a,b)) errors.push(fn+' differs from '+cmd+': '+JSON.stringify(a).slice(0,160)+' vs '+JSON.stringify(b).slice(0,160));
+    }
+    const one=cellsJ.grid.find(g=>g[4]>0) || cellsJ.grid[0];
+    if(one){
+      const at=one[0]+','+one[1];
+      const refs=await w.listCellRefs(at), refsJ=await viaJson('editor_cell_refs',{cell:at});
+      if(!same(refs,refsJ)) errors.push('editor_cell_refs_bytes differs from editor_cell_refs at '+at+': '+JSON.stringify(refs).slice(0,200)+' vs '+JSON.stringify(refsJ).slice(0,200));
+      console.log('lists as bytes:', tags.length+' tags,', cells.grid.length+' cells,', refs.rows.length+' references at '+at+', the same as JSON');
+    }
+  }catch(e){ errors.push('lists as bytes: '+short(e)); }
+  // Wraithguard: the connect's step, cleared once a connect has ended (`ConnectDone`).
+  try{
+    const cs=await engineCall('connect_stage',{});
+    if(!cs || cs.step!=='' || typeof cs.ms!=='number') errors.push('connect_stage after a connect: '+JSON.stringify(cs));
+  }catch(e){ errors.push('connect_stage: '+short(e)); }
+  /* Wraithguard (slow cell loads, 2026-10): the Report's load detail from a real load -
+     the timeline marks, and each bundle's textures with the engine's cost of them. The
+     last load may have found everything cached, so any load that made bundles will do. */
+  try{
+    const all=JSON.parse(w.eval("JSON.stringify(App.loadTimes||[])"));
+    const t=all[all.length-1];
+    if(!t || !t.marks || t.marks.placed==null || t.marks.grass==null) errors.push('load timeline: no placed/grass marks: '+JSON.stringify(t&&t.marks));
+    const list=all.flatMap(x=>(x.prof && x.prof.list) || []);
+    const tex=list.flatMap(b=>b.tex);
+    // (This fixture's cell finds its meshes cached, so it may make no bundles: the bundle
+    //  lines are tested in report_loading.test.js; here, whatever bundles there are.)
+    if(!list.every(b=>b.meshes && b.meshes.length)) errors.push('bundle detail: a bundle without its meshes');
+    if(!tex.every(x=>x.err || (x.ext!=null && x.read!=null && x.srcW!=null))) errors.push('bundle detail: textures without the engine\'s cost: '+JSON.stringify(tex[0]));
+    const name=(tex.find(x=>!x.err)||{}).name || w.eval("([...App.texGL].find(([k,r])=>r && !r.err && r.w)||[''])[0]");
+    if(!name) errors.push('texture cost: no texture to ask about');
+    else{
+      const raw=await engineCall('texture_data',{path:name, max_size:4});
+      const head=JSON.parse(new TextDecoder().decode(new Uint8Array(raw,8,new DataView(raw).getUint32(4,true))));
+      if(head.srcW==null || head.read==null || head.ext==null) errors.push('texture_data: no cost fields: '+JSON.stringify(head).slice(0,200));
+      else console.log('texture cost:', name, head.ext, head.srcW+'x'+head.srcH, '->', head.w+'x'+head.h, 'read', head.read, head.cut||'(none)');
+    }
+    console.log('load detail:', JSON.stringify(t && t.marks), list.length+' bundles over '+all.length+' loads,', tex.length+' textures');
+  }catch(e){ errors.push('load detail: '+short(e)); }
   console.log('scene:', w.eval("(document.getElementById('stats')||{}).textContent||''").replace(/\s+/g,' ').slice(0,160));
   console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
   try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);

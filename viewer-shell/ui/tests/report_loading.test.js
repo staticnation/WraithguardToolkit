@@ -66,3 +66,28 @@ test('full diagnostic report includes all bundles and decodes while the busy car
     assert.ok(!w.document.getElementById('logBody').textContent.includes('Loading now'));
   }finally{w.close();}
 });
+
+test('a load\'s Report entry gives its timeline, its textures and every bundle, slowest first',()=>{
+  const {w}=reportPage();
+  try{
+    w.eval(`App.loadTimes=[{label:'(-35, 27) + 24 cells', t0:0, cells:400, terrain:1200, objects:9000, meshes:90, textures:120,
+      detail:512, marks:{placed:10600, grass:10650, grassDone:13900, land:10610, landDone:11800, far:11800},
+      land:{cells:180, triangles:50000, radius:12}, far:null,
+      prof:{engine:6000, engineKnown:true, wait:9000, bundles:2, tex:300, texN:3, texBytes:4e6, mesh:200, meshN:16, build:500, groupsMs:20,
+        list:[
+          {id:1, ms:800, engine:500, bytes:2e6, meshes:['meshes/a.nif','meshes/b.nif'],
+           tex:[{name:'tx_a.dds', kind:'bc1', w:512, h:512, gpu:174000, dec:2, ext:'dds', srcW:4096, srcH:4096, read:350000, cut:'dds', us:4000}]},
+          {id:2, ms:5200, engine:4800, bytes:9e6, meshes:['meshes/c.nif'],
+           tex:[{name:'tx_big.tga', kind:'rgba', w:512, h:512, gpu:1e6, dec:40, ext:'tga', srcW:4096, srcH:4096, read:48e6, cut:'halved', us:3900000},
+                {name:'tx_flat.dds', kind:'rgba', w:2048, h:2048, gpu:16e6, dec:60, ext:'dds', srcW:2048, srcH:2048, read:16e6, cut:'', us:200000}]}]}}];`);
+    w.openLog();
+    const text=w.document.getElementById('logBody').textContent;
+    assert.match(text,/timeline from the start: cells read 0\.4 s · terrain 1\.6 s · objects placed 10\.6 s · grass 10\.7 s→13\.9 s · distant land 10\.6 s→11\.8 s · distant objects 11\.8 s→\(not finished\)/);
+    assert.match(text,/distant land 180 cells/);
+    assert.match(text,/textures by format: tga 1 \(46 MB read, engine 3\.9 s\) · dds 2 \(16 MB read/);
+    assert.match(text,/texture detail 512 px: 1 DDS read in part · 1 read whole and cut here \(46 MB: tx_big\.tga 46 MB\) · 1 sent above it \(tx_flat\.dds 2048×2048\)/);
+    const slow=text.indexOf('#2 5.2 s'), fast=text.indexOf('#1 0.8 s');
+    assert.ok(slow>0 && fast>slow,'slowest bundle first');
+    assert.match(text,/meshes: meshes\/c\.nif · textures \(2\): tx_big\.tga tga 4096×4096→512×512 rgba \[halved\] 46 MB read, engine 3900 ms, page 40 ms; tx_flat\.dds dds 2048×2048 rgba 15 MB read/);
+  }finally{w.close();}
+});

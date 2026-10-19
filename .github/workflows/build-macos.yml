@@ -45,6 +45,8 @@ jobs:
             arch: arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nothing here pushes; the token is not left in .git
 
       - uses: dtolnay/rust-toolchain@stable
 

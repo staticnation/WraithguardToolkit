@@ -37,6 +37,7 @@ pub mod review;
 pub mod toml;
 pub mod usage;
 pub mod vfs;
+pub mod vfsindex;
 pub mod weather;
 pub mod world;
 pub mod worldmap;

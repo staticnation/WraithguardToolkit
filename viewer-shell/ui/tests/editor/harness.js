@@ -104,6 +104,36 @@ function page(opts = {}) {
           for(const b of out){ all.set(b,at); at+=b.length; }
           return all.buffer;
         }
+        /* And the other lists as WGTB (Tables in commands.rs), from the test's own answer to
+           the JSON command of the same list - so a test's stand-in answers once, under the
+           name it always had, and the page reads it the way it reads the engine's bytes. An
+           answer that is not the list makes the bytes fail too, as the engine's would. */
+        const lists={
+          editor_tags_bytes:['editor_tags', r=>Array.isArray(r) && [['tags','su',r.map(x=>[x[0], x[1]|0])]]],
+          cells_bytes:['cells', r=>r && Array.isArray(r.grid) && [
+            ['grid','iissuu',r.grid.map(x=>[x[0]|0, x[1]|0, x[2]||'', x[3]||'', x[4]|0, x[5]|0])],
+            ['interiors','suu',(r.interiors||[]).map(x=>[x[0]||'', x[1]|0, x[2]|0])]]],
+          editor_cell_refs_bytes:['editor_cell_refs', r=>r && Array.isArray(r.rows) && [
+            ['meta','ss',[[r.name||'', r.refCell||'']]],
+            ['plugins','s',(r.plugins||[]).map(p=>[p])],
+            ['rows','sssdddss',r.rows.map(x=>{ const p=x[3]||[0,0,0]; return [x[0]||'', x[1]||'', x[2]||'', +p[0]||0, +p[1]||0, +p[2]||0, x[4]||'', x[5]||'']; })]]],
+        };
+        if(lists[c]){
+          const tables=lists[c][1](await __engine(lists[c][0],a||{}));
+          if(!tables) throw new Error('not '+lists[c][0]);
+          const te=new TextEncoder(), out=[];
+          const put=(n,set)=>{ const b=new Uint8Array(n); set(new DataView(b.buffer)); out.push(b); };
+          const u=v=>put(4,dv=>dv.setUint32(0,v,true)), i=v=>put(4,dv=>dv.setInt32(0,v,true)), dd=v=>put(8,dv=>dv.setFloat64(0,v,true));
+          const s=t=>{ const b=te.encode(String(t)); u(b.length); out.push(b); };
+          out.push(te.encode('WGTB')); u(1); u(tables.length);
+          for(const [name, cols, rows] of tables){
+            s(name); s(cols); u(rows.length);
+            for(const row of rows) [...cols].forEach((k,j)=>({s, u, i, d:dd})[k](row[j]));
+          }
+          const all=new Uint8Array(out.reduce((n,b)=>n+b.length,0)); let at=0;
+          for(const b of out){ all.set(b,at); at+=b.length; }
+          return all.buffer;
+        }
         return __engine(c,a||{});
       },
       async pick(){ return null; },

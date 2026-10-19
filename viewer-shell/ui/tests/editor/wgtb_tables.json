@@ -1,0 +1,140 @@
+{
+ "about": "WGTB, the Editor's other lists as bytes (commands.rs `Tables`): pack_tags, pack_cells and pack_cell_refs must make each *Hex from these values (wgtb_tests), and the page's unpackTables must read each *Hex back to its `tables`; listTags, listCells and listCellRefs turn those into `json`, the shape the JSON commands answer with.",
+ "tags": {
+  "tables": {
+   "tags": [
+    [
+     "ACTI",
+     12
+    ],
+    [
+     "NPC_",
+     0
+    ]
+   ]
+  },
+  "json": [
+   [
+    "ACTI",
+    12
+   ],
+   [
+    "NPC_",
+    0
+   ]
+  ]
+ },
+ "tagsHex": "57475442010000000100000004000000746167730200000073750200000004000000414354490c000000040000004e50435f00000000",
+ "cells": {
+  "tables": {
+   "grid": [
+    [
+     -3,
+     7,
+     "Ald-ruhn",
+     "West Gash Region",
+     40,
+     1
+    ],
+    [
+     0,
+     -12,
+     "",
+     "",
+     0,
+     0
+    ]
+   ],
+   "interiors": [
+    [
+     "Vivec, Ä \"Arena\"",
+     5,
+     0
+    ]
+   ]
+  },
+  "json": {
+   "grid": [
+    [
+     -3,
+     7,
+     "Ald-ruhn",
+     "West Gash Region",
+     40,
+     1
+    ],
+    [
+     0,
+     -12,
+     "",
+     "",
+     0,
+     0
+    ]
+   ],
+   "count": 2,
+   "interiors": [
+    [
+     "Vivec, Ä \"Arena\"",
+     5,
+     0
+    ]
+   ],
+   "interiorCount": 1
+  }
+ },
+ "cellsHex": "57475442010000000200000004000000677269640600000069697373757502000000fdffffff0700000008000000416c642d7275686e1000000057657374204761736820526567696f6e280000000100000000000000f4ffffff0000000000000000000000000000000009000000696e746572696f727303000000737575010000001100000056697665632c20c38420224172656e61220500000000000000",
+ "cellRefs": {
+  "tables": {
+   "meta": [
+    [
+     "Seyda Neen",
+     "(-2, -9)"
+    ]
+   ],
+   "plugins": [
+    [
+     "Morrowind.esm"
+    ],
+    [
+     "Grass – Ä.esp"
+    ]
+   ],
+   "rows": [
+    [
+     "1:00000a",
+     "furn_ä \\",
+     "STAT",
+     -12345.7,
+     0,
+     3.2,
+     "Morrowind.esm",
+     "fargoth (rank 2)"
+    ]
+   ]
+  },
+  "json": {
+   "name": "Seyda Neen",
+   "refCell": "(-2, -9)",
+   "plugins": [
+    "Morrowind.esm",
+    "Grass – Ä.esp"
+   ],
+   "rows": [
+    [
+     "1:00000a",
+     "furn_ä \\",
+     "STAT",
+     [
+      -12345.7,
+      0,
+      3.2
+     ],
+     "Morrowind.esm",
+     "fargoth (rank 2)"
+    ]
+   ]
+  }
+ },
+ "cellRefsHex": "574754420100000003000000040000006d657461020000007373010000000a0000005365796461204e65656e08000000282d322c202d392907000000706c7567696e730100000073020000000d0000004d6f72726f77696e642e65736d10000000477261737320e2809320c3842e65737004000000726f77730800000073737364646473730100000008000000313a303030303061090000006675726e5fc3a4205c04000000535441549a999999d91cc8c000000000000000009a999999999909400d0000004d6f72726f77696e642e65736d10000000666172676f7468202872616e6b203229"
+}

@@ -64,10 +64,12 @@ enum Place {
 // `norm` lives in `crate::paths` (18ge), re-exported so `vfs::norm` still resolves.
 pub use crate::paths::norm;
 
-fn index_dir(dir: &Path, prefix: &str, out: &mut HashMap<String, PathBuf>, depth: u32) {
+fn index_dir(dir: &Path, prefix: &str, out: &mut HashMap<String, PathBuf>, depth: u32, dirs: &mut Vec<PathBuf>) {
     if depth > 12 {
         return;
     }
+    // Wraithguard (patch 0012): every folder the walk reads, for a saved index's check.
+    dirs.push(dir.to_path_buf());
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
@@ -91,7 +93,7 @@ fn index_dir(dir: &Path, prefix: &str, out: &mut HashMap<String, PathBuf>, depth
             _ => false,
         };
         if dir_like {
-            index_dir(&e.path(), &key, out, depth + 1);
+            index_dir(&e.path(), &key, out, depth + 1, dirs);
             continue;
         }
         /* `.mohidden` is how Mod Organizer takes a file out of the virtual filesystem
@@ -104,14 +106,42 @@ fn index_dir(dir: &Path, prefix: &str, out: &mut HashMap<String, PathBuf>, depth
     }
 }
 
+/* Wraithguard (patch 0012): a root's index kept between connects. Walking every file of
+   every mod is seconds on a large install (205,535 files in 1,233 folders, about 4 s), and
+   nothing in it changes between most connects. These let the viewer save the index and
+   build a root back from it; the walk itself is unchanged, and it also says which folders
+   it read, so the viewer can tell a saved index from a stale one by those folders' times
+   (a folder's time moves when anything is added to, taken from or renamed in it). */
+impl Root {
+    /// One root walked as [`Vfs::with_roots`] walks it, and every folder the walk read.
+    pub fn index_one(label: &str, dir: &Path) -> (Root, Vec<PathBuf>) {
+        let mut index = HashMap::new();
+        let mut dirs = Vec::new();
+        index_dir(dir, "", &mut index, 0, &mut dirs);
+        (Root { label: label.to_string(), dir: dir.to_path_buf(), index }, dirs)
+    }
+
+    /// A root from an index made earlier by [`Root::index_one`].
+    pub fn from_index(label: String, dir: PathBuf, index: HashMap<String, PathBuf>) -> Root {
+        Root { label, dir, index }
+    }
+
+    /// The index: lower-case relative path (forward slashes) to the file on disk.
+    pub fn index(&self) -> &HashMap<String, PathBuf> {
+        &self.index
+    }
+}
+
 impl Vfs {
     pub fn with_roots(dirs: &[(String, PathBuf)]) -> Vfs {
         // Indexing each root is independent, so do them all at once.
-        let roots = crate::pool::par_map(dirs, |_, (label, dir)| {
-            let mut index = HashMap::new();
-            index_dir(dir, "", &mut index, 0);
-            Root { label: label.clone(), dir: dir.clone(), index }
-        });
+        let roots = crate::pool::par_map(dirs, |_, (label, dir)| Root::index_one(label, dir).0);
+        Vfs { roots, archives: Vec::new() }
+    }
+
+    /// Wraithguard (patch 0012): an overlay from roots already indexed, highest priority
+    /// first, as [`Vfs::with_roots`] orders them.
+    pub fn from_roots(roots: Vec<Root>) -> Vfs {
         Vfs { roots, archives: Vec::new() }
     }
 

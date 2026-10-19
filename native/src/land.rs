@@ -36,7 +36,7 @@ const HEIGHT_SCALE: f64 = 8.0;
 ///
 /// Values are flat and interleaved: a 65x65 grid of three-component normals is one
 /// list of 12,675 integers. One changed flag per *vertex*.
-#[pyclass(module = "wraithguard_native")]
+#[pyclass(module = "wraithguard_native", skip_from_py_object)]
 #[derive(Clone)]
 pub struct RelativeGrid {
     reference: Vec<i64>,

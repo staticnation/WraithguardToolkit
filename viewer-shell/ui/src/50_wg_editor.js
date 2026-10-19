@@ -76,6 +76,121 @@
 
    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
+
+/* Wraithguard: the lists as bytes (WGTB), here rather than in Gardenfell's 03_core.js: the
+   page is one script, so 13_mo2.js's connect reads the cells through these as well. */
+/** Wraithguard: `WGTB` bytes (`Tables` in commands.rs) -> `{name: [[...row]...]}`.
+ *  Column letters: `s` string, `u` u32, `i` i32, `d` f64. Throws on anything malformed -
+ *  a list that did not read is an error, never an empty list (Static, 2026-10-13). */
+function unpackTables(buf){
+  const dv=new DataView(buf), td=new TextDecoder('utf-8'), u8=new Uint8Array(buf);
+  let at=0;
+  const need=n=>{ if(at+n>buf.byteLength) throw new Error('the list ended early, at byte '+at+' of '+buf.byteLength); };
+  const u32=()=>{ need(4); const v=dv.getUint32(at,true); at+=4; return v; };
+  const str=()=>{ const n=u32(); need(n); const s=td.decode(u8.subarray(at,at+n)); at+=n; return s; };
+  const read={s:str, u:u32,
+    i:()=>{ need(4); const v=dv.getInt32(at,true); at+=4; return v; },
+    d:()=>{ need(8); const v=dv.getFloat64(at,true); at+=8; return v; }};
+  need(12);
+  if(String.fromCharCode(u8[0],u8[1],u8[2],u8[3])!=='WGTB') throw new Error('the list is not WGTB bytes');
+  at=4; if(u32()!==1) throw new Error('the list is a version this page does not read');
+  const out={};
+  for(let t=u32(); t>0; t--){
+    const name=str(), cols=[...str()];
+    for(const c of cols) if(!read[c]) throw new Error('the list has a column of a kind this page does not read: '+c);
+    const rows=out[name]=[];
+    for(let r=u32(); r>0; r--) rows.push(cols.map(c=>read[c]()));
+  }
+  if(at!==buf.byteLength) throw new Error('the list has '+(buf.byteLength-at)+' bytes after its last table');
+  return out;
+}
+
+/** Wraithguard: a list as bytes first (`bytesCmd`, read by `unpackTables` and turned into
+ *  the JSON command's shape by `shape`), and the JSON command (`jsonCmd`) only when the
+ *  bytes did not read or the engine has no such command (an older build) - said in
+ *  Messages, as `WgEditor.recordRows` does. The engine refusing (no such cell, say) is its
+ *  answer, said as it is: asking again the other way would only ask it twice. `ok` says
+ *  whether the JSON answer is the list; throws when both ways fail. */
+async function listTwoWays(what, bytesCmd, jsonCmd, args, shape, ok){
+  let first, buf;
+  try{ buf=await Engine.bytes(bytesCmd,args||{}); }
+  catch(e){
+    const m=String(e && e.message || e);
+    if(!(m.includes(bytesCmd) && /not found|unknown/i.test(m))) throw e;
+    first=m;
+  }
+  if(buf!==undefined){
+    try{ return shape(unpackTables(buf)); }
+    catch(e){ first=String(e && e.message || e); }
+  }
+  let problem;
+  try{
+    const r=await Engine.call(jsonCmd,args||{});
+    if(ok(r)){
+      if(typeof WgLog==='object' && WgLog.add) WgLog.add('The '+what+' came the second way: '+first, 'warn');
+      return r;
+    }
+    const txt=typeof r==='string'? r : JSON.stringify(r);
+    problem='the engine\'s answer was not the '+what+' ('+(txt==null? 'nothing' : txt.length+' characters, starting '+JSON.stringify(String(txt).slice(0,120)))+')';
+  }catch(e){ problem=String(e && e.message || e); }
+  throw new Error(first+'; then '+problem);
+}
+
+/** The Object Window's tabs, `[[tag, count]...]` (`editor_tags`). */
+function listTags(){
+  return listTwoWays('record types', 'editor_tags_bytes', 'editor_tags', {},
+    t=>t.tags, r=>Array.isArray(r));
+}
+
+/** Every cell, `{grid:[[x, y, name, region, refs, pathgrid]...], count, interiors:[[name,
+ *  refs, pathgrid]...], interiorCount}` (`cells`). */
+function listCells(){
+  return listTwoWays('cell list', 'cells_bytes', 'cells', {},
+    t=>({grid:t.grid, count:t.grid.length, interiors:t.interiors, interiorCount:t.interiors.length}),
+    r=>!!(r && typeof r==='object' && Array.isArray(r.grid)));
+}
+
+/** The land textures, `[{id, file}...]` (`textures`). */
+function listLandTextures(){
+  return listTwoWays('land textures', 'textures_bytes', 'textures', {},
+    t=>t.textures.map(r=>({id:r[0], file:r[1]})), r=>Array.isArray(r));
+}
+
+/** The named cells and the regions, `{cells, regions}` (`scopes`). */
+function listScopes(){
+  return listTwoWays('cell and region names', 'scopes_bytes', 'scopes', {},
+    t=>({cells:t.cells.map(r=>r[0]), regions:t.regions.map(r=>r[0])}),
+    r=>!!(r && Array.isArray(r.cells) && Array.isArray(r.regions)));
+}
+
+/** Where each land texture is painted, `{texture: {cells, regions}}` (`texture_usage`). */
+function listTextureUsage(){
+  return listTwoWays('texture use', 'texture_usage_bytes', 'texture_usage', {},
+    t=>{
+      const out={};
+      for(const [tex] of t.textures) out[tex]={cells:[], regions:[]};
+      for(const [tex, kind, name] of t.uses) (out[tex]||(out[tex]={cells:[], regions:[]}))[kind? 'regions' : 'cells'].push(name);
+      return out;
+    },
+    r=>!!(r && typeof r==='object' && !Array.isArray(r)));
+}
+
+/** The mesh and texture files of the overlay, `{meshes, textures}` (`assets`). */
+function listAssets(){
+  return listTwoWays('asset list', 'assets_bytes', 'assets', {},
+    t=>({meshes:t.meshes.map(r=>r[0]), textures:t.textures.map(r=>r[0])}),
+    r=>!!(r && Array.isArray(r.meshes) && Array.isArray(r.textures)));
+}
+
+/** One cell's references for the Cell View, `{name, refCell, plugins, rows:[[key, id, tag,
+ *  [x, y, z], plugin, owner]...]}` (`editor_cell_refs`). */
+function listCellRefs(cell){
+  return listTwoWays('references of '+cell, 'editor_cell_refs_bytes', 'editor_cell_refs', {cell},
+    t=>({name:t.meta[0][0], refCell:t.meta[0][1], plugins:t.plugins.map(p=>p[0]),
+         rows:t.rows.map(r=>[r[0], r[1], r[2], [r[3], r[4], r[5]], r[6], r[7]])}),
+    r=>!!(r && typeof r==='object' && Array.isArray(r.rows)));
+}
+
 /** Rotations as the game stores them (the Euler angles `refMatrix` reads), turned the
  *  ways the render window needs: about a world axis, and an axis laid along a normal. */
 const EdMath={
@@ -197,7 +312,7 @@ const WgEditor={
     this.dock();
     WgUI.onEnter();
     try{
-      this.tags=await Engine.call('editor_tags',{});
+      this.tags=await listTags();
     }catch(e){ toast(String(e.message||e),'err',5000); this.tags=[]; }
     if(!this.tags.some(t=>t[0]===this.tag) && this.tags.length) this.tag=this.tags[0][0];
     this.fillTabs();

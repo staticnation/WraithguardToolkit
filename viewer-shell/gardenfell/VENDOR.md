@@ -93,6 +93,13 @@ Greatness7's `tes3` crate reads, and Robin's code runs on what it read.
   (`viewcore::img::dds_trim`): a cell on Static's setup read 1.2 GB of textures to send
   15 MB. Additive. Tests: `crates/gardenfell-bsa/tests/wraithguard_bsa.rs`.
 
+- `patches/0012-vfs-saved-index.patch`: a root's index kept between connects -
+  `Root::index_one` (one root walked as `Vfs::with_roots` walks it, and every folder the
+  walk read), `Root::from_index`, `Root::index` and `Vfs::from_roots`. The walk is
+  unchanged; it only also says which folders it read, so the viewer can tell a saved
+  index from a stale one by those folders' times (`viewcore::vfsindex`). Additive.
+  Tests: `viewcore/src/vfsindex.rs`.
+
 All eleven are offered to Robin, with `patches/NOTES-FOR-ROBIN.md` saying why each.
 Applied in order to his 18hu source they give exactly the files here (checked); his
 tests: 503 pass with his fixture (his 491 and 12 of ours). Only 0006 and 0009 add

@@ -8,7 +8,7 @@ Object.assign(WgEditor, {
 
   async loadCells(){
     try{
-      const c=await Engine.call('cells',{});
+      const c=await listCells();
       const ext=(c.grid||[]).map(g=>({kind:'ext', x:g[0], y:g[1], name:g[2]||'', label:(g[2]? g[2]+' ' : 'Wilderness ')+'('+g[0]+', '+g[1]+')',
         refs:g[4], path:g[5]}));
       ext.sort((a,b)=>a.x-b.x || a.y-b.y);
@@ -173,7 +173,7 @@ Object.assign(WgEditor, {
         .filter(a=>a.fields && !a.fields.deleted)
         .map(a=>['new:'+a.uid, a.fields.id||'', a.tag||'', (a.fields.translation||[0,0,0]).slice(), '(this patch)', ''])};
     }
-    else try{ r=await Engine.call('editor_cell_refs',{cell}); }
+    else try{ r=await listCellRefs(cell); }
     catch(e){ if(mine===this._refsN) box.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return; }
     if(mine!==this._refsN) return;
     this.refs=r.rows||[];

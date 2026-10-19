@@ -681,6 +681,19 @@ const TX_STRINGS = {
   "busy.resolving_overlay":
     ["resolving the overlay…",
      "The busy overlay's second line: working out which mod folders win."],
+  /* Wraithguard: the connect's steps while open_install runs (13_mo2.js, `connect_stage`). */
+  "busy.connect_index":
+    ["indexing the files of {n} folders…",
+     "The connect's busy card while the engine indexes the install's files: {n} is the number of mod folders."],
+  "busy.connect_archives":
+    ["opening the archives…",
+     "The connect's busy card while the engine opens the load order's .bsa archives."],
+  "busy.connect_load":
+    ["reading and merging {n} plugins…",
+     "The connect's busy card while the engine reads, parses and merges the load order: {n} is the number of plugins. Usually the longest step."],
+  "busy.connect_finish":
+    ["putting the world together…",
+     "The connect's busy card after the plugins are merged, while the engine finishes the world."],
   "busy.drawing_scene":
     ["drawing the scene",
      "The connect's busy card, while the viewport rebuilds after the world has been read."],

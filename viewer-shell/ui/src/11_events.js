@@ -1357,6 +1357,62 @@ function countGlCalls(gl,fn){
   return c;
 }
 
+/** Wraithguard (slow cell loads, 2026-10): the lines under a load's Loading entry that
+    say what it waited on - when the later parts started and ended against the cell's own
+    placement, what its textures were and what was cut from them, and every bundle of the
+    objects phase, slowest first. Plain text, for pasting into a bug report. */
+function loadDetailLines(t){
+  const out=[];
+  const sec=ms=>(ms/1000).toFixed(ms<10000? 1 : 0)+' s';
+  const mb=n=>(n/1048576).toFixed(n<10485760? 1 : 0)+' MB';
+  const m=t.marks;
+  if(m){
+    const s1=ms=>(ms/1000).toFixed(1)+' s';   // a timeline wants tenths past ten seconds too
+    const at=(a,b,name)=> m[a]==null? null : name+' '+s1(m[a])+(m[b]!=null? '→'+s1(m[b]) : '→(not finished)');
+    const parts=[m.placed!=null? 'objects placed '+s1(m.placed) : null,
+                 at('grass','grassDone','grass'), at('land','landDone','distant land'), at('far','farDone','distant objects')]
+      .filter(Boolean);
+    if(parts.length) out.push('   timeline from the start: cells read '+s1(t.cells)+' · terrain '+s1(t.cells+t.terrain)+' · '+parts.join(' · '));
+    const ex=[];
+    if(t.land) ex.push('distant land '+(t.land.cells|0)+' cells, '+(t.land.triangles|0)+' triangles, radius '+t.land.radius);
+    if(t.far) ex.push('distant objects '+(t.far.models|0)+' models, '+(t.far.refs|0)+' refs'+(t.far.over? ', '+t.far.over+' over budget' : ''));
+    if(ex.length) out.push('   '+ex.join(' · '));
+  }
+  const list=t.prof && t.prof.list;
+  if(!list || !list.length) return out;
+  const tex=list.flatMap(b=>b.tex);
+  if(tex.length && tex.some(x=>x.ext!=null)){
+    const by=new Map();
+    for(const x of tex){
+      const k=x.ext||'?';
+      const e=by.get(k)||{n:0, read:0, us:0};
+      e.n++; e.read+=x.read||0; e.us+=x.us||0; by.set(k,e);
+    }
+    const fmt=[...by].sort((a,b)=>b[1].read-a[1].read).map(([k,e])=>k+' '+e.n+' ('+mb(e.read)+' read, engine '+sec(e.us/1000)+')');
+    const has=(x,c)=>(x.cut||'').split('+').includes(c);
+    const partial=tex.filter(x=>has(x,'dds')), whole=tex.filter(x=>has(x,'levels')||has(x,'halved'));
+    const detail=t.detail|0;
+    const over=detail? tex.filter(x=>Math.max(x.w,x.h)>detail) : [];
+    out.push('   textures by format: '+fmt.join(' · '));
+    out.push('   texture detail '+(detail? detail+' px' : 'the files\' own')+': '+partial.length+' DDS read in part · '+
+      whole.length+' read whole and cut here ('+mb(whole.reduce((a,x)=>a+(x.read||0),0))+
+      (whole.length? ': '+whole.slice().sort((a,b)=>(b.read||0)-(a.read||0)).slice(0,8).map(x=>x.name+' '+mb(x.read||0)).join(', ')+(whole.length>8? '…' : '') : '')+')'+
+      (detail? ' · '+over.length+' sent above it'+(over.length? ' ('+over.slice(0,8).map(x=>x.name+' '+x.w+'×'+x.h).join(', ')+(over.length>8? '…' : '')+')' : '') : ''));
+  }
+  out.push('   bundles, slowest first ('+list.length+'):');
+  const texLine=x=>{
+    if(x.err) return x.name+' failed: '+x.err;
+    const src=(x.srcW && (x.srcW!==x.w || x.srcH!==x.h))? x.srcW+'×'+x.srcH+'→' : '';
+    return x.name+' '+(x.ext? x.ext+' ' : '')+src+x.w+'×'+x.h+' '+x.kind+(x.cut? ' ['+x.cut+']' : '')+
+      (x.read!=null? ' '+mb(x.read)+' read' : '')+(x.us!=null? ', engine '+Math.round(x.us/1000)+' ms' : '')+', page '+Math.round(x.dec||0)+' ms';
+  };
+  for(const b of list.slice().sort((a,b)=>b.ms-a.ms)){
+    out.push('   #'+b.id+' '+sec(b.ms)+(b.engine!=null? ' (engine '+sec(b.engine)+')' : '')+', '+mb(b.bytes)+
+      ' · meshes: '+b.meshes.join(', ')+' · textures ('+b.tex.length+'): '+(b.tex.length? b.tex.map(texLine).join('; ') : 'none new'));
+  }
+  return out;
+}
+
 function openLog(){
   const b=$('#logBody'); b.innerHTML='';
   /* Round 18bv: one dialogue, two reports. The title says which — it carries `data-tx`
@@ -1488,6 +1544,7 @@ function openLog(){
           ' to the GPU) · meshes '+sec(pf.mesh)+' ('+pf.meshN+') · scene '+sec(pf.build)+
           (pf.groupsMs!=null? ' (groups '+Math.round(pf.groupsMs)+' ms)' : '')});
       }
+      for(const l of loadDetailLines(t)) line({k:'ok', t:l});
     }
   }
 

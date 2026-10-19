@@ -41,6 +41,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nothing here pushes; the token is not left in .git
 
       - uses: actions/setup-python@v5
         with:
@@ -139,6 +141,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nothing here pushes; the token is not left in .git
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -226,6 +230,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nothing here pushes; the token is not left in .git
 
       - uses: actions/setup-python@v5
         with:

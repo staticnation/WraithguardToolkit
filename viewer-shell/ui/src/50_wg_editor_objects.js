@@ -74,7 +74,7 @@ Object.assign(WgEditor, {
   async worldChanged(){
     this._cols=null; this._colGen=(this._colGen|0)+1; this._rowsProblem=null;
     if(!this.on) return;                                  // `enter` asks when it opens
-    try{ this.tags=await Engine.call('editor_tags',{}); }catch(_){ }
+    try{ this.tags=await listTags(); }catch(_){ }
     if(!Array.isArray(this.tags)) this.tags=[];
     // The tab on screen stays when the patch has records of it, though the load order has none.
     const tabs=this.allTabs();
