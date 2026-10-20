@@ -42,9 +42,11 @@ def plan(case: dict[str, Any]) -> dict[str, Any]:
                 key=m["key"],
                 base_plugin=m["base"],
                 choices=tuple(
-                    FieldChoice(path=c["path"], plugin=c["plugin"])
-                    if "plugin" in c
-                    else FieldValue(path=c["path"], value=c["value"])
+                    (
+                        FieldChoice(path=c["path"], plugin=c["plugin"])
+                        if "plugin" in c
+                        else FieldValue(path=c["path"], value=c["value"])
+                    )
                     for c in m["choices"]
                 ),
             )
