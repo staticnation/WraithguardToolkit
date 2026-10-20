@@ -78,9 +78,37 @@ Object.assign(WgEditor, {
   async ask(link, body){
     const url=this.links()[link];
     if(!url) throw new Error('Editing needs Wraithguard: open the viewer from Wraithguard (Cell Preview)');
-    const t=await Engine.call('wg_post',{url, body:JSON.stringify(body)});
+    /* The links the viewer's own Editor answers (editcore::links) go to the engine, the same
+       JSON in and out; the rest to Wraithguard. Both write the patch queue's journal, so
+       either sees what the other changed. Wraithguard hands the viewer's links over as
+       `native:<key>`: it no longer serves them. */
+    const own=String(url).startsWith('native:'), native=(await this.nativeLinks()).has(link);
+    if(own && !native) throw new Error('This viewer cannot answer '+link+' itself: it is older than Wraithguard - update the viewer');
+    const t=native
+      ? await Engine.call('editor_link',{name:link, body:JSON.stringify(body)})
+      : await Engine.call('wg_post',{url, body:JSON.stringify(body)});
     if(typeof t!=='string' || !t.length) return t;
     try{ return JSON.parse(t); }catch(_){ return t; }      // `ok` and the like
+  },
+
+  /** The links the viewer's own Editor answers: opened once (`editor_open`) on the load
+   *  order, the journal, the data folders, the patch last written and Test in OpenMW's
+   *  settings file the launch named (`extra.editor`), a set of link names. None
+   *  without them, or with an engine that has no Editor (an older build), said in
+   *  Messages: Wraithguard answers every link then. */
+  nativeLinks(){
+    if(!this._native){
+      const ed=((window.__WG_VIEW__||{}).extra||{}).editor;
+      this._native=(!ed || !Array.isArray(ed.plugins))? Promise.resolve(new Set())
+        : Engine.call('editor_open',{plugins:ed.plugins, journal:String(ed.journal||''), folders:ed.folders||[],
+            last:String(ed.last||''), testSettings:String(ed.testSettings||'')})
+          .then(t=>new Set(typeof t==='string'? JSON.parse(t) : t))
+          .catch(e=>{
+            if(typeof WgLog==='object' && WgLog.add) WgLog.add('The viewer\'s own Editor did not open ('+String(e && e.message || e)+'): Wraithguard answers every link', 'warn');
+            return new Set();
+          });
+    }
+    return this._native;
   },
 
   async openRecord(tag, id, plugins){

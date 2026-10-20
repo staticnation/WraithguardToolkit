@@ -21,7 +21,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 pyo3 = "0.29"
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["bsa", "esp", "nif", "serde", "serde-zstd"] }
-serde_json = "1"
+# float_roundtrip: the record cache (src/cache.rs) stores Python floats as JSON, and reads
+# them back as exactly the same float (serde_json's default parse may be one bit off).
+serde_json = { version = "1", features = ["float_roundtrip"] }
 # serde values straight into Python objects: records reach Python as dicts in the
 # tes3conv schema without being written out as JSON text and parsed back.
 pythonize = "0.29"
@@ -39,9 +41,6 @@ memmap2 = "0.9"
 # No mimalloc (a Python extension keeps Python's allocator); its logging compiled out.
 merge_to_master = { git = "https://github.com/staticnation/merge_to_master", default-features = false, features = ["strip-logs"] }
 anyhow = "1"
-# Windows-1252, as the tes3 crate decodes plugin strings: the script compiler works on
-# the plugin's bytes (src/mwscript). Already in the tree through tes3's bytes_io.
-encoding_rs = "0.8"
 # OpenMW Lua scripts in plain Rust (lexer, parser, checks, the load-order scan, the API
 # tables, reports and charts), shared with the viewer's engine (viewer-shell/luacore).
 luacore = { path = "../viewer-shell/luacore" }
@@ -49,8 +48,9 @@ luacore = { path = "../viewer-shell/luacore" }
 # viewer's engine uses, so the Editor reads a setup as the viewer does
 # (viewer-shell/ordercore).
 ordercore = { path = "../viewer-shell/ordercore" }
-# The Editor's backend (port step 4.1): the plugin reader moved there from src/esp.rs, and
-# the Editor's record and reference lookups, shared with the viewer (viewer-shell/editcore).
+# The Editor's backend (port step 4.1): the plugin reader moved there from src/esp.rs, the
+# Use Report's scan and the script compiler (src/mwscript wraps it), and the Editor's record
+# and reference lookups, shared with the viewer (viewer-shell/editcore).
 editcore = { path = "../viewer-shell/editcore" }
 # The mesh viewer's Optimise (src/nif_order.rs): Gardenfell's triangle order (`triorder`,
 # Robin Hjelte's port of meshoptimizer's vertex cache and overdraw passes) and our port

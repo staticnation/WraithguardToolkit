@@ -12,6 +12,9 @@ tauri = { version = "2", features = [] }
 # Cell-viewer mode (src/cellviewer): the engine, the page's file dialogs, and the
 # command layer's argument types.
 viewcore = { path = "viewcore" }
+# The Editor's records, edits and patch queue (Wraithguard's port step 4.1): the links the
+# viewer answers itself (`editor_open`, `editor_link`).
+editcore = { path = "editcore" }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -173,7 +173,7 @@ def check_script(
 
 
 def _native_check() -> Callable[..., list[tuple[int, str, str]]] | None:
-    """The Rust backend's checks (``native/src/mwscript/check.rs``), or None."""
+    """The Rust backend's checks (``viewer-shell/editcore/src/mwscript/check.rs``, through ``native/``), or None."""
     try:
         import wraithguard_native
     except ImportError:

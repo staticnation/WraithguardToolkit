@@ -118,6 +118,28 @@ def record_cache() -> RecordCache:
 _RECORD_CACHE: RecordCache | None = None
 
 
+#: The links the viewer's own Editor answers (``editcore::links::ANSWERS``): handed to
+#: the page as ``native:<key>`` rather than served here.
+VIEWER_LINKS: frozenset[str] = frozenset(
+    {
+        "editRecord", "editSet", "editSetMany", "editRevert", "editInsert", "editDuplicate",
+        "editRef", "editRefSet", "editRefRevert", "editRefsSet", "editPlace", "editPlaceMany",
+        "editNew", "editNewSet", "editNewRemove", "editNewCell", "editNewLand",
+        "editDuplicateCell", "editPathgrid", "editPathgridSet", "editSearch", "editSearchAll",
+        "editReplaceAll", "editColumns", "editFilterChoices", "editUndo", "editRedo",
+        "editRevision", "editPending", "editUses", "editReplace", "editScript", "editResult",
+        "editScriptWords", "editScriptRefs", "editLeveledRoll", "editTopics", "editTopic",
+        "editNewResponse", "editMoveResponse", "editCopyTopic", "editDialogueFlow",
+        "editDialogueMap", "editDialogueFlags", "editDialoguePlay", "editWhoCanSay",
+        "editVerify", "editBuildInfo", "editBuildCheck", "editBuild", "editBuildStatus",
+        "editTestSetups", "editTestRun",
+    }
+)  # fmt: skip
+
+#: How often the journal the viewer's Editor shares is looked at (ms).
+_JOURNAL_WATCH_MS = 1000
+
+
 def journal_path() -> Path:
     """Where the patch pool is journalled (see :func:`.patch.editor.save_queue`)."""
     return app_base_dir() / "wraithguard_patch_journal.json"
@@ -189,12 +211,100 @@ class EditorLinkMixin:
             current.start_indexing()
         return current
 
-    def editor_links(self, server: ViewerServer, setup: Path) -> dict[str, str]:
+    def editor_native(self) -> dict[str, Any] | None:
+        """What the viewer's own Editor opens on (``editor_open``, ``editcore::links``).
+
+        The load order the links were registered for, the journal the queue is shared
+        through, where a patch would go (the setup's data folders), the patch last written,
+        and where Test in OpenMW's choices are kept. None before :meth:`editor_links`.
+
+        Returns:
+            ``{plugins: [[name, path]], journal, folders, last, testSettings}``.
+        """
+        session: EditorSession | None = getattr(self, "_editor_session", None)
+        if session is None:
+            return None
+        from wraithguard.patch.testrun import _remembered_file
+
+        last_of = getattr(self, "patch_last_path", None)
+        last = last_of() if callable(last_of) else None
+        return {
+            "plugins": [
+                [session._paths[n.lower()][0], str(session._paths[n.lower()][1])]
+                for n in session.order
+            ],
+            "journal": str(journal_path()),
+            "folders": self._patch_folders(),
+            "last": str(last) if last else "",
+            "testSettings": str(_remembered_file()),
+        }
+
+    def _synced(self, handler: Callable[[bytes], Payload]) -> Callable[[bytes], Payload]:
+        """``handler``, after the queue is read again from the journal it shares.
+
+        The viewer's Editor may have changed it (:meth:`.EditorSession.sync_journal`,
+        run on the Tk thread).
+        """
+
+        def run(body: bytes) -> Payload:
+            """Sync, then answer."""
+            self._sync_patch_journal()
+            return handler(body)
+
+        return run
+
+    def _sync_patch_journal(self) -> None:
+        """The queue as the journal has it (redrawn) when the viewer's Editor changed it."""
+        session: EditorSession | None = getattr(self, "_editor_session", None)
+        if session is None or session.journal is None:
+            return
+
+        def sync() -> None:
+            """On the Tk thread: read it, redraw when it changed."""
+            if session.sync_journal():
+                redraw = getattr(self, "redraw_patch_views", None)
+                if callable(redraw):
+                    redraw()
+
+        self._on_ui_wait(sync)
+
+    def _watch_patch_journal(self) -> None:
+        """Every second, the journal read again when the viewer's Editor changed it.
+
+        On the Tk thread: the Patch Builder shows the viewer's edits as they are made.
+        """
+        root = getattr(self, "root", None)  # the Tk root: no watch without one (the tests)
+        if root is None or getattr(self, "_journal_watch", False):
+            return
+        self._journal_watch = True
+
+        def tick() -> None:
+            """One look, and the next one scheduled."""
+            session: EditorSession | None = getattr(self, "_editor_session", None)
+            try:
+                if session is not None and session.sync_journal():
+                    redraw = getattr(self, "redraw_patch_views", None)
+                    if callable(redraw):
+                        redraw()
+            except Exception as exc:  # noqa: BLE001 - a bad journal must not stop the watch
+                LOG.warning("patch journal: cannot read it again: %s", exc)
+            root.after(_JOURNAL_WATCH_MS, tick)
+
+        root.after(_JOURNAL_WATCH_MS, tick)
+
+    def editor_links(
+        self, server: ViewerServer, setup: Path, *, viewer_answers: bool = True
+    ) -> dict[str, str]:
         """Register the editor's endpoints for a viewer about to launch.
+
+        The links the viewer's own Editor answers (:data:`VIEWER_LINKS`, port step 4.1,
+        slice 7) are not served: the page is handed ``native:<key>`` for them, and asks
+        the engine (``editor_link``). Wraithguard keeps the ones that open its own windows.
 
         Args:
             server: The loopback server.
             setup: The cfg the viewer opens (its load order is what is edited).
+            viewer_answers: False to serve every link here (the handlers' own tests).
 
         Returns:
             Link name -> URL, for the launch's extra file.
@@ -204,92 +314,78 @@ class EditorLinkMixin:
         active = getattr(server, "active_posts", None)  # a stand-in server may not count
         if callable(active):
             session.foreground = active
+        self._watch_patch_journal()
+
+        def reg(key: str, handler: Callable[[bytes], Payload]) -> tuple[str, Any]:
+            """A link to register, the shared journal read again before it runs."""
+            return key, self._synced(handler)
+
+        wanted = {
+            "editRecord": reg("wg_edit_record", self._on_edit_record),
+            "editSet": reg("wg_edit_set", self._on_edit_set),
+            "editRevert": reg("wg_edit_revert", self._on_edit_revert),
+            "editRef": reg("wg_edit_ref", self._on_edit_ref),
+            "editRefSet": reg("wg_edit_ref_set", self._on_edit_ref_set),
+            "editRefRevert": reg("wg_edit_ref_revert", self._on_edit_ref_revert),
+            "editDuplicate": reg("wg_edit_duplicate", self._on_edit_duplicate),
+            "editInsert": reg("wg_edit_insert", self._on_edit_insert),
+            "editUses": reg("wg_edit_uses", self._on_edit_uses),
+            "editScript": reg("wg_edit_script", self._on_edit_script),
+            "editResult": reg("wg_edit_result", self._on_edit_result),
+            "editFlowchart": reg("wg_edit_flowchart", self._on_edit_flowchart),
+            "editTopics": reg("wg_edit_topics", self._on_edit_topics),
+            "editTopic": reg("wg_edit_topic", self._on_edit_topic),
+            "editColumns": reg("wg_edit_columns", self._on_edit_columns),
+            "editSearch": reg("wg_edit_search", self._on_edit_search),
+            "editUndo": reg("wg_edit_undo", self._on_edit_undo),
+            "editRedo": reg("wg_edit_redo", self._on_edit_redo),
+            "editRevision": reg("wg_edit_revision", self._on_edit_revision),
+            "editVerify": reg("wg_edit_verify", self._on_edit_verify),
+            "editSetMany": reg("wg_edit_set_many", self._on_edit_set_many),
+            "editRefsSet": reg("wg_edit_refs_set", self._on_edit_refs_set),
+            "editNewCell": reg("wg_edit_new_cell", self._on_edit_new_cell),
+            "editNewLand": reg("wg_edit_new_land", self._on_edit_new_land),
+            "editPlaceMany": reg("wg_edit_place_many", self._on_edit_place_many),
+            "editLeveledRoll": reg("wg_edit_leveled_roll", self._on_edit_leveled_roll),
+            "editWhoCanSay": reg("wg_edit_who_can_say", self._on_edit_who_can_say),
+            "editFilterChoices": reg("wg_edit_filter_choices", self._on_edit_filter_choices),
+            "editScriptWords": reg("wg_edit_script_words", self._on_edit_script_words),
+            "editScriptRefs": reg("wg_edit_script_refs", self._on_edit_script_refs),
+            "editSearchAll": reg("wg_edit_search_all", self._on_edit_search_all),
+            "editReplaceAll": reg("wg_edit_replace_all", self._on_edit_replace_all),
+            "editTestRun": reg("wg_edit_test_run", self._on_edit_test_run),
+            "editTestSetups": reg("wg_edit_test_setups", self._on_edit_test_setups),
+            "editLuaChart": reg("wg_edit_lua_chart", self._on_edit_lua_chart),
+            "editPathgrid": reg("wg_edit_pathgrid", self._on_edit_pathgrid),
+            "editDuplicateCell": reg("wg_edit_duplicate_cell", self._on_edit_duplicate_cell),
+            "editPathgridSet": reg("wg_edit_pathgrid_set", self._on_edit_pathgrid_set),
+            "editDialogueFlow": reg("wg_edit_dial_flow", self._on_dialogue_flow),
+            "editDialogueMap": reg("wg_edit_dial_map", self._on_dialogue_map),
+            "editDialogueFlags": reg("wg_edit_dial_flags", self._on_dialogue_flags),
+            "editDialoguePlay": reg("wg_edit_dial_play", self._on_dialogue_play),
+            "editNewResponse": reg("wg_edit_new_response", self._on_edit_new_response),
+            "editCopyTopic": reg("wg_edit_copy_topic", self._on_edit_copy_topic),
+            "editMoveResponse": reg("wg_edit_move_response", self._on_edit_move_response),
+            "editReplace": reg("wg_edit_replace", self._on_edit_replace),
+            "editPlace": reg("wg_edit_place", self._on_edit_place),
+            "editNew": reg("wg_edit_new", self._on_edit_new),
+            "editNewSet": reg("wg_edit_new_set", self._on_edit_new_set),
+            "editNewRemove": reg("wg_edit_new_remove", self._on_edit_new_remove),
+            "editPending": reg("wg_edit_pending", self._on_edit_pending),
+            "editReview": reg("wg_edit_review", self._on_edit_review),
+            "editBuildInfo": reg("wg_edit_build_info", self._on_edit_build_info),
+            "editBuildCheck": reg("wg_edit_build_check", self._on_edit_build_check),
+            "editBuild": reg("wg_edit_build", self._on_edit_build),
+            "editBuildStatus": reg("wg_edit_build_status", self._on_edit_build_status),
+            "editPreviewPatch": reg("wg_edit_preview_patch", self._on_edit_preview_patch),
+        }
         return {
-            "editRecord": server.register_post("wg_edit_record", self._on_edit_record),
-            "editSet": server.register_post("wg_edit_set", self._on_edit_set),
-            "editRevert": server.register_post("wg_edit_revert", self._on_edit_revert),
-            "editRef": server.register_post("wg_edit_ref", self._on_edit_ref),
-            "editRefSet": server.register_post("wg_edit_ref_set", self._on_edit_ref_set),
-            "editRefRevert": server.register_post("wg_edit_ref_revert", self._on_edit_ref_revert),
-            "editDuplicate": server.register_post("wg_edit_duplicate", self._on_edit_duplicate),
-            "editInsert": server.register_post("wg_edit_insert", self._on_edit_insert),
-            "editUses": server.register_post("wg_edit_uses", self._on_edit_uses),
-            "editScript": server.register_post("wg_edit_script", self._on_edit_script),
-            "editResult": server.register_post("wg_edit_result", self._on_edit_result),
-            "editFlowchart": server.register_post("wg_edit_flowchart", self._on_edit_flowchart),
-            "editTopics": server.register_post("wg_edit_topics", self._on_edit_topics),
-            "editTopic": server.register_post("wg_edit_topic", self._on_edit_topic),
-            "editColumns": server.register_post("wg_edit_columns", self._on_edit_columns),
-            "editSearch": server.register_post("wg_edit_search", self._on_edit_search),
-            "editUndo": server.register_post("wg_edit_undo", self._on_edit_undo),
-            "editRedo": server.register_post("wg_edit_redo", self._on_edit_redo),
-            "editRevision": server.register_post("wg_edit_revision", self._on_edit_revision),
-            "editVerify": server.register_post("wg_edit_verify", self._on_edit_verify),
-            "editSetMany": server.register_post("wg_edit_set_many", self._on_edit_set_many),
-            "editRefsSet": server.register_post("wg_edit_refs_set", self._on_edit_refs_set),
-            "editNewCell": server.register_post("wg_edit_new_cell", self._on_edit_new_cell),
-            "editNewLand": server.register_post("wg_edit_new_land", self._on_edit_new_land),
-            "editPlaceMany": server.register_post("wg_edit_place_many", self._on_edit_place_many),
-            "editLeveledRoll": server.register_post(
-                "wg_edit_leveled_roll", self._on_edit_leveled_roll
-            ),
-            "editWhoCanSay": server.register_post("wg_edit_who_can_say", self._on_edit_who_can_say),
-            "editFilterChoices": server.register_post(
-                "wg_edit_filter_choices", self._on_edit_filter_choices
-            ),
-            "editScriptWords": server.register_post(
-                "wg_edit_script_words", self._on_edit_script_words
-            ),
-            "editScriptRefs": server.register_post(
-                "wg_edit_script_refs", self._on_edit_script_refs
-            ),
-            "editSearchAll": server.register_post("wg_edit_search_all", self._on_edit_search_all),
-            "editReplaceAll": server.register_post(
-                "wg_edit_replace_all", self._on_edit_replace_all
-            ),
-            "editTestRun": server.register_post("wg_edit_test_run", self._on_edit_test_run),
-            "editTestSetups": server.register_post(
-                "wg_edit_test_setups", self._on_edit_test_setups
-            ),
-            "editLuaChart": server.register_post("wg_edit_lua_chart", self._on_edit_lua_chart),
-            "editPathgrid": server.register_post("wg_edit_pathgrid", self._on_edit_pathgrid),
-            "editDuplicateCell": server.register_post(
-                "wg_edit_duplicate_cell", self._on_edit_duplicate_cell
-            ),
-            "editPathgridSet": server.register_post(
-                "wg_edit_pathgrid_set", self._on_edit_pathgrid_set
-            ),
-            "editDialogueFlow": server.register_post("wg_edit_dial_flow", self._on_dialogue_flow),
-            "editDialogueMap": server.register_post("wg_edit_dial_map", self._on_dialogue_map),
-            "editDialogueFlags": server.register_post(
-                "wg_edit_dial_flags", self._on_dialogue_flags
-            ),
-            "editDialoguePlay": server.register_post("wg_edit_dial_play", self._on_dialogue_play),
-            "editNewResponse": server.register_post(
-                "wg_edit_new_response", self._on_edit_new_response
-            ),
-            "editCopyTopic": server.register_post("wg_edit_copy_topic", self._on_edit_copy_topic),
-            "editMoveResponse": server.register_post(
-                "wg_edit_move_response", self._on_edit_move_response
-            ),
-            "editReplace": server.register_post("wg_edit_replace", self._on_edit_replace),
-            "editPlace": server.register_post("wg_edit_place", self._on_edit_place),
-            "editNew": server.register_post("wg_edit_new", self._on_edit_new),
-            "editNewSet": server.register_post("wg_edit_new_set", self._on_edit_new_set),
-            "editNewRemove": server.register_post("wg_edit_new_remove", self._on_edit_new_remove),
-            "editPending": server.register_post("wg_edit_pending", self._on_edit_pending),
-            "editReview": server.register_post("wg_edit_review", self._on_edit_review),
-            "editBuildInfo": server.register_post("wg_edit_build_info", self._on_edit_build_info),
-            "editBuildCheck": server.register_post(
-                "wg_edit_build_check", self._on_edit_build_check
-            ),
-            "editBuild": server.register_post("wg_edit_build", self._on_edit_build),
-            "editBuildStatus": server.register_post(
-                "wg_edit_build_status", self._on_edit_build_status
-            ),
-            "editPreviewPatch": server.register_post(
-                "wg_edit_preview_patch", self._on_edit_preview_patch
-            ),
+            name: (
+                "native:" + key
+                if viewer_answers and name in VIEWER_LINKS
+                else server.register_post(key, handler)
+            )
+            for name, (key, handler) in wanted.items()
         }
 
     # -- running on the Tk thread -------------------------------------------------------
@@ -1803,18 +1899,10 @@ class EditorLinkMixin:
             ValueError: For a path that is not a plugin's, not absolute, or in a folder
                 that does not exist.
         """
+        from wraithguard.patch.buildjob import patch_target
+
         req = json.loads(body.decode("utf-8"))
-        raw = req.get("path")
-        if not isinstance(raw, str) or not raw.strip():
-            raise ValueError(_("Choose where the patch goes"))
-        target = Path(raw.strip())
-        if not target.is_absolute():
-            raise ValueError(_("The patch needs a full path, folder and all"))
-        if target.suffix.lower() not in (".esp", ".esm", ".omwaddon"):
-            raise ValueError(_("A patch is a plugin: name it .esp (or .omwaddon)"))
-        if not target.parent.is_dir():
-            raise ValueError(_("%(folder)s is not a folder") % {"folder": target.parent})
-        return req, target
+        return req, patch_target(req)
 
     def _on_edit_build_check(self, body: bytes) -> Payload:
         """``editBuildCheck``: whether the chosen file is there already.
@@ -1826,16 +1914,11 @@ class EditorLinkMixin:
             ``{path, exists, inOrder}``: ``inOrder`` when a plugin of the load order has
             its name (a patch written before, most likely - or a mod).
         """
+        from wraithguard.patch.buildjob import build_check
+
         _req, target = self._patch_target(body)
         session: EditorSession | None = getattr(self, "_editor_session", None)
-        names = {n.lower() for n in (session.order if session is not None else [])}
-        return self._json(
-            {
-                "path": str(target),
-                "exists": target.exists(),
-                "inOrder": target.name.lower() in names,
-            }
-        )
+        return self._json(build_check(target, session.order if session is not None else []))
 
     def _on_edit_build(self, body: bytes) -> Payload:
         """``editBuild``: write the pool as a patch, on a thread of its own.
@@ -1856,25 +1939,15 @@ class EditorLinkMixin:
             ValueError: For a bad path, a build already running, a file that exists
                 with no ``append`` or ``replace``, or what the Patch Builder refuses.
         """
+        from wraithguard.patch.buildjob import build_mode, new_state
+
         req, target = self._patch_target(body)
-        mode = req.get("mode") or "new"
-        if mode not in ("new", "append", "replace"):
-            raise ValueError("bad mode")
-        if mode == "new" and target.exists():
-            raise ValueError(_("%(name)s exists: choose Append or Replace") % {"name": target.name})
         running = getattr(self, "_build_state", None)
-        if running is not None and running["state"] == "running":
-            raise ValueError(_("A patch is being written already"))
+        mode = build_mode(req, target, running)
         # What the Patch Builder refuses (nothing queued, no reader, a merge the scan
         # lost) comes back as the request's error, its reason the page shows.
         job = self._on_ui_wait(lambda: self.prepare_patch(target, append=mode == "append"))
-        state: dict[str, Any] = {
-            "job": (running or {}).get("job", 0) + 1,
-            "state": "running",
-            "lines": [],
-            "result": None,
-            "error": None,
-        }
+        state = new_state(running)
         self._build_state = state
 
         def work() -> None:
@@ -1922,6 +1995,7 @@ class EditorLinkMixin:
         """
         import subprocess
 
+        from wraithguard.patch.buildjob import new_state, refuse_running, test_request
         from wraithguard.patch.testrun import (
             TEST_PLUGIN,
             find_openmw,
@@ -1933,34 +2007,13 @@ class EditorLinkMixin:
         req = self._body(body)
         exe_given = req.get("exe") if isinstance(req.get("exe"), str) else None
         exe = find_openmw(exe_given)
-        if exe is None:
-            raise ValueError(
-                "needExe: "
-                + (
-                    _("%(path)s is not OpenMW") % {"path": exe_given}
-                    if exe_given
-                    else _("Where is OpenMW? Choose openmw.exe (or the folder it is in)")
-                )
-            )
-        cell = req.get("cell") if isinstance(req.get("cell"), str) else None
-        settings = load_settings()
-        name = req.get("setup") if isinstance(req.get("setup"), str) else settings["use"]
-        setup = settings["setups"].get(name) if name else None
-        if name and setup is None:
-            raise ValueError(_("No launch setup is called %(name)s") % {"name": name})
+        exe, cell, setup = test_request(req, exe_given, exe, load_settings())
         running = getattr(self, "_build_state", None)
-        if running is not None and running["state"] == "running":
-            raise ValueError(_("A patch is being written already"))
+        refuse_running(running)
         target = scratch_dir() / TEST_PLUGIN
         target.unlink(missing_ok=True)
         job = self._on_ui_wait(lambda: self.prepare_patch(target, append=False))
-        state: dict[str, Any] = {
-            "job": (running or {}).get("job", 0) + 1,
-            "state": "running",
-            "lines": [],
-            "result": None,
-            "error": None,
-        }
+        state = new_state(running)
         self._build_state = state
 
         def work() -> None:
@@ -2019,23 +2072,12 @@ class EditorLinkMixin:
         Returns:
             ``{setups, use}`` as kept.
         """
-        from wraithguard.patch.testrun import clean_setup, load_settings, save_settings
+        from wraithguard.patch.buildjob import update_setups
+        from wraithguard.patch.testrun import load_settings, save_settings
 
         req = self._body(body)
         settings = load_settings()
-        if "setups" in req:
-            raw = req["setups"]
-            if not isinstance(raw, dict):
-                raise ValueError("setups is an object")
-            settings["setups"] = {
-                str(k).strip(): clean_setup(v) for k, v in raw.items() if str(k).strip()
-            }
-        if "use" in req:
-            use = req["use"] if isinstance(req["use"], str) else ""
-            settings["use"] = use if use in settings["setups"] else ""
-        elif settings["use"] not in settings["setups"]:
-            settings["use"] = ""
-        if "setups" in req or "use" in req:
+        if update_setups(settings, req):
             save_settings(settings)
         return self._json({"setups": settings["setups"], "use": settings["use"]})
 
@@ -2051,23 +2093,10 @@ class EditorLinkMixin:
         Raises:
             ValueError: For a job that is not the current one.
         """
+        from wraithguard.patch.buildjob import build_status
+
         req = json.loads(body.decode("utf-8"))
-        state = getattr(self, "_build_state", None)
-        if state is None or req.get("job") != state["job"]:
-            raise ValueError(_("No such patch build"))
-        start = req.get("from") or 0
-        if not isinstance(start, int) or start < 0:
-            start = 0
-        return self._json(
-            {
-                "job": state["job"],
-                "state": state["state"],
-                "lines": state["lines"][start:],
-                "total": len(state["lines"]),
-                "result": state["result"],
-                "error": state["error"],
-            }
-        )
+        return self._json(build_status(getattr(self, "_build_state", None), req))
 
     def _on_edit_preview_patch(self, body: bytes) -> Payload:
         """``editPreviewPatch``: a new Cell Preview with a written patch loaded last.
@@ -2081,9 +2110,9 @@ class EditorLinkMixin:
         Raises:
             ValueError: For a path that is not a written plugin, or no viewer to open.
         """
-        _req, target = self._patch_target(body)
-        if not target.is_file():
-            raise ValueError(_("%(name)s is not written yet") % {"name": target.name})
+        from wraithguard.patch.buildjob import preview_target
+
+        target = preview_target(json.loads(body.decode("utf-8")))
         preview = getattr(self, "preview_plugin", None)
         if preview is None:
             raise ValueError(_("Cell Preview cannot be opened from here"))

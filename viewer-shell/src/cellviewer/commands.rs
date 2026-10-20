@@ -3520,6 +3520,49 @@ fn wg_open_record(url: String, body: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/* ---- the Editor, answered here (Wraithguard; port step 4.1, slice 7) ------------------
+
+   The Editor's links answered by the viewer's own engine (`editcore::links`), the same JSON
+   in and out as Wraithguard's loopback handlers (gui/editorlink.py): the page asks
+   `editor_link` for the links `editor_open` names and Wraithguard for the rest. The patch
+   queue is shared with Wraithguard's conflict window and Patch Builder through the journal
+   both write. One Editor, for the load order the launch named (`extra.editor`). */
+
+static EDITOR: Mutex<Option<std::sync::Arc<editcore::links::Links>>> = Mutex::new(None);
+
+/// Wraithguard: the viewer's Editor opened on a load order (`plugins`: `[[name, path]]`, in
+/// order) and the journal it shares with Wraithguard (`""`: none) - kept when it is open on
+/// those already. `folders`: the setup's data folders, the highest priority first (where
+/// a patch would go); `last`: the patch last written (`""`: none); `testSettings`: where
+/// Test in OpenMW's choices are kept (`""`: testing refused). The links it answers, as
+/// JSON.
+#[tauri::command(async)]
+fn editor_open(plugins: Vec<(String, String)>, journal: String, folders: Option<Vec<String>>, last: Option<String>, test_settings: Option<String>) -> Result<String, String> {
+    let plugins: Vec<(String, PathBuf)> = plugins.into_iter().map(|(n, p)| (n, PathBuf::from(p))).collect();
+    let path = |s: Option<String>| s.filter(|s| !s.is_empty()).map(PathBuf::from);
+    let journal = path(Some(journal));
+    let mut slot = EDITOR.lock().unwrap_or_else(|p| p.into_inner());
+    let same = slot.as_ref().is_some_and(|l| l.plugins == plugins && l.journal == journal);
+    if !same {
+        let links = editcore::links::Links::open(plugins, journal).with_setup(folders.unwrap_or_default(), path(last), path(test_settings));
+        *slot = Some(std::sync::Arc::new(links));
+    }
+    // Link names are bare words: no escaping to do.
+    Ok(format!("[{}]", editcore::links::ANSWERS.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(",")))
+}
+
+/// Wraithguard: one Editor link (`name`, its JSON `body`) answered by the viewer's Editor:
+/// the answer's text, or the reason it is refused. The verifier looks for the files records
+/// name in the install the viewer has open (loose or archived), when it has one.
+#[tauri::command(async)]
+fn editor_link(state: State, name: String, body: String) -> Result<String, String> {
+    let links = EDITOR.lock().unwrap_or_else(|p| p.into_inner()).clone().ok_or_else(|| "The viewer's Editor is not open".to_string())?;
+    let vfs = if name == "editVerify" { state.app().vfs.clone() } else { None };
+    let exists = |path: &str| vfs.as_ref().is_some_and(|v| v.resolve(path).is_some());
+    let file_exists: Option<&dyn Fn(&str) -> bool> = if vfs.is_some() { Some(&exists) } else { None };
+    links.call_with(&name, &body, &editcore::links::Ctx { file_exists })
+}
+
 /* ---- the cell map's coverage (Wraithguard) -------------------------------------------
 
    Which plugins touch which cells - Wraithguard's modmapper-style cell map, answered
@@ -4072,6 +4115,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             wg_save_edited,
             wg_open_record,
             wg_post,
+            editor_open,
+            editor_link,
             find_record,
             editor_tags,
             editor_records,

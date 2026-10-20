@@ -110,10 +110,64 @@
   module, which now calls it unchanged. Record keys and the Editor's record and
   placed-object lookups (including references moved to another cell) are in Rust and agree
   with the Python Editor on every shared case (`record_cases.json`, `ref_cases.json`,
-  `move_cases.json`). Nothing changes for a user yet.
+  `move_cases.json`). The record cache is Rust's too (below, under Security), and so are the
+  patch queue's rules, its journal and undo, pinned with the Python side by
+  `queue_cases.json`, the record dialog and record edits (`edit_cases.json`, the
+  refusal messages included), and placed objects, new references, path grids, and the
+  cells and land the patch makes (`place_cases.json`), and the Object Window's search
+  and columns and the search and replace across every type (`search_cases.json`), and
+  the Use Report (the plugins scanned, the records read, or the use index) and Search &
+  Replace (`use_cases.json`), and the dialogue window, a topic's flow and map, the
+  dialogue's flags, the rehearsal and who can say a response (`dialogue_cases.json`),
+  and Script Edit (the checks, the compiled listing, a result's check, the flowchart),
+  the scripts naming a word, a leveled list's roll and the Lua panel's charts
+  (`script_cases.json`), and the verifier (`verify_cases.json`), and building a patch
+  (`build_cases.json`, the written file included), and the Build patch and Test in
+  OpenMW links' decisions, the launch setups and OpenMW's command line
+  (`buildjob_cases.json`). The viewer's Editor now runs in the viewer: every
+  link but the four that open Wraithguard's own windows (its Patch Builder, the chart
+  window, a Cell Preview of its own) is answered by the viewer's engine
+  (`link_cases.json`), building and testing the patch included, and Wraithguard no
+  longer serves them. The patch pool is shared with Wraithguard's conflict window and
+  Patch Builder through the journal both write: an edit in either shows in the other,
+  Wraithguard's Patch Builder redraws as the viewer's edits are made, and a merge the
+  conflict window queued is written to the journal with the plugin it is based on, so
+  the viewer can build it.
+  The MWScript compiler
+  moved into `viewer-shell/editcore` with them; the Python module calls it there.
 
 ### Fixed
 
+- **The Use Report finds dialogue results once the use index is built.** The scan of the
+  plugins counted an id named in a response's result, but the index (which answers once
+  the load order is indexed, and with every id that has a space or a dash) only had
+  scripts' words, so the same report lost those uses on the second click, and Search &
+  Replace then left the results naming the old id. The index has results' words too (the
+  cache is emptied once to rebuild it), and an id with a space or a dash is looked for in
+  results as well as scripts.
+- **A script can name an NPC the patch makes.** The compiler was handed the patch's own
+  records with the three-letter tag the naming table has for an NPC (`NPC`, not `NPC_`)
+  and passed over it, so a script naming an NPC made with "Make a copy as" did not
+  compile (and Search & Replace saved its text without its bytecode).
+- **Script Edit no longer warns about a global the patch makes.** Its checks knew only
+  the load order's globals, so a script setting one the patch adds was flagged as naming
+  neither a local nor a global, though it compiled.
+- **The compiled listing shows a stray last byte at its own place.** A single byte left
+  at the end of a script's bytecode was listed at the offset of an earlier span.
+- **The dialogue flow and the rehearsal show a moved response where it was moved to.** A
+  response dragged to a new place in the dialogue window moved there in the window, but
+  the topic's flow, its map and the rehearsal still read it where the plugins have it
+  (often last, as an orphan), so the rehearsal could pick a different line from the one
+  the patch makes first.
+- **Editing a response's disposition, rank or sex no longer changes what the Editor shows
+  as the plugin's.** Opening the dialogue flow or the rehearsal laid the patch's change
+  to a nested field (`data.disposition`, ...) onto the plugin's own copy the Editor keeps,
+  so the dialogue window then showed the plugin with the patch's value, and taking the
+  change back did not undo it there.
+- **One Ctrl+Z takes back a whole Search & Replace.** A replace that changed a script
+  saved each of the script's fields as its own undo step (its text, then each part of the
+  bytecode), so undoing it took several presses and stopped halfway through; saving a
+  script from Script Edit did the same. Both are one step now.
 - **The Editor no longer offers to edit a reference the game keeps deleted.** When a
   plugin deletes a placed object and a later plugin edits it, the game keeps it deleted
   (the later edit changes a hidden thing), and the viewer already drew it that way; the
@@ -139,6 +193,10 @@
 
 ### Security
 
+- **The Editor's record cache no longer uses pickles.** What it keeps (records read from
+  plugins, reports) is now tagged JSON, zstd-compressed, in a database the Rust side runs
+  (`editcore::cache`, port step 4.1 slice 2), so reading it back runs no code. The cache
+  is emptied once on the first run after the update and refills as plugins are read.
 - **The report shows file names as text.** The load order's source and the names of
   plugins that were not found went into the report as markup, so a name holding `<` (a
   Linux path can) was read as HTML. Found by a new test mode that ends every answer from

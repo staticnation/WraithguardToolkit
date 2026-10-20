@@ -19,7 +19,7 @@ use regex::Regex;
 use super::data::KNOWN_NAMES;
 
 /// Words that open a statement without being functions.
-const KEYWORDS: [&str; 13] =
+pub const KEYWORDS: [&str; 13] =
     ["begin", "end", "short", "long", "float", "if", "elseif", "else", "endif", "while", "endwhile", "set", "return"];
 
 /// One finding: line (from 1), `error` or `warning`, the message.

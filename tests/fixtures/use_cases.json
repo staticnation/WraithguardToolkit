@@ -1,0 +1,2099 @@
+{
+ "_about": "The Use Report and Search & Replace, one way for the Python Editor and the viewer's: run by tests/test_use_cases.py (EditorSession.uses, replace_plan, replace_uses, set_script_text; usesindex.index_rows; mwscript.rename.replace_id) and viewer-shell/editcore/tests/cases.rs (editcore::uses, editcore::rename, editcore::scripts). Each case is a load order (`plugins`, each with its masters and its records in the tes3conv schema, in file order) and operations: [\"uses\", tag, id], [\"plan\", tag, id, new id, cell or null] (what Search & Replace would change: {field: [tag, key, field, value]}, {ref: [cell, origin, index, changes]}, {new: [cell, label, fields]}), [\"replace\", tag, id, new id, cell or null] (editReplace's answer), [\"script_text\", id, text], [\"place\", cell, tag, id, translation], [\"index\", plugin] (the use index's rows), [\"rename\", text, old, new], [\"pending\"], [\"can_undo\"], [\"undo\"]. The script compiler is a stand-in on both sides: a script compiles unless its text says nocompile. A new reference's random editor name is given as a label (U1, U2, ...). `expect` is what each gave and the journal after them. Generated from the Python side when a case is added, and read by hand.",
+ "cases": [
+  {
+   "name": "the Use Report, and Search & Replace over it",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "masters": [],
+     "records": [
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "gold_001",
+       "name": "Gold",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 0.0,
+        "value": 1,
+        "flags": ""
+       }
+      },
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "gold_010",
+       "name": "Gold Ten",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 0.0,
+        "value": 1,
+        "flags": ""
+       }
+      },
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "silver bar",
+       "name": "Silver Bar",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 0.0,
+        "value": 1,
+        "flags": ""
+       }
+      },
+      {
+       "type": "Container",
+       "flags": "",
+       "id": "chest_a",
+       "name": "chest_a",
+       "script": "",
+       "mesh": "",
+       "encumbrance": 0.0,
+       "container_flags": "",
+       "inventory": [
+        [
+         5,
+         "gold_001"
+        ],
+        [
+         1,
+         "pick"
+        ]
+       ]
+      },
+      {
+       "type": "LeveledItem",
+       "flags": "",
+       "id": "lvl_gold",
+       "leveled_item_flags": "",
+       "chance_none": 0,
+       "items": [
+        [
+         "gold_001",
+         1
+        ],
+        [
+         "Gold_001",
+         5
+        ],
+        [
+         "gold_010",
+         3
+        ]
+       ]
+      },
+      {
+       "type": "Npc",
+       "flags": "",
+       "id": "trader",
+       "name": "trader",
+       "script": "gold_script",
+       "mesh": "",
+       "race": "",
+       "class": "",
+       "faction": "",
+       "head": "",
+       "hair": "",
+       "npc_flags": "",
+       "blood_type": 0,
+       "inventory": [
+        [
+         10,
+         "gold_001"
+        ]
+       ],
+       "spells": [],
+       "ai_data": {
+        "hello": 0,
+        "fight": 0,
+        "flee": 0,
+        "alarm": 0,
+        "services": ""
+       },
+       "ai_packages": [],
+       "travel_destinations": [],
+       "data": {
+        "level": 1,
+        "disposition": 0,
+        "reputation": 0,
+        "rank": 0,
+        "gold": 0
+       }
+      },
+      {
+       "type": "Script",
+       "flags": "",
+       "id": "gold_script",
+       "header": {
+        "num_shorts": 0,
+        "num_longs": 0,
+        "num_floats": 0,
+        "bytecode_length": 0,
+        "variables_length": 0
+       },
+       "variables": "AAAAAA==",
+       "bytecode": "AAAAAA==",
+       "text": "Begin gold_script\r\nshort x\r\nif ( player->GetItemCount gold_001 > 0 )\r\n\tplayer->RemoveItem \"Gold_001\" 1 ; gold_001 in a comment\r\nendif\r\nset x to gold_0012\r\nplayer->AddItem \"silver bar\" 1\r\nEnd gold_script"
+      },
+      {
+       "type": "Script",
+       "flags": "",
+       "id": "broken_script",
+       "header": {
+        "num_shorts": 0,
+        "num_longs": 0,
+        "num_floats": 0,
+        "bytecode_length": 0,
+        "variables_length": 0
+       },
+       "variables": "AAAAAA==",
+       "bytecode": "AAAAAA==",
+       "text": "Begin broken_script\r\nnocompile gold_001\r\nEnd"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "info_1",
+       "speaker_id": "trader",
+       "text": "Here.",
+       "script_text": "player->AddItem gold_001 5\r\nplayer->additem \"Silver Bar\" 1"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 0,
+         "refr_index": 1,
+         "id": "gold_001",
+         "translation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "scale": 1.0
+        },
+        {
+         "mast_index": 0,
+         "refr_index": 2,
+         "id": "chest_a",
+         "translation": [
+          5.0,
+          0.0,
+          0.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "scale": 1.0
+        }
+       ]
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 0,
+         "refr_index": 3,
+         "id": "Gold_001",
+         "translation": [
+          8200.0,
+          0.0,
+          0.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "scale": 1.0
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Mod.esp",
+     "masters": [
+      "Morrowind.esm"
+     ],
+     "records": [
+      {
+       "type": "Container",
+       "flags": "",
+       "id": "chest_a",
+       "name": "chest_a",
+       "script": "",
+       "mesh": "",
+       "encumbrance": 0.0,
+       "container_flags": "",
+       "inventory": [
+        [
+         7,
+         "gold_001"
+        ]
+       ]
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 1,
+         "refr_index": 1,
+         "id": "gold_001",
+         "translation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "scale": 1.0,
+         "deleted": true
+        },
+        {
+         "mast_index": 0,
+         "refr_index": 1,
+         "id": "gold_001",
+         "translation": [
+          9.0,
+          0.0,
+          0.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "scale": 1.0
+        }
+       ]
+      },
+      {
+       "type": "Npc",
+       "flags": "",
+       "id": "trader2",
+       "name": "trader2",
+       "script": "",
+       "mesh": "",
+       "race": "",
+       "class": "",
+       "faction": "",
+       "head": "",
+       "hair": "",
+       "npc_flags": "",
+       "blood_type": 0,
+       "inventory": [
+        [
+         1,
+         "silver bar"
+        ]
+       ],
+       "spells": [],
+       "ai_data": {
+        "hello": 0,
+        "fight": 0,
+        "flee": 0,
+        "alarm": 0,
+        "services": ""
+       },
+       "ai_packages": [],
+       "travel_destinations": [],
+       "data": {
+        "level": 1,
+        "disposition": 0,
+        "reputation": 0,
+        "rank": 0,
+        "gold": 0
+       }
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "uses",
+     "MISC",
+     "gold_001"
+    ],
+    [
+     "uses",
+     "MISC",
+     "silver bar"
+    ],
+    [
+     "uses",
+     "MISC",
+     "gold_010"
+    ],
+    [
+     "index",
+     "Morrowind.esm"
+    ],
+    [
+     "index",
+     "Mod.esp"
+    ],
+    [
+     "plan",
+     "MISC",
+     "gold_001",
+     "gold_010",
+     null
+    ],
+    [
+     "plan",
+     "MISC",
+     "gold_001",
+     "GOLD_001",
+     null
+    ],
+    [
+     "plan",
+     "MISC",
+     "gold_001",
+     "no_such",
+     null
+    ],
+    [
+     "place",
+     "Vault",
+     "MISC",
+     "gold_001",
+     [
+      1,
+      2,
+      3
+     ]
+    ],
+    [
+     "plan",
+     "MISC",
+     "gold_001",
+     "gold_010",
+     "vault"
+    ],
+    [
+     "replace",
+     "MISC",
+     "gold_001",
+     "gold_010",
+     null
+    ],
+    [
+     "can_undo"
+    ],
+    [
+     "pending"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "can_undo"
+    ],
+    [
+     "replace",
+     "MISC",
+     "gold_001",
+     "silver bar",
+     null
+    ],
+    [
+     "pending"
+    ],
+    [
+     "can_undo"
+    ],
+    [
+     "script_text",
+     "broken_script",
+     "Begin broken_script\nset x to 1\nEnd"
+    ],
+    [
+     "script_text",
+     "broken_script",
+     "Begin broken_script\nnocompile\nEnd"
+    ],
+    [
+     "can_undo"
+    ],
+    [
+     "rename",
+     "Begin s\nAddItem Gold_001 1 ; gold_001\nset x to gold_0012\nAddItem \"gold_001\" 2\nsay \"gold_001\nEnd",
+     "gold_001",
+     "ruby"
+    ],
+    [
+     "rename",
+     "additem gold_001 1\nadditem \"silver bar\" 1",
+     "silver bar",
+     "gold-1"
+    ],
+    [
+     "rename",
+     "xégold_001 gold_001é",
+     "gold_001",
+     "y"
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "tag": "MISC",
+      "id": "gold_001",
+      "uses": [
+       {
+        "plugin": "Morrowind.esm",
+        "type": "Container",
+        "tag": "CONT",
+        "key": "chest_a",
+        "paths": [
+         "inventory.0.1"
+        ],
+        "count": 1,
+        "wins": false
+       },
+       {
+        "plugin": "Morrowind.esm",
+        "type": "LeveledItem",
+        "tag": "LEVI",
+        "key": "lvl_gold",
+        "paths": [
+         "items.0.0",
+         "items.1.0"
+        ],
+        "count": 2,
+        "wins": true
+       },
+       {
+        "plugin": "Morrowind.esm",
+        "type": "Npc",
+        "tag": "NPC_",
+        "key": "trader",
+        "paths": [
+         "inventory.0.1"
+        ],
+        "count": 1,
+        "wins": true
+       },
+       {
+        "plugin": "Morrowind.esm",
+        "type": "Script",
+        "tag": "SCPT",
+        "key": "gold_script",
+        "paths": [
+         "text"
+        ],
+        "count": 3,
+        "wins": true
+       },
+       {
+        "plugin": "Morrowind.esm",
+        "type": "Script",
+        "tag": "SCPT",
+        "key": "broken_script",
+        "paths": [
+         "text"
+        ],
+        "count": 1,
+        "wins": true
+       },
+       {
+        "plugin": "Morrowind.esm",
+        "type": "DialogueInfo",
+        "tag": "INFO",
+        "key": "info_1",
+        "paths": [
+         "script_text"
+        ],
+        "count": 1,
+        "wins": true
+       },
+       {
+        "plugin": "Morrowind.esm",
+        "type": "Cell",
+        "tag": "CELL",
+        "key": "Vault",
+        "paths": [
+         "references"
+        ],
+        "count": 1,
+        "wins": true
+       },
+       {
+        "plugin": "Morrowind.esm",
+        "type": "Cell",
+        "tag": "CELL",
+        "key": "(1, 1)",
+        "paths": [
+         "references"
+        ],
+        "count": 1,
+        "wins": true
+       },
+       {
+        "plugin": "Mod.esp",
+        "type": "Container",
+        "tag": "CONT",
+        "key": "chest_a",
+        "paths": [
+         "inventory.0.1"
+        ],
+        "count": 1,
+        "wins": true
+       },
+       {
+        "plugin": "Mod.esp",
+        "type": "Cell",
+        "tag": "CELL",
+        "key": "Vault",
+        "paths": [
+         "references"
+        ],
+        "count": 2,
+        "wins": true
+       }
+      ],
+      "live": 13,
+      "cells": 4
+     },
+     {
+      "tag": "MISC",
+      "id": "silver bar",
+      "uses": [
+       {
+        "plugin": "Morrowind.esm",
+        "type": "Script",
+        "tag": "SCPT",
+        "key": "gold_script",
+        "paths": [
+         "text"
+        ],
+        "count": 1,
+        "wins": true
+       },
+       {
+        "plugin": "Morrowind.esm",
+        "type": "DialogueInfo",
+        "tag": "INFO",
+        "key": "info_1",
+        "paths": [
+         "script_text"
+        ],
+        "count": 1,
+        "wins": true
+       },
+       {
+        "plugin": "Mod.esp",
+        "type": "Npc",
+        "tag": "NPC_",
+        "key": "trader2",
+        "paths": [
+         "inventory.0.1"
+        ],
+        "count": 1,
+        "wins": true
+       }
+      ],
+      "live": 3,
+      "cells": 0
+     },
+     {
+      "tag": "MISC",
+      "id": "gold_010",
+      "uses": [
+       {
+        "plugin": "Morrowind.esm",
+        "type": "LeveledItem",
+        "tag": "LEVI",
+        "key": "lvl_gold",
+        "paths": [
+         "items.2.0"
+        ],
+        "count": 1,
+        "wins": true
+       }
+      ],
+      "live": 1,
+      "cells": 0
+     },
+     [
+      [
+       "miscitem",
+       "MiscItem",
+       "gold_001",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "gold",
+       "MiscItem",
+       "gold_001",
+       "[\"name\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "MiscItem",
+       "gold_001",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "miscitem",
+       "MiscItem",
+       "gold_010",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "gold ten",
+       "MiscItem",
+       "gold_010",
+       "[\"name\"]",
+       1
+      ],
+      [
+       "gold_010",
+       "MiscItem",
+       "gold_010",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "miscitem",
+       "MiscItem",
+       "silver bar",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "silver bar",
+       "MiscItem",
+       "silver bar",
+       "[\"name\"]",
+       1
+      ],
+      [
+       "silver bar",
+       "MiscItem",
+       "silver bar",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "container",
+       "Container",
+       "chest_a",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "chest_a",
+       "Container",
+       "chest_a",
+       "[\"name\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "Container",
+       "chest_a",
+       "[\"inventory.0.1\"]",
+       1
+      ],
+      [
+       "pick",
+       "Container",
+       "chest_a",
+       "[\"inventory.1.1\"]",
+       1
+      ],
+      [
+       "chest_a",
+       "Container",
+       "chest_a",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "leveleditem",
+       "LeveledItem",
+       "lvl_gold",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "LeveledItem",
+       "lvl_gold",
+       "[\"items.0.0\", \"items.1.0\"]",
+       2
+      ],
+      [
+       "gold_010",
+       "LeveledItem",
+       "lvl_gold",
+       "[\"items.2.0\"]",
+       1
+      ],
+      [
+       "lvl_gold",
+       "LeveledItem",
+       "lvl_gold",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "npc",
+       "Npc",
+       "trader",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "trader",
+       "Npc",
+       "trader",
+       "[\"name\"]",
+       1
+      ],
+      [
+       "gold_script",
+       "Npc",
+       "trader",
+       "[\"script\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "Npc",
+       "trader",
+       "[\"inventory.0.1\"]",
+       1
+      ],
+      [
+       "trader",
+       "Npc",
+       "trader",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "script",
+       "Script",
+       "gold_script",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "aaaaaa==",
+       "Script",
+       "gold_script",
+       "[\"variables\", \"bytecode\"]",
+       2
+      ],
+      [
+       "begin",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "gold_script",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       2
+      ],
+      [
+       "short",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "x",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       2
+      ],
+      [
+       "if",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "player",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       3
+      ],
+      [
+       "getitemcount",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       3
+      ],
+      [
+       "0",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "removeitem",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "1",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       2
+      ],
+      [
+       "in",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "a",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "comment",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "endif",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "set",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "to",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "gold_0012",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "additem",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "silver",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "bar",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "end",
+       "Script",
+       "gold_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "gold_script",
+       "Script",
+       "gold_script",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "script",
+       "Script",
+       "broken_script",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "aaaaaa==",
+       "Script",
+       "broken_script",
+       "[\"variables\", \"bytecode\"]",
+       2
+      ],
+      [
+       "begin broken_script\r\nnocompile gold_001\r\nend",
+       "Script",
+       "broken_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "begin",
+       "Script",
+       "broken_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "broken_script",
+       "Script",
+       "broken_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "nocompile",
+       "Script",
+       "broken_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "Script",
+       "broken_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "end",
+       "Script",
+       "broken_script",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "broken_script",
+       "Script",
+       "broken_script",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "dialogueinfo",
+       "DialogueInfo",
+       "info_1",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "trader",
+       "DialogueInfo",
+       "info_1",
+       "[\"speaker_id\"]",
+       1
+      ],
+      [
+       "here.",
+       "DialogueInfo",
+       "info_1",
+       "[\"text\"]",
+       1
+      ],
+      [
+       "player->additem gold_001 5\r\nplayer->additem \"silver bar\" 1",
+       "DialogueInfo",
+       "info_1",
+       "[\"script_text\"]",
+       1
+      ],
+      [
+       "player",
+       "DialogueInfo",
+       "info_1",
+       "[\"script_text\"]",
+       2
+      ],
+      [
+       "additem",
+       "DialogueInfo",
+       "info_1",
+       "[\"script_text\"]",
+       2
+      ],
+      [
+       "gold_001",
+       "DialogueInfo",
+       "info_1",
+       "[\"script_text\"]",
+       1
+      ],
+      [
+       "5",
+       "DialogueInfo",
+       "info_1",
+       "[\"script_text\"]",
+       1
+      ],
+      [
+       "silver",
+       "DialogueInfo",
+       "info_1",
+       "[\"script_text\"]",
+       1
+      ],
+      [
+       "bar",
+       "DialogueInfo",
+       "info_1",
+       "[\"script_text\"]",
+       1
+      ],
+      [
+       "1",
+       "DialogueInfo",
+       "info_1",
+       "[\"script_text\"]",
+       1
+      ],
+      [
+       "info_1",
+       "DialogueInfo",
+       "info_1",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "cell",
+       "Cell",
+       "Vault",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "vault",
+       "Cell",
+       "Vault",
+       "[\"name\"]",
+       1
+      ],
+      [
+       "is_interior",
+       "Cell",
+       "Vault",
+       "[\"data.flags\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "Cell",
+       "Vault",
+       "[\"references\"]",
+       1
+      ],
+      [
+       "chest_a",
+       "Cell",
+       "Vault",
+       "[\"references\"]",
+       1
+      ],
+      [
+       "vault",
+       "Cell",
+       "Vault",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "cell",
+       "Cell",
+       "(1, 1)",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "Cell",
+       "(1, 1)",
+       "[\"references\"]",
+       1
+      ],
+      [
+       "(1, 1)",
+       "Cell",
+       "(1, 1)",
+       "[\"id\"]",
+       0
+      ]
+     ],
+     [
+      [
+       "container",
+       "Container",
+       "chest_a",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "chest_a",
+       "Container",
+       "chest_a",
+       "[\"name\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "Container",
+       "chest_a",
+       "[\"inventory.0.1\"]",
+       1
+      ],
+      [
+       "chest_a",
+       "Container",
+       "chest_a",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "cell",
+       "Cell",
+       "Vault",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "vault",
+       "Cell",
+       "Vault",
+       "[\"name\"]",
+       1
+      ],
+      [
+       "is_interior",
+       "Cell",
+       "Vault",
+       "[\"data.flags\"]",
+       1
+      ],
+      [
+       "gold_001",
+       "Cell",
+       "Vault",
+       "[\"references\"]",
+       2
+      ],
+      [
+       "vault",
+       "Cell",
+       "Vault",
+       "[\"id\"]",
+       0
+      ],
+      [
+       "npc",
+       "Npc",
+       "trader2",
+       "[\"type\"]",
+       1
+      ],
+      [
+       "trader2",
+       "Npc",
+       "trader2",
+       "[\"name\"]",
+       1
+      ],
+      [
+       "silver bar",
+       "Npc",
+       "trader2",
+       "[\"inventory.0.1\"]",
+       1
+      ],
+      [
+       "trader2",
+       "Npc",
+       "trader2",
+       "[\"id\"]",
+       0
+      ]
+     ],
+     [
+      {
+       "field": [
+        "LEVI",
+        "lvl_gold",
+        "items",
+        [
+         [
+          "gold_010",
+          1
+         ],
+         [
+          "gold_010",
+          5
+         ],
+         [
+          "gold_010",
+          3
+         ]
+        ]
+       ]
+      },
+      {
+       "field": [
+        "NPC_",
+        "trader",
+        "inventory",
+        [
+         [
+          10,
+          "gold_010"
+         ]
+        ]
+       ]
+      },
+      {
+       "field": [
+        "SCPT",
+        "gold_script",
+        "text",
+        "Begin gold_script\r\nshort x\r\nif ( player->GetItemCount gold_010 > 0 )\r\n\tplayer->RemoveItem \"gold_010\" 1 ; gold_001 in a comment\r\nendif\r\nset x to gold_0012\r\nplayer->AddItem \"silver bar\" 1\r\nEnd gold_script"
+       ]
+      },
+      {
+       "field": [
+        "SCPT",
+        "broken_script",
+        "text",
+        "Begin broken_script\r\nnocompile gold_010\r\nEnd"
+       ]
+      },
+      {
+       "field": [
+        "INFO",
+        "info_1",
+        "script_text",
+        "player->AddItem gold_010 5\r\nplayer->additem \"Silver Bar\" 1"
+       ]
+      },
+      {
+       "field": [
+        "CONT",
+        "chest_a",
+        "inventory",
+        [
+         [
+          7,
+          "gold_010"
+         ]
+        ]
+       ]
+      },
+      {
+       "ref": [
+        "Vault",
+        "Mod.esp",
+        1,
+        {
+         "id": "gold_010"
+        }
+       ]
+      },
+      {
+       "ref": [
+        "(1, 1)",
+        "Morrowind.esm",
+        3,
+        {
+         "id": "gold_010"
+        }
+       ]
+      }
+     ],
+     {
+      "error": "that is the same record"
+     },
+     {
+      "error": "no_such is not a MiscItem of this load order"
+     },
+     "U1",
+     [
+      {
+       "ref": [
+        "Vault",
+        "Mod.esp",
+        1,
+        {
+         "id": "gold_010"
+        }
+       ]
+      },
+      {
+       "new": [
+        "Vault",
+        "U1",
+        {
+         "id": "gold_010",
+         "translation": [
+          1.0,
+          2.0,
+          3.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "temporary": true
+        }
+       ]
+      }
+     ],
+     {
+      "changed": 9,
+      "refs": 3,
+      "scripts": 3
+     },
+     {
+      "undo": 2,
+      "redo": 0
+     },
+     [
+      {
+       "tag": "LEVI",
+       "type": "LeveledItem",
+       "id": "lvl_gold",
+       "whole": null,
+       "changes": [
+        {
+         "path": "items",
+         "value": [
+          [
+           "gold_010",
+           1
+          ],
+          [
+           "gold_010",
+           5
+          ],
+          [
+           "gold_010",
+           3
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "tag": "NPC_",
+       "type": "Npc",
+       "id": "trader",
+       "whole": null,
+       "changes": [
+        {
+         "path": "inventory",
+         "value": [
+          [
+           10,
+           "gold_010"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "tag": "SCPT",
+       "type": "Script",
+       "id": "gold_script",
+       "whole": null,
+       "changes": [
+        {
+         "path": "text",
+         "value": "Begin gold_script\r\nshort x\r\nif ( player->GetItemCount gold_010 > 0 )\r\n\tplayer->RemoveItem \"gold_010\" 1 ; gold_001 in a comment\r\nendif\r\nset x to gold_0012\r\nplayer->AddItem \"silver bar\" 1\r\nEnd gold_script"
+        },
+        {
+         "path": "header.num_shorts",
+         "value": 1
+        },
+        {
+         "path": "header.bytecode_length",
+         "value": 202
+        },
+        {
+         "path": "header.variables_length",
+         "value": 2
+        },
+        {
+         "path": "variables",
+         "value": "eAA="
+        },
+        {
+         "path": "bytecode",
+         "value": "compiled:gold_script"
+        }
+       ]
+      },
+      {
+       "tag": "SCPT",
+       "type": "Script",
+       "id": "broken_script",
+       "whole": null,
+       "changes": [
+        {
+         "path": "text",
+         "value": "Begin broken_script\r\nnocompile gold_010\r\nEnd"
+        }
+       ]
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "info_1",
+       "whole": null,
+       "changes": [
+        {
+         "path": "script_text",
+         "value": "player->AddItem gold_010 5\r\nplayer->additem \"Silver Bar\" 1"
+        }
+       ]
+      },
+      {
+       "tag": "CONT",
+       "type": "Container",
+       "id": "chest_a",
+       "whole": null,
+       "changes": [
+        {
+         "path": "inventory",
+         "value": [
+          [
+           7,
+           "gold_010"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "Reference",
+       "id": "Mod.esp:1 in Vault",
+       "ref": {
+        "cell": "Vault",
+        "origin": "Mod.esp",
+        "refr": 1,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "gold_010"
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "Reference",
+       "id": "Morrowind.esm:3 in (1, 1)",
+       "ref": {
+        "cell": "(1, 1)",
+        "origin": "Morrowind.esm",
+        "refr": 3,
+        "plugins": [
+         "Morrowind.esm"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "gold_010"
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "gold_010 (new) in Vault",
+       "new": {
+        "cell": "Vault",
+        "uid": "U1",
+        "id": "gold_010",
+        "tag": "MISC",
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "gold_010"
+        },
+        {
+         "path": "translation",
+         "value": [
+          1.0,
+          2.0,
+          3.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        }
+       ]
+      }
+     ],
+     {
+      "done": true,
+      "what": [
+       "CONT chest_a",
+       "INFO info_1",
+       "LEVI lvl_gold",
+       "Mod.esp:1 in Vault (Mod.esp:1)",
+       "Morrowind.esm:3 in (1, 1) (Morrowind.esm:3)",
+       "NPC_ trader",
+       "SCPT broken_script",
+       "SCPT gold_script",
+       "new gold_001",
+       "new gold_010"
+      ],
+      "undo": 1,
+      "redo": 1
+     },
+     {
+      "undo": 1,
+      "redo": 1
+     },
+     {
+      "changed": 9,
+      "refs": 3,
+      "scripts": 3
+     },
+     [
+      {
+       "tag": "LEVI",
+       "type": "LeveledItem",
+       "id": "lvl_gold",
+       "whole": null,
+       "changes": [
+        {
+         "path": "items",
+         "value": [
+          [
+           "silver bar",
+           1
+          ],
+          [
+           "silver bar",
+           5
+          ],
+          [
+           "gold_010",
+           3
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "tag": "NPC_",
+       "type": "Npc",
+       "id": "trader",
+       "whole": null,
+       "changes": [
+        {
+         "path": "inventory",
+         "value": [
+          [
+           10,
+           "silver bar"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "tag": "SCPT",
+       "type": "Script",
+       "id": "gold_script",
+       "whole": null,
+       "changes": [
+        {
+         "path": "text",
+         "value": "Begin gold_script\r\nshort x\r\nif ( player->GetItemCount \"silver bar\" > 0 )\r\n\tplayer->RemoveItem \"silver bar\" 1 ; gold_001 in a comment\r\nendif\r\nset x to gold_0012\r\nplayer->AddItem \"silver bar\" 1\r\nEnd gold_script"
+        },
+        {
+         "path": "header.num_shorts",
+         "value": 1
+        },
+        {
+         "path": "header.bytecode_length",
+         "value": 208
+        },
+        {
+         "path": "header.variables_length",
+         "value": 2
+        },
+        {
+         "path": "variables",
+         "value": "eAA="
+        },
+        {
+         "path": "bytecode",
+         "value": "compiled:gold_script"
+        }
+       ]
+      },
+      {
+       "tag": "SCPT",
+       "type": "Script",
+       "id": "broken_script",
+       "whole": null,
+       "changes": [
+        {
+         "path": "text",
+         "value": "Begin broken_script\r\nnocompile \"silver bar\"\r\nEnd"
+        }
+       ]
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "info_1",
+       "whole": null,
+       "changes": [
+        {
+         "path": "script_text",
+         "value": "player->AddItem \"silver bar\" 5\r\nplayer->additem \"Silver Bar\" 1"
+        }
+       ]
+      },
+      {
+       "tag": "CONT",
+       "type": "Container",
+       "id": "chest_a",
+       "whole": null,
+       "changes": [
+        {
+         "path": "inventory",
+         "value": [
+          [
+           7,
+           "silver bar"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "Reference",
+       "id": "Mod.esp:1 in Vault",
+       "ref": {
+        "cell": "Vault",
+        "origin": "Mod.esp",
+        "refr": 1,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "silver bar"
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "Reference",
+       "id": "Morrowind.esm:3 in (1, 1)",
+       "ref": {
+        "cell": "(1, 1)",
+        "origin": "Morrowind.esm",
+        "refr": 3,
+        "plugins": [
+         "Morrowind.esm"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "silver bar"
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "silver bar (new) in Vault",
+       "new": {
+        "cell": "Vault",
+        "uid": "U1",
+        "id": "silver bar",
+        "tag": "MISC",
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "silver bar"
+        },
+        {
+         "path": "translation",
+         "value": [
+          1.0,
+          2.0,
+          3.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        }
+       ]
+      }
+     ],
+     {
+      "undo": 2,
+      "redo": 0
+     },
+     {
+      "compiled": true,
+      "messages": []
+     },
+     {
+      "compiled": false,
+      "messages": [
+       {
+        "line": 1,
+        "level": "error",
+        "message": "stub: does not compile"
+       }
+      ]
+     },
+     {
+      "undo": 4,
+      "redo": 0
+     },
+     [
+      "Begin s\nAddItem ruby 1 ; gold_001\nset x to gold_0012\nAddItem \"ruby\" 2\nsay \"ruby\nEnd",
+      3
+     ],
+     [
+      "additem gold_001 1\nadditem \"gold-1\" 1",
+      1
+     ],
+     [
+      "xéy yé",
+      2
+     ]
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "LeveledItem",
+       "key": "lvl_gold",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "items",
+         "value": [
+          [
+           "silver bar",
+           1
+          ],
+          [
+           "silver bar",
+           5
+          ],
+          [
+           "gold_010",
+           3
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "type": "Npc",
+       "key": "trader",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "inventory",
+         "value": [
+          [
+           10,
+           "silver bar"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "type": "Script",
+       "key": "gold_script",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "text",
+         "value": "Begin gold_script\r\nshort x\r\nif ( player->GetItemCount \"silver bar\" > 0 )\r\n\tplayer->RemoveItem \"silver bar\" 1 ; gold_001 in a comment\r\nendif\r\nset x to gold_0012\r\nplayer->AddItem \"silver bar\" 1\r\nEnd gold_script"
+        },
+        {
+         "path": "header.num_shorts",
+         "value": 1
+        },
+        {
+         "path": "header.bytecode_length",
+         "value": 208
+        },
+        {
+         "path": "header.variables_length",
+         "value": 2
+        },
+        {
+         "path": "variables",
+         "value": "eAA="
+        },
+        {
+         "path": "bytecode",
+         "value": "compiled:gold_script"
+        }
+       ]
+      },
+      {
+       "type": "Script",
+       "key": "broken_script",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "header.num_shorts",
+         "value": 1
+        },
+        {
+         "path": "header.bytecode_length",
+         "value": 36
+        },
+        {
+         "path": "header.variables_length",
+         "value": 2
+        },
+        {
+         "path": "variables",
+         "value": "eAA="
+        },
+        {
+         "path": "bytecode",
+         "value": "compiled:broken_script"
+        },
+        {
+         "path": "text",
+         "value": "Begin broken_script\r\nnocompile\r\nEnd"
+        }
+       ]
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "info_1",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "script_text",
+         "value": "player->AddItem \"silver bar\" 5\r\nplayer->additem \"Silver Bar\" 1"
+        }
+       ]
+      },
+      {
+       "type": "Container",
+       "key": "chest_a",
+       "base": "Mod.esp",
+       "choices": [
+        {
+         "path": "inventory",
+         "value": [
+          [
+           7,
+           "silver bar"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "refs": [
+      {
+       "cell": "Vault",
+       "origin": "Mod.esp",
+       "refr": 1,
+       "changes": {
+        "id": "silver bar"
+       },
+       "plugins": [
+        "Morrowind.esm",
+        "Mod.esp"
+       ]
+      },
+      {
+       "cell": "(1, 1)",
+       "origin": "Morrowind.esm",
+       "refr": 3,
+       "changes": {
+        "id": "silver bar"
+       },
+       "plugins": [
+        "Morrowind.esm"
+       ]
+      }
+     ],
+     "made": [],
+     "new": [
+      {
+       "cell": "Vault",
+       "uid": "U1",
+       "fields": {
+        "id": "silver bar",
+        "translation": [
+         1.0,
+         2.0,
+         3.0
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "temporary": true
+       },
+       "base": "Morrowind.esm",
+       "plugins": [
+        "Morrowind.esm",
+        "Mod.esp"
+       ],
+       "tag": "MISC"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

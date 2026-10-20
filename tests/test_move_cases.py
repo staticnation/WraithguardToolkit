@@ -55,9 +55,7 @@ def test_case(tmp_path: Path, case: dict[str, Any]) -> None:
         """One plugin's records of one tag."""
         return by_plugin[path.name].get(tag, [])
 
-    s = EditorSession(
-        [(p["name"], tmp_path / p["name"]) for p in plugins], PatchQueue(), read=read
-    )
+    s = EditorSession([(p["name"], tmp_path / p["name"]) for p in plugins], PatchQueue(), read=read)
     found = s.find_ref(f"({HOME[0]}, {HOME[1]})", "A.esm", 1)
     if found is None or found.ref.get("deleted"):
         got: list[list[int]] = []

@@ -25,6 +25,7 @@ from collections import Counter
 from typing import TYPE_CHECKING, Any, Final
 
 from wraithguard.patch.records import record_key
+from wraithguard.patch.uses import SOURCE_FIELDS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -83,8 +84,9 @@ def index_rows(
     Returns:
         One row per ``(string value, using record)``: where in the record the value is
         (``references`` collapsed to one path, as the report does) and how many times; one
-        per ``(word, script)`` with the path ``text``; and one definition row per record
-        (its own id, count 0).
+        per ``(word, record)`` of its script source with the source's field as the path
+        (``text`` for a script, ``script_text`` for a response); and one definition row
+        per record (its own id, count 0).
     """
     rows: list[Row] = []
     for n, rec in enumerate(records):
@@ -107,10 +109,12 @@ def index_rows(
                 paths.append(path)
             per[low] = (paths, count + 1)
         rows.extend((low, kind, key, json.dumps(p), n) for low, (p, n) in per.items())
-        body = rec.get("text") if kind == "Script" else None
+        field = SOURCE_FIELDS.get(kind)
+        body = rec.get(field) if field is not None else None
         if isinstance(body, str):
+            where = json.dumps([field])
             rows.extend(
-                (word, kind, key, '["text"]', n)
+                (word, kind, key, where, n)
                 for word, n in Counter(w.lower() for w in _WORD.findall(body)).items()
                 if len(word) <= MAX_VALUE
             )

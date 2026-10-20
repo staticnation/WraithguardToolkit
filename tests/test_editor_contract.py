@@ -33,7 +33,8 @@ def _contract() -> dict[str, dict[str, Any]]:
 def _registered() -> dict[str, str]:
     """Link name -> its handler's name, as ``editor_links`` registers them."""
     src = LINK_SOURCE.read_text(encoding="utf-8")
-    pattern = r'"(edit\w+)":\s*server\.register_post\(\s*"\w+",\s*self\.(\w+),?\s*\)'
+    # `reg`: register_post with the shared journal read again first (`_synced`).
+    pattern = r'"(edit\w+)":\s*reg\(\s*"\w+",\s*self\.(\w+),?\s*\)'
     return dict(re.findall(pattern, src))
 
 

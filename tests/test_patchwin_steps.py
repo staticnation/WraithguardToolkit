@@ -7,6 +7,7 @@ The service is stood in for: what is checked is what reaches it, and what comes 
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -111,3 +112,51 @@ def test_clear_patch_does_not_need_a_build_job(tmp_path, monkeypatch):
     host._clear_patch()
     assert len(host.patch_queue()) == 0
     assert host.refreshed == 1
+
+
+class _Shared(patchwin.PatchBuilderMixin):
+    """A Patch Builder with the real journalling (``refresh_patch_views``) and no window."""
+
+    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wraithguard.gui import editorlink
+
+        self.journal = tmp_path / "journal.json"
+        monkeypatch.setattr(editorlink, "journal_path", lambda: self.journal)
+        self._shown_conflicts: list[dict] = [
+            {"type": "Npc", "id": "fargoth", "winner": "Mod.esp", "plugins": ["Mod.esp"]}
+        ]
+
+
+def test_a_merge_from_the_conflict_window_carries_its_base_into_the_journal(tmp_path, monkeypatch):
+    """The viewer's Editor builds from the journal, and has no scan to ask for a base."""
+    from wraithguard.patch.merge import FieldChoice
+
+    host = _Shared(tmp_path, monkeypatch)
+    monkeypatch.setattr(host, "_merge_base", lambda t, k: "Mod.esp" if k == "fargoth" else "")
+    host.patch_queue().add_field("Npc", "fargoth", FieldChoice("name", "Morrowind.esm"))
+    host.patch_queue().add_field("Npc", "caius", FieldChoice("name", "Morrowind.esm"))
+    host.refresh_patch_views()
+    doc = json.loads(host.journal.read_text(encoding="utf-8"))
+    assert {f["key"]: f["base"] for f in doc["fields"]} == {"fargoth": "Mod.esp", "caius": ""}
+
+
+def test_the_queue_is_what_the_viewers_editor_wrote(tmp_path, monkeypatch):
+    """The viewer's Editor writes the journal they share: the queue becomes what it holds."""
+    from wraithguard.patch.editor import EditorSession
+
+    host = _Shared(tmp_path, monkeypatch)
+    queue = host.patch_queue()
+    host._editor_session = EditorSession([], queue, host.journal, read=lambda _p, _t: [])
+    host.journal.write_text(
+        json.dumps(
+            {"version": 1, "whole": [{"type": "Npc", "key": "caius", "plugin": "Mod.esp"}],
+             "fields": [], "refs": [], "made": [], "new": []}
+        ),
+        encoding="utf-8",
+    )  # fmt: skip
+    assert [s.key for s in host.patch_queue().selections] == ["caius"]
+    host.patch_queue().add_whole(Selection("Mod.esp", "Npc", "fargoth"))
+    host.refresh_patch_views()  # written by this side: not read back as another's change
+    assert [s.key for s in host.patch_queue().selections] == ["caius", "fargoth"]
+    host.journal.unlink()  # the viewer's Editor wrote the patch and spent the queue
+    assert not len(host.patch_queue())

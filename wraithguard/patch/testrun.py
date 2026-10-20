@@ -49,8 +49,20 @@ def _remembered_file() -> Path:
 
 def load_settings() -> dict[str, Any]:
     """What is remembered for testing: ``{exe, setups: {name: setup}, use}``."""
+    return load_settings_from(_remembered_file())
+
+
+def load_settings_from(file: Path) -> dict[str, Any]:
+    """What ``file`` keeps for testing (:func:`load_settings`'s, from any file).
+
+    Args:
+        file: The settings file.
+
+    Returns:
+        ``{exe?, setups, use}``: none for a file that is not there or does not read.
+    """
     try:
-        got = json.loads(_remembered_file().read_text(encoding="utf-8"))
+        got = json.loads(file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {"setups": {}, "use": ""}
     if not isinstance(got, dict):

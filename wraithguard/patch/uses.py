@@ -3,11 +3,13 @@
 The scan is the Rust backend's (``wraithguard_native.use_report``, ``native/src/uses.rs``):
 plugins mapped, parsed only when their bytes hold the id, on threads. What is here is
 the same report over records already in Python - for a caller that reads plugins its
-own way (the tests do), and the rule the native one follows.
+own way (the tests do), and the rule the native one follows (``editcore::uses``, which
+``tests/fixtures/use_cases.json`` holds both to).
 
 Every plugin is read whole and every record searched for the id: as a value anywhere in
 it (a leveled list's entry, an inventory's item, a spell list, an enchantment, a sound,
-a dialogue filter, a reference placed in a cell), and as a word in a script's text. A
+a dialogue filter, a reference placed in a cell), and as a word in script source (a
+script's text, a dialogue response's result). A
 record is only walked when its text could hold the id at all - ``str(record)`` is made
 in C and is far cheaper than walking the record in Python - and the plugins are read on
 threads, which run side by side on free-threaded Python.
@@ -24,7 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from wraithguard.patch.records import record_key
 
@@ -32,8 +34,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
     from pathlib import Path
 
-#: Record types whose text is source code naming ids as words.
-_SCRIPT_TYPES = frozenset({"Script"})
+#: Record types with script source naming ids as words, and the field it is in: a
+#: script's text, a dialogue response's result.
+SOURCE_FIELDS: Final[dict[str, str]] = {"Script": "text", "DialogueInfo": "script_text"}
 
 
 @dataclass
@@ -109,13 +112,14 @@ def uses_in(
             elif p != "id":
                 count += 1
                 paths.append(p)
-        if kind in _SCRIPT_TYPES:
-            text = rec.get("text")
+        field = SOURCE_FIELDS.get(kind)
+        if field is not None:
+            text = rec.get(field)
             if isinstance(text, str):
                 hits = len(word.findall(text))
                 if hits:
                     count += hits
-                    paths.append("text")
+                    paths.append(field)
         if count:
             out.append(Use(plugin, kind, key, paths, count))
     return out
@@ -124,28 +128,31 @@ def uses_in(
 def script_hits(
     plugin: Path, records: Iterable[dict[str, Any]], want: str
 ) -> list[tuple[Path, str, str, list[str], int]]:
-    """The scripts that have an id as words in their text, as :func:`uses_in` counts them.
+    """The records whose script source has an id as words, as :func:`uses_in` counts them.
 
     For an id the use-report index cannot answer the script part of (it has a space or a
     dash, so it is not one word); the strings equal to it still come from the index.
 
     Args:
         plugin: The plugin file the records are of.
-        records: Its script records.
+        records: Its scripts and dialogue responses (other records are passed over).
         want: The id, lower case.
 
     Returns:
-        ``(plugin, "Script", key, ["text"], hits)`` per script with at least one hit.
+        ``(plugin, type, key, [field], hits)`` per record with at least one hit - the
+        field ``text`` for a script, ``script_text`` for a response.
     """
     word = re.compile(rf"(?<![\w]){re.escape(want)}(?![\w])", re.IGNORECASE)
     out: list[tuple[Path, str, str, list[str], int]] = []
     for rec in records:
-        if rec.get("type") not in _SCRIPT_TYPES:
+        kind = rec.get("type")
+        field = SOURCE_FIELDS.get(kind) if isinstance(kind, str) else None
+        if field is None:
             continue
-        text = rec.get("text")
+        text = rec.get(field)
         hits = len(word.findall(text)) if isinstance(text, str) else 0
         if hits:
-            out.append((plugin, "Script", record_key(rec), ["text"], hits))
+            out.append((plugin, str(kind), record_key(rec), [field], hits))
     return out
 
 
@@ -219,4 +226,4 @@ def native_use_report(
     ]
 
 
-__all__ = ["Use", "native_use_report", "script_hits", "use_report", "uses_in"]
+__all__ = ["SOURCE_FIELDS", "Use", "native_use_report", "script_hits", "use_report", "uses_in"]

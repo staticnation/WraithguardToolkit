@@ -1,0 +1,1089 @@
+{
+ "_about": "The patch queue, its journal and undo, one way for the Python Editor and the viewer's: run by tests/test_queue_cases.py (PatchQueue, editor.queue_journal, restore_queue, the session's undo history) and viewer-shell/editcore/tests/cases.rs (editcore::queue). Each case is a list of operations on an empty queue: [\"whole\", type, key, plugin], [\"field\", type, key, path, {\"plugin\": p} | {\"value\": v}], [\"base\", type, key, plugin], [\"remove_record\", type, key], [\"remove_field\", type, key, path], [\"ref\", cell, origin, index, changes, plugins], [\"remove_ref\", cell, origin, index, path or null], [\"made\", type, key, record, source, topic], [\"remove_made\", type, key], [\"new\", cell, uid, fields, base, plugins, tag], [\"remove_new\", cell, uid], [\"snapshot\", name], [\"restore\", name], [\"consume\", name], [\"clear\"], [\"restore_journal\", document], [\"step\"] (a change ends: the undo history records it), [\"undo\"], [\"redo\"]. `expect`: the journal's document after them, the queue's length (records the patch carries), its revision (changes counted), what each restore brought back, whether each undo or redo had a step, and the undo and redo steps left. Rules: re-deciding replaces; whole or merged, never both; a journal's decisions come back unless the queue holds them; a build consumes only what it wrote. Generated from the Python side when a case is added, and read by hand.",
+ "cases": [
+  {
+   "name": "re-deciding a field replaces the earlier answer, whichever kind",
+   "ops": [
+    [
+     "field",
+     "Weapon",
+     "iron_sword",
+     "data.weight",
+     {
+      "plugin": "A.esp"
+     }
+    ],
+    [
+     "field",
+     "Weapon",
+     "iron_sword",
+     "data.value",
+     {
+      "value": 12
+     }
+    ],
+    [
+     "field",
+     "Weapon",
+     "iron_sword",
+     "data.weight",
+     {
+      "value": 2.5
+     }
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "Weapon",
+       "key": "iron_sword",
+       "base": "",
+       "choices": [
+        {
+         "path": "data.value",
+         "value": 12
+        },
+        {
+         "path": "data.weight",
+         "value": 2.5
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [],
+     "new": []
+    },
+    "len": 1,
+    "revision": 3,
+    "restored": [],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "whole or merged, never both",
+   "ops": [
+    [
+     "field",
+     "Weapon",
+     "w",
+     "name",
+     {
+      "value": "x"
+     }
+    ],
+    [
+     "base",
+     "Weapon",
+     "w",
+     "A.esp"
+    ],
+    [
+     "whole",
+     "Weapon",
+     "w",
+     "B.esp"
+    ],
+    [
+     "whole",
+     "Npc",
+     "n",
+     "A.esp"
+    ],
+    [
+     "field",
+     "Npc",
+     "n",
+     "name",
+     {
+      "plugin": "B.esp"
+     }
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [
+      {
+       "type": "Weapon",
+       "key": "w",
+       "plugin": "B.esp"
+      }
+     ],
+     "fields": [
+      {
+       "type": "Npc",
+       "key": "n",
+       "base": "",
+       "choices": [
+        {
+         "path": "name",
+         "plugin": "B.esp"
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [],
+     "new": []
+    },
+    "len": 2,
+    "revision": 5,
+    "restored": [],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "removing the last field drops the record and its base",
+   "ops": [
+    [
+     "field",
+     "Weapon",
+     "w",
+     "name",
+     {
+      "value": "x"
+     }
+    ],
+    [
+     "base",
+     "Weapon",
+     "w",
+     "A.esp"
+    ],
+    [
+     "field",
+     "Weapon",
+     "w",
+     "data.value",
+     {
+      "value": 3
+     }
+    ],
+    [
+     "remove_field",
+     "Weapon",
+     "w",
+     "name"
+    ],
+    [
+     "remove_field",
+     "Weapon",
+     "w",
+     "data.value"
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [],
+     "new": []
+    },
+    "len": 0,
+    "revision": 5,
+    "restored": [],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "reference changes merge, a cell counts once, and a field can be dropped",
+   "ops": [
+    [
+     "ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     {
+      "scale": 2.0
+     },
+     [
+      "Morrowind.esm"
+     ]
+    ],
+    [
+     "ref",
+     "(1, 1)",
+     "morrowind.esm",
+     5,
+     {
+      "translation": [
+       1,
+       2,
+       3
+      ],
+      "scale": 1.5
+     },
+     [
+      "Mod.esp"
+     ]
+    ],
+    [
+     "ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     6,
+     {
+      "deleted": true
+     },
+     [
+      "Morrowind.esm"
+     ]
+    ],
+    [
+     "new",
+     "(1, 1)",
+     "n1",
+     {
+      "id": "rock",
+      "translation": [
+       0,
+       0,
+       0
+      ]
+     },
+     "Morrowind.esm",
+     [
+      "Morrowind.esm"
+     ],
+     "STAT"
+    ],
+    [
+     "new",
+     "(1, 1)",
+     "n1",
+     {
+      "scale": 3
+     },
+     "",
+     [],
+     ""
+    ],
+    [
+     "remove_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     6,
+     "deleted"
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [
+      {
+       "cell": "(1, 1)",
+       "origin": "morrowind.esm",
+       "refr": 5,
+       "changes": {
+        "scale": 1.5,
+        "translation": [
+         1,
+         2,
+         3
+        ]
+       },
+       "plugins": [
+        "Morrowind.esm",
+        "Mod.esp"
+       ]
+      }
+     ],
+     "made": [],
+     "new": [
+      {
+       "cell": "(1, 1)",
+       "uid": "n1",
+       "fields": {
+        "id": "rock",
+        "translation": [
+         0,
+         0,
+         0
+        ],
+        "scale": 3
+       },
+       "base": "Morrowind.esm",
+       "plugins": [
+        "Morrowind.esm"
+       ],
+       "tag": "STAT"
+      }
+     ]
+    },
+    "len": 1,
+    "revision": 6,
+    "restored": [],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "a cell queued whole is not counted again for its references",
+   "ops": [
+    [
+     "whole",
+     "Cell",
+     "(1, 1)",
+     "A.esp"
+    ],
+    [
+     "ref",
+     "(1, 1)",
+     "A.esp",
+     1,
+     {
+      "scale": 2.0
+     },
+     []
+    ],
+    [
+     "made",
+     "Weapon",
+     "my_sword",
+     {
+      "type": "Weapon",
+      "id": "my_sword"
+     },
+     "Morrowind.esm",
+     ""
+    ],
+    [
+     "made",
+     "Weapon",
+     "MY_SWORD",
+     {
+      "type": "Weapon",
+      "id": "MY_SWORD",
+      "name": "x"
+     },
+     "Morrowind.esm",
+     ""
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [
+      {
+       "type": "Cell",
+       "key": "(1, 1)",
+       "plugin": "A.esp"
+      }
+     ],
+     "fields": [],
+     "refs": [
+      {
+       "cell": "(1, 1)",
+       "origin": "A.esp",
+       "refr": 1,
+       "changes": {
+        "scale": 2.0
+       },
+       "plugins": []
+      }
+     ],
+     "made": [
+      {
+       "type": "Weapon",
+       "key": "MY_SWORD",
+       "record": {
+        "type": "Weapon",
+        "id": "MY_SWORD",
+        "name": "x"
+       },
+       "source": "Morrowind.esm",
+       "topic": ""
+      }
+     ],
+     "new": []
+    },
+    "len": 2,
+    "revision": 4,
+    "restored": [],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "removing what the patch makes and places",
+   "ops": [
+    [
+     "made",
+     "Weapon",
+     "a",
+     {
+      "type": "Weapon",
+      "id": "a"
+     },
+     "M.esm",
+     ""
+    ],
+    [
+     "made",
+     "Weapon",
+     "b",
+     {
+      "type": "Weapon",
+      "id": "b"
+     },
+     "M.esm",
+     ""
+    ],
+    [
+     "remove_made",
+     "weapon",
+     "a"
+    ],
+    [
+     "remove_made",
+     "Weapon",
+     "A"
+    ],
+    [
+     "new",
+     "Vault",
+     "u1",
+     {
+      "id": "x"
+     },
+     "M.esm",
+     [],
+     "STAT"
+    ],
+    [
+     "remove_new",
+     "VAULT",
+     "u1"
+    ],
+    [
+     "ref",
+     "Vault",
+     "M.esm",
+     3,
+     {
+      "scale": 2.0
+     },
+     []
+    ],
+    [
+     "remove_ref",
+     "vault",
+     "m.esm",
+     3,
+     null
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [
+      {
+       "type": "Weapon",
+       "key": "b",
+       "record": {
+        "type": "Weapon",
+        "id": "b"
+       },
+       "source": "M.esm",
+       "topic": ""
+      }
+     ],
+     "new": []
+    },
+    "len": 1,
+    "revision": 8,
+    "restored": [],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "a build consumes only what it wrote",
+   "ops": [
+    [
+     "whole",
+     "Weapon",
+     "a",
+     "A.esp"
+    ],
+    [
+     "field",
+     "Npc",
+     "n",
+     "name",
+     {
+      "value": "x"
+     }
+    ],
+    [
+     "base",
+     "Npc",
+     "n",
+     "A.esp"
+    ],
+    [
+     "ref",
+     "Vault",
+     "M.esm",
+     3,
+     {
+      "scale": 2.0,
+      "rotation": [
+       0,
+       0,
+       1
+      ]
+     },
+     []
+    ],
+    [
+     "snapshot",
+     "built"
+    ],
+    [
+     "field",
+     "Npc",
+     "n",
+     "data.level",
+     {
+      "value": 7
+     }
+    ],
+    [
+     "ref",
+     "Vault",
+     "M.esm",
+     3,
+     {
+      "scale": 4.0
+     },
+     []
+    ],
+    [
+     "whole",
+     "Weapon",
+     "b",
+     "B.esp"
+    ],
+    [
+     "consume",
+     "built"
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [
+      {
+       "type": "Weapon",
+       "key": "b",
+       "plugin": "B.esp"
+      }
+     ],
+     "fields": [
+      {
+       "type": "Npc",
+       "key": "n",
+       "base": "A.esp",
+       "choices": [
+        {
+         "path": "data.level",
+         "value": 7
+        }
+       ]
+      }
+     ],
+     "refs": [
+      {
+       "cell": "Vault",
+       "origin": "M.esm",
+       "refr": 3,
+       "changes": {
+        "scale": 4.0
+       },
+       "plugins": []
+      }
+     ],
+     "made": [],
+     "new": []
+    },
+    "len": 3,
+    "revision": 8,
+    "restored": [],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "a snapshot puts every decision back",
+   "ops": [
+    [
+     "whole",
+     "Weapon",
+     "a",
+     "A.esp"
+    ],
+    [
+     "snapshot",
+     "s"
+    ],
+    [
+     "clear"
+    ],
+    [
+     "field",
+     "Npc",
+     "n",
+     "name",
+     {
+      "value": "x"
+     }
+    ],
+    [
+     "restore",
+     "s"
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [
+      {
+       "type": "Weapon",
+       "key": "a",
+       "plugin": "A.esp"
+      }
+     ],
+     "fields": [],
+     "refs": [],
+     "made": [],
+     "new": []
+    },
+    "len": 1,
+    "revision": 4,
+    "restored": [],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "a journal comes back, and what the queue holds already wins",
+   "ops": [
+    [
+     "field",
+     "Weapon",
+     "w",
+     "name",
+     {
+      "value": "mine"
+     }
+    ],
+    [
+     "restore_journal",
+     {
+      "version": 1,
+      "whole": [
+       {
+        "type": "Weapon",
+        "key": "w",
+        "plugin": "J.esp"
+       },
+       {
+        "type": "Npc",
+        "key": "n",
+        "plugin": "J.esp"
+       }
+      ],
+      "fields": [
+       {
+        "type": "Weapon",
+        "key": "w",
+        "base": "",
+        "choices": [
+         {
+          "path": "name",
+          "value": "theirs"
+         }
+        ]
+       },
+       {
+        "type": "Book",
+        "key": "b",
+        "base": "J.esp",
+        "choices": [
+         {
+          "path": "text",
+          "plugin": "K.esp"
+         },
+         {
+          "path": "data.value",
+          "value": 5
+         }
+        ]
+       }
+      ],
+      "refs": [
+       {
+        "cell": "(0, 0)",
+        "origin": "M.esm",
+        "refr": "9",
+        "changes": {
+         "scale": 1.25
+        },
+        "plugins": [
+         "M.esm"
+        ]
+       }
+      ],
+      "made": [
+       {
+        "type": "Weapon",
+        "key": "copy",
+        "record": {
+         "type": "Weapon",
+         "id": "copy"
+        },
+        "source": "M.esm",
+        "topic": ""
+       }
+      ],
+      "new": [
+       {
+        "cell": "Vault",
+        "uid": 7,
+        "fields": {
+         "id": "x"
+        },
+        "base": "M.esm",
+        "plugins": [],
+        "tag": "STAT"
+       }
+      ]
+     }
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [
+      {
+       "type": "Npc",
+       "key": "n",
+       "plugin": "J.esp"
+      }
+     ],
+     "fields": [
+      {
+       "type": "Weapon",
+       "key": "w",
+       "base": "",
+       "choices": [
+        {
+         "path": "name",
+         "value": "mine"
+        }
+       ]
+      },
+      {
+       "type": "Book",
+       "key": "b",
+       "base": "J.esp",
+       "choices": [
+        {
+         "path": "text",
+         "plugin": "K.esp"
+        },
+        {
+         "path": "data.value",
+         "value": 5
+        }
+       ]
+      }
+     ],
+     "refs": [
+      {
+       "cell": "(0, 0)",
+       "origin": "M.esm",
+       "refr": 9,
+       "changes": {
+        "scale": 1.25
+       },
+       "plugins": [
+        "M.esm"
+       ]
+      }
+     ],
+     "made": [
+      {
+       "type": "Weapon",
+       "key": "copy",
+       "record": {
+        "type": "Weapon",
+        "id": "copy"
+       },
+       "source": "M.esm",
+       "topic": ""
+      }
+     ],
+     "new": [
+      {
+       "cell": "Vault",
+       "uid": "7",
+       "fields": {
+        "id": "x"
+       },
+       "base": "M.esm",
+       "plugins": [],
+       "tag": "STAT"
+      }
+     ]
+    },
+    "len": 6,
+    "revision": 8,
+    "restored": [
+     5
+    ],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "a journal of another version is not read",
+   "ops": [
+    [
+     "restore_journal",
+     {
+      "version": 2,
+      "whole": [
+       {
+        "type": "Weapon",
+        "key": "w",
+        "plugin": "J.esp"
+       }
+      ]
+     }
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [],
+     "new": []
+    },
+    "len": 0,
+    "revision": 0,
+    "restored": [
+     0
+    ],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "a damaged journal gives back what read before the damage",
+   "ops": [
+    [
+     "restore_journal",
+     {
+      "version": 1,
+      "whole": [
+       {
+        "type": "Weapon",
+        "key": "a",
+        "plugin": "J.esp"
+       },
+       {
+        "type": "Weapon",
+        "key": "b"
+       }
+      ],
+      "fields": [
+       {
+        "type": "Book",
+        "key": "b",
+        "choices": [
+         {
+          "path": "text",
+          "value": "x"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [
+      {
+       "type": "Weapon",
+       "key": "a",
+       "plugin": "J.esp"
+      }
+     ],
+     "fields": [],
+     "refs": [],
+     "made": [],
+     "new": []
+    },
+    "len": 1,
+    "revision": 1,
+    "restored": [
+     1
+    ],
+    "stepped": [],
+    "history": [
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "name": "undo and redo step through the pool, and a new change clears redo",
+   "ops": [
+    [
+     "field",
+     "Weapon",
+     "w",
+     "name",
+     {
+      "value": "1"
+     }
+    ],
+    [
+     "step"
+    ],
+    [
+     "field",
+     "Weapon",
+     "w",
+     "name",
+     {
+      "value": "2"
+     }
+    ],
+    [
+     "step"
+    ],
+    [
+     "step"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "redo"
+    ],
+    [
+     "field",
+     "Weapon",
+     "w",
+     "data.value",
+     {
+      "value": 3
+     }
+    ],
+    [
+     "step"
+    ],
+    [
+     "redo"
+    ]
+   ],
+   "expect": {
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "Weapon",
+       "key": "w",
+       "base": "",
+       "choices": [
+        {
+         "path": "name",
+         "value": "1"
+        },
+        {
+         "path": "data.value",
+         "value": 3
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [],
+     "new": []
+    },
+    "len": 1,
+    "revision": 6,
+    "restored": [],
+    "stepped": [
+     true,
+     true,
+     false,
+     true,
+     false
+    ],
+    "history": [
+     2,
+     0
+    ]
+   }
+  }
+ ]
+}

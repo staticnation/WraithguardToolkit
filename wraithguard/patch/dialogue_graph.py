@@ -31,6 +31,7 @@ Copyright (c) 2026 StaticNation.
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Final
@@ -308,6 +309,17 @@ class DialogueIndex:
                 )
                 latest[(low, key)] = ("(this patch)", rec)
         edits = {k.lower(): v for k, v in (edits or {}).items()}
+        # A response the pool moves (its prev_id queued) is the patch's version, read last,
+        # as the dialogue window reads it (EditorSession.topic): without it, the flow and
+        # the rehearsal showed a moved line where it was.
+        where: dict[str, list[tuple[str, str]]] = {}
+        for low, key in latest:
+            where.setdefault(key.lower(), []).append((low, key))
+        for moved, changes in edits.items():
+            if "prev_id" in changes:
+                for low, key in where.get(moved, []):
+                    prev = str(changes["prev_id"] or "")
+                    defs.setdefault(low, []).append(Response(key, prev, "(this patch)"))
         self.lines: dict[str, list[Line]] = {}
         for low, found in defs.items():
             order = topic_order(found)
@@ -315,14 +327,16 @@ class DialogueIndex:
             out: list[Line] = []
             for placed in order:
                 _winner, raw = latest.get((low, placed.key), ("", {}))
-                rec = dict(raw)
+                # A deep copy: a change to a nested field (data.disposition) must not
+                # reach the plugin's record, which the session keeps and shows again.
+                written: dict[str, Any] = copy.deepcopy(dict(raw))
                 for path, value in (edits.get(placed.key.lower()) or {}).items():
-                    set_at(rec, path, value)
+                    set_at(written, path, value)
                 out.append(
                     Line(
                         self.spelled.get(low, low),
                         placed.key,
-                        rec,
+                        written,
                         list(placed.plugins),
                         placed.key in lost,
                     )

@@ -9,6 +9,8 @@ publish = false
 
 [dependencies]
 viewcore = { path = "../viewcore" }
+# The Editor's links, as the shell has them.
+editcore = { path = "../editcore" }
 
 # Clippy, as viewcore has it (see viewcore/Cargo.toml for why).
 [lints.clippy]

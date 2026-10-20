@@ -205,7 +205,8 @@ def test_the_dialogue_endpoints(tmp_path):
 
     host, server = Host(), Server()
     host._editor_for = lambda _setup: host._editor_session  # type: ignore[method-assign]
-    links = host.editor_links(server, tmp_path / "openmw.cfg")  # type: ignore[arg-type]
+    # Every link served here (not handed to the viewer's own Editor): the handlers'.
+    links = host.editor_links(server, tmp_path / "openmw.cfg", viewer_answers=False)  # type: ignore[arg-type]
     for name in ("editTopics", "editTopic", "editNewResponse", "editCopyTopic"):
         assert name in links, name
 

@@ -1,0 +1,3550 @@
+{
+ "_about": "Placed objects, new references, path grids, and the cells and land the patch makes, one way for the Python Editor and the viewer's: run by tests/test_place_cases.py (EditorSession) and viewer-shell/editcore/tests/cases.rs (editcore::places). Each case is a load order (`plugins`, each with its masters and its records in the tes3conv schema) and operations: [\"ref_view\", cell, origin, index], [\"set_ref\", cell, origin, index, field, value], [\"revert_ref\", cell, origin, index, field or null], [\"place\", cell, tag, id, translation, rotation or null], [\"place_many\", cell, [[tag, id, translation, rotation, scale]]], [\"new_view\", label], [\"set_new\", label, field, value], [\"remove_new\", label], [\"new_cell\", cell, absent], [\"new_land\", cell, height, texture, no_land, has_cell], [\"duplicate_cell\", cell, name], [\"pathgrid_view\", cell], [\"set_pathgrid\", cell, points, links], [\"revert_pathgrid\", cell], [\"flat_land\", grid, height, texture index], [\"pending\"], [\"undo\"]. A new reference's random editor name is given as a label (U1, U2, ... in the order the queue holds them), and a landscape's packed grids as sha256 of their bytes (their base64 depends on the zstd backend). `expect` is what each gave and the journal after them. Generated from the Python side when a case is added, and read by hand.",
+ "cases": [
+  {
+   "name": "a placed object's fields: read as their kinds, moved out of its square, and back",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "masters": [],
+     "records": [
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 0,
+         "refr_index": 5,
+         "id": "rock",
+         "translation": [
+          8200.0,
+          8300.0,
+          10.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.5
+         ],
+         "scale": 1.0
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Mod.esp",
+     "masters": [
+      "Morrowind.esm"
+     ],
+     "records": [
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 1,
+         "refr_index": 5,
+         "id": "rock",
+         "translation": [
+          8250.0,
+          8300.0,
+          10.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.5
+         ],
+         "scale": 1.25,
+         "owner": "guard"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "ref_view",
+     "(1, 1)",
+     "Morrowind.esm",
+     5
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "scale",
+     "1.5"
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "scale",
+     3
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "scale",
+     "big"
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "rotation",
+     [
+      0,
+      "1.5",
+      true
+     ]
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "rotation",
+     [
+      0,
+      1
+     ]
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "translation",
+     [
+      1,
+      2,
+      "nan"
+     ]
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "lock_level",
+     "50"
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "lock_level",
+     3000000000
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "lock_level",
+     "1.5"
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "owner",
+     ""
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "deleted",
+     "yes"
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "deleted",
+     "maybe"
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "id",
+     "x"
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "destination",
+     {
+      "translation": [
+       1,
+       2,
+       3
+      ],
+      "cell": " Vault "
+     }
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "destination",
+     {
+      "translation": [
+       1,
+       2,
+       3
+      ],
+      "cell": 5
+     }
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "destination",
+     "x"
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "moved_cell",
+     [
+      "2",
+      3.0
+     ]
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "moved_cell",
+     [
+      2
+     ]
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "translation",
+     [
+      16400,
+      8300,
+      10
+     ]
+    ],
+    [
+     "ref_view",
+     "(1, 1)",
+     "Morrowind.esm",
+     5
+    ],
+    [
+     "pending"
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "translation",
+     [
+      8250.0000001,
+      8300,
+      10
+     ]
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "scale",
+     1.25
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "deleted",
+     false
+    ],
+    [
+     "pending"
+    ],
+    [
+     "revert_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     null
+    ],
+    [
+     "pending"
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "cell": "(1, 1)",
+      "origin": "Morrowind.esm",
+      "refr": 5,
+      "id": "rock",
+      "winner": "Mod.esp",
+      "plugins": [
+       "Morrowind.esm",
+       "Mod.esp"
+      ],
+      "fields": [
+       {
+        "path": "translation",
+        "value": [
+         8250.0,
+         8300.0,
+         10.0
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "rotation",
+        "value": [
+         0.0,
+         0.0,
+         0.5
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "scale",
+        "value": 1.25,
+        "kind": "float",
+        "editable": true
+       },
+       {
+        "path": "deleted",
+        "value": null,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "owner",
+        "value": "guard",
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_global",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction_rank",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "lock_level",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "key",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "trap",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "soul",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "charge_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "health_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "object_count",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "blocked",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "temporary",
+        "value": null,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "moved_cell",
+        "value": null,
+        "kind": "grid",
+        "editable": true
+       },
+       {
+        "path": "destination",
+        "value": null,
+        "kind": "door",
+        "editable": true
+       }
+      ]
+     },
+     "ok",
+     {
+      "error": "scale is 0.5 to 2.0"
+     },
+     {
+      "error": "'big' is not a number"
+     },
+     "ok",
+     {
+      "error": "rotation is three numbers"
+     },
+     {
+      "error": "translation must be finite"
+     },
+     "ok",
+     {
+      "error": "3000000000 is out of range"
+     },
+     {
+      "error": "'1.5' is not a whole number (lock_level)"
+     },
+     "ok",
+     "ok",
+     {
+      "error": "'maybe' is not true or false"
+     },
+     {
+      "error": "id cannot be changed on a reference here"
+     },
+     "ok",
+     {
+      "error": "a destination's cell is a name (empty: the exterior)"
+     },
+     {
+      "error": "a destination is {translation, rotation, cell}"
+     },
+     "ok",
+     {
+      "error": "moved_cell is an exterior's grid, [x, y]"
+     },
+     "ok",
+     {
+      "cell": "(1, 1)",
+      "origin": "Morrowind.esm",
+      "refr": 5,
+      "id": "rock",
+      "winner": "Mod.esp",
+      "plugins": [
+       "Morrowind.esm",
+       "Mod.esp"
+      ],
+      "fields": [
+       {
+        "path": "translation",
+        "value": [
+         8250.0,
+         8300.0,
+         10.0
+        ],
+        "kind": "vec3",
+        "editable": true,
+        "queued": [
+         16400.0,
+         8300.0,
+         10.0
+        ]
+       },
+       {
+        "path": "rotation",
+        "value": [
+         0.0,
+         0.0,
+         0.5
+        ],
+        "kind": "vec3",
+        "editable": true,
+        "queued": [
+         0.0,
+         1.5,
+         1.0
+        ]
+       },
+       {
+        "path": "scale",
+        "value": 1.25,
+        "kind": "float",
+        "editable": true,
+        "queued": 1.5
+       },
+       {
+        "path": "deleted",
+        "value": null,
+        "kind": "bool",
+        "editable": true,
+        "queued": true
+       },
+       {
+        "path": "owner",
+        "value": "guard",
+        "kind": "str",
+        "editable": true,
+        "queued": null
+       },
+       {
+        "path": "owner_global",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction_rank",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "lock_level",
+        "value": null,
+        "kind": "int",
+        "editable": true,
+        "queued": 50
+       },
+       {
+        "path": "key",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "trap",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "soul",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "charge_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "health_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "object_count",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "blocked",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "temporary",
+        "value": null,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "moved_cell",
+        "value": null,
+        "kind": "grid",
+        "editable": true,
+        "queued": [
+         2,
+         1
+        ]
+       },
+       {
+        "path": "destination",
+        "value": null,
+        "kind": "door",
+        "editable": true,
+        "queued": {
+         "translation": [
+          1.0,
+          2.0,
+          3.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "cell": "Vault"
+        }
+       }
+      ]
+     },
+     [
+      {
+       "tag": "",
+       "type": "Reference",
+       "id": "Morrowind.esm:5 in (1, 1)",
+       "ref": {
+        "cell": "(1, 1)",
+        "origin": "Morrowind.esm",
+        "refr": 5,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "scale",
+         "value": 1.5
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          1.5,
+          1.0
+         ]
+        },
+        {
+         "path": "lock_level",
+         "value": 50
+        },
+        {
+         "path": "owner",
+         "value": null
+        },
+        {
+         "path": "deleted",
+         "value": true
+        },
+        {
+         "path": "destination",
+         "value": {
+          "translation": [
+           1.0,
+           2.0,
+           3.0
+          ],
+          "rotation": [
+           0.0,
+           0.0,
+           0.0
+          ],
+          "cell": "Vault"
+         }
+        },
+        {
+         "path": "moved_cell",
+         "value": [
+          2,
+          1
+         ]
+        },
+        {
+         "path": "translation",
+         "value": [
+          16400.0,
+          8300.0,
+          10.0
+         ]
+        }
+       ]
+      }
+     ],
+     "ok",
+     "ok",
+     "ok",
+     [
+      {
+       "tag": "",
+       "type": "Reference",
+       "id": "Morrowind.esm:5 in (1, 1)",
+       "ref": {
+        "cell": "(1, 1)",
+        "origin": "Morrowind.esm",
+        "refr": 5,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          1.5,
+          1.0
+         ]
+        },
+        {
+         "path": "lock_level",
+         "value": 50
+        },
+        {
+         "path": "owner",
+         "value": null
+        },
+        {
+         "path": "deleted",
+         "value": false
+        },
+        {
+         "path": "destination",
+         "value": {
+          "translation": [
+           1.0,
+           2.0,
+           3.0
+          ],
+          "rotation": [
+           0.0,
+           0.0,
+           0.0
+          ],
+          "cell": "Vault"
+         }
+        }
+       ]
+      }
+     ],
+     "ok",
+     []
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "new references: placed, changed, moved between squares, removed, and many at once",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "masters": [],
+     "records": [
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r.nif"
+      },
+      {
+       "type": "Npc",
+       "flags": "",
+       "id": "guard",
+       "name": "Guard"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         0
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "place",
+     "(0, 0)",
+     "STAT",
+     "rock",
+     [
+      10,
+      20,
+      30
+     ],
+     null
+    ],
+    [
+     "place",
+     "Vault",
+     "NPC_",
+     "guard",
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      0,
+      0,
+      1
+     ]
+    ],
+    [
+     "place",
+     "(5, 5)",
+     "STAT",
+     "rock",
+     [
+      10,
+      20,
+      30
+     ],
+     null
+    ],
+    [
+     "place",
+     "Vault",
+     "STAT",
+     "rock",
+     [
+      1,
+      2
+     ],
+     null
+    ],
+    [
+     "new_view",
+     "U1"
+    ],
+    [
+     "set_new",
+     "U1",
+     "scale",
+     "1.5"
+    ],
+    [
+     "set_new",
+     "U1",
+     "translation",
+     [
+      8200,
+      10,
+      0
+     ]
+    ],
+    [
+     "set_new",
+     "U1",
+     "translation",
+     [
+      -100,
+      10,
+      0
+     ]
+    ],
+    [
+     "new_view",
+     "U1"
+    ],
+    [
+     "set_new",
+     "U2",
+     "owner",
+     "me"
+    ],
+    [
+     "place_many",
+     "(0, 0)",
+     [
+      [
+       "STAT",
+       "rock",
+       [
+        100,
+        100,
+        0
+       ],
+       [
+        0,
+        0,
+        0
+       ],
+       1.0
+      ],
+      [
+       "STAT",
+       "rock",
+       [
+        8300,
+        100,
+        0
+       ],
+       [
+        0,
+        0,
+        0
+       ],
+       2.0
+      ]
+     ]
+    ],
+    [
+     "place_many",
+     "(0, 0)",
+     [
+      [
+       "STAT",
+       "rock",
+       [
+        100,
+        100,
+        0
+       ],
+       [
+        0,
+        0,
+        0
+       ],
+       1.0
+      ],
+      [
+       "STAT",
+       "rock",
+       [
+        100,
+        100
+       ],
+       [
+        0,
+        0,
+        0
+       ],
+       1.0
+      ]
+     ]
+    ],
+    [
+     "remove_new",
+     "U2"
+    ],
+    [
+     "pending"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "pending"
+    ]
+   ],
+   "expect": {
+    "results": [
+     "U1",
+     "U2",
+     {
+      "error": "no plugin of this load order has the cell (5, 5)"
+     },
+     {
+      "error": "translation is three numbers"
+     },
+     {
+      "cell": "(0, 0)",
+      "uid": "U1",
+      "id": "rock",
+      "tag": "STAT",
+      "new": true,
+      "plugins": [
+       "Morrowind.esm"
+      ],
+      "fields": [
+       {
+        "path": "translation",
+        "value": [
+         10.0,
+         20.0,
+         30.0
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "rotation",
+        "value": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "scale",
+        "value": null,
+        "kind": "float",
+        "editable": true
+       },
+       {
+        "path": "deleted",
+        "value": null,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "owner",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_global",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction_rank",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "lock_level",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "key",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "trap",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "soul",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "charge_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "health_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "object_count",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "blocked",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "temporary",
+        "value": true,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "moved_cell",
+        "value": null,
+        "kind": "grid",
+        "editable": true
+       },
+       {
+        "path": "destination",
+        "value": null,
+        "kind": "door",
+        "editable": true
+       }
+      ]
+     },
+     "(0, 0)",
+     "(1, 0)",
+     {
+      "error": "no plugin of this load order has the cell (-1, 0)"
+     },
+     {
+      "cell": "(1, 0)",
+      "uid": "U1",
+      "id": "rock",
+      "tag": "STAT",
+      "new": true,
+      "plugins": [
+       "Morrowind.esm"
+      ],
+      "fields": [
+       {
+        "path": "translation",
+        "value": [
+         8200.0,
+         10.0,
+         0.0
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "rotation",
+        "value": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "scale",
+        "value": 1.5,
+        "kind": "float",
+        "editable": true
+       },
+       {
+        "path": "deleted",
+        "value": null,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "owner",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_global",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction_rank",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "lock_level",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "key",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "trap",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "soul",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "charge_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "health_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "object_count",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "blocked",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "temporary",
+        "value": true,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "moved_cell",
+        "value": null,
+        "kind": "grid",
+        "editable": true
+       },
+       {
+        "path": "destination",
+        "value": null,
+        "kind": "door",
+        "editable": true
+       }
+      ]
+     },
+     "Vault",
+     [
+      "U3",
+      "U4"
+     ],
+     {
+      "error": "translation is three numbers"
+     },
+     "ok",
+     [
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in (1, 0)",
+       "new": {
+        "cell": "(1, 0)",
+        "uid": "U1",
+        "id": "rock",
+        "tag": "STAT",
+        "plugins": [
+         "Morrowind.esm"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          8200.0,
+          10.0,
+          0.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        },
+        {
+         "path": "scale",
+         "value": 1.5
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in (0, 0)",
+       "new": {
+        "cell": "(0, 0)",
+        "uid": "U3",
+        "id": "rock",
+        "tag": "STAT",
+        "plugins": [
+         "Morrowind.esm"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          100.0,
+          100.0,
+          0.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in (1, 0)",
+       "new": {
+        "cell": "(1, 0)",
+        "uid": "U4",
+        "id": "rock",
+        "tag": "STAT",
+        "plugins": [
+         "Morrowind.esm"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          8300.0,
+          100.0,
+          0.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        },
+        {
+         "path": "scale",
+         "value": 2.0
+        }
+       ]
+      }
+     ],
+     {
+      "done": true,
+      "what": [
+       "new guard"
+      ],
+      "undo": 6,
+      "redo": 1
+     },
+     [
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "guard (new) in Vault",
+       "new": {
+        "cell": "Vault",
+        "uid": "U2",
+        "id": "guard",
+        "tag": "NPC_",
+        "plugins": [
+         "Morrowind.esm"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "guard"
+        },
+        {
+         "path": "translation",
+         "value": [
+          1.0,
+          2.0,
+          3.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          1.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": false
+        },
+        {
+         "path": "owner",
+         "value": "me"
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in (1, 0)",
+       "new": {
+        "cell": "(1, 0)",
+        "uid": "U1",
+        "id": "rock",
+        "tag": "STAT",
+        "plugins": [
+         "Morrowind.esm"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          8200.0,
+          10.0,
+          0.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        },
+        {
+         "path": "scale",
+         "value": 1.5
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in (0, 0)",
+       "new": {
+        "cell": "(0, 0)",
+        "uid": "U3",
+        "id": "rock",
+        "tag": "STAT",
+        "plugins": [
+         "Morrowind.esm"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          100.0,
+          100.0,
+          0.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in (1, 0)",
+       "new": {
+        "cell": "(1, 0)",
+        "uid": "U4",
+        "id": "rock",
+        "tag": "STAT",
+        "plugins": [
+         "Morrowind.esm"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          8300.0,
+          100.0,
+          0.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        },
+        {
+         "path": "scale",
+         "value": 2.0
+        }
+       ]
+      }
+     ]
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [],
+     "new": [
+      {
+       "cell": "Vault",
+       "uid": "U2",
+       "fields": {
+        "id": "guard",
+        "translation": [
+         1.0,
+         2.0,
+         3.0
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "temporary": false,
+        "owner": "me"
+       },
+       "base": "Morrowind.esm",
+       "plugins": [
+        "Morrowind.esm"
+       ],
+       "tag": "NPC_"
+      },
+      {
+       "cell": "(1, 0)",
+       "uid": "U1",
+       "fields": {
+        "id": "rock",
+        "translation": [
+         8200.0,
+         10.0,
+         0.0
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "temporary": true,
+        "scale": 1.5
+       },
+       "base": "Morrowind.esm",
+       "plugins": [
+        "Morrowind.esm"
+       ],
+       "tag": "STAT"
+      },
+      {
+       "cell": "(0, 0)",
+       "uid": "U3",
+       "fields": {
+        "id": "rock",
+        "translation": [
+         100.0,
+         100.0,
+         0.0
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "temporary": true
+       },
+       "base": "Morrowind.esm",
+       "plugins": [
+        "Morrowind.esm"
+       ],
+       "tag": "STAT"
+      },
+      {
+       "cell": "(1, 0)",
+       "uid": "U4",
+       "fields": {
+        "id": "rock",
+        "translation": [
+         8300.0,
+         100.0,
+         0.0
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "temporary": true,
+        "scale": 2.0
+       },
+       "base": "Morrowind.esm",
+       "plugins": [
+        "Morrowind.esm"
+       ],
+       "tag": "STAT"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "new cells and land",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "masters": [],
+     "records": [
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Landscape",
+       "flags": "",
+       "grid": [
+        0,
+        0
+       ],
+       "landscape_flags": ""
+      },
+      {
+       "type": "LandscapeTexture",
+       "flags": "",
+       "id": "grass",
+       "index": 4,
+       "file_name": "grass.dds"
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "new_cell",
+     "  ",
+     false
+    ],
+    [
+     "new_cell",
+     "vault",
+     false
+    ],
+    [
+     "new_cell",
+     "int:My Room",
+     false
+    ],
+    [
+     "new_cell",
+     "My Room",
+     false
+    ],
+    [
+     "new_cell",
+     "2,3",
+     false
+    ],
+    [
+     "new_cell",
+     "0,0",
+     false
+    ],
+    [
+     "new_cell",
+     "0123456789012345678901234567890123456789012345678901234567890123",
+     false
+    ],
+    [
+     "new_land",
+     "Vault",
+     0,
+     "",
+     false,
+     null
+    ],
+    [
+     "new_land",
+     "(0, 0)",
+     0,
+     "",
+     false,
+     null
+    ],
+    [
+     "new_land",
+     "(2, 3)",
+     100.0,
+     "",
+     false,
+     null
+    ],
+    [
+     "new_land",
+     "(4, 4)",
+     -300.0,
+     "grass",
+     false,
+     null
+    ],
+    [
+     "new_land",
+     "(5, 5)",
+     0,
+     "nothing",
+     false,
+     null
+    ],
+    [
+     "new_land",
+     "(6, 6)",
+     40000,
+     "",
+     false,
+     null
+    ],
+    [
+     "new_land",
+     "(7, 7)",
+     0,
+     "",
+     true,
+     true
+    ],
+    [
+     "flat_land",
+     [
+      1,
+      2
+     ],
+     64.5,
+     5
+    ],
+    [
+     "flat_land",
+     [
+      1,
+      2
+     ],
+     -20000,
+     0
+    ],
+    [
+     "pending"
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "error": "a new cell needs a name, or (x, y) for an exterior square"
+     },
+     {
+      "error": "the load order has the cell vault already"
+     },
+     {
+      "cell": "My Room",
+      "interior": true
+     },
+     {
+      "error": "the load order has the cell My Room already"
+     },
+     {
+      "cell": "(2, 3)",
+      "interior": false
+     },
+     {
+      "error": "the load order has the cell (0, 0) already"
+     },
+     {
+      "error": "a cell name is at most 63 characters"
+     },
+     {
+      "error": "land belongs to an exterior square: give (x, y)"
+     },
+     {
+      "error": "(0, 0) has land already"
+     },
+     {
+      "cell": "(2, 3)",
+      "land": true,
+      "madeCell": false
+     },
+     {
+      "cell": "(4, 4)",
+      "land": true,
+      "madeCell": true
+     },
+     {
+      "error": "no plugin has a land texture nothing"
+     },
+     {
+      "error": "the height is within 30000 units of the sea's level"
+     },
+     {
+      "cell": "(7, 7)",
+      "land": true,
+      "madeCell": false
+     },
+     {
+      "type": "Landscape",
+      "flags": "",
+      "grid": [
+       1,
+       2
+      ],
+      "landscape_flags": "USES_VERTEX_HEIGHTS_AND_NORMALS | USES_TEXTURES",
+      "vertex_normals": {
+       "data": "sha256:17355523900152c93badb8d13ebfc41938b9f93bcc255dd8ce6e62a4af279393"
+      },
+      "vertex_heights": {
+       "offset": 64.5,
+       "data": "sha256:31ef6078ab23831e391f325a13ff93e59f98a4d57889897f5249e9efaa84c672"
+      },
+      "world_map_data": {
+       "data": "sha256:60c285d83690be0345cc75ae7c286b6ed670deb3b87b965f09cae717837b84d3"
+      },
+      "vertex_colors": {
+       "data": "sha256:3f0767a5b4f407d1424f0d0d55f8342dc0517efd0ddd638a0efe1273579adca8"
+      },
+      "texture_indices": {
+       "data": "sha256:f831da91c7bc98c6bc51f3644696dac4f4cadfd661ec57c6145c65496f14519a"
+      }
+     },
+     {
+      "type": "Landscape",
+      "flags": "",
+      "grid": [
+       1,
+       2
+      ],
+      "landscape_flags": "USES_VERTEX_HEIGHTS_AND_NORMALS | USES_TEXTURES",
+      "vertex_normals": {
+       "data": "sha256:17355523900152c93badb8d13ebfc41938b9f93bcc255dd8ce6e62a4af279393"
+      },
+      "vertex_heights": {
+       "offset": -20000.0,
+       "data": "sha256:31ef6078ab23831e391f325a13ff93e59f98a4d57889897f5249e9efaa84c672"
+      },
+      "world_map_data": {
+       "data": "sha256:b03b5da621d4cab1efd2748da56a20f5da3af54982eb3175a275dd609c83fc7e"
+      },
+      "vertex_colors": {
+       "data": "sha256:3f0767a5b4f407d1424f0d0d55f8342dc0517efd0ddd638a0efe1273579adca8"
+      },
+      "texture_indices": {
+       "data": "sha256:076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560"
+      }
+     },
+     [
+      {
+       "tag": "CELL",
+       "type": "Cell",
+       "id": "My Room",
+       "whole": null,
+       "made": {
+        "source": "",
+        "name": "My Room",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "CELL",
+       "type": "Cell",
+       "id": "(2, 3)",
+       "whole": null,
+       "made": {
+        "source": "",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "LAND",
+       "type": "Landscape",
+       "id": "(2, 3)",
+       "whole": null,
+       "made": {
+        "source": "",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "CELL",
+       "type": "Cell",
+       "id": "(4, 4)",
+       "whole": null,
+       "made": {
+        "source": "",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "LAND",
+       "type": "Landscape",
+       "id": "(4, 4)",
+       "whole": null,
+       "made": {
+        "source": "Morrowind.esm",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "LAND",
+       "type": "Landscape",
+       "id": "(7, 7)",
+       "whole": null,
+       "made": {
+        "source": "",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      }
+     ]
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [
+      {
+       "type": "Cell",
+       "key": "My Room",
+       "record": {
+        "type": "Cell",
+        "flags": "",
+        "name": "My Room",
+        "data": {
+         "flags": "IS_INTERIOR",
+         "grid": [
+          0,
+          0
+         ]
+        },
+        "atmosphere_data": {
+         "ambient_color": [
+          64,
+          64,
+          64,
+          0
+         ],
+         "sunlight_color": [
+          64,
+          64,
+          64,
+          0
+         ],
+         "fog_color": [
+          0,
+          0,
+          0,
+          0
+         ],
+         "fog_density": 1.0
+        },
+        "references": []
+       },
+       "source": "",
+       "topic": ""
+      },
+      {
+       "type": "Cell",
+       "key": "(2, 3)",
+       "record": {
+        "type": "Cell",
+        "flags": "",
+        "name": "",
+        "data": {
+         "flags": "",
+         "grid": [
+          2,
+          3
+         ]
+        },
+        "references": []
+       },
+       "source": "",
+       "topic": ""
+      },
+      {
+       "type": "Landscape",
+       "key": "(2, 3)",
+       "record": {
+        "type": "Landscape",
+        "flags": "",
+        "grid": [
+         2,
+         3
+        ],
+        "landscape_flags": "USES_VERTEX_HEIGHTS_AND_NORMALS | USES_TEXTURES",
+        "vertex_normals": {
+         "data": "sha256:17355523900152c93badb8d13ebfc41938b9f93bcc255dd8ce6e62a4af279393"
+        },
+        "vertex_heights": {
+         "offset": 100.0,
+         "data": "sha256:31ef6078ab23831e391f325a13ff93e59f98a4d57889897f5249e9efaa84c672"
+        },
+        "world_map_data": {
+         "data": "sha256:60c285d83690be0345cc75ae7c286b6ed670deb3b87b965f09cae717837b84d3"
+        },
+        "vertex_colors": {
+         "data": "sha256:3f0767a5b4f407d1424f0d0d55f8342dc0517efd0ddd638a0efe1273579adca8"
+        },
+        "texture_indices": {
+         "data": "sha256:076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560"
+        }
+       },
+       "source": "",
+       "topic": ""
+      },
+      {
+       "type": "Cell",
+       "key": "(4, 4)",
+       "record": {
+        "type": "Cell",
+        "flags": "",
+        "name": "",
+        "data": {
+         "flags": "",
+         "grid": [
+          4,
+          4
+         ]
+        },
+        "references": []
+       },
+       "source": "",
+       "topic": ""
+      },
+      {
+       "type": "Landscape",
+       "key": "(4, 4)",
+       "record": {
+        "type": "Landscape",
+        "flags": "",
+        "grid": [
+         4,
+         4
+        ],
+        "landscape_flags": "USES_VERTEX_HEIGHTS_AND_NORMALS | USES_TEXTURES",
+        "vertex_normals": {
+         "data": "sha256:17355523900152c93badb8d13ebfc41938b9f93bcc255dd8ce6e62a4af279393"
+        },
+        "vertex_heights": {
+         "offset": -300.0,
+         "data": "sha256:31ef6078ab23831e391f325a13ff93e59f98a4d57889897f5249e9efaa84c672"
+        },
+        "world_map_data": {
+         "data": "sha256:a1f001d7444fed3eb74ad1dfbaaa1aad2ea3da32ff866a3e57bc38f55d4e250f"
+        },
+        "vertex_colors": {
+         "data": "sha256:3f0767a5b4f407d1424f0d0d55f8342dc0517efd0ddd638a0efe1273579adca8"
+        },
+        "texture_indices": {
+         "data": "sha256:f831da91c7bc98c6bc51f3644696dac4f4cadfd661ec57c6145c65496f14519a"
+        }
+       },
+       "source": "Morrowind.esm",
+       "topic": ""
+      },
+      {
+       "type": "Landscape",
+       "key": "(7, 7)",
+       "record": {
+        "type": "Landscape",
+        "flags": "",
+        "grid": [
+         7,
+         7
+        ],
+        "landscape_flags": "USES_VERTEX_HEIGHTS_AND_NORMALS | USES_TEXTURES",
+        "vertex_normals": {
+         "data": "sha256:17355523900152c93badb8d13ebfc41938b9f93bcc255dd8ce6e62a4af279393"
+        },
+        "vertex_heights": {
+         "offset": 0.0,
+         "data": "sha256:31ef6078ab23831e391f325a13ff93e59f98a4d57889897f5249e9efaa84c672"
+        },
+        "world_map_data": {
+         "data": "sha256:6778c7c7b6b6c1c273e668169a7652a681da86ad62d03f7c5aa120405069feb2"
+        },
+        "vertex_colors": {
+         "data": "sha256:3f0767a5b4f407d1424f0d0d55f8342dc0517efd0ddd638a0efe1273579adca8"
+        },
+        "texture_indices": {
+         "data": "sha256:076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560"
+        }
+       },
+       "source": "",
+       "topic": ""
+      }
+     ],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "path grids: shown, set, made, and copied with a cell",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "masters": [],
+     "records": [
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 0,
+         "refr_index": 1,
+         "id": "rock",
+         "translation": [
+          1.0,
+          2.0,
+          3.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "mast_index": 0,
+         "refr_index": 2,
+         "id": "rock",
+         "translation": [
+          4.0,
+          5.0,
+          6.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "deleted": true
+        },
+        {
+         "mast_index": 0,
+         "refr_index": 3,
+         "id": "rock",
+         "translation": [
+          7.0,
+          8.0,
+          9.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "scale": 1.5
+        }
+       ]
+      },
+      {
+       "type": "PathGrid",
+       "flags": "",
+       "cell": "Vault",
+       "data": {
+        "grid": [
+         0,
+         0
+        ],
+        "granularity": 512,
+        "point_count": 3
+       },
+       "points": [
+        {
+         "location": [
+          0,
+          0,
+          0
+         ],
+         "auto_generated": 0,
+         "connection_count": 1
+        },
+        {
+         "location": [
+          100,
+          0,
+          0
+         ],
+         "auto_generated": 0,
+         "connection_count": 2
+        },
+        {
+         "location": [
+          100,
+          100,
+          0
+         ],
+         "auto_generated": 0,
+         "connection_count": 1
+        }
+       ],
+       "connections": [
+        1,
+        0,
+        2,
+        1
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Mod.esp",
+     "masters": [
+      "Morrowind.esm"
+     ],
+     "records": [
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 1,
+         "refr_index": 3,
+         "id": "rock",
+         "translation": [
+          7.0,
+          8.0,
+          9.5
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ],
+         "scale": 1.5
+        },
+        {
+         "mast_index": 0,
+         "refr_index": 1,
+         "id": "rock",
+         "translation": [
+          9.0,
+          9.0,
+          9.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "pathgrid_view",
+     "int:Vault"
+    ],
+    [
+     "pathgrid_view",
+     "1,1"
+    ],
+    [
+     "set_pathgrid",
+     "Vault",
+     [
+      [
+       0,
+       0,
+       0
+      ],
+      [
+       100.5,
+       0,
+       0
+      ],
+      [
+       101.5,
+       100,
+       0
+      ],
+      [
+       50,
+       50,
+       50
+      ]
+     ],
+     [
+      [
+       0,
+       1
+      ],
+      [
+       1,
+       0
+      ],
+      [
+       1,
+       2
+      ],
+      [
+       2,
+       3
+      ],
+      [
+       0,
+       1
+      ]
+     ]
+    ],
+    [
+     "set_pathgrid",
+     "Vault",
+     [
+      [
+       0,
+       0
+      ]
+     ],
+     []
+    ],
+    [
+     "set_pathgrid",
+     "Vault",
+     [
+      [
+       0,
+       0,
+       0
+      ]
+     ],
+     [
+      [
+       0,
+       0
+      ]
+     ]
+    ],
+    [
+     "set_pathgrid",
+     "Vault",
+     [
+      [
+       0,
+       0,
+       0
+      ]
+     ],
+     [
+      [
+       0,
+       4
+      ]
+     ]
+    ],
+    [
+     "set_pathgrid",
+     "(1, 1)",
+     [
+      [
+       10,
+       10,
+       0
+      ],
+      [
+       20,
+       20,
+       0
+      ]
+     ],
+     [
+      [
+       0,
+       1
+      ],
+      [
+       1,
+       0
+      ]
+     ]
+    ],
+    [
+     "pathgrid_view",
+     "(1, 1)"
+    ],
+    [
+     "set_pathgrid",
+     "(1, 1)",
+     [
+      [
+       10,
+       10,
+       0
+      ]
+     ],
+     []
+    ],
+    [
+     "set_ref",
+     "Vault",
+     "Mod.esp",
+     1,
+     "scale",
+     2
+    ],
+    [
+     "place",
+     "Vault",
+     "STAT",
+     "rock",
+     [
+      5,
+      5,
+      5
+     ],
+     null
+    ],
+    [
+     "duplicate_cell",
+     "Vault",
+     "Vault Copy"
+    ],
+    [
+     "duplicate_cell",
+     "(1, 1)",
+     "x"
+    ],
+    [
+     "duplicate_cell",
+     "Vault",
+     "vault copy"
+    ],
+    [
+     "duplicate_cell",
+     "Nowhere",
+     "y"
+    ],
+    [
+     "pathgrid_view",
+     "Vault Copy"
+    ],
+    [
+     "revert_pathgrid",
+     "Vault"
+    ],
+    [
+     "pathgrid_view",
+     "Vault"
+    ],
+    [
+     "revert_pathgrid",
+     "(1, 1)"
+    ],
+    [
+     "pathgrid_view",
+     "(1, 1)"
+    ],
+    [
+     "pending"
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "key": "Vault",
+      "grid": null,
+      "points": [
+       [
+        0,
+        0,
+        0
+       ],
+       [
+        100,
+        0,
+        0
+       ],
+       [
+        100,
+        100,
+        0
+       ]
+      ],
+      "edges": [
+       [
+        0,
+        1
+       ],
+       [
+        1,
+        0
+       ],
+       [
+        1,
+        2
+       ],
+       [
+        2,
+        1
+       ]
+      ],
+      "plugins": [
+       "Morrowind.esm"
+      ],
+      "queued": false,
+      "new": false,
+      "granularity": 512
+     },
+     {
+      "key": "(1, 1)",
+      "grid": [
+       1,
+       1
+      ],
+      "points": [],
+      "edges": [],
+      "plugins": [],
+      "queued": false,
+      "new": false,
+      "granularity": 1024
+     },
+     {
+      "key": "Vault",
+      "grid": null,
+      "points": [
+       [
+        0,
+        0,
+        0
+       ],
+       [
+        100,
+        0,
+        0
+       ],
+       [
+        102,
+        100,
+        0
+       ],
+       [
+        50,
+        50,
+        50
+       ]
+      ],
+      "edges": [
+       [
+        0,
+        1
+       ],
+       [
+        1,
+        0
+       ],
+       [
+        1,
+        2
+       ],
+       [
+        2,
+        3
+       ]
+      ],
+      "plugins": [
+       "Morrowind.esm"
+      ],
+      "queued": true,
+      "new": false,
+      "granularity": 512
+     },
+     {
+      "error": "point 0 is not [x, y, z]"
+     },
+     {
+      "error": "the link 0 -> 0 does not join two points"
+     },
+     {
+      "error": "the link 0 -> 4 does not join two points"
+     },
+     {
+      "key": "(1, 1)",
+      "grid": [
+       1,
+       1
+      ],
+      "points": [
+       [
+        10,
+        10,
+        0
+       ],
+       [
+        20,
+        20,
+        0
+       ]
+      ],
+      "edges": [
+       [
+        0,
+        1
+       ],
+       [
+        1,
+        0
+       ]
+      ],
+      "plugins": [
+       "(this patch)"
+      ],
+      "queued": true,
+      "new": true,
+      "granularity": 1024
+     },
+     {
+      "key": "(1, 1)",
+      "grid": [
+       1,
+       1
+      ],
+      "points": [
+       [
+        10,
+        10,
+        0
+       ],
+       [
+        20,
+        20,
+        0
+       ]
+      ],
+      "edges": [
+       [
+        0,
+        1
+       ],
+       [
+        1,
+        0
+       ]
+      ],
+      "plugins": [
+       "(this patch)"
+      ],
+      "queued": true,
+      "new": true,
+      "granularity": 1024
+     },
+     {
+      "key": "(1, 1)",
+      "grid": [
+       1,
+       1
+      ],
+      "points": [
+       [
+        10,
+        10,
+        0
+       ]
+      ],
+      "edges": [],
+      "plugins": [
+       "(this patch)"
+      ],
+      "queued": true,
+      "new": true,
+      "granularity": 1024
+     },
+     "ok",
+     "U1",
+     {
+      "cell": "Vault Copy",
+      "refs": 4,
+      "pathgrid": true
+     },
+     {
+      "error": "only an interior can be copied: an exterior is a grid square"
+     },
+     {
+      "error": "there is a cell named vault copy already"
+     },
+     {
+      "error": "no plugin of this load order has the cell Nowhere"
+     },
+     {
+      "key": "Vault Copy",
+      "grid": null,
+      "points": [
+       [
+        0,
+        0,
+        0
+       ],
+       [
+        100,
+        0,
+        0
+       ],
+       [
+        102,
+        100,
+        0
+       ],
+       [
+        50,
+        50,
+        50
+       ]
+      ],
+      "edges": [
+       [
+        0,
+        1
+       ],
+       [
+        1,
+        0
+       ],
+       [
+        1,
+        2
+       ],
+       [
+        2,
+        3
+       ]
+      ],
+      "plugins": [
+       "(this patch)"
+      ],
+      "queued": true,
+      "new": true,
+      "granularity": 512
+     },
+     {
+      "key": "Vault",
+      "grid": null,
+      "points": [
+       [
+        0,
+        0,
+        0
+       ],
+       [
+        100,
+        0,
+        0
+       ],
+       [
+        100,
+        100,
+        0
+       ]
+      ],
+      "edges": [
+       [
+        0,
+        1
+       ],
+       [
+        1,
+        0
+       ],
+       [
+        1,
+        2
+       ],
+       [
+        2,
+        1
+       ]
+      ],
+      "plugins": [
+       "Morrowind.esm"
+      ],
+      "queued": false,
+      "new": false,
+      "granularity": 512
+     },
+     {
+      "key": "Vault",
+      "grid": null,
+      "points": [
+       [
+        0,
+        0,
+        0
+       ],
+       [
+        100,
+        0,
+        0
+       ],
+       [
+        100,
+        100,
+        0
+       ]
+      ],
+      "edges": [
+       [
+        0,
+        1
+       ],
+       [
+        1,
+        0
+       ],
+       [
+        1,
+        2
+       ],
+       [
+        2,
+        1
+       ]
+      ],
+      "plugins": [
+       "Morrowind.esm"
+      ],
+      "queued": false,
+      "new": false,
+      "granularity": 512
+     },
+     {
+      "key": "(1, 1)",
+      "grid": [
+       1,
+       1
+      ],
+      "points": [],
+      "edges": [],
+      "plugins": [],
+      "queued": false,
+      "new": false,
+      "granularity": 1024
+     },
+     {
+      "key": "(1, 1)",
+      "grid": [
+       1,
+       1
+      ],
+      "points": [],
+      "edges": [],
+      "plugins": [],
+      "queued": false,
+      "new": false,
+      "granularity": 1024
+     },
+     [
+      {
+       "tag": "",
+       "type": "Reference",
+       "id": "Mod.esp:1 in Vault",
+       "ref": {
+        "cell": "Vault",
+        "origin": "Mod.esp",
+        "refr": 1,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "scale",
+         "value": 2.0
+        }
+       ]
+      },
+      {
+       "tag": "CELL",
+       "type": "Cell",
+       "id": "Vault Copy",
+       "whole": null,
+       "made": {
+        "source": "Mod.esp",
+        "name": "Vault Copy",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "PGRD",
+       "type": "PathGrid",
+       "id": "Vault Copy",
+       "whole": null,
+       "made": {
+        "source": "Morrowind.esm",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in Vault",
+       "new": {
+        "cell": "Vault",
+        "uid": "U1",
+        "id": "rock",
+        "tag": "STAT",
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ]
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          5.0,
+          5.0,
+          5.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in Vault Copy",
+       "new": {
+        "cell": "Vault Copy",
+        "uid": "U2",
+        "id": "rock",
+        "tag": "",
+        "plugins": []
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          1.0,
+          2.0,
+          3.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in Vault Copy",
+       "new": {
+        "cell": "Vault Copy",
+        "uid": "U3",
+        "id": "rock",
+        "tag": "",
+        "plugins": []
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          7.0,
+          8.0,
+          9.5
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "scale",
+         "value": 1.5
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in Vault Copy",
+       "new": {
+        "cell": "Vault Copy",
+        "uid": "U4",
+        "id": "rock",
+        "tag": "",
+        "plugins": []
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          9.0,
+          9.0,
+          9.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "scale",
+         "value": 2.0
+        }
+       ]
+      },
+      {
+       "tag": "",
+       "type": "NewReference",
+       "id": "rock (new) in Vault Copy",
+       "new": {
+        "cell": "Vault Copy",
+        "uid": "U5",
+        "id": "rock",
+        "tag": "STAT",
+        "plugins": []
+       },
+       "whole": null,
+       "changes": [
+        {
+         "path": "id",
+         "value": "rock"
+        },
+        {
+         "path": "translation",
+         "value": [
+          5.0,
+          5.0,
+          5.0
+         ]
+        },
+        {
+         "path": "rotation",
+         "value": [
+          0.0,
+          0.0,
+          0.0
+         ]
+        },
+        {
+         "path": "temporary",
+         "value": true
+        }
+       ]
+      }
+     ]
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [
+      {
+       "cell": "Vault",
+       "origin": "Mod.esp",
+       "refr": 1,
+       "changes": {
+        "scale": 2.0
+       },
+       "plugins": [
+        "Morrowind.esm",
+        "Mod.esp"
+       ]
+      }
+     ],
+     "made": [
+      {
+       "type": "Cell",
+       "key": "Vault Copy",
+       "record": {
+        "type": "Cell",
+        "flags": "",
+        "name": "Vault Copy",
+        "data": {
+         "flags": "IS_INTERIOR",
+         "grid": [
+          0,
+          0
+         ]
+        }
+       },
+       "source": "Mod.esp",
+       "topic": ""
+      },
+      {
+       "type": "PathGrid",
+       "key": "Vault Copy",
+       "record": {
+        "type": "PathGrid",
+        "flags": "",
+        "cell": "Vault Copy",
+        "data": {
+         "grid": [
+          0,
+          0
+         ],
+         "granularity": 512,
+         "point_count": 4
+        },
+        "points": [
+         {
+          "location": [
+           0,
+           0,
+           0
+          ],
+          "auto_generated": 0,
+          "connection_count": 1
+         },
+         {
+          "location": [
+           100,
+           0,
+           0
+          ],
+          "auto_generated": 0,
+          "connection_count": 2
+         },
+         {
+          "location": [
+           102,
+           100,
+           0
+          ],
+          "auto_generated": 0,
+          "connection_count": 1
+         },
+         {
+          "location": [
+           50,
+           50,
+           50
+          ],
+          "auto_generated": 0,
+          "connection_count": 0
+         }
+        ],
+        "connections": [
+         1,
+         0,
+         2,
+         3
+        ]
+       },
+       "source": "Morrowind.esm",
+       "topic": ""
+      }
+     ],
+     "new": [
+      {
+       "cell": "Vault",
+       "uid": "U1",
+       "fields": {
+        "id": "rock",
+        "translation": [
+         5.0,
+         5.0,
+         5.0
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "temporary": true
+       },
+       "base": "Morrowind.esm",
+       "plugins": [
+        "Morrowind.esm",
+        "Mod.esp"
+       ],
+       "tag": "STAT"
+      },
+      {
+       "cell": "Vault Copy",
+       "uid": "U2",
+       "fields": {
+        "id": "rock",
+        "translation": [
+         1.0,
+         2.0,
+         3.0
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         0.0
+        ]
+       },
+       "base": "Morrowind.esm",
+       "plugins": [],
+       "tag": ""
+      },
+      {
+       "cell": "Vault Copy",
+       "uid": "U3",
+       "fields": {
+        "id": "rock",
+        "translation": [
+         7.0,
+         8.0,
+         9.5
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "scale": 1.5
+       },
+       "base": "Mod.esp",
+       "plugins": [],
+       "tag": ""
+      },
+      {
+       "cell": "Vault Copy",
+       "uid": "U4",
+       "fields": {
+        "id": "rock",
+        "translation": [
+         9.0,
+         9.0,
+         9.0
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "scale": 2.0
+       },
+       "base": "Mod.esp",
+       "plugins": [],
+       "tag": ""
+      },
+      {
+       "cell": "Vault Copy",
+       "uid": "U5",
+       "fields": {
+        "id": "rock",
+        "translation": [
+         5.0,
+         5.0,
+         5.0
+        ],
+        "rotation": [
+         0.0,
+         0.0,
+         0.0
+        ],
+        "temporary": true
+       },
+       "base": "Morrowind.esm",
+       "plugins": [],
+       "tag": "STAT"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

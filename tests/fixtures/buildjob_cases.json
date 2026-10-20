@@ -1,0 +1,1700 @@
+{
+ "_about": "The viewer's Build patch and Test in OpenMW links' decisions, one way for the Python side and the viewer's: run by tests/test_buildjob_cases.py (wraithguard.patch.buildjob and testrun) and viewer-shell/editcore/tests/cases.rs (editcore::buildjob and testrun). Each case is a `kind` - target, check and preview (where a patch goes), mode (whether editBuild starts), next and status (a build's job and editBuildStatus), setups and setup (editTestSetups, a launch setup checked), launch (OpenMW's command line), test (what editTestRun starts with), settings (the file they are kept in) - with its `args`, `{tmp}` a folder of its own holding the case's `dirs` and `files`. `expect` is the answer, or {error}. Generated from the Python side when a case is added, and read by hand.",
+ "cases": [
+  {
+   "name": "a patch in a data folder",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": " {tmp}/Data Files/New.esp "
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": "{tmp}/Data Files/New.esp"
+  },
+  {
+   "name": "a path spelled loosely",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": "{tmp}//Data Files/./New.ESP"
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": "{tmp}/Data Files/New.ESP"
+  },
+  {
+   "name": "an omwaddon",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": "{tmp}/Data Files/New.omwaddon"
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": "{tmp}/Data Files/New.omwaddon"
+  },
+  {
+   "name": "no path",
+   "kind": "target",
+   "args": {
+    "req": {}
+   },
+   "expect": {
+    "error": "Choose where the patch goes"
+   }
+  },
+  {
+   "name": "a blank path",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": "   "
+    }
+   },
+   "expect": {
+    "error": "Choose where the patch goes"
+   }
+  },
+  {
+   "name": "a path that is not text",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": 3
+    }
+   },
+   "expect": {
+    "error": "Choose where the patch goes"
+   }
+  },
+  {
+   "name": "a path with no folder",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": "New.esp"
+    }
+   },
+   "expect": {
+    "error": "The patch needs a full path, folder and all"
+   }
+  },
+  {
+   "name": "not a plugin",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": "{tmp}/Data Files/notes.txt"
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "error": "A patch is a plugin: name it .esp (or .omwaddon)"
+   }
+  },
+  {
+   "name": "a game file is not a patch",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": "{tmp}/Data Files/New.omwgame"
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "error": "A patch is a plugin: name it .esp (or .omwaddon)"
+   }
+  },
+  {
+   "name": "a dot file",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": "{tmp}/Data Files/.esp"
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "error": "A patch is a plugin: name it .esp (or .omwaddon)"
+   }
+  },
+  {
+   "name": "a folder that is not there",
+   "kind": "target",
+   "args": {
+    "req": {
+     "path": "{tmp}/Nowhere/New.esp"
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "error": "{tmp}/Nowhere is not a folder"
+   }
+  },
+  {
+   "name": "a new file",
+   "kind": "check",
+   "args": {
+    "req": {
+     "path": "{tmp}/Data Files/New.esp"
+    },
+    "order": [
+     "Morrowind.esm"
+    ]
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "path": "{tmp}/Data Files/New.esp",
+    "exists": false,
+    "inOrder": false
+   }
+  },
+  {
+   "name": "a file there, in the load order",
+   "kind": "check",
+   "args": {
+    "req": {
+     "path": "{tmp}/Data Files/Old Patch.esp"
+    },
+    "order": [
+     "Morrowind.esm",
+     "old patch.ESP"
+    ]
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "path": "{tmp}/Data Files/Old Patch.esp",
+    "exists": true,
+    "inOrder": true
+   }
+  },
+  {
+   "name": "a written patch previewed",
+   "kind": "preview",
+   "args": {
+    "req": {
+     "path": "{tmp}/Data Files/Old Patch.esp"
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": "{tmp}/Data Files/Old Patch.esp"
+  },
+  {
+   "name": "an unwritten patch previewed",
+   "kind": "preview",
+   "args": {
+    "req": {
+     "path": "{tmp}/Data Files/New.esp"
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "error": "New.esp is not written yet"
+   }
+  },
+  {
+   "name": "a new file, by default",
+   "kind": "mode",
+   "args": {
+    "req": {},
+    "target": "{tmp}/Data Files/New.esp"
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": "new"
+  },
+  {
+   "name": "a blank mode is new",
+   "kind": "mode",
+   "args": {
+    "req": {
+     "mode": ""
+    },
+    "target": "{tmp}/Data Files/New.esp"
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": "new"
+  },
+  {
+   "name": "appended",
+   "kind": "mode",
+   "args": {
+    "req": {
+     "mode": "append"
+    },
+    "target": "{tmp}/Data Files/Old Patch.esp"
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": "append"
+  },
+  {
+   "name": "replaced",
+   "kind": "mode",
+   "args": {
+    "req": {
+     "mode": "replace"
+    },
+    "target": "{tmp}/Data Files/Old Patch.esp",
+    "running": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": "replace"
+  },
+  {
+   "name": "a file there, as new",
+   "kind": "mode",
+   "args": {
+    "req": {
+     "mode": "new"
+    },
+    "target": "{tmp}/Data Files/Old Patch.esp"
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "error": "Old Patch.esp exists: choose Append or Replace"
+   }
+  },
+  {
+   "name": "a bad mode",
+   "kind": "mode",
+   "args": {
+    "req": {
+     "mode": "merge"
+    },
+    "target": "{tmp}/Data Files/New.esp"
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "error": "bad mode"
+   }
+  },
+  {
+   "name": "a mode that is not text",
+   "kind": "mode",
+   "args": {
+    "req": {
+     "mode": 1
+    },
+    "target": "{tmp}/Data Files/New.esp"
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "error": "bad mode"
+   }
+  },
+  {
+   "name": "a build running",
+   "kind": "mode",
+   "args": {
+    "req": {},
+    "target": "{tmp}/Data Files/New.esp",
+    "running": {
+     "job": 3,
+     "state": "running",
+     "lines": [
+      "a"
+     ],
+     "result": null,
+     "error": null
+    }
+   },
+   "dirs": [
+    "Data Files"
+   ],
+   "files": [
+    "Data Files/Old Patch.esp"
+   ],
+   "expect": {
+    "error": "A patch is being written already"
+   }
+  },
+  {
+   "name": "the first build",
+   "kind": "next",
+   "args": {},
+   "expect": {
+    "job": 1,
+    "state": "running",
+    "lines": [],
+    "result": null,
+    "error": null
+   }
+  },
+  {
+   "name": "the build after",
+   "kind": "next",
+   "args": {
+    "running": {
+     "job": 4,
+     "state": "failed",
+     "lines": [
+      "one"
+     ],
+     "result": null,
+     "error": "no"
+    }
+   },
+   "expect": {
+    "job": 5,
+    "state": "running",
+    "lines": [],
+    "result": null,
+    "error": null
+   }
+  },
+  {
+   "name": "all the lines",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    },
+    "req": {
+     "job": 3,
+     "from": 0
+    }
+   },
+   "expect": {
+    "job": 3,
+    "state": "done",
+    "lines": [
+     "one",
+     "two",
+     "three"
+    ],
+    "total": 3,
+    "result": {
+     "records": 2
+    },
+    "error": null
+   }
+  },
+  {
+   "name": "the lines since",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    },
+    "req": {
+     "job": 3,
+     "from": 2
+    }
+   },
+   "expect": {
+    "job": 3,
+    "state": "done",
+    "lines": [
+     "three"
+    ],
+    "total": 3,
+    "result": {
+     "records": 2
+    },
+    "error": null
+   }
+  },
+  {
+   "name": "past the end",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    },
+    "req": {
+     "job": 3,
+     "from": 9
+    }
+   },
+   "expect": {
+    "job": 3,
+    "state": "done",
+    "lines": [],
+    "total": 3,
+    "result": {
+     "records": 2
+    },
+    "error": null
+   }
+  },
+  {
+   "name": "from nowhere",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    },
+    "req": {
+     "job": 3
+    }
+   },
+   "expect": {
+    "job": 3,
+    "state": "done",
+    "lines": [
+     "one",
+     "two",
+     "three"
+    ],
+    "total": 3,
+    "result": {
+     "records": 2
+    },
+    "error": null
+   }
+  },
+  {
+   "name": "from below",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    },
+    "req": {
+     "job": 3,
+     "from": -1
+    }
+   },
+   "expect": {
+    "job": 3,
+    "state": "done",
+    "lines": [
+     "one",
+     "two",
+     "three"
+    ],
+    "total": 3,
+    "result": {
+     "records": 2
+    },
+    "error": null
+   }
+  },
+  {
+   "name": "from a float",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    },
+    "req": {
+     "job": 3,
+     "from": 1.0
+    }
+   },
+   "expect": {
+    "job": 3,
+    "state": "done",
+    "lines": [
+     "one",
+     "two",
+     "three"
+    ],
+    "total": 3,
+    "result": {
+     "records": 2
+    },
+    "error": null
+   }
+  },
+  {
+   "name": "from true",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    },
+    "req": {
+     "job": 3,
+     "from": true
+    }
+   },
+   "expect": {
+    "job": 3,
+    "state": "done",
+    "lines": [
+     "two",
+     "three"
+    ],
+    "total": 3,
+    "result": {
+     "records": 2
+    },
+    "error": null
+   }
+  },
+  {
+   "name": "a job as a float",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 4,
+     "state": "failed",
+     "lines": [
+      "one"
+     ],
+     "result": null,
+     "error": "no"
+    },
+    "req": {
+     "job": 4.0,
+     "from": 0
+    }
+   },
+   "expect": {
+    "job": 4,
+    "state": "failed",
+    "lines": [
+     "one"
+    ],
+    "total": 1,
+    "result": null,
+    "error": "no"
+   }
+  },
+  {
+   "name": "another job",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    },
+    "req": {
+     "job": 2,
+     "from": 0
+    }
+   },
+   "expect": {
+    "error": "No such patch build"
+   }
+  },
+  {
+   "name": "no job asked",
+   "kind": "status",
+   "args": {
+    "state": {
+     "job": 3,
+     "state": "done",
+     "lines": [
+      "one",
+      "two",
+      "three"
+     ],
+     "result": {
+      "records": 2
+     },
+     "error": null
+    },
+    "req": {}
+   },
+   "expect": {
+    "error": "No such patch build"
+   }
+  },
+  {
+   "name": "no build",
+   "kind": "status",
+   "args": {
+    "state": null,
+    "req": {
+     "job": 1
+    }
+   },
+   "expect": {
+    "error": "No such patch build"
+   }
+  },
+  {
+   "name": "setups kept, one used",
+   "kind": "setups",
+   "args": {
+    "settings": {
+     "setups": {},
+     "use": ""
+    },
+    "req": {
+     "setups": {
+      " Mine ": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "  ": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Bare": {}
+     },
+     "use": "Mine"
+    }
+   },
+   "expect": {
+    "settings": {
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Bare": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    },
+    "changed": true
+   }
+  },
+  {
+   "name": "a setup gone is not used",
+   "kind": "setups",
+   "args": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    },
+    "req": {
+     "setups": {
+      "Other": {
+       "content": [
+        " B.esp ",
+        ""
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Other": {
+       "content": [
+        "B.esp"
+       ],
+       "script": ""
+      }
+     },
+     "use": ""
+    },
+    "changed": true
+   }
+  },
+  {
+   "name": "one used, by name",
+   "kind": "setups",
+   "args": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    },
+    "req": {
+     "use": "Other"
+    }
+   },
+   "expect": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Other"
+    },
+    "changed": true
+   }
+  },
+  {
+   "name": "one that is not kept",
+   "kind": "setups",
+   "args": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    },
+    "req": {
+     "use": "Nope"
+    }
+   },
+   "expect": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": ""
+    },
+    "changed": true
+   }
+  },
+  {
+   "name": "none used",
+   "kind": "setups",
+   "args": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    },
+    "req": {
+     "use": null
+    }
+   },
+   "expect": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": ""
+    },
+    "changed": true
+   }
+  },
+  {
+   "name": "only read",
+   "kind": "setups",
+   "args": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    },
+    "req": {}
+   },
+   "expect": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    },
+    "changed": false
+   }
+  },
+  {
+   "name": "read, the one used gone",
+   "kind": "setups",
+   "args": {
+    "settings": {
+     "setups": {},
+     "use": "Mine"
+    },
+    "req": {}
+   },
+   "expect": {
+    "settings": {
+     "setups": {},
+     "use": ""
+    },
+    "changed": false
+   }
+  },
+  {
+   "name": "setups that are not an object",
+   "kind": "setups",
+   "args": {
+    "settings": {
+     "setups": {},
+     "use": ""
+    },
+    "req": {
+     "setups": [
+      "Mine"
+     ]
+    }
+   },
+   "expect": {
+    "error": "setups is an object"
+   }
+  },
+  {
+   "name": "a setup refused",
+   "kind": "setups",
+   "args": {
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    },
+    "req": {
+     "setups": {
+      "A": {
+       "content": [
+        "x.txt"
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "error": "x.txt is not a plugin's name (a .esp, .esm or .omwaddon)"
+   }
+  },
+  {
+   "name": "a setup",
+   "kind": "setup",
+   "args": {
+    "raw": {
+     "content": [
+      " Helpers.esp ",
+      "",
+      "Base.ESM",
+      "Lua.omwaddon",
+      "Game.omwgame"
+     ],
+     "script": "tgm\ntcl"
+    }
+   },
+   "expect": {
+    "content": [
+     "Helpers.esp",
+     "Base.ESM",
+     "Lua.omwaddon",
+     "Game.omwgame"
+    ],
+    "script": "tgm\ntcl"
+   }
+  },
+  {
+   "name": "a setup with nothing",
+   "kind": "setup",
+   "args": {
+    "raw": {}
+   },
+   "expect": {
+    "content": [],
+    "script": ""
+   }
+  },
+  {
+   "name": "a setup's script that is not text",
+   "kind": "setup",
+   "args": {
+    "raw": {
+     "script": 3
+    }
+   },
+   "expect": {
+    "content": [],
+    "script": ""
+   }
+  },
+  {
+   "name": "a setup's content as text",
+   "kind": "setup",
+   "args": {
+    "raw": {
+     "content": "ab"
+    }
+   },
+   "expect": {
+    "error": "a is not a plugin's name (a .esp, .esm or .omwaddon)"
+   }
+  },
+  {
+   "name": "a setup that is not an object",
+   "kind": "setup",
+   "args": {
+    "raw": [
+     "A.esp"
+    ]
+   },
+   "expect": {
+    "error": "a launch setup is an object"
+   }
+  },
+  {
+   "name": "a content file in a folder",
+   "kind": "setup",
+   "args": {
+    "raw": {
+     "content": [
+      "../x.esp"
+     ]
+    }
+   },
+   "expect": {
+    "error": "../x.esp is not a plugin's name (a .esp, .esm or .omwaddon)"
+   }
+  },
+  {
+   "name": "a content file that is not a plugin",
+   "kind": "setup",
+   "args": {
+    "raw": {
+     "content": [
+      "notes.txt"
+     ]
+    }
+   },
+   "expect": {
+    "error": "notes.txt is not a plugin's name (a .esp, .esm or .omwaddon)"
+   }
+  },
+  {
+   "name": "a content file of a number",
+   "kind": "setup",
+   "args": {
+    "raw": {
+     "content": [
+      3
+     ]
+    }
+   },
+   "expect": {
+    "error": "3 is not a plugin's name (a .esp, .esm or .omwaddon)"
+   }
+  },
+  {
+   "name": "an interior, by name",
+   "kind": "launch",
+   "args": {
+    "exe": "/g/openmw",
+    "plugin": "/t/Wraithguard Test.esp",
+    "cell": "  Vault  "
+   },
+   "expect": {
+    "argv": [
+     "/g/openmw",
+     "--data",
+     "/t",
+     "--content",
+     "Wraithguard Test.esp",
+     "--skip-menu",
+     "--start",
+     "Vault"
+    ],
+    "script": null
+   }
+  },
+  {
+   "name": "an exterior, by its grid",
+   "kind": "launch",
+   "args": {
+    "exe": "/g/openmw",
+    "plugin": "/t/p.esp",
+    "cell": "(-3, -2)"
+   },
+   "expect": {
+    "argv": [
+     "/g/openmw",
+     "--data",
+     "/t",
+     "--content",
+     "p.esp",
+     "--skip-menu"
+    ],
+    "script": "coe -3 -2\n"
+   }
+  },
+  {
+   "name": "a grid, bare",
+   "kind": "launch",
+   "args": {
+    "exe": "/g/openmw",
+    "plugin": "/t/p.esp",
+    "cell": "-03,2"
+   },
+   "expect": {
+    "argv": [
+     "/g/openmw",
+     "--data",
+     "/t",
+     "--content",
+     "p.esp",
+     "--skip-menu"
+    ],
+    "script": "coe -3 2\n"
+   }
+  },
+  {
+   "name": "a named exterior",
+   "kind": "launch",
+   "args": {
+    "exe": "/g/openmw",
+    "plugin": "/t/p.esp",
+    "cell": "Balmora (-3, -2)"
+   },
+   "expect": {
+    "argv": [
+     "/g/openmw",
+     "--data",
+     "/t",
+     "--content",
+     "p.esp",
+     "--skip-menu"
+    ],
+    "script": "coe -3 -2\n"
+   }
+  },
+  {
+   "name": "a name with a grid inside",
+   "kind": "launch",
+   "args": {
+    "exe": "/g/openmw",
+    "plugin": "/t/p.esp",
+    "cell": "Vault (1, 2) East"
+   },
+   "expect": {
+    "argv": [
+     "/g/openmw",
+     "--data",
+     "/t",
+     "--content",
+     "p.esp",
+     "--skip-menu",
+     "--start",
+     "Vault (1, 2) East"
+    ],
+    "script": null
+   }
+  },
+  {
+   "name": "the game's own start",
+   "kind": "launch",
+   "args": {
+    "exe": "/g/openmw",
+    "plugin": "/t/p.esp",
+    "cell": null
+   },
+   "expect": {
+    "argv": [
+     "/g/openmw",
+     "--data",
+     "/t",
+     "--content",
+     "p.esp",
+     "--skip-menu"
+    ],
+    "script": null
+   }
+  },
+  {
+   "name": "a plugin with no folder",
+   "kind": "launch",
+   "args": {
+    "exe": "openmw",
+    "plugin": "p.esp",
+    "cell": ""
+   },
+   "expect": {
+    "argv": [
+     "openmw",
+     "--data",
+     ".",
+     "--content",
+     "p.esp",
+     "--skip-menu"
+    ],
+    "script": null
+   }
+  },
+  {
+   "name": "a launch setup",
+   "kind": "launch",
+   "args": {
+    "exe": "/g/openmw",
+    "plugin": "/t/p.esp",
+    "cell": "(0, 0)",
+    "setup": {
+     "content": [
+      "A.esp"
+     ],
+     "script": "tgm"
+    }
+   },
+   "expect": {
+    "argv": [
+     "/g/openmw",
+     "--data",
+     "/t",
+     "--content",
+     "A.esp",
+     "--content",
+     "p.esp",
+     "--skip-menu"
+    ],
+    "script": "coe 0 0\ntgm\n"
+   }
+  },
+  {
+   "name": "a launch setup, in an interior",
+   "kind": "launch",
+   "args": {
+    "exe": "/g/openmw",
+    "plugin": "/t/p.esp",
+    "cell": "Vault",
+    "setup": {
+     "content": [],
+     "script": "  "
+    }
+   },
+   "expect": {
+    "argv": [
+     "/g/openmw",
+     "--data",
+     "/t",
+     "--content",
+     "p.esp",
+     "--skip-menu",
+     "--start",
+     "Vault"
+    ],
+    "script": null
+   }
+  },
+  {
+   "name": "a test where the setup is the one used",
+   "kind": "test",
+   "args": {
+    "req": {
+     "cell": "Vault"
+    },
+    "exe": "/g/openmw",
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    }
+   },
+   "expect": {
+    "exe": "/g/openmw",
+    "cell": "Vault",
+    "setup": {
+     "content": [
+      "A.esp"
+     ],
+     "script": "tgm"
+    }
+   }
+  },
+  {
+   "name": "a test with a setup asked for",
+   "kind": "test",
+   "args": {
+    "req": {
+     "setup": "Other",
+     "cell": 3
+    },
+    "exe": "/g/openmw",
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    }
+   },
+   "expect": {
+    "exe": "/g/openmw",
+    "cell": null,
+    "setup": {
+     "content": [],
+     "script": ""
+    }
+   }
+  },
+  {
+   "name": "a test with no setup",
+   "kind": "test",
+   "args": {
+    "req": {
+     "setup": ""
+    },
+    "exe": "/g/openmw",
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    }
+   },
+   "expect": {
+    "exe": "/g/openmw",
+    "cell": null,
+    "setup": null
+   }
+  },
+  {
+   "name": "a test with a setup not kept",
+   "kind": "test",
+   "args": {
+    "req": {
+     "setup": "Nope"
+    },
+    "exe": "/g/openmw",
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    }
+   },
+   "expect": {
+    "error": "No launch setup is called Nope"
+   }
+  },
+  {
+   "name": "no OpenMW",
+   "kind": "test",
+   "args": {
+    "req": {},
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    }
+   },
+   "expect": {
+    "error": "needExe: Where is OpenMW? Choose openmw.exe (or the folder it is in)"
+   }
+  },
+  {
+   "name": "not OpenMW",
+   "kind": "test",
+   "args": {
+    "req": {
+     "exe": "/x/y"
+    },
+    "given": "/x/y",
+    "settings": {
+     "exe": "/g/openmw",
+     "setups": {
+      "Mine": {
+       "content": [
+        "A.esp"
+       ],
+       "script": "tgm"
+      },
+      "Other": {
+       "content": [],
+       "script": ""
+      }
+     },
+     "use": "Mine"
+    }
+   },
+   "expect": {
+    "error": "needExe: /x/y is not OpenMW"
+   }
+  },
+  {
+   "name": "no settings file",
+   "kind": "settings",
+   "args": {},
+   "expect": {
+    "setups": {},
+    "use": ""
+   }
+  },
+  {
+   "name": "a settings file",
+   "kind": "settings",
+   "args": {
+    "file": "{\"exe\": \"/g/openmw\", \"setups\": {\"Mine\": {\"content\": [\"A.esp\"], \"script\": \"tgm\"}}, \"use\": \"Mine\", \"other\": 1}"
+   },
+   "expect": {
+    "exe": "/g/openmw",
+    "setups": {
+     "Mine": {
+      "content": [
+       "A.esp"
+      ],
+      "script": "tgm"
+     }
+    },
+    "use": "Mine",
+    "other": 1
+   }
+  },
+  {
+   "name": "a settings file, the one used gone",
+   "kind": "settings",
+   "args": {
+    "file": "{\"use\": \"Mine\", \"exe\": \"/g\"}"
+   },
+   "expect": {
+    "use": "",
+    "exe": "/g",
+    "setups": {}
+   }
+  },
+  {
+   "name": "a settings file of a list",
+   "kind": "settings",
+   "args": {
+    "file": "[1]"
+   },
+   "expect": {
+    "setups": {},
+    "use": ""
+   }
+  },
+  {
+   "name": "a settings file that does not read",
+   "kind": "settings",
+   "args": {
+    "file": "{nope"
+   },
+   "expect": {
+    "setups": {},
+    "use": ""
+   }
+  },
+  {
+   "name": "a settings file with odd setups",
+   "kind": "settings",
+   "args": {
+    "file": "{\"setups\": [1], \"use\": 3}"
+   },
+   "expect": {
+    "setups": {},
+    "use": ""
+   }
+  }
+ ]
+}

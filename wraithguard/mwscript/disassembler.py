@@ -267,6 +267,8 @@ def disassemble(
 
     while pos < len(data):
         if pos + 2 > len(data):
+            if not pending:
+                pending_at = pos  # a lone last byte: its own offset, not a stale one
             pending += data[pos:]
             pos = len(data)
             break

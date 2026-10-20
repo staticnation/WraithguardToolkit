@@ -143,9 +143,19 @@ class CellPreviewMixin:
             editor_links = getattr(self, "editor_links", None)
             if editor_links is not None and not meshes:
                 links.update(editor_links(server, setup))
+        # The viewer's own Editor (editcore): the same load order, the journal shared.
+        native_of = getattr(self, "editor_native", None)
+        native = native_of() if callable(native_of) and links.get("editRecord") else None
         try:
             extra_file.write_text(
-                json.dumps({"subset": subset, "meshes": meshes or [], "links": links}),
+                json.dumps(
+                    {
+                        "subset": subset,
+                        "meshes": meshes or [],
+                        "links": links,
+                        **({"editor": native} if native else {}),
+                    }
+                ),
                 encoding="utf-8",
             )
         except OSError:

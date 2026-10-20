@@ -1,0 +1,3935 @@
+{
+ "_about": "The dialogue window, one way for the Python Editor and the viewer's: run by tests/test_dialogue_cases.py (EditorSession.topics, topic, move_response, new_response, copy_topic) and viewer-shell/editcore/tests/cases.rs (editcore::dialogue). Each case is a load order (`plugins`, each with its masters and its records in the tes3conv schema, in file order: a response belongs to the topic before it) and operations: [\"topics\"], [\"topic\", id], [\"move_response\", topic, response, after], [\"new_response\", topic, after] (the new response's record dialog), [\"copy_topic\", topic, new name], [\"pending\"], [\"undo\"]. The responses the patch makes get random ids; they are given as labels (R1, R2, ... in the order the queue holds them), in the operations too. `expect` is what each gave and the journal after them. Generated from the Python side when a case is added, and read by hand.",
+ "cases": [
+  {
+   "name": "the dialogue window over two plugins",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "masters": [],
+     "records": [
+      {
+       "type": "Dialogue",
+       "flags": "",
+       "id": "background",
+       "dialogue_type": "Topic"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "a",
+       "prev_id": "",
+       "next_id": "b",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "trader",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "First.",
+       "filters": [],
+       "script_text": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "b",
+       "prev_id": "a",
+       "next_id": "c",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "Dark Elf",
+       "speaker_class": "",
+       "speaker_faction": "Hlaalu",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Second.",
+       "filters": [
+        {
+         "index": 0,
+         "filter_type": "Function",
+         "function": "SameFaction",
+         "comparison": "Equal",
+         "id": "",
+         "value": {
+          "type": "Integer",
+          "data": 1
+         }
+        }
+       ],
+       "script_text": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "c",
+       "prev_id": "b",
+       "next_id": "",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Third.",
+       "filters": [],
+       "script_text": ""
+      },
+      {
+       "type": "Dialogue",
+       "flags": "",
+       "id": "Q_Quest",
+       "dialogue_type": "Journal"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "j10",
+       "prev_id": "",
+       "next_id": "j20",
+       "data": {
+        "dialogue_type": "Journal",
+        "disposition": 10,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "The quest.",
+       "filters": [],
+       "script_text": "",
+       "quest_state": "Name"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "j20",
+       "prev_id": "j10",
+       "next_id": "j100",
+       "data": {
+        "dialogue_type": "Journal",
+        "disposition": 20,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Halfway.",
+       "filters": [],
+       "script_text": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "j100",
+       "prev_id": "j20",
+       "next_id": "",
+       "data": {
+        "dialogue_type": "Journal",
+        "disposition": 100,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Done.",
+       "filters": [],
+       "script_text": "",
+       "quest_state": "Finished"
+      },
+      {
+       "type": "Dialogue",
+       "flags": "",
+       "id": "little secret",
+       "dialogue_type": "Topic"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "ls_yes",
+       "prev_id": "",
+       "next_id": "ls_no",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Good. Off you go.",
+       "filters": [
+        {
+         "index": 0,
+         "filter_type": "Function",
+         "function": "Choice",
+         "comparison": "Equal",
+         "id": "",
+         "value": {
+          "type": "Integer",
+          "data": 1
+         }
+        }
+       ],
+       "script_text": "Journal Q_Quest 20\r\nGoodbye"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "ls_no",
+       "prev_id": "ls_yes",
+       "next_id": "ls_ask",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Pity.",
+       "filters": [
+        {
+         "index": 0,
+         "filter_type": "Function",
+         "function": "Choice",
+         "comparison": "Equal",
+         "id": "",
+         "value": {
+          "type": "Integer",
+          "data": 2
+         }
+        }
+       ],
+       "script_text": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "ls_ask",
+       "prev_id": "ls_no",
+       "next_id": "ls_rest",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "trader",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Will you keep my little secret? It is about my background.",
+       "filters": [],
+       "script_text": "Choice \"Yes\" 1 \"No, never\" 2"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "ls_rest",
+       "prev_id": "ls_ask",
+       "next_id": "",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Nothing to say.",
+       "filters": [
+        {
+         "index": 0,
+         "filter_type": "Global",
+         "function": "",
+         "comparison": "Equal",
+         "id": "secret_known",
+         "value": {
+          "type": "Integer",
+          "data": 1
+         }
+        },
+        {
+         "index": 0,
+         "filter_type": "NotRace",
+         "function": "",
+         "comparison": "Equal",
+         "id": "Imperial",
+         "value": {
+          "type": "Integer",
+          "data": 0
+         }
+        },
+        {
+         "index": 0,
+         "filter_type": "Dead",
+         "function": "",
+         "comparison": "Equal",
+         "id": "rat",
+         "value": {
+          "type": "Integer",
+          "data": 0
+         }
+        }
+       ],
+       "script_text": ""
+      },
+      {
+       "type": "Dialogue",
+       "flags": "",
+       "id": "Greeting 10",
+       "dialogue_type": "Greeting"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "g10",
+       "prev_id": "",
+       "next_id": "",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Hm?",
+       "filters": [],
+       "script_text": "",
+       "speaker_sex": "Male"
+      },
+      {
+       "type": "Dialogue",
+       "flags": "",
+       "id": "Greeting 5",
+       "dialogue_type": "Greeting"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "g5_guard",
+       "prev_id": "",
+       "next_id": "g5_any",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "guard",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Move along, %PCRace.",
+       "filters": [],
+       "script_text": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "g5_any",
+       "prev_id": "g5_guard",
+       "next_id": "",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Hello, %PCName. Ask about my little secret, or my background.",
+       "filters": [
+        {
+         "index": 0,
+         "filter_type": "Local",
+         "function": "",
+         "comparison": "Less",
+         "id": "talked",
+         "value": {
+          "type": "Integer",
+          "data": 1
+         }
+        },
+        {
+         "index": 0,
+         "filter_type": "Item",
+         "function": "",
+         "comparison": "GreaterEqual",
+         "id": "gold_001",
+         "value": {
+          "type": "Integer",
+          "data": 10
+         }
+        },
+        {
+         "index": 0,
+         "filter_type": "NotId",
+         "function": "",
+         "comparison": "Equal",
+         "id": "guard",
+         "value": {
+          "type": "Integer",
+          "data": 0
+         }
+        }
+       ],
+       "script_text": "AddTopic \"little secret\" ; tell them\r\nset secret_known to 1\r\nset guard->alert to 1\r\nplayer->AddItem \"gold_001\" 5\r\nModDisposition 10"
+      },
+      {
+       "type": "Npc",
+       "flags": "",
+       "id": "trader",
+       "name": "Trader",
+       "script": "",
+       "mesh": "",
+       "race": "Dark Elf",
+       "class": "Trader",
+       "faction": "Hlaalu",
+       "head": "",
+       "hair": "",
+       "npc_flags": "",
+       "blood_type": 0,
+       "inventory": [],
+       "spells": [],
+       "ai_data": {
+        "hello": 0,
+        "fight": 0,
+        "flee": 0,
+        "alarm": 0,
+        "services": ""
+       },
+       "ai_packages": [],
+       "travel_destinations": [],
+       "data": {
+        "level": 1,
+        "disposition": 0,
+        "reputation": 0,
+        "rank": 2,
+        "gold": 0
+       }
+      },
+      {
+       "type": "Npc",
+       "flags": "",
+       "id": "guard",
+       "name": "Guard",
+       "script": "",
+       "mesh": "",
+       "race": "Imperial",
+       "class": "Guard",
+       "faction": "",
+       "head": "",
+       "hair": "",
+       "npc_flags": "FEMALE",
+       "blood_type": 0,
+       "inventory": [],
+       "spells": [],
+       "ai_data": {
+        "hello": 0,
+        "fight": 0,
+        "flee": 0,
+        "alarm": 0,
+        "services": ""
+       },
+       "ai_packages": [],
+       "travel_destinations": [],
+       "data": {
+        "level": 1,
+        "disposition": 0,
+        "reputation": 0,
+        "rank": 0,
+        "gold": 0
+       }
+      },
+      {
+       "type": "Npc",
+       "flags": "",
+       "id": "hlaalu_low",
+       "name": "Hlaalu_Low",
+       "script": "",
+       "mesh": "",
+       "race": "Dark Elf",
+       "class": "Trader",
+       "faction": "Hlaalu",
+       "head": "",
+       "hair": "",
+       "npc_flags": "",
+       "blood_type": 0,
+       "inventory": [],
+       "spells": [],
+       "ai_data": {
+        "hello": 0,
+        "fight": 0,
+        "flee": 0,
+        "alarm": 0,
+        "services": ""
+       },
+       "ai_packages": [],
+       "travel_destinations": [],
+       "data": {
+        "level": 1,
+        "disposition": 0,
+        "reputation": 0,
+        "rank": 0,
+        "gold": 0
+       }
+      },
+      {
+       "type": "Creature",
+       "flags": "",
+       "id": "rat",
+       "name": "Rat",
+       "script": "",
+       "mesh": "",
+       "sound": "",
+       "inventory": [],
+       "spells": [],
+       "ai_data": {
+        "hello": 0,
+        "fight": 0,
+        "flee": 0,
+        "alarm": 0,
+        "services": ""
+       },
+       "ai_packages": [],
+       "travel_destinations": [],
+       "creature_flags": "",
+       "scale": 1.0,
+       "data": {
+        "creature_type": "Creatures",
+        "level": 1,
+        "attributes": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "health": 1,
+        "magicka": 0,
+        "fatigue": 0,
+        "soul_points": 0,
+        "combat": 0,
+        "magic": 0,
+        "stealth": 0,
+        "attacks": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "gold": 0
+       }
+      }
+     ]
+    },
+    {
+     "name": "Mod.esp",
+     "masters": [
+      "Morrowind.esm"
+     ],
+     "records": [
+      {
+       "type": "Dialogue",
+       "flags": "",
+       "id": "Background",
+       "dialogue_type": "Topic"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "x",
+       "prev_id": "a",
+       "next_id": "b",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Inserted.",
+       "filters": [],
+       "script_text": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "b",
+       "prev_id": "c",
+       "next_id": "",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "Dark Elf",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Second, moved last.",
+       "filters": [],
+       "script_text": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "y",
+       "prev_id": "missing",
+       "next_id": "",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Lost.",
+       "filters": [],
+       "script_text": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "DELETED",
+       "id": "c",
+       "prev_id": "b",
+       "next_id": "",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "",
+       "filters": [],
+       "script_text": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "a",
+       "prev_id": "",
+       "next_id": "x",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 10,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "trader",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "First.",
+       "filters": [],
+       "script_text": "player->AddItem gold_001 5\r\nset background_told to 1"
+      },
+      {
+       "type": "Dialogue",
+       "flags": "",
+       "id": "rumors",
+       "dialogue_type": "Topic"
+      },
+      {
+       "type": "DialogueInfo",
+       "flags": "",
+       "id": "r1",
+       "prev_id": "",
+       "next_id": "",
+       "data": {
+        "dialogue_type": "Topic",
+        "disposition": 0,
+        "speaker_rank": 0,
+        "speaker_sex": "Any",
+        "player_rank": 0
+       },
+       "speaker_id": "",
+       "speaker_race": "",
+       "speaker_class": "",
+       "speaker_faction": "",
+       "speaker_cell": "Balmora",
+       "player_faction": "",
+       "sound_path": "",
+       "text": "Have you heard?",
+       "filters": [],
+       "script_text": ""
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "topics"
+    ],
+    [
+     "topic",
+     "background"
+    ],
+    [
+     "topic",
+     "BACKGROUND"
+    ],
+    [
+     "topic",
+     "q_quest"
+    ],
+    [
+     "topic",
+     "nothing"
+    ],
+    [
+     "move_response",
+     "background",
+     "a",
+     "a"
+    ],
+    [
+     "move_response",
+     "background",
+     "zz",
+     ""
+    ],
+    [
+     "move_response",
+     "background",
+     "a",
+     "zz"
+    ],
+    [
+     "move_response",
+     "background",
+     "a",
+     ""
+    ],
+    [
+     "move_response",
+     "background",
+     "y",
+     ""
+    ],
+    [
+     "new_response",
+     "background",
+     "nope"
+    ],
+    [
+     "new_response",
+     "background",
+     "x"
+    ],
+    [
+     "new_response",
+     "rumors",
+     ""
+    ],
+    [
+     "topic",
+     "background"
+    ],
+    [
+     "move_response",
+     "background",
+     "R1",
+     ""
+    ],
+    [
+     "copy_topic",
+     "background",
+     "  "
+    ],
+    [
+     "copy_topic",
+     "background",
+     "RUMORS"
+    ],
+    [
+     "copy_topic",
+     "background",
+     "background copy"
+    ],
+    [
+     "topics"
+    ],
+    [
+     "move_response",
+     "background copy",
+     "R5",
+     ""
+    ],
+    [
+     "pending"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "topic",
+     "background copy"
+    ],
+    [
+     "flow",
+     "little secret"
+    ],
+    [
+     "flow",
+     "Background"
+    ],
+    [
+     "flow",
+     "nothing"
+    ],
+    [
+     "map",
+     "background",
+     1
+    ],
+    [
+     "map",
+     "greeting 5",
+     2
+    ],
+    [
+     "map",
+     "nothing",
+     1
+    ],
+    [
+     "flags",
+     "",
+     ""
+    ],
+    [
+     "flags",
+     "SECRET_KNOWN",
+     ""
+    ],
+    [
+     "flags",
+     "gold_001",
+     "item"
+    ],
+    [
+     "flags",
+     "nothing",
+     ""
+    ],
+    [
+     "play",
+     "trader",
+     "",
+     0,
+     "",
+     50,
+     false
+    ],
+    [
+     "play",
+     "trader",
+     "little secret",
+     0,
+     "",
+     50,
+     false
+    ],
+    [
+     "play",
+     "trader",
+     "little secret",
+     1,
+     "",
+     50,
+     false
+    ],
+    [
+     "play",
+     "trader",
+     "little secret",
+     0,
+     "",
+     50,
+     true
+    ],
+    [
+     "play",
+     "guard",
+     "",
+     0,
+     "",
+     50,
+     false
+    ],
+    [
+     "play",
+     "hlaalu_low",
+     "background",
+     0,
+     "",
+     5,
+     false
+    ],
+    [
+     "play",
+     "rat",
+     "",
+     0,
+     "Balmora",
+     50,
+     false
+    ],
+    [
+     "play",
+     "  ",
+     "",
+     0,
+     "",
+     50,
+     false
+    ],
+    [
+     "play",
+     "nobody",
+     "",
+     0,
+     "",
+     50,
+     false
+    ],
+    [
+     "who_can_say",
+     "b"
+    ],
+    [
+     "who_can_say",
+     "ls_rest"
+    ],
+    [
+     "who_can_say",
+     "g5_guard"
+    ],
+    [
+     "who_can_say",
+     "zz"
+    ],
+    [
+     "set",
+     "INFO",
+     "a",
+     "text",
+     "First, said otherwise."
+    ],
+    [
+     "set",
+     "INFO",
+     "a",
+     "data.disposition",
+     30
+    ],
+    [
+     "flow",
+     "background"
+    ],
+    [
+     "topic",
+     "background"
+    ],
+    [
+     "play",
+     "trader",
+     "background",
+     0,
+     "",
+     20,
+     false
+    ],
+    [
+     "flow",
+     "background copy"
+    ]
+   ],
+   "expect": {
+    "results": [
+     [
+      {
+       "id": "Greeting 10",
+       "type": "Greeting",
+       "plugins": [
+        "Morrowind.esm"
+       ]
+      },
+      {
+       "id": "Greeting 5",
+       "type": "Greeting",
+       "plugins": [
+        "Morrowind.esm"
+       ]
+      },
+      {
+       "id": "Q_Quest",
+       "type": "Journal",
+       "plugins": [
+        "Morrowind.esm"
+       ]
+      },
+      {
+       "id": "background",
+       "type": "Topic",
+       "plugins": [
+        "Morrowind.esm",
+        "Mod.esp"
+       ]
+      },
+      {
+       "id": "little secret",
+       "type": "Topic",
+       "plugins": [
+        "Morrowind.esm"
+       ]
+      },
+      {
+       "id": "rumors",
+       "type": "Topic",
+       "plugins": [
+        "Mod.esp"
+       ]
+      }
+     ],
+     {
+      "id": "background",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "a",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "x",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "b",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       },
+       {
+        "id": "y",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       }
+      ]
+     },
+     {
+      "id": "background",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "a",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "x",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "b",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       },
+       {
+        "id": "y",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       }
+      ]
+     },
+     {
+      "id": "Q_Quest",
+      "type": "Journal",
+      "responses": [
+       {
+        "id": "j10",
+        "text": "The quest.",
+        "speaker": "",
+        "disposition": 10,
+        "plugins": [
+         "Morrowind.esm"
+        ],
+        "winner": "Morrowind.esm",
+        "orphan": false,
+        "quest": "Name"
+       },
+       {
+        "id": "j20",
+        "text": "Halfway.",
+        "speaker": "",
+        "disposition": 20,
+        "plugins": [
+         "Morrowind.esm"
+        ],
+        "winner": "Morrowind.esm",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "j100",
+        "text": "Done.",
+        "speaker": "",
+        "disposition": 100,
+        "plugins": [
+         "Morrowind.esm"
+        ],
+        "winner": "Morrowind.esm",
+        "orphan": false,
+        "quest": "Finished"
+       }
+      ]
+     },
+     {
+      "error": "no plugin of this load order has the topic nothing"
+     },
+     {
+      "error": "a response cannot follow itself"
+     },
+     {
+      "error": "zz is not a response of background"
+     },
+     {
+      "error": "zz is not a response of background"
+     },
+     {
+      "id": "background",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "a",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "x",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "b",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       },
+       {
+        "id": "y",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       }
+      ]
+     },
+     {
+      "id": "background",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "y",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp",
+         "(this patch)"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "a",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "x",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "b",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       }
+      ]
+     },
+     {
+      "error": "nope is not a response of background"
+     },
+     {
+      "tag": "INFO",
+      "type": "DialogueInfo",
+      "id": "R1",
+      "winner": "(this patch)",
+      "plugins": [
+       "(this patch)"
+      ],
+      "whole": null,
+      "new": true,
+      "fields": [
+       {
+        "path": "type",
+        "value": "DialogueInfo",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "flags",
+        "value": "",
+        "editable": true,
+        "kind": "flags:ObjectFlags",
+        "options": [
+         "MODIFIED",
+         "DELETED",
+         "PERSISTENT",
+         "IGNORED",
+         "BLOCKED"
+        ]
+       },
+       {
+        "path": "id",
+        "value": "R1",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "prev_id",
+        "value": "x",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "next_id",
+        "value": "b",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "data.dialogue_type",
+        "value": "Topic",
+        "editable": true,
+        "kind": "enum",
+        "options": [
+         "Greeting",
+         "Journal",
+         "Persuasion",
+         "Topic",
+         "Voice"
+        ]
+       },
+       {
+        "path": "data.disposition",
+        "value": 0,
+        "editable": true,
+        "kind": "int:-2147483648:2147483647",
+        "options": []
+       },
+       {
+        "path": "data.speaker_rank",
+        "value": 0,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": []
+       },
+       {
+        "path": "data.speaker_sex",
+        "value": "Any",
+        "editable": true,
+        "kind": "enum",
+        "options": [
+         "Any",
+         "Female",
+         "Male"
+        ]
+       },
+       {
+        "path": "data.player_rank",
+        "value": 0,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": []
+       },
+       {
+        "path": "speaker_id",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "speaker_race",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "speaker_class",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "speaker_faction",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "speaker_cell",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "player_faction",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "sound_path",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "text",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "filters",
+        "value": [],
+        "editable": true,
+        "kind": "list",
+        "options": [],
+        "count": 0
+       },
+       {
+        "path": "script_text",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       }
+      ]
+     },
+     {
+      "tag": "INFO",
+      "type": "DialogueInfo",
+      "id": "R2",
+      "winner": "(this patch)",
+      "plugins": [
+       "(this patch)"
+      ],
+      "whole": null,
+      "new": true,
+      "fields": [
+       {
+        "path": "type",
+        "value": "DialogueInfo",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "flags",
+        "value": "",
+        "editable": true,
+        "kind": "flags:ObjectFlags",
+        "options": [
+         "MODIFIED",
+         "DELETED",
+         "PERSISTENT",
+         "IGNORED",
+         "BLOCKED"
+        ]
+       },
+       {
+        "path": "id",
+        "value": "R2",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "prev_id",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "next_id",
+        "value": "r1",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "data.dialogue_type",
+        "value": "Topic",
+        "editable": true,
+        "kind": "enum",
+        "options": [
+         "Greeting",
+         "Journal",
+         "Persuasion",
+         "Topic",
+         "Voice"
+        ]
+       },
+       {
+        "path": "data.disposition",
+        "value": 0,
+        "editable": true,
+        "kind": "int:-2147483648:2147483647",
+        "options": []
+       },
+       {
+        "path": "data.speaker_rank",
+        "value": 0,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": []
+       },
+       {
+        "path": "data.speaker_sex",
+        "value": "Any",
+        "editable": true,
+        "kind": "enum",
+        "options": [
+         "Any",
+         "Female",
+         "Male"
+        ]
+       },
+       {
+        "path": "data.player_rank",
+        "value": 0,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": []
+       },
+       {
+        "path": "speaker_id",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "speaker_race",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "speaker_class",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "speaker_faction",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "speaker_cell",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "player_faction",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "sound_path",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "text",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "filters",
+        "value": [],
+        "editable": true,
+        "kind": "list",
+        "options": [],
+        "count": 0
+       },
+       {
+        "path": "script_text",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       }
+      ]
+     },
+     {
+      "id": "background",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "y",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp",
+         "(this patch)"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "a",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "x",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R1",
+        "text": "",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "b",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       }
+      ]
+     },
+     {
+      "id": "background",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "y",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp",
+         "(this patch)"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R1",
+        "text": "",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "a",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "x",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "b",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       }
+      ]
+     },
+     {
+      "error": "the topic needs a name"
+     },
+     {
+      "error": "RUMORS is already a topic in this load order"
+     },
+     {
+      "id": "background copy",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "R3",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R4",
+        "text": "",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R5",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R6",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R7",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       }
+      ]
+     },
+     [
+      {
+       "id": "Greeting 10",
+       "type": "Greeting",
+       "plugins": [
+        "Morrowind.esm"
+       ]
+      },
+      {
+       "id": "Greeting 5",
+       "type": "Greeting",
+       "plugins": [
+        "Morrowind.esm"
+       ]
+      },
+      {
+       "id": "Q_Quest",
+       "type": "Journal",
+       "plugins": [
+        "Morrowind.esm"
+       ]
+      },
+      {
+       "id": "background",
+       "type": "Topic",
+       "plugins": [
+        "Morrowind.esm",
+        "Mod.esp"
+       ]
+      },
+      {
+       "id": "background copy",
+       "type": "Topic",
+       "plugins": [
+        "(this patch)"
+       ]
+      },
+      {
+       "id": "little secret",
+       "type": "Topic",
+       "plugins": [
+        "Morrowind.esm"
+       ]
+      },
+      {
+       "id": "rumors",
+       "type": "Topic",
+       "plugins": [
+        "Mod.esp"
+       ]
+      }
+     ],
+     {
+      "id": "background copy",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "R5",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R6",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R7",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R3",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R4",
+        "text": "",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       }
+      ]
+     },
+     [
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "y",
+       "whole": null,
+       "changes": [
+        {
+         "path": "prev_id",
+         "value": ""
+        },
+        {
+         "path": "next_id",
+         "value": "a"
+        }
+       ]
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "R1",
+       "whole": null,
+       "made": {
+        "source": "Mod.esp",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "R2",
+       "whole": null,
+       "made": {
+        "source": "Mod.esp",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "DIAL",
+       "type": "Dialogue",
+       "id": "background copy",
+       "whole": null,
+       "made": {
+        "source": "",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "R3",
+       "whole": null,
+       "made": {
+        "source": "Mod.esp",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "R4",
+       "whole": null,
+       "made": {
+        "source": "Mod.esp",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "R5",
+       "whole": null,
+       "made": {
+        "source": "Mod.esp",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "R6",
+       "whole": null,
+       "made": {
+        "source": "Mod.esp",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "R7",
+       "whole": null,
+       "made": {
+        "source": "Mod.esp",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      }
+     ],
+     {
+      "done": true,
+      "what": [],
+      "undo": 5,
+      "redo": 1
+     },
+     {
+      "id": "background copy",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "R3",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R4",
+        "text": "",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R5",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R6",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R7",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       }
+      ]
+     },
+     {
+      "id": "little secret",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "ls_yes",
+        "n": 1,
+        "speaker": "anyone",
+        "conditions": [
+         "Choice = 1"
+        ],
+        "gate": 1,
+        "text": "Good. Off you go.",
+        "segments": [
+         {
+          "t": "Good. Off you go."
+         }
+        ],
+        "script": "Journal Q_Quest 20\r\nGoodbye",
+        "choices": [],
+        "addtopics": [],
+        "journal": [
+         {
+          "quest": "Q_Quest",
+          "index": 20
+         }
+        ],
+        "sets": [],
+        "items": [],
+        "goodbye": true,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Morrowind.esm"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "ls_no",
+        "n": 2,
+        "speaker": "anyone",
+        "conditions": [
+         "Choice = 2"
+        ],
+        "gate": 2,
+        "text": "Pity.",
+        "segments": [
+         {
+          "t": "Pity."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Morrowind.esm"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "ls_ask",
+        "n": 3,
+        "speaker": "Actor: trader",
+        "conditions": [],
+        "gate": null,
+        "text": "Will you keep my little secret? It is about my background.",
+        "segments": [
+         {
+          "t": "Will you keep my "
+         },
+         {
+          "t": "little secret",
+          "topic": "little secret"
+         },
+         {
+          "t": "? It is about my "
+         },
+         {
+          "t": "background",
+          "topic": "background"
+         },
+         {
+          "t": "."
+         }
+        ],
+        "script": "Choice \"Yes\" 1 \"No, never\" 2",
+        "choices": [
+         {
+          "label": "Yes",
+          "n": 1
+         },
+         {
+          "label": "No, never",
+          "n": 2
+         }
+        ],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [
+         "little secret",
+         "background"
+        ],
+        "plugins": [
+         "Morrowind.esm"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "ls_rest",
+        "n": 4,
+        "speaker": "anyone",
+        "conditions": [
+         "global secret_known = 1",
+         "NPC is not a member of race Imperial",
+         "NPC rat is not dead"
+        ],
+        "gate": null,
+        "text": "Nothing to say.",
+        "segments": [
+         {
+          "t": "Nothing to say."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Morrowind.esm"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       }
+      ],
+      "outof": [
+       {
+        "kind": "link",
+        "to": "background",
+        "via": "ls_ask"
+       }
+      ],
+      "into": [
+       {
+        "kind": "addtopic",
+        "from": "Greeting 5",
+        "via": "g5_any"
+       },
+       {
+        "kind": "link",
+        "from": "Greeting 5",
+        "via": "g5_any"
+       }
+      ]
+     },
+     {
+      "id": "background",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "y",
+        "n": 1,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "Lost.",
+        "segments": [
+         {
+          "t": "Lost."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Mod.esp",
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "R1",
+        "n": 2,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "",
+        "segments": [],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "a",
+        "n": 3,
+        "speaker": "Actor: trader",
+        "conditions": [
+         "disposition is at least 10"
+        ],
+        "gate": null,
+        "text": "First.",
+        "segments": [
+         {
+          "t": "First."
+         }
+        ],
+        "script": "player->AddItem gold_001 5\r\nset background_told to 1",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [
+         {
+          "name": "background_told",
+          "target": ""
+         }
+        ],
+        "items": [
+         {
+          "item": "gold_001",
+          "verb": "add"
+         }
+        ],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 10
+       },
+       {
+        "id": "x",
+        "n": 4,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "Inserted.",
+        "segments": [
+         {
+          "t": "Inserted."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Mod.esp"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "b",
+        "n": 5,
+        "speaker": "Race: Dark Elf",
+        "conditions": [],
+        "gate": null,
+        "text": "Second, moved last.",
+        "segments": [
+         {
+          "t": "Second, moved last."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "orphan": true,
+        "quest": "",
+        "disposition": 0
+       }
+      ],
+      "outof": [],
+      "into": [
+       {
+        "kind": "link",
+        "from": "little secret",
+        "via": "ls_ask"
+       },
+       {
+        "kind": "link",
+        "from": "Greeting 5",
+        "via": "g5_any"
+       }
+      ]
+     },
+     {
+      "error": "no plugin of this load order has the topic nothing"
+     },
+     {
+      "centre": "t:background",
+      "nodes": [
+       {
+        "id": "t:background",
+        "kind": "Topic",
+        "label": "background",
+        "depth": 0,
+        "responses": 5
+       },
+       {
+        "id": "v:background_told",
+        "kind": "var",
+        "label": "background_told",
+        "depth": 1,
+        "responses": 0
+       },
+       {
+        "id": "t:little secret",
+        "kind": "Topic",
+        "label": "little secret",
+        "depth": 1,
+        "responses": 4
+       },
+       {
+        "id": "t:greeting 5",
+        "kind": "Greeting",
+        "label": "Greeting 5",
+        "depth": 1,
+        "responses": 2
+       }
+      ],
+      "edges": [
+       {
+        "from": "t:background",
+        "to": "v:background_told",
+        "kind": "sets"
+       },
+       {
+        "from": "t:little secret",
+        "to": "t:background",
+        "kind": "link"
+       },
+       {
+        "from": "t:greeting 5",
+        "to": "t:background",
+        "kind": "link"
+       }
+      ],
+      "capped": false
+     },
+     {
+      "centre": "t:greeting 5",
+      "nodes": [
+       {
+        "id": "t:greeting 5",
+        "kind": "Greeting",
+        "label": "Greeting 5",
+        "depth": 0,
+        "responses": 2
+       },
+       {
+        "id": "t:little secret",
+        "kind": "Topic",
+        "label": "little secret",
+        "depth": 1,
+        "responses": 4
+       },
+       {
+        "id": "t:background",
+        "kind": "Topic",
+        "label": "background",
+        "depth": 1,
+        "responses": 5
+       },
+       {
+        "id": "v:secret_known",
+        "kind": "var",
+        "label": "secret_known",
+        "depth": 1,
+        "responses": 0
+       },
+       {
+        "id": "q:q_quest",
+        "kind": "quest",
+        "label": "Q_Quest",
+        "depth": 2,
+        "responses": 0
+       },
+       {
+        "id": "v:background_told",
+        "kind": "var",
+        "label": "background_told",
+        "depth": 2,
+        "responses": 0
+       }
+      ],
+      "edges": [
+       {
+        "from": "t:greeting 5",
+        "to": "t:little secret",
+        "kind": "addtopic"
+       },
+       {
+        "from": "t:greeting 5",
+        "to": "t:little secret",
+        "kind": "link"
+       },
+       {
+        "from": "t:greeting 5",
+        "to": "t:background",
+        "kind": "link"
+       },
+       {
+        "from": "t:greeting 5",
+        "to": "v:secret_known",
+        "kind": "sets"
+       },
+       {
+        "from": "t:little secret",
+        "to": "q:q_quest",
+        "kind": "quest"
+       },
+       {
+        "from": "t:little secret",
+        "to": "t:background",
+        "kind": "link"
+       },
+       {
+        "from": "t:background",
+        "to": "v:background_told",
+        "kind": "sets"
+       },
+       {
+        "from": "v:secret_known",
+        "to": "t:little secret",
+        "kind": "reads"
+       }
+      ],
+      "capped": false
+     },
+     {
+      "error": "no plugin of this load order has the topic nothing"
+     },
+     {
+      "flags": [
+       {
+        "kind": "dead",
+        "name": "rat",
+        "writers": 0,
+        "readers": 1
+       },
+       {
+        "kind": "item",
+        "name": "gold_001",
+        "writers": 3,
+        "readers": 1
+       },
+       {
+        "kind": "journal",
+        "name": "Q_Quest",
+        "writers": 1,
+        "readers": 0
+       },
+       {
+        "kind": "local",
+        "name": "alert",
+        "writers": 1,
+        "readers": 0
+       },
+       {
+        "kind": "variable",
+        "name": "background_told",
+        "writers": 2,
+        "readers": 0
+       },
+       {
+        "kind": "variable",
+        "name": "secret_known",
+        "writers": 1,
+        "readers": 1
+       },
+       {
+        "kind": "variable",
+        "name": "talked",
+        "writers": 0,
+        "readers": 1
+       }
+      ]
+     },
+     {
+      "kind": "variable",
+      "name": "secret_known",
+      "writers": [
+       {
+        "topic": "Greeting 5",
+        "id": "g5_any",
+        "text": "Hello, %PCName. Ask about my little secret, or my background.",
+        "how": "set secret_known"
+       }
+      ],
+      "readers": [
+       {
+        "topic": "little secret",
+        "id": "ls_rest",
+        "text": "Nothing to say.",
+        "how": "global secret_known = 1"
+       }
+      ]
+     },
+     {
+      "kind": "item",
+      "name": "gold_001",
+      "writers": [
+       {
+        "topic": "background",
+        "id": "a",
+        "text": "First.",
+        "how": "add gold_001"
+       },
+       {
+        "topic": "Greeting 5",
+        "id": "g5_any",
+        "text": "Hello, %PCName. Ask about my little secret, or my background.",
+        "how": "add gold_001"
+       },
+       {
+        "topic": "background copy",
+        "id": "R5",
+        "text": "First.",
+        "how": "add gold_001"
+       }
+      ],
+      "readers": [
+       {
+        "topic": "Greeting 5",
+        "id": "g5_any",
+        "text": "Hello, %PCName. Ask about my little secret, or my background.",
+        "how": "player inventory gold_001 >= 10"
+       }
+      ]
+     },
+     {
+      "error": "nothing in the dialogue writes or tests nothing"
+     },
+     {
+      "topics": [
+       "background",
+       "background copy",
+       "little secret",
+       "rumors"
+      ],
+      "line": {
+       "topic": "Greeting 5",
+       "id": "g5_any",
+       "n": 2,
+       "segments": [
+        {
+         "t": "Hello, "
+        },
+        {
+         "t": "%PCName",
+         "macro": "PCName"
+        },
+        {
+         "t": ". Ask about my "
+        },
+        {
+         "t": "little secret",
+         "topic": "little secret"
+        },
+        {
+         "t": ", or my "
+        },
+        {
+         "t": "background",
+         "topic": "background"
+        },
+        {
+         "t": "."
+        }
+       ],
+       "choices": [],
+       "goodbye": false,
+       "conditions": [
+        "local talked < 1",
+        "player inventory gold_001 >= 10",
+        "NPC is not guard"
+       ],
+       "unchecked": [
+        "local talked < 1",
+        "player inventory gold_001 >= 10"
+       ],
+       "addtopics": [
+        "little secret"
+       ],
+       "journal": []
+      },
+      "speaker": {
+       "id": "trader",
+       "name": "Trader",
+       "race": "Dark Elf",
+       "class": "Trader",
+       "faction": "Hlaalu",
+       "sex": "Male"
+      }
+     },
+     {
+      "topics": [
+       "background",
+       "background copy",
+       "little secret",
+       "rumors"
+      ],
+      "line": {
+       "topic": "little secret",
+       "id": "ls_ask",
+       "n": 3,
+       "segments": [
+        {
+         "t": "Will you keep my "
+        },
+        {
+         "t": "little secret",
+         "topic": "little secret"
+        },
+        {
+         "t": "? It is about my "
+        },
+        {
+         "t": "background",
+         "topic": "background"
+        },
+        {
+         "t": "."
+        }
+       ],
+       "choices": [
+        {
+         "label": "Yes",
+         "n": 1
+        },
+        {
+         "label": "No, never",
+         "n": 2
+        }
+       ],
+       "goodbye": false,
+       "conditions": [],
+       "unchecked": [],
+       "addtopics": [],
+       "journal": []
+      },
+      "speaker": {
+       "id": "trader",
+       "name": "Trader",
+       "race": "Dark Elf",
+       "class": "Trader",
+       "faction": "Hlaalu",
+       "sex": "Male"
+      }
+     },
+     {
+      "topics": [
+       "background",
+       "background copy",
+       "little secret",
+       "rumors"
+      ],
+      "line": {
+       "topic": "little secret",
+       "id": "ls_yes",
+       "n": 1,
+       "segments": [
+        {
+         "t": "Good. Off you go."
+        }
+       ],
+       "choices": [],
+       "goodbye": true,
+       "conditions": [
+        "Choice = 1"
+       ],
+       "unchecked": [],
+       "addtopics": [],
+       "journal": [
+        {
+         "quest": "Q_Quest",
+         "index": 20
+        }
+       ]
+      },
+      "speaker": {
+       "id": "trader",
+       "name": "Trader",
+       "race": "Dark Elf",
+       "class": "Trader",
+       "faction": "Hlaalu",
+       "sex": "Male"
+      }
+     },
+     {
+      "topics": [
+       "background",
+       "background copy",
+       "little secret",
+       "rumors"
+      ],
+      "line": {
+       "topic": "little secret",
+       "id": "ls_ask",
+       "n": 3,
+       "segments": [
+        {
+         "t": "Will you keep my "
+        },
+        {
+         "t": "little secret",
+         "topic": "little secret"
+        },
+        {
+         "t": "? It is about my "
+        },
+        {
+         "t": "background",
+         "topic": "background"
+        },
+        {
+         "t": "."
+        }
+       ],
+       "choices": [
+        {
+         "label": "Yes",
+         "n": 1
+        },
+        {
+         "label": "No, never",
+         "n": 2
+        }
+       ],
+       "goodbye": false,
+       "conditions": [],
+       "unchecked": [],
+       "addtopics": [],
+       "journal": []
+      },
+      "speaker": {
+       "id": "trader",
+       "name": "Trader",
+       "race": "Dark Elf",
+       "class": "Trader",
+       "faction": "Hlaalu",
+       "sex": "Male"
+      }
+     },
+     {
+      "topics": [
+       "background",
+       "background copy",
+       "rumors"
+      ],
+      "line": {
+       "topic": "Greeting 5",
+       "id": "g5_guard",
+       "n": 1,
+       "segments": [
+        {
+         "t": "Move along, "
+        },
+        {
+         "t": "%PCRace",
+         "macro": "PCRace"
+        },
+        {
+         "t": "."
+        }
+       ],
+       "choices": [],
+       "goodbye": false,
+       "conditions": [],
+       "unchecked": [],
+       "addtopics": [],
+       "journal": []
+      },
+      "speaker": {
+       "id": "guard",
+       "name": "Guard",
+       "race": "Imperial",
+       "class": "Guard",
+       "faction": "",
+       "sex": "Female"
+      }
+     },
+     {
+      "topics": [
+       "background",
+       "background copy",
+       "little secret",
+       "rumors"
+      ],
+      "line": {
+       "topic": "background",
+       "id": "y",
+       "n": 1,
+       "segments": [
+        {
+         "t": "Lost."
+        }
+       ],
+       "choices": [],
+       "goodbye": false,
+       "conditions": [],
+       "unchecked": [],
+       "addtopics": [],
+       "journal": []
+      },
+      "speaker": {
+       "id": "hlaalu_low",
+       "name": "Hlaalu_Low",
+       "race": "Dark Elf",
+       "class": "Trader",
+       "faction": "Hlaalu",
+       "sex": "Male"
+      }
+     },
+     {
+      "topics": [
+       "background",
+       "background copy",
+       "little secret",
+       "rumors"
+      ],
+      "line": {
+       "topic": "Greeting 5",
+       "id": "g5_any",
+       "n": 2,
+       "segments": [
+        {
+         "t": "Hello, "
+        },
+        {
+         "t": "%PCName",
+         "macro": "PCName"
+        },
+        {
+         "t": ". Ask about my "
+        },
+        {
+         "t": "little secret",
+         "topic": "little secret"
+        },
+        {
+         "t": ", or my "
+        },
+        {
+         "t": "background",
+         "topic": "background"
+        },
+        {
+         "t": "."
+        }
+       ],
+       "choices": [],
+       "goodbye": false,
+       "conditions": [
+        "local talked < 1",
+        "player inventory gold_001 >= 10",
+        "NPC is not guard"
+       ],
+       "unchecked": [
+        "local talked < 1",
+        "player inventory gold_001 >= 10"
+       ],
+       "addtopics": [
+        "little secret"
+       ],
+       "journal": []
+      },
+      "speaker": {
+       "id": "rat",
+       "name": "Rat",
+       "race": "",
+       "class": "",
+       "faction": "",
+       "sex": "Male"
+      }
+     },
+     {
+      "error": "Choose who to talk to (an NPC's id)"
+     },
+     {
+      "error": "nobody is not an NPC or creature of this load order"
+     },
+     {
+      "npcs": [
+       {
+        "id": "hlaalu_low",
+        "name": "Hlaalu_Low"
+       },
+       {
+        "id": "trader",
+        "name": "Trader"
+       }
+      ],
+      "count": 2,
+      "capped": false,
+      "unchecked": []
+     },
+     {
+      "npcs": [
+       {
+        "id": "hlaalu_low",
+        "name": "Hlaalu_Low"
+       },
+       {
+        "id": "trader",
+        "name": "Trader"
+       }
+      ],
+      "count": 2,
+      "capped": false,
+      "unchecked": [
+       "Global secret_known",
+       "Dead rat"
+      ]
+     },
+     {
+      "npcs": [
+       {
+        "id": "guard",
+        "name": "Guard"
+       }
+      ],
+      "count": 1,
+      "capped": false,
+      "unchecked": []
+     },
+     {
+      "error": "That response is not in this load order"
+     },
+     "ok",
+     "ok",
+     {
+      "id": "background",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "y",
+        "n": 1,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "Lost.",
+        "segments": [
+         {
+          "t": "Lost."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Mod.esp",
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "R1",
+        "n": 2,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "",
+        "segments": [],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "a",
+        "n": 3,
+        "speaker": "Actor: trader",
+        "conditions": [
+         "disposition is at least 30"
+        ],
+        "gate": null,
+        "text": "First, said otherwise.",
+        "segments": [
+         {
+          "t": "First, said otherwise."
+         }
+        ],
+        "script": "player->AddItem gold_001 5\r\nset background_told to 1",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [
+         {
+          "name": "background_told",
+          "target": ""
+         }
+        ],
+        "items": [
+         {
+          "item": "gold_001",
+          "verb": "add"
+         }
+        ],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 30
+       },
+       {
+        "id": "x",
+        "n": 4,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "Inserted.",
+        "segments": [
+         {
+          "t": "Inserted."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Mod.esp"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "b",
+        "n": 5,
+        "speaker": "Race: Dark Elf",
+        "conditions": [],
+        "gate": null,
+        "text": "Second, moved last.",
+        "segments": [
+         {
+          "t": "Second, moved last."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "orphan": true,
+        "quest": "",
+        "disposition": 0
+       }
+      ],
+      "outof": [],
+      "into": [
+       {
+        "kind": "link",
+        "from": "little secret",
+        "via": "ls_ask"
+       },
+       {
+        "kind": "link",
+        "from": "Greeting 5",
+        "via": "g5_any"
+       }
+      ]
+     },
+     {
+      "id": "background",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "y",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp",
+         "(this patch)"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R1",
+        "text": "",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "a",
+        "text": "First.",
+        "speaker": "who: trader",
+        "disposition": 10,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "x",
+        "text": "Inserted.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "b",
+        "text": "Second, moved last.",
+        "speaker": "race: Dark Elf",
+        "disposition": 0,
+        "plugins": [
+         "Morrowind.esm",
+         "Mod.esp"
+        ],
+        "winner": "Mod.esp",
+        "orphan": true,
+        "quest": ""
+       }
+      ]
+     },
+     {
+      "topics": [
+       "background",
+       "background copy",
+       "little secret",
+       "rumors"
+      ],
+      "line": {
+       "topic": "background",
+       "id": "y",
+       "n": 1,
+       "segments": [
+        {
+         "t": "Lost."
+        }
+       ],
+       "choices": [],
+       "goodbye": false,
+       "conditions": [],
+       "unchecked": [],
+       "addtopics": [],
+       "journal": []
+      },
+      "speaker": {
+       "id": "trader",
+       "name": "Trader",
+       "race": "Dark Elf",
+       "class": "Trader",
+       "faction": "Hlaalu",
+       "sex": "Male"
+      }
+     },
+     {
+      "id": "background copy",
+      "type": "Topic",
+      "responses": [
+       {
+        "id": "R3",
+        "n": 1,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "Lost.",
+        "segments": [
+         {
+          "t": "Lost."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "R4",
+        "n": 2,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "",
+        "segments": [],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "R5",
+        "n": 3,
+        "speaker": "Actor: trader",
+        "conditions": [
+         "disposition is at least 10"
+        ],
+        "gate": null,
+        "text": "First.",
+        "segments": [
+         {
+          "t": "First."
+         }
+        ],
+        "script": "player->AddItem gold_001 5\r\nset background_told to 1",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [
+         {
+          "name": "background_told",
+          "target": ""
+         }
+        ],
+        "items": [
+         {
+          "item": "gold_001",
+          "verb": "add"
+         }
+        ],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 10
+       },
+       {
+        "id": "R6",
+        "n": 4,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "Inserted.",
+        "segments": [
+         {
+          "t": "Inserted."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "R7",
+        "n": 5,
+        "speaker": "Race: Dark Elf",
+        "conditions": [],
+        "gate": null,
+        "text": "Second, moved last.",
+        "segments": [
+         {
+          "t": "Second, moved last."
+         }
+        ],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       }
+      ],
+      "outof": [],
+      "into": []
+     }
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "DialogueInfo",
+       "key": "y",
+       "base": "Mod.esp",
+       "choices": [
+        {
+         "path": "prev_id",
+         "value": ""
+        },
+        {
+         "path": "next_id",
+         "value": "a"
+        }
+       ]
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "a",
+       "base": "Mod.esp",
+       "choices": [
+        {
+         "path": "text",
+         "value": "First, said otherwise."
+        },
+        {
+         "path": "data.disposition",
+         "value": 30
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [
+      {
+       "type": "DialogueInfo",
+       "key": "R1",
+       "record": {
+        "type": "DialogueInfo",
+        "flags": "",
+        "id": "R1",
+        "prev_id": "",
+        "next_id": "y",
+        "data": {
+         "dialogue_type": "Topic",
+         "disposition": 0,
+         "speaker_rank": 0,
+         "speaker_sex": "Any",
+         "player_rank": 0
+        },
+        "speaker_id": "",
+        "speaker_race": "",
+        "speaker_class": "",
+        "speaker_faction": "",
+        "speaker_cell": "",
+        "player_faction": "",
+        "sound_path": "",
+        "text": "",
+        "filters": [],
+        "script_text": ""
+       },
+       "source": "Mod.esp",
+       "topic": "background"
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "R2",
+       "record": {
+        "type": "DialogueInfo",
+        "flags": "",
+        "id": "R2",
+        "prev_id": "",
+        "next_id": "r1",
+        "data": {
+         "dialogue_type": "Topic",
+         "disposition": 0,
+         "speaker_rank": 0,
+         "speaker_sex": "Any",
+         "player_rank": 0
+        },
+        "speaker_id": "",
+        "speaker_race": "",
+        "speaker_class": "",
+        "speaker_faction": "",
+        "speaker_cell": "",
+        "player_faction": "",
+        "sound_path": "",
+        "text": "",
+        "filters": [],
+        "script_text": ""
+       },
+       "source": "Mod.esp",
+       "topic": "rumors"
+      },
+      {
+       "type": "Dialogue",
+       "key": "background copy",
+       "record": {
+        "type": "Dialogue",
+        "flags": "",
+        "id": "background copy",
+        "dialogue_type": "Topic"
+       },
+       "source": "",
+       "topic": ""
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "R3",
+       "record": {
+        "type": "DialogueInfo",
+        "flags": "",
+        "id": "R3",
+        "prev_id": "",
+        "next_id": "R4",
+        "data": {
+         "dialogue_type": "Topic",
+         "disposition": 0,
+         "speaker_rank": 0,
+         "speaker_sex": "Any",
+         "player_rank": 0
+        },
+        "speaker_id": "",
+        "speaker_race": "",
+        "speaker_class": "",
+        "speaker_faction": "",
+        "speaker_cell": "",
+        "player_faction": "",
+        "sound_path": "",
+        "text": "Lost.",
+        "filters": [],
+        "script_text": ""
+       },
+       "source": "Mod.esp",
+       "topic": "background copy"
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "R4",
+       "record": {
+        "type": "DialogueInfo",
+        "flags": "",
+        "id": "R4",
+        "prev_id": "R3",
+        "next_id": "R5",
+        "data": {
+         "dialogue_type": "Topic",
+         "disposition": 0,
+         "speaker_rank": 0,
+         "speaker_sex": "Any",
+         "player_rank": 0
+        },
+        "speaker_id": "",
+        "speaker_race": "",
+        "speaker_class": "",
+        "speaker_faction": "",
+        "speaker_cell": "",
+        "player_faction": "",
+        "sound_path": "",
+        "text": "",
+        "filters": [],
+        "script_text": ""
+       },
+       "source": "Mod.esp",
+       "topic": "background copy"
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "R5",
+       "record": {
+        "type": "DialogueInfo",
+        "flags": "",
+        "id": "R5",
+        "prev_id": "R4",
+        "next_id": "R6",
+        "data": {
+         "dialogue_type": "Topic",
+         "disposition": 10,
+         "speaker_rank": 0,
+         "speaker_sex": "Any",
+         "player_rank": 0
+        },
+        "speaker_id": "trader",
+        "speaker_race": "",
+        "speaker_class": "",
+        "speaker_faction": "",
+        "speaker_cell": "",
+        "player_faction": "",
+        "sound_path": "",
+        "text": "First.",
+        "filters": [],
+        "script_text": "player->AddItem gold_001 5\r\nset background_told to 1"
+       },
+       "source": "Mod.esp",
+       "topic": "background copy"
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "R6",
+       "record": {
+        "type": "DialogueInfo",
+        "flags": "",
+        "id": "R6",
+        "prev_id": "R5",
+        "next_id": "R7",
+        "data": {
+         "dialogue_type": "Topic",
+         "disposition": 0,
+         "speaker_rank": 0,
+         "speaker_sex": "Any",
+         "player_rank": 0
+        },
+        "speaker_id": "",
+        "speaker_race": "",
+        "speaker_class": "",
+        "speaker_faction": "",
+        "speaker_cell": "",
+        "player_faction": "",
+        "sound_path": "",
+        "text": "Inserted.",
+        "filters": [],
+        "script_text": ""
+       },
+       "source": "Mod.esp",
+       "topic": "background copy"
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "R7",
+       "record": {
+        "type": "DialogueInfo",
+        "flags": "",
+        "id": "R7",
+        "prev_id": "R6",
+        "next_id": "",
+        "data": {
+         "dialogue_type": "Topic",
+         "disposition": 0,
+         "speaker_rank": 0,
+         "speaker_sex": "Any",
+         "player_rank": 0
+        },
+        "speaker_id": "",
+        "speaker_race": "Dark Elf",
+        "speaker_class": "",
+        "speaker_faction": "",
+        "speaker_cell": "",
+        "player_faction": "",
+        "sound_path": "",
+        "text": "Second, moved last.",
+        "filters": [],
+        "script_text": ""
+       },
+       "source": "Mod.esp",
+       "topic": "background copy"
+      }
+     ],
+     "new": []
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,2457 @@
+{
+ "_about": "The Editor's searches and the Object Window's columns, one way for the Python Editor and the viewer's: run by tests/test_search_cases.py (EditorSession.search, column_overlay, columns.table as editorlink composes it, workflow.search_all / replace_all / filter_choices) and viewer-shell/editcore/tests/cases.rs (editcore::search, editcore::columns). Each case is a load order (`plugins`, each with its records) and operations: [\"search\", tag, query, limit?], [\"columns\", tag], [\"search_all\", text, whole, limit?], [\"replace_all\", hits or \"last\" (the last search_all's), text, by, whole], [\"filter_choices\"], [\"set\", tag, id, path, value], [\"choose\", tag, id, path, plugin] (a field taken from a plugin), [\"whole\", tag, id, plugin], [\"insert\", tag, id], [\"pending\"]. `expect` is what each gave and the journal after them. Pinned as the Python does it: the search matches a record's deleting version too (a later plugin's DELETED record is the version searched). Generated from the Python side when a case is added, and read by hand.",
+ "cases": [
+  {
+   "name": "the search by any field, over the patch's values",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "Weapon",
+       "flags": "",
+       "id": "iron_dagger",
+       "name": "Iron Dagger",
+       "script": "",
+       "mesh": "w\\dagger.nif",
+       "icon": "",
+       "enchanting": "",
+       "data": {
+        "weight": 3.0,
+        "value": 10,
+        "weapon_type": "ShortBladeOneHand",
+        "health": 300,
+        "speed": 1.5,
+        "reach": 1.0,
+        "enchantment": 0,
+        "chop_min": 1,
+        "chop_max": 5,
+        "slash_min": 1,
+        "slash_max": 5,
+        "thrust_min": 1,
+        "thrust_max": 5,
+        "flags": ""
+       }
+      },
+      {
+       "type": "Weapon",
+       "flags": "",
+       "id": "steel_axe",
+       "name": "Steel Axe",
+       "script": "axe_script",
+       "mesh": "w\\axe.nif",
+       "icon": "",
+       "enchanting": "",
+       "data": {
+        "weight": 24.5,
+        "value": 50,
+        "weapon_type": "AxeTwoHand",
+        "health": 1000,
+        "speed": 1.0,
+        "reach": 1.0,
+        "enchantment": 0,
+        "chop_min": 1,
+        "chop_max": 30,
+        "slash_min": 1,
+        "slash_max": 25,
+        "thrust_min": 1,
+        "thrust_max": 5,
+        "flags": "SILVER"
+       }
+      },
+      {
+       "type": "Weapon",
+       "flags": "",
+       "id": "long_name",
+       "name": "A blade whose name is long enough that the hit is cut off before it runs past eighty characters or so",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "enchanting": "",
+       "data": {
+        "weight": 1.0,
+        "value": 1,
+        "weapon_type": "LongBladeOneHand",
+        "health": 1,
+        "speed": 1.0,
+        "reach": 1.0,
+        "enchantment": 0,
+        "chop_min": 1,
+        "chop_max": 1,
+        "slash_min": 1,
+        "slash_max": 1,
+        "thrust_min": 1,
+        "thrust_max": 1,
+        "flags": ""
+       }
+      },
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "iron_dagger",
+       "name": "Not A Weapon",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 1.0,
+        "value": 1,
+        "flags": ""
+       }
+      }
+     ]
+    },
+    {
+     "name": "Mod.esp",
+     "records": [
+      {
+       "type": "Weapon",
+       "flags": "DELETED",
+       "id": "steel_axe",
+       "name": "Steel Axe",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "enchanting": "",
+       "data": {
+        "weight": 0.0,
+        "value": 0,
+        "weapon_type": "AxeTwoHand",
+        "health": 0,
+        "speed": 0.0,
+        "reach": 0.0,
+        "enchantment": 0,
+        "chop_min": 0,
+        "chop_max": 0,
+        "slash_min": 0,
+        "slash_max": 0,
+        "thrust_min": 0,
+        "thrust_max": 0,
+        "flags": ""
+       }
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "search",
+     "WEAP",
+     "iron"
+    ],
+    [
+     "search",
+     "weap",
+     "name:dagger"
+    ],
+    [
+     "search",
+     "WEAP",
+     "data.weight>=3"
+    ],
+    [
+     "search",
+     "WEAP",
+     "data.weight>abc"
+    ],
+    [
+     "search",
+     "WEAP",
+     "\"steel axe\""
+    ],
+    [
+     "search",
+     "WEAP",
+     "flags=silver"
+    ],
+    [
+     "search",
+     "WEAP",
+     "flags!=silver"
+    ],
+    [
+     "search",
+     "WEAP",
+     "script:"
+    ],
+    [
+     "search",
+     "WEAP",
+     "dagger data.value<20"
+    ],
+    [
+     "search",
+     "WEAP",
+     "blade"
+    ],
+    [
+     "search",
+     "WEAP",
+     "   "
+    ],
+    [
+     "search",
+     "QQQQ",
+     "x"
+    ],
+    [
+     "search",
+     "WEAP",
+     "unclosed \"quote"
+    ],
+    [
+     "search",
+     "WEAP",
+     "1",
+     1
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.value",
+     99
+    ],
+    [
+     "insert",
+     "WEAP",
+     "new_blade"
+    ],
+    [
+     "search",
+     "WEAP",
+     "data.value=99"
+    ],
+    [
+     "search",
+     "WEAP",
+     "new_blade"
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "hits": {
+       "iron_dagger": "id: iron_dagger"
+      },
+      "count": 1,
+      "capped": false
+     },
+     {
+      "hits": {
+       "iron_dagger": "name: Iron Dagger"
+      },
+      "count": 1,
+      "capped": false
+     },
+     {
+      "hits": {
+       "iron_dagger": "data.weight: 3.0"
+      },
+      "count": 1,
+      "capped": false
+     },
+     {
+      "hits": {},
+      "count": 0,
+      "capped": false
+     },
+     {
+      "hits": {
+       "steel_axe": "name: Steel Axe"
+      },
+      "count": 1,
+      "capped": false
+     },
+     {
+      "hits": {},
+      "count": 0,
+      "capped": false
+     },
+     {
+      "hits": {
+       "iron_dagger": "flags: ",
+       "steel_axe": "flags: DELETED",
+       "long_name": "flags: "
+      },
+      "count": 3,
+      "capped": false
+     },
+     {
+      "hits": {},
+      "count": 0,
+      "capped": false
+     },
+     {
+      "hits": {
+       "iron_dagger": "id: iron_dagger"
+      },
+      "count": 1,
+      "capped": false
+     },
+     {
+      "hits": {
+       "iron_dagger": "data.weapon_type: ShortBladeOneHand",
+       "long_name": "name: A blade whose name is long enough that the hit is cut off before it runs past e..."
+      },
+      "count": 2,
+      "capped": false
+     },
+     {
+      "hits": {},
+      "count": 0,
+      "capped": false
+     },
+     {
+      "error": "QQQQ is not a record type"
+     },
+     {
+      "hits": {},
+      "count": 0,
+      "capped": false
+     },
+     {
+      "hits": {
+       "iron_dagger": "data.value: 10"
+      },
+      "count": 2,
+      "capped": true
+     },
+     "ok",
+     "new_blade",
+     {
+      "hits": {
+       "iron_dagger": "data.value: 99"
+      },
+      "count": 1,
+      "capped": false
+     },
+     {
+      "hits": {
+       "new_blade": "id: new_blade"
+      },
+      "count": 1,
+      "capped": false
+     }
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "Weapon",
+       "key": "iron_dagger",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "data.value",
+         "value": 99
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [
+      {
+       "type": "Weapon",
+       "key": "new_blade",
+       "record": {
+        "type": "Weapon",
+        "flags": "",
+        "id": "new_blade",
+        "name": "",
+        "script": "",
+        "mesh": "",
+        "icon": "",
+        "enchanting": "",
+        "data": {
+         "weight": 0.0,
+         "value": 0,
+         "weapon_type": "ShortBladeOneHand",
+         "health": 0,
+         "speed": 0.0,
+         "reach": 0.0,
+         "enchantment": 0,
+         "chop_min": 0,
+         "chop_max": 0,
+         "slash_min": 0,
+         "slash_max": 0,
+         "thrust_min": 0,
+         "thrust_max": 0,
+         "flags": ""
+        }
+       },
+       "source": "",
+       "topic": ""
+      }
+     ],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "the Object Window's columns, as the patch leaves them",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "Weapon",
+       "flags": "PERSISTENT",
+       "id": "iron_dagger",
+       "name": "Iron Dagger",
+       "script": "",
+       "mesh": "",
+       "icon": "i\\dagger.dds",
+       "enchanting": "",
+       "data": {
+        "weight": 3.0,
+        "value": 10,
+        "weapon_type": "ShortBladeOneHand",
+        "health": 300,
+        "speed": 1.4999999,
+        "reach": 1.0,
+        "enchantment": 0,
+        "chop_min": 1,
+        "chop_max": 5,
+        "slash_min": 1,
+        "slash_max": 5,
+        "thrust_min": 1,
+        "thrust_max": 5,
+        "flags": "SILVER | IGNORES_NORMAL_WEAPON_RESISTANCE"
+       }
+      },
+      {
+       "type": "Npc",
+       "flags": "",
+       "id": "guard",
+       "name": "Guard",
+       "script": "",
+       "race": "Imperial",
+       "class": "Guard",
+       "faction": "Legion",
+       "npc_flags": "FEMALE | AUTO_CALCULATE",
+       "ai_data": {
+        "fight": 30
+       },
+       "data": {
+        "level": 5,
+        "rank": 2
+       }
+      },
+      {
+       "type": "LeveledItem",
+       "flags": "",
+       "id": "l_loot",
+       "leveled_item_flags": "CALCULATE_FOR_EACH_ITEM",
+       "chance_none": 10,
+       "items": [
+        [
+         "a",
+         1
+        ],
+        [
+         "b",
+         2
+        ],
+        [
+         "c",
+         3
+        ],
+        [
+         "d",
+         4
+        ],
+        [
+         "e",
+         5
+        ],
+        [
+         "f",
+         6
+        ]
+       ]
+      },
+      {
+       "type": "LeveledItem",
+       "flags": "",
+       "id": "l_empty",
+       "leveled_item_flags": "",
+       "chance_none": 0,
+       "items": []
+      },
+      {
+       "type": "Ingredient",
+       "flags": "",
+       "id": "ingr",
+       "name": "Root",
+       "script": "",
+       "data": {
+        "weight": 0.5,
+        "value": 2,
+        "effects": [
+         "RestoreHealth",
+         -1,
+         "None",
+         "FortifyAttribute"
+        ]
+       }
+      },
+      {
+       "type": "Armor",
+       "flags": "",
+       "id": "helm",
+       "name": "Helm",
+       "script": "",
+       "enchanting": "",
+       "icon": "",
+       "data": {
+        "armor_type": "Helmet",
+        "weight": 3.0,
+        "value": 5,
+        "health": 50,
+        "enchantment": 0,
+        "armor_rating": 5
+       }
+      },
+      {
+       "type": "Armor",
+       "flags": "",
+       "id": "helm2",
+       "name": "Helm 2",
+       "script": "",
+       "enchanting": "",
+       "icon": "",
+       "data": {
+        "armor_type": "Helmet",
+        "weight": 4.0,
+        "value": 5,
+        "health": 50,
+        "enchantment": 0,
+        "armor_rating": 5
+       }
+      },
+      {
+       "type": "Armor",
+       "flags": "",
+       "id": "odd",
+       "name": "Odd",
+       "data": "not a group"
+      },
+      {
+       "type": "Book",
+       "flags": "",
+       "id": "scroll",
+       "name": "Scroll",
+       "script": "",
+       "enchanting": "",
+       "icon": "",
+       "data": {
+        "weight": 0.1,
+        "value": 3,
+        "book_type": "Scroll",
+        "skill": "Alchemy",
+        "enchantment": 10
+       }
+      },
+      {
+       "type": "Book",
+       "flags": "",
+       "id": "book",
+       "name": "Book",
+       "script": "",
+       "enchanting": "",
+       "icon": "",
+       "data": {
+        "weight": 1.0,
+        "value": 3,
+        "book_type": "Book",
+        "skill": -1,
+        "enchantment": 0
+       }
+      },
+      {
+       "type": "Creature",
+       "flags": "",
+       "id": "rat",
+       "name": "Rat",
+       "script": "",
+       "sound": "",
+       "creature_flags": "WALKS | SWIMS | RESPAWN",
+       "data": {
+        "creature_type": "Normal",
+        "level": 1,
+        "soul": 10
+       }
+      },
+      {
+       "type": "GameSetting",
+       "flags": "",
+       "id": "fLightMaxMod",
+       "value": {
+        "type": "Float",
+        "data": 0.7
+       }
+      }
+     ]
+    },
+    {
+     "name": "Mod.esp",
+     "records": [
+      {
+       "type": "Weapon",
+       "flags": "",
+       "id": "Iron_Dagger",
+       "name": "Iron Dagger (Mod)",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "enchanting": "",
+       "data": {
+        "weight": 2.5,
+        "value": 12,
+        "weapon_type": "ShortBladeOneHand",
+        "health": 250,
+        "speed": 1.5,
+        "reach": 1.0,
+        "enchantment": 0,
+        "chop_min": 2,
+        "chop_max": 6,
+        "slash_min": 2,
+        "slash_max": 6,
+        "thrust_min": 2,
+        "thrust_max": 6,
+        "flags": ""
+       }
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "columns",
+     "WEAP"
+    ],
+    [
+     "choose",
+     "WEAP",
+     "iron_dagger",
+     "data.value",
+     "Morrowind.esm"
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "name",
+     "Typed"
+    ],
+    [
+     "columns",
+     "weap"
+    ],
+    [
+     "whole",
+     "WEAP",
+     "iron_dagger",
+     "Morrowind.esm"
+    ],
+    [
+     "columns",
+     "WEAP"
+    ],
+    [
+     "columns",
+     "NPC_"
+    ],
+    [
+     "columns",
+     "LEVI"
+    ],
+    [
+     "columns",
+     "INGR"
+    ],
+    [
+     "columns",
+     "ARMO"
+    ],
+    [
+     "columns",
+     "BOOK"
+    ],
+    [
+     "columns",
+     "CREA"
+    ],
+    [
+     "columns",
+     "STAT"
+    ],
+    [
+     "columns",
+     "CELL"
+    ],
+    [
+     "filter_choices"
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "columns": [
+       {
+        "label": "Type",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Name",
+        "kind": "text",
+        "title": "The name the game shows",
+        "path": "name"
+       },
+       {
+        "label": "Script",
+        "kind": "text",
+        "title": "The script it runs",
+        "path": "script"
+       },
+       {
+        "label": "Weight",
+        "kind": "num",
+        "title": "",
+        "path": "data.weight"
+       },
+       {
+        "label": "Health",
+        "kind": "num",
+        "title": "",
+        "path": "data.health"
+       },
+       {
+        "label": "Value",
+        "kind": "num",
+        "title": "",
+        "path": "data.value"
+       },
+       {
+        "label": "Enchanting",
+        "kind": "text",
+        "title": "Its enchantment",
+        "path": "enchanting"
+       },
+       {
+        "label": "Ench. pts",
+        "kind": "num",
+        "title": "Enchantment capacity",
+        "path": "data.enchantment"
+       },
+       {
+        "label": "Speed",
+        "kind": "num",
+        "title": "",
+        "path": "data.speed"
+       },
+       {
+        "label": "Reach",
+        "kind": "num",
+        "title": "",
+        "path": "data.reach"
+       },
+       {
+        "label": "Chop",
+        "kind": "text",
+        "title": "Chop damage, min-max",
+        "path": null
+       },
+       {
+        "label": "Slash",
+        "kind": "text",
+        "title": "Slash damage, min-max",
+        "path": null
+       },
+       {
+        "label": "Thrust",
+        "kind": "text",
+        "title": "Thrust damage, min-max",
+        "path": null
+       },
+       {
+        "label": "Inventory",
+        "kind": "text",
+        "title": "Its inventory icon",
+        "path": "icon"
+       },
+       {
+        "label": "Ignores resist",
+        "kind": "bool",
+        "title": "Ignores normal weapon resistance",
+        "path": null
+       },
+       {
+        "label": "Silver",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {
+       "iron_dagger": [
+        "Short Blade One Hand",
+        "Iron Dagger (Mod)",
+        "",
+        2.5,
+        250,
+        12,
+        "",
+        0,
+        1.5,
+        1.0,
+        "2-6",
+        "2-6",
+        "2-6",
+        "",
+        "no",
+        "no",
+        "no",
+        "no"
+       ]
+      }
+     },
+     "ok",
+     "ok",
+     {
+      "columns": [
+       {
+        "label": "Type",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Name",
+        "kind": "text",
+        "title": "The name the game shows",
+        "path": "name"
+       },
+       {
+        "label": "Script",
+        "kind": "text",
+        "title": "The script it runs",
+        "path": "script"
+       },
+       {
+        "label": "Weight",
+        "kind": "num",
+        "title": "",
+        "path": "data.weight"
+       },
+       {
+        "label": "Health",
+        "kind": "num",
+        "title": "",
+        "path": "data.health"
+       },
+       {
+        "label": "Value",
+        "kind": "num",
+        "title": "",
+        "path": "data.value"
+       },
+       {
+        "label": "Enchanting",
+        "kind": "text",
+        "title": "Its enchantment",
+        "path": "enchanting"
+       },
+       {
+        "label": "Ench. pts",
+        "kind": "num",
+        "title": "Enchantment capacity",
+        "path": "data.enchantment"
+       },
+       {
+        "label": "Speed",
+        "kind": "num",
+        "title": "",
+        "path": "data.speed"
+       },
+       {
+        "label": "Reach",
+        "kind": "num",
+        "title": "",
+        "path": "data.reach"
+       },
+       {
+        "label": "Chop",
+        "kind": "text",
+        "title": "Chop damage, min-max",
+        "path": null
+       },
+       {
+        "label": "Slash",
+        "kind": "text",
+        "title": "Slash damage, min-max",
+        "path": null
+       },
+       {
+        "label": "Thrust",
+        "kind": "text",
+        "title": "Thrust damage, min-max",
+        "path": null
+       },
+       {
+        "label": "Inventory",
+        "kind": "text",
+        "title": "Its inventory icon",
+        "path": "icon"
+       },
+       {
+        "label": "Ignores resist",
+        "kind": "bool",
+        "title": "Ignores normal weapon resistance",
+        "path": null
+       },
+       {
+        "label": "Silver",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {
+       "iron_dagger": [
+        "Short Blade One Hand",
+        "Typed",
+        "",
+        2.5,
+        250,
+        10,
+        "",
+        0,
+        1.5,
+        1.0,
+        "2-6",
+        "2-6",
+        "2-6",
+        "",
+        "no",
+        "no",
+        "no",
+        "no"
+       ]
+      }
+     },
+     "ok",
+     {
+      "columns": [
+       {
+        "label": "Type",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Name",
+        "kind": "text",
+        "title": "The name the game shows",
+        "path": "name"
+       },
+       {
+        "label": "Script",
+        "kind": "text",
+        "title": "The script it runs",
+        "path": "script"
+       },
+       {
+        "label": "Weight",
+        "kind": "num",
+        "title": "",
+        "path": "data.weight"
+       },
+       {
+        "label": "Health",
+        "kind": "num",
+        "title": "",
+        "path": "data.health"
+       },
+       {
+        "label": "Value",
+        "kind": "num",
+        "title": "",
+        "path": "data.value"
+       },
+       {
+        "label": "Enchanting",
+        "kind": "text",
+        "title": "Its enchantment",
+        "path": "enchanting"
+       },
+       {
+        "label": "Ench. pts",
+        "kind": "num",
+        "title": "Enchantment capacity",
+        "path": "data.enchantment"
+       },
+       {
+        "label": "Speed",
+        "kind": "num",
+        "title": "",
+        "path": "data.speed"
+       },
+       {
+        "label": "Reach",
+        "kind": "num",
+        "title": "",
+        "path": "data.reach"
+       },
+       {
+        "label": "Chop",
+        "kind": "text",
+        "title": "Chop damage, min-max",
+        "path": null
+       },
+       {
+        "label": "Slash",
+        "kind": "text",
+        "title": "Slash damage, min-max",
+        "path": null
+       },
+       {
+        "label": "Thrust",
+        "kind": "text",
+        "title": "Thrust damage, min-max",
+        "path": null
+       },
+       {
+        "label": "Inventory",
+        "kind": "text",
+        "title": "Its inventory icon",
+        "path": "icon"
+       },
+       {
+        "label": "Ignores resist",
+        "kind": "bool",
+        "title": "Ignores normal weapon resistance",
+        "path": null
+       },
+       {
+        "label": "Silver",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {
+       "iron_dagger": [
+        "Short Blade One Hand",
+        "Typed",
+        "",
+        3.0,
+        300,
+        10,
+        "",
+        0,
+        1.5,
+        1.0,
+        "1-5",
+        "1-5",
+        "1-5",
+        "i\\dagger.dds",
+        "yes",
+        "yes",
+        "yes",
+        "no"
+       ]
+      }
+     },
+     {
+      "columns": [
+       {
+        "label": "Name",
+        "kind": "text",
+        "title": "The name the game shows",
+        "path": "name"
+       },
+       {
+        "label": "Script",
+        "kind": "text",
+        "title": "The script it runs",
+        "path": "script"
+       },
+       {
+        "label": "Level",
+        "kind": "num",
+        "title": "",
+        "path": "data.level"
+       },
+       {
+        "label": "Race",
+        "kind": "text",
+        "title": "",
+        "path": "race"
+       },
+       {
+        "label": "Female",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Class",
+        "kind": "text",
+        "title": "",
+        "path": "class"
+       },
+       {
+        "label": "Faction",
+        "kind": "text",
+        "title": "",
+        "path": "faction"
+       },
+       {
+        "label": "Rank",
+        "kind": "num",
+        "title": "",
+        "path": "data.rank"
+       },
+       {
+        "label": "Autocalc",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Essential",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Respawns",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Fight",
+        "kind": "num",
+        "title": "",
+        "path": "ai_data.fight"
+       },
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {
+       "guard": [
+        "Guard",
+        "",
+        5,
+        "Imperial",
+        "yes",
+        "Guard",
+        "Legion",
+        2,
+        "yes",
+        "no",
+        "no",
+        30,
+        "no",
+        "no"
+       ]
+      }
+     },
+     {
+      "columns": [
+       {
+        "label": "All levels",
+        "kind": "bool",
+        "title": "Calculate from all levels <= the player's",
+        "path": null
+       },
+       {
+        "label": "Each item",
+        "kind": "bool",
+        "title": "Calculate for each item",
+        "path": null
+       },
+       {
+        "label": "Chance none",
+        "kind": "num",
+        "title": "",
+        "path": "chance_none"
+       },
+       {
+        "label": "Item list",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {
+       "l_loot": [
+        "no",
+        "yes",
+        10,
+        "a, b, c, d +2",
+        "no",
+        "no"
+       ],
+       "l_empty": [
+        "no",
+        "no",
+        0,
+        "-NONE-",
+        "no",
+        "no"
+       ]
+      }
+     },
+     {
+      "columns": [
+       {
+        "label": "Name",
+        "kind": "text",
+        "title": "The name the game shows",
+        "path": "name"
+       },
+       {
+        "label": "Script",
+        "kind": "text",
+        "title": "The script it runs",
+        "path": "script"
+       },
+       {
+        "label": "Weight",
+        "kind": "num",
+        "title": "",
+        "path": "data.weight"
+       },
+       {
+        "label": "Value",
+        "kind": "num",
+        "title": "",
+        "path": "data.value"
+       },
+       {
+        "label": "Effect 1",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Effect 2",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Effect 3",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Effect 4",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Inventory",
+        "kind": "text",
+        "title": "Its inventory icon",
+        "path": "icon"
+       },
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {
+       "ingr": [
+        "Root",
+        "",
+        0.5,
+        2,
+        "Restore Health",
+        "",
+        "",
+        "Fortify Attribute",
+        "",
+        "no",
+        "no"
+       ]
+      }
+     },
+     {
+      "columns": [
+       {
+        "label": "Type",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Class",
+        "kind": "text",
+        "title": "Weight class: the slot's base weight (iHelmWeight, iCuirassWeight...) times fLightMaxMod or fMedMaxMod, from the load order's game settings",
+        "path": null
+       },
+       {
+        "label": "Name",
+        "kind": "text",
+        "title": "The name the game shows",
+        "path": "name"
+       },
+       {
+        "label": "Script",
+        "kind": "text",
+        "title": "The script it runs",
+        "path": "script"
+       },
+       {
+        "label": "Weight",
+        "kind": "num",
+        "title": "",
+        "path": "data.weight"
+       },
+       {
+        "label": "Value",
+        "kind": "num",
+        "title": "",
+        "path": "data.value"
+       },
+       {
+        "label": "Health",
+        "kind": "num",
+        "title": "",
+        "path": "data.health"
+       },
+       {
+        "label": "Enchanting",
+        "kind": "text",
+        "title": "Its enchantment",
+        "path": "enchanting"
+       },
+       {
+        "label": "Ench. pts",
+        "kind": "num",
+        "title": "Enchantment capacity",
+        "path": "data.enchantment"
+       },
+       {
+        "label": "Rating",
+        "kind": "num",
+        "title": "Armor rating",
+        "path": "data.armor_rating"
+       },
+       {
+        "label": "Inventory",
+        "kind": "text",
+        "title": "Its inventory icon",
+        "path": "icon"
+       },
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {
+       "helm": [
+        "Helmet",
+        "Light",
+        "Helm",
+        "",
+        3.0,
+        5,
+        50,
+        "",
+        0,
+        5,
+        "",
+        "no",
+        "no"
+       ],
+       "helm2": [
+        "Helmet",
+        "Medium",
+        "Helm 2",
+        "",
+        4.0,
+        5,
+        50,
+        "",
+        0,
+        5,
+        "",
+        "no",
+        "no"
+       ],
+       "odd": [
+        "",
+        "",
+        "Odd",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "no",
+        "no"
+       ]
+      },
+      "armorClass": {
+       "slots": {
+        "Helmet": 5.0,
+        "Cuirass": 30.0,
+        "LeftPauldron": 10.0,
+        "RightPauldron": 10.0,
+        "Greaves": 15.0,
+        "Boots": 20.0,
+        "LeftGauntlet": 5.0,
+        "RightGauntlet": 5.0,
+        "LeftBracer": 5.0,
+        "RightBracer": 5.0,
+        "Shield": 15.0
+       },
+       "light": 0.7,
+       "medium": 0.9
+      }
+     },
+     {
+      "columns": [
+       {
+        "label": "Name",
+        "kind": "text",
+        "title": "The name the game shows",
+        "path": "name"
+       },
+       {
+        "label": "Script",
+        "kind": "text",
+        "title": "The script it runs",
+        "path": "script"
+       },
+       {
+        "label": "Weight",
+        "kind": "num",
+        "title": "",
+        "path": "data.weight"
+       },
+       {
+        "label": "Value",
+        "kind": "num",
+        "title": "",
+        "path": "data.value"
+       },
+       {
+        "label": "Scroll",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Teaches",
+        "kind": "text",
+        "title": "The skill it raises when read",
+        "path": null
+       },
+       {
+        "label": "Enchanting",
+        "kind": "text",
+        "title": "Its enchantment",
+        "path": "enchanting"
+       },
+       {
+        "label": "Ench. pts",
+        "kind": "num",
+        "title": "Enchantment capacity",
+        "path": "data.enchantment"
+       },
+       {
+        "label": "Inventory",
+        "kind": "text",
+        "title": "Its inventory icon",
+        "path": "icon"
+       },
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {
+       "scroll": [
+        "Scroll",
+        "",
+        0.1,
+        3,
+        "yes",
+        "Alchemy",
+        "",
+        10,
+        "",
+        "no",
+        "no"
+       ],
+       "book": [
+        "Book",
+        "",
+        1.0,
+        3,
+        "no",
+        "",
+        "",
+        0,
+        "",
+        "no",
+        "no"
+       ]
+      }
+     },
+     {
+      "columns": [
+       {
+        "label": "Name",
+        "kind": "text",
+        "title": "The name the game shows",
+        "path": "name"
+       },
+       {
+        "label": "Type",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Script",
+        "kind": "text",
+        "title": "The script it runs",
+        "path": "script"
+       },
+       {
+        "label": "Sound",
+        "kind": "text",
+        "title": "Its sound generator",
+        "path": "sound"
+       },
+       {
+        "label": "Level",
+        "kind": "num",
+        "title": "",
+        "path": "data.level"
+       },
+       {
+        "label": "Essential",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Respawns",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Movement",
+        "kind": "text",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Weapon & shield",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Biped",
+        "kind": "bool",
+        "title": "",
+        "path": null
+       },
+       {
+        "label": "Soul",
+        "kind": "num",
+        "title": "",
+        "path": "data.soul"
+       },
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {
+       "rat": [
+        "Rat",
+        "Normal",
+        "",
+        "",
+        1,
+        "no",
+        "yes",
+        "Walk, Swim",
+        "no",
+        "no",
+        10,
+        "no",
+        "no"
+       ]
+      }
+     },
+     {
+      "columns": [
+       {
+        "label": "Persists",
+        "kind": "bool",
+        "title": "References persist (always loaded)",
+        "path": null
+       },
+       {
+        "label": "Blocked",
+        "kind": "bool",
+        "title": "Blocked: the Construction Set will not change it",
+        "path": null
+       }
+      ],
+      "rows": {}
+     },
+     {
+      "columns": [],
+      "rows": {}
+     },
+     {
+      "types": [
+       "None",
+       "Function",
+       "Global",
+       "Local",
+       "Journal",
+       "Item",
+       "Dead",
+       "NotId",
+       "NotFaction",
+       "NotClass",
+       "NotRace",
+       "NotCell",
+       "NotLocal"
+      ],
+      "functions": [
+       "ReactionLow",
+       "ReactionHigh",
+       "RankRequirement",
+       "Reputation",
+       "HealthPercent",
+       "PcReputation",
+       "PcLevel",
+       "PcHealthPercent",
+       "PcMagicka",
+       "PcFatigue",
+       "PcStrength",
+       "PcBlock",
+       "PcArmorer",
+       "PcMediumArmor",
+       "PcHeavyArmor",
+       "PcBluntWeapon",
+       "PcLongBlade",
+       "PcAxe",
+       "PcSpear",
+       "PcAthletics",
+       "PcEnchant",
+       "PcDestruction",
+       "PcAlteration",
+       "PcIllusion",
+       "PcConjuration",
+       "PcMysticism",
+       "PcRestoration",
+       "PcAlchemy",
+       "PcUnarmored",
+       "PcSecurity",
+       "PcSneak",
+       "PcAcrobatics",
+       "PcLightArmor",
+       "PcShortBlade",
+       "PcMarksman",
+       "PcMercantile",
+       "PcSpeechcraft",
+       "PcHandToHand",
+       "PcSex",
+       "PcExpelled",
+       "PcCommonDisease",
+       "PcBlightDisease",
+       "PcClothingModifier",
+       "PcCrimeLevel",
+       "SameSex",
+       "SameRace",
+       "SameFaction",
+       "FactionRankDifference",
+       "Detected",
+       "Alarmed",
+       "Choice",
+       "PcIntelligence",
+       "PcWillpower",
+       "PcAgility",
+       "PcSpeed",
+       "PcEndurance",
+       "PcPersonality",
+       "PcLuck",
+       "PcCorprus",
+       "Weather",
+       "PcVampire",
+       "Level",
+       "Attacked",
+       "TalkedToPc",
+       "PcHealth",
+       "CreatureTarget",
+       "FriendHit",
+       "Fight",
+       "Hello",
+       "Alarm",
+       "Flee",
+       "ShouldAttack",
+       "Werewolf",
+       "WerewolfKills",
+       "NotClass",
+       "DeadType",
+       "NotFaction",
+       "ItemType",
+       "JournalType",
+       "NotCell",
+       "NotRace",
+       "NotIdType",
+       "Global",
+       "PcGold",
+       "CompareGlobal",
+       "CompareLocal",
+       "VariableCompare"
+      ],
+      "comparisons": [
+       "Equal",
+       "NotEqual",
+       "Greater",
+       "GreaterEqual",
+       "Less",
+       "LessEqual"
+      ]
+     }
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [
+      {
+       "type": "Weapon",
+       "key": "iron_dagger",
+       "plugin": "Morrowind.esm"
+      }
+     ],
+     "fields": [
+      {
+       "type": "Weapon",
+       "key": "Iron_Dagger",
+       "base": "Mod.esp",
+       "choices": [
+        {
+         "path": "name",
+         "value": "Typed"
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "text found and replaced in every record type",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "ore",
+       "name": "Iron Ore",
+       "script": "",
+       "mesh": "m\\ore.nif",
+       "icon": "",
+       "data": {
+        "weight": 1.0,
+        "value": 1,
+        "flags": ""
+       }
+      },
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "more",
+       "name": "More ore",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 1.0,
+        "value": 1,
+        "flags": ""
+       }
+      },
+      {
+       "type": "Book",
+       "flags": "",
+       "id": "b",
+       "name": "On Ore",
+       "script": "",
+       "enchanting": "",
+       "icon": "",
+       "text": "Ore is found where ore is.",
+       "data": {
+        "weight": 1.0,
+        "value": 1,
+        "book_type": "Book",
+        "skill": -1,
+        "enchantment": 0
+       }
+      },
+      {
+       "type": "Container",
+       "flags": "",
+       "id": "chest",
+       "name": "Chest",
+       "script": "",
+       "mesh": "",
+       "encumbrance": 100.0,
+       "container_flags": "",
+       "inventory": [
+        [
+         1,
+         "ore"
+        ],
+        [
+         2,
+         "gold"
+        ]
+       ]
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Ore Mine",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": [
+        {
+         "id": "ore"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "search_all",
+     "ore",
+     false
+    ],
+    [
+     "search_all",
+     "ORE",
+     true
+    ],
+    [
+     "search_all",
+     "  ",
+     false
+    ],
+    [
+     "search_all",
+     "ore",
+     false,
+     2
+    ],
+    [
+     "search_all",
+     "ore",
+     true
+    ],
+    [
+     "replace_all",
+     "last",
+     "ore",
+     "Stone",
+     true
+    ],
+    [
+     "pending"
+    ],
+    [
+     "replace_all",
+     [
+      {
+       "tag": "MISC",
+       "id": "ore",
+       "path": "id"
+      },
+      {
+       "tag": "CELL",
+       "id": "Ore Mine",
+       "path": "name"
+      },
+      {
+       "tag": "MISC",
+       "id": "nothing",
+       "path": "name"
+      },
+      {
+       "tag": "MISC",
+       "id": "ore",
+       "path": "nofield"
+      },
+      {
+       "tag": "MISC",
+       "id": "ore",
+       "path": "mesh"
+      }
+     ],
+     "ore",
+     "x",
+     false
+    ],
+    [
+     "search_all",
+     "stone",
+     false
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "hits": [
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "name",
+        "value": "On Ore"
+       },
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "text",
+        "value": "Ore is found where ore is."
+       },
+       {
+        "tag": "CELL",
+        "id": "Ore Mine",
+        "path": "name",
+        "value": "Ore Mine"
+       },
+       {
+        "tag": "CONT",
+        "id": "chest",
+        "path": "inventory.0.1",
+        "value": "ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "more",
+        "path": "id",
+        "value": "more"
+       },
+       {
+        "tag": "MISC",
+        "id": "more",
+        "path": "name",
+        "value": "More ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "id",
+        "value": "ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "name",
+        "value": "Iron Ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "mesh",
+        "value": "m\\ore.nif"
+       }
+      ],
+      "count": 9,
+      "capped": false
+     },
+     {
+      "hits": [
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "name",
+        "value": "On Ore"
+       },
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "text",
+        "value": "Ore is found where ore is."
+       },
+       {
+        "tag": "CELL",
+        "id": "Ore Mine",
+        "path": "name",
+        "value": "Ore Mine"
+       },
+       {
+        "tag": "CONT",
+        "id": "chest",
+        "path": "inventory.0.1",
+        "value": "ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "more",
+        "path": "name",
+        "value": "More ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "id",
+        "value": "ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "name",
+        "value": "Iron Ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "mesh",
+        "value": "m\\ore.nif"
+       }
+      ],
+      "count": 8,
+      "capped": false
+     },
+     {
+      "hits": [],
+      "count": 0,
+      "capped": false
+     },
+     {
+      "hits": [
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "name",
+        "value": "On Ore"
+       },
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "text",
+        "value": "Ore is found where ore is."
+       }
+      ],
+      "count": 9,
+      "capped": true
+     },
+     {
+      "hits": [
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "name",
+        "value": "On Ore"
+       },
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "text",
+        "value": "Ore is found where ore is."
+       },
+       {
+        "tag": "CELL",
+        "id": "Ore Mine",
+        "path": "name",
+        "value": "Ore Mine"
+       },
+       {
+        "tag": "CONT",
+        "id": "chest",
+        "path": "inventory.0.1",
+        "value": "ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "more",
+        "path": "name",
+        "value": "More ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "id",
+        "value": "ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "name",
+        "value": "Iron Ore"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "mesh",
+        "value": "m\\ore.nif"
+       }
+      ],
+      "count": 8,
+      "capped": false
+     },
+     {
+      "changed": 6,
+      "failed": [
+       {
+        "tag": "CELL",
+        "id": "Ore Mine",
+        "path": "name",
+        "error": "a cell's name is its id here"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "id",
+        "error": "an id is changed with Search & Replace (it repoints what names it)"
+       }
+      ]
+     },
+     [
+      {
+       "tag": "BOOK",
+       "type": "Book",
+       "id": "b",
+       "whole": null,
+       "changes": [
+        {
+         "path": "name",
+         "value": "On Stone"
+        },
+        {
+         "path": "text",
+         "value": "Stone is found where Stone is."
+        }
+       ]
+      },
+      {
+       "tag": "CONT",
+       "type": "Container",
+       "id": "chest",
+       "whole": null,
+       "changes": [
+        {
+         "path": "inventory",
+         "value": [
+          [
+           1,
+           "Stone"
+          ],
+          [
+           2,
+           "gold"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "more",
+       "whole": null,
+       "changes": [
+        {
+         "path": "name",
+         "value": "More Stone"
+        }
+       ]
+      },
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "ore",
+       "whole": null,
+       "changes": [
+        {
+         "path": "name",
+         "value": "Iron Stone"
+        },
+        {
+         "path": "mesh",
+         "value": "m\\Stone.nif"
+        }
+       ]
+      }
+     ],
+     {
+      "changed": 0,
+      "failed": [
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "id",
+        "error": "an id is changed with Search & Replace (it repoints what names it)"
+       },
+       {
+        "tag": "CELL",
+        "id": "Ore Mine",
+        "path": "name",
+        "error": "a cell's name is its id here"
+       },
+       {
+        "tag": "MISC",
+        "id": "nothing",
+        "path": "name",
+        "error": "no plugin defines it"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "nofield",
+        "error": "the field is not there"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "mesh",
+        "error": "the text is no longer there"
+       }
+      ]
+     },
+     {
+      "hits": [
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "name",
+        "value": "On Stone"
+       },
+       {
+        "tag": "BOOK",
+        "id": "b",
+        "path": "text",
+        "value": "Stone is found where Stone is."
+       },
+       {
+        "tag": "CONT",
+        "id": "chest",
+        "path": "inventory.0.1",
+        "value": "Stone"
+       },
+       {
+        "tag": "MISC",
+        "id": "more",
+        "path": "name",
+        "value": "More Stone"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "name",
+        "value": "Iron Stone"
+       },
+       {
+        "tag": "MISC",
+        "id": "ore",
+        "path": "mesh",
+        "value": "m\\Stone.nif"
+       }
+      ],
+      "count": 6,
+      "capped": false
+     }
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "Book",
+       "key": "b",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "name",
+         "value": "On Stone"
+        },
+        {
+         "path": "text",
+         "value": "Stone is found where Stone is."
+        }
+       ]
+      },
+      {
+       "type": "Container",
+       "key": "chest",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "inventory",
+         "value": [
+          [
+           1,
+           "Stone"
+          ],
+          [
+           2,
+           "gold"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "type": "MiscItem",
+       "key": "more",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "name",
+         "value": "More Stone"
+        }
+       ]
+      },
+      {
+       "type": "MiscItem",
+       "key": "ore",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "name",
+         "value": "Iron Stone"
+        },
+        {
+         "path": "mesh",
+         "value": "m\\Stone.nif"
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
+  }
+ ]
+}

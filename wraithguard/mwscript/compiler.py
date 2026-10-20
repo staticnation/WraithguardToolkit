@@ -16,7 +16,7 @@ writes scripts that differ from the ones already in people's plugins.
 Not ported: MWEdit's custom (MWSE/MWE) function list, so ``FUNCTIONX`` is never
 produced; the ``setx``/``ifx``/``whilex`` blocks are ported but untested.
 
-The Rust backend has the same port (``native/src/mwscript``); :class:`ScriptCompiler`
+The Rust backend has the same port (``viewer-shell/editcore/src/mwscript``, through ``native/``); :class:`ScriptCompiler`
 uses it when it is built and this one when it is not. This module stays the reference
 the Rust one is held to.
 
@@ -2768,7 +2768,7 @@ def _native_compiler() -> type | None:
 class ScriptCompiler:
     """A load order read once, to compile scripts against.
 
-    Uses the Rust backend (``native/src/mwscript``) when it is built and this module's
+    Uses the Rust backend (``editcore::mwscript``, through ``native/``) when it is built and this module's
     port when it is not; both write MWEdit's bytes. ``extra`` lays the patch pool's
     records over the plugins' (a global or script the patch adds), so a script compiles
     against what the patch will be.

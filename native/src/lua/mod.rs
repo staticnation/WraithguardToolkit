@@ -143,75 +143,19 @@ fn lual_scripts(py: Python<'_>, path: PathBuf) -> PyResult<Vec<(String, u32, Vec
     })
 }
 
-/// An empty Lua data field written as `""` (the editor's, and a hand-made record's) in
-/// the form the crate's serde reads: its own encoding of no bytes. Without this the
-/// decompressor is handed an empty string and the whole record "does not read".
-fn blank_lua_data(v: &mut serde_json::Value) {
-    let empty = serde_json::to_value(tes3::esp::PerInstanceConfig::default())
-        .ok()
-        .and_then(|d| d.get("data").cloned());
-    let Some(empty) = empty else { return };
-    let fix = |o: &mut serde_json::Value, key: &str| {
-        if o.get(key).and_then(|x| x.as_str()) == Some("") {
-            o[key] = empty.clone();
-        }
-    };
-    let Some(scripts) = v.get_mut("scripts").and_then(|s| s.as_array_mut()) else { return };
-    for script in scripts {
-        fix(script, "init_data");
-        for list in ["records", "instances"] {
-            if let Some(items) = script.get_mut(list).and_then(|x| x.as_array_mut()) {
-                for item in items {
-                    fix(item, "data");
-                }
-            }
-        }
-    }
-}
-
 /// `lual_remap(record_json, mapping)`: a LUAL record (`ScriptConfigList`, the editor's JSON)
 /// for a new master list - its per-reference entries (LUAI) and the references serialized
 /// in its Lua data (LUAD, merge_to_master's `remap_refnums`) renumbered by `mapping` (old
 /// content-file index -> new; 0 is the file itself, 1.. its masters, as FRMR's). The
 /// record's JSON back. ValueError for a record that is not a LUAL, an index the mapping
 /// does not cover, or data that does not read (it would be left meaning other objects).
+/// The work is `editcore::build::lual_remap`'s (port step 4.1, slice 6).
 #[pyfunction]
 fn lual_remap(record_json: &str, mapping: std::collections::HashMap<i32, i32>) -> PyResult<String> {
     use pyo3::exceptions::PyValueError;
-    use tes3::esp::TES3Object;
-    let mut value: serde_json::Value =
+    let value: serde_json::Value =
         serde_json::from_str(record_json).map_err(|e| PyValueError::new_err(format!("not a record: {e}")))?;
-    blank_lua_data(&mut value);
-    let mut obj: TES3Object =
-        serde_json::from_value(value).map_err(|e| PyValueError::new_err(format!("not a record: {e}")))?;
-    let TES3Object::ScriptConfigList(list) = &mut obj else {
-        return Err(PyValueError::new_err("not a LUAL record"));
-    };
-    let mut missing: Option<i32> = None;
-    for script in &mut list.scripts {
-        for instance in &mut script.instances {
-            match mapping.get(&instance.mast_idx) {
-                Some(&m) => instance.mast_idx = m,
-                None => missing = Some(instance.mast_idx),
-            }
-        }
-        let datas = std::iter::once(&mut script.init_data)
-            .chain(script.records.iter_mut().map(|r| &mut r.data))
-            .chain(script.instances.iter_mut().map(|i| &mut i.data));
-        for data in datas {
-            merge_to_master::remap_refnums(data, &mut |file: &mut i32, _index: &mut u32| match mapping.get(file) {
-                Some(&m) => *file = m,
-                None => missing = Some(*file),
-            })
-            .map_err(|e| PyValueError::new_err(format!("{}: its Lua data does not read ({e})", script.path)))?;
-        }
-    }
-    if let Some(m) = missing {
-        return Err(PyValueError::new_err(format!(
-            "a script entry names content file {m}, which the plugin's master list does not reach"
-        )));
-    }
-    serde_json::to_string(&obj).map_err(|e| PyValueError::new_err(e.to_string()))
+    editcore::build::lual_remap(&value, &mapping).map(|v| v.to_string()).map_err(PyValueError::new_err)
 }
 
 /// `lua_tokenize(src, comments=False, teal=False)`: Lua source as tokens,
@@ -543,24 +487,4 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(lua_report, m)?)?;
     m.add("TEAL_VERSION", "0.24.8")?;
     Ok(())
-}
-
-#[cfg(test)]
-mod lual_tests {
-    use super::*;
-
-    #[test]
-    fn empty_lua_data_reads() {
-        // The editor's (and the Python tests') record: Lua data written as "".
-        let mut v: serde_json::Value = serde_json::from_str(
-            r#"{"type":"ScriptConfigList","flags":"","scripts":[{"path":"scripts/a.lua","init_data":"",
-            "flags":"","types":["NPC_"],"records":[],
-            "instances":[{"attach":true,"mast_idx":1,"ref_idx":7,"data":""}]}]}"#,
-        )
-        .unwrap();
-        blank_lua_data(&mut v);
-        let obj: tes3::esp::TES3Object = serde_json::from_value(v).expect("reads once blanked");
-        let tes3::esp::TES3Object::ScriptConfigList(list) = obj else { panic!("not a LUAL") };
-        assert!(list.scripts[0].init_data.is_empty() && list.scripts[0].instances[0].data.is_empty());
-    }
 }

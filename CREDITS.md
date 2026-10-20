@@ -181,7 +181,8 @@ and their `LICENSE` files are included in their source folders in this repo.
   numeric value is a fact about the game's own data files. `tools/gen_opcodes.py`
   regenerates the table and documents each derivation.
 
-  The **script compiler** (`wraithguard/mwscript/compiler.py`) is a port of MWEdit's
+  The **script compiler** (`wraithguard/mwscript/compiler.py`, and its Rust twin in
+  `viewer-shell/editcore/src/mwscript/`) is a port of MWEdit's
   (`mwedit/script_compile.cc`, `script_compile_ex.cc`; © 2025 Walrus Tech, originally
   Dave Humphrey; MIT). Its parse tables, function table, magic effect IDs and animation
   groups are generated from MWEdit's source by `tools/gen_mwscript_compiler.py`, and
@@ -617,6 +618,11 @@ stays as the reference the native merge is tested against
 (`tests/test_merge_golden.py`; a merged master's own references are compared by
 content, as upstream's test does, since the tool numbers them afresh), and its
 `get_index_remap` unit cases pass unchanged.
+
+The Editor's patch writer (`viewer-shell/editcore/src/build.rs`, which the native
+module's `lual_remap` now calls) takes the crate too, from the same fork: an OpenMW Lua
+script list carried into a patch has the references in its Lua data renumbered by the
+crate's `remap_refnums`.
 
 ## Runtime & optional libraries
 

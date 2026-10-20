@@ -20,9 +20,36 @@ program, and a clearer UI on the way. In order:
    1. *The Editor's calls into Python.* The plan is `viewer-shell/PORT.md`: the logic
       moves into `viewer-shell/editcore` slice by slice, with Python calling it through
       native and both sides run against shared case files. Then the viewer becomes the
-      owner and each of `editorlink.py`'s 57 links becomes a Tauri command. Slice 1
-      (reading and lookups) is done. Next is slice 2: the record cache in Rust (rusqlite,
-      zstd'd JSON instead of pickles).
+      owner and each of `editorlink.py`'s 57 links becomes a Tauri command. Slices 1
+      (reading and lookups), 2 (the record cache, no pickles) 3 (the queue, the journal
+      and undo) and 4 (the record and reference dialogs and every edit behind them) are done.
+      Slices 5a (search and the columns), 5b (the Use Report and Search & Replace), 5c
+      (dialogue), 5d (scripts: the compiler is editcore's now) and 5e (Verify) are done,
+      so every reading link has its Rust twin, and slice 6 (the build: `editcore::build` writes
+      the same patch, byte for byte; its job, status, the test run and the launch
+      setups) is done, so every link has its Rust twin. Slice 7, the flip, is done
+      (7a reading and editing, 7b dialogue, scripts, uses and the verifier, 7c the
+      build and the test run): the viewer answers every Editor link but the four that
+      open Wraithguard's own windows, the queue shared with Wraithguard through the
+      journal, and Wraithguard no longer serves them. Next: retire the Python Editor
+      (its handlers and `EditorSession`'s editing, once only the link cases use them).
+      Untested here: the real viewer build (no webview libraries in this environment;
+      the command layer is checked by `check-commands`), and the Patch Builder's journal
+      changes (no tkinter here; `test_patchwin_steps.py` ran against a stand-in). Small: the two sides' journal writes can cross - a change made on one
+      in the moment the other is writing is lost to the later write (a single person
+      editing in both windows at once). Small: a record made with "New" lists an NPC's or a creature's fields in
+      the Python blank's order (race, class... before the inventory), not the order the
+      crate reads them from a plugin in; the Rust Editor uses the crate's.
+      Decide: the Object Window's search matches a record's deleting version (a later
+      plugin's DELETED record); the port keeps that until you say otherwise. Decide:
+      moving a response only sets its own `prev_id`/`next_id`, not the one that followed
+      it, so two responses moved to the same place in one patch both claim it, and which
+      the game puts first depends on the order the build writes them (the dialogue window
+      shows the one moved first on top, and the build writes them in the order they were
+      queued, as the Python build does). Small: a patch carrying an OpenMW Lua script
+      list (only an earlier build's, appended to: the queue has no key for one) is
+      refused by the Python writer ("unknown record type"), which has no record for it;
+      the Rust writer writes it. Left as it is until the flip retires the Python writer.
    2. *Load order.* Sort (`rules/` for mlox, MOMW's `plugin-order.yml`, `sort/`), Export
       (openmw.cfg, customizations.toml), the rule panels, the rule maker, Update rules and
       Sources (`net/updaters.py`), into ordercore and a Load order page. Today's main
@@ -54,8 +81,7 @@ jsonptr ignored as Tauri-pinned (below). Left:
 - **`assert` in `tools/gen_tes3_schema.py`:** explicit checks now (done locally).
 - **To ignore, with these reasons:** path traversal and file inclusion (a desktop app
   opening the files its user picks); the two `engine_behaviour.json` "secrets" (SHA-256
-  hashes of test outputs); pickle (Wraithguard's own cache file; gone with 4.1 of the port);
-  SSRF in `updaters.py` (http/https only, a host required, a size cap, hostile URLs
+  hashes of test outputs); SSRF in `updaters.py` (http/https only, a host required, a size cap, hostile URLs
   tested); CSP and clickjacking on `none.com` (not our site: remove it under Domains).
 - **`innerHTML` (Aikido's 40, 177 in all):** audited 2026-10-19 - every value reaching
   `innerHTML`/`insertAdjacentHTML` traced statically, and the page run with every engine and
@@ -174,7 +200,7 @@ it waits 19 ms), the 205,535-file index 4 s; about 6 us a reference across 8.6M.
 ## MWScript compiler: TESCS and MWEdit differences
 
 **Wait for G7:** his compiler goes into the tes3 crate (tested on 15k+ mods); then we drop
-our MWEdit port (`native/src/mwscript`), after running both on `MwEditScriptTest.esp` and
+our MWEdit port (`viewer-shell/editcore/src/mwscript`), after running both on `MwEditScriptTest.esp` and
 keeping the port's tests as a cross-check. No compiler work until then. PT, TR and OAAB
 still use the vanilla CS, so:
 

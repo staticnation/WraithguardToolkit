@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use encoding_rs::WINDOWS_1252;
 use tes3::esp::{EditorId, Plugin, TES3Object, TypeInfo};
 
-use crate::lint::{records, subrecords};
+use crate::frames::{records, subrecords};
 
 /// Record types an item can be carried as (MWEdit's `IsESMRecordCarryable`).
 pub const CARRYABLE: [&[u8; 4]; 13] =
@@ -34,6 +34,11 @@ fn wanted(tag: [u8; 4]) -> bool {
 /// A string as the plugin's bytes (Windows-1252, as the tes3 crate decodes it).
 pub fn to_bytes(s: &str) -> Vec<u8> {
     WINDOWS_1252.encode(s).0.into_owned()
+}
+
+/// The plugin's bytes as a string (Windows-1252).
+pub fn from_bytes(b: &[u8]) -> String {
+    WINDOWS_1252.decode_without_bom_handling(b).0.into_owned()
 }
 
 /// What the compiler needs of one record.

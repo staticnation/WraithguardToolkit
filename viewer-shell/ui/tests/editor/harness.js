@@ -11,7 +11,10 @@
      engine   (cmd, args) -> answer, for Engine.call / Engine.bytes
      links    link name -> url, the extra file's `links`
      answer   (url, body) -> answer (an object is sent back as JSON), for wg_post
-   `posts` holds every [url, body] the page sent Wraithguard; `toasts` every toast. */
+     editor   the launch's `extra.editor` ({plugins, journal}): the viewer's own Editor
+              opened (`editor_open`, answered by `engine`) and asked its links
+   `posts` holds every [url, body] the page sent Wraithguard; `native` every [link, body]
+   it asked the viewer's own Editor (`editor_link`); `toasts` every toast. */
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -85,6 +88,9 @@ function page(opts = {}) {
     for (const h of hits) tainted.push(where(h)); } }).observe(d, { childList: true, subtree: true });
   const linkOf = {};
   for (const [name, url] of Object.entries(opts.links || {})) linkOf[url] = name;
+  const native = [];
+  w.__native = native;
+  w.__checkRequest = checkRequest;
   w.__answer = async (url, body) => {
     const link = linkOf[url];
     if (link) checkRequest(link, body);
@@ -107,6 +113,12 @@ function page(opts = {}) {
         if(c==='wg_post'){
           const b=JSON.parse(a.body||'{}'); __posts.push([a.url,b]);
           const r=await __answer(a.url,b);
+          return typeof r==='string'? r : JSON.stringify(r==null? {} : r);
+        }
+        if(c==='editor_link'){
+          // A link the viewer's own Editor answers: the same contract as Wraithguard's.
+          const b=JSON.parse(a.body||'{}'); __native.push([a.name,b]); __checkRequest(a.name,b);
+          const r=await __engine(c,a||{});
           return typeof r==='string'? r : JSON.stringify(r==null? {} : r);
         }
         return __engine(c,a||{});
@@ -161,9 +173,9 @@ function page(opts = {}) {
       },
       async pick(){ return null; },
     };`);
-  w.__WG_VIEW__ = { extra: { links: opts.links || {} } };
+  w.__WG_VIEW__ = { extra: Object.assign({ links: opts.links || {} }, opts.editor ? { editor: opts.editor } : {}) };
   for (const m of opts.modules || []) w.eval(source(m));
-  return { w, d, posts, toasts, wait: ms => new Promise(r => setTimeout(r, ms || 0)) };
+  return { w, d, posts, toasts, native, wait: ms => new Promise(r => setTimeout(r, ms || 0)) };
 }
 
 /** A pointer-ish event for jsdom (it has no PointerEvent). */

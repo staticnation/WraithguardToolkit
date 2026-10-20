@@ -309,7 +309,7 @@ def main(argv: list[str]) -> int:
     return 0
 
 
-OUT_RS = Path(__file__).resolve().parent.parent / "native/src/mwscript/data.rs"
+OUT_RS = Path(__file__).resolve().parent.parent / "viewer-shell/editcore/src/mwscript/data.rs"
 
 
 def _rs_str(text: str) -> str:
@@ -330,7 +330,7 @@ def write_rust(
     tokens: dict[str, int],
     custom: list[Any],
 ) -> None:
-    """The same data as Rust, for ``native/src/mwscript``."""
+    """The same data as Rust, for ``editcore::mwscript`` (``viewer-shell/editcore/src/mwscript``)."""
     names = list(tables)
     actions = sorted({a for rows in tables.values() for r in rows for a in r[3:] if a})
     out = [

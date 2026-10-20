@@ -1,0 +1,2097 @@
+{
+ "_about": "The record dialog and the changes made to records, one way for the Python Editor and the viewer's: run by tests/test_edit_cases.py (EditorSession: find, view, set_field, set_many, revert, insert, duplicate, pending, undo, redo) and viewer-shell/editcore/tests/cases.rs (editcore::edit). Each case is a load order (`plugins`, each with its records in the tes3conv schema) and operations: [\"view\", tag, id], [\"set\", tag, id, path, value as the viewer sends it], [\"set_many\", tag, [ids], path, value], [\"revert\", tag, id, path or null], [\"insert\", tag, id], [\"duplicate\", tag, id, new id], [\"pending\"], [\"undo\"], [\"redo\"]. `expect.results` is what each gave (\"ok\", the new id, the view or pending list, the undo's answer, {\"error\": message} for a refusal, \"not found\"), `expect.journal` the queue's journal after them. The messages are part of the answer: the viewer shows them. Generated from the Python side when a case is added, and read by hand.",
+ "cases": [
+  {
+   "name": "a field is read as its type, and its range holds",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "Weapon",
+       "flags": "",
+       "id": "iron_dagger",
+       "name": "Iron Dagger",
+       "script": "",
+       "mesh": "w\\dagger.nif",
+       "icon": "",
+       "enchanting": "",
+       "data": {
+        "weight": 3.0,
+        "value": 10,
+        "weapon_type": "ShortBladeOneHand",
+        "health": 300,
+        "speed": 1.5,
+        "reach": 1.0,
+        "enchantment": 0,
+        "chop_min": 1,
+        "chop_max": 5,
+        "slash_min": 1,
+        "slash_max": 5,
+        "thrust_min": 1,
+        "thrust_max": 5,
+        "flags": ""
+       }
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.value",
+     "25"
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.value",
+     2.5
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.health",
+     70000
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.health",
+     -1
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.weight",
+     " 1_000.5 "
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.weight",
+     "heavy"
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.speed",
+     true
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "name",
+     12.0
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.chop_max",
+     5.0
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "id",
+     "x"
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.grid",
+     [
+      0,
+      0
+     ]
+    ],
+    [
+     "set",
+     "WEAP",
+     "iron_dagger",
+     "data.nothing",
+     1
+    ],
+    [
+     "set",
+     "WEAP",
+     "nobody",
+     "name",
+     "x"
+    ],
+    [
+     "view",
+     "WEAP",
+     "iron_dagger"
+    ],
+    [
+     "pending"
+    ]
+   ],
+   "expect": {
+    "results": [
+     "ok",
+     {
+      "error": "2.5 is not a whole number"
+     },
+     {
+      "error": "70000 is outside 0..65535"
+     },
+     {
+      "error": "-1 is outside 0..65535"
+     },
+     "ok",
+     {
+      "error": "'heavy' is not a number"
+     },
+     {
+      "error": "True is not a number"
+     },
+     "ok",
+     "ok",
+     {
+      "error": "id cannot be changed here"
+     },
+     {
+      "error": "data.grid cannot be changed here"
+     },
+     {
+      "error": "iron_dagger has no field data.nothing"
+     },
+     "not found",
+     {
+      "tag": "WEAP",
+      "type": "Weapon",
+      "id": "iron_dagger",
+      "winner": "Morrowind.esm",
+      "plugins": [
+       "Morrowind.esm"
+      ],
+      "whole": null,
+      "new": false,
+      "fields": [
+       {
+        "path": "type",
+        "value": "Weapon",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "flags",
+        "value": "",
+        "editable": true,
+        "kind": "flags:ObjectFlags",
+        "options": [
+         "MODIFIED",
+         "DELETED",
+         "PERSISTENT",
+         "IGNORED",
+         "BLOCKED"
+        ]
+       },
+       {
+        "path": "id",
+        "value": "iron_dagger",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "name",
+        "value": "Iron Dagger",
+        "editable": true,
+        "kind": "str",
+        "options": [],
+        "queued": "12.0",
+        "source": "typed"
+       },
+       {
+        "path": "script",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "mesh",
+        "value": "w\\dagger.nif",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "icon",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "enchanting",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "data.weight",
+        "value": 3.0,
+        "editable": true,
+        "kind": "float",
+        "options": [],
+        "queued": 1000.5,
+        "source": "typed"
+       },
+       {
+        "path": "data.value",
+        "value": 10,
+        "editable": true,
+        "kind": "int:0:4294967295",
+        "options": [],
+        "queued": 25,
+        "source": "typed"
+       },
+       {
+        "path": "data.weapon_type",
+        "value": "ShortBladeOneHand",
+        "editable": true,
+        "kind": "enum",
+        "options": [
+         "Arrow",
+         "AxeOneHand",
+         "AxeTwoHand",
+         "BluntOneHand",
+         "BluntTwoClose",
+         "BluntTwoWide",
+         "Bolt",
+         "LongBladeOneHand",
+         "LongBladeTwoClose",
+         "MarksmanBow",
+         "MarksmanCrossbow",
+         "MarksmanThrown",
+         "ShortBladeOneHand",
+         "SpearTwoWide"
+        ]
+       },
+       {
+        "path": "data.health",
+        "value": 300,
+        "editable": true,
+        "kind": "int:0:65535",
+        "options": []
+       },
+       {
+        "path": "data.speed",
+        "value": 1.5,
+        "editable": true,
+        "kind": "float",
+        "options": []
+       },
+       {
+        "path": "data.reach",
+        "value": 1.0,
+        "editable": true,
+        "kind": "float",
+        "options": []
+       },
+       {
+        "path": "data.enchantment",
+        "value": 0,
+        "editable": true,
+        "kind": "int:0:65535",
+        "options": []
+       },
+       {
+        "path": "data.chop_min",
+        "value": 1,
+        "editable": true,
+        "kind": "int:0:255",
+        "options": []
+       },
+       {
+        "path": "data.chop_max",
+        "value": 5,
+        "editable": true,
+        "kind": "int:0:255",
+        "options": []
+       },
+       {
+        "path": "data.slash_min",
+        "value": 1,
+        "editable": true,
+        "kind": "int:0:255",
+        "options": []
+       },
+       {
+        "path": "data.slash_max",
+        "value": 5,
+        "editable": true,
+        "kind": "int:0:255",
+        "options": []
+       },
+       {
+        "path": "data.thrust_min",
+        "value": 1,
+        "editable": true,
+        "kind": "int:0:255",
+        "options": []
+       },
+       {
+        "path": "data.thrust_max",
+        "value": 5,
+        "editable": true,
+        "kind": "int:0:255",
+        "options": []
+       },
+       {
+        "path": "data.flags",
+        "value": "",
+        "editable": true,
+        "kind": "flags:WeaponFlags",
+        "options": [
+         "IGNORES_NORMAL_WEAPON_RESISTANCE",
+         "SILVER"
+        ]
+       }
+      ]
+     },
+     [
+      {
+       "tag": "WEAP",
+       "type": "Weapon",
+       "id": "iron_dagger",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 25
+        },
+        {
+         "path": "data.weight",
+         "value": 1000.5
+        },
+        {
+         "path": "name",
+         "value": "12.0"
+        }
+       ]
+      }
+     ]
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "Weapon",
+       "key": "iron_dagger",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "data.value",
+         "value": 25
+        },
+        {
+         "path": "data.weight",
+         "value": 1000.5
+        },
+        {
+         "path": "name",
+         "value": "12.0"
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "lists, groups and flags",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "Npc",
+       "flags": "",
+       "id": "guard",
+       "name": "Guard",
+       "script": "",
+       "mesh": "",
+       "race": "Imperial",
+       "class": "Guard",
+       "faction": "",
+       "head": "",
+       "hair": "",
+       "npc_flags": "FEMALE",
+       "blood_type": 0,
+       "inventory": [
+        [
+         1,
+         "iron_sword"
+        ],
+        [
+         -2,
+         "bread"
+        ]
+       ],
+       "spells": [],
+       "ai_data": {
+        "hello": 30,
+        "fight": 30,
+        "flee": 30,
+        "alarm": 100,
+        "services": ""
+       },
+       "ai_packages": [
+        {
+         "Wander": {
+          "distance": 512,
+          "duration": 5,
+          "game_hour": 0,
+          "idle2": 60
+         }
+        },
+        {
+         "Travel": {
+          "location": [
+           1.0,
+           2.0,
+           3.0
+          ],
+          "reset": true
+         }
+        }
+       ],
+       "travel_destinations": [],
+       "data": {
+        "level": 5,
+        "disposition": 50,
+        "reputation": 0,
+        "rank": 0,
+        "gold": 10
+       }
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "set",
+     "NPC_",
+     "guard",
+     "inventory",
+     [
+      [
+       3,
+       "iron_sword"
+      ],
+      [
+       "2",
+       "steel_axe"
+      ]
+     ]
+    ],
+    [
+     "set",
+     "NPC_",
+     "guard",
+     "inventory",
+     [
+      [
+       1,
+       "a",
+       "b"
+      ]
+     ]
+    ],
+    [
+     "set",
+     "NPC_",
+     "guard",
+     "inventory",
+     "iron_sword"
+    ],
+    [
+     "set",
+     "NPC_",
+     "guard",
+     "spells",
+     [
+      "fireball"
+     ]
+    ],
+    [
+     "set",
+     "NPC_",
+     "guard",
+     "ai_packages",
+     [
+      {
+       "Travel": {
+        "location": [
+         4,
+         5,
+         6
+        ],
+        "reset": "no"
+       }
+      }
+     ]
+    ],
+    [
+     "set",
+     "NPC_",
+     "guard",
+     "ai_data",
+     {
+      "hello": 0
+     }
+    ],
+    [
+     "set",
+     "NPC_",
+     "guard",
+     "ai_data.fight",
+     "40"
+    ],
+    [
+     "set",
+     "NPC_",
+     "guard",
+     "data",
+     {
+      "level": 1,
+      "nonsense": 2
+     }
+    ],
+    [
+     "set",
+     "NPC_",
+     "guard",
+     "npc_flags",
+     "FEMALE | AUTO_CALCULATE"
+    ],
+    [
+     "view",
+     "NPC_",
+     "guard"
+    ]
+   ],
+   "expect": {
+    "results": [
+     "ok",
+     {
+      "error": "an entry here is 2 values, not [1, 'a', 'b']"
+     },
+     {
+      "error": "this field holds a list, not 'iron_sword'"
+     },
+     "ok",
+     "ok",
+     "ok",
+     "ok",
+     {
+      "error": "nonsense is not part of this entry"
+     },
+     "ok",
+     {
+      "tag": "NPC_",
+      "type": "Npc",
+      "id": "guard",
+      "winner": "Morrowind.esm",
+      "plugins": [
+       "Morrowind.esm"
+      ],
+      "whole": null,
+      "new": false,
+      "fields": [
+       {
+        "path": "type",
+        "value": "Npc",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "flags",
+        "value": "",
+        "editable": true,
+        "kind": "flags:ObjectFlags",
+        "options": [
+         "MODIFIED",
+         "DELETED",
+         "PERSISTENT",
+         "IGNORED",
+         "BLOCKED"
+        ]
+       },
+       {
+        "path": "id",
+        "value": "guard",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "name",
+        "value": "Guard",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "script",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "mesh",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "race",
+        "value": "Imperial",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "class",
+        "value": "Guard",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "faction",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "head",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "hair",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "npc_flags",
+        "value": "FEMALE",
+        "editable": true,
+        "kind": "flags:NpcFlags",
+        "options": [
+         "FEMALE",
+         "ESSENTIAL",
+         "RESPAWN",
+         "IS_BASE",
+         "AUTO_CALCULATE"
+        ],
+        "queued": "FEMALE | AUTO_CALCULATE",
+        "source": "typed"
+       },
+       {
+        "path": "blood_type",
+        "value": 0,
+        "editable": true,
+        "kind": "int:0:255",
+        "options": []
+       },
+       {
+        "path": "inventory",
+        "value": [
+         [
+          1,
+          "iron_sword"
+         ],
+         [
+          -2,
+          "bread"
+         ]
+        ],
+        "editable": true,
+        "kind": "list",
+        "options": [],
+        "count": 2,
+        "queued": [
+         [
+          3,
+          "iron_sword"
+         ],
+         [
+          2,
+          "steel_axe"
+         ]
+        ],
+        "source": "typed"
+       },
+       {
+        "path": "spells",
+        "value": [],
+        "editable": true,
+        "kind": "list",
+        "options": [],
+        "count": 0,
+        "queued": [
+         "fireball"
+        ],
+        "source": "typed"
+       },
+       {
+        "path": "ai_data.hello",
+        "value": 30,
+        "editable": true,
+        "kind": "int:-32768:32767",
+        "options": []
+       },
+       {
+        "path": "ai_data.fight",
+        "value": 30,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": [],
+        "queued": 40,
+        "source": "typed"
+       },
+       {
+        "path": "ai_data.flee",
+        "value": 30,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": []
+       },
+       {
+        "path": "ai_data.alarm",
+        "value": 100,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": []
+       },
+       {
+        "path": "ai_data.services",
+        "value": "",
+        "editable": true,
+        "kind": "flags:ServiceFlags",
+        "options": [
+         "BARTERS_WEAPONS",
+         "BARTERS_ARMOR",
+         "BARTERS_CLOTHING",
+         "BARTERS_BOOKS",
+         "BARTERS_INGREDIENTS",
+         "BARTERS_LOCKPICKS",
+         "BARTERS_PROBES",
+         "BARTERS_LIGHTS",
+         "BARTERS_APPARATUS",
+         "BARTERS_REPAIR_ITEMS",
+         "BARTERS_MISC_ITEMS",
+         "OFFERS_SPELLS",
+         "BARTERS_ENCHANTED_ITEMS",
+         "BARTERS_ALCHEMY",
+         "OFFERS_TRAINING",
+         "OFFERS_SPELLMAKING",
+         "OFFERS_ENCHANTING",
+         "OFFERS_REPAIRS"
+        ]
+       },
+       {
+        "path": "ai_packages",
+        "value": [
+         {
+          "Wander": {
+           "distance": 512,
+           "duration": 5,
+           "game_hour": 0,
+           "idle2": 60
+          }
+         },
+         {
+          "Travel": {
+           "location": [
+            1.0,
+            2.0,
+            3.0
+           ],
+           "reset": true
+          }
+         }
+        ],
+        "editable": true,
+        "kind": "list",
+        "options": [],
+        "count": 2,
+        "queued": [
+         {
+          "Travel": {
+           "location": [
+            4.0,
+            5.0,
+            6.0
+           ],
+           "reset": false
+          }
+         }
+        ],
+        "source": "typed"
+       },
+       {
+        "path": "travel_destinations",
+        "value": [],
+        "editable": true,
+        "kind": "list",
+        "options": [],
+        "count": 0
+       },
+       {
+        "path": "data.level",
+        "value": 5,
+        "editable": true,
+        "kind": "int:-32768:32767",
+        "options": []
+       },
+       {
+        "path": "data.disposition",
+        "value": 50,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": []
+       },
+       {
+        "path": "data.reputation",
+        "value": 0,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": []
+       },
+       {
+        "path": "data.rank",
+        "value": 0,
+        "editable": true,
+        "kind": "int:-128:127",
+        "options": []
+       },
+       {
+        "path": "data.gold",
+        "value": 10,
+        "editable": true,
+        "kind": "int:0:4294967295",
+        "options": []
+       }
+      ]
+     }
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "Npc",
+       "key": "guard",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "inventory",
+         "value": [
+          [
+           3,
+           "iron_sword"
+          ],
+          [
+           2,
+           "steel_axe"
+          ]
+         ]
+        },
+        {
+         "path": "spells",
+         "value": [
+          "fireball"
+         ]
+        },
+        {
+         "path": "ai_packages",
+         "value": [
+          {
+           "Travel": {
+            "location": [
+             4.0,
+             5.0,
+             6.0
+            ],
+            "reset": false
+           }
+          }
+         ]
+        },
+        {
+         "path": "ai_data",
+         "value": {
+          "hello": 0,
+          "fight": 30,
+          "flee": 30,
+          "alarm": 100,
+          "services": ""
+         }
+        },
+        {
+         "path": "ai_data.fight",
+         "value": 40
+        },
+        {
+         "path": "npc_flags",
+         "value": "FEMALE | AUTO_CALCULATE"
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "setting back to the load order's value drops the change",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "gold",
+       "name": "Gold",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 0.0,
+        "value": 1,
+        "flags": ""
+       }
+      }
+     ]
+    },
+    {
+     "name": "Mod.esp",
+     "records": [
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "Gold",
+       "name": "Gold Coin",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 0.0,
+        "value": 1,
+        "flags": ""
+       }
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "set",
+     "MISC",
+     "gold",
+     "data.value",
+     2
+    ],
+    [
+     "pending"
+    ],
+    [
+     "set",
+     "MISC",
+     "gold",
+     "data.value",
+     "1"
+    ],
+    [
+     "pending"
+    ],
+    [
+     "set",
+     "MISC",
+     "gold",
+     "name",
+     "Gold"
+    ],
+    [
+     "view",
+     "MISC",
+     "gold"
+    ],
+    [
+     "revert",
+     "MISC",
+     "gold",
+     null
+    ],
+    [
+     "pending"
+    ]
+   ],
+   "expect": {
+    "results": [
+     "ok",
+     [
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "Gold",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 2
+        }
+       ]
+      }
+     ],
+     "ok",
+     [],
+     "ok",
+     {
+      "tag": "MISC",
+      "type": "MiscItem",
+      "id": "Gold",
+      "winner": "Mod.esp",
+      "plugins": [
+       "Morrowind.esm",
+       "Mod.esp"
+      ],
+      "whole": null,
+      "new": false,
+      "fields": [
+       {
+        "path": "type",
+        "value": "MiscItem",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "flags",
+        "value": "",
+        "editable": true,
+        "kind": "flags:ObjectFlags",
+        "options": [
+         "MODIFIED",
+         "DELETED",
+         "PERSISTENT",
+         "IGNORED",
+         "BLOCKED"
+        ]
+       },
+       {
+        "path": "id",
+        "value": "Gold",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "name",
+        "value": "Gold Coin",
+        "editable": true,
+        "kind": "str",
+        "options": [],
+        "queued": "Gold",
+        "source": "typed"
+       },
+       {
+        "path": "script",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "mesh",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "icon",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "data.weight",
+        "value": 0.0,
+        "editable": true,
+        "kind": "float",
+        "options": []
+       },
+       {
+        "path": "data.value",
+        "value": 1,
+        "editable": true,
+        "kind": "int:0:4294967295",
+        "options": []
+       },
+       {
+        "path": "data.flags",
+        "value": "",
+        "editable": true,
+        "kind": "flags:MiscItemFlags",
+        "options": [
+         "KEY"
+        ]
+       }
+      ]
+     },
+     "ok",
+     []
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "a script keeps CRLF line ends",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "Script",
+       "flags": "",
+       "id": "s1",
+       "header": {
+        "num_shorts": 0,
+        "num_longs": 0,
+        "num_floats": 0,
+        "bytecode_length": 0,
+        "variables_length": 0
+       },
+       "variables": "",
+       "bytecode": "",
+       "text": "begin s1\r\nend\r\n"
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "set",
+     "SCPT",
+     "s1",
+     "text",
+     "begin s1\nset x to 1\r\nend\n"
+    ],
+    [
+     "pending"
+    ]
+   ],
+   "expect": {
+    "results": [
+     "ok",
+     [
+      {
+       "tag": "SCPT",
+       "type": "Script",
+       "id": "s1",
+       "whole": null,
+       "changes": [
+        {
+         "path": "text",
+         "value": "begin s1\r\nset x to 1\r\nend\r\n"
+        }
+       ]
+      }
+     ]
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "Script",
+       "key": "s1",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "text",
+         "value": "begin s1\r\nset x to 1\r\nend\r\n"
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "new records: ids checked, one id space for objects, scripts and deletions",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "Weapon",
+       "flags": "",
+       "id": "iron_dagger",
+       "name": "Iron Dagger",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "enchanting": "",
+       "data": {
+        "weight": 3.0,
+        "value": 10,
+        "weapon_type": "ShortBladeOneHand",
+        "health": 300,
+        "speed": 1.5,
+        "reach": 1.0,
+        "enchantment": 0,
+        "chop_min": 1,
+        "chop_max": 5,
+        "slash_min": 1,
+        "slash_max": 5,
+        "thrust_min": 1,
+        "thrust_max": 5,
+        "flags": ""
+       }
+      },
+      {
+       "type": "Script",
+       "flags": "DELETED",
+       "id": "s_old",
+       "header": {
+        "num_shorts": 0,
+        "num_longs": 0,
+        "num_floats": 0,
+        "bytecode_length": 0,
+        "variables_length": 0
+       },
+       "variables": "",
+       "bytecode": "",
+       "text": "Begin s_old\r\nend\r\n"
+      },
+      {
+       "type": "Script",
+       "flags": "PERSISTENT",
+       "id": "s_two",
+       "header": {
+        "num_shorts": 0,
+        "num_longs": 0,
+        "num_floats": 0,
+        "bytecode_length": 0,
+        "variables_length": 0
+       },
+       "variables": "",
+       "bytecode": "",
+       "text": "  begin \"s two\" ; x\r\nend\r\n"
+      },
+      {
+       "type": "Script",
+       "flags": "",
+       "id": "s_ok",
+       "header": {
+        "num_shorts": 0,
+        "num_longs": 0,
+        "num_floats": 0,
+        "bytecode_length": 0,
+        "variables_length": 0
+       },
+       "variables": "",
+       "bytecode": "",
+       "text": "; c\r\n  BEGIN s_ok\r\nend\r\n"
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "insert",
+     "MISC",
+     "  "
+    ],
+    [
+     "insert",
+     "MISC",
+     "0123456789012345678901234567890123"
+    ],
+    [
+     "insert",
+     "MISC",
+     "IRON_DAGGER"
+    ],
+    [
+     "insert",
+     "WEAP",
+     "iron_dagger"
+    ],
+    [
+     "insert",
+     "CELL",
+     "x"
+    ],
+    [
+     "insert",
+     "QQQQ",
+     "x"
+    ],
+    [
+     "insert",
+     "misc",
+     " my_coin "
+    ],
+    [
+     "insert",
+     "MISC",
+     "my_coin"
+    ],
+    [
+     "set",
+     "MISC",
+     "my_coin",
+     "data.value",
+     "5"
+    ],
+    [
+     "revert",
+     "MISC",
+     "my_coin",
+     "data.value"
+    ],
+    [
+     "view",
+     "MISC",
+     "my_coin"
+    ],
+    [
+     "insert",
+     "SCPT",
+     "s_new"
+    ],
+    [
+     "duplicate",
+     "WEAP",
+     "iron_dagger",
+     "my_dagger"
+    ],
+    [
+     "duplicate",
+     "SCPT",
+     "s_ok",
+     "s_ok2"
+    ],
+    [
+     "duplicate",
+     "SCPT",
+     "s_two",
+     "s_three"
+    ],
+    [
+     "duplicate",
+     "SCPT",
+     "s_old",
+     "s_x"
+    ],
+    [
+     "pending"
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "error": "the record needs an id"
+     },
+     {
+      "error": "an id is at most 31 bytes"
+     },
+     {
+      "error": "IRON_DAGGER is already a Weapon id in this load order: two object types with one id break the game"
+     },
+     {
+      "error": "iron_dagger is already a Weapon id in this load order"
+     },
+     {
+      "error": "a Cell record cannot be made this way"
+     },
+     {
+      "error": "no record type has the tag QQQQ"
+     },
+     "my_coin",
+     {
+      "error": "my_coin is already a MiscItem id in this load order"
+     },
+     "ok",
+     {
+      "error": "a record the patch makes has nothing to go back to: set the value, or remove the record"
+     },
+     {
+      "tag": "MISC",
+      "type": "MiscItem",
+      "id": "my_coin",
+      "winner": "(this patch)",
+      "plugins": [
+       "(this patch)"
+      ],
+      "whole": null,
+      "new": true,
+      "fields": [
+       {
+        "path": "type",
+        "value": "MiscItem",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "flags",
+        "value": "",
+        "editable": true,
+        "kind": "flags:ObjectFlags",
+        "options": [
+         "MODIFIED",
+         "DELETED",
+         "PERSISTENT",
+         "IGNORED",
+         "BLOCKED"
+        ]
+       },
+       {
+        "path": "id",
+        "value": "my_coin",
+        "editable": false,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "name",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "script",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "mesh",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "icon",
+        "value": "",
+        "editable": true,
+        "kind": "str",
+        "options": []
+       },
+       {
+        "path": "data.weight",
+        "value": 0.0,
+        "editable": true,
+        "kind": "float",
+        "options": []
+       },
+       {
+        "path": "data.value",
+        "value": 5,
+        "editable": true,
+        "kind": "int:0:4294967295",
+        "options": []
+       },
+       {
+        "path": "data.flags",
+        "value": "",
+        "editable": true,
+        "kind": "flags:MiscItemFlags",
+        "options": [
+         "KEY"
+        ]
+       }
+      ]
+     },
+     "s_new",
+     "my_dagger",
+     "s_ok2",
+     "s_three",
+     "not found",
+     [
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "my_coin",
+       "whole": null,
+       "made": {
+        "source": "",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "SCPT",
+       "type": "Script",
+       "id": "s_new",
+       "whole": null,
+       "made": {
+        "source": "",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "WEAP",
+       "type": "Weapon",
+       "id": "my_dagger",
+       "whole": null,
+       "made": {
+        "source": "Morrowind.esm",
+        "name": "Iron Dagger",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "SCPT",
+       "type": "Script",
+       "id": "s_ok2",
+       "whole": null,
+       "made": {
+        "source": "Morrowind.esm",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      },
+      {
+       "tag": "SCPT",
+       "type": "Script",
+       "id": "s_three",
+       "whole": null,
+       "made": {
+        "source": "Morrowind.esm",
+        "name": "",
+        "mesh": ""
+       },
+       "changes": []
+      }
+     ]
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [
+      {
+       "type": "MiscItem",
+       "key": "my_coin",
+       "record": {
+        "type": "MiscItem",
+        "flags": "",
+        "id": "my_coin",
+        "name": "",
+        "script": "",
+        "mesh": "",
+        "icon": "",
+        "data": {
+         "weight": 0.0,
+         "value": 5,
+         "flags": ""
+        }
+       },
+       "source": "",
+       "topic": ""
+      },
+      {
+       "type": "Script",
+       "key": "s_new",
+       "record": {
+        "type": "Script",
+        "flags": "",
+        "id": "s_new",
+        "header": {
+         "num_shorts": 0,
+         "num_longs": 0,
+         "num_floats": 0,
+         "bytecode_length": 0,
+         "variables_length": 0
+        },
+        "variables": "<packed>",
+        "bytecode": "<packed>",
+        "text": "begin s_new\n\nend\n"
+       },
+       "source": "",
+       "topic": ""
+      },
+      {
+       "type": "Weapon",
+       "key": "my_dagger",
+       "record": {
+        "type": "Weapon",
+        "flags": "",
+        "id": "my_dagger",
+        "name": "Iron Dagger",
+        "script": "",
+        "mesh": "",
+        "icon": "",
+        "enchanting": "",
+        "data": {
+         "weight": 3.0,
+         "value": 10,
+         "weapon_type": "ShortBladeOneHand",
+         "health": 300,
+         "speed": 1.5,
+         "reach": 1.0,
+         "enchantment": 0,
+         "chop_min": 1,
+         "chop_max": 5,
+         "slash_min": 1,
+         "slash_max": 5,
+         "thrust_min": 1,
+         "thrust_max": 5,
+         "flags": ""
+        }
+       },
+       "source": "Morrowind.esm",
+       "topic": ""
+      },
+      {
+       "type": "Script",
+       "key": "s_ok2",
+       "record": {
+        "type": "Script",
+        "flags": "",
+        "id": "s_ok2",
+        "header": {
+         "num_shorts": 0,
+         "num_longs": 0,
+         "num_floats": 0,
+         "bytecode_length": 0,
+         "variables_length": 0
+        },
+        "variables": "<packed>",
+        "bytecode": "<packed>",
+        "text": "; c\r\n  BEGIN s_ok2\r\nend\r\n"
+       },
+       "source": "Morrowind.esm",
+       "topic": ""
+      },
+      {
+       "type": "Script",
+       "key": "s_three",
+       "record": {
+        "type": "Script",
+        "flags": "PERSISTENT",
+        "id": "s_three",
+        "header": {
+         "num_shorts": 0,
+         "num_longs": 0,
+         "num_floats": 0,
+         "bytecode_length": 0,
+         "variables_length": 0
+        },
+        "variables": "<packed>",
+        "bytecode": "<packed>",
+        "text": "  begin s_three ; x\r\nend\r\n"
+       },
+       "source": "Morrowind.esm",
+       "topic": ""
+      }
+     ],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "many records at once are one change, the refusals named",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "a",
+       "name": "A",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 1.0,
+        "value": 1,
+        "flags": ""
+       }
+      },
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "b",
+       "name": "B",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 2.0,
+        "value": 2,
+        "flags": ""
+       }
+      },
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "c",
+       "name": "C",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "value": 3,
+        "flags": ""
+       }
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "set_many",
+     "MISC",
+     [
+      "a",
+      "b",
+      "c"
+     ],
+     "data.weight",
+     "0.5"
+    ],
+    [
+     "pending"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "pending"
+    ],
+    [
+     "redo"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "undo"
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "changed": 2,
+      "failed": [
+       {
+        "id": "c",
+        "error": "c has no field data.weight"
+       }
+      ]
+     },
+     [
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "a",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.weight",
+         "value": 0.5
+        }
+       ]
+      },
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "b",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.weight",
+         "value": 0.5
+        }
+       ]
+      }
+     ],
+     {
+      "done": true,
+      "what": [
+       "MISC a",
+       "MISC b"
+      ],
+      "undo": 0,
+      "redo": 1
+     },
+     [],
+     {
+      "done": true,
+      "what": [
+       "MISC a",
+       "MISC b"
+      ],
+      "undo": 1,
+      "redo": 0
+     },
+     {
+      "done": true,
+      "what": [
+       "MISC a",
+       "MISC b"
+      ],
+      "undo": 0,
+      "redo": 1
+     },
+     {
+      "done": false,
+      "what": [],
+      "undo": 0,
+      "redo": 1
+     }
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
+  },
+  {
+   "name": "undo and redo name what they touched",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "a",
+       "name": "A",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 1.0,
+        "value": 1,
+        "flags": ""
+       }
+      },
+      {
+       "type": "Weapon",
+       "flags": "",
+       "id": "w",
+       "name": "W",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "enchanting": "",
+       "data": {
+        "weight": 3.0,
+        "value": 10,
+        "weapon_type": "ShortBladeOneHand",
+        "health": 300,
+        "speed": 1.5,
+        "reach": 1.0,
+        "enchantment": 0,
+        "chop_min": 1,
+        "chop_max": 5,
+        "slash_min": 1,
+        "slash_max": 5,
+        "thrust_min": 1,
+        "thrust_max": 5,
+        "flags": ""
+       }
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "set",
+     "MISC",
+     "a",
+     "name",
+     "Ay"
+    ],
+    [
+     "set",
+     "WEAP",
+     "w",
+     "name",
+     "Wee"
+    ],
+    [
+     "insert",
+     "STAT",
+     "rock_new"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "redo"
+    ],
+    [
+     "set",
+     "MISC",
+     "a",
+     "name",
+     "Aye"
+    ],
+    [
+     "redo"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "undo"
+    ],
+    [
+     "undo"
+    ]
+   ],
+   "expect": {
+    "results": [
+     "ok",
+     "ok",
+     "rock_new",
+     {
+      "done": true,
+      "what": [
+       "STAT rock_new"
+      ],
+      "undo": 2,
+      "redo": 1
+     },
+     {
+      "done": true,
+      "what": [
+       "WEAP w"
+      ],
+      "undo": 1,
+      "redo": 2
+     },
+     {
+      "done": true,
+      "what": [
+       "WEAP w"
+      ],
+      "undo": 2,
+      "redo": 1
+     },
+     "ok",
+     {
+      "done": false,
+      "what": [],
+      "undo": 3,
+      "redo": 0
+     },
+     {
+      "done": true,
+      "what": [
+       "MISC a"
+      ],
+      "undo": 2,
+      "redo": 1
+     },
+     {
+      "done": true,
+      "what": [
+       "WEAP w"
+      ],
+      "undo": 1,
+      "redo": 2
+     },
+     {
+      "done": true,
+      "what": [
+       "MISC a"
+      ],
+      "undo": 0,
+      "redo": 3
+     },
+     {
+      "done": false,
+      "what": [],
+      "undo": 0,
+      "redo": 3
+     }
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
+  }
+ ]
+}

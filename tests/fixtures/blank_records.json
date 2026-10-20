@@ -1,0 +1,690 @@
+{
+ "_about": "A blank record of each type the Editor's \"New\" makes, as the Python port's classes give it (wraithguard.esp.json.record_to_json(cls())), generated once; viewer-shell/editcore/tests/cases.rs checks the crate makes the same (editcore::blank). A script's packed variables and bytecode are compared decoded: Python writes them zstd'd when it has a zstd backend (3.14) and plain otherwise (these were made without one), and the crate's zstd frame can differ from Python's.",
+ "blanks": {
+  "Activator": {
+   "type": "Activator",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": ""
+  },
+  "Alchemy": {
+   "type": "Alchemy",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "effects": [],
+   "data": {
+    "weight": 0.0,
+    "value": 0,
+    "flags": ""
+   }
+  },
+  "Apparatus": {
+   "type": "Apparatus",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "data": {
+    "apparatus_type": "MortarAndPestle",
+    "quality": 0.0,
+    "weight": 0.0,
+    "value": 0
+   }
+  },
+  "Armor": {
+   "type": "Armor",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "enchanting": "",
+   "biped_objects": [],
+   "data": {
+    "armor_type": "Helmet",
+    "weight": 0.0,
+    "value": 0,
+    "health": 0,
+    "enchantment": 0,
+    "armor_rating": 0
+   }
+  },
+  "Bodypart": {
+   "type": "Bodypart",
+   "flags": "",
+   "id": "",
+   "race": "",
+   "mesh": "",
+   "data": {
+    "part": "Head",
+    "vampire": false,
+    "flags": "",
+    "bodypart_type": "Skin"
+   }
+  },
+  "Book": {
+   "type": "Book",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "enchanting": "",
+   "text": "",
+   "data": {
+    "weight": 0.0,
+    "value": 0,
+    "book_type": "Book",
+    "skill": "None",
+    "enchantment": 0
+   }
+  },
+  "Birthsign": {
+   "type": "Birthsign",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "texture": "",
+   "description": "",
+   "spells": []
+  },
+  "Class": {
+   "type": "Class",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "description": "",
+   "data": {
+    "attribute1": "None",
+    "attribute2": "None",
+    "specialization": "None",
+    "minor1": "None",
+    "major1": "None",
+    "minor2": "None",
+    "major2": "None",
+    "minor3": "None",
+    "major3": "None",
+    "minor4": "None",
+    "major4": "None",
+    "minor5": "None",
+    "major5": "None",
+    "flags": "",
+    "services": ""
+   }
+  },
+  "Clothing": {
+   "type": "Clothing",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "enchanting": "",
+   "biped_objects": [],
+   "data": {
+    "clothing_type": "Pants",
+    "weight": 0.0,
+    "value": 0,
+    "enchantment": 0
+   }
+  },
+  "Container": {
+   "type": "Container",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "encumbrance": 0.0,
+   "container_flags": "",
+   "inventory": []
+  },
+  "Creature": {
+   "type": "Creature",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "sound": "",
+   "creature_flags": "",
+   "blood_type": 0,
+   "inventory": [],
+   "spells": [],
+   "ai_data": {
+    "hello": 0,
+    "fight": 0,
+    "flee": 0,
+    "alarm": 0,
+    "services": ""
+   },
+   "ai_packages": [],
+   "travel_destinations": [],
+   "data": {
+    "creature_type": "Normal",
+    "level": 0,
+    "strength": 0,
+    "intelligence": 0,
+    "willpower": 0,
+    "agility": 0,
+    "speed": 0,
+    "endurance": 0,
+    "personality": 0,
+    "luck": 0,
+    "health": 0,
+    "magicka": 0,
+    "fatigue": 0,
+    "soul": 0,
+    "combat": 0,
+    "magic": 0,
+    "stealth": 0,
+    "attack1": [
+     0,
+     0
+    ],
+    "attack2": [
+     0,
+     0
+    ],
+    "attack3": [
+     0,
+     0
+    ],
+    "gold": 0
+   }
+  },
+  "Door": {
+   "type": "Door",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "open_sound": "",
+   "close_sound": ""
+  },
+  "Enchanting": {
+   "type": "Enchanting",
+   "flags": "",
+   "id": "",
+   "effects": [],
+   "data": {
+    "enchant_type": "CastOnce",
+    "cost": 0,
+    "max_charge": 0,
+    "flags": ""
+   }
+  },
+  "Faction": {
+   "type": "Faction",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "rank_names": [],
+   "reactions": [],
+   "data": {
+    "favored_attributes": [
+     "None",
+     "None"
+    ],
+    "requirements": [
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     },
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     },
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     },
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     },
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     },
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     },
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     },
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     },
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     },
+     {
+      "attributes": [
+       0,
+       0
+      ],
+      "primary_skill": 0,
+      "favored_skill": 0,
+      "reputation": 0
+     }
+    ],
+    "favored_skills": [
+     "None",
+     "None",
+     "None",
+     "None",
+     "None",
+     "None",
+     "None"
+    ],
+    "flags": ""
+   }
+  },
+  "GlobalVariable": {
+   "type": "GlobalVariable",
+   "flags": "",
+   "id": "",
+   "value": {
+    "type": "Float",
+    "data": 0.0
+   }
+  },
+  "Ingredient": {
+   "type": "Ingredient",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "data": {
+    "weight": 0.0,
+    "value": 0,
+    "effects": [
+     "None",
+     "None",
+     "None",
+     "None"
+    ],
+    "skills": [
+     "None",
+     "None",
+     "None",
+     "None"
+    ],
+    "attributes": [
+     "None",
+     "None",
+     "None",
+     "None"
+    ]
+   }
+  },
+  "LeveledCreature": {
+   "type": "LeveledCreature",
+   "flags": "",
+   "id": "",
+   "leveled_creature_flags": "",
+   "chance_none": 0,
+   "creatures": []
+  },
+  "LeveledItem": {
+   "type": "LeveledItem",
+   "flags": "",
+   "id": "",
+   "leveled_item_flags": "",
+   "chance_none": 0,
+   "items": []
+  },
+  "Light": {
+   "type": "Light",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "sound": "",
+   "data": {
+    "weight": 0.0,
+    "value": 0,
+    "time": 0,
+    "radius": 0,
+    "color": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "flags": ""
+   }
+  },
+  "Lockpick": {
+   "type": "Lockpick",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "data": {
+    "weight": 0.0,
+    "value": 0,
+    "quality": 0.0,
+    "uses": 0
+   }
+  },
+  "MiscItem": {
+   "type": "MiscItem",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "data": {
+    "weight": 0.0,
+    "value": 0,
+    "flags": ""
+   }
+  },
+  "Npc": {
+   "type": "Npc",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "race": "",
+   "class": "",
+   "faction": "",
+   "head": "",
+   "hair": "",
+   "npc_flags": "",
+   "blood_type": 0,
+   "inventory": [],
+   "spells": [],
+   "ai_data": {
+    "hello": 0,
+    "fight": 0,
+    "flee": 0,
+    "alarm": 0,
+    "services": ""
+   },
+   "ai_packages": [],
+   "travel_destinations": [],
+   "data": {
+    "level": 0,
+    "disposition": 0,
+    "reputation": 0,
+    "rank": 0,
+    "gold": 0
+   }
+  },
+  "Probe": {
+   "type": "Probe",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "data": {
+    "weight": 0.0,
+    "value": 0,
+    "quality": 0.0,
+    "uses": 0
+   }
+  },
+  "Race": {
+   "type": "Race",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "spells": [],
+   "description": "",
+   "data": {
+    "skill_bonuses": {
+     "skill_0": "None",
+     "bonus_0": 0,
+     "skill_1": "None",
+     "bonus_1": 0,
+     "skill_2": "None",
+     "bonus_2": 0,
+     "skill_3": "None",
+     "bonus_3": 0,
+     "skill_4": "None",
+     "bonus_4": 0,
+     "skill_5": "None",
+     "bonus_5": 0,
+     "skill_6": "None",
+     "bonus_6": 0
+    },
+    "strength": [
+     0,
+     0
+    ],
+    "intelligence": [
+     0,
+     0
+    ],
+    "willpower": [
+     0,
+     0
+    ],
+    "agility": [
+     0,
+     0
+    ],
+    "speed": [
+     0,
+     0
+    ],
+    "endurance": [
+     0,
+     0
+    ],
+    "personality": [
+     0,
+     0
+    ],
+    "luck": [
+     0,
+     0
+    ],
+    "height": [
+     0.0,
+     0.0
+    ],
+    "weight": [
+     0.0,
+     0.0
+    ],
+    "flags": ""
+   }
+  },
+  "Region": {
+   "type": "Region",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "weather_chances": {
+    "clear": 0,
+    "cloudy": 0,
+    "foggy": 0,
+    "overcast": 0,
+    "rain": 0,
+    "thunder": 0,
+    "ash": 0,
+    "blight": 0,
+    "snow": 0,
+    "blizzard": 0
+   },
+   "sleep_creature": "",
+   "map_color": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "sounds": []
+  },
+  "RepairItem": {
+   "type": "RepairItem",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "data": {
+    "weight": 0.0,
+    "value": 0,
+    "uses": 0,
+    "quality": 0.0
+   }
+  },
+  "Script": {
+   "type": "Script",
+   "flags": "",
+   "id": "",
+   "header": {
+    "num_shorts": 0,
+    "num_longs": 0,
+    "num_floats": 0,
+    "bytecode_length": 0,
+    "variables_length": 0
+   },
+   "variables": "AAAAAA==",
+   "bytecode": "AAAAAA==",
+   "text": ""
+  },
+  "SoundGen": {
+   "type": "SoundGen",
+   "flags": "",
+   "id": "",
+   "sound_gen_type": "LeftFoot",
+   "creature": "",
+   "sound": ""
+  },
+  "Sound": {
+   "type": "Sound",
+   "flags": "",
+   "id": "",
+   "sound_path": "",
+   "data": {
+    "volume": 0,
+    "range": [
+     0,
+     0
+    ]
+   }
+  },
+  "Spell": {
+   "type": "Spell",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "effects": [],
+   "data": {
+    "spell_type": "Spell",
+    "cost": 0,
+    "flags": ""
+   }
+  },
+  "Static": {
+   "type": "Static",
+   "flags": "",
+   "id": "",
+   "mesh": ""
+  },
+  "Weapon": {
+   "type": "Weapon",
+   "flags": "",
+   "id": "",
+   "name": "",
+   "script": "",
+   "mesh": "",
+   "icon": "",
+   "enchanting": "",
+   "data": {
+    "weight": 0.0,
+    "value": 0,
+    "weapon_type": "ShortBladeOneHand",
+    "health": 0,
+    "speed": 0.0,
+    "reach": 0.0,
+    "enchantment": 0,
+    "chop_min": 0,
+    "chop_max": 0,
+    "slash_min": 0,
+    "slash_max": 0,
+    "thrust_min": 0,
+    "thrust_max": 0,
+    "flags": ""
+   }
+  }
+ }
+}

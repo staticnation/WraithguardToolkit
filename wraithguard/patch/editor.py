@@ -746,6 +746,8 @@ class EditorSession:
         self._script_compiler: tuple[str, ScriptCompiler] | None = None
         # The undo history starts from the pool as the session finds it.
         self._history: dict[str, Any] = {"undo": [], "redo": [], "last": queue.snapshot()}
+        #: The journal as this session last read or wrote it (:meth:`sync_journal`).
+        self._journal_seen = journal_stamp(journal) if journal is not None else None
 
     # -- reading ----------------------------------------------------------------------
 
@@ -1314,10 +1316,12 @@ class EditorSession:
             return None
         if not indexable(found.key):
             # An id with a space or a dash (most of Morrowind's): the index has every string
-            # equal to it, but a script's words are not the id's words, so the scripts' text
-            # is searched here - scripts only (a cached tag, a small part of any plugin).
+            # equal to it, but script source's words are not the id's words, so the scripts'
+            # text and the responses' results are searched here (cached tags; responses
+            # are the larger, but read once per session).
             for name, path in plugins:
-                rows.extend(script_hits(path, self._records(name, "SCPT").values(), want))
+                for tag in ("SCPT", "INFO"):
+                    rows.extend(script_hits(path, self._records(name, tag).values(), want))
         rows = [r for r in rows if not (r[1] == found.record_type and r[2].lower() == want)]
         owners = disk.definers(paths, {(t, k.lower()) for _p, t, k, _ps, _n in rows if t != "Cell"})
         if owners is None:
@@ -1546,6 +1550,9 @@ class EditorSession:
     def replace_uses(self, plan: Sequence[tuple[Found, str, object] | RefEdit | NewRef]) -> int:
         """Queue a Search & Replace plan (:meth:`replace_plan`), on the queue's thread.
 
+        One change (:meth:`batch`): one journal save, one undo step, however many records,
+        references and scripts it touches.
+
         Args:
             plan: The changes.
 
@@ -1554,35 +1561,35 @@ class EditorSession:
         """
         changed: set[tuple[str, str]] = set()
         refs = 0
-        for item in plan:
-            if isinstance(item, RefEdit):
-                self.queue.add_ref_edit(item)
-                refs += 1
-                continue
-            if isinstance(item, NewRef):
-                self.queue.add_new_ref(item)
-                refs += 1
-                continue
-            user, field, value = item
-            if user.record_type == "Script" and field == "text" and isinstance(value, str):
-                # The text and, when it compiles, its bytecode (set_script_text).
-                self.set_script_text(user, value)
-                changed.add((user.record_type, user.key))
-                continue
-            if user.new:
-                made = self.queue.new_record(user.record_type, user.key)
-                if made is None:
+        with self.batch():
+            for item in plan:
+                if isinstance(item, RefEdit):
+                    self.queue.add_ref_edit(item)
+                    refs += 1
                     continue
-                record = copy.deepcopy(dict(made.record))
-                set_at(record, field, value)
-                self.queue.add_new_record(replace(made, record=record))
-            else:
-                self.queue.add_field(
-                    user.record_type, user.key, FieldValue(path=field, value=value)
-                )
-                self.queue.set_base(user.record_type, user.key, user.winner)
-            changed.add((user.record_type, user.key))
-        self.save_journal()
+                if isinstance(item, NewRef):
+                    self.queue.add_new_ref(item)
+                    refs += 1
+                    continue
+                user, field, value = item
+                if user.record_type == "Script" and field == "text" and isinstance(value, str):
+                    # The text and, when it compiles, its bytecode (set_script_text).
+                    self.set_script_text(user, value)
+                    changed.add((user.record_type, user.key))
+                    continue
+                if user.new:
+                    made = self.queue.new_record(user.record_type, user.key)
+                    if made is None:
+                        continue
+                    record = copy.deepcopy(dict(made.record))
+                    set_at(record, field, value)
+                    self.queue.add_new_record(replace(made, record=record))
+                else:
+                    self.queue.add_field(
+                        user.record_type, user.key, FieldValue(path=field, value=value)
+                    )
+                    self.queue.set_base(user.record_type, user.key, user.winner)
+                changed.add((user.record_type, user.key))
         return len(changed) + refs
 
     # -- dialogue ---------------------------------------------------------------------
@@ -1880,10 +1887,17 @@ class EditorSession:
     # -- scripts ----------------------------------------------------------------------
 
     def script_globals(self) -> list[str]:
-        """Every global variable the load order defines (read once per plugin)."""
+        """Every global variable the load order defines (read once per plugin) or the patch makes.
+
+        The patch's own globals too: Script Edit's checks warned that a global the patch
+        adds was neither a local nor a global, though the script compiled against it.
+        """
         names: set[str] = set()
         for plugin in self.order:
             names.update(self._records(plugin, "GLOB"))
+        names.update(
+            m.key.lower() for m in list(self.queue.new_records) if m.record_type == "GlobalVariable"
+        )
         return sorted(names)
 
     def script_view(
@@ -1952,7 +1966,10 @@ class EditorSession:
         out = []
         for made in self.queue.new_records:
             rec = made.record
-            tag = TYPE_TO_TAG.get(made.record_type, made.record_type.upper()[:4])
+            # The four-letter tag (NPC_, not the table's "NPC"): the compiler takes only
+            # four, so a three-letter one dropped the patch's own NPCs from what a script
+            # can name.
+            tag = tag_of(made.record_type) or made.record_type.upper()[:4]
             dial = -1
             if made.record_type == "Dialogue":
                 kinds = ("Topic", "Voice", "Greeting", "Persuasion", "Journal")
@@ -2036,7 +2053,8 @@ class EditorSession:
         The text is queued as any field is. When it compiles (and the Rust backend is
         built, which writes the record's fields in the form the patch stores), the
         header, locals and bytecode are queued beside it, so Morrowind.exe runs the new
-        script too; OpenMW compiles the text itself either way.
+        script too; OpenMW compiles the text itself either way. One change
+        (:meth:`batch`): one undo step takes back the text and its bytecode together.
 
         Args:
             found: The script.
@@ -2052,27 +2070,30 @@ class EditorSession:
         if found.record_type != "Script":
             raise EditorError(f"{found.key} is not a script")
         text = crlf(text)
-        self.set_field(found, "text", text)
-        compiler = self.script_compiler()
-        result = compiler.compile(text)
-        messages = [{"line": m.line, "level": m.level, "message": m.text} for m in result.messages]
-        record_json = compiler.compile_record(found.key, text) if result.ok else None
-        if record_json is None:
-            return {"compiled": False, "messages": messages}
-        built = json.loads(record_json)
-        paths = (
-            "header.num_shorts",
-            "header.num_longs",
-            "header.num_floats",
-            "header.bytecode_length",
-            "header.variables_length",
-            "variables",
-            "bytecode",
-        )
-        for path in paths:
-            value, present = value_at(built, path)
-            if present and value_at(found.record, path)[1]:
-                self.set_field(found, path, value)
+        with self.batch():
+            self.set_field(found, "text", text)
+            compiler = self.script_compiler()
+            result = compiler.compile(text)
+            messages = [
+                {"line": m.line, "level": m.level, "message": m.text} for m in result.messages
+            ]
+            record_json = compiler.compile_record(found.key, text) if result.ok else None
+            if record_json is None:
+                return {"compiled": False, "messages": messages}
+            built = json.loads(record_json)
+            paths = (
+                "header.num_shorts",
+                "header.num_longs",
+                "header.num_floats",
+                "header.bytecode_length",
+                "header.variables_length",
+                "variables",
+                "bytecode",
+            )
+            for path in paths:
+                value, present = value_at(built, path)
+                if present and value_at(found.record, path)[1]:
+                    self.set_field(found, path, value)
         return {"compiled": True, "messages": messages}
 
     # -- the dialog -------------------------------------------------------------------
@@ -3297,6 +3318,35 @@ class EditorSession:
         self._record_step()
         if self.journal is not None:
             save_queue(self.queue, self.journal)
+            self.journal_saved()
+
+    def journal_saved(self) -> None:
+        """The journal as this side has just written it is the one it has seen."""
+        if self.journal is not None:
+            self._journal_seen = journal_stamp(self.journal)
+
+    def sync_journal(self) -> bool:
+        """The queue read again from the journal when another side changed it.
+
+        The viewer's Editor keeps its own queue (``editcore::links``) and writes the same
+        journal, as this does after every change. When the journal is not as this side
+        last read or wrote it, the queue becomes what it holds, as one step (an undo takes
+        it back). Run on the thread that owns the queue.
+
+        Returns:
+            Whether the queue changed.
+        """
+        if self.journal is None:
+            return False
+        now = journal_stamp(self.journal)
+        if now == self._journal_seen:
+            return False
+        self.queue.clear()
+        if now is not None:
+            restore_queue(self.queue, self.journal)
+        self._record_step()
+        self._journal_seen = now
+        return True
 
     def _hist(self) -> dict[str, Any]:
         """The undo history: ``undo``/``redo`` pool snapshots, and the pool ``last`` seen."""
@@ -3370,6 +3420,15 @@ class EditorSession:
         return n
 
 
+def journal_stamp(journal: Path) -> tuple[int, int] | None:
+    """What a journal file is now, ``(size, modified ns)``; None when it is not there."""
+    try:
+        st = journal.stat()
+    except OSError:
+        return None
+    return (st.st_size, st.st_mtime_ns)
+
+
 def save_queue(queue: PatchQueue, journal: Path) -> None:
     """Write a whole patch queue to a journal file (atomically); remove it when empty.
 
@@ -3384,7 +3443,28 @@ def save_queue(queue: PatchQueue, journal: Path) -> None:
     if not len(queue):
         forget_queue(journal)
         return
-    doc = {
+    doc = queue_journal(queue)
+    tmp = journal.with_name(journal.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(doc), encoding="utf-8")
+        tmp.replace(journal)
+    except (OSError, TypeError, ValueError) as exc:
+        LOG.warning("patch journal: cannot write %s: %s", journal, exc)
+
+
+def queue_journal(queue: PatchQueue) -> dict[str, Any]:
+    """The journal's document for a queue: what :func:`save_queue` writes.
+
+    The same document ``editcore::queue::PatchQueue::journal`` makes (the shared cases,
+    ``tests/fixtures/queue_cases.json``), so a journal either writes opens in the other.
+
+    Args:
+        queue: The queue.
+
+    Returns:
+        The document.
+    """
+    return {
         "version": _JOURNAL_VERSION,
         "whole": [
             {"type": s.record_type, "key": s.key, "plugin": s.plugin} for s in queue.selections
@@ -3437,12 +3517,6 @@ def save_queue(queue: PatchQueue, journal: Path) -> None:
             for n in queue.new_refs
         ],
     }
-    tmp = journal.with_name(journal.name + ".tmp")
-    try:
-        tmp.write_text(json.dumps(doc), encoding="utf-8")
-        tmp.replace(journal)
-    except (OSError, TypeError, ValueError) as exc:
-        LOG.warning("patch journal: cannot write %s: %s", journal, exc)
 
 
 def forget_queue(journal: Path) -> None:

@@ -18,10 +18,37 @@ publish = false
 # greatness7's TES3 crates (MIT OR Apache-2.0), with serde: records as tes3conv's JSON.
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp", "serde", "serde-zstd"] }
 bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
-serde_json = "1"
+# preserve_order: a record's fields keep the order tes3conv writes them in (the record
+# dialog lists them so, as the Python Editor does); float_roundtrip: a number read back
+# is the number written.
+# serde itself: the Test in OpenMW settings written as the Python side writes them.
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 base64 = "0.22"
 # Wraithguard: cells, references and the winning version, the one way (ordercore).
 ordercore = { path = "../ordercore" }
+# OpenMW Lua in plain Rust: the Lua panel's flowcharts and call graphs, and the Mermaid
+# writer a script's flowchart is drawn with.
+luacore = { path = "../luacore" }
+# The record cache (src/cache.rs): SQLite, built from source ("bundled", public domain) as
+# viewcore builds it, and zstd for the stored bodies (the version tes3's serde-zstd uses).
+rusqlite = { version = "0.32", features = ["bundled"] }
+zstd = "0.14"
+# A script copied under a new id: its `begin` line renamed (src/edit.rs).
+regex = "1"
+# A plugin's records of a tag kept in file order (the Python dict's), for the Object
+# Window's search and columns. Already in the tree through serde_json's preserve_order.
+indexmap = "2"
+# The Use Report maps each plugin and scans its bytes for the id before parsing it.
+memmap2 = "0.9"
+# Windows-1252, as the tes3 crate decodes plugin strings: the script compiler works on
+# the plugin's bytes (src/mwscript). Already in the tree through tes3's bytes_io.
+encoding_rs = "0.8"
+# greatness7's merge_to_master (public domain): a LUAL record's Lua data renumbered for a
+# patch's master list (src/build.rs; native/ wraps it). Our fork, as native/ takes it.
+merge_to_master = { git = "https://github.com/staticnation/merge_to_master", default-features = false, features = ["strip-logs"] }
+# A load order's signature (the cache keeps reports under it).
+sha2 = "0.10"
 
 # Our fork of tes3 (staticnation/tes3) until what is waiting upstream is taken there; a
 # [patch] only counts in the package being built (see native/Cargo.toml).

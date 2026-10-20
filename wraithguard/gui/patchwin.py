@@ -97,6 +97,11 @@ class PatchBuilderMixin:
                     _("Brought back %(count)d unwritten patch decision(s) from last time.")
                     % {"count": back}
                 )
+            return queue
+        # The viewer's Editor changes the queue too (the journal they share).
+        session = getattr(self, "_editor_session", None)
+        if session is not None and session.queue is queue:
+            session.sync_journal()
         return queue
 
     def patch_selections(self) -> list[Selection]:
@@ -251,7 +256,27 @@ class PatchBuilderMixin:
         from wraithguard.gui.editorlink import journal_path
         from wraithguard.patch.editor import save_queue
 
-        save_queue(self.patch_queue(), journal_path())
+        queue = self.patch_queue()
+        # A merge the conflict window queued has its base from the scan (_merge_base); the
+        # viewer's Editor, which builds from the journal, has no scan, so the base goes in
+        # the journal with it.
+        for record_type, key in list(queue.fields):
+            if not queue.base(record_type, key):
+                base = self._merge_base(record_type, key)
+                if base:
+                    queue.set_base(record_type, key, base)
+        save_queue(queue, journal_path())
+        session = getattr(self, "_editor_session", None)
+        if session is not None:
+            session.journal_saved()
+        self.redraw_patch_views()
+
+    def redraw_patch_views(self) -> None:
+        """Redraw the queue wherever it is shown, without writing the journal.
+
+        What :meth:`refresh_patch_views` does after it is written, and what follows the
+        viewer's Editor changing the queue (:meth:`.EditorSession.sync_journal`).
+        """
         button = getattr(self, "_patch_button", None)
         if button is not None and button.winfo_exists():
             count = self.patch_count()

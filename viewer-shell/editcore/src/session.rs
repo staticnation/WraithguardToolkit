@@ -2,30 +2,46 @@
 //! of `wraithguard/patch/editor.py`'s `EditorSession` (`_records`, `find`, `_masters_of`,
 //! `find_ref`, `_home_cell`), on the same tes3conv-schema records and the same rules.
 //!
-//! Not here yet (later slices of port step 4.1, `viewer-shell/PORT.md`): the records the
-//! patch makes itself (the queue's new records, which `find` returns when no plugin has
-//! the id), the disk cache, and every edit.
+//! [`Session::find_in`] also finds the records the patch makes itself (the queue's new
+//! records, `crate::queue`), as the Python `find` does. Not here yet (later slices of
+//! port step 4.1, `viewer-shell/PORT.md`): the disk cache in the session, and every edit.
 
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use indexmap::IndexMap;
 use ordercore::cells::CellKey;
 use ordercore::refs::{origin, winner, Version};
 use serde_json::Value;
 
 use crate::key::{deletes, record_key, type_name, type_of};
+use crate::queue::PatchQueue;
+
+/// The name a version the patch makes itself goes by (`editor.PATCH`).
+pub const PATCH: &str = "(this patch)";
 
 /// Reads one plugin's records of one tag (the seam the tests fill, as the Python tests
 /// fill `EditorSession(read=...)`).
 pub type Reader = dyn Fn(&Path, &str) -> io::Result<Vec<Value>> + Send + Sync;
+
+/// Reads all of one plugin's records, in file order (the Use Report's seam, as the Python
+/// tests fill `EditorSession(read_all=...)`; without it the report scans the files).
+pub type ReadAll = dyn Fn(&Path) -> io::Result<Vec<Value>> + Send + Sync;
 
 /// A plugin's records of one tag, from the file (`plugin::records_json` with that tag).
 pub fn read_tag(path: &Path, tag: &str) -> io::Result<Vec<Value>> {
     let bytes = std::fs::read(path)?;
     let t: [u8; 4] = tag.as_bytes().try_into().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a tag is four letters"))?;
     let json = crate::plugin::records_json(&bytes, Some(&[t]))?;
+    serde_json::from_str(&json).map_err(io::Error::other)
+}
+
+/// A plugin's topics and responses, from the file, in file order.
+pub fn read_dialogue(path: &Path) -> io::Result<Vec<Value>> {
+    let bytes = std::fs::read(path)?;
+    let json = crate::plugin::records_json(&bytes, Some(&[*b"DIAL", *b"INFO"]))?;
     serde_json::from_str(&json).map_err(io::Error::other)
 }
 
@@ -41,6 +57,8 @@ pub struct Found {
     /// `(plugin, record)` for each plugin whose version counts, in load order; the last
     /// wins. A deletion clears the ones before it.
     pub versions: Vec<(String, Value)>,
+    /// The patch makes it: no plugin defines it, and its one version is the patch's.
+    pub new: bool,
 }
 
 impl Found {
@@ -78,7 +96,10 @@ pub struct Session {
     paths: HashMap<String, (String, PathBuf)>,
     rank: HashMap<String, usize>,
     read: Box<Reader>,
-    cache: Mutex<HashMap<(String, String), Arc<HashMap<String, Value>>>>,
+    read_all: Option<Box<ReadAll>>,
+    read_dialogue: Box<ReadAll>,
+    dialogue: Mutex<HashMap<String, Arc<Vec<Value>>>>,
+    cache: Mutex<HashMap<(String, String), Arc<IndexMap<String, Value>>>>,
     masters: Mutex<HashMap<String, Arc<Vec<String>>>>,
     /// Per plugin: its exterior references by index, `index -> [(origin, cell key)]`.
     home: Mutex<HashMap<String, Arc<HashMap<i64, Vec<(String, String)>>>>>,
@@ -100,10 +121,44 @@ impl Session {
             paths,
             rank,
             read,
+            read_all: None,
+            read_dialogue: Box::new(read_dialogue),
+            dialogue: Mutex::default(),
             cache: Mutex::default(),
             masters: Mutex::default(),
             home: Mutex::default(),
         }
+    }
+
+    /// The session, reading a plugin whole through `read_all` for the Use Report.
+    pub fn with_read_all(mut self, read_all: Box<ReadAll>) -> Session {
+        self.read_all = Some(read_all);
+        self
+    }
+
+    /// The session, reading a plugin's topics and responses through `read_dialogue`.
+    pub fn with_read_dialogue(mut self, read_dialogue: Box<ReadAll>) -> Session {
+        self.read_dialogue = read_dialogue;
+        self
+    }
+
+    /// One plugin's topics and responses, in file order (a response belongs to the topic
+    /// before it), read once. A plugin that cannot be read has none.
+    pub fn dialogue(&self, plugin: &str) -> Arc<Vec<Value>> {
+        let low = plugin.to_lowercase();
+        if let Some(hit) = self.dialogue.lock().unwrap().get(&low) {
+            return hit.clone();
+        }
+        let mut found = Vec::new();
+        if let Some((_, path)) = self.paths.get(&low) {
+            match (self.read_dialogue)(path) {
+                Ok(recs) => found = recs,
+                Err(e) => eprintln!("editor: cannot read {}: {e}", path.display()),
+            }
+        }
+        let found = Arc::new(found);
+        self.dialogue.lock().unwrap().insert(low, found.clone());
+        found
     }
 
     /// The load order's plugin names, in order.
@@ -111,14 +166,47 @@ impl Session {
         &self.order
     }
 
-    /// One plugin's records of a tag by lower-case key. A plugin that cannot be read has
-    /// none (the Python logs it and carries on, as here).
-    pub fn records(&self, plugin: &str, tag: &str) -> Arc<HashMap<String, Value>> {
+    /// The load order's plugin files, in order.
+    pub fn plugin_paths(&self) -> Vec<PathBuf> {
+        self.order.iter().map(|n| self.paths[&n.to_lowercase()].1.clone()).collect()
+    }
+
+    /// Every use of a record over the plugins (`crate::uses`): the files scanned, or the
+    /// records `read_all` gives.
+    pub fn use_report(&self, record_type: &str, rid: &str) -> Vec<crate::uses::Use> {
+        let paths = self.plugin_paths();
+        match &self.read_all {
+            Some(read) => crate::uses::report_with(paths.len(), |i| read(&paths[i]), record_type, rid),
+            None => crate::uses::report(&paths, record_type, rid),
+        }
+    }
+
+    /// One plugin's every record (header included), in file order: through `read_all`
+    /// when the session has one, else from the file. `None` when it cannot be read.
+    pub fn read_whole(&self, plugin: &str) -> Option<Vec<Value>> {
+        let (_, path) = self.paths.get(&plugin.to_lowercase())?;
+        let got = match &self.read_all {
+            Some(read) => read(path),
+            None => std::fs::read(path).and_then(|b| crate::plugin::records_json(&b, None)).and_then(|j| serde_json::from_str(&j).map_err(io::Error::other)),
+        };
+        match got {
+            Ok(r) => Some(r),
+            Err(e) => {
+                eprintln!("editor: cannot read {}: {e}", path.display());
+                None
+            }
+        }
+    }
+
+    /// One plugin's records of a tag by lower-case key, in file order (a second record
+    /// with a key takes the first's place). A plugin that cannot be read has none (the
+    /// Python logs it and carries on, as here).
+    pub fn records(&self, plugin: &str, tag: &str) -> Arc<IndexMap<String, Value>> {
         let k = (plugin.to_lowercase(), tag.to_string());
         if let Some(hit) = self.cache.lock().unwrap().get(&k) {
             return hit.clone();
         }
-        let mut found = HashMap::new();
+        let mut found = IndexMap::new();
         if let Some((_, path)) = self.paths.get(&k.0) {
             match (self.read)(path, tag) {
                 Ok(recs) => {
@@ -138,7 +226,7 @@ impl Session {
     }
 
     /// `names` (or the whole order) known to the load order, sorted into it.
-    fn known(&self, names: Option<&[String]>) -> Vec<String> {
+    pub(crate) fn known(&self, names: Option<&[String]>) -> Vec<String> {
         let mut v: Vec<String> = match names {
             Some(n) => n.iter().filter(|p| self.rank.contains_key(&p.to_lowercase())).cloned().collect(),
             None => self.order.clone(),
@@ -148,7 +236,7 @@ impl Session {
     }
 
     /// The plugin's name as the load order spells it.
-    fn spelled<'a>(&'a self, name: &'a str) -> &'a str {
+    pub(crate) fn spelled<'a>(&'a self, name: &'a str) -> &'a str {
         self.paths.get(&name.to_lowercase()).map(|(n, _)| n.as_str()).unwrap_or(name)
     }
 
@@ -156,7 +244,24 @@ impl Session {
     /// else every plugin). `rid` is its id, or `(x, y)` for an exterior cell. `None` when
     /// no plugin has it, or the last that does deletes it.
     pub fn find(&self, tag: &str, rid: &str, plugins: Option<&[String]>) -> Option<Found> {
+        self.find_in(tag, rid, plugins, None)
+    }
+
+    /// [`Session::find`], with the records `queue` makes: one the patch makes is in no
+    /// plugin (its id was checked free when made), so none is read for it - for a CELL
+    /// that would be every plugin of the load order - and its one version is the patch's.
+    pub fn find_in(&self, tag: &str, rid: &str, plugins: Option<&[String]>, queue: Option<&PatchQueue>) -> Option<Found> {
         let record_type = type_of(tag)?;
+        if let Some(made) = queue.and_then(|q| q.new_record(record_type, rid.trim())) {
+            let tag = crate::key::tag_of(record_type)?.to_string();
+            return Some(Found {
+                tag,
+                record_type: record_type.to_string(),
+                key: made.key.clone(),
+                versions: vec![(PATCH.to_string(), made.record.clone())],
+                new: true,
+            });
+        }
         let tag = crate::key::tag_of(record_type)?.to_string();
         let want = rid.trim().to_lowercase();
         let mut versions: Vec<(String, Value)> = Vec::new();
@@ -173,7 +278,7 @@ impl Session {
             }
         }
         let key = record_key(&versions.last()?.1);
-        Some(Found { tag, record_type: record_type.to_string(), key, versions })
+        Some(Found { tag, record_type: record_type.to_string(), key, versions, new: false })
     }
 
     /// A plugin's master list, from its header (read once).
@@ -311,7 +416,7 @@ impl Session {
 }
 
 /// Python's `bool()` of a JSON value.
-fn truthy(v: &Value) -> bool {
+pub(crate) fn truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,
