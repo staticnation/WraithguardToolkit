@@ -244,7 +244,7 @@ function boot(){
   }catch(e){
     $('#noctx').hidden=false;
     $('#noctx').innerHTML='<div class="big">'+T('vp.noctx_title')+'</div><div class="sm">'+
-      e.message+'<br><br>'+T('vp.noctx_body')+'</div>';
+      escHtml(e.message)+'<br><br>'+T('vp.noctx_body')+'</div>';
   }
   new ResizeObserver(()=>App.R&&App.R.resize()).observe($('#vpwrap'));
 
@@ -1434,7 +1434,7 @@ function openLog(){
     const src=document.createElement('div');
     src.className = GameData.plugins.length? 'okbox':'warnbox';
     src.innerHTML = GameData.plugins.length
-      ? T('report.order_read',{source:'<b>'+GameData.orderSource+'</b>', n:GameData.plugins.length})
+      ? T('report.order_read',{source:'<b>'+escHtml(GameData.orderSource)+'</b>', n:GameData.plugins.length})
       : T('report.order_none');
     b.appendChild(src);
     GameData.plugins.forEach((pg,i)=>{
@@ -1471,7 +1471,7 @@ function openLog(){
     }
     if(GameData.missing.length){
       const w=document.createElement('div'); w.className='warnbox'; w.style.marginTop='10px';
-      w.innerHTML=T('report.missing_plugins',{n:GameData.missing.length, list:GameData.missing.slice(0,8).join(', ')})+
+      w.innerHTML=T('report.missing_plugins',{n:GameData.missing.length, list:GameData.missing.slice(0,8).map(escHtml).join(', ')})+
         (GameData.missing.length>8?' …':'');
       b.appendChild(w);
     }

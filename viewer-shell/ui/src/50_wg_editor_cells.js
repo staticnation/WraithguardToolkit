@@ -55,18 +55,12 @@ Object.assign(WgEditor, {
   /** The patch-made cell a target (`{kind, name | x, y}`) or a cell string (`int:Name`,
    *  `x,y`) names, or null - a cell of the load order is not one. */
   pendingCell(target){
-    if(typeof target==='string'){
-      if(target.startsWith('int:')) target={kind:'int', name:target.slice(4)};
-      else{ const [x,y]=target.split(',').map(Number); target={kind:'ext', x, y}; }
-    }
-    if(!target) return null;
-    return this.pendingCells().find(c=>target.kind==='int'
-      ? c.kind==='int' && String(c.name).toLowerCase()===String(target.name||'').toLowerCase()
-      : c.kind==='ext' && c.x===(target.x|0) && c.y===(target.y|0)) || null;
+    if(!CellKey.parse(target)) return null;
+    return this.pendingCells().find(c=>CellKey.same(c, target)) || null;
   },
 
   /** The cell key the patch's endpoints and `liveNew` know a pending cell by. */
-  pendingKey(c){ return c.kind==='int'? String(c.name) : '('+c.x+', '+c.y+')'; },
+  pendingKey(c){ return CellKey.pool(c); },
 
   /** What the engine would answer for a cell of the patch's own (`interior_data`,
    *  `cell_data`): nothing in it but what the patch places - an empty room, or a square
@@ -99,7 +93,7 @@ Object.assign(WgEditor, {
     const f=this.cellFilter.trim().toLowerCase();
     let list=this.allCells();
     if(f) list=list.filter(c=>c.label.toLowerCase().includes(f));
-    const edOf=c=>c.pending || this.editedCells.has(c.kind==='int'? String(c.name).toLowerCase() : '('+c.x+', '+c.y+')');
+    const edOf=c=>c.pending || this.editedCells.has(c.kind==='int'? CellKey.foldName(c.name) : CellKey.pool(c));
     if(this.cellsModOnly) list=list.filter(edOf);
     // The Construction Set's columns: name, grid, references, pathgrid; sortable.
     const CS=[['Cell name', c=>c.kind==='int'? c.name : (c.name||'Wilderness')],
@@ -112,10 +106,10 @@ Object.assign(WgEditor, {
       const key=c=>sc.col===1? (c.kind==='int'? -1e9 : c.x*1e5+c.y) : (typeof g(c)==='number'? g(c) : String(g(c)).toLowerCase());
       list=list.slice().sort((a,b)=>{ const x=key(a), y=key(b); return (x<y?-1:x>y?1:0)*sc.dir; });
     }
-    this._cellKeys=list.map(c=>c.kind==='int'? 'int:'+c.name : c.x+','+c.y);   // for revealCell
+    this._cellKeys=list.map(c=>CellKey.spec(c));   // for revealCell
     let h='<table class="edT"><thead><tr>'+CS.map(([l],k)=>'<th data-ccol="'+k+'">'+l+(k===sc.col? (sc.dir>0?' ▲':' ▼') : '')+'</th>').join('')+'</tr></thead><tbody>';
     for(const c of list.slice(0,this.limit('cells'))){
-      const k=c.kind==='int'? 'int:'+c.name : c.x+','+c.y;
+      const k=CellKey.spec(c);
       const ed=edOf(c);
       const cls=[this.cellSel===k? 'sel' : '', ed? 'edited' : ''].filter(Boolean).join(' ');
       h+='<tr data-cell="'+escHtml(k)+'"'+(cls? ' class="'+cls+'"' : '')+(c.pending? ' title="A cell of the patch\'s own: no plugin of the load order has it"' : ed? ' title="The patch changes or adds references here"' : '')+'>'+
@@ -138,12 +132,12 @@ Object.assign(WgEditor, {
       tr.ondblclick=()=>{ if(typeof WgNav==='object') WgNav.go(tr.dataset.cell); };
       tr.oncontextmenu=e=>{
         e.preventDefault();
-        const k=tr.dataset.cell, inner=k.startsWith('int:');
+        const k=tr.dataset.cell, ck=CellKey.parse(k), inner=!!ck && ck.kind==='int';
         WgUI.menu({x:e.clientX, y:e.clientY}, [
-          {head:inner? k.slice(4) : 'Exterior '+k},
+          {head:inner? ck.name : 'Exterior '+k},
           {label:'Go there', act:()=>{ if(typeof WgNav==='object') WgNav.go(k); }},
           {label:'Make a copy as…', disabled:!inner || !this.canEdit(), title:inner? 'A new interior of the patch\'s own: every reference placed anew, the path grid with it' : 'Only an interior can be copied: an exterior is a grid square',
-           act:()=>this.copyCell(k.slice(4))},
+           act:()=>this.copyCell(ck.name)},
           {sep:true},
           {label:'New interior…', disabled:!this.links().editNewCell, title:'A blank interior of the patch\'s own, under a name', act:()=>WgFlow.newCell(false)},
           {label:'New exterior square…', disabled:!this.links().editNewCell, title:'A grid square no plugin has, of the patch\'s own (no land: the game draws it flat, at the sea)', act:()=>WgFlow.newCell(true)},
@@ -204,11 +198,10 @@ Object.assign(WgEditor, {
 
   /** Opens the reference's cell, framed on it, and selects it (the inspector opens). */
   goToRef(cell, x){
-    const target = cell.startsWith('int:')
-      ? {kind:'int', name:cell.slice(4), label:cell.slice(4)}
-      : (()=>{ const [a,b]=cell.split(',').map(Number); return {kind:'ext', x:a, y:b, name:'', label:a+', '+b}; })();
+    const target=CellKey.target(cell);
+    if(!target) return;
     App.mode='cell'; App.cellSel=target;
-    App._doorAim={pos:x[3].slice(), rot:0, key:target.kind==='int'? 'i:'+target.name : target.x+','+target.y};
+    App._doorAim={pos:x[3].slice(), rot:0, key:CellKey.doorKey(target)};
     App._findOri=x[0];
     if(typeof syncCellButton==='function') syncCellButton();
     schedulePreview();

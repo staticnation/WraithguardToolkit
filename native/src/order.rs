@@ -57,7 +57,35 @@ fn openmw_cfg(
     Ok(d.unbind())
 }
 
+/// A cell named the one way (`ordercore::cells`): any spelling - `int:Name`, `x,y`,
+/// `(x, y)`, a bare name - to a dict of `fold` (the key every spelling of the cell
+/// shares), `spec` (the viewer's spelling), `pool` (the Editor pool's) and `grid` (an
+/// exterior's square, else None); None for an empty name.
+#[pyfunction]
+fn cell_key(py: Python<'_>, spec: &str) -> PyResult<Option<Py<PyDict>>> {
+    let Some(k) = ordercore::cells::CellKey::parse(spec) else { return Ok(None) };
+    let d = PyDict::new(py);
+    d.set_item("fold", k.fold())?;
+    d.set_item("spec", k.spec())?;
+    d.set_item("pool", k.pool_key())?;
+    d.set_item("grid", k.grid())?;
+    Ok(Some(d.unbind()))
+}
+
+/// Which of a reference's versions stands (`ordercore::refs::winner`): given whether each
+/// version, in load order, deletes it, the standing version's position, whether it is
+/// deleted, and the positions the game ignores (versions after a deletion that do not
+/// delete it again); None for no versions.
+#[pyfunction]
+fn ref_winner(deleted: Vec<bool>) -> Option<(usize, bool, Vec<usize>)> {
+    let versions: Vec<ordercore::refs::Version> =
+        deleted.into_iter().enumerate().map(|(plugin, deleted)| ordercore::refs::Version { plugin, deleted }).collect();
+    ordercore::refs::winner(&versions).map(|w| (w.at, w.deleted, w.ignored))
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(openmw_cfg, m)?)?;
+    m.add_function(wrap_pyfunction!(cell_key, m)?)?;
+    m.add_function(wrap_pyfunction!(ref_winner, m)?)?;
     Ok(())
 }

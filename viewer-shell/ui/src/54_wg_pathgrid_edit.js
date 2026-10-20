@@ -317,7 +317,7 @@ const WgPath={
       catch(e){ return toast(String(e.message||e),'err',6000); }
     }
     const cur=this.E().currentCell();
-    const spec=!cur? null : /^\(/.test(cur.key)? cur.key.replace(/[() ]/g,'') : 'int:'+cur.key;
+    const spec=cur? CellKey.spec(cur.key) : null;
     const g=spec && this.grids.get(spec);
     if(!g) return toast('No cell on screen to fill','warn',3000);
     const out=this.navGraph(d, (T.nav && T.nav.agent)||0, g.grid? [g.base[0], g.base[1], g.base[0]+CELL, g.base[1]+CELL] : null);

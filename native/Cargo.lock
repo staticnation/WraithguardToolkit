@@ -358,6 +358,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8072bec12b909b65aec01fa6518f387cfbf3427d4475409ad622898cd347522c"
 
 [[package]]
+name = "editcore"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bytes_io",
+ "ordercore",
+ "serde_json",
+ "tes3",
+]
+
+[[package]]
 name = "either"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1575,6 +1586,7 @@ dependencies = [
  "anyhow",
  "base64",
  "bytes_io",
+ "editcore",
  "encoding_rs",
  "gardenfell-nif",
  "htl-core",

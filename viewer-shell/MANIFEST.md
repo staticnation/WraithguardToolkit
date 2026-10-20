@@ -63,6 +63,7 @@ not reach the MIT code. See `ui/LICENSE`, `../License/Gardenfell`,
 | `30_tip.js` | 11 KB | Tooltips. |
 | `31_cellmap.js` | 51 KB | The cell picker's world map. |
 | `32_cellhistory.js` | 9 KB | Cell visit history (back/forward). |
+| `38_wg_cellkey.js` | 4 KB | Wraithguard: a cell named one way (`CellKey`), the page's copy of `ordercore::cells`. |
 | `38_wg_viewport.js` | 5 KB | Wraithguard's viewport settings: zoom to cursor, frame-rate cap, pause while hidden. |
 | `39_wg_coverage.js` | 6 KB | Wraithguard's cell map inside the cell picker: which mods touch which cells. |
 | `40_wg_modhl.js` | 2 KB | Highlight every object a chosen plugin supplied. |

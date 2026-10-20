@@ -6,7 +6,8 @@
 //!
 //! - `bsa`: `.bsa` archives (was `wraithguard/nif/bsa.py`).
 //! - `esp`: plugins to tes3conv-schema JSON (was `wraithguard.esp` + `record_to_json`
-//!   in the toolkit's native session), and plugins read and written for wraithguard/esp.
+//!   in the toolkit's native session), and plugins read and written for wraithguard/esp;
+//!   the reader itself is editcore's (`viewer-shell/editcore`), shared with the viewer.
 //! - `fsio`: walking data folders and comparing files byte for byte, Python released
 //!   (was `os.walk` and chunked hashing in the toolkit's resource scan and wraithguard/nif).
 //! - `land`: the numeric core of Merged Lands (`wraithguard/land/`): the relative
@@ -24,22 +25,9 @@
 
 use pyo3::prelude::*;
 
-/// Runs a crate call, turning a panic (the crates assert on some malformed input rather
-/// than returning an error) into an `InvalidData` error: a bad mod file must be
-/// "unreadable", never a crash out of a scan.
-pub fn guarded<T>(f: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
-        Ok(r) => r,
-        Err(p) => {
-            let msg = p
-                .downcast_ref::<&str>()
-                .map(|s| s.to_string())
-                .or_else(|| p.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "the reader gave up on this file".into());
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidData, msg))
-        }
-    }
-}
+/// Runs a crate call, turning a panic into an `InvalidData` error (editcore's: the plugin
+/// reader moved there, and this one is shared with it).
+pub use editcore::guarded;
 
 /// Quiets the default panic message for the panics `guarded` turns into errors.
 pub fn quiet_panics() {

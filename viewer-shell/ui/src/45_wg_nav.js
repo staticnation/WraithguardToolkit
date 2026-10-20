@@ -42,16 +42,13 @@ const WgNav={
       if(Array.isArray(r.pos)) aim={pos:r.pos.slice(), rot:+r.rot||0};
       key=r.key||null;
       if(r.count>1) toast(id+' stands in '+r.count+' places - showing the first','ok',5000);
-    } else if(spec.startsWith('int:')){
-      const n=spec.slice(4); target={kind:'int', name:n, label:n};
     } else {
-      const m=/^(-?\d+)\s*,\s*(-?\d+)$/.exec(spec);
-      if(!m) return;
-      target={kind:'ext', x:+m[1], y:+m[2], name:'', label:m[1]+', '+m[2]};
+      target=CellKey.target(spec);
+      if(!target) return;
     }
     App.mode='cell';
     App.cellSel=target;
-    if(aim) App._doorAim={pos:aim.pos, rot:aim.rot, key:target.kind==='int'? 'i:'+target.name : target.x+','+target.y};
+    if(aim) App._doorAim={pos:aim.pos, rot:aim.rot, key:CellKey.doorKey(target)};
     App._findOri=key;
     if(typeof syncCellButton==='function') syncCellButton();
     schedulePreview();

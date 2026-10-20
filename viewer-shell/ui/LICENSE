@@ -60,7 +60,7 @@ Provenance of the rest:
     includes the camera smoothing in 06_gl.js, ported from Robin's own MWSE mod.
   * Robin's permission for the SSAO port: "Totally OK to use code in the SSAO
     shader I sent you."
-  * Modules 23_viewer_profile.js, 24_ori.js, 38_wg_viewport.js,
+  * Modules 23_viewer_profile.js, 24_ori.js, 38_wg_cellkey.js, 38_wg_viewport.js,
     39_wg_coverage.js, 40_wg_modhl.js, 41_wg_meshview.js, 42_wg_bloom.js, 43_wg_rain.js,
     44_wg_precip.js, 45_wg_nav.js, 46_wg_tfh.js and viewer_only.html:
     Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page. 42_wg_bloom.js

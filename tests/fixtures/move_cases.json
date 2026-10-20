@@ -1,0 +1,66 @@
+{
+  "_about": "Where a moved exterior reference stands (MVRF), one answer for the engine and the Editor; run by viewer-shell/viewcore/tests/ref_moves.rs (plugins built as bytes, loaded by the engine's merge) and tests/test_move_cases.py (the Editor: the winning version in the home cell, then its moved_cell). Every case is one reference, `rock`, created by A.esm at index 1 in exterior (1, 1), its home cell. Every plugin's record for it sits in the home cell, as the game writes it: [master index, index, deleted, move], where move is the grid an MVRF/CNDT sends it to (null: none; a plain record). `expect` is every exterior cell the reference stands in ([] when it is gone). Rules: a later move replaces an earlier one; a deletion in the home cell takes it out of wherever it went, and sticks (ordercore::refs). `open` marks a case whose rule the game is not checked against and where the two sides differ; its `expect` pins what each does now (`engine`, `editor`), so a change to either shows here. Open: after B.esp moves it, a later plain record in the home cell (C.esp, which does not know of the move) - the engine keeps it in both cells, the Editor puts it back home; one reference standing twice is wrong under any rule.",
+  "cases": [
+    {
+      "name": "unmoved, it stands at home",
+      "plugins": [
+        {"name": "A.esm", "masters": [], "refs": [[0, 1, false, null]]}
+      ],
+      "expect": [[1, 1]]
+    },
+    {
+      "name": "a move takes it out of its home cell",
+      "plugins": [
+        {"name": "A.esm", "masters": [], "refs": [[0, 1, false, null]]},
+        {"name": "B.esp", "masters": ["A.esm"], "refs": [[1, 1, false, [2, 1]]]}
+      ],
+      "expect": [[2, 1]]
+    },
+    {
+      "name": "moved twice, it stands where the last move put it",
+      "plugins": [
+        {"name": "A.esm", "masters": [], "refs": [[0, 1, false, null]]},
+        {"name": "B.esp", "masters": ["A.esm"], "refs": [[1, 1, false, [2, 1]]]},
+        {"name": "C.esp", "masters": ["A.esm"], "refs": [[1, 1, false, [3, 1]]]}
+      ],
+      "expect": [[3, 1]]
+    },
+    {
+      "name": "moved back home",
+      "plugins": [
+        {"name": "A.esm", "masters": [], "refs": [[0, 1, false, null]]},
+        {"name": "B.esp", "masters": ["A.esm"], "refs": [[1, 1, false, [2, 1]]]},
+        {"name": "C.esp", "masters": ["A.esm"], "refs": [[1, 1, false, [1, 1]]]}
+      ],
+      "expect": [[1, 1]]
+    },
+    {
+      "name": "moved, then deleted in its home cell",
+      "plugins": [
+        {"name": "A.esm", "masters": [], "refs": [[0, 1, false, null]]},
+        {"name": "B.esp", "masters": ["A.esm"], "refs": [[1, 1, false, [2, 1]]]},
+        {"name": "C.esp", "masters": ["A.esm"], "refs": [[1, 1, true, null]]}
+      ],
+      "expect": []
+    },
+    {
+      "name": "deleted, then moved: the deletion sticks",
+      "plugins": [
+        {"name": "A.esm", "masters": [], "refs": [[0, 1, false, null]]},
+        {"name": "B.esp", "masters": ["A.esm"], "refs": [[1, 1, true, null]]},
+        {"name": "C.esp", "masters": ["A.esm"], "refs": [[1, 1, false, [2, 1]]]}
+      ],
+      "expect": []
+    },
+    {
+      "name": "moved, then a plain record in its home cell",
+      "open": true,
+      "plugins": [
+        {"name": "A.esm", "masters": [], "refs": [[0, 1, false, null]]},
+        {"name": "B.esp", "masters": ["A.esm"], "refs": [[1, 1, false, [2, 1]]]},
+        {"name": "C.esp", "masters": ["A.esm"], "refs": [[1, 1, false, null]]}
+      ],
+      "expect": {"engine": [[1, 1], [2, 1]], "editor": [[1, 1]]}
+    }
+  ]
+}

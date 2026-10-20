@@ -1,0 +1,22 @@
+{
+  "_about": "How a cell is named, one way for the engine, the page and the Python pool (ordercore::cells::CellKey); run by viewer-shell/ordercore's tests and tests/test_cell_key.py. Each case is a spelling and what it reads as: `fold` is the key every spelling of the same cell shares (null: not a cell), `spec` the page's and the engine's spelling, `pool` the Python pool's (and the Editor's records'), `grid` an exterior's square. An interior's name folds as the engine's room_key and Python's str.lower() do. Open question for the game: Morrowind.exe and OpenMW compare names without case, but whether a non-ASCII letter's case counts there is not checked; the cases with one pin what we do.",
+  "cases": [
+    {"in": "int:Balmora, Guild of Mages", "fold": "int:balmora, guild of mages", "spec": "int:Balmora, Guild of Mages", "pool": "Balmora, Guild of Mages", "grid": null},
+    {"in": "INT: Balmora, Guild of Mages ", "fold": "int:balmora, guild of mages", "spec": "int:Balmora, Guild of Mages", "pool": "Balmora, Guild of Mages", "grid": null},
+    {"in": "balmora, guild of mages", "fold": "int:balmora, guild of mages", "spec": "int:balmora, guild of mages", "pool": "balmora, guild of mages", "grid": null},
+    {"in": "-2,-9", "fold": "-2,-9", "spec": "-2,-9", "pool": "(-2, -9)", "grid": [-2, -9]},
+    {"in": "(-2, -9)", "fold": "-2,-9", "spec": "-2,-9", "pool": "(-2, -9)", "grid": [-2, -9]},
+    {"in": " ( 3 ,4 ) ", "fold": "3,4", "spec": "3,4", "pool": "(3, 4)", "grid": [3, 4]},
+    {"in": "int:1,2", "fold": "int:1,2", "spec": "int:1,2", "pool": "1,2", "grid": null},
+    {"in": "(1, 2", "fold": "int:(1, 2", "spec": "int:(1, 2", "pool": "(1, 2", "grid": null},
+    {"in": "Vivec, Arena", "fold": "int:vivec, arena", "spec": "int:Vivec, Arena", "pool": "Vivec, Arena", "grid": null},
+    {"in": "Ébène Hall", "fold": "int:ébène hall", "spec": "int:Ébène Hall", "pool": "Ébène Hall", "grid": null},
+    {"in": "Балмора, Гильдия", "fold": "int:балмора, гильдия", "spec": "int:Балмора, Гильдия", "pool": "Балмора, Гильдия", "grid": null},
+    {"in": "+3, 4", "fold": "3,4", "spec": "3,4", "pool": "(3, 4)", "grid": [3, 4]},
+    {"in": "3.5,4", "fold": "int:3.5,4", "spec": "int:3.5,4", "pool": "3.5,4", "grid": null},
+    {"in": "1,2,3", "fold": "int:1,2,3", "spec": "int:1,2,3", "pool": "1,2,3", "grid": null},
+    {"in": "99999999999,1", "fold": "int:99999999999,1", "spec": "int:99999999999,1", "pool": "99999999999,1", "grid": null},
+    {"in": "int:", "fold": null},
+    {"in": "   ", "fold": null}
+  ]
+}

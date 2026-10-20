@@ -126,7 +126,24 @@ Greatness7's `tes3` crate reads, and Robin's code runs on what it read.
   same. Tests: Robin's `round18cr` twins test needs his fixture (not here); the boot check
   reads the counts.
 
-0001-0011 are offered to Robin (0012-0014 not yet), with `patches/NOTES-FOR-ROBIN.md` saying why each.
+- `patches/0015-geometry-clock.patch`: the mesh geometry read beside the merge (round
+  18cr's), timed: `pre_geometry`'s listing, how many meshes it lists, the read's wall time
+  on the pool, and `GeomClock` (summed over the threads: reading the files, the `.kf` beside
+  them, parsing, and the bytes), passed to `read_geometry` from both its callers. Timers
+  only. On Static's setup (2026-10-19), with 0014 the merge loop finished first and waited
+  22.6 s on this read: it is the merge's bound now.
+
+- `patches/0016-geometry-optional.patch`: `LoadOpts::geometry` (on by default, so
+  Gardenfell reads as before). Off, the load skips `pre_geometry` and every mesh read in
+  `load_geometry`, keeping the counts that need no mesh (actors, corpses, `mesh_wanted`).
+  Wraithguard turns it off (`viewcore::world::World::load_with`): nothing in it reads
+  `World::geom`, which is for the grass it does not grow, and the read was 39-43 s of
+  every connect on Static's setup (33,267 meshes, 1.78 GB; patch 0015's numbers).
+
+- `patches/0008-followup-preserve-part-tracks.patch` is already inside 0008 (and sorts
+  before it, so a `for p in patches/0*.patch` would stop on it): delete it.
+
+0001-0011 are offered to Robin (0012-0016 not yet; the 2026-10-19 zip has 0001-0014), with `patches/NOTES-FOR-ROBIN.md` saying why each.
 Applied in order to his 18hu source they give exactly the files here (checked); his
 tests: 503 pass with his fixture (his 491 and 12 of ours). Only 0006 and 0009 add
 a field to an existing struct, and only to `World`, which every caller builds with

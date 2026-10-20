@@ -4,9 +4,14 @@
 //! - [`cfg`]: an OpenMW `openmw.cfg` - its data folders, content and groundcover plugins,
 //!   archives and chained cfgs, by the rules OpenMW documents.
 //! - [`records`]: which version of a record wins, and what type a placed object is.
+//! - [`refs`]: a placed object's identity, and which of its versions stands.
+//! - [`cells`]: a cell named one way (an exterior by grid, an interior by its name
+//!   without case), whichever spelling it came in.
 //!
 //! Written from OpenMW's documentation ("Paths", openmw.readthedocs.io) and its observed
 //! behaviour, not its code: OpenMW is GPL-3 and this crate is MIT.
 
+pub mod cells;
 pub mod cfg;
 pub mod records;
+pub mod refs;

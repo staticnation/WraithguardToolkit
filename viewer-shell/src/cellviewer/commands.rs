@@ -477,6 +477,15 @@ fn open_install(
         // and .kf files read.
         .int("msTwinsAhead", s.ms_twins_ahead as u64)
         .raw("twinsAhead", &format!("[{}]", s.twins_ahead.map(|v| v.to_string()).join(",")))
+        // Wraithguard: the mesh geometry read beside the merge - listing, count, wall time,
+        // then summed over threads: reading, the .kf beside, parsing (ms), and bytes; and
+        // what load_geometry kept: wanted, read late, not found, unreadable, its own ms.
+        .int("msGeomList", s.ms_geometry_list as u64)
+        .int("meshPre", s.mesh_pre as u64)
+        .int("threads", viewcore::pool::threads() as u64)
+        .int("msGeomRead", s.ms_geometry_read as u64)
+        .raw("geomClock", &format!("[{}]", s.geometry_clock.map(|v| v.to_string()).join(",")))
+        .raw("meshKept", &format!("[{},{},{},{},{}]", s.mesh_wanted, s.mesh_late, s.mesh_unresolved, s.mesh_unparsed, s.ms_meshes))
         /* Round 18cr: and the overlay's own clock - the layout, the index walk, the
            archives, the plugin listing - whether it was built here or by the probe
            before (`overlayReused` says which, so the page adds it to the right step). */
@@ -3388,29 +3397,27 @@ fn cell_refs_of(w: &viewcore::world::World, cell: &str) -> Result<CellRefs, Stri
     // Also the cell's key as plugins' records key it, and the plugins with a CELL record
     // for it: what the editor's reference dialog asks Wraithguard with.
     type Cell<'a> = (String, String, &'a [u32], Vec<&'a viewcore::esp::CellRef>);
-    let (name, ref_cell, by, refs): Cell = if let Some(room) = cell.strip_prefix("int:") {
-        let k = viewcore::world::room_key(room);
-        let r = w.interiors.get(&k).ok_or_else(|| format!("no interior {room}"))?;
-        (r.name.clone(), r.name.clone(), &w.history.interior(&k).touched_by, r.refs.values().collect())
-    } else {
-        let (x, y) = cell
-            .split_once(',')
-            .and_then(|(a, b)| Some((a.trim().parse::<i32>().ok()?, b.trim().parse::<i32>().ok()?)))
-            .ok_or_else(|| format!("not a cell: {cell}"))?;
-        let c = w.cells.get(&(x, y)).ok_or_else(|| format!("no exterior cell {x},{y}"))?;
-        (c.name.clone(), format!("({x}, {y})"), &w.history.exterior((x, y)).touched_by, c.refs.values().collect())
+    let key = viewcore::cells::CellKey::parse(cell).ok_or_else(|| format!("not a cell: {cell}"))?;
+    let (name, ref_cell, by, refs): Cell = match &key {
+        viewcore::cells::CellKey::Interior(room) => {
+            let k = viewcore::world::room_key(room);
+            let r = w.interiors.get(&k).ok_or_else(|| format!("no interior {room}"))?;
+            (r.name.clone(), r.name.clone(), &w.history.interior(&k).touched_by, r.refs.values().collect())
+        }
+        &viewcore::cells::CellKey::Exterior(x, y) => {
+            let c = w.cells.get(&(x, y)).ok_or_else(|| format!("no exterior cell {x},{y}"))?;
+            // The pool's spelling, `(x, y)`: how the Editor's records name the cell.
+            (c.name.clone(), key.pool_key(), &w.history.exterior((x, y)).touched_by, c.refs.values().collect())
+        }
     };
     let mut refs: Vec<&viewcore::esp::CellRef> = refs.into_iter().filter(|r| !r.deleted).collect();
     refs.sort_by(|a, b| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()).then(a.num.index.cmp(&b.num.index)));
     /* Wraithguard: each reference's owner, as the plugin that last changed it writes it -
        the Construction Set's Ownership column. The world keeps no owners (drawing does not
        need them), so each plugin that last changed some of these is read once for them. */
-    let sel = match cell.strip_prefix("int:") {
-        Some(_) => viewcore::inspect::CellSel::Interior(ref_cell.clone()),
-        None => {
-            let (x, y) = ref_cell.trim_matches(|c| c == '(' || c == ')').split_once(',').map(|(a, b)| (a.trim().parse().unwrap_or(0), b.trim().parse().unwrap_or(0))).unwrap_or((0, 0));
-            viewcore::inspect::CellSel::Exterior(x, y)
-        }
+    let sel = match key {
+        viewcore::cells::CellKey::Interior(_) => viewcore::inspect::CellSel::Interior(ref_cell.clone()),
+        viewcore::cells::CellKey::Exterior(x, y) => viewcore::inspect::CellSel::Exterior(x, y),
     };
     let mut owners: std::collections::HashMap<i32, std::collections::HashMap<(u32, String), viewcore::inspect::RefDetails>> = std::collections::HashMap::new();
     for r in &refs {
@@ -3573,14 +3580,10 @@ fn pathgrid(cells: Vec<String>, state: State) -> Result<String, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
     let mut out: Vec<String> = Vec::new();
     for spec in &cells {
-        let (pg, origin) = if let Some(name) = spec.strip_prefix("int:") {
-            (w.pathgrids_int.get(&viewcore::world::room_key(name)), (0.0, 0.0))
-        } else {
-            let mut it = spec.split(',').map(|v| v.trim().parse::<i32>());
-            match (it.next(), it.next()) {
-                (Some(Ok(x)), Some(Ok(y))) => (w.pathgrids_ext.get(&(x, y)), (x as f32 * 8192.0, y as f32 * 8192.0)),
-                _ => (None, (0.0, 0.0)),
-            }
+        let (pg, origin) = match viewcore::cells::CellKey::parse(spec) {
+            Some(viewcore::cells::CellKey::Interior(name)) => (w.pathgrids_int.get(&viewcore::world::room_key(&name)), (0.0, 0.0)),
+            Some(viewcore::cells::CellKey::Exterior(x, y)) => (w.pathgrids_ext.get(&(x, y)), (x as f32 * 8192.0, y as f32 * 8192.0)),
+            None => (None, (0.0, 0.0)),
         };
         let Some(pg) = pg else { continue };
         let pts: Vec<String> = pg

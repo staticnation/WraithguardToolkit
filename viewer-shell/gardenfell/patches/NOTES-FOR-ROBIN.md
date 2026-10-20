@@ -287,6 +287,27 @@ result is unchanged; ahead of the loop it asks the superset (every definition, w
 or not), which is the set the loop visited anyway. Your `round18cr` twins test is the one
 that covers it; we could not run it here without your fixture.
 
+## 0015 world: the mesh read's clock
+
+Timers only. `LoadStats` gains `ms_geometry_list` (`pre_geometry`, before the merge),
+`mesh_pre` (how many meshes it lists), `ms_geometry_read` (the read on the pool, wall time)
+and `geometry_clock`: summed over the threads, ms reading the files, ms at the `.kf` beside
+them, ms parsing, and the bytes. `read_geometry` takes a `&GeomClock` from both callers.
+
+Why: with 0014 the merge loop on Static's setup (621 plugins) dropped to 28 s and then
+waited 22.6 s for this read, which had been hidden behind it at 45-50 s. Before deciding
+whether to keep the geometry between connects (as 0012 does for the file index), we want to
+know whether it is the reading or the parsing.
+
+## 0016 world: the collision read as an option
+
+`LoadOpts::geometry`, on by default: with it on nothing changes. Off, the load skips the
+read beside the merge and every read in `load_geometry`, and still counts actors, corpses
+and the meshes the world places. Wraithguard turns it off because nothing in it asks
+`World::geom` (it grows no grass; its collision overlay reads each mesh when shown): 0015
+showed that read at 39-43 s on Static's setup, as long as the merge itself. If you would
+rather have the hulls read lazily per cell for everyone, say so and we will look at that.
+
 ## Applying them
 
 In order, from the repository root: `for p in patches/0*.patch; do patch -p1 < $p; done`.
@@ -367,6 +388,14 @@ like your other crates, and send fixes as patches against it. No hurry and no pr
 only after your release, and only if it suits how you want the crate laid out.
 
 ## Not patches, findings you might want
+
+- **Two file names reach your report as markup** (`11_events.js`, `openLog`): the load
+  order's source (`'<b>'+GameData.orderSource+'</b>'`) and the missing plugins' names
+  (`GameData.missing...join(', ')`) go into `innerHTML` through `T()` unescaped. A path or a
+  plugin name can hold `<` on Linux, and a plugin's text is the user's mods, not ours: we
+  wrap both in `escHtml` (and the WebGL error in `#noctx`, for good measure). Found with a
+  test mode that ends every string the engine answers in markup and watches the page for it
+  (`WG_TAINT=1 node boot.js`); everything else it reached was already escaped.
 
 - **Your chain order is right and OpenMW's docs are wrong.** The "Paths" page says
   `config=` dirs are read dir1, dir2, dir3, dir4; the code (a stack, children pushed in

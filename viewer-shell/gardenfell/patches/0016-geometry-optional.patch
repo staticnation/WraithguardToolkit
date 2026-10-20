@@ -1,0 +1,61 @@
+--- a/crates/gardenfell-world/src/world.rs
++++ b/crates/gardenfell-world/src/world.rs
+@@ -148,11 +148,18 @@
+     /// rule ([`placed_types`]): every kind is kept, a deletion takes out its own kind only,
+     /// and a placed object is the kind whose tag ranks highest, whatever the load order.
+     pub openmw_kinds: bool,
++    /// Wraithguard: read every placed mesh's collision geometry into `geom` (on, the
++    /// default). Off for a front end that never asks `geom` - no grass to keep out of
++    /// rocks - so the connect skips reading and parsing every mesh the load order places
++    /// (33,267 meshes and 1.78 GB on a 621-plugin setup, 39-43 s on 16 threads). The
++    /// counts that do not need a mesh (actors, corpses) are kept; `mesh_wanted` still
++    /// says how many meshes the world places.
++    pub geometry: bool,
+ }
+ 
+ impl Default for LoadOpts {
+     fn default() -> Self {
+-        LoadOpts { script_plays: true, overlap_geometry: true, mvrf_strict: true, openmw_kinds: false }
++        LoadOpts { script_plays: true, overlap_geometry: true, mvrf_strict: true, openmw_kinds: false, geometry: true }
+     }
+ }
+ 
+@@ -1502,7 +1509,7 @@
+            list, the same parser, the same order; only the clock differs. */
+         let t_list = std::time::Instant::now();
+         let (pre_list, pre_anim): (Vec<String>, std::collections::HashSet<String>) =
+-            if opts.overlap_geometry { pre_geometry(&parsed, vfs) } else { (Vec::new(), Default::default()) };
++            if opts.overlap_geometry && opts.geometry { pre_geometry(&parsed, vfs) } else { (Vec::new(), Default::default()) };
+         let ms_geometry_list = t_list.elapsed().as_millis();
+         let clock = GeomClock::default();
+         let mut ms_geometry_read: u128 = 0;
+@@ -2124,7 +2131,7 @@
+         // Round 18ax: every leveled list draws as its creatures' one mesh, or the marker.
+         crate::records::resolve_leveled(&mut w.objects);
+ 
+-        w.load_geometry(vfs, pre, &pre_anim, &clock);
++        w.load_geometry(vfs, pre, &pre_anim, &clock, opts.geometry);
+         w.stats.mesh_pre = pre_list.len();
+         w.stats.ms_geometry_list = ms_geometry_list;
+         w.stats.ms_geometry_read = ms_geometry_read;
+@@ -2232,6 +2239,7 @@
+         mut pre: HashMap<String, GeomRead>,
+         pre_anim: &std::collections::HashSet<String>,
+         clock: &GeomClock,
++        read: bool,
+     ) {
+         /* Round 18ey: the pre-read decided whether to bind each mesh's `.kf` from the
+            *superset* of definitions, because it runs beside the merge and has to. Where
+@@ -2280,6 +2288,12 @@
+         self.stats.actors = self.actors.len();
+         self.stats.corpses = self.actors.values().filter(|a| a.corpse()).count();
+         self.stats.corpse_refs = corpse_refs;
++        if !read {
++            // Wraithguard (`LoadOpts::geometry` off): the counts, and no mesh read.
++            self.stats.mesh_wanted = used.len() + usize::from(want_slab);
++            self.stats.ms_meshes = t.elapsed().as_millis();
++            return;
++        }
+         if want_slab {
+             self.geom.insert(CORPSE_SLAB.to_string(), corpse_slab());
+         }

@@ -148,11 +148,18 @@ pub struct LoadOpts {
     /// rule ([`placed_types`]): every kind is kept, a deletion takes out its own kind only,
     /// and a placed object is the kind whose tag ranks highest, whatever the load order.
     pub openmw_kinds: bool,
+    /// Wraithguard: read every placed mesh's collision geometry into `geom` (on, the
+    /// default). Off for a front end that never asks `geom` - no grass to keep out of
+    /// rocks - so the connect skips reading and parsing every mesh the load order places
+    /// (33,267 meshes and 1.78 GB on a 621-plugin setup, 39-43 s on 16 threads). The
+    /// counts that do not need a mesh (actors, corpses) are kept; `mesh_wanted` still
+    /// says how many meshes the world places.
+    pub geometry: bool,
 }
 
 impl Default for LoadOpts {
     fn default() -> Self {
-        LoadOpts { script_plays: true, overlap_geometry: true, mvrf_strict: true, openmw_kinds: false }
+        LoadOpts { script_plays: true, overlap_geometry: true, mvrf_strict: true, openmw_kinds: false, geometry: true }
     }
 }
 
@@ -1300,6 +1307,15 @@ pub struct LoadStats {
     /// Wraithguard: `twins_ahead` before the loop (inside its setup part): how long, and
     /// how many meshes it asked for a twin and `.kf` files it read.
     pub ms_twins_ahead: u128,
+    /// Wraithguard: the mesh geometry read beside the merge (round 18cr's): how long
+    /// listing every mesh the load order could want took (`pre_geometry`, before the
+    /// merge), how many that is, how long the read took on the pool (wall), and, summed
+    /// over its threads, ms reading the files, ms at the `.kf` beside them, ms parsing,
+    /// and the bytes read (late reads in `load_geometry` included).
+    pub ms_geometry_list: u128,
+    pub mesh_pre: usize,
+    pub ms_geometry_read: u128,
+    pub geometry_clock: [u64; 4],
     pub twins_ahead: [u64; 2],
     pub ms_meshes: u128,
 }
@@ -1491,8 +1507,12 @@ impl World {
            always took from what was read, reading any it did not find. The `geom` map,
            the counts and the failure lines come out the same by construction: the same
            list, the same parser, the same order; only the clock differs. */
+        let t_list = std::time::Instant::now();
         let (pre_list, pre_anim): (Vec<String>, std::collections::HashSet<String>) =
-            if opts.overlap_geometry { pre_geometry(&parsed, vfs) } else { (Vec::new(), Default::default()) };
+            if opts.overlap_geometry && opts.geometry { pre_geometry(&parsed, vfs) } else { (Vec::new(), Default::default()) };
+        let ms_geometry_list = t_list.elapsed().as_millis();
+        let clock = GeomClock::default();
+        let mut ms_geometry_read: u128 = 0;
         let t2 = std::time::Instant::now();
         let mut laps = Laps { at: t2, part: 0, ns: [0; 8] };
         let mut defs_ns = [0u128; 5];
@@ -1547,11 +1567,13 @@ impl World {
         let mut n_refs: u64 = 0;
         let pre: HashMap<String, GeomRead> = std::thread::scope(|sc| {
             let reader = (!pre_list.is_empty()).then(|| {
-                let (pa, pl) = (&pre_anim, &pre_list);
+                let (pa, pl, ck) = (&pre_anim, &pre_list, &clock);
                 sc.spawn(move || {
-                    pool::par_map(pl, |_, m| {
-                        read_geometry(vfs, m, pa.contains(&m.replace('\\', "/").to_ascii_lowercase()))
-                    })
+                    let t = std::time::Instant::now();
+                    let v = pool::par_map(pl, |_, m| {
+                        read_geometry(vfs, m, pa.contains(&m.replace('\\', "/").to_ascii_lowercase()), ck)
+                    });
+                    (v, t.elapsed().as_millis())
                 })
             });
         // Which type each id is placed as, when plugins define it as more than one.
@@ -2064,7 +2086,10 @@ impl World {
             let t_wait = std::time::Instant::now();
             let got = match reader {
                 Some(h) => match h.join() {
-                    Ok(v) => pre_list.iter().map(|m| m.to_ascii_lowercase()).zip(v).collect(),
+                    Ok((v, ms)) => {
+                        ms_geometry_read = ms;
+                        pre_list.iter().map(|m| m.to_ascii_lowercase()).zip(v).collect()
+                    }
                     Err(_) => HashMap::new(),   // a panic in a read: read again below
                 },
                 None => HashMap::new(),
@@ -2106,7 +2131,11 @@ impl World {
         // Round 18ax: every leveled list draws as its creatures' one mesh, or the marker.
         crate::records::resolve_leveled(&mut w.objects);
 
-        w.load_geometry(vfs, pre, &pre_anim);
+        w.load_geometry(vfs, pre, &pre_anim, &clock, opts.geometry);
+        w.stats.mesh_pre = pre_list.len();
+        w.stats.ms_geometry_list = ms_geometry_list;
+        w.stats.ms_geometry_read = ms_geometry_read;
+        w.stats.geometry_clock = clock.totals();
         w
     }
 
@@ -2204,7 +2233,14 @@ impl World {
     ///
     /// `pre` (round 18cr) is what was read beside the merge, by lowercased mesh path -
     /// taken where it answers for a wanted mesh, the rest read here as before.
-    fn load_geometry(&mut self, vfs: &Vfs, mut pre: HashMap<String, GeomRead>, pre_anim: &std::collections::HashSet<String>) {
+    fn load_geometry(
+        &mut self,
+        vfs: &Vfs,
+        mut pre: HashMap<String, GeomRead>,
+        pre_anim: &std::collections::HashSet<String>,
+        clock: &GeomClock,
+        read: bool,
+    ) {
         /* Round 18ey: the pre-read decided whether to bind each mesh's `.kf` from the
            *superset* of definitions, because it runs beside the merge and has to. Where
            the merge then disagreed - a mesh some losing plugin defined as an activator and
@@ -2252,6 +2288,12 @@ impl World {
         self.stats.actors = self.actors.len();
         self.stats.corpses = self.actors.values().filter(|a| a.corpse()).count();
         self.stats.corpse_refs = corpse_refs;
+        if !read {
+            // Wraithguard (`LoadOpts::geometry` off): the counts, and no mesh read.
+            self.stats.mesh_wanted = used.len() + usize::from(want_slab);
+            self.stats.ms_meshes = t.elapsed().as_millis();
+            return;
+        }
         if want_slab {
             self.geom.insert(CORPSE_SLAB.to_string(), corpse_slab());
         }
@@ -2265,7 +2307,7 @@ impl World {
         let todo: Vec<String> = used.iter().filter(|m| !pre.contains_key(&m.to_ascii_lowercase())).cloned().collect();
         self.stats.mesh_late = todo.len();
         let now: Vec<GeomRead> = pool::par_map(&todo, |_, mesh| {
-            read_geometry(vfs, mesh, self.anim_meshes.contains(&mesh.replace('\\', "/").to_ascii_lowercase()))
+            read_geometry(vfs, mesh, self.anim_meshes.contains(&mesh.replace('\\', "/").to_ascii_lowercase()), clock)
         });
         for (m, r) in todo.iter().zip(now) {
             pre.insert(m.to_ascii_lowercase(), r);
@@ -2309,9 +2351,12 @@ impl World {
 /// function so it can run beside the merge (round 18cr).
 type GeomRead = (u8, Option<nif::MeshGeom>);
 
-fn read_geometry(vfs: &Vfs, mesh: &str, animates: bool) -> GeomRead {
+fn read_geometry(vfs: &Vfs, mesh: &str, animates: bool, clock: &GeomClock) -> GeomRead {
+    let t = std::time::Instant::now();
     let Some(p) = vfs.resolve_mesh(mesh) else { return (1u8, None) };
     let Some(buf) = vfs.load(&p) else { return (1u8, None) };
+    clock.add(&clock.ns_load, t);
+    clock.bytes.fetch_add(buf.len() as u64, std::sync::atomic::Ordering::Relaxed);
     /* Round 18be (G7): with the `.kf` beside it, so the hull is built from the
        pose the viewport draws. See `nif::parse_with_kf`.
        Round 18ey: **and only when the game would ever open that `.kf`** - when some
@@ -2325,10 +2370,37 @@ fn read_geometry(vfs: &Vfs, mesh: &str, animates: bool) -> GeomRead {
        acted on here either.** The hull and the picture have to be built from one pose
        (18be, G7), so the two move together or not at all - and the picture's half is per
        reference rather than per mesh. See the note in `mesh_payload`. */
+    let t = std::time::Instant::now();
     let kf = kf_beside(vfs, mesh);
-    match nif::parse_with_kf(&buf, kf.as_ref()) {
+    clock.add(&clock.ns_kf, t);
+    let t = std::time::Instant::now();
+    let out = match nif::parse_with_kf(&buf, kf.as_ref()) {
         Some(g) => (0, Some(g)),
         None => (2, None),
+    };
+    clock.add(&clock.ns_parse, t);
+    out
+}
+
+/// Wraithguard: where the geometry reads' time goes, summed over the pool's threads (so
+/// it can exceed the wall time): reading each mesh file, finding and reading the `.kf`
+/// beside it, and parsing; and the bytes read.
+#[derive(Default)]
+pub struct GeomClock {
+    ns_load: std::sync::atomic::AtomicU64,
+    ns_kf: std::sync::atomic::AtomicU64,
+    ns_parse: std::sync::atomic::AtomicU64,
+    bytes: std::sync::atomic::AtomicU64,
+}
+
+impl GeomClock {
+    fn add(&self, to: &std::sync::atomic::AtomicU64, since: std::time::Instant) {
+        to.fetch_add(since.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+    /// Milliseconds reading, at the `.kf`, parsing; then the bytes read.
+    fn totals(&self) -> [u64; 4] {
+        let g = |a: &std::sync::atomic::AtomicU64| a.load(std::sync::atomic::Ordering::Relaxed);
+        [g(&self.ns_load) / 1_000_000, g(&self.ns_kf) / 1_000_000, g(&self.ns_parse) / 1_000_000, g(&self.bytes)]
     }
 }
 

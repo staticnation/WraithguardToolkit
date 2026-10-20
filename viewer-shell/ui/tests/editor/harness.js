@@ -50,6 +50,16 @@ function source(rel) {
     .replace(/^class (\w+)/mg, 'var $1=class $1');
 }
 
+const TAINT = '<b data-taint="1">!</b>';
+const tainted = [];
+/** Where a tainted element landed: the nearest ancestor with an id or class, and its text. */
+function where(el) {
+  let p = el.parentElement;
+  while (p && !p.id && !p.className) p = p.parentElement;
+  const tag = p ? (p.id ? '#' + p.id : '.' + String(p.className).split(/\s+/)[0]) : '?';
+  return tag + ': ' + String((el.parentElement || el).textContent || '').replace(/\s+/g, ' ').slice(0, 80);
+}
+
 function page(opts = {}) {
   const dom = new JSDOM('<!doctype html><body>' + (opts.html || '<div id="main"><div id="center"><div id="vpwrap"></div></div></div>') + '</body>',
     { runScripts: 'outside-only', pretendToBeVisual: true, url: 'http://wg.test/' });
@@ -58,8 +68,21 @@ function page(opts = {}) {
   w.TextEncoder = TextEncoder;
   const posts = [], toasts = [];
   w.__posts = posts; w.__toasts = toasts;
-  w.__engine = opts.engine || (() => ({}));
-  const answer = opts.answer || (() => '{}');
+  /* WG_TAINT=1: every string the engine or Wraithguard answers ends in markup, as a mod's
+     record name could. Plugin text is untrusted: if any of it reaches innerHTML unescaped,
+     an element with data-taint appears in the page, and run.js lists where. */
+  const engine0 = opts.engine || (() => ({}));
+  const answer0 = opts.answer || (() => '{}');
+  const tainting = !!process.env.WG_TAINT;
+  const taint = v => typeof v === 'string' ? v + TAINT
+    : Array.isArray(v) ? v.map(taint)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, taint(x)])) : v;
+  w.__engine = tainting ? async (c, a) => taint(await engine0(c, a)) : engine0;
+  const answer = tainting ? async (u, b) => { const r = await answer0(u, b);
+    return typeof r === 'string' ? (() => { try { return JSON.stringify(taint(JSON.parse(r))); } catch (_) { return r; } })() : taint(r); } : answer0;
+  if (tainting) new w.MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) {
+    const hits = n.nodeType === 1 ? (n.matches('[data-taint]') ? [n] : [...n.querySelectorAll('[data-taint]')]) : [];
+    for (const h of hits) tainted.push(where(h)); } }).observe(d, { childList: true, subtree: true });
   const linkOf = {};
   for (const [name, url] of Object.entries(opts.links || {})) linkOf[url] = name;
   w.__answer = async (url, body) => {
@@ -151,6 +174,6 @@ function ev(w, type, x, y, more) {
 /** The editor's modules and what they lean on, in page order. */
 /** The Editor's parts, in ORDER's order. */
 const EDITOR_PARTS = ['objects', 'cells', 'record', 'ref', 'move', 'qmenu', 'place', 'dialogue', 'script', 'lua', 'uses', 'build', 'keys'];
-const EDITOR = ['src/24_ori.js', 'src/50_wg_editor.js', ...EDITOR_PARTS.map(p => 'src/50_wg_editor_' + p + '.js'), 'src/51_wg_editor_ui.js', 'src/53_wg_record_forms.js', 'src/56_wg_workflow.js'];
+const EDITOR = ['src/38_wg_cellkey.js', 'src/24_ori.js', 'src/50_wg_editor.js', ...EDITOR_PARTS.map(p => 'src/50_wg_editor_' + p + '.js'), 'src/51_wg_editor_ui.js', 'src/53_wg_record_forms.js', 'src/56_wg_workflow.js'];
 
-module.exports = { page, ev, EDITOR, source, CONTRACT, violations };
+module.exports = { tainted, page, ev, EDITOR, source, CONTRACT, violations };

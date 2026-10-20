@@ -11,6 +11,9 @@
   folders read again). The definitions part is split again (lights, models, actors, and the
   `x` twin lookups and `.kf` reads inside them, with their counts). Gardenfell patch 0013
   carries the merge's timers.
+- **The connect log times the mesh read beside the merge** ("meshes' geometry beside the
+  merge"): how many meshes, how long, and reading vs the `.kf` beside them vs parsing
+  (Gardenfell patch 0015). With the twins asked ahead it is what the merge waits on.
 - **The Report says what a slow cell load waited on.** Under each load in Loading: when
   the cell's objects were placed and when its grass, the distant land and the distant
   objects started and finished; its textures by format, how many were read only in part
@@ -64,6 +67,19 @@
 
 ### Changed
 
+- **Connecting no longer reads every placed mesh's collision shape.** That read (33,267
+  meshes and 1.78 GB on a 621-plugin setup, 39-43 s on 16 cores, running beside the merge)
+  fed Gardenfell's grass, which Wraithguard does not grow; nothing in Wraithguard used it.
+  The collision overlay still reads a mesh's shape when it is shown (Gardenfell patch 0016).
+- **A cell is named one way.** `ordercore::cells` reads every spelling in use (`int:Name`,
+  `x,y`, `(x, y)`, a bare name) as one cell, an interior's name without case; the engine
+  (the reference list, path grids, the navmesh, the launch's `--cell`) and the Editor's pool
+  (through the native module) both use it. The pool used to keep `x,y` as an interior's
+  name; it is the exterior now. The viewer page reads cells the same way (`CellKey`,
+  `38_wg_cellkey.js`): the Cell View, Go there, Find, the navmesh-to-path-grid fill and a
+  new cell's reveal each split specs their own way, and "Show in Cell Preview" took only `x,y`
+  (now `(x, y)` and a bare name too). Shared cases: `tests/fixtures/cell_cases.json`, run
+  by ordercore, the Python tests and the page's.
 - **Connecting a big install is faster: the merge asks its animated-mesh questions ahead.**
   Whether each animated mesh has an `x` twin, and whether each twin's `.kf` makes it move by
   itself, were asked one record at a time inside the merge loop: on 621 plugins, 614 `.kf`
@@ -89,8 +105,22 @@
   until they timed out; the rows now show at once, and only the tab that is stopped on asks.
   The background indexing also waits, between plugins, for a request the viewer is waiting on.
 
+- **The Editor's backend has started moving into Rust** (`viewer-shell/editcore`, port
+  step 4.1; plan in `viewer-shell/PORT.md`). The plugin reader moved there from the Python
+  module, which now calls it unchanged. Record keys and the Editor's record and
+  placed-object lookups (including references moved to another cell) are in Rust and agree
+  with the Python Editor on every shared case (`record_cases.json`, `ref_cases.json`,
+  `move_cases.json`). Nothing changes for a user yet.
+
 ### Fixed
 
+- **The Editor no longer offers to edit a reference the game keeps deleted.** When a
+  plugin deletes a placed object and a later plugin edits it, the game keeps it deleted
+  (the later edit changes a hidden thing), and the viewer already drew it that way; the
+  Editor took the later version and showed the object as live. Both now use one rule
+  (`ordercore::refs`), pinned by `tests/fixtures/ref_cases.json`. Where a moved object
+  stands (a move, moved twice, moved back, moved then deleted, deleted then moved) is
+  pinned the same way for the engine and the Editor: `tests/fixtures/move_cases.json`.
 - **Saving the viewer's settings no longer says "profile not saved".** The save answered with
   the file's path as bare text, which the page read as JSON; the file had been written. It now
   answers `{"path": ...}`.
@@ -109,6 +139,11 @@
 
 ### Security
 
+- **The report shows file names as text.** The load order's source and the names of
+  plugins that were not found went into the report as markup, so a name holding `<` (a
+  Linux path can) was read as HTML. Found by a new test mode that ends every answer from
+  the engine in markup (`WG_TAINT=1` for `boot.js` and the Editor's tests); the rest of the
+  page already escaped what it showed.
 - **Opening a page or file on Windows no longer goes through cmd.exe.** `open_in_browser`
   ran `start "" <target>` with `shell=True`, so a target with `&`, `|` or `^` in it (a mod
   folder can have one) broke the command or ran what followed. It now runs `explorer.exe`
@@ -118,7 +153,11 @@
   job that attaches the release, `contents: read` elsewhere.
 - **tes3 fork: zstd 0.13 -> 0.14 (zstd-safe 7 -> 8), and `paste` (unmaintained) ->
   `pastey`.** Takes effect once the fork is pushed and the lockfiles updated.
-- Four `assert`s that stated a contract are explicit checks now (`python -O` drops asserts).
+- The `assert`s that stated a contract are explicit checks now (`python -O` drops asserts):
+  four in the app, four in `tools/gen_tes3_schema.py`.
+- **merge_to_master fork: `lending-iterator` dropped**, and with it the unmaintained `paste`
+  (through `macro_rules_attribute` 0.1). Its one use, linking a topic's responses pairwise,
+  is a `split_at_mut` loop.
 - **pyo3 0.26 -> 0.29 and pythonize 0.26 -> 0.29** in the native backend
   (GHSA-36hh-v3qg-5jq4, an out-of-bounds read; GHSA-chgr-c6px-7xpp, a race condition).
 - **mio 1.2.3 -> 1.2.4** in the viewer (a use-after-free in Windows named pipes; the viewer

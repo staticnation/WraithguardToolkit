@@ -228,6 +228,10 @@ async function openInstallRun(kind, path, profile, plugins){
     ...(r.msDefs==null? [] : [{k:'ok', t:T('connect.log_merge_defs',{lights:r.msDefs[0], models:r.msDefs[1], actors:r.msDefs[2], twins:r.msDefs[3], kf:r.msDefs[4],
                                                                    nModels:r.defsCounts[0], nTwins:r.defsCounts[1], nKf:r.defsCounts[2]})}]),
     ...(r.msTwinsAhead==null? [] : [{k:'ok', t:T('connect.log_twins_ahead',{ms:r.msTwinsAhead, meshes:r.twinsAhead[0], kf:r.twinsAhead[1]})}]),
+    ...(r.meshPre===0? [{k:'ok', t:T('connect.log_geometry_off',{wanted:(r.meshKept? r.meshKept[0] : 0).toLocaleString()})}] : []),
+    ...(!r.meshPre? [] : [{k:'ok', t:T('connect.log_geometry',{pre:r.meshPre.toLocaleString(), list:r.msGeomList, read:r.msGeomRead, threads:r.threads==null? '?' : r.threads,
+       load:r.geomClock[0], kf:r.geomClock[1], parse:r.geomClock[2], mb:(r.geomClock[3]/1048576).toFixed(0),
+       wanted:r.meshKept[0].toLocaleString(), late:r.meshKept[1], missing:r.meshKept[2], bad:r.meshKept[3], after:r.meshKept[4]})}]),
     /* Round 18cr: the overlay's own steps, and the page's. Robin: start-up "feels a bit
        slow", and the line above was the only clock on it. `ct.scene` is filled in when
        the first scene stands (below), so the line is built then. */

@@ -65,7 +65,11 @@ impl World {
     /// Wraithguard's pass over the same plugins.
     pub fn load_with(paths: &[PathBuf], vfs: &Vfs, want_land: bool, opts: &LoadOpts) -> World {
         crate::init(); // already done at startup in the apps; tests start here
-        let opts = LoadOpts { openmw_kinds: true, ..opts.clone() };
+        /* `geometry: false`: nothing in Wraithguard reads the world's collision geometry
+           (`World::geom` is for Gardenfell's grass, which Wraithguard does not grow; the
+           collision overlay and the meshes read their files themselves), and reading it
+           was 39-43 s of every connect on a big setup. */
+        let opts = LoadOpts { openmw_kinds: true, geometry: false, ..opts.clone() };
         let base = gardenfell_world::world::World::load_with(paths, vfs, want_land, &opts);
         let mut w = World { base, ..Default::default() };
         w.add_extras(paths);

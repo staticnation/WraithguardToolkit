@@ -568,14 +568,16 @@ impl NavDb {
         let ext = self.settings(EXTERIOR)?;
         let mut tiles: Vec<(i32, i32)> = Vec::new();
         for spec in specs {
-            if let Some(name) = spec.strip_prefix("int:") {
-                if !f.capped {
-                    self.read(&crate::world::room_key(name), (i32::MIN, i32::MAX), (i32::MIN, i32::MAX), &mut f)?;
+            let (gx, gy) = match crate::cells::CellKey::parse(spec) {
+                Some(crate::cells::CellKey::Interior(name)) => {
+                    if !f.capped {
+                        self.read(&crate::world::room_key(&name), (i32::MIN, i32::MAX), (i32::MIN, i32::MAX), &mut f)?;
+                    }
+                    continue;
                 }
-                continue;
-            }
-            let mut it = spec.split(',').map(|v| v.trim().parse::<i32>());
-            let (Some(Ok(gx)), Some(Ok(gy))) = (it.next(), it.next()) else { continue };
+                Some(crate::cells::CellKey::Exterior(gx, gy)) => (gx, gy),
+                None => continue,
+            };
             let Some(s) = &ext else { continue };
             let span = |g: i32| (s.tile_of(g as f32 * 8192.0), s.tile_of((g + 1) as f32 * 8192.0 - 0.5));
             let (x, y) = (span(gx), span(gy));

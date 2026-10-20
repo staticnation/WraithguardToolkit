@@ -443,7 +443,7 @@ const WgTools={
   },
   specs(){
     const s=this.sc();
-    return ((s&&s.cells)||[]).map(c=>c.kind==='int'? 'int:'+c.name : c.gx+','+c.gy);
+    return ((s&&s.cells)||[]).map(c=>CellKey.spec(c)).filter(Boolean);
   },
   nav:{agent:0, db:null, data:null},
   navDb(){ if(this.nav.db==null){ try{ this.nav.db=localStorage.getItem('wg.navDb')||''; }catch(_){ this.nav.db=''; } } return this.nav.db||null; },
@@ -904,7 +904,7 @@ const WgTools={
       list.innerHTML=places.slice(0,400).map((p,i)=>'<div class="it" data-i="'+i+'"><span class="k">'+escHtml(p.label)+'</span><span class="n">'+(p.ground? 'ground ' : '')+p.count+'×</span></div>').join('');
       list.querySelectorAll('.it').forEach(el=>el.onclick=()=>{
         const p=places[+el.dataset.i]; if(!p) return;
-        if(typeof WgNav==='object') WgNav.go(p.spec).then(()=>{ App._doorAim={pos:p.pos, rot:p.rot||0, key:p.spec.startsWith('int:')? 'i:'+p.spec.slice(4) : p.spec}; });
+        if(typeof WgNav==='object') WgNav.go(p.spec).then(()=>{ App._doorAim={pos:p.pos, rot:p.rot||0, key:CellKey.doorKey(p.spec)}; });
       });
     }
     const acc=$('#acc_links'); if(acc) acc.classList.remove('closed');

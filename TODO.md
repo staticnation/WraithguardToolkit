@@ -9,20 +9,20 @@ Static's plan (2026-10-16/17): land editing, then the Editor's fine details, the
 GUI moved into the viewer, so everything is Rust and the page, with no Python, in one
 program, and a clearer UI on the way. In order:
 
-1. **Close what is open now.** Measure the merge after patch 0014, then exteriors (below);
+1. **Close what is open now.** The mesh geometry read beside the merge, then exteriors (below);
    the Aikido leftovers; confirm phase 2a in the game; the R4 visual checks; send Robin
-   0011-0014.
+   `subset sort\Gardenfell-offering-2026-10-19.zip` (0001-0014).
 2. **Land editing** ("The world": raise, lower, smooth, flatten; textures and vertex colours).
-3. **The Editor's fine details** (Foundations 2b and 2c, the two-types warning, the MO2 and
+3. **The Editor's fine details** (the rest of Foundations 2b and 2c, the two-types warning, the MO2 and
    Morrowind.ini orders into ordercore, `editor_records` unreadable, the region map, cell
    borders, path grid tools, shortcuts).
 4. **The port, backend first**, so each step ships on its own and Python only shrinks:
-   1. *The Editor's calls into Python.* The page reaches Wraithguard through 16 links
-      (`links()`: record, set-many, refs-set, undo, redo, revision, columns, search-all,
-      new cell, new land, verify, test setups, test run, build, review, poll), served by
-      `gui/editorlink.py` over `wraithguard/patch` (14k lines) and its SQLite record cache.
-      Each becomes a Tauri command; `recordcache.py` becomes Rust (rusqlite), and its
-      pickled rows a plain format. After this the Editor runs without the Python app.
+   1. *The Editor's calls into Python.* The plan is `viewer-shell/PORT.md`: the logic
+      moves into `viewer-shell/editcore` slice by slice, with Python calling it through
+      native and both sides run against shared case files. Then the viewer becomes the
+      owner and each of `editorlink.py`'s 57 links becomes a Tauri command. Slice 1
+      (reading and lookups) is done. Next is slice 2: the record cache in Rust (rusqlite,
+      zstd'd JSON instead of pickles).
    2. *Load order.* Sort (`rules/` for mlox, MOMW's `plugin-order.yml`, `sort/`), Export
       (openmw.cfg, customizations.toml), the rule panels, the rule maker, Update rules and
       Sources (`net/updaters.py`), into ordercore and a Load order page. Today's main
@@ -57,10 +57,15 @@ jsonptr ignored as Tauri-pinned (below). Left:
   hashes of test outputs); pickle (Wraithguard's own cache file; gone with 4.1 of the port);
   SSRF in `updaters.py` (http/https only, a host required, a size cap, hostile URLs
   tested); CSP and clickjacking on `none.com` (not our site: remove it under Domains).
-- **`innerHTML` (40 places in the page):** plugin text is untrusted (a mod can put markup in
-  a name), so check each place escapes what it inserts (`escHtml`). Then a CSP
-  (`tauri.conf.json` has `"csp": null`), which first needs the page's ~230 inline `on...=`
-  handlers moved to `addEventListener`: do it page by page with the port.
+- **`innerHTML` (Aikido's 40, 177 in all):** audited 2026-10-19 - every value reaching
+  `innerHTML`/`insertAdjacentHTML` traced statically, and the page run with every engine and
+  Wraithguard answer ending in markup (`WG_TAINT=1 node boot.js`, `WG_TAINT=2` taints the
+  connect too; `WG_TAINT=1 node editor/run.js`). Two real ones, both file names in the
+  report (`11_events.js`), now escaped and checked by `boot.js`. The taint runs break many
+  flows (ids no longer match), so they reach less than the normal tests: run them again
+  after a page change. Left: a CSP (`tauri.conf.json` has `"csp": null`), which first needs
+  the page's ~230 inline `on...=` handlers moved to `addEventListener`, page by page with
+  the port. Then mark the Aikido finding.
 - **Tauri 2:** glib/gtk 0.18 (Linux GTK3, unmaintained), string_cache 0.9 (html5ever) and
   jsonptr 0.7 (json-patch) are pinned by Tauri; even 2.12.4 keeps them. Recheck on each
   Tauri release. In Aikido: "waiting on upstream", and the two `engine_behaviour.json`
@@ -96,9 +101,22 @@ for code: it is GPL-3.
 - Confirm phase 2a in the game: `wg_clash_test/WG_Clash_A.esp` (wg_clash as a weapon) then
   `WG_Clash_B.esp` (a misc item, and the cell `WG Clash Test` placing it). Expected: the
   placed one is the weapon; `player->additem wg_clash 1` gives the weapon.
-- Phase 2b: reference identity (RefKey vs the session's `winning_reference`, `_origin`,
-  `_home_cell`) and moved references (MVRF), with a shared `ref_cases.json`.
-- Phase 2c: one cell key function (interiors without case, exteriors by grid).
+- Phase 2b, one open question (Static decides; the rest is done): a reference moved by
+  one plugin (MVRF), then given a plain record in its home cell by a later plugin that
+  does not know of the move. The engine keeps it in **both** cells (its merge only calls
+  `leave()` for a move or a deletion, so the plain record is added at home and the moved
+  copy stays); the Editor puts it back home. One object standing twice is wrong under any
+  rule. Options: (a) home, as the Editor does - a one-line Gardenfell patch (0017: `leave()`
+  for every record) and a note for Robin; (b) the move stands and the plain record only
+  edits it - the Editor's `find_ref` keeps the last `moved_cell`. Check which the game and
+  OpenMW do first (a two-plugin test in-game: `WG_Move_B.esp` moves a rock, `WG_Move_C.esp`
+  edits its scale in the home cell). Pinned as is: `tests/fixtures/move_cases.json`, case
+  "moved, then a plain record in its home cell".
+- Phase 2c, left over: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`,
+  `18_cellpreview.js`, `32_cellhistory.js`, `50_wg_editor_ref.js`) are Robin's and are a
+  separate key space (cache and history, compared as written); they read cell objects, not
+  specs, so they were left alone. Fold them onto `CellKey.doorKey` only if one of them
+  shows a case bug (`17_cell.js` lowercases the name, the others do not).
 - The Use Report and Verify: say when an id is defined as two object types (the CS warns
   "Matching IDs", Morrowind.exe refuses it; OpenMW keeps both and places one), and which
   one a placed object is.
@@ -141,13 +159,13 @@ pending list, search results, Verify's findings.
 Measured on 621 plugins: read 5 s, parse 8.7 s, merge loop 51.8 s (the mesh read beside
 it waits 19 ms), the 205,535-file index 4 s; about 6 us a reference across 8.6M.
 
-- The merge by part (Static, 2026-10-19; loop 39-59 s once warm): exteriors 17.8-27.4 s
-  (history in it 6.2-9.9 s, sampled), definitions 11.9-13.8 s, interiors 5.7-8.8 s,
-  tables 2.3-10.3 s, the rest under 0.5 s. Definitions were nearly all the twins' `.kf`
-  reads (9.5-11.4 s for 614 files, one by one) and twin lookups (2.1 s): now asked ahead
-  on the pool (patch 0014) - check `x twins answered before the loop` and that
-  definitions dropped. Next: exteriors (the history is a third of it; the rest is the
-  per-reference bookkeeping) and tables (`record_where`, one entry per id-bearing record).
+- The merge and the mesh read beside it (Static, 2026-10-19, after 0015): the loop takes
+  40-47 s (exteriors 26-31 s, interiors 9-10 s, tables 3-4 s), and the mesh read beside it
+  38.6-42.7 s, so they finish together. The read: 33,267 meshes, 1.78 GB, on 16 threads;
+  summed over the threads, reading the files 333-363 s and parsing 244-272 s. Nothing in
+  Wraithguard uses that geometry (it is for Gardenfell's grass), so patch 0016 skips it;
+  check the connect log says "meshes' geometry: not read" and the merge time. Next:
+  exteriors (history about a third of it, the rest per-reference bookkeeping).
 - The file index is reused: all 1233 folders from the saved index, 0.7-2.1 s (checking
   the folders' times). Was 4.2 s.
 - A cache of the merged world would need invalidation on the whole load order and a
@@ -177,7 +195,7 @@ still use the vanilla CS, so:
 ## Gardenfell 18hu rebase (viewer-shell/REBASE-18hu.md)
 
 - Send Robin the patch offering (`Gardenfell-offering-2026-10-12.zip`, with 0011 and
-  meshopt-port; 0012-0014 are in `NOTES-FOR-ROBIN.md` too, rebuild the zip). His `fixture/` stays out of the repo (real `Morrowind.ini` copies under
+  meshopt-port; rebuilt as `Gardenfell-offering-2026-10-19.zip` with 0001-0014). His `fixture/` stays out of the repo (real `Morrowind.ini` copies under
   `ru/`); put it in `viewer-shell/gardenfell/fixture` locally to run his suite.
 - Tell Greatness7: his crate refuses an NPC_ with a FILL subrecord that Robin's reads; one
   corpus mesh panics inside `bytemuck` (caught, falls back).

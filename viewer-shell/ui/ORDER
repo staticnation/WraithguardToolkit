@@ -30,6 +30,7 @@
 30_tip.js
 31_cellmap.js
 32_cellhistory.js
+38_wg_cellkey.js
 38_wg_viewport.js
 39_wg_coverage.js
 40_wg_modhl.js

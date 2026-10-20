@@ -152,7 +152,7 @@ const eng=spawn(process.env.WG_VIEW_SERVE||require('path').join(__dirname,'../..
 let nextId=1; const waiting=new Map(); let buf='';
 eng.stdout.on('data',d=>{buf+=d; let nl; while((nl=buf.indexOf('\n'))>=0){const line=buf.slice(0,nl); buf=buf.slice(nl+1); let m; try{m=JSON.parse(line);}catch(e){continue;} if(m.ready) continue; const w=waiting.get(m.id); if(w){waiting.delete(m.id); w(m);}}});
 function engineCall(cmd,args){ return new Promise((res,rej)=>{ const id=nextId++; waiting.set(id,m=>{ if('err' in m) rej(m.err); else if('b64' in m){ const b=Buffer.from(m.b64,'base64'); res(b.buffer.slice(b.byteOffset,b.byteOffset+b.length)); } else res(m.ok); }); eng.stdin.write(JSON.stringify({id,cmd,args:args||{}})+'\n'); }); }
-const errors=[], calls=[], replies={};
+const errors=[], calls=[], replies={}, tainted=new Set();
 // A throw inside a page event handler surfaces here in jsdom: record it, keep going.
 const short=e=>String(e&&e.stack||e).split('\n').filter(l=>!l.includes('node_modules')).slice(0,4).join(' | ');
 process.on('uncaughtException',e=>errors.push('uncaught: '+short(e)));
@@ -162,7 +162,23 @@ vc.on('jsdomError',e=>errors.push('jsdomError: '+(e.detail&&e.detail.stack||e.me
 vc.on('error',(...a)=>errors.push('console.error: '+a.map(String).join(' ').slice(0,300)));
 const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'http://tauri.localhost/index.html',
   beforeParse(w){
-    w.__TAURI__={core:{invoke:(cmd,args)=>{calls.push(cmd); return engineCall(cmd,args).then(r=>{ if(!(r instanceof ArrayBuffer)) replies[cmd]=typeof r==='string'? r : JSON.stringify(r); return r; });}},
+    /* WG_TAINT=1: every string in the engine's JSON answers ends in markup, as a mod's record
+       or file name could; any that reaches the page as markup is listed at the end. Text a
+       command returns as it is (TEXT in 03_core.js) is left alone. */
+    const TAINT='<b data-taint="1">!</b>';
+    const taint=v=>typeof v==='string'? v+TAINT : Array.isArray(v)? v.map(taint)
+      : v && typeof v==='object'? Object.fromEntries(Object.entries(v).map(([k,x])=>[k,taint(x)])) : v;
+    const taintOf=(cmd,r)=>{
+      if(!process.env.WG_TAINT || r instanceof ArrayBuffer || /^(viewer_profile_read|wg_post|wg_open_record)$/.test(cmd) && !(process.env.WG_TAINT==='2' && cmd==='open_install')) return r;
+      if(cmd==='open_install' && process.env.WG_TAINT!=='2') return r;
+      try{ return JSON.stringify(taint(typeof r==='string'? JSON.parse(r) : r)); }catch(_){ return r; }
+    };
+    if(process.env.WG_TAINT) new w.MutationObserver(ms=>{ for(const m of ms) for(const n of m.addedNodes){
+      const hits=n.nodeType===1? (n.matches('[data-taint]')? [n] : [...n.querySelectorAll('[data-taint]')]) : [];
+      for(const h of hits){ let p=h.parentElement; while(p && !p.id && !p.className) p=p.parentElement;
+        tainted.add((p? (p.id? '#'+p.id : '.'+String(p.className).split(/\s+/)[0]) : '?')+': '+String((h.parentElement||h).textContent||'').replace(/\s+/g,' ').slice(0,80)); } } })
+      .observe(w.document,{childList:true, subtree:true});
+    w.__TAURI__={core:{invoke:(cmd,args)=>{calls.push(cmd); return engineCall(cmd,args).then(r=>{ if(!(r instanceof ArrayBuffer)) replies[cmd]=typeof r==='string'? r : JSON.stringify(r); return taintOf(cmd,r); });}},
                  dialog:{open:async()=>null,save:async()=>null}};
     w.__WG_VIEW__= MESH ? {cfg:CFG, meshView:true, extra:{meshes:[
         {path:'meshes/x/anim.nif', label:'Load order'},
@@ -976,6 +992,7 @@ setTimeout(async ()=>{
     const pk=parts? Object.keys(JSON.parse(parts)).join(',') : '';
     if(pk!=='setup,objects,tables,definitions,interiors,exteriors,moves,freeing') errors.push('open_install sends no merge parts: '+parts);
     if(!/"msDefs":\[\d+(,\d+){4}\],"defsCounts":\[\d+,\d+,\d+\]/.test(replies.open_install||'')) errors.push('open_install sends no definitions split');
+    if(!/"meshPre":\d+,"threads":\d+,"msGeomRead":\d+,"geomClock":\[\d+,\d+,\d+,\d+\],"meshKept":\[\d+,\d+,\d+,\d+,\d+\]/.test(replies.open_install||'')) errors.push('open_install sends no geometry read numbers');
     if(!/"msTwinsAhead":\d+,"twinsAhead":\[\d+,\d+\]/.test(replies.open_install||'')) errors.push('open_install sends no twins-ahead counts');
     if(!/"indexReused":\d+,"indexWalked":\d+/.test(replies.open_install||'')) errors.push('open_install sends no saved-index counts');
     const wr=await engineCall('world_map',{}), wm=typeof wr==='string'? JSON.parse(wr) : wr;
@@ -1039,6 +1056,16 @@ setTimeout(async ()=>{
     console.log('load detail:', JSON.stringify(t && t.marks), list.length+' bundles over '+all.length+' loads,', tex.length+' textures');
   }catch(e){ errors.push('load detail: '+short(e)); }
   console.log('scene:', w.eval("(document.getElementById('stats')||{}).textContent||''").replace(/\s+/g,' ').slice(0,160));
+  /* The report shows file names from the load order (a plugin or cfg path can carry any
+     character a file system allows): as text, never as markup. */
+  try{
+    const marked=w.eval(`(()=>{ const before=GameData.missing.slice(), src=GameData.orderSource;
+      GameData.missing.push('Evil<b data-markup="1">!</b>.esp'); GameData.orderSource=src+'<b data-markup="1">!</b>';
+      openLog(); const n=document.querySelectorAll('[data-markup]').length;
+      GameData.missing.length=0; before.forEach(x=>GameData.missing.push(x)); GameData.orderSource=src; return n; })()`);
+    if(marked) errors.push('the report put a file name in as markup ('+marked+')');
+  }catch(e){ errors.push('report with odd file names: '+short(e)); }
+  if(process.env.WG_TAINT){ console.log('unescaped:', tainted.size); [...tainted].forEach(t=>console.log(' -',t)); }
   console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
   try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);
 }, WAIT);

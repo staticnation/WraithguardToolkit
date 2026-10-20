@@ -49,6 +49,9 @@ luacore = { path = "../viewer-shell/luacore" }
 # viewer's engine uses, so the Editor reads a setup as the viewer does
 # (viewer-shell/ordercore).
 ordercore = { path = "../viewer-shell/ordercore" }
+# The Editor's backend (port step 4.1): the plugin reader moved there from src/esp.rs, and
+# the Editor's record and reference lookups, shared with the viewer (viewer-shell/editcore).
+editcore = { path = "../viewer-shell/editcore" }
 # The mesh viewer's Optimise (src/nif_order.rs): Gardenfell's triangle order (`triorder`,
 # Robin Hjelte's port of meshoptimizer's vertex cache and overdraw passes) and our port
 # of its vertex fetch order and analysers. Both std only.

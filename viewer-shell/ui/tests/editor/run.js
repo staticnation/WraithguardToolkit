@@ -7,6 +7,9 @@
 const fs = require('fs');
 const path = require('path');
 
+// WG_TAINT runs answer with text the flows do not expect: a page error then is the flow
+// breaking, not the check failing, so it is noted and the run goes on.
+if (process.env.WG_TAINT) process.on('unhandledRejection', e => console.log('   (page error under taint: ' + String(e && e.message || e).slice(0, 100) + ')'));
 (async () => {
   const want = process.argv[2] || '';
   const files = fs.readdirSync(__dirname).filter(f => f.endsWith('.test.js') && f.includes(want)).sort();
@@ -23,6 +26,8 @@ const path = require('path');
     // What the page sent or was answered that the contract does not allow (harness.js).
     const broke = require('./harness').violations;
     for (const v of [...new Set(broke.splice(0))]) fails.push('contract: ' + v);
+    // WG_TAINT=1 (harness.js): answer text that reached the page as markup.
+    for (const v of [...new Set(require('./harness').tainted.splice(0))]) fails.push('unescaped: ' + v);
     const ms = Date.now() - started;
     if (fails.length) {
       failed++;

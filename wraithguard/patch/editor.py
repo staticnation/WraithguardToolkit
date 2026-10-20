@@ -290,11 +290,13 @@ def _deletes(record: Mapping[str, Any]) -> bool:
 
 
 def exterior_grid(cell: str) -> tuple[int, int] | None:
-    """An exterior cell key's grid (``"(x, y)"`` -> ``(x, y)``), or None for an interior."""
-    import re
+    """An exterior cell's grid (``"(x, y)"`` or ``"x,y"`` -> ``(x, y)``), or None.
 
-    m = re.fullmatch(r"\((-?\d+), (-?\d+)\)", cell.strip())
-    return (int(m.group(1)), int(m.group(2))) if m else None
+    None for an interior. The one cell reader: :mod:`wraithguard.cells`.
+    """
+    from wraithguard.cells import grid
+
+    return grid(cell)
 
 
 def grid_of(position: Sequence[float]) -> tuple[int, int]:
@@ -2686,14 +2688,13 @@ class EditorSession:
         Returns:
             ``(key, grid)``.
         """
-        name = cell.strip()
-        if name.lower().startswith("int:"):
-            return name[4:].strip(), None
-        m = re.fullmatch(r"\(?\s*(-?\d+)\s*,\s*(-?\d+)\s*\)?", name)
-        if m:
-            grid = (int(m.group(1)), int(m.group(2)))
-            return f"({grid[0]}, {grid[1]})", grid
-        return name, None
+        from wraithguard.cells import cell_key
+
+        k = cell_key(cell)
+        if k is None:
+            return "", None
+        g = k["grid"]
+        return str(k["pool"]), ((int(g[0]), int(g[1])) if g else None)
 
     def _pathgrid_record(self, found: Found) -> dict[str, Any]:
         """The path grid as the patch would write it: the winner with queued values."""
@@ -2940,9 +2941,15 @@ class EditorSession:
 
     @staticmethod
     def _cell_key(cell: str) -> str:
-        """A cell as the pool keys it: an interior's name (``int:`` dropped), ``(x, y)``."""
-        name = cell.strip()
-        return name[4:].strip() if name.lower().startswith("int:") else name
+        """A cell as the pool keys it: an interior's name (``int:`` dropped), ``(x, y)``.
+
+        From any spelling, ``x,y`` too (:mod:`wraithguard.cells`). An empty name stays
+        empty, for the caller to refuse.
+        """
+        from wraithguard.cells import cell_key
+
+        k = cell_key(cell)
+        return str(k["pool"]) if k else ""
 
     def new_cell(self, cell: str, absent: bool = False) -> dict[str, Any]:
         """A cell of the patch's own, from nothing (and the journal saved).
@@ -3111,10 +3118,8 @@ class EditorSession:
         """
         import secrets
 
-        src = cell.strip()
-        if src.lower().startswith("int:"):
-            src = src[4:].strip()
-        if exterior_grid(src) is not None or re.fullmatch(r"-?\d+\s*,\s*-?\d+", src):
+        src = self._cell_key(cell)
+        if exterior_grid(src) is not None:
             raise EditorError("only an interior can be copied: an exterior is a grid square")
         name = new_name.strip()
         if not name:

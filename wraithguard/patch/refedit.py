@@ -190,9 +190,13 @@ def winning_reference(
 
     Returns:
         ``(plugin whose version wins, the reference)``, or None when no version of the
-        cell has it.
+        cell has it. After a deletion the deleting version stands (it is ``deleted``)
+        unless a later one deletes it again: the game keeps the flag, so a later edit
+        changes a hidden thing (``ordercore::refs``).
     """
-    found: tuple[str, dict[str, Any]] | None = None
+    import wraithguard_native
+
+    mine: list[tuple[str, dict[str, Any]]] = []
     for plugin, rec in versions:
         masters = masters_of.get(plugin, ())
         for ref in rec.get("references") or []:
@@ -200,8 +204,12 @@ def winning_reference(
                 continue
             name = _origin(plugin, masters, int(ref.get("mast_index", -1)))
             if name is not None and name.lower() == origin.lower():
-                found = (plugin, dict(ref))
-    return found
+                mine.append((plugin, dict(ref)))
+    # The game's rule, shared with the engine (ordercore::refs): the last version stands,
+    # but after a deletion only another deletion takes over - a later edit changes a
+    # hidden thing, and the reference stays deleted.
+    won = wraithguard_native.ref_winner([bool(r.get("deleted")) for _p, r in mine])
+    return None if won is None else mine[won[0]]
 
 
 def refs_naming(

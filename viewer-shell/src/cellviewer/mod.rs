@@ -35,12 +35,13 @@ fn parse_cell(spec: &str) -> Option<Value> {
         let (tag, id) = rest.split_once(':')?;
         return Some(json!({"kind": "find", "tag": tag, "id": id}));
     }
-    if let Some(name) = spec.strip_prefix("int:") {
-        return Some(json!({"kind": "int", "name": name, "label": name}));
+    // Any spelling of a cell (`int:Name`, `x,y`, `(x, y)`, a bare name): `ordercore::cells`.
+    match viewcore::cells::CellKey::parse(spec)? {
+        viewcore::cells::CellKey::Interior(name) => Some(json!({"kind": "int", "name": name, "label": name})),
+        viewcore::cells::CellKey::Exterior(x, y) => {
+            Some(json!({"kind": "ext", "x": x, "y": y, "name": "", "label": format!("{x}, {y}")}))
+        }
     }
-    let (x, y) = spec.split_once(',')?;
-    let (x, y): (i32, i32) = (x.trim().parse().ok()?, y.trim().parse().ok()?);
-    Some(json!({"kind": "ext", "x": x, "y": y, "name": "", "label": format!("{x}, {y}")}))
 }
 
 fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {

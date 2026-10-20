@@ -49,7 +49,7 @@ const NM = answer(1000, ['meshes/x/rock.nif'], [
 
 module.exports = async (t) => {
   const p = page({
-    modules: ['src/47_wg_overlay.js', 'src/48_wg_tools.js', 'src/54_wg_pathgrid_edit.js'],
+    modules: ['src/38_wg_cellkey.js', 'src/47_wg_overlay.js', 'src/48_wg_tools.js', 'src/54_wg_pathgrid_edit.js'],
     html: '<div id="wgOverlayPane"><div id="wgNavRow"><select id="wgNavAgent"></select><div id="wgNavNote"></div></div></div><div id="vpwrap"></div>',
     engine: (c) => c === 'navmesh' ? NM : [],
     answer: (url, b) => url === 'get' ? { grid: [0, 0], points: [[100, 100, 500], [300, 100, 500]], edges: [[0, 1], [1, 0]] }

@@ -742,6 +742,12 @@ const TX_STRINGS = {
   "connect.log_twins_ahead":
     ["x twins answered before the loop (in setup): {ms} ms for {meshes} meshes and {kf} .kf files, read in parallel",
      "The connect log: whether each animated mesh has an x-prefixed twin, and whether each twin's .kf makes it move by itself, asked once for every mesh before the merge loop and on all cores, rather than one record at a time inside it."],
+  "connect.log_geometry_off":
+    ["meshes' geometry: not read (nothing in Wraithguard uses it); the world places {wanted} meshes",
+     "The connect log: the collision geometry of every placed mesh, which Gardenfell reads for its grass, is skipped: Wraithguard grows no grass, and the collision overlay reads each mesh when it is shown."],
+  "connect.log_geometry":
+    ["meshes' geometry beside the merge: {pre} meshes listed in {list} ms, read in {read} ms on {threads} threads (summed: reading the files {load} ms, the .kf beside them {kf} ms, parsing {parse} ms; {mb} MB) · kept {wanted}, of them read late {late}, not found {missing}, unreadable {bad} ({after} ms after the merge)",
+     "The connect log: the mesh read that runs beside the merge. Every mesh any plugin could place is listed first, then read on all cores while the merge runs; the summed times add up over the threads, so they can be larger than the read itself. Then the meshes the merged world actually places are kept, and any the read missed are read late."],
   "connect.log_index_saved":
     ["file index: {reused} folders taken from the saved index, {walked} read again",
      "The connect log: the saved file index. A folder whose files or subfolders changed since the last connect is read again; the others come from the index Wraithguard keeps beside itself."],

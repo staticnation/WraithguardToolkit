@@ -101,7 +101,7 @@ const WgFlow={
       const r=await this.ask('editNewCell', known? {cell, absent:true} : {cell});
       toast((r.interior? 'Interior ' : 'Exterior square ')+r.cell+' made by the patch - open it from the Cell View (double-click), then drag records into it from the Object Window','ok',4000);
       await WgEditor.refreshPending();
-      WgEditor.revealCell(r.interior? 'int:'+r.cell : String(r.cell).replace(/[()\s]/g,''));
+      WgEditor.revealCell(CellKey.spec(r.interior? 'int:'+r.cell : r.cell));
       return r;
     }catch(e){ toast(this.err(e),'err',5000); return null; }
   },
