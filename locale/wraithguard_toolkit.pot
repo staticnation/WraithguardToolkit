@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.5.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 12:27\n"
+"POT-Creation-Date: 2026-10-21 00:52\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2105,17 +2105,17 @@ msgstr ""
 msgid "could not read rule file %(file)s for predicate checks: %(error)s"
 msgstr ""
 
-#: wraithguard/rules/parser.py:145
+#: wraithguard/rules/parser.py:164
 msgid "NOTE: %(name)s: %(count)d conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same)."
 msgid_plural "NOTE: %(name)s: %(count)d conditional/unrecognized lines inside ordering rules treated as not-installed and bridged over (mlox does the same)."
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard/rules/parser.py:191
+#: wraithguard/rules/parser.py:210
 msgid "could not parse rule file %(file)s: %(error)s"
 msgstr ""
 
-#: wraithguard/rules/parser.py:206
+#: wraithguard/rules/parser.py:225
 msgid "Loaded %(count)d plugin refs from %(file)s"
 msgstr ""
 

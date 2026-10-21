@@ -1,0 +1,516 @@
+{
+ "_about": "mlox rule text -> ordering blocks, answered by wraithguard.rules.parser.parse_mlox_text; run by tests/test_rule_cases.py and viewer-shell/ordercore/tests/rule_cases.rs. Regenerate: python tools/gen_rule_cases.py",
+ "cases": [
+  {
+   "name": "empty",
+   "text": "",
+   "blocks": [],
+   "skipped": 0
+  },
+  {
+   "name": "one order block",
+   "text": "[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "Morrowind.esm",
+      "Tribunal.esm",
+      "Bloodmoon.esm"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "keywords in any case",
+   "text": "[order]\nA.esp\nB.esp\n[NEARSTART]\nC.esp\n[NearEnd]\nD.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ],
+    [
+     "nearstart",
+     [
+      "C.esp"
+     ]
+    ],
+    [
+     "nearend",
+     [
+      "D.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "other keywords end a block and are not read",
+   "text": "[Order]\nA.esp\n[Conflict]\nB.esp\n[Note]\nC.esp\n[Order]\nD.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp"
+     ]
+    ],
+    [
+     "order",
+     [
+      "D.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "a header may carry arguments",
+   "text": "[Order extra words]\nA.esp\n[Requires foo]\nB.esp\n[NearEnd 3]\nC.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp"
+     ]
+    ],
+    [
+     "nearend",
+     [
+      "C.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "not a header: the word runs on",
+   "text": "[Order]\nA.esp\n[Orderly]\nB.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 1
+  },
+  {
+   "name": "not a header: unclosed",
+   "text": "[Order\nA.esp\n[Order]\nB.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "not a header: prose mid-line",
+   "text": "[Order]\nA.esp\nsee the [Order] section\nB.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 1
+  },
+  {
+   "name": "the header's own line is body",
+   "text": "[Order] A.esp B.esp\nC.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp",
+      "C.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "comments",
+   "text": "[Order] ; first\nA.esp ; the first\n; whole line\nB.esp;tight\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "CRLF",
+   "text": "[Order]\r\nA.esp\r\nB.esp\r\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "CR only",
+   "text": "[Order]\rA.esp\rB.esp\r",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "vertical tab, form feed and the unit separators break lines",
+   "text": "[Order]\u000bA.esp\fB.esp\u001cC.esp\u001dD.esp\u001eE.esp",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp",
+      "C.esp",
+      "D.esp",
+      "E.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "NEL and the Unicode separators break lines",
+   "text": "[Order]A.esp B.esp C.esp",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp",
+      "C.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "\\x1f is whitespace, not a break",
+   "text": "[Order]\nA.esp\u001fB.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "names with spaces and punctuation",
+   "text": "[Order]\nBetter Bodies - Clean (v2).esp\nTom & Jerry+.esm\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "Better Bodies - Clean (v2).esp",
+      "Tom & Jerry+.esm"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "wildcards and <VER>",
+   "text": "[Order]\nBetter Bodies*.esp\nMod <VER>.esp\nWhat?.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "Better Bodies*.esp",
+      "Mod <VER>.esp",
+      "What?.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "a trailing star after the extension",
+   "text": "[Order]\nA.esp*\nB.esm*\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp*",
+      "B.esm*"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "several names on a line",
+   "text": "[Order]\nA.esp B.esm C.omwaddon\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esm",
+      "C.omwaddon"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "trailing words after a name are dropped",
+   "text": "[Order]\nA.esp is first\nB.esp, then\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp"
+     ]
+    ]
+   ],
+   "skipped": 1
+  },
+  {
+   "name": "the extensions, in any case",
+   "text": "[Order]\nA.ESP\nB.Esm\nC.omwaddon\nD.OMWGAME\nE.omwscripts\nF.esx\nG.omwaddons\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.ESP",
+      "B.Esm",
+      "C.omwaddon",
+      "D.OMWGAME",
+      "E.omwscripts"
+     ]
+    ]
+   ],
+   "skipped": 2
+  },
+  {
+   "name": "an extension followed by more is not a name",
+   "text": "[Order]\nA.esp.bak\nB.espx\nC.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "C.esp"
+     ]
+    ]
+   ],
+   "skipped": 2
+  },
+  {
+   "name": "a name can contain a dot",
+   "text": "[Order]\nA.b.c.esp\nv1.2 Mod.esm\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.b.c.esp",
+      "v1.2 Mod.esm"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "the shortest name wins",
+   "text": "[Order]\nA.esp.esp\nB.esp x.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp.esp",
+      "B.esp",
+      "x.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "a non-breaking space ends a name",
+   "text": "[Order]\nA.esp B.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "other Unicode whitespace around names",
+   "text": "[Order]\n　A.esp B.esp \n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "non-ASCII names",
+   "text": "[Order]\nCafé Épique.esp\nÜbermod.esm\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "Café Épique.esp",
+      "Übermod.esm"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "phantom lines are counted",
+   "text": "[Order]\nA.esp\nsome words\n[DESC /x/ B.esp]\n\nC.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "C.esp"
+     ]
+    ]
+   ],
+   "skipped": 2
+  },
+  {
+   "name": "a block with no names is dropped",
+   "text": "[Order]\nnothing here\n[NearStart]\nA.esp\n",
+   "blocks": [
+    [
+     "nearstart",
+     [
+      "A.esp"
+     ]
+    ]
+   ],
+   "skipped": 1
+  },
+  {
+   "name": "hints are not chains",
+   "text": "[NearStart]\nA.esp\nB.esp\n[NearEnd]\nC.esp\n",
+   "blocks": [
+    [
+     "nearstart",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ],
+    [
+     "nearend",
+     [
+      "C.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "a header only on its own line start",
+   "text": "  [Order]\nA.esp\n",
+   "blocks": [],
+   "skipped": 0
+  },
+  {
+   "name": "blank lines and indentation",
+   "text": "\n\n[Order]\n\n   A.esp   \n\t B.esp\t\n\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp",
+      "B.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "two blocks of one kind",
+   "text": "[Order]\nA.esp\n[Order]\nB.esp\nC.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "A.esp"
+     ]
+    ],
+    [
+     "order",
+     [
+      "B.esp",
+      "C.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  },
+  {
+   "name": "a realistic fragment",
+   "text": "[Version 0.1]\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\nTamriel_Data.esm\n[Note]\nsee the [Order] section\n[Conflict]\nA.esp\nB.esp\n[NearEnd]\nMerged Objects.esp\nMashed Lists.esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "Morrowind.esm",
+      "Tribunal.esm",
+      "Bloodmoon.esm",
+      "Tamriel_Data.esm"
+     ]
+    ],
+    [
+     "nearend",
+     [
+      "Merged Objects.esp",
+      "Mashed Lists.esp"
+     ]
+    ]
+   ],
+   "skipped": 0
+  }
+ ]
+}

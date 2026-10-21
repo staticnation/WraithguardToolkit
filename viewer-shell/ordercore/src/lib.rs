@@ -5,6 +5,7 @@
 //!   archives and chained cfgs, by the rules OpenMW documents.
 //! - [`records`]: which version of a record wins, and what type a placed object is.
 //! - [`refs`]: a placed object's identity, and which of its versions stands.
+//! - [`rules`]: the ordering blocks of an mlox rule file's text.
 //! - [`cells`]: a cell named one way (an exterior by grid, an interior by its name
 //!   without case), whichever spelling it came in.
 //!
@@ -15,3 +16,4 @@ pub mod cells;
 pub mod cfg;
 pub mod records;
 pub mod refs;
+pub mod rules;

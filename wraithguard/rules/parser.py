@@ -95,23 +95,21 @@ def strip_comment(line: str) -> str:
     return line[:index] if index != -1 else line
 
 
-def parse_mlox_file(path: Path) -> list[tuple[str, list[str]]]:
-    """Extract the ordering blocks from one rule file.
+def parse_mlox_text(raw: str) -> tuple[list[tuple[str, list[str]]], int]:
+    """Extract the ordering blocks from the text of one rule file.
 
-    Unparseable body lines are treated as phantom names that match nothing, so
-    the ordering chain bridges over them -- the same behaviour as mlox, and the
-    reason a conditional entry inside an ``[Order]`` block does not break the
-    surrounding constraint.
+    The text half of :func:`parse_mlox_file`, split out so the Rust port
+    (``ordercore::rules``) and this run the same cases
+    (``tests/fixtures/rule_cases.json``) without a file between them.
 
     Args:
-        path: A rule file (``mlox_base.txt``, ``mlox_user.txt``, ...).
+        raw: The rule file's text, its byte-order mark already gone.
 
     Returns:
-        ``(keyword, names)`` pairs for the ordering keywords only, in file
-        order. ``keyword`` is lowercased.
+        ``((keyword, names) pairs for the ordering keywords only, in file
+        order, keyword lowercased, and the count of body lines treated as
+        phantom names)``.
     """
-    # utf-8-sig: a BOM would otherwise hide a header on the very first line.
-    raw = path.read_text(encoding="utf-8-sig", errors="replace")
     text = "\n".join(strip_comment(line) for line in raw.splitlines())
 
     matches = list(TOP_RE.finditer(text))
@@ -140,6 +138,27 @@ def parse_mlox_file(path: Path) -> list[tuple[str, list[str]]]:
                 skipped += 1  # non-empty line, no recognisable plugin name
         if names:
             blocks.append((keyword.lower(), names))
+    return blocks, skipped
+
+
+def parse_mlox_file(path: Path) -> list[tuple[str, list[str]]]:
+    """Extract the ordering blocks from one rule file.
+
+    Unparseable body lines are treated as phantom names that match nothing, so
+    the ordering chain bridges over them -- the same behaviour as mlox, and the
+    reason a conditional entry inside an ``[Order]`` block does not break the
+    surrounding constraint.
+
+    Args:
+        path: A rule file (``mlox_base.txt``, ``mlox_user.txt``, ...).
+
+    Returns:
+        ``(keyword, names)`` pairs for the ordering keywords only, in file
+        order. ``keyword`` is lowercased.
+    """
+    # utf-8-sig: a BOM would otherwise hide a header on the very first line.
+    raw = path.read_text(encoding="utf-8-sig", errors="replace")
+    blocks, skipped = parse_mlox_text(raw)
     if skipped:
         print(
             ngettext(
