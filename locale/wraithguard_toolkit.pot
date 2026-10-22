@@ -13,7 +13,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wraithguard Toolkit 4.5.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 00:52\n"
+"POT-Creation-Date: 2026-10-21 23:54\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2119,17 +2119,17 @@ msgstr ""
 msgid "Loaded %(count)d plugin refs from %(file)s"
 msgstr ""
 
-#: wraithguard/sort/engine.py:163
+#: wraithguard/sort/engine.py:173
 msgid "%(count)d mlox ordering rule not applied -- your openmw.cfg already orders these the other way, so your (curated) cfg order is kept:"
 msgid_plural "%(count)d mlox ordering rules not applied -- your openmw.cfg already orders these the other way, so your (curated) cfg order is kept:"
 msgstr[0] ""
 msgstr[1] ""
 
-#: wraithguard/sort/engine.py:174
+#: wraithguard/sort/engine.py:184
 msgid "    - mlox wanted '%(first)s' before '%(second)s', but your load order already has '%(second)s' before '%(first)s'"
 msgstr ""
 
-#: wraithguard/sort/engine.py:513
+#: wraithguard/sort/engine.py:523
 msgid "WARNING: %(count)d plugin could not be placed due to an unresolved cycle and was appended at the end: %(names)s"
 msgid_plural "WARNING: %(count)d plugins could not be placed due to an unresolved cycle and were appended at the end: %(names)s"
 msgstr[0] ""

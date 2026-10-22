@@ -1,0 +1,9484 @@
+{
+ "_about": "The sort's order: where each custom plugin lands among the curated ones, answered by wraithguard.sort.engine.build_and_sort; run by tests/test_order_cases.py and viewer-shell/ordercore/tests/order_cases.rs. Regenerate: python tools/gen_order_cases.py",
+ "cases": [
+  {
+   "name": "nothing at all",
+   "rules": [],
+   "base": [],
+   "subset": [],
+   "masters": {},
+   "supported": true,
+   "order": [],
+   "anchors": {}
+  },
+  {
+   "name": "a curated order and no customs comes back as it was",
+   "rules": [],
+   "base": [
+    "A.esm",
+    "C.esp",
+    "B.esp"
+   ],
+   "subset": [],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esm",
+    "C.esp",
+    "B.esp"
+   ],
+   "anchors": {}
+  },
+  {
+   "name": "a new custom with no signal goes to the end",
+   "rules": [],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "new customs with no signal keep the order they were declared in",
+   "rules": [],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "Z.esp",
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "Z.esp",
+    "X.esp",
+    "Y.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ],
+    "y.esp": [
+     "none",
+     null
+    ],
+    "z.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a custom already in the cfg keeps its place",
+   "rules": [],
+   "base": [
+    "A.esp",
+    "X.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "X.esp",
+    "B.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "customs already in the cfg keep their places",
+   "rules": [],
+   "base": [
+    "X.esp",
+    "A.esp",
+    "Y.esp",
+    "B.esp",
+    "Z.esp"
+   ],
+   "subset": [
+    "Z.esp",
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "X.esp",
+    "A.esp",
+    "Y.esp",
+    "B.esp",
+    "Z.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ],
+    "y.esp": [
+     "none",
+     null
+    ],
+    "z.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a custom master with no rule floats into the master block",
+   "rules": [],
+   "base": [
+    "Morrowind.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "Mine.esm"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Morrowind.esm",
+    "Mine.esm",
+    "A.esp"
+   ],
+   "anchors": {
+    "mine.esm": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a custom master and a custom plugin, both new",
+   "rules": [],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "Late.esp",
+    "Mine.esm"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Mine.esm",
+    "A.esp",
+    "Late.esp"
+   ],
+   "anchors": {
+    "late.esp": [
+     "none",
+     null
+    ],
+    "mine.esm": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "right after a curated plugin by a rule",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "X.esp",
+    "C.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "B.esp"
+    ]
+   }
+  },
+  {
+   "name": "right before a curated plugin by a rule",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nC.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "X.esp",
+    "C.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "before",
+     "C.esp"
+    ]
+   }
+  },
+  {
+   "name": "after the later of two predecessors",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX.esp\n"
+    },
+    {
+     "priority": 0,
+     "text": "[Order]\nC.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "D.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "X.esp",
+    "D.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "C.esp"
+    ]
+   }
+  },
+  {
+   "name": "an after signal wins over a before signal",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX.esp\nD.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "D.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "X.esp",
+    "B.esp",
+    "C.esp",
+    "D.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "A.esp"
+    ]
+   }
+  },
+  {
+   "name": "the earliest of two successors",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nD.esp\n"
+    },
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nC.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "D.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "X.esp",
+    "C.esp",
+    "D.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "before",
+     "C.esp"
+    ]
+   }
+  },
+  {
+   "name": "a header master that is a master file is no position signal",
+   "rules": [],
+   "base": [
+    "Morrowind.esm",
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "x.esp": [
+     "Morrowind.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "Morrowind.esm",
+    "A.esp",
+    "B.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a header master that is an ordinary plugin is",
+   "rules": [],
+   "base": [
+    "Morrowind.esm",
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "x.esp": [
+     "A.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "Morrowind.esm",
+    "A.esp",
+    "X.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "A.esp"
+    ]
+   }
+  },
+  {
+   "name": "a custom after a custom after a curated plugin",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB.esp\nY.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "Y.esp",
+    "X.esp",
+    "C.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "Y.esp"
+    ],
+    "y.esp": [
+     "after",
+     "B.esp"
+    ]
+   }
+  },
+  {
+   "name": "three customs chained on one curated plugin",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX.esp\nY.esp\nZ.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "Z.esp",
+    "Y.esp",
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "X.esp",
+    "Y.esp",
+    "Z.esp",
+    "B.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "A.esp"
+    ],
+    "y.esp": [
+     "after",
+     "X.esp"
+    ],
+    "z.esp": [
+     "after",
+     "Y.esp"
+    ]
+   }
+  },
+  {
+   "name": "customs ordered among themselves, new, no curated neighbour",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "Y.esp",
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "X.esp",
+    "Y.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "before",
+     "Y.esp"
+    ],
+    "y.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a chain of new customs, no curated neighbour",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\nZ.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "Z.esp",
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "X.esp",
+    "Y.esp",
+    "Z.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "before",
+     "Y.esp"
+    ],
+    "y.esp": [
+     "before",
+     "Z.esp"
+    ],
+    "z.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a new custom before a custom that is after a curated plugin",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB.esp\nY.esp\n"
+    },
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "X.esp",
+    "Y.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ],
+    "y.esp": [
+     "after",
+     "X.esp"
+    ]
+   }
+  },
+  {
+   "name": "customs in the cfg moved by rules",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC.esp\nX.esp\n"
+    },
+    {
+     "priority": 0,
+     "text": "[Order]\nY.esp\nA.esp\n"
+    }
+   ],
+   "base": [
+    "X.esp",
+    "A.esp",
+    "Y.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Y.esp",
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "C.esp"
+    ],
+    "y.esp": [
+     "before",
+     "A.esp"
+    ]
+   }
+  },
+  {
+   "name": "two customs that order each other and a curated plugin each side",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX.esp\nY.esp\nC.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "Y.esp",
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "X.esp",
+    "Y.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "A.esp"
+    ],
+    "y.esp": [
+     "after",
+     "X.esp"
+    ]
+   }
+  },
+  {
+   "name": "a refused rule leaves the order alone",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC.esp\nX.esp\n"
+    },
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nA.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "C.esp"
+    ]
+   }
+  },
+  {
+   "name": "a later file's rule wins and moves the custom",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "C.esp"
+    ]
+   }
+  },
+  {
+   "name": "a NearStart custom",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "X.esp",
+    "A.esp",
+    "B.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a NearEnd custom",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "Y.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "nearend",
+     null
+    ],
+    "y.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "NearStart and NearEnd together",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nY.esp\n[NearEnd]\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp",
+    "Z.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Y.esp",
+    "A.esp",
+    "B.esp",
+    "Z.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "nearend",
+     null
+    ],
+    "y.esp": [
+     "nearstart",
+     null
+    ],
+    "z.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "NearEnd keeps the order it is listed in",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nC.esp\nB.esp\nA.esp\n"
+    }
+   ],
+   "base": [
+    "Base.esp"
+   ],
+   "subset": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Base.esp",
+    "C.esp",
+    "B.esp",
+    "A.esp"
+   ],
+   "anchors": {
+    "a.esp": [
+     "nearend",
+     null
+    ],
+    "b.esp": [
+     "nearend",
+     null
+    ],
+    "c.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "NearStart keeps the order it is listed in",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nC.esp\nB.esp\nA.esp\n"
+    }
+   ],
+   "base": [
+    "Base.esp"
+   ],
+   "subset": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "C.esp",
+    "B.esp",
+    "A.esp",
+    "Base.esp"
+   ],
+   "anchors": {
+    "a.esp": [
+     "nearstart",
+     null
+    ],
+    "b.esp": [
+     "nearstart",
+     null
+    ],
+    "c.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "the first block to name a plugin fixes its rank",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nA.esp\nB.esp\n[NearEnd]\nC.esp\nA.esp\n"
+    }
+   ],
+   "base": [
+    "Base.esp"
+   ],
+   "subset": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Base.esp",
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "anchors": {
+    "a.esp": [
+     "nearend",
+     null
+    ],
+    "b.esp": [
+     "nearend",
+     null
+    ],
+    "c.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a plugin named by NearStart and NearEnd is a NearStart",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nX.esp\n[NearEnd]\nX.esp\nY.esp\n"
+    }
+   ],
+   "base": [
+    "Base.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "X.esp",
+    "Base.esp",
+    "Y.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "nearstart",
+     null
+    ],
+    "y.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "hints are read file after file",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nB.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearEnd]\nA.esp\n"
+    }
+   ],
+   "base": [
+    "Base.esp"
+   ],
+   "subset": [
+    "A.esp",
+    "B.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Base.esp",
+    "B.esp",
+    "A.esp"
+   ],
+   "anchors": {
+    "a.esp": [
+     "nearend",
+     null
+    ],
+    "b.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a hint on a curated plugin changes nothing",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nB.esp\n[NearEnd]\nA.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a hint on a plugin that is not installed changes nothing",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nGone.esp\n[NearEnd]\nGone2.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "hints by wildcard",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nZ*.esp\n[NearStart]\nQ?.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "Z1.esp",
+    "Q.esp",
+    "Qa.esp",
+    "Z2.esp",
+    "M.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Q.esp",
+    "Qa.esp",
+    "A.esp",
+    "M.esp",
+    "Z1.esp",
+    "Z2.esp"
+   ],
+   "anchors": {
+    "m.esp": [
+     "none",
+     null
+    ],
+    "q.esp": [
+     "nearstart",
+     null
+    ],
+    "qa.esp": [
+     "nearstart",
+     null
+    ],
+    "z1.esp": [
+     "nearend",
+     null
+    ],
+    "z2.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "hints in another case",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nx.ESP\n[NearEnd]\ny.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "X.esp",
+    "A.esp",
+    "Y.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "nearstart",
+     null
+    ],
+    "y.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a hint overrides an anchor",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX.esp\n[NearEnd]\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a hint on a custom already in the cfg",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "X.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "X.esp",
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "an edge wins over a NearStart hint",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nX.esp\n"
+    }
+   ],
+   "base": [
+    "Morrowind.esm",
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "x.esp": [
+     "B.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "Morrowind.esm",
+    "A.esp",
+    "B.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "an edge wins over a NearEnd hint",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nX.esp\n[Order]\nX.esp\nB.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "X.esp",
+    "B.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a custom master with a NearEnd hint is still a master",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nMine.esm\n"
+    }
+   ],
+   "base": [
+    "Morrowind.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "Mine.esm",
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Morrowind.esm",
+    "Mine.esm",
+    "A.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "mine.esm": [
+     "nearend",
+     null
+    ],
+    "x.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "customs both ends: hints and anchors",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB.esp\nX.esp\n[NearStart]\nY.esp\n[NearEnd]\nZ.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp",
+    "Z.esp",
+    "W.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Y.esp",
+    "A.esp",
+    "B.esp",
+    "X.esp",
+    "C.esp",
+    "W.esp",
+    "Z.esp"
+   ],
+   "anchors": {
+    "w.esp": [
+     "none",
+     null
+    ],
+    "x.esp": [
+     "after",
+     "B.esp"
+    ],
+    "y.esp": [
+     "nearstart",
+     null
+    ],
+    "z.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "masters before everything even when positioned late",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC.esp\nMine.esm\n"
+    }
+   ],
+   "base": [
+    "Morrowind.esm",
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "Mine.esm"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Morrowind.esm",
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "Mine.esm"
+   ],
+   "anchors": {
+    "mine.esm": [
+     "after",
+     "C.esp"
+    ]
+   }
+  },
+  {
+   "name": "a custom master after a custom master",
+   "rules": [],
+   "base": [
+    "Morrowind.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "Y.esm",
+    "X.esm"
+   ],
+   "masters": {
+    "y.esm": [
+     "X.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "Morrowind.esm",
+    "X.esm",
+    "Y.esm",
+    "A.esp"
+   ],
+   "anchors": {
+    "x.esm": [
+     "before",
+     "Y.esm"
+    ],
+    "y.esm": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a custom after a custom master is anchored by nothing",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nMine.esm\nX.esp\n"
+    }
+   ],
+   "base": [
+    "Morrowind.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "Mine.esm",
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Morrowind.esm",
+    "Mine.esm",
+    "A.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "mine.esm": [
+     "before",
+     "X.esp"
+    ],
+    "x.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a custom already in the cfg with a before signal only",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nB.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp",
+    "X.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "X.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "before",
+     "B.esp"
+    ]
+   }
+  },
+  {
+   "name": "a custom that must come after a custom that is itself unanchored",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp",
+    "Z.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "X.esp",
+    "Y.esp",
+    "Z.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ],
+    "y.esp": [
+     "after",
+     "X.esp"
+    ],
+    "z.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "two customs each after the other's curated plugin and each other",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX.esp\n"
+    },
+    {
+     "priority": 0,
+     "text": "[Order]\nB.esp\nY.esp\n"
+    },
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "Y.esp",
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "X.esp",
+    "B.esp",
+    "Y.esp",
+    "C.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "A.esp"
+    ],
+    "y.esp": [
+     "after",
+     "B.esp"
+    ]
+   }
+  },
+  {
+   "name": "a custom after a custom, both in the cfg",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\n"
+    }
+   ],
+   "base": [
+    "Y.esp",
+    "A.esp",
+    "X.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "Y.esp",
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "X.esp",
+    "Y.esp",
+    "A.esp",
+    "B.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "before",
+     "Y.esp"
+    ],
+    "y.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "wildcards that reach customs and curated plugins",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA*.esp\nMod*.esp\nZ.esp\n"
+    }
+   ],
+   "base": [
+    "A1.esp",
+    "A2.esp",
+    "Mod1.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "ModNew.esp",
+    "Z.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A1.esp",
+    "A2.esp",
+    "ModNew.esp",
+    "Mod1.esp",
+    "Z.esp",
+    "B.esp"
+   ],
+   "anchors": {
+    "modnew.esp": [
+     "after",
+     "A2.esp"
+    ],
+    "z.esp": [
+     "after",
+     "Mod1.esp"
+    ]
+   }
+  },
+  {
+   "name": "a version pattern",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nBetter Bodies <VER>.esp\nPatch.esp\n"
+    }
+   ],
+   "base": [
+    "Better Bodies 2.2.esp",
+    "Other.esp"
+   ],
+   "subset": [
+    "Patch.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "Better Bodies 2.2.esp",
+    "Patch.esp",
+    "Other.esp"
+   ],
+   "anchors": {
+    "patch.esp": [
+     "after",
+     "Better Bodies 2.2.esp"
+    ]
+   }
+  },
+  {
+   "name": "customs named in another case",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nb.ESP\nx.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.ESP",
+    "x.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "X.ESP",
+    "C.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "after",
+     "B.esp"
+    ]
+   }
+  },
+  {
+   "name": "a custom in the cfg under another spelling",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB.esp\nmod.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "Mod.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "MOD.ESP"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "Mod.esp"
+   ],
+   "anchors": {
+    "mod.esp": [
+     "after",
+     "B.esp"
+    ]
+   }
+  },
+  {
+   "name": "a long chain of new customs",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC00.esp\nC01.esp\nC02.esp\nC03.esp\nC04.esp\nC05.esp\nC06.esp\nC07.esp\nC08.esp\nC09.esp\nC10.esp\nC11.esp\nC12.esp\nC13.esp\nC14.esp\nC15.esp\nC16.esp\nC17.esp\nC18.esp\nC19.esp\nC20.esp\nC21.esp\nC22.esp\nC23.esp\nC24.esp\nC25.esp\nC26.esp\nC27.esp\nC28.esp\nC29.esp\nC30.esp\nC31.esp\nC32.esp\nC33.esp\nC34.esp\nC35.esp\nC36.esp\nC37.esp\nC38.esp\nC39.esp\nC40.esp\nC41.esp\nC42.esp\nC43.esp\nC44.esp\nC45.esp\nC46.esp\nC47.esp\nC48.esp\nC49.esp\nC50.esp\nC51.esp\nC52.esp\nC53.esp\nC54.esp\nC55.esp\nC56.esp\nC57.esp\nC58.esp\nC59.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "C59.esp",
+    "C58.esp",
+    "C57.esp",
+    "C56.esp",
+    "C55.esp",
+    "C54.esp",
+    "C53.esp",
+    "C52.esp",
+    "C51.esp",
+    "C50.esp",
+    "C49.esp",
+    "C48.esp",
+    "C47.esp",
+    "C46.esp",
+    "C45.esp",
+    "C44.esp",
+    "C43.esp",
+    "C42.esp",
+    "C41.esp",
+    "C40.esp",
+    "C39.esp",
+    "C38.esp",
+    "C37.esp",
+    "C36.esp",
+    "C35.esp",
+    "C34.esp",
+    "C33.esp",
+    "C32.esp",
+    "C31.esp",
+    "C30.esp",
+    "C29.esp",
+    "C28.esp",
+    "C27.esp",
+    "C26.esp",
+    "C25.esp",
+    "C24.esp",
+    "C23.esp",
+    "C22.esp",
+    "C21.esp",
+    "C20.esp",
+    "C19.esp",
+    "C18.esp",
+    "C17.esp",
+    "C16.esp",
+    "C15.esp",
+    "C14.esp",
+    "C13.esp",
+    "C12.esp",
+    "C11.esp",
+    "C10.esp",
+    "C09.esp",
+    "C08.esp",
+    "C07.esp",
+    "C06.esp",
+    "C05.esp",
+    "C04.esp",
+    "C03.esp",
+    "C02.esp",
+    "C01.esp",
+    "C00.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "B.esp",
+    "C00.esp",
+    "C01.esp",
+    "C02.esp",
+    "C03.esp",
+    "C04.esp",
+    "C05.esp",
+    "C06.esp",
+    "C07.esp",
+    "C08.esp",
+    "C09.esp",
+    "C10.esp",
+    "C11.esp",
+    "C12.esp",
+    "C13.esp",
+    "C14.esp",
+    "C15.esp",
+    "C16.esp",
+    "C17.esp",
+    "C18.esp",
+    "C19.esp",
+    "C20.esp",
+    "C21.esp",
+    "C22.esp",
+    "C23.esp",
+    "C24.esp",
+    "C25.esp",
+    "C26.esp",
+    "C27.esp",
+    "C28.esp",
+    "C29.esp",
+    "C30.esp",
+    "C31.esp",
+    "C32.esp",
+    "C33.esp",
+    "C34.esp",
+    "C35.esp",
+    "C36.esp",
+    "C37.esp",
+    "C38.esp",
+    "C39.esp",
+    "C40.esp",
+    "C41.esp",
+    "C42.esp",
+    "C43.esp",
+    "C44.esp",
+    "C45.esp",
+    "C46.esp",
+    "C47.esp",
+    "C48.esp",
+    "C49.esp",
+    "C50.esp",
+    "C51.esp",
+    "C52.esp",
+    "C53.esp",
+    "C54.esp",
+    "C55.esp",
+    "C56.esp",
+    "C57.esp",
+    "C58.esp",
+    "C59.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "C01.esp"
+    ],
+    "c01.esp": [
+     "before",
+     "C02.esp"
+    ],
+    "c02.esp": [
+     "before",
+     "C03.esp"
+    ],
+    "c03.esp": [
+     "before",
+     "C04.esp"
+    ],
+    "c04.esp": [
+     "before",
+     "C05.esp"
+    ],
+    "c05.esp": [
+     "before",
+     "C06.esp"
+    ],
+    "c06.esp": [
+     "before",
+     "C07.esp"
+    ],
+    "c07.esp": [
+     "before",
+     "C08.esp"
+    ],
+    "c08.esp": [
+     "before",
+     "C09.esp"
+    ],
+    "c09.esp": [
+     "before",
+     "C10.esp"
+    ],
+    "c10.esp": [
+     "before",
+     "C11.esp"
+    ],
+    "c11.esp": [
+     "before",
+     "C12.esp"
+    ],
+    "c12.esp": [
+     "before",
+     "C13.esp"
+    ],
+    "c13.esp": [
+     "before",
+     "C14.esp"
+    ],
+    "c14.esp": [
+     "before",
+     "C15.esp"
+    ],
+    "c15.esp": [
+     "before",
+     "C16.esp"
+    ],
+    "c16.esp": [
+     "before",
+     "C17.esp"
+    ],
+    "c17.esp": [
+     "before",
+     "C18.esp"
+    ],
+    "c18.esp": [
+     "before",
+     "C19.esp"
+    ],
+    "c19.esp": [
+     "before",
+     "C20.esp"
+    ],
+    "c20.esp": [
+     "before",
+     "C21.esp"
+    ],
+    "c21.esp": [
+     "before",
+     "C22.esp"
+    ],
+    "c22.esp": [
+     "before",
+     "C23.esp"
+    ],
+    "c23.esp": [
+     "before",
+     "C24.esp"
+    ],
+    "c24.esp": [
+     "before",
+     "C25.esp"
+    ],
+    "c25.esp": [
+     "before",
+     "C26.esp"
+    ],
+    "c26.esp": [
+     "before",
+     "C27.esp"
+    ],
+    "c27.esp": [
+     "before",
+     "C28.esp"
+    ],
+    "c28.esp": [
+     "before",
+     "C29.esp"
+    ],
+    "c29.esp": [
+     "before",
+     "C30.esp"
+    ],
+    "c30.esp": [
+     "before",
+     "C31.esp"
+    ],
+    "c31.esp": [
+     "before",
+     "C32.esp"
+    ],
+    "c32.esp": [
+     "before",
+     "C33.esp"
+    ],
+    "c33.esp": [
+     "before",
+     "C34.esp"
+    ],
+    "c34.esp": [
+     "before",
+     "C35.esp"
+    ],
+    "c35.esp": [
+     "before",
+     "C36.esp"
+    ],
+    "c36.esp": [
+     "before",
+     "C37.esp"
+    ],
+    "c37.esp": [
+     "before",
+     "C38.esp"
+    ],
+    "c38.esp": [
+     "before",
+     "C39.esp"
+    ],
+    "c39.esp": [
+     "before",
+     "C40.esp"
+    ],
+    "c40.esp": [
+     "before",
+     "C41.esp"
+    ],
+    "c41.esp": [
+     "before",
+     "C42.esp"
+    ],
+    "c42.esp": [
+     "before",
+     "C43.esp"
+    ],
+    "c43.esp": [
+     "before",
+     "C44.esp"
+    ],
+    "c44.esp": [
+     "before",
+     "C45.esp"
+    ],
+    "c45.esp": [
+     "before",
+     "C46.esp"
+    ],
+    "c46.esp": [
+     "before",
+     "C47.esp"
+    ],
+    "c47.esp": [
+     "before",
+     "C48.esp"
+    ],
+    "c48.esp": [
+     "before",
+     "C49.esp"
+    ],
+    "c49.esp": [
+     "before",
+     "C50.esp"
+    ],
+    "c50.esp": [
+     "before",
+     "C51.esp"
+    ],
+    "c51.esp": [
+     "before",
+     "C52.esp"
+    ],
+    "c52.esp": [
+     "before",
+     "C53.esp"
+    ],
+    "c53.esp": [
+     "before",
+     "C54.esp"
+    ],
+    "c54.esp": [
+     "before",
+     "C55.esp"
+    ],
+    "c55.esp": [
+     "before",
+     "C56.esp"
+    ],
+    "c56.esp": [
+     "before",
+     "C57.esp"
+    ],
+    "c57.esp": [
+     "before",
+     "C58.esp"
+    ],
+    "c58.esp": [
+     "before",
+     "C59.esp"
+    ],
+    "c59.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a long chain of customs after a curated plugin",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nC00.esp\nC01.esp\nC02.esp\nC03.esp\nC04.esp\nC05.esp\nC06.esp\nC07.esp\nC08.esp\nC09.esp\nC10.esp\nC11.esp\nC12.esp\nC13.esp\nC14.esp\nC15.esp\nC16.esp\nC17.esp\nC18.esp\nC19.esp\nC20.esp\nC21.esp\nC22.esp\nC23.esp\nC24.esp\nC25.esp\nC26.esp\nC27.esp\nC28.esp\nC29.esp\nC30.esp\nC31.esp\nC32.esp\nC33.esp\nC34.esp\nC35.esp\nC36.esp\nC37.esp\nC38.esp\nC39.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "D.esp"
+   ],
+   "subset": [
+    "C39.esp",
+    "C38.esp",
+    "C37.esp",
+    "C36.esp",
+    "C35.esp",
+    "C34.esp",
+    "C33.esp",
+    "C32.esp",
+    "C31.esp",
+    "C30.esp",
+    "C29.esp",
+    "C28.esp",
+    "C27.esp",
+    "C26.esp",
+    "C25.esp",
+    "C24.esp",
+    "C23.esp",
+    "C22.esp",
+    "C21.esp",
+    "C20.esp",
+    "C19.esp",
+    "C18.esp",
+    "C17.esp",
+    "C16.esp",
+    "C15.esp",
+    "C14.esp",
+    "C13.esp",
+    "C12.esp",
+    "C11.esp",
+    "C10.esp",
+    "C09.esp",
+    "C08.esp",
+    "C07.esp",
+    "C06.esp",
+    "C05.esp",
+    "C04.esp",
+    "C03.esp",
+    "C02.esp",
+    "C01.esp",
+    "C00.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "A.esp",
+    "C00.esp",
+    "C01.esp",
+    "C02.esp",
+    "C03.esp",
+    "C04.esp",
+    "C05.esp",
+    "C06.esp",
+    "C07.esp",
+    "C08.esp",
+    "C09.esp",
+    "C10.esp",
+    "C11.esp",
+    "C12.esp",
+    "C13.esp",
+    "C14.esp",
+    "C15.esp",
+    "C16.esp",
+    "C17.esp",
+    "C18.esp",
+    "C19.esp",
+    "C20.esp",
+    "C21.esp",
+    "C22.esp",
+    "C23.esp",
+    "C24.esp",
+    "C25.esp",
+    "C26.esp",
+    "C27.esp",
+    "C28.esp",
+    "C29.esp",
+    "C30.esp",
+    "C31.esp",
+    "C32.esp",
+    "C33.esp",
+    "C34.esp",
+    "C35.esp",
+    "C36.esp",
+    "C37.esp",
+    "C38.esp",
+    "C39.esp",
+    "B.esp",
+    "D.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "A.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C01.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "C03.esp"
+    ],
+    "c05.esp": [
+     "after",
+     "C04.esp"
+    ],
+    "c06.esp": [
+     "after",
+     "C05.esp"
+    ],
+    "c07.esp": [
+     "after",
+     "C06.esp"
+    ],
+    "c08.esp": [
+     "after",
+     "C07.esp"
+    ],
+    "c09.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c10.esp": [
+     "after",
+     "C09.esp"
+    ],
+    "c11.esp": [
+     "after",
+     "C10.esp"
+    ],
+    "c12.esp": [
+     "after",
+     "C11.esp"
+    ],
+    "c13.esp": [
+     "after",
+     "C12.esp"
+    ],
+    "c14.esp": [
+     "after",
+     "C13.esp"
+    ],
+    "c15.esp": [
+     "after",
+     "C14.esp"
+    ],
+    "c16.esp": [
+     "after",
+     "C15.esp"
+    ],
+    "c17.esp": [
+     "after",
+     "C16.esp"
+    ],
+    "c18.esp": [
+     "after",
+     "C17.esp"
+    ],
+    "c19.esp": [
+     "after",
+     "C18.esp"
+    ],
+    "c20.esp": [
+     "after",
+     "C19.esp"
+    ],
+    "c21.esp": [
+     "after",
+     "C20.esp"
+    ],
+    "c22.esp": [
+     "after",
+     "C21.esp"
+    ],
+    "c23.esp": [
+     "after",
+     "C22.esp"
+    ],
+    "c24.esp": [
+     "after",
+     "C23.esp"
+    ],
+    "c25.esp": [
+     "after",
+     "C24.esp"
+    ],
+    "c26.esp": [
+     "after",
+     "C25.esp"
+    ],
+    "c27.esp": [
+     "after",
+     "C26.esp"
+    ],
+    "c28.esp": [
+     "after",
+     "C27.esp"
+    ],
+    "c29.esp": [
+     "after",
+     "C28.esp"
+    ],
+    "c30.esp": [
+     "after",
+     "C29.esp"
+    ],
+    "c31.esp": [
+     "after",
+     "C30.esp"
+    ],
+    "c32.esp": [
+     "after",
+     "C31.esp"
+    ],
+    "c33.esp": [
+     "after",
+     "C32.esp"
+    ],
+    "c34.esp": [
+     "after",
+     "C33.esp"
+    ],
+    "c35.esp": [
+     "after",
+     "C34.esp"
+    ],
+    "c36.esp": [
+     "after",
+     "C35.esp"
+    ],
+    "c37.esp": [
+     "after",
+     "C36.esp"
+    ],
+    "c38.esp": [
+     "after",
+     "C37.esp"
+    ],
+    "c39.esp": [
+     "after",
+     "C38.esp"
+    ]
+   }
+  },
+  {
+   "name": "a realistic fragment",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Version 0.1]\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\nTamriel_Data.esm\n[Order]\nTR_Mainland.esm\nBetter Bodies*.esp\nMy Armor <VER>.esp\n[Note]\nsee the [Order] section\n[NearEnd]\nMerged.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nMy Armor <VER>.esp\nBetter Bodies*.esp\n[NearStart]\nMine.esm\n"
+    }
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Bloodmoon.esm",
+    "Tamriel_Data.esm",
+    "TR_Mainland.esm",
+    "Better Bodies.esp",
+    "Better Bodies 2.esp",
+    "Weapons.esp",
+    "Armor.esp"
+   ],
+   "subset": [
+    "My Armor 1.2.esp",
+    "Better Bodies Patch.esp",
+    "Mine.esp",
+    "Merged.esp",
+    "Mine.esm"
+   ],
+   "masters": {
+    "my armor 1.2.esp": [
+     "Morrowind.esm",
+     "Tamriel_Data.esm",
+     "Gone.esm"
+    ],
+    "better bodies patch.esp": [
+     "Better Bodies.esp"
+    ],
+    "mine.esp": [
+     "my armor 1.2.esp",
+     "Weapons.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "Mine.esm",
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Bloodmoon.esm",
+    "Tamriel_Data.esm",
+    "TR_Mainland.esm",
+    "My Armor 1.2.esp",
+    "Better Bodies.esp",
+    "Better Bodies Patch.esp",
+    "Better Bodies 2.esp",
+    "Weapons.esp",
+    "Mine.esp",
+    "Armor.esp",
+    "Merged.esp"
+   ],
+   "anchors": {
+    "better bodies patch.esp": [
+     "after",
+     "Better Bodies.esp"
+    ],
+    "merged.esp": [
+     "nearend",
+     null
+    ],
+    "mine.esm": [
+     "nearstart",
+     null
+    ],
+    "mine.esp": [
+     "after",
+     "Weapons.esp"
+    ],
+    "my armor 1.2.esp": [
+     "before",
+     "Better Bodies.esp"
+    ]
+   }
+  },
+  {
+   "name": "a wildcard hint with a character the expression would read is declined",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nMod [x]*.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": false,
+   "order": [
+    "A.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "a rule name that is declined declines the sort",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX*{2}.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": false,
+   "order": [
+    "A.esp",
+    "X.esp"
+   ],
+   "anchors": {
+    "x.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 1",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nb00.esm\nB00.esm\nC00.esp\nB02.esp\n[Order]\ngone3.esm\nC00.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp"
+   ],
+   "subset": [
+    "C01.esp",
+    "C00.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B02.esp",
+     "Gone2.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "C00.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B02.esp"
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 2",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nC02.esp\nb02.esm\n[Order]\nB01.esm\nGone3.esm\nC01.esp\n[NearStart]\ngone1.esp\nC01.esp\n[NearEnd]\nC03.esp\nc03.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearEnd]\nGone1.esp\nC01.esp\n[Order]\nc02.esp\nB00.esm\nB02.esm\nC02.esp\nGone1.esp\n[Order]\n*.esm\nGone3.esm\nc01.esp\nGone1.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C03.esp",
+    "C01.esp"
+   ],
+   "subset": [
+    "C02.esp",
+    "C03.ESP",
+    "C01.ESP",
+    "C00.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "Gone1.esp"
+    ],
+    "c02.esp": [
+     "Gone3.esm"
+    ],
+    "c03.esp": [
+     "Gone3.esm",
+     "C02.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C02.esp",
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C01.esp",
+    "C00.esp",
+    "C03.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 3",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC04.esp\nB02.esp\nGone1.esp\n[Order]\nGone2.esp\nGone1.esp\nB02.esp\nB02.esp\nC04.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "C02.esp",
+    "B02.esp",
+    "C03.esm"
+   ],
+   "subset": [
+    "C00.esp",
+    "C05.esp",
+    "C02.esp",
+    "C03.esm",
+    "C01.esp",
+    "C04.esp"
+   ],
+   "masters": {
+    "c04.esp": [
+     "C02.esp"
+    ],
+    "c05.esp": [
+     "C02.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C03.esm",
+    "C00.esp",
+    "C02.esp",
+    "C04.esp",
+    "B02.esp",
+    "C05.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esp": [
+     "before",
+     "C05.esp"
+    ],
+    "c03.esm": [
+     "none",
+     null
+    ],
+    "c04.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c05.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 4",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB00.esm\nGone2.esp\nB00.esm\nC01.esp\nC01.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp"
+   ],
+   "subset": [
+    "C01.esp",
+    "C00.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "Gone3.esm",
+     "B00.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "C01.esp",
+    "C00.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 5",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC02.esp\nb00.esm\nc00.esp\nB00.esm\nC00.esp\n[Order]\nGone2.esp\nC02.esp\nC02.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC02.esp\nB02.esm\n[NearStart]\nC01.esp\nB01.esm\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nGone3.esm\nC02.esp\n[NearStart]\nGone3.esm\nB00.esm\n[Order]\nB00.esm\nC01.esp\nGone3.esm\nC00.esp\n[NearStart]\nB02.esm\nC03.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C00.esp",
+    "C03.esp",
+    "C02.esp"
+   ],
+   "subset": [
+    "C03.ESP",
+    "C02.ESP",
+    "C01.esp",
+    "C00.ESP"
+   ],
+   "masters": {
+    "c00.esp": [
+     "C00.esp",
+     "C01.esp"
+    ],
+    "c01.esp": [
+     "C02.esp"
+    ],
+    "c02.esp": [
+     "C00.esp",
+     "B02.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C03.esp",
+    "C00.esp",
+    "C02.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "C02.esp"
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ],
+    "c03.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 6",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nc00.esp\nC03.esp\n[NearStart]\nC03.esp\nGone1.esp\n[Order]\nGone3.esm\nC03.esp\nc02.esp\n[Order]\nC03.esp\nGone2.esp\nC02.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nc00.esp\nC00.esp\n[NearEnd]\nC02.esp\nC00.esp\n[Order]\nC02.esp\nB00.esm\nB00.esm\n[Order]\nC00.esp\nC00.esp\nC01.esp\nC00.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nc00.esp\nC04.esm\n[Order]\nB01.esm\nGone2.esp\n[Order]\nB00.esm\nGone2.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "C00.esp",
+    "B02.esp"
+   ],
+   "subset": [
+    "C01.esp",
+    "C03.esp",
+    "C00.esp",
+    "C02.esp",
+    "C04.esm"
+   ],
+   "masters": {
+    "c00.esp": [
+     "Gone2.esp"
+    ],
+    "c01.esp": [
+     "B01.esm",
+     "Gone2.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C00.esp",
+    "C04.esm",
+    "C03.esp",
+    "C02.esp",
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esp": [
+     "nearend",
+     null
+    ],
+    "c03.esp": [
+     "nearstart",
+     null
+    ],
+    "c04.esm": [
+     "after",
+     "C00.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 7",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC0?.esp\nGone2.esp\nGone3.esm\nC03.esp\nC06.esp\n[Order]\nB02.esp\nC04.esp\n[Order]\nC06.esp\nGone3.esm\n[NearStart]\nC02.esp\nB0*.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "C00.esm",
+    "C06.esp",
+    "B02.esp"
+   ],
+   "subset": [
+    "C03.esp",
+    "C01.esp",
+    "C06.esp",
+    "C02.esp",
+    "C04.esp",
+    "C05.esp",
+    "C00.esm"
+   ],
+   "masters": {
+    "c01.esp": [
+     "B01.esp",
+     "C00.esm"
+    ],
+    "c02.esp": [
+     "Gone2.esp",
+     "C00.esm"
+    ],
+    "c03.esp": [
+     "C02.esp"
+    ],
+    "c04.esp": [
+     "Gone3.esm",
+     "C00.esm"
+    ],
+    "c06.esp": [
+     "Gone1.esp",
+     "Gone2.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C00.esm",
+    "C02.esp",
+    "B01.esp",
+    "C01.esp",
+    "B02.esp",
+    "C04.esp",
+    "C05.esp",
+    "C06.esp",
+    "C03.esp"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "before",
+     "C01.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "B01.esp"
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "after",
+     "C04.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "B02.esp"
+    ],
+    "c05.esp": [
+     "before",
+     "C03.esp"
+    ],
+    "c06.esp": [
+     "before",
+     "C03.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 8",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB02.esm\nGone2.esp\nc01.esp\nB02.esm\nGone3.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C02.esm"
+   ],
+   "subset": [
+    "C01.esp",
+    "C02.esm",
+    "C00.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B00.esm"
+    ],
+    "c02.esm": [
+     "C01.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C01.esp",
+    "C02.esm",
+    "C00.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esm": [
+     "after",
+     "C01.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 9",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB01.esm\nB0*.esp\nC04.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nGone1.esp\nB02.esp\nGone3.esm\nB1*.esp\n[Order]\nC03.esp\nB00.esm\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nC0?.esp\nC00.esp\nC03.esp\nc04.esp\nC*.esp\n[NearEnd]\nC03.esp\nB00.esm\n[Order]\nC01.esp\nC03.esp\nB02.esp\nB00.esm\nC00.esp\n[Order]\nC01.esp\nC01.esp\nC03.esp\nC03.esp\nC00.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "C00.esp",
+    "C03.esp",
+    "B02.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C03.ESP",
+    "C01.esp",
+    "C04.esp",
+    "C02.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "C00.esp",
+     "C01.esp"
+    ],
+    "c02.esp": [
+     "C03.esp",
+     "C03.esp"
+    ],
+    "c03.esp": [
+     "C00.esp",
+     "C02.esp"
+    ],
+    "c04.esp": [
+     "C02.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C02.esp",
+    "C04.esp",
+    "C01.esp",
+    "C00.esp",
+    "C03.esp",
+    "B02.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "before",
+     "C00.esp"
+    ],
+    "c02.esp": [
+     "before",
+     "C04.esp"
+    ],
+    "c03.esp": [
+     "nearend",
+     null
+    ],
+    "c04.esp": [
+     "before",
+     "C01.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 10",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC05.esp\nC03.esp\nGone2.esp\nC06.esp\n[NearEnd]\nC05.esp\nGone1.esp\n[NearStart]\nC06.esp\nc04.esp\n[NearEnd]\nC05.esp\nC04.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC01.esm\nC02.esp\ngone1.esp\n*.esm\n[Order]\nC03.esp\nC01.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "C04.esp",
+    "B01.esp",
+    "C05.esp",
+    "B02.esp",
+    "C03.esp",
+    "C06.esp"
+   ],
+   "subset": [
+    "C06.esp",
+    "C02.esp",
+    "C05.esp",
+    "C00.esp",
+    "C04.esp",
+    "C01.esm",
+    "C03.esp"
+   ],
+   "masters": {
+    "c05.esp": [
+     "C05.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C04.esp",
+    "C00.esp",
+    "C05.esp",
+    "C03.esp",
+    "C01.esm",
+    "C06.esp",
+    "C02.esp",
+    "B00.esm",
+    "B01.esp",
+    "B02.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esm": [
+     "after",
+     "C03.esp"
+    ],
+    "c02.esp": [
+     "before",
+     "B00.esm"
+    ],
+    "c03.esp": [
+     "before",
+     "C06.esp"
+    ],
+    "c04.esp": [
+     "nearstart",
+     null
+    ],
+    "c05.esp": [
+     "nearend",
+     null
+    ],
+    "c06.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 11",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC06.esp\nc02.esp\n[NearStart]\nC02.esp\nc04.esm\n[NearStart]\nC*.esp\nC02.esp\n[Order]\nB01.esm\nC03.esm\nC00.esp\nC06.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC04.esm\nB02.esm\n[Order]\nB00.esm\nC00.esp\n[Order]\nC*.esp\nGone3.esm\nC02.esp\nC06.esp\nC00.esp\n[Order]\nc00.esp\nGone1.esp\nC06.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nGone3.esm\nGone2.esp\nGone3.esm\nB00.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C00.esp"
+   ],
+   "subset": [
+    "C01.esp",
+    "C06.esp",
+    "C04.esm",
+    "C00.esp",
+    "C02.esp",
+    "C03.esm",
+    "C05.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B01.esm"
+    ],
+    "c01.esp": [
+     "B00.esm",
+     "C00.esp"
+    ],
+    "c06.esp": [
+     "C05.esp",
+     "Gone2.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C04.esm",
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C03.esm",
+    "C05.esp",
+    "C06.esp",
+    "C00.esp",
+    "C01.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ],
+    "c03.esm": [
+     "before",
+     "C00.esp"
+    ],
+    "c04.esm": [
+     "nearstart",
+     null
+    ],
+    "c05.esp": [
+     "nearstart",
+     null
+    ],
+    "c06.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 12",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nGone1.esp\n*.esm\n[Order]\nGone1.esp\nGone2.esp\n[Order]\nB00.esm\nB00.esm\nGone1.esp\nC*.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nB00.esm\ngone3.esm\n[NearStart]\nC00.esp\nb01.esm\n[NearEnd]\nGone1.esp\nB02.esm\n[Order]\nGone1.esp\nB00.esm\nGone2.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[NearEnd]\nB0*.esp\nGone1.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C00.esp"
+   ],
+   "subset": [
+    "C00.ESP",
+    "C01.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C00.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 13",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nGone3.esm\nB0*.esp\n[Order]\nGone2.esp\nGone3.esm\nb00.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearEnd]\nb00.esm\nGone2.esp\n[Order]\nC03.esp\nC*.esp\nB02.esp\nB00.esm\n[NearStart]\nC01.esp\nGone3.esm\n[NearEnd]\nC02.esp\nC01.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "C01.esp",
+    "B02.esp"
+   ],
+   "subset": [
+    "C03.esp",
+    "C00.esp",
+    "C01.ESP",
+    "C02.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "C02.esp",
+     "B02.esp"
+    ],
+    "c01.esp": [
+     "B01.esm",
+     "Gone2.esp"
+    ],
+    "c03.esp": [
+     "B00.esm",
+     "Gone2.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C03.esp",
+    "C01.esp",
+    "C02.esp",
+    "B02.esp",
+    "C00.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B02.esp"
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "nearend",
+     null
+    ],
+    "c03.esp": [
+     "before",
+     "B02.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 14",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC00.esp\nC01.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC04.esp\nB00.esm\nB00.esm\n[Order]\nB0*.esp\nC04.esp\nGone3.esm\nb02.esp\nC*.esp\n[Order]\nC03.esp\ngone1.esp\nC00.esp\n[Order]\nC01.esm\nC03.esp\nB01.esp\nGone2.esp\nc01.esm\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\n*.esm\nC02.esp\nB1*.esp\nC01.esm\n[NearEnd]\nB00.esm\nGone2.esp\n[Order]\nc01.esm\nGone1.esp\nc02.esp\nC03.esp\nB1*.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "C00.esp",
+    "B01.esp",
+    "C01.esm",
+    "C04.esp",
+    "C02.esp",
+    "B02.esp"
+   ],
+   "subset": [
+    "C05.esp",
+    "C03.esp",
+    "C02.esp",
+    "C00.esp",
+    "C04.esp",
+    "C01.esm"
+   ],
+   "masters": {
+    "c01.esm": [
+     "C00.esp",
+     "B02.esp"
+    ],
+    "c04.esp": [
+     "C05.esp"
+    ],
+    "c05.esp": [
+     "C03.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "C00.esp",
+    "C01.esm",
+    "C02.esp",
+    "C03.esp",
+    "C05.esp",
+    "C04.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B02.esp"
+    ],
+    "c01.esm": [
+     "after",
+     "C00.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "B02.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "C05.esp"
+    ],
+    "c05.esp": [
+     "after",
+     "C03.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 15",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB00.esm\nc00.esm\nGone1.esp\nB01.esm\nC*.esp\n[Order]\nB00.esm\nC01.esp\n[Order]\nC0?.esp\nB00.esm\nC01.esp\nB00.esm\n[Order]\nGone1.esp\nB02.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nGone2.esp\nB02.esm\n[Order]\nGone1.esp\ngone2.esp\nC00.esm\nGone3.esm\n[Order]\nB00.esm\ngone2.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[NearEnd]\nGone1.esp\nB02.esm\n[Order]\nB0*.esp\nGone1.esp\n[Order]\nGone2.esp\nB00.esm\n[NearStart]\nC00.esm\nB02.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm"
+   ],
+   "subset": [
+    "C01.esp",
+    "C00.esm"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 16",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nC02.esp\nB01.esm\n[Order]\nB0*.esp\nB02.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB1*.esp\ngone1.esp\nC00.esm\nC*.esp\nC02.esp\n[Order]\nC01.esp\nB02.esp\n[Order]\ngone2.esp\nC01.esp\nGone1.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nB02.esp\nb02.esp\nC02.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "C02.esp"
+   ],
+   "subset": [
+    "C02.esp",
+    "C01.esp",
+    "C00.esm",
+    "C03.esp"
+   ],
+   "masters": {
+    "c00.esm": [
+     "B00.esm"
+    ],
+    "c01.esp": [
+     "C02.esp"
+    ],
+    "c02.esp": [
+     "C01.esp",
+     "C00.esm"
+    ],
+    "c03.esp": [
+     "C03.esp",
+     "B00.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C00.esm",
+    "C01.esp",
+    "B02.esp",
+    "C03.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "before",
+     "C01.esp"
+    ],
+    "c01.esp": [
+     "before",
+     "B02.esp"
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "before",
+     "C02.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 17",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nc00.esp\nC03.esp\n[Order]\nC1*.esp\nC03.esp\nC05.esp\nB02.esp\nC05.esp\n[Order]\nC03.esp\nGone2.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "C05.esp",
+    "B01.esp",
+    "B02.esp",
+    "C01.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C04.esp",
+    "C03.esp",
+    "C02.esp",
+    "C05.ESP",
+    "C01.ESP"
+   ],
+   "masters": {
+    "c00.esp": [
+     "Gone3.esm"
+    ],
+    "c02.esp": [
+     "B00.esm",
+     "C05.esp"
+    ],
+    "c03.esp": [
+     "C03.esp"
+    ],
+    "c05.esp": [
+     "C01.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C00.esp",
+    "C03.esp",
+    "B01.esp",
+    "C04.esp",
+    "C01.esp",
+    "C05.esp",
+    "B02.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "before",
+     "C05.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C05.esp"
+    ],
+    "c03.esp": [
+     "nearstart",
+     null
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "after",
+     "C03.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 18",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nC*.esp\nB02.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearEnd]\nGone1.esp\nC00.esp\n[NearStart]\nGone2.esp\nC*.esp\n[Order]\nB00.esm\nB00.esm\nC00.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nC00.esp\nB00.esm\n[Order]\nC00.esp\nGone1.esp\nGone1.esp\nC01.esm\n[NearEnd]\nB01.esm\nB02.esm\n[NearEnd]\n*.esm\nB01.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C00.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C01.esm"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "C00.esp",
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C01.esm"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esm": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 19",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nGone2.esp\nC00.esp\nGone1.esp\nC02.esm\nc00.esp\n[Order]\nC00.esp\nC00.esp\nGone1.esp\nC02.esm\n[Order]\nB01.esm\n*.esm\nb00.esm\n[Order]\nB01.esm\nGone1.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\n*.esm\nC02.esm\nC00.esp\nC*.esp\nB01.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "C00.esp"
+   ],
+   "subset": [
+    "C01.esp",
+    "C00.esp",
+    "C02.esm"
+   ],
+   "masters": {
+    "c00.esp": [
+     "C02.esm",
+     "C00.esp"
+    ],
+    "c01.esp": [
+     "B00.esm"
+    ],
+    "c02.esm": [
+     "Gone2.esp",
+     "B00.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C02.esm",
+    "B02.esp",
+    "C00.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "C01.esp"
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esm": [
+     "before",
+     "C00.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 20",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB1*.esp\nB02.esp\nB00.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "C00.esp",
+    "C02.esp",
+    "B01.esp",
+    "B02.esp"
+   ],
+   "subset": [
+    "C00.ESP",
+    "C01.esp",
+    "C03.esp",
+    "C04.esp",
+    "C02.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "C00.esp",
+     "Gone1.esp"
+    ],
+    "c02.esp": [
+     "C00.esp"
+    ],
+    "c03.esp": [
+     "C02.esp",
+     "Gone2.esp"
+    ],
+    "c04.esp": [
+     "Gone1.esp",
+     "B02.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C00.esp",
+    "C01.esp",
+    "C02.esp",
+    "C03.esp",
+    "B01.esp",
+    "B02.esp",
+    "C04.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "B02.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 21",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB02.esm\nC0?.esp\nC01.esp\nC06.esp\n*.esm\n[NearStart]\nc00.esp\nC06.esp\n[Order]\nB01.esm\nC04.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nGone2.esp\nB0*.esp\n[Order]\nC04.esp\nB0*.esp\nC05.esm\nc05.esm\n[Order]\nB01.esm\nC05.esm\nB00.esm\nB1*.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C05.esm",
+    "C04.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C02.esp",
+    "C06.esp",
+    "C04.esp",
+    "C01.esp",
+    "C05.esm",
+    "C03.esp"
+   ],
+   "masters": {
+    "c02.esp": [
+     "C05.esm",
+     "C04.esp"
+    ],
+    "c04.esp": [
+     "C06.esp"
+    ],
+    "c05.esm": [
+     "Gone1.esp",
+     "Gone1.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C00.esp",
+    "C06.esp",
+    "C03.esp",
+    "C04.esp",
+    "C05.esm",
+    "C02.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C04.esp"
+    ],
+    "c03.esp": [
+     "before",
+     "C01.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "C06.esp"
+    ],
+    "c05.esm": [
+     "after",
+     "C04.esp"
+    ],
+    "c06.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 22",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nc03.esp\nB02.esp\nGone1.esp\n[Order]\nGone2.esp\nC0?.esp\nB01.esm\n[Order]\nC00.esp\nC*.esp\nc06.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB00.esm\nGone1.esp\nC1*.esp\nC00.esp\nC06.esm\n[Order]\nGone3.esm\nC04.esp\nC05.esp\n[NearEnd]\nC06.esm\nGone3.esm\n[NearEnd]\nC04.esp\nb00.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp"
+   ],
+   "subset": [
+    "C05.esp",
+    "C02.esp",
+    "C03.esp",
+    "C04.esp",
+    "C00.esp",
+    "C06.esm",
+    "C01.esm"
+   ],
+   "masters": {
+    "c03.esp": [
+     "B02.esp"
+    ],
+    "c04.esp": [
+     "C01.esm"
+    ],
+    "c05.esp": [
+     "C05.esp",
+     "C04.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C01.esm",
+    "C00.esp",
+    "C02.esp",
+    "C04.esp",
+    "C05.esp",
+    "B01.esm",
+    "B02.esp",
+    "C03.esp",
+    "C06.esm"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "C05.esp"
+    ],
+    "c01.esm": [
+     "before",
+     "C04.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "B02.esp"
+    ],
+    "c04.esp": [
+     "nearend",
+     null
+    ],
+    "c05.esp": [
+     "before",
+     "B01.esm"
+    ],
+    "c06.esm": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 23",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nGone1.esp\nB06.esp\n[Order]\nGone1.esp\nB02.esp\nB10.esp\nB06.esp\nB04.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB01.esp\nB06.esp\nB01.esp\nB04.esp\n[NearStart]\nC0?.esp\nC1*.esp\n[Order]\nB1*.esp\nB10.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[NearEnd]\nB00.esm\nB00.esm\n[Order]\nB11.esp\nC01.esp\nB00.esm\n*.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "C01.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C01.esp",
+    "C02.esp",
+    "C00.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B02.esp"
+    ],
+    "c02.esp": [
+     "B04.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "C00.esp",
+    "B03.esp",
+    "B04.esp",
+    "C02.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 24",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nC00.esm\nB04.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nGone1.esp\nC1*.esp\nC03.esm\n[NearStart]\nb02.esm\nB01.esm\n[NearEnd]\nc03.esm\nB10.esp\n[Order]\nC03.esm\nB07.esp\nc01.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "C03.esm",
+    "B11.esp",
+    "C00.esm"
+   ],
+   "subset": [
+    "C01.esp",
+    "C04.esp",
+    "C00.esm",
+    "C03.esm",
+    "C02.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "C03.esm"
+    ],
+    "c02.esp": [
+     "B02.esm"
+    ],
+    "c03.esm": [
+     "Gone1.esp",
+     "C00.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C00.esm",
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C03.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "C01.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C04.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ],
+    "c03.esm": [
+     "nearend",
+     null
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 25",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\n*.esm\nC00.esp\n[Order]\nb04.esp\nB04.esp\nGone2.esp\nC1*.esp\nB03.esp\n[Order]\nb07.esp\nC06.esm\n[Order]\nGone2.esp\nC0?.esp\nC04.esm\nC0?.esp\nB1*.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nC00.esp\nC00.esp\n[Order]\nC05.esm\nB05.esp\nGone2.esp\nC06.esm\n[NearStart]\nB02.esp\nC00.esp\n[Order]\nC05.esm\nC06.esm\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nB06.esp\nB02.esp\ngone2.esp\nB07.esp\n[Order]\nGone3.esm\nB07.esp\n[Order]\nB1*.esp\nc06.esm\nGone2.esp\nC06.esm\n[Order]\nB08.esp\nB09.esp\nB09.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C01.esp",
+    "C06.esm",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C06.esm",
+    "C02.esp",
+    "C03.esp",
+    "C04.esm",
+    "C01.esp",
+    "C05.esm",
+    "C00.esp"
+   ],
+   "masters": {
+    "c03.esp": [
+     "C04.esm",
+     "Gone1.esp"
+    ],
+    "c05.esm": [
+     "B11.esp"
+    ],
+    "c06.esm": [
+     "C04.esm",
+     "Gone3.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C00.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "C01.esp",
+    "C02.esp",
+    "C04.esm",
+    "C03.esp",
+    "B10.esp",
+    "B11.esp",
+    "C05.esm",
+    "C06.esm"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "before",
+     "B10.esp"
+    ],
+    "c02.esp": [
+     "before",
+     "B10.esp"
+    ],
+    "c03.esp": [
+     "before",
+     "B10.esp"
+    ],
+    "c04.esm": [
+     "nearstart",
+     null
+    ],
+    "c05.esm": [
+     "nearstart",
+     null
+    ],
+    "c06.esm": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 26",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nGone3.esm\nB11.esp\nB06.esp\n[Order]\n*.esm\nC00.esp\nC00.esp\n[Order]\nB07.esp\nb06.esp\nGone3.esm\nB02.esp\nB11.esp\n[NearEnd]\nB06.esp\nB00.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB10.esp\nB06.esp\nC00.esp\n[Order]\nB03.esp\nB11.esp\nGone3.esm\nB04.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "C00.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C01.esm",
+    "C00.esp"
+   ],
+   "masters": {
+    "c01.esm": [
+     "B09.esp",
+     "B11.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C01.esm",
+    "C00.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B06.esp"
+    ],
+    "c01.esm": [
+     "after",
+     "B11.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 27",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nB03.esp\nb01.esm\n[NearEnd]\nC03.esp\nC00.esp\n[Order]\nB11.esp\nGone2.esp\nB11.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB03.esp\nB03.esp\n[NearStart]\nC03.esp\nC02.esm\n[NearStart]\nc01.esp\nGone1.esp\n[Order]\nB09.esp\nGone2.esp\nB10.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "C01.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C01.esp",
+    "C00.esp",
+    "C02.esm",
+    "C03.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B08.esp",
+     "C00.esp"
+    ],
+    "c02.esm": [
+     "B03.esp"
+    ],
+    "c03.esp": [
+     "B06.esp",
+     "C00.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C01.esp",
+    "B03.esp",
+    "C02.esm",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C00.esp",
+    "C03.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearend",
+     null
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esm": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 28",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC03.esp\nGone1.esp\n[Order]\nC01.esp\nB06.esp\nB08.esp\nC00.esp\n[NearStart]\nC00.esp\nB0*.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB03.esp\nB06.esp\nC05.esp\nC05.esp\n[Order]\nc00.esp\nB11.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "C00.esp",
+    "B04.esp",
+    "C05.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C04.esp",
+    "C03.esp",
+    "C02.esp",
+    "C05.ESP",
+    "C01.esp",
+    "C00.esp"
+   ],
+   "masters": {
+    "c03.esp": [
+     "B11.esp"
+    ],
+    "c04.esp": [
+     "B08.esp",
+     "B04.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C01.esp",
+    "B06.esp",
+    "C05.esp",
+    "B07.esp",
+    "B08.esp",
+    "C00.esp",
+    "C04.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C03.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "before",
+     "B06.esp"
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ],
+    "c03.esp": [
+     "after",
+     "B11.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "B08.esp"
+    ],
+    "c05.esp": [
+     "after",
+     "B06.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 29",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nGone1.esp\nB03.esp\n[Order]\nB06.esp\nC*.esp\nB07.esp\nGone3.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C01.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C00.esp",
+    "C01.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B06.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "B06.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 30",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC03.esp\nB01.esm\nGone3.esm\nB04.esp\n[NearStart]\nB08.esp\nB06.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "C00.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "C02.esm",
+    "B11.esp"
+   ],
+   "subset": [
+    "C02.esm",
+    "C03.esp",
+    "C00.esp",
+    "C01.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "C00.esp",
+     "B04.esp"
+    ],
+    "c01.esp": [
+     "B02.esm",
+     "B10.esp"
+    ],
+    "c02.esm": [
+     "B01.esm",
+     "Gone1.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C03.esp",
+    "B01.esm",
+    "B02.esm",
+    "C02.esm",
+    "B03.esp",
+    "B04.esp",
+    "C00.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "C01.esp",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B04.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "B10.esp"
+    ],
+    "c02.esm": [
+     "none",
+     null
+    ],
+    "c03.esp": [
+     "before",
+     "B01.esm"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 31",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nc03.esm\nB10.esp\nC00.esp\nC03.esm\nc01.esp\n[NearStart]\nC03.esm\nB1*.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB03.esp\nB10.esp\nB1*.esp\nB00.esm\n[Order]\nC03.esm\nB06.esp\nC01.esp\nC01.esp\n[NearEnd]\nB09.esp\nB1*.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C03.esm",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C02.esp",
+    "C03.esm",
+    "C04.esp",
+    "C05.esp",
+    "C01.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "C01.esp",
+     "C03.esm"
+    ],
+    "c01.esp": [
+     "B04.esp"
+    ],
+    "c03.esm": [
+     "C03.esm",
+     "B00.esm"
+    ],
+    "c04.esp": [
+     "B05.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C03.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C04.esp",
+    "B06.esp",
+    "C01.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "C00.esp",
+    "B11.esp",
+    "C02.esp",
+    "C05.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B10.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "B06.esp"
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ],
+    "c03.esm": [
+     "nearstart",
+     null
+    ],
+    "c04.esp": [
+     "after",
+     "B05.esp"
+    ],
+    "c05.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 32",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB08.esp\nB02.esp\n[Order]\nB05.esp\nC04.esp\nC0?.esp\nB02.esp\nB04.esp\n[Order]\nB04.esp\nGone2.esp\nGone2.esp\nC1*.esp\nC02.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC02.esp\nB08.esp\nB06.esp\n[Order]\nb09.esp\nB06.esp\nC0?.esp\nb07.esp\nC01.esp\n[Order]\nC02.esp\nGone1.esp\nB09.esp\nB05.esp\nGone1.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nB05.esp\nC03.esp\nGone1.esp\nb03.esp\nC*.esp\n[Order]\nB09.esp\nB06.esp\nGone1.esp\nB03.esp\nGone3.esm\n[Order]\ngone3.esm\nB05.esp\nB00.esm\n[Order]\nGone2.esp\nB01.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "C04.esp",
+    "C05.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C06.esp",
+    "C03.esp",
+    "C00.esm",
+    "C01.esp",
+    "C04.esp",
+    "C05.ESP",
+    "C02.esp"
+   ],
+   "masters": {
+    "c03.esp": [
+     "B08.esp",
+     "B04.esp"
+    ],
+    "c05.esp": [
+     "B07.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C00.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C04.esp",
+    "C01.esp",
+    "C02.esp",
+    "C06.esp",
+    "B07.esp",
+    "C05.esp",
+    "B08.esp",
+    "C03.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "C04.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C04.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "B08.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "B06.esp"
+    ],
+    "c05.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c06.esp": [
+     "after",
+     "C04.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 33",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB11.esp\nB02.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB00.esm\nB10.esp\nGone3.esm\nGone2.esp\n[Order]\nb10.esp\nb10.esp\nC00.esm\nB09.esp\n[Order]\nGone1.esp\nGone2.esp\nB00.esm\nC00.esm\nC1*.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C02.esp"
+   ],
+   "subset": [
+    "C03.esp",
+    "C01.esp",
+    "C00.esm",
+    "C05.esp",
+    "C04.esp",
+    "C02.esp",
+    "C06.esp"
+   ],
+   "masters": {
+    "c00.esm": [
+     "Gone1.esp"
+    ],
+    "c02.esp": [
+     "C05.esp"
+    ],
+    "c03.esp": [
+     "Gone1.esp"
+    ],
+    "c05.esp": [
+     "Gone3.esm",
+     "C00.esm"
+    ],
+    "c06.esp": [
+     "B06.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "C00.esm",
+    "B11.esp",
+    "C03.esp",
+    "C01.esp",
+    "C05.esp",
+    "C02.esp",
+    "C04.esp"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "after",
+     "B10.esp"
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esp": [
+     "after",
+     "C05.esp"
+    ],
+    "c03.esp": [
+     "none",
+     null
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "none",
+     null
+    ],
+    "c06.esp": [
+     "after",
+     "B06.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 34",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearEnd]\nC00.esp\ngone3.esm\n[Order]\nGone3.esm\nB10.esp\nb06.esp\nb07.esp\nB02.esm\n[NearStart]\nC*.esp\nC00.esp\n[Order]\nc02.esp\nC01.esp\nB1*.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C00.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C01.esp"
+   ],
+   "subset": [
+    "C02.esp",
+    "C01.esp",
+    "C00.ESP"
+   ],
+   "masters": {
+    "c01.esp": [
+     "B03.esp",
+     "Gone3.esm"
+    ],
+    "c02.esp": [
+     "B01.esm",
+     "B02.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C00.esp",
+    "C02.esp",
+    "B03.esp",
+    "C01.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 35",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC00.esp\nB1*.esp\n[Order]\nC1*.esp\nB08.esp\n[NearStart]\nB08.esp\nC00.esp\n[NearEnd]\nGone1.esp\nC03.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB01.esm\nC0?.esp\nC0?.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nC0?.esp\nB10.esp\n*.esm\nB08.esp\nC03.esp\n[Order]\nB08.esp\nC1*.esp\nC03.esp\nb02.esp\nB00.esm\n[Order]\nC04.esp\nB00.esm\nB02.esp\n[Order]\nGone1.esp\nB03.esp\nB07.esp\n*.esm\nGone3.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "C03.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C01.esp",
+    "C04.esp",
+    "C02.esm",
+    "C03.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B08.esp",
+     "C04.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C04.esp",
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "C03.esp",
+    "C00.esp",
+    "C01.esp",
+    "B10.esp",
+    "C02.esm",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c02.esm": [
+     "after",
+     "B10.esp"
+    ],
+    "c03.esp": [
+     "nearend",
+     null
+    ],
+    "c04.esp": [
+     "before",
+     "B00.esm"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 36",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC04.esp\nC1*.esp\n[Order]\nb04.esp\nC05.esp\nC01.esp\n[Order]\nC00.esp\nGone2.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB05.esp\nGone1.esp\nC*.esp\nB03.esp\nB02.esp\n[NearStart]\nC*.esp\ngone2.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "C05.esp",
+    "B03.esp",
+    "C02.esp",
+    "B04.esp",
+    "C06.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C04.esp",
+    "C05.ESP",
+    "C06.esp",
+    "C01.esp",
+    "C02.esp",
+    "C03.esp",
+    "C00.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "C03.esp"
+    ],
+    "c02.esp": [
+     "B06.esp",
+     "B06.esp"
+    ],
+    "c05.esp": [
+     "B01.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C05.esp",
+    "C06.esp",
+    "C04.esp",
+    "C03.esp",
+    "C01.esp",
+    "C00.esp",
+    "B06.esp",
+    "C02.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "nearstart",
+     null
+    ],
+    "c04.esp": [
+     "nearstart",
+     null
+    ],
+    "c05.esp": [
+     "nearstart",
+     null
+    ],
+    "c06.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 37",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB11.esp\nB04.esp\nB04.esp\n[Order]\nGone3.esm\nB03.esp\nB08.esp\n[NearStart]\nB07.esp\nC01.esm\n[NearStart]\nb03.esp\nB04.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB04.esp\nB04.esp\nC01.esm\n[Order]\nB05.esp\nGone1.esp\nb01.esm\nGone1.esp\nB11.esp\n[Order]\nB01.esm\nB05.esp\nb00.esm\nc01.esm\n"
+    },
+    {
+     "priority": 2,
+     "text": "[NearEnd]\nGone3.esm\nC01.esm\n[Order]\nB06.esp\nC01.esm\nC*.esp\nB01.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C01.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C01.esm",
+    "C02.esp"
+   ],
+   "masters": {
+    "c02.esp": [
+     "C01.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C01.esm",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C00.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esm": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 38",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB07.esp\nB10.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB04.esp\nC00.esp\nB07.esp\nB05.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "C02.esm",
+    "C01.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C00.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C00.ESP",
+    "C01.esp",
+    "C02.esm",
+    "C03.esp",
+    "C04.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "C01.esp",
+     "C02.esm"
+    ],
+    "c02.esm": [
+     "B01.esm"
+    ],
+    "c03.esp": [
+     "C04.esp",
+     "C01.esp"
+    ],
+    "c04.esp": [
+     "B08.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C02.esm",
+    "B02.esp",
+    "C01.esp",
+    "B03.esp",
+    "B04.esp",
+    "C00.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "C04.esp",
+    "C03.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B04.esp"
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esm": [
+     "before",
+     "C01.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "C04.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "B08.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 39",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB05.esp\nB06.esp\nGone3.esm\n[Order]\nC0?.esp\nB00.esm\nC03.esp\nGone1.esp\n[Order]\nB10.esp\nB03.esp\nb09.esp\nB07.esp\nC00.esp\n[Order]\nB01.esp\nB02.esp\nGone2.esp\nGone1.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "C05.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C03.esp",
+    "B06.esp",
+    "C02.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C04.esm",
+    "C00.esp",
+    "C02.esp",
+    "C01.esp",
+    "C03.esp",
+    "C05.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "C00.esp"
+    ],
+    "c03.esp": [
+     "C02.esp",
+     "B07.esp"
+    ],
+    "c04.esm": [
+     "B08.esp"
+    ],
+    "c05.esp": [
+     "B10.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C00.esp",
+    "C01.esp",
+    "C02.esp",
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "C03.esp",
+    "B08.esp",
+    "C04.esm",
+    "B09.esp",
+    "B10.esp",
+    "C05.esp",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "B00.esm"
+    ],
+    "c01.esp": [
+     "before",
+     "B00.esm"
+    ],
+    "c02.esp": [
+     "before",
+     "B00.esm"
+    ],
+    "c03.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c04.esm": [
+     "after",
+     "B08.esp"
+    ],
+    "c05.esp": [
+     "after",
+     "B10.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 40",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB06.esp\nC01.esp\n[Order]\nc00.esp\nB02.esm\nB0*.esp\nB08.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nC0?.esp\nB06.esp\n[Order]\nC01.esp\nB00.esm\ngone2.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "C01.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "C00.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C01.ESP"
+   ],
+   "masters": {
+    "c01.esp": [
+     "C01.esp",
+     "Gone1.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C01.esp",
+    "B00.esm",
+    "B01.esm",
+    "C00.esp",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 41",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB01.esm\nB00.esm\nGone1.esp\nGone3.esm\nB09.esp\n[Order]\nB01.esm\nB04.esp\nB02.esp\n[Order]\nB07.esp\nc02.esm\nB08.esp\nC02.esm\nB00.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC00.esm\nC0?.esp\nC00.esm\nB04.esp\n[Order]\nB06.esp\nC03.esp\nB01.esm\nGone3.esm\n"
+    },
+    {
+     "priority": 2,
+     "text": "[NearEnd]\nB09.esp\nB02.esp\n[NearStart]\nC1*.esp\nB03.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "C03.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "C00.esm",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C03.esp",
+    "C02.esm",
+    "C00.esm",
+    "C01.esp"
+   ],
+   "masters": {
+    "c02.esm": [
+     "B06.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C00.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C03.esp",
+    "B07.esp",
+    "C02.esm",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "before",
+     "B04.esp"
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esm": [
+     "after",
+     "B07.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "B06.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 42",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nGone3.esm\nC0?.esp\nB01.esp\nc02.esp\nB03.esp\n[Order]\nB03.esp\nB08.esp\n*.esm\n[NearStart]\nB11.esp\nB10.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB08.esp\nB07.esp\nC00.esp\nB10.esp\nB00.esm\n[Order]\nB05.esp\nc00.esp\nC03.esp\nB06.esp\nGone1.esp\n[Order]\nB11.esp\ngone2.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "C00.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C00.ESP",
+    "C04.esp",
+    "C03.esp",
+    "C05.esp",
+    "C02.esp",
+    "C01.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B04.esp",
+     "B03.esp"
+    ],
+    "c05.esp": [
+     "B01.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C01.esp",
+    "C02.esp",
+    "C04.esp",
+    "B01.esp",
+    "C05.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "C00.esp",
+    "C03.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c01.esp": [
+     "before",
+     "B01.esp"
+    ],
+    "c02.esp": [
+     "before",
+     "B01.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c04.esp": [
+     "before",
+     "B01.esp"
+    ],
+    "c05.esp": [
+     "after",
+     "B01.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 43",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC03.esp\nB09.esp\nB01.esm\nGone3.esm\n[Order]\nB06.esp\nB10.esp\nC05.esp\nb00.esm\n[Order]\nB00.esm\nB07.esp\nB11.esp\nC00.esp\nGone3.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "C05.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C03.esp",
+    "C02.esp",
+    "C01.esp",
+    "C00.esp",
+    "C05.esp",
+    "C04.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B04.esp"
+    ],
+    "c02.esp": [
+     "B10.esp"
+    ],
+    "c03.esp": [
+     "B01.esm"
+    ],
+    "c05.esp": [
+     "B09.esp",
+     "B02.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "C03.esp",
+    "B09.esp",
+    "B10.esp",
+    "C02.esp",
+    "C05.esp",
+    "B11.esp",
+    "C00.esp",
+    "C01.esp",
+    "C04.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B11.esp"
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esp": [
+     "after",
+     "B10.esp"
+    ],
+    "c03.esp": [
+     "before",
+     "B09.esp"
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "after",
+     "B10.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 44",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB00.esm\nB10.esp\nB1*.esp\nB05.esp\n[Order]\nGone3.esm\nB07.esp\nC01.esp\nB02.esp\n[Order]\nB03.esp\nB11.esp\nB03.esp\n[Order]\nB06.esp\nB08.esp\nB03.esp\nB10.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB00.esm\nGone1.esp\nb03.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nGone3.esm\nB07.esp\n[NearEnd]\nB05.esp\nGone1.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp"
+   ],
+   "subset": [
+    "C01.esp",
+    "C00.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "C01.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C00.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "B07.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 45",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB05.esp\nC01.esm\nB04.esp\nC02.esp\nb04.esp\n[NearStart]\nB05.esp\nB03.esp\n[NearStart]\nc02.esp\nC0?.esp\n[Order]\nC00.esp\nB05.esp\nGone1.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB04.esp\nC01.esm\nGone3.esm\nb03.esp\n[Order]\nB03.esp\nC01.esm\nC*.esp\nB01.esp\nGone3.esm\n[NearEnd]\nGone1.esp\nC02.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "C00.esp",
+    "B05.esp",
+    "C02.esp"
+   ],
+   "subset": [
+    "C01.esm",
+    "C00.esp",
+    "C02.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C01.esm",
+    "C02.esp",
+    "C00.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esm": [
+     "after",
+     "B05.esp"
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 46",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB03.esp\nB00.esm\nB03.esp\nGone1.esp\n*.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "C02.esm",
+    "B04.esp",
+    "C04.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C03.esp",
+    "C00.esp",
+    "C01.esp",
+    "C04.esp",
+    "C02.esm"
+   ],
+   "masters": {
+    "c00.esp": [
+     "Gone2.esp",
+     "B00.esm"
+    ],
+    "c01.esp": [
+     "C02.esm"
+    ],
+    "c02.esm": [
+     "Gone2.esp",
+     "C02.esm"
+    ],
+    "c03.esp": [
+     "B00.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "C02.esm",
+    "B04.esp",
+    "C04.esp",
+    "B05.esp",
+    "C03.esp",
+    "C00.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esm": [
+     "after",
+     "B03.esp"
+    ],
+    "c03.esp": [
+     "none",
+     null
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 47",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC03.esp\nB04.esp\nGone2.esp\nC05.esp\n[Order]\nB01.esm\nB01.esm\nC0?.esp\nGone1.esp\n[Order]\nC00.esp\nC0?.esp\nB01.esm\n[Order]\nC00.esp\nb02.esm\nB01.esm\n*.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nc04.esp\nB01.esm\nC00.esp\nB03.esp\nB03.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C00.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C03.esp",
+    "C00.esp",
+    "C06.esp",
+    "C04.esp",
+    "C02.esp",
+    "C05.esp",
+    "C01.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "C04.esp",
+     "C04.esp"
+    ],
+    "c02.esp": [
+     "B05.esp"
+    ],
+    "c05.esp": [
+     "B00.esm"
+    ],
+    "c06.esp": [
+     "B04.esp",
+     "B02.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C04.esp",
+    "B01.esm",
+    "C00.esp",
+    "B02.esm",
+    "C01.esp",
+    "B03.esp",
+    "C03.esp",
+    "B04.esp",
+    "C05.esp",
+    "C06.esp",
+    "B05.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "B02.esm"
+    ],
+    "c01.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "B05.esp"
+    ],
+    "c03.esp": [
+     "before",
+     "B04.esp"
+    ],
+    "c04.esp": [
+     "before",
+     "B01.esm"
+    ],
+    "c05.esp": [
+     "after",
+     "B04.esp"
+    ],
+    "c06.esp": [
+     "after",
+     "B04.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 48",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nb02.esp\nC1*.esp\nGone1.esp\nB05.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearEnd]\nC02.esp\nGone2.esp\n[Order]\nGone1.esp\ngone2.esp\n*.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "C02.esp",
+    "C00.esp",
+    "C01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C02.esp",
+    "C01.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "C02.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C00.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C02.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c02.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 49",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nB05.esp\nC02.esm\n[Order]\nB00.esm\nC02.esm\nB03.esp\nB03.esp\n[Order]\nB02.esp\nC01.esm\nC02.esm\nC*.esp\n[Order]\nC04.esm\nC*.esp\nC*.esp\n*.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB05.esp\nC01.esm\nGone1.esp\n[NearStart]\nGone3.esm\nB05.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C03.esp",
+    "C04.esm",
+    "C01.esm",
+    "C02.esm"
+   ],
+   "subset": [
+    "C03.ESP",
+    "C04.esm",
+    "C02.esm",
+    "C00.esm",
+    "C01.esm"
+   ],
+   "masters": {
+    "c01.esm": [
+     "B05.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C02.esm",
+    "C04.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C03.esp",
+    "C00.esm",
+    "C01.esm"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "after",
+     "C03.esp"
+    ],
+    "c01.esm": [
+     "after",
+     "C03.esp"
+    ],
+    "c02.esm": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "none",
+     null
+    ],
+    "c04.esm": [
+     "before",
+     "C03.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 50",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB03.esp\nB00.esm\nC*.esp\nB00.esm\n*.esm\n[Order]\nC03.esp\nC03.esp\n[Order]\nc06.esp\nB02.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC05.esp\nB03.esp\n[Order]\nC1*.esp\nGone2.esp\nC03.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C00.esp",
+    "C04.esp",
+    "B03.esp",
+    "C06.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C04.esp",
+    "C01.esp",
+    "C06.esp",
+    "C02.esp",
+    "C05.esp",
+    "C03.esp",
+    "C00.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "C06.esp"
+    ],
+    "c03.esp": [
+     "C00.esp",
+     "B01.esm"
+    ],
+    "c04.esp": [
+     "B01.esm"
+    ],
+    "c05.esp": [
+     "Gone3.esm",
+     "B04.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C06.esp",
+    "B02.esm",
+    "C00.esp",
+    "C03.esp",
+    "C04.esp",
+    "B03.esp",
+    "B04.esp",
+    "C05.esp",
+    "B05.esp",
+    "C01.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "C06.esp"
+    ],
+    "c01.esp": [
+     "none",
+     null
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ],
+    "c03.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "after",
+     "B04.esp"
+    ],
+    "c06.esp": [
+     "before",
+     "B02.esm"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 51",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC00.esp\nc00.esp\nGone3.esm\n*.esm\n[Order]\nB00.esm\nC00.esp\nC01.esp\nC00.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nC02.esp\nB04.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "C00.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C02.esp",
+    "C01.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B00.esm"
+    ],
+    "c01.esp": [
+     "Gone1.esp"
+    ],
+    "c02.esp": [
+     "C00.esp",
+     "B03.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C00.esp",
+    "B01.esm",
+    "C01.esp",
+    "B02.esp",
+    "B03.esp",
+    "C02.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "B01.esm"
+    ],
+    "c01.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 52",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC*.esp\nB03.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nc01.esp\nC01.esp\n[NearStart]\nB02.esp\nB00.esm\n[Order]\nC02.esp\nB01.esp\nB01.esp\nB02.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C03.esp",
+    "C01.esp"
+   ],
+   "subset": [
+    "C03.esp",
+    "C01.ESP",
+    "C00.esp",
+    "C02.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "C00.esp",
+     "B05.esp"
+    ],
+    "c03.esp": [
+     "C03.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C02.esp",
+    "B01.esp",
+    "B02.esp",
+    "C00.esp",
+    "C03.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "B03.esp"
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "before",
+     "B01.esp"
+    ],
+    "c03.esp": [
+     "before",
+     "B03.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 53",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nB0*.esp\nB04.esp\n[NearStart]\nC01.esp\nC05.esp\n[NearStart]\nB03.esp\nC*.esp\n[Order]\nC04.esp\nB05.esp\nC01.esp\nC02.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB03.esp\nb02.esp\nC03.esp\n[Order]\nb01.esp\nB02.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nc01.esp\nC03.esp\nC03.esp\nB02.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "C01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C02.esp",
+    "C05.esp",
+    "C00.esp",
+    "C01.esp",
+    "C04.esp",
+    "C03.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B05.esp",
+     "C03.esp"
+    ],
+    "c01.esp": [
+     "B04.esp"
+    ],
+    "c02.esp": [
+     "B03.esp",
+     "Gone2.esp"
+    ],
+    "c05.esp": [
+     "B05.esp",
+     "B04.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C04.esp",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C01.esp",
+    "C05.esp",
+    "C02.esp",
+    "C03.esp",
+    "C00.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "nearstart",
+     null
+    ],
+    "c04.esp": [
+     "nearstart",
+     null
+    ],
+    "c05.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 54",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB03.esp\nC00.esp\nC01.esp\nC03.esp\nB01.esm\n[NearEnd]\nB04.esp\nB01.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "C05.esp",
+    "C03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C00.esp"
+   ],
+   "subset": [
+    "C04.esp",
+    "C00.esp",
+    "C03.esp",
+    "C01.esp",
+    "C05.esp",
+    "C02.esm"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C02.esm",
+    "B03.esp",
+    "C00.esp",
+    "C01.esp",
+    "C03.esp",
+    "C05.esp",
+    "B04.esp",
+    "B05.esp",
+    "C04.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B03.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c02.esm": [
+     "none",
+     null
+    ],
+    "c03.esp": [
+     "after",
+     "C01.esp"
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 55",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nB05.esp\nGone1.esp\n[Order]\nB05.esp\n*.esm\nB05.esp\nGone1.esp\nC00.esp\n[Order]\nB01.esm\nGone1.esp\nC00.esp\nb01.esm\nGone1.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC01.esp\nB0*.esp\nGone1.esp\nB05.esp\nGone3.esm\n[NearStart]\nB04.esp\nGone3.esm\n[Order]\nB03.esp\nC01.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[NearStart]\nGone2.esp\nC01.esp\n[Order]\nB04.esp\nB04.esp\nB03.esp\nB05.esp\n[Order]\nGone1.esp\nC01.esp\nC01.esp\nC00.esp\nc00.esp\n[Order]\nB01.esm\nC00.esp\nB02.esp\nB05.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C00.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C01.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "Gone3.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C01.esp",
+    "C00.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "B02.esp"
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 56",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB04.esp\nGone2.esp\n[NearStart]\nB04.esp\nB02.esp\n[NearStart]\nB01.esp\nB04.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nGone1.esp\nGone3.esm\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nC01.esp\nC02.esp\nB0*.esp\n[Order]\nC02.esp\nB04.esp\nC03.esp\n[NearStart]\nB03.esp\nC02.esp\n[NearStart]\nGone3.esm\nC*.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "C02.esp",
+    "C03.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C01.esp",
+    "C03.esp",
+    "C02.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B00.esm",
+     "C02.esp"
+    ],
+    "c02.esp": [
+     "B00.esm",
+     "B02.esp"
+    ],
+    "c03.esp": [
+     "Gone3.esm",
+     "B05.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C01.esp",
+    "B01.esp",
+    "B02.esp",
+    "C02.esp",
+    "C00.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C03.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 57",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB05.esp\nB03.esp\nC05.esp\nC01.esp\nC05.esp\n[NearStart]\nb02.esm\nC03.esm\n[NearEnd]\nB03.esp\nGone2.esp\n[Order]\nB05.esp\nB03.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "C03.esm",
+    "B04.esp",
+    "B05.esp",
+    "C05.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C01.esp",
+    "C05.ESP",
+    "C02.esm",
+    "C04.esp",
+    "C03.esm"
+   ],
+   "masters": {
+    "c02.esm": [
+     "B01.esm",
+     "B01.esm"
+    ],
+    "c04.esp": [
+     "C03.esm"
+    ],
+    "c05.esp": [
+     "B04.esp",
+     "Gone2.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C03.esm",
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C02.esm",
+    "B03.esp",
+    "B04.esp",
+    "C05.esp",
+    "C01.esp",
+    "B05.esp",
+    "C00.esp",
+    "C04.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "C05.esp"
+    ],
+    "c02.esm": [
+     "none",
+     null
+    ],
+    "c03.esm": [
+     "nearstart",
+     null
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "after",
+     "B04.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 58",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC04.esm\nB00.esm\nC05.esp\nC01.esp\n[Order]\nC06.esp\nB01.esm\nB02.esp\ngone3.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC02.esp\nGone3.esm\nC02.esp\n[Order]\nGone1.esp\nC05.esp\nGone1.esp\n[NearStart]\nC06.esp\nC03.esm\n[NearEnd]\nC01.esp\nB04.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C01.esp",
+    "C02.esp",
+    "C04.esm",
+    "C05.esp",
+    "C06.esp",
+    "C03.esm"
+   ],
+   "masters": {
+    "c02.esp": [
+     "C03.esm",
+     "Gone1.esp"
+    ],
+    "c04.esm": [
+     "Gone3.esm"
+    ],
+    "c06.esp": [
+     "Gone3.esm"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C03.esm",
+    "C04.esm",
+    "B00.esm",
+    "C06.esp",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "C00.esp",
+    "C05.esp",
+    "C02.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "nearend",
+     null
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ],
+    "c03.esm": [
+     "nearstart",
+     null
+    ],
+    "c04.esm": [
+     "before",
+     "B00.esm"
+    ],
+    "c05.esp": [
+     "before",
+     "C01.esp"
+    ],
+    "c06.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 59",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB01.esp\nC02.esp\n[Order]\nB03.esp\nB00.esm\nC02.esp\nB05.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nGone3.esm\nC02.esp\nGone1.esp\nC02.esp\nC02.esp\n[Order]\nGone2.esp\nC02.esp\nc00.esp\nC1*.esp\nC01.esp\n[NearStart]\nb00.esm\nC02.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "C02.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C01.esp",
+    "C02.ESP",
+    "C00.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esp",
+    "C02.esp",
+    "C00.esp",
+    "C01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 60",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB02.esm\nGone2.esp\nB03.esp\ngone1.esp\nC02.esp\n[NearStart]\nC04.esp\nB04.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC03.esp\nC03.esp\nb04.esp\nB00.esm\nC02.esp\n[Order]\nB00.esm\nB05.esp\nB02.esm\nb00.esm\nB03.esp\n[Order]\nC01.esm\nb03.esp\nC01.esm\n[Order]\nGone1.esp\nGone2.esp\nB02.esm\nB05.esp\nC00.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nC00.esp\nB00.esm\nb04.esp\nGone1.esp\n[Order]\nC04.esp\nb00.esm\nB1*.esp\n[NearStart]\nB04.esp\nC02.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "C03.esp",
+    "B05.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C04.esp",
+    "C01.esm",
+    "C03.ESP",
+    "C02.esp"
+   ],
+   "masters": {
+    "c01.esm": [
+     "B02.esm",
+     "Gone1.esp"
+    ],
+    "c04.esp": [
+     "C03.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C03.esp",
+    "C04.esp",
+    "C00.esp",
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C01.esm",
+    "B03.esp",
+    "C02.esp",
+    "B04.esp",
+    "B05.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "before",
+     "B00.esm"
+    ],
+    "c01.esm": [
+     "before",
+     "B03.esp"
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "before",
+     "C04.esp"
+    ],
+    "c04.esp": [
+     "nearstart",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 101, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC12.esm\nC05.esp\nC01.esp\n[NearStart]\nC09.esp\nGone1.esp\n[Order]\nc08.esp\nC*.esp\nC11.esp\nB12.esp\n[NearStart]\nC11.esp\nB12.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nC08.esp\nB02.esp\nB07.esp\n[Order]\nc08.esp\nB11.esp\n[Order]\nB13.esp\nC11.esp\nGone3.esm\nB14.esp\nC05.esp\n[NearStart]\nC10.esp\nGone2.esp\n[NearEnd]\nC11.esp\nGone2.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "C09.esp",
+    "C04.esp",
+    "B02.esp",
+    "C10.esp",
+    "B03.esp",
+    "B04.esp",
+    "C11.esp",
+    "B05.esp",
+    "C05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C13.esm",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp"
+   ],
+   "subset": [
+    "C12.esm",
+    "C03.esp",
+    "C00.esp",
+    "C13.esm",
+    "C04.esp",
+    "C09.esp",
+    "C11.ESP",
+    "C06.esp",
+    "C10.esp",
+    "C05.esp",
+    "C02.esp",
+    "C14.esp",
+    "C01.esp",
+    "C08.esp",
+    "C07.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "C09.esp"
+    ],
+    "c02.esp": [
+     "C04.esp",
+     "C14.esp"
+    ],
+    "c05.esp": [
+     "B05.esp",
+     "B13.esp"
+    ],
+    "c06.esp": [
+     "C11.esp",
+     "C13.esm"
+    ],
+    "c07.esp": [
+     "B07.esp"
+    ],
+    "c08.esp": [
+     "C10.esp",
+     "B06.esp"
+    ],
+    "c09.esp": [
+     "B14.esp"
+    ],
+    "c11.esp": [
+     "C00.esp",
+     "B04.esp"
+    ],
+    "c12.esm": [
+     "C09.esp"
+    ],
+    "c14.esp": [
+     "C06.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C13.esm",
+    "C10.esp",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C08.esp",
+    "C00.esp",
+    "C03.esp",
+    "C04.esp",
+    "B07.esp",
+    "C07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "C11.esp",
+    "C06.esp",
+    "C14.esp",
+    "C02.esp",
+    "B14.esp",
+    "C09.esp",
+    "C12.esm",
+    "C05.esp",
+    "C01.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "C05.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C14.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c05.esp": [
+     "after",
+     "B14.esp"
+    ],
+    "c06.esp": [
+     "after",
+     "C11.esp"
+    ],
+    "c07.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c08.esp": [
+     "after",
+     "B06.esp"
+    ],
+    "c09.esp": [
+     "nearstart",
+     null
+    ],
+    "c10.esp": [
+     "nearstart",
+     null
+    ],
+    "c11.esp": [
+     "nearstart",
+     null
+    ],
+    "c12.esm": [
+     "after",
+     "C09.esp"
+    ],
+    "c13.esm": [
+     "before",
+     "C06.esp"
+    ],
+    "c14.esp": [
+     "after",
+     "C06.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 102, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB28.esp\nB0*.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C16.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "C00.esp",
+    "B10.esp",
+    "B11.esp",
+    "C09.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "C07.esp",
+    "B17.esp",
+    "B18.esp",
+    "C10.esp",
+    "C13.esp",
+    "B19.esp",
+    "B20.esp",
+    "C06.esp",
+    "B21.esp",
+    "B22.esp",
+    "B23.esp",
+    "B24.esp",
+    "B25.esp",
+    "B26.esp",
+    "B27.esp",
+    "C14.esm",
+    "B28.esp"
+   ],
+   "subset": [
+    "C13.ESP",
+    "C10.ESP",
+    "C03.esp",
+    "C00.ESP",
+    "C08.esp",
+    "C15.esp",
+    "C12.esp",
+    "C01.esp",
+    "C09.esp",
+    "C05.esp",
+    "C14.esm",
+    "C04.esp",
+    "C06.esp",
+    "C16.ESP",
+    "C02.esp",
+    "C07.esp",
+    "C11.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "Gone1.esp"
+    ],
+    "c02.esp": [
+     "B20.esp"
+    ],
+    "c04.esp": [
+     "C03.esp"
+    ],
+    "c06.esp": [
+     "B21.esp"
+    ],
+    "c09.esp": [
+     "C12.esp",
+     "B12.esp"
+    ],
+    "c11.esp": [
+     "C15.esp",
+     "B05.esp"
+    ],
+    "c12.esp": [
+     "B22.esp",
+     "C16.esp"
+    ],
+    "c13.esp": [
+     "C09.esp",
+     "C01.esp"
+    ],
+    "c15.esp": [
+     "B18.esp",
+     "B18.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C14.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "C00.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "C07.esp",
+    "B17.esp",
+    "B18.esp",
+    "C15.esp",
+    "C11.esp",
+    "C10.esp",
+    "B19.esp",
+    "B20.esp",
+    "C02.esp",
+    "B21.esp",
+    "C06.esp",
+    "B22.esp",
+    "C16.esp",
+    "C12.esp",
+    "C01.esp",
+    "C09.esp",
+    "C13.esp",
+    "B23.esp",
+    "B24.esp",
+    "B25.esp",
+    "B26.esp",
+    "B27.esp",
+    "B28.esp",
+    "C03.esp",
+    "C04.esp",
+    "C08.esp",
+    "C05.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "before",
+     "C13.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "B20.esp"
+    ],
+    "c03.esp": [
+     "none",
+     null
+    ],
+    "c04.esp": [
+     "after",
+     "C03.esp"
+    ],
+    "c05.esp": [
+     "none",
+     null
+    ],
+    "c06.esp": [
+     "after",
+     "B21.esp"
+    ],
+    "c07.esp": [
+     "none",
+     null
+    ],
+    "c08.esp": [
+     "none",
+     null
+    ],
+    "c09.esp": [
+     "after",
+     "C12.esp"
+    ],
+    "c10.esp": [
+     "none",
+     null
+    ],
+    "c11.esp": [
+     "after",
+     "C15.esp"
+    ],
+    "c12.esp": [
+     "after",
+     "B22.esp"
+    ],
+    "c13.esp": [
+     "after",
+     "C09.esp"
+    ],
+    "c14.esm": [
+     "none",
+     null
+    ],
+    "c15.esp": [
+     "after",
+     "B18.esp"
+    ],
+    "c16.esp": [
+     "before",
+     "C12.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 103, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB21.esp\n*.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB15.esp\nB07.esp\nC1*.esp\nC08.esp\nC*.esp\n[Order]\nB24.esp\nB14.esp\nB02.esp\nc07.esp\nb20.esp\n[NearStart]\nb06.esp\nC10.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nB05.esp\nC13.esp\n[Order]\nc13.esp\nC03.esp\n[Order]\nGone1.esp\nC16.esp\nC0?.esp\nC04.esp\nC12.esp\n[Order]\nB00.esm\nB07.esp\n[Order]\nB20.esp\nB0*.esp\nc15.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "C10.esp",
+    "B15.esp",
+    "C09.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "C13.esp",
+    "C16.esp",
+    "B19.esp",
+    "B20.esp",
+    "B21.esp",
+    "B22.esp",
+    "B23.esp",
+    "B24.esp"
+   ],
+   "subset": [
+    "C14.esp",
+    "C13.esp",
+    "C03.esp",
+    "C12.esp",
+    "C08.esp",
+    "C00.esp",
+    "C02.esp",
+    "C11.esp",
+    "C10.esp",
+    "C09.ESP",
+    "C07.esp",
+    "C06.esp",
+    "C17.esp",
+    "C16.ESP",
+    "C01.esp",
+    "C18.esp",
+    "C05.esp",
+    "C04.esp",
+    "C15.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B02.esp",
+     "C02.esp"
+    ],
+    "c02.esp": [
+     "B05.esp"
+    ],
+    "c03.esp": [
+     "C10.esp",
+     "C03.esp"
+    ],
+    "c04.esp": [
+     "C07.esp",
+     "B02.esp"
+    ],
+    "c08.esp": [
+     "B09.esp",
+     "B00.esm"
+    ],
+    "c11.esp": [
+     "Gone3.esm",
+     "C14.esp"
+    ],
+    "c15.esp": [
+     "C10.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "C10.esp",
+    "C13.esp",
+    "C14.esp",
+    "C16.esp",
+    "C17.esp",
+    "C18.esp",
+    "C11.esp",
+    "B08.esp",
+    "B09.esp",
+    "C15.esp",
+    "C08.esp",
+    "C01.esp",
+    "C02.esp",
+    "C03.esp",
+    "C05.esp",
+    "C06.esp",
+    "C07.esp",
+    "C09.esp",
+    "C00.esp",
+    "C04.esp",
+    "C12.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "B20.esp",
+    "B21.esp",
+    "B22.esp",
+    "B23.esp",
+    "B24.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c05.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c06.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c07.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c08.esp": [
+     "after",
+     "C15.esp"
+    ],
+    "c09.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c10.esp": [
+     "nearstart",
+     null
+    ],
+    "c11.esp": [
+     "after",
+     "C14.esp"
+    ],
+    "c12.esp": [
+     "after",
+     "C04.esp"
+    ],
+    "c13.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c14.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c15.esp": [
+     "after",
+     "B09.esp"
+    ],
+    "c16.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c17.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c18.esp": [
+     "after",
+     "B07.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 104, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC1*.esp\nC18.esp\n[Order]\nB07.esp\nC00.esp\nB1*.esp\nC17.esp\n[NearStart]\nB18.esp\nB1*.esp\n[Order]\nb02.esp\nB02.esp\nB00.esm\nC04.esp\nB10.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "C09.esp",
+    "C05.esp",
+    "B01.esp",
+    "C04.esp",
+    "B02.esp",
+    "B03.esp",
+    "C00.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C08.esp",
+    "C13.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C14.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "C10.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "C16.esp",
+    "B20.esp",
+    "C11.esp",
+    "C17.esp"
+   ],
+   "subset": [
+    "C05.esp",
+    "C09.esp",
+    "C02.esp",
+    "C01.esp",
+    "C10.esp",
+    "C08.esp",
+    "C07.esp",
+    "C14.ESP",
+    "C17.esp",
+    "C13.esp",
+    "C06.esp",
+    "C19.esm",
+    "C04.esp",
+    "C11.esp",
+    "C03.esp",
+    "C12.esp",
+    "C15.esp",
+    "C18.esp",
+    "C00.esp",
+    "C16.ESP"
+   ],
+   "masters": {
+    "c01.esp": [
+     "C14.esp",
+     "Gone1.esp"
+    ],
+    "c04.esp": [
+     "B02.esp"
+    ],
+    "c05.esp": [
+     "C16.esp"
+    ],
+    "c08.esp": [
+     "B04.esp"
+    ],
+    "c09.esp": [
+     "B09.esp"
+    ],
+    "c10.esp": [
+     "B07.esp",
+     "B00.esm"
+    ],
+    "c11.esp": [
+     "B18.esp"
+    ],
+    "c15.esp": [
+     "C14.esp",
+     "B02.esp"
+    ],
+    "c17.esp": [
+     "Gone3.esm"
+    ],
+    "c18.esp": [
+     "B20.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C19.esm",
+    "C16.esp",
+    "C05.esp",
+    "B01.esp",
+    "B02.esp",
+    "C04.esp",
+    "B03.esp",
+    "B04.esp",
+    "C08.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "C00.esp",
+    "C10.esp",
+    "B08.esp",
+    "B09.esp",
+    "C09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "C11.esp",
+    "B19.esp",
+    "C17.esp",
+    "B20.esp",
+    "C12.esp",
+    "C13.esp",
+    "C14.esp",
+    "C01.esp",
+    "C15.esp",
+    "C18.esp",
+    "C02.esp",
+    "C07.esp",
+    "C06.esp",
+    "C03.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "C14.esp"
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ],
+    "c03.esp": [
+     "none",
+     null
+    ],
+    "c04.esp": [
+     "after",
+     "B02.esp"
+    ],
+    "c05.esp": [
+     "none",
+     null
+    ],
+    "c06.esp": [
+     "none",
+     null
+    ],
+    "c07.esp": [
+     "none",
+     null
+    ],
+    "c08.esp": [
+     "after",
+     "B04.esp"
+    ],
+    "c09.esp": [
+     "after",
+     "B09.esp"
+    ],
+    "c10.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c11.esp": [
+     "after",
+     "B18.esp"
+    ],
+    "c12.esp": [
+     "before",
+     "C18.esp"
+    ],
+    "c13.esp": [
+     "before",
+     "C18.esp"
+    ],
+    "c14.esp": [
+     "before",
+     "C18.esp"
+    ],
+    "c15.esp": [
+     "after",
+     "C14.esp"
+    ],
+    "c16.esp": [
+     "before",
+     "C05.esp"
+    ],
+    "c17.esp": [
+     "after",
+     "B19.esp"
+    ],
+    "c18.esp": [
+     "after",
+     "B20.esp"
+    ],
+    "c19.esm": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 105, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC01.esp\nC03.esp\n[Order]\nC05.esp\nC01.esp\nb08.esp\nC05.esp\n[NearStart]\nb06.esp\nB1*.esp\n[Order]\nB1*.esp\nB13.esp\nB05.esp\nB01.esm\n[NearStart]\ngone2.esp\nC07.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearEnd]\nC07.esp\nC01.esp\n[Order]\nC0?.esp\nB00.esm\nB02.esm\nc01.esp\nC*.esp\n[NearStart]\nB13.esp\nC08.esm\n[Order]\nC07.esp\nC03.esp\nGone2.esp\nB1*.esp\nC08.esm\n[Order]\nB10.esp\nB02.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "C08.esm",
+    "B10.esp",
+    "C09.esp",
+    "B11.esp",
+    "C05.esp",
+    "B12.esp",
+    "B13.esp",
+    "C01.esp",
+    "C02.esp",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "C06.esm"
+   ],
+   "subset": [
+    "C03.esp",
+    "C08.esm",
+    "C09.esp",
+    "C04.esm",
+    "C00.esp",
+    "C05.ESP",
+    "C06.esm",
+    "C07.esp",
+    "C01.ESP",
+    "C02.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "B11.esp",
+     "B06.esp"
+    ],
+    "c01.esp": [
+     "B01.esm"
+    ],
+    "c02.esp": [
+     "B11.esp"
+    ],
+    "c05.esp": [
+     "C02.esp",
+     "B08.esp"
+    ],
+    "c07.esp": [
+     "B09.esp",
+     "Gone2.esp"
+    ],
+    "c08.esm": [
+     "C06.esm",
+     "B13.esp"
+    ],
+    "c09.esp": [
+     "B07.esp",
+     "C00.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C06.esm",
+    "C04.esm",
+    "C03.esp",
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "C01.esp",
+    "B08.esp",
+    "B09.esp",
+    "C07.esp",
+    "B10.esp",
+    "B11.esp",
+    "C00.esp",
+    "C02.esp",
+    "C05.esp",
+    "C09.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "C08.esm"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B11.esp"
+    ],
+    "c01.esp": [
+     "nearend",
+     null
+    ],
+    "c02.esp": [
+     "after",
+     "B11.esp"
+    ],
+    "c03.esp": [
+     "before",
+     "B00.esm"
+    ],
+    "c04.esm": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c06.esm": [
+     "before",
+     "C08.esm"
+    ],
+    "c07.esp": [
+     "nearstart",
+     null
+    ],
+    "c08.esm": [
+     "nearstart",
+     null
+    ],
+    "c09.esp": [
+     "after",
+     "C00.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 106, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\ngone3.esm\nB12.esp\n[Order]\nB27.esp\n*.esm\n[Order]\nB06.esp\nc02.esm\nC09.esp\nC00.esp\nC09.esp\n[NearStart]\nB06.esp\nB10.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearEnd]\nC05.esp\nC07.esp\n[Order]\nB15.esp\nB15.esp\nb03.esp\n[Order]\nC07.esp\nC02.esm\nc05.esp\nC1*.esp\n[Order]\nB07.esp\nB11.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nC05.esp\nGone1.esp\nB15.esp\nB19.esp\n[Order]\nC0?.esp\nC05.esp\nc11.esp\n[Order]\nB16.esp\nB11.esp\nC03.esp\nB01.esm\n[Order]\nB29.esp\nC03.esp\nC03.esp\nB03.esp\nB30.esp\n[NearEnd]\nB15.esp\nB26.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C05.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "C09.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "C03.esp",
+    "B20.esp",
+    "B21.esp",
+    "B22.esp",
+    "B23.esp",
+    "B24.esp",
+    "B25.esp",
+    "B26.esp",
+    "B27.esp",
+    "B28.esp",
+    "C02.esm",
+    "B29.esp",
+    "B30.esp"
+   ],
+   "subset": [
+    "C08.esp",
+    "C09.esp",
+    "C04.esp",
+    "C06.esp",
+    "C02.esm",
+    "C11.esp",
+    "C07.esp",
+    "C10.esp",
+    "C00.esp",
+    "C03.ESP",
+    "C05.esp",
+    "C01.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "B22.esp"
+    ],
+    "c02.esm": [
+     "B10.esp",
+     "B29.esp"
+    ],
+    "c04.esp": [
+     "B18.esp"
+    ],
+    "c05.esp": [
+     "C06.esp",
+     "B05.esp"
+    ],
+    "c06.esp": [
+     "B29.esp"
+    ],
+    "c07.esp": [
+     "C05.esp",
+     "B04.esp"
+    ],
+    "c10.esp": [
+     "B15.esp",
+     "B01.esm"
+    ],
+    "c11.esp": [
+     "C03.esp",
+     "B25.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "C04.esp",
+    "B19.esp",
+    "B20.esp",
+    "B21.esp",
+    "B22.esp",
+    "C01.esp",
+    "B23.esp",
+    "B24.esp",
+    "B25.esp",
+    "B26.esp",
+    "B27.esp",
+    "B28.esp",
+    "B29.esp",
+    "C03.esp",
+    "C06.esp",
+    "B30.esp",
+    "C08.esp",
+    "C09.esp",
+    "C00.esp",
+    "C05.esp",
+    "C10.esp",
+    "C11.esp",
+    "C07.esp",
+    "C02.esm"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "C09.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "B22.esp"
+    ],
+    "c02.esm": [
+     "after",
+     "C07.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "B29.esp"
+    ],
+    "c04.esp": [
+     "after",
+     "B18.esp"
+    ],
+    "c05.esp": [
+     "nearend",
+     null
+    ],
+    "c06.esp": [
+     "after",
+     "B29.esp"
+    ],
+    "c07.esp": [
+     "nearend",
+     null
+    ],
+    "c08.esp": [
+     "none",
+     null
+    ],
+    "c09.esp": [
+     "before",
+     "C05.esp"
+    ],
+    "c10.esp": [
+     "after",
+     "C05.esp"
+    ],
+    "c11.esp": [
+     "after",
+     "C05.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 107, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nb19.esp\nc01.esp\nC11.esp\nB22.esp\n[NearEnd]\nB01.esp\nB12.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nb14.esp\nC01.esp\nB00.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esp",
+    "C06.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "C10.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "C12.esp",
+    "B16.esp",
+    "B17.esp",
+    "C01.esp",
+    "B18.esp",
+    "B19.esp",
+    "C07.esp",
+    "B20.esp",
+    "C08.esp",
+    "B21.esp",
+    "B22.esp",
+    "C09.esm",
+    "B23.esp",
+    "B24.esp",
+    "B25.esp",
+    "B26.esp"
+   ],
+   "subset": [
+    "C07.ESP",
+    "C05.esp",
+    "C12.esp",
+    "C11.esp",
+    "C10.esp",
+    "C06.esp",
+    "C04.esp",
+    "C01.esp",
+    "C08.ESP",
+    "C13.esp",
+    "C00.esm",
+    "C09.esm",
+    "C03.esp",
+    "C02.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "B20.esp",
+     "B17.esp"
+    ],
+    "c05.esp": [
+     "B26.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "C09.esm",
+    "C00.esm",
+    "B01.esp",
+    "C06.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "C10.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "C12.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "C07.esp",
+    "B20.esp",
+    "C01.esp",
+    "C11.esp",
+    "C08.esp",
+    "B21.esp",
+    "B22.esp",
+    "B23.esp",
+    "B24.esp",
+    "B25.esp",
+    "B26.esp",
+    "C05.esp",
+    "C04.esp",
+    "C13.esp",
+    "C03.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "B20.esp"
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ],
+    "c03.esp": [
+     "none",
+     null
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "after",
+     "B26.esp"
+    ],
+    "c06.esp": [
+     "none",
+     null
+    ],
+    "c07.esp": [
+     "none",
+     null
+    ],
+    "c08.esp": [
+     "none",
+     null
+    ],
+    "c09.esm": [
+     "none",
+     null
+    ],
+    "c10.esp": [
+     "none",
+     null
+    ],
+    "c11.esp": [
+     "after",
+     "C01.esp"
+    ],
+    "c12.esp": [
+     "none",
+     null
+    ],
+    "c13.esp": [
+     "none",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 108, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nc14.esp\nC14.esp\nC19.esp\nC11.esm\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB12.esp\nC01.esp\n[Order]\nC05.esp\nC19.esp\n[Order]\nB13.esp\nC19.esp\n[Order]\nC03.esp\nC07.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[Order]\nGone3.esm\nC13.esp\nC06.esm\nC10.esp\n[NearStart]\nC13.esp\nc01.esp\n[Order]\nB09.esp\nB06.esp\nC14.esp\n[Order]\nB13.esp\nC01.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C13.esp",
+    "C11.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "C14.esp",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "B20.esp",
+    "C18.esp",
+    "B21.esp",
+    "B22.esp"
+   ],
+   "subset": [
+    "C06.esm",
+    "C18.esp",
+    "C09.esp",
+    "C15.esp",
+    "C07.esp",
+    "C03.esp",
+    "C17.esm",
+    "C12.esp",
+    "C16.esp",
+    "C00.esm",
+    "C19.esp",
+    "C13.ESP",
+    "C04.esp",
+    "C14.esp",
+    "C05.esp",
+    "C01.esp",
+    "C08.esp",
+    "C10.esp",
+    "C02.esp",
+    "C11.esm"
+   ],
+   "masters": {
+    "c00.esm": [
+     "B08.esp",
+     "B04.esp"
+    ],
+    "c01.esp": [
+     "C06.esm"
+    ],
+    "c02.esp": [
+     "C11.esm",
+     "Gone2.esp"
+    ],
+    "c07.esp": [
+     "B14.esp",
+     "B04.esp"
+    ],
+    "c09.esp": [
+     "B15.esp"
+    ],
+    "c10.esp": [
+     "C13.esp"
+    ],
+    "c12.esp": [
+     "C11.esm",
+     "B16.esp"
+    ],
+    "c13.esp": [
+     "B19.esp"
+    ],
+    "c15.esp": [
+     "B12.esp"
+    ],
+    "c16.esp": [
+     "B11.esp",
+     "C03.esp"
+    ],
+    "c17.esm": [
+     "B20.esp",
+     "C15.esp"
+    ],
+    "c18.esp": [
+     "C06.esm"
+    ],
+    "c19.esp": [
+     "B05.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C14.esp",
+    "B07.esp",
+    "B08.esp",
+    "C00.esm",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "C15.esp",
+    "B13.esp",
+    "C05.esp",
+    "C19.esp",
+    "C11.esm",
+    "B14.esp",
+    "C03.esp",
+    "C07.esp",
+    "C16.esp",
+    "B15.esp",
+    "C09.esp",
+    "B16.esp",
+    "C12.esp",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "C13.esp",
+    "C06.esm",
+    "C01.esp",
+    "C10.esp",
+    "B20.esp",
+    "C17.esm",
+    "C18.esp",
+    "B21.esp",
+    "B22.esp",
+    "C04.esp",
+    "C08.esp",
+    "C02.esp"
+   ],
+   "anchors": {
+    "c00.esm": [
+     "after",
+     "B08.esp"
+    ],
+    "c01.esp": [
+     "nearstart",
+     null
+    ],
+    "c02.esp": [
+     "none",
+     null
+    ],
+    "c03.esp": [
+     "before",
+     "C07.esp"
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "before",
+     "C19.esp"
+    ],
+    "c06.esm": [
+     "after",
+     "C13.esp"
+    ],
+    "c07.esp": [
+     "after",
+     "B14.esp"
+    ],
+    "c08.esp": [
+     "none",
+     null
+    ],
+    "c09.esp": [
+     "after",
+     "B15.esp"
+    ],
+    "c10.esp": [
+     "after",
+     "C13.esp"
+    ],
+    "c11.esm": [
+     "after",
+     "C19.esp"
+    ],
+    "c12.esp": [
+     "after",
+     "B16.esp"
+    ],
+    "c13.esp": [
+     "nearstart",
+     null
+    ],
+    "c14.esp": [
+     "after",
+     "B06.esp"
+    ],
+    "c15.esp": [
+     "after",
+     "B12.esp"
+    ],
+    "c16.esp": [
+     "after",
+     "C03.esp"
+    ],
+    "c17.esm": [
+     "after",
+     "B20.esp"
+    ],
+    "c18.esp": [
+     "none",
+     null
+    ],
+    "c19.esp": [
+     "after",
+     "B13.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 109, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC01.esp\nC03.esp\nB04.esp\nB06.esp\nB1*.esp\n[Order]\nB1*.esp\nB10.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nC00.esp\nb08.esp\n[Order]\nB00.esm\nC09.esp\nB12.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "C07.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "C03.esp",
+    "B15.esp",
+    "B16.esp",
+    "B17.esp",
+    "C00.esp"
+   ],
+   "subset": [
+    "C07.esp",
+    "C06.esp",
+    "C09.esp",
+    "C02.esp",
+    "C04.esm",
+    "C01.esp",
+    "C08.esp",
+    "C05.esp",
+    "C03.ESP",
+    "C00.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "B02.esp",
+     "B08.esp"
+    ],
+    "c02.esp": [
+     "C03.esp"
+    ],
+    "c04.esm": [
+     "C03.esp"
+    ],
+    "c05.esp": [
+     "B14.esp",
+     "B11.esp"
+    ],
+    "c06.esp": [
+     "C02.esp",
+     "B04.esp"
+    ],
+    "c07.esp": [
+     "C00.esp"
+    ],
+    "c08.esp": [
+     "B17.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "C00.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "C07.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "C01.esp",
+    "C03.esp",
+    "C04.esm",
+    "C02.esp",
+    "C06.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "C09.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "C05.esp",
+    "B15.esp",
+    "B16.esp",
+    "B17.esp",
+    "C08.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "nearstart",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "B08.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C03.esp"
+    ],
+    "c03.esp": [
+     "after",
+     "C01.esp"
+    ],
+    "c04.esm": [
+     "after",
+     "C03.esp"
+    ],
+    "c05.esp": [
+     "after",
+     "B14.esp"
+    ],
+    "c06.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c07.esp": [
+     "none",
+     null
+    ],
+    "c08.esp": [
+     "after",
+     "B17.esp"
+    ],
+    "c09.esp": [
+     "before",
+     "B12.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 110, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[NearStart]\nC10.esm\nB01.esp\n[Order]\nB13.esp\nb06.esp\n[NearStart]\nc07.esp\nC02.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nC05.esp\nB02.esp\n[Order]\nC06.esp\nGone2.esp\nc06.esp\nC11.esp\nB08.esp\n[Order]\nC02.esp\nB02.esp\nB01.esp\n[NearEnd]\nC1*.esp\nB07.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "C00.esp",
+    "B01.esp",
+    "C06.esp",
+    "C05.esp",
+    "B02.esp",
+    "C02.esp",
+    "B03.esp",
+    "C01.esp",
+    "B04.esp",
+    "C10.esm",
+    "B05.esp",
+    "C03.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "C08.esp"
+   ],
+   "subset": [
+    "C05.esp",
+    "C03.ESP",
+    "C08.esp",
+    "C04.esp",
+    "C01.esp",
+    "C02.esp",
+    "C11.esp",
+    "C09.esp",
+    "C10.esm",
+    "C06.ESP",
+    "C07.esp",
+    "C00.esp"
+   ],
+   "masters": {
+    "c00.esp": [
+     "Gone1.esp",
+     "C00.esp"
+    ],
+    "c01.esp": [
+     "C11.esp",
+     "C11.esp"
+    ],
+    "c03.esp": [
+     "C05.esp"
+    ],
+    "c05.esp": [
+     "C08.esp"
+    ],
+    "c06.esp": [
+     "B06.esp"
+    ],
+    "c07.esp": [
+     "B06.esp",
+     "B03.esp"
+    ],
+    "c08.esp": [
+     "B06.esp",
+     "C10.esm"
+    ],
+    "c11.esp": [
+     "B04.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C10.esm",
+    "B00.esm",
+    "C02.esp",
+    "C00.esp",
+    "B01.esp",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "C07.esp",
+    "C06.esp",
+    "C08.esp",
+    "C05.esp",
+    "C03.esp",
+    "B07.esp",
+    "C04.esp",
+    "C09.esp",
+    "C11.esp",
+    "C01.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "none",
+     null
+    ],
+    "c01.esp": [
+     "after",
+     "C11.esp"
+    ],
+    "c02.esp": [
+     "nearstart",
+     null
+    ],
+    "c03.esp": [
+     "after",
+     "C05.esp"
+    ],
+    "c04.esp": [
+     "none",
+     null
+    ],
+    "c05.esp": [
+     "nearstart",
+     null
+    ],
+    "c06.esp": [
+     "after",
+     "B06.esp"
+    ],
+    "c07.esp": [
+     "nearstart",
+     null
+    ],
+    "c08.esp": [
+     "after",
+     "B06.esp"
+    ],
+    "c09.esp": [
+     "none",
+     null
+    ],
+    "c10.esm": [
+     "nearstart",
+     null
+    ],
+    "c11.esp": [
+     "nearend",
+     null
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 111, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB13.esp\nC12.esm\nC09.esp\n[Order]\nb12.esp\nC06.esm\nB25.esp\nB23.esp\nc06.esm\n[Order]\nC03.esm\nB18.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nB04.esp\nb02.esm\nC08.esp\n[Order]\nC0?.esp\nC*.esp\n[Order]\nb12.esp\nC08.esp\nB11.esp\n[NearStart]\nB23.esp\nGone3.esm\n[Order]\nC00.esp\nC11.esp\nB04.esp\nB10.esp\nB24.esp\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "B03.esp",
+    "C04.esp",
+    "B04.esp",
+    "C10.esm",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "C02.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "C06.esm",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "B20.esp",
+    "B21.esp",
+    "B22.esp",
+    "B23.esp",
+    "B24.esp",
+    "B25.esp",
+    "C12.esm",
+    "B26.esp",
+    "B27.esp"
+   ],
+   "subset": [
+    "C00.esp",
+    "C06.esm",
+    "C09.esp",
+    "C11.esp",
+    "C02.esp",
+    "C10.esm",
+    "C03.esm",
+    "C07.esp",
+    "C01.esp",
+    "C08.esp",
+    "C12.esm",
+    "C05.esm",
+    "C04.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "B21.esp",
+     "C12.esm"
+    ],
+    "c02.esp": [
+     "B10.esp"
+    ],
+    "c04.esp": [
+     "B22.esp"
+    ],
+    "c05.esm": [
+     "C01.esp",
+     "B02.esm"
+    ],
+    "c08.esp": [
+     "C05.esm"
+    ],
+    "c09.esp": [
+     "B20.esp",
+     "Gone1.esp"
+    ],
+    "c12.esm": [
+     "C03.esm",
+     "B04.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esm",
+    "C10.esm",
+    "C03.esm",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "B11.esp",
+    "B12.esp",
+    "B13.esp",
+    "C12.esm",
+    "B14.esp",
+    "B15.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "B20.esp",
+    "B21.esp",
+    "B22.esp",
+    "C04.esp",
+    "C02.esp",
+    "C00.esp",
+    "C09.esp",
+    "C07.esp",
+    "C01.esp",
+    "C05.esm",
+    "C08.esp",
+    "C11.esp",
+    "B23.esp",
+    "C06.esm",
+    "B24.esp",
+    "B25.esp",
+    "B26.esp",
+    "B27.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "C02.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "C07.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C04.esp"
+    ],
+    "c03.esm": [
+     "before",
+     "C12.esm"
+    ],
+    "c04.esp": [
+     "after",
+     "B22.esp"
+    ],
+    "c05.esm": [
+     "after",
+     "C01.esp"
+    ],
+    "c06.esm": [
+     "after",
+     "B23.esp"
+    ],
+    "c07.esp": [
+     "after",
+     "C09.esp"
+    ],
+    "c08.esp": [
+     "after",
+     "C01.esp"
+    ],
+    "c09.esp": [
+     "after",
+     "C00.esp"
+    ],
+    "c10.esm": [
+     "none",
+     null
+    ],
+    "c11.esp": [
+     "after",
+     "C08.esp"
+    ],
+    "c12.esm": [
+     "after",
+     "B13.esp"
+    ]
+   }
+  },
+  {
+   "name": "made up, seed 112, big",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB13.esp\nC07.esp\nC04.esp\n[Order]\nB12.esp\nC04.esp\n[NearStart]\nB09.esp\n*.esm\n[Order]\nB04.esp\nB19.esp\nB09.esp\nB14.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[NearStart]\nC03.esm\nGone3.esm\n[NearEnd]\nC07.esp\nB13.esp\n"
+    },
+    {
+     "priority": 2,
+     "text": "[NearStart]\nC06.esp\nC09.esm\n[Order]\nB04.esp\nGone2.esp\n[NearStart]\nB15.esp\nC08.esp\n[Order]\nC1*.esp\nB15.esp\nB07.esp\nC00.esp\nB00.esm\n"
+    }
+   ],
+   "base": [
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "B08.esp",
+    "B09.esp",
+    "B10.esp",
+    "C06.esp",
+    "B11.esp",
+    "B12.esp",
+    "C13.esp",
+    "B13.esp",
+    "B14.esp",
+    "C14.esp",
+    "B15.esp",
+    "B16.esp",
+    "C09.esm",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "C07.esp",
+    "B20.esp",
+    "B21.esp",
+    "B22.esp",
+    "B23.esp"
+   ],
+   "subset": [
+    "C10.esp",
+    "C14.esp",
+    "C08.esp",
+    "C04.esp",
+    "C06.esp",
+    "C01.esp",
+    "C07.esp",
+    "C00.esp",
+    "C02.esp",
+    "C09.esm",
+    "C12.esp",
+    "C11.esp",
+    "C03.esm",
+    "C05.esm",
+    "C13.esp"
+   ],
+   "masters": {
+    "c01.esp": [
+     "B13.esp"
+    ],
+    "c02.esp": [
+     "C01.esp"
+    ],
+    "c03.esm": [
+     "C14.esp",
+     "B11.esp"
+    ],
+    "c04.esp": [
+     "C07.esp"
+    ],
+    "c06.esp": [
+     "B10.esp"
+    ],
+    "c07.esp": [
+     "C07.esp"
+    ],
+    "c08.esp": [
+     "B12.esp"
+    ],
+    "c09.esm": [
+     "C04.esp"
+    ],
+    "c11.esp": [
+     "B11.esp",
+     "C07.esp"
+    ],
+    "c13.esp": [
+     "B08.esp"
+    ],
+    "c14.esp": [
+     "C13.esp",
+     "B10.esp"
+    ]
+   },
+   "supported": true,
+   "order": [
+    "C05.esm",
+    "B00.esm",
+    "B01.esm",
+    "B02.esp",
+    "B03.esp",
+    "B04.esp",
+    "B05.esp",
+    "B06.esp",
+    "B07.esp",
+    "C00.esp",
+    "B08.esp",
+    "C13.esp",
+    "B09.esp",
+    "B10.esp",
+    "C06.esp",
+    "C14.esp",
+    "B11.esp",
+    "C03.esm",
+    "B12.esp",
+    "C08.esp",
+    "B13.esp",
+    "C01.esp",
+    "C02.esp",
+    "B14.esp",
+    "C10.esp",
+    "C12.esp",
+    "C07.esp",
+    "C04.esp",
+    "C09.esm",
+    "C11.esp",
+    "B15.esp",
+    "B16.esp",
+    "B17.esp",
+    "B18.esp",
+    "B19.esp",
+    "B20.esp",
+    "B21.esp",
+    "B22.esp",
+    "B23.esp"
+   ],
+   "anchors": {
+    "c00.esp": [
+     "after",
+     "B07.esp"
+    ],
+    "c01.esp": [
+     "after",
+     "B13.esp"
+    ],
+    "c02.esp": [
+     "after",
+     "C01.esp"
+    ],
+    "c03.esm": [
+     "nearstart",
+     null
+    ],
+    "c04.esp": [
+     "after",
+     "C07.esp"
+    ],
+    "c05.esm": [
+     "nearstart",
+     null
+    ],
+    "c06.esp": [
+     "nearstart",
+     null
+    ],
+    "c07.esp": [
+     "nearend",
+     null
+    ],
+    "c08.esp": [
+     "nearstart",
+     null
+    ],
+    "c09.esm": [
+     "nearstart",
+     null
+    ],
+    "c10.esp": [
+     "before",
+     "B15.esp"
+    ],
+    "c11.esp": [
+     "after",
+     "C07.esp"
+    ],
+    "c12.esp": [
+     "before",
+     "B15.esp"
+    ],
+    "c13.esp": [
+     "after",
+     "B08.esp"
+    ],
+    "c14.esp": [
+     "after",
+     "B10.esp"
+    ]
+   }
+  }
+ ]
+}

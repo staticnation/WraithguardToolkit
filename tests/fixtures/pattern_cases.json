@@ -1,0 +1,762 @@
+{
+ "_about": "mlox name patterns and version strings, answered by wraithguard.sort.graph.expand_pattern, wraithguard.rules.pattern_has_meta and wraithguard.versions.format_version; run by tests/test_pattern_cases.py and viewer-shell/ordercore/tests/pattern_cases.rs. Regenerate: python tools/gen_pattern_cases.py",
+ "pool": [
+  "Morrowind.esm",
+  "Tribunal.esm",
+  "Better Bodies.esp",
+  "Better Bodies 2.2.esp",
+  "Better Bodies 10.esp",
+  "BetterBodies.esp",
+  "Tamriel_Data.esm",
+  "TR_Mainland.esm",
+  "TR_Data.esm",
+  "MOD.ESP",
+  "a.esp",
+  "ab.esp",
+  "abc.esp",
+  "Mod (v2).esp",
+  "Mod+.esp",
+  "Mod v1.2.3a.esp",
+  "Mod v1.2.3.4.esp",
+  "x-1.0.esp",
+  "x_1_0.esp",
+  "Café.esp",
+  "CAFÉ.ESP",
+  "Moe's Mod.esp",
+  "A & B.esp",
+  "name.with.dots.esp",
+  "Mod [x].esp",
+  "1.0",
+  "2",
+  "1_2_3",
+  "1..2",
+  "1.",
+  "a1"
+ ],
+ "patterns": [
+  {
+   "name": "plain",
+   "pattern": "Morrowind.esm",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "Morrowind.esm"
+   ]
+  },
+  {
+   "name": "plain in another case",
+   "pattern": "morrowind.ESM",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "Morrowind.esm"
+   ]
+  },
+  {
+   "name": "plain, absent",
+   "pattern": "Nothing.esp",
+   "has_meta": false,
+   "supported": true,
+   "expand": []
+  },
+  {
+   "name": "plain with parentheses",
+   "pattern": "Mod (v2).esp",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "Mod (v2).esp"
+   ]
+  },
+  {
+   "name": "plain with a plus",
+   "pattern": "Mod+.esp",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "Mod+.esp"
+   ]
+  },
+  {
+   "name": "plain with dots",
+   "pattern": "name.with.dots.esp",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "name.with.dots.esp"
+   ]
+  },
+  {
+   "name": "plain finds the first only",
+   "pattern": "mod.esp",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "MOD.ESP"
+   ]
+  },
+  {
+   "name": "plain, non-ASCII, in another case",
+   "pattern": "café.esp",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "Café.esp"
+   ]
+  },
+  {
+   "name": "plain with brackets is literal",
+   "pattern": "Mod [x].esp",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "Mod [x].esp"
+   ]
+  },
+  {
+   "name": "plain with an apostrophe and spaces",
+   "pattern": "Moe's Mod.esp",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "Moe's Mod.esp"
+   ]
+  },
+  {
+   "name": "plain with an ampersand",
+   "pattern": "A & B.esp",
+   "has_meta": false,
+   "supported": true,
+   "expand": [
+    "A & B.esp"
+   ]
+  },
+  {
+   "name": "star in the middle",
+   "pattern": "Better Bodies*.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Better Bodies.esp",
+    "Better Bodies 2.2.esp",
+    "Better Bodies 10.esp"
+   ]
+  },
+  {
+   "name": "star first",
+   "pattern": "*.esm",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Tamriel_Data.esm",
+    "TR_Mainland.esm",
+    "TR_Data.esm"
+   ]
+  },
+  {
+   "name": "a lone star",
+   "pattern": "*",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Better Bodies.esp",
+    "Better Bodies 2.2.esp",
+    "Better Bodies 10.esp",
+    "BetterBodies.esp",
+    "Tamriel_Data.esm",
+    "TR_Mainland.esm",
+    "TR_Data.esm",
+    "MOD.ESP",
+    "a.esp",
+    "ab.esp",
+    "abc.esp",
+    "Mod (v2).esp",
+    "Mod+.esp",
+    "Mod v1.2.3a.esp",
+    "Mod v1.2.3.4.esp",
+    "x-1.0.esp",
+    "x_1_0.esp",
+    "Café.esp",
+    "CAFÉ.ESP",
+    "Moe's Mod.esp",
+    "A & B.esp",
+    "name.with.dots.esp",
+    "Mod [x].esp",
+    "1.0",
+    "2",
+    "1_2_3",
+    "1..2",
+    "1.",
+    "a1"
+   ]
+  },
+  {
+   "name": "two stars",
+   "pattern": "**.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Better Bodies.esp",
+    "Better Bodies 2.2.esp",
+    "Better Bodies 10.esp",
+    "BetterBodies.esp",
+    "MOD.ESP",
+    "a.esp",
+    "ab.esp",
+    "abc.esp",
+    "Mod (v2).esp",
+    "Mod+.esp",
+    "Mod v1.2.3a.esp",
+    "Mod v1.2.3.4.esp",
+    "x-1.0.esp",
+    "x_1_0.esp",
+    "Café.esp",
+    "CAFÉ.ESP",
+    "Moe's Mod.esp",
+    "A & B.esp",
+    "name.with.dots.esp",
+    "Mod [x].esp"
+   ]
+  },
+  {
+   "name": "stars with underscores",
+   "pattern": "T*_*.esm",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Tamriel_Data.esm",
+    "TR_Mainland.esm",
+    "TR_Data.esm"
+   ]
+  },
+  {
+   "name": "a star after a dot",
+   "pattern": "A.*",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "a.esp"
+   ]
+  },
+  {
+   "name": "a star and a dot",
+   "pattern": "*.*",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Better Bodies.esp",
+    "Better Bodies 2.2.esp",
+    "Better Bodies 10.esp",
+    "BetterBodies.esp",
+    "Tamriel_Data.esm",
+    "TR_Mainland.esm",
+    "TR_Data.esm",
+    "MOD.ESP",
+    "a.esp",
+    "ab.esp",
+    "abc.esp",
+    "Mod (v2).esp",
+    "Mod+.esp",
+    "Mod v1.2.3a.esp",
+    "Mod v1.2.3.4.esp",
+    "x-1.0.esp",
+    "x_1_0.esp",
+    "Café.esp",
+    "CAFÉ.ESP",
+    "Moe's Mod.esp",
+    "A & B.esp",
+    "name.with.dots.esp",
+    "Mod [x].esp",
+    "1.0",
+    "1..2",
+    "1."
+   ]
+  },
+  {
+   "name": "star matches nothing",
+   "pattern": "Morrowind*.esm",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Morrowind.esm"
+   ]
+  },
+  {
+   "name": "star after a parenthesis",
+   "pattern": "Mod (*",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Mod (v2).esp"
+   ]
+  },
+  {
+   "name": "star after a plus",
+   "pattern": "Mod+*",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Mod+.esp"
+   ]
+  },
+  {
+   "name": "star, another case",
+   "pattern": "better bodies*.ESP",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Better Bodies.esp",
+    "Better Bodies 2.2.esp",
+    "Better Bodies 10.esp"
+   ]
+  },
+  {
+   "name": "question mark matches none or one",
+   "pattern": "a?.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "a.esp",
+    "ab.esp"
+   ]
+  },
+  {
+   "name": "a lone question mark first",
+   "pattern": "?.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "a.esp"
+   ]
+  },
+  {
+   "name": "two question marks",
+   "pattern": "a??.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "a.esp",
+    "ab.esp",
+    "abc.esp"
+   ]
+  },
+  {
+   "name": "question mark and star",
+   "pattern": "?*.esm",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Tamriel_Data.esm",
+    "TR_Mainland.esm",
+    "TR_Data.esm"
+   ]
+  },
+  {
+   "name": "question mark in non-ASCII",
+   "pattern": "caf?.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Café.esp",
+    "CAFÉ.ESP"
+   ]
+  },
+  {
+   "name": "star in non-ASCII",
+   "pattern": "CAF*.ESP",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Café.esp",
+    "CAFÉ.ESP"
+   ]
+  },
+  {
+   "name": "version",
+   "pattern": "Better Bodies <VER>.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Better Bodies 2.2.esp",
+    "Better Bodies 10.esp"
+   ]
+  },
+  {
+   "name": "version in any case",
+   "pattern": "better bodies <ver>.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Better Bodies 2.2.esp",
+    "Better Bodies 10.esp"
+   ]
+  },
+  {
+   "name": "version with a prefix",
+   "pattern": "Mod v<VER>.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Mod v1.2.3a.esp",
+    "Mod v1.2.3.4.esp"
+   ]
+  },
+  {
+   "name": "version after a dash",
+   "pattern": "x-<VER>.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "x-1.0.esp"
+   ]
+  },
+  {
+   "name": "version after an underscore",
+   "pattern": "x_<VER>.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "x_1_0.esp"
+   ]
+  },
+  {
+   "name": "a lone version",
+   "pattern": "<VER>",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "1.0",
+    "2",
+    "1_2_3"
+   ]
+  },
+  {
+   "name": "version then star",
+   "pattern": "<VER>*",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "1.0",
+    "2",
+    "1_2_3",
+    "1..2",
+    "1."
+   ]
+  },
+  {
+   "name": "star then version",
+   "pattern": "*<VER>",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "1.0",
+    "2",
+    "1_2_3",
+    "1..2",
+    "a1"
+   ]
+  },
+  {
+   "name": "version then question mark",
+   "pattern": "<VER>?",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "1.0",
+    "2",
+    "1_2_3",
+    "1."
+   ]
+  },
+  {
+   "name": "two versions",
+   "pattern": "<VER>.<VER>",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "1.0"
+   ]
+  },
+  {
+   "name": "star inside brackets",
+   "pattern": "[Mod]*.esp",
+   "has_meta": true,
+   "supported": false,
+   "expand": [
+    "MOD.ESP",
+    "Mod (v2).esp",
+    "Mod+.esp",
+    "Mod v1.2.3a.esp",
+    "Mod v1.2.3.4.esp",
+    "Moe's Mod.esp",
+    "Mod [x].esp"
+   ]
+  },
+  {
+   "name": "alternation",
+   "pattern": "a|b*",
+   "has_meta": true,
+   "supported": false,
+   "expand": [
+    "Better Bodies.esp",
+    "Better Bodies 2.2.esp",
+    "Better Bodies 10.esp",
+    "BetterBodies.esp",
+    "a.esp",
+    "ab.esp",
+    "abc.esp",
+    "A & B.esp",
+    "a1"
+   ]
+  },
+  {
+   "name": "backslash",
+   "pattern": "x\\y*",
+   "has_meta": true,
+   "supported": false,
+   "expand": []
+  },
+  {
+   "name": "caret",
+   "pattern": "^A*",
+   "has_meta": true,
+   "supported": false,
+   "expand": [
+    "a.esp",
+    "ab.esp",
+    "abc.esp",
+    "A & B.esp",
+    "a1"
+   ]
+  },
+  {
+   "name": "dollar",
+   "pattern": "A*$",
+   "has_meta": true,
+   "supported": false,
+   "expand": [
+    "a.esp",
+    "ab.esp",
+    "abc.esp",
+    "A & B.esp",
+    "a1"
+   ]
+  },
+  {
+   "name": "repeat count",
+   "pattern": "a{2}*",
+   "has_meta": true,
+   "supported": false,
+   "expand": []
+  },
+  {
+   "name": "class with a version",
+   "pattern": "[abc]<VER>",
+   "has_meta": true,
+   "supported": false,
+   "expand": [
+    "a1"
+   ]
+  }
+ ],
+ "versions": [
+  {
+   "in": "1.0",
+   "out": "00001.00000.00000._",
+   "supported": true
+  },
+  {
+   "in": "1.0a",
+   "out": "00001.00000.00000.a",
+   "supported": true
+  },
+  {
+   "in": "1.0A",
+   "out": "00001.00000.00000.A",
+   "supported": true
+  },
+  {
+   "in": "1.0ab",
+   "out": "00001.00000.00000.a",
+   "supported": true
+  },
+  {
+   "in": "1.2.3",
+   "out": "00001.00002.00003._",
+   "supported": true
+  },
+  {
+   "in": "1.2.3.4",
+   "out": "00001.00002.00003._",
+   "supported": true
+  },
+  {
+   "in": "1.2.3.4.5",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "1.2.3.4_5",
+   "out": "00001.00002.00003._",
+   "supported": true
+  },
+  {
+   "in": "1.2.3.4-5",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "1.2.3.-5",
+   "out": "00001.00002.00003._",
+   "supported": true
+  },
+  {
+   "in": "1.0.0.0.0",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "1.0.0.0_0",
+   "out": "00001.00000.00000._",
+   "supported": true
+  },
+  {
+   "in": "2",
+   "out": "00002.00000.00000._",
+   "supported": true
+  },
+  {
+   "in": "",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "abc",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "a1",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "1..2",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "1.",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": ".1",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "1.2a.3",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "1.2.3a",
+   "out": "00001.00002.00003.a",
+   "supported": true
+  },
+  {
+   "in": "5a",
+   "out": "00005.00000.00000.a",
+   "supported": true
+  },
+  {
+   "in": "10a",
+   "out": "00010.00000.00000.a",
+   "supported": true
+  },
+  {
+   "in": "01.002.0003",
+   "out": "00001.00002.00003._",
+   "supported": true
+  },
+  {
+   "in": "00000",
+   "out": "00000.00000.00000._",
+   "supported": true
+  },
+  {
+   "in": "1_2_3",
+   "out": "00001.00002.00003._",
+   "supported": true
+  },
+  {
+   "in": "1-2-3",
+   "out": "00001.00002.00003._",
+   "supported": true
+  },
+  {
+   "in": " 1.0",
+   "out": "00001.00000.00000._",
+   "supported": true
+  },
+  {
+   "in": "1.0 ",
+   "out": "00001.00000.00000._",
+   "supported": true
+  },
+  {
+   "in": "1 .0",
+   "out": "00001.00000.00000._",
+   "supported": true
+  },
+  {
+   "in": "+1.2",
+   "out": "00001.00002.00000._",
+   "supported": true
+  },
+  {
+   "in": "1.+2",
+   "out": "00001.00002.00000._",
+   "supported": true
+  },
+  {
+   "in": "1.-2",
+   "out": "",
+   "supported": true
+  },
+  {
+   "in": "99999999999999999999.1",
+   "out": "99999999999999999999.00001.00000._",
+   "supported": true
+  },
+  {
+   "in": "1.0\t",
+   "out": "00001.00000.00000._",
+   "supported": true
+  },
+  {
+   "in": "1_000.2",
+   "out": "00001.00000.00002._",
+   "supported": true
+  },
+  {
+   "in": "٣.١",
+   "out": "00003.00001.00000._",
+   "supported": false
+  },
+  {
+   "in": "1.0é",
+   "out": "",
+   "supported": false
+  }
+ ]
+}

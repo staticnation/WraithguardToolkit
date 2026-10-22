@@ -1,0 +1,2634 @@
+{
+ "_about": "The sort's graph: master files, the cycle check and the edges built from the curated order, header masters and rule texts, answered by wraithguard.sort.graph and wraithguard.sort.engine.build_edges; run by tests/test_graph_cases.py and viewer-shell/ordercore/tests/graph_cases.rs. Regenerate: python tools/gen_graph_cases.py",
+ "masters": [
+  {
+   "name": "Morrowind.esm",
+   "is_master": true
+  },
+  {
+   "name": "TRIBUNAL.ESM",
+   "is_master": true
+  },
+  {
+   "name": "Bloodmoon.Esm",
+   "is_master": true
+  },
+  {
+   "name": "Game.omwgame",
+   "is_master": true
+  },
+  {
+   "name": "Game.OMWGAME",
+   "is_master": true
+  },
+  {
+   "name": "Mod.esp",
+   "is_master": false
+  },
+  {
+   "name": "Mod.ESP",
+   "is_master": false
+  },
+  {
+   "name": "Mod.omwaddon",
+   "is_master": false
+  },
+  {
+   "name": "Mod.omwscripts",
+   "is_master": false
+  },
+  {
+   "name": "Mod.esl",
+   "is_master": false
+  },
+  {
+   "name": "esm",
+   "is_master": false
+  },
+  {
+   "name": ".esm",
+   "is_master": true
+  },
+  {
+   "name": ".omwgame",
+   "is_master": true
+  },
+  {
+   "name": "Mod.esm.bak",
+   "is_master": false
+  },
+  {
+   "name": "Mod.esmx",
+   "is_master": false
+  },
+  {
+   "name": "Mod.omwgame.txt",
+   "is_master": false
+  },
+  {
+   "name": "",
+   "is_master": false
+  },
+  {
+   "name": "Café.ESM",
+   "is_master": true
+  },
+  {
+   "name": "Mod esm",
+   "is_master": false
+  },
+  {
+   "name": "ESM.esp",
+   "is_master": false
+  }
+ ],
+ "cycles": [
+  {
+   "name": "an empty graph",
+   "adjacency": {},
+   "start": "A",
+   "target": "B",
+   "closes_cycle": false
+  },
+  {
+   "name": "the reverse of an edge",
+   "adjacency": {
+    "A": [
+     "B"
+    ],
+    "B": []
+   },
+   "start": "B",
+   "target": "A",
+   "closes_cycle": true
+  },
+  {
+   "name": "the same direction as an edge",
+   "adjacency": {
+    "A": [
+     "B"
+    ],
+    "B": []
+   },
+   "start": "A",
+   "target": "B",
+   "closes_cycle": false
+  },
+  {
+   "name": "the end of a chain back to its start",
+   "adjacency": {
+    "A": [
+     "B"
+    ],
+    "B": [
+     "C"
+    ],
+    "C": []
+   },
+   "start": "C",
+   "target": "A",
+   "closes_cycle": true
+  },
+  {
+   "name": "the start of a chain on to its end",
+   "adjacency": {
+    "A": [
+     "B"
+    ],
+    "B": [
+     "C"
+    ],
+    "C": []
+   },
+   "start": "A",
+   "target": "C",
+   "closes_cycle": false
+  },
+  {
+   "name": "two nodes with no path",
+   "adjacency": {
+    "A": [
+     "B"
+    ],
+    "C": [
+     "D"
+    ],
+    "B": [],
+    "D": []
+   },
+   "start": "B",
+   "target": "C",
+   "closes_cycle": false
+  },
+  {
+   "name": "a node to itself",
+   "adjacency": {
+    "A": []
+   },
+   "start": "A",
+   "target": "A",
+   "closes_cycle": true
+  },
+  {
+   "name": "a diamond closed at the bottom",
+   "adjacency": {
+    "A": [
+     "B",
+     "C"
+    ],
+    "B": [
+     "D"
+    ],
+    "C": [
+     "D"
+    ],
+    "D": []
+   },
+   "start": "D",
+   "target": "A",
+   "closes_cycle": true
+  },
+  {
+   "name": "across a diamond's two arms",
+   "adjacency": {
+    "A": [
+     "B",
+     "C"
+    ],
+    "B": [
+     "D"
+    ],
+    "C": [
+     "D"
+    ],
+    "D": []
+   },
+   "start": "B",
+   "target": "C",
+   "closes_cycle": false
+  },
+  {
+   "name": "an unrelated cycle does not loop",
+   "adjacency": {
+    "X": [
+     "Y"
+    ],
+    "Y": [
+     "X"
+    ],
+    "A": []
+   },
+   "start": "A",
+   "target": "X",
+   "closes_cycle": false
+  },
+  {
+   "name": "a cycle on the way to the start",
+   "adjacency": {
+    "X": [
+     "Y"
+    ],
+    "Y": [
+     "X",
+     "S"
+    ],
+    "S": []
+   },
+   "start": "S",
+   "target": "X",
+   "closes_cycle": true
+  },
+  {
+   "name": "a target the graph does not hold",
+   "adjacency": {
+    "A": [
+     "B"
+    ]
+   },
+   "start": "A",
+   "target": "Nowhere",
+   "closes_cycle": false
+  },
+  {
+   "name": "a start the graph does not hold",
+   "adjacency": {
+    "A": [
+     "B"
+    ],
+    "B": []
+   },
+   "start": "Nowhere",
+   "target": "A",
+   "closes_cycle": false
+  },
+  {
+   "name": "names differing by case are different nodes",
+   "adjacency": {
+    "A": [
+     "B"
+    ],
+    "B": []
+   },
+   "start": "b",
+   "target": "A",
+   "closes_cycle": false
+  },
+  {
+   "name": "a long chain",
+   "adjacency": {
+    "P0": [
+     "P1"
+    ],
+    "P1": [
+     "P2"
+    ],
+    "P2": [
+     "P3"
+    ],
+    "P3": [
+     "P4"
+    ],
+    "P4": [
+     "P5"
+    ],
+    "P5": [
+     "P6"
+    ],
+    "P6": [
+     "P7"
+    ],
+    "P7": [
+     "P8"
+    ],
+    "P8": [
+     "P9"
+    ],
+    "P9": [
+     "P10"
+    ],
+    "P10": [
+     "P11"
+    ],
+    "P11": [
+     "P12"
+    ],
+    "P12": [
+     "P13"
+    ],
+    "P13": [
+     "P14"
+    ],
+    "P14": [
+     "P15"
+    ],
+    "P15": [
+     "P16"
+    ],
+    "P16": [
+     "P17"
+    ],
+    "P17": [
+     "P18"
+    ],
+    "P18": [
+     "P19"
+    ],
+    "P19": [
+     "P20"
+    ],
+    "P20": [
+     "P21"
+    ],
+    "P21": [
+     "P22"
+    ],
+    "P22": [
+     "P23"
+    ],
+    "P23": [
+     "P24"
+    ],
+    "P24": [
+     "P25"
+    ],
+    "P25": [
+     "P26"
+    ],
+    "P26": [
+     "P27"
+    ],
+    "P27": [
+     "P28"
+    ],
+    "P28": [
+     "P29"
+    ],
+    "P29": [
+     "P30"
+    ],
+    "P30": [
+     "P31"
+    ],
+    "P31": [
+     "P32"
+    ],
+    "P32": [
+     "P33"
+    ],
+    "P33": [
+     "P34"
+    ],
+    "P34": [
+     "P35"
+    ],
+    "P35": [
+     "P36"
+    ],
+    "P36": [
+     "P37"
+    ],
+    "P37": [
+     "P38"
+    ],
+    "P38": [
+     "P39"
+    ],
+    "P39": [
+     "P40"
+    ],
+    "P40": []
+   },
+   "start": "P40",
+   "target": "P0",
+   "closes_cycle": true
+  }
+ ],
+ "graphs": [
+  {
+   "name": "nothing at all",
+   "rules": [],
+   "base": [],
+   "subset": [],
+   "masters": {},
+   "supported": true,
+   "subset_out": [],
+   "edges": [],
+   "indegree": [],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a curated chain and no customs",
+   "rules": [],
+   "base": [
+    "A.esm",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [],
+   "masters": {},
+   "supported": true,
+   "subset_out": [],
+   "edges": [
+    [
+     "A.esm",
+     "B.esp"
+    ],
+    [
+     "B.esp",
+     "C.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "C.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a single curated plugin",
+   "rules": [],
+   "base": [
+    "A.esm"
+   ],
+   "subset": [],
+   "masters": {},
+   "supported": true,
+   "subset_out": [],
+   "edges": [],
+   "indegree": [],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "customs that are new are not chained",
+   "rules": [],
+   "base": [
+    "A.esm",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "A.esm",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a custom already in the cfg is bridged over",
+   "rules": [],
+   "base": [
+    "A.esp",
+    "C.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "C.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "C.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "customs at both ends of the cfg are bridged over",
+   "rules": [],
+   "base": [
+    "X.esp",
+    "A.esp",
+    "B.esp",
+    "Y.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a custom spelt another way is put on the cfg's spelling",
+   "rules": [],
+   "base": [
+    "A.esp",
+    "Mod.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "mod.ESP"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "Mod.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "customs that differ only by case are one",
+   "rules": [],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "New.esp",
+    "new.ESP",
+    "NEW.esp",
+    "Other.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "New.esp",
+    "Other.esp"
+   ],
+   "edges": [],
+   "indegree": [],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a custom named twice, once as the cfg has it",
+   "rules": [],
+   "base": [
+    "A.esp",
+    "Mod.esp"
+   ],
+   "subset": [
+    "mod.esp",
+    "Mod.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "Mod.esp"
+   ],
+   "edges": [],
+   "indegree": [],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "non-ASCII names fold by case",
+   "rules": [],
+   "base": [
+    "Morrowind.esm",
+    "Café.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "CAFÉ.ESP",
+    "Nové.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "Café.esp",
+    "Nové.esp"
+   ],
+   "edges": [
+    [
+     "Morrowind.esm",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a curated name twice in the cfg",
+   "rules": [],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "A.esp"
+   ],
+   "subset": [],
+   "masters": {},
+   "supported": true,
+   "subset_out": [],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "B.esp",
+     "A.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "B.esp",
+     "A.esp"
+    ]
+   ]
+  },
+  {
+   "name": "one header master",
+   "rules": [],
+   "base": [
+    "Morrowind.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "x.esp": [
+     "Morrowind.esm"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "Morrowind.esm",
+     "A.esp"
+    ],
+    [
+     "Morrowind.esm",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "A.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "several header masters, one not installed",
+   "rules": [],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "x.esp": [
+     "Morrowind.esm",
+     "Tamriel_Data.esm",
+     "Tribunal.esm"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "Morrowind.esm",
+     "Tribunal.esm"
+    ],
+    [
+     "Morrowind.esm",
+     "X.esp"
+    ],
+    [
+     "Tribunal.esm",
+     "A.esp"
+    ],
+    [
+     "Tribunal.esm",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "A.esp",
+     1
+    ],
+    [
+     "Tribunal.esm",
+     1
+    ],
+    [
+     "X.esp",
+     2
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a header master spelt another way",
+   "rules": [],
+   "base": [
+    "Morrowind.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "x.esp": [
+     "MORROWIND.ESM"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "Morrowind.esm",
+     "A.esp"
+    ],
+    [
+     "Morrowind.esm",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "A.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a custom listing itself as its master",
+   "rules": [],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "x.esp": [
+     "X.esp",
+     "x.ESP"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [],
+   "indegree": [],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a custom after another custom",
+   "rules": [],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {
+    "y.esp": [
+     "X.esp"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "X.esp",
+     "Y.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Y.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "masters of a curated plugin are not read",
+   "rules": [],
+   "base": [
+    "A.esm",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "b.esp": [
+     "A.esm"
+    ],
+    "x.esp": [
+     "A.esm"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esm",
+     "B.esp"
+    ],
+    [
+     "A.esm",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a masters key that is not lower case is not found",
+   "rules": [],
+   "base": [
+    "A.esm"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "X.esp": [
+     "A.esm"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [],
+   "indegree": [],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "two customs each the other's master: the second is refused",
+   "rules": [],
+   "base": [
+    "A.esm"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {
+    "x.esp": [
+     "Y.esp"
+    ],
+    "y.esp": [
+     "X.esp"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "Y.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "X.esp",
+     "Y.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "X.esp",
+     "Y.esp"
+    ]
+   ]
+  },
+  {
+   "name": "masters held for a plugin that is not a custom",
+   "rules": [],
+   "base": [
+    "A.esm"
+   ],
+   "subset": [],
+   "masters": {
+    "zzz.esp": [
+     "A.esm"
+    ]
+   },
+   "supported": true,
+   "subset_out": [],
+   "edges": [],
+   "indegree": [],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "rules among curated plugins add nothing",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nB.esp\nC.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [],
+   "masters": {},
+   "supported": true,
+   "subset_out": [],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ],
+    [
+     "B.esp",
+     "C.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "C.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a rule through a custom",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX.esp\nB.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ],
+    [
+     "A.esp",
+     "X.esp"
+    ],
+    [
+     "X.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     2
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "an uninstalled plugin in a chain is bridged",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nGone.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ],
+    [
+     "A.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "uninstalled plugins at the ends and in the middle",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nGone1.esp\nA.esp\nGone2.esp\nGone3.esp\nX.esp\nGone4.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ],
+    [
+     "A.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a chain with one name left installed has no edge",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nGone.esp\nX.esp\nAlso Gone.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [],
+   "indegree": [],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a star takes every match",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA*.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A1.esp",
+    "A2.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A1.esp",
+     "A2.esp"
+    ],
+    [
+     "A1.esp",
+     "X.esp"
+    ],
+    [
+     "A2.esp",
+     "B.esp"
+    ],
+    [
+     "A2.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "A2.esp",
+     1
+    ],
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "X.esp",
+     2
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a star on both sides makes every pair",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA*.esp\nX*.esp\n"
+    }
+   ],
+   "base": [
+    "A1.esp",
+    "A2.esp",
+    "X1.esp"
+   ],
+   "subset": [
+    "X2.esp",
+    "X3.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X2.esp",
+    "X3.esp"
+   ],
+   "edges": [
+    [
+     "A1.esp",
+     "A2.esp"
+    ],
+    [
+     "A1.esp",
+     "X2.esp"
+    ],
+    [
+     "A1.esp",
+     "X3.esp"
+    ],
+    [
+     "A2.esp",
+     "X1.esp"
+    ],
+    [
+     "A2.esp",
+     "X2.esp"
+    ],
+    [
+     "A2.esp",
+     "X3.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "A2.esp",
+     1
+    ],
+    [
+     "X1.esp",
+     1
+    ],
+    [
+     "X2.esp",
+     2
+    ],
+    [
+     "X3.esp",
+     2
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a version pattern",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nBetter Bodies <VER>.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "Better Bodies 2.2.esp",
+    "Better Bodies.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "Better Bodies 2.2.esp",
+     "Better Bodies.esp"
+    ],
+    [
+     "Better Bodies 2.2.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Better Bodies.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a question mark",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX?.esp\nB.esp\n"
+    }
+   ],
+   "base": [
+    "X.esp",
+    "Xa.esp",
+    "Xab.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "Q.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "Q.esp"
+   ],
+   "edges": [
+    [
+     "X.esp",
+     "Xa.esp"
+    ],
+    [
+     "Xa.esp",
+     "Xab.esp"
+    ],
+    [
+     "Xab.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "Xa.esp",
+     1
+    ],
+    [
+     "Xab.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a star that reaches a custom and a curated plugin: only the custom's edges",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nMod*.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "Mod2.esp"
+   ],
+   "subset": [
+    "ModNew.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "ModNew.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "Mod2.esp"
+    ],
+    [
+     "A.esp",
+     "ModNew.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Mod2.esp",
+     1
+    ],
+    [
+     "ModNew.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "two tokens that are one plugin make no self edge",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nx*.esp\nB.esp\n"
+    }
+   ],
+   "base": [
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "X.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a plain name in another case",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.ESP\nx.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a plain name finds the first of two spellings only",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nmod.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "Mod.esp",
+    "MOD.ESP"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "Mod.esp",
+     "MOD.ESP"
+    ],
+    [
+     "Mod.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "MOD.ESP",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a wildcard reaches a custom master as well",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\n*.esm\nX.esp\n"
+    }
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "Mine.esm",
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "Mine.esm",
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "Mine.esm",
+     "X.esp"
+    ],
+    [
+     "Morrowind.esm",
+     "Tribunal.esm"
+    ],
+    [
+     "Morrowind.esm",
+     "X.esp"
+    ],
+    [
+     "Tribunal.esm",
+     "A.esp"
+    ],
+    [
+     "Tribunal.esm",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "A.esp",
+     1
+    ],
+    [
+     "Tribunal.esm",
+     1
+    ],
+    [
+     "X.esp",
+     3
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a name a rule repeats",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nX.esp\nA.esp\nY.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "X.esp"
+    ],
+    [
+     "A.esp",
+     "Y.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "X.esp",
+     1
+    ],
+    [
+     "Y.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "X.esp",
+     "A.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "X.esp",
+     "A.esp"
+    ]
+   ]
+  },
+  {
+   "name": "rules that agree",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nX.esp\nY.esp\nZ.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp",
+    "Z.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp",
+    "Z.esp"
+   ],
+   "edges": [
+    [
+     "X.esp",
+     "Y.esp"
+    ],
+    [
+     "Y.esp",
+     "Z.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Y.esp",
+     1
+    ],
+    [
+     "Z.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a later file wins a contradiction",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nY.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "Y.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "X.esp",
+     "Y.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "X.esp",
+     "Y.esp"
+    ]
+   ]
+  },
+  {
+   "name": "an earlier file wins when it is the later listed",
+   "rules": [
+    {
+     "priority": 1,
+     "text": "[Order]\nX.esp\nY.esp\n"
+    },
+    {
+     "priority": 0,
+     "text": "[Order]\nY.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "X.esp",
+     "Y.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Y.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "Y.esp",
+     "X.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "Y.esp",
+     "X.esp"
+    ]
+   ]
+  },
+  {
+   "name": "one file's blocks at one priority run in file order",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\n[Order]\nY.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "X.esp",
+     "Y.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Y.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "Y.esp",
+     "X.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "Y.esp",
+     "X.esp"
+    ]
+   ]
+  },
+  {
+   "name": "a rule against the curated order is refused",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC.esp\nX.esp\n[Order]\nX.esp\nA.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ],
+    [
+     "B.esp",
+     "C.esp"
+    ],
+    [
+     "C.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "C.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "X.esp",
+     "A.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "X.esp",
+     "A.esp"
+    ]
+   ]
+  },
+  {
+   "name": "the same refusal twice is told once",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nC.esp\nX.esp\n[Order]\nX.esp\nA.esp\n[Order]\nX.esp\nA.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp",
+    "C.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ],
+    [
+     "B.esp",
+     "C.esp"
+    ],
+    [
+     "C.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "C.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "X.esp",
+     "A.esp"
+    ],
+    [
+     "X.esp",
+     "A.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "X.esp",
+     "A.esp"
+    ]
+   ]
+  },
+  {
+   "name": "a rule against a header master edge is refused",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nBase.esm\n"
+    }
+   ],
+   "base": [
+    "Base.esm",
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {
+    "x.esp": [
+     "Base.esm"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "Base.esm",
+     "A.esp"
+    ],
+    [
+     "Base.esm",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "A.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "X.esp",
+     "Base.esm"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "X.esp",
+     "Base.esm"
+    ]
+   ]
+  },
+  {
+   "name": "a rule through a cycle of three",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nY.esp\n[Order]\nY.esp\nZ.esp\n[Order]\nZ.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp",
+    "Z.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp",
+    "Z.esp"
+   ],
+   "edges": [
+    [
+     "X.esp",
+     "Y.esp"
+    ],
+    [
+     "Y.esp",
+     "Z.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Y.esp",
+     1
+    ],
+    [
+     "Z.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "Z.esp",
+     "X.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "Z.esp",
+     "X.esp"
+    ]
+   ]
+  },
+  {
+   "name": "a rule drawn from a conditional entry",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\n[DESC /x/ Gone.esp]\nsome words\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "other keywords make no edges",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Conflict]\nA.esp\nX.esp\n[Note]\nX.esp\nB.esp\n[NearStart]\nX.esp\nA.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a custom already in the cfg, moved by a rule",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "X.esp",
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "B.esp"
+    ],
+    [
+     "B.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a custom in the cfg under another spelling, in a rule",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nB.esp\nx.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "Xylo.esp",
+    "B.esp",
+    "X.esp"
+   ],
+   "subset": [
+    "x.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "Xylo.esp"
+    ],
+    [
+     "B.esp",
+     "X.esp"
+    ],
+    [
+     "Xylo.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ],
+    [
+     "Xylo.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a realistic fragment",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Version 0.1]\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\nTamriel_Data.esm\nTR_Mainland.esm\n[Note]\nsee the [Order] section\n[Order]\nTR_Mainland.esm\nBetter Bodies*.esp\nMy Armor <VER>.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nMy Armor <VER>.esp\nBetter Bodies*.esp\n[NearEnd]\nMerged.esp\n"
+    }
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Bloodmoon.esm",
+    "Tamriel_Data.esm",
+    "TR_Mainland.esm",
+    "Better Bodies.esp",
+    "Better Bodies 2.esp",
+    "Weapons.esp"
+   ],
+   "subset": [
+    "My Armor 1.2.esp",
+    "Better Bodies Patch.esp",
+    "Mine.esp"
+   ],
+   "masters": {
+    "my armor 1.2.esp": [
+     "Morrowind.esm",
+     "Tamriel_Data.esm",
+     "Gone.esm"
+    ],
+    "better bodies patch.esp": [
+     "Better Bodies.esp"
+    ],
+    "mine.esp": [
+     "my armor 1.2.esp",
+     "Weapons.esp"
+    ]
+   },
+   "supported": true,
+   "subset_out": [
+    "My Armor 1.2.esp",
+    "Better Bodies Patch.esp",
+    "Mine.esp"
+   ],
+   "edges": [
+    [
+     "Better Bodies 2.esp",
+     "Weapons.esp"
+    ],
+    [
+     "Better Bodies.esp",
+     "Better Bodies 2.esp"
+    ],
+    [
+     "Better Bodies.esp",
+     "Better Bodies Patch.esp"
+    ],
+    [
+     "Bloodmoon.esm",
+     "Tamriel_Data.esm"
+    ],
+    [
+     "Morrowind.esm",
+     "My Armor 1.2.esp"
+    ],
+    [
+     "Morrowind.esm",
+     "Tribunal.esm"
+    ],
+    [
+     "My Armor 1.2.esp",
+     "Better Bodies 2.esp"
+    ],
+    [
+     "My Armor 1.2.esp",
+     "Better Bodies Patch.esp"
+    ],
+    [
+     "My Armor 1.2.esp",
+     "Better Bodies.esp"
+    ],
+    [
+     "My Armor 1.2.esp",
+     "Mine.esp"
+    ],
+    [
+     "TR_Mainland.esm",
+     "Better Bodies Patch.esp"
+    ],
+    [
+     "TR_Mainland.esm",
+     "Better Bodies.esp"
+    ],
+    [
+     "Tamriel_Data.esm",
+     "My Armor 1.2.esp"
+    ],
+    [
+     "Tamriel_Data.esm",
+     "TR_Mainland.esm"
+    ],
+    [
+     "Tribunal.esm",
+     "Bloodmoon.esm"
+    ],
+    [
+     "Weapons.esp",
+     "Mine.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Better Bodies 2.esp",
+     2
+    ],
+    [
+     "Better Bodies Patch.esp",
+     3
+    ],
+    [
+     "Better Bodies.esp",
+     2
+    ],
+    [
+     "Bloodmoon.esm",
+     1
+    ],
+    [
+     "Mine.esp",
+     2
+    ],
+    [
+     "My Armor 1.2.esp",
+     2
+    ],
+    [
+     "TR_Mainland.esm",
+     1
+    ],
+    [
+     "Tamriel_Data.esm",
+     1
+    ],
+    [
+     "Tribunal.esm",
+     1
+    ],
+    [
+     "Weapons.esp",
+     1
+    ]
+   ],
+   "conflicts": [
+    [
+     "Better Bodies.esp",
+     "My Armor 1.2.esp"
+    ],
+    [
+     "Better Bodies 2.esp",
+     "My Armor 1.2.esp"
+    ],
+    [
+     "Better Bodies Patch.esp",
+     "My Armor 1.2.esp"
+    ]
+   ],
+   "unique_conflicts": [
+    [
+     "Better Bodies.esp",
+     "My Armor 1.2.esp"
+    ],
+    [
+     "Better Bodies 2.esp",
+     "My Armor 1.2.esp"
+    ],
+    [
+     "Better Bodies Patch.esp",
+     "My Armor 1.2.esp"
+    ]
+   ]
+  },
+  {
+   "name": "a name with a bracket and a star is declined",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nMod [x]*.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "Mod [x] 2.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": false,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "Mod [x] 2.esp"
+    ],
+    [
+     "A.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Mod [x] 2.esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a name with a bracket and no wildcard is plain",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nMod [x].esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp",
+    "Mod [x].esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "Mod [x].esp"
+    ],
+    [
+     "Mod [x].esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "Mod [x].esp",
+     1
+    ],
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a declined name in a block that would add no edge",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\na|b*.esp\nQ.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": false,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [],
+   "indegree": [],
+   "conflicts": [],
+   "unique_conflicts": []
+  }
+ ]
+}

@@ -35,6 +35,21 @@ _POSITION_EPSILON = 1e-6
 _is_master_file = is_master_file
 
 
+def _unique_conflicts(conflicts: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
+    """The rejected edges once each, by name without case, in the order first seen.
+
+    Split out of :func:`_build_edges` (its report) so the Rust port runs the same cases.
+    """
+    seen: set[tuple[str, str]] = set()
+    unique: list[tuple[str, str]] = []
+    for a, b in conflicts:
+        key = (a.lower(), b.lower())
+        if key not in seen:
+            seen.add(key)
+            unique.append((a, b))
+    return unique
+
+
 def _build_edges(
     base_order_names: list[str],
     subset_names: Sequence[str],
@@ -152,12 +167,7 @@ def _build_edges(
     # intentionally differs from raw mlox. The frozen cfg order is kept and the
     # affected plugin is still placed as well as the non-conflicting rules allow.
     if conflicts:
-        seen, unique = set(), []
-        for a, b in conflicts:
-            key = (a.lower(), b.lower())
-            if key not in seen:
-                seen.add(key)
-                unique.append((a, b))
+        unique = _unique_conflicts(conflicts)
         print(
             "\n  "
             + ngettext(
@@ -523,6 +533,87 @@ def _kahn_place(
     return result
 
 
+def _canonical_subset(base_order_names: list[str], subset_names: Sequence[str]) -> list[str]:
+    """Canonicalise the customs onto the base spelling and drop case-duplicates.
+
+    Split out of :func:`build_and_sort` so the Rust port (``ordercore::graph``) and this
+    run the same cases (``tests/fixtures/graph_cases.json``); the body is unchanged.
+    """
+    # Guard against the same plugin becoming two different graph nodes just
+    # because of a casing difference (OpenMW's VFS is case-insensitive, so
+    # 'NewMod.esp' and 'newmod.esp' are the same file) -- canonicalize any
+    # subset entry that matches an existing base entry onto that entry's
+    # exact spelling, and drop the resulting case-duplicates. Without this,
+    # a subset plugin already in the cfg under different casing would get
+    # inserted a second time instead of being repositioned.
+    base_lower_map = {n.lower(): n for n in base_order_names}
+    canonical_subset_names = []
+    seen_lower = set()
+    for n in subset_names:
+        canon = base_lower_map.get(n.lower(), n)
+        if canon != n:
+            trace_sort(f"[sort] canonicalize subset '{n}' -> cfg spelling '{canon}'")
+        if canon.lower() not in seen_lower:
+            seen_lower.add(canon.lower())
+            canonical_subset_names.append(canon)
+        else:
+            trace_sort(f"[sort] drop duplicate subset entry '{n}' (already have '{canon}')")
+    return canonical_subset_names
+
+
+def _graph_nodes(
+    base_order_names: list[str], subset_names: Sequence[str]
+) -> tuple[dict[str, int], set[str], list[str], set[str], dict[str, str], list[str]]:
+    """The graph's node sets, as :func:`build_and_sort` derives them.
+
+    Returns:
+        ``(base_index, nodes, node_pool, subset_set, node_lower, in_cfg)``.
+    """
+    base_index = {name: i for i, name in enumerate(base_order_names)}
+    nodes = set(base_order_names) | set(subset_names)
+    # Deterministic iteration pool: set order is randomized per process
+    # (PYTHONHASHSEED), and using `nodes` directly for rule expansion made
+    # edge insertion order -- and through it the final sort -- vary from
+    # run to run. Same membership, fixed order.
+    node_pool = base_order_names + [n for n in subset_names if n not in base_index]
+    subset_set = set(subset_names)
+    node_lower = {n.lower(): n for n in nodes}
+    in_cfg = [n for n in subset_names if n in base_index]
+    return base_index, nodes, node_pool, subset_set, node_lower, in_cfg
+
+
+def build_edges(
+    base_order_names: list[str],
+    subset_names: Sequence[str],
+    rule_blocks: Sequence[tuple[list[str], int]],
+    masters: Mapping[str, Sequence[str]] | None = None,
+) -> tuple[list[str], dict[str, set[str]], dict[str, int], list[tuple[str, str]]]:
+    """The ordering graph for these inputs: what :func:`build_and_sort` builds first.
+
+    The graph half of the sort (the customs canonicalised, the nodes derived, then
+    :func:`_build_edges`), callable alone so the Rust port and this run the same cases.
+
+    Returns:
+        ``(subset_names as canonicalised, adj, indeg, conflicts)``.
+    """
+    subset_names = _canonical_subset(base_order_names, subset_names)
+    _base_index, nodes, node_pool, subset_set, node_lower, in_cfg = _graph_nodes(
+        base_order_names, subset_names
+    )
+    adj, indeg, conflicts = _build_edges(
+        base_order_names,
+        subset_names,
+        rule_blocks,
+        masters,
+        nodes,
+        node_pool,
+        node_lower,
+        subset_set,
+        in_cfg,
+    )
+    return subset_names, adj, indeg, conflicts
+
+
 def build_and_sort(
     base_order_names: list[str],
     subset_names: Sequence[str],
@@ -569,42 +660,16 @@ def build_and_sort(
         The full plugin order: every base plugin in its original relative
         position, with the custom plugins placed among them.
     """
-    # Guard against the same plugin becoming two different graph nodes just
-    # because of a casing difference (OpenMW's VFS is case-insensitive, so
-    # 'NewMod.esp' and 'newmod.esp' are the same file) -- canonicalize any
-    # subset entry that matches an existing base entry onto that entry's
-    # exact spelling, and drop the resulting case-duplicates. Without this,
-    # a subset plugin already in the cfg under different casing would get
-    # inserted a second time instead of being repositioned.
     trace_sort(
         f"[sort] === build_and_sort: {len(base_order_names)} base plugin(s), "
         f"{len(subset_names)} subset (custom) plugin(s), {len(rule_blocks)} mlox rule block(s), "
         f"masters for {len(masters or {})} plugin(s) ==="
     )
-    base_lower_map = {n.lower(): n for n in base_order_names}
-    canonical_subset_names = []
-    seen_lower = set()
-    for n in subset_names:
-        canon = base_lower_map.get(n.lower(), n)
-        if canon != n:
-            trace_sort(f"[sort] canonicalize subset '{n}' -> cfg spelling '{canon}'")
-        if canon.lower() not in seen_lower:
-            seen_lower.add(canon.lower())
-            canonical_subset_names.append(canon)
-        else:
-            trace_sort(f"[sort] drop duplicate subset entry '{n}' (already have '{canon}')")
-    subset_names = canonical_subset_names
+    subset_names = _canonical_subset(base_order_names, subset_names)
 
-    base_index = {name: i for i, name in enumerate(base_order_names)}
-    nodes = set(base_order_names) | set(subset_names)
-    # Deterministic iteration pool: set order is randomized per process
-    # (PYTHONHASHSEED), and using `nodes` directly for rule expansion made
-    # edge insertion order -- and through it the final sort -- vary from
-    # run to run. Same membership, fixed order.
-    node_pool = base_order_names + [n for n in subset_names if n not in base_index]
-    subset_set = set(subset_names)
-    node_lower = {n.lower(): n for n in nodes}
-    in_cfg = [n for n in subset_names if n in base_index]
+    base_index, nodes, node_pool, subset_set, node_lower, in_cfg = _graph_nodes(
+        base_order_names, subset_names
+    )
     new_cust = [n for n in subset_names if n not in base_index]
     trace_sort(
         f"[sort] {len(in_cfg)} custom(s) already in cfg (will be repositioned), "

@@ -63,17 +63,51 @@ program, and a clearer UI on the way. In order:
         `tools\build_and_check_rust.ps1`; its algorithm was run in a Python transliteration
         against all the cases. Known and left: `[Order]` and the extensions fold case as ASCII
         only, where Python also folds `ſ` onto `s`.
-      - **2b. Name patterns** (about 240 lines of Python): `mlox_pattern_to_regex`,
-        `pattern_has_meta`, `expand_pattern`, `<VER>` and `format_version` (`rules/patterns.py`,
-        `sort/graph.py`, `versions.py`) as a hand-written matcher (ordercore takes no
-        dependencies, so no regex crate); cases are pattern + names -> matches.
-      - **2c. The sort's graph**: `sort/graph.py`'s cycle check and masters-first, and
-        `sort/engine.py`'s edge building from blocks (the chain bridged over an uninstalled
-        plugin, an edge that would close a cycle dropped). Cases: rule texts + plugin names
-        -> edges.
-      - **2d. The sort's order**: the rest of `sort/engine.py` (644 lines): NearStart and
-        NearEnd, the tie-break among unrelated plugins, the result. Cases: rule texts +
-        plugin names -> the order.
+      - **2b. Name patterns** (done 2026-10-19): `ordercore::patterns` - `has_meta`,
+        `Pattern`/`expand` (a hand-written matcher for `*`, `?` and `<VER>`; ordercore takes no
+        dependencies) and `format_version`; 45 patterns and 38 versions in
+        `pattern_cases.json`. A pattern with a wildcard and a character mlox leaves to the
+        regular expression (`[ ] { } | \ ^ $`), and a version that is not ASCII, are
+        **declined** (`Unsupported`): the caller keeps Python's answer. Not built here (see 2a):
+        run `tools\build_and_check_rust.ps1`; the algorithm ran in a Python transliteration
+        against every case. Known and left: letters fold by Unicode's simple lower case (Python
+        also folds `ſ` onto `s`); a name ending in a newline matches `$` in Python. To decide
+        before 2j: whether the real rule databases (mlox_base, MOMW's) hold any declined
+        pattern - count them; if none, the decline is only a guard.
+      - **2c. The sort's graph** (done 2026-10-21): `ordercore::graph` - `is_master_file`,
+        `would_create_cycle`, `canonical_subset`, `build_edges` (the curated chain with the
+        customs bridged over, each custom's header masters, then the `[Order]` chains highest
+        priority first, an uninstalled name bridged over, a cycle-closing edge refused and
+        remembered) and `unique_conflicts`. Python: `build_and_sort` is split so the same cases
+        run on it (`engine.build_edges`, `_canonical_subset`, `_graph_nodes`,
+        `_unique_conflicts`; `_build_edges` itself is untouched). 20 names, 15 cycle checks and
+        51 graphs in `graph_cases.json`; a graph's rule texts go through `parse_text`, so 2a, 2b
+        and 2c run together. A name `expand` declines declines the whole graph
+        (`Unsupported`). Built and run here (Rust 1.75 with `--ignore-rust-version`, a fresh
+        lock file): the unit tests, the three case tests and clippy `-D warnings` pass; run
+        `tools\build_and_check_rust.ps1` on the real toolchain all the same. Known and left:
+        a curated order holding two spellings of one name makes Python pick the spelling a
+        master is found as by set order (here, the later one). Not ported: the report's wording
+        (the caller's; `unique_conflicts` gives it each refusal once).
+      - **2d. The sort's order** (done 2026-10-22): `ordercore::order::build_and_sort` - the
+        graph of 2c, a position for every custom (right after the latest-loading non-master
+        plugin it must follow, else right before the earliest it must precede, else its cfg
+        place or the end; a neighbour derived from its own position is skipped and the positions
+        are settled again until they stop changing), the `[NearStart]`/`[NearEnd]` hints (rank by
+        listing, the first mention fixes it) and Kahn's placement (masters, position, name).
+        It answers the order and `anchor_out` (`How`: after, before, none, nearstart, nearend).
+        No Python change: `build_and_sort` is already callable alone. 130 cases in
+        `order_cases.json` (58 by hand, 72 from a fixed seed with a generator of its own, so the
+        file does not move with Python's `random`; the same bytes under any hash seed); each also
+        checks that the curated plugins keep their order. Same rules as 2c: a name `expand`
+        declines declines the sort. Built and run here as for 2c: 31 unit tests, the case tests
+        and clippy `-D warnings` pass; six deliberate breakages of the Rust (no settling,
+        no circular check, masters not first, the `before` nudge, hint rank, masters as a
+        position signal) each fail the cases. Positions are `f64` with the Python's arithmetic in
+        its order, so they agree to the bit. The anchoring recurses along a chain of customs, as
+        the Python does; a chain of many thousands needs a larger stack than a test thread's.
+        Not ported: the trace and the "could not be placed" warning's wording (unreachable: a
+        cycle is refused as the edge is added; the Rust keeps the same backstop).
       - **2e. Predicate rules**: `[Requires]`, `[Conflict]`, `[Note]`, `[Patch]` bodies and
         their expressions (`rules/expressions.py` 160, `predicates.py` 502, `derive.py` 393)
         against plugin metadata (versions, descriptions, sizes). Probably two slices:
