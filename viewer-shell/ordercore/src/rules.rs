@@ -73,18 +73,18 @@ const EXTENSIONS: [&str; 5] = ["esp", "esm", "omwaddon", "omwgame", "omwscripts"
 
 /// Python's `str.isspace` (and so `\s` and `str.strip` in a `str` pattern). It is Rust's
 /// `char::is_whitespace` plus the four information separators U+001C to U+001F.
-fn is_space(c: char) -> bool {
+pub(crate) fn is_space(c: char) -> bool {
     c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
 }
 
 /// Python's `\w`: a letter or digit of any script, or an underscore.
-fn is_word(c: char) -> bool {
+pub(crate) fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
 /// Python's `str.splitlines()`: on `\n`, `\r`, `\r\n`, and the vertical tab, form feed,
 /// U+001C to U+001E, NEL (U+0085) and the two Unicode separators; no empty last piece.
-fn splitlines(s: &str) -> Vec<&str> {
+pub(crate) fn splitlines(s: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
     let mut chars = s.char_indices().peekable();
@@ -121,7 +121,7 @@ fn splitlines(s: &str) -> Vec<&str> {
 }
 
 /// `strip_comment`: the line up to the first `;`.
-fn strip_comment(line: &str) -> &str {
+pub(crate) fn strip_comment(line: &str) -> &str {
     line.find(';').map_or(line, |i| &line[..i])
 }
 

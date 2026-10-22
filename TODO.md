@@ -108,10 +108,40 @@ program, and a clearer UI on the way. In order:
         the Python does; a chain of many thousands needs a larger stack than a test thread's.
         Not ported: the trace and the "could not be placed" warning's wording (unreachable: a
         cycle is refused as the edge is added; the Rust keeps the same backstop).
-      - **2e. Predicate rules**: `[Requires]`, `[Conflict]`, `[Note]`, `[Patch]` bodies and
-        their expressions (`rules/expressions.py` 160, `predicates.py` 502, `derive.py` 393)
-        against plugin metadata (versions, descriptions, sizes). Probably two slices:
-        expressions, then predicates.
+      - **2e. Predicate rules** (done 2026-10-22, in one slice, not two): `ordercore::predicates`
+        - `tokenize`, `parse`, `describe` (`expressions.py`), `evaluate`, `triggered`,
+        `format_version`, `check_predicates` (`predicates.py`). Plugin files are not read in
+        Rust: the caller implements `Plugins` (`usable`, `exists`, `size`, `description`: the
+        Python's `PluginFileIndex`), and the version is read from the description or the file
+        name as `plugin_version` does. The expressions are Python regular expressions, so
+        `ordercore::pyre` is a matcher for the part of `re` the rule code uses (classes, groups,
+        alternation, greedy and lazy quantifiers, anchors, `\b`, `\d \w \s`, ignoring case and
+        multi-line), backtracking in Python's order, so the six expressions the rule code compiles
+        (the tokeniser, the header, `VER`, `SIZE`, `DESC`, `MWSE-LUA`) run unchanged and the
+        quirks come out the same (`[VER = 1.0]` is version `1`, plugin `.0`). A `[DESC /regex/]`
+        is read by the same matcher; a regex Python rejects matches nothing (as there), and one
+        the matcher does not read (lookarounds, flags, named groups, back-references, possessive
+        quantifiers, `\x`, a repeated group that can match nothing, a repeat count over 1000) is
+        declined, as is a plugin name with syntax in it and a size over 64 bits: `Unsupported`,
+        the caller keeps Python's answer. The real rule databases use almost only plain-text
+        `DESC` regexes (151 uses, 34 distinct; a `.` in seven, a group in one). Cases:
+        `pyre_cases.json` (6,044: the six real expressions over 34 texts, 115 patterns by hand
+        and 400 from a fixed seed; 5,011 answered exactly as Python answers, 1,033 declined, 0
+        wrong) and `predicate_cases.json` (186 expressions, 30 versions, 359 checks, of which the
+        Rust answers 353 and declines 6). The checks run the real `check_predicates` over real
+        (tiny, synthetic) TES3 plugin files it writes to a temp folder; what Python read from
+        them (`usable`, each size and description) is recorded and given to the Rust. Built and
+        run here as for 2c/2d: 44 unit tests and the case tests pass, clippy `-D warnings`
+        clean; ten deliberate breakages (nine caught; the tenth was an equivalent mutation).
+        Known and left: `\w`/`\b` take a non-ASCII character as a word character when Rust's
+        `is_alphanumeric` does (Python's `isalnum` differs for a few combining marks and
+        ideographic numerals); `\d` is Python 3.12's table (Unicode 15.0); `\B` on an empty
+        string is declined. **`derive.py` is not in this slice**: it turns master lists and
+        conflict records into `Rule` proposals and builds on `rules/authoring.py`, so it goes
+        with 2h. **For whoever runs the generator**: `tools/gen_predicate_cases.py` reads each
+        plugin's description through `read_plugin_description`, which needs the built native
+        module; the file here was made with its fixed-offset fallback reader (the same text for
+        these headers), so run `tests/test_predicate_cases.py` against the real one.
       - **2f. MOMW's `plugin-order.yml`** and the post-sort warnings
         (`test_yml_post_sort_warnings.py`).
       - **2g. Export**: `openmw.cfg` and `customizations.toml` written the way Python writes

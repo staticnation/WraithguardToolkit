@@ -7,6 +7,9 @@
 //! - [`refs`]: a placed object's identity, and which of its versions stands.
 //! - [`patterns`]: a rule's plugin-name patterns (`*`, `?`, `<VER>`) and mlox's comparable
 //!   version strings.
+//! - [`predicates`]: the `[Requires]`/`[Conflict]`/`[Patch]`/`[Note]` rules - their expression
+//!   language, and the warnings that fire for a sorted load order.
+//! - [`pyre`]: the part of Python's `re` the rule code uses, matched by hand.
 //! - [`order`]: where the sort puts each custom plugin among the curated ones - positions from
 //!   the graph, the `[NearStart]`/`[NearEnd]` hints, and the topological placement.
 //! - [`rules`]: the ordering blocks of an mlox rule file's text.
@@ -25,6 +28,8 @@ pub mod cfg;
 pub mod graph;
 pub mod order;
 pub mod patterns;
+pub mod predicates;
+pub mod pyre;
 pub mod records;
 pub mod refs;
 pub mod rules;
