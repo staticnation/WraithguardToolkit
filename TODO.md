@@ -147,8 +147,35 @@ program, and a clearer UI on the way. In order:
       - **2g. Export**: `openmw.cfg` and `customizations.toml` written the way Python writes
         them (byte for byte, as the patch build is).
       - **2h. The rule maker** (`rules/authoring.py`, 866 lines) and the user's rule file.
-      - **2i. Update rules and Sources** (`net/updaters.py`, 453 lines): the downloads. Decide
-        where the network lives (the viewer's, or a crate here).
+      - **2i. Update rules and Sources** (done 2026-10-22; done before 2f/2g/2h): `ordercore::updates`
+        - the URL guard (`check_url`: http and https only, a host required, refused before
+        anything is fetched; Python's `urlsplit` for scheme and host), the size cap
+        (`fetch_url_bytes`: a body over the cap is refused, one at the cap kept), and the three
+        flows, `update_plugin_order_yml`, `fetch_list_data_paths`, `update_rule_files`, with
+        `rule_file_ages`, `relative_tail`, `data_path_tails_from_api` and `parse_cache_paths`:
+        what is safe to do with what comes back (validate before touching disk, a timestamped
+        `.bak`, an unchanged download left alone, an upstream-managed filename only), with the
+        report lines word for word. **Decision: the network does not live in ordercore.** It
+        takes a `Transport` (one `get`) from the caller: Python's `urllib` for 2j, the viewer's
+        own HTTP client for 2k; no HTTP crate is added, and `serde_json` becomes a regular
+        dependency (it was dev-only) for the cfg-generator response. What is not ordercore's
+        arrives as an argument: the `.bak` stamp (local time as the user reads it), the three
+        environment variables (`Env`), and, for `plugin-order.yml`, `parse` (the YAML reader:
+        Python's `parse_plugin_order_yml` now, the Rust port when 2f lands). Cases
+        (`update_cases.json`): 553 URLs (520 judged exactly as Python judges them, 33 declined:
+        a host with brackets or non-ASCII, which `urlsplit` checks differently between patch
+        releases), 11 fetches, 15 `relative_tail`/payload/cache cases, 88 flows (every report
+        line, the files left behind with their `.bak` and the URLs requested in order, run
+        against the real `updaters.py` with a scripted `urlopen`, a fixed clock and a temp
+        folder; all 88 exact) and `rule_file_ages`. Eleven deliberate breakages (a `file:` URL
+        allowed, no host needed, the cap off by one, too few entries accepted, no `.bak`, an empty
+        env var counted, managed names with case, an unchanged file rewritten, the header counted
+        as a change, too few paths accepted, trailing slashes kept) each fail the cases.
+        Known and left: the words of a JSON *syntax* error are each parser's own (the cases
+        check the words around them); a `{name!r}` or `{name:>20}` in a rules URL template is
+        declined (Python formats it); a non-ASCII `data=` value is declined (`relative_tail`
+        case-folds); the `urlsplit` rules are Python 3.12's. Not ported: `_verify_context` (the
+        certifi CA bundle is the transport's business).
       - **2j. Python calls `ordercore`** through native for 2a-2i (as editcore's slices do),
         then **2k. the flip**: each Load order action a Tauri command, a Load order page, and
         the Python sort and rule code retired.

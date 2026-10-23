@@ -10,6 +10,8 @@
 //! - [`predicates`]: the `[Requires]`/`[Conflict]`/`[Patch]`/`[Note]` rules - their expression
 //!   language, and the warnings that fire for a sorted load order.
 //! - [`pyre`]: the part of Python's `re` the rule code uses, matched by hand.
+//! - [`updates`]: the downloads - rule files, `plugin-order.yml`, a list's data paths - with the
+//!   network left to the caller.
 //! - [`order`]: where the sort puts each custom plugin among the curated ones - positions from
 //!   the graph, the `[NearStart]`/`[NearEnd]` hints, and the topological placement.
 //! - [`rules`]: the ordering blocks of an mlox rule file's text.
@@ -33,3 +35,4 @@ pub mod pyre;
 pub mod records;
 pub mod refs;
 pub mod rules;
+pub mod updates;
