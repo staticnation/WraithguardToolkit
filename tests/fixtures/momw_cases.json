@@ -1,0 +1,2059 @@
+{
+ "_about": "MOMW's plugin-order.yml (the hand-rolled reader), the curated lists and the post-sort findings, answered by wraithguard.momw; run by tests/test_momw_cases.py and viewer-shell/ordercore/tests/momw_cases.rs. Regenerate: python tools/gen_momw_cases.py",
+ "yml": [
+  {
+   "name": "empty",
+   "text": "",
+   "entries": []
+  },
+  {
+   "name": "only comments and blank lines",
+   "text": "# one\n\n   # indented\n\t\n",
+   "entries": []
+  },
+  {
+   "name": "one entry",
+   "text": "- file_name: Morrowind.esm\n  on_lists:\n    - expanded-vanilla\n",
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a realistic fragment",
+   "text": "# MOMW's plugin-order.yml, abridged\n- file_name: Morrowind.esm\n  on_lists:\n    - expanded-vanilla\n    - i-heart-vanilla\n\n- file_name: Tribunal.esm\n  on_lists:\n    - expanded-vanilla\n    - i-heart-vanilla\n- file_name: Foo.esp\n  for_mod: Foo Mod\n  needs_cleaning: true\n  on_lists:\n    - expanded-vanilla\n  depends:\n    - file_name: Bar.esp\n      on_lists:\n        - nope\n- file_name: Bar.esp\n  for_mod: \"Bar Mod\"\n  needs_cleaning: false\n  on_lists:\n    - 'expanded-vanilla'\n    - i-heart-vanilla\n- file_name: Baz.esp\n  on_lists:\n    - i-heart-vanilla\n",
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "quotes are stripped",
+   "text": "- file_name: \"Foo.esp\"\n  for_mod: '\"x\"'\n  on_lists:\n    - \"a\"\n    - 'b'\n    - \"'c'\"\n- file_name: 'Bar.esp'\n",
+   "entries": [
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "\"x\"",
+     "on_lists": [
+      "a",
+      "b",
+      "c"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "needs_cleaning in its forms",
+   "text": "- file_name: A.esp\n  needs_cleaning: true\n- file_name: B.esp\n  needs_cleaning: True\n- file_name: C.esp\n  needs_cleaning: TRUE\n- file_name: D.esp\n  needs_cleaning: yes\n- file_name: E.esp\n  needs_cleaning: Yes\n- file_name: F.esp\n  needs_cleaning: 1\n- file_name: G.esp\n  needs_cleaning: 0\n- file_name: H.esp\n  needs_cleaning: false\n- file_name: I.esp\n  needs_cleaning: no\n- file_name: J.esp\n  needs_cleaning:\n- file_name: K.esp\n  needs_cleaning: \"true\"\n- file_name: L.esp\n  needs_cleaning: maybe\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "B.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "C.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "D.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "E.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "F.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "G.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "H.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "I.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "J.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "K.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "L.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "an entry with no file_name is dropped",
+   "text": "- for_mod: Only\n  on_lists:\n    - a\n- file_name: Kept.esp\n",
+   "entries": [
+    {
+     "file_name": "Kept.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "an empty file_name is dropped",
+   "text": "- file_name: \"\"\n  for_mod: x\n- file_name: Kept.esp\n",
+   "entries": [
+    {
+     "file_name": "Kept.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "the first file_name wins",
+   "text": "- file_name: A.esp\n  file_name: B.esp\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "the last for_mod wins",
+   "text": "- file_name: A.esp\n  for_mod: One\n  for_mod: Two\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": "Two",
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "an empty file_name is kept over a later one",
+   "text": "- file_name:\n  file_name: B.esp\n",
+   "entries": []
+  },
+  {
+   "name": "file_name after another key on the dash line",
+   "text": "- for_mod: M\n  file_name: A.esp\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": "M",
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "depends is ignored, with what is nested in it",
+   "text": "- file_name: A.esp\n  depends:\n    - file_name: Dep.esp\n    - other\n  on_lists:\n    - l1\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [
+      "l1"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "other blocks are ignored",
+   "text": "- file_name: A.esp\n  tags:\n    - x\n    - y\n  on_lists:\n    - l1\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [
+      "l1"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a block key resets the mode",
+   "text": "- file_name: A.esp\n  on_lists:\n    - l1\n  depends:\n    - d\n  on_lists:\n    - l2\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [
+      "l1",
+      "l2"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "list items must be indented four",
+   "text": "- file_name: A.esp\n  on_lists:\n   - three\n    - four\n      - six\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [
+      "four",
+      "six"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "empty list items are skipped",
+   "text": "- file_name: A.esp\n  on_lists:\n    - \"\"\n    - ''\n    -\n    - real\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [
+      "real"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a list with no items",
+   "text": "- file_name: A.esp\n  on_lists:\n- file_name: B.esp\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "B.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a flow list is not read",
+   "text": "- file_name: A.esp\n  on_lists: [a, b]\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a trailing comment stays in the value",
+   "text": "- file_name: A.esp # note\n",
+   "entries": [
+    {
+     "file_name": "A.esp # note",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "CRLF line ends",
+   "text": "- file_name: A.esp\r\n  needs_cleaning: yes\r\n  on_lists:\r\n    - l\r\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [
+      "l"
+     ],
+     "needs_cleaning": true
+    }
+   ]
+  },
+  {
+   "name": "CR line ends",
+   "text": "- file_name: A.esp\r  on_lists:\r    - l\r",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [
+      "l"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a byte-order mark hides the first dash",
+   "text": "﻿- file_name: A.esp\n- file_name: B.esp\n",
+   "entries": [
+    {
+     "file_name": "B.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "tabs are not indentation",
+   "text": "- file_name: A.esp\n\ton_lists:\n\t\t- l\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "unknown keys are ignored",
+   "text": "- file_name: A.esp\n  version: 1.2\n  author: Me\n  on_lists:\n    - l\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [
+      "l"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a deeper key is ignored",
+   "text": "- file_name: A.esp\n    for_mod: deep\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a colon in a value",
+   "text": "- file_name: A.esp\n  for_mod: a: b\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": "a: b",
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "names with spaces and parentheses",
+   "text": "- file_name: Better Bodies (v2).esp\n",
+   "entries": [
+    {
+     "file_name": "Better Bodies (v2).esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "Unicode space around a value",
+   "text": "- file_name: A.esp \n  for_mod: X \n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": "X",
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "no space after the dash is not an entry",
+   "text": "-file_name: A.esp\n- file_name: B.esp\n",
+   "entries": [
+    {
+     "file_name": "B.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a line with no colon",
+   "text": "- file_name: A.esp\n  stray text\n  on_lists:\n    - l\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [
+      "l"
+     ],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "quotes inside a value",
+   "text": "- file_name: A.esp\n  for_mod: He said \"hi\"\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": "He said \"hi",
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a top-level line before the first entry",
+   "text": "stray: 1\n- file_name: A.esp\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  },
+  {
+   "name": "a dash line with no colon",
+   "text": "- just words\n- file_name: A.esp\n",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ]
+  }
+ ],
+ "yaml_differs": [
+  "only comments and blank lines",
+  "quotes are stripped",
+  "needs_cleaning in its forms",
+  "the first file_name wins",
+  "an empty file_name is kept over a later one",
+  "a block key resets the mode",
+  "list items must be indented four",
+  "empty list items are skipped",
+  "a flow list is not read",
+  "a trailing comment stays in the value",
+  "a byte-order mark hides the first dash",
+  "tabs are not indentation",
+  "a deeper key is ignored",
+  "a colon in a value",
+  "Unicode space around a value",
+  "no space after the dash is not an entry",
+  "a line with no colon",
+  "quotes inside a value",
+  "a top-level line before the first entry"
+ ],
+ "lists": [
+  {
+   "name": "a list",
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "list": "expanded-vanilla",
+   "set": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ]
+  },
+  {
+   "name": "a list in another case",
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "list": "EXPANDED-Vanilla",
+   "set": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ]
+  },
+  {
+   "name": "another list",
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "list": "i-heart-vanilla",
+   "set": [
+    "bar.esp",
+    "baz.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Bar.esp",
+    "Baz.esp"
+   ]
+  },
+  {
+   "name": "a list nothing is on",
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "list": "nope",
+   "set": [],
+   "order": []
+  },
+  {
+   "name": "no list name",
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "list": "",
+   "set": [],
+   "order": []
+  },
+  {
+   "name": "no entries",
+   "entries": [],
+   "list": "expanded-vanilla",
+   "set": [],
+   "order": []
+  },
+  {
+   "name": "quoted names",
+   "entries": [
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "\"x\"",
+     "on_lists": [
+      "a",
+      "b",
+      "c"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ],
+   "list": "a",
+   "set": [
+    "foo.esp"
+   ],
+   "order": [
+    "Foo.esp"
+   ]
+  }
+ ],
+ "cleaning": [
+  {
+   "name": "a realistic fragment",
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "set": [
+    "foo.esp"
+   ]
+  },
+  {
+   "name": "every form",
+   "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "B.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "C.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "D.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "E.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "F.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "G.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "H.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "I.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "J.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "K.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "L.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    }
+   ],
+   "set": [
+    "a.esp",
+    "b.esp",
+    "c.esp",
+    "d.esp",
+    "e.esp",
+    "f.esp",
+    "k.esp"
+   ]
+  },
+  {
+   "name": "none",
+   "entries": [],
+   "set": []
+  }
+ ],
+ "drift": [
+  {
+   "name": "consistent",
+   "base": [
+    "A.esm",
+    "B.esm",
+    "C.esm"
+   ],
+   "curated": [
+    "A.esm",
+    "B.esm",
+    "C.esm"
+   ],
+   "warnings": []
+  },
+  {
+   "name": "a swap is reported once",
+   "base": [
+    "B.esm",
+    "A.esm",
+    "C.esm"
+   ],
+   "curated": [
+    "A.esm",
+    "B.esm",
+    "C.esm"
+   ],
+   "warnings": [
+    "[LIST ORDER] 'A.esm' appears after 'B.esm' in your cfg, but the curated list order has it BEFORE. Your base order may have drifted from the canonical list order (or a tool reordered it)."
+   ]
+  },
+  {
+   "name": "only the first drift is reported",
+   "base": [
+    "C.esm",
+    "B.esm",
+    "A.esm"
+   ],
+   "curated": [
+    "A.esm",
+    "B.esm",
+    "C.esm"
+   ],
+   "warnings": [
+    "[LIST ORDER] 'B.esm' appears after 'C.esm' in your cfg, but the curated list order has it BEFORE. Your base order may have drifted from the canonical list order (or a tool reordered it)."
+   ]
+  },
+  {
+   "name": "the user's own plugins between are not compared",
+   "base": [
+    "A.esm",
+    "Mine.esp",
+    "B.esm",
+    "Other.esp",
+    "C.esm"
+   ],
+   "curated": [
+    "A.esm",
+    "B.esm",
+    "C.esm"
+   ],
+   "warnings": []
+  },
+  {
+   "name": "names compare without regard to case",
+   "base": [
+    "b.ESM",
+    "a.esm"
+   ],
+   "curated": [
+    "A.esm",
+    "B.esm"
+   ],
+   "warnings": [
+    "[LIST ORDER] 'a.esm' appears after 'b.ESM' in your cfg, but the curated list order has it BEFORE. Your base order may have drifted from the canonical list order (or a tool reordered it)."
+   ]
+  },
+  {
+   "name": "nothing in common",
+   "base": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "curated": [
+    "A.esm",
+    "B.esm"
+   ],
+   "warnings": []
+  },
+  {
+   "name": "no curated list",
+   "base": [
+    "A.esm",
+    "B.esm"
+   ],
+   "curated": [],
+   "warnings": []
+  },
+  {
+   "name": "no cfg",
+   "base": [],
+   "curated": [
+    "A.esm",
+    "B.esm"
+   ],
+   "warnings": []
+  },
+  {
+   "name": "a later duplicate in the list takes the rank",
+   "base": [
+    "A.esm",
+    "B.esm"
+   ],
+   "curated": [
+    "A.esm",
+    "B.esm",
+    "A.esm"
+   ],
+   "warnings": [
+    "[LIST ORDER] 'B.esm' appears after 'A.esm' in your cfg, but the curated list order has it BEFORE. Your base order may have drifted from the canonical list order (or a tool reordered it)."
+   ]
+  },
+  {
+   "name": "an earlier rank after a later is drift even when equal",
+   "base": [
+    "B.esm",
+    "B.esm"
+   ],
+   "curated": [
+    "A.esm",
+    "B.esm"
+   ],
+   "warnings": []
+  },
+  {
+   "name": "the cfg repeats a plugin",
+   "base": [
+    "A.esm",
+    "B.esm",
+    "A.esm"
+   ],
+   "curated": [
+    "A.esm",
+    "B.esm"
+   ],
+   "warnings": [
+    "[LIST ORDER] 'A.esm' appears after 'B.esm' in your cfg, but the curated list order has it BEFORE. Your base order may have drifted from the canonical list order (or a tool reordered it)."
+   ]
+  }
+ ],
+ "covers": [
+  {
+   "name": "on the list",
+   "plugin": "Foo.esp",
+   "curated": [
+    "foo.esp"
+   ],
+   "needs_cleaning": [],
+   "expect": true
+  },
+  {
+   "name": "on the list, any case",
+   "plugin": "FOO.ESP",
+   "curated": [
+    "foo.esp"
+   ],
+   "needs_cleaning": [],
+   "expect": true
+  },
+  {
+   "name": "not on the list",
+   "plugin": "Mine.esp",
+   "curated": [
+    "foo.esp"
+   ],
+   "needs_cleaning": [],
+   "expect": false
+  },
+  {
+   "name": "a clean_ copy of a needs-cleaning list plugin",
+   "plugin": "Clean_Foo.esp",
+   "curated": [
+    "foo.esp"
+   ],
+   "needs_cleaning": [
+    "foo.esp"
+   ],
+   "expect": true
+  },
+  {
+   "name": "a clean_ copy that is not flagged",
+   "plugin": "Clean_Foo.esp",
+   "curated": [
+    "foo.esp"
+   ],
+   "needs_cleaning": [],
+   "expect": false
+  },
+  {
+   "name": "a clean_ copy of a plugin not on the list",
+   "plugin": "Clean_Foo.esp",
+   "curated": [],
+   "needs_cleaning": [
+    "foo.esp"
+   ],
+   "expect": false
+  },
+  {
+   "name": "the yml already names the clean_ copy",
+   "plugin": "Clean_Foo.esp",
+   "curated": [
+    "clean_foo.esp"
+   ],
+   "needs_cleaning": [],
+   "expect": true
+  },
+  {
+   "name": "only one clean_ is stripped",
+   "plugin": "clean_clean_foo.esp",
+   "curated": [
+    "foo.esp"
+   ],
+   "needs_cleaning": [
+    "foo.esp"
+   ],
+   "expect": false
+  },
+  {
+   "name": "clean_ alone",
+   "plugin": "clean_",
+   "curated": [
+    "foo.esp"
+   ],
+   "needs_cleaning": [
+    "foo.esp"
+   ],
+   "expect": false
+  },
+  {
+   "name": "nothing on the list",
+   "plugin": "Foo.esp",
+   "curated": [],
+   "needs_cleaning": [],
+   "expect": false
+  }
+ ],
+ "findings": [
+  {
+   "name": "a sorted order",
+   "final_order": [
+    "Morrowind.esm",
+    "Foo.esp",
+    "Mine.esp"
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Mine.esp",
+    "Baz.esp",
+    "Clean_Foo.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [
+    "mine.esp"
+   ],
+   "list": "expanded-vanilla",
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "[ORPHAN] 'Baz.esp' is in your cfg but not on the 'expanded-vanilla' list and not in your customizations -- an unmanaged custom plugin (fine if intentional)."
+   ]
+  },
+  {
+   "name": "no sort ran",
+   "final_order": null,
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Mine.esp",
+    "Baz.esp",
+    "Clean_Foo.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [
+    "mine.esp"
+   ],
+   "list": "expanded-vanilla",
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "[ORPHAN] 'Baz.esp' is in your cfg but not on the 'expanded-vanilla' list and not in your customizations -- an unmanaged custom plugin (fine if intentional)."
+   ]
+  },
+  {
+   "name": "an empty sort result falls back to the cfg",
+   "final_order": [],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Mine.esp",
+    "Baz.esp",
+    "Clean_Foo.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [
+    "mine.esp"
+   ],
+   "list": "expanded-vanilla",
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "[ORPHAN] 'Baz.esp' is in your cfg but not on the 'expanded-vanilla' list and not in your customizations -- an unmanaged custom plugin (fine if intentional)."
+   ]
+  },
+  {
+   "name": "no entries",
+   "final_order": [
+    "Foo.esp"
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Mine.esp",
+    "Baz.esp",
+    "Clean_Foo.esp"
+   ],
+   "entries": [],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [],
+   "list": "expanded-vanilla",
+   "warnings": []
+  },
+  {
+   "name": "no list name",
+   "final_order": [
+    "Foo.esp"
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Mine.esp",
+    "Baz.esp",
+    "Clean_Foo.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [],
+   "list": null,
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml)."
+   ]
+  },
+  {
+   "name": "an empty list name",
+   "final_order": [
+    "Foo.esp"
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Mine.esp",
+    "Baz.esp",
+    "Clean_Foo.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [],
+   "list": "",
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml)."
+   ]
+  },
+  {
+   "name": "no curated set",
+   "final_order": [
+    "Foo.esp"
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Mine.esp",
+    "Baz.esp",
+    "Clean_Foo.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [],
+   "curated_order": [],
+   "declared": [],
+   "list": "expanded-vanilla",
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml)."
+   ]
+  },
+  {
+   "name": "an orphan",
+   "final_order": [
+    "Foo.esp"
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Mine.esp",
+    "Baz.esp",
+    "Clean_Foo.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [],
+   "list": "expanded-vanilla",
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "[ORPHAN] 'Mine.esp' is in your cfg but not on the 'expanded-vanilla' list and not in your customizations -- an unmanaged custom plugin (fine if intentional).",
+    "[ORPHAN] 'Baz.esp' is in your cfg but not on the 'expanded-vanilla' list and not in your customizations -- an unmanaged custom plugin (fine if intentional)."
+   ]
+  },
+  {
+   "name": "all declared",
+   "final_order": [
+    "Foo.esp"
+   ],
+   "base": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Mine.esp",
+    "Baz.esp",
+    "Clean_Foo.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [
+    "mine.esp",
+    "baz.esp"
+   ],
+   "list": "expanded-vanilla",
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml)."
+   ]
+  },
+  {
+   "name": "drift in the cfg",
+   "final_order": [
+    "Foo.esp"
+   ],
+   "base": [
+    "Tribunal.esm",
+    "Morrowind.esm",
+    "Foo.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [],
+   "list": "expanded-vanilla",
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "[LIST ORDER] 'Morrowind.esm' appears after 'Tribunal.esm' in your cfg, but the curated list order has it BEFORE. Your base order may have drifted from the canonical list order (or a tool reordered it)."
+   ]
+  },
+  {
+   "name": "every kind at once",
+   "final_order": [
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "base": [
+    "Tribunal.esm",
+    "Morrowind.esm",
+    "Foo.esp",
+    "Mine.esp"
+   ],
+   "entries": [
+    {
+     "file_name": "Morrowind.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Tribunal.esm",
+     "for_mod": null,
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Foo.esp",
+     "for_mod": "Foo Mod",
+     "on_lists": [
+      "expanded-vanilla"
+     ],
+     "needs_cleaning": true
+    },
+    {
+     "file_name": "Bar.esp",
+     "for_mod": "Bar Mod",
+     "on_lists": [
+      "expanded-vanilla",
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    },
+    {
+     "file_name": "Baz.esp",
+     "for_mod": null,
+     "on_lists": [
+      "i-heart-vanilla"
+     ],
+     "needs_cleaning": false
+    }
+   ],
+   "curated": [
+    "bar.esp",
+    "foo.esp",
+    "morrowind.esm",
+    "tribunal.esm"
+   ],
+   "curated_order": [
+    "Morrowind.esm",
+    "Tribunal.esm",
+    "Foo.esp",
+    "Bar.esp"
+   ],
+   "declared": [],
+   "list": "expanded-vanilla",
+   "warnings": [
+    "[NEEDS CLEANING] 'Foo.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "[ORPHAN] 'Mine.esp' is in your cfg but not on the 'expanded-vanilla' list and not in your customizations -- an unmanaged custom plugin (fine if intentional).",
+    "[LIST ORDER] 'Morrowind.esm' appears after 'Tribunal.esm' in your cfg, but the curated list order has it BEFORE. Your base order may have drifted from the canonical list order (or a tool reordered it)."
+   ]
+  }
+ ]
+}

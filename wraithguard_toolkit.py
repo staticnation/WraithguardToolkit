@@ -3699,7 +3699,6 @@ def write_cfg(
 # Rule-file parsing now lives in wraithguard/rules/parser.py. Behaviour pinned
 # by tests/test_differential.py; callers import it from there directly.
 from wraithguard.configurator import (
-    curated_covers,
     extract_data_path_value,
     format_data_line,
     generate_customizations_toml,
@@ -3710,10 +3709,10 @@ from wraithguard.configurator import (
     preview_configurator_result,
 )
 from wraithguard.momw import (
-    base_order_matches_yml,
     curated_for_list,
     needs_cleaning_set,
     parse_plugin_order_yml,
+    post_sort_findings,
 )
 from wraithguard.momw_datapaths import (
     managed_cfg_data_path_norms,
@@ -5203,23 +5202,17 @@ def _yml_post_sort_warnings(
     """
     # --- plugin-order.yml: post-sort sanity warnings (read-only) ------------
     if yml_entries:
-        active = final_order if final_order else base_order_names
-        nc_set = needs_cleaning_set(yml_entries)
         yml_warnings.extend(
-            f"[NEEDS CLEANING] '{n}' should be cleaned with TES3CMD "
-            f"(flagged in plugin-order.yml)."
-            for n in active
-            if n.lower() in nc_set
-        )
-        if list_name and curated_set:
-            yml_warnings.extend(
-                f"[ORPHAN] '{n}' is in your cfg but not on the '{list_name}' list and "
-                f"not in your customizations -- an unmanaged custom plugin (fine if "
-                f"intentional)."
-                for n in base_order_names
-                if not curated_covers(n, curated_set, nc_set) and n.lower() not in declared_lower
+            post_sort_findings(
+                final_order,
+                base_order_names,
+                yml_entries,
+                curated_set,
+                curated_order,
+                declared_lower,
+                list_name,
             )
-            yml_warnings.extend(base_order_matches_yml(base_order_names, curated_order))
+        )
         if yml_warnings:
             _section(f"{len(yml_warnings)} PLUGIN-ORDER.YML WARNING(S) -- read-only, not enforced")
             for w in yml_warnings:

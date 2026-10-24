@@ -142,10 +142,44 @@ program, and a clearer UI on the way. In order:
         plugin's description through `read_plugin_description`, which needs the built native
         module; the file here was made with its fixed-offset fallback reader (the same text for
         these headers), so run `tests/test_predicate_cases.py` against the real one.
-      - **2f. MOMW's `plugin-order.yml`** and the post-sort warnings
-        (`test_yml_post_sort_warnings.py`).
-      - **2g. Export**: `openmw.cfg` and `customizations.toml` written the way Python writes
-        them (byte for byte, as the patch build is).
+      - **2f. MOMW's `plugin-order.yml`** and the post-sort warnings (done 2026-10-22):
+        `ordercore::momw` - the line reader (`parse_plugin_order_text`, split out of
+        `parse_plugin_order_yml`), `curated_for_list`, `needs_cleaning_set`, `curated_covers`,
+        `base_order_matches_yml` and `post_sort_findings` (the findings half of
+        `_yml_post_sort_warnings`, split out; the printing stays), 76 cases in
+        `momw_cases.json`. Not built here (no toolchain): run `tools\build_and_check_rust.ps1`;
+        the algorithm ran in a Python transliteration against every case. **Decide before the
+        flip:** with PyYAML installed `parse_plugin_order_yml` reads 19 of the 34 test inputs
+        differently from the line reader (a duplicate key, a flow list, a trailing comment, a
+        BOM, quoting, an unknown mapping) and **raises** on a malformed file (only `ImportError`
+        is caught), where the line reader never does. On MOMW's own file they agree. Rust
+        matches the line reader; say if it should instead refuse what PyYAML would raise on.
+      - **2g. Export** (done 2026-10-23): `ordercore::export` - the `data=` line helpers of
+        `configurator/cfglines.py` (`format_data_line`, `normalize_data_path`, `toml_value`,
+        `detect_data_quoting`, `extract_data_path_value`, `configurator_remove_matches`,
+        `curated_covers`, `orphan_cfg_entries`, ...), `insert_data_paths`,
+        `generate_customizations_toml` (the hand-edited blocks carried through, data inserts first,
+        content inserts as `insertBlock` runs on an anchor chosen to match exactly one cfg line,
+        the ambiguity warnings), `read_cfg_text`, `cfg_segments`, `splice_cfg_lines`,
+        `render_cfg_lines`, the two removal rules, and `write_plan` (the only function that
+        touches the disk: a timestamped `.bak` of the old bytes, then the new file). The cfg is
+        written as the lines joined and terminated with `\n`, UTF-8, no newline translation; the
+        TOML's ending is an argument (`LineEnding`) because Python writes it in text mode, so
+        Windows gets `\r\n` today: pass `LineEnding::platform()` to keep that. A cfg that is not
+        UTF-8 is declined (`decode_cfg`: Python carries such bytes as `surrogateescape`, a Rust
+        `String` cannot); a BOM is dropped and `\r\n` / `\r` become `\n`, as Python's text-mode
+        read does. Cases (`export_cases.json`): 339 strings through the line helpers, 78 insert
+        runs, 323 customizations TOMLs (121 with ambiguity warnings), 11 cfgs read, 33 renders and
+        53 `write_plan` runs end to end over a temp folder with a fixed clock (the files left,
+        the `.bak` names and what was reported written); all exact. Twelve deliberate breakages
+        (quotes unescaped, a quoting tie, spliced lines kept, anchors not widened, duplicates
+        inserted, the curated fallback inverted, no `.bak`, triple quotes unescaped, no final
+        newline, the ambiguity threshold, a `replace` not breaking a run, and one more) each fail
+        the cases; carriage-return translation is invisible because `splitlines` splits on it
+        anyway. **Not in this slice**: `configurator/apply.py` (the simulated apply: a read-only
+        preview that never blocks the export), the planner that builds the `Plan` (2j),
+        `infer_data_path_anchors` (a planner step that lists plugins on disk) and the console
+        report. Known and left: `to_lowercase` for Python's `lower()`.
       - **2h. The rule maker** (`rules/authoring.py`, 866 lines) and the user's rule file.
       - **2i. Update rules and Sources** (done 2026-10-22; done before 2f/2g/2h): `ordercore::updates`
         - the URL guard (`check_url`: http and https only, a host required, refused before

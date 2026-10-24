@@ -12,6 +12,7 @@
 //! - [`pyre`]: the part of Python's `re` the rule code uses, matched by hand.
 //! - [`updates`]: the downloads - rule files, `plugin-order.yml`, a list's data paths - with the
 //!   network left to the caller.
+//! - [`export`]: writing `openmw.cfg` and `customizations.toml`.
 //! - [`order`]: where the sort puts each custom plugin among the curated ones - positions from
 //!   the graph, the `[NearStart]`/`[NearEnd]` hints, and the topological placement.
 //! - [`rules`]: the ordering blocks of an mlox rule file's text.
@@ -27,6 +28,7 @@
 
 pub mod cells;
 pub mod cfg;
+pub mod export;
 pub mod graph;
 pub mod order;
 pub mod patterns;

@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Collection, Iterable, Sequence
     from pathlib import Path
 
 
@@ -121,6 +121,22 @@ def parse_plugin_order_yml(path: Path) -> list[PluginOrderEntry]:
         return entries
     except ImportError:
         pass  # fall through to the hand parser
+    return parse_plugin_order_text(text)
+
+
+def parse_plugin_order_text(text: str) -> list[PluginOrderEntry]:
+    """Parse the text of ``plugin-order.yml`` with the hand-rolled reader.
+
+    The dependency-free path of :func:`parse_plugin_order_yml`, split out so the Rust port
+    (``ordercore::momw``) and this run the same cases (``tests/fixtures/momw_cases.json``)
+    without PyYAML in between. The body is the one that was inline there, unchanged.
+
+    Args:
+        text: The file's text.
+
+    Returns:
+        The entries that have a ``file_name``, in file order.
+    """
 
     def apply_kv(entry: _PartialEntry, s: str) -> None:
         """Fold one ``key: value`` line into the entry being built."""
@@ -135,7 +151,7 @@ def parse_plugin_order_yml(path: Path) -> list[PluginOrderEntry]:
         elif k == "needs_cleaning":
             entry["needs_cleaning"] = v.lower() in ("true", "yes", "1")
 
-    entries = []
+    entries: list[PluginOrderEntry] = []
     cur: _PartialEntry | None = None
     mode: str | None = None
     for line in text.splitlines():
@@ -237,3 +253,54 @@ def base_order_matches_yml(
             break  # one clear report is enough; the rest usually cascade from it
         prev_rank, prev_name = r, name
     return warnings
+
+
+def post_sort_findings(
+    final_order: Sequence[str] | None,
+    base_order_names: Sequence[str],
+    yml_entries: Sequence[PluginOrderEntry],
+    curated_set: Collection[str],
+    curated_order: Sequence[str],
+    declared_lower: Collection[str],
+    list_name: str | None,
+) -> list[str]:
+    """The plugin-order.yml sanity notes for a finished sort (read-only).
+
+    The findings half of ``wraithguard_toolkit._yml_post_sort_warnings``, split out so the
+    Rust port (``ordercore::momw``) and this run the same cases
+    (``tests/fixtures/momw_cases.json``); the printing stays with the caller.
+
+    Args:
+        final_order: The sorted order, or None when no sort ran.
+        base_order_names: The curated ``content=`` order from the cfg.
+        yml_entries: Parsed entries; with none there is nothing to check against.
+        curated_set: Lowercased names the yml assigns to this list.
+        curated_order: The curated order the yml declares, for drift checks.
+        declared_lower: Everything the user declared, lowercased.
+        list_name: The MOMW list name, or None.
+
+    Returns:
+        The needs-cleaning notes, then the orphan notes, then the order-drift note, in
+        that order.
+    """
+    from wraithguard.configurator.cfglines import curated_covers
+
+    if not yml_entries:
+        return []
+    active = final_order if final_order else base_order_names
+    nc_set = needs_cleaning_set(yml_entries)
+    out = [
+        f"[NEEDS CLEANING] '{n}' should be cleaned with TES3CMD (flagged in plugin-order.yml)."
+        for n in active
+        if n.lower() in nc_set
+    ]
+    if list_name and curated_set:
+        out.extend(
+            f"[ORPHAN] '{n}' is in your cfg but not on the '{list_name}' list and "
+            f"not in your customizations -- an unmanaged custom plugin (fine if "
+            f"intentional)."
+            for n in base_order_names
+            if not curated_covers(n, curated_set, nc_set) and n.lower() not in declared_lower
+        )
+        out.extend(base_order_matches_yml(base_order_names, curated_order))
+    return out
