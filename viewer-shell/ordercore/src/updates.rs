@@ -18,7 +18,7 @@
 //! apart from the files they write: the clock's stamp for a `.bak` name (`stamp`, local time as
 //! the user reads it), the three environment variables ([`Env`]), and, for `plugin-order.yml`,
 //! the YAML reader (`parse`, which answers the number of entries or why it cannot: Python's
-//! `parse_plugin_order_yml` today, the Rust port when 2f lands).
+//! `parse_plugin_order_yml` today, [`crate::momw`]'s line reader once Python calls this).
 //!
 //! The report lines are the Python's, word for word. The detail a *parser* adds to a failure
 //! (a JSON syntax error's position, a YAML reader's complaint) is that parser's own.

@@ -15,8 +15,9 @@ Families:
   the URLs requested, in order;
 * ``ages``: ``rule_file_ages`` for files of given ages.
 
-For ``plugin-order.yml`` the YAML reader is the caller's, so each case records what the real
-``parse_plugin_order_yml`` made of every text the flow can parse (``parse``).
+For ``plugin-order.yml`` the YAML reader is the caller's, so the flows run with a small stand-in
+for ``parse_plugin_order_yml`` (the same wherever the generator runs, with PyYAML or without it)
+and each case records what it made of every text the flow can parse (``parse``).
 
 The detail a *parser* puts into a failure (a JSON syntax error's position) is that parser's own;
 the cases mark those (``parser_detail``) and the Rust side is checked for the words around it.
@@ -771,19 +772,36 @@ AGES: list[tuple[str, dict[str, float | None]]] = [
 ]
 
 
-def _parse_table(texts: list[str]) -> list[dict[str, Any]]:
-    from wraithguard.momw import parse_plugin_order_yml
+FAKE_YAML_ERROR = "fake yaml error: a flow list is never closed"
 
-    table = []
-    for text in dict.fromkeys(texts):
-        with tempfile.TemporaryDirectory() as tmp:
-            p = Path(tmp) / "x.yml"
-            p.write_bytes(text.encode("utf-8"))
-            try:
-                table.append({"text": text, "entries": len(parse_plugin_order_yml(p))})
-            except Exception as exc:  # noqa: BLE001 - the observation is the message
-                table.append({"text": text, "error": str(exc)})
-    return table
+
+def _fake_parse_text(text: str) -> int:
+    """The YAML reader the cases use: the number of entries, or an error.
+
+    The reader is the caller's (``update_plugin_order_yml`` only needs "how many entries, or why
+    not"), and the real ``parse_plugin_order_yml`` answers differently with PyYAML installed and
+    without it, so a case file made with the real one would fail wherever the other is installed.
+    This one is the same everywhere: an entry is a line starting ``- for_mod:``, and a flow list
+    opened and never closed is an error.
+    """
+    if "file_name: [" in text:
+        raise ValueError(FAKE_YAML_ERROR)
+    return sum(1 for line in text.splitlines() if line.startswith("- for_mod:"))
+
+
+def _fake_parse(path: Path) -> list[object]:
+    return [None] * _fake_parse_text(path.read_bytes().decode("utf-8"))
+
+
+def _parse_table(texts: list[str]) -> list[dict[str, Any]]:
+    return [
+        (
+            {"text": t, "error": FAKE_YAML_ERROR}
+            if "file_name: [" in t
+            else {"text": t, "entries": _fake_parse_text(t)}
+        )
+        for t in dict.fromkeys(texts)
+    ]
 
 
 def flow_case(flow: Flow) -> dict[str, Any]:
@@ -801,6 +819,7 @@ def flow_case(flow: Flow) -> dict[str, Any]:
         with (
             mock.patch("urllib.request.urlopen", _scripted(flow["script"], calls)),
             mock.patch.object(updaters, "datetime", _FixedClock),
+            mock.patch.object(updaters, "parse_plugin_order_yml", _fake_parse),
         ):
             if flow["kind"] == "yml":
                 report = updaters.update_plugin_order_yml(

@@ -205,6 +205,9 @@ program, and a clearer UI on the way. In order:
         allowed, no host needed, the cap off by one, too few entries accepted, no `.bak`, an empty
         env var counted, managed names with case, an unchanged file rewritten, the header counted
         as a change, too few paths accepted, trailing slashes kept) each fail the cases.
+        The flows run with a small stand-in for the YAML reader (it is the caller's, so the cases must
+        not depend on it: the real `parse_plugin_order_yml` answers differently with PyYAML installed
+        and without it, which broke CI once).
         Known and left: the words of a JSON *syntax* error are each parser's own (the cases
         check the words around them); a `{name!r}` or `{name:>20}` in a rules URL template is
         declined (Python formats it); a non-ASCII `data=` value is declined (`relative_tail`

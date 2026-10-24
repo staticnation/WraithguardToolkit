@@ -15,7 +15,7 @@
 //!
 //! Written from MOMW's file as it is, not from its code.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use crate::rules::{is_space, splitlines};
 
