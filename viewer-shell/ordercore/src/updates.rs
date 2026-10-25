@@ -146,7 +146,7 @@ fn commas(n: usize) -> String {
 }
 
 /// Python's `repr` of a string, for ASCII (the way a template is quoted in a report).
-fn py_repr(s: &str) -> Result<String, Unsupported> {
+pub(crate) fn py_repr(s: &str) -> Result<String, Unsupported> {
     if !s.is_ascii() {
         return Err(Unsupported);
     }

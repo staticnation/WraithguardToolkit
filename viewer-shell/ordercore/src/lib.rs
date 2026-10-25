@@ -22,12 +22,16 @@
 //! - [`updates`]: the downloads - rule files, `plugin-order.yml`, a list's data paths - with the
 //!   network left to the caller.
 //! - [`export`]: writing `openmw.cfg` and `customizations.toml`.
+//! - [`authoring`]: writing mlox rules to the rule-base's standards, and the user's rule file.
+//! - [`derive`]: the rules worth proposing from what the tool observed.
 //!
 //! Written from OpenMW's documentation ("Paths", openmw.readthedocs.io) and its observed
 //! behaviour, not its code: OpenMW is GPL-3 and this crate is MIT.
 
+pub mod authoring;
 pub mod cells;
 pub mod cfg;
+pub mod derive;
 pub mod export;
 pub mod graph;
 pub mod momw;

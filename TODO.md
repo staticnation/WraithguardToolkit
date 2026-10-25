@@ -180,7 +180,33 @@ program, and a clearer UI on the way. In order:
         preview that never blocks the export), the planner that builds the `Plan` (2j),
         `infer_data_path_anchors` (a planner step that lists plugins on disk) and the console
         report. Known and left: `to_lowercase` for Python's `lower()`.
-      - **2h. The rule maker** (`rules/authoring.py`, 866 lines) and the user's rule file.
+      - **2h. The rule maker** (done 2026-10-24): `ordercore::authoring` - a rule as data (`Rule`,
+        `Expr`: plugin, `[DESC]`, `[SIZE]`, `[VER]`, `ALL`/`ANY`/`NOT` groups), `render_rule` (inline
+        or block message, the `!`/`!!`/`!!!` highlight, `(Ref: ...)` with the space a URL needs, a
+        group that breaks at 78 columns), `validate` (shape, `[Patch]` cannot say NOT, names
+        holding `[ ] ;` or a line break refused by name, a version mlox recognises, duplicates,
+        the guideline warnings) and the user's rule file (`append_authored_rule`,
+        `append_user_rule`, `order_rule_frozen_conflicts`: errors refuse and list every one,
+        warnings do not); and `ordercore::derive` (`derive.py`, deferred from 2e): `Proposal`,
+        `order_from_masters`, `requires_from_masters`, `patch_candidates`,
+        `order_candidates_from_conflicts` (busiest pair first, ties in the order seen),
+        `propose_all` (facts first) and `needs_citation`. The Python's dicts arrive as ordered
+        slices, because their order is the output's order. Declined (`Unsupported`): a `[DESC]`
+        regex that Python's `re.compile` rejects or `pyre` does not read (Python words the
+        complaint, so it is not paraphrased), a problem about a name with non-ASCII characters
+        (its `repr` is Python's table), and a rules file that is not UTF-8 (Python replaces the
+        bytes). The rules file is written in text mode by Python, so on Windows its lines end in
+        `\r\n`: `LineEnding::platform()` keeps that. Cases (`authoring_cases.json`): 348 rules (329
+        validated, 19 declined, none wrong), 93 proposal sets (every function and `needs_citation`),
+        13 citations, 18 writes to the user's file over a temp folder and 10 frozen-conflict
+        cases, all exact; fifteen deliberate breakages (the block threshold, the group width, the
+        section marker, the `[Patch]` NOT check, a case-sensitive duplicate check, `;` allowed in a
+        name, no space before a URL's `)`, the blank-line separator, warnings refusing, a bad
+        highlight level accepted, base masters not excluded, the busiest pair last, one master
+        making a patch, inactive masters kept, unstable ties) each fail the cases. Not in this
+        slice: the rule-maker GUI and the console report. Known and left: two checks of the
+        Python can never fire (an inline message holding `]`, a URL citation `format_ref` has not
+        spaced) and are ported as written; `to_lowercase` for Python's `lower()`.
       - **2i. Update rules and Sources** (done 2026-10-22; done before 2f/2g/2h): `ordercore::updates`
         - the URL guard (`check_url`: http and https only, a host required, refused before
         anything is fetched; Python's `urlsplit` for scheme and host), the size cap
