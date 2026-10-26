@@ -262,7 +262,7 @@ pub fn order_candidates_from_conflicts(conflicts: &[ConflictRecord], minimum_rec
         }
         // Counter.most_common(): by count, highest first, ties in the order first seen
         let mut by_count = types.clone();
-        by_count.sort_by(|a, b| b.1.cmp(&a.1));
+        by_count.sort_by_key(|a| std::cmp::Reverse(a.1));
         let breakdown =
             by_count.iter().map(|(name, count)| format!("{count} {name}")).collect::<Vec<_>>().join(", ");
         let evidence = format!("{total} record(s) edited by both {earlier} and {later}: {breakdown}");
@@ -298,7 +298,7 @@ pub fn order_candidates_from_conflicts(conflicts: &[ConflictRecord], minimum_rec
             },
         ));
     }
-    out.sort_by(|a, b| b.0.cmp(&a.0));
+    out.sort_by_key(|a| std::cmp::Reverse(a.0));
     out.into_iter().map(|(_, p)| p).collect()
 }
 
