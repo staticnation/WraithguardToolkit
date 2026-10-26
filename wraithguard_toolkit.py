@@ -139,7 +139,7 @@ from typing import TYPE_CHECKING, Any
 # Pattern translation now lives in wraithguard/rules/patterns.py; behaviour is
 # pinned by tests/test_differential.py. Only the names this module actually
 # calls are imported -- callers import from wraithguard/ themselves (§23).
-from wraithguard import _, get_logger, ngettext, setup_logging
+from wraithguard import _, get_logger, ngettext, ordercore_bridge, setup_logging
 from wraithguard.esp import EspError, Header, read_header
 from wraithguard.nif.analysis import MeshAnalyser, MeshFinding
 from wraithguard.nif.report import Structure, compare as compare_structures
@@ -429,6 +429,18 @@ def check_missing_masters(
                         for UI highlighting.
     """
     origins = subset_origins or {}
+    native = ordercore_bridge.native("order_check_missing_masters")
+    dirs = getattr(index, "dirs", None)
+    if native is not None and dirs is not None:
+        try:
+            n_missing, n_order, n_sizes, n_checked, n_problems = native(
+                [str(p) for p in active_order], [str(d) for d in dirs], dict(origins)
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return list(n_missing), list(n_order), list(n_sizes), n_checked, set(n_problems)
     pos = {p.lower(): i for i, p in enumerate(active_order)}
     missing, order_problems, size_notes = [], [], []
     problem_names = set()
@@ -3482,6 +3494,15 @@ def read_groundcover_names(lines: Sequence[str]) -> list[str]:
         The plugin filenames, in file order. Commented lines are skipped, the
         same way they are for ``content=``.
     """
+    fn = ordercore_bridge.native("order_read_groundcover_names")
+    if fn is not None:
+        try:
+            names: list[str] = fn(list(lines))  # ordercore::export
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return names
     found: list[str] = []
     for line in lines:
         match = re.match(r"^\s*groundcover\s*=\s*(.+?)\s*$", line, re.IGNORECASE)
@@ -3520,6 +3541,15 @@ def hold_back_groundcover(
         The subset to use, and the names held back (in the order they appeared
         in the subset), so the caller can say what it did and why.
     """
+    native = ordercore_bridge.native("order_hold_back_groundcover")
+    if native is not None:
+        try:
+            kept_n, held_n = native([str(n) for n in subset], [str(n) for n in groundcover_names])
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return list(kept_n), list(held_n)
     blocked = {str(name).lower() for name in groundcover_names}
     if not blocked:
         return list(subset), []
@@ -3559,6 +3589,15 @@ def plugins_needing_removal(
     Returns:
         The plugin names to emit, sorted.
     """
+    fn = ordercore_bridge.native("order_plugins_needing_removal")
+    if fn is not None:
+        try:
+            got: list[str] = fn(list(disabled), list(curated_set), list(base_order_names))
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return got
     curated_lower = {str(name).lower() for name in curated_set}
     base_lower = {str(name).lower() for name in base_order_names}
     owned_elsewhere = curated_lower or base_lower
@@ -3588,6 +3627,16 @@ def data_paths_needing_removal(
     Returns:
         The path values to emit, sorted and de-duplicated.
     """
+    fn = ordercore_bridge.native("order_data_paths_needing_removal")
+    if fn is not None:
+        disabled_data = list(disabled_data)
+        try:
+            got: list[str] = fn(disabled_data, set(our_values), set(base_data_norms))
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return got
     removals: list[str] = []
     for line in disabled_data:
         value = extract_data_path_value(line) or line
@@ -3632,6 +3681,17 @@ def splice_cfg_lines(
     Returns:
         The new lines, in order.
     """
+    fn = ordercore_bridge.native("order_splice_cfg_lines")
+    if fn is not None:
+        try:
+            spliced: list[str] = fn(
+                list(lines), [(list(positions), list(new)) for positions, new in segments]
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return spliced
     replace_at: dict[int, Sequence[str]] = {}
     skip: set[int] = set()
     trailing_extra: list[str] = []
@@ -3793,34 +3853,38 @@ def scan_mod_directories(
         plugin, while an assets-only mod adds just its data path.
     """
     start_path = str(start_path)
-    lines = []
+    # See the PTH100 note below: abspath must not become resolve() here.
+    shown = os.path.abspath(start_path)  # noqa: PTH100
+    lines: list[str] = []
     n_folders = n_plugins = 0
-    from wraithguard.fsio import scan_mod_folders
+    native = ordercore_bridge.native("order_scan_mod_directories")
+    if native is not None:
+        # ordercore::inputs (the walk and the lines; the Load order page scans with it too)
+        lines, n_folders, n_plugins, shown = native(start_path)
+    else:
+        from wraithguard.fsio import scan_mod_folders
 
-    # The walk is the Rust backend's when it is built (Python released), pruned at
-    # each match as before.
-    for root, found in scan_mod_folders(start_path, SCAN_ASSET_FOLDERS, PLUGIN_EXTS):
-        plugins = sorted(found, key=str.lower)
-        # abspath normalizes WITHOUT resolving symlinks. Path.resolve()
-        # follows them, which would rewrite the displayed path of every
-        # MO2 junction / symlinked mod folder -- common in Morrowind
-        # setups. Not equivalent, so this stays os.path.
-        lines.append(os.path.abspath(root))  # noqa: PTH100
-        lines.extend(plugins)
-        lines.append("")  # blank separator for readability
-        n_folders += 1
-        n_plugins += len(plugins)
+        for root, found in scan_mod_folders(start_path, SCAN_ASSET_FOLDERS, PLUGIN_EXTS):
+            plugins = sorted(found, key=str.lower)
+            # abspath normalizes WITHOUT resolving symlinks. Path.resolve()
+            # follows them, which would rewrite the displayed path of every
+            # MO2 junction / symlinked mod folder -- common in Morrowind
+            # setups. Not equivalent, so this stays os.path.
+            lines.append(os.path.abspath(root))  # noqa: PTH100
+            lines.extend(plugins)
+            lines.append("")  # blank separator for readability
+            n_folders += 1
+            n_plugins += len(plugins)
 
     text = "\n".join(lines) + ("\n" if lines else "")
     if output_path is not None:
         Path(output_path).write_text(text, encoding="utf-8")
-    # See the PTH100 note above: abspath must not become resolve() here.
     print(
         # Two independent counts share this sentence, so ngettext (which
         # handles one) cannot apply; the "(s)" style is kept deliberately.
         _("Scanned '%(path)s': %(folders)d mod folder(s), %(plugins)d plugin(s).")
         % {
-            "path": os.path.abspath(start_path),  # noqa: PTH100
+            "path": shown,
             "folders": n_folders,
             "plugins": n_plugins,
         }
@@ -3878,6 +3942,19 @@ def extract_subset_from_subset_file(path: Path) -> tuple[list[str], list[dict[st
     text = read_user_text(path, encoding="utf-8")
 
     if path.suffix.lower() == ".toml":
+        native = ordercore_bridge.native("order_subset_from_toml")
+        if native is not None:
+            try:
+                n_plugins, n_data, n_skipped, _grass = native(text)
+            except Exception as exc:
+                if not ordercore_bridge.declined(exc):
+                    raise
+            else:
+                for entry in n_skipped:
+                    _warn_skipped_entry(entry, str(path))
+                return list(n_plugins), [
+                    {"value": v, "after": None, "before": None} for v in n_data
+                ]
         try:
             import tomllib
         except ModuleNotFoundError:
@@ -3921,6 +3998,18 @@ def extract_groundcover_declarations(lines: Iterable[str], source: str = "subset
     Returns:
         The declared plugin filenames, in order, de-duplicated case-insensitively.
     """
+    native = ordercore_bridge.native("order_groundcover_declarations")
+    if native is not None:
+        lines = list(lines)
+        try:
+            names, not_plugins = native(lines)
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            for name in not_plugins:
+                _warn_not_groundcover(name, source)
+            return list(names)
     found: list[str] = []
     seen: set[str] = set()
     for line in lines:
@@ -3931,18 +4020,34 @@ def extract_groundcover_declarations(lines: Iterable[str], source: str = "subset
         if not name:
             continue
         if not name.lower().endswith(PLUGIN_EXTS):
-            _LOG.warning(
-                _(
-                    "'%(entry)s' from %(source)s is declared as groundcover but is not a "
-                    "plugin filename -- skipping."
-                ),
-                {"entry": name, "source": source},
-            )
+            _warn_not_groundcover(name, source)
             continue
         if name.lower() not in seen:
             seen.add(name.lower())
             found.append(name)
     return found
+
+
+def _warn_not_groundcover(name: str, source: str) -> None:
+    """Warn that a ``groundcover=`` declaration names no plugin (it is skipped)."""
+    _LOG.warning(
+        _(
+            "'%(entry)s' from %(source)s is declared as groundcover but is not a "
+            "plugin filename -- skipping."
+        ),
+        {"entry": name, "source": source},
+    )
+
+
+def _warn_skipped_entry(raw: str, source: str) -> None:
+    """Warn that a subset entry is neither a plugin nor a folder (it is skipped)."""
+    _LOG.warning(
+        _(
+            "'%(entry)s' from %(source)s doesn't look like a plugin filename or a "
+            "data folder path (no recognized extension, no slash) -- skipping."
+        ),
+        {"entry": raw, "source": source},
+    )
 
 
 def _classify_subset_entry(
@@ -3972,13 +4077,7 @@ def _classify_subset_entry(
     elif "/" in raw.replace("\\", "/"):
         data_inserts.append({"value": raw, "after": None, "before": None})
     else:
-        _LOG.warning(
-            _(
-                "'%(entry)s' from %(source)s doesn't look like a plugin filename or a "
-                "data folder path (no recognized extension, no slash) -- skipping."
-            ),
-            {"entry": raw, "source": source},
-        )
+        _warn_skipped_entry(raw, source)
 
 
 def _strip_line_comment(line: str) -> str:
@@ -4009,6 +4108,18 @@ def extract_subset_from_lines(
     the GUI's 'scan into memory' path so a scan can feed the sort without writing
     a file to disk.
     """
+    native = ordercore_bridge.native("order_subset_from_lines")
+    if native is not None:
+        lines = list(lines)
+        try:
+            n_plugins, n_data, n_skipped = native(lines)
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            for entry in n_skipped:
+                _warn_skipped_entry(entry, source)
+            return list(n_plugins), [{"value": v, "after": None, "before": None} for v in n_data]
     plugins: list[str] = []
     data_inserts: list[dict[str, Any]] = []
     for line in lines:
@@ -4044,7 +4155,22 @@ def extract_subset_from_toml(
                 "to parse the customizations TOML."
             ) from exc
 
-    data = tomllib.loads(read_toml_text(toml_path))
+    text = read_toml_text(toml_path)
+    native = ordercore_bridge.native("order_customizations")
+    if native is not None:
+        try:
+            n_subset, n_data, n_dest, n_lists = native(text)
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return (
+                list(n_subset),
+                [{"value": v, "after": a, "before": b} for v, a, b in n_data],
+                set(n_dest),
+                dict(n_lists),
+            )
+    data = tomllib.loads(text)
     subset = []
     data_inserts = []
     replace_dest_names: set[str] = set()
@@ -4254,6 +4380,19 @@ def order_rule_frozen_conflicts(
     pairs. Wildcard/<VER> tokens are skipped -- they don't resolve to one
     position. Purely advisory; used to warn before writing a rule.
     """
+    fn = ordercore_bridge.native("order_rule_frozen_conflicts")
+    if fn is not None:
+        try:
+            got: list[tuple[str, str]] = fn(
+                [str(n) for n in names],
+                [str(n) for n in final_order],
+                [str(c) for c in curated_lower],
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return got
     pos = {str(n).lower(): i for i, n in enumerate(final_order)}
     cl = {str(c).lower() for c in curated_lower}
     out = []
@@ -4289,6 +4428,17 @@ def append_user_rule(
         ValueError: If the keyword is not an ordering rule, or the rule does
             not pass validation.
     """
+    fn = ordercore_bridge.native("order_append_user_rule")
+    if fn is not None:
+        try:
+            text: str = fn(
+                str(path), str(keyword), [str(n) for n in names], comment
+            )  # ordercore::authoring
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return text
     kinds = {"order": "Order", "nearstart": "NearStart", "nearend": "NearEnd"}
     kind = kinds.get(str(keyword).strip().lower())
     if kind is None:
@@ -4323,6 +4473,17 @@ def append_authored_rule(path: str | Path, rule: authoring.Rule) -> str:
             file is read by a tool that silently discards what it cannot use, so
             refusing here is the only place a person finds out.
     """
+    fn = ordercore_bridge.native("order_append_authored_rule")
+    if fn is not None:
+        try:
+            written: str = fn(str(path), authoring.rule_plain(rule))  # ordercore::authoring
+        except TypeError:
+            pass  # an expression ordercore has no kind for: the Python writes it
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return written
     problems = authoring.errors(authoring.validate(rule))
     if problems:
         message = "; ".join(problem.describe() for problem in problems)
@@ -4647,6 +4808,19 @@ def all_scan_dirs(
         checking them before committing to an order. (Pending dirs are appended
         after the cfg dirs; that matches where they'd typically land.)
     """
+    native = ordercore_bridge.native("order_all_scan_dirs")
+    if native is not None:
+        try:
+            got: list[str] = native(
+                list(data_order or []),
+                [str(d["value"]) for d in raw_toml_data_inserts or [] if d.get("value")],
+                [str(d["value"]) for d in data_inserts or [] if d.get("value")],
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return got
     dirs = [v for v in (extract_data_path_value(line) for line in (data_order or [])) if v]
     seen = {str(d).lower() for d in dirs}
     for src in (data_inserts, raw_toml_data_inserts):
@@ -4667,6 +4841,18 @@ def pending_custom_dirs(
     Deduped, in declared order,
     -- used to flag which side of a conflict is YOUR mod.
     """
+    native = ordercore_bridge.native("order_pending_custom_dirs")
+    if native is not None:
+        try:
+            got: list[str] = native(
+                [str(d["value"]) for d in raw_toml_data_inserts or [] if d.get("value")],
+                [str(d["value"]) for d in data_inserts or [] if d.get("value")],
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return got
     out, seen = [], set()
     for src in (data_inserts, raw_toml_data_inserts):
         for d in src or []:
@@ -4675,6 +4861,25 @@ def pending_custom_dirs(
                 seen.add(str(v).lower())
                 out.append(v)
     return out
+
+
+def _toml_groundcover(text: str) -> list[str]:
+    """The ``groundcover = [...]`` key of the subset file's TOML form (none if it will not parse)."""
+    native = ordercore_bridge.native("order_subset_from_toml")
+    if native is not None:
+        try:
+            return list(native(text)[3])
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib
+    try:
+        return [str(v) for v in (tomllib.loads(text).get("groundcover") or [])]
+    except (ValueError, TypeError):
+        return []  # a malformed TOML is reported by the subset reader
 
 
 def declared_groundcover(args: argparse.Namespace) -> list[str]:
@@ -4703,14 +4908,7 @@ def declared_groundcover(args: argparse.Namespace) -> list[str]:
         except OSError:
             text = ""  # the subset reader reports this properly; do not double-warn
         if str(path).lower().endswith(".toml"):
-            try:
-                import tomllib
-            except ModuleNotFoundError:
-                import tomli as tomllib
-            try:
-                found.extend(str(v) for v in (tomllib.loads(text).get("groundcover") or []))
-            except (ValueError, TypeError):
-                pass  # a malformed TOML is reported by the subset reader
+            found.extend(_toml_groundcover(text))
         else:
             found.extend(extract_groundcover_declarations(text.splitlines(), str(path)))
 
@@ -5619,6 +5817,64 @@ def _plan_data_paths(
     return data_result
 
 
+def _orphans_py(
+    subset: Sequence[str],
+    base_order_names: Sequence[str],
+    data_order: Sequence[str],
+    curated_set: Collection[str],
+    needs_cleaning_lower: Collection[str],
+    declared_lower: Collection[str],
+    groundcover_lower: Collection[str],
+    managed_data_norms: set[str] | None,
+) -> tuple[list[str], list[str]]:
+    """The orphan pull's answer in Python (``ordercore::inputs::cfg_orphans`` is the other).
+
+    Args:
+        subset: The subset so far (read only).
+        base_order_names: The cfg's ``content=`` order.
+        data_order: The cfg's raw ``data=`` lines.
+        curated_set: Plugins the curated list owns.
+        needs_cleaning_lower: Plugins the list flags for cleaning.
+        declared_lower: Plugins declared this run.
+        groundcover_lower: Lower-cased plugins the cfg declares as groundcover.
+        managed_data_norms: The data paths the list and this run account for, or None
+            without a data-paths cache.
+
+    Returns:
+        ``(new plugins, orphan data= values)``.
+    """
+    pull_data = managed_data_norms is not None
+    orphan_plugins, orphan_data = orphan_cfg_entries(
+        base_order_names,
+        data_order,
+        curated_lower={str(c).lower() for c in curated_set},
+        needs_cleaning_lower={str(c).lower() for c in needs_cleaning_lower},
+        declared_plugins_lower={str(d).lower() for d in declared_lower},
+        # Without the cache filter every cfg data= path looks unmanaged, so treat
+        # them all as "managed" (no orphans) rather than flooding the report.
+        declared_data_norms=(
+            managed_data_norms
+            if managed_data_norms is not None
+            else {
+                normalize_data_path(extract_data_path_value(x) or "")
+                for x in data_order
+                if extract_data_path_value(x)
+            }
+        ),
+    )
+
+    # A plugin the cfg also declares as groundcover belongs on a groundcover=
+    # line; adding it to content= too would load the grass twice.
+    if groundcover_lower:
+        orphan_plugins = [p for p in orphan_plugins if p.lower() not in groundcover_lower]
+
+    # Skip anything already declared explicitly this run (the later de-dupe would
+    # drop it anyway; not counting it keeps the report honest).
+    already = {s.lower() for s in subset}
+    new_plugins = [p for p in orphan_plugins if p.lower() not in already]
+    return new_plugins, orphan_data if pull_data else []
+
+
 def _pull_cfg_orphans(
     args: argparse.Namespace,
     subset: list[str],
@@ -5686,6 +5942,7 @@ def _pull_cfg_orphans(
     cache = getattr(args, "data_paths_cache", None)
     pull_data = bool(cache)
     managed_data_norms: set[str] = set()
+    tails: list[str] = []
     if pull_data:
         cfg_data_values = [v for v in (extract_data_path_value(x) for x in data_order) if v]
         try:
@@ -5699,34 +5956,39 @@ def _pull_cfg_orphans(
         declared_data_norms.discard("")
         managed_data_norms |= declared_data_norms
 
-    orphan_plugins, orphan_data = orphan_cfg_entries(
-        base_order_names,
-        data_order,
-        curated_lower={str(c).lower() for c in curated_set},
-        needs_cleaning_lower={str(c).lower() for c in needs_cleaning_lower},
-        declared_plugins_lower={str(d).lower() for d in declared_lower},
-        # Without the cache filter every cfg data= path looks unmanaged, so treat
-        # them all as "managed" (no orphans) rather than flooding the report.
-        declared_data_norms=(
-            managed_data_norms
-            if pull_data
-            else {
-                normalize_data_path(extract_data_path_value(x) or "")
-                for x in data_order
-                if extract_data_path_value(x)
-            }
-        ),
-    )
-
-    # A plugin the cfg also declares as groundcover belongs on a groundcover=
-    # line; adding it to content= too would load the grass twice.
-    if groundcover_lower:
-        orphan_plugins = [p for p in orphan_plugins if p.lower() not in groundcover_lower]
-
-    # Skip anything already declared explicitly this run (the later de-dupe would
-    # drop it anyway; not counting it keeps the report honest).
-    already = {s.lower() for s in subset}
-    new_plugins = [p for p in orphan_plugins if p.lower() not in already]
+    native = ordercore_bridge.native("order_cfg_orphans")
+    found: tuple[list[str], list[str]] | None = None
+    if native is not None:
+        try:
+            n_plugins, n_data = native(
+                list(subset),
+                list(base_order_names),
+                list(data_order),
+                {str(c).lower() for c in curated_set},
+                {str(c).lower() for c in needs_cleaning_lower},
+                {str(d).lower() for d in declared_lower},
+                {str(g).lower() for g in groundcover_lower},
+                [str(d["value"]) for d in (*data_inserts, *raw_toml_data_inserts)],
+                tails if pull_data else None,
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            found = (list(n_plugins), list(n_data or []))
+    if found is not None:
+        new_plugins, orphan_data = found
+    else:
+        new_plugins, orphan_data = _orphans_py(
+            subset,
+            base_order_names,
+            data_order,
+            curated_set,
+            needs_cleaning_lower,
+            declared_lower,
+            groundcover_lower,
+            managed_data_norms if pull_data else None,
+        )
     for name in new_plugins:
         subset.append(name)
         original_content_values.setdefault(name, name)

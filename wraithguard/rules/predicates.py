@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Final
 
+from wraithguard import ordercore_bridge
 from wraithguard.plugins import PluginFileIndex, plugin_version, read_plugin_description
 from wraithguard.rules.expressions import (
     describe_node,
@@ -56,6 +57,37 @@ _re_mwselua_fun: Final = re.compile(
 _format_version = format_version
 _plugin_version = plugin_version
 _read_plugin_description = read_plugin_description
+
+
+class _PluginFacts:
+    """The plugin files as ``ordercore::predicates::Plugins`` asks after them."""
+
+    def __init__(self, index: PluginFileIndex) -> None:
+        """Answer from ``index``."""
+        self._index = index
+
+    def usable(self) -> bool:
+        """Whether a "not found" can be trusted."""
+        return self._index.usable
+
+    def exists(self, name: str) -> bool:
+        """Whether the plugin is in the data folders."""
+        return self._index.find(name) is not None
+
+    def size(self, name: str) -> int | None:
+        """The file's size, or None when it cannot be read."""
+        path = self._index.find(name)
+        if path is None:
+            return None
+        try:
+            return path.stat().st_size
+        except OSError:
+            return None
+
+    def description(self, name: str) -> str:
+        """The header description (empty on any problem)."""
+        path = self._index.find(name)
+        return "" if path is None else _read_plugin_description(path)
 
 
 def _matching(pattern: str, active_plugins: Collection[str]) -> list[str]:
@@ -376,8 +408,24 @@ def check_predicates(
     the one to go fix. Plugins with no entry here are printed unannotated.
     """
     subset_origins = subset_origins or {}
-    active_set = set(final_order)
     index = PluginFileIndex(data_dirs)
+    fn = ordercore_bridge.native("order_check_predicates")
+    if fn is not None:
+        # ordercore::predicates, through the native module (port step 4.2 slice 2j); the
+        # body below answers when it declines.
+        try:
+            got: list[str] = fn(
+                rules_text,
+                list(final_order),
+                {k.lower(): v for k, v in subset_origins.items()},
+                _PluginFacts(index),
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return got
+    active_set = set(final_order)
     warnings = []
 
     def annotate(name: str) -> str:

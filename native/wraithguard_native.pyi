@@ -1,6 +1,6 @@
 """Type stubs for wraithguard_native (native/src)."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from os import PathLike
 from typing import Any
 
@@ -324,6 +324,214 @@ def cell_key(spec: str) -> dict[str, Any] | None:
 
 def ref_winner(deleted: Sequence[bool]) -> tuple[int, bool, list[int]] | None:
     """Which of a reference's versions stands: its position, deleted, the ignored ones."""
+
+# The load order's rules, sort, checks, export, rule maker and updates, ordercore's
+# (native/src/loadorder.rs, port step 4.2 slice 2j). Each raises OrderUnsupportedError where
+# ordercore declines; wraithguard/ordercore_bridge.py then keeps the Python answer.
+class OrderUnsupportedError(Exception):
+    """ordercore does not read this input; the caller keeps the Python answer."""
+
+def order_parse_rules(text: str) -> tuple[list[tuple[str, list[str]]], int]:
+    """The ordering blocks of a rule file's text and how many lines were bridged over."""
+
+def order_build_and_sort(
+    base: Sequence[str],
+    subset: Sequence[str],
+    blocks: Sequence[tuple[Sequence[str], int]],
+    masters: Mapping[str, Sequence[str]],
+    nearstart: Sequence[str],
+    nearend: Sequence[str],
+) -> tuple[list[str], dict[str, tuple[str, str | None]], list[tuple[str, str]]]:
+    """The sort: the order, each custom's anchor, the refused rule edges."""
+
+def order_check_predicates(
+    rules_text: str, final_order: Sequence[str], subset_origins: Mapping[str, str], plugins: object
+) -> list[str]:
+    """The predicate rules' warnings; ``plugins`` answers usable/exists/size/description."""
+
+def order_momw_parse(data: bytes) -> list[Any]:
+    """plugin-order.yml's entries; ValueError, saying where, for a file that is not MOMW's."""
+
+def order_momw_curated_for_list(
+    entries: Sequence[Any], list_name: str
+) -> tuple[set[str], list[str]]:
+    """A curated list's plugins: the lower-cased set and the order."""
+
+def order_momw_needs_cleaning(entries: Sequence[Any]) -> set[str]:
+    """The lower-cased plugins flagged for cleaning."""
+
+def order_momw_post_sort_findings(
+    final_order: Sequence[str] | None,
+    base: Sequence[str],
+    entries: Sequence[Any],
+    curated_set: set[str],
+    curated_order: Sequence[str],
+    declared_lower: set[str],
+    list_name: str | None,
+) -> list[str]:
+    """The notes for a finished sort."""
+
+def order_render_rule(rule: Mapping[str, Any]) -> str:
+    """A rule (its plain form) as rule-file text."""
+
+def order_validate_rule(rule: Mapping[str, Any]) -> list[tuple[str, str, str]]:
+    """A rule's problems as (severity, message, remedy)."""
+
+def order_format_ref(ref: str) -> str:
+    """A citation as a rule's message carries it."""
+
+def order_append_authored_rule(path: str, rule: Mapping[str, Any]) -> str:
+    """Write a rule to the user's rule file; ValueError listing its errors."""
+
+def order_append_user_rule(
+    path: str, keyword: str, names: Sequence[str], comment: str | None = None
+) -> str:
+    """Write an ordering rule to the user's rule file."""
+
+def order_rule_frozen_conflicts(
+    names: Sequence[str], final_order: Sequence[str], curated_lower: Sequence[str]
+) -> list[tuple[str, str]]:
+    """The pairs a proposed [Order] would fight the cfg over."""
+
+def order_derive(
+    which: str,
+    masters_by_plugin: Sequence[tuple[str, Sequence[str]]],
+    active: Sequence[str],
+    conflicts: Sequence[Mapping[str, Any]],
+    minimum_records: int,
+) -> list[dict[str, Any]]:
+    """Rule proposals from masters and conflicts (rules in their plain form)."""
+
+def order_insert_data_paths(
+    data_lines: Sequence[str], data_inserts: Sequence[Mapping[str, Any]]
+) -> tuple[list[tuple[str, bool, str | None]], list[str]]:
+    """The data= lines with the inserts placed, and the notes."""
+
+def order_customizations_toml(args: Mapping[str, Any]) -> tuple[str, list[str]]:
+    """The customizations TOML and its warnings (arguments by name)."""
+
+def order_plugins_needing_removal(
+    disabled: Sequence[str], curated_set: Sequence[str], base_order_names: Sequence[str]
+) -> list[str]:
+    """The opted-out plugins that need a removeContent."""
+
+def order_data_paths_needing_removal(
+    disabled_data: Sequence[str], our_values: set[str], base_data_norms: set[str]
+) -> list[str]:
+    """The opted-out data paths that need a removeData."""
+
+def order_read_groundcover_names(lines: Sequence[str]) -> list[str]:
+    """The plugins on a cfg's groundcover= lines."""
+
+def order_splice_cfg_lines(
+    lines: Sequence[str], segments: Sequence[tuple[Sequence[int], Sequence[str]]]
+) -> list[str]:
+    """The cfg lines with the content=/data= segments spliced in."""
+
+def order_fetch_url_bytes(
+    get: Callable[[str, int, int], bytes], url: str, timeout: int, max_bytes: int
+) -> bytes:
+    """A checked download through ``get``; ValueError refused, OSError failed."""
+
+def order_update_plugin_order_yml(
+    path: str,
+    urls: Sequence[str] | None,
+    timeout: int,
+    count: Callable[[bytes], int],
+    env: Mapping[str, Any],
+    get: Callable[[str, int, int], bytes],
+) -> list[str]:
+    """Update plugin-order.yml; the report lines."""
+
+def order_fetch_list_data_paths(
+    path: str,
+    list_name: str,
+    host: str | None,
+    timeout: int,
+    env: Mapping[str, Any],
+    get: Callable[[str, int, int], bytes],
+) -> list[str]:
+    """Cache a curated list's data paths; the report lines."""
+
+def order_update_rule_files(
+    rule_paths: Sequence[str],
+    url_template: str | None,
+    timeout: int,
+    env: Mapping[str, Any],
+    get: Callable[[str, int, int], bytes],
+) -> list[str]:
+    """Update the managed rule files; the report lines."""
+
+def order_rule_file_ages(rule_paths: Sequence[str], now: float) -> list[tuple[str, int | None]]:
+    """Each rule file's age in days, or None."""
+
+# The sort's inputs (port step 4.2 slice 2k), ordercore::inputs.
+def order_subset_from_lines(lines: Sequence[str]) -> tuple[list[str], list[str], list[str]]:
+    """Subset lines as (plugins, data folders, skipped entries)."""
+
+def order_groundcover_declarations(lines: Sequence[str]) -> tuple[list[str], list[str]]:
+    """The plugins subset lines declare as grass, and the declared entries that are not plugins."""
+
+def order_subset_from_toml(text: str) -> tuple[list[str], list[str], list[str], list[str]]:
+    """The subset file's TOML form: (plugins, data folders, skipped, groundcover)."""
+
+def order_customizations(
+    text: str,
+) -> tuple[list[str], list[tuple[str, str | None, str | None]], list[str], dict[str, str]]:
+    """A customizations.toml: (subset, [(value, after, before)], replace dests, listNames)."""
+
+def order_hold_back_groundcover(
+    subset: Sequence[str], groundcover: Sequence[str]
+) -> tuple[list[str], list[str]]:
+    """The subset without grass, and the grass held back."""
+
+def order_all_scan_dirs(
+    data_order: Sequence[str], raw_values: Sequence[str], insert_values: Sequence[str]
+) -> list[str]:
+    """The cfg's data folders and the pending ones not among them."""
+
+def order_pending_custom_dirs(raw_values: Sequence[str], insert_values: Sequence[str]) -> list[str]:
+    """The pending data folders, once each."""
+
+def order_scan_mod_directories(start: str) -> tuple[list[str], int, int, str]:
+    """The mods-folder scan: (lines, folders, plugins, start made absolute)."""
+
+def order_parse_data_paths_cache(text: str) -> list[str]:
+    """A list's cached data-path tails."""
+
+def order_managed_data_path_norms(tails: Sequence[str], cfg_values: Sequence[str]) -> set[str]:
+    """The normalized cfg data paths the list's tails account for."""
+
+def order_reconcile_data_paths(
+    tails: Sequence[str], cfg_values: Sequence[str], report_missing: bool
+) -> list[str]:
+    """The list's data paths against the cfg's: the findings."""
+
+def order_cfg_orphans(
+    subset: Sequence[str],
+    base_order: Sequence[str],
+    data_order: Sequence[str],
+    curated: set[str],
+    needs_cleaning: set[str],
+    declared: set[str],
+    groundcover: set[str],
+    declared_data: Sequence[str],
+    tails: Sequence[str] | None,
+) -> tuple[list[str], list[str] | None]:
+    """The --subset-from-cfg pull: (new plugins, orphan data values or None)."""
+
+def order_infer_data_path_anchors(
+    inserts: Sequence[Mapping[str, object]],
+    data_order: Sequence[str],
+    final_order: Sequence[str],
+    base_dir: str | None,
+) -> tuple[list[tuple[str | None, str | None]], list[tuple[str, str, str, str]]]:
+    """Each insert's (after, before), and (value, mode, anchor, via) per anchor chosen."""
+
+def order_check_missing_masters(
+    active_order: Sequence[str], dirs: Sequence[str], origins: Mapping[str, str]
+) -> tuple[list[str], list[str], list[str], int, list[str]]:
+    """The header-master check: (missing, order problems, size notes, checked, problem plugins)."""
 
 # The Editor's record cache, editcore's (native/src/cache.rs).
 def cache_dumps(value: object) -> bytes:

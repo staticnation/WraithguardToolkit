@@ -1,10 +1,7 @@
-"""Reading MOMW's ``plugin-order.yml``, via PyYAML and via the fallback parser.
-
-The hand-rolled fallback in ``wraithguard.momw`` only runs when PyYAML is absent,
-so with PyYAML installed it was never exercised. These parse the same small file
-both ways -- forcing the ``ImportError`` for the fallback -- and pin the
-curated-list selection, the cleaning set, and the base-order drift check the sort
-depends on.
+"""Reading MOMW's ``plugin-order.yml``: ordercore's reader through the native module (which
+refuses a file that is not MOMW's), and the two fallbacks without it (PyYAML, then the line
+reader), which skip what they cannot read. Also the curated-list selection, the cleaning set,
+and the base-order drift check the sort depends on.
 """
 
 from __future__ import annotations
@@ -14,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from wraithguard import ordercore_bridge
 from wraithguard.momw import (
     base_order_matches_yml,
     curated_for_list,
@@ -42,10 +40,14 @@ _YML = """\
 """
 
 
-def _write(tmp_path: Path) -> Path:
-    """Write the sample yml and return its path."""
+#: The two well-formed entries of :data:`_YML`, alone: a file ordercore reads.
+_CLEAN = _YML[_YML.index("- file_name: A.esp") :]
+
+
+def _write(tmp_path: Path, text: str = _CLEAN) -> Path:
+    """Write a sample yml (the clean one by default) and return its path."""
     path = tmp_path / "plugin-order.yml"
-    path.write_text(_YML, encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -64,10 +66,24 @@ class TestParsing:
         assert second["needs_cleaning"] is False
         assert second["on_lists"] == ["total-overhaul"]
 
-    def test_the_pyyaml_path(self, tmp_path: Path) -> None:
-        """With PyYAML installed, the robust loader is used."""
-        pytest.importorskip("yaml")
+    def test_the_native_reader_reads_the_file(self, tmp_path: Path) -> None:
+        """ordercore's YAML reader, through the native module."""
+        if ordercore_bridge.native("order_momw_parse") is None:
+            pytest.skip("ordercore's reader is not answering")
         self._check(parse_plugin_order_yml(_write(tmp_path)))
+
+    def test_the_native_reader_refuses_a_file_with_junk_in_it(self, tmp_path: Path) -> None:
+        """An entry that is not a mapping refuses the whole file, saying where."""
+        if ordercore_bridge.native("order_momw_parse") is None:
+            pytest.skip("ordercore's reader is not answering")
+        with pytest.raises(ValueError, match=r"^line 2 column 3: "):
+            parse_plugin_order_yml(_write(tmp_path, _YML))
+
+    def test_the_pyyaml_path(self, tmp_path: Path) -> None:
+        """Without the native module, PyYAML skips the junk."""
+        pytest.importorskip("yaml")
+        with ordercore_bridge.python_only():
+            self._check(parse_plugin_order_yml(_write(tmp_path, _YML)))
 
     def test_the_fallback_parser_when_pyyaml_is_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -78,7 +94,8 @@ class TestParsing:
         items (their ``- file_name:`` is not a top-level plugin entry).
         """
         monkeypatch.setitem(sys.modules, "yaml", None)
-        self._check(parse_plugin_order_yml(_write(tmp_path)))
+        monkeypatch.setattr(ordercore_bridge, "FORCE_PYTHON", True)
+        self._check(parse_plugin_order_yml(_write(tmp_path, _YML)))
 
     def test_the_fallback_ignores_indented_lines_before_any_entry(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -89,6 +106,7 @@ class TestParsing:
         fold the line into and finishes with an empty result.
         """
         monkeypatch.setitem(sys.modules, "yaml", None)
+        monkeypatch.setattr(ordercore_bridge, "FORCE_PYTHON", True)
         path = tmp_path / "plugin-order.yml"
         path.write_text("  file_name: orphan.esp\n  for_mod: nothing\n", encoding="utf-8")
         assert parse_plugin_order_yml(path) == []
@@ -98,6 +116,7 @@ class TestParsing:
     ) -> None:
         """An unrecognised key and an empty ``on_lists`` item are both skipped."""
         monkeypatch.setitem(sys.modules, "yaml", None)
+        monkeypatch.setattr(ordercore_bridge, "FORCE_PYTHON", True)
         path = tmp_path / "plugin-order.yml"
         path.write_text(
             '- file_name: a.esp\n  unknown_key: ignored\n  on_lists:\n    - ""\n    - real-list\n',

@@ -114,6 +114,14 @@
   refused as mlox refuses them, and every ordering between installed plugins it holds goes to
   the sort; checked against mlox itself on that order and on random installs of 1,134 and
   2,835 plugins from its rule file, with the same orderings each time.
+- **MOMW's `plugin-order.yml` is read with a YAML parser and a file that is not MOMW's is
+  refused**, saying where (`line 2 column 3: duplicate mapping key: file_name`), instead of
+  being misread: a syntax error, a duplicate key, a value of the wrong kind, an entry that is
+  not a mapping or one with no `file_name` refuse the whole file. Unknown keys are passed
+  over. The sort then says it could not read the file and goes on without it, as before; Update
+  rules and Sources keeps the old file. PyYAML is no longer used (it refused only a syntax error
+  and kept the last of two keys; without it a line reader refused nothing). MOMW's own file
+  reads exactly as before.
 - **The load order's rules have started moving into Rust** (`viewer-shell/ordercore`, port
   step 4.2). The rule files' ordering blocks (`rule_cases.json`), mlox's name patterns and
   versions (`pattern_cases.json`), the sort's graph and its order (`graph_cases.json`,
@@ -123,7 +131,14 @@
   with its backups (`export_cases.json`), the rule maker and the rules proposed from
   masters and conflicts (`authoring_cases.json`), and Update rules and Sources, with the
   network left to the caller (`update_cases.json`) are in Rust and give the Python's
-  answers on every shared case. Python does not call them yet.
+  answers on every shared case, and **Wraithguard now runs on them** through the native
+  module: the sort, the rule files, the rule warnings, MOMW's file, the export's TOML and
+  `data=` inserts, the rule maker and Update rules and Sources. Where the Rust does not read
+  an input it says so and the Python answers (`wraithguard/ordercore_bridge.py`); the sort
+  trace (`--trace`) still comes from the Python sort. Its messages are put back into the
+  user's language. What a sort is given runs on Rust too (`input_cases.json`): the subset
+  file and the scan of a mods folder, `customizations.toml`, grass, the cfg's unmanaged
+  entries, a list's data paths, where a new `data=` folder goes, and the master check.
 - **The Editor's backend has started moving into Rust** (`viewer-shell/editcore`, port
   step 4.1; plan in `viewer-shell/PORT.md`). The plugin reader moved there from the Python
   module, which now calls it unchanged. Record keys and the Editor's record and

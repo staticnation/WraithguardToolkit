@@ -28,6 +28,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from wraithguard import ordercore_bridge
 from wraithguard.configurator.cfglines import normalize_data_path
 
 if TYPE_CHECKING:
@@ -87,8 +88,16 @@ def parse_data_paths_cache(path: Path) -> list[str]:
     Returns:
         The relative tails, in order.
     """
+    text = path.read_text(encoding="utf-8-sig")
+    native = ordercore_bridge.native("order_parse_data_paths_cache")
+    if native is not None:
+        try:
+            return list(native(text))  # ordercore::inputs
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
     tails: list[str] = []
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
+    for line in text.splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
             tails.append(stripped.replace("\\", "/"))
@@ -157,6 +166,13 @@ def managed_cfg_data_path_norms(tails: Sequence[str], cfg_data_paths: Sequence[s
     """
     if not tails:
         return set()
+    native = ordercore_bridge.native("order_managed_data_path_norms")
+    if native is not None:
+        try:
+            return set(native(list(tails), list(cfg_data_paths)))  # ordercore::inputs
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
     idx = _index_tails(tails)
     managed = {normalize_data_path(v) for v in cfg_data_paths if _match_index(v, idx) is not None}
     managed.discard("")
@@ -186,6 +202,13 @@ def reconcile_data_paths(
     """
     if not tails:
         return []
+    native = ordercore_bridge.native("order_reconcile_data_paths")
+    if native is not None:
+        try:
+            return list(native(list(tails), list(cfg_data_paths), report_missing))
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
     idx = _index_tails(tails)
     matched_canonical: list[int] = []  # canonical index per cfg path, in cfg order
     present: set[int] = set()

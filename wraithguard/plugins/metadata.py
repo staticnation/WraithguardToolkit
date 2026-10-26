@@ -77,6 +77,15 @@ class PluginFileIndex:
         # finds from each would otherwise all build the index at once.
         self._build_lock = threading.Lock()
 
+    @property
+    def dirs(self) -> list[str | Path]:
+        """The directories indexed, in ``data=`` order (a copy).
+
+        Returns:
+            The directories as given.
+        """
+        return list(self._dirs)
+
     def _build(self) -> None:
         """Populate the index, skipping directories that cannot be read.
 

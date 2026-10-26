@@ -21,6 +21,8 @@
 //!   post-sort findings against it.
 //! - [`updates`]: the downloads - rule files, `plugin-order.yml`, a list's data paths - with the
 //!   network left to the caller.
+//! - [`inputs`]: what the sort is given - the subset, the customizations TOML, the mods-folder
+//!   scan, grass, the cfg's orphans, a list's data paths, `data=` anchors and the master check.
 //! - [`export`]: writing `openmw.cfg` and `customizations.toml`.
 //! - [`authoring`]: writing mlox rules to the rule-base's standards, and the user's rule file.
 //! - [`derive`]: the rules worth proposing from what the tool observed.
@@ -34,6 +36,7 @@ pub mod cfg;
 pub mod derive;
 pub mod export;
 pub mod graph;
+pub mod inputs;
 pub mod momw;
 pub mod order;
 pub mod patterns;

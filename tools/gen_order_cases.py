@@ -605,6 +605,15 @@ def answer(
 
 
 def cases() -> list[dict[str, Any]]:
+    """The cases, answered by the Python bodies (not ordercore's, which they check)."""
+    sys.path.insert(0, str(ROOT))
+    from wraithguard import ordercore_bridge
+
+    with ordercore_bridge.python_only():
+        return _cases()
+
+
+def _cases() -> list[dict[str, Any]]:
     """The cases, answered by the Python code."""
     sys.path.insert(0, str(ROOT))
     every: list[Case] = [*HAND]

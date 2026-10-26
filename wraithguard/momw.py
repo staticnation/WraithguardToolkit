@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypedDict
 
+from wraithguard import ordercore_bridge
+
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterable, Sequence
     from pathlib import Path
@@ -90,46 +92,72 @@ def _promote(entry: _PartialEntry) -> PluginOrderEntry:
 def parse_plugin_order_yml(path: Path) -> list[PluginOrderEntry]:
     """Parse ``plugin-order.yml`` into per-plugin entries.
 
-    Prefers PyYAML
-    if it's installed (robust), but falls back to a focused line parser for this
-    file's very regular structure so the feature works with a stdlib-only Python
-    -- MOMW users won't necessarily have PyYAML. The fallback deliberately
-    ignores the nested `depends:` blocks some entries carry (their indented
-    `- file_name:` items must NOT be mistaken for top-level plugin entries).
-    """
-    text = path.read_text(encoding="utf-8", errors="replace")
+    Read by ``ordercore::momw`` through the native module (port step 4.2 slice 2j): a YAML
+    parser, and the whole file **refused** (``ValueError``, saying where) on a syntax error,
+    a duplicate key, a value of the wrong kind, an entry that is not a mapping or one with no
+    ``file_name``. Keys it does not know are passed over. Every caller already catches the
+    error and says the file could not be read; Update rules and Sources reads a download with
+    this before it replaces the file.
 
+    Without the native module it falls back to PyYAML when installed (which refuses only a
+    syntax error) and otherwise to :func:`_parse_plugin_order_lines`.
+
+    Raises:
+        ValueError: the file is not MOMW's (native reader).
+        OSError: it cannot be read.
+    """
+    data = path.read_bytes()
+    fn = ordercore_bridge.native("order_momw_parse")
+    if fn is not None:
+        entries: list[PluginOrderEntry] = fn(data)
+        return entries
+    text = data.decode("utf-8", errors="replace")
     try:
         import yaml  # PyYAML, if available
 
         raw = yaml.safe_load(text) or []
-        entries: list[PluginOrderEntry] = []
+        out: list[PluginOrderEntry] = []
         for e in raw:
             if not isinstance(e, dict):
                 continue
-            fn = e.get("file_name")
-            if not fn:
+            fn_name = e.get("file_name")
+            if not fn_name:
                 continue
-            entries.append(
+            out.append(
                 PluginOrderEntry(
-                    file_name=str(fn),
+                    file_name=str(fn_name),
                     for_mod=e.get("for_mod"),
                     on_lists=[str(x) for x in (e.get("on_lists") or [])],
                     needs_cleaning=bool(e.get("needs_cleaning")),
                 )
             )
-        return entries
+        return out
     except ImportError:
         pass  # fall through to the hand parser
-    return parse_plugin_order_text(text)
+    return _parse_plugin_order_lines(text)
 
 
 def parse_plugin_order_text(text: str) -> list[PluginOrderEntry]:
+    """Parse the text of ``plugin-order.yml``: :func:`parse_plugin_order_yml` without a file.
+
+    ``ordercore::momw``'s reader through the native module, and the line reader without it.
+    The shared cases (``tests/fixtures/momw_cases.json``) pin the native reader.
+
+    Raises:
+        ValueError: the text is not MOMW's file (native reader).
+    """
+    fn = ordercore_bridge.native("order_momw_parse")
+    if fn is not None:
+        entries: list[PluginOrderEntry] = fn(text.encode("utf-8"))
+        return entries
+    return _parse_plugin_order_lines(text)
+
+
+def _parse_plugin_order_lines(text: str) -> list[PluginOrderEntry]:
     """Parse the text of ``plugin-order.yml`` with the hand-rolled reader.
 
-    The dependency-free path of :func:`parse_plugin_order_yml`, split out so the Rust port
-    (``ordercore::momw``) and this run the same cases (``tests/fixtures/momw_cases.json``)
-    without PyYAML in between. The body is the one that was inline there, unchanged.
+    The last fallback of :func:`parse_plugin_order_yml`, with neither the native module nor
+    PyYAML: it reads the shapes MOMW's file uses and refuses nothing.
 
     Args:
         text: The file's text.
@@ -197,6 +225,19 @@ def curated_for_list(
         list for the canonical load order of that list, in file order. Both are
         empty when ``list_name`` is empty or matches nothing.
     """
+    got: tuple[set[str], list[str]] = ordercore_bridge.call(
+        "order_momw_curated_for_list",
+        lambda: _curated_for_list(entries, list_name),
+        list(entries),
+        list_name or "",
+    )
+    return got
+
+
+def _curated_for_list(
+    entries: Sequence[PluginOrderEntry], list_name: str
+) -> tuple[set[str], list[str]]:
+    """:func:`curated_for_list`'s Python body."""
     ln = (list_name or "").lower()
     curated_set: set[str] = set()
     curated_order: list[str] = []
@@ -218,7 +259,13 @@ def needs_cleaning_set(entries: Iterable[PluginOrderEntry]) -> set[str]:
     Returns:
         Lowercased filenames whose entry sets ``needs_cleaning``.
     """
-    return {e["file_name"].lower() for e in entries if e["needs_cleaning"]}
+    entries = list(entries)
+    got: set[str] = ordercore_bridge.call(
+        "order_momw_needs_cleaning",
+        lambda: {e["file_name"].lower() for e in entries if e["needs_cleaning"]},
+        entries,
+    )
+    return got
 
 
 def base_order_matches_yml(
@@ -285,6 +332,23 @@ def post_sort_findings(
     """
     from wraithguard.configurator.cfglines import curated_covers
 
+    fn = ordercore_bridge.native("order_momw_post_sort_findings")
+    if fn is not None:
+        try:
+            got: list[str] = fn(
+                None if final_order is None else list(final_order),
+                list(base_order_names),
+                list(yml_entries),
+                set(curated_set),
+                list(curated_order),
+                set(declared_lower),
+                list_name,
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return got
     if not yml_entries:
         return []
     active = final_order if final_order else base_order_names

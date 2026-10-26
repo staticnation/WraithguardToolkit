@@ -20,9 +20,10 @@ from __future__ import annotations
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
+from wraithguard import ordercore_bridge
 from wraithguard.i18n import gettext as _, ngettext
 from wraithguard.sort.graph import expand_pattern, is_master_file, would_create_cycle
-from wraithguard.tracing import trace_sort
+from wraithguard.tracing import sort_tracing, trace_sort
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, MutableMapping, Sequence
@@ -53,6 +54,40 @@ def _unique_conflicts(conflicts: Sequence[tuple[str, str]]) -> list[tuple[str, s
             seen.add(key)
             unique.append((a, b))
     return unique
+
+
+def _report_rule_conflicts(conflicts: Sequence[tuple[str, str]]) -> None:
+    """Print the rule edges the sort could not apply, once each.
+
+    Deduped and phrased as info, not alarm: they happen whenever a curated MOMW cfg order
+    intentionally differs from raw mlox. The frozen cfg order is kept and the affected
+    plugin is still placed as well as the non-conflicting rules allow.
+
+    Args:
+        conflicts: The refused edges, as the graph collected them.
+    """
+    if not conflicts:
+        return
+    unique = _unique_conflicts(conflicts)
+    print(
+        "\n  "
+        + ngettext(
+            "%(count)d mlox ordering rule not applied -- your openmw.cfg already "
+            "orders these the other way, so your (curated) cfg order is kept:",
+            "%(count)d mlox ordering rules not applied -- your openmw.cfg already "
+            "orders these the other way, so your (curated) cfg order is kept:",
+            len(unique),
+        )
+        % {"count": len(unique)}
+    )
+    for a, b in unique:
+        print(
+            _(
+                "    - mlox wanted '%(first)s' before '%(second)s', but your load "
+                "order already has '%(second)s' before '%(first)s'"
+            )
+            % {"first": a, "second": b}
+        )
 
 
 def _build_edges(
@@ -219,31 +254,7 @@ def _build_edges(
                 _rule_edge_count += 1
     trace_sort(f"[sort]  considered rule edges touching customs: {_rule_edge_count}")
 
-    # Report rules we couldn't apply -- deduped and phrased as info, not alarm.
-    # These aren't errors: they happen whenever a curated MOMW cfg order
-    # intentionally differs from raw mlox. The frozen cfg order is kept and the
-    # affected plugin is still placed as well as the non-conflicting rules allow.
-    if conflicts:
-        unique = _unique_conflicts(conflicts)
-        print(
-            "\n  "
-            + ngettext(
-                "%(count)d mlox ordering rule not applied -- your openmw.cfg already "
-                "orders these the other way, so your (curated) cfg order is kept:",
-                "%(count)d mlox ordering rules not applied -- your openmw.cfg already "
-                "orders these the other way, so your (curated) cfg order is kept:",
-                len(unique),
-            )
-            % {"count": len(unique)}
-        )
-        for a, b in unique:
-            print(
-                _(
-                    "    - mlox wanted '%(first)s' before '%(second)s', but your load "
-                    "order already has '%(second)s' before '%(first)s'"
-                )
-                % {"first": a, "second": b}
-            )
+    _report_rule_conflicts(conflicts)
     return adj, indeg, conflicts
 
 
@@ -717,6 +728,27 @@ def build_and_sort(
         The full plugin order: every base plugin in its original relative
         position, with the custom plugins placed among them.
     """
+    fn = None if sort_tracing() else ordercore_bridge.native("order_build_and_sort")
+    if fn is not None:
+        # ordercore::order, through the native module (port step 4.2 slice 2j); the body
+        # below answers when it declines, and when the sort trace is open (it writes it).
+        try:
+            order, anchors, conflicts = fn(
+                list(base_order_names),
+                list(subset_names),
+                [(list(names), priority) for names, priority in rule_blocks],
+                {k: list(v) for k, v in (masters or {}).items()},
+                list(nearstart or ()),
+                list(nearend or ()),
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            _report_rule_conflicts(conflicts)
+            if anchor_out is not None:
+                anchor_out.update({k: (how, a) for k, (how, a) in anchors.items()})
+            return list(order)
     trace_sort(
         f"[sort] === build_and_sort: {len(base_order_names)} base plugin(s), "
         f"{len(subset_names)} subset (custom) plugin(s), {len(rule_blocks)} mlox rule block(s), "

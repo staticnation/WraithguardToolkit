@@ -891,7 +891,7 @@ pub fn read_groundcover_names<S: AsRef<str>>(lines: &[S]) -> Result<Vec<String>,
 }
 
 /// The bare filename if the value names a plugin, else `None` (`basename_if_plugin`).
-fn basename_if_plugin(value: &str) -> Option<String> {
+pub fn basename_if_plugin(value: &str) -> Option<String> {
     let v = strip(value).trim_matches('"').trim_matches('\'').replace('\\', "/");
     let name = v.rsplit('/').next().unwrap_or_default();
     let lower = name.to_lowercase();

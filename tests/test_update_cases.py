@@ -6,6 +6,7 @@ against the generator, so a rule changed in Python without regenerating them fai
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -49,7 +50,19 @@ def test_hostile_urls_are_refused_and_never_reach_the_network() -> None:
 def test_an_update_does_as_recorded(flow: dict[str, Any]) -> None:
     got = _generator().flow_case(flow)
     for key, value in got.items():
-        assert value == flow[key], key
+        if key == "report" and flow.get("parser_detail"):
+            # a JSON parser's own words about its syntax error are its own (ordercore's are
+            # serde_json's), so they are masked on both sides, as the Rust test masks them
+            assert _masked(value) == _masked(flow[key]), key
+        else:
+            assert value == flow[key], key
+
+
+def _masked(report: list[str]) -> list[str]:
+    return [
+        re.sub(r"(not a cfg-generator response \().*(\) \(is ')", r"\1...\2", line)
+        for line in report
+    ]
 
 
 def test_ages_are_as_recorded() -> None:

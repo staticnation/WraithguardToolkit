@@ -64,14 +64,37 @@ program, and a clearer UI on the way. In order:
       Deliberately not mlox: a pattern's brackets are text (`Julan ... <VER> [Rebirth].esp`),
       MOMW's curated order is never reordered, and the OpenMW extensions are names.
       Next, the whole of step 4 before any flip (Static, 2026-10-26):
-      - **2j. Python calls `ordercore`** through native for 2a-2i (as editcore's slices do).
-        **Decide first:** MOMW's file is read by the line reader in Rust; with PyYAML
-        installed Python reads 19 of the 34 test inputs differently (a duplicate key, a flow
-        list, a trailing comment, a BOM, quoting, an unknown mapping) and raises on a malformed
-        file. Keep the line reader, or read it with a YAML crate (`yaml-rust2` or
-        `serde-saphyr`) and refuse what PyYAML refuses.
+      - **2j. Python calls `ordercore`** through native (done 2026-10-26): `native/src/loadorder.rs`
+        and `wraithguard/ordercore_bridge.py`. Each Python function asks ordercore first and keeps
+        its body for a decline (`OrderUnsupportedError`, or a string with a lone surrogate from
+        a cfg read with `surrogateescape`), for a source checkout without the native module, and
+        for the generators (`python_only()`, `WG_ORDERCORE=python`), whose answers check the Rust.
+        At function level: `parse_mlox_text`, `build_and_sort` (not while the sort trace is
+        open: the Python writes it), `check_predicates`, MOMW's reader and list helpers, the
+        rule maker (`render_rule`, `validate`, `format_ref`, the two appends,
+        `order_rule_frozen_conflicts`), `derive`, `insert_data_paths`,
+        `generate_customizations_toml`, the two removal rules, `read_groundcover_names`,
+        `splice_cfg_lines`, and Update rules and Sources (the network is `updaters._get`, one
+        place for both). Still Python, for 2k: `write_plan`'s and `compute_plan`'s orchestration
+        and printing, `cfg_segments`, `write_cfg`, the configurator preview
+        (`configurator/apply.py`, never ported) and the small cfg-line helpers the GUI calls.
+        ordercore's messages are English; `ordercore_bridge.translated` matches them to the
+        Python's msgids and renders them through gettext, so translations stay (export's notes
+        and warnings; the rest were never translated). MOMW's file (decided 2026-10-26):
+        `serde-saphyr`, refused whole on anything that is not MOMW's (`momw_cases.json`
+        pins what is read and what refused); PyYAML is gone from the reading. ordercore now
+        needs Rust 1.89 (`rust-version` in it and the crates that take it).
       - **2k. The flip**: each Load order action a Tauri command, a Load order page, and the
-        Python sort and rule code retired.
+        Python sort and rule code retired. Plan and Static's decisions (the viewer becomes the
+        main window; the page writes a plan file for the Tk tools; the report a list of
+        warnings): `viewer-shell/LOADORDER-PORT.md`.
+        - Slice 1 done 2026-10-26: the sort's inputs in `ordercore::inputs`, pinned by
+          `input_cases.json` (`tools/gen_input_cases.py`): the subset lines and TOML form, the
+          customizations TOML (the `toml` crate 0.8, TOML 1.0 as tomllib), grass, the
+          mods-folder scan (moved there from `native/src/fsio.rs`), the folders, a list's data
+          paths, the `--subset-from-cfg` orphans, the inferred `data=` anchors and the header
+          master check. Python calls them through native, as 2j. Next: slice 2,
+          `compute_plan` / `write_plan` whole with the report as structured items.
    3. *Conflicts.* Record conflicts (`gui/conflicts.py`, 3.8k lines), resource conflicts,
       the cell map (the viewer's coverage map already does most; `viz/cellmap.py` retires).
       Plan: `viewer-shell/CONFLICTS-PORT.md`.

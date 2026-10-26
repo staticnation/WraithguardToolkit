@@ -25,6 +25,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
+from wraithguard import ordercore_bridge
 from wraithguard.i18n import gettext as _, ngettext
 from wraithguard.logging_setup import get_logger
 
@@ -101,9 +102,9 @@ def strip_comment(line: str) -> str:
 def parse_mlox_text(raw: str) -> tuple[list[tuple[str, list[str]]], int]:
     """Extract the ordering blocks from the text of one rule file.
 
-    The text half of :func:`parse_mlox_file`, split out so the Rust port
-    (``ordercore::rules``) and this run the same cases
-    (``tests/fixtures/rule_cases.json``) without a file between them.
+    The text half of :func:`parse_mlox_file`. Answered by ``ordercore::rules`` through the
+    native module (:mod:`wraithguard.ordercore_bridge`); the body below is the fallback, and
+    both run the same cases (``tests/fixtures/rule_cases.json``).
 
     Args:
         raw: The rule file's text, its byte-order mark already gone.
@@ -113,6 +114,14 @@ def parse_mlox_text(raw: str) -> tuple[list[tuple[str, list[str]]], int]:
         order, keyword lowercased, and the count of body lines treated as
         phantom names)``.
     """
+    got: tuple[list[tuple[str, list[str]]], int] = ordercore_bridge.call(
+        "order_parse_rules", lambda: _parse_mlox_text(raw), raw
+    )
+    return got
+
+
+def _parse_mlox_text(raw: str) -> tuple[list[tuple[str, list[str]]], int]:
+    """:func:`parse_mlox_text`'s Python body."""
     text = "\n".join(strip_comment(line) for line in raw.splitlines())
 
     matches = list(TOP_RE.finditer(text))

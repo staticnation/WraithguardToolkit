@@ -8,9 +8,9 @@ run, the "no --list-name" note, the "list not found" warning, and the actual
 job: dropping curated plugins out of the subset so this tool never reorders
 what a curated list already owns.
 
-Reuses test_momw.py's exact yml fixture (A.esp on total-overhaul +
-i-heart-vanilla, B.esp on total-overhaul only) rather than inventing a new
-one, so both files stay honest about the same real MOMW shape.
+Reuses test_momw.py's yml fixture, its well-formed part (A.esp on total-overhaul +
+i-heart-vanilla, B.esp on total-overhaul only; ordercore's reader refuses a file with
+junk in it), so both files stay honest about the same real MOMW shape.
 """
 
 from __future__ import annotations
@@ -24,8 +24,6 @@ if TYPE_CHECKING:
 
 _YML = """\
 # comment, ignored
-- not-a-mapping
-- for_mod: orphan with no filename
 - file_name: A.esp
   for_mod: Mod A
   needs_cleaning: true

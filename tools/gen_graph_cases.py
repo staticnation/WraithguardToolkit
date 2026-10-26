@@ -526,6 +526,15 @@ def answer(
 
 
 def cases() -> dict[str, list[dict[str, Any]]]:
+    """The cases, answered by the Python bodies (not ordercore's, which they check)."""
+    sys.path.insert(0, str(ROOT))
+    from wraithguard import ordercore_bridge
+
+    with ordercore_bridge.python_only():
+        return _cases()
+
+
+def _cases() -> dict[str, list[dict[str, Any]]]:
     """The cases, answered by the Python code."""
     sys.path.insert(0, str(ROOT))
     from wraithguard.sort.graph import is_master_file, would_create_cycle

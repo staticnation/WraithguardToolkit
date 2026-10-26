@@ -11,8 +11,9 @@ dropping a block the tool does not understand would lose the user's work.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
+from wraithguard import ordercore_bridge
 from wraithguard.configurator.apply import configurator_remove_matches
 from wraithguard.configurator.cfglines import (
     extract_data_path_value,
@@ -259,6 +260,17 @@ def _replace_notes(rep: Mapping[str, Any], final_content_order: Sequence[str]) -
     return notes
 
 
+#: The warnings :func:`generate_customizations_toml` prints, as ordercore words them.
+_TOML_WARNINGS: Final = (
+    "WARNING: anchor '%(anchor)s' in the emitted TOML matches "
+    "%(count)d openmw.cfg lines -- momw-configurator errors on "
+    "ambiguous matches. Colliding lines: %(lines)s%(more)s",
+    "WARNING: remove entry '%(entry)s' matches %(count)d openmw.cfg "
+    "lines -- momw-configurator removes ALL of them, silently. "
+    "Colliding lines: %(lines)s%(more)s",
+)
+
+
 def generate_customizations_toml(
     original_data: Mapping[str, Any] | None,
     final_content_order: Sequence[str],
@@ -326,6 +338,40 @@ def generate_customizations_toml(
     Returns:
         The complete TOML document, newline-terminated.
     """
+    fn = ordercore_bridge.native("order_customizations_toml")
+    if fn is not None:
+        try:
+            text, warnings = fn(
+                {
+                    "original_data": original_data,
+                    "final_content_order": list(final_content_order),
+                    "subset_set": sorted(subset_set),
+                    "original_content_values": dict(original_content_values),
+                    "data_result_tuples": (
+                        None
+                        if data_result_tuples is None
+                        else [list(t) for t in data_result_tuples]
+                    ),
+                    "raw_data_inserts": (
+                        None if raw_data_inserts is None else [dict(d) for d in raw_data_inserts]
+                    ),
+                    "replace_dest_names": sorted(replace_dest_names or ()),
+                    "user_data_values": list(user_data_values or ()),
+                    "list_name": list_name,
+                    "remove_content": list(remove_content or ()),
+                    "remove_data": list(remove_data or ()),
+                    "custom_anchors": {k: list(v) for k, v in (custom_anchors or {}).items()},
+                    "new_groundcover": list(new_groundcover or ()),
+                }
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            for warning in warnings:
+                print(ordercore_bridge.translated(warning, _TOML_WARNINGS))
+            toml: str = text
+            return toml
     replace_dest_names = replace_dest_names or set()
     subset_set_lower = {s.lower() for s in subset_set}
     original_data = original_data or {}

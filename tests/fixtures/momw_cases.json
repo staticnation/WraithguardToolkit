@@ -1,5 +1,5 @@
 {
- "_about": "MOMW's plugin-order.yml (the hand-rolled reader), the curated lists and the post-sort findings, answered by wraithguard.momw; run by tests/test_momw_cases.py and viewer-shell/ordercore/tests/momw_cases.rs. Regenerate: python tools/gen_momw_cases.py",
+ "_about": "MOMW's plugin-order.yml (ordercore::momw's YAML reader: the entries, or refused for a file that is not MOMW's), the curated lists and the post-sort findings, answered by wraithguard.momw; run by tests/test_momw_cases.py and viewer-shell/ordercore/tests/momw_cases.rs. Regenerate: python tools/gen_momw_cases.py",
  "yml": [
   {
    "name": "empty",
@@ -75,7 +75,7 @@
    ]
   },
   {
-   "name": "quotes are stripped",
+   "name": "quotes are YAML's",
    "text": "- file_name: \"Foo.esp\"\n  for_mod: '\"x\"'\n  on_lists:\n    - \"a\"\n    - 'b'\n    - \"'c'\"\n- file_name: 'Bar.esp'\n",
    "entries": [
     {
@@ -84,7 +84,7 @@
      "on_lists": [
       "a",
       "b",
-      "c"
+      "'c'"
      ],
      "needs_cleaning": false
     },
@@ -97,8 +97,8 @@
    ]
   },
   {
-   "name": "needs_cleaning in its forms",
-   "text": "- file_name: A.esp\n  needs_cleaning: true\n- file_name: B.esp\n  needs_cleaning: True\n- file_name: C.esp\n  needs_cleaning: TRUE\n- file_name: D.esp\n  needs_cleaning: yes\n- file_name: E.esp\n  needs_cleaning: Yes\n- file_name: F.esp\n  needs_cleaning: 1\n- file_name: G.esp\n  needs_cleaning: 0\n- file_name: H.esp\n  needs_cleaning: false\n- file_name: I.esp\n  needs_cleaning: no\n- file_name: J.esp\n  needs_cleaning:\n- file_name: K.esp\n  needs_cleaning: \"true\"\n- file_name: L.esp\n  needs_cleaning: maybe\n",
+   "name": "needs_cleaning as YAML's booleans",
+   "text": "- file_name: A.esp\n  needs_cleaning: true\n- file_name: B.esp\n  needs_cleaning: True\n- file_name: C.esp\n  needs_cleaning: TRUE\n- file_name: D.esp\n  needs_cleaning: yes\n- file_name: E.esp\n  needs_cleaning: Yes\n- file_name: H.esp\n  needs_cleaning: false\n- file_name: I.esp\n  needs_cleaning: no\n- file_name: J.esp\n  needs_cleaning:\n",
    "entries": [
     {
      "file_name": "A.esp",
@@ -131,18 +131,6 @@
      "needs_cleaning": true
     },
     {
-     "file_name": "F.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": true
-    },
-    {
-     "file_name": "G.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
-    },
-    {
      "file_name": "H.esp",
      "for_mod": null,
      "on_lists": [],
@@ -159,73 +147,50 @@
      "for_mod": null,
      "on_lists": [],
      "needs_cleaning": false
-    },
+    }
+   ]
+  },
+  {
+   "name": "needs_cleaning as a number is refused",
+   "text": "- file_name: F.esp\n  needs_cleaning: 1\n",
+   "refused": true
+  },
+  {
+   "name": "needs_cleaning as a quoted true is true",
+   "text": "- file_name: K.esp\n  needs_cleaning: \"true\"\n",
+   "entries": [
     {
      "file_name": "K.esp",
      "for_mod": null,
      "on_lists": [],
      "needs_cleaning": true
-    },
-    {
-     "file_name": "L.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
     }
    ]
   },
   {
-   "name": "an entry with no file_name is dropped",
+   "name": "needs_cleaning as a word is refused",
+   "text": "- file_name: L.esp\n  needs_cleaning: maybe\n",
+   "refused": true
+  },
+  {
+   "name": "an entry with no file_name is refused",
    "text": "- for_mod: Only\n  on_lists:\n    - a\n- file_name: Kept.esp\n",
-   "entries": [
-    {
-     "file_name": "Kept.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
-    }
-   ]
+   "refused": true
   },
   {
-   "name": "an empty file_name is dropped",
+   "name": "an empty file_name is refused",
    "text": "- file_name: \"\"\n  for_mod: x\n- file_name: Kept.esp\n",
-   "entries": [
-    {
-     "file_name": "Kept.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
-    }
-   ]
+   "refused": true
   },
   {
-   "name": "the first file_name wins",
+   "name": "a duplicate file_name is refused",
    "text": "- file_name: A.esp\n  file_name: B.esp\n",
-   "entries": [
-    {
-     "file_name": "A.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
-    }
-   ]
+   "refused": true
   },
   {
-   "name": "the last for_mod wins",
+   "name": "a duplicate for_mod is refused",
    "text": "- file_name: A.esp\n  for_mod: One\n  for_mod: Two\n",
-   "entries": [
-    {
-     "file_name": "A.esp",
-     "for_mod": "Two",
-     "on_lists": [],
-     "needs_cleaning": false
-    }
-   ]
-  },
-  {
-   "name": "an empty file_name is kept over a later one",
-   "text": "- file_name:\n  file_name: B.esp\n",
-   "entries": []
+   "refused": true
   },
   {
    "name": "file_name after another key on the dash line",
@@ -240,7 +205,7 @@
    ]
   },
   {
-   "name": "depends is ignored, with what is nested in it",
+   "name": "depends is passed over, with what is nested in it",
    "text": "- file_name: A.esp\n  depends:\n    - file_name: Dep.esp\n    - other\n  on_lists:\n    - l1\n",
    "entries": [
     {
@@ -254,7 +219,7 @@
    ]
   },
   {
-   "name": "other blocks are ignored",
+   "name": "other blocks are passed over",
    "text": "- file_name: A.esp\n  tags:\n    - x\n    - y\n  on_lists:\n    - l1\n",
    "entries": [
     {
@@ -268,48 +233,48 @@
    ]
   },
   {
-   "name": "a block key resets the mode",
+   "name": "a duplicate on_lists is refused",
    "text": "- file_name: A.esp\n  on_lists:\n    - l1\n  depends:\n    - d\n  on_lists:\n    - l2\n",
-   "entries": [
-    {
-     "file_name": "A.esp",
-     "for_mod": null,
-     "on_lists": [
-      "l1",
-      "l2"
-     ],
-     "needs_cleaning": false
-    }
-   ]
+   "refused": true
   },
   {
-   "name": "list items must be indented four",
+   "name": "lines indented less than a list item are its continuation",
    "text": "- file_name: A.esp\n  on_lists:\n   - three\n    - four\n      - six\n",
    "entries": [
     {
      "file_name": "A.esp",
      "for_mod": null,
      "on_lists": [
-      "four",
-      "six"
+      "three - four - six"
      ],
      "needs_cleaning": false
     }
    ]
   },
   {
-   "name": "empty list items are skipped",
-   "text": "- file_name: A.esp\n  on_lists:\n    - \"\"\n    - ''\n    -\n    - real\n",
+   "name": "an empty list item is refused",
+   "text": "- file_name: A.esp\n  on_lists:\n    - real\n    -\n",
+   "refused": true
+  },
+  {
+   "name": "empty strings are list items",
+   "text": "- file_name: A.esp\n  on_lists:\n    - \"\"\n    - ''\n",
    "entries": [
     {
      "file_name": "A.esp",
      "for_mod": null,
      "on_lists": [
-      "real"
+      "",
+      ""
      ],
      "needs_cleaning": false
     }
    ]
+  },
+  {
+   "name": "on_lists as a number is refused",
+   "text": "- file_name: A.esp\n  on_lists: 5\n",
+   "refused": true
   },
   {
    "name": "a list with no items",
@@ -330,23 +295,26 @@
    ]
   },
   {
-   "name": "a flow list is not read",
+   "name": "a flow list is read",
    "text": "- file_name: A.esp\n  on_lists: [a, b]\n",
    "entries": [
     {
      "file_name": "A.esp",
      "for_mod": null,
-     "on_lists": [],
+     "on_lists": [
+      "a",
+      "b"
+     ],
      "needs_cleaning": false
     }
    ]
   },
   {
-   "name": "a trailing comment stays in the value",
+   "name": "a trailing comment is not in the value",
    "text": "- file_name: A.esp # note\n",
    "entries": [
     {
-     "file_name": "A.esp # note",
+     "file_name": "A.esp",
      "for_mod": null,
      "on_lists": [],
      "needs_cleaning": false
@@ -382,9 +350,15 @@
    ]
   },
   {
-   "name": "a byte-order mark hides the first dash",
+   "name": "a byte-order mark is passed over",
    "text": "﻿- file_name: A.esp\n- file_name: B.esp\n",
    "entries": [
+    {
+     "file_name": "A.esp",
+     "for_mod": null,
+     "on_lists": [],
+     "needs_cleaning": false
+    },
     {
      "file_name": "B.esp",
      "for_mod": null,
@@ -394,19 +368,12 @@
    ]
   },
   {
-   "name": "tabs are not indentation",
+   "name": "tabs as indentation are refused",
    "text": "- file_name: A.esp\n\ton_lists:\n\t\t- l\n",
-   "entries": [
-    {
-     "file_name": "A.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
-    }
-   ]
+   "refused": true
   },
   {
-   "name": "unknown keys are ignored",
+   "name": "unknown keys are passed over",
    "text": "- file_name: A.esp\n  version: 1.2\n  author: Me\n  on_lists:\n    - l\n",
    "entries": [
     {
@@ -420,20 +387,18 @@
    ]
   },
   {
-   "name": "a deeper key is ignored",
+   "name": "a key indented deeper is refused",
    "text": "- file_name: A.esp\n    for_mod: deep\n",
-   "entries": [
-    {
-     "file_name": "A.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
-    }
-   ]
+   "refused": true
   },
   {
-   "name": "a colon in a value",
+   "name": "a colon and space in a plain value is refused",
    "text": "- file_name: A.esp\n  for_mod: a: b\n",
+   "refused": true
+  },
+  {
+   "name": "a quoted colon is a value",
+   "text": "- file_name: A.esp\n  for_mod: \"a: b\"\n",
    "entries": [
     {
      "file_name": "A.esp",
@@ -456,42 +421,19 @@
    ]
   },
   {
-   "name": "Unicode space around a value",
-   "text": "- file_name: A.esp \n  for_mod: X \n",
-   "entries": [
-    {
-     "file_name": "A.esp",
-     "for_mod": "X",
-     "on_lists": [],
-     "needs_cleaning": false
-    }
-   ]
+   "name": "a non-breaking space is refused",
+   "text": "- file_name: A.esp\n",
+   "refused": true
   },
   {
-   "name": "no space after the dash is not an entry",
+   "name": "no space after the dash is refused",
    "text": "-file_name: A.esp\n- file_name: B.esp\n",
-   "entries": [
-    {
-     "file_name": "B.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
-    }
-   ]
+   "refused": true
   },
   {
-   "name": "a line with no colon",
+   "name": "a line with no colon is refused",
    "text": "- file_name: A.esp\n  stray text\n  on_lists:\n    - l\n",
-   "entries": [
-    {
-     "file_name": "A.esp",
-     "for_mod": null,
-     "on_lists": [
-      "l"
-     ],
-     "needs_cleaning": false
-    }
-   ]
+   "refused": true
   },
   {
    "name": "quotes inside a value",
@@ -499,18 +441,33 @@
    "entries": [
     {
      "file_name": "A.esp",
-     "for_mod": "He said \"hi",
+     "for_mod": "He said \"hi\"",
      "on_lists": [],
      "needs_cleaning": false
     }
    ]
   },
   {
-   "name": "a top-level line before the first entry",
+   "name": "a mapping at the top is refused",
    "text": "stray: 1\n- file_name: A.esp\n",
+   "refused": true
+  },
+  {
+   "name": "an entry that is not a mapping is refused",
+   "text": "- just words\n- file_name: A.esp\n",
+   "refused": true
+  },
+  {
+   "name": "an unclosed quote is refused",
+   "text": "- file_name: \"A.esp\n",
+   "refused": true
+  },
+  {
+   "name": "a file_name that is a number is its text",
+   "text": "- file_name: 7\n",
    "entries": [
     {
-     "file_name": "A.esp",
+     "file_name": "7",
      "for_mod": null,
      "on_lists": [],
      "needs_cleaning": false
@@ -518,8 +475,8 @@
    ]
   },
   {
-   "name": "a dash line with no colon",
-   "text": "- just words\n- file_name: A.esp\n",
+   "name": "for_mod null is none",
+   "text": "- file_name: A.esp\n  for_mod: ~\n",
    "entries": [
     {
      "file_name": "A.esp",
@@ -529,27 +486,6 @@
     }
    ]
   }
- ],
- "yaml_differs": [
-  "only comments and blank lines",
-  "quotes are stripped",
-  "needs_cleaning in its forms",
-  "the first file_name wins",
-  "an empty file_name is kept over a later one",
-  "a block key resets the mode",
-  "list items must be indented four",
-  "empty list items are skipped",
-  "a flow list is not read",
-  "a trailing comment stays in the value",
-  "a byte-order mark hides the first dash",
-  "tabs are not indentation",
-  "a deeper key is ignored",
-  "a colon in a value",
-  "Unicode space around a value",
-  "no space after the dash is not an entry",
-  "a line with no colon",
-  "quotes inside a value",
-  "a top-level line before the first entry"
  ],
  "lists": [
   {
@@ -853,7 +789,7 @@
      "on_lists": [
       "a",
       "b",
-      "c"
+      "'c'"
      ],
      "needs_cleaning": false
     },
@@ -959,18 +895,6 @@
      "needs_cleaning": true
     },
     {
-     "file_name": "F.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": true
-    },
-    {
-     "file_name": "G.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
-    },
-    {
      "file_name": "H.esp",
      "for_mod": null,
      "on_lists": [],
@@ -987,18 +911,6 @@
      "for_mod": null,
      "on_lists": [],
      "needs_cleaning": false
-    },
-    {
-     "file_name": "K.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": true
-    },
-    {
-     "file_name": "L.esp",
-     "for_mod": null,
-     "on_lists": [],
-     "needs_cleaning": false
     }
    ],
    "set": [
@@ -1006,9 +918,7 @@
     "b.esp",
     "c.esp",
     "d.esp",
-    "e.esp",
-    "f.esp",
-    "k.esp"
+    "e.esp"
    ]
   },
   {

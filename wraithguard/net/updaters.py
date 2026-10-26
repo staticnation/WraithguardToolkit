@@ -27,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
+from wraithguard import ordercore_bridge
 from wraithguard.momw import parse_plugin_order_yml
 from wraithguard.momw_datapaths import relative_tail
 
@@ -102,6 +103,67 @@ def _verify_context() -> ssl.SSLContext | None:
     return ssl.create_default_context(cafile=certifi.where())
 
 
+def _get(url: str, timeout: int, max_bytes: int) -> bytes:
+    """The network: up to ``max_bytes`` of ``url``'s body.
+
+    The one place a request is made, for ``ordercore::updates`` and the Python bodies alike;
+    both check the URL first (http and https only, a host) and the size after. A failed
+    request raises, and its text goes into the report.
+    """
+    import urllib.request
+
+    # S310: the URL's scheme is checked (http and https only) before this is called.
+    with urllib.request.urlopen(  # noqa: S310
+        url, timeout=timeout, context=_verify_context()
+    ) as response:
+        data: bytes = response.read(max_bytes)
+    return data
+
+
+def _env() -> dict[str, str | None]:
+    """What the update flows read from outside: the ``.bak`` stamp and three variables."""
+    # Local clock deliberately: the stamp goes into a .bak filename the user reads.
+    return {
+        "stamp": datetime.now().strftime("%Y%m%d-%H%M%S"),  # noqa: DTZ005
+        "plugin_order_url": os.environ.get("MLOX_PLUGIN_ORDER_URL"),
+        "rules_url_template": os.environ.get("MLOX_RULES_URL_TEMPLATE"),
+        "momw_api_host": os.environ.get("MOMW_API_HOST"),
+    }
+
+
+def _count_entries(data: bytes) -> int:
+    """How many entries a downloaded ``plugin-order.yml`` holds, read as the file would be.
+
+    Raises:
+        Exception: whatever reading it raises; its text goes into the report.
+    """
+    import tempfile
+
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile("wb", suffix=".yml", delete=False) as tf:
+            tf.write(data)
+            tmp = Path(tf.name)
+        return len(parse_plugin_order_yml(tmp))
+    finally:
+        if tmp is not None:  # pragma: no branch
+            tmp.unlink(missing_ok=True)
+
+
+def _ported(name: str, *args: object) -> list[str] | None:
+    """An update flow answered by ``ordercore::updates`` (port step 4.2 slice 2j), or None."""
+    fn = ordercore_bridge.native(name)
+    if fn is None:
+        return None
+    try:
+        report: list[str] = fn(*args, _env(), _get)
+    except Exception as exc:
+        if ordercore_bridge.declined(exc):
+            return None
+        raise
+    return report
+
+
 def fetch_url_bytes(url: str, timeout: int = 30, max_bytes: int = MAX_DOWNLOAD_BYTES) -> bytes:
     """Download ``url`` and return its bytes.
 
@@ -112,12 +174,20 @@ def fetch_url_bytes(url: str, timeout: int = 30, max_bytes: int = MAX_DOWNLOAD_B
         OSError: the request itself failed (urllib raises ``URLError``, a
             subclass of ``OSError``).
     """
+    fn = ordercore_bridge.native("order_fetch_url_bytes")
+    if fn is not None:
+        try:
+            got: bytes = fn(_get, url, timeout, max_bytes)
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return got
     # Both imported explicitly. urllib.request happens to pull in
     # urllib.parse today, so `urllib.parse.urlparse` resolved by accident --
     # relying on another module's imports is exactly the kind of thing that
     # breaks silently on a stdlib refactor.
     import urllib.parse
-    import urllib.request
 
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme.lower() not in ALLOWED_URL_SCHEMES:
@@ -129,11 +199,7 @@ def fetch_url_bytes(url: str, timeout: int = 30, max_bytes: int = MAX_DOWNLOAD_B
         raise ValueError("URL has no host")
     # Read one byte more than the cap so an exactly-at-limit body still fits
     # while anything larger is detected rather than silently truncated.
-    # S310: the scheme is checked against ALLOWED_URL_SCHEMES immediately above.
-    with urllib.request.urlopen(  # noqa: S310
-        url, timeout=timeout, context=_verify_context()
-    ) as response:
-        data = response.read(max_bytes + 1)
+    data = _get(url, timeout, max_bytes + 1)
     if len(data) > max_bytes:
         raise ValueError(f"response larger than the {max_bytes:,}-byte limit")
     return data
@@ -165,6 +231,15 @@ def update_plugin_order_yml(
         Human-readable report lines describing what was tried and what
         happened. Failures are reported here rather than raised.
     """
+    report = _ported(
+        "order_update_plugin_order_yml",
+        str(path),
+        None if urls is None else list(urls),
+        timeout,
+        _count_entries,
+    )
+    if report is not None:
+        return report
     import tempfile as _tf
 
     p = Path(path)
@@ -305,6 +380,9 @@ def fetch_list_data_paths(
     Returns:
         Human-readable report lines; failures are reported here, not raised.
     """
+    report = _ported("order_fetch_list_data_paths", str(path), list_name or "", host, timeout)
+    if report is not None:
+        return report
     p = Path(path)
     slug = (list_name or "").strip()
     if not slug:
@@ -385,6 +463,9 @@ def update_rule_files(
         Human-readable report lines. A malformed template or a failed download
         is reported here rather than raised.
     """
+    report = _ported("order_update_rule_files", [str(p) for p in rule_paths], url_template, timeout)
+    if report is not None:
+        return report
     template = url_template or os.environ.get("MLOX_RULES_URL_TEMPLATE") or RULES_URL_TEMPLATE
     if "{name}" not in template:
         return [f"FAILED: rules URL template must contain '{{name}}': {template}"]
@@ -440,6 +521,18 @@ def rule_file_ages(rule_paths: Sequence[str | Path]) -> list[tuple[str, int | No
         ``(filename, age_in_days)`` per file, with ``None`` for a file whose
         modification time could not be read.
     """
+    fn = ordercore_bridge.native("order_rule_file_ages")
+    if fn is not None:
+        try:
+            # Epoch seconds against file mtimes: tz-independent, so a naive now() is correct.
+            ages: list[tuple[str, int | None]] = fn(
+                [str(p) for p in rule_paths], datetime.now().timestamp()  # noqa: DTZ005
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            return ages
     out: list[tuple[str, int | None]] = []
     # Epoch seconds, compared against file mtimes -- tz-independent by
     # construction, so a naive now() is correct here.

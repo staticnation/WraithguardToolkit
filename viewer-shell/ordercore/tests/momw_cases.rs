@@ -52,17 +52,36 @@ fn section<'a>(doc: &'a Value, name: &str) -> &'a Vec<Value> {
 }
 
 #[test]
-fn every_yml_reads_as_the_python_line_reader_reads_it() {
+fn every_yml_is_read_or_refused_as_the_case_says() {
     let doc: Value = serde_json::from_str(CASES).unwrap();
     let mut failed = Vec::new();
     for case in section(&doc, "yml") {
-        let got: Vec<Value> =
-            parse_text(case["text"].as_str().unwrap()).iter().map(entry_json).collect();
-        if Value::Array(got.clone()) != case["entries"] {
-            failed.push(format!("{}: got {}, want {}", case["name"], Value::Array(got), case["entries"]));
+        let got = parse_text(case["text"].as_str().unwrap());
+        let refused = case["refused"].as_bool().unwrap_or(false);
+        match got {
+            Err(e) if !refused => failed.push(format!("{}: refused ({e}), want {}", case["name"], case["entries"])),
+            Ok(entries) if refused => {
+                let got = Value::Array(entries.iter().map(entry_json).collect());
+                failed.push(format!("{}: read {got}, want it refused", case["name"]));
+            }
+            Ok(entries) => {
+                let got = Value::Array(entries.iter().map(entry_json).collect());
+                if got != case["entries"] {
+                    failed.push(format!("{}: got {got}, want {}", case["name"], case["entries"]));
+                }
+            }
+            Err(_) => {}
         }
     }
     assert!(failed.is_empty(), "\n{}", failed.join("\n"));
+}
+
+#[test]
+fn momws_own_file_is_read() {
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/plugin-order.yml")).unwrap();
+    let entries = parse_text(&text).unwrap();
+    assert!(entries.len() > 100);
+    assert!(entries.iter().all(|e| !e.file_name.is_empty()));
 }
 
 #[test]

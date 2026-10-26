@@ -8,8 +8,9 @@ inserted path lands next to the mod it belongs with rather than at the end.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
+from wraithguard import ordercore_bridge
 from wraithguard.configurator.cfglines import (
     detect_data_quoting,
     extract_data_path_value,
@@ -66,6 +67,34 @@ def infer_data_path_anchors(
 
     base_dir = cfg_path.parent if cfg_path else None
 
+    native = ordercore_bridge.native("order_infer_data_path_anchors")
+    if native is not None:
+        try:
+            anchors, notes = native(
+                list(data_inserts),
+                list(data_order),
+                list(final_order),
+                str(base_dir) if base_dir is not None else None,
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            for item, (after, before) in zip(data_inserts, anchors, strict=True):
+                # only an anchor ordercore chose is written: the user's stays as it was given
+                if after is not None and not item.get("after") and not item.get("before"):
+                    item["after"] = after
+                if before is not None and not item.get("after") and not item.get("before"):
+                    item["before"] = before
+            for value, how, anchor, via in notes:
+                print(
+                    _(
+                        "  Inferred anchor for '%(value)s': %(mode)s '%(anchor)s' (via plugin %(via)s)"
+                    )
+                    % {"value": value, "mode": how, "anchor": anchor, "via": via}
+                )
+            return
+
     # plugin (lowercased) -> owning EXISTING data= line's path value.
     # Deliberately built from data_order (frozen/base paths) only -- new
     # inserts can't anchor off each other in the same run (see
@@ -120,6 +149,15 @@ def infer_data_path_anchors(
             )
 
 
+#: The notes :func:`insert_data_paths` prints, as ordercore words them (for translation).
+_INSERT_NOTES: Final = (
+    "NOTE: '%(value)s' already present in data= list -- skipping duplicate insert.",
+    "NOTE: '%(value)s' has no after/before anchor -- appending at end of data= list.",
+    "WARNING: anchor '%(anchor)s' not found among existing data= paths for "
+    "'%(value)s' -- appending at end instead.",
+)
+
+
 def insert_data_paths(
     data_lines: list[str], data_inserts: list[DataInsert]
 ) -> list[tuple[str, bool, str | None]]:
@@ -149,6 +187,23 @@ def insert_data_paths(
         added; ``source_value`` carries the originating insert's value for new
         lines and is ``None`` for pre-existing ones.
     """
+    fn = ordercore_bridge.native("order_insert_data_paths")
+    if fn is not None:
+        try:
+            lines, notes = fn(
+                list(data_lines),
+                [
+                    {"value": d["value"], "after": d.get("after"), "before": d.get("before")}
+                    for d in data_inserts
+                ],
+            )
+        except Exception as exc:
+            if not ordercore_bridge.declined(exc):
+                raise
+        else:
+            for note in notes:
+                print(ordercore_bridge.translated(note, _INSERT_NOTES))
+            return [(line, is_new, value) for line, is_new, value in lines]
     existing_normalized = {
         normalize_data_path(extract_data_path_value(line) or "") for line in data_lines
     }

@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from wraithguard import ordercore_bridge
 from wraithguard.configurator.cfglines import curated_covers
 from wraithguard.momw import (
     base_order_matches_yml,
@@ -32,23 +33,45 @@ def _names(section: str) -> list[str]:
 
 
 @pytest.mark.parametrize("case", DOC["yml"], ids=_names("yml"))
-def test_the_hand_reader_reads_a_yml_as_the_case_says(case: dict[str, Any]) -> None:
-    assert [dict(e) for e in parse_plugin_order_text(case["text"])] == case["entries"]
-
-
-@pytest.mark.parametrize("case", DOC["yml"], ids=_names("yml"))
-def test_pyyaml_reads_the_same_except_where_the_case_file_says_it_does_not(
-    case: dict[str, Any], tmp_path: Path
-) -> None:
-    yaml = pytest.importorskip("yaml")
+def test_a_yml_is_read_or_refused_as_the_case_says(case: dict[str, Any], tmp_path: Path) -> None:
+    if ordercore_bridge.native("order_momw_parse") is None:
+        pytest.skip(
+            "ordercore's reader is not answering (no native module, or WG_ORDERCORE=python)"
+        )
     path = tmp_path / "plugin-order.yml"
     path.write_bytes(case["text"].encode("utf-8"))
-    try:
-        via_yaml: object = [dict(e) for e in parse_plugin_order_yml(path)]
-    except yaml.YAMLError as exc:  # PyYAML raises on a malformed file: a difference
-        via_yaml = exc
-    same = via_yaml == case["entries"]
-    assert same == (case["name"] not in DOC["yaml_differs"])
+    if case.get("refused"):
+        with pytest.raises(ValueError, match=r"\S"):
+            parse_plugin_order_yml(path)
+        with pytest.raises(ValueError, match=r"\S"):
+            parse_plugin_order_text(case["text"])
+    else:
+        assert [dict(e) for e in parse_plugin_order_yml(path)] == case["entries"]
+        assert [dict(e) for e in parse_plugin_order_text(case["text"])] == case["entries"]
+
+
+def test_a_refusal_says_where_on_one_line(tmp_path: Path) -> None:
+    if ordercore_bridge.native("order_momw_parse") is None:
+        pytest.skip(
+            "ordercore's reader is not answering (no native module, or WG_ORDERCORE=python)"
+        )
+    path = tmp_path / "plugin-order.yml"
+    path.write_bytes(b"- file_name: A.esp\n  file_name: B.esp\n")
+    with pytest.raises(ValueError, match=r"^line 2 column 3: duplicate mapping key: file_name$"):
+        parse_plugin_order_yml(path)
+
+
+def test_momws_own_file_reads_as_the_line_reader_reads_it() -> None:
+    if ordercore_bridge.native("order_momw_parse") is None:
+        pytest.skip(
+            "ordercore's reader is not answering (no native module, or WG_ORDERCORE=python)"
+        )
+    from wraithguard.momw import _parse_plugin_order_lines
+
+    path = ROOT / "testdata" / "plugin-order.yml"
+    want = _parse_plugin_order_lines(path.read_text(encoding="utf-8"))
+    assert parse_plugin_order_yml(path) == want
+    assert len(want) > 100
 
 
 @pytest.mark.parametrize("case", DOC["lists"], ids=_names("lists"))

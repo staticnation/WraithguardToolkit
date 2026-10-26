@@ -3,13 +3,15 @@
 # viewcore (the viewer's engine) and native/ (the Python backend), so the Editor and the
 # viewer cannot disagree about what a setup loads.
 #
+# MOMW's plugin-order.yml needs a YAML parser (serde-saphyr); otherwise only serde_json.
+#
 # Beside viewcore rather than in native/ so the viewer's builds (which copy only
 # viewer-shell/) have it; native/ takes it by path, as it does luacore.
 [package]
 name = "ordercore"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.89"
 license = "MIT"
 publish = false
 
@@ -17,5 +19,14 @@ publish = false
 # A cfg-generator response (updates.rs) is JSON. The shared case files (tests/fixtures) are JSON
 # too, so the tests read them with it.
 serde_json = "1"
+# MOMW's plugin-order.yml (momw.rs): a YAML parser, so a file that is not MOMW's is refused
+# with where it went wrong rather than misread. Only the reading half. It needs Rust 1.89,
+# hence rust-version here and in the crates that take ordercore.
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize"] }
+serde = { version = "1", features = ["derive"] }
+# The customizations TOML and the subset file's TOML form (inputs.rs), as Python reads them with
+# tomllib: only the reading half. 0.8 reads TOML 1.0, as tomllib does up to Python 3.14; 0.9 reads
+# 1.1, so it would take files the Python refuses.
+toml = { version = "0.8", default-features = false, features = ["parse"] }
 
 [lints.clippy]

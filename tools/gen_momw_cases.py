@@ -4,12 +4,9 @@ The inputs are written here; the answers are what ``wraithguard.momw`` and
 ``wraithguard.configurator.cfglines.curated_covers`` give. ``ordercore::momw``
 (``viewer-shell/ordercore``) runs the same file, so the two cannot drift.
 
-The ``yml`` cases are answered by the hand-rolled reader (``parse_plugin_order_text``), the
-path with no PyYAML in it, which is the one the Rust port is. ``YAML_DIFFERS`` names the
-inputs on which PyYAML (which ``parse_plugin_order_yml`` tries first) reads something
-else, or raises (it does, on a malformed file; only ``ImportError`` is caught);
-``tests/test_momw_cases.py`` checks that list against PyYAML, when it is installed, so it
-cannot go stale. The regular file MOMW ships reads the same either way.
+The ``yml`` cases are answered by ``ordercore::momw``'s reader (a YAML parser, through the
+native module, which must be built): the entries, or ``refused`` for a file that is not
+MOMW's. Those answers were read by hand when written; the rest are the Python's.
 
 Run: ``python tools/gen_momw_cases.py``.
 """
@@ -61,95 +58,75 @@ YML_INPUTS: list[tuple[str, str]] = [
     ("one entry", "- file_name: Morrowind.esm\n  on_lists:\n    - expanded-vanilla\n"),
     ("a realistic fragment", REALISTIC),
     (
-        "quotes are stripped",
+        "quotes are YAML's",
         '- file_name: "Foo.esp"\n  for_mod: \'"x"\'\n  on_lists:\n    - "a"\n    - \'b\'\n'
         "    - \"'c'\"\n- file_name: 'Bar.esp'\n",
     ),
     (
-        "needs_cleaning in its forms",
+        "needs_cleaning as YAML's booleans",
         "- file_name: A.esp\n  needs_cleaning: true\n- file_name: B.esp\n  needs_cleaning: True\n"
         "- file_name: C.esp\n  needs_cleaning: TRUE\n- file_name: D.esp\n  needs_cleaning: yes\n"
-        "- file_name: E.esp\n  needs_cleaning: Yes\n- file_name: F.esp\n  needs_cleaning: 1\n"
-        "- file_name: G.esp\n  needs_cleaning: 0\n- file_name: H.esp\n  needs_cleaning: false\n"
-        "- file_name: I.esp\n  needs_cleaning: no\n- file_name: J.esp\n  needs_cleaning:\n"
-        '- file_name: K.esp\n  needs_cleaning: "true"\n- file_name: L.esp\n  needs_cleaning: maybe\n',
+        "- file_name: E.esp\n  needs_cleaning: Yes\n- file_name: H.esp\n  needs_cleaning: false\n"
+        "- file_name: I.esp\n  needs_cleaning: no\n- file_name: J.esp\n  needs_cleaning:\n",
     ),
+    ("needs_cleaning as a number is refused", "- file_name: F.esp\n  needs_cleaning: 1\n"),
+    ("needs_cleaning as a quoted true is true", '- file_name: K.esp\n  needs_cleaning: "true"\n'),
+    ("needs_cleaning as a word is refused", "- file_name: L.esp\n  needs_cleaning: maybe\n"),
     (
-        "an entry with no file_name is dropped",
+        "an entry with no file_name is refused",
         "- for_mod: Only\n  on_lists:\n    - a\n- file_name: Kept.esp\n",
     ),
-    ("an empty file_name is dropped", '- file_name: ""\n  for_mod: x\n- file_name: Kept.esp\n'),
-    ("the first file_name wins", "- file_name: A.esp\n  file_name: B.esp\n"),
-    ("the last for_mod wins", "- file_name: A.esp\n  for_mod: One\n  for_mod: Two\n"),
-    ("an empty file_name is kept over a later one", "- file_name:\n  file_name: B.esp\n"),
+    ("an empty file_name is refused", '- file_name: ""\n  for_mod: x\n- file_name: Kept.esp\n'),
+    ("a duplicate file_name is refused", "- file_name: A.esp\n  file_name: B.esp\n"),
+    ("a duplicate for_mod is refused", "- file_name: A.esp\n  for_mod: One\n  for_mod: Two\n"),
     ("file_name after another key on the dash line", "- for_mod: M\n  file_name: A.esp\n"),
     (
-        "depends is ignored, with what is nested in it",
+        "depends is passed over, with what is nested in it",
         "- file_name: A.esp\n  depends:\n    - file_name: Dep.esp\n    - other\n"
         "  on_lists:\n    - l1\n",
     ),
     (
-        "other blocks are ignored",
+        "other blocks are passed over",
         "- file_name: A.esp\n  tags:\n    - x\n    - y\n  on_lists:\n    - l1\n",
     ),
     (
-        "a block key resets the mode",
+        "a duplicate on_lists is refused",
         "- file_name: A.esp\n  on_lists:\n    - l1\n  depends:\n    - d\n  on_lists:\n    - l2\n",
     ),
     (
-        "list items must be indented four",
+        "lines indented less than a list item are its continuation",
         "- file_name: A.esp\n  on_lists:\n   - three\n    - four\n      - six\n",
     ),
-    (
-        "empty list items are skipped",
-        "- file_name: A.esp\n  on_lists:\n    - \"\"\n    - ''\n    -\n    - real\n",
-    ),
+    ("an empty list item is refused", "- file_name: A.esp\n  on_lists:\n    - real\n    -\n"),
+    ("empty strings are list items", "- file_name: A.esp\n  on_lists:\n    - \"\"\n    - ''\n"),
+    ("on_lists as a number is refused", "- file_name: A.esp\n  on_lists: 5\n"),
     ("a list with no items", "- file_name: A.esp\n  on_lists:\n- file_name: B.esp\n"),
-    ("a flow list is not read", "- file_name: A.esp\n  on_lists: [a, b]\n"),
-    ("a trailing comment stays in the value", "- file_name: A.esp # note\n"),
+    ("a flow list is read", "- file_name: A.esp\n  on_lists: [a, b]\n"),
+    ("a trailing comment is not in the value", "- file_name: A.esp # note\n"),
     (
         "CRLF line ends",
         "- file_name: A.esp\r\n  needs_cleaning: yes\r\n  on_lists:\r\n    - l\r\n",
     ),
     ("CR line ends", "- file_name: A.esp\r  on_lists:\r    - l\r"),
-    ("a byte-order mark hides the first dash", "\ufeff- file_name: A.esp\n- file_name: B.esp\n"),
-    ("tabs are not indentation", "- file_name: A.esp\n\ton_lists:\n\t\t- l\n"),
+    ("a byte-order mark is passed over", "﻿- file_name: A.esp\n- file_name: B.esp\n"),
+    ("tabs as indentation are refused", "- file_name: A.esp\n\ton_lists:\n\t\t- l\n"),
     (
-        "unknown keys are ignored",
+        "unknown keys are passed over",
         "- file_name: A.esp\n  version: 1.2\n  author: Me\n  on_lists:\n    - l\n",
     ),
-    ("a deeper key is ignored", "- file_name: A.esp\n    for_mod: deep\n"),
-    ("a colon in a value", "- file_name: A.esp\n  for_mod: a: b\n"),
+    ("a key indented deeper is refused", "- file_name: A.esp\n    for_mod: deep\n"),
+    ("a colon and space in a plain value is refused", "- file_name: A.esp\n  for_mod: a: b\n"),
+    ("a quoted colon is a value", '- file_name: A.esp\n  for_mod: "a: b"\n'),
     ("names with spaces and parentheses", "- file_name: Better Bodies (v2).esp\n"),
-    ("Unicode space around a value", "- file_name:\u00a0A.esp\u00a0\n  for_mod:\u2003X\u2003\n"),
-    ("no space after the dash is not an entry", "-file_name: A.esp\n- file_name: B.esp\n"),
-    ("a line with no colon", "- file_name: A.esp\n  stray text\n  on_lists:\n    - l\n"),
+    ("a non-breaking space is refused", "- file_name:\u00a0A.esp\n"),
+    ("no space after the dash is refused", "-file_name: A.esp\n- file_name: B.esp\n"),
+    ("a line with no colon is refused", "- file_name: A.esp\n  stray text\n  on_lists:\n    - l\n"),
     ("quotes inside a value", '- file_name: A.esp\n  for_mod: He said "hi"\n'),
-    ("a top-level line before the first entry", "stray: 1\n- file_name: A.esp\n"),
-    ("a dash line with no colon", "- just words\n- file_name: A.esp\n"),
-]
-
-#: Inputs on which PyYAML reads something other than the hand-rolled reader.
-YAML_DIFFERS: list[str] = [
-    "only comments and blank lines",
-    "quotes are stripped",
-    "needs_cleaning in its forms",
-    "the first file_name wins",
-    "an empty file_name is kept over a later one",
-    "a block key resets the mode",
-    "list items must be indented four",
-    "empty list items are skipped",
-    "a flow list is not read",
-    "a trailing comment stays in the value",
-    "a byte-order mark hides the first dash",
-    "tabs are not indentation",
-    "a deeper key is ignored",
-    "a colon in a value",
-    "Unicode space around a value",
-    "no space after the dash is not an entry",
-    "a line with no colon",
-    "quotes inside a value",
-    "a top-level line before the first entry",
+    ("a mapping at the top is refused", "stray: 1\n- file_name: A.esp\n"),
+    ("an entry that is not a mapping is refused", "- just words\n- file_name: A.esp\n"),
+    ("an unclosed quote is refused", '- file_name: "A.esp\n'),
+    ("a file_name that is a number is its text", "- file_name: 7\n"),
+    ("for_mod null is none", "- file_name: A.esp\n  for_mod: ~\n"),
 ]
 
 DRIFT: list[tuple[str, list[str], list[str]]] = [
@@ -197,21 +174,35 @@ def _sorted(items: object) -> list[str]:
 
 
 def cases() -> dict[str, Any]:
+    """The cases, answered by the Python bodies (not ordercore's, which they check)."""
+    sys.path.insert(0, str(ROOT))
+    from wraithguard import ordercore_bridge
+
+    with ordercore_bridge.python_only():
+        return _cases()
+
+
+def _cases() -> dict[str, Any]:
     """The cases, answered by the Python code."""
     sys.path.insert(0, str(ROOT))
+    import wraithguard_native
+
     from wraithguard.configurator.cfglines import curated_covers
     from wraithguard.momw import (
         base_order_matches_yml,
         curated_for_list,
         needs_cleaning_set,
-        parse_plugin_order_text,
         post_sort_findings,
     )
 
-    yml = []
+    yml: list[dict[str, Any]] = []
     parsed: dict[str, Any] = {}
     for name, text in YML_INPUTS:
-        entries = [dict(e) for e in parse_plugin_order_text(text)]
+        try:
+            entries = [dict(e) for e in wraithguard_native.order_momw_parse(text.encode("utf-8"))]
+        except ValueError:
+            yml.append({"name": name, "text": text, "refused": True})
+            continue
         parsed[name] = entries
         yml.append({"name": name, "text": text, "entries": entries})
     realistic = parsed["a realistic fragment"]
@@ -224,7 +215,7 @@ def cases() -> dict[str, Any]:
         ("a list nothing is on", realistic, "nope"),
         ("no list name", realistic, ""),
         ("no entries", [], "expanded-vanilla"),
-        ("quoted names", parsed["quotes are stripped"], "a"),
+        ("quoted names", parsed["quotes are YAML's"], "a"),
     ]:
         got_set, got_order = curated_for_list(entries, list_name)  # type: ignore[arg-type]
         lists.append(
@@ -245,7 +236,7 @@ def cases() -> dict[str, Any]:
         }
         for name, entries in [
             ("a realistic fragment", realistic),
-            ("every form", parsed["needs_cleaning in its forms"]),
+            ("every form", parsed["needs_cleaning as YAML's booleans"]),
             ("none", []),
         ]
     ]
@@ -349,7 +340,6 @@ def cases() -> dict[str, Any]:
         )
     return {
         "yml": yml,
-        "yaml_differs": YAML_DIFFERS,
         "lists": lists,
         "cleaning": cleaning,
         "drift": drift,
@@ -367,8 +357,9 @@ def main() -> int:
     body = cases()
     doc = {
         "_about": (
-            "MOMW's plugin-order.yml (the hand-rolled reader), the curated lists and the "
-            "post-sort findings, answered by wraithguard.momw; run by "
+            "MOMW's plugin-order.yml (ordercore::momw's YAML reader: the entries, or refused for "
+            "a file that is not MOMW's), the curated lists and the post-sort findings, answered "
+            "by wraithguard.momw; run by "
             "tests/test_momw_cases.py and viewer-shell/ordercore/tests/momw_cases.rs. "
             "Regenerate: python tools/gen_momw_cases.py"
         ),

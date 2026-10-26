@@ -83,6 +83,15 @@ INPUTS: list[tuple[str, str]] = [
 
 
 def cases() -> list[dict[str, object]]:
+    """The cases, answered by the Python bodies (not ordercore's, which they check)."""
+    sys.path.insert(0, str(ROOT))
+    from wraithguard import ordercore_bridge
+
+    with ordercore_bridge.python_only():
+        return _cases()
+
+
+def _cases() -> list[dict[str, object]]:
     """The cases, answered by the Python parser."""
     sys.path.insert(0, str(ROOT))
     from wraithguard.rules.parser import parse_mlox_text

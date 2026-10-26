@@ -37,13 +37,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
+from wraithguard import ordercore_bridge
 from wraithguard.rules.parser import ORDER_NAME_RE
 from wraithguard.rules.patterns import MLOX_VERSION_PATTERN
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
 #: Rule labels this module can write, in the order the guidelines introduce
 #: them. ``Version`` is deliberately absent: it is a rule-base header, not
@@ -460,6 +461,95 @@ class Rule:
         return found
 
 
+# ---------------------------------------------------------------------------
+# the plain form ordercore reads (port step 4.2 slice 2j)
+# ---------------------------------------------------------------------------
+
+
+def expr_plain(expr: Expr) -> list[Any]:
+    """An expression as plain lists, as ``ordercore::authoring`` reads it through native.
+
+    Raises:
+        TypeError: for an expression of a kind ordercore does not have.
+    """
+    if isinstance(expr, Plugin):
+        return ["plugin", expr.name]
+    if isinstance(expr, Desc):
+        return ["desc", expr.pattern, expr.plugin, expr.negated]
+    if isinstance(expr, Size):
+        return ["size", expr.size, expr.plugin, expr.negated]
+    if isinstance(expr, Ver):
+        return ["ver", expr.operator, expr.version, expr.plugin]
+    if isinstance(expr, Group):
+        return ["group", expr.operator, [expr_plain(p) for p in expr.parts]]
+    raise TypeError(type(expr).__name__)
+
+
+def expr_from_plain(plain: Sequence[Any]) -> Expr:
+    """The expression :func:`expr_plain` gave."""
+    kind = plain[0]
+    if kind == "plugin":
+        return Plugin(plain[1])
+    if kind == "desc":
+        return Desc(plain[1], plain[2], plain[3])
+    if kind == "size":
+        return Size(plain[1], plain[2], plain[3])
+    if kind == "ver":
+        return Ver(plain[1], plain[2], plain[3])
+    return Group(plain[1], tuple(expr_from_plain(p) for p in plain[2]))
+
+
+def rule_plain(rule: Rule) -> dict[str, Any]:
+    """A rule as a plain dict, as ``ordercore::authoring`` reads it through native."""
+    return {
+        "kind": rule.kind,
+        "plugins": list(rule.plugins),
+        "expressions": [expr_plain(e) for e in rule.expressions],
+        "message": rule.message,
+        "ref": rule.ref,
+        "priority": rule.priority,
+        "section": rule.section,
+        "comment": rule.comment,
+        "force_block": rule.force_block,
+    }
+
+
+def rule_from_plain(plain: Mapping[str, Any]) -> Rule:
+    """The rule :func:`rule_plain` gave."""
+    return Rule(
+        kind=plain["kind"],
+        plugins=list(plain["plugins"]),
+        expressions=[expr_from_plain(e) for e in plain["expressions"]],
+        message=plain["message"],
+        ref=plain["ref"],
+        priority=plain["priority"],
+        section=plain["section"],
+        comment=plain["comment"],
+        force_block=plain["force_block"],
+    )
+
+
+def _native(name: str, rule: Rule) -> Any:  # noqa: ANN401 - the native answer, or _PYTHON
+    """``ordercore``'s answer for ``rule``, or :data:`_PYTHON` when Python is to answer."""
+    fn = ordercore_bridge.native(name)
+    if fn is None:
+        return _PYTHON
+    try:
+        plain = rule_plain(rule)
+    except TypeError:
+        return _PYTHON
+    try:
+        return fn(plain)
+    except Exception as exc:
+        if ordercore_bridge.declined(exc):
+            return _PYTHON
+        raise
+
+
+#: :func:`_native`'s "Python answers".
+_PYTHON: Final = object()
+
+
 def format_ref(ref: str) -> str:
     """Render a citation, with the whitespace the guidelines require.
 
@@ -474,6 +564,12 @@ def format_ref(ref: str) -> str:
     Returns:
         ``"(Ref: ... )"``, or an empty string when there is nothing to cite.
     """
+    got: str = ordercore_bridge.call("order_format_ref", lambda: _format_ref(ref), ref)
+    return got
+
+
+def _format_ref(ref: str) -> str:
+    """:func:`format_ref`'s Python body."""
     body = " ".join(ref.split())
     if not body:
         return ""
@@ -532,6 +628,10 @@ def render_rule(rule: Rule) -> str:
         The rule text, without a trailing newline. Section heading and comments
         come first when present.
     """
+    got = _native("order_render_rule", rule)
+    if got is not _PYTHON:
+        text: str = got
+        return text
     out: list[str] = []
     if rule.section.strip():
         # The guidelines write sections as "@Name", so someone typing the name
@@ -803,6 +903,9 @@ def validate(rule: Rule) -> list[Problem]:
         were detected. An empty list means the rule is both valid and
         conventional.
     """
+    got = _native("order_validate_rule", rule)
+    if got is not _PYTHON:
+        return [Problem(severity, message, remedy) for severity, message, remedy in got]
     problems: list[Problem] = []
     _check_shape(rule, problems)
 

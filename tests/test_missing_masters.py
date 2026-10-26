@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from conftest import rec, sub, write_plugin, zstr
 
 import wraithguard_toolkit as core
+from wraithguard import ordercore_bridge
 from wraithguard.plugins import PluginFileIndex
 
 if TYPE_CHECKING:
@@ -240,7 +241,11 @@ class TestNonPluginEntriesAndUnresolvableMasters:
     def test_a_master_whose_size_cannot_be_measured_produces_no_note(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """stat() failing on an otherwise-resolvable master must not crash the size check."""
+        """stat() failing on an otherwise-resolvable master must not crash the size check.
+
+        The Python body's guard: ``Path.stat`` is patched, which ordercore (it reads the file's
+        size itself, and passes over one it cannot measure) never calls.
+        """
         data_dir = tmp_path / "Data Files"
         data_dir.mkdir()
         (data_dir / "Morrowind.esm").write_bytes(b"x" * 500)
@@ -257,7 +262,10 @@ class TestNonPluginEntriesAndUnresolvableMasters:
 
         monkeypatch.setattr(Path, "stat", flaky_stat)
 
-        _missing, _order, size_notes, _checked, _names = core.check_missing_masters(order, index)
+        with ordercore_bridge.python_only():
+            _missing, _order, size_notes, _checked, _names = core.check_missing_masters(
+                order, index
+            )
 
         assert size_notes == []
 

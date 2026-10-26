@@ -340,54 +340,9 @@ pub fn digest_file(path: &Path) -> String {
 
 /* ---- the subset sort's scan for mod folders ------------------------------------------ */
 
-/// Every folder under `start` (itself included) that holds one of `asset_dirs` (by
-/// lower-case name) or a plugin: its path, and the plugin names directly inside it. A
-/// match is not looked into further. In the order a top-down walk meets them.
-pub fn mod_folders(start: &Path, asset_dirs: &HashSet<String>, plugin_exts: &HashSet<String>) -> Vec<(String, Vec<String>)> {
-    let mut out = Vec::new();
-    let mut seen: HashSet<PathBuf> = HashSet::new();
-    if let Ok(c) = fs::canonicalize(start) {
-        seen.insert(c);
-    }
-    let mut stack: Vec<(PathBuf, usize)> = vec![(start.to_path_buf(), 0)];
-    while let Some((dir, depth)) = stack.pop() {
-        let Ok(rd) = fs::read_dir(&dir) else { continue };
-        let mut subdirs: Vec<(PathBuf, bool)> = Vec::new();
-        let mut plugins = Vec::new();
-        let mut has_assets = false;
-        for entry in rd.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let Ok(ft) = entry.file_type() else { continue };
-            let path = entry.path();
-            let link = ft.is_symlink();
-            let is_dir = if link { fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false) } else { ft.is_dir() };
-            if is_dir {
-                if asset_dirs.contains(&lower(&name)) {
-                    has_assets = true;
-                }
-                subdirs.push((path, link));
-            } else if plugin_exts.contains(&ext_of(&name)) {
-                plugins.push(name);
-            }
-        }
-        if has_assets || !plugins.is_empty() {
-            out.push((dir.to_string_lossy().into_owned(), plugins));
-            continue;
-        }
-        for (p, link) in subdirs.into_iter().rev() {
-            if link {
-                if depth >= MAX_DEPTH {
-                    continue;
-                }
-                if !fs::canonicalize(&p).is_ok_and(|c| seen.insert(c)) {
-                    continue;
-                }
-            }
-            stack.push((p, depth + 1));
-        }
-    }
-    out
-}
+/// The subset sort's scan, which lives with the rest of the sort's inputs in
+/// `ordercore::inputs` (the viewer's Load order page scans with it too).
+pub use ordercore::inputs::mod_folders;
 
 /// `walk_files(roots, skip_exts=None, lower=True)`: see the module comment.
 #[pyfunction]

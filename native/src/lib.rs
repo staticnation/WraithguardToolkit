@@ -50,6 +50,7 @@ pub mod mwscript;
 pub mod nif;
 pub mod nif_order;
 pub mod order;
+pub mod loadorder;
 pub mod uses;
 
 /// The extension module. `gil_used = false`: nothing here relies on the GIL
@@ -71,6 +72,7 @@ fn wraithguard_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     merge::register(m)?;
     mwscript::register(m)?;
     order::register(m)?;
+    loadorder::register(m)?;
     uses::register(m)?;
     Ok(())
 }

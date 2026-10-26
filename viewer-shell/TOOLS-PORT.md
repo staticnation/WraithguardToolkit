@@ -34,7 +34,13 @@ tool's code as its slice starts and correct the slice.
 4. **Remove Master** (`gui/removemaster.py`, 392 lines). The plugin rewrite is editcore's
    plugin writer; port the rules (what refers to the master, what is left dangling) and pin them
    against output plugins byte for byte.
-5. **Save Check.** Not located in the zip I read; find its code first, then size it.
+5. **Save Check.** Today it says whether a save's masters are missing; port that, then add
+   what `openmw-save-stats` shows (MIT, a single stdlib Python file of about 1.4k lines; the
+   copy Static sent is the reference): the space each mod takes in an `.omwsave`, split by
+   part, its Lua data (keys, timers, the objects that carry it) and the hints to shrink it,
+   and what grew between two saves. OpenMW save formats 37 and 40, 34 mostly. A crate of
+   its own (`savecore`) or a module of `luacore`, which already reads OpenMW's Lua; decide
+   when the slice starts.
 6. **The journal and plugin views** (`journalview.py` 872, `pluginview.py` 1399). The journal
    is already editcore's (queue slice 3); the plugin view reads headers, masters and record
    counts, which the record cache has. These are mostly pages. Decide: whether the plugin

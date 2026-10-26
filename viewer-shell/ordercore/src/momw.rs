@@ -1,140 +1,102 @@
 //! MOMW's `plugin-order.yml` and what a load order is checked against it for, as
 //! `wraithguard/momw.py` reads them.
 //!
-//! The file is long and very regular: a list of entries, each with a `file_name`, perhaps a
-//! `for_mod`, a `needs_cleaning` flag, the `on_lists` it belongs to, and some `depends`. The
-//! Python reads it with PyYAML when that is installed and otherwise with a small line
-//! reader, so a stdlib-only Python still works. This is the line reader, written out: this
-//! crate takes no dependencies, and it is the path with no YAML library in it. On the file
-//! MOMW ships the two read the same; on anything else they can differ (a duplicate key, a
-//! flow list, a trailing comment, a byte-order mark; PyYAML also raises on a malformed
-//! file, which the reader does not), and `tests/fixtures/momw_cases.json` names the inputs
-//! on which they do.
+//! The file is a YAML list of entries, each with a `file_name`, perhaps a `for_mod`, a
+//! `needs_cleaning` flag, the `on_lists` it belongs to, and some `depends`. It is read with a
+//! YAML parser (`serde-saphyr`) into a typed entry, and **refused whole**, with the line and
+//! column, on anything that is not that file: a syntax error, a duplicate key, a value of the
+//! wrong kind (`on_lists: 5`, `needs_cleaning: maybe`), an entry that is not a mapping, or one
+//! with no `file_name`. Keys it does not know (`depends` among them) are passed over, so a new
+//! field from MOMW does not break a user. A wrong file is worse than none: a plugin misread as
+//! off its list is treated as the user's own and reordered, which is what Wraithguard exists to
+//! prevent. Update rules and Sources reads a download with this before it replaces the file,
+//! so a broken download is refused and the old file kept.
 //!
-//! The Python is the reference and the case file pins both.
-//!
-//! Written from MOMW's file as it is, not from its code.
+//! Before this the Python read the file with PyYAML when installed (which refuses only a
+//! syntax error, and takes the last of two keys) and otherwise with a line reader that refused
+//! nothing; they read 19 of the 34 test inputs differently. `tests/fixtures/momw_cases.json`
+//! pins what this reads and what it refuses.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::rules::{is_space, splitlines};
+use serde::Deserialize;
 
 /// One plugin of `plugin-order.yml`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     /// The plugin's file name, as the file spells it. Never empty.
     pub file_name: String,
-    /// The mod it belongs to, when the entry says so (the last `for_mod` line wins).
+    /// The mod it belongs to, when the entry says so.
     pub for_mod: Option<String>,
     /// The curated lists it is on, in file order.
     pub on_lists: Vec<String>,
-    /// Whether the entry flags it for cleaning (`true`, `yes` or `1`, in any case).
+    /// Whether the entry flags it for cleaning.
     pub needs_cleaning: bool,
 }
 
-/// An entry being read: it only becomes an [`Entry`] once it has a `file_name`.
-#[derive(Default)]
-struct Partial {
+/// An entry as the file holds it.
+#[derive(Deserialize)]
+struct Raw {
     file_name: Option<String>,
+    #[serde(default)]
     for_mod: Option<String>,
-    on_lists: Vec<String>,
-    needs_cleaning: bool,
+    #[serde(default)]
+    on_lists: Option<Vec<String>>,
+    #[serde(default)]
+    needs_cleaning: Option<bool>,
 }
 
-impl Partial {
-    fn finish(self) -> Option<Entry> {
-        let file_name = self.file_name.filter(|n| !n.is_empty())?;
-        Some(Entry {
-            file_name,
-            for_mod: self.for_mod,
-            on_lists: self.on_lists,
-            needs_cleaning: self.needs_cleaning,
-        })
+/// Why the file was refused, in words for the user (with the line and column when the YAML
+/// says where).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Refused(pub String);
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
-/// What the reader is inside of at two spaces' indent.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Mode {
-    /// A key it does not read (or none yet).
-    Other,
-    /// `on_lists:`, whose four-space `- item` lines it reads.
-    OnLists,
-    /// `depends:`, whose nested entries it must not mistake for entries of their own.
-    Depends,
+impl std::error::Error for Refused {}
+
+/// The parser's message as one line for a report: its first line, without the `error: ` in
+/// front or the advice to a programmer after it (`, set DuplicateKeyPolicy ...`, `; use ...`).
+fn said(message: &str) -> String {
+    let first = message.lines().next().unwrap_or("").trim();
+    let first = first.strip_prefix("error: ").unwrap_or(first);
+    let cut = [", set ", "; use "].iter().filter_map(|m| first.find(m)).min().unwrap_or(first.len());
+    first[..cut].to_string()
 }
 
-/// A value without its surrounding space and quotes: Python's
-/// `v.strip().strip('"').strip("'")`, which takes every quote at either end.
-fn unquote(v: &str) -> &str {
-    v.trim_matches(is_space).trim_matches('"').trim_matches('\'')
-}
-
-/// `key: value` on one line, into the entry: the first `file_name` stands, the last
-/// `for_mod` does, and the flag is true for `true`, `yes` and `1` in any case.
-fn apply_kv(entry: &mut Partial, s: &str) {
-    let Some((k, v)) = s.split_once(':') else {
-        return;
-    };
-    let v = unquote(v);
-    match k.trim_matches(is_space) {
-        "file_name" if entry.file_name.is_none() => entry.file_name = Some(v.to_string()),
-        "for_mod" => entry.for_mod = Some(v.to_string()),
-        "needs_cleaning" => {
-            entry.needs_cleaning = matches!(v.to_lowercase().as_str(), "true" | "yes" | "1");
-        }
-        _ => {}
-    }
-}
-
-/// Read the entries out of `plugin-order.yml`'s text (`parse_plugin_order_text`).
+/// Read the entries out of `plugin-order.yml`'s text (see the module).
 ///
-/// An entry starts at a line that begins `- ` and is kept when it has a `file_name`. Keys
-/// at two spaces' indent are read; `on_lists` items are the `- x` lines at four or more
-/// spaces under it; everything else, `depends` and what is nested in it included, is
-/// ignored. A byte-order mark in front of the first dash hides that entry.
-pub fn parse_text(text: &str) -> Vec<Entry> {
-    let mut entries = Vec::new();
-    let mut cur: Option<Partial> = None;
-    let mut mode = Mode::Other;
-    for line in splitlines(text) {
-        let stripped = line.trim_matches(is_space);
-        if stripped.is_empty() || line.trim_start_matches(is_space).starts_with('#') {
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("- ") {
-            entries.extend(cur.take().and_then(Partial::finish));
-            let mut fresh = Partial::default();
-            mode = Mode::Other;
-            apply_kv(&mut fresh, rest);
-            cur = Some(fresh);
-            continue;
-        }
-        let Some(entry) = cur.as_mut() else {
-            continue;
+/// # Errors
+/// [`Refused`] for anything that is not the file: see the module.
+pub fn parse_text(text: &str) -> Result<Vec<Entry>, Refused> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let raw: Option<Vec<Raw>> = serde_saphyr::from_str(text).map_err(|e| Refused(said(&e.to_string())))?;
+    let mut out = Vec::new();
+    for (i, r) in raw.unwrap_or_default().into_iter().enumerate() {
+        let Some(file_name) = r.file_name.filter(|n| !n.is_empty()) else {
+            return Err(Refused(format!("entry {} has no file_name", i + 1)));
         };
-        let indent = line.len() - line.trim_start_matches(' ').len();
-        if indent == 2 && line.contains(':') {
-            let key = stripped.split(':').next().unwrap_or("").trim_matches(is_space);
-            mode = match key {
-                "on_lists" => Mode::OnLists,
-                "depends" => Mode::Depends,
-                _ => Mode::Other,
-            };
-            if mode == Mode::Other {
-                apply_kv(entry, stripped);
-            }
-        } else if indent >= 4 && mode == Mode::OnLists {
-            if let Some(item) = stripped.strip_prefix("- ") {
-                let item = unquote(item);
-                if !item.is_empty() {
-                    entry.on_lists.push(item.to_string());
-                }
-            }
-        }
+        out.push(Entry {
+            file_name,
+            for_mod: r.for_mod,
+            on_lists: r.on_lists.unwrap_or_default(),
+            needs_cleaning: r.needs_cleaning.unwrap_or(false),
+        });
     }
-    entries.extend(cur.and_then(Partial::finish));
-    entries
+    Ok(out)
+}
+
+/// [`parse_text`] over the file's bytes, which must be UTF-8.
+///
+/// # Errors
+/// [`Refused`], as [`parse_text`], or for bytes that are not UTF-8.
+pub fn parse_bytes(bytes: &[u8]) -> Result<Vec<Entry>, Refused> {
+    let text = std::str::from_utf8(bytes).map_err(|e| Refused(format!("not UTF-8 ({e})")))?;
+    parse_text(text)
 }
 
 /// The plugins on one curated list (`curated_for_list`): the lower-cased names for
@@ -272,29 +234,28 @@ mod tests {
 
     #[test]
     fn an_entry_needs_a_name_and_depends_is_not_an_entry() {
-        let got = parse_text(
-            "- for_mod: Only\n- file_name: A.esp\n  depends:\n    - file_name: Dep.esp\n- file_name: \"\"\n",
-        );
+        let got = parse_text("- file_name: A.esp\n  depends:\n    - file_name: Dep.esp\n").unwrap();
         assert_eq!(names(&got), ["A.esp"]);
+        assert!(parse_text("- for_mod: Only\n- file_name: A.esp\n").is_err());
+        assert!(parse_text("- file_name: \"\"\n").is_err());
     }
 
     #[test]
-    fn quotes_and_space_come_off_a_value() {
-        assert_eq!(unquote(" \"'x'\" "), "x");
-        assert_eq!(unquote("He said \"hi\""), "He said \"hi");
+    fn a_wrong_file_is_refused_whole() {
+        assert!(parse_text("- file_name: A.esp\n  file_name: B.esp\n").is_err());
+        assert!(parse_text("- file_name: A.esp\n  on_lists: 5\n").is_err());
+        assert!(parse_text("- file_name: A.esp\n  needs_cleaning: maybe\n").is_err());
+        assert!(parse_text("file_name: A.esp\n").is_err());
+        assert!(parse_text("- file_name: \"A.esp\n").is_err());
+        assert!(parse_bytes(b"- file_name: \xff.esp\n").is_err());
     }
 
     #[test]
-    fn the_first_file_name_and_the_last_for_mod_stand() {
-        let got = parse_text("- file_name: A.esp\n  file_name: B.esp\n  for_mod: 1\n  for_mod: 2\n");
-        assert_eq!(got[0].file_name, "A.esp");
-        assert_eq!(got[0].for_mod.as_deref(), Some("2"));
-    }
-
-    #[test]
-    fn a_byte_order_mark_hides_the_first_dash() {
-        let got = parse_text("\u{feff}- file_name: A.esp\n- file_name: B.esp\n");
-        assert_eq!(names(&got), ["B.esp"]);
+    fn a_byte_order_mark_comments_and_flow_lists_are_yaml() {
+        let got = parse_text("\u{feff}# x\n- file_name: A.esp # note\n  on_lists: [a, b]\n").unwrap();
+        assert_eq!(names(&got), ["A.esp"]);
+        assert_eq!(got[0].on_lists, ["a", "b"]);
+        assert_eq!(parse_text("# only a comment\n").unwrap(), []);
     }
 
     #[test]

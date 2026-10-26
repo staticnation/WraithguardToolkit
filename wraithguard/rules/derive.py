@@ -33,7 +33,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from wraithguard.rules.authoring import Plugin, Rule, all_of
+from wraithguard import ordercore_bridge
+from wraithguard.rules.authoring import Plugin, Rule, all_of, rule_from_plain
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -83,6 +84,50 @@ class Proposal:
     def is_fact(self) -> bool:
         """Whether this came from the files rather than from inference."""
         return self.confidence == "fact"
+
+
+def _derived(
+    which: str,
+    masters_by_plugin: Mapping[str, Sequence[str]],
+    active: Sequence[str],
+    conflicts: Iterable[ConflictRecord],
+    minimum_records: int,
+) -> list[Proposal] | None:
+    """``ordercore::derive``'s proposals through the native module, or None for Python's."""
+    fn = ordercore_bridge.native("order_derive")
+    if fn is None:
+        return None
+    records = []
+    for conflict in conflicts:
+        raw = conflict.get("plugins")
+        plugins = (
+            None
+            if isinstance(raw, str) or not isinstance(raw, (list, tuple))
+            else [str(n) for n in raw]
+        )
+        records.append({"plugins": plugins, "rectype": str(conflict.get("type") or "?")})
+    try:
+        got = fn(
+            which,
+            [(str(p), [str(m) for m in ms]) for p, ms in masters_by_plugin.items()],
+            [str(a) for a in active],
+            records,
+            minimum_records,
+        )
+    except Exception as exc:
+        if ordercore_bridge.declined(exc):
+            return None
+        raise
+    return [
+        Proposal(
+            rule=rule_from_plain(p["rule"]),
+            confidence=p["confidence"],
+            reason=p["reason"],
+            evidence=p["evidence"],
+            alternatives=tuple(rule_from_plain(a) for a in p["alternatives"]),
+        )
+        for p in got
+    ]
 
 
 def needs_citation(proposal: Proposal) -> bool:
@@ -147,6 +192,9 @@ def order_from_masters(
         game masters are excluded: nothing loads without them and the rule-base
         does not carry such rules.
     """
+    got = _derived("order_from_masters", masters_by_plugin, active, (), 1)
+    if got is not None:
+        return got
     active_lower = frozenset(name.lower() for name in active)
     proposals: list[Proposal] = []
     for plugin, masters in masters_by_plugin.items():
@@ -189,6 +237,9 @@ def requires_from_masters(
         become one rule with an ``[ALL ...]`` consequent, which is what the
         guidelines' own examples do.
     """
+    got = _derived("requires_from_masters", masters_by_plugin, active, (), 1)
+    if got is not None:
+        return got
     del active
     proposals: list[Proposal] = []
     for plugin, masters in masters_by_plugin.items():
@@ -237,6 +288,9 @@ def patch_candidates(
     Returns:
         One proposal per plausible patch.
     """
+    got = _derived("patch_candidates", masters_by_plugin, active, (), 1)
+    if got is not None:
+        return got
     active_lower = frozenset(name.lower() for name in active)
     proposals: list[Proposal] = []
     for plugin, masters in masters_by_plugin.items():
@@ -322,6 +376,10 @@ def order_candidates_from_conflicts(
         Proposals, busiest pair first, so the most consequential decisions are
         the ones a person sees.
     """
+    conflicts = list(conflicts)
+    got = _derived("order_candidates_from_conflicts", {}, (), conflicts, minimum_records)
+    if got is not None:
+        return got
     proposals: list[Proposal] = []
     for (earlier, later), types in _conflict_pairs(conflicts).items():
         total = sum(types.values())
@@ -382,6 +440,10 @@ def propose_all(
         meet the things that are certainly true before the things that need
         their judgement.
     """
+    conflicts = list(conflicts)
+    got = _derived("propose_all", masters_by_plugin, active, conflicts, minimum_records)
+    if got is not None:
+        return got
     facts = [
         *order_from_masters(masters_by_plugin, active),
         *requires_from_masters(masters_by_plugin, active),
