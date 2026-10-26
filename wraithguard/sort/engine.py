@@ -35,6 +35,11 @@ _POSITION_EPSILON = 1e-6
 _is_master_file = is_master_file
 
 
+#: The prefix that keeps a phantom node (a rule's name that matches no installed plugin) apart
+#: from every plugin name: no file name holds a NUL.
+_PHANTOM = "\0"
+
+
 def _unique_conflicts(conflicts: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
     """The rejected edges once each, by name without case, in the order first seen.
 
@@ -134,32 +139,84 @@ def _build_edges(
         trace_sort("[sort]  (no header masters available -- mod files not reachable)")
 
     # 2) mlox ordering edges, but only where they touch a subset plugin (the
-    #    frozen base is already ordered by step 1). Within each block we chain
-    #    consecutive INSTALLED matches, skipping over patterns that match
-    #    nothing you have -- so [Order] A, B, C with B not installed still
-    #    yields A -> C directly, preserving the constraint instead of losing it
-    #    when B drops out. This is the transitive-bridge behaviour the real mlox
-    #    engine gets by keeping a not-installed plugin as a phantom node.
+    #    frozen base is already ordered by step 1). The rules are first read into a
+    #    graph of their own, as mlox builds it: a name that matches nothing you have
+    #    is kept as a phantom node, one per name (any case), shared by every rule
+    #    that names it. So [Order] A, B, C with B not installed still says A before
+    #    C, and so do [Order] A, B in one block and [Order] B, C in another. An edge
+    #    that would close a cycle among the rules is refused there, as mlox refuses
+    #    it, so the edges read first win. Every pair of installed plugins joined in
+    #    that graph directly or through phantoms only becomes an edge here.
     trace_sort("[sort] step 2: mlox [Order] rule edges (only those touching a custom plugin)")
-    _rule_edge_count = 0
-    # Higher priority (later file, e.g. mlox_user.txt) FIRST: since add_edge
-    # rejects any edge that would close a cycle, the edges added earliest win
-    # a conflict -- exactly how the real mlox gives user rules precedence by
-    # reading mlox_user.txt before mlox_base.txt. (Sorting ascending here
-    # silently gave the BASE file precedence -- backwards.)
+    # Higher priority (later file, e.g. mlox_user.txt) FIRST: the edges read earliest
+    # win a conflict -- exactly how the real mlox gives user rules precedence by
+    # reading mlox_user.txt before mlox_base.txt.
     blocks_sorted = sorted(rule_blocks, key=lambda b: -b[1])
+    rule_adj: dict[str, list[str]] = {}
+    rule_edges: list[tuple[str, str, int]] = []
+
+    def rules_reach(start: str, target: str) -> bool:
+        """Whether ``target`` can be reached from ``start`` in the rules' graph."""
+        stack, seen = [start], {start}
+        while stack:
+            node = stack.pop()
+            if node == target:
+                return True
+            for nxt in rule_adj.get(node, ()):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        return False
+
     for names, priority in blocks_sorted:
-        # expand each token to its installed matches; a token that matches
-        # nothing is dropped (it becomes an order bridge, not a broken link)
-        survivors = [ms for ms in (expand_pattern(tok, node_pool) for tok in names) if ms]
-        for a_matches, b_matches in pairwise(survivors):
-            for a in a_matches:
-                for b in b_matches:
-                    if a == b:
+        prev: list[str] = []
+        for tok in names:
+            matches = expand_pattern(tok, node_pool) or [_PHANTOM + tok.lower()]
+            for a in prev:
+                for b in matches:
+                    if a == b or b in rule_adj.get(a, ()):
                         continue
-                    if a in subset_set or b in subset_set:
-                        add_edge(a, b, f"mlox rule (priority {priority})")
-                        _rule_edge_count += 1
+                    if rules_reach(b, a):
+                        # the rules contradict each other: the edge read first stands
+                        if not (a.startswith(_PHANTOM) or b.startswith(_PHANTOM)) and (
+                            a in subset_set or b in subset_set
+                        ):
+                            conflicts.append((a, b))
+                            trace_sort(f"[sort]   rule edge REJECTED (rules cycle): '{a}' -> '{b}'")
+                        continue
+                    rule_adj.setdefault(a, []).append(b)
+                    rule_edges.append((a, b, priority))
+            prev = matches
+
+    def installed_after(node: str) -> list[str]:
+        """The installed plugins ``node`` reaches through phantoms only, nearest first."""
+        if not node.startswith(_PHANTOM):
+            return [node]
+        out: list[str] = []
+        queue, seen = [node], {node}
+        for current in queue:
+            for nxt in rule_adj.get(current, ()):
+                if nxt in seen:
+                    continue
+                seen.add(nxt)
+                if nxt.startswith(_PHANTOM):
+                    queue.append(nxt)
+                else:
+                    out.append(nxt)
+        return out
+
+    _rule_edge_count = 0
+    done: set[tuple[str, str]] = set()
+    for a, first, priority in rule_edges:
+        if a.startswith(_PHANTOM):
+            continue
+        for b in installed_after(first):
+            if a == b or (a, b) in done:
+                continue
+            done.add((a, b))
+            if a in subset_set or b in subset_set:
+                add_edge(a, b, f"mlox rule (priority {priority})")
+                _rule_edge_count += 1
     trace_sort(f"[sort]  considered rule edges touching customs: {_rule_edge_count}")
 
     # Report rules we couldn't apply -- deduped and phrased as info, not alarm.

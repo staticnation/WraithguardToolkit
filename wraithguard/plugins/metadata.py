@@ -213,8 +213,8 @@ def plugin_version(plugin_name: str, index: PluginFileIndex | None) -> str | Non
     Returns:
         A canonical version from :func:`~wraithguard.versions.format_version`,
         or ``None`` when neither source yields one. Callers must treat ``None``
-        as "unknowable" rather than "old" -- mlox assumes an ``=`` comparison
-        holds in that case rather than raising a warning it cannot support.
+        as "unknowable" rather than "old": mlox's ``[VER]`` is then false, whatever
+        its comparison.
     """
     path = index.find(plugin_name) if index else None
     if path is not None:

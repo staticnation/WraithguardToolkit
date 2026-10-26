@@ -706,6 +706,20 @@ impl Editor {
             if !name.is_empty() && !exists(&objects, &name) {
                 findings.push(finding("error", "Reference", "CELL", &edit.cell, &format!("{}#{}", edit.origin, edit.refr_index), format!("becomes {name}, which no plugin defines")));
             }
+            // The patch's record is the last version, so it undeletes what an earlier plugin deleted.
+            if !edit.changes.get(&"deleted".to_string()).is_some_and(truthy)
+                && let Some(found) = self.session.find_ref(&edit.cell, &edit.origin, edit.refr_index, None)
+                && found.reference.get("deleted").is_some_and(truthy)
+            {
+                findings.push(finding(
+                    "warning",
+                    "Reference",
+                    "CELL",
+                    &edit.cell,
+                    &format!("{}#{}", edit.origin, edit.refr_index),
+                    format!("is deleted by {}; the patch's change brings it back", found.winner),
+                ));
+            }
         }
         let mut topics: BTreeMap<String, HashSet<String>> = BTreeMap::new();
         if !infos.is_empty() {

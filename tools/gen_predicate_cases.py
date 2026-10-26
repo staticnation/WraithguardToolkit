@@ -114,6 +114,17 @@ EXPRESSIONS: list[str] = [
     "[all a.esp] [any b.esp] [not c.esp]",
     "[DESC A.esp]",
     "[ANY NOT A.esp]",
+    # names holding a bracketed part, as mlox reads them
+    "[ANY Morrowind Rebirth [Main].ESP DN-GDRv<VER>-Rebirth.esp]",
+    "[Official]Master Index.esp [ANY [Official]Siege at Firemoth.esp B.esp]",
+    "Dragonbone Armor [v.1.2].esp Vivec - Area of Effect (Remiros) [Replacer].esp",
+    "[NOT [Official]Entertainers.esp]",
+    "A [B.esp] C.esp",
+    "A [ALL B] C.esp",
+    "A [ VER x] C.esp",
+    "A [x C.esp",
+    "[ALL A.esp [Main] B.esp]",
+    "All Boats.esp [ANY Not Here.esp]",
 ]
 
 VERSIONS: list[str] = [
@@ -191,6 +202,27 @@ NODISK: dict[str, tuple[int, str]] = {}
 
 HAND: list[Check] = [
     ("nothing", "", [], {}, None),
+    (
+        "a note fires on any of what it lists, and is about those present",
+        "[Note modder's resources]\nA.esp\nB.esp\nC.esp\n",
+        ["B.esp", "Other.esp"],
+        {},
+        None,
+    ),
+    (
+        "a note none of whose plugins is present",
+        "[Note x]\nA.esp\nB.esp\n",
+        ["Other.esp"],
+        {},
+        None,
+    ),
+    (
+        "a conflict between names holding brackets",
+        "[Conflict one of these]\n[Official]Master Index.esp\nMorrowind Rebirth [Main].ESP\nMaster Index.esp\n",
+        ["[Official]Master Index.esp", "Morrowind Rebirth [Main].ESP"],
+        {},
+        None,
+    ),
     (
         "a requires with its dependency missing",
         "[Requires needs the base]\nPatch.esp\nBase.esp\n",

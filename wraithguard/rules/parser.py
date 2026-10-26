@@ -75,6 +75,9 @@ ORDER_NAME_RE: Final = re.compile(
     re.IGNORECASE,
 )
 
+#: A line of an ordering body that is a predicate, not a name: a function or a group.
+_QUALIFIER_RE: Final = re.compile(r"\[\s*(?:ALL|ANY|NOT|DESC|VER|SIZE|MWSE-LUA)\b", re.IGNORECASE)
+
 #: Keywords whose bodies contain plugin names rather than message text.
 _ORDERING_KEYWORDS: Final = frozenset({"order", "nearstart", "nearend"})
 
@@ -126,9 +129,10 @@ def parse_mlox_text(raw: str) -> tuple[list[tuple[str, list[str]]], int]:
             line = raw_line.strip()
             if not line:
                 continue
-            if line.startswith("["):
-                # A bracketed qualifier (e.g. "[DESC /.../ Foo.esp]") or a
-                # malformed header. Phantom-name treatment: bridge over it.
+            if _QUALIFIER_RE.match(line):
+                # A bracketed qualifier (e.g. "[DESC /.../ Foo.esp]"). Phantom-name
+                # treatment: bridge over it. Any other bracket starts a name, as mlox
+                # reads one ("[Official]Master Index.esp").
                 skipped += 1
                 continue
             found = ORDER_NAME_RE.findall(line)

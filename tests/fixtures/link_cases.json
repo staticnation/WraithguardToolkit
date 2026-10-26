@@ -5032,7 +5032,8 @@
         "kind": "door",
         "editable": true
        }
-      ]
+      ],
+      "warning": null
      },
      {
       "cell": "Vault",
@@ -5168,7 +5169,8 @@
         "kind": "door",
         "editable": true
        }
-      ]
+      ],
+      "warning": null
      },
      {
       "error": "'big' is not a number"
@@ -5314,7 +5316,8 @@
         "kind": "door",
         "editable": true
        }
-      ]
+      ],
+      "warning": null
      },
      {
       "cell": "Vault",
@@ -5454,7 +5457,8 @@
         "kind": "door",
         "editable": true
        }
-      ]
+      ],
+      "warning": null
      },
      [
       {

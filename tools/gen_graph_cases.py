@@ -36,7 +36,9 @@ OUT = ROOT / "tests" / "fixtures" / "graph_cases.json"
 
 #: Characters mlox leaves to the regular expression; with a wildcard they make a name the Rust
 #: side declines.
-PASSED_THROUGH = "[]{}|\\^$"
+# What ordercore declined in a pattern with a wildcard: nothing, since every character
+# but the wildcards is plain text (wraithguard/rules/patterns.py).
+PASSED_THROUGH = ""
 
 MASTER_NAMES: list[str] = [
     "Morrowind.esm",
@@ -93,6 +95,37 @@ CYCLES: list[tuple[str, dict[str, list[str]], str, str]] = [
 #: ``(name, [(priority, rule text)], base, subset, masters)``.
 GRAPHS: list[tuple[str, list[tuple[int, str]], list[str], list[str], dict[str, list[str]]]] = [
     ("nothing at all", [], [], [], {}),
+    (
+        "an uninstalled name joins two blocks, as mlox's phantom node does",
+        [(0, "[Order]\nA.esp\nGone.esp\n\n[Order]\ngone.ESP\nX.esp\n")],
+        ["A.esp"],
+        ["X.esp"],
+        {},
+    ),
+    (
+        "a chain of phantoms across three blocks",
+        [(0, "[Order]\nX.esp\nP1.esp\n[Order]\nP1.esp\nP2.esp\n[Order]\nP2.esp\nB.esp\nY.esp\n")],
+        ["B.esp"],
+        ["X.esp", "Y.esp"],
+        {},
+    ),
+    (
+        "rules that contradict through a phantom: the one read first stands",
+        [
+            (0, "[Order]\nX.esp\nGone.esp\n[Order]\nGone.esp\nY.esp\n"),
+            (1, "[Order]\nY.esp\nX.esp\n"),
+        ],
+        ["A.esp"],
+        ["X.esp", "Y.esp"],
+        {},
+    ),
+    (
+        "a pattern that matches nothing is a phantom of its own text",
+        [(0, "[Order]\nA.esp\nNone Like It*.esp\n[Order]\nnone like it*.esp\nX.esp\n")],
+        ["A.esp"],
+        ["X.esp"],
+        {},
+    ),
     ("a curated chain and no customs", [], ["A.esm", "B.esp", "C.esp"], [], {}),
     ("a single curated plugin", [], ["A.esm"], [], {}),
     ("customs that are new are not chained", [], ["A.esm", "B.esp"], ["X.esp", "Y.esp"], {}),

@@ -30,7 +30,7 @@ from wraithguard.rules.expressions import (
     tokenize_mlox_logic,
 )
 from wraithguard.rules.parser import TOP_RE, strip_comment
-from wraithguard.rules.patterns import mlox_pattern_to_regex
+from wraithguard.rules.patterns import mlox_pattern_to_regex, pattern_has_meta
 from wraithguard.versions import MLOX_VERSION_PATTERN, format_version
 
 if TYPE_CHECKING:
@@ -58,6 +58,28 @@ _plugin_version = plugin_version
 _read_plugin_description = read_plugin_description
 
 
+def _matching(pattern: str, active_plugins: Collection[str]) -> list[str]:
+    """The active plugins a rule's pattern names.
+
+    A pattern with a wildcard or ``<VER>`` is matched as mlox's expression; any other is a
+    plain name, compared without case, as mlox's ``_expand_filename`` does. (Matching every
+    name as an expression read a bracket in a plain name -- ``[Official]Master Index.esp``,
+    ``Morrowind Rebirth [Main].ESP`` -- as a character class, so the plugin never matched.)
+
+    Args:
+        pattern: The rule's plugin pattern.
+        active_plugins: The plugins in the load order.
+
+    Returns:
+        The matching names, in ``active_plugins``' order.
+    """
+    if pattern_has_meta(pattern):
+        rx = mlox_pattern_to_regex(pattern)
+        return [p for p in active_plugins if rx.match(p)]
+    lowered = pattern.lower()
+    return [p for p in active_plugins if p.lower() == lowered]
+
+
 def _eval_ver(
     op: str,
     want_raw: str,
@@ -65,11 +87,12 @@ def _eval_ver(
     active_plugins: Collection[str],
     index: PluginFileIndex | None,
 ) -> bool:
-    """Evaluate a ``[VER op version Plugin.esp]`` predicate.
+    """Evaluate a ``[VER op version Plugin.esp]`` predicate, as mlox's ``_parse_ver`` does.
 
-    When a matched plugin's version cannot be determined, an ``=`` comparison
-    is treated as holding -- mlox's behaviour, and deliberate: the tool refuses
-    to raise a version warning it cannot substantiate.
+    With no data folder to read, the version is not looked for: ``=`` holds and ``<`` and
+    ``>`` do not. With one, each matched plugin's version comes from its header, else its
+    file name; a plugin with neither ends the test as false (``=`` included: it used to be
+    assumed to hold, which raised notes and requirements on plugins of any version).
 
     Args:
         op: One of ``=``, ``<``, ``>``.
@@ -79,20 +102,19 @@ def _eval_ver(
         index: Used to read real versions, or ``None`` when unavailable.
 
     Returns:
-        ``True`` when any matched active plugin satisfies the comparison.
+        ``True`` when a matched active plugin satisfies the comparison.
         ``False`` when the rule names no active plugin at all.
     """
     want = _format_version(want_raw)
-    rx = mlox_pattern_to_regex(plugin_pat)
-    matched = [p for p in active_plugins if rx.match(p)]
+    matched = _matching(plugin_pat, active_plugins)
     if not matched:
         return False  # the plugin the rule is about isn't even active
+    if index is None or not index.usable:
+        return op == "="  # mlox with no data folder: assumed to be the version asked for
     for p in matched:
         pv = _plugin_version(p, index)
         if pv is None:
-            if op == "=":
-                return True  # mlox: version unknowable -> assume '=' holds
-            continue
+            return False  # mlox: a plugin with no version ends the test
         if op == "=" and pv == want:
             return True
         if op == "<" and pv < want:
@@ -122,8 +144,7 @@ def _eval_size(
     Returns:
         ``True`` when a matched plugin's size satisfies the comparison.
     """
-    rx = mlox_pattern_to_regex(plugin_pat)
-    matched = [p for p in active_plugins if rx.match(p)]
+    matched = _matching(plugin_pat, active_plugins)
     if not matched:
         return False
     for p in matched:
@@ -168,8 +189,7 @@ def _eval_desc(
     Returns:
         ``True`` when a matched plugin's header description satisfies the test.
     """
-    rx = mlox_pattern_to_regex(plugin_pat)
-    matched = [p for p in active_plugins if rx.match(p)]
+    matched = _matching(plugin_pat, active_plugins)
     if not matched:
         return False
     for p in matched:
@@ -237,8 +257,7 @@ def _func_token_matches(token: str, active_plugins: Collection[str]) -> set[str]
     for rx in (_re_ver_fun, _re_size_fun, _re_desc_fun, _re_mwselua_fun):
         m = rx.match(token)
         if m:
-            prx = mlox_pattern_to_regex(m.group(3).strip())
-            return {p for p in active_plugins if prx.match(p)}
+            return set(_matching(m.group(3).strip(), active_plugins))
     return set()
 
 
@@ -267,8 +286,7 @@ def evaluate_node(
             return _eval_func_token(node, active_plugins, index)
         if node.startswith("/") and node.endswith("/"):
             return True  # /DESC message/ strings carry no truth value
-        rx = mlox_pattern_to_regex(node)
-        return any(rx.match(p) for p in active_plugins)
+        return bool(_matching(node, active_plugins))
 
     if isinstance(node, list) and node:
         op = node[0].upper() if isinstance(node[0], str) else ""
@@ -310,10 +328,7 @@ def get_triggered_plugins(
             return _func_token_matches(node, active_plugins)
         if node.startswith("/") and node.endswith("/"):
             return found  # /DESC message/ strings match no plugin
-        rx = mlox_pattern_to_regex(node)
-        for p in active_plugins:
-            if rx.match(p):
-                found.add(p)
+        found.update(_matching(node, active_plugins))
     elif isinstance(node, list) and node:
         for arg in node[1:]:
             found.update(get_triggered_plugins(arg, active_plugins, index))
@@ -489,10 +504,14 @@ def check_predicates(
                     warnings.append(warning_msg)
 
         elif keyword == "Note":  # pragma: no branch - exhaustive: one of the four kept keywords
-            # notes fire when everything listed is simultaneously true
-            if all(evaluate_node(n, active_set, index) for n in ast):
+            # A note fires when any of what it lists holds, and is about those that do:
+            # mlox's [Note] takes any number of expressions and prints the true ones. (It
+            # used to need all of them, so a note listing alternatives -- "these are
+            # modder's resources", "use only one of these" -- almost never fired.)
+            true_nodes = [n for n in ast if evaluate_node(n, active_set, index)]
+            if true_nodes:
                 triggered_by = set()
-                for n in ast:
+                for n in true_nodes:
                     triggered_by.update(get_triggered_plugins(n, active_set, index))
                 warning_msg = f"[NOTE] {message}"
                 if triggered_by:

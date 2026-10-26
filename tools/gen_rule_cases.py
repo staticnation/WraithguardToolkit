@@ -63,6 +63,11 @@ INPUTS: list[tuple[str, str]] = [
     ("other Unicode whitespace around names", "[Order]\n\u3000A.esp\u2003B.esp\u202f\n"),
     ("non-ASCII names", "[Order]\nCafé Épique.esp\nÜbermod.esm\n"),
     ("phantom lines are counted", "[Order]\nA.esp\nsome words\n[DESC /x/ B.esp]\n\nC.esp\n"),
+    (
+        "a bracket starts a name unless it opens a predicate",
+        "[Order]\n[Official]Master Index.esp\nMorrowind Rebirth [Main].ESP\n[ ver > 1 A.esp]\n"
+        "[ANY B.esp]\n[Anything].esp\n",
+    ),
     ("a block with no names is dropped", "[Order]\nnothing here\n[NearStart]\nA.esp\n"),
     ("hints are not chains", "[NearStart]\nA.esp\nB.esp\n[NearEnd]\nC.esp\n"),
     ("a header only on its own line start", "  [Order]\nA.esp\n"),

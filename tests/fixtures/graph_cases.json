@@ -418,6 +418,158 @@
    "unique_conflicts": []
   },
   {
+   "name": "an uninstalled name joins two blocks, as mlox's phantom node does",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nGone.esp\n\n[Order]\ngone.ESP\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a chain of phantoms across three blocks",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nP1.esp\n[Order]\nP1.esp\nP2.esp\n[Order]\nP2.esp\nB.esp\nY.esp\n"
+    }
+   ],
+   "base": [
+    "B.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "B.esp",
+     "Y.esp"
+    ],
+    [
+     "X.esp",
+     "B.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "B.esp",
+     1
+    ],
+    [
+     "Y.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "rules that contradict through a phantom: the one read first stands",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nX.esp\nGone.esp\n[Order]\nGone.esp\nY.esp\n"
+    },
+    {
+     "priority": 1,
+     "text": "[Order]\nY.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp",
+    "Y.esp"
+   ],
+   "edges": [
+    [
+     "Y.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
+   "name": "a pattern that matches nothing is a phantom of its own text",
+   "rules": [
+    {
+     "priority": 0,
+     "text": "[Order]\nA.esp\nNone Like It*.esp\n[Order]\nnone like it*.esp\nX.esp\n"
+    }
+   ],
+   "base": [
+    "A.esp"
+   ],
+   "subset": [
+    "X.esp"
+   ],
+   "masters": {},
+   "supported": true,
+   "subset_out": [
+    "X.esp"
+   ],
+   "edges": [
+    [
+     "A.esp",
+     "X.esp"
+    ]
+   ],
+   "indegree": [
+    [
+     "X.esp",
+     1
+    ]
+   ],
+   "conflicts": [],
+   "unique_conflicts": []
+  },
+  {
    "name": "a curated chain and no customs",
    "rules": [],
    "base": [
@@ -2044,10 +2196,6 @@
     [
      "X.esp",
      "A.esp"
-    ],
-    [
-     "X.esp",
-     "A.esp"
     ]
    ],
    "unique_conflicts": [
@@ -2536,7 +2684,7 @@
     "X.esp"
    ],
    "masters": {},
-   "supported": false,
+   "supported": true,
    "subset_out": [
     "X.esp"
    ],
@@ -2546,7 +2694,7 @@
      "Mod [x] 2.esp"
     ],
     [
-     "A.esp",
+     "Mod [x] 2.esp",
      "X.esp"
     ]
    ],
@@ -2621,7 +2769,7 @@
     "X.esp"
    ],
    "masters": {},
-   "supported": false,
+   "supported": true,
    "subset_out": [
     "X.esp"
    ],

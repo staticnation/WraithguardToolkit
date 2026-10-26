@@ -63,6 +63,7 @@ Object.assign(WgEditor, {
       '<div class="orirow"><span class="v"><button class="btn sm" id="edRefBase" title="The base record this places">Base record</button> '+
       '<button class="btn sm" id="edRefRevertAll" title="Drop every change waiting for this reference">Revert reference</button></span></div>'+
       '<div class="hint">Changes are drawn in the render window as you make them; the patch carries this one reference, keyed to '+escHtml(v.origin)+'.</div>';
+    if(v.warning) h+='<div class="hint warn">'+escHtml(v.warning)+'</div>';
     const row=(f, inner)=>{
       const q='queued' in f;
       return '<tr class="'+(q?'edited':'')+'"><td class="k" title="'+escHtml(f.path)+'">'+escHtml(this.REF_LABELS[f.path]||f.path)+'</td><td>'+inner+

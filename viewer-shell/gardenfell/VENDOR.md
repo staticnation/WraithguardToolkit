@@ -140,10 +140,18 @@ Greatness7's `tes3` crate reads, and Robin's code runs on what it read.
   `World::geom`, which is for the grass it does not grow, and the read was 39-43 s of
   every connect on Static's setup (33,267 meshes, 1.78 GB; patch 0015's numbers).
 
+- `patches/0017-later-record-undeletes.patch`: round 18fc's `dead` set taken out of the
+  merge (interior and exterior branches): the last record for a reference stands, whole, so
+  a later plugin's plain record brings back a reference an earlier plugin deleted, and a
+  deletion that comes last still deletes it. `refs_kept_deleted`/`kept_deleted` stay (now
+  always 0). Checked in vanilla Morrowind.exe with `tests/ingame/`'s `WG_Del_*` plugins
+  (five piles: the later record wins); the same rule as `ordercore::refs`, pinned for the
+  engine by `move_cases.json` ("deleted, then moved").
+
 - `patches/0008-followup-preserve-part-tracks.patch` is already inside 0008 (and sorts
   before it, so a `for p in patches/0*.patch` would stop on it): delete it.
 
-0001-0011 are offered to Robin (0012-0016 not yet; the 2026-10-19 zip has 0001-0014), with `patches/NOTES-FOR-ROBIN.md` saying why each.
+0001-0011 are offered to Robin (0012-0017 not yet; the 2026-10-19 zip has 0001-0014), with `patches/NOTES-FOR-ROBIN.md` saying why each.
 Applied in order to his 18hu source they give exactly the files here (checked); his
 tests: 503 pass with his fixture (his 491 and 12 of ours). Only 0006 and 0009 add
 a field to an existing struct, and only to `World`, which every caller builds with

@@ -7,7 +7,7 @@ each group, ``null`` for a group that did not take part). The Rust side may *dec
 does not read (``must_support`` says which it must read); it may not answer differently from
 Python.
 
-The cases are written here (the six expressions the rule code compiles, over the texts they see,
+The cases are written here (the eight expressions the rule code compiles, over the texts they see,
 and patterns around each feature) and made from a fixed seed with a generator of its own, so the
 file does not move with Python's ``random``.
 
@@ -32,10 +32,10 @@ FUNC_FORMS = (
     r"\[\s*DESC\s*!?\s*/[^/\n]*/[^\]\n]*\]|"
     r"\[\s*MWSE-LUA\s*!?\s*/[^/\n]*/[^\]\n]*\]"
 )
-TOKEN = (
-    FUNC_FORMS + r"|\[|\]|\bALL\b|\bANY\b|\bNOT\b|/[^/]+/|"
-    r"[^\[\]\n]+?\.(?:esp|esm|omwaddon|omwgame|omwscripts)\*?"
-)
+# The tokeniser's pieces matched by an expression (its plugin name, which looks ahead, is
+# matched by hand in ordercore and pinned by predicate_cases.json instead).
+KEYWORD = r"\bALL\b|\bANY\b|\bNOT\b"
+MESSAGE = r"/[^/]+/"
 TOP = r"^\[(Order|NearStart|NearEnd|Requires|Conflict|Patch|Note|Version)\b([^\]\n]*)\]"
 RE_VER = r"^\[\s*VER\s*([=<>])\s*" + VER + r"\s*([^\]]+?)\s*\]$"
 RE_SIZE = r"^\[\s*SIZE\s*(!?)(\d+)\s+(\S.*?\.(?:es[mp]|omwaddon|omwgame|omwscripts)\b)\s*\]$"
@@ -44,7 +44,9 @@ RE_LUA = r"^\[\s*MWSE-LUA\s*(!?)/([^/]+)/\s+([^\]]+?)\s*\]$"
 
 #: ``(pattern, ignore_case, multiline)`` the rule code compiles.
 REAL: list[tuple[str, bool, bool]] = [
-    (TOKEN, True, False),
+    (FUNC_FORMS, True, False),
+    (KEYWORD, True, False),
+    (MESSAGE, False, False),
     (TOP, True, True),
     (RE_VER, True, False),
     (RE_SIZE, True, False),
@@ -354,7 +356,7 @@ def main() -> int:
     out = cases()
     doc = {
         "_about": (
-            "Python's re, as ordercore::pyre must answer it: the six expressions the rule code "
+            "Python's re, as ordercore::pyre must answer it: the eight expressions the rule code "
             "compiles (real) and patterns around each feature, with their search and match; run by "
             "tests/test_pyre_cases.py and viewer-shell/ordercore/tests/pyre_cases.rs. Regenerate: "
             "python tools/gen_pyre_cases.py"

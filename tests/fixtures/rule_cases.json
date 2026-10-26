@@ -417,6 +417,21 @@
    "skipped": 2
   },
   {
+   "name": "a bracket starts a name unless it opens a predicate",
+   "text": "[Order]\n[Official]Master Index.esp\nMorrowind Rebirth [Main].ESP\n[ ver > 1 A.esp]\n[ANY B.esp]\n[Anything].esp\n",
+   "blocks": [
+    [
+     "order",
+     [
+      "[Official]Master Index.esp",
+      "Morrowind Rebirth [Main].ESP",
+      "[Anything].esp"
+     ]
+    ]
+   ],
+   "skipped": 2
+  },
+  {
    "name": "a block with no names is dropped",
    "text": "[Order]\nnothing here\n[NearStart]\nA.esp\n",
    "blocks": [

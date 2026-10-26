@@ -105,6 +105,25 @@
   until they timed out; the rows now show at once, and only the tab that is stopped on asks.
   The background indexing also waits, between plugins, for a request the viewer is waiting on.
 
+- **The sort keeps every ordering mlox's rules imply.** A rule names plugins you may not
+  have; mlox keeps each such name as a node of its graph, shared by every rule that names it,
+  so `[Order] A, Gone` in one block and `[Order] Gone, B` in another still put A before B.
+  Wraithguard only bridged over a missing name inside one block, and dropped the rest: on a
+  687-plugin MOMW order, 920 of the 1,602 orderings mlox's rules give (the others never
+  contradicted it). The rules are now read into that graph first, contradictions among them
+  refused as mlox refuses them, and every ordering between installed plugins it holds goes to
+  the sort; checked against mlox itself on that order and on random installs of 1,134 and
+  2,835 plugins from its rule file, with the same orderings each time.
+- **The load order's rules have started moving into Rust** (`viewer-shell/ordercore`, port
+  step 4.2). The rule files' ordering blocks (`rule_cases.json`), mlox's name patterns and
+  versions (`pattern_cases.json`), the sort's graph and its order (`graph_cases.json`,
+  `order_cases.json`), the predicate rules and the part of Python's `re` they use
+  (`predicate_cases.json`, `pyre_cases.json`), MOMW's `plugin-order.yml` and the warnings
+  after a sort (`momw_cases.json`), the export of `openmw.cfg` and `customizations.toml`
+  with its backups (`export_cases.json`), the rule maker and the rules proposed from
+  masters and conflicts (`authoring_cases.json`), and Update rules and Sources, with the
+  network left to the caller (`update_cases.json`) are in Rust and give the Python's
+  answers on every shared case. Python does not call them yet.
 - **The Editor's backend has started moving into Rust** (`viewer-shell/editcore`, port
   step 4.1; plan in `viewer-shell/PORT.md`). The plugin reader moved there from the Python
   module, which now calls it unchanged. Record keys and the Editor's record and
@@ -168,13 +187,34 @@
   saved each of the script's fields as its own undo step (its text, then each part of the
   bytecode), so undoing it took several presses and stopped halfway through; saving a
   script from Script Edit did the same. Both are one step now.
-- **The Editor no longer offers to edit a reference the game keeps deleted.** When a
-  plugin deletes a placed object and a later plugin edits it, the game keeps it deleted
-  (the later edit changes a hidden thing), and the viewer already drew it that way; the
-  Editor took the later version and showed the object as live. Both now use one rule
-  (`ordercore::refs`), pinned by `tests/fixtures/ref_cases.json`. Where a moved object
-  stands (a move, moved twice, moved back, moved then deleted, deleted then moved) is
-  pinned the same way for the engine and the Editor: `tests/fixtures/move_cases.json`.
+- **The viewer and the Editor agree on a placed object one plugin deletes and a later one
+  edits: the later record brings it back, as the game does.** Morrowind.exe takes the last
+  record for a reference whole, so a plugin's change after another plugin's deletion
+  undeletes the object (checked in the game with `tests/ingame/`'s `WG_Del_*` plugins: five
+  piles). The viewer kept such an object hidden (Gardenfell round 18fc; patch 0017 takes that
+  out) and the two sides used different rules; both now use `ordercore::refs`, pinned by
+  `tests/fixtures/ref_cases.json`. Where a moved object stands (a move, moved twice, moved
+  back, moved then deleted, deleted then moved) is pinned the same way for the engine and the
+  Editor: `tests/fixtures/move_cases.json`.
+- **The Editor warns before a change brings back a deleted object.** The placed object's
+  dialog says which plugin deletes it and that a change saved in the patch brings it back,
+  and Verify lists each such change as a warning.
+- **A `[Note]` rule fires when any of the plugins it lists is installed**, as mlox's does, and
+  names those that are. It needed all of them, so a note listing alternatives ("these are
+  modder's resources", "use only one of these") almost never showed.
+- **Rules naming a plugin with brackets in its name work.** `Morrowind Rebirth [Main].ESP`,
+  `[Official]Master Index.esp`, `GCD v1.08 with Startscript, fixed [Galsiah].esp` and about
+  380 other uses in mlox's rules were split into empty groups and stray text, and some came
+  out as another real plugin's name (`[Official]LeFemm Armor.esp` read as `LeFemm Armor.esp`),
+  so a warning could fire for the wrong mod or not at all; `[Order]` lines starting with
+  `[Official]` were dropped. A plain plugin name in a rule is now compared as text, as mlox
+  compares it (it was matched as an expression, which read the brackets as syntax), and in a
+  pattern with a wildcard every character but the wildcards is text too, so
+  `Julan Ashlander Companion <VER> [Rebirth].esp` matches Julan's Rebirth file (in mlox it
+  matches nothing).
+- **`[VER]` reads a version as mlox does.** A plugin with no version in its header or its
+  file name makes the test false; an `=` was assumed to hold, which raised notes and
+  requirements about plugins of any version. With no data folder to read, `=` still holds.
 - **Saving the viewer's settings no longer says "profile not saved".** The save answered with
   the file's path as bare text, which the page read as JSON; the file had been written. It now
   answers `{"path": ...}`.

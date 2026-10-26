@@ -17,9 +17,8 @@
 //! - **Placement.** Kahn's algorithm. Among the plugins that are ready: masters first, then
 //!   position, then name without case, then name.
 //!
-//! What is not read is **declined**, as in [`crate::patterns`]: [`build_and_sort`] answers
-//! [`Unsupported`] when a rule or hint name is one [`expand`] declines, and the caller keeps
-//! Python's answer.
+//! [`build_and_sort`] would answer [`Unsupported`] for a rule or hint name [`expand`] declines;
+//! since every character of a pattern but its wildcards is plain text, none is.
 //!
 //! Positions are `f64`, with the same arithmetic in the same order as the Python (`1e-6` nudges),
 //! so they agree to the bit. Settling a custom's position recurses along its chain of customs,
@@ -481,18 +480,5 @@ mod tests {
     fn a_custom_after_an_unanchored_custom_is_not_dragged_to_its_fallback_end() {
         let s = sort(&["A.esp", "B.esp"], &["X.esp", "Y.esp"], &[(&["X.esp", "Y.esp"], 0)], &[], &[]);
         assert_eq!(s.order, ["A.esp", "B.esp", "X.esp", "Y.esp"]);
-    }
-
-    #[test]
-    fn a_name_that_is_declined_declines_the_sort() {
-        let got = build_and_sort(
-            &names(&["A.esp"]),
-            &names(&["X.esp"]),
-            &[],
-            &BTreeMap::new(),
-            &names(&["Mod [x]*.esp"]),
-            &[],
-        );
-        assert_eq!(got, Err(Unsupported));
     }
 }

@@ -43,12 +43,25 @@ _FUNC_FORMS: Final = (
     r"\[\s*MWSE-LUA\s*!?\s*/[^/\n]*/[^\]\n]*\]"
 )
 
-#: Full token pattern: function forms first (so they win over bare brackets),
-#: then structural brackets, logic keywords, ``/message/`` strings, and plugin
-#: filenames with optional wildcards.
-_TOKEN_RE: Final = re.compile(
-    _FUNC_FORMS + r"|\[|\]|\bALL\b|\bANY\b|\bNOT\b|/[^/]+/|"
-    r"[^\[\]\n]+?\.(?:esp|esm|omwaddon|omwgame|omwscripts)\*?",
+#: The atomic forms, matched at a ``[``.
+_FUNC_FORM_RE: Final = re.compile(_FUNC_FORMS, re.IGNORECASE)
+
+#: A logic keyword, standing alone.
+_KEYWORD_RE: Final = re.compile(r"\bALL\b|\bANY\b|\bNOT\b", re.IGNORECASE)
+
+#: A ``/message/`` string.
+_MESSAGE_RE: Final = re.compile(r"/[^/]+/")
+
+#: The plugin extensions a name ends in.
+_EXT: Final = r"\.(?:esp|esm|omwaddon|omwgame|omwscripts)"
+
+#: A plugin name, ending in an extension (and an optional ``*``). It may hold a bracketed
+#: part, as mlox reads one (``Morrowind Rebirth [Main].ESP``, ``[Official]Master
+#: Index.esp``), when the part opens no function or group and holds no extension; any
+#: other bracket ends the name, so a group's own brackets are never taken into one.
+_NAME_RE: Final = re.compile(
+    r"(?:[^\[\]\n]|\[(?!(?:ALL|ANY|NOT|DESC|VER|SIZE|MWSE-LUA)\b|\s*(?:DESC|VER|SIZE|MWSE-LUA)\b)"
+    r"(?:(?!" + _EXT + r")[^\[\]\n])*\])+?" + _EXT + r"\*?",
     re.IGNORECASE,
 )
 
@@ -59,6 +72,13 @@ _OPERATORS: Final = frozenset({"ALL", "ANY", "NOT", "DESC"})
 def tokenize_mlox_logic(text: str) -> list[str]:
     """Split a predicate body into tokens.
 
+    Read left to right, trying at each place, in this order: a whole atomic form, a plugin
+    name that starts with a bracketed part (``[Official]Master Index.esp``), a bracket, a
+    logic keyword, a ``/message/``, a plugin name; a place that starts none of them is
+    passed over. A name may carry a bracketed part inside it as mlox reads one
+    (``Morrowind Rebirth [Main].ESP``); before that, such a name came apart into empty
+    groups and a stray ``.ESP``.
+
     Args:
         text: The body of a ``[Requires]``/``[Conflict]``/``[Note]`` block.
 
@@ -67,7 +87,29 @@ def tokenize_mlox_logic(text: str) -> list[str]:
         strings, plugin patterns, and whole atomic function forms. Empty
         tokens are dropped.
     """
-    return [token.strip() for token in _TOKEN_RE.findall(text) if token.strip()]
+    tokens: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        m: re.Match[str] | None = None
+        if c == "[":
+            m = _FUNC_FORM_RE.match(text, i) or _NAME_RE.match(text, i)
+            if m is None:
+                tokens.append(c)
+                i += 1
+                continue
+        elif c == "]":
+            tokens.append(c)
+            i += 1
+            continue
+        else:
+            m = _KEYWORD_RE.match(text, i) or _MESSAGE_RE.match(text, i) or _NAME_RE.match(text, i)
+        if m is None:
+            i += 1
+            continue
+        tokens.append(m.group())
+        i = m.end()
+    return [token.strip() for token in tokens if token.strip()]
 
 
 def parse_mlox_lisp(tokens: list[str]) -> list:

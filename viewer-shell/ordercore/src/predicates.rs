@@ -15,8 +15,7 @@
 //! a predicate that cannot be settled errs towards not warning, as mlox does.
 //!
 //! What is not read is **declined**, as in [`crate::patterns`]: every function that can meet it
-//! answers [`Unsupported`], and the caller keeps Python's answer. That is a plugin pattern with
-//! a character the expression would read as syntax, a `/regex/` of a `[DESC]` that
+//! answers [`Unsupported`], and the caller keeps Python's answer. That is a `/regex/` of a `[DESC]` that
 //! [`crate::pyre`] does not read (an invalid one is not declined: Python treats it as not
 //! matching), and a number or version too long for the Python's integers to be ported as text.
 //! The evaluation is as lazy as Python's, so a `[DESC]` Python never reaches is never declined.
@@ -26,23 +25,25 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
-use crate::patterns::{Pattern, Unsupported};
+use crate::patterns::{has_meta, Pattern, Unsupported};
 use crate::pyre::{Flags, Match, PatError, Regex};
-use crate::rules::{is_space, splitlines, strip_comment};
+use crate::rules::{is_space, is_word, splitlines, strip_comment};
 
 /// How deep a rule's brackets may nest before it is declined (Python's own recursion limit
 /// would stop it first).
 const MAX_DEPTH: usize = 200;
 
 const VER: &str = r"(\d+(?:[_.-]?\d+)*[a-zA-Z]?)";
-const TOKEN: &str = concat!(
+const FUNC_FORM: &str = concat!(
     r"\[\s*VER\b[^\]\n]*\]|",
     r"\[\s*SIZE\b[^\]\n]*\]|",
     r"\[\s*DESC\s*!?\s*/[^/\n]*/[^\]\n]*\]|",
-    r"\[\s*MWSE-LUA\s*!?\s*/[^/\n]*/[^\]\n]*\]",
-    r"|\[|\]|\bALL\b|\bANY\b|\bNOT\b|/[^/]+/|",
-    r"[^\[\]\n]+?\.(?:esp|esm|omwaddon|omwgame|omwscripts)\*?"
+    r"\[\s*MWSE-LUA\s*!?\s*/[^/\n]*/[^\]\n]*\]"
 );
+const KEYWORD: &str = r"\bALL\b|\bANY\b|\bNOT\b";
+const MESSAGE: &str = r"/[^/]+/";
+/// The extensions a plugin name ends in, in the order the Python's alternation tries them.
+const EXTENSIONS: [&str; 5] = ["esp", "esm", "omwaddon", "omwgame", "omwscripts"];
 const TOP: &str = r"^\[(Order|NearStart|NearEnd|Requires|Conflict|Patch|Note|Version)\b([^\]\n]*)\]";
 const FILENAME_VERSION: &str = r"\D(\d+(?:[_.-]?\d+)*[a-zA-Z]?)\D*\.es[mp]";
 const HEADER_VERSION: &str = r"\b(?:version\b\D+|v(?:er)?\.?\s*)(\d+(?:[_.-]?\d+)*[a-zA-Z]?)";
@@ -78,21 +79,114 @@ pub enum Node {
     Group(Vec<Node>),
 }
 
+/// The length of the extension (`\.(?:esp|esm|omwaddon|omwgame|omwscripts)`, any ASCII case)
+/// at `i`, if one starts there.
+fn ext_at(chars: &[char], i: usize) -> Option<usize> {
+    if chars.get(i) != Some(&'.') {
+        return None;
+    }
+    EXTENSIONS.into_iter().find_map(|ext| {
+        let fits = ext.chars().enumerate().all(|(k, e)| chars.get(i + 1 + k).is_some_and(|c| c.eq_ignore_ascii_case(&e)));
+        fits.then_some(1 + ext.len())
+    })
+}
+
+/// Whether the bracket at `i` opens a function or a group, which no name may hold:
+/// `\[(?:ALL|ANY|NOT|DESC|VER|SIZE|MWSE-LUA)\b` or `\[\s*(?:DESC|VER|SIZE|MWSE-LUA)\b`.
+fn opens_a_form(chars: &[char], i: usize) -> bool {
+    let word_at = |at: usize, words: &[&str]| {
+        words.iter().any(|w| {
+            let fits = w.chars().enumerate().all(|(k, e)| chars.get(at + k).is_some_and(|c| c.eq_ignore_ascii_case(&e)));
+            // `\b`: each word ends in a word character, so the next must not be one.
+            fits && !chars.get(at + w.len()).copied().is_some_and(is_word)
+        })
+    };
+    const FORMS: [&str; 4] = ["DESC", "VER", "SIZE", "MWSE-LUA"];
+    if word_at(i + 1, &["ALL", "ANY", "NOT"]) || word_at(i + 1, &FORMS) {
+        return true;
+    }
+    let mut at = i + 1;
+    while chars.get(at).copied().is_some_and(is_space) {
+        at += 1;
+    }
+    word_at(at, &FORMS)
+}
+
+/// A plugin name at `i` (the Python's `_NAME_RE`): the shortest run of name characters
+/// (anything but `[`, `]` and a line break) and bracketed parts that do not open a form or
+/// hold an extension, followed by an extension and an optional `*`. Its end, if one is there.
+fn name_at(chars: &[char], i: usize) -> Option<usize> {
+    let mut at = i;
+    loop {
+        // one unit, then the extension is tried (the lazy `+?`)
+        match chars.get(at)? {
+            '\n' | ']' => return None,
+            '[' => {
+                if opens_a_form(chars, at) {
+                    return None;
+                }
+                let mut j = at + 1;
+                loop {
+                    match chars.get(j)? {
+                        ']' => break,
+                        '[' | '\n' => return None,
+                        _ if ext_at(chars, j).is_some() => return None,
+                        _ => j += 1,
+                    }
+                }
+                at = j + 1;
+            }
+            _ => at += 1,
+        }
+        if let Some(len) = ext_at(chars, at) {
+            let end = at + len;
+            return Some(if chars.get(end) == Some(&'*') { end + 1 } else { end });
+        }
+    }
+}
+
 /// Split a predicate body into tokens (`tokenize_mlox_logic`): brackets, `ALL`/`ANY`/`NOT`,
-/// `/message/` strings, plugin patterns and whole atomic forms.
+/// `/message/` strings, plugin patterns and whole atomic forms. At each place, in this order:
+/// an atomic form, a name that starts with a bracketed part (`[Official]Master Index.esp`), a
+/// bracket, a keyword, a `/message/`, a name; a place that starts none is passed over. A name
+/// may hold a bracketed part, as mlox reads one (`Morrowind Rebirth [Main].ESP`).
 ///
 /// # Errors
 /// [`Unsupported`] only if the matcher declines the text.
 pub fn tokenize(text: &str) -> Result<Vec<String>, Unsupported> {
-    static RE: OnceLock<Regex> = OnceLock::new();
+    static FUNC_RE: OnceLock<Regex> = OnceLock::new();
+    static KEYWORD_RE: OnceLock<Regex> = OnceLock::new();
+    static MESSAGE_RE: OnceLock<Regex> = OnceLock::new();
+    let func = compiled(&FUNC_RE, FUNC_FORM, ICASE);
+    let keyword = compiled(&KEYWORD_RE, KEYWORD, ICASE);
+    let message = compiled(&MESSAGE_RE, MESSAGE, Flags::default());
     let chars: Vec<char> = text.chars().collect();
-    let found = compiled(&RE, TOKEN, ICASE).find_all(&chars)?;
-    Ok(found
-        .iter()
-        .map(|m| text_of(&chars, (m.start(), m.end())))
-        .map(|t| strip(&t).to_string())
-        .filter(|t| !t.is_empty())
-        .collect())
+    let mut tokens: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let end = match chars[i] {
+            '[' => match func.match_at(&chars, i)? {
+                Some(m) => Some(m.end()),
+                None => name_at(&chars, i).or(Some(i + 1)),
+            },
+            ']' => Some(i + 1),
+            _ => match keyword.match_at(&chars, i)? {
+                Some(m) => Some(m.end()),
+                None => match message.match_at(&chars, i)? {
+                    Some(m) => Some(m.end()),
+                    None => name_at(&chars, i),
+                },
+            },
+        };
+        match end {
+            Some(end) => {
+                tokens.push(text_of(&chars, (i, end)));
+                i = end;
+            }
+            None => i += 1,
+        }
+    }
+    Ok(tokens.iter().map(|t| strip(t).to_string()).filter(|t| !t.is_empty()).collect())
 }
 
 /// Build the nested tree from tokens (`parse_mlox_lisp`). Unbalanced input degrades the way the
@@ -274,8 +368,14 @@ fn read_form(token: &str) -> Result<Option<Form>, Unsupported> {
     Ok(None)
 }
 
-/// The active plugins a pattern names (`mlox_pattern_to_regex`, matched against each).
+/// The active plugins a pattern names (`_matching`): with a wildcard or `<VER>`, as
+/// `mlox_pattern_to_regex` matches; otherwise a plain name, compared without case, as mlox's
+/// `_expand_filename` does (so a bracket in a plain name is a character, not syntax).
 fn matching<'a>(pattern: &str, active: &[&'a str]) -> Result<Vec<&'a str>, Unsupported> {
+    if !has_meta(pattern) {
+        let low = pattern.to_lowercase();
+        return Ok(active.iter().copied().filter(|p| p.to_lowercase() == low).collect());
+    }
     let pat = Pattern::new(pattern)?;
     Ok(active.iter().copied().filter(|p| pat.is_match(p)).collect())
 }
@@ -286,12 +386,16 @@ fn eval_form(form: &Form, active: &[&str], plugins: Option<&dyn Plugins>) -> Res
         Form::MwseLua { .. } => Ok(false), // MWSE-Lua content does not exist under OpenMW
         Form::Ver { op, want, .. } => {
             let want = format_version(want)?;
+            if matched.is_empty() {
+                return Ok(false);
+            }
+            if !plugins.is_some_and(|x| x.usable()) {
+                // mlox with no data folder: the version is not read, `=` is assumed to hold
+                return Ok(op == "=");
+            }
             for p in &matched {
                 let Some(pv) = plugin_version(p, plugins)? else {
-                    if op == "=" {
-                        return Ok(true); // mlox: a version it cannot know is assumed to hold
-                    }
-                    continue;
+                    return Ok(false); // mlox: a plugin with no version ends the test
                 };
                 if (op == "=" && pv == want) || (op == "<" && pv < want) || (op == ">" && pv > want) {
                     return Ok(true);
@@ -584,10 +688,17 @@ pub fn check_predicates(
                 }
             }
             _ => {
-                // a note fires when everything listed is true at once
-                if all_hold(&ast, &active, idx)? {
+                // a note fires when any of what it lists holds, and is about those that do, as
+                // mlox's [Note] prints the true ones
+                let mut true_nodes = Vec::new();
+                for n in &ast {
+                    if evaluate(n, &active, idx)? {
+                        true_nodes.push(n);
+                    }
+                }
+                if !true_nodes.is_empty() {
                     let mut by = BTreeSet::new();
-                    for n in &ast {
+                    for n in true_nodes {
                         by.extend(triggered(n, &active)?);
                     }
                     let mut w = format!("[NOTE] {message}");

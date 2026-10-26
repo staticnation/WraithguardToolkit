@@ -7,7 +7,7 @@ install, world) until you take them or say no; either answer is fine, we keep th
 copy otherwise unmodified so your next release drops straight in. With your fixture
 folder (thank you for it) your whole suite passes with the first ten applied: 1553
 pass, 0 fail, against 1541 without them; the 12 more are tests we add. 0011-0014 came
-later (see "Applying them").
+later (see "Applying them"); 0017 changes a rule of 18fc's, checked in the game.
 
 ## 0001 world: a record typer hook
 
@@ -307,6 +307,33 @@ and the meshes the world places. Wraithguard turns it off because nothing in it 
 `World::geom` (it grows no grass; its collision overlay reads each mesh when shown): 0015
 showed that read at 39-43 s on Static's setup, as long as the merge itself. If you would
 rather have the hulls read lazily per cell for everyone, say so and we will look at that.
+
+## 0017 world: a later record undeletes a reference
+
+Takes round 18fc's `dead` set out of the merge (both branches, interior and exterior): the
+last record for a reference stands, whole. A plugin that deletes a reference and a later
+plugin whose plain record names it again bring it back, with the later plugin's placement;
+a deletion that comes last still deletes it. `refs_kept_deleted` and `kept_deleted` stay in
+`LoadStats` and the cell's provenance (nothing fills them now) so no caller breaks, and the
+page's "kept deleted" row and connect-log fragment, which show only above 0, no longer
+appear; drop them all if you take this.
+
+Why: we checked it in the game. Four tiny plugins (Wraithguard's `tests/ingame/`, happy to
+send them): a master places three gold piles in an interior; P1 edits pile 2; A deletes
+piles 1 and 2; P2, after A, edits pile 1 (raised, scale 2); each of P1, A and P2 also places
+a marker pile so a missing plugin shows. In vanilla Morrowind.exe (October 2026) there are
+**five** piles: the big raised pile 1 is there and `ori` on it says P2's record, pile 2 is
+gone, the control and the three markers stand. Under 18fc's rule there would be four. So
+the game takes the later record, and the deletion does not stick.
+
+The quote 18fc was built on ("the reference still exists and is just hidden, so moving it
+just moves the hidden thing") may be about something else: a reference deleted or
+disabled in a save, which the save keeps by identity. For plugins against plugins the
+game's answer is the one above. OpenMW reads it the same way in its code
+(`apps/openmw/mwworld/cellstore.cpp`, `CellRefList<X>::load`: a later record for the same
+`RefNum` replaces the earlier one whole, `*iter = std::move(liveCellRef)`, and only a record
+that is itself deleted sets `setDeletedByContentFile`); we have not run the plugins in
+OpenMW yet.
 
 ## Applying them
 

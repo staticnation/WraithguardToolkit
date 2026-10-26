@@ -735,6 +735,21 @@ def _placed(
                     f"becomes {name}, which no plugin defines",
                 )
             )
+        # The patch's record is the last version, so it undeletes what an earlier plugin
+        # deleted (ordercore::refs, Gardenfell patch 0017).
+        if not edit.changes.get("deleted"):
+            found = session.find_ref(edit.cell, edit.origin, edit.refr_index)
+            if found is not None and found.ref.get("deleted"):
+                out.append(
+                    _finding(
+                        "warning",
+                        "Reference",
+                        "CELL",
+                        edit.cell,
+                        f"{edit.origin}#{edit.refr_index}",
+                        f"is deleted by {found.winner}; the patch's change brings it back",
+                    )
+                )
     return out
 
 

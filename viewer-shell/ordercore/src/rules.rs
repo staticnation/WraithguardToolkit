@@ -204,6 +204,19 @@ fn names_in(line: &str) -> Vec<&str> {
     out
 }
 
+/// Whether a body line is a predicate rather than a name:
+/// `\[\s*(?:ALL|ANY|NOT|DESC|VER|SIZE|MWSE-LUA)\b`, any ASCII case.
+fn is_qualifier(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix('[') else { return false };
+    let rest = rest.trim_start_matches(is_space);
+    ["ALL", "ANY", "NOT", "DESC", "VER", "SIZE", "MWSE-LUA"].iter().any(|w| {
+        rest.len() >= w.len()
+            && rest.is_char_boundary(w.len())
+            && rest[..w.len()].eq_ignore_ascii_case(w)
+            && !rest[w.len()..].chars().next().is_some_and(is_word)
+    })
+}
+
 /// Read the ordering blocks out of a rule file's text (its byte-order mark already gone).
 ///
 /// `wraithguard.rules.parser.parse_mlox_text` is the reference.
@@ -234,7 +247,9 @@ pub fn parse_text(raw: &str) -> Parsed {
             if line.is_empty() {
                 continue;
             }
-            if line.starts_with('[') {
+            // A predicate (a function or a group) is bridged over; any other bracket starts
+            // a name, as mlox reads one (`[Official]Master Index.esp`).
+            if is_qualifier(line) {
                 skipped += 1;
                 continue;
             }
@@ -283,5 +298,17 @@ mod tests {
         assert_eq!(names_in("A.esp*"), ["A.esp*"]);
         assert_eq!(names_in("A.esp.bak B.espx"), Vec::<&str>::new());
         assert_eq!(names_in("A.ESP\u{a0}B.Esm"), ["A.ESP", "B.Esm"]);
+    }
+
+    #[test]
+    fn a_bracket_starts_a_name_unless_it_opens_a_predicate() {
+        assert!(is_qualifier("[DESC /x/ A.esp]"));
+        assert!(is_qualifier("[ ver > 1 A.esp]"));
+        assert!(is_qualifier("[ANY A.esp]"));
+        assert!(!is_qualifier("[Official]Master Index.esp"));
+        assert!(!is_qualifier("[Anything].esp"));
+        let parsed = parse_text("[Order]\nA.esp\n[Official]Master Index.esp\n[DESC /x/ B.esp]\n");
+        assert_eq!(parsed.blocks[0].names, ["A.esp", "[Official]Master Index.esp"]);
+        assert_eq!(parsed.skipped, 1);
     }
 }

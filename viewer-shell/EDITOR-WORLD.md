@@ -23,7 +23,7 @@ the slices are an ordering to check, not a design.
 Both are yours; each is a one-line change once decided.
 
 - **Phase 2b: a moved reference given a plain record at home.** (a) home, as the Editor
-  does (Gardenfell patch 0017, a note for Robin), or (b) the move stands. Run the in-game
+  does (a Gardenfell patch, 0018, and a note for Robin), or (b) the move stands. Run the in-game
   test first (`WG_Move_B.esp` moves a rock, `WG_Move_C.esp` edits its scale in the home
   cell). The pinned case is `move_cases.json`, "moved, then a plain record in its home cell".
 - **Deleting versions in the Object Window's search** and **moving a response** (from the

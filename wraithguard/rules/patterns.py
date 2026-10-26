@@ -2,15 +2,14 @@
 
 Every ordering and predicate rule in the mlox databases names its plugins by
 pattern rather than by exact filename, so this translation sits underneath all
-rule matching. It follows mlox's own ``_filename_to_regex`` exactly, because
-diverging by even one metacharacter would silently change which rules apply to
-which plugins -- the kind of bug that produces a subtly wrong load order rather
-than an error.
+rule matching. It follows mlox's own ``_filename_to_regex`` in every wildcard,
+because diverging by one would silently change which rules apply to which
+plugins -- the kind of bug that produces a subtly wrong load order rather than
+an error -- and departs from it in one place, said first:
 
-The rules mlox uses, and therefore the rules here:
-
-* Only ``(``, ``)``, ``+`` and ``.`` are escaped. Everything else is passed
-  through, including characters a general-purpose escaper would quote.
+* Everything but the wildcards is plain text. (mlox escapes only ``(``, ``)``,
+  ``+`` and ``.`` and leaves the rest to its expression, so a bracket in a name
+  became a character class there; here it is the bracket the author wrote.)
 * ``*`` becomes ``.*`` and ``?`` becomes ``.?`` -- note ``.?``, not ``.``, so a
   ``?`` also matches the empty string.
 * ``<VER>`` (in any casing) expands to a version-number sub-pattern.
@@ -26,15 +25,8 @@ from typing import Final
 
 from wraithguard.versions import MLOX_VERSION_PATTERN
 
-#: The only characters mlox escapes. Deliberately narrower than
-#: :func:`re.escape` -- widening it would change matching behaviour.
-_RE_ESCAPE_META: Final = re.compile(r"([()+.])")
-
-#: Filename wildcards.
-_RE_PLUGIN_META: Final = re.compile(r"([*?])")
-
-#: The ``<VER>`` token, in any casing.
-_RE_PLUGIN_METAVER: Final = re.compile(r"(<VER>)", re.IGNORECASE)
+#: The parts of a pattern that are not plain text: ``<VER>`` in any casing, ``*`` and ``?``.
+_RE_META_TOKEN: Final = re.compile(r"(<VER>)|([*?])", re.IGNORECASE)
 
 
 def pattern_has_meta(pattern: str) -> bool:
@@ -59,10 +51,10 @@ def mlox_pattern_to_regex(pattern: str) -> re.Pattern[str]:
     Cached: the same handful of patterns recur across thousands of graph edges
     during a sort, so recompiling them would dominate the run.
 
-    A malformed pattern falls back to a fully literal match rather than
-    raising. mlox escapes only ``()+.``, so a stray bracket in a rule file can
-    still produce invalid regex syntax -- and one bad line in a community rule
-    database must not abort the entire sort.
+    Everything but the three wildcards is plain text, as the rule's author meant it.
+    mlox escapes only ``()+.`` and passes the rest to its expression, so its
+    ``Julan Ashlander Companion <VER> [Rebirth].esp`` reads ``[Rebirth]`` as a
+    character class and never matches the file it names; here it does.
 
     Args:
         pattern: An mlox filename pattern, e.g. ``"Better Bodies*.esp"``.
@@ -70,11 +62,12 @@ def mlox_pattern_to_regex(pattern: str) -> re.Pattern[str]:
     Returns:
         A compiled, anchored, case-insensitive pattern.
     """
-    expanded = "^" + _RE_ESCAPE_META.sub(r"\\\1", pattern) + "$"
-    expanded = _RE_PLUGIN_META.sub(r".\1", expanded)  # * -> .*  and  ? -> .?
-    expanded = _RE_PLUGIN_METAVER.sub("<VER>", expanded)  # normalise casing
-    expanded = expanded.replace("<VER>", MLOX_VERSION_PATTERN)
-    try:
-        return re.compile(expanded, re.IGNORECASE)
-    except re.error:
-        return re.compile("^" + re.escape(pattern) + "$", re.IGNORECASE)
+    parts = ["^"]
+    pos = 0
+    for m in _RE_META_TOKEN.finditer(pattern):
+        parts.append(re.escape(pattern[pos : m.start()]))
+        parts.append(MLOX_VERSION_PATTERN if m.group(1) else "." + m.group(2))
+        pos = m.end()
+    parts.append(re.escape(pattern[pos:]))
+    parts.append("$")
+    return re.compile("".join(parts), re.IGNORECASE)

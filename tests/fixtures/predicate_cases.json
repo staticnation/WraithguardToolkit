@@ -433,20 +433,16 @@
   {
    "text": "[] A.esp []",
    "tokens": [
-    "[",
-    "]",
-    "A.esp",
+    "[] A.esp",
     "[",
     "]"
    ],
    "ast": [
-    [],
-    "A.esp",
+    "[] A.esp",
     []
    ],
    "described": [
-    "?",
-    "A.esp",
+    "[] A.esp",
     "?"
    ]
   },
@@ -606,6 +602,194 @@
    ],
    "described": [
     "ANY(NOT A.esp)"
+   ]
+  },
+  {
+   "text": "[ANY Morrowind Rebirth [Main].ESP DN-GDRv<VER>-Rebirth.esp]",
+   "tokens": [
+    "[",
+    "ANY",
+    "Morrowind Rebirth [Main].ESP",
+    "DN-GDRv<VER>-Rebirth.esp",
+    "]"
+   ],
+   "ast": [
+    [
+     "ANY",
+     "Morrowind Rebirth [Main].ESP",
+     "DN-GDRv<VER>-Rebirth.esp"
+    ]
+   ],
+   "described": [
+    "ANY(Morrowind Rebirth [Main].ESP, DN-GDRv<VER>-Rebirth.esp)"
+   ]
+  },
+  {
+   "text": "[Official]Master Index.esp [ANY [Official]Siege at Firemoth.esp B.esp]",
+   "tokens": [
+    "[Official]Master Index.esp",
+    "[",
+    "ANY",
+    "[Official]Siege at Firemoth.esp",
+    "B.esp",
+    "]"
+   ],
+   "ast": [
+    "[Official]Master Index.esp",
+    [
+     "ANY",
+     "[Official]Siege at Firemoth.esp",
+     "B.esp"
+    ]
+   ],
+   "described": [
+    "[Official]Master Index.esp",
+    "ANY([Official]Siege at Firemoth.esp, B.esp)"
+   ]
+  },
+  {
+   "text": "Dragonbone Armor [v.1.2].esp Vivec - Area of Effect (Remiros) [Replacer].esp",
+   "tokens": [
+    "Dragonbone Armor [v.1.2].esp",
+    "Vivec - Area of Effect (Remiros) [Replacer].esp"
+   ],
+   "ast": [
+    "Dragonbone Armor [v.1.2].esp",
+    "Vivec - Area of Effect (Remiros) [Replacer].esp"
+   ],
+   "described": [
+    "Dragonbone Armor [v.1.2].esp",
+    "Vivec - Area of Effect (Remiros) [Replacer].esp"
+   ]
+  },
+  {
+   "text": "[NOT [Official]Entertainers.esp]",
+   "tokens": [
+    "[",
+    "NOT",
+    "[Official]Entertainers.esp",
+    "]"
+   ],
+   "ast": [
+    [
+     "NOT",
+     "[Official]Entertainers.esp"
+    ]
+   ],
+   "described": [
+    "NOT([Official]Entertainers.esp)"
+   ]
+  },
+  {
+   "text": "A [B.esp] C.esp",
+   "tokens": [
+    "[",
+    "B.esp",
+    "]",
+    "C.esp"
+   ],
+   "ast": [
+    [
+     "B.esp"
+    ],
+    "C.esp"
+   ],
+   "described": [
+    "ANY(B.esp)",
+    "C.esp"
+   ]
+  },
+  {
+   "text": "A [ALL B] C.esp",
+   "tokens": [
+    "[",
+    "ALL",
+    "]",
+    "C.esp"
+   ],
+   "ast": [
+    [
+     "ALL"
+    ],
+    "C.esp"
+   ],
+   "described": [
+    "ALL()",
+    "C.esp"
+   ]
+  },
+  {
+   "text": "A [ VER x] C.esp",
+   "tokens": [
+    "[ VER x]",
+    "C.esp"
+   ],
+   "ast": [
+    "[ VER x]",
+    "C.esp"
+   ],
+   "described": [
+    "[ VER x]",
+    "C.esp"
+   ]
+  },
+  {
+   "text": "A [x C.esp",
+   "tokens": [
+    "[",
+    "x C.esp"
+   ],
+   "ast": [
+    [
+     "x C.esp"
+    ]
+   ],
+   "described": [
+    "ANY(x C.esp)"
+   ]
+  },
+  {
+   "text": "[ALL A.esp [Main] B.esp]",
+   "tokens": [
+    "[",
+    "ALL",
+    "A.esp",
+    "[Main] B.esp",
+    "]"
+   ],
+   "ast": [
+    [
+     "ALL",
+     "A.esp",
+     "[Main] B.esp"
+    ]
+   ],
+   "described": [
+    "ALL(A.esp, [Main] B.esp)"
+   ]
+  },
+  {
+   "text": "All Boats.esp [ANY Not Here.esp]",
+   "tokens": [
+    "All",
+    "Boats.esp",
+    "[",
+    "ANY",
+    "Not Here.esp",
+    "]"
+   ],
+   "ast": [
+    "All",
+    "Boats.esp",
+    [
+     "ANY",
+     "Not Here.esp"
+    ]
+   ],
+   "described": [
+    "All",
+    "Boats.esp",
+    "ANY(Not Here.esp)"
    ]
   },
   {
@@ -4836,6 +5020,49 @@
    "warnings": []
   },
   {
+   "name": "a note fires on any of what it lists, and is about those present",
+   "must_support": true,
+   "rules": "[Note modder's resources]\nA.esp\nB.esp\nC.esp\n",
+   "order": [
+    "B.esp",
+    "Other.esp"
+   ],
+   "origins": {},
+   "disk": null,
+   "usable": false,
+   "files": {},
+   "warnings": [
+    "[NOTE] modder's resources\n    About: B.esp"
+   ]
+  },
+  {
+   "name": "a note none of whose plugins is present",
+   "must_support": true,
+   "rules": "[Note x]\nA.esp\nB.esp\n",
+   "order": [
+    "Other.esp"
+   ],
+   "origins": {},
+   "disk": null,
+   "usable": false,
+   "files": {},
+   "warnings": []
+  },
+  {
+   "name": "a conflict between names holding brackets",
+   "must_support": true,
+   "rules": "[Conflict one of these]\n[Official]Master Index.esp\nMorrowind Rebirth [Main].ESP\nMaster Index.esp\n",
+   "order": [
+    "[Official]Master Index.esp",
+    "Morrowind Rebirth [Main].ESP"
+   ],
+   "origins": {},
+   "disk": null,
+   "usable": false,
+   "files": {},
+   "warnings": []
+  },
+  {
    "name": "a requires with its dependency missing",
    "must_support": true,
    "rules": "[Requires needs the base]\nPatch.esp\nBase.esp\n",
@@ -4986,7 +5213,9 @@
    "disk": null,
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] about it\n    About: A.esp"
+   ]
   },
   {
    "name": "a note with a negation",
@@ -5341,9 +5570,7 @@
      "description": "nothing"
     }
    },
-   "warnings": [
-    "[NOTE] v\n    About: Mod.esp"
-   ]
+   "warnings": []
   },
   {
    "name": "a version that cannot be known: less than is not",
@@ -6239,7 +6466,9 @@
    "disk": {},
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] do not mix these see the readme\n    About: Eps 1.2.esp, Theta1.esp"
+   ]
   },
   {
    "name": "made up, seed 6",
@@ -7088,7 +7317,9 @@
      "description": "ver 3"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: eta.omwaddon, theta1.esp [origin 5]"
+   ]
   },
   {
    "name": "made up, seed 18",
@@ -7663,7 +7894,8 @@
     }
    },
    "warnings": [
-    "[REQUIRES] \n    Needed by: Lambda 3.0b.esp\n    Missing: [VER < 1.2 Beta.esp]"
+    "[REQUIRES] \n    Needed by: Lambda 3.0b.esp\n    Missing: [VER < 1.2 Beta.esp]",
+    "[NOTE] Café note\n    About: Eps 1.2.esp"
    ]
   },
   {
@@ -7879,7 +8111,9 @@
      "description": "Version 1.2"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] needs the base\n    About: Alpha.esp, Gamma.esm, Zeta v2.esp"
+   ]
   },
   {
    "name": "made up, seed 28",
@@ -7992,7 +8226,9 @@
      "description": "Tribunal patch version 1.0"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] see the readme\n    About: Eps 1.2.esp"
+   ]
   },
   {
    "name": "made up, seed 30",
@@ -8098,7 +8334,9 @@
      "description": "v2.0b"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] do not mix these\n    About: Zeta v2.esp"
+   ]
   },
   {
    "name": "made up, seed 31",
@@ -8197,7 +8435,10 @@
      "description": "Café mod – v1.5"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: Alpha.esp, Gamma.esm [origin 2]",
+    "[NOTE] Café note message\n    About: Eps 1.2.esp [origin 4]"
+   ]
   },
   {
    "name": "made up, seed 32",
@@ -8278,7 +8519,9 @@
     }
    },
    "warnings": [
-    "[PATCH] \n    Unpatched: Eps 1.2.esp\n    Missing patch: NOT(Mu.esp, [VER = 4_5 Eta.omwaddon])"
+    "[NOTE] do not mix these\n    About: Alpha.esp, Eps 1.2.esp, Eta.omwaddon, Lambda 3.0b.esp, Mu.esp",
+    "[PATCH] \n    Unpatched: Eps 1.2.esp\n    Missing patch: NOT(Mu.esp, [VER = 4_5 Eta.omwaddon])",
+    "[NOTE] do not mix these do not mix these\n    About: Lambda 3.0b.esp, Mu.esp"
    ]
   },
   {
@@ -8737,6 +8980,7 @@
     }
    },
    "warnings": [
+    "[NOTE] do not mix these\n    About: Kappa.esp",
     "[REQUIRES] \n    Needed by: Theta1.esp\n    Missing: ALL(Eta.omwaddon, [SIZE !400 Eps <VER>.esp], Eta.omwaddon), Eps 1.2.esp, Eps 1.2.esp"
    ]
   },
@@ -8766,7 +9010,9 @@
    "disk": null,
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] needs the base\n    About: Mu.esp, café.esp"
+   ]
   },
   {
    "name": "made up, seed 41",
@@ -9220,7 +9466,8 @@
     }
    },
    "warnings": [
-    "[REQUIRES] message needs the base\n    Needed by: Delta Mod.esp [origin 1], Mu.esp, Theta2.esp, gamma.esm\n    Missing: [MWSE-LUA /x/ Beta.esp]"
+    "[REQUIRES] message needs the base\n    Needed by: Delta Mod.esp [origin 1], Mu.esp, Theta2.esp, gamma.esm\n    Missing: [MWSE-LUA /x/ Beta.esp]",
+    "[NOTE] see the readme\n    About: Delta Mod.esp [origin 1]"
    ]
   },
   {
@@ -9351,7 +9598,9 @@
      "description": "Version: abc"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: Kappa.esp [origin 5]"
+   ]
   },
   {
    "name": "made up, seed 47",
@@ -9467,7 +9716,8 @@
    },
    "warnings": [
     "[REQUIRES] see the readme\n    Needed by: Delta Mod.esp\n    Missing: [VER < 4_5 Kappa.esp], NOT(Lambda 3.0b.esp, ANY([VER = 2.0b Iota?.esp]))",
-    "[PATCH] do not mix these\n    Patch present: Alpha.esp [origin 0]\n    But not what it patches: ANY(ANY([MWSE-LUA /x/ *.esm]))"
+    "[PATCH] do not mix these\n    Patch present: Alpha.esp [origin 0]\n    But not what it patches: ANY(ANY([MWSE-LUA /x/ *.esm]))",
+    "[NOTE] \n    About: Café.esp [origin 6], mu.esp"
    ]
   },
   {
@@ -9612,7 +9862,7 @@
    "files": {},
    "warnings": [
     "[PATCH] needs the base Café note\n    Unpatched: Alpha.esp, Kappa.esp, Theta1.esp, lambda 3.0b.esp\n    Missing patch: *.esm",
-    "[PATCH] Café note\n    But not what it patches: [MWSE-LUA /x/ Lambda 3.0b.esp], ANY(ANY(ANY(Eps 1.2.esp, Gamma.esm, Mu.esp)))"
+    "[PATCH] Café note\n    But not what it patches: [MWSE-LUA /x/ Lambda 3.0b.esp], ANY(ANY(ANY(Eps 1.2.esp, Gamma.esm, Mu.esp))), [VER < 4_5 Lambda 3.0b.esp]"
    ]
   },
   {
@@ -9737,6 +9987,7 @@
     }
    },
    "warnings": [
+    "[NOTE] do not mix these\n    About: Theta1.esp, Theta2.esp",
     "[CONFLICT] \n    Caused by: Theta1.esp, Theta2.esp"
    ]
   },
@@ -9759,6 +10010,8 @@
    "usable": false,
    "files": {},
    "warnings": [
+    "[NOTE] ",
+    "[NOTE] \n    About: Kappa.esp",
     "[REQUIRES] \n    Missing: ALL(ANY(ANY(*.esm)), [MWSE-LUA /x/ Alpha.esp])"
    ]
   },
@@ -9880,7 +10133,9 @@
      "description": "Version: abc"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: Theta1.esp, Theta2.esp"
+   ]
   },
   {
    "name": "made up, seed 55",
@@ -10085,7 +10340,9 @@
      "description": "v2.0b"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] do not mix these see the readme\n    About: Gamma.esm, Lambda 3.0b.esp"
+   ]
   },
   {
    "name": "made up, seed 57",
@@ -10191,7 +10448,11 @@
      "description": "Café mod – v1.5"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] Café note\n    About: Alpha.esp, Lambda 3.0b.esp",
+    "[NOTE] Café note\n    About: Beta.esp [origin 1], Lambda 3.0b.esp",
+    "[NOTE] see the readme\n    About: Alpha.esp, Eps 1.2.esp [origin 2], Lambda 3.0b.esp, Zeta v2.esp"
+   ]
   },
   {
    "name": "made up, seed 58",
@@ -10314,7 +10575,9 @@
      "description": "mod ‘quoted’ version 4_5"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] needs the base see the readme\n    About: Alpha.esp, Delta Mod.esp, Eps 1.2.esp, Eta.omwaddon [origin 5]"
+   ]
   },
   {
    "name": "made up, seed 59",
@@ -10439,6 +10702,7 @@
    "usable": false,
    "files": {},
    "warnings": [
+    "[NOTE] \n    About: Kappa.esp [origin 3], Mu.esp",
     "[REQUIRES] \n    Needed by: Iota.esp, Iotaa.esp\n    Missing: [MWSE-LUA /x/ Kappa.esp]"
    ]
   },
@@ -10809,6 +11073,7 @@
    "usable": false,
    "files": {},
    "warnings": [
+    "[NOTE] indented indented\n    About: Mu.esp",
     "[NOTE] \n    About: Mu.esp"
    ]
   },
@@ -11260,6 +11525,7 @@
     }
    },
    "warnings": [
+    "[NOTE] Café note indented\n    About: Alpha.esp, eps 1.2.esp, mu.esp [origin 3]",
     "[REQUIRES] do not mix these\n    Needed by: Delta Mod.esp, eps 1.2.esp, mu.esp [origin 3]\n    Missing: [DESC /(?i)mod/ Café.esp]"
    ]
   },
@@ -11381,7 +11647,8 @@
    "usable": false,
    "files": {},
    "warnings": [
-    "[CONFLICT] \n    Caused by: Café.esp [origin 5], Zeta v2.esp [origin 2]"
+    "[CONFLICT] \n    Caused by: Café.esp [origin 5], Zeta v2.esp [origin 2]",
+    "[NOTE] \n    About: iota.esp [origin 7]"
    ]
   },
   {
@@ -11413,7 +11680,8 @@
    "usable": false,
    "files": {},
    "warnings": [
-    "[PATCH] indented\n    Patch present: Beta.esp\n    But not what it patches: [VER = 4_5 Zeta v2.esp]"
+    "[NOTE] Café note\n    About: lambda 3.0b.esp [origin 6]",
+    "[NOTE] \n    About: Iota.esp [origin 10], Iotaa.esp"
    ]
   },
   {
@@ -11463,7 +11731,8 @@
    "files": {},
    "warnings": [
     "[REQUIRES] see the readme\n    Needed by: Eps 1.2.esp\n    Missing: [MWSE-LUA /x/ Eps 1.2.esp]",
-    "[PATCH] Café note\n    Patch present: Café.esp\n    But not what it patches: ANY(Eta.omwaddon)"
+    "[PATCH] Café note\n    Patch present: Café.esp\n    But not what it patches: ANY(Eta.omwaddon)",
+    "[NOTE] Café note"
    ]
   },
   {
@@ -11486,7 +11755,9 @@
    "disk": {},
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: Café.esp"
+   ]
   },
   {
    "name": "made up, seed 77",
@@ -11680,6 +11951,7 @@
     }
    },
    "warnings": [
+    "[NOTE] \n    About: Alpha.esp",
     "[NOTE] \n    About: Alpha.esp"
    ]
   },
@@ -12061,6 +12333,7 @@
     }
    },
    "warnings": [
+    "[NOTE] see the readme message see the readme do not mix these Café note\n    About: Delta Mod.esp",
     "[REQUIRES] do not mix these\n    Needed by: Delta Mod.esp\n    Missing: NOT(ANY(ANY(Gamma.esm, Eps 1.2.esp), [DESC !/(?i)mod/ Mu.esp], NOT(Café.esp, Eps 1.2.esp))), Alpha.esp"
    ]
   },
@@ -12084,7 +12357,8 @@
    "usable": false,
    "files": {},
    "warnings": [
-    "[NOTE] Café note\n    About: Alpha.esp, Eps 1.2.esp, zeta v2.esp"
+    "[NOTE] Café note\n    About: Alpha.esp, Eps 1.2.esp, zeta v2.esp",
+    "[NOTE] do not mix these message see the readme\n    About: zeta v2.esp"
    ]
   },
   {
@@ -12186,7 +12460,9 @@
      "description": "Version 1.2"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: gamma.esm [origin 2]"
+   ]
   },
   {
    "name": "made up, seed 85",
@@ -12745,7 +13021,9 @@
      "description": "Tribunal patch version 1.0"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] see the readme\n    About: Café.esp, eps 1.2.esp"
+   ]
   },
   {
    "name": "made up, seed 91",
@@ -12841,7 +13119,8 @@
    "usable": false,
    "files": {},
    "warnings": [
-    "[NOTE] \n    About: Delta Mod.esp"
+    "[NOTE] \n    About: Delta Mod.esp",
+    "[NOTE] needs the base needs the base\n    About: Mu.esp"
    ]
   },
   {
@@ -13116,7 +13395,10 @@
    "disk": {},
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: Iota.esp, Theta2.esp, theta1.esp",
+    "[NOTE] needs the base see the readme\n    About: Iota.esp, Zeta v2.esp"
+   ]
   },
   {
    "name": "made up, seed 96",
@@ -13209,7 +13491,10 @@
      "description": "v 1.0.2.3"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] ",
+    "[NOTE] Café note\n    About: Delta Mod.esp"
+   ]
   },
   {
    "name": "made up, seed 97",
@@ -13245,7 +13530,10 @@
    "disk": null,
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: kappa.esp [origin 1]",
+    "[NOTE] do not mix these"
+   ]
   },
   {
    "name": "made up, seed 99",
@@ -13489,7 +13777,8 @@
     }
    },
    "warnings": [
-    "[PATCH] see the readme\n    Patch present: Gamma.esm\n    But not what it patches: Café.esp"
+    "[PATCH] see the readme\n    Patch present: Gamma.esm\n    But not what it patches: Café.esp",
+    "[NOTE] \n    About: alpha.esp [origin 0]"
    ]
   },
   {
@@ -13614,7 +13903,8 @@
     }
    },
    "warnings": [
-    "[REQUIRES] Café note\n    Needed by: Gamma.esm, Zeta v2.esp\n    Missing: ALL([VER > 2.0b Alpha.esp], Lambda 3.0b.esp)"
+    "[REQUIRES] Café note\n    Needed by: Gamma.esm, Zeta v2.esp\n    Missing: ALL([VER > 2.0b Alpha.esp], Lambda 3.0b.esp)",
+    "[NOTE] \n    About: Eps 1.2.esp"
    ]
   },
   {
@@ -14163,6 +14453,7 @@
     }
    },
    "warnings": [
+    "[NOTE] Café note see the readme",
     "[REQUIRES] \n    Needed by: Theta1.esp, Zeta v2.esp, eta.omwaddon\n    Missing: [DESC !/v2/ Theta1.esp], Café.esp"
    ]
   },
@@ -14186,7 +14477,9 @@
    "disk": null,
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] indented needs the base\n    About: Lambda 3.0b.esp, café.esp"
+   ]
   },
   {
    "name": "made up, seed 110",
@@ -14544,7 +14837,9 @@
    "disk": {},
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] see the readme\n    About: Eta.omwaddon"
+   ]
   },
   {
    "name": "made up, seed 116",
@@ -14655,7 +14950,9 @@
      "description": "Café mod – v1.5"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: Lambda 3.0b.esp"
+   ]
   },
   {
    "name": "made up, seed 117",
@@ -14673,7 +14970,8 @@
    "usable": false,
    "files": {},
    "warnings": [
-    "[PATCH] Café note\n    Missing patch: [SIZE 400 Alpha.esp]"
+    "[PATCH] Café note\n    Missing patch: [SIZE 400 Alpha.esp]",
+    "[NOTE] do not mix these Café note Café note\n    About: Theta1.esp, Theta2.esp"
    ]
   },
   {
@@ -14961,7 +15259,11 @@
    "disk": {},
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] Café note\n    About: Café.esp, Gamma.esm",
+    "[NOTE] Café note\n    About: Alpha.esp, Delta Mod.esp, Eps 1.2.esp",
+    "[NOTE] \n    About: Alpha.esp, Theta1.esp"
+   ]
   },
   {
    "name": "made up, seed 122",
@@ -15059,7 +15361,8 @@
     }
    },
    "warnings": [
-    "[NOTE] do not mix these\n    About: Gamma.esm"
+    "[NOTE] do not mix these\n    About: Gamma.esm",
+    "[NOTE] do not mix these\n    About: Alpha.esp [origin 0], Delta Mod.esp"
    ]
   },
   {
@@ -15297,7 +15600,8 @@
    "usable": false,
    "files": {},
    "warnings": [
-    "[REQUIRES] Café note\n    Needed by: kappa.esp\n    Missing: [MWSE-LUA /x/ Gamma.esm], Alpha.esp"
+    "[REQUIRES] Café note\n    Needed by: kappa.esp\n    Missing: [MWSE-LUA /x/ Gamma.esm], Alpha.esp",
+    "[NOTE] Café note indented\n    About: Zeta v2.esp [origin 2], eps 1.2.esp"
    ]
   },
   {
@@ -15713,7 +16017,8 @@
     }
    },
    "warnings": [
-    "[REQUIRES] Café note\n    Needed by: lambda 3.0b.esp\n    Missing: [VER > 3 Theta1.esp], [VER > 1.0.0.1 Eta.omwaddon], Café.esp"
+    "[REQUIRES] Café note\n    Needed by: lambda 3.0b.esp\n    Missing: [VER > 3 Theta1.esp], [VER > 1.0.0.1 Eta.omwaddon], Café.esp",
+    "[NOTE] do not mix these"
    ]
   },
   {
@@ -15996,7 +16301,9 @@
      "description": "Version 1.2"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] do not mix these\n    About: Iota.esp [origin 5], Iotaa.esp"
+   ]
   },
   {
    "name": "made up, seed 135",
@@ -16093,7 +16400,9 @@
      "description": "Café mod – v1.5"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: Alpha.esp, Eps 1.2.esp [origin 2], Eta.omwaddon"
+   ]
   },
   {
    "name": "made up, seed 136",
@@ -16866,7 +17175,7 @@
    "usable": false,
    "files": {},
    "warnings": [
-    "[CONFLICT] see the readme\n    Caused by: Beta.esp [origin 1], Zeta v2.esp [origin 3], theta1.esp"
+    "[CONFLICT] see the readme\n    Caused by: Beta.esp [origin 1], Zeta v2.esp [origin 3]"
    ]
   },
   {
@@ -17108,6 +17417,7 @@
     }
    },
    "warnings": [
+    "[NOTE] Café note Café note Café note do not mix these\n    About: Eps 1.2.esp, Gamma.esm, Lambda 3.0b.esp, Theta1.esp, alpha.esp [origin 0]",
     "[REQUIRES] indented\n    Needed by: Eps 1.2.esp\n    Missing: ALL([DESC !/\\d\\.\\d/ Lambda 3.0b.esp], Café.esp, Eta.omwaddon)"
    ]
   },
@@ -17229,7 +17539,9 @@
      "description": "Version: abc"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] do not mix these\n    About: Eps 1.2.esp"
+   ]
   },
   {
    "name": "made up, seed 151",
@@ -17848,7 +18160,8 @@
    "usable": false,
    "files": {},
    "warnings": [
-    "[PATCH] Café note Café note\n    Unpatched: beta.esp\n    Missing patch: [MWSE-LUA /x/ Kappa.esp]"
+    "[PATCH] Café note Café note\n    Unpatched: beta.esp\n    Missing patch: [MWSE-LUA /x/ Kappa.esp]",
+    "[REQUIRES] needs the base\n    Needed by: Lambda 3.0b.esp [origin 4]\n    Missing: ALL(Eta.omwaddon, ANY([DESC !/^A/ Delta Mod.esp], [SIZE 400 Iota?.esp], [VER = 1.0 Beta.esp])), ANY([DESC !/.*Caf./ Eps <VER>.esp])"
    ]
   },
   {
@@ -17870,6 +18183,7 @@
    "usable": false,
    "files": {},
    "warnings": [
+    "[NOTE] \n    About: Delta Mod.esp",
     "[REQUIRES] do not mix these\n    Needed by: Lambda 3.0b.esp [origin 1]\n    Missing: ANY(Kappa.esp)",
     "[CONFLICT] \n    Caused by: Delta Mod.esp, Lambda 3.0b.esp [origin 1]"
    ]
@@ -17967,7 +18281,9 @@
      "description": "ver 3"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] needs the base\n    About: Gamma.esm [origin 1]"
+   ]
   },
   {
    "name": "made up, seed 159",
@@ -18478,7 +18794,9 @@
    "disk": null,
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] do not mix these\n    About: Eps 1.2.esp [origin 1], Mu.esp [origin 5], Zeta v2.esp"
+   ]
   },
   {
    "name": "made up, seed 170",
@@ -18581,7 +18899,10 @@
      "description": "v2.0b"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] needs the base message Café note\n    About: Delta Mod.esp [origin 1], Lambda 3.0b.esp",
+    "[NOTE] see the readme message\n    About: Café.esp [origin 7], Eps 1.2.esp, Iota.esp, iotaa.esp"
+   ]
   },
   {
    "name": "made up, seed 171",
@@ -18792,7 +19113,8 @@
     }
    },
    "warnings": [
-    "[CONFLICT] needs the base\n    Caused by: Beta.esp, Eps 1.2.esp [origin 1], Lambda 3.0b.esp [origin 4]"
+    "[CONFLICT] needs the base\n    Caused by: Beta.esp, Eps 1.2.esp [origin 1], Lambda 3.0b.esp [origin 4]",
+    "[NOTE] see the readme Café note see the readme indented\n    About: Mu.esp"
    ]
   },
   {
@@ -19004,7 +19326,9 @@
      "description": "mod ‘quoted’ version 4_5"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] see the readme needs the base\n    About: Lambda 3.0b.esp, kappa.esp"
+   ]
   },
   {
    "name": "made up, seed 175",
@@ -19735,9 +20059,7 @@
    "disk": {},
    "usable": false,
    "files": {},
-   "warnings": [
-    "[PATCH] \n    Unpatched: Eps 1.2.esp [origin 2]\n    Missing patch: NOT(Eps <VER>.esp, [VER = 2.0b Gamma.esm], [VER < 3 Theta*.esp])"
-   ]
+   "warnings": []
   },
   {
    "name": "made up, seed 183",
@@ -19757,6 +20079,7 @@
    "usable": false,
    "files": {},
    "warnings": [
+    "[NOTE] see the readme needs the base\n    About: Café.esp",
     "[PATCH] message\n    But not what it patches: ALL(Zeta v2.esp, Mu.esp)"
    ]
   },
@@ -19778,7 +20101,9 @@
    "disk": null,
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] see the readme\n    About: Theta1.esp [origin 4]"
+   ]
   },
   {
    "name": "made up, seed 185",
@@ -19907,7 +20232,9 @@
      "description": "A mod by someone"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] see the readme\n    About: Theta2.esp [origin 6]"
+   ]
   },
   {
    "name": "made up, seed 186",
@@ -20127,7 +20454,9 @@
      "description": ""
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] do not mix these\n    About: Beta.esp"
+   ]
   },
   {
    "name": "made up, seed 188",
@@ -20835,7 +21164,9 @@
    "disk": {},
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] do not mix these\n    About: Zeta v2.esp"
+   ]
   },
   {
    "name": "made up, seed 197",
@@ -21149,7 +21480,9 @@
      "description": "Tribunal patch version 1.0"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] needs the base Café note\n    About: Kappa.esp"
+   ]
   },
   {
    "name": "made up, seed 200",
@@ -21258,7 +21591,9 @@
      "description": "ver 3"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] Café note\n    About: Iota.esp, Zeta v2.esp"
+   ]
   },
   {
    "name": "made up, seed 201",
@@ -21466,9 +21801,7 @@
      "description": ""
     }
    },
-   "warnings": [
-    "[PATCH] \n    Patch present: café.esp\n    But not what it patches: ALL(Beta.esp, [MWSE-LUA /x/ Gamma.esm], ANY(Al*.esp)), [VER > 1.2 Eta.omwaddon], [VER > 3 Al*.esp]"
-   ]
+   "warnings": []
   },
   {
    "name": "made up, seed 205",
@@ -23726,7 +24059,9 @@
      "description": "ver 3"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] see the readme do not mix these do not mix these\n    About: Eta.omwaddon, Gamma.esm [origin 2], Theta1.esp, delta mod.esp [origin 3]"
+   ]
   },
   {
    "name": "made up, seed 230",
@@ -24224,7 +24559,9 @@
    "disk": null,
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] Café note\n    About: Theta1.esp"
+   ]
   },
   {
    "name": "made up, seed 239",
@@ -24315,7 +24652,9 @@
      "description": "Version: abc"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] Café note\n    About: Mu.esp, café.esp"
+   ]
   },
   {
    "name": "made up, seed 240",
@@ -25266,7 +25605,9 @@
      "description": "Version 1.2"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] message\n    About: Mu.esp"
+   ]
   },
   {
    "name": "made up, seed 252",
@@ -25986,7 +26327,6 @@
     }
    },
    "warnings": [
-    "[PATCH] \n    Patch present: kappa.esp\n    But not what it patches: Café.esp",
     "[REQUIRES] \n    Needed by: Alpha.esp, Theta1.esp [origin 6]\n    Missing: [MWSE-LUA /x/ Kappa.esp], [SIZE 1234 Eps <VER>.esp]"
    ]
   },
@@ -26216,7 +26556,8 @@
     }
    },
    "warnings": [
-    "[CONFLICT] needs the base\n    Caused by: Delta Mod.esp, Lambda 3.0b.esp, eta.omwaddon"
+    "[CONFLICT] needs the base\n    Caused by: Delta Mod.esp, Lambda 3.0b.esp, eta.omwaddon",
+    "[NOTE] Café note\n    About: Lambda 3.0b.esp, eta.omwaddon"
    ]
   },
   {
@@ -26433,7 +26774,9 @@
      "description": "Café mod – v1.5"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] see the readme\n    About: Alpha.esp, Lambda 3.0b.esp [origin 3]"
+   ]
   },
   {
    "name": "made up, seed 266",
@@ -26585,9 +26928,7 @@
    "disk": {},
    "usable": false,
    "files": {},
-   "warnings": [
-    "[NOTE] do not mix these\n    About: Lambda 3.0b.esp"
-   ]
+   "warnings": []
   },
   {
    "name": "made up, seed 269",
@@ -27271,7 +27612,8 @@
     }
    },
    "warnings": [
-    "[CONFLICT] message\n    Caused by: Zeta v2.esp"
+    "[CONFLICT] message\n    Caused by: Zeta v2.esp",
+    "[NOTE] see the readme"
    ]
   },
   {
@@ -27368,7 +27710,9 @@
      "description": "v 1.0.2.3"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: Delta Mod.esp, Gamma.esm [origin 1], Iota.esp"
+   ]
   },
   {
    "name": "made up, seed 278",
@@ -28260,7 +28604,9 @@
      "description": "Tribunal patch version 1.0"
     }
    },
-   "warnings": []
+   "warnings": [
+    "[NOTE] \n    About: Gamma.esm"
+   ]
   },
   {
    "name": "made up, seed 291",
@@ -28499,7 +28845,9 @@
    "disk": {},
    "usable": false,
    "files": {},
-   "warnings": []
+   "warnings": [
+    "[NOTE] Café note see the readme\n    About: Alpha.esp"
+   ]
   },
   {
    "name": "made up, seed 295",

@@ -34,12 +34,14 @@ def test_every_case_says_what_re_says() -> None:
 
 
 def test_the_expressions_the_rule_code_compiles_are_the_ones_listed() -> None:
-    """The six ``real`` patterns are the rule code's own, not a copy that drifted."""
+    """The eight ``real`` patterns are the rule code's own, not a copy that drifted."""
     from wraithguard.rules import expressions, parser, predicates
 
     real = {c["pattern"] for c in DOC["cases"] if c["real"]}
     ours = {
-        expressions._TOKEN_RE.pattern,
+        expressions._FUNC_FORM_RE.pattern,
+        expressions._KEYWORD_RE.pattern,
+        expressions._MESSAGE_RE.pattern,
         parser.TOP_RE.pattern,
         predicates._re_ver_fun.pattern,
         predicates._re_size_fun.pattern,

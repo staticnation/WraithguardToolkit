@@ -5,15 +5,15 @@
 //! in another plugin, the same reference has another master index, so the name is
 //! resolved through each plugin's own master list ([`origin`]).
 //!
-//! Which version wins ([`winner`]): the last plugin's, in load order, with one exception
-//! the game makes. **A deletion sticks**: once a plugin deletes a reference, a later
-//! plugin's record for it edits a hidden thing - the game keeps the deleted flag - so the
-//! deleting version is the one that stands, and the later ones are listed as ignored.
-//! (Robin, from the community: "the reference still exists and is just hidden. So moving
-//! it just moves the hidden thing.") The engine's merge has kept this since round 18fc
-//! (Gardenfell's `dead` set); the Editor (Python) took the last version, deleted or not,
-//! and so offered to edit references the game hides. Cases:
-//! `tests/fixtures/ref_cases.json`, run here and by `tests/test_ref_cases.py`.
+//! Which version wins ([`winner`]): the last plugin's, in load order, deleted or not. **A
+//! later record undeletes**: a plugin that deletes a reference does not protect it - a later
+//! plugin's plain record for the same reference replaces the deleted one, so the object
+//! comes back with that plugin's changes. A deletion that comes last still deletes it.
+//! Checked in vanilla Morrowind.exe (`tests/ingame/README.md`: five piles), and OpenMW's
+//! `CellRefList::load` reads it the same way. This replaces the earlier rule, "a deletion
+//! sticks" (Robin, from the community: "moving it just moves the hidden thing"), which the
+//! engine's merge kept as Gardenfell's `dead` set until patch 0017 took it out.
+//! Cases: `tests/fixtures/ref_cases.json`, run here and by `tests/test_ref_cases.py`.
 
 /// The plugin a reference's master index names, read in the plugin it is in: `0` the
 /// plugin itself, `n` its `n`th master; `None` for an index its list does not reach.
@@ -40,26 +40,17 @@ pub struct Winner {
     pub at: usize,
     /// Whether it is deleted.
     pub deleted: bool,
-    /// Versions after a deletion that do not delete it again, which the game ignores
-    /// (indices into the versions).
+    /// Versions the game ignores (indices into the versions). Always empty now that the
+    /// last version stands; kept so the callers' shape does not change.
     pub ignored: Vec<usize>,
 }
 
 /// The version of one reference that stands, from its versions in load order (every
 /// record any plugin has for the same origin and index). `None` for no versions.
 pub fn winner(versions: &[Version]) -> Option<Winner> {
-    let mut at: Option<usize> = None;
-    let mut ignored = Vec::new();
-    for (i, v) in versions.iter().enumerate() {
-        match at {
-            // After a deletion, only another deletion takes over (the engine's merge does
-            // the same: a deleting record is applied, anything else is dropped).
-            Some(w) if versions[w].deleted && !v.deleted => ignored.push(i),
-            _ => at = Some(i),
-        }
-    }
-    let at = at?;
-    Some(Winner { at, deleted: versions[at].deleted, ignored })
+    let at = versions.len().checked_sub(1)?;
+    // Every version is a whole record: the last one replaces the rest, so none is ignored.
+    Some(Winner { at, deleted: versions[at].deleted, ignored: Vec::new() })
 }
 
 #[cfg(test)]
@@ -76,13 +67,14 @@ mod tests {
     }
 
     #[test]
-    fn a_deletion_sticks() {
+    fn the_last_version_stands() {
         let v = |plugin, deleted| Version { plugin, deleted };
         let w = winner(&[v(0, false), v(1, true), v(2, false)]).unwrap();
-        assert_eq!((w.at, w.deleted, w.ignored), (1, true, vec![2]));
+        assert_eq!((w.at, w.deleted, w.ignored), (2, false, vec![]));
         let w = winner(&[v(0, false), v(1, true), v(2, false), v(3, true)]).unwrap();
-        assert_eq!((w.at, w.deleted, w.ignored), (3, true, vec![2]));
+        assert_eq!((w.at, w.deleted, w.ignored), (3, true, vec![]));
         let w = winner(&[v(0, false), v(1, false)]).unwrap();
         assert_eq!((w.at, w.deleted), (1, false));
+        assert!(winner(&[]).is_none());
     }
 }

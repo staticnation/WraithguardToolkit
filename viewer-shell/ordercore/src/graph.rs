@@ -11,16 +11,19 @@
 //! 2. every header master a custom lists, before that custom (when that master is installed);
 //! 3. the `[Order]` chains of the rules, highest priority first (a later file wins a
 //!    contradiction, because its edges come first), and only an edge that touches a custom.
-//!    A name in a chain that matches nothing installed is dropped, so its neighbours are
-//!    joined: `A, Gone, X` gives `A -> X`.
+//!    The rules are first read into a graph of their own, as mlox builds it: a name that
+//!    matches nothing installed is kept as a phantom node, one per name without case, shared
+//!    by every rule naming it, so `A, Gone, X` gives `A -> X`, and so do `[Order] A, Gone`
+//!    and `[Order] Gone, X` in two blocks. An edge that closes a cycle among the rules is
+//!    refused there (and remembered when it joins two installed plugins and touches a
+//!    custom), so the rule read first wins.
 //!
 //! What is not here: the position each custom is given, the `[NearStart]`/`[NearEnd]` hints and
 //! the tie-break among unrelated plugins (the sort's order is slice 2d), and the report of what
 //! was refused (the caller words it; [`unique_conflicts`] gives it each once).
 //!
-//! What is not read is **declined**, as in [`crate::patterns`]: [`build_edges`] answers
-//! [`Unsupported`] when a rule name is one [`expand`] declines, and the caller keeps Python's
-//! answer.
+//! [`build_edges`] would answer [`Unsupported`] for a rule name [`expand`] declines; since every
+//! character of a pattern but its wildcards is plain text, none is.
 //!
 //! The Python is the reference and `tests/fixtures/graph_cases.json` pins both. Known and left:
 //! when the curated order holds two spellings of one name, Python picks which one a master is
@@ -33,6 +36,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::patterns::expand;
 pub use crate::patterns::Unsupported;
+
+/// What keeps a phantom node (a rule's name that matches nothing installed) apart from every
+/// plugin name: no file name holds a NUL.
+const PHANTOM: char = '\0';
 
 /// Edges as `{node: successors}`, in name order.
 pub type Adjacency = BTreeMap<String, BTreeSet<String>>;
@@ -178,27 +185,97 @@ pub fn build_edges(
     }
 
     // 2) the rules, highest priority first (the sort is stable: equal priorities keep their
-    //    order), and only an edge that touches a custom.
+    //    order), read into a graph of their own as mlox builds it: a name that matches
+    //    nothing installed is a phantom node, one per name without case, shared by every rule
+    //    naming it; an edge closing a cycle there is refused (the first read wins). Every
+    //    pair of installed plugins it joins, directly or through phantoms only, becomes an
+    //    edge here if it touches a custom.
     let mut order: Vec<&(Vec<String>, i64)> = blocks.iter().collect();
     order.sort_by_key(|x| std::cmp::Reverse(x.1));
-    for (names, _priority) in order {
-        let mut survivors: Vec<Vec<&str>> = Vec::new();
-        for tok in names {
-            let matches = expand(tok, &pool)?;
-            if !matches.is_empty() {
-                survivors.push(matches);
+    let phantom = |s: &str| s.starts_with(PHANTOM);
+    let mut rule_adj: HashMap<String, Vec<String>> = HashMap::new();
+    let mut rule_edges: Vec<(String, String)> = Vec::new();
+    let reaches = |adj: &HashMap<String, Vec<String>>, start: &str, target: &str| {
+        let mut stack = vec![start.to_string()];
+        let mut seen: HashSet<String> = HashSet::from([start.to_string()]);
+        while let Some(node) = stack.pop() {
+            if node == target {
+                return true;
+            }
+            for next in adj.get(&node).into_iter().flatten() {
+                if seen.insert(next.clone()) {
+                    stack.push(next.clone());
+                }
             }
         }
-        for pair in survivors.windows(2) {
-            for a in &pair[0] {
-                for c in &pair[1] {
-                    if a == c {
+        false
+    };
+    for (names, _priority) in order {
+        let mut prev: Vec<String> = Vec::new();
+        for tok in names {
+            let found = expand(tok, &pool)?;
+            let matches: Vec<String> = if found.is_empty() {
+                vec![format!("{PHANTOM}{}", tok.to_lowercase())]
+            } else {
+                found.into_iter().map(str::to_string).collect()
+            };
+            for a in &prev {
+                for c in &matches {
+                    if a == c || rule_adj.get(a).is_some_and(|v| v.contains(c)) {
                         continue;
                     }
-                    if subset_set.contains(a) || subset_set.contains(c) {
-                        b.add_edge(a, c);
+                    if reaches(&rule_adj, c, a) {
+                        if !phantom(a)
+                            && !phantom(c)
+                            && (subset_set.contains(a.as_str()) || subset_set.contains(c.as_str()))
+                        {
+                            b.conflicts.push((a.clone(), c.clone()));
+                        }
+                        continue;
                     }
+                    rule_adj.entry(a.clone()).or_default().push(c.clone());
+                    rule_edges.push((a.clone(), c.clone()));
                 }
+            }
+            prev = matches;
+        }
+    }
+    // The installed plugins a node reaches through phantoms only, nearest first.
+    let installed_after = |node: &str| -> Vec<String> {
+        if !phantom(node) {
+            return vec![node.to_string()];
+        }
+        let mut out = Vec::new();
+        let mut queue = vec![node.to_string()];
+        let mut seen: HashSet<String> = HashSet::from([node.to_string()]);
+        let mut i = 0;
+        while i < queue.len() {
+            let current = queue[i].clone();
+            i += 1;
+            for next in rule_adj.get(&current).into_iter().flatten() {
+                if !seen.insert(next.clone()) {
+                    continue;
+                }
+                if phantom(next) {
+                    queue.push(next.clone());
+                } else {
+                    out.push(next.clone());
+                }
+            }
+        }
+        out
+    };
+    let mut done: HashSet<(String, String)> = HashSet::new();
+    for (a, first) in &rule_edges {
+        if phantom(a) {
+            continue;
+        }
+        for c in installed_after(first) {
+            if *a == c || !done.insert((a.clone(), c.clone())) {
+                continue;
+            }
+            if subset_set.contains(a.as_str()) || subset_set.contains(c.as_str()) {
+                b.add_edge(a, &c);
             }
         }
     }
@@ -264,19 +341,20 @@ mod tests {
     }
 
     #[test]
+    fn a_phantom_joins_two_blocks_as_mlox_joins_them() {
+        let base = names(&["A.esp"]);
+        let blocks = vec![(names(&["A.esp", "Gone.esp"]), 0), (names(&["gone.ESP", "X.esp"]), 0)];
+        let e = build_edges(&base, &names(&["X.esp"]), &blocks, &BTreeMap::new()).unwrap();
+        assert_eq!(pairs(&e), [("A.esp", "X.esp")]);
+    }
+
+    #[test]
     fn the_later_file_wins_and_the_loser_is_remembered() {
         let base = names(&["A.esp"]);
         let blocks = vec![(names(&["X.esp", "Y.esp"]), 0), (names(&["Y.esp", "X.esp"]), 1)];
         let e = build_edges(&base, &names(&["X.esp", "Y.esp"]), &blocks, &BTreeMap::new()).unwrap();
         assert_eq!(pairs(&e), [("Y.esp", "X.esp")]);
         assert_eq!(e.conflicts, [("X.esp".to_string(), "Y.esp".to_string())]);
-    }
-
-    #[test]
-    fn a_name_that_is_declined_declines_the_whole_graph() {
-        let blocks = vec![(names(&["Mod [x]*.esp", "X.esp"]), 0)];
-        let got = build_edges(&names(&["A.esp"]), &names(&["X.esp"]), &blocks, &BTreeMap::new());
-        assert_eq!(got, Err(Unsupported));
     }
 
     #[test]

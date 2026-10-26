@@ -465,7 +465,8 @@
         "kind": "door",
         "editable": true
        }
-      ]
+      ],
+      "warning": null
      },
      "ok",
      {
@@ -672,7 +673,8 @@
          "cell": "Vault"
         }
        }
-      ]
+      ],
+      "warning": null
      },
      [
       {
@@ -3543,6 +3545,413 @@
        "tag": "STAT"
       }
      ]
+    }
+   }
+  },
+  {
+   "name": "a deleted placed object: a change brings it back, and the view says so",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "masters": [],
+     "records": [
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 0,
+         "refr_index": 5,
+         "id": "rock",
+         "translation": [
+          8200.0,
+          8300.0,
+          10.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.5
+         ],
+         "scale": 1.0
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Del.esp",
+     "masters": [
+      "Morrowind.esm"
+     ],
+     "records": [
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 1,
+         "refr_index": 5,
+         "id": "rock",
+         "translation": [
+          8200.0,
+          8300.0,
+          10.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.5
+         ],
+         "scale": 1.0,
+         "deleted": true
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "ref_view",
+     "(1, 1)",
+     "Morrowind.esm",
+     5
+    ],
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "scale",
+     2
+    ],
+    [
+     "ref_view",
+     "(1, 1)",
+     "Morrowind.esm",
+     5
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "cell": "(1, 1)",
+      "origin": "Morrowind.esm",
+      "refr": 5,
+      "id": "rock",
+      "winner": "Del.esp",
+      "plugins": [
+       "Morrowind.esm",
+       "Del.esp"
+      ],
+      "fields": [
+       {
+        "path": "translation",
+        "value": [
+         8200.0,
+         8300.0,
+         10.0
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "rotation",
+        "value": [
+         0.0,
+         0.0,
+         0.5
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "scale",
+        "value": 1.0,
+        "kind": "float",
+        "editable": true
+       },
+       {
+        "path": "deleted",
+        "value": true,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "owner",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_global",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction_rank",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "lock_level",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "key",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "trap",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "soul",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "charge_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "health_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "object_count",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "blocked",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "temporary",
+        "value": null,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "moved_cell",
+        "value": null,
+        "kind": "grid",
+        "editable": true
+       },
+       {
+        "path": "destination",
+        "value": null,
+        "kind": "door",
+        "editable": true
+       }
+      ],
+      "warning": "Del.esp deletes this object. A change saved in the patch brings it back."
+     },
+     "ok",
+     {
+      "cell": "(1, 1)",
+      "origin": "Morrowind.esm",
+      "refr": 5,
+      "id": "rock",
+      "winner": "Del.esp",
+      "plugins": [
+       "Morrowind.esm",
+       "Del.esp"
+      ],
+      "fields": [
+       {
+        "path": "translation",
+        "value": [
+         8200.0,
+         8300.0,
+         10.0
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "rotation",
+        "value": [
+         0.0,
+         0.0,
+         0.5
+        ],
+        "kind": "vec3",
+        "editable": true
+       },
+       {
+        "path": "scale",
+        "value": 1.0,
+        "kind": "float",
+        "editable": true,
+        "queued": 2.0
+       },
+       {
+        "path": "deleted",
+        "value": true,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "owner",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_global",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "owner_faction_rank",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "lock_level",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "key",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "trap",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "soul",
+        "value": null,
+        "kind": "str",
+        "editable": true
+       },
+       {
+        "path": "charge_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "health_left",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "object_count",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "blocked",
+        "value": null,
+        "kind": "int",
+        "editable": true
+       },
+       {
+        "path": "temporary",
+        "value": null,
+        "kind": "bool",
+        "editable": true
+       },
+       {
+        "path": "moved_cell",
+        "value": null,
+        "kind": "grid",
+        "editable": true
+       },
+       {
+        "path": "destination",
+        "value": null,
+        "kind": "door",
+        "editable": true
+       }
+      ],
+      "warning": "Del.esp deletes this object. A change saved in the patch brings it back."
+     }
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [
+      {
+       "cell": "(1, 1)",
+       "origin": "Morrowind.esm",
+       "refr": 5,
+       "changes": {
+        "scale": 2.0
+       },
+       "plugins": [
+        "Morrowind.esm",
+        "Del.esp"
+       ]
+      }
+     ],
+     "made": [],
+     "new": []
     }
    }
   }

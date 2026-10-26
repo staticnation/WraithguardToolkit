@@ -33,9 +33,6 @@ impl fmt::Display for Unsupported {
 
 impl std::error::Error for Unsupported {}
 
-/// The characters mlox leaves to the regular expression.
-const PASSED_THROUGH: &str = "[]{}|\\^$";
-
 /// Whether a pattern needs matching at all, rather than comparing as plain text
 /// (`pattern_has_meta`): it holds `*`, `?` or `<VER>` in any case.
 pub fn has_meta(pattern: &str) -> bool {
@@ -64,11 +61,9 @@ impl Pattern {
     /// Read a pattern as `mlox_pattern_to_regex` does.
     ///
     /// # Errors
-    /// [`Unsupported`] when it holds a character the expression would read as syntax.
+    /// None now: every character but the wildcards is plain text. (The `Result` stays for the
+    /// callers, which declined what this used to.)
     pub fn new(pattern: &str) -> Result<Pattern, Unsupported> {
-        if pattern.chars().any(|c| PASSED_THROUGH.contains(c)) {
-            return Err(Unsupported);
-        }
         let chars: Vec<char> = pattern.chars().collect();
         let mut toks = Vec::new();
         let mut i = 0;
@@ -330,11 +325,13 @@ mod tests {
     }
 
     #[test]
-    fn what_the_expression_would_read_as_syntax_is_declined() {
-        let pool = ["a.esp".to_string()];
-        assert_eq!(expand("[a]*", &pool), Err(Unsupported));
-        assert_eq!(expand("a|b?", &pool), Err(Unsupported));
-        assert_eq!(expand("[a]", &pool), Ok(vec![])); // no wildcard: plain text
+    fn a_bracket_or_bar_in_a_pattern_is_plain_text() {
+        let pool = ["a.esp".to_string(), "[a] 1.esp".to_string(), "a|b.esp".to_string()];
+        assert_eq!(expand("[a]*", &pool), Ok(vec!["[a] 1.esp"]));
+        assert_eq!(expand("a|b?.esp", &pool), Ok(vec!["a|b.esp"]));
+        assert_eq!(expand("[a]", &pool), Ok(vec![]));
+        let julan = ["Julan Ashlander Companion 2.02 [Rebirth].esp".to_string()];
+        assert_eq!(expand("Julan Ashlander Companion <VER> [Rebirth].esp", &julan).map(|v| v.len()), Ok(1));
     }
 
     #[test]

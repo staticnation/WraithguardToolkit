@@ -49,6 +49,8 @@ POOL: list[str] = [
     "A & B.esp",
     "name.with.dots.esp",
     "Mod [x].esp",
+    "Julan Ashlander Companion 2.02 [Rebirth].esp",
+    "Mod|B 1.esp",
     "1.0",
     "2",
     "1_2_3",
@@ -57,9 +59,9 @@ POOL: list[str] = [
     "a1",
 ]
 
-#: Characters mlox leaves to the regular expression; with a wildcard they make a pattern the
-#: Rust side declines.
-PASSED_THROUGH = "[]{}|\\^$"
+# What ordercore declined in a pattern with a wildcard: nothing, since every character
+# but the wildcards is plain text (wraithguard/rules/patterns.py).
+PASSED_THROUGH = ""
 
 PATTERNS: list[tuple[str, str]] = [
     ("plain", "Morrowind.esm"),
@@ -107,6 +109,11 @@ PATTERNS: list[tuple[str, str]] = [
     ("dollar", "A*$"),
     ("repeat count", "a{2}*"),
     ("class with a version", "[abc]<VER>"),
+    (
+        "brackets with a version are the brackets written",
+        "Julan Ashlander Companion <VER> [Rebirth].esp",
+    ),
+    ("a bar with a wildcard is a bar", "Mod|B ?.esp"),
 ]
 
 VERSIONS: list[str] = [

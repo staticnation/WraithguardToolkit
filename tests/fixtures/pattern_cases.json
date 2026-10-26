@@ -26,6 +26,8 @@
   "A & B.esp",
   "name.with.dots.esp",
   "Mod [x].esp",
+  "Julan Ashlander Companion 2.02 [Rebirth].esp",
+  "Mod|B 1.esp",
   "1.0",
   "2",
   "1_2_3",
@@ -186,6 +188,8 @@
     "A & B.esp",
     "name.with.dots.esp",
     "Mod [x].esp",
+    "Julan Ashlander Companion 2.02 [Rebirth].esp",
+    "Mod|B 1.esp",
     "1.0",
     "2",
     "1_2_3",
@@ -219,7 +223,9 @@
     "Moe's Mod.esp",
     "A & B.esp",
     "name.with.dots.esp",
-    "Mod [x].esp"
+    "Mod [x].esp",
+    "Julan Ashlander Companion 2.02 [Rebirth].esp",
+    "Mod|B 1.esp"
    ]
   },
   {
@@ -273,6 +279,8 @@
     "A & B.esp",
     "name.with.dots.esp",
     "Mod [x].esp",
+    "Julan Ashlander Companion 2.02 [Rebirth].esp",
+    "Mod|B 1.esp",
     "1.0",
     "1..2",
     "1."
@@ -489,81 +497,67 @@
    "name": "star inside brackets",
    "pattern": "[Mod]*.esp",
    "has_meta": true,
-   "supported": false,
-   "expand": [
-    "MOD.ESP",
-    "Mod (v2).esp",
-    "Mod+.esp",
-    "Mod v1.2.3a.esp",
-    "Mod v1.2.3.4.esp",
-    "Moe's Mod.esp",
-    "Mod [x].esp"
-   ]
+   "supported": true,
+   "expand": []
   },
   {
    "name": "alternation",
    "pattern": "a|b*",
    "has_meta": true,
-   "supported": false,
-   "expand": [
-    "Better Bodies.esp",
-    "Better Bodies 2.2.esp",
-    "Better Bodies 10.esp",
-    "BetterBodies.esp",
-    "a.esp",
-    "ab.esp",
-    "abc.esp",
-    "A & B.esp",
-    "a1"
-   ]
+   "supported": true,
+   "expand": []
   },
   {
    "name": "backslash",
    "pattern": "x\\y*",
    "has_meta": true,
-   "supported": false,
+   "supported": true,
    "expand": []
   },
   {
    "name": "caret",
    "pattern": "^A*",
    "has_meta": true,
-   "supported": false,
-   "expand": [
-    "a.esp",
-    "ab.esp",
-    "abc.esp",
-    "A & B.esp",
-    "a1"
-   ]
+   "supported": true,
+   "expand": []
   },
   {
    "name": "dollar",
    "pattern": "A*$",
    "has_meta": true,
-   "supported": false,
-   "expand": [
-    "a.esp",
-    "ab.esp",
-    "abc.esp",
-    "A & B.esp",
-    "a1"
-   ]
+   "supported": true,
+   "expand": []
   },
   {
    "name": "repeat count",
    "pattern": "a{2}*",
    "has_meta": true,
-   "supported": false,
+   "supported": true,
    "expand": []
   },
   {
    "name": "class with a version",
    "pattern": "[abc]<VER>",
    "has_meta": true,
-   "supported": false,
+   "supported": true,
+   "expand": []
+  },
+  {
+   "name": "brackets with a version are the brackets written",
+   "pattern": "Julan Ashlander Companion <VER> [Rebirth].esp",
+   "has_meta": true,
+   "supported": true,
    "expand": [
-    "a1"
+    "Julan Ashlander Companion 2.02 [Rebirth].esp"
+   ]
+  },
+  {
+   "name": "a bar with a wildcard is a bar",
+   "pattern": "Mod|B ?.esp",
+   "has_meta": true,
+   "supported": true,
+   "expand": [
+    "Mod|B 1.esp"
    ]
   }
  ],

@@ -1866,6 +1866,185 @@
      "new": []
     }
    }
+  },
+  {
+   "name": "a change to a deleted placed object brings it back: a warning",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "masters": [],
+     "records": [
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 0,
+         "refr_index": 5,
+         "id": "rock",
+         "translation": [
+          8200.0,
+          8300.0,
+          10.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.5
+         ],
+         "scale": 1.0
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "name": "Del.esp",
+     "masters": [
+      "Morrowind.esm"
+     ],
+     "records": [
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": [
+        {
+         "mast_index": 1,
+         "refr_index": 5,
+         "id": "rock",
+         "translation": [
+          8200.0,
+          8300.0,
+          10.0
+         ],
+         "rotation": [
+          0.0,
+          0.0,
+          0.5
+         ],
+         "scale": 1.0,
+         "deleted": true
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "set_ref",
+     "(1, 1)",
+     "Morrowind.esm",
+     5,
+     "scale",
+     2
+    ],
+    [
+     "verify",
+     false
+    ]
+   ],
+   "expect": {
+    "results": [
+     "ok",
+     {
+      "findings": [
+       {
+        "level": "error",
+        "check": "Required ID",
+        "tag": "GLOB",
+        "id": "Day",
+        "path": "",
+        "message": "the global Day every game needs is missing"
+       },
+       {
+        "level": "error",
+        "check": "Required ID",
+        "tag": "GLOB",
+        "id": "DaysPassed",
+        "path": "",
+        "message": "the global DaysPassed every game needs is missing"
+       },
+       {
+        "level": "error",
+        "check": "Required ID",
+        "tag": "GLOB",
+        "id": "GameHour",
+        "path": "",
+        "message": "the global GameHour every game needs is missing"
+       },
+       {
+        "level": "error",
+        "check": "Required ID",
+        "tag": "GLOB",
+        "id": "Month",
+        "path": "",
+        "message": "the global Month every game needs is missing"
+       },
+       {
+        "level": "error",
+        "check": "Required ID",
+        "tag": "GLOB",
+        "id": "PCRace",
+        "path": "",
+        "message": "the global PCRace every game needs is missing"
+       },
+       {
+        "level": "warning",
+        "check": "Reference",
+        "tag": "CELL",
+        "id": "(1, 1)",
+        "path": "Morrowind.esm#5",
+        "message": "is deleted by Del.esp; the patch's change brings it back"
+       }
+      ],
+      "checked": 0
+     }
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [],
+     "refs": [
+      {
+       "cell": "(1, 1)",
+       "origin": "Morrowind.esm",
+       "refr": 5,
+       "changes": {
+        "scale": 2.0
+       },
+       "plugins": [
+        "Morrowind.esm",
+        "Del.esp"
+       ]
+      }
+     ],
+     "made": [],
+     "new": []
+    }
+   }
   }
  ]
 }

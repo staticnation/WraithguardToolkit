@@ -35,7 +35,9 @@ OUT = ROOT / "tests" / "fixtures" / "order_cases.json"
 
 #: Characters mlox leaves to the regular expression; with a wildcard they make a name the Rust
 #: side declines.
-PASSED_THROUGH = "[]{}|\\^$"
+# What ordercore declined in a pattern with a wildcard: nothing, since every character
+# but the wildcards is plain text (wraithguard/rules/patterns.py).
+PASSED_THROUGH = ""
 
 Case = tuple[str, list[tuple[int, str]], list[str], list[str], dict[str, list[str]]]
 

@@ -1534,21 +1534,15 @@ impl World {
         let (twin_of, mut kf_seen) = twins_ahead(&parsed, vfs);
         let ms_twins_ahead = t_twins.elapsed().as_millis();
         let n_kf_ahead = kf_seen.len() as u64;
-        /* Round 18fc: every reference a plugin has deleted so far, by identity. **Deletion
-           is a flag on the reference, not its removal** - the game keeps the object and
-           hides it, so a later plugin's full record for the same identity moves or
-           re-places a hidden thing and the player still sees nothing. Robin, from the
-           community: "the reference still exists and is just hidden. So moving it just
-           moves the hidden thing. There's a distinction between deleting and removing:
-           if you did truly remove the reference from the file entirely, and then another
-           file adds it back to move it, then earlier removal gets undone." So a `DELE`
-           puts the identity here and every later record for it is dropped; a reference
-           that is simply absent from a file is in nobody's set and is placed as before.
-           One set for the whole world, because a move carries the identity to another
-           cell and the flag goes with it. Before this the later record replaced the
-           earlier one whole, which is what put Wolverine Hall's second roof flag on the
-           screen and not in the game (esp-format.md §7). */
-        let mut dead: std::collections::HashSet<RefNum> = std::collections::HashSet::new();
+        /* Wraithguard (0017): a deletion does not stand against a later plugin. The last
+           record for a reference is the one that stands, whole: a plugin that deletes it
+           and a later plugin whose plain record names it again bring it back, with the later
+           plugin's placement; a deletion that comes last still deletes it. Round 18fc kept
+           a `dead` set here and dropped every record after a deletion (the game keeps the
+           object and hides it, from the community: "moving it just moves the hidden
+           thing"); Morrowind.exe takes the later record (Wraithguard's in-game test,
+           `tests/ingame/` `WG_Del_*.esp`: five piles), and OpenMW's `CellRefList::load`
+           replaces the earlier record whole too. */
         /* Round 18gf (backend-plan item 5): where each moved reference is now. A reference
            plugin B moved from X to Y and plugin C then moves from X to Z used to be drawn
            in Y *and* Z, because a move only removed it from the cell the record sat in.
@@ -1888,17 +1882,9 @@ impl World {
                         if drop_mismatched_move(&mut r, opts) {
                             w.stats.refs_move_dropped += 1;
                         }
-                        // Round 18fc: a record for a reference an earlier plugin deleted
-                        // edits a hidden thing. Dropped, move and all, and counted.
-                        if !r.deleted && dead.contains(&r.num) {
-                            w.stats.refs_kept_deleted += 1;
-                            room.prov.kept_deleted += 1;
-                            room.refs.remove(&r.num);
-                            leave(&mut where_is, r.num, &here, &mut evict);
-                            continue;
-                        }
+                        // 0017: the last record stands; a deletion takes the reference out of
+                        // where it is, and a later plain record places it again.
                         if r.deleted {
-                            dead.insert(r.num);
                             leave(&mut where_is, r.num, &here, &mut evict);
                         }
                         if let Some(target) = r.moved_to {
@@ -2014,16 +2000,8 @@ impl World {
                     if drop_mismatched_move(&mut r, opts) {
                         w.stats.refs_move_dropped += 1;
                     }
-                    // Round 18fc: see the interior branch - the flag stays, the record goes.
-                    if !r.deleted && dead.contains(&r.num) {
-                        w.stats.refs_kept_deleted += 1;
-                        cell.prov.kept_deleted += 1;
-                        cell.refs.remove(&r.num);
-                        leave(&mut where_is, r.num, &here, &mut evict);
-                        continue;
-                    }
+                    // 0017: see the interior branch - the last record stands.
                     if r.deleted {
-                        dead.insert(r.num);
                         leave(&mut where_is, r.num, &here, &mut evict);
                     }
                     if let Some(target) = r.moved_to {

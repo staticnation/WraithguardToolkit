@@ -2620,10 +2620,10 @@ class EditorSession:
             found: The reference.
 
         Returns:
-            ``{"cell", "origin", "refr", "id", "winner", "plugins", "fields"}``; each
-            field ``{"path", "value", "kind", "editable"}``, plus ``queued`` when a
+            ``{"cell", "origin", "refr", "id", "winner", "plugins", "fields", "warning"}``;
+            each field ``{"path", "value", "kind", "editable"}``, plus ``queued`` when a
             change waits for it. ``value`` is None for a field the reference does not
-            have.
+            have. ``warning`` says a change brings back a deleted object, or is None.
         """
         queued = self._ref_queued(found)
         fields = []
@@ -2645,6 +2645,13 @@ class EditorSession:
             "winner": found.winner,
             "plugins": list(found.plugins),
             "fields": fields,
+            # A later plugin's plain record undeletes a reference (ordercore::refs), so a
+            # change saved in the patch brings back what the load order hides.
+            "warning": (
+                f"{found.winner} deletes this object. A change saved in the patch brings it back."
+                if found.ref.get("deleted")
+                else None
+            ),
         }
 
     def set_ref_field(self, found: FoundRef, path: str, raw: object) -> None:

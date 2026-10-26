@@ -65,12 +65,17 @@ class TestEvalVer:
         index = PluginFileIndex([tmp_path])
         assert _eval_ver(">", "1.00", "mod.esp", ["mod.esp"], index) is True
 
-    def test_an_unknowable_version_holds_only_for_equals(self, tmp_path: Path) -> None:
-        """With no version anywhere, ``=`` is assumed to hold and others do not."""
+    def test_an_unknowable_version_holds_for_no_comparison(self, tmp_path: Path) -> None:
+        """With no version anywhere, as mlox: every comparison is false, ``=`` included."""
         _tes3(tmp_path, "plain.esp", b"no version here")
         index = PluginFileIndex([tmp_path])
-        assert _eval_ver("=", "1.0", "plain.esp", ["plain.esp"], index) is True
+        assert _eval_ver("=", "1.0", "plain.esp", ["plain.esp"], index) is False
         assert _eval_ver("<", "1.0", "plain.esp", ["plain.esp"], index) is False
+
+    def test_with_no_data_folder_only_equals_holds(self) -> None:
+        """No folder to read, as mlox: the version is assumed to be the one asked for."""
+        assert _eval_ver("=", "1.0", "Mod 2.0.esp", ["Mod 2.0.esp"], None) is True
+        assert _eval_ver(">", "1.0", "Mod 2.0.esp", ["Mod 2.0.esp"], None) is False
 
     def test_a_wrong_version_does_not_match(self, tmp_path: Path) -> None:
         """A known version that fails the comparison returns False."""

@@ -190,9 +190,8 @@ def winning_reference(
 
     Returns:
         ``(plugin whose version wins, the reference)``, or None when no version of the
-        cell has it. After a deletion the deleting version stands (it is ``deleted``)
-        unless a later one deletes it again: the game keeps the flag, so a later edit
-        changes a hidden thing (``ordercore::refs``).
+        cell has it. The last version stands, deleted or not: a later plain record
+        brings back a reference an earlier plugin deleted (``ordercore::refs``).
     """
     import wraithguard_native
 
@@ -206,8 +205,7 @@ def winning_reference(
             if name is not None and name.lower() == origin.lower():
                 mine.append((plugin, dict(ref)))
     # The game's rule, shared with the engine (ordercore::refs): the last version stands,
-    # but after a deletion only another deletion takes over - a later edit changes a
-    # hidden thing, and the reference stays deleted.
+    # deleted or not (checked in Morrowind.exe, tests/ingame/README.md).
     won = wraithguard_native.ref_winner([bool(r.get("deleted")) for _p, r in mine])
     return None if won is None else mine[won[0]]
 

@@ -2562,7 +2562,7 @@
     "X.esp"
    ],
    "masters": {},
-   "supported": false,
+   "supported": true,
    "order": [
     "A.esp",
     "X.esp"
@@ -2589,7 +2589,7 @@
     "X.esp"
    ],
    "masters": {},
-   "supported": false,
+   "supported": true,
    "order": [
     "A.esp",
     "X.esp"
@@ -3019,9 +3019,9 @@
     "C01.esp",
     "B02.esp",
     "C04.esp",
-    "C05.esp",
+    "C03.esp",
     "C06.esp",
-    "C03.esp"
+    "C05.esp"
    ],
    "anchors": {
     "c00.esm": [
@@ -3037,19 +3037,19 @@
      null
     ],
     "c03.esp": [
-     "after",
-     "C04.esp"
+     "none",
+     null
     ],
     "c04.esp": [
      "after",
      "B02.esp"
     ],
     "c05.esp": [
-     "before",
-     "C03.esp"
+     "none",
+     null
     ],
     "c06.esp": [
-     "before",
+     "after",
      "C03.esp"
     ]
    }
@@ -3312,15 +3312,15 @@
    "supported": true,
    "order": [
     "C04.esm",
-    "B00.esm",
-    "B01.esm",
-    "B02.esm",
-    "C03.esm",
+    "C02.esp",
     "C05.esp",
     "C06.esp",
+    "B00.esm",
+    "B01.esm",
+    "C03.esm",
+    "B02.esm",
     "C00.esp",
-    "C01.esp",
-    "C02.esp"
+    "C01.esp"
    ],
    "anchors": {
     "c00.esp": [
@@ -4051,27 +4051,27 @@
    "order": [
     "B00.esm",
     "C01.esm",
-    "C00.esp",
     "C02.esp",
     "C04.esp",
     "C05.esp",
     "B01.esm",
     "B02.esp",
+    "C00.esp",
     "C03.esp",
     "C06.esm"
    ],
    "anchors": {
     "c00.esp": [
-     "before",
-     "C05.esp"
+     "after",
+     "B02.esp"
     ],
     "c01.esm": [
      "before",
      "C04.esp"
     ],
     "c02.esp": [
-     "after",
-     "C00.esp"
+     "before",
+     "B01.esm"
     ],
     "c03.esp": [
      "after",
@@ -4314,9 +4314,9 @@
    },
    "supported": true,
    "order": [
+    "C04.esm",
     "B00.esm",
     "B01.esm",
-    "C00.esp",
     "B02.esp",
     "B03.esp",
     "B04.esp",
@@ -4325,14 +4325,14 @@
     "B07.esp",
     "B08.esp",
     "B09.esp",
-    "C01.esp",
-    "C02.esp",
-    "C04.esm",
-    "C03.esp",
     "B10.esp",
     "B11.esp",
     "C05.esm",
-    "C06.esm"
+    "C06.esm",
+    "C00.esp",
+    "C01.esp",
+    "C02.esp",
+    "C03.esp"
    ],
    "anchors": {
     "c00.esp": [
@@ -4340,16 +4340,16 @@
      null
     ],
     "c01.esp": [
-     "before",
-     "B10.esp"
+     "after",
+     "B05.esp"
     ],
     "c02.esp": [
-     "before",
-     "B10.esp"
+     "after",
+     "B05.esp"
     ],
     "c03.esp": [
-     "before",
-     "B10.esp"
+     "after",
+     "B05.esp"
     ],
     "c04.esm": [
      "nearstart",
@@ -5171,6 +5171,7 @@
    },
    "supported": true,
    "order": [
+    "C03.esp",
     "C04.esp",
     "B00.esm",
     "B01.esm",
@@ -5181,10 +5182,9 @@
     "B06.esp",
     "B07.esp",
     "B08.esp",
-    "B09.esp",
-    "C03.esp",
     "C00.esp",
     "C01.esp",
+    "B09.esp",
     "B10.esp",
     "C02.esm",
     "B11.esp"
@@ -5207,8 +5207,8 @@
      null
     ],
     "c04.esp": [
-     "before",
-     "B00.esm"
+     "after",
+     "C03.esp"
     ]
    }
   },
@@ -6308,9 +6308,9 @@
     "B03.esp",
     "B04.esp",
     "B05.esp",
+    "C01.esm",
     "C03.esp",
-    "C00.esm",
-    "C01.esm"
+    "C00.esm"
    ],
    "anchors": {
     "c00.esm": [
@@ -6319,7 +6319,7 @@
     ],
     "c01.esm": [
      "after",
-     "C03.esp"
+     "B05.esp"
     ],
     "c02.esm": [
      "nearstart",
@@ -7134,8 +7134,8 @@
     "B02.esm",
     "C01.esm",
     "B03.esp",
-    "C02.esp",
     "B04.esp",
+    "C02.esp",
     "B05.esp"
    ],
    "anchors": {
@@ -9191,6 +9191,7 @@
     "B10.esp",
     "B11.esp",
     "B12.esp",
+    "C06.esm",
     "B13.esp",
     "C12.esm",
     "B14.esp",
@@ -9212,7 +9213,6 @@
     "C08.esp",
     "C11.esp",
     "B23.esp",
-    "C06.esm",
     "B24.esp",
     "B25.esp",
     "B26.esp",
@@ -9245,7 +9245,7 @@
     ],
     "c06.esm": [
      "after",
-     "B23.esp"
+     "B12.esp"
     ],
     "c07.esp": [
      "after",
