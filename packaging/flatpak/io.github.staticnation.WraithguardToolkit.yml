@@ -43,7 +43,7 @@ finish-args:
   # Game controllers for the viewport (49_wg_gamepad.js): the Deck's own controls as the
   # virtual pad Steam makes, read through WebKitGTK's libmanette (Flatpak 1.15.6+).
   - --device=input
-  # Update checks and downloads (wraithguard.net).
+  # Update checks and downloads (the Load order page's Update rules and Sources).
   - --share=network
   # Morrowind and OpenMW installs, mod folders and Steam libraries in the home
   # folder; OpenMW's own Flatpak keeps openmw.cfg under ~/.var/app, which "home"
@@ -122,7 +122,7 @@ modules:
         path: io.github.staticnation.WraithguardToolkit.metainfo.xml
     build-commands:
       # The same runtime packages as the other builds (build-windows.yml).
-      - /app/python/bin/python3 -m pip install tkinterweb tkinterdnd2 PyYAML ijson certifi
+      - /app/python/bin/python3 -m pip install tkinterweb tkinterdnd2 ijson
       # The Rust backend (native/, greatness7's tes3 crates), for this interpreter.
       - /app/python/bin/python3 -m pip install ./native
       # The viewer shell, on the runtime's WebKitGTK. It is started by

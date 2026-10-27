@@ -112,14 +112,12 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fnmatch
-import functools
 import os
 import re
 import struct
 from datetime import datetime
-from itertools import pairwise
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final, cast
 
 # ---------------------------------------------------------------------------
 # mlox-exact plugin filename matching (ported from mlox's
@@ -143,7 +141,6 @@ from wraithguard import _, get_logger, ngettext, ordercore_bridge, setup_logging
 from wraithguard.esp import EspError, Header, read_header
 from wraithguard.nif.analysis import MeshAnalyser, MeshFinding
 from wraithguard.nif.report import Structure, compare as compare_structures
-from wraithguard.rules import authoring, pattern_has_meta
 
 #: Diagnostics about the run (not the user's report) go through here. The
 #: report itself stays on print()/stdout -- see wraithguard/logging_setup.py.
@@ -164,9 +161,7 @@ _LOG = get_logger(__name__)
 # ---------------------------------------------------------------------------
 from wraithguard.tracing import (
     set_trace_file,
-    sort_trace_begin,
     trace,
-    trace_sort,
 )
 
 if TYPE_CHECKING:
@@ -181,8 +176,6 @@ if TYPE_CHECKING:
         Set as AbstractSet,
     )
     from contextlib import AbstractContextManager
-
-    from wraithguard_native import PluginLinter
 
     from wraithguard.patch.recordcache import RecordCache
 
@@ -879,167 +872,11 @@ def stage_for_tes3cmd(
 
 
 # ---------------------------------------------------------------------------
-# native lint checks -- ports of the useful tes3lint (mlox project) and
-# missing_pathgrids.pl diagnostics, working directly on the plugin binaries
-# so they see the full OpenMW multi-folder VFS (no perl, no tes3cmd needed).
+# lint checks -- ports of the useful tes3lint (mlox project) and missing_pathgrids.pl
+# diagnostics, on the plugin binaries so they see the full OpenMW multi-folder VFS. The
+# whole lint is Rust now (viewer-shell/toolscore, lint.rs; its tables carry tes3lint's
+# MIT notice), shared with the viewer's Tools page.
 # ---------------------------------------------------------------------------
-
-# The "72 evil GMSTs": settings copied into a plugin by an old Construction
-# Set whenever it was used without both expansions loaded. They are only
-# legitimate inside Tribunal.esm/Bloodmoon.esm; in any other plugin they
-# override expansion behaviour with stale defaults. A GMST is only flagged
-# when BOTH the name and the recorded value match tes3lint's table (a mod
-# deliberately changing one of these settings to a new value is fine).
-#
-# The 72 name/value pairs below are reproduced from tes3lint:
-#
-#   tes3lint - a diagnostic tool for TES3/Morrowind plugins
-#   Copyright 2009 by John Moonsugar
-#   Distributed as part of the mlox project under the MIT License.
-#
-# Retained here to satisfy the MIT notice requirement: this table is research
-# (which values the buggy CS actually wrote), not something we rediscovered.
-_EVIL_GMSTS = {
-    "fcombatdistancewerewolfmod": ("FLTV", b"\x9a\x99\x99>"),
-    "ffleedistance": ("FLTV", b"\x00\x80;E"),
-    "fwerewolfacrobatics": ("FLTV", b"\x00\x00\x16C"),
-    "fwerewolfagility": ("FLTV", b"\x00\x00\x16C"),
-    "fwerewolfalchemy": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfalteration": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfarmorer": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfathletics": ("FLTV", b"\x00\x00\x16C"),
-    "fwerewolfaxe": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfblock": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfbluntweapon": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfconjuration": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfdestruction": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfenchant": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfendurance": ("FLTV", b"\x00\x00\x16C"),
-    "fwerewolffatigue": ("FLTV", b"\x00\x00\xc8C"),
-    "fwerewolfhandtohand": ("FLTV", b"\x00\x00\xc8B"),
-    "fwerewolfhealth": ("FLTV", b"\x00\x00\x00@"),
-    "fwerewolfheavyarmor": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfillusion": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfintellegence": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolflightarmor": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolflongblade": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfluck": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfmagicka": ("FLTV", b"\x00\x00\xc8B"),
-    "fwerewolfmarksman": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfmediumarmor": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfmerchantile": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfmysticism": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfpersonality": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfrestoration": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfrunmult": ("FLTV", b"\x00\x00\xc0?"),
-    "fwerewolfsecurity": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfshortblade": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfsilverweapondamagemult": ("FLTV", b"\x00\x00\xc0?"),
-    "fwerewolfsneak": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfspear": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfspeechcraft": ("FLTV", b"\x00\x00\x80?"),
-    "fwerewolfspeed": ("FLTV", b"\x00\x00\x16C"),
-    "fwerewolfstrength": ("FLTV", b"\x00\x00\x16C"),
-    "fwerewolfunarmored": ("FLTV", b"\x00\x00\xc8B"),
-    "fwerewolfwillpower": ("FLTV", b"\x00\x00\x80?"),
-    "iwerewolfbounty": ("INTV", b"\x10'\x00\x00"),
-    "iwerewolffightmod": ("INTV", b"d\x00\x00\x00"),
-    "iwerewolffleemod": ("INTV", b"d\x00\x00\x00"),
-    "iwerewolfleveltoattack": ("INTV", b"\x14\x00\x00\x00"),
-    "scompanionshare": ("STRV", b"Companion Share"),
-    "scompanionwarningbuttonone": ("STRV", b"Let the mercenary quit."),
-    "scompanionwarningbuttontwo": ("STRV", b"Return to Companion Share display."),
-    "scompanionwarningmessage": (
-        "STRV",
-        b"Your mercenary is poorer now than when he contracted with you.  Your mercenary will quit if you do not give him gold or goods to bring his Profit Value to a positive value.",
-    ),
-    "sdeletenote": ("STRV", b"Delete Note?"),
-    "seditnote": ("STRV", b"Edit Note"),
-    "seffectsummoncreature01": ("STRV", b"sEffectSummonCreature01"),
-    "seffectsummoncreature02": ("STRV", b"sEffectSummonCreature02"),
-    "seffectsummoncreature03": ("STRV", b"sEffectSummonCreature03"),
-    "seffectsummoncreature04": ("STRV", b"sEffectSummonCreature04"),
-    "seffectsummoncreature05": ("STRV", b"sEffectSummonCreature05"),
-    "seffectsummonfabricant": ("STRV", b"sEffectSummonFabricant"),
-    "slevitatedisabled": ("STRV", b"Levitation magic does not work here."),
-    "smagiccreature01id": ("STRV", b"sMagicCreature01ID"),
-    "smagiccreature02id": ("STRV", b"sMagicCreature02ID"),
-    "smagiccreature03id": ("STRV", b"sMagicCreature03ID"),
-    "smagiccreature04id": ("STRV", b"sMagicCreature04ID"),
-    "smagiccreature05id": ("STRV", b"sMagicCreature05ID"),
-    "smagicfabricantid": ("STRV", b"Fabricant"),
-    "smaxsale": ("STRV", b"Max Sale"),
-    "sprofitvalue": ("STRV", b"Profit Value"),
-    "steleportdisabled": ("STRV", b"Teleportation magic does not work here."),
-    "swerewolfalarmmessage": ("STRV", b"You have been detected changing from a werewolf state."),
-    "swerewolfpopup": ("STRV", b"Werewolf"),
-    "swerewolfrefusal": ("STRV", b"You cannot do this as a werewolf."),
-    "swerewolfrestmessage": ("STRV", b"You cannot rest in werewolf form."),
-}
-
-# Script functions introduced by the expansions (from tes3lint's DATA lists).
-# A plugin calling one without listing the expansion as a master is fragile
-# on non-expansion setups and usually indicates a truncated master list.
-_TRIBUNAL_FUNCS = (
-    "AddToLevCreature",
-    "AddToLevItem",
-    "ClearForceJump",
-    "ClearForceMoveJump",
-    "ClearForceRun",
-    "DisableLevitation",
-    "EnableLevitation",
-    "ExplodeSpell",
-    "ForceJump",
-    "ForceMoveJump",
-    "ForceRun",
-    "GetCollidingActor",
-    "GetCollidingPC",
-    "GetForceJump",
-    "GetForceMoveJump",
-    "GetForceRun",
-    "GetPCJumping",
-    "GetPCRunning",
-    "GetPCSneaking",
-    "GetScale",
-    "GetSpellReadied",
-    "GetSquareRoot",
-    "GetWaterLevel",
-    "GetWeaponDrawn",
-    "GetWeaponType",
-    "HasItemEquipped",
-    "ModScale",
-    "ModWaterLevel",
-    "PlaceItem",
-    "PlaceItemCell",
-    "RemoveFromLevCreature",
-    "RemoveFromLevItem",
-    "SetDelete",
-    "SetScale",
-    "SetWaterLevel",
-)
-_BLOODMOON_FUNCS = (
-    "BecomeWerewolf",
-    "GetPCInJail",
-    "GetPCTraveling",
-    "GetWerewolfKills",
-    "IsWerewolf",
-    "PlaceAtMe",
-    "SetWerewolfAcrobatics",
-    "TurnMoonRed",
-    "TurnMoonWhite",
-    "UndoWerewolf",
-)
-
-_LINT_SKIP = {
-    "morrowind.esm",
-    "tribunal.esm",
-    "bloodmoon.esm",
-    "merged objects.esp",
-    "merged lands.esp",
-    "mashed lists.esp",
-    "multipatch.esp",
-}
-_LINT_SKIP_CELLS = {"ashlands region (0, 0)"}  # the classic 0,0 exterior exception
 
 
 def _iter_tes3_records(raw: bytes) -> Iterator[tuple[bytes, bytes]]:
@@ -1065,82 +902,6 @@ def _iter_subrecords(body: bytes) -> Iterator[tuple[bytes, bytes]]:
         i += 8 + sz
 
 
-def _lint_twin_warnings(
-    active_order: Sequence[str],
-    index: PluginFileIndex,
-    subset_lower: set[str],
-    tagfor: Callable[[str], str],
-) -> list[str]:
-    """Report custom plugins whose .omwscripts / content twin is not loaded.
-
-    An active ``.omwaddon``/``.esp`` sitting next to an ``.omwscripts`` of the
-    same stem (or the reverse) almost always needs both declared: a missing twin
-    silently disables the mod's Lua half, or leaves scripts referencing content
-    that never loads. This was the real cause behind a batch of user-reported
-    ORPHAN confusion.
-
-    Args:
-        active_order: The active plugins, in load order.
-        index: Resolves a plugin filename to a path on disk.
-        subset_lower: Lower-cased filenames of the user's own mods. Only those
-            are checked; curated files are the list's business.
-        tagfor: Renders a plugin's provenance tag for the warning text.
-
-    Returns:
-        One warning per missing twin.
-    """
-    warnings: list[str] = []
-    active_lower = {str(plugin).lower() for plugin in active_order}
-    for plugin in active_order:
-        lowered = str(plugin).lower()
-        if lowered not in subset_lower:
-            continue
-        found = index.find(plugin) if index else None
-        if found is None:
-            continue
-        path = Path(found)
-        stem = path.name.rsplit(".", 1)[0]
-        if lowered.endswith((".omwaddon", ".esp")):
-            twin = path.with_name(stem + ".omwscripts")
-            if twin.exists() and twin.name.lower() not in active_lower:
-                warnings.append(
-                    f"[TWIN] '{plugin}'{tagfor(plugin)}: '{twin.name}' sits in the same folder but "
-                    f"isn't in the load order -- the mod's Lua half is disabled. Add it "
-                    f"(or confirm it's optional)."
-                )
-        elif lowered.endswith(".omwscripts"):
-            for ext in (".omwaddon", ".esp"):
-                twin = path.with_name(stem + ext)
-                if twin.exists() and twin.name.lower() not in active_lower:
-                    warnings.append(
-                        f"[TWIN] '{plugin}'{tagfor(plugin)}: '{twin.name}' sits in the same folder "
-                        f"but isn't in the load order -- scripts may reference content that "
-                        f"never loads. Add it (or confirm it's optional)."
-                    )
-                    break
-    return warnings
-
-
-@functools.cache
-def _plugin_linter() -> PluginLinter:
-    """The Rust record scanner behind the lint, built once from the tables above.
-
-    ``PluginLinter`` (``native/src/lint.rs``) is a port of the Python ``_lint_*``
-    helpers that used to be here: one pass over a plugin's raw records returning
-    its header gaps, interior cells and fog, interior path grids, evil GMSTs,
-    masters and expansion-only script calls. The wording of every warning, the
-    load-order-wide accumulators and the skip lists stay here.
-
-    Returns:
-        The shared ``PluginLinter``.
-    """
-    import wraithguard_native
-
-    return wraithguard_native.PluginLinter(
-        _EVIL_GMSTS, list(_TRIBUNAL_FUNCS), list(_BLOODMOON_FUNCS), set(_LINT_SKIP_CELLS)
-    )
-
-
 def lint_plugins(
     active_order: Sequence[str],
     index: PluginFileIndex,
@@ -1148,186 +909,39 @@ def lint_plugins(
     origins: Mapping[str, str] | None = None,
     progress: Callable[[int, str], None] | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
-    """Run the ported lint checks over every active plugin.
+    """Run the lint checks over every active plugin.
 
     Checks:
 
-        [EVLGMST]     evil GMSTs (name AND value match; see table above) -- fixed
+        [EVLGMST]     evil GMSTs (name AND value match tes3lint's table) -- fixed
                       by cleaning the plugin (tes3cmd clean removes them).
-        [FOGBUG]      interior cell, not behave-like-exterior, AMBI fog density
-                      exactly 0.0 -- renders as a black void on some GPUs
-                      (tes3lint's FOGBUG; exact port of its DATA/AMBI logic).
+        [FOGBUG]      interior cell, not behave-like-exterior, fog density exactly
+                      0.0 -- renders as a black void on some GPUs.
         [NO PATHGRID] an interior cell introduced by the load order has no PGRD
-                      record anywhere in it -- NPCs can't pathfind there
-                      (missing_pathgrids.pl, minus its false positives: the
-                      pathgrid may come from ANY plugin, not just earlier ones).
-        [HEADER]      custom plugin with a blank author and/or description
-                      (tes3lint MISSAUT/MISSDSC; customs only -- curated files
-                      are the list's business).
+                      record anywhere in it -- NPCs can't pathfind there.
+        [HEADER]      custom plugin with a blank author and/or description.
+        [EXP-DEP]     custom plugin calling expansion-only script functions without
+                      mastering the expansion.
+        [TWIN]        custom plugin whose .omwscripts / content twin is not loaded.
 
-        Vanilla masters and merged/multipatch artifacts are skipped, like the
-        reference scripts do. origins maps plugin_lower -> provenance for the
-        warning text.
-    """
-    subset_lower = {str(s).lower() for s in (subset_names or ())}
-    origins = origins or {}
-    warnings: list[str] = []
-    stats: dict[str, Any] = {"scanned": 0, "unreadable": 0}
-    interior_first: dict[str, tuple[str, str]] = {}  # cell id lower -> (plugin, display name)
-    pathgrids: set[str] = set()  # interior pathgrid cell ids seen anywhere
-
-    def tagfor(plugin: str) -> str:
-        """Render a plugin's provenance tag for a warning line.
-
-        Args:
-            plugin: The plugin filename.
-
-        Returns:
-            ``" [origin]"``, or an empty string when the origin is unknown.
-        """
-        origin = origins.get(str(plugin).lower())
-        return f" [{origin}]" if origin else ""
-
-    from wraithguard.parallel import read_all
-
-    def scan(plugin: str) -> tuple[str, bytes | None, dict[str, Any] | None]:
-        """Read and scan one plugin: ``("skip"|"unreadable"|"ok", b"", facts)``.
-
-        The bytes are dropped once scanned (``b""`` in their place): kept for the
-        whole order they were the load order's size in memory, a gigabyte and more.
-        """
-        lowered = str(plugin).lower()
-        if lowered.endswith(".omwscripts") or lowered in _LINT_SKIP:
-            return "skip", None, None
-        path = index.find(plugin) if index else None
-        if path is None:
-            return "skip", None, None
-        try:
-            raw = path.read_bytes()
-        except OSError:
-            return "unreadable", None, None
-        if raw[:4] != b"TES3":
-            return "skip", None, None
-        return "ok", b"", _plugin_linter().scan(raw, lowered in subset_lower)
-
-    # The reads and the Rust scans side by side; the load-order-wide fold (which
-    # plugin introduced a cell first) in order, as before.
-    order = list(active_order)
-    _plugin_linter()  # built once here, not raced for by the first eight scans
-    scans = read_all(order, scan)
-    for position, (plugin, (state, raw, facts)) in enumerate(zip(order, scans, strict=True)):
-        if state == "unreadable":
-            stats["unreadable"] += 1
-            continue
-        if state != "ok" or raw is None:
-            continue
-        stats["scanned"] += 1
-        if progress:
-            progress(position, plugin)
-        warnings.extend(
-            _lint_one_plugin(
-                raw,
-                plugin,
-                is_custom=str(plugin).lower() in subset_lower,
-                tagfor=tagfor,
-                interior_first=interior_first,
-                pathgrids=pathgrids,
-                facts=facts,
-            )
-        )
-
-    for cell_id, (plugin, name) in sorted(interior_first.items()):
-        if cell_id not in pathgrids:
-            warnings.append(
-                f"[NO PATHGRID] '{plugin}'{tagfor(plugin)}: new interior cell '{name}' has no "
-                f"pathgrid anywhere in the load order -- NPCs can't pathfind there."
-            )
-
-    warnings.extend(_lint_twin_warnings(active_order, index, subset_lower, tagfor))
-
-    stats["warnings"] = len(warnings)
-    stats["interior_cells"] = len(interior_first)
-    stats["pathgrids"] = len(pathgrids)
-    return warnings, stats
-
-
-def _lint_one_plugin(
-    raw: bytes,
-    plugin: str,
-    *,
-    is_custom: bool,
-    tagfor: Callable[[str], str],
-    interior_first: dict[str, tuple[str, str]],
-    pathgrids: set[str],
-    facts: dict[str, Any] | None = None,
-) -> list[str]:
-    """Run the per-record checks over one plugin.
-
-    Two of the checks are load-order-wide rather than per-plugin -- whether an
-    interior cell has a path grid *anywhere*, and which plugin introduced it --
-    so those two accumulators are passed in and updated here. Everything else
-    this function decides on its own.
-
-    Args:
-        raw: The plugin file's bytes.
-        plugin: Its filename, for the warning text.
-        is_custom: Whether it is one of the user's own mods. The header and
-            expansion-dependency checks apply only to those: a curated file's
-            metadata is the list's business, not this tool's.
-        tagfor: Renders a plugin's provenance tag.
-        interior_first: Cell id to the plugin that first introduced it, updated
-            in place. The first writer wins, which is load order.
-        pathgrids: Interior cell ids that have a path grid, updated in place.
-        facts: The linter's scan of ``raw``, when the caller already ran it (the
-            scans run side by side in :func:`lint_plugins`; this part is the
-            load-order fold, which stays in order).
+    Vanilla masters and merged/multipatch artifacts are skipped. ``origins`` maps
+    plugin_lower -> provenance for the warning text. ``progress`` is not called: the
+    plugins are read side by side in Rust (``toolscore::lint``).
 
     Returns:
-        The warnings this plugin earns on its own.
+        ``(warnings, stats)``; stats has ``scanned``, ``unreadable``, ``warnings``,
+        ``interior_cells`` and ``pathgrids``.
     """
-    warnings: list[str] = []
-    if facts is None:
-        facts = _plugin_linter().scan(raw, is_custom)
-    for event in facts["events"]:
-        if event[0] == "header":
-            warnings.append(
-                f"[HEADER] '{plugin}'{tagfor(plugin)}: header has no {' and no '.join(event[1])}."
-            )
-            continue
-        _kind, name, cell_id, fog_bug = event
-        if cell_id and cell_id not in interior_first:
-            interior_first[cell_id] = (plugin, name)
-        if fog_bug:
-            warnings.append(
-                f"[FOGBUG] '{plugin}'{tagfor(plugin)}: interior cell '{name}' has fog "
-                f"density 0.0 -- renders as a black void on some GPUs. Fix by "
-                f"setting any nonzero fog density on the cell."
-            )
-    pathgrids.update(facts["pathgrids"])
-    evil_gmsts: list[str] = facts["evil_gmsts"]
-    masters = set(facts["masters"])
-    tribunal = set(facts["tribunal"])
-    bloodmoon = set(facts["bloodmoon"])
-
-    if evil_gmsts:
-        warnings.append(
-            f"[EVLGMST] '{plugin}'{tagfor(plugin)}: {len(evil_gmsts)} evil GMST(s): "
-            f"{', '.join(sorted(evil_gmsts))} -- stale expansion defaults copied in "
-            f"by an old Construction Set; tes3cmd clean removes them."
-        )
-    if tribunal and "tribunal.esm" not in masters and "bloodmoon.esm" not in masters:
-        warnings.append(
-            f"[EXP-DEP] '{plugin}'{tagfor(plugin)}: scripts use Tribunal function(s) "
-            f"{', '.join(sorted(tribunal))} but the plugin doesn't master Tribunal.esm -- "
-            f"fragile on non-expansion setups (tes3lint !TB-FUN)."
-        )
-    if bloodmoon and "bloodmoon.esm" not in masters:
-        warnings.append(
-            f"[EXP-DEP] '{plugin}'{tagfor(plugin)}: scripts use Bloodmoon function(s) "
-            f"{', '.join(sorted(bloodmoon))} but the plugin doesn't master Bloodmoon.esm -- "
-            f"fragile on non-expansion setups (tes3lint !BM-FUN)."
-        )
-    return warnings
+    del progress
+    order = [str(p) for p in active_order]
+    paths: list[str | None] = []
+    for plugin in order:
+        found = index.find(plugin) if index else None
+        paths.append(None if found is None else str(found))
+    warnings, stats = ordercore_bridge.require("lint_order")(
+        order, paths, [str(s) for s in (subset_names or ())], dict(origins or {})
+    )
+    return list(warnings), dict(stats)
 
 
 def flatten_dict(d: Mapping[str, Any], parent_key: str = "", sep: str = ".") -> dict[str, Any]:
@@ -2459,6 +2073,34 @@ def _scan_touch(
     return touch, unreadable, scanned, rec_count, paths
 
 
+def _native_scan(
+    active_order: Sequence[str], index: PluginFileIndex, subset_names: Sequence[str], mode: str
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """:func:`detect_conflicts` or :func:`_list_singles` with the native session, in Rust.
+
+    conflictcore reads every plugin (side by side, the interpreter released) and folds the
+    keys as :func:`_scan_touch` does; the files are found here, by the caller's index.
+
+    Args:
+        active_order: Plugin filenames in load order (winner last).
+        index: A PluginFileIndex to locate the files on disk.
+        subset_names: Your custom plugins.
+        mode: ``"conflicts"``, ``"mine"`` (your singles) or ``"other"``.
+
+    Returns:
+        ``(records, stats)`` as the Python gives them.
+    """
+    order = list(active_order)
+    paths = []
+    for plugin in order:
+        found = index.find(plugin) if index else None
+        paths.append(None if found is None else str(found))
+    return cast(
+        "tuple[list[dict[str, Any]], dict[str, Any]]",
+        ordercore_bridge.require("conflict_scan")(order, paths, list(subset_names), mode),
+    )
+
+
 def detect_conflicts(
     active_order: Sequence[str],
     index: PluginFileIndex,
@@ -2482,6 +2124,8 @@ def detect_conflicts(
     stats = {"scanned", "unreadable":[...], "records", "conflicts",
              "engine": "tes3conv"|"builtin", "paths": {plugin: path}}.
     """
+    if getattr(session, "engine_name", "") == "native":
+        return _native_scan(active_order, index, subset_names or [], "conflicts")
     subset_lower = {s.lower() for s in (subset_names or [])}
     touch, unreadable, scanned, rec_count, paths = _scan_touch(active_order, index, session)
 
@@ -2543,6 +2187,8 @@ def _list_singles(
         involves_subset, deleted_by}``, sorted by type then id. ``stats``
         carries a ``"singles"`` count in place of ``"conflicts"``.
     """
+    if getattr(session, "engine_name", "") == "native":
+        return _native_scan(active_order, index, subset_names, "mine" if want_subset else "other")
     subset_lower = {s.lower() for s in subset_names}
     touch, unreadable, scanned, rec_count, paths = _scan_touch(active_order, index, session)
 
@@ -2663,33 +2309,11 @@ def format_conflict_report(
     subset_only shows just the ones that involve your custom mods; limit caps how many
     are listed.
     """
-    shown = [c for c in conflicts if c["involves_subset"] or not subset_only]
-    lines = []
-    n_sub = sum(1 for c in conflicts if c["involves_subset"])
-    lines.append(
-        f"Scanned {stats['scanned']} plugin(s), {stats['records']} record(s): "
-        f"{stats['conflicts']} conflicting record(s), {n_sub} involving your custom mods."
+    return str(
+        ordercore_bridge.require("conflict_report")(
+            list(conflicts), dict(stats), subset_only, limit or 0
+        )
     )
-    if stats["unreadable"]:
-        lines.append(
-            f"NOTE: {len(stats['unreadable'])} plugin(s) could not be read "
-            f"(not found on disk / unreadable): {', '.join(stats['unreadable'][:8])}"
-            + (" ..." if len(stats["unreadable"]) > 8 else "")
-        )
-    capped = shown if not limit else shown[:limit]
-    for c in capped:
-        star = "* " if c["involves_subset"] else "  "
-        lines.append(f"{star}[{c['type']}] {c['id']}")
-        lines.append(f"      {'  ->  '.join(c['plugins'])}   (wins: {c['winner']})")
-        if c["deleted_by"]:
-            lines.append(f"      deleted by: {', '.join(c['deleted_by'])}")
-    if limit and len(shown) > limit:
-        lines.append(
-            f"  ... and {len(shown) - limit} more (raise the limit or save the full report)."
-        )
-    if not capped:
-        lines.append("  No conflicts to show.")
-    return "\n".join(lines)
 
 
 def write_conflict_csv(path: str | Path, conflicts: Sequence[Mapping[str, Any]]) -> None:
@@ -2698,31 +2322,9 @@ def write_conflict_csv(path: str | Path, conflicts: Sequence[Mapping[str, Any]])
     Columns are (type, id, winner, involves_custom,
     deleted_by, plugins-in-load-order).
     """
-    import csv
-
+    text = ordercore_bridge.require("conflict_csv")(list(conflicts))
     with Path(path).open("w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
-        w.writerow(
-            [
-                "record_type",
-                "record_id",
-                "winner",
-                "involves_custom",
-                "deleted_by",
-                "plugins_load_order",
-            ]
-        )
-        for c in conflicts:
-            w.writerow(
-                [
-                    c["type"],
-                    c["id"],
-                    c["winner"],
-                    "yes" if c["involves_subset"] else "no",
-                    "; ".join(c["deleted_by"]),
-                    " -> ".join(c["plugins"]),
-                ]
-            )
+        fh.write(text)
 
 
 def filter_plugins(
@@ -2854,61 +2456,18 @@ def detect_resource_conflicts(
         relative path present in 2+ folders. Plugin files are skipped: they are
         ordered by ``content=``, not by the VFS.
     """
-    subset_norm = {str(s).replace("\\", "/").rstrip("/").lower() for s in (subset_dirs or [])}
-    exclude_exts = {e.lower() for e in (exclude_exts or [])}
-    from wraithguard.fsio import files_identical_many, walk_files
-
-    # The folders are walked side by side, in Rust when the backend is built (a MOMW
-    # setup has over a thousand, and hundreds of thousands of files), and folded in
-    # data-path order, so the providers list the same way as before. Plugin files and
-    # the excluded extensions are left out of the walk itself.
-    walked = walk_files([str(d) for d in data_dirs], {*PLUGIN_EXTS, *exclude_exts})
-    providers: dict[str, list[int]] = {}  # rel_path -> [dir_index in order]
-    dirs = []
-    for d, rels in zip(data_dirs, walked, strict=True):
-        if rels is None:
-            continue
-        dirs.append(str(d))
-        di = len(dirs) - 1
-        for rel in rels:
-            lst = providers.get(rel)
-            if lst is None:
-                providers[rel] = [di]
-            elif lst[-1] != di:
-                lst.append(di)
-    conflicts = []
-    for rel, idxs in providers.items():
-        if len(idxs) < 2:
-            continue
-        prov = [dirs[i] for i in idxs]
-        involves = any(pv.replace("\\", "/").rstrip("/").lower() in subset_norm for pv in prov)
-        entry: dict[str, Any] = {
-            "path": rel,
-            "providers": prov,
-            "winner": prov[-1],
-            "involves_subset": involves,
-        }
-        conflicts.append(entry)
-    if compare_contents:
-        # The byte comparisons too, side by side and off the interpreter: sizes first,
-        # then the contents, stopping at the first difference.
-        same = files_identical_many(
-            [[Path(d) / c["path"] for d in c["providers"]] for c in conflicts]
-        )
-        for entry, ident in zip(conflicts, same, strict=True):
-            entry["identical"] = ident
-    # Files that genuinely differ first: a path present twice with the same
-    # bytes is not a decision anybody has to make, and burying the real
-    # overrides among them is how a list of thousands stops being read.
-    conflicts.sort(key=lambda c: (bool(c.get("identical")), not c["involves_subset"], c["path"]))
-    identical = sum(1 for c in conflicts if c.get("identical"))
-    return conflicts, {
-        "dirs": len(dirs),
-        "files": len(providers),
-        "conflicts": len(conflicts),
-        "identical": identical,
-        "differing": len(conflicts) - identical,
-    }
+    # The folders are walked side by side and folded in data-path order, the bytes compared
+    # (sizes first), all in Rust: a MOMW setup has over a thousand folders and hundreds of
+    # thousands of files.
+    return cast(
+        "tuple[list[dict[str, Any]], dict[str, int]]",
+        ordercore_bridge.require("resource_scan")(
+            [str(d) for d in data_dirs],
+            [str(d) for d in (subset_dirs or [])],
+            sorted(exclude_exts or []),
+            compare_contents,
+        ),
+    )
 
 
 def _providers_are_identical(rel: str, provider_dirs: Sequence[str]) -> bool:
@@ -2970,50 +2529,28 @@ def analyse_mesh_conflicts(
         Counters: how many were analysed, how many had something worth saying,
         and how many could not be read.
     """
-    analyser = MeshAnalyser()
-    stats = {"analysed": 0, "findings": 0, "unreadable": 0}
-    for entry in conflicts:
-        path = str(entry.get("path", ""))
-        if not path.lower().endswith(".nif"):
+    from wraithguard.nif.report import Difference
+
+    # conflictcore reads the contested meshes side by side, each body once (keyed on content).
+    found, stats = ordercore_bridge.require("mesh_analyse")(list(conflicts), limit)
+    for entry, finding in zip(conflicts, found, strict=True):
+        if finding is None:
             continue
-        if entry.get("identical"):
-            continue
-        if limit and stats["analysed"] >= limit:
-            break
-        winner_dir = str(entry["winner"])
-        winner = Path(winner_dir) / path
-        # The losers are every provider that is not the winner, found by
-        # comparing against the declared winner rather than by assuming it is
-        # last. The two happen to coincide today; taking the position instead
-        # of the value couples this to a detail of the scan that nothing
-        # promises, and gets the comparison backwards if it ever changes.
-        losses: list[MeshFinding] = [
-            analyser.compare_providers(path, Path(str(provider)) / path, winner)
-            for provider in entry["providers"]
-            if str(provider) != winner_dir
-        ]
-        if not losses:
-            continue
-        stats["analysed"] += 1
-        # The worst finding wins the summary. A mesh overridden by three mods
-        # is one decision, not three, and the reason to look is whatever the
-        # winner loses against *any* of them.
-        reportable = next((f for f in losses if f.worth_reporting), None)
-        chosen = reportable or next((f for f in losses if f.reliable), None) or losses[0]
-        if chosen.unreadable:
-            stats["unreadable"] += 1
-        if reportable is not None:
-            stats["findings"] += 1
-        entry["mesh"] = chosen
+        diff = finding["difference"]
+        entry["mesh"] = MeshFinding(
+            str(finding["path"]),
+            difference=None if diff is None else Difference(**diff),
+            unreadable=str(finding["unreadable"]),
+            loser_partial=bool(finding["loser_partial"]),
+            winner_partial=bool(finding["winner_partial"]),
+        )
     LOG_MESH.debug(
-        "analysed %d mesh conflict(s): %d finding(s), %d unreadable, %d parse(s), %d cache hit(s)",
+        "analysed %d mesh conflict(s): %d finding(s), %d unreadable",
         stats["analysed"],
         stats["findings"],
         stats["unreadable"],
-        analyser.parsed,
-        analyser.cache_hits,
     )
-    return stats
+    return dict(stats)
 
 
 def describe_mesh_finding(finding: MeshFinding) -> str:
@@ -3178,47 +2715,31 @@ def format_resource_report(
     Returns:
         The report text.
     """
-    shown = [c for c in conflicts if c["involves_subset"] or not subset_only]
-    n_sub = sum(1 for c in conflicts if c["involves_subset"])
-    lines = [
-        f"Scanned {stats['dirs']} data folder(s), {stats['files']} loose file(s): "
-        f"{stats['conflicts']} conflicting file(s), {n_sub} involving your custom data paths."
-    ]
-    if stats.get("identical"):
-        # Said as a count rather than by hiding them: "3,912 of these are the
-        # same file shipped twice" is the sentence that makes the rest legible,
-        # and a reader who wants them can still scroll.
-        lines.append(
-            f"  {stats['differing']} differ; {stats['identical']} are byte-identical "
-            f"across every provider and need no decision."
-        )
-    flagged = sum(1 for c in conflicts if _mesh_note(c))
-    if flagged:
-        lines.append(
-            ngettext(
-                "  %(count)d mesh conflict changes what the asset does; "
-                "those lines are marked below.",
-                "  %(count)d mesh conflicts change what the asset does; "
-                "those lines are marked below.",
-                flagged,
-            )
-            % {"count": flagged}
-        )
-    for c in (shown[:limit] if limit else shown):
-        star = "* " if c["involves_subset"] else "  "
-        same = "  [identical]" if c.get("identical") else ""
-        lines.append(
-            f"{star}{c['path']}   ({len(c['providers'])} providers, wins: {c['winner']}){same}"
-        )
-        note = _mesh_note(c)
-        if note:
-            # Indented under its file rather than as a column: the finding is
-            # a sentence, and squeezing it onto the path line pushes the path
-            # off the screen in exactly the cases worth reading.
-            lines.append(f"      -> {note}")
-    if limit and len(shown) > limit:
-        lines.append(f"  ... and {len(shown) - limit} more (save the full report).")
-    return "\n".join(lines)
+    text = ordercore_bridge.require("resource_report")(
+        list(conflicts), dict(stats), [_mesh_note(c) for c in conflicts], subset_only, limit
+    )
+    # The mesh count is the one line that is worded for the user's language.
+    return "\n".join(
+        ordercore_bridge.translated(line, _RESOURCE_MESSAGES) for line in text.split("\n")
+    )
+
+
+#: The resource report's translated line, as conflictcore words it.
+_RESOURCE_MESSAGES: Final = (
+    (
+        "  %(count)d mesh conflict changes what the asset does; those lines are marked below.",
+        "  %(count)d mesh conflicts change what the asset does; those lines are marked below.",
+    ),
+)
+
+
+def _resource_messages_for_make_pot(count: int) -> str:
+    """The msgids of :data:`_RESOURCE_MESSAGES`, where tools/make_pot.py reads them."""
+    return ngettext(
+        "  %(count)d mesh conflict changes what the asset does; those lines are marked below.",
+        "  %(count)d mesh conflicts change what the asset does; those lines are marked below.",
+        count,
+    )
 
 
 def _mesh_columns(conflict: Mapping[str, Any]) -> tuple[str, str, str, str]:
@@ -3257,39 +2778,11 @@ def write_resource_csv(path: str | Path, conflicts: Sequence[Mapping[str, Any]])
         path: Where to write.
         conflicts: The scan's conflicts.
     """
-    import csv
-
+    text = ordercore_bridge.require("resource_csv")(
+        list(conflicts), [_mesh_columns(c) for c in conflicts]
+    )
     with Path(path).open("w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
-        w.writerow(
-            [
-                "file_path",
-                "providers",
-                "winner",
-                "involves_custom",
-                "identical",
-                "provider_folders",
-                "mesh_note",
-                "mesh_lost_collision",
-                "mesh_lost_animation",
-                "mesh_triangle_ratio",
-            ]
-        )
-        for c in conflicts:
-            # "" rather than "no" when the scan did not compare: a spreadsheet
-            # filter on "no" must not sweep up files nobody looked at.
-            identical = c.get("identical")
-            w.writerow(
-                [
-                    c["path"],
-                    len(c["providers"]),
-                    c["winner"],
-                    "yes" if c["involves_subset"] else "no",
-                    "" if identical is None else ("yes" if identical else "no"),
-                    " -> ".join(c["providers"]),
-                    *_mesh_columns(c),
-                ]
-            )
+        fh.write(text)
 
 
 # ---------------------------------------------------------------------------
@@ -3424,18 +2917,6 @@ CFG_WRITE_ENCODING = "utf-8"
 CFG_ERRORS = "surrogateescape"
 
 
-def read_user_text(path: Path, encoding: str = "utf-8-sig") -> str:
-    """Read a user-supplied text file without losing undecodable bytes.
-
-    Plugin names and mod paths can contain bytes that are not valid UTF-8
-    (a cp1252 accented folder, a hand-edited file). ``surrogateescape``
-    preserves them, which also matches how Python decodes filenames from the
-    filesystem -- so a name read here still compares equal to the same name
-    listed from disk.
-    """
-    return Path(path).read_text(encoding=encoding, errors=CFG_ERRORS)
-
-
 def read_toml_text(path: Path) -> str:
     """Read a TOML file, which the spec requires to be UTF-8.
 
@@ -3474,317 +2955,17 @@ def read_cfg(
     return lines, content_positions, content_order, data_positions, data_order
 
 
-def read_groundcover_names(lines: Sequence[str]) -> list[str]:
-    """Read the plugins declared on ``groundcover=`` lines.
-
-    Grass plugins are declared to OpenMW on their own ``groundcover=`` lines,
-    never as ``content=``: the engine loads them through the groundcover system,
-    which instances the grass rather than spawning every blade as a real object.
-    Declaring one as ``content=`` as well loads it *both* ways, and the object
-    copy is a severe, silent performance cliff.
-
-    Read separately from :func:`read_cfg` rather than added to its return value,
-    which would change a five-value signature that several callers unpack
-    positionally. The lines are already in hand, so there is nothing to re-read.
-
-    Args:
-        lines: The cfg's lines, as :func:`read_cfg` returned them.
-
-    Returns:
-        The plugin filenames, in file order. Commented lines are skipped, the
-        same way they are for ``content=``.
-    """
-    fn = ordercore_bridge.native("order_read_groundcover_names")
-    if fn is not None:
-        try:
-            names: list[str] = fn(list(lines))  # ordercore::export
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return names
-    found: list[str] = []
-    for line in lines:
-        match = re.match(r"^\s*groundcover\s*=\s*(.+?)\s*$", line, re.IGNORECASE)
-        if match:
-            name = basename_if_plugin(match.group(1)) or match.group(1).strip().strip("\"'")
-            if name:
-                found.append(name)
-    return found
-
-
-def hold_back_groundcover(
-    subset: Sequence[str], groundcover_names: Sequence[str]
-) -> tuple[list[str], list[str]]:
-    """Drop plugins the cfg already declares as groundcover from the subset.
-
-    A folder scan cannot tell a grass mod from any other mod -- it walks a
-    directory and takes every plugin it finds -- so a shared mods folder puts
-    grass plugins into the subset alongside genuinely new content. Inserting
-    those as ``content=`` is what this prevents.
-
-    The decision is made on **what the user's own cfg says**, not on the
-    filename: a plugin is held back only if that same cfg declares it on a
-    ``groundcover=`` line. Nothing is guessed from names like ``*grass*``, and
-    the existing ``groundcover=`` lines are never touched -- the mod stays
-    enabled as grass, which is what it was.
-
-    Its *data path* is deliberately still emitted. OpenMW has to be able to find
-    the file for the ``groundcover=`` line to work, so removing the data= entry
-    would break the very mod this is protecting.
-
-    Args:
-        subset: The plugin filenames destined for insertion.
-        groundcover_names: Plugins declared as groundcover in the cfg.
-
-    Returns:
-        The subset to use, and the names held back (in the order they appeared
-        in the subset), so the caller can say what it did and why.
-    """
-    native = ordercore_bridge.native("order_hold_back_groundcover")
-    if native is not None:
-        try:
-            kept_n, held_n = native([str(n) for n in subset], [str(n) for n in groundcover_names])
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return list(kept_n), list(held_n)
-    blocked = {str(name).lower() for name in groundcover_names}
-    if not blocked:
-        return list(subset), []
-    kept = [name for name in subset if str(name).lower() not in blocked]
-    held = [name for name in subset if str(name).lower() in blocked]
-    return kept, held
-
-
-def plugins_needing_removal(
-    disabled: Collection[str],
-    curated_set: Collection[str],
-    base_order_names: Sequence[str],
-) -> list[str]:
-    """Decide which opted-out plugins need a durable ``removeContent``.
-
-    A removal is only needed for something this tool does **not** put in the
-    file itself. momw-configurator rebuilds openmw.cfg from the curated list
-    plus these customizations, so a plugin we simply stop inserting is already
-    absent from the result; emitting a ``removeContent`` for it as well is noise
-    in a file people hand-edit.
-
-    The discriminator is therefore "does the curated list own this plugin", not
-    "is it currently in openmw.cfg". The latter was the old test, and it catches
-    the user's own mods the moment they have exported once -- which is what made
-    disabling a custom mod add a block that did nothing.
-
-    Args:
-        disabled: Plugins the user opted out of.
-        curated_set: Lower-cased plugins the curated list owns. **Empty means
-            unknown**, not "nothing is curated": without a ``plugin-order.yml``
-            there is no curated set at all.
-        base_order_names: Plugins already in openmw.cfg, used as the fallback
-            signal when the curated set is unknown. Guessing wrong in that
-            direction would leave a plugin enabled that the user asked to
-            disable, so presence is preferred over silence there.
-
-    Returns:
-        The plugin names to emit, sorted.
-    """
-    fn = ordercore_bridge.native("order_plugins_needing_removal")
-    if fn is not None:
-        try:
-            got: list[str] = fn(list(disabled), list(curated_set), list(base_order_names))
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return got
-    curated_lower = {str(name).lower() for name in curated_set}
-    base_lower = {str(name).lower() for name in base_order_names}
-    owned_elsewhere = curated_lower or base_lower
-    return sorted({p for p in disabled if str(p).lower() in owned_elsewhere})
-
-
-def data_paths_needing_removal(
-    disabled_data: Iterable[str],
-    our_values: Collection[str],
-    base_data_norms: Collection[str],
-) -> list[str]:
-    """Decide which opted-out data paths need a durable ``removeData``.
-
-    The plugin rule (:func:`plugins_needing_removal`) applied to folders. A path
-    this run would have inserted is one we can simply stop inserting: the
-    Configurator rebuilds from the curated list plus these customizations, so
-    omitting it is enough and a ``removeData`` would be noise.
-
-    A path we do **not** own -- one the curated list brings in -- still needs the
-    removal, because nothing else will take it out.
-
-    Args:
-        disabled_data: Raw ``data=...`` lines the user opted out of.
-        our_values: Normalised paths this run inserts.
-        base_data_norms: Normalised paths already in openmw.cfg.
-
-    Returns:
-        The path values to emit, sorted and de-duplicated.
-    """
-    fn = ordercore_bridge.native("order_data_paths_needing_removal")
-    if fn is not None:
-        disabled_data = list(disabled_data)
-        try:
-            got: list[str] = fn(disabled_data, set(our_values), set(base_data_norms))
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return got
-    removals: list[str] = []
-    for line in disabled_data:
-        value = extract_data_path_value(line) or line
-        norm = normalize_data_path(value)
-        if norm in base_data_norms and norm not in our_values:
-            removals.append(value)
-    return sorted(set(removals))
-
-
-def backup_file(path: Path, no_backup: bool) -> None:
-    """Write a timestamped .bak-YYYYMMDD-HHMMSS copy of an existing file.
-
-    Made
-    before it gets overwritten. No-op if no_backup, or if the file doesn't
-    exist yet (nothing to back up).
-    """
-    if no_backup or not path.exists():
-        return
-    # Local clock: goes into a .bak filename the user reads.
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")  # noqa: DTZ005
-    backup = path.with_suffix(path.suffix + f".bak-{stamp}")
-    # Copy BYTES, not decoded text: a backup must be byte-identical. Decoding
-    # and re-encoding used to raise UnicodeDecodeError on a cfg containing
-    # non-UTF-8 bytes (e.g. a cp1252 accented mod folder), which meant the
-    # user could not back up -- or export -- at all.
-    backup.write_bytes(path.read_bytes())
-    print(_("Backup written: %(path)s") % {"path": backup})
-
-
-def splice_cfg_lines(
-    lines: Sequence[str],
-    segments: Sequence[tuple[Sequence[int], Sequence[str]]],
-) -> list[str]:
-    """Return the cfg lines with the rebuilt content= / data= segments spliced in.
-
-    Args:
-        lines: The cfg as read, one string per line.
-        segments: (positions, new_lines) pairs. Each segment's block of original lines
-            is replaced (at the position of its first line) with new_lines; other lines
-            are left completely untouched. A segment with no positions is appended.
-
-    Returns:
-        The new lines, in order.
-    """
-    fn = ordercore_bridge.native("order_splice_cfg_lines")
-    if fn is not None:
-        try:
-            spliced: list[str] = fn(
-                list(lines), [(list(positions), list(new)) for positions, new in segments]
-            )
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return spliced
-    replace_at: dict[int, Sequence[str]] = {}
-    skip: set[int] = set()
-    trailing_extra: list[str] = []
-    for positions, new_lines in segments:
-        if not positions:
-            # no anchor lines of this kind existed in the file at all --
-            # tack the new lines on at the end instead of silently dropping them
-            trailing_extra.extend(new_lines)
-            continue
-        replace_at[positions[0]] = new_lines
-        skip.update(positions)
-
-    new_lines_out: list[str] = []
-    for i, line in enumerate(lines):
-        if i in replace_at:
-            new_lines_out.extend(replace_at[i])
-        if i in skip:
-            continue
-        new_lines_out.append(line)
-    new_lines_out.extend(trailing_extra)
-    return new_lines_out
-
-
-def write_cfg(
-    path: Path,
-    lines: Sequence[str],
-    segments: Sequence[tuple[Sequence[int], Sequence[str]]],
-    dry_run: bool,
-    no_backup: bool,
-) -> None:
-    """Write the cfg back with the rebuilt content= / data= segments.
-
-    Args:
-        path: The cfg to write.
-        lines: The cfg as read.
-        segments: See :func:`splice_cfg_lines`.
-        dry_run: Print instead of writing.
-        no_backup: Skip the backup copy.
-    """
-    new_lines_out = splice_cfg_lines(lines, segments)
-
-    if dry_run:
-        print(_("\n--- DRY RUN: no files written ---"))
-        return
-
-    backup_file(path, no_backup)
-    # newline="" disables the text-mode newline translation that would rewrite
-    # every "\n" to "\r\n" on Windows -- read_cfg already stripped line endings
-    # via splitlines(), so the join is authoritative and must reach disk byte
-    # for byte. Without this, writing back a cfg on Windows silently changed its
-    # line endings (and broke the byte-preservation contract this promises).
-    path.write_text(
-        "\n".join(new_lines_out) + "\n",
-        encoding=CFG_WRITE_ENCODING,
-        errors=CFG_ERRORS,
-        newline="",
-    )
-    print(_("Wrote updated: %(path)s") % {"path": path})
-
-
 # ---------------------------------------------------------------------------
 # mlox rule parsing (Order / NearStart / NearEnd only)
 # ---------------------------------------------------------------------------
 
 # Rule-file parsing now lives in wraithguard/rules/parser.py. Behaviour pinned
 # by tests/test_differential.py; callers import it from there directly.
-from wraithguard.configurator import (
+from wraithguard.configurator.cfglines import (
     extract_data_path_value,
     format_data_line,
-    generate_customizations_toml,
-    infer_data_path_anchors,
-    insert_data_paths,
-    normalize_data_path,
-    orphan_cfg_entries,
-    preview_configurator_result,
 )
-from wraithguard.momw import (
-    curated_for_list,
-    needs_cleaning_set,
-    parse_plugin_order_yml,
-    post_sort_findings,
-)
-from wraithguard.momw_datapaths import (
-    managed_cfg_data_path_norms,
-    parse_data_paths_cache,
-    reconcile_data_paths,
-)
-from wraithguard.plugins import PLUGIN_EXTS, PluginFileIndex
-from wraithguard.rules import (
-    check_predicates,
-    load_rule_blocks,
-    load_rules_raw_text,
-)
+from wraithguard.plugins import PluginFileIndex
 
 # ---------------------------------------------------------------------------
 # mlox predicate evaluation (Requires / Conflict / Note) -- read-only,
@@ -3823,416 +3004,13 @@ from wraithguard.rules import (
 # extract_subset_from_subset_file already consumes.
 # ---------------------------------------------------------------------------
 
-SCAN_ASSET_FOLDERS = frozenset(
-    {
-        "icons",
-        "meshes",
-        "scripts",
-        "sound",
-        "textures",
-        "bookart",
-        "music",
-        "fonts",
-        "splash",
-        "video",
-    }
-)
-
-
-def scan_mod_directories(
-    start_path: str | Path, output_path: str | Path | None = None
-) -> tuple[list[str], int, int]:
-    """Scan start_path for mod data folders.
-
-    Writes the result subset file to output_path if given, and returns (lines,
-    n_folders, n_plugins).
-
-        Each matched folder contributes its absolute path (a data= entry) followed
-        by the plugin filenames directly inside it (content= entries), then a blank
-        line -- so a mod with both assets and a plugin adds its data path AND its
-        plugin, while an assets-only mod adds just its data path.
-    """
-    start_path = str(start_path)
-    # See the PTH100 note below: abspath must not become resolve() here.
-    shown = os.path.abspath(start_path)  # noqa: PTH100
-    lines: list[str] = []
-    n_folders = n_plugins = 0
-    native = ordercore_bridge.native("order_scan_mod_directories")
-    if native is not None:
-        # ordercore::inputs (the walk and the lines; the Load order page scans with it too)
-        lines, n_folders, n_plugins, shown = native(start_path)
-    else:
-        from wraithguard.fsio import scan_mod_folders
-
-        for root, found in scan_mod_folders(start_path, SCAN_ASSET_FOLDERS, PLUGIN_EXTS):
-            plugins = sorted(found, key=str.lower)
-            # abspath normalizes WITHOUT resolving symlinks. Path.resolve()
-            # follows them, which would rewrite the displayed path of every
-            # MO2 junction / symlinked mod folder -- common in Morrowind
-            # setups. Not equivalent, so this stays os.path.
-            lines.append(os.path.abspath(root))  # noqa: PTH100
-            lines.extend(plugins)
-            lines.append("")  # blank separator for readability
-            n_folders += 1
-            n_plugins += len(plugins)
-
-    text = "\n".join(lines) + ("\n" if lines else "")
-    if output_path is not None:
-        Path(output_path).write_text(text, encoding="utf-8")
-    print(
-        # Two independent counts share this sentence, so ngettext (which
-        # handles one) cannot apply; the "(s)" style is kept deliberately.
-        _("Scanned '%(path)s': %(folders)d mod folder(s), %(plugins)d plugin(s).")
-        % {
-            "path": shown,
-            "folders": n_folders,
-            "plugins": n_plugins,
-        }
-    )
-    if output_path is not None:
-        print(_("Wrote subset file: %(path)s") % {"path": output_path})
-    return lines, n_folders, n_plugins
-
-
 # ---------------------------------------------------------------------------
 # subset extraction
 # ---------------------------------------------------------------------------
 
 
-def basename_if_plugin(value: str) -> str | None:
-    """Return the bare filename if ``value`` names a plugin, else None."""
-    v = value.strip().strip('"').strip("'")
-    v = v.replace("\\", "/")
-    name = v.rsplit("/", 1)[-1]
-    if name.lower().endswith(PLUGIN_EXTS):
-        return name
-    return None
-
-
-def extract_subset_from_subset_file(path: Path) -> tuple[list[str], list[dict[str, Any]]]:
-    """Read the subset from a subset file.
-
-    Accepts either:
-
-    - a plain text file, one entry per line (# comments allowed), OR - a minimal TOML
-    file like: subset = ["GoHome.esp", "go-home.omwscripts"] data =
-    ["mods/SomeModFolder"].
-
-        Plugin filenames (.esp/.esm/etc) and data folder paths can be freely
-        mixed in the plain-text form -- each line is classified automatically
-        the same way extract_subset_from_toml() classifies TOML insert values:
-        a recognized plugin extension makes it a plugin; otherwise, if it
-        contains a slash or backslash it's treated as a data= folder path;
-        otherwise it's skipped with a warning (nothing safe to guess from a
-        bare word with neither).
-
-        Returns (plugin_names, data_inserts) -- data_inserts is
-        [{"value","after","before"}] with after/before always None, since this
-        format has no anchor syntax. --sort-data-paths can still work out an
-        anchor automatically by scanning each folder for plugins and anchoring
-        next to their neighbors in the mlox-sorted order (see
-        infer_data_path_anchors) -- or leave --sort-data-paths off and they'll
-        just get appended at the end, same as any other anchor-less insert.
-
-        Much shorter to maintain than repeating --subset on the CLI or writing
-        a full momw-customizations.toml block just to name plugins/paths --
-        and, combined with --emit-toml, is enough on its own (no existing
-        momw-customizations.toml required) to generate a brand new one.
-    """
-    text = read_user_text(path, encoding="utf-8")
-
-    if path.suffix.lower() == ".toml":
-        native = ordercore_bridge.native("order_subset_from_toml")
-        if native is not None:
-            try:
-                n_plugins, n_data, n_skipped, _grass = native(text)
-            except Exception as exc:
-                if not ordercore_bridge.declined(exc):
-                    raise
-            else:
-                for entry in n_skipped:
-                    _warn_skipped_entry(entry, str(path))
-                return list(n_plugins), [
-                    {"value": v, "after": None, "before": None} for v in n_data
-                ]
-        try:
-            import tomllib
-        except ModuleNotFoundError:
-            import tomli as tomllib
-        data = tomllib.loads(text)
-        plugins: list[str] = []
-        data_inserts: list[dict[str, Any]] = []
-        for raw in data.get("subset", []):
-            _classify_subset_entry(str(raw), plugins, data_inserts, str(path))
-        data_inserts.extend(
-            {"value": str(raw), "after": None, "before": None} for raw in data.get("data", [])
-        )
-        return plugins, data_inserts
-
-    return extract_subset_from_lines(text.splitlines(), source=str(path))
-
-
 #: ``groundcover=Vurt_Grass.esp`` in a subset file. Deliberately the same
 #: spelling openmw.cfg uses, so the line means what it looks like.
-_GROUNDCOVER_DECL = re.compile(r"^\s*groundcover\s*=\s*(?P<name>.+?)\s*$", re.IGNORECASE)
-
-
-def extract_groundcover_declarations(lines: Iterable[str], source: str = "subset") -> list[str]:
-    """Read the plugins a subset file declares as grass.
-
-    Grass belongs on a ``groundcover=`` line and nowhere else, but a plugin the
-    user has only just installed is not in openmw.cfg yet, so there is nothing
-    to read the fact off. Declaring it here says so once, and the declaration
-    then drives both outputs: the plugin is kept out of ``content=`` and its
-    ``groundcover=`` line is written for it.
-
-    The mod's **data path is a separate line, as it always was** -- a folder
-    line in the same subset file. That is deliberate: OpenMW has to find the
-    file for the groundcover line to mean anything, and the data path is not
-    grass-specific, so it goes through the ordinary data-insert path.
-
-    Args:
-        lines: Raw subset-file lines.
-        source: Where they came from, for the warning text.
-
-    Returns:
-        The declared plugin filenames, in order, de-duplicated case-insensitively.
-    """
-    native = ordercore_bridge.native("order_groundcover_declarations")
-    if native is not None:
-        lines = list(lines)
-        try:
-            names, not_plugins = native(lines)
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            for name in not_plugins:
-                _warn_not_groundcover(name, source)
-            return list(names)
-    found: list[str] = []
-    seen: set[str] = set()
-    for line in lines:
-        match = _GROUNDCOVER_DECL.match(_strip_line_comment(line))
-        if match is None:
-            continue
-        name = basename_if_plugin(match.group("name")) or match.group("name").strip()
-        if not name:
-            continue
-        if not name.lower().endswith(PLUGIN_EXTS):
-            _warn_not_groundcover(name, source)
-            continue
-        if name.lower() not in seen:
-            seen.add(name.lower())
-            found.append(name)
-    return found
-
-
-def _warn_not_groundcover(name: str, source: str) -> None:
-    """Warn that a ``groundcover=`` declaration names no plugin (it is skipped)."""
-    _LOG.warning(
-        _(
-            "'%(entry)s' from %(source)s is declared as groundcover but is not a "
-            "plugin filename -- skipping."
-        ),
-        {"entry": name, "source": source},
-    )
-
-
-def _warn_skipped_entry(raw: str, source: str) -> None:
-    """Warn that a subset entry is neither a plugin nor a folder (it is skipped)."""
-    _LOG.warning(
-        _(
-            "'%(entry)s' from %(source)s doesn't look like a plugin filename or a "
-            "data folder path (no recognized extension, no slash) -- skipping."
-        ),
-        {"entry": raw, "source": source},
-    )
-
-
-def _classify_subset_entry(
-    raw: str, plugins: list[str], data_inserts: list[dict[str, Any]], source: str
-) -> None:
-    """Classify one raw subset entry as a plugin or a data path.
-
-    Namely:
-
-    a recognized plugin extension makes it a plugin; otherwise a slash/backslash makes
-    it a data= folder path; otherwise it's skipped with a warning (nothing safe to guess
-    from a bare word).
-
-        Both `plugins` and `data_inserts` are APPENDED TO IN PLACE and nothing is
-        returned -- the caller passes the accumulators it wants filled.
-    """
-    raw = raw.strip()
-    if not raw:
-        return
-    if _GROUNDCOVER_DECL.match(raw):
-        # Declared as grass, and read by extract_groundcover_declarations. It
-        # must not also become a content plugin -- that is the whole point.
-        return
-    name = basename_if_plugin(raw)
-    if name:
-        plugins.append(name)
-    elif "/" in raw.replace("\\", "/"):
-        data_inserts.append({"value": raw, "after": None, "before": None})
-    else:
-        _warn_skipped_entry(raw, source)
-
-
-def _strip_line_comment(line: str) -> str:
-    """Strip a '#' comment from a subset-file line.
-
-    Only when the '#' begins
-    the line (after optional whitespace) or is preceded by whitespace. A '#'
-    that's part of a filename or path -- e.g. 'FMI_#NotAllDunmer.ESP' -- has no
-    space in front of it, so it's left intact. (Previously a naive split on '#'
-    truncated such names to 'FMI_', which then classified as neither a plugin
-    nor a path and got dropped.).
-    """
-    if line.lstrip().startswith("#"):
-        return ""
-    m = re.search(r"\s#", line)
-    return line[: m.start()] if m else line
-
-
-def extract_subset_from_lines(
-    lines: Iterable[str], source: str = "subset lines"
-) -> tuple[list[str], list[dict[str, Any]]]:
-    """Classify a list of raw subset text lines.
-
-    One plugin filename or data folder
-    path each; a '#' at line start or after whitespace begins a comment) into
-    (plugin_names, data_inserts) -- the same plain-text form
-    extract_subset_from_subset_file() reads, but from an in-memory list. Used by
-    the GUI's 'scan into memory' path so a scan can feed the sort without writing
-    a file to disk.
-    """
-    native = ordercore_bridge.native("order_subset_from_lines")
-    if native is not None:
-        lines = list(lines)
-        try:
-            n_plugins, n_data, n_skipped = native(lines)
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            for entry in n_skipped:
-                _warn_skipped_entry(entry, source)
-            return list(n_plugins), [{"value": v, "after": None, "before": None} for v in n_data]
-    plugins: list[str] = []
-    data_inserts: list[dict[str, Any]] = []
-    for line in lines:
-        _classify_subset_entry(_strip_line_comment(line), plugins, data_inserts, source)
-    return plugins, data_inserts
-
-
-def extract_subset_from_toml(
-    toml_path: Path,
-) -> tuple[list[str], list[dict[str, Any]], set[str], dict[str, str]]:
-    """Read the customisations TOML into its component parts.
-
-    Returns (content_subset, data_inserts, replace_dest_names):
-
-    content_subset      -- plugin filenames to feed into the mlox sort data_inserts
-    -- [{"value","after","before"}] folder paths to anchor directly into the data= list
-    (mlox doesn't cover these) replace_dest_names  -- subset of content_subset that came
-    from a "replace" block's "dest", not an "insert" -- included in the mlox sort so
-    drift can be detected, but must NOT get a synthesized insert block in --emit-toml
-    output (see generate_customizations_toml) subset_listnames    -- {plugin_name:
-    listName} -- which [[Customizations]] block each subset plugin came from, so
-    predicate warnings can point back at the specific mod entry in the TOML that's
-    responsible (see check_predicates).
-    """
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        try:
-            import tomli as tomllib
-        except ModuleNotFoundError as exc:
-            raise SystemExit(
-                "Need Python 3.11+ (tomllib) or `pip install tomli --break-system-packages` "
-                "to parse the customizations TOML."
-            ) from exc
-
-    text = read_toml_text(toml_path)
-    native = ordercore_bridge.native("order_customizations")
-    if native is not None:
-        try:
-            n_subset, n_data, n_dest, n_lists = native(text)
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return (
-                list(n_subset),
-                [{"value": v, "after": a, "before": b} for v, a, b in n_data],
-                set(n_dest),
-                dict(n_lists),
-            )
-    data = tomllib.loads(text)
-    subset = []
-    data_inserts = []
-    replace_dest_names: set[str] = set()
-    subset_listnames = {}
-
-    def handle_insert(
-        value: str,
-        listname: str | None,
-        after: str | None = None,
-        before: str | None = None,
-        is_replace: bool = False,
-    ) -> None:
-        if not isinstance(value, str) or not value:
-            return
-        name = basename_if_plugin(value)
-        if name:
-            subset.append(name)
-            if is_replace:
-                replace_dest_names.add(name)
-            if listname:
-                subset_listnames[name] = listname
-        elif "/" in value.replace("\\", "/"):
-            data_inserts.append({"value": value, "after": after, "before": before})
-
-    for block in data.get("Customizations", []):
-        listname = block.get("listName")
-        for ins in block.get("insert", []):
-            single, iblock = ins.get("insert"), ins.get("insertBlock")
-            values = (
-                [single]
-                if single is not None
-                else [line.replace("\r", "") for line in (iblock or "").split("\n") if line]
-            )
-            for value in values:
-                handle_insert(value, listname, ins.get("after"), ins.get("before"))
-        for rep in block.get("replace", []):
-            # replace has no after/before of its own -- it takes the position of
-            # what it replaces, so it's fed into the mlox sort anchored at that
-            # spot (via source) purely to detect drift; generate_customizations_toml
-            # skips it when emitting insert blocks (see replace_dest_names)
-            handle_insert(
-                rep.get("dest", ""), listname, after=None, before=rep.get("source"), is_replace=True
-            )
-        for ap in block.get("append", []):
-            text = ap.get("append") or ap.get("appendBlock") or ""
-            for m in re.finditer(r"^\s*content\s*=\s*(\S+)", text, re.MULTILINE):
-                subset.append(m.group(1))
-                if listname:
-                    subset_listnames[m.group(1)] = listname
-
-    # de-dupe case-insensitively but PRESERVE the file's declaration order --
-    # for mods no rule or dependency constrains, "where it appears in my file"
-    # is the order the user chose, and alphabetizing it away was a bug
-    _seen = set()
-    # `or _seen.add(...)` is the standard dedupe idiom: add() returns None, so
-    # the `or` always falls through to False and the entry is kept once.
-    subset = [
-        s for s in subset if not (s.lower() in _seen or _seen.add(s.lower()))  # type: ignore[func-returns-value]
-    ]
-    return subset, data_inserts, replace_dest_names, subset_listnames
-
-
 # ---------------------------------------------------------------------------
 # data= (folder path) insertion -- positioned by after/before anchor, since
 # mlox has no concept of ordering data paths, only plugins
@@ -4257,17 +3035,11 @@ def read_savegame_content_files(path: str | Path) -> tuple[list[str] | None, str
         raw = Path(path).read_bytes()
     except OSError as e:
         return None, f"can't read save: {e}"
-    if raw[:4] != b"TES3":
-        return None, "not an OpenMW save (no TES3 header)"
-    for tag, body in _iter_tes3_records(raw):
-        if tag == b"SAVE":
-            files = [
-                sd.rstrip(b"\x00").decode("utf-8", "replace")
-                for st, sd in _iter_subrecords(body)
-                if st == b"DEPE"
-            ]
-            return files, None
-    return None, "no SAVE record found -- not a savegame?"
+    # Rust (viewer-shell/toolscore, save.rs), shared with the viewer's Save Check.
+    try:
+        return list(ordercore_bridge.require("save_content_files")(raw)), None
+    except ValueError as e:
+        return None, str(e)
 
 
 def check_savegame_against_order(
@@ -4308,202 +3080,13 @@ def scan_backups(
     YYYYMMDD-HHMMSS' / Configurator '*.backup.*' copies. Returns [(backup_path,
     original_path_or_None, kind)].
     """
-    import re as _re
-
-    out, seen = [], set()
-    re_tilde = _re.compile(r"^(.+)~\d+(\.[^.]+)$", _re.IGNORECASE)
-    re_stamp = _re.compile(r"^(.+)\.bak-\d{8}-\d{6}$", _re.IGNORECASE)
-    re_cfgbk = _re.compile(r"^(.+)\.backup\.", _re.IGNORECASE)
-
-    roots = [Path(d) for d in dirs if d]
+    roots = [str(d) for d in dirs if d]
     if cfg_path:
-        roots.append(Path(cfg_path).parent)
-    for root in roots:
-        if not root.is_dir():
-            continue
-        base_depth = len(root.parts)
-        for dirpath, dirnames, filenames in os.walk(root):
-            if len(Path(dirpath).parts) - base_depth >= max_depth:
-                dirnames[:] = []
-            for fn in filenames:
-                p = Path(dirpath) / fn
-                key = str(p).lower()
-                if key in seen:
-                    continue
-                orig, kind = None, None
-                for suf in BACKUP_PATTERNS:
-                    if fn.lower().endswith(suf):
-                        orig, kind = p.with_name(fn[: -len(suf)]), suf.lstrip(".")
-                        break
-                if kind is None:
-                    m = re_tilde.match(fn)
-                    if m:
-                        orig, kind = p.with_name(m.group(1) + m.group(2)), "tes3cmd ~N"
-                    else:
-                        m = re_stamp.match(fn)
-                        if m:
-                            orig, kind = p.with_name(m.group(1)), "timestamped .bak"
-                        else:
-                            m = re_cfgbk.match(fn)
-                            if m:
-                                orig, kind = p.with_name(m.group(1)), "configurator .backup"
-                if kind is not None:
-                    seen.add(key)
-                    # The original is reported even when it no longer exists:
-                    # restoring a backup whose original was deleted is a valid
-                    # recovery, and the caller shows its own "original missing"
-                    # marker based on the path.
-                    out.append((p, orig, kind))
-    out.sort(key=lambda t: str(t[0]).lower())
-    return out
-
-
-USER_RULES_HEADER = (
-    ";; Personal mlox rules -- written by you (with help from Wraithguard Toolkit's\n"
-    ";; rule maker). Keep this file LAST in the rule-files list: later files win\n"
-    ";; rule conflicts, so your rules override mlox_base/mlox_user.\n"
-    ";; Syntax: https://morrowind-modding.github.io/modding-tools/sorting-plugin-load-order/mlox/mlox-rule-guidelines\n"
-)
-
-
-def order_rule_frozen_conflicts(
-    names: Sequence[str], final_order: Sequence[str], curated_lower: Collection[str]
-) -> list[tuple[str, str]]:
-    """Return the pairs a proposed [Order] rule would fight the cfg over.
-
-    For consecutive (earlier, later)
-    name pairs that CONTRADICT the frozen curated order: both names are
-    curated plugins the sort won't reorder, but the rule wants them opposite
-    to how they currently sit. mlox discards such edges as cycles (per the
-    rule guidelines: "whenever we encounter a rule that would cause a cycle,
-    it is discarded"), so the rule would silently not take effect for those
-    pairs. Wildcard/<VER> tokens are skipped -- they don't resolve to one
-    position. Purely advisory; used to warn before writing a rule.
-    """
-    fn = ordercore_bridge.native("order_rule_frozen_conflicts")
-    if fn is not None:
-        try:
-            got: list[tuple[str, str]] = fn(
-                [str(n) for n in names],
-                [str(n) for n in final_order],
-                [str(c) for c in curated_lower],
-            )
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return got
-    pos = {str(n).lower(): i for i, n in enumerate(final_order)}
-    cl = {str(c).lower() for c in curated_lower}
-    out = []
-    for a, b in pairwise(names):
-        al, bl = a.lower(), b.lower()
-        if pattern_has_meta(a) or pattern_has_meta(b):
-            continue
-        if al in cl and bl in cl and al in pos and bl in pos and pos[al] > pos[bl]:
-            out.append((a, b))
-    return out
-
-
-def append_user_rule(
-    path: str | Path, keyword: str, names: Sequence[str], comment: str | None = None
-) -> str:
-    """Append one mlox *ordering* rule to a personal rules file.
-
-    The narrow form kept for callers that only ever write an ordering rule.
-    It delegates to :func:`append_authored_rule`, so there is one validator and
-    one renderer rather than two that can drift -- which matters here, because
-    the two used to disagree about what a valid plugin name looks like.
-
-    Args:
-        path: The personal rules file, created with a header if new.
-        keyword: ``order``, ``nearstart`` or ``nearend``, in any case.
-        names: The plugin filenames. mlox wildcards are allowed.
-        comment: An optional ``;`` comment written above the rule.
-
-    Returns:
-        The text written.
-
-    Raises:
-        ValueError: If the keyword is not an ordering rule, or the rule does
-            not pass validation.
-    """
-    fn = ordercore_bridge.native("order_append_user_rule")
-    if fn is not None:
-        try:
-            text: str = fn(
-                str(path), str(keyword), [str(n) for n in names], comment
-            )  # ordercore::authoring
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return text
-    kinds = {"order": "Order", "nearstart": "NearStart", "nearend": "NearEnd"}
-    kind = kinds.get(str(keyword).strip().lower())
-    if kind is None:
-        message = f"unsupported rule type: {keyword!r}"
-        raise ValueError(message)
-    cleaned = [str(name).strip() for name in names if str(name).strip()]
-    if not cleaned:
-        message = "no plugin names given"
-        raise ValueError(message)
-    rule = authoring.Rule(kind=kind, plugins=cleaned, comment=(comment or "").strip())
-    return append_authored_rule(path, rule)
-
-
-def append_authored_rule(path: str | Path, rule: authoring.Rule) -> str:
-    """Append any mlox rule to a personal rules file.
-
-    The general form of :func:`append_user_rule`, which only ever knew the three
-    ordering kinds. Validation is the authoring module's, so what gets written
-    is a rule that both parses *and* meets the rule-base guidelines -- errors
-    refuse, warnings do not.
-
-    Args:
-        path: The personal rules file. Created with an explanatory header when
-            it does not exist yet.
-        rule: The rule to write.
-
-    Returns:
-        The text appended.
-
-    Raises:
-        ValueError: If the rule has errors, listing every one of them. A rule
-            file is read by a tool that silently discards what it cannot use, so
-            refusing here is the only place a person finds out.
-    """
-    fn = ordercore_bridge.native("order_append_authored_rule")
-    if fn is not None:
-        try:
-            written: str = fn(str(path), authoring.rule_plain(rule))  # ordercore::authoring
-        except TypeError:
-            pass  # an expression ordercore has no kind for: the Python writes it
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return written
-    problems = authoring.errors(authoring.validate(rule))
-    if problems:
-        message = "; ".join(problem.describe() for problem in problems)
-        raise ValueError(message)
-    text = authoring.render_rule(rule) + "\n"
-    target = Path(path)
-    if target.exists():
-        existing = target.read_text(encoding="utf-8-sig", errors="replace")
-        sep = "" if existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
-        target.write_text(existing + sep + text, encoding="utf-8")
-    else:
-        target.write_text(USER_RULES_HEADER + "\n" + text, encoding="utf-8")
-    return text
-
-
-# Candidate sources for MOMW's plugin-order.yml (first that yields a valid
-# file wins). The canonical copy lives in the website repo at
-# momw/momw/data_seeds/data/plugin-order.yml; the GitLab API raw endpoint is
-# tried too since it sidesteps the web UI's occasional auth funkiness, then
-# MOMW's own Gitea mirror. Overridable via $MLOX_PLUGIN_ORDER_URL.
+        roots.append(str(Path(cfg_path).parent))
+    # The walk and the name rules are Rust (viewer-shell/toolscore, backups.rs), shared with
+    # the viewer's Tools page.
+    found = ordercore_bridge.require("backup_scan")(roots, max_depth)
+    return [(Path(b), Path(o), k) for b, o, k in found]
 
 
 #: Schemes we are willing to download from. Anything else (notably ``file:``,
@@ -4529,7 +3112,6 @@ RULES_REPO = (
 # ---------------------------------------------------------------------------
 
 # Graph primitives now live in wraithguard/sort/graph.py.
-from wraithguard.sort import build_and_sort
 
 # ---------------------------------------------------------------------------
 # main
@@ -4669,7 +3251,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         help="A cached MOMW list data-path order, fetched from the cfg-generator API "
         "(one relative data-path tail per line; see the GUI's 'Fetch data paths' button "
-        "or wraithguard.net.fetch_list_data_paths). Read-only warnings are emitted: the "
+        "or the Load order page's Fetch data paths). Read-only warnings are emitted: the "
         "list's data= paths not present in openmw.cfg, and data= paths whose cfg order "
         "contradicts the list's. Also the signal that tells a list-managed data= path "
         "from an unmanaged (orphan) one for --subset-from-cfg. Optional.",
@@ -4788,804 +3370,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "The report itself always goes to stdout regardless.",
     )
     return ap
-
-
-def all_scan_dirs(
-    data_order: Sequence[str] | None,
-    raw_toml_data_inserts: Sequence[Mapping[str, Any]] | None = None,
-    data_inserts: Sequence[Mapping[str, Any]] | None = None,
-) -> list[str]:
-    """Return every folder a plugin or resource may live in for this run.
-
-    Namely:
-
-    the cfg's existing data= folders PLUS the pending custom data-path inserts (from a
-    mods-folder scan or a customizations TOML) that aren't in the cfg yet.
-
-        Conflict / cell-map / resource scans must search this combined list, not
-        just the cfg's dirs -- otherwise your custom mods are invisible to those
-        tools until AFTER the cfg has been written, which defeats the point of
-        checking them before committing to an order. (Pending dirs are appended
-        after the cfg dirs; that matches where they'd typically land.)
-    """
-    native = ordercore_bridge.native("order_all_scan_dirs")
-    if native is not None:
-        try:
-            got: list[str] = native(
-                list(data_order or []),
-                [str(d["value"]) for d in raw_toml_data_inserts or [] if d.get("value")],
-                [str(d["value"]) for d in data_inserts or [] if d.get("value")],
-            )
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return got
-    dirs = [v for v in (extract_data_path_value(line) for line in (data_order or [])) if v]
-    seen = {str(d).lower() for d in dirs}
-    for src in (data_inserts, raw_toml_data_inserts):
-        for d in src or []:
-            v = d.get("value")
-            if v and str(v).lower() not in seen:
-                seen.add(str(v).lower())
-                dirs.append(v)
-    return dirs
-
-
-def pending_custom_dirs(
-    raw_toml_data_inserts: Sequence[Mapping[str, Any]] | None = None,
-    data_inserts: Sequence[Mapping[str, Any]] | None = None,
-) -> list[str]:
-    """Return just the pending custom data-path folders.
-
-    Deduped, in declared order,
-    -- used to flag which side of a conflict is YOUR mod.
-    """
-    native = ordercore_bridge.native("order_pending_custom_dirs")
-    if native is not None:
-        try:
-            got: list[str] = native(
-                [str(d["value"]) for d in raw_toml_data_inserts or [] if d.get("value")],
-                [str(d["value"]) for d in data_inserts or [] if d.get("value")],
-            )
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            return got
-    out, seen = [], set()
-    for src in (data_inserts, raw_toml_data_inserts):
-        for d in src or []:
-            v = d.get("value")
-            if v and str(v).lower() not in seen:
-                seen.add(str(v).lower())
-                out.append(v)
-    return out
-
-
-def _toml_groundcover(text: str) -> list[str]:
-    """The ``groundcover = [...]`` key of the subset file's TOML form (none if it will not parse)."""
-    native = ordercore_bridge.native("order_subset_from_toml")
-    if native is not None:
-        try:
-            return list(native(text)[3])
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        import tomli as tomllib
-    try:
-        return [str(v) for v in (tomllib.loads(text).get("groundcover") or [])]
-    except (ValueError, TypeError):
-        return []  # a malformed TOML is reported by the subset reader
-
-
-def declared_groundcover(args: argparse.Namespace) -> list[str]:
-    """Collect every plugin this run declares as grass.
-
-    Three sources, all optional and additive: ``--groundcover`` on the command
-    line, ``groundcover=`` lines in a plain-text subset file, and a
-    ``groundcover = [...]`` key in the minimal TOML form. The GUI's in-memory
-    scan lines are read the same way as a file, so a scan can carry the
-    declaration too.
-
-    Args:
-        args: The parsed arguments.
-
-    Returns:
-        Plugin filenames, in the order encountered, de-duplicated
-        case-insensitively.
-    """
-    found: list[str] = []
-    found.extend(str(name) for name in (getattr(args, "groundcover", None) or []))
-
-    path = getattr(args, "subset_file", None)
-    if path:
-        try:
-            text = read_user_text(path, encoding="utf-8")
-        except OSError:
-            text = ""  # the subset reader reports this properly; do not double-warn
-        if str(path).lower().endswith(".toml"):
-            found.extend(_toml_groundcover(text))
-        else:
-            found.extend(extract_groundcover_declarations(text.splitlines(), str(path)))
-
-    found.extend(
-        extract_groundcover_declarations(
-            getattr(args, "subset_lines", None) or [], "scanned subset"
-        )
-    )
-
-    seen: set[str] = set()
-    unique: list[str] = []
-    for name in found:
-        if name.lower() not in seen:
-            seen.add(name.lower())
-            unique.append(name)
-    return unique
-
-
-def _read_subset_inputs(
-    args: argparse.Namespace,
-) -> tuple[
-    list[str],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    dict[str, str],
-    dict[str, Any],
-    set[str],
-    dict[str, str],
-]:
-    """Gather the subset to sort -- the READING INPUT stage of compute_plan.
-
-    Runs the optional mods-folder scan, then reads every declared source
-    (--subset, --subset-file, in-memory subset lines, --customizations),
-    de-dupes case-insensitively preserving declaration order, and refuses to
-    proceed with nothing to do. Extracted verbatim from compute_plan during
-    the §16 decomposition; the report output is unchanged.
-
-    Returns:
-        ``(subset, data_inserts, raw_toml_data_inserts,
-        original_content_values, original_toml_data, replace_dest_names,
-        subset_origins)``.
-
-    Raises:
-        SystemExit: No input source was given, or nothing usable was found.
-
-    """
-    if getattr(args, "scan_dir", None):
-        if not args.subset_file:
-            raise SystemExit("--scan-dir requires --subset-file (where to write the scanned list).")
-        _section("SCANNING MODS FOLDER")
-        scan_mod_directories(args.scan_dir, args.subset_file)
-
-    if (
-        not args.customizations
-        and not args.subset
-        and not args.subset_file
-        and not getattr(args, "subset_lines", None)
-        and not getattr(args, "subset_from_cfg", False)
-        and not getattr(args, "allow_empty_sort", False)
-    ):
-        raise SystemExit(
-            "Provide --customizations, --subset, --subset-file, --scan-dir, or "
-            "--subset-from-cfg so there's something to sort."
-        )
-
-    _section("READING INPUT")
-
-    subset = list(args.subset)
-    data_inserts = []
-    raw_toml_data_inserts = (
-        []
-    )  # captured regardless of --sort-data-paths, for --emit-toml passthrough
-    original_content_values: dict[str, str] = {}
-    original_toml_data: dict[str, Any] = {}
-    replace_dest_names: set[str] = set()
-    # {plugin_name_lower: "where this came from"} -- for check_predicates' warnings
-    subset_origins: dict[str, str] = {}
-
-    if args.subset_file:
-        file_plugins, file_data_inserts = extract_subset_from_subset_file(args.subset_file)
-        subset.extend(file_plugins)
-        raw_toml_data_inserts.extend(file_data_inserts)
-        print(
-            # Two counts in one line; "(s)" kept -- ngettext handles one count.
-            _("  %(file)s: %(plugins)d plugin(s), %(paths)d data path(s)")
-            % {
-                "file": args.subset_file,
-                "plugins": len(file_plugins),
-                "paths": len(file_data_inserts),
-            }
-        )
-        if args.sort_data_paths:
-            data_inserts.extend(file_data_inserts)
-        elif file_data_inserts:
-            print(
-                _(
-                    "  NOTE: data path insertions found but not sorted (pass "
-                    "--sort-data-paths to include them): %(paths)s"
-                )
-                % {"paths": ", ".join(d["value"] for d in file_data_inserts)}
-            )
-        for name in file_plugins:
-            original_content_values.setdefault(name, name)
-            subset_origins.setdefault(name.lower(), f"subset file ({args.subset_file.name})")
-
-    # In-memory subset lines (e.g. a GUI 'scan into memory' with no file saved).
-    # Classified exactly like a plain-text subset file, just never written out.
-    if getattr(args, "subset_lines", None):
-        mem_plugins, mem_data_inserts = extract_subset_from_lines(
-            args.subset_lines, source="scanned subset"
-        )
-        subset.extend(mem_plugins)
-        raw_toml_data_inserts.extend(mem_data_inserts)
-        print(
-            _("  in-memory scan: %(plugins)d plugin(s), %(paths)d data path(s)")
-            % {"plugins": len(mem_plugins), "paths": len(mem_data_inserts)}
-        )
-        if args.sort_data_paths:
-            data_inserts.extend(mem_data_inserts)
-        elif mem_data_inserts:
-            print(
-                ngettext(
-                    "  NOTE: data path insertion found but not sorted (pass "
-                    "--sort-data-paths to include it): %(count)d path",
-                    "  NOTE: data path insertions found but not sorted (pass "
-                    "--sort-data-paths to include them): %(count)d paths",
-                    len(mem_data_inserts),
-                )
-                % {"count": len(mem_data_inserts)}
-            )
-        for name in mem_plugins:
-            original_content_values.setdefault(name, name)
-            subset_origins.setdefault(name.lower(), "scanned subset (in memory)")
-
-    if args.customizations:
-        toml_subset, toml_data_inserts, replace_dest_names, subset_listnames = (
-            extract_subset_from_toml(args.customizations)
-        )
-        subset.extend(toml_subset)
-        raw_toml_data_inserts.extend(toml_data_inserts)
-        print(
-            _("  %(file)s: %(plugins)d content plugin(s), %(paths)d data path(s)")
-            % {
-                "file": args.customizations,
-                "plugins": len(toml_subset),
-                "paths": len(toml_data_inserts),
-            }
-        )
-        if args.sort_data_paths:
-            data_inserts.extend(toml_data_inserts)
-        elif toml_data_inserts:
-            print(
-                _(
-                    "  NOTE: data path insertions found but not sorted (pass "
-                    "--sort-data-paths to include them): %(paths)s"
-                )
-                % {"paths": ", ".join(d["value"] for d in toml_data_inserts)}
-            )
-        for name in toml_subset:
-            original_content_values[name] = name
-            listname = subset_listnames.get(name)
-            subset_origins[name.lower()] = (
-                f"customizations.toml -> '{listname}'" if listname else "customizations.toml"
-            )
-        if args.emit_toml:
-            try:
-                import tomllib
-            except ModuleNotFoundError:
-                import tomli as tomllib
-            original_toml_data = tomllib.loads(read_toml_text(args.customizations))
-
-    # de-dupe case-insensitively, PRESERVING declaration order (scan order /
-    # the order written in the subset file or TOML). Unconstrained mods keep
-    # this order at the end of the load, instead of being alphabetized.
-    _seen: set[str] = set()
-    subset = [
-        s for s in subset if not (s.lower() in _seen or _seen.add(s.lower()))  # type: ignore[func-returns-value]
-    ]
-    if (
-        not subset
-        and not data_inserts
-        and not raw_toml_data_inserts
-        and not getattr(args, "subset_from_cfg", False)
-        and not getattr(args, "allow_empty_sort", False)
-    ):
-        # With --subset-from-cfg the subset is filled later, in compute_plan, from
-        # the cfg's own orphaned entries -- so an otherwise-empty set is not "nothing
-        # to do" here. allow_empty_sort is the GUI's opt-out: it wants the run to
-        # proceed and hand back the cfg's current order so the user can edit it
-        # (remove entries) even with nothing to sort.
-        raise SystemExit("No subset plugins or data paths found -- nothing to do.")
-
-    return (
-        subset,
-        data_inserts,
-        raw_toml_data_inserts,
-        original_content_values,
-        original_toml_data,
-        replace_dest_names,
-        subset_origins,
-    )
-
-
-def _apply_plugin_order_yml(
-    args: argparse.Namespace, subset: list[str]
-) -> tuple[list[str], list[Any], set[str], list[str], list[str], set[str], str | None]:
-    """Split curated from custom -- the plugin-order.yml stage of compute_plan.
-
-    With a --list-name, curated plugins (those the yml says belong to that
-    list) are the list's responsibility -- they are dropped from the subset so
-    this tool never reorders them, leaving only YOUR true custom additions to
-    sort. Everything here is guarded; a missing/garbled yml just skips the
-    feature rather than failing the run. Extracted verbatim from compute_plan
-    during the §16 decomposition; the report output is unchanged.
-
-    Returns:
-        ``(subset, yml_entries, curated_set, curated_order, yml_warnings,
-        declared_lower, list_name)`` -- ``subset`` possibly narrowed,
-        ``declared_lower`` the pre-split declarations (for the orphan check).
-
-    """
-    yml_entries: list[Any] = []
-    curated_set: set[str] = set()
-    curated_order: list[str] = []
-    yml_warnings: list[str] = []
-    declared_lower = {
-        s.lower() for s in subset
-    }  # everything you declared, pre-split (for orphan check)
-    plugin_order_yml = getattr(args, "plugin_order_yml", None)
-    list_name = getattr(args, "list_name", None)
-    if plugin_order_yml:
-        _section("PLUGIN-ORDER.YML (MOMW source of truth)")
-        try:
-            yml_entries = parse_plugin_order_yml(Path(plugin_order_yml))
-            print(
-                ngettext(
-                    "  Loaded %(count)d plugin entry from %(file)s",
-                    "  Loaded %(count)d plugin entries from %(file)s",
-                    len(yml_entries),
-                )
-                % {"count": len(yml_entries), "file": Path(plugin_order_yml).name}
-            )
-        except Exception as e:  # noqa: BLE001 -- untrusted YAML, advisory only
-            # parse_plugin_order_yml runs PyYAML (or our fallback parser) over a
-            # community-maintained file. These are optional cross-checks; any
-            # parser failure must downgrade to a warning, never abort the sort.
-            print(
-                _("  WARNING: could not read plugin-order.yml (%(error)s) -- skipping yml checks.")
-                % {"error": e}
-            )
-            yml_entries = []
-        if yml_entries and not list_name:
-            print(
-                "  NOTE: no list name given -- can't separate curated-list plugins from your "
-                "custom ones, so curated/redundant/orphan/order checks are skipped "
-                "(needs-cleaning notes still work)."
-            )
-        if yml_entries and list_name:
-            curated_set, curated_order = curated_for_list(yml_entries, list_name)
-            print(
-                ngettext(
-                    "  '%(list)s': %(count)d curated plugin on this list",
-                    "  '%(list)s': %(count)d curated plugins on this list",
-                    len(curated_set),
-                )
-                % {"list": list_name, "count": len(curated_set)}
-            )
-            if not curated_set:
-                print(
-                    _(
-                        "  WARNING: no plugins found for list '%(list)s' in the yml -- check "
-                        "the list name spelling. Curated-set checks skipped."
-                    )
-                    % {"list": list_name}
-                )
-            redundant = [s for s in subset if s.lower() in curated_set]
-            if redundant:
-                subset = [s for s in subset if s.lower() not in curated_set]
-                yml_warnings.extend(
-                    f"[REDUNDANT] '{r}' is already part of the '{list_name}' list -- not "
-                    f"sorting it (leaving it to the curated list / configurator)."
-                    for r in redundant
-                )
-                print(
-                    ngettext(
-                        "  Excluded %(count)d curated plugin from the sort: %(names)s",
-                        "  Excluded %(count)d curated plugins from the sort: %(names)s",
-                        len(redundant),
-                    )
-                    % {"count": len(redundant), "names": ", ".join(redundant)}
-                )
-    return subset, yml_entries, curated_set, curated_order, yml_warnings, declared_lower, list_name
-
-
-def _sort_subset(
-    args: argparse.Namespace,
-    subset: Sequence[str],
-    base_order_names: list[str],
-    data_order: Sequence[str],
-    raw_toml_data_inserts: Sequence[Mapping[str, Any]],
-    data_inserts: Sequence[Mapping[str, Any]],
-    subset_origins: Mapping[str, str],
-    custom_anchors: MutableMapping[str, tuple[str, str | None]],
-) -> tuple[list[str] | None, list[str]]:
-    """Run the sort -- rules, masters, mlox order and warnings.
-
-    Loads the mlox rule blocks, reads header masters for the custom plugins
-    (best-effort), runs :func:`build_and_sort`, verifies the curated order did
-    not drift, prints the final ``content=`` order, and evaluates the
-    read-only predicate warnings. Extracted verbatim from compute_plan during
-    the §16 decomposition; the report output is unchanged.
-
-    Args:
-        args: The parsed CLI/GUI arguments (rule files, flags).
-        subset: The user's own plugins to place.
-        base_order_names: The curated ``content=`` order, treated as frozen.
-        data_order: Existing ``data=`` lines, used to locate the plugin files.
-        raw_toml_data_inserts: Pending data-path inserts from the TOML.
-        data_inserts: Pending data-path inserts for this run.
-        subset_origins: ``{plugin_lower: where it came from}``, for warnings.
-        custom_anchors: **Mutated in place** by build_and_sort with
-            ``{custom_lower: (how, anchor_name)}``.
-
-    Returns:
-        ``(final_order, predicate_warnings)`` -- ``(None, [])`` when the
-        subset is empty and there is nothing to sort.
-
-    """
-    final_order = None
-    predicate_warnings = []
-    if not subset and getattr(args, "allow_empty_sort", False):
-        _section("NOTHING TO SORT")
-        print(
-            _(
-                "  No plugins to sort. The current openmw.cfg load order is shown above "
-                "for editing -- remove entries and Export, or add plugins and Sort again."
-            )
-        )
-    if subset:
-        _section(f"SORTING {len(subset)} PLUGIN(S)")
-        print(f"  {', '.join(subset)}")
-
-        base_lower = {n.lower() for n in base_order_names}
-        already_present = [s for s in subset if s.lower() in base_lower]
-        new_plugins = [s for s in subset if s.lower() not in base_lower]
-        if already_present:
-            print(
-                _("\n  Already in cfg, will be repositioned within it: %(names)s")
-                % {"names": ", ".join(already_present)}
-            )
-        if new_plugins:
-            print(
-                _("  Not in cfg yet, will be inserted: %(names)s")
-                % {"names": ", ".join(new_plugins)}
-            )
-
-        _subsection("loading mlox rules")
-        rule_blocks, nearstart_pats, nearend_pats = load_rule_blocks(args.rules)
-
-        sort_trace_begin()  # fresh, dedicated sort log for this sort's play-by-play
-
-        # header-master dependencies for the custom plugins (best-effort: needs
-        # the mod files reachable via the cfg's data= folders). These force each
-        # custom to load after the masters it declares -- the real dependency the
-        # mlox rule DB doesn't cover for arbitrary mods.
-        masters = {}
-        try:
-            # Look for the custom plugin files in BOTH the cfg's existing data=
-            # folders AND the data paths being added by this run (the custom mods
-            # usually live in folders not yet in the cfg -- e.g. the umo custom
-            # dirs -- so without these their headers can't be read).
-            sort_dirs = all_scan_dirs(data_order, raw_toml_data_inserts, data_inserts)
-            sort_index = PluginFileIndex(sort_dirs)
-            trace_sort(
-                f"[sort] header-master read: searching {len(sort_dirs)} data folder(s) for "
-                f"{len(subset)} custom plugin(s)"
-            )
-            _not_found = 0
-            for name in subset:
-                p = sort_index.find(name)
-                if p is None:
-                    _not_found += 1
-                    trace_sort(
-                        f"[sort]  '{name}': file NOT found in data folders -- masters unknown"
-                    )
-                    continue
-                ms = read_plugin_masters(p)
-                trace_sort(f"[sort]  '{name}': {len(ms)} master(s) {ms}  ({p})")
-                if ms:
-                    masters[name.lower()] = ms
-            if _not_found:
-                trace_sort(
-                    f"[sort] header-master read: {_not_found} custom file(s) not found in any "
-                    f"data folder"
-                )
-            if masters:
-                print(
-                    _("  Read header masters for %(have)d of %(total)d custom plugin(s).")
-                    % {"have": len(masters), "total": len(subset)}
-                )
-            else:
-                print(
-                    "  (No header masters read -- mod files not reachable from the cfg's data= "
-                    "folders, so ordering uses mlox rules + ESM-first only.)"
-                )
-        except Exception:  # noqa: BLE001 -- binary plugin headers, advisory only
-            # Reads TES3 headers straight out of arbitrary .esp/.esm files, so a
-            # truncated or non-standard record can surface almost any error.
-            # Falling back to "no masters known" degrades the ordering hints;
-            # failing here would take out an otherwise fine sort.
-            masters = {}
-
-        final_order = build_and_sort(
-            base_order_names,
-            subset,
-            rule_blocks,
-            masters=masters,
-            nearstart=nearstart_pats,
-            nearend=nearend_pats,
-            anchor_out=custom_anchors,
-        )
-
-        # Drift check: the CURATED (non-custom) plugins must keep their exact cfg
-        # order. Customs that were already in the cfg are expected to move, so
-        # they're excluded from this check.
-        subset_lower_chk = {s.lower() for s in subset}
-        frozen_before = [n for n in base_order_names if n.lower() not in subset_lower_chk]
-        base_set = set(base_order_names)
-        frozen_after = [
-            n for n in final_order if n in base_set and n.lower() not in subset_lower_chk
-        ]
-        if frozen_before != frozen_after:
-            print(
-                "\n  INTERNAL WARNING: curated (frozen) order drifted -- this shouldn't happen. "
-                "Please double check the output before using it."
-            )
-
-        _subsection("final content= order")
-        subset_lower = {s.lower() for s in subset}
-        for n in final_order:
-            tag = "  <-- inserted/moved" if n.lower() in subset_lower else ""
-            print(f"  content={n}{tag}")
-
-        if not args.no_predicate_warnings:
-            rules_raw_text = load_rules_raw_text(args.rules)
-            pred_data_dirs = [
-                v for v in (extract_data_path_value(line) for line in data_order) if v
-            ]
-            predicate_warnings = check_predicates(
-                rules_raw_text, final_order, subset_origins, data_dirs=pred_data_dirs
-            )
-            if predicate_warnings:
-                _section(
-                    f"{len(predicate_warnings)} MLOX RULE WARNING(S) -- read-only, not enforced"
-                )
-                for w in predicate_warnings:
-                    print(f"\n{w}")
-            else:
-                print(_("\n  No [Conflict]/[Requires]/[Note] warnings triggered."))
-    return final_order, predicate_warnings
-
-
-def _yml_post_sort_warnings(
-    final_order: Sequence[str] | None,
-    base_order_names: Sequence[str],
-    yml_entries: Sequence[Any],
-    yml_warnings: list[str],
-    curated_set: Collection[str],
-    curated_order: Sequence[str],
-    declared_lower: Collection[str],
-    list_name: str | None,
-) -> None:
-    """Emit the plugin-order.yml post-sort sanity warnings (read-only).
-
-    Needs-cleaning notes, orphan detection and curated-order drift against the
-    yml. Extracted verbatim from compute_plan during the §16 decomposition;
-    the report output is unchanged.
-
-    Args:
-        final_order: The sorted order, or None when no sort ran.
-        base_order_names: The curated ``content=`` order from the cfg.
-        yml_entries: Parsed plugin-order.yml entries.
-        yml_warnings: **Extended in place** with any findings.
-        curated_set: Lowercased names the yml assigns to this list.
-        curated_order: The curated order the yml declares, for drift checks.
-        declared_lower: Everything the user declared, pre-split.
-        list_name: The MOMW list name, or None when not given.
-
-    """
-    # --- plugin-order.yml: post-sort sanity warnings (read-only) ------------
-    if yml_entries:
-        yml_warnings.extend(
-            post_sort_findings(
-                final_order,
-                base_order_names,
-                yml_entries,
-                curated_set,
-                curated_order,
-                declared_lower,
-                list_name,
-            )
-        )
-        if yml_warnings:
-            _section(f"{len(yml_warnings)} PLUGIN-ORDER.YML WARNING(S) -- read-only, not enforced")
-            for w in yml_warnings:
-                print(f"\n{w}")
-        else:
-            print(_("\n  No plugin-order.yml warnings."))
-
-
-def _data_path_order_warnings(
-    args: argparse.Namespace,
-    data_order: Sequence[str],
-) -> None:
-    """Emit data-path reconcile warnings against the cached list order (read-only).
-
-    When ``--data-paths-cache`` is given, check the list's cached data-path order
-    (fetched from the MOMW cfg-generator API) against the ``data=`` paths already
-    in ``openmw.cfg``: which of the list's paths are absent, and whether the cfg's
-    order contradicts the list's. Reports only; never rewrites the cfg. A read
-    failure is surfaced as one line rather than aborting the run.
-
-    Args:
-        args: The run arguments; ``data_paths_cache`` is read from it.
-        data_order: The cfg's raw ``data=`` lines.
-    """
-    cache = getattr(args, "data_paths_cache", None)
-    if not cache:
-        return
-    try:
-        tails = parse_data_paths_cache(Path(cache))
-    except OSError as exc:
-        _section("1 DATA PATH WARNING(S) -- read-only, not enforced")
-        print(f"\n[DATA PATH] could not read {Path(cache).name}: {exc}")
-        return
-    cfg_paths = [v for v in (extract_data_path_value(line) for line in data_order) if v]
-    warnings = reconcile_data_paths(
-        tails, cfg_paths, report_missing=bool(getattr(args, "verbose", 0))
-    )
-    if warnings:
-        _section(f"{len(warnings)} DATA PATH WARNING(S) -- read-only, not enforced")
-        for w in warnings:
-            print(f"\n{w}")
-    else:
-        print(_("\n  No data path warnings."))
-
-
-def _check_masters(
-    final_order: Sequence[str] | None,
-    base_order_names: Sequence[str],
-    data_order: Sequence[str],
-    raw_toml_data_inserts: Sequence[Mapping[str, Any]],
-    data_inserts: Sequence[Mapping[str, Any]],
-    subset_origins: Mapping[str, str],
-) -> tuple[list[str], list[str]]:
-    """Check for missing and out-of-order masters (always on, read-only).
-
-    Every active plugin's TES3 header masters must be present and load before
-    it -- a missing master fails hard at game launch. Checked against the
-    final (sorted) order when there is one, using the combined dirs (cfg +
-    pending custom paths) so custom mods are checked BEFORE the cfg is
-    written. Extracted verbatim from compute_plan during the §16
-    decomposition; the report output is unchanged.
-
-    Returns:
-        ``(master_warnings, master_problem_plugins)``.
-
-    """
-    master_warnings: list[str] = []
-    master_problem_plugins: list[str] = []
-    # --- missing / out-of-order master check (always on, read-only) ---------
-    # Every active plugin's TES3 header masters must be present and load
-    # before it -- a missing master fails hard at game launch, so this is
-    # checked on every run, against the final (sorted) order when there is
-    # one. Uses the combined dirs (cfg + pending custom paths) so custom mods
-    # are checked BEFORE the cfg is written.
-    master_warnings = []
-    master_problem_plugins = []
-    try:
-        _active_for_masters = final_order if final_order else base_order_names
-        _mindex = PluginFileIndex(all_scan_dirs(data_order, raw_toml_data_inserts, data_inserts))
-        _missing, _order_problems, _size_notes, _checked, _problem_names = check_missing_masters(
-            _active_for_masters, _mindex, subset_origins
-        )
-        master_problem_plugins = sorted(_problem_names, key=str.lower)
-        if _checked == 0:
-            _section("MASTER CHECK -- skipped")
-            print(_("  (plugin files not reachable from the data folders; can't read headers)"))
-        else:
-            master_warnings = _missing + _order_problems
-            n_issues = len(_missing) + len(_order_problems)
-            _section(
-                f"MASTER CHECK -- {_checked} plugin(s) read, "
-                f"{n_issues} problem(s), {len(_size_notes)} size note(s)"
-            )
-            for w in _missing:
-                print(f"\n{w}")
-            for w in _order_problems:
-                print(f"\n{w}")
-            if _size_notes:
-                _subsection(f"{len(_size_notes)} master size mismatch note(s) (usually benign)")
-                for w in _size_notes:
-                    print(f"{w}")
-            if not n_issues and not _size_notes:
-                print(_("  All masters present and correctly ordered."))
-    except Exception as e:  # noqa: BLE001 -- advisory whole-section guard
-        # Wraps the entire master-consistency report, which walks plugin headers
-        # from disk. It is diagnostic output: if any part of it fails the user
-        # should still get their sort, with a note that this check didn't run.
-        _LOG.warning(_("master check failed: %(error)s"), {"error": e})
-    return master_warnings, master_problem_plugins
-
-
-def _staleness_watchdog(
-    final_order: Sequence[str] | None,
-    base_order_names: Sequence[str],
-    data_order: Sequence[str],
-    raw_toml_data_inserts: Sequence[Mapping[str, Any]],
-    data_inserts: Sequence[Mapping[str, Any]],
-) -> None:
-    """Warn when a generated merged artefact has gone stale (read-only).
-
-    delta-plugin's merged leveled lists (and similar generated artifacts) only
-    reflect the plugins that existed when the Configurator last ran; if newer
-    plugins exist the merge is stale and quietly wrong. Extracted verbatim
-    from compute_plan during the §16 decomposition; the report output is
-    unchanged.
-    """
-    # --- merged-artifact staleness watchdog (read-only) ---------------------
-    # delta-plugin's merged leveled lists (and similar generated artifacts)
-    # only reflect the plugins that existed when the Configurator last ran.
-    # If newer plugins exist, the merge is stale and quietly wrong.
-    try:
-        _active_ws = final_order if final_order else base_order_names
-        _widx = PluginFileIndex(all_scan_dirs(data_order, raw_toml_data_inserts, data_inserts))
-        for _artifact in (
-            "delta-merged.omwaddon",
-            "deleted_groundcover.omwaddon",
-            "S3LightFixes.esp",
-        ):
-            _ap = _widx.find(_artifact)
-            if _ap is None or _artifact.lower() not in {n.lower() for n in _active_ws}:
-                continue
-            _amtime = _ap.stat().st_mtime
-            _newer = []
-            for _n in _active_ws:
-                if _n.lower() == _artifact.lower() or _n.lower().endswith(".omwscripts"):
-                    continue
-                _np = _widx.find(_n)
-                try:
-                    if _np is not None and _np.stat().st_mtime > _amtime:
-                        _newer.append(_n)
-                except OSError:
-                    pass
-            if _newer:
-                print(
-                    ngettext(
-                        "\n[STALE] '%(artifact)s' is older than %(count)d active plugin "
-                        "(e.g. %(examples)s%(more)s) -- re-run momw-configurator so it "
-                        "gets rebuilt against the current load order.",
-                        "\n[STALE] '%(artifact)s' is older than %(count)d active plugins "
-                        "(e.g. %(examples)s%(more)s) -- re-run momw-configurator so it "
-                        "gets rebuilt against the current load order.",
-                        len(_newer),
-                    )
-                    % {
-                        "artifact": _artifact,
-                        "count": len(_newer),
-                        "examples": ", ".join(_newer[:3]),
-                        "more": ", ..." if len(_newer) > 3 else "",
-                    }
-                )
-    except Exception:  # noqa: BLE001 -- purely cosmetic staleness hint
-        # This block only prints an optional "[STALE]" advisory about generated
-        # artifacts. It touches mtimes on paths that may not exist; there is no
-        # failure here worth showing the user, let alone aborting for.
-        pass
 
 
 def _conflict_and_cellmap_scans(
@@ -5746,19 +3530,19 @@ def _lint_stage(
 
 def _resource_stage(
     args: argparse.Namespace,
-    raw_toml_data_inserts: Sequence[Mapping[str, Any]],
-    data_inserts: Sequence[Mapping[str, Any]],
+    subset_dirs: Sequence[str],
     conf_dirs: Sequence[str],
 ) -> None:
     """Run the opt-in data-path (VFS) resource-conflict scan.
 
-    Extracted verbatim from compute_plan during the §16 decomposition; the
-    report output is unchanged.
+    Args:
+        args: The run's arguments.
+        subset_dirs: This run's own (pending) data folders, to say which side is yours.
+        conf_dirs: Every folder to scan.
     """
     want_resources = getattr(args, "resource_conflicts", False)
     if want_resources:
         _section("DATA-PATH RESOURCE (VFS) CONFLICTS (read-only)")
-        subset_dirs = pending_custom_dirs(raw_toml_data_inserts, data_inserts)
         rconf, rstats = detect_resource_conflicts(conf_dirs, subset_dirs=subset_dirs)
         # Meshes that conflict *and* differ get read. Everything else is left
         # closed: the point of the byte comparison above is that it already
@@ -5775,505 +3559,218 @@ def _resource_stage(
                 _LOG.error(_("could not write resource CSV: %(error)s"), {"error": e})
 
 
-def _plan_data_paths(
-    args: argparse.Namespace,
-    data_inserts: list[dict[str, Any]],
-    data_order: list[str],
-    final_order: Sequence[str] | None,
-) -> list[tuple[str, bool, str | None]] | None:
-    """Plan the data= path order for this run.
-
-    Reports unsorted paths, or (with --sort-data-paths) infers anchors and
-    computes the final data= order. Extracted verbatim from compute_plan
-    during the §16 decomposition; the report output is unchanged.
-
-    Returns:
-        insert_data_paths()'s result when paths were sorted, else ``None``.
-
-    """
-    data_result = None
-    # data_inserts is only ever populated (in _read_subset_inputs) when
-    # args.sort_data_paths is already True -- every source that would add to
-    # it prints its own "found but not sorted" note and skips the insert
-    # instead, whenever the flag is off. So reaching here with a non-empty
-    # data_inserts implies the flag is on.
-    if data_inserts and args.sort_data_paths:
-        _section(f"SORTING {len(data_inserts)} DATA PATH(S)")
-        infer_data_path_anchors(data_inserts, data_order, list(final_order or []), args.cfg)
-        for d in data_inserts:
-            anchor = (
-                (d.get("after") and f"after '{d['after']}'")
-                or (d.get("before") and f"before '{d['before']}'")
-                or "no anchor"
-            )
-            print(f"  {d['value']}  ({anchor})")
-        data_result = insert_data_paths(data_order, data_inserts)
-        _subsection("final data= order")
-        # NB: not `_` for the unused anchor -- `_` is the gettext marker, and
-        # binding it here would make it a function-local and turn every _()
-        # call earlier in this function into a NameError (ruff F823).
-        for line, is_new, _anchor in data_result:
-            print(f"  {line}{_('  <-- inserted') if is_new else ''}")
-    return data_result
-
-
-def _orphans_py(
-    subset: Sequence[str],
-    base_order_names: Sequence[str],
-    data_order: Sequence[str],
-    curated_set: Collection[str],
-    needs_cleaning_lower: Collection[str],
-    declared_lower: Collection[str],
-    groundcover_lower: Collection[str],
-    managed_data_norms: set[str] | None,
-) -> tuple[list[str], list[str]]:
-    """The orphan pull's answer in Python (``ordercore::inputs::cfg_orphans`` is the other).
-
-    Args:
-        subset: The subset so far (read only).
-        base_order_names: The cfg's ``content=`` order.
-        data_order: The cfg's raw ``data=`` lines.
-        curated_set: Plugins the curated list owns.
-        needs_cleaning_lower: Plugins the list flags for cleaning.
-        declared_lower: Plugins declared this run.
-        groundcover_lower: Lower-cased plugins the cfg declares as groundcover.
-        managed_data_norms: The data paths the list and this run account for, or None
-            without a data-paths cache.
-
-    Returns:
-        ``(new plugins, orphan data= values)``.
-    """
-    pull_data = managed_data_norms is not None
-    orphan_plugins, orphan_data = orphan_cfg_entries(
-        base_order_names,
-        data_order,
-        curated_lower={str(c).lower() for c in curated_set},
-        needs_cleaning_lower={str(c).lower() for c in needs_cleaning_lower},
-        declared_plugins_lower={str(d).lower() for d in declared_lower},
-        # Without the cache filter every cfg data= path looks unmanaged, so treat
-        # them all as "managed" (no orphans) rather than flooding the report.
-        declared_data_norms=(
-            managed_data_norms
-            if managed_data_norms is not None
-            else {
-                normalize_data_path(extract_data_path_value(x) or "")
-                for x in data_order
-                if extract_data_path_value(x)
-            }
-        ),
-    )
-
-    # A plugin the cfg also declares as groundcover belongs on a groundcover=
-    # line; adding it to content= too would load the grass twice.
-    if groundcover_lower:
-        orphan_plugins = [p for p in orphan_plugins if p.lower() not in groundcover_lower]
-
-    # Skip anything already declared explicitly this run (the later de-dupe would
-    # drop it anyway; not counting it keeps the report honest).
-    already = {s.lower() for s in subset}
-    new_plugins = [p for p in orphan_plugins if p.lower() not in already]
-    return new_plugins, orphan_data if pull_data else []
-
-
-def _pull_cfg_orphans(
-    args: argparse.Namespace,
-    subset: list[str],
-    data_inserts: list[dict[str, Any]],
-    raw_toml_data_inserts: list[dict[str, Any]],
-    original_content_values: dict[str, str],
-    subset_origins: dict[str, str],
-    base_order_names: Sequence[str],
-    data_order: Sequence[str],
-    curated_set: Collection[str],
-    needs_cleaning_lower: Collection[str],
-    declared_lower: Collection[str],
-    groundcover_lower: Collection[str],
-) -> tuple[list[str], list[str]]:
-    """Add the cfg's own orphaned ``content=`` plugins (and surface data paths).
-
-    No-op unless ``--subset-from-cfg`` is set. Otherwise pulls every ``content=``
-    plugin already in openmw.cfg that is neither curated (``plugin-order.yml``)
-    nor declared in the customizations, in cfg order, and hands them to the
-    sorter as ``already_present`` entries it repositions within the frozen order.
-    Base masters and any plugin the cfg declares as groundcover are excluded.
-
-    ``data=`` orphans are also identified, but only when a ``--data-paths-cache``
-    is given -- that cached MOMW list order is the "managed" signal a data folder
-    can match. Without it a data path is already in the cfg's own ``data=`` order
-    with no way to tell a curated folder from a hand-added one, so none are
-    surfaced. :func:`~wraithguard.momw_datapaths.managed_cfg_data_path_norms`
-    says which cfg ``data=`` paths the list accounts for; anything else (and not
-    declared, not the base game) is an orphan. They are *reported and returned* so
-    the caller/GUI can highlight them; they are not re-inserted, since they already
-    sit in ``data=`` and :func:`insert_data_paths` never reorders an existing line.
-
-    Args:
-        args: The parsed CLI/GUI arguments.
-        subset: The subset so far. **Appended to** with the orphan plugins.
-        data_inserts: This run's data-path inserts, read to skip already-declared
-            folders when classifying data orphans.
-        raw_toml_data_inserts: The TOML data-path inserts, read for the same.
-        original_content_values: ``{name: cfg spelling}``. **Updated** for the
-            orphan plugins.
-        subset_origins: ``{plugin_lower: source}``. **Updated** for the orphans.
-        base_order_names: The cfg's ``content=`` order.
-        data_order: The cfg's raw ``data=`` lines (read only, to classify).
-        curated_set: Lower-cased plugins the curated list owns (may be empty).
-        needs_cleaning_lower: Lower-cased plugins the list flags for cleaning,
-            for the ``clean_`` alias match (see :func:`curated_covers`).
-        declared_lower: Lower-cased plugins already declared this run.
-        groundcover_lower: Lower-cased plugins the cfg declares as groundcover.
-
-    Returns:
-        ``(subset, orphan_data_paths)`` -- the subset with orphan plugins
-        appended (in cfg order), and the orphaned ``data=`` path values (empty
-        unless a --data-paths-cache lets them be classified).
-    """
-    if not getattr(args, "subset_from_cfg", False):
-        return subset, []
-
-    _section(_("UNMANAGED (ORPHAN) ENTRIES FROM openmw.cfg"))
-
-    # data= orphans need a filter to tell a curated folder from a hand-added one.
-    # The cached MOMW list data paths are that filter: managed_cfg_data_path_
-    # norms() reports the cfg data= paths the list accounts for. With no cache we
-    # can't classify data paths, so declared_data_norms stays "everything is
-    # managed" (an empty orphan set) -- the pre-filter behavior.
-    cache = getattr(args, "data_paths_cache", None)
-    pull_data = bool(cache)
-    managed_data_norms: set[str] = set()
-    tails: list[str] = []
-    if pull_data:
-        cfg_data_values = [v for v in (extract_data_path_value(x) for x in data_order) if v]
-        try:
-            tails = parse_data_paths_cache(Path(str(cache)))
-        except OSError:
-            tails = []
-        managed_data_norms = managed_cfg_data_path_norms(tails, cfg_data_values)
-        declared_data_norms = {
-            normalize_data_path(d["value"]) for d in (*data_inserts, *raw_toml_data_inserts)
-        }
-        declared_data_norms.discard("")
-        managed_data_norms |= declared_data_norms
-
-    native = ordercore_bridge.native("order_cfg_orphans")
-    found: tuple[list[str], list[str]] | None = None
-    if native is not None:
-        try:
-            n_plugins, n_data = native(
-                list(subset),
-                list(base_order_names),
-                list(data_order),
-                {str(c).lower() for c in curated_set},
-                {str(c).lower() for c in needs_cleaning_lower},
-                {str(d).lower() for d in declared_lower},
-                {str(g).lower() for g in groundcover_lower},
-                [str(d["value"]) for d in (*data_inserts, *raw_toml_data_inserts)],
-                tails if pull_data else None,
-            )
-        except Exception as exc:
-            if not ordercore_bridge.declined(exc):
-                raise
-        else:
-            found = (list(n_plugins), list(n_data or []))
-    if found is not None:
-        new_plugins, orphan_data = found
-    else:
-        new_plugins, orphan_data = _orphans_py(
-            subset,
-            base_order_names,
-            data_order,
-            curated_set,
-            needs_cleaning_lower,
-            declared_lower,
-            groundcover_lower,
-            managed_data_norms if pull_data else None,
-        )
-    for name in new_plugins:
-        subset.append(name)
-        original_content_values.setdefault(name, name)
-        subset_origins.setdefault(name.lower(), "openmw.cfg (orphan)")
-
-    print(
-        ngettext(
-            "  %(count)d orphan plugin pulled from openmw.cfg",
-            "  %(count)d orphan plugins pulled from openmw.cfg",
-            len(new_plugins),
-        )
-        % {"count": len(new_plugins)}
-    )
-    for name in new_plugins:
-        print(f"    content={name}")
-
-    if not new_plugins:
-        print(
-            _(
-                "  No unmanaged plugins found -- every content= plugin in the cfg is on "
-                "the list or in your customizations."
-            )
-        )
-
-    # data= orphans: reported and returned (for GUI highlighting), not
-    # re-inserted -- they already sit in the cfg's data= order.
-    if pull_data:
-        print(
-            ngettext(
-                "  %(count)d orphan data= path found in openmw.cfg",
-                "  %(count)d orphan data= paths found in openmw.cfg",
-                len(orphan_data),
-            )
-            % {"count": len(orphan_data)}
-        )
-        for value in orphan_data:
-            print(f"    data={value}")
-        if not orphan_data:
-            print(
-                _(
-                    "  No unmanaged data= paths found -- every data= path in the cfg is on "
-                    "the list's data-path order or in your customizations."
-                )
-            )
-    else:
-        orphan_data = []
-        print(
-            _(
-                "  data= paths not classified -- fetch a data-paths cache for this list to "
-                "surface unmanaged (orphan) data= paths too."
-            )
-        )
-    return subset, orphan_data
-
-
-def compute_plan(args: argparse.Namespace) -> dict:
-    """Run the "read input, sort, evaluate warnings" half of a run.
-
-    Never
-    writes anything. Returns a plan dict that write_plan() can act on
-    (optionally with a manually-overridden final_order, e.g. from a GUI's
-    drag-to-reorder panel, instead of recomputing).
-
-    Decomposed into per-stage helpers (the _read_subset_inputs /
-    _apply_plugin_order_yml / _sort_subset / ... functions above and below)
-    during the §16 pass; each stage's body and report output moved verbatim,
-    and the whole pipeline stays pinned by tests/test_differential.py.
-    """
+#: What ``compute_plan`` prints and logs, as ``ordercore::plan`` words it (port step 4.2 slice
+#: 2k): each line of its report is matched to one of these and put back into the user's language
+#: (``ordercore_bridge.translated``). A pair is an ``ngettext`` message.
+_PLAN_MESSAGES: Final = (
+    "Scanned '%(path)s': %(folders)d mod folder(s), %(plugins)d plugin(s).",
+    "Wrote subset file: %(path)s",
+    "  %(file)s: %(plugins)d plugin(s), %(paths)d data path(s)",
+    "  NOTE: data path insertions found but not sorted (pass --sort-data-paths to include "
+    "them): %(paths)s",
+    "  in-memory scan: %(plugins)d plugin(s), %(paths)d data path(s)",
     (
-        subset,
-        data_inserts,
-        raw_toml_data_inserts,
-        original_content_values,
-        original_toml_data,
-        replace_dest_names,
-        subset_origins,
-    ) = _read_subset_inputs(args)
+        "  NOTE: data path insertion found but not sorted (pass --sort-data-paths to include "
+        "it): %(count)d path",
+        "  NOTE: data path insertions found but not sorted (pass --sort-data-paths to include "
+        "them): %(count)d paths",
+    ),
+    "  %(file)s: %(plugins)d content plugin(s), %(paths)d data path(s)",
+    "'%(entry)s' from %(source)s doesn't look like a plugin filename or a data folder path (no "
+    "recognized extension, no slash) -- skipping.",
+    "'%(entry)s' from %(source)s is declared as groundcover but is not a plugin filename -- "
+    "skipping.",
+    "groundcover declared by this run",
+    "  These are written as groundcover= rather than content=. Their data= folders are inserted "
+    "normally -- OpenMW has to find the file.",
+    "groundcover plugins held back",
+    (
+        "%(count)d plugin in your subset is already declared as groundcover in openmw.cfg, so it "
+        "was NOT added to content=:",
+        "%(count)d plugins in your subset are already declared as groundcover in openmw.cfg, so "
+        "they were NOT added to content=:",
+    ),
+    "  Their groundcover= lines are untouched and their data= paths are still written, so the "
+    "grass stays enabled -- as grass. Loading one as content= too would spawn every blade as a "
+    "real object.",
+    (
+        "  Loaded %(count)d plugin entry from %(file)s",
+        "  Loaded %(count)d plugin entries from %(file)s",
+    ),
+    "  WARNING: could not read plugin-order.yml (%(error)s) -- skipping yml checks.",
+    (
+        "  '%(list)s': %(count)d curated plugin on this list",
+        "  '%(list)s': %(count)d curated plugins on this list",
+    ),
+    "  WARNING: no plugins found for list '%(list)s' in the yml -- check the list name "
+    "spelling. Curated-set checks skipped.",
+    (
+        "  Excluded %(count)d curated plugin from the sort: %(names)s",
+        "  Excluded %(count)d curated plugins from the sort: %(names)s",
+    ),
+    "UNMANAGED (ORPHAN) ENTRIES FROM openmw.cfg",
+    (
+        "  %(count)d orphan plugin pulled from openmw.cfg",
+        "  %(count)d orphan plugins pulled from openmw.cfg",
+    ),
+    "  No unmanaged plugins found -- every content= plugin in the cfg is on the list or in your "
+    "customizations.",
+    (
+        "  %(count)d orphan data= path found in openmw.cfg",
+        "  %(count)d orphan data= paths found in openmw.cfg",
+    ),
+    "  No unmanaged data= paths found -- every data= path in the cfg is on the list's "
+    "data-path order or in your customizations.",
+    "  data= paths not classified -- fetch a data-paths cache for this list to surface "
+    "unmanaged (orphan) data= paths too.",
+    "  No plugins to sort. The current openmw.cfg load order is shown above for editing -- "
+    "remove entries and Export, or add plugins and Sort again.",
+    "\n  Already in cfg, will be repositioned within it: %(names)s",
+    "  Not in cfg yet, will be inserted: %(names)s",
+    (
+        "NOTE: %(name)s: %(count)d conditional/unrecognized line inside ordering rules treated "
+        "as not-installed and bridged over (mlox does the same).",
+        "NOTE: %(name)s: %(count)d conditional/unrecognized lines inside ordering rules treated "
+        "as not-installed and bridged over (mlox does the same).",
+    ),
+    "  Read header masters for %(have)d of %(total)d custom plugin(s).",
+    (
+        "%(count)d mlox ordering rule not applied -- your openmw.cfg already orders these the "
+        "other way, so your (curated) cfg order is kept:",
+        "%(count)d mlox ordering rules not applied -- your openmw.cfg already orders these the "
+        "other way, so your (curated) cfg order is kept:",
+    ),
+    "    - mlox wanted '%(first)s' before '%(second)s', but your load order already has "
+    "'%(second)s' before '%(first)s'",
+    "\n  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "\n  No plugin-order.yml warnings.",
+    "\n  No data path warnings.",
+    "  (plugin files not reachable from the data folders; can't read headers)",
+    "  All masters present and correctly ordered.",
+    (
+        "\n[STALE] '%(artifact)s' is older than %(count)d active plugin (e.g. "
+        "%(examples)s%(more)s) -- re-run momw-configurator so it gets rebuilt against the "
+        "current load order.",
+        "\n[STALE] '%(artifact)s' is older than %(count)d active plugins (e.g. "
+        "%(examples)s%(more)s) -- re-run momw-configurator so it gets rebuilt against the "
+        "current load order.",
+    ),
+    "  Inferred anchor for '%(value)s': %(mode)s '%(anchor)s' (via plugin %(via)s)",
+    "NOTE: '%(value)s' already present in data= list -- skipping duplicate insert.",
+    "NOTE: '%(value)s' has no after/before anchor -- appending at end of data= list.",
+    "WARNING: anchor '%(anchor)s' not found among existing data= paths for '%(value)s' -- "
+    "appending at end instead.",
+)
 
-    lines, content_positions, content_order, data_positions, data_order = read_cfg(args.cfg)
-    base_order_names = [name for name, _ in content_order]
+#: The tail ``final data= order`` puts on a line the run inserted.
+_INSERTED_TAIL: Final = "  <-- inserted"
 
-    # A grass plugin belongs on a groundcover= line and nowhere else. A folder
-    # scan cannot tell one apart -- it takes every plugin under the tree -- so
-    # one lands in the subset whenever the scanned folder is a shared mods
-    # directory. Inserting it as content= as well loads the grass twice, once
-    # instanced and once as real objects, which is a silent and severe
-    # performance cliff. The cfg already says which plugins those are.
-    # Grass the cfg already declares, plus grass this run declares. The second
-    # is how a newly installed grass mod gets in: it is not in the cfg yet, so
-    # there is nothing to read the fact off, and the user says so once instead.
-    cfg_groundcover = read_groundcover_names(lines)
-    user_groundcover = declared_groundcover(args)
-    known_lower = {name.lower() for name in cfg_groundcover}
-    new_groundcover = [name for name in user_groundcover if name.lower() not in known_lower]
-    subset, held_back_groundcover = hold_back_groundcover(
-        subset, [*cfg_groundcover, *user_groundcover]
-    )
-    if new_groundcover:
-        _subsection(_("groundcover declared by this run"))
-        for name in new_groundcover:
-            print(f"  groundcover={name}")
-        print(
-            _(
-                "  These are written as groundcover= rather than content=. Their data= "
-                "folders are inserted normally -- OpenMW has to find the file."
-            )
-        )
-    if held_back_groundcover:
-        _subsection(_("groundcover plugins held back"))
-        print(
-            ngettext(
-                "%(count)d plugin in your subset is already declared as groundcover in "
-                "openmw.cfg, so it was NOT added to content=:",
-                "%(count)d plugins in your subset are already declared as groundcover in "
-                "openmw.cfg, so they were NOT added to content=:",
-                len(held_back_groundcover),
-            )
-            % {"count": len(held_back_groundcover)}
-        )
-        for name in held_back_groundcover:
-            print(f"  {name}")
-        print(
-            _(
-                "  Their groundcover= lines are untouched and their data= paths are still "
-                "written, so the grass stays enabled -- as grass. Loading one as content= "
-                "too would spawn every blade as a real object."
-            )
-        )
 
-    custom_anchors: dict[str, tuple[str, str | None]] = {}  # from build_and_sort
+def _plan_args(args: argparse.Namespace) -> dict[str, Any]:
+    """What ``ordercore::plan::compute_plan`` reads off a run's arguments (paths as ``str``)."""
 
-    subset, yml_entries, curated_set, curated_order, yml_warnings, declared_lower, list_name = (
-        _apply_plugin_order_yml(args, subset)
-    )
-
-    # Optionally pull the cfg's own unmanaged (orphan) content=/data= into the
-    # subset, in cfg order, so they get sorted too. Runs after the yml stage so
-    # the curated set is known and after groundcover detection so a grass plugin
-    # is never pulled into content=.
-    subset, orphan_data_paths = _pull_cfg_orphans(
-        args,
-        subset,
-        data_inserts,
-        raw_toml_data_inserts,
-        original_content_values,
-        subset_origins,
-        base_order_names,
-        data_order,
-        curated_set,
-        needs_cleaning_set(yml_entries),
-        declared_lower,
-        {name.lower() for name in cfg_groundcover},
-    )
-
-    final_order, predicate_warnings = _sort_subset(
-        args,
-        subset,
-        base_order_names,
-        data_order,
-        raw_toml_data_inserts,
-        data_inserts,
-        subset_origins,
-        custom_anchors,
-    )
-
-    _yml_post_sort_warnings(
-        final_order,
-        base_order_names,
-        yml_entries,
-        yml_warnings,
-        curated_set,
-        curated_order,
-        declared_lower,
-        list_name,
-    )
-
-    _data_path_order_warnings(args, data_order)
-
-    master_warnings, master_problem_plugins = _check_masters(
-        final_order,
-        base_order_names,
-        data_order,
-        raw_toml_data_inserts,
-        data_inserts,
-        subset_origins,
-    )
-
-    _staleness_watchdog(
-        final_order, base_order_names, data_order, raw_toml_data_inserts, data_inserts
-    )
-
-    # Search the cfg's data= dirs AND the pending custom data paths, so the
-    # scans can see your custom mods BEFORE the cfg is updated.
-    conf_dirs = all_scan_dirs(data_order, raw_toml_data_inserts, data_inserts)
-    conflicts = _conflict_and_cellmap_scans(args, subset, final_order, base_order_names, conf_dirs)
-
-    _lint_stage(args, subset, final_order, base_order_names, conf_dirs, subset_origins)
-
-    _resource_stage(args, raw_toml_data_inserts, data_inserts, conf_dirs)
-
-    data_result = _plan_data_paths(args, data_inserts, data_order, final_order)
+    def path(name: str) -> str | None:
+        value = getattr(args, name, None)
+        return str(value) if value else None
 
     return {
-        "args": args,
-        "subset": subset,
-        "lines": lines,
-        "content_positions": content_positions,
-        "data_positions": data_positions,
-        "data_order": data_order,
-        "final_order": final_order,
-        "data_result": data_result,
-        "predicate_warnings": predicate_warnings,
-        "yml_warnings": yml_warnings,
-        "master_warnings": master_warnings,
-        "master_problem_plugins": master_problem_plugins,
-        "custom_anchors": custom_anchors,
-        "original_content_values": original_content_values,
-        "original_toml_data": original_toml_data,
-        "replace_dest_names": replace_dest_names,
-        "raw_toml_data_inserts": raw_toml_data_inserts,
-        "data_inserts": data_inserts,
-        # Unmanaged data= paths pulled from the cfg (values, cfg order). Empty
-        # unless --subset-from-cfg ran with a --data-paths-cache.
-        # Reported, not re-inserted; the GUI highlights them in the data panel.
-        "orphan_data_paths": orphan_data_paths,
-        "base_order_names": base_order_names,
-        # Which plugins the curated list owns. Empty when no plugin-order.yml
-        # was given -- and "empty" must be read as "unknown", not "none".
-        "curated_set": curated_set,
-        # Grass this run declares that the cfg does not already have. Written
-        # as groundcover= lines (direct write) and append blocks (TOML).
-        "new_groundcover": new_groundcover,
-        "conflicts": conflicts,
-        # every folder the scans should search THIS run (cfg data= dirs +
-        # pending custom data paths), and just the pending custom folders --
-        # so conflict/cell-map/resource scans can see your custom mods before
-        # the cfg is written
-        "scan_dirs": all_scan_dirs(data_order, raw_toml_data_inserts, data_inserts),
-        "custom_data_dirs": pending_custom_dirs(raw_toml_data_inserts, data_inserts),
+        "cfg": str(args.cfg),
+        "customizations": path("customizations"),
+        "subset": [str(s) for s in (getattr(args, "subset", None) or [])],
+        "subset_file": path("subset_file"),
+        "subset_lines": list(getattr(args, "subset_lines", None) or []) or None,
+        "scan_dir": path("scan_dir"),
+        "subset_from_cfg": bool(getattr(args, "subset_from_cfg", False)),
+        "allow_empty_sort": bool(getattr(args, "allow_empty_sort", False)),
+        "sort_data_paths": bool(getattr(args, "sort_data_paths", False)),
+        "emit_toml": bool(getattr(args, "emit_toml", None)),
+        "groundcover": [str(g) for g in (getattr(args, "groundcover", None) or [])],
+        "plugin_order_yml": path("plugin_order_yml"),
+        "list_name": getattr(args, "list_name", None) or None,
+        "rules": [str(r) for r in (getattr(args, "rules", None) or [])],
+        "no_predicate_warnings": bool(getattr(args, "no_predicate_warnings", False)),
+        "data_paths_cache": path("data_paths_cache"),
+        "verbose": bool(getattr(args, "verbose", 0)),
     }
 
 
-def cfg_segments(
-    plan: dict,
-    final_order: list | None = None,
-    data_order: list | None = None,
-) -> tuple[list[str], list, list | None]:
-    """Work out the cfg edits a plan makes, for a given (possibly hand-adjusted) order.
+#: The two summary lines whose answer is a word of its own (``yes`` / ``no``).
+_WRITTEN_LINE = re.compile(r"  (openmw\.cfg|customizations\.toml) written: +(yes|no)")
 
-    Args:
-        plan: A computed plan.
-        final_order: Enabled plugins in order; None uses the plan's own.
-        data_order: Enabled raw data= lines in order; None uses the plan's own.
+
+def _say(kind: str, text: str, templates: Iterable[str | tuple[str, str]] = _PLAN_MESSAGES) -> None:
+    """Print (or log) one item of ordercore's report in the user's language."""
+    if kind == "line" and text.endswith(_INSERTED_TAIL):
+        print(text[: -len(_INSERTED_TAIL)] + _("  <-- inserted"))
+        return
+    written = _WRITTEN_LINE.fullmatch(text) if kind == "line" else None
+    if written is not None:
+        answer = _("yes") if written.group(2) == "yes" else _("no")
+        if written.group(1) == "openmw.cfg":
+            print(_("  openmw.cfg written:    %(answer)s") % {"answer": answer})
+        else:
+            print(_("  customizations.toml written: %(answer)s") % {"answer": answer})
+        return
+    worded = ordercore_bridge.translated(text, templates)
+    if kind == "section":
+        _section(worded)
+    elif kind == "subsection":
+        _subsection(worded)
+    elif kind == "log":
+        _LOG.warning("%s", worded)
+    else:
+        print(worded)
+
+
+def compute_plan(args: argparse.Namespace) -> dict:
+    """Read the inputs, sort, and check the result: the first half of a run. Writes nothing.
+
+    Answered by ``ordercore::plan`` (port step 4.2 slice 2k); the report is printed as it
+    comes, in the user's language. At its ``scans`` item the record-conflict, cell-map, lint
+    and resource scans (the Python's until 4.3 / 4.4) run in their place.
 
     Returns:
-        (lines, segments, data_result): the cfg lines with any new groundcover
-        declarations appended, the content=/data= segments to splice in (see
-        :func:`splice_cfg_lines`), and the data_result in the order being written.
+        The plan :func:`write_plan` writes out.
+
+    Raises:
+        SystemExit: The run stops, with the reason.
     """
-    final_order = final_order if final_order is not None else plan["final_order"]
-    data_result = plan["data_result"]
-    # New groundcover declarations go in as their own lines. Appended to the
-    # end rather than spliced into an existing groundcover section: appending
-    # cannot shift any index, and every content=/data= position in `segments`
-    # is an index into these same lines. Placement does not matter to OpenMW --
-    # only the order of groundcover lines relative to each other does, and
-    # appending preserves that.
-    new_groundcover = list(plan.get("new_groundcover") or [])
-    plan_lines = list(plan["lines"])
-    if new_groundcover:
-        existing = {name.lower() for name in read_groundcover_names(plan_lines)}
-        additions = [f"groundcover={n}" for n in new_groundcover if n.lower() not in existing]
-        if additions:
-            plan_lines.extend(additions)
+    refused, items, got = ordercore_bridge.require("order_compute_plan")(_plan_args(args))
+    conflicts: list[dict[str, Any]] = []
+    for kind, text, _warning, _names in items:
+        if kind == "scans":
+            assert got is not None  # noqa: S101 - the report places the scans only in a plan
+            final = got["final_order"]
+            base = got["base_order_names"]
+            dirs = got["scan_dirs"]
+            conflicts = _conflict_and_cellmap_scans(args, got["subset"], final, base, dirs)
+            _lint_stage(args, got["subset"], final, base, dirs, got["subset_origins"])
+            _resource_stage(args, got["custom_data_dirs"], dirs)
+        else:
+            _say(kind, text)
+    if refused is not None:
+        raise SystemExit(refused)
+    assert got is not None  # noqa: S101 - no refusal, so a plan
+    original_toml_data: dict[str, Any] = {}
+    if args.customizations and getattr(args, "emit_toml", None):
+        import tomllib
 
-    if data_order is not None and data_result is not None:
-        lookup = {line: (is_new, value) for line, is_new, value in data_result}
-        data_result = [(line, *lookup.get(line, (False, None))) for line in data_order]
-
-    segments = []
-    if final_order:
-        segments.append((plan["content_positions"], [f"content={n}" for n in final_order]))
-    if data_result is not None:
-        segments.append((plan["data_positions"], [line for line, _, _ in data_result]))
-    return plan_lines, segments, data_result
+        original_toml_data = tomllib.loads(read_toml_text(args.customizations))
+    got.pop("subset_origins")
+    if got["data_result"] is not None:
+        got["data_result"] = [(line, new, value) for line, new, value in got["data_result"]]
+    got["custom_anchors"] = {k: (how, a) for k, (how, a) in got["custom_anchors"].items()}
+    got["replace_dest_names"] = set(got["replace_dest_names"])
+    got["curated_set"] = set(got["curated_set"])
+    if getattr(args, "sort_data_paths", False):
+        # the two lists hold the same inserts
+        got["raw_toml_data_inserts"] = got["data_inserts"]
+    return {
+        "args": args,
+        **got,
+        "original_toml_data": original_toml_data,
+        "conflicts": conflicts,
+    }
 
 
 def render_cfg_lines(
@@ -6281,10 +3778,10 @@ def render_cfg_lines(
     final_order: list | None = None,
     data_order: list | None = None,
 ) -> list[str]:
-    """The openmw.cfg a plan would write, without writing it.
+    """The openmw.cfg a plan would write, without writing it (``ordercore::export``).
 
     What Export would put on disk for this order, used to hand the cell viewer the setup
-    as it stands in the sort panels before anything is committed.
+    as it stands in the order panels.
 
     Args:
         plan: A computed plan.
@@ -6294,8 +3791,12 @@ def render_cfg_lines(
     Returns:
         The cfg's lines.
     """
-    lines, segments, _written = cfg_segments(plan, final_order, data_order)
-    return splice_cfg_lines(lines, segments)
+    lines: list[str] = ordercore_bridge.require("order_render_cfg_lines")(
+        _plain_plan(plan),
+        None if final_order is None else list(final_order),
+        None if data_order is None else list(data_order),
+    )
+    return lines
 
 
 def viewer_setup_cfg(lines: Sequence[str], cfg_dir: Path) -> list[str]:
@@ -6322,6 +3823,60 @@ def viewer_setup_cfg(lines: Sequence[str], cfg_dir: Path) -> list[str]:
     return out
 
 
+#: What ``write_plan`` prints, as ``ordercore::plan::export`` words it (see ``_PLAN_MESSAGES``).
+_WRITE_MESSAGES: Final = (
+    "\n--- DRY RUN: no files written ---",
+    "Backup written: %(path)s",
+    "Wrote updated: %(path)s",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "\n  DRY RUN: would write %(path)s\n%(toml)s",
+    "  Wrote corrected customizations: %(path)s",
+    "  Plugins sorted:        %(count)d",
+    "  Data paths inserted:   %(count)d",
+    "  Rule warnings raised:  %(count)d",
+    "  plugin-order.yml warnings: %(count)d",
+    "NOTE: '%(value)s' already present in data= list -- skipping duplicate insert.",
+    "NOTE: '%(value)s' has no after/before anchor -- appending at end of data= list.",
+    "WARNING: anchor '%(anchor)s' not found among existing data= paths for '%(value)s' -- "
+    "appending at end instead.",
+    "WARNING: anchor '%(anchor)s' in the emitted TOML matches %(count)d openmw.cfg lines -- "
+    "momw-configurator errors on ambiguous matches. Colliding lines: %(lines)s%(more)s",
+    "WARNING: remove entry '%(entry)s' matches %(count)d openmw.cfg lines -- momw-configurator "
+    "removes ALL of them, silently. Colliding lines: %(lines)s%(more)s",
+)
+
+
+def _plain_plan(plan: dict) -> dict[str, Any]:
+    """The plan as plain values (lists for its tuples and sets), for ``ordercore``."""
+    data_result = plan.get("data_result")
+
+    def inserts(name: str) -> list[dict[str, Any]]:
+        return [
+            {"value": d.get("value"), "after": d.get("after"), "before": d.get("before")}
+            for d in plan.get(name) or []
+        ]
+
+    return {
+        "lines": list(plan["lines"]),
+        "content_positions": list(plan["content_positions"]),
+        "data_positions": list(plan["data_positions"]),
+        "final_order": list(plan.get("final_order") or []),
+        "data_result": None if data_result is None else [list(r) for r in data_result],
+        "new_groundcover": list(plan.get("new_groundcover") or []),
+        "subset": list(plan.get("subset") or []),
+        "curated_set": sorted(plan.get("curated_set") or ()),
+        "base_order_names": list(plan.get("base_order_names") or []),
+        "data_order": list(plan.get("data_order") or []),
+        "data_inserts": inserts("data_inserts"),
+        "raw_toml_data_inserts": inserts("raw_toml_data_inserts"),
+        "orphan_data_paths": list(plan.get("orphan_data_paths") or []),
+        "original_toml_data": plan.get("original_toml_data") or None,
+        "original_content_values": dict(plan.get("original_content_values") or {}),
+        "replace_dest_names": sorted(plan.get("replace_dest_names") or ()),
+        "custom_anchors": {k: list(v) for k, v in (plan.get("custom_anchors") or {}).items()},
+    }
+
+
 def write_plan(
     args: argparse.Namespace,
     plan: dict,
@@ -6330,211 +3885,40 @@ def write_plan(
     disabled_plugins: Collection[str] | None = None,
     disabled_data: Collection[str] | None = None,
 ) -> dict:
-    """Write out a computed plan -- the second half of a run.
+    """Write out a computed plan: the second half of a run (``ordercore::plan::export``).
 
-    Uses plan["final_order"]/plan["data_result"] (what mlox/anchoring computed) unless a
-    caller passes its own final_order and/or data_order -- e.g. a GUI that let the
-    person drag-reorder either list before exporting. Nothing else about the plan is
-    affected by that override: warnings, etc. were already evaluated against the
-    computed order in compute_plan() and aren't recomputed here.
+    ``final_order`` / ``data_order`` override the plan's (orders the person changed: ENABLED
+    rows only, ``data_order`` raw ``data=`` lines); ``disabled_plugins`` / ``disabled_data``
+    are what they opted out of, given a ``removeContent`` / ``removeData`` where the curated
+    list would bring them back. The report is printed as it comes.
 
-        data_order, if given, is a plain list of raw data= line strings (a
-        permutation of the lines in plan["data_result"] -- not a list of bare
-        path values) in the order to write them. Each line's is_new/source-value
-        metadata is looked up from plan["data_result"] by exact line-text match,
-        so reordering never has to know or guess which lines were new inserts.
-
-        disabled_plugins / disabled_data (optional): items the user opted out of in
-        the GUI. The caller passes ENABLED-only final_order/data_order, so opted-out
-        items are already gone from what's written/inserted. Additionally, any
-        opted-out item that ALREADY EXISTS in openmw.cfg is emitted as a
-        removeContent (plugin) / removeData (data path) in the corrected TOML, so
-        momw-configurator durably removes it on the next rebuild instead of just not
-        re-inserting it. disabled_data holds raw 'data=...' lines.
+    Returns:
+        ``{"wrote_cfg": bool, "wrote_toml": bool}``.
     """
-    final_order = final_order if final_order is not None else plan["final_order"]
-    subset = plan["subset"]
-    data_result = plan["data_result"]
-
-    # Work out durable removals. A removal is only needed for something this
-    # tool does NOT put in the file itself: momw-configurator rebuilds the cfg
-    # from the curated list plus these customizations, so a plugin we simply
-    # stop inserting is already absent from the result. Emitting a
-    # removeContent for it as well is noise in a file people hand-edit.
-    #
-    # The discriminator is therefore "does the curated list own this plugin",
-    # not "is it currently in openmw.cfg" -- which was the old test, and which
-    # catches the user's own mods the moment they have exported once.
-    #
-    # Without a plugin-order.yml there is no curated set, and an empty one means
-    # "unknown" rather than "nothing is curated". In that case the presence test
-    # is the only signal available, so it stays as the fallback.
-    remove_content = plugins_needing_removal(
-        disabled_plugins or [],
-        plan.get("curated_set") or (),
-        plan.get("base_order_names") or [],
+    emit = getattr(args, "emit_toml", None)
+    items, wrote_cfg, wrote_toml, _toml_text, _cfg_lines, _user_vals = ordercore_bridge.require(
+        "order_write_plan"
+    )(
+        {
+            "write_cfg": bool(getattr(args, "write_cfg", False)),
+            "cfg": str(args.cfg),
+            "emit_toml": str(emit) if emit else None,
+            "dry_run": bool(getattr(args, "dry_run", False)),
+            "no_backup": bool(getattr(args, "no_backup", False)),
+            "sort_data_paths": bool(getattr(args, "sort_data_paths", False)),
+            "list_name": getattr(args, "list_name", None) or None,
+            # Local clock: goes into a .bak filename the user reads.
+            "stamp": datetime.now().strftime("%Y%m%d-%H%M%S"),  # noqa: DTZ005
+        },
+        _plain_plan(plan),
+        (len(plan.get("predicate_warnings") or []), len(plan.get("yml_warnings") or [])),
+        None if final_order is None else list(final_order),
+        None if data_order is None else list(data_order),
+        list(disabled_plugins or []),
+        list(disabled_data or []),
     )
-    base_data_norms = {
-        normalize_data_path(value)
-        for value in (extract_data_path_value(line) for line in (plan.get("data_order") or []))
-        if value
-    }
-    base_data_norms.discard("")
-    # The same rule as for plugins, for the same reason: a data path this run
-    # inserts is one we can simply stop inserting, so it needs no removeData.
-    # "Ours" is anything in this run's inserts -- from the subset OR from the
-    # source TOML, since the emitted file replaces that one wholesale.
-    ours = {
-        normalize_data_path(str(entry.get("value")))
-        for entry in [*(plan.get("data_inserts") or []), *(plan.get("raw_toml_data_inserts") or [])]
-        if entry.get("value")
-    }
-    ours.discard("")
-    remove_data = data_paths_needing_removal(disabled_data or [], ours, base_data_norms)
-    if remove_content or remove_data:
-        _subsection("opted-out items already in cfg -> removeContent/removeData")
-        for p in remove_content:
-            print(f"  removeContent: {p}")
-        for d in remove_data:
-            print(f"  removeData: {d}")
-
-    new_groundcover = list(plan.get("new_groundcover") or [])
-    plan_lines, segments, data_result = cfg_segments(plan, final_order, data_order)
-
-    if final_order and final_order != plan["final_order"]:
-        _subsection("content= order being exported (manually adjusted)")
-        for n in final_order:
-            print(f"  content={n}")
-
-    if data_result is not None and [line for line, _, _ in data_result] != [
-        line for line, _, _ in (plan["data_result"] or [])
-    ]:
-        _subsection("data= order being exported (manually adjusted)")
-        for line, _is_new, _anchor in data_result:
-            print(f"  {line}")
-
-    _section("WRITING OUTPUT")
-    wrote_cfg = False
-    if args.write_cfg:
-        write_cfg(args.cfg, plan_lines, segments, args.dry_run, args.no_backup)
-        wrote_cfg = not args.dry_run
-    else:
-        print(_("  openmw.cfg left untouched (pass --write-cfg to patch it directly)"))
-
-    wrote_toml = False
-    if args.emit_toml:
-        # Decide what data= inserts the TOML carries. The goal of --subset-from-cfg
-        # is that everything unmanaged in the cfg lands in the customizations so a
-        # momw-configurator rebuild re-creates it; a data= path only reaches the
-        # emitted TOML if it is classified "ours" (in user_data_values) against a
-        # data_result of the cfg's data= lines. Three cases:
-        #   * --sort-data-paths on: data_result already holds the (re)anchored
-        #     order; ours = this run's declared inserts + the cfg orphans.
-        #   * orphans present, sort off: build a data_result from the existing cfg
-        #     data= order so the orphan (and any already-applied TOML) paths are
-        #     there to re-emit, anchored to the curated (frozen) neighbours. Any
-        #     brand-new TOML insert not yet in the cfg is folded in with its own
-        #     anchor so switching off the raw passthrough loses nothing.
-        #   * neither: unchanged -- pass the raw TOML inserts through verbatim.
-        orphan_data = list(plan.get("orphan_data_paths") or [])
-        declared_vals = [d["value"] for d in (plan["data_inserts"] or [])]
-        raw_inserts = list(plan["raw_toml_data_inserts"] or [])
-        if args.sort_data_paths and data_result is not None:
-            # Data paths were sorted: data_result holds the (re)anchored order.
-            emit_data_result = data_result
-            emit_raw = None
-            emit_user_vals = declared_vals + orphan_data
-        elif orphan_data:
-            # Orphans to capture but no sorted data_result (e.g. --subset-from-cfg
-            # with no data inserts, whether or not --sort-data-paths was passed).
-            # Build a data_result from the existing cfg data= order so the orphan
-            # (and any already-applied TOML) paths are present to re-emit, anchored
-            # to the curated (frozen) neighbours; fold in any brand-new TOML insert
-            # not yet in the cfg so nothing the raw passthrough carried is lost.
-            src_lines = data_order if data_order is not None else list(plan.get("data_order") or [])
-            src_norms = {
-                normalize_data_path(extract_data_path_value(line) or "") for line in src_lines
-            }
-            src_norms.discard("")
-            brand_new = [
-                d for d in raw_inserts if normalize_data_path(d.get("value", "")) not in src_norms
-            ]
-            emit_data_result = insert_data_paths(list(src_lines), brand_new)
-            emit_raw = None
-            emit_user_vals = orphan_data + [d["value"] for d in raw_inserts]
-        else:
-            # No orphans: unchanged either/or -- sorted result, or raw passthrough.
-            emit_data_result = data_result if args.sort_data_paths else None
-            emit_raw = raw_inserts if not args.sort_data_paths else None
-            emit_user_vals = declared_vals
-        toml_text = generate_customizations_toml(
-            plan["original_toml_data"],
-            final_order or [],
-            set(subset),
-            plan["original_content_values"],
-            emit_data_result,
-            emit_raw,
-            plan["replace_dest_names"],
-            user_data_values=emit_user_vals,
-            list_name=getattr(args, "list_name", None),
-            remove_content=remove_content,
-            new_groundcover=new_groundcover,
-            remove_data=remove_data,
-            custom_anchors=plan.get("custom_anchors"),
-        )
-        # Dry-run the TOML through a faithful simulation of momw-configurator's
-        # apply logic and verify the result reproduces the sorted order.
-        _subsection("configurator preview (simulated apply)")
-        try:
-            _user_norms = [normalize_data_path(v) for v in emit_user_vals if v]
-            _ok, _rep = preview_configurator_result(
-                plan_lines,
-                toml_text,
-                list(final_order or []),
-                subset,
-                user_data_norms=_user_norms,
-                list_name=getattr(args, "list_name", None),
-            )
-            for _l in _rep:
-                print(_l)
-        except Exception as _e:  # noqa: BLE001 -- preview must never block export
-            # A read-only preview of what the configurator would emit. It parses
-            # TOML and cfg text that the user may have hand-edited; if the
-            # preview can't be produced, the actual export still must proceed.
-            print(_("  WARNING: configurator preview failed: %(error)s") % {"error": _e})
-        if args.dry_run:
-            print(
-                _("\n  DRY RUN: would write %(path)s\n%(toml)s")
-                % {"path": args.emit_toml, "toml": toml_text}
-            )
-        else:
-            backup_file(args.emit_toml, args.no_backup)
-            args.emit_toml.write_text(toml_text, encoding="utf-8")
-            print(_("  Wrote corrected customizations: %(path)s") % {"path": args.emit_toml})
-            wrote_toml = True
-
-    if not args.write_cfg and not args.emit_toml:
-        print(
-            "\n  NOTE: nothing was written -- this was a preview. "
-            "Pass --write-cfg and/or --emit-toml to save the result."
-        )
-
-    _section("SUMMARY")
-    print(_("  Plugins sorted:        %(count)d") % {"count": len(subset)})
-    print(
-        _("  Data paths inserted:   %(count)d")
-        % {"count": len(plan["data_inserts"]) if args.sort_data_paths else 0}
-    )
-    print(_("  Rule warnings raised:  %(count)d") % {"count": len(plan["predicate_warnings"])})
-    print(
-        _("  plugin-order.yml warnings: %(count)d") % {"count": len(plan.get("yml_warnings") or [])}
-    )
-    print(_("  openmw.cfg written:    %(answer)s") % {"answer": _("yes") if wrote_cfg else _("no")})
-    print(
-        _("  customizations.toml written: %(answer)s")
-        % {"answer": _("yes") if wrote_toml else _("no")}
-    )
-
+    for kind, text, _warning, _names in items:
+        _say(kind, text, _WRITE_MESSAGES)
     return {"wrote_cfg": wrote_cfg, "wrote_toml": wrote_toml}
 
 

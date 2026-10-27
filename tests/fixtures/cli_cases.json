@@ -1,0 +1,3433 @@
+{
+ "_about": "The command line: setups made on disk and a command line, answered by wraithguard_toolkit.py (what it prints on stdout and stderr, how it exits, the files it leaves); run by viewer-shell/cli/tests/cli_cases.rs against the Rust binary. Regenerate: python tools/gen_cli_cases.py",
+ "cases": [
+  {
+   "name": "a subset file, sorted with its folders",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "subset.txt": "# my plugins\nAlpha.esp\nBeta.esp   # a note\n<root>/mods/A\n<root>/mods/B\ngroundcover=New Grass.esp\ngroundcover=notaplugin\nreadme\nVurt Grass.esp\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset-file",
+    "<root>/subset.txt",
+    "--sort-data-paths",
+    "--groundcover",
+    "Extra Grass.esp",
+    "--write-cfg",
+    "--emit-toml",
+    "<root>/out.toml"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/subset.txt: 3 plugin(s), 2 data path(s)",
+    "",
+    "--- groundcover declared by this run ---",
+    "  groundcover=Extra Grass.esp",
+    "  groundcover=New Grass.esp",
+    "  These are written as groundcover= rather than content=. Their data= folders are inserted normally -- OpenMW has to find the file.",
+    "",
+    "--- groundcover plugins held back ---",
+    "1 plugin in your subset is already declared as groundcover in openmw.cfg, so it was NOT added to content=:",
+    "  Vurt Grass.esp",
+    "  Their groundcover= lines are untouched and their data= paths are still written, so the grass stays enabled -- as grass. Loading one as content= too would spawn every blade as a real object.",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 MLOX RULE WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 6 plugin(s) read, 0 problem(s), 6 size note(s)",
+    "======================================================================",
+    "",
+    "--- 6 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Tribunal.esm' was 0 bytes, installed copy is 362 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp' [subset file (subset.txt)]: header says 'Alpha.esp' was 0 bytes, installed copy is 399 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " SORTING 2 DATA PATH(S)",
+    "======================================================================",
+    "  Inferred anchor for '<root>/mods/A': after '<root>/game' (via plugin alpha.esp)",
+    "  Inferred anchor for '<root>/mods/B': after '<root>/game' (via plugin beta.esp)",
+    "  <root>/mods/A  (after '<root>/game')",
+    "  <root>/mods/B  (after '<root>/game')",
+    "",
+    "--- final data= order ---",
+    "  data=\"<root>/game\"",
+    "  data=\"<root>/mods/A\"  <-- inserted",
+    "  data=\"<root>/mods/B\"  <-- inserted",
+    "  data=\"<root>/mods/G\"",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "Backup written: <root>/openmw.cfg.bak-20261022-120000",
+    "Wrote updated: <root>/openmw.cfg",
+    "",
+    "--- configurator preview (simulated apply) ---",
+    "  VERIFIED: simulated apply reproduces the sorted order exactly (6 content= lines).",
+    "  Wrote corrected customizations: <root>/out.toml",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        2",
+    "  Data paths inserted:   2",
+    "  Rule warnings raised:  2",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    yes",
+    "  customizations.toml written: yes",
+    ""
+   ],
+   "stderr": [
+    "WARNING  'readme' from <root>/subset.txt doesn't look like a plugin filename or a data folder path (no recognized extension, no slash) -- skipping.",
+    "WARNING  'notaplugin' from <root>/subset.txt is declared as groundcover but is not a plugin filename -- skipping.",
+    ""
+   ],
+   "exit": 0,
+   "written": {
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/A\"\ndata=\"<root>/mods/B\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ncontent=Alpha.esp\ncontent=Beta.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\ngroundcover=Extra Grass.esp\ngroundcover=New Grass.esp\n",
+    "openmw.cfg.bak-20261022-120000": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "out.toml": "[[Customizations]]\nlistName = 'generated'\n\n[[Customizations.insert]]\ninsertBlock = '''<root>/mods/A\n<root>/mods/B'''\nbefore = '<root>/mods/G'\n\n# Alpha.esp: no ordering constraint -- positional only\n# Beta.esp: must load after 'Alpha.esp'\n[[Customizations.insert]]\ninsertBlock = '''Alpha.esp\nBeta.esp'''\nafter = 'Curated Two.esp'\n\n[[Customizations.append]]\nappend = 'groundcover=Extra Grass.esp'\n\n[[Customizations.append]]\nappend = 'groundcover=New Grass.esp'\n"
+   }
+  },
+  {
+   "name": "a subset file, folders not sorted",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "subset.txt": "# my plugins\nAlpha.esp\nBeta.esp   # a note\n<root>/mods/A\n<root>/mods/B\ngroundcover=New Grass.esp\ngroundcover=notaplugin\nreadme\nVurt Grass.esp\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset-file",
+    "<root>/subset.txt"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/subset.txt: 3 plugin(s), 2 data path(s)",
+    "  NOTE: data path insertions found but not sorted (pass --sort-data-paths to include them): <root>/mods/A, <root>/mods/B",
+    "",
+    "--- groundcover declared by this run ---",
+    "  groundcover=New Grass.esp",
+    "  These are written as groundcover= rather than content=. Their data= folders are inserted normally -- OpenMW has to find the file.",
+    "",
+    "--- groundcover plugins held back ---",
+    "1 plugin in your subset is already declared as groundcover in openmw.cfg, so it was NOT added to content=:",
+    "  Vurt Grass.esp",
+    "  Their groundcover= lines are untouched and their data= paths are still written, so the grass stays enabled -- as grass. Loading one as content= too would spawn every blade as a real object.",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 MLOX RULE WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 6 plugin(s) read, 0 problem(s), 6 size note(s)",
+    "======================================================================",
+    "",
+    "--- 6 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Tribunal.esm' was 0 bytes, installed copy is 362 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp' [subset file (subset.txt)]: header says 'Alpha.esp' was 0 bytes, installed copy is 399 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "",
+    "  NOTE: nothing was written -- this was a preview. Pass --write-cfg and/or --emit-toml to save the result.",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        2",
+    "  Data paths inserted:   0",
+    "  Rule warnings raised:  2",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    "WARNING  'readme' from <root>/subset.txt doesn't look like a plugin filename or a data folder path (no recognized extension, no slash) -- skipping.",
+    "WARNING  'notaplugin' from <root>/subset.txt is declared as groundcover but is not a plugin filename -- skipping.",
+    ""
+   ],
+   "exit": 0,
+   "written": {}
+  },
+  {
+   "name": "a customizations TOML with MOMW's file and a list",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "customizations.toml": "[[Customizations]]\nlistName = \"test-list\"\n\n[[Customizations.insert]]\ninsert = \"<root>/mods/C\"\nafter = \"<root>/game\"\n\n[[Customizations.insert]]\ninsertBlock = '''\nClash.esp\nGamma.esp\n'''\n\n[[Customizations.replace]]\nsource = \"Curated One.esp\"\ndest = \"Late Patch.esp\"\n",
+    "plugin-order.yml": "- file_name: Morrowind.esm\n  on_lists: [test-list]\n- file_name: Tribunal.esm\n  on_lists: [test-list]\n- file_name: Curated One.esp\n  on_lists: [test-list]\n  needs_cleaning: true\n- file_name: Curated Two.esp\n  on_lists: [test-list]\n- file_name: Beta.esp\n  on_lists: [test-list]\n- file_name: Gamma.esp\n  on_lists: [other-list]\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--customizations",
+    "<root>/customizations.toml",
+    "--plugin-order-yml",
+    "<root>/plugin-order.yml",
+    "--list-name",
+    "test-list",
+    "--sort-data-paths",
+    "--emit-toml",
+    "<root>/out.toml",
+    "--subset",
+    "Beta.esp",
+    "--write-cfg",
+    "--no-backup"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/customizations.toml: 3 content plugin(s), 1 data path(s)",
+    "",
+    "======================================================================",
+    " PLUGIN-ORDER.YML (MOMW source of truth)",
+    "======================================================================",
+    "  Loaded 6 plugin entries from plugin-order.yml",
+    "  'test-list': 5 curated plugins on this list",
+    "  Excluded 1 curated plugin from the sort: Beta.esp",
+    "",
+    "======================================================================",
+    " SORTING 3 PLUGIN(S)",
+    "======================================================================",
+    "  Clash.esp, Gamma.esp, Late Patch.esp",
+    "  Not in cfg yet, will be inserted: Clash.esp, Gamma.esp, Late Patch.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 1 of 3 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Clash.esp  <-- inserted/moved",
+    "  content=Gamma.esp  <-- inserted/moved",
+    "  content=Late Patch.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " 2 PLUGIN-ORDER.YML WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[REDUNDANT] 'Beta.esp' is already part of the 'test-list' list -- not sorting it (leaving it to the curated list / configurator).",
+    "",
+    "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 6 plugin(s) read, 0 problem(s), 4 size note(s)",
+    "======================================================================",
+    "",
+    "--- 4 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Clash.esp' [customizations.toml -> 'test-list']: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " SORTING 1 DATA PATH(S)",
+    "======================================================================",
+    "  <root>/mods/C  (after '<root>/game')",
+    "",
+    "--- final data= order ---",
+    "  data=\"<root>/game\"",
+    "  data=\"<root>/mods/C\"  <-- inserted",
+    "  data=\"<root>/mods/G\"",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "Wrote updated: <root>/openmw.cfg",
+    "",
+    "--- configurator preview (simulated apply) ---",
+    "  MISMATCH: the simulated Configurator result differs from the sorted order!",
+    "    first difference at #2: simulated 'Late Patch.esp' vs expected 'Curated One.esp'",
+    "    lengths differ: simulated 6 vs expected 7",
+    "  Wrote corrected customizations: <root>/out.toml",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        3",
+    "  Data paths inserted:   1",
+    "  Rule warnings raised:  0",
+    "  plugin-order.yml warnings: 2",
+    "  openmw.cfg written:    yes",
+    "  customizations.toml written: yes",
+    ""
+   ],
+   "stderr": [
+    ""
+   ],
+   "exit": 0,
+   "written": {
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/C\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ncontent=Clash.esp\ncontent=Gamma.esp\ncontent=Late Patch.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "out.toml": "[[Customizations]]\nlistName = 'test-list'\n\n[[Customizations.insert]]\ninsert = '<root>/mods/C'\nbefore = '<root>/mods/G'\n\n# Clash.esp: no ordering constraint -- positional only\n# Gamma.esp: no ordering constraint -- positional only\n[[Customizations.insert]]\ninsertBlock = '''Clash.esp\nGamma.esp'''\nafter = 'Curated Two.esp'\n\n# Yours: carried through unchanged. This tool never writes a replace of\n# its own -- only insert, append and remove blocks are regenerated.\n# mlox sorts Late Patch.esp to position 7 of 7\n#   after: Gamma.esp\n# A replace has no after/before -- it inherits the position of source --\n# so if that is not where it sits now, only you can move it: change this\n# block to an insert, or leave it as it is on purpose.\n[[Customizations.replace]]\nsource = 'Curated One.esp'\ndest = 'Late Patch.esp'\n"
+   }
+  },
+  {
+   "name": "orphans from the cfg, with a data-paths cache",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ndata=<root>/hand\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ncontent=Hand Added.esp\ncontent=clean_Curated One.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "plugin-order.yml": "- file_name: Morrowind.esm\n  on_lists: [test-list]\n- file_name: Tribunal.esm\n  on_lists: [test-list]\n- file_name: Curated One.esp\n  on_lists: [test-list]\n  needs_cleaning: true\n- file_name: Curated Two.esp\n  on_lists: [test-list]\n- file_name: Beta.esp\n  on_lists: [test-list]\n- file_name: Gamma.esp\n  on_lists: [other-list]\n",
+    "cache.txt": "# data paths\ngame\nmods/G\nmods/Z\n",
+    "hand/Hand Added.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    }
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset-from-cfg",
+    "--plugin-order-yml",
+    "<root>/plugin-order.yml",
+    "--list-name",
+    "test-list",
+    "--data-paths-cache",
+    "<root>/cache.txt",
+    "--emit-toml",
+    "<root>/out.toml"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " PLUGIN-ORDER.YML (MOMW source of truth)",
+    "======================================================================",
+    "  Loaded 6 plugin entries from plugin-order.yml",
+    "  'test-list': 5 curated plugins on this list",
+    "",
+    "======================================================================",
+    " UNMANAGED (ORPHAN) ENTRIES FROM openmw.cfg",
+    "======================================================================",
+    "  1 orphan plugin pulled from openmw.cfg",
+    "    content=Hand Added.esp",
+    "  1 orphan data= path found in openmw.cfg",
+    "    data=<root>/hand",
+    "",
+    "======================================================================",
+    " SORTING 1 PLUGIN(S)",
+    "======================================================================",
+    "  Hand Added.esp",
+    "",
+    "  Already in cfg, will be repositioned within it: Hand Added.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 1 of 1 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Hand Added.esp  <-- inserted/moved",
+    "  content=clean_Curated One.esp",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " 2 PLUGIN-ORDER.YML WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "",
+    "[ORPHAN] 'Hand Added.esp' is in your cfg but not on the 'test-list' list and not in your customizations -- an unmanaged custom plugin (fine if intentional).",
+    "",
+    "======================================================================",
+    " 1 DATA PATH WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[DATA PATH] 1 of the list's data= path(s) are not in openmw.cfg (usually mods you haven't installed -- not enforced). Re-run with -v to list them.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 5 plugin(s) read, 0 problem(s), 4 size note(s)",
+    "======================================================================",
+    "",
+    "--- 4 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Hand Added.esp' [openmw.cfg (orphan)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "",
+    "--- configurator preview (simulated apply) ---",
+    "  VERIFIED: simulated apply reproduces the sorted order exactly (6 content= lines).",
+    "  Wrote corrected customizations: <root>/out.toml",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        1",
+    "  Data paths inserted:   0",
+    "  Rule warnings raised:  0",
+    "  plugin-order.yml warnings: 2",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: yes",
+    ""
+   ],
+   "stderr": [
+    ""
+   ],
+   "exit": 0,
+   "written": {
+    "out.toml": "[[Customizations]]\nlistName = 'test-list'\n\n[[Customizations.insert]]\ninsert = '<root>/hand'\nafter = '<root>/mods/G'\n\n# Hand Added.esp: no ordering constraint -- positional only\n[[Customizations.insert]]\ninsert = 'Hand Added.esp'\nafter = 'Curated Two.esp'\n"
+   }
+  },
+  {
+   "name": "a missing MOMW file and cache",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset",
+    "Alpha.esp",
+    "--plugin-order-yml",
+    "<root>/nope.yml",
+    "--data-paths-cache",
+    "<root>/nope.txt"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " PLUGIN-ORDER.YML (MOMW source of truth)",
+    "======================================================================",
+    "  WARNING: could not read plugin-order.yml ([Errno 2] No such file or directory: '<root>/nope.yml') -- skipping yml checks.",
+    "",
+    "======================================================================",
+    " SORTING 1 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  (No header masters read -- mod files not reachable from the cfg's data= folders, so ordering uses mlox rules + ESM-first only.)",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " 1 DATA PATH WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[DATA PATH] could not read nope.txt: [Errno 2] No such file or directory: '<root>/nope.txt'",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "",
+    "  NOTE: nothing was written -- this was a preview. Pass --write-cfg and/or --emit-toml to save the result.",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        1",
+    "  Data paths inserted:   0",
+    "  Rule warnings raised:  0",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    ""
+   ],
+   "exit": 0,
+   "written": {}
+  },
+  {
+   "name": "nothing to sort",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules"
+   ],
+   "stdout": [
+    ""
+   ],
+   "stderr": [
+    "Provide --customizations, --subset, --subset-file, --scan-dir, or --subset-from-cfg so there's something to sort.",
+    ""
+   ],
+   "exit": 1,
+   "written": {}
+  },
+  {
+   "name": "a subset of only grass",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset",
+    "Vurt Grass.esp"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "--- groundcover plugins held back ---",
+    "1 plugin in your subset is already declared as groundcover in openmw.cfg, so it was NOT added to content=:",
+    "  Vurt Grass.esp",
+    "  Their groundcover= lines are untouched and their data= paths are still written, so the grass stays enabled -- as grass. Loading one as content= too would spawn every blade as a real object.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "",
+    "  NOTE: nothing was written -- this was a preview. Pass --write-cfg and/or --emit-toml to save the result.",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        0",
+    "  Data paths inserted:   0",
+    "  Rule warnings raised:  0",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    ""
+   ],
+   "exit": 0,
+   "written": {}
+  },
+  {
+   "name": "a scan written to the subset file",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "scan/One/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "scan/One/Textures": null
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--scan-dir",
+    "<root>/scan",
+    "--subset-file",
+    "<root>/scanned.txt",
+    "--sort-data-paths"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " SCANNING MODS FOLDER",
+    "======================================================================",
+    "Scanned '<root>/scan': 1 mod folder(s), 1 plugin(s).",
+    "Wrote subset file: <root>/scanned.txt",
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/scanned.txt: 1 plugin(s), 1 data path(s)",
+    "",
+    "======================================================================",
+    " SORTING 1 PLUGIN(S)",
+    "======================================================================",
+    "  Late Patch.esp",
+    "  Not in cfg yet, will be inserted: Late Patch.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 1 of 1 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Late Patch.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 5 plugin(s) read, 1 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "[MISSING MASTER] 'Late Patch.esp' [subset file (scanned.txt)] requires 'Beta.esp' -- NOT FOUND in any data folder. The game will fail to load with this plugin enabled.",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " SORTING 1 DATA PATH(S)",
+    "======================================================================",
+    "  Inferred anchor for '<root>/scan/One': after '<root>/game' (via plugin late patch.esp)",
+    "  <root>/scan/One  (after '<root>/game')",
+    "",
+    "--- final data= order ---",
+    "  data=\"<root>/game\"",
+    "  data=\"<root>/scan/One\"  <-- inserted",
+    "  data=\"<root>/mods/G\"",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "",
+    "  NOTE: nothing was written -- this was a preview. Pass --write-cfg and/or --emit-toml to save the result.",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        1",
+    "  Data paths inserted:   1",
+    "  Rule warnings raised:  0",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    ""
+   ],
+   "exit": 0,
+   "written": {
+    "scanned.txt": "<root>/scan/One\nLate Patch.esp\n\n"
+   }
+  },
+  {
+   "name": "a scan with nowhere to write",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--scan-dir",
+    "<root>/mods"
+   ],
+   "stdout": [
+    ""
+   ],
+   "stderr": [
+    "--scan-dir requires --subset-file (where to write the scanned list).",
+    ""
+   ],
+   "exit": 1,
+   "written": {}
+  },
+  {
+   "name": "a merged file gone stale, and an order the rules turn round",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": [],
+     "mtime": 3000000
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ],
+     "mtime": 4000000
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ],
+     "mtime": 2000000
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ],
+     "mtime": 500000
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ndata=\"<root>/merged\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ncontent=delta-merged.omwaddon\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "merged/delta-merged.omwaddon": {
+     "masters": [],
+     "mtime": 1000000
+    },
+    "game/z.omwscripts": "PLAYER: x.lua"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset",
+    "Gamma.esp",
+    "Alpha.esp",
+    "Needy.esp",
+    "Clash.esp",
+    "--write-cfg",
+    "--emit-toml",
+    "<root>/out.toml",
+    "--dry-run"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " SORTING 4 PLUGIN(S)",
+    "======================================================================",
+    "  Gamma.esp, Alpha.esp, Needy.esp, Clash.esp",
+    "  Not in cfg yet, will be inserted: Gamma.esp, Alpha.esp, Needy.esp, Clash.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  (No header masters read -- mod files not reachable from the cfg's data= folders, so ordering uses mlox rules + ESM-first only.)",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=delta-merged.omwaddon",
+    "  content=Gamma.esp  <-- inserted/moved",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Needy.esp  <-- inserted/moved",
+    "  content=Clash.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 MLOX RULE WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[CONFLICT] ",
+    "    Caused by: Alpha.esp, Clash.esp",
+    "",
+    "[CONFLICT] ",
+    "    Caused by: Alpha.esp, Clash.esp",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 5 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "[STALE] 'delta-merged.omwaddon' is older than 3 active plugins (e.g. Morrowind.esm, Tribunal.esm, Curated One.esp) -- re-run momw-configurator so it gets rebuilt against the current load order.",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "",
+    "--- DRY RUN: no files written ---",
+    "",
+    "--- configurator preview (simulated apply) ---",
+    "  VERIFIED: simulated apply reproduces the sorted order exactly (9 content= lines).",
+    "",
+    "  DRY RUN: would write <root>/out.toml",
+    "[[Customizations]]",
+    "listName = 'generated'",
+    "",
+    "# Gamma.esp: no ordering constraint -- positional only",
+    "# Alpha.esp: must load after 'Gamma.esp'",
+    "# Needy.esp: no ordering constraint -- positional only",
+    "# Clash.esp: no ordering constraint -- positional only",
+    "[[Customizations.insert]]",
+    "insertBlock = '''Gamma.esp",
+    "Alpha.esp",
+    "Needy.esp",
+    "Clash.esp'''",
+    "after = 'delta-merged.omwaddon'",
+    "",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        4",
+    "  Data paths inserted:   0",
+    "  Rule warnings raised:  2",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    ""
+   ],
+   "exit": 0,
+   "written": {}
+  },
+  {
+   "name": "a dry run of writing both",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "subset.txt": "# my plugins\nAlpha.esp\nBeta.esp   # a note\n<root>/mods/A\n<root>/mods/B\ngroundcover=New Grass.esp\ngroundcover=notaplugin\nreadme\nVurt Grass.esp\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset-file",
+    "<root>/subset.txt",
+    "--sort-data-paths",
+    "--groundcover",
+    "Extra Grass.esp",
+    "--write-cfg",
+    "--emit-toml",
+    "<root>/out.toml",
+    "--dry-run"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/subset.txt: 3 plugin(s), 2 data path(s)",
+    "",
+    "--- groundcover declared by this run ---",
+    "  groundcover=Extra Grass.esp",
+    "  groundcover=New Grass.esp",
+    "  These are written as groundcover= rather than content=. Their data= folders are inserted normally -- OpenMW has to find the file.",
+    "",
+    "--- groundcover plugins held back ---",
+    "1 plugin in your subset is already declared as groundcover in openmw.cfg, so it was NOT added to content=:",
+    "  Vurt Grass.esp",
+    "  Their groundcover= lines are untouched and their data= paths are still written, so the grass stays enabled -- as grass. Loading one as content= too would spawn every blade as a real object.",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 MLOX RULE WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 6 plugin(s) read, 0 problem(s), 6 size note(s)",
+    "======================================================================",
+    "",
+    "--- 6 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Tribunal.esm' was 0 bytes, installed copy is 362 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp' [subset file (subset.txt)]: header says 'Alpha.esp' was 0 bytes, installed copy is 399 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " SORTING 2 DATA PATH(S)",
+    "======================================================================",
+    "  Inferred anchor for '<root>/mods/A': after '<root>/game' (via plugin alpha.esp)",
+    "  Inferred anchor for '<root>/mods/B': after '<root>/game' (via plugin beta.esp)",
+    "  <root>/mods/A  (after '<root>/game')",
+    "  <root>/mods/B  (after '<root>/game')",
+    "",
+    "--- final data= order ---",
+    "  data=\"<root>/game\"",
+    "  data=\"<root>/mods/A\"  <-- inserted",
+    "  data=\"<root>/mods/B\"  <-- inserted",
+    "  data=\"<root>/mods/G\"",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "",
+    "--- DRY RUN: no files written ---",
+    "",
+    "--- configurator preview (simulated apply) ---",
+    "  VERIFIED: simulated apply reproduces the sorted order exactly (6 content= lines).",
+    "",
+    "  DRY RUN: would write <root>/out.toml",
+    "[[Customizations]]",
+    "listName = 'generated'",
+    "",
+    "[[Customizations.insert]]",
+    "insertBlock = '''<root>/mods/A",
+    "<root>/mods/B'''",
+    "before = '<root>/mods/G'",
+    "",
+    "# Alpha.esp: no ordering constraint -- positional only",
+    "# Beta.esp: must load after 'Alpha.esp'",
+    "[[Customizations.insert]]",
+    "insertBlock = '''Alpha.esp",
+    "Beta.esp'''",
+    "after = 'Curated Two.esp'",
+    "",
+    "[[Customizations.append]]",
+    "append = 'groundcover=Extra Grass.esp'",
+    "",
+    "[[Customizations.append]]",
+    "append = 'groundcover=New Grass.esp'",
+    "",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        2",
+    "  Data paths inserted:   2",
+    "  Rule warnings raised:  2",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    "WARNING  'readme' from <root>/subset.txt doesn't look like a plugin filename or a data folder path (no recognized extension, no slash) -- skipping.",
+    "WARNING  'notaplugin' from <root>/subset.txt is declared as groundcover but is not a plugin filename -- skipping.",
+    ""
+   ],
+   "exit": 0,
+   "written": {}
+  },
+  {
+   "name": "verbose, without the rule warnings",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "subset.txt": "# my plugins\nAlpha.esp\nBeta.esp   # a note\n<root>/mods/A\n<root>/mods/B\ngroundcover=New Grass.esp\ngroundcover=notaplugin\nreadme\nVurt Grass.esp\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset-file",
+    "<root>/subset.txt",
+    "-v",
+    "--no-predicate-warnings"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/subset.txt: 3 plugin(s), 2 data path(s)",
+    "  NOTE: data path insertions found but not sorted (pass --sort-data-paths to include them): <root>/mods/A, <root>/mods/B",
+    "",
+    "--- groundcover declared by this run ---",
+    "  groundcover=New Grass.esp",
+    "  These are written as groundcover= rather than content=. Their data= folders are inserted normally -- OpenMW has to find the file.",
+    "",
+    "--- groundcover plugins held back ---",
+    "1 plugin in your subset is already declared as groundcover in openmw.cfg, so it was NOT added to content=:",
+    "  Vurt Grass.esp",
+    "  Their groundcover= lines are untouched and their data= paths are still written, so the grass stays enabled -- as grass. Loading one as content= too would spawn every blade as a real object.",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 6 plugin(s) read, 0 problem(s), 6 size note(s)",
+    "======================================================================",
+    "",
+    "--- 6 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Tribunal.esm' was 0 bytes, installed copy is 362 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp' [subset file (subset.txt)]: header says 'Alpha.esp' was 0 bytes, installed copy is 399 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "",
+    "  NOTE: nothing was written -- this was a preview. Pass --write-cfg and/or --emit-toml to save the result.",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        2",
+    "  Data paths inserted:   0",
+    "  Rule warnings raised:  0",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    "WARNING  'readme' from <root>/subset.txt doesn't look like a plugin filename or a data folder path (no recognized extension, no slash) -- skipping.",
+    "WARNING  'notaplugin' from <root>/subset.txt is declared as groundcover but is not a plugin filename -- skipping.",
+    ""
+   ],
+   "exit": 0,
+   "written": {}
+  },
+  {
+   "name": "every scan, their files written",
+   "files": {
+    "rules/mlox_base.txt": "[Order]\nAlpha.esp\nBeta.esp\n",
+    "openmw.cfg": "data=\"<root>/game\"\ndata=\"<root>/mods/A\"\ndata=\"<root>/mods/B\"\ndata=\"<root>/mods/C\"\ncontent=Morrowind.esm\ncontent=Clash.esp\n",
+    "mods/A/meshes/x.nif": "not a mesh A",
+    "mods/B/meshes/x.nif": "not a mesh, B",
+    "mods/A/textures/same.dds": "identical bytes",
+    "mods/B/textures/same.dds": "identical bytes",
+    "mods/B/textures/only.dds": "one provider",
+    "mods/C/textures/same.dds": "other bytes",
+    "game/Morrowind.esm": {
+     "b64": "VEVTMzQBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAABtZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHRoZSBiYXNlAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU1RBVBsAAAAAAAAAAAAAAE5BTUUFAAAAcm9jawBNT0RMBgAAAHIubmlmAFNUQVQbAAAAAAAAAAAAAABOQU1FBQAAAHRyZWUATU9ETAYAAAB0Lm5pZgBDRUxMHQAAAAAAAAAAAAAATkFNRQEAAAAAREFUQQwAAAAAAAAAAAAAAAAAAABDRUxMHQAAAAAAAAAAAAAATkFNRQEAAAAAREFUQQwAAAAAAAAAAQAAAAEAAAA=",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "me",
+       "description": "the base",
+       "num_objects": 0,
+       "masters": []
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r.nif"
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "tree",
+       "mesh": "t.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      }
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "b64": "VEVTM1oBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATUFTVA4AAABNb3Jyb3dpbmQuZXNtAERBVEEIAAAAAQAAAAAAAABTVEFUHAAAAAAAAAAAAAAATkFNRQUAAAByb2NrAE1PREwHAAAAcjIubmlmAEdNU1QiAAAAAAAAAAAAAABOQU1FDgAAAGZGbGVlRGlzdGFuY2UARkxUVgQAAAAAgDtFQ0VMTB0AAAAAAAAAAAAAAE5BTUUBAAAAAERBVEEMAAAAAAAAAAEAAAABAAAAQ0VMTB0AAAAAAAAAAAAAAE5BTUUBAAAAAERBVEEMAAAAAAAAAAIAAAD9////Q0VMTDoAAAAAAAAAAAAAAE5BTUUGAAAAVmF1bHQAREFUQQwAAAABAAAAAAAAAAAAAABBTUJJEAAAAAAAAAAAAAAAAAAAAAAAAABTQ1BUcwAAAAAAAAAAAAAAU0NIRDQAAABhbHBoYV9zAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU0NUWC8AAABiZWdpbiBhbHBoYV9zDQpQbGFjZUl0ZW0gInJvY2siIDAgMCAwIDANCmVuZA0KAA==",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "",
+       "description": "",
+       "num_objects": 0,
+       "masters": [
+        [
+         "Morrowind.esm",
+         1
+        ]
+       ]
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r2.nif"
+      },
+      {
+       "type": "GameSetting",
+       "flags": "",
+       "id": "fFleeDistance",
+       "value": {
+        "type": "Float",
+        "data": 3000.0
+       }
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         2,
+         -3
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "atmosphere_data": {
+        "ambient_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "sunlight_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_density": 0.0
+       },
+       "references": []
+      },
+      {
+       "type": "Script",
+       "flags": "",
+       "id": "alpha_s",
+       "header": {
+        "num_shorts": 0,
+        "num_longs": 0,
+        "num_floats": 0,
+        "bytecode_length": 0,
+        "variables_length": 0
+       },
+       "variables": "KLUv/QBYIQAAAAAAAA==",
+       "bytecode": "KLUv/QBYIQAAAAAAAA==",
+       "text": "begin alpha_s\r\nPlaceItem \"rock\" 0 0 0 0\r\nend\r\n"
+      }
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "b64": "VEVTM3wBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAABtZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGEgdGVzdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATUFTVA4AAABNb3Jyb3dpbmQuZXNtAERBVEEIAAAAAQAAAAAAAABNQVNUCgAAAEFscGhhLmVzcABEQVRBCAAAAAEAAAAAAAAAU1RBVBwAAAAAAAAAAAAAAE5BTUUFAAAAcm9jawBNT0RMBwAAAHIzLm5pZgBTVEFUHAAAAAAAAAAAAAAATkFNRQUAAAB0cmVlAE1PREwHAAAAdDIubmlmAENFTEwdAAAAAAAAAAAAAABOQU1FAQAAAABEQVRBDAAAAAAAAAABAAAAAQAAAENFTEw6AAAAAAAAAAAAAABOQU1FBgAAAFZhdWx0AERBVEEMAAAAAQAAAAAAAAAAAAAAQU1CSRAAAAAAAAAAAAAAAAAAAAAAAAA/Q0VMTEgAAAAAAAAAAAAAAE5BTUUUAAAAU2hyaW5lIDxvZj4gIkxpZ2h0IgBEQVRBDAAAAAEAAAAAAAAAAAAAAEFNQkkQAAAAAAAAAAAAAAAAAAAAAAAAPw==",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "me",
+       "description": "a test",
+       "num_objects": 0,
+       "masters": [
+        [
+         "Morrowind.esm",
+         1
+        ],
+        [
+         "Alpha.esp",
+         1
+        ]
+       ]
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r3.nif"
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "tree",
+       "mesh": "t2.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "atmosphere_data": {
+        "ambient_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "sunlight_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_density": 0.5
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Shrine <of> \"Light\"",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "atmosphere_data": {
+        "ambient_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "sunlight_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_density": 0.5
+       },
+       "references": []
+      }
+     ]
+    },
+    "mods/C/Clash.esp": {
+     "b64": "VEVTM1oBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAABtZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGEgdGVzdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATUFTVA4AAABNb3Jyb3dpbmQuZXNtAERBVEEIAAAAAQAAAAAAAABTVEFUHAAAAAAAAAAAAAAATkFNRQUAAAB0cmVlAE1PREwHAAAAdDMubmlmAENFTEwdAAAAAAAAAAAAAABOQU1FAQAAAABEQVRBDAAAAAAAAAAAAAAAAAAAAA==",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "me",
+       "description": "a test",
+       "num_objects": 0,
+       "masters": [
+        [
+         "Morrowind.esm",
+         1
+        ]
+       ]
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "tree",
+       "mesh": "t3.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      }
+     ]
+    }
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "--subset",
+    "Alpha.esp",
+    "Beta.esp",
+    "--check-conflicts",
+    "--conflicts-out",
+    "<root>/conflicts.csv",
+    "--cell-map",
+    "<root>/map.html",
+    "--lint",
+    "--resource-conflicts",
+    "--resources-out",
+    "<root>/resources.csv"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Clash.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 4 size note(s)",
+    "======================================================================",
+    "",
+    "--- 4 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Clash.esp': header says 'Morrowind.esm' was 1 bytes, installed copy is 500 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp': header says 'Morrowind.esm' was 1 bytes, installed copy is 500 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp': header says 'Morrowind.esm' was 1 bytes, installed copy is 500 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp': header says 'Alpha.esp' was 1 bytes, installed copy is 751 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " TES3 RECORD CONFLICTS (read-only)",
+    "======================================================================",
+    "  Engine: native esp reader (field-level)",
+    "Scanned 4 plugin(s), 17 record(s): 5 conflicting record(s), 4 involving your custom mods.",
+    "* [Cell] (1, 1)",
+    "      Morrowind.esm  ->  Alpha.esp  ->  Beta.esp   (wins: Beta.esp)",
+    "* [Cell] Vault",
+    "      Alpha.esp  ->  Beta.esp   (wins: Beta.esp)",
+    "* [Static] rock",
+    "      Morrowind.esm  ->  Alpha.esp  ->  Beta.esp   (wins: Beta.esp)",
+    "* [Static] tree",
+    "      Morrowind.esm  ->  Clash.esp  ->  Beta.esp   (wins: Beta.esp)",
+    "  [Cell] (0, 0)",
+    "      Morrowind.esm  ->  Clash.esp   (wins: Clash.esp)",
+    "",
+    "  Wrote conflict report: <root>/conflicts.csv",
+    "",
+    "======================================================================",
+    " CELL MAP (which mods touch which cells)",
+    "======================================================================",
+    "  Scanned 4 plugin(s): 3 exterior + 2 interior cell(s) touched.",
+    "  Wrote cell map: <root>/map.html  (open it in a browser)",
+    "",
+    "======================================================================",
+    " LINT (tes3lint-style checks, read-only)",
+    "======================================================================",
+    "  Scanned 3 plugin(s); 2 interior cell(s), 0 interior pathgrid(s).",
+    "",
+    "[HEADER] 'Alpha.esp': header has no author and no description.",
+    "",
+    "[FOGBUG] 'Alpha.esp': interior cell 'Vault' has fog density 0.0 -- renders as a black void on some GPUs. Fix by setting any nonzero fog density on the cell.",
+    "",
+    "[EVLGMST] 'Alpha.esp': 1 evil GMST(s): ffleedistance -- stale expansion defaults copied in by an old Construction Set; tes3cmd clean removes them.",
+    "",
+    "[EXP-DEP] 'Alpha.esp': scripts use Tribunal function(s) PlaceItem but the plugin doesn't master Tribunal.esm -- fragile on non-expansion setups (tes3lint !TB-FUN).",
+    "",
+    "[NO PATHGRID] 'Beta.esp': new interior cell 'Shrine <of> \"Light\"' has no pathgrid anywhere in the load order -- NPCs can't pathfind there.",
+    "",
+    "[NO PATHGRID] 'Alpha.esp': new interior cell 'Vault' has no pathgrid anywhere in the load order -- NPCs can't pathfind there.",
+    "",
+    "======================================================================",
+    " DATA-PATH RESOURCE (VFS) CONFLICTS (read-only)",
+    "======================================================================",
+    "Scanned 4 data folder(s), 3 loose file(s): 2 conflicting file(s), 0 involving your custom data paths.",
+    "  1 mesh conflict changes what the asset does; those lines are marked below.",
+    "  meshes/x.nif   (2 providers, wins: <root>/mods/B)",
+    "      -> could not read the mesh: failed to fill whole buffer",
+    "  textures/same.dds   (3 providers, wins: <root>/mods/C)",
+    "",
+    "  Wrote resource report: <root>/resources.csv",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "",
+    "  NOTE: nothing was written -- this was a preview. Pass --write-cfg and/or --emit-toml to save the result.",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        2",
+    "  Data paths inserted:   0",
+    "  Rule warnings raised:  0",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    ""
+   ],
+   "exit": 0,
+   "written": {
+    "conflicts.csv": "record_type,record_id,winner,involves_custom,deleted_by,plugins_load_order\nCell,\"(1, 1)\",Beta.esp,yes,,Morrowind.esm -> Alpha.esp -> Beta.esp\nCell,Vault,Beta.esp,yes,,Alpha.esp -> Beta.esp\nStatic,rock,Beta.esp,yes,,Morrowind.esm -> Alpha.esp -> Beta.esp\nStatic,tree,Beta.esp,yes,,Morrowind.esm -> Clash.esp -> Beta.esp\nCell,\"(0, 0)\",Clash.esp,no,,Morrowind.esm -> Clash.esp\n",
+    "map.html": "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>Wraithguard Toolkit - Cell Map</title>\n<style>\n body{background:#101013;color:#c8c8c8;font-family:Segoe UI,Arial,sans-serif;margin:16px;}\n h1{color:#e8905a;font-size:20px;margin-bottom:4px;}\n .sub{color:#8f8f8f;font-size:13px;}\n .stamp{color:#6f6f6f;font-size:12px;margin-top:2px;}\n .legend{margin-top:12px;line-height:1.7;}\n .legend span{display:inline-block;padding:2px 8px;margin-right:6px;border-radius:3px;\n   font-size:12px;}\n .tabs{margin-top:24px;margin-bottom:4px;}\n .tabs button{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:6px 14px;\n   margin-right:4px;cursor:pointer;}\n .tabs button.on{background:#8a3a12;color:#fff;}\n .tab{display:none;margin-top:10px;} .tab.on{display:block;}\n .mapwrap{overflow:auto;max-height:74vh;border:1px solid #333;background:#06111c;\n   display:block;max-width:100%;resize:vertical;}\n .mapwrap svg{display:block;}\n rect.cell{cursor:pointer;} rect.cell:hover{stroke:#fff;stroke-width:1.4;}\n rect.cell.dim{opacity:.13;}\n #tt{position:fixed;pointer-events:none;display:none;z-index:99;max-width:440px;\n   background:#000;color:#eee;border:1px solid #555;border-radius:3px;padding:3px 7px;\n   font-size:12px;}\n /* The lists scroll in their own pane, like the map, so a 9,000-row exterior\n    list does not push the tab strip off the top of the window. */\n .listwrap{overflow:auto;max-height:74vh;border:1px solid #262626;resize:vertical;}\n table.list{border-collapse:collapse;width:100%;font-size:13px;}\n .list td,.list th{border-bottom:1px solid #262626;padding:4px 8px;text-align:left;\n   vertical-align:top;}\n .list th{color:#9a9a9a;position:sticky;top:0;background:#101013;}\n tr.cust td{color:#ff9b6b;}\n tr.hl td{background:#3a2a10;}\n input.f{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:6px;width:320px;\n   margin:6px 0;}\n .focusbar{margin-top:10px;}\n .focusbar select{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:5px;\n   max-width:420px;}\n button.op{background:#20242a;color:#e8905a;border:1px solid #3a3a3a;border-radius:3px;\n   padding:0 6px;cursor:pointer;font-size:10px;margin-right:4px;}\n button.op:hover{background:#8a3a12;color:#fff;}\n .focusbar button{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:5px 10px;\n   margin-left:6px;cursor:pointer;}\n #focusinfo{margin-top:4px;max-width:900px;}\n</style></head><body>\n<div id=\"tt\"></div>\n<h1>Wraithguard Toolkit - Cell Map</h1>\n<p class=\"sub\">Scanned 4 plugin(s). Exterior: 3 cell(s)\n touched (2 by 2+ mods). Interior: 2 cell(s) touched\n (1 by 2+ mods). Cells your custom mods touch are highlighted\n (gold outline / orange text).</p>\n<p class=\"sub stamp\">Generated 2026-10-22 12:00:00</p>\n<div class=\"legend\">Mods per cell: <span style=\"background:#2e4a63;color:#fff\">1</span><span style=\"background:#5c70ad;color:#fff\">2</span><span style=\"background:#d99e3d;color:#111\">3</span> &nbsp;(north up; hover a cell for its mods, click it to jump to the list)</div>\n<div class=\"focusbar\">Focus on mod:\n <select id=\"focus\" onchange=\"setFocus(this.value)\"><option value=\"\">- all mods -</option><option value=\"alpha.esp\">Alpha.esp ★</option><option value=\"beta.esp\">Beta.esp ★</option><option value=\"clash.esp\">Clash.esp</option><option value=\"morrowind.esm\">Morrowind.esm</option></select>\n <button onclick=\"document.getElementById('focus').value='';setFocus('')\">Clear</button>\n <div id=\"focusinfo\" class=\"sub\"></div></div>\n<div class=\"tabs\">\n <button id=\"b0\" class=\"on\" onclick=\"show(0)\">Map</button>\n <button id=\"b1\" onclick=\"show(1)\">Exterior list (3)</button>\n <button id=\"b2\" onclick=\"show(2)\">Interior list (2)</button>\n</div>\n<div id=\"t0\" class=\"tab on\"><div class=\"mapwrap\"><svg width=\"39\" height=\"65\" viewBox=\"0 0 39 65\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"0\" y=\"13\" width=\"12\" height=\"12\" fill=\"#5c70ad\" class=\"cell\" data-t=\"(0, 0) - 2 mod(s): Morrowind.esm, Clash.esp\" data-m=\"|morrowind.esm|clash.esp|\" onclick=\"jump('e_0_0')\" ondblclick=\"openPreview('0,0')\"></rect><rect x=\"13\" y=\"0\" width=\"12\" height=\"12\" fill=\"#d99e3d\" stroke=\"#ffd24a\" stroke-width=\"1.4\" class=\"cell\" data-t=\"(1, 1) - 3 mod(s): Morrowind.esm, Alpha.esp, Beta.esp\" data-m=\"|morrowind.esm|alpha.esp|beta.esp|\" onclick=\"jump('e_1_1')\" ondblclick=\"openPreview('1,1')\"></rect><rect x=\"26\" y=\"52\" width=\"12\" height=\"12\" fill=\"#2e4a63\" stroke=\"#ffd24a\" stroke-width=\"1.4\" class=\"cell\" data-t=\"(2, -3) - 1 mod(s): Alpha.esp\" data-m=\"|alpha.esp|\" onclick=\"jump('e_2_m3')\" ondblclick=\"openPreview('2,-3')\"></rect></svg></div></div>\n<div id=\"t1\" class=\"tab\"><input class=\"f\"\n  placeholder=\"Filter exterior cells / mods...\" onkeyup=\"ff('xt')\">\n <div class=\"listwrap\"><table class=\"list\" id=\"xt\"><thead><tr><th>Cell (x, y)</th><th>#</th>\n <th>Mods (load order, last wins)</th></tr></thead>\n <tbody><tr id=\"e_1_1\" class=\"cust\" data-m=\"|morrowind.esm|alpha.esp|beta.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" onclick=\"openPreview('1,1')\">&#9654;</button> (1, 1)</td><td>3</td><td>Morrowind.esm, Alpha.esp, Beta.esp</td></tr><tr id=\"e_0_0\" data-m=\"|morrowind.esm|clash.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" onclick=\"openPreview('0,0')\">&#9654;</button> (0, 0)</td><td>2</td><td>Morrowind.esm, Clash.esp</td></tr><tr id=\"e_2_m3\" class=\"cust\" data-m=\"|alpha.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" onclick=\"openPreview('2,-3')\">&#9654;</button> (2, -3)</td><td>1</td><td>Alpha.esp</td></tr></tbody></table></div></div>\n<div id=\"t2\" class=\"tab\"><input class=\"f\"\n  placeholder=\"Filter interior cells / mods...\" onkeyup=\"ff('it')\">\n <div class=\"listwrap\"><table class=\"list\" id=\"it\"><thead><tr><th>Cell</th><th>#</th>\n <th>Mods (load order, last wins)</th></tr></thead>\n <tbody><tr class=\"cust\" data-m=\"|alpha.esp|beta.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" data-c=\"int:Vault\" onclick=\"openPreview(this.dataset.c)\">&#9654;</button> Vault</td><td>2</td><td>Alpha.esp, Beta.esp</td></tr><tr class=\"cust\" data-m=\"|beta.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" data-c=\"int:Shrine &lt;of&gt; &quot;Light&quot;\" onclick=\"openPreview(this.dataset.c)\">&#9654;</button> Shrine &lt;of&gt; &quot;Light&quot;</td><td>1</td><td>Beta.esp</td></tr></tbody></table></div></div>\n<script>\nfunction show(n){\n  for(var i=0;i<3;i++){\n    document.getElementById('t'+i).className=i==n?'tab on':'tab';\n    document.getElementById('b'+i).className=i==n?'on':'';\n  }\n}\n// Open a cell in Wraithguard's Cell Preview: a cell's double-click, or the list rows'\n// play buttons. Asks the app through its loopback server (the page's own token), so it\n// works when Wraithguard opened this map, and says so when the file was opened by hand.\nfunction openPreview(spec){\n  var t=new URLSearchParams(location.search).get('t');\n  if(!t){ alert('Open this map from Wraithguard to launch Cell Preview from it.'); return; }\n  fetch('/wg_open_cell?t='+encodeURIComponent(t),{method:'POST',body:spec})\n    .catch(function(){ alert('Wraithguard is not answering - is it still open?'); });\n}\nfunction jump(a){\n  show(1);\n  var el=document.getElementById(a);\n  if(el){\n    el.scrollIntoView({block:'center'});\n    el.classList.add('hl');\n    setTimeout(function(){el.classList.remove('hl');},2200);\n  }\n}\n// One delegated listener rather than per-rect handlers: with thousands of cells,\n// attaching individually is what makes a tooltip feel laggy. Native SVG <title>\n// carries a browser-controlled ~1s delay and cannot be styled, which is exactly\n// wrong for a grid meant to be swept over with the cursor.\n(function(){\n  var tt=document.getElementById('tt');\n  document.addEventListener('mouseover',function(e){\n    var r=e.target;\n    if(r&&r.classList&&r.classList.contains('cell')){\n      tt.textContent=r.getAttribute('data-t');tt.style.display='block';\n    }\n  });\n  document.addEventListener('mousemove',function(e){\n    if(tt.style.display=='block'){\n      var x=e.clientX+12,y=e.clientY+12;\n      if(x+450>window.innerWidth){x=e.clientX-450;}\n      if(y+80>window.innerHeight){y=e.clientY-60;}\n      tt.style.left=x+'px';tt.style.top=y+'px';\n    }\n  });\n  document.addEventListener('mouseout',function(e){\n    var r=e.target;\n    if(r&&r.classList&&r.classList.contains('cell')){tt.style.display='none';}\n  });\n})();\nvar Q={xt:'',it:''}, FOCUS='';\nfunction match(r){\n  return !FOCUS||(r.getAttribute('data-m')||'').indexOf('|'+FOCUS+'|')>-1;\n}\nfunction apply(id){\n  document.querySelectorAll('#'+id+' tbody tr').forEach(function(r){\n    var okQ=!Q[id]||r.innerText.toLowerCase().indexOf(Q[id])>-1;\n    r.style.display=(okQ&&match(r))?'':'none';\n  });\n}\nfunction ff(id){\n  Q[id]=(event.target.value||'').toLowerCase();\n  apply(id);\n}\nfunction setFocus(v){\n  FOCUS=(v||'').toLowerCase();\n  document.querySelectorAll('rect.cell').forEach(function(r){\n    r.classList.toggle('dim',!!FOCUS&&!match(r));\n  });\n  apply('xt');apply('it');\n  var info=document.getElementById('focusinfo');\n  if(!FOCUS){info.textContent='';return;}\n  var nE=0,nI=0,co={};\n  document.querySelectorAll('#xt tbody tr').forEach(function(r){\n    if(match(r)){nE++;countCo(r,co);}\n  });\n  document.querySelectorAll('#it tbody tr').forEach(function(r){\n    if(match(r)){nI++;countCo(r,co);}\n  });\n  var names=Object.keys(co).sort(function(a,b){return co[b]-co[a];});\n  var top=names.slice(0,14).map(function(n){return n+' ('+co[n]+')';}).join(', ');\n  info.textContent='Touches '+nE+' exterior + '+nI+' interior cell(s). '+\n    (names.length?'Shares cells with '+names.length+' other mod(s): '+top+\n      (names.length>14?', …':''):'No other mod touches these cells.');\n}\nfunction countCo(r,co){\n  (r.getAttribute('data-m')||'').split('|').forEach(function(m){\n    if(m&&m!=FOCUS){co[m]=(co[m]||0)+1;}\n  });\n}\n</script>\n</body></html>\n",
+    "resources.csv": "file_path,providers,winner,involves_custom,identical,provider_folders,mesh_note,mesh_lost_collision,mesh_lost_animation,mesh_triangle_ratio\nmeshes/x.nif,2,<root>/mods/B,no,no,<root>/mods/A -> <root>/mods/B,could not read the mesh: failed to fill whole buffer,,,\ntextures/same.dds,3,<root>/mods/C,no,no,<root>/mods/A -> <root>/mods/B -> <root>/mods/C,,,,\n"
+   }
+  },
+  {
+   "name": "conflicts of mine only, one plugin left out",
+   "files": {
+    "rules/mlox_base.txt": "[Order]\nAlpha.esp\nBeta.esp\n",
+    "openmw.cfg": "data=\"<root>/game\"\ndata=\"<root>/mods/A\"\ndata=\"<root>/mods/B\"\ndata=\"<root>/mods/C\"\ncontent=Morrowind.esm\ncontent=Clash.esp\n",
+    "mods/A/meshes/x.nif": "not a mesh A",
+    "mods/B/meshes/x.nif": "not a mesh, B",
+    "mods/A/textures/same.dds": "identical bytes",
+    "mods/B/textures/same.dds": "identical bytes",
+    "mods/B/textures/only.dds": "one provider",
+    "mods/C/textures/same.dds": "other bytes",
+    "game/Morrowind.esm": {
+     "b64": "VEVTMzQBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAABtZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHRoZSBiYXNlAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU1RBVBsAAAAAAAAAAAAAAE5BTUUFAAAAcm9jawBNT0RMBgAAAHIubmlmAFNUQVQbAAAAAAAAAAAAAABOQU1FBQAAAHRyZWUATU9ETAYAAAB0Lm5pZgBDRUxMHQAAAAAAAAAAAAAATkFNRQEAAAAAREFUQQwAAAAAAAAAAAAAAAAAAABDRUxMHQAAAAAAAAAAAAAATkFNRQEAAAAAREFUQQwAAAAAAAAAAQAAAAEAAAA=",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "me",
+       "description": "the base",
+       "num_objects": 0,
+       "masters": []
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r.nif"
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "tree",
+       "mesh": "t.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      }
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "b64": "VEVTM1oBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATUFTVA4AAABNb3Jyb3dpbmQuZXNtAERBVEEIAAAAAQAAAAAAAABTVEFUHAAAAAAAAAAAAAAATkFNRQUAAAByb2NrAE1PREwHAAAAcjIubmlmAEdNU1QiAAAAAAAAAAAAAABOQU1FDgAAAGZGbGVlRGlzdGFuY2UARkxUVgQAAAAAgDtFQ0VMTB0AAAAAAAAAAAAAAE5BTUUBAAAAAERBVEEMAAAAAAAAAAEAAAABAAAAQ0VMTB0AAAAAAAAAAAAAAE5BTUUBAAAAAERBVEEMAAAAAAAAAAIAAAD9////Q0VMTDoAAAAAAAAAAAAAAE5BTUUGAAAAVmF1bHQAREFUQQwAAAABAAAAAAAAAAAAAABBTUJJEAAAAAAAAAAAAAAAAAAAAAAAAABTQ1BUcwAAAAAAAAAAAAAAU0NIRDQAAABhbHBoYV9zAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU0NUWC8AAABiZWdpbiBhbHBoYV9zDQpQbGFjZUl0ZW0gInJvY2siIDAgMCAwIDANCmVuZA0KAA==",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "",
+       "description": "",
+       "num_objects": 0,
+       "masters": [
+        [
+         "Morrowind.esm",
+         1
+        ]
+       ]
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r2.nif"
+      },
+      {
+       "type": "GameSetting",
+       "flags": "",
+       "id": "fFleeDistance",
+       "value": {
+        "type": "Float",
+        "data": 3000.0
+       }
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         2,
+         -3
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "atmosphere_data": {
+        "ambient_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "sunlight_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_density": 0.0
+       },
+       "references": []
+      },
+      {
+       "type": "Script",
+       "flags": "",
+       "id": "alpha_s",
+       "header": {
+        "num_shorts": 0,
+        "num_longs": 0,
+        "num_floats": 0,
+        "bytecode_length": 0,
+        "variables_length": 0
+       },
+       "variables": "KLUv/QBYIQAAAAAAAA==",
+       "bytecode": "KLUv/QBYIQAAAAAAAA==",
+       "text": "begin alpha_s\r\nPlaceItem \"rock\" 0 0 0 0\r\nend\r\n"
+      }
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "b64": "VEVTM3wBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAABtZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGEgdGVzdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATUFTVA4AAABNb3Jyb3dpbmQuZXNtAERBVEEIAAAAAQAAAAAAAABNQVNUCgAAAEFscGhhLmVzcABEQVRBCAAAAAEAAAAAAAAAU1RBVBwAAAAAAAAAAAAAAE5BTUUFAAAAcm9jawBNT0RMBwAAAHIzLm5pZgBTVEFUHAAAAAAAAAAAAAAATkFNRQUAAAB0cmVlAE1PREwHAAAAdDIubmlmAENFTEwdAAAAAAAAAAAAAABOQU1FAQAAAABEQVRBDAAAAAAAAAABAAAAAQAAAENFTEw6AAAAAAAAAAAAAABOQU1FBgAAAFZhdWx0AERBVEEMAAAAAQAAAAAAAAAAAAAAQU1CSRAAAAAAAAAAAAAAAAAAAAAAAAA/Q0VMTEgAAAAAAAAAAAAAAE5BTUUUAAAAU2hyaW5lIDxvZj4gIkxpZ2h0IgBEQVRBDAAAAAEAAAAAAAAAAAAAAEFNQkkQAAAAAAAAAAAAAAAAAAAAAAAAPw==",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "me",
+       "description": "a test",
+       "num_objects": 0,
+       "masters": [
+        [
+         "Morrowind.esm",
+         1
+        ],
+        [
+         "Alpha.esp",
+         1
+        ]
+       ]
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r3.nif"
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "tree",
+       "mesh": "t2.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "atmosphere_data": {
+        "ambient_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "sunlight_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_density": 0.5
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Shrine <of> \"Light\"",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "atmosphere_data": {
+        "ambient_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "sunlight_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_density": 0.5
+       },
+       "references": []
+      }
+     ]
+    },
+    "mods/C/Clash.esp": {
+     "b64": "VEVTM1oBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAABtZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGEgdGVzdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATUFTVA4AAABNb3Jyb3dpbmQuZXNtAERBVEEIAAAAAQAAAAAAAABTVEFUHAAAAAAAAAAAAAAATkFNRQUAAAB0cmVlAE1PREwHAAAAdDMubmlmAENFTEwdAAAAAAAAAAAAAABOQU1FAQAAAABEQVRBDAAAAAAAAAAAAAAAAAAAAA==",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "me",
+       "description": "a test",
+       "num_objects": 0,
+       "masters": [
+        [
+         "Morrowind.esm",
+         1
+        ]
+       ]
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "tree",
+       "mesh": "t3.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      }
+     ]
+    }
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "--subset",
+    "Alpha.esp",
+    "Beta.esp",
+    "--check-conflicts",
+    "--conflicts-subset-only",
+    "--exclude",
+    "clash*",
+    "--lint",
+    "--cell-map",
+    "<root>/map.html"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Clash.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 4 size note(s)",
+    "======================================================================",
+    "",
+    "--- 4 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Clash.esp': header says 'Morrowind.esm' was 1 bytes, installed copy is 500 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp': header says 'Morrowind.esm' was 1 bytes, installed copy is 500 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp': header says 'Morrowind.esm' was 1 bytes, installed copy is 500 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp': header says 'Alpha.esp' was 1 bytes, installed copy is 751 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "  (excluded 1 plugin by --exclude)",
+    "",
+    "======================================================================",
+    " TES3 RECORD CONFLICTS (read-only)",
+    "======================================================================",
+    "  Engine: native esp reader (field-level)",
+    "Scanned 3 plugin(s), 15 record(s): 4 conflicting record(s), 4 involving your custom mods.",
+    "* [Cell] (1, 1)",
+    "      Morrowind.esm  ->  Alpha.esp  ->  Beta.esp   (wins: Beta.esp)",
+    "* [Cell] Vault",
+    "      Alpha.esp  ->  Beta.esp   (wins: Beta.esp)",
+    "* [Static] rock",
+    "      Morrowind.esm  ->  Alpha.esp  ->  Beta.esp   (wins: Beta.esp)",
+    "* [Static] tree",
+    "      Morrowind.esm  ->  Beta.esp   (wins: Beta.esp)",
+    "",
+    "======================================================================",
+    " CELL MAP (which mods touch which cells)",
+    "======================================================================",
+    "  Scanned 3 plugin(s): 3 exterior + 2 interior cell(s) touched.",
+    "  Wrote cell map: <root>/map.html  (open it in a browser)",
+    "",
+    "======================================================================",
+    " LINT (tes3lint-style checks, read-only)",
+    "======================================================================",
+    "  (excluded 1 plugin by --exclude)",
+    "  Scanned 2 plugin(s); 2 interior cell(s), 0 interior pathgrid(s).",
+    "",
+    "[HEADER] 'Alpha.esp': header has no author and no description.",
+    "",
+    "[FOGBUG] 'Alpha.esp': interior cell 'Vault' has fog density 0.0 -- renders as a black void on some GPUs. Fix by setting any nonzero fog density on the cell.",
+    "",
+    "[EVLGMST] 'Alpha.esp': 1 evil GMST(s): ffleedistance -- stale expansion defaults copied in by an old Construction Set; tes3cmd clean removes them.",
+    "",
+    "[EXP-DEP] 'Alpha.esp': scripts use Tribunal function(s) PlaceItem but the plugin doesn't master Tribunal.esm -- fragile on non-expansion setups (tes3lint !TB-FUN).",
+    "",
+    "[NO PATHGRID] 'Beta.esp': new interior cell 'Shrine <of> \"Light\"' has no pathgrid anywhere in the load order -- NPCs can't pathfind there.",
+    "",
+    "[NO PATHGRID] 'Alpha.esp': new interior cell 'Vault' has no pathgrid anywhere in the load order -- NPCs can't pathfind there.",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "",
+    "  NOTE: nothing was written -- this was a preview. Pass --write-cfg and/or --emit-toml to save the result.",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        2",
+    "  Data paths inserted:   0",
+    "  Rule warnings raised:  0",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    ""
+   ],
+   "exit": 0,
+   "written": {
+    "map.html": "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>Wraithguard Toolkit - Cell Map</title>\n<style>\n body{background:#101013;color:#c8c8c8;font-family:Segoe UI,Arial,sans-serif;margin:16px;}\n h1{color:#e8905a;font-size:20px;margin-bottom:4px;}\n .sub{color:#8f8f8f;font-size:13px;}\n .stamp{color:#6f6f6f;font-size:12px;margin-top:2px;}\n .legend{margin-top:12px;line-height:1.7;}\n .legend span{display:inline-block;padding:2px 8px;margin-right:6px;border-radius:3px;\n   font-size:12px;}\n .tabs{margin-top:24px;margin-bottom:4px;}\n .tabs button{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:6px 14px;\n   margin-right:4px;cursor:pointer;}\n .tabs button.on{background:#8a3a12;color:#fff;}\n .tab{display:none;margin-top:10px;} .tab.on{display:block;}\n .mapwrap{overflow:auto;max-height:74vh;border:1px solid #333;background:#06111c;\n   display:block;max-width:100%;resize:vertical;}\n .mapwrap svg{display:block;}\n rect.cell{cursor:pointer;} rect.cell:hover{stroke:#fff;stroke-width:1.4;}\n rect.cell.dim{opacity:.13;}\n #tt{position:fixed;pointer-events:none;display:none;z-index:99;max-width:440px;\n   background:#000;color:#eee;border:1px solid #555;border-radius:3px;padding:3px 7px;\n   font-size:12px;}\n /* The lists scroll in their own pane, like the map, so a 9,000-row exterior\n    list does not push the tab strip off the top of the window. */\n .listwrap{overflow:auto;max-height:74vh;border:1px solid #262626;resize:vertical;}\n table.list{border-collapse:collapse;width:100%;font-size:13px;}\n .list td,.list th{border-bottom:1px solid #262626;padding:4px 8px;text-align:left;\n   vertical-align:top;}\n .list th{color:#9a9a9a;position:sticky;top:0;background:#101013;}\n tr.cust td{color:#ff9b6b;}\n tr.hl td{background:#3a2a10;}\n input.f{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:6px;width:320px;\n   margin:6px 0;}\n .focusbar{margin-top:10px;}\n .focusbar select{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:5px;\n   max-width:420px;}\n button.op{background:#20242a;color:#e8905a;border:1px solid #3a3a3a;border-radius:3px;\n   padding:0 6px;cursor:pointer;font-size:10px;margin-right:4px;}\n button.op:hover{background:#8a3a12;color:#fff;}\n .focusbar button{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:5px 10px;\n   margin-left:6px;cursor:pointer;}\n #focusinfo{margin-top:4px;max-width:900px;}\n</style></head><body>\n<div id=\"tt\"></div>\n<h1>Wraithguard Toolkit - Cell Map</h1>\n<p class=\"sub\">Scanned 3 plugin(s). Exterior: 3 cell(s)\n touched (1 by 2+ mods). Interior: 2 cell(s) touched\n (1 by 2+ mods). Cells your custom mods touch are highlighted\n (gold outline / orange text).</p>\n<p class=\"sub stamp\">Generated 2026-10-22 12:00:00</p>\n<div class=\"legend\">Mods per cell: <span style=\"background:#2e4a63;color:#fff\">1</span><span style=\"background:#5c70ad;color:#fff\">2</span><span style=\"background:#d99e3d;color:#111\">3</span> &nbsp;(north up; hover a cell for its mods, click it to jump to the list)</div>\n<div class=\"focusbar\">Focus on mod:\n <select id=\"focus\" onchange=\"setFocus(this.value)\"><option value=\"\">- all mods -</option><option value=\"alpha.esp\">Alpha.esp ★</option><option value=\"beta.esp\">Beta.esp ★</option><option value=\"morrowind.esm\">Morrowind.esm</option></select>\n <button onclick=\"document.getElementById('focus').value='';setFocus('')\">Clear</button>\n <div id=\"focusinfo\" class=\"sub\"></div></div>\n<div class=\"tabs\">\n <button id=\"b0\" class=\"on\" onclick=\"show(0)\">Map</button>\n <button id=\"b1\" onclick=\"show(1)\">Exterior list (3)</button>\n <button id=\"b2\" onclick=\"show(2)\">Interior list (2)</button>\n</div>\n<div id=\"t0\" class=\"tab on\"><div class=\"mapwrap\"><svg width=\"39\" height=\"65\" viewBox=\"0 0 39 65\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"0\" y=\"13\" width=\"12\" height=\"12\" fill=\"#2e4a63\" class=\"cell\" data-t=\"(0, 0) - 1 mod(s): Morrowind.esm\" data-m=\"|morrowind.esm|\" onclick=\"jump('e_0_0')\" ondblclick=\"openPreview('0,0')\"></rect><rect x=\"13\" y=\"0\" width=\"12\" height=\"12\" fill=\"#d99e3d\" stroke=\"#ffd24a\" stroke-width=\"1.4\" class=\"cell\" data-t=\"(1, 1) - 3 mod(s): Morrowind.esm, Alpha.esp, Beta.esp\" data-m=\"|morrowind.esm|alpha.esp|beta.esp|\" onclick=\"jump('e_1_1')\" ondblclick=\"openPreview('1,1')\"></rect><rect x=\"26\" y=\"52\" width=\"12\" height=\"12\" fill=\"#2e4a63\" stroke=\"#ffd24a\" stroke-width=\"1.4\" class=\"cell\" data-t=\"(2, -3) - 1 mod(s): Alpha.esp\" data-m=\"|alpha.esp|\" onclick=\"jump('e_2_m3')\" ondblclick=\"openPreview('2,-3')\"></rect></svg></div></div>\n<div id=\"t1\" class=\"tab\"><input class=\"f\"\n  placeholder=\"Filter exterior cells / mods...\" onkeyup=\"ff('xt')\">\n <div class=\"listwrap\"><table class=\"list\" id=\"xt\"><thead><tr><th>Cell (x, y)</th><th>#</th>\n <th>Mods (load order, last wins)</th></tr></thead>\n <tbody><tr id=\"e_1_1\" class=\"cust\" data-m=\"|morrowind.esm|alpha.esp|beta.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" onclick=\"openPreview('1,1')\">&#9654;</button> (1, 1)</td><td>3</td><td>Morrowind.esm, Alpha.esp, Beta.esp</td></tr><tr id=\"e_0_0\" data-m=\"|morrowind.esm|\"><td><button class=\"op\" title=\"Open in Cell Preview\" onclick=\"openPreview('0,0')\">&#9654;</button> (0, 0)</td><td>1</td><td>Morrowind.esm</td></tr><tr id=\"e_2_m3\" class=\"cust\" data-m=\"|alpha.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" onclick=\"openPreview('2,-3')\">&#9654;</button> (2, -3)</td><td>1</td><td>Alpha.esp</td></tr></tbody></table></div></div>\n<div id=\"t2\" class=\"tab\"><input class=\"f\"\n  placeholder=\"Filter interior cells / mods...\" onkeyup=\"ff('it')\">\n <div class=\"listwrap\"><table class=\"list\" id=\"it\"><thead><tr><th>Cell</th><th>#</th>\n <th>Mods (load order, last wins)</th></tr></thead>\n <tbody><tr class=\"cust\" data-m=\"|alpha.esp|beta.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" data-c=\"int:Vault\" onclick=\"openPreview(this.dataset.c)\">&#9654;</button> Vault</td><td>2</td><td>Alpha.esp, Beta.esp</td></tr><tr class=\"cust\" data-m=\"|beta.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" data-c=\"int:Shrine &lt;of&gt; &quot;Light&quot;\" onclick=\"openPreview(this.dataset.c)\">&#9654;</button> Shrine &lt;of&gt; &quot;Light&quot;</td><td>1</td><td>Beta.esp</td></tr></tbody></table></div></div>\n<script>\nfunction show(n){\n  for(var i=0;i<3;i++){\n    document.getElementById('t'+i).className=i==n?'tab on':'tab';\n    document.getElementById('b'+i).className=i==n?'on':'';\n  }\n}\n// Open a cell in Wraithguard's Cell Preview: a cell's double-click, or the list rows'\n// play buttons. Asks the app through its loopback server (the page's own token), so it\n// works when Wraithguard opened this map, and says so when the file was opened by hand.\nfunction openPreview(spec){\n  var t=new URLSearchParams(location.search).get('t');\n  if(!t){ alert('Open this map from Wraithguard to launch Cell Preview from it.'); return; }\n  fetch('/wg_open_cell?t='+encodeURIComponent(t),{method:'POST',body:spec})\n    .catch(function(){ alert('Wraithguard is not answering - is it still open?'); });\n}\nfunction jump(a){\n  show(1);\n  var el=document.getElementById(a);\n  if(el){\n    el.scrollIntoView({block:'center'});\n    el.classList.add('hl');\n    setTimeout(function(){el.classList.remove('hl');},2200);\n  }\n}\n// One delegated listener rather than per-rect handlers: with thousands of cells,\n// attaching individually is what makes a tooltip feel laggy. Native SVG <title>\n// carries a browser-controlled ~1s delay and cannot be styled, which is exactly\n// wrong for a grid meant to be swept over with the cursor.\n(function(){\n  var tt=document.getElementById('tt');\n  document.addEventListener('mouseover',function(e){\n    var r=e.target;\n    if(r&&r.classList&&r.classList.contains('cell')){\n      tt.textContent=r.getAttribute('data-t');tt.style.display='block';\n    }\n  });\n  document.addEventListener('mousemove',function(e){\n    if(tt.style.display=='block'){\n      var x=e.clientX+12,y=e.clientY+12;\n      if(x+450>window.innerWidth){x=e.clientX-450;}\n      if(y+80>window.innerHeight){y=e.clientY-60;}\n      tt.style.left=x+'px';tt.style.top=y+'px';\n    }\n  });\n  document.addEventListener('mouseout',function(e){\n    var r=e.target;\n    if(r&&r.classList&&r.classList.contains('cell')){tt.style.display='none';}\n  });\n})();\nvar Q={xt:'',it:''}, FOCUS='';\nfunction match(r){\n  return !FOCUS||(r.getAttribute('data-m')||'').indexOf('|'+FOCUS+'|')>-1;\n}\nfunction apply(id){\n  document.querySelectorAll('#'+id+' tbody tr').forEach(function(r){\n    var okQ=!Q[id]||r.innerText.toLowerCase().indexOf(Q[id])>-1;\n    r.style.display=(okQ&&match(r))?'':'none';\n  });\n}\nfunction ff(id){\n  Q[id]=(event.target.value||'').toLowerCase();\n  apply(id);\n}\nfunction setFocus(v){\n  FOCUS=(v||'').toLowerCase();\n  document.querySelectorAll('rect.cell').forEach(function(r){\n    r.classList.toggle('dim',!!FOCUS&&!match(r));\n  });\n  apply('xt');apply('it');\n  var info=document.getElementById('focusinfo');\n  if(!FOCUS){info.textContent='';return;}\n  var nE=0,nI=0,co={};\n  document.querySelectorAll('#xt tbody tr').forEach(function(r){\n    if(match(r)){nE++;countCo(r,co);}\n  });\n  document.querySelectorAll('#it tbody tr').forEach(function(r){\n    if(match(r)){nI++;countCo(r,co);}\n  });\n  var names=Object.keys(co).sort(function(a,b){return co[b]-co[a];});\n  var top=names.slice(0,14).map(function(n){return n+' ('+co[n]+')';}).join(', ');\n  info.textContent='Touches '+nE+' exterior + '+nI+' interior cell(s). '+\n    (names.length?'Shares cells with '+names.length+' other mod(s): '+top+\n      (names.length>14?', …':''):'No other mod touches these cells.');\n}\nfunction countCo(r,co){\n  (r.getAttribute('data-m')||'').split('|').forEach(function(m){\n    if(m&&m!=FOCUS){co[m]=(co[m]||0)+1;}\n  });\n}\n</script>\n</body></html>\n"
+   }
+  },
+  {
+   "name": "a cell map and the lint with a substring left out",
+   "files": {
+    "rules/mlox_base.txt": "[Order]\nAlpha.esp\nBeta.esp\n",
+    "openmw.cfg": "data=\"<root>/game\"\ndata=\"<root>/mods/A\"\ndata=\"<root>/mods/B\"\ndata=\"<root>/mods/C\"\ncontent=Morrowind.esm\ncontent=Clash.esp\n",
+    "mods/A/meshes/x.nif": "not a mesh A",
+    "mods/B/meshes/x.nif": "not a mesh, B",
+    "mods/A/textures/same.dds": "identical bytes",
+    "mods/B/textures/same.dds": "identical bytes",
+    "mods/B/textures/only.dds": "one provider",
+    "mods/C/textures/same.dds": "other bytes",
+    "game/Morrowind.esm": {
+     "b64": "VEVTMzQBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAABtZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHRoZSBiYXNlAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU1RBVBsAAAAAAAAAAAAAAE5BTUUFAAAAcm9jawBNT0RMBgAAAHIubmlmAFNUQVQbAAAAAAAAAAAAAABOQU1FBQAAAHRyZWUATU9ETAYAAAB0Lm5pZgBDRUxMHQAAAAAAAAAAAAAATkFNRQEAAAAAREFUQQwAAAAAAAAAAAAAAAAAAABDRUxMHQAAAAAAAAAAAAAATkFNRQEAAAAAREFUQQwAAAAAAAAAAQAAAAEAAAA=",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "me",
+       "description": "the base",
+       "num_objects": 0,
+       "masters": []
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r.nif"
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "tree",
+       "mesh": "t.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      }
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "b64": "VEVTM1oBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATUFTVA4AAABNb3Jyb3dpbmQuZXNtAERBVEEIAAAAAQAAAAAAAABTVEFUHAAAAAAAAAAAAAAATkFNRQUAAAByb2NrAE1PREwHAAAAcjIubmlmAEdNU1QiAAAAAAAAAAAAAABOQU1FDgAAAGZGbGVlRGlzdGFuY2UARkxUVgQAAAAAgDtFQ0VMTB0AAAAAAAAAAAAAAE5BTUUBAAAAAERBVEEMAAAAAAAAAAEAAAABAAAAQ0VMTB0AAAAAAAAAAAAAAE5BTUUBAAAAAERBVEEMAAAAAAAAAAIAAAD9////Q0VMTDoAAAAAAAAAAAAAAE5BTUUGAAAAVmF1bHQAREFUQQwAAAABAAAAAAAAAAAAAABBTUJJEAAAAAAAAAAAAAAAAAAAAAAAAABTQ1BUcwAAAAAAAAAAAAAAU0NIRDQAAABhbHBoYV9zAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU0NUWC8AAABiZWdpbiBhbHBoYV9zDQpQbGFjZUl0ZW0gInJvY2siIDAgMCAwIDANCmVuZA0KAA==",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "",
+       "description": "",
+       "num_objects": 0,
+       "masters": [
+        [
+         "Morrowind.esm",
+         1
+        ]
+       ]
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r2.nif"
+      },
+      {
+       "type": "GameSetting",
+       "flags": "",
+       "id": "fFleeDistance",
+       "value": {
+        "type": "Float",
+        "data": 3000.0
+       }
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         2,
+         -3
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "atmosphere_data": {
+        "ambient_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "sunlight_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_density": 0.0
+       },
+       "references": []
+      },
+      {
+       "type": "Script",
+       "flags": "",
+       "id": "alpha_s",
+       "header": {
+        "num_shorts": 0,
+        "num_longs": 0,
+        "num_floats": 0,
+        "bytecode_length": 0,
+        "variables_length": 0
+       },
+       "variables": "KLUv/QBYIQAAAAAAAA==",
+       "bytecode": "KLUv/QBYIQAAAAAAAA==",
+       "text": "begin alpha_s\r\nPlaceItem \"rock\" 0 0 0 0\r\nend\r\n"
+      }
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "b64": "VEVTM3wBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAABtZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGEgdGVzdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATUFTVA4AAABNb3Jyb3dpbmQuZXNtAERBVEEIAAAAAQAAAAAAAABNQVNUCgAAAEFscGhhLmVzcABEQVRBCAAAAAEAAAAAAAAAU1RBVBwAAAAAAAAAAAAAAE5BTUUFAAAAcm9jawBNT0RMBwAAAHIzLm5pZgBTVEFUHAAAAAAAAAAAAAAATkFNRQUAAAB0cmVlAE1PREwHAAAAdDIubmlmAENFTEwdAAAAAAAAAAAAAABOQU1FAQAAAABEQVRBDAAAAAAAAAABAAAAAQAAAENFTEw6AAAAAAAAAAAAAABOQU1FBgAAAFZhdWx0AERBVEEMAAAAAQAAAAAAAAAAAAAAQU1CSRAAAAAAAAAAAAAAAAAAAAAAAAA/Q0VMTEgAAAAAAAAAAAAAAE5BTUUUAAAAU2hyaW5lIDxvZj4gIkxpZ2h0IgBEQVRBDAAAAAEAAAAAAAAAAAAAAEFNQkkQAAAAAAAAAAAAAAAAAAAAAAAAPw==",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "me",
+       "description": "a test",
+       "num_objects": 0,
+       "masters": [
+        [
+         "Morrowind.esm",
+         1
+        ],
+        [
+         "Alpha.esp",
+         1
+        ]
+       ]
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "rock",
+       "mesh": "r3.nif"
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "tree",
+       "mesh": "t2.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         1,
+         1
+        ]
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Vault",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "atmosphere_data": {
+        "ambient_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "sunlight_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_density": 0.5
+       },
+       "references": []
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "Shrine <of> \"Light\"",
+       "data": {
+        "flags": "IS_INTERIOR",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "atmosphere_data": {
+        "ambient_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "sunlight_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_color": [
+         0,
+         0,
+         0,
+         0
+        ],
+        "fog_density": 0.5
+       },
+       "references": []
+      }
+     ]
+    },
+    "mods/C/Clash.esp": {
+     "b64": "VEVTM1oBAAAAAAAAAAAAAEhFRFIsAQAAZmamPwAAAABtZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGEgdGVzdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATUFTVA4AAABNb3Jyb3dpbmQuZXNtAERBVEEIAAAAAQAAAAAAAABTVEFUHAAAAAAAAAAAAAAATkFNRQUAAAB0cmVlAE1PREwHAAAAdDMubmlmAENFTEwdAAAAAAAAAAAAAABOQU1FAQAAAABEQVRBDAAAAAAAAAAAAAAAAAAAAA==",
+     "records": [
+      {
+       "type": "Header",
+       "flags": "",
+       "version": 1.3,
+       "file_type": "Esp",
+       "author": "me",
+       "description": "a test",
+       "num_objects": 0,
+       "masters": [
+        [
+         "Morrowind.esm",
+         1
+        ]
+       ]
+      },
+      {
+       "type": "Static",
+       "flags": "",
+       "id": "tree",
+       "mesh": "t3.nif"
+      },
+      {
+       "type": "Cell",
+       "flags": "",
+       "name": "",
+       "data": {
+        "flags": "",
+        "grid": [
+         0,
+         0
+        ]
+       },
+       "references": []
+      }
+     ]
+    }
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "--subset",
+    "Alpha.esp",
+    "Beta.esp",
+    "--cell-map",
+    "<root>/map.html",
+    "--lint",
+    "--exclude",
+    "alph"
+   ],
+   "stdout": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Clash.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 4 size note(s)",
+    "======================================================================",
+    "",
+    "--- 4 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Clash.esp': header says 'Morrowind.esm' was 1 bytes, installed copy is 500 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp': header says 'Morrowind.esm' was 1 bytes, installed copy is 500 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp': header says 'Morrowind.esm' was 1 bytes, installed copy is 500 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp': header says 'Alpha.esp' was 1 bytes, installed copy is 751 -- made against a different version of the master (usually fine). The tes3cmd window's in-app resync fixes this.",
+    "  (excluded 1 plugin by --exclude)",
+    "",
+    "======================================================================",
+    " CELL MAP (which mods touch which cells)",
+    "======================================================================",
+    "  Scanned 3 plugin(s): 2 exterior + 2 interior cell(s) touched.",
+    "  Wrote cell map: <root>/map.html  (open it in a browser)",
+    "",
+    "======================================================================",
+    " LINT (tes3lint-style checks, read-only)",
+    "======================================================================",
+    "  (excluded 1 plugin by --exclude)",
+    "  Scanned 2 plugin(s); 2 interior cell(s), 0 interior pathgrid(s).",
+    "",
+    "[NO PATHGRID] 'Beta.esp': new interior cell 'Shrine <of> \"Light\"' has no pathgrid anywhere in the load order -- NPCs can't pathfind there.",
+    "",
+    "[NO PATHGRID] 'Beta.esp': new interior cell 'Vault' has no pathgrid anywhere in the load order -- NPCs can't pathfind there.",
+    "",
+    "======================================================================",
+    " WRITING OUTPUT",
+    "======================================================================",
+    "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+    "",
+    "  NOTE: nothing was written -- this was a preview. Pass --write-cfg and/or --emit-toml to save the result.",
+    "",
+    "======================================================================",
+    " SUMMARY",
+    "======================================================================",
+    "  Plugins sorted:        2",
+    "  Data paths inserted:   0",
+    "  Rule warnings raised:  0",
+    "  plugin-order.yml warnings: 0",
+    "  openmw.cfg written:    no",
+    "  customizations.toml written: no",
+    ""
+   ],
+   "stderr": [
+    ""
+   ],
+   "exit": 0,
+   "written": {
+    "map.html": "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>Wraithguard Toolkit - Cell Map</title>\n<style>\n body{background:#101013;color:#c8c8c8;font-family:Segoe UI,Arial,sans-serif;margin:16px;}\n h1{color:#e8905a;font-size:20px;margin-bottom:4px;}\n .sub{color:#8f8f8f;font-size:13px;}\n .stamp{color:#6f6f6f;font-size:12px;margin-top:2px;}\n .legend{margin-top:12px;line-height:1.7;}\n .legend span{display:inline-block;padding:2px 8px;margin-right:6px;border-radius:3px;\n   font-size:12px;}\n .tabs{margin-top:24px;margin-bottom:4px;}\n .tabs button{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:6px 14px;\n   margin-right:4px;cursor:pointer;}\n .tabs button.on{background:#8a3a12;color:#fff;}\n .tab{display:none;margin-top:10px;} .tab.on{display:block;}\n .mapwrap{overflow:auto;max-height:74vh;border:1px solid #333;background:#06111c;\n   display:block;max-width:100%;resize:vertical;}\n .mapwrap svg{display:block;}\n rect.cell{cursor:pointer;} rect.cell:hover{stroke:#fff;stroke-width:1.4;}\n rect.cell.dim{opacity:.13;}\n #tt{position:fixed;pointer-events:none;display:none;z-index:99;max-width:440px;\n   background:#000;color:#eee;border:1px solid #555;border-radius:3px;padding:3px 7px;\n   font-size:12px;}\n /* The lists scroll in their own pane, like the map, so a 9,000-row exterior\n    list does not push the tab strip off the top of the window. */\n .listwrap{overflow:auto;max-height:74vh;border:1px solid #262626;resize:vertical;}\n table.list{border-collapse:collapse;width:100%;font-size:13px;}\n .list td,.list th{border-bottom:1px solid #262626;padding:4px 8px;text-align:left;\n   vertical-align:top;}\n .list th{color:#9a9a9a;position:sticky;top:0;background:#101013;}\n tr.cust td{color:#ff9b6b;}\n tr.hl td{background:#3a2a10;}\n input.f{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:6px;width:320px;\n   margin:6px 0;}\n .focusbar{margin-top:10px;}\n .focusbar select{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:5px;\n   max-width:420px;}\n button.op{background:#20242a;color:#e8905a;border:1px solid #3a3a3a;border-radius:3px;\n   padding:0 6px;cursor:pointer;font-size:10px;margin-right:4px;}\n button.op:hover{background:#8a3a12;color:#fff;}\n .focusbar button{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:5px 10px;\n   margin-left:6px;cursor:pointer;}\n #focusinfo{margin-top:4px;max-width:900px;}\n</style></head><body>\n<div id=\"tt\"></div>\n<h1>Wraithguard Toolkit - Cell Map</h1>\n<p class=\"sub\">Scanned 3 plugin(s). Exterior: 2 cell(s)\n touched (2 by 2+ mods). Interior: 2 cell(s) touched\n (0 by 2+ mods). Cells your custom mods touch are highlighted\n (gold outline / orange text).</p>\n<p class=\"sub stamp\">Generated 2026-10-22 12:00:00</p>\n<div class=\"legend\">Mods per cell: <span style=\"background:#2e4a63;color:#fff\">1</span><span style=\"background:#d99e3d;color:#111\">2</span> &nbsp;(north up; hover a cell for its mods, click it to jump to the list)</div>\n<div class=\"focusbar\">Focus on mod:\n <select id=\"focus\" onchange=\"setFocus(this.value)\"><option value=\"\">- all mods -</option><option value=\"beta.esp\">Beta.esp ★</option><option value=\"clash.esp\">Clash.esp</option><option value=\"morrowind.esm\">Morrowind.esm</option></select>\n <button onclick=\"document.getElementById('focus').value='';setFocus('')\">Clear</button>\n <div id=\"focusinfo\" class=\"sub\"></div></div>\n<div class=\"tabs\">\n <button id=\"b0\" class=\"on\" onclick=\"show(0)\">Map</button>\n <button id=\"b1\" onclick=\"show(1)\">Exterior list (2)</button>\n <button id=\"b2\" onclick=\"show(2)\">Interior list (2)</button>\n</div>\n<div id=\"t0\" class=\"tab on\"><div class=\"mapwrap\"><svg width=\"26\" height=\"26\" viewBox=\"0 0 26 26\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"0\" y=\"13\" width=\"12\" height=\"12\" fill=\"#d99e3d\" class=\"cell\" data-t=\"(0, 0) - 2 mod(s): Morrowind.esm, Clash.esp\" data-m=\"|morrowind.esm|clash.esp|\" onclick=\"jump('e_0_0')\" ondblclick=\"openPreview('0,0')\"></rect><rect x=\"13\" y=\"0\" width=\"12\" height=\"12\" fill=\"#d99e3d\" stroke=\"#ffd24a\" stroke-width=\"1.4\" class=\"cell\" data-t=\"(1, 1) - 2 mod(s): Morrowind.esm, Beta.esp\" data-m=\"|morrowind.esm|beta.esp|\" onclick=\"jump('e_1_1')\" ondblclick=\"openPreview('1,1')\"></rect></svg></div></div>\n<div id=\"t1\" class=\"tab\"><input class=\"f\"\n  placeholder=\"Filter exterior cells / mods...\" onkeyup=\"ff('xt')\">\n <div class=\"listwrap\"><table class=\"list\" id=\"xt\"><thead><tr><th>Cell (x, y)</th><th>#</th>\n <th>Mods (load order, last wins)</th></tr></thead>\n <tbody><tr id=\"e_0_0\" data-m=\"|morrowind.esm|clash.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" onclick=\"openPreview('0,0')\">&#9654;</button> (0, 0)</td><td>2</td><td>Morrowind.esm, Clash.esp</td></tr><tr id=\"e_1_1\" class=\"cust\" data-m=\"|morrowind.esm|beta.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" onclick=\"openPreview('1,1')\">&#9654;</button> (1, 1)</td><td>2</td><td>Morrowind.esm, Beta.esp</td></tr></tbody></table></div></div>\n<div id=\"t2\" class=\"tab\"><input class=\"f\"\n  placeholder=\"Filter interior cells / mods...\" onkeyup=\"ff('it')\">\n <div class=\"listwrap\"><table class=\"list\" id=\"it\"><thead><tr><th>Cell</th><th>#</th>\n <th>Mods (load order, last wins)</th></tr></thead>\n <tbody><tr class=\"cust\" data-m=\"|beta.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" data-c=\"int:Shrine &lt;of&gt; &quot;Light&quot;\" onclick=\"openPreview(this.dataset.c)\">&#9654;</button> Shrine &lt;of&gt; &quot;Light&quot;</td><td>1</td><td>Beta.esp</td></tr><tr class=\"cust\" data-m=\"|beta.esp|\"><td><button class=\"op\" title=\"Open in Cell Preview\" data-c=\"int:Vault\" onclick=\"openPreview(this.dataset.c)\">&#9654;</button> Vault</td><td>1</td><td>Beta.esp</td></tr></tbody></table></div></div>\n<script>\nfunction show(n){\n  for(var i=0;i<3;i++){\n    document.getElementById('t'+i).className=i==n?'tab on':'tab';\n    document.getElementById('b'+i).className=i==n?'on':'';\n  }\n}\n// Open a cell in Wraithguard's Cell Preview: a cell's double-click, or the list rows'\n// play buttons. Asks the app through its loopback server (the page's own token), so it\n// works when Wraithguard opened this map, and says so when the file was opened by hand.\nfunction openPreview(spec){\n  var t=new URLSearchParams(location.search).get('t');\n  if(!t){ alert('Open this map from Wraithguard to launch Cell Preview from it.'); return; }\n  fetch('/wg_open_cell?t='+encodeURIComponent(t),{method:'POST',body:spec})\n    .catch(function(){ alert('Wraithguard is not answering - is it still open?'); });\n}\nfunction jump(a){\n  show(1);\n  var el=document.getElementById(a);\n  if(el){\n    el.scrollIntoView({block:'center'});\n    el.classList.add('hl');\n    setTimeout(function(){el.classList.remove('hl');},2200);\n  }\n}\n// One delegated listener rather than per-rect handlers: with thousands of cells,\n// attaching individually is what makes a tooltip feel laggy. Native SVG <title>\n// carries a browser-controlled ~1s delay and cannot be styled, which is exactly\n// wrong for a grid meant to be swept over with the cursor.\n(function(){\n  var tt=document.getElementById('tt');\n  document.addEventListener('mouseover',function(e){\n    var r=e.target;\n    if(r&&r.classList&&r.classList.contains('cell')){\n      tt.textContent=r.getAttribute('data-t');tt.style.display='block';\n    }\n  });\n  document.addEventListener('mousemove',function(e){\n    if(tt.style.display=='block'){\n      var x=e.clientX+12,y=e.clientY+12;\n      if(x+450>window.innerWidth){x=e.clientX-450;}\n      if(y+80>window.innerHeight){y=e.clientY-60;}\n      tt.style.left=x+'px';tt.style.top=y+'px';\n    }\n  });\n  document.addEventListener('mouseout',function(e){\n    var r=e.target;\n    if(r&&r.classList&&r.classList.contains('cell')){tt.style.display='none';}\n  });\n})();\nvar Q={xt:'',it:''}, FOCUS='';\nfunction match(r){\n  return !FOCUS||(r.getAttribute('data-m')||'').indexOf('|'+FOCUS+'|')>-1;\n}\nfunction apply(id){\n  document.querySelectorAll('#'+id+' tbody tr').forEach(function(r){\n    var okQ=!Q[id]||r.innerText.toLowerCase().indexOf(Q[id])>-1;\n    r.style.display=(okQ&&match(r))?'':'none';\n  });\n}\nfunction ff(id){\n  Q[id]=(event.target.value||'').toLowerCase();\n  apply(id);\n}\nfunction setFocus(v){\n  FOCUS=(v||'').toLowerCase();\n  document.querySelectorAll('rect.cell').forEach(function(r){\n    r.classList.toggle('dim',!!FOCUS&&!match(r));\n  });\n  apply('xt');apply('it');\n  var info=document.getElementById('focusinfo');\n  if(!FOCUS){info.textContent='';return;}\n  var nE=0,nI=0,co={};\n  document.querySelectorAll('#xt tbody tr').forEach(function(r){\n    if(match(r)){nE++;countCo(r,co);}\n  });\n  document.querySelectorAll('#it tbody tr').forEach(function(r){\n    if(match(r)){nI++;countCo(r,co);}\n  });\n  var names=Object.keys(co).sort(function(a,b){return co[b]-co[a];});\n  var top=names.slice(0,14).map(function(n){return n+' ('+co[n]+')';}).join(', ');\n  info.textContent='Touches '+nE+' exterior + '+nI+' interior cell(s). '+\n    (names.length?'Shares cells with '+names.length+' other mod(s): '+top+\n      (names.length>14?', …':''):'No other mod touches these cells.');\n}\nfunction countCo(r,co){\n  (r.getAttribute('data-m')||'').split('|').forEach(function(m){\n    if(m&&m!=FOCUS){co[m]=(co[m]||0)+1;}\n  });\n}\n</script>\n</body></html>\n"
+   }
+  }
+ ]
+}

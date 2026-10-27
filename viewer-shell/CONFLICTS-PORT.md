@@ -1,5 +1,10 @@
 # Conflicts into Rust (plan)
 
+**Status:** slices 1-8, 10 and 11 done (`conflictcore`: `records`, `fields`, `resources`,
+`mesh`, `textures`, `patch`, `map`, `vfs`; `native/src/conflicts.rs`; the Conflicts page
+`ui/src/60_wg_conflicts.js` and the `conflicts_*` commands). Slice 9 moves to 4.4 (Merge
+Settings). `gui/conflicts.py`, `viz/conflictmap.py` and `viz/cellmap.py` retire with Tk (4.5).
+
 Step 4.3 of the road in `TODO.md`: record conflicts (`gui/conflicts.py`, 3.8k lines),
 resource conflicts, the cell map. Same method as `PORT.md` (4.1) and the load-order
 slices (4.2): the logic moves first, pinned by case files both sides run; Python calls it
@@ -58,6 +63,11 @@ crate; it would pull the same dependencies either way.
    the dialogs are UI and belong to the redesign.
 9. **Merge strategies** (`_compare_merge_strategies`, the `merge/` package, ~1.4k lines).
    Overlaps 4.4 (Merge Settings); do it there if it turns out to share the model.
+   *Landed in 4.4:* `_compare_merge_strategies` is the Conflicts page's "Terrain and
+   strategies" on a `LAND` record (`conflicts_land_surfaces`, `landcore::preview`): each
+   plugin's terrain and the merge under Overwrite, Resolve, Ignore and Curvature, shaded or
+   as a difference. The `merge/` package (merge_to_master) is not used by the GUI and is not
+   part of this.
 10. **The map** (`viz/conflictmap.py` 517, `geometry.py`, `heightdelta.py`, `terrain3d.py`,
     `cellmap.py` 332). The viewer's coverage map already draws most of it: add the conflict
     layer to it (count per cell from `usage.rs`'s rule), the height-delta and terrain views

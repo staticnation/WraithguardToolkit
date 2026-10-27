@@ -15,6 +15,7 @@
 17_cell.js
 18_cellpreview.js
 19_settings.js
+19_wg_themes.js
 23_viewer_profile.js
 24_ori.js
 16_gamedata_ui.js
@@ -65,4 +66,8 @@
 56_wg_workflow.js
 57_wg_distant.js
 58_wg_distant_objects.js
+59_wg_loadorder.js
+60_wg_conflicts.js
+61_wg_tools.js
+62_wg_help.js
 11_events.js

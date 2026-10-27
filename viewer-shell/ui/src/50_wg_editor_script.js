@@ -38,8 +38,8 @@ Object.assign(WgEditor, {
         const s=this._script; if(!s) return;
         const text=d.querySelector('#edScriptText').value;
         try{
-          const r=await this.ask('editFlowchart', Object.assign({tag:s.tag, id:s.id, text}, s.plugins? {plugins:s.plugins} : {}));
-          if(!r.shown) toast('This Wraithguard has no chart window','warn',4000);
+          const r=await Engine.call('editor_script_flowchart', {id:s.id, text});
+          this.luaShowChart(r.heading, r.chart);
         }catch(e){ toast(String(e.message||e),'err',5000); }
       };
       d.querySelector('#edScriptRevert').onclick=async()=>{

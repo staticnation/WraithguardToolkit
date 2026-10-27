@@ -315,7 +315,7 @@ fn plugin_version(name: &str, plugins: Option<&dyn Plugins>) -> Result<Option<St
 // ---------------------------------------------------------------- the atomic forms
 
 /// A function form read from its token: which form, and its parts.
-enum Form {
+pub(crate) enum Form {
     Ver { op: String, want: String, plugin: String },
     Size { bang: bool, want: String, plugin: String },
     Desc { bang: bool, pat: String, plugin: String },
@@ -334,7 +334,7 @@ impl Form {
 }
 
 /// Which atomic form a whole token is (the four `_re_*_fun` expressions, tried in order).
-fn read_form(token: &str) -> Result<Option<Form>, Unsupported> {
+pub(crate) fn read_form(token: &str) -> Result<Option<Form>, Unsupported> {
     static VERSION: OnceLock<Regex> = OnceLock::new();
     static SIZE: OnceLock<Regex> = OnceLock::new();
     static DESC: OnceLock<Regex> = OnceLock::new();

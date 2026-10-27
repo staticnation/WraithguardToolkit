@@ -11,6 +11,16 @@ publish = false
 viewcore = { path = "../viewcore" }
 # The Editor's links, as the shell has them.
 editcore = { path = "../editcore" }
+# The Conflicts page's commands, as the shell has them.
+conflictcore = { path = "../conflictcore" }
+# The Tools page's commands, as the shell has them.
+toolscore = { path = "../toolscore" }
+# Merge Settings (and Merge Lands as it moves), as the shell has them.
+landcore = { path = "../landcore" }
+# The Load order page's commands answer in JSON (the shell has it too).
+serde_json = "1"
+# The Load order page's downloads, as the shell has them.
+ureq = "3"
 
 # Clippy, as viewcore has it (see viewcore/Cargo.toml for why).
 [lints.clippy]

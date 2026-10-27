@@ -1,0 +1,29 @@
+# The landscape: Merge Settings now, Merge Lands as it moves (port step 4.4, TOOLS-PORT.md slices
+# 9 and 10). The viewer's Tools page calls it as Tauri commands; native/ takes it by path for the
+# Python tools until they retire.
+[package]
+name = "landcore"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+publish = false
+
+[dependencies]
+# `.mergedlands.toml` (meta.rs), read as Python's tomllib reads it: only the reading half, 0.8 for
+# TOML 1.0 (see ordercore's note).
+toml = { version = "0.8", default-features = false, features = ["parse", "preserve_order"] }
+# The merged plugin written (emit.rs) as the Python's native writer writes it.
+tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp"] }
+
+[dev-dependencies]
+# The shared cases (tests/fixtures/land_merge_cases.json) are JSON; the plugins they stand for
+# are checked by their SHA-256.
+serde_json = "1"
+sha2 = "0.10"
+
+# [patch] only counts in the package being built (see native/Cargo.toml).
+[patch."https://github.com/Greatness7/tes3"]
+tes3 = { git = "https://github.com/staticnation/tes3" }
+bytes_io = { git = "https://github.com/staticnation/tes3" }
+

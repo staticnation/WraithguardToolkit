@@ -84,9 +84,12 @@ pub const ANSWERS: &[&str] = &[
 /// plugins on a thread of its own).
 const BUILD_LINKS: &[&str] = &["editBuildInfo", "editBuildCheck", "editBuild", "editBuildStatus", "editTestSetups", "editTestRun"];
 
-/// The links that stay Wraithguard's: they open its own windows (the Patch Builder, the
-/// chart window, a Cell Preview of its own).
-pub const WRAITHGUARDS: &[&str] = &["editReview", "editFlowchart", "editLuaChart", "editPreviewPatch"];
+/// The links that stay Wraithguard's. None now: the four that opened its windows
+/// (`editReview`, `editFlowchart`, `editLuaChart`, `editPreviewPatch`) are the viewer's own
+/// commands (`editor_script_flowchart`, `lua_chart`, `editor_preview_patch`, and the Editor's
+/// Build page in place of the Patch Builder). Their Python handlers go with the Python
+/// Editor (DROP-TK.md).
+pub const WRAITHGUARDS: &[&str] = &[];
 
 /// How many records the Object Window's search lists, and the search across every type;
 /// how many scripts naming a word, and NPCs who can say a response.

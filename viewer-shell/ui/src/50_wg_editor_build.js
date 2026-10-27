@@ -277,16 +277,11 @@ Object.assign(WgEditor, {
       else if(p.new) h+='<div class="orirow"><span class="v"><button class="btn sm" data-ref="'+escHtml(JSON.stringify({cell:p.new.cell, uid:p.new.uid}))+'">Open</button></span></div>';
     }
     h+='<div class="orirow" style="margin-top:8px"><span class="v">'+
-      '<button class="btn sm pri" id="edBuildHere" title="Write the patch from here: where it goes, Append or Replace, and the build\'s report, without leaving the viewer">Build patch…</button> '+
-      '<button class="btn sm" id="edReview" title="Open the Patch Builder in Wraithguard, to review and write the patch there">Review and write in Wraithguard</button></span></div>';
+      '<button class="btn sm pri" id="edBuildHere" title="Write the patch from here: where it goes, Append or Replace, and the build\'s report">Build patch…</button></span></div>';
     body.innerHTML=h;
     body.querySelector('#edBuildHere').onclick=()=>this.showBuild();
     body.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>this.openRecord(b.dataset.open, b.dataset.id, null));
     body.querySelectorAll('[data-ref]').forEach(b=>b.onclick=()=>this.openRef(JSON.parse(b.dataset.ref)));
-    body.querySelector('#edReview').onclick=async()=>{
-      try{ await Engine.call('wg_post',{url:this.links().editReview, body:'{}'}); toast('The Patch Builder is open in Wraithguard','ok',3000); }
-      catch(e){ toast(String(e.message||e),'err',5000); }
-    };
   },
 
   /* ---- the patch, written from here ---------------------------------------------------- */
@@ -506,8 +501,8 @@ Object.assign(WgEditor, {
       '<div class="orirow"><span class="v"><button class="btn sm" id="edBuildPreview" title="A new Cell Preview with the patch loaded last, on the cells it changes">Preview it in a new Cell Preview</button> '+
       '<button class="btn sm" id="edBuildCopy" title="The patch\'s path, to the clipboard">Copy the path</button></span></div>';
     done.querySelector('#edBuildPreview').onclick=async()=>{
-      try{ await this.ask('editPreviewPatch', {path:r.output}); toast('Opening a Cell Preview with the patch','ok',3000); }
-      catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',5000); }
+      try{ await Engine.call('editor_preview_patch', {cfg:String((window.__WG_VIEW__||{}).cfg||''), path:r.output}); toast('Opening a Cell Preview with the patch','ok',3000); }
+      catch(e){ toast(String(e.message||e),'err',5000); }
     };
     done.querySelector('#edBuildCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText(r.output); toast('Copied','ok',1500); }catch(_){ } };
     toast(r.records+' record'+(r.records===1?'':'s')+' written to '+String(r.output).split(/[\\/]/).pop(),'ok',6000);

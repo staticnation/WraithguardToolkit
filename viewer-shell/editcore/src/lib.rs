@@ -41,6 +41,7 @@ pub mod dialogue_graph;
 pub mod edit;
 pub mod fields;
 pub mod frames;
+pub mod journal;
 pub mod key;
 pub mod links;
 pub mod mwscript;

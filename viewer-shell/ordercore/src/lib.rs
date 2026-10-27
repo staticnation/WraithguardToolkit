@@ -23,6 +23,8 @@
 //!   network left to the caller.
 //! - [`inputs`]: what the sort is given - the subset, the customizations TOML, the mods-folder
 //!   scan, grass, the cfg's orphans, a list's data paths, `data=` anchors and the master check.
+//! - [`plan`]: a whole sort as `compute_plan` runs it, its report as items a page can list.
+//! - [`apply`]: momw-configurator's apply step dry-run, the export's preview.
 //! - [`export`]: writing `openmw.cfg` and `customizations.toml`.
 //! - [`authoring`]: writing mlox rules to the rule-base's standards, and the user's rule file.
 //! - [`derive`]: the rules worth proposing from what the tool observed.
@@ -30,6 +32,7 @@
 //! Written from OpenMW's documentation ("Paths", openmw.readthedocs.io) and its observed
 //! behaviour, not its code: OpenMW is GPL-3 and this crate is MIT.
 
+pub mod apply;
 pub mod authoring;
 pub mod cells;
 pub mod cfg;
@@ -40,6 +43,7 @@ pub mod inputs;
 pub mod momw;
 pub mod order;
 pub mod patterns;
+pub mod plan;
 pub mod predicates;
 pub mod pyre;
 pub mod records;

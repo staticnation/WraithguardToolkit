@@ -62,7 +62,8 @@
 
    - Build patch: the pool written as the patch from here - where it goes, Append or
      Replace, the build's report as it goes - by Wraithguard, as its Patch Builder writes it
-     (`editBuildInfo`, `editBuildCheck`, `editBuild`, `editBuildStatus`, `editPreviewPatch`).
+     (`editBuildInfo`, `editBuildCheck`, `editBuild`, `editBuildStatus`; a new Cell Preview on
+     the patch is `editor_preview_patch`).
    - The parts: this file holds the state, the links and the dock; each window's methods are
      in 50_wg_editor_<window>.js, added to WgEditor in ORDER after it (Object.assign).
    - The window furniture - docking and folding panels, the toolbar, flyouts, the dialogs'
@@ -71,7 +72,7 @@
    The lists come from the shell (`editor_tags`, `editor_records`, `editor_cell_refs`,
    `cells`); a record's contents and every change from Wraithguard, over the `links` the
    launch handed over (`editRecord`, `editSet`, `editRevert`, `editRef`, `editRefSet`,
-   `editRefRevert`, `editPending`, `editReview`; gui/editorlink.py). Opened without Wraithguard, it browses but cannot
+   `editRefRevert`, `editPending`; gui/editorlink.py). Opened without Wraithguard, it browses but cannot
    edit, and says so.
 
    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.

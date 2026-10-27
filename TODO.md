@@ -29,10 +29,13 @@ program, and a clearer UI on the way. In order:
       the same patch, byte for byte; its job, status, the test run and the launch
       setups) is done, so every link has its Rust twin. Slice 7, the flip, is done
       (7a reading and editing, 7b dialogue, scripts, uses and the verifier, 7c the
-      build and the test run): the viewer answers every Editor link but the four that
-      open Wraithguard's own windows, the queue shared with Wraithguard through the
-      journal, and Wraithguard no longer serves them. Next: retire the Python Editor
-      (its handlers and `EditorSession`'s editing, once only the link cases use them).
+      build and the test run): the viewer answers every Editor link, the queue shared with
+      Wraithguard through the journal, and Wraithguard no longer serves them. The last four,
+      which opened Wraithguard's windows, are the viewer's own since 2026-10-26
+      (`editor_script_flowchart`, `lua_chart`, `editor_preview_patch`, the Build page for
+      `editReview`; `links::WRAITHGUARDS` is empty). Left for 4.5: retire the Python Editor
+      (`editorlink.py`'s handlers, those four included, and `EditorSession`'s editing, once
+      only the link cases use them).
       Untested here: the real viewer build (no webview libraries in this environment;
       the command layer is checked by `check-commands`), and the Patch Builder's journal
       changes (no tkinter here; `test_patchwin_steps.py` ran against a stand-in). Small: the two sides' journal writes can cross - a change made on one
@@ -84,25 +87,39 @@ program, and a clearer UI on the way. In order:
         `serde-saphyr`, refused whole on anything that is not MOMW's (`momw_cases.json`
         pins what is read and what refused); PyYAML is gone from the reading. ordercore now
         needs Rust 1.89 (`rust-version` in it and the crates that take it).
-      - **2k. The flip**: each Load order action a Tauri command, a Load order page, and the
-        Python sort and rule code retired. Plan and Static's decisions (the viewer becomes the
-        main window; the page writes a plan file for the Tk tools; the report a list of
-        warnings): `viewer-shell/LOADORDER-PORT.md`.
-        - Slice 1 done 2026-10-26: the sort's inputs in `ordercore::inputs`, pinned by
-          `input_cases.json` (`tools/gen_input_cases.py`): the subset lines and TOML form, the
-          customizations TOML (the `toml` crate 0.8, TOML 1.0 as tomllib), grass, the
-          mods-folder scan (moved there from `native/src/fsio.rs`), the folders, a list's data
-          paths, the `--subset-from-cfg` orphans, the inferred `data=` anchors and the header
-          master check. Python calls them through native, as 2j. Next: slice 2,
-          `compute_plan` / `write_plan` whole with the report as structured items.
-   3. *Conflicts.* Record conflicts (`gui/conflicts.py`, 3.8k lines), resource conflicts,
-      the cell map (the viewer's coverage map already does most; `viz/cellmap.py` retires).
-      Plan: `viewer-shell/CONFLICTS-PORT.md`.
-   4. *Tools.* Merge Lands (`land/`; `native/src/land.rs` is most of it), Merge Settings,
-      Lint (`native/src/lint.rs`), Save Check, tes3cmd, Remove Master, Backups, the Lua view
-      (luacore has it), the journal and plugin views, the help (`viz/docs.py`). Plan:
-      `viewer-shell/TOOLS-PORT.md`.
-   5. *Drop Tk and PyInstaller.* One Tauri build per platform; the Flatpak loses its Python
+      - **2k. The flip** (done 2026-10-26; `viewer-shell/LOADORDER-PORT.md`): the sort's inputs,
+        `compute_plan` / `write_plan` and the configurator preview in `ordercore`
+        (`inputs.rs`, `plan.rs`, `apply.rs`; `input_cases.json`, `plan_cases.json`); the viewer's
+        Load order page (`59_wg_loadorder.js`, `--loadorder`) on its commands, Update rules and
+        Sources over `ureq`; the Tk window hands off (its Sort / Export / Sources / rule maker
+        gone, the tools reading the page's plan file); the Python sort, rules, MOMW, configurator
+        and updater code deleted with its tests and generators. The page's rule maker writes
+        every form since 2026-10-26: one expression a line, read by `authoring::expr_from_text`
+        (the sort's own tokenizer), so `[DESC]`, `[SIZE]`, `[VER]` and `[ANY]`/`[ALL]`/`[NOT]`.
+   3. *Conflicts.* Done (slices 1-8, 10, 11): `viewer-shell/conflictcore` (the record scan
+      and singles, the field diff and its statuses, the reports and CSVs, the loose-file scan,
+      meshes, textures, the patch rules, the map); Python calls it through native
+      (`native/src/conflicts.rs`); the viewer's Conflicts page (`60_wg_conflicts.js`,
+      `--conflicts`, the `conflicts_*` commands), which Wraithguard's Check Conflicts and
+      Resource Conflicts open. Slice 9 (merge strategies) goes with 4.4's Merge Settings.
+      Left for 4.5: `gui/conflicts.py` and `viz/conflictmap.py` / `cellmap.py` retire with Tk;
+      the tes3conv engine path is not ported. Plan: `viewer-shell/CONFLICTS-PORT.md`.
+   4. *Tools.* Done (2026-10-26; `viewer-shell/TOOLS-PORT.md`): the viewer's Tools page
+      (`61_wg_tools.js`, `--tools`) with Lint, Backups, Remove / rename master, Save Check,
+      the Journal, tes3cmd (the external tool, launched; its rewrite is
+      `viewer-shell/TES3CMD-REWRITE.md`), Merge Lands and Merge settings (`toolscore`,
+      `landcore`, `editcore::journal`); the Help page (`62_wg_help.js`, `--docs`,
+      `toolscore::docs`); the plugin view as the Conflicts page's Plugins tab; the Lua view as
+      the Editor's Lua panel; the 23 themes (`19_wg_themes.js`, from `theme.py`). Merge Lands
+      takes both models, the original's (against the masters, the default) and the OpenMW
+      fork's (against the load order before it), with the fork's cleaning and skip list
+      (`MERGED_LANDS.md`); `native/src/land.rs` hands landcore's functions to the Python.
+      Wraithguard's buttons open the pages, its Tk runs kept as fallbacks until 4.5. Left:
+      Merge Lands as a job with live progress and a cancel (its lines come back at the end);
+      the tes3conv land path is not ported.
+   5. *Drop Tk and PyInstaller.* Next. Retires with Tk: the Python Editor, `gui/conflicts.py`,
+      `patchwin.py`, `journalview.py`, `pluginview.py`, `luaview.py`, `removemaster.py`,
+      `t3.py`, `viz/docs.py`, `wraithguard/land/` and the fallbacks above. One Tauri build per platform; the Flatpak loses its Python
       runtime (and the `LD_LIBRARY_PATH` workaround); `native/` (pyo3) folds into viewcore
       and ordercore as its last Python caller goes. Plan: `viewer-shell/DROP-TK.md`.
 

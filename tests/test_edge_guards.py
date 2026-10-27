@@ -18,7 +18,6 @@ from wraithguard.land.diff import RelativeGrid, is_deleted
 from wraithguard.land.textures import NO_TEXTURE, KnownTextures
 from wraithguard.nif.report import Shape, Structure, texture_key
 from wraithguard.patch.status import conflict_this
-from wraithguard.sort.graph import would_create_cycle
 from wraithguard.tes3fields.naming import subrecord_for
 from wraithguard.viz.geometry import group_by_cell, parse_grid
 from wraithguard.viz.housekeeping import _remove_tree
@@ -122,11 +121,6 @@ def test_conflict_this_of_nothing_is_empty() -> None:
     assert conflict_this([]) == []
 
 
-def test_would_create_cycle_is_true_when_target_reaches_start() -> None:
-    """The proposed edge closes a loop: target already reaches start."""
-    assert would_create_cycle({"target": ["start"]}, "start", "target") is True
-
-
 def test_is_deleted_reads_a_list_of_flags() -> None:
     """A record whose ``flags`` is a list is deleted iff DELETED is among them."""
     assert is_deleted({"flags": ["DELETED"]}) is True
@@ -204,7 +198,3 @@ def test_relative_grid_to_rows_reshapes_a_single_component_grid() -> None:
     assert grid.to_rows() == [[1, 2], [3, 4]]
 
 
-def test_would_create_cycle_skips_a_node_reached_twice() -> None:
-    """A diamond reaches one node by two paths; the second visit is skipped."""
-    adjacency = {"target": ["a", "b"], "a": ["c"], "b": ["c"]}
-    assert would_create_cycle(adjacency, "z", "target") is False

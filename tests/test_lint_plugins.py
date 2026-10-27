@@ -1,4 +1,4 @@
-"""lint_plugins / _lint_one_plugin: the orchestration around the per-record
+"""lint_plugins (toolscore::lint through native): the orchestration around the per-record
 lint checks already pinned in test_lint_helpers.py.
 
 What's new here is everything that only shows up across a full plugin or a
@@ -161,7 +161,8 @@ class TestEvilGmst:
     def test_an_evil_gmst_is_named_in_the_warning(self, tmp_path: Path) -> None:
         data_dir = tmp_path / "Data Files"
         data_dir.mkdir()
-        evil_name, (tag, raw_value) = next(iter(core._EVIL_GMSTS.items()))
+        # The first of tes3lint's table (toolscore/src/lint_tables.rs).
+        evil_name, (tag, raw_value) = "fcombatdistancewerewolfmod", ("FLTV", b"\x9a\x99\x99>")
         write_plugin(data_dir / "Mine.esp", extra=_gmst_record(evil_name, tag, raw_value))
 
         warnings, _stats = core.lint_plugins(["Mine.esp"], _index(data_dir))
@@ -173,7 +174,7 @@ class TestEvilGmst:
         # setting is the plugin doing its job, not a stale CS default.
         data_dir = tmp_path / "Data Files"
         data_dir.mkdir()
-        evil_name, (tag, _raw_value) = next(iter(core._EVIL_GMSTS.items()))
+        evil_name, tag = "fcombatdistancewerewolfmod", "FLTV"
         write_plugin(
             data_dir / "Mine.esp",
             extra=_gmst_record(evil_name, tag, b"\x00\x00\x00\x00"),

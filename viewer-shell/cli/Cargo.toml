@@ -1,0 +1,42 @@
+# The command line (port step 4.5, slice 1; DROP-TK.md): `wraithguard`, the flags of
+# `wraithguard_toolkit.py` over the crates that already answer them - the sort and export
+# (ordercore::plan), the record and loose-file conflicts (conflictcore), the lint (toolscore)
+# and the cell map. Pinned against the Python CLI by tests/fixtures/cli_cases.json
+# (tools/gen_cli_cases.py).
+#
+# A console program of its own, beside the viewer rather than a mode of it: the viewer is a
+# windowed program on Windows (no console to print to), and this needs no webview to build or
+# run, so CI and a headless server can use it.
+[package]
+name = "wraithguard-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "wraithguard"
+path = "src/main.rs"
+
+[dependencies]
+ordercore = { path = "../ordercore" }
+conflictcore = { path = "../conflictcore" }
+toolscore = { path = "../toolscore" }
+# A plugin's cells (editcore::plugin::keys_and_cells), for the cell map.
+editcore = { path = "../editcore" }
+clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context"] }
+# The local clock: the `.bak` stamp and the cell map's date, as the Python's `datetime.now()`.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[dev-dependencies]
+serde_json = "1"
+base64 = "0.22"
+
+# [patch] only counts in the package being built (see native/Cargo.toml).
+[patch."https://github.com/Greatness7/tes3"]
+tes3 = { git = "https://github.com/staticnation/tes3" }
+bytes_io = { git = "https://github.com/staticnation/tes3" }
+
+[lints.clippy]
+type_complexity = "allow"

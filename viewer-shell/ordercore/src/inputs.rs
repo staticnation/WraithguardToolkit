@@ -23,9 +23,9 @@
 //! ([`Unsupported`]): a TOML value of a type the Python would not read as a string (it would
 //! stringify it, iterate it, or fail), and a TOML file with a byte-order mark. Known and left:
 //! `lower()` is Rust's `to_lowercase`; a file name that is not UTF-8 is read lossily (as the
-//! native scan always has); a plugin header's master names are read as the Python's tolerant
-//! scan reads them (cp1252, cut at the first NUL, stripped), which is what its strict reader
-//! gives for every header it can read.
+//! native scan always has). A plugin header is read as the Python reads it: the strict reader's
+//! shape first (only `HEDR` and `MAST`/`DATA` pairs; names and description cut at a NUL, in the
+//! WHATWG windows-1252), then the tolerant scan (names stripped, Python's cp1252).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -600,26 +600,96 @@ pub fn cp1252(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// A plugin's header masters with the sizes recorded beside them
-/// (`read_plugin_masters_with_sizes`): each `MAST` name and its `DATA` size, `None` when that is
-/// missing or short. Empty for a file that is not a TES3 plugin or cannot be read.
-pub fn read_masters_with_sizes(path: &Path) -> Vec<(String, Option<u64>)> {
-    let Ok(mut f) = fs::File::open(path) else { return Vec::new() };
+/// windows-1252 as the plugin reader decodes a header (the WHATWG table: its five unused bytes
+/// stand for the C1 controls of the same number, not U+FFFD).
+fn windows_1252(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|&b| match b {
+            0x81 | 0x8D | 0x8F | 0x90 | 0x9D => char::from(b),
+            _ => cp1252(&[b]).chars().next().unwrap_or('\u{fffd}'),
+        })
+        .collect()
+}
+
+fn cut_at_nul(bytes: &[u8]) -> &[u8] {
+    bytes.split(|&b| b == 0).next().unwrap_or_default()
+}
+
+fn le_u32(b: &[u8], at: usize) -> usize {
+    u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]) as usize
+}
+
+/// A plugin's first record: its 16-byte head and up to [`HEADER_READ_CAP`] of the body it
+/// declares, with the size declared. `None` for a file that is not TES3 or cannot be read.
+fn header_record(path: &Path) -> Option<([u8; 16], Vec<u8>, usize)> {
+    let mut f = fs::File::open(path).ok()?;
     let mut head = [0u8; 16];
-    if f.read_exact(&mut head).is_err() || &head[..4] != b"TES3" {
-        return Vec::new();
+    f.read_exact(&mut head).ok()?;
+    if &head[..4] != b"TES3" {
+        return None;
     }
-    let size = u32::from_le_bytes([head[4], head[5], head[6], head[7]]) as usize;
-    let mut data = Vec::new();
-    if f.take(size.min(HEADER_READ_CAP) as u64).read_to_end(&mut data).is_err() {
-        return Vec::new();
+    let size = le_u32(&head, 4);
+    let mut body = Vec::new();
+    f.take(size.min(HEADER_READ_CAP) as u64).read_to_end(&mut body).ok()?;
+    Some((head, body, size))
+}
+
+/// The header as the strict plugin reader reads it: only `HEDR` (300 bytes) and `MAST`, each
+/// `MAST` followed by an 8-byte `DATA`; anything else and it gives up (`None`), as the reader
+/// raises. Names and the description are cut at their first NUL and not stripped.
+fn strict_header(body: &[u8], declared: usize) -> Option<(String, Vec<(String, u64)>)> {
+    if body.len() < declared {
+        return None; // the file ends inside its header
+    }
+    let mut description = String::new();
+    let mut masters = Vec::new();
+    let mut i = 0;
+    let sub = |i: usize| -> Option<(&[u8], &[u8], usize)> {
+        if i + 8 > body.len() {
+            return None;
+        }
+        let size = le_u32(body, i + 4);
+        let end = i.checked_add(8 + size).filter(|&e| e <= body.len())?;
+        Some((&body[i..i + 4], &body[i + 8..end], end))
+    };
+    while i < body.len() {
+        let (tag, data, next) = sub(i)?;
+        match tag {
+            b"HEDR" if data.len() == 300 => description = windows_1252(cut_at_nul(&data[40..296])),
+            b"MAST" => {
+                let (dtag, ddata, after) = sub(next)?;
+                if dtag != b"DATA" || ddata.len() != 8 {
+                    return None;
+                }
+                let size = u64::from_le_bytes(ddata.try_into().ok()?);
+                masters.push((windows_1252(cut_at_nul(data)), size));
+                i = after;
+                continue;
+            }
+            _ => return None,
+        }
+        i = next;
+    }
+    Some((description, masters))
+}
+
+/// A plugin's header masters with the sizes recorded beside them
+/// (`read_plugin_masters_with_sizes`): each `MAST` name and its `DATA` size. A header the strict
+/// reader takes gives its names as they are (blank ones left out); any other falls back to the
+/// tolerant scan, which strips the names and gives `None` for a size that is missing or short.
+/// Empty for a file that is not a TES3 plugin or cannot be read.
+pub fn read_masters_with_sizes(path: &Path) -> Vec<(String, Option<u64>)> {
+    let Some((_, data, declared)) = header_record(path) else { return Vec::new() };
+    if let Some((_, masters)) = strict_header(&data, declared) {
+        return masters.into_iter().filter(|(n, _)| !strip(n).is_empty()).map(|(n, s)| (n, Some(s))).collect();
     }
     let mut out = Vec::new();
     let mut pending: Option<String> = None;
     let mut i = 0;
     while i + 8 <= data.len() {
         let tag = &data[i..i + 4];
-        let sz = u32::from_le_bytes([data[i + 4], data[i + 5], data[i + 6], data[i + 7]]) as usize;
+        let sz = le_u32(&data, i + 4);
         i += 8;
         let chunk = &data[i..(i.saturating_add(sz)).min(data.len())];
         i = i.saturating_add(sz);
@@ -627,14 +697,11 @@ pub fn read_masters_with_sizes(path: &Path) -> Vec<(String, Option<u64>)> {
             if let Some(p) = pending.take() {
                 out.push((p, None));
             }
-            let raw = chunk.split(|&b| b == 0).next().unwrap_or_default();
-            let name = strip(&cp1252(raw)).to_string();
+            let name = strip(&cp1252(cut_at_nul(chunk))).to_string();
             pending = (!name.is_empty()).then_some(name);
         } else if tag == b"DATA" {
             if let Some(p) = pending.take() {
-                let size = (chunk.len() >= 8).then(|| {
-                    u64::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7]])
-                });
+                let size = (chunk.len() >= 8).then(|| u64::from_le_bytes(chunk[..8].try_into().unwrap_or_default()));
                 out.push((p, size));
             }
         }
@@ -643,6 +710,47 @@ pub fn read_masters_with_sizes(path: &Path) -> Vec<(String, Option<u64>)> {
         out.push((p, None));
     }
     out
+}
+
+/// A plugin's header masters (`read_plugin_masters`): [`read_masters_with_sizes`]' names.
+pub fn read_masters(path: &Path) -> Vec<String> {
+    read_masters_with_sizes(path).into_iter().map(|(n, _)| n).collect()
+}
+
+/// The smallest file the description scan reads (a whole TES3 header).
+const TES3_MIN_PLUGIN_SIZE: usize = 362;
+
+/// A plugin's header description (`read_plugin_description`): the strict reader's, or failing
+/// that the bytes from offset 64 to the first NUL of a file at least 362 bytes long (cp1252);
+/// empty on any problem.
+pub fn read_description(path: &Path) -> String {
+    if let Some((_, data, declared)) = header_record(path) {
+        if let Some((description, _)) = strict_header(&data, declared) {
+            return description;
+        }
+    }
+    let Ok(f) = fs::File::open(path) else { return String::new() };
+    let mut block = Vec::new();
+    if f.take(4096).read_to_end(&mut block).is_err() || !block.starts_with(b"TES3") || block.len() < TES3_MIN_PLUGIN_SIZE {
+        return String::new();
+    }
+    cp1252(cut_at_nul(&block[64..]))
+}
+
+/// The plugin files, as the predicate rules ask after them (`_PluginFacts`).
+impl crate::predicates::Plugins for PluginIndex {
+    fn usable(&self) -> bool {
+        PluginIndex::usable(self)
+    }
+    fn exists(&self, name: &str) -> bool {
+        self.find(name).is_some()
+    }
+    fn size(&self, name: &str) -> Option<u64> {
+        self.find(name).and_then(|p| fs::metadata(p).ok()).map(|m| m.len())
+    }
+    fn description(&self, name: &str) -> String {
+        self.find(name).map(read_description).unwrap_or_default()
+    }
 }
 
 /// What [`check_missing_masters`] found.

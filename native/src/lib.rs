@@ -7,6 +7,8 @@
 //! - `bsa`: `.bsa` archives (was `wraithguard/nif/bsa.py`).
 //! - `cache`: the Editor's record cache (editcore's, `viewer-shell/editcore`), and the
 //!   tagged JSON it stores in place of pickles (`wraithguard/patch/recordcache.py`).
+//! - `conflicts`: record and loose-file conflicts, their reports and CSVs (conflictcore's,
+//!   `viewer-shell/conflictcore`, shared with the viewer's Conflicts page).
 //! - `esp`: plugins to tes3conv-schema JSON (was `wraithguard.esp` + `record_to_json`
 //!   in the toolkit's native session), and plugins read and written for wraithguard/esp;
 //!   the reader itself is editcore's (`viewer-shell/editcore`), shared with the viewer.
@@ -39,6 +41,7 @@ pub fn quiet_panics() {
 
 pub mod bsa;
 pub mod cache;
+pub mod conflicts;
 pub mod esp;
 pub mod fsio;
 pub mod img;
@@ -62,6 +65,7 @@ fn wraithguard_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     quiet_panics();
     bsa::register(m)?;
     cache::register(m)?;
+    conflicts::register(m)?;
     esp::register(m)?;
     fsio::register(m)?;
     nif::register(m)?;

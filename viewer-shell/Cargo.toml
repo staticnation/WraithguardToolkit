@@ -15,9 +15,19 @@ viewcore = { path = "viewcore" }
 # The Editor's records, edits and patch queue (Wraithguard's port step 4.1): the links the
 # viewer answers itself (`editor_open`, `editor_link`).
 editcore = { path = "editcore" }
+# The Conflicts page (Wraithguard's port step 4.3): record and loose-file conflicts, the
+# field diff, meshes, textures and the map (`conflicts_*` commands).
+conflictcore = { path = "conflictcore" }
+# The Tools page (port step 4.4): the lint and the other tools (`tools_*` commands).
+toolscore = { path = "toolscore" }
+# Merge Settings (and Merge Lands as it moves), as the shell has them.
+landcore = { path = "landcore" }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Update rules and Sources on the Load order page (commands.rs): HTTPS in plain Rust
+# (rustls, Mozilla's roots via webpki-roots), no OpenSSL to ship.
+ureq = "3"
 
 # tes3 from our fork, as viewcore has it (see native/Cargo.toml).
 [patch."https://github.com/Greatness7/tes3"]

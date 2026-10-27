@@ -15,7 +15,7 @@ from tkinter import messagebox
 from typing import TYPE_CHECKING
 
 import wraithguard_toolkit as core
-from wraithguard.gui import app_base_dir
+from wraithguard.gui import HELP_DOCUMENTS, app_base_dir, doc_path
 from wraithguard.i18n import gettext as _
 from wraithguard.viz.serve import Payload
 
@@ -23,6 +23,20 @@ if TYPE_CHECKING:
     import tkinter as tk
     from collections.abc import Callable
     from typing import Any
+
+
+def _docs_dir() -> Path:
+    """The folder the program's documents are in, for the viewer's Help page.
+
+    Returns:
+        The folder of the first document :func:`doc_path` finds, or the app folder
+        when none is (the page says which are missing).
+    """
+    for name in HELP_DOCUMENTS:
+        found = doc_path(name)
+        if found is not None:
+            return found.parent
+    return app_base_dir()
 
 
 class CellPreviewMixin:
@@ -82,12 +96,24 @@ class CellPreviewMixin:
         out.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
         return out
 
+    def _backup_extra_dirs(self) -> list[str]:
+        """The folders beside the data folders where backups are left (rule files, yml)."""
+        dirs = getattr(self, "_rule_and_yml_dirs", None)
+        try:
+            return list(dirs()) if callable(dirs) else []
+        except (OSError, ValueError):
+            return []
+
     def _open_cell_viewer(
         self,
         cell: str | None = None,
         meshes: list[dict[str, object]] | None = None,
         extra_plugins: list[Path] | None = None,
         editor: bool = False,
+        loadorder: bool = False,
+        conflicts: str = "",
+        tools: str = "",
+        docs: str = "",
     ) -> bool:
         """Launch the shell's cell viewer on the current setup; False if it cannot start.
 
@@ -102,6 +128,13 @@ class CellPreviewMixin:
                 :meth:`_write_viewer_setup`).
             editor: Open in the viewer's Editor mode (it can be switched to from the
                 viewer either way).
+            loadorder: Open on the Load order page, on the openmw.cfg as it is (no sort
+                needed first).
+            conflicts: Open on the Conflicts page, on that tab (``"records"``,
+                ``"files"`` or ``"plugins"``); empty for not.
+            tools: Open on the Tools page, on that tool (``"lint"``, ...); empty for not.
+            docs: Open on the Help page, on that document (``"README.md"``, ...);
+                empty for not.
 
         Returns:
             Whether the viewer launched.
@@ -117,6 +150,11 @@ class CellPreviewMixin:
         except (OSError, KeyError, ValueError) as exc:
             print(f"Could not prepare the setup for the cell viewer ({exc}).")
             return False
+        if setup is None and (loadorder or docs):
+            # The Load order page needs no sorted setup: it sorts; the Help page reads no
+            # plugins at all. The real cfg, as it is.
+            cfg = getattr(self, "cfg_var", None)
+            setup = Path(cfg.get()) if cfg is not None and cfg.get().strip() else None
         if setup is None:
             return False
         import json
@@ -153,6 +191,23 @@ class CellPreviewMixin:
                         "subset": subset,
                         "meshes": meshes or [],
                         "links": links,
+                        # Where the Load order page's Export writes the order for the
+                        # tools still here (App._watch_viewer_plan reads it).
+                        "loadorderPlan": str(app_base_dir() / "wraithguard_loadorder_plan.json"),
+                        # The Conflicts page: your own data folders (flagged in the loose-file
+                        # scan) and the tab to open on.
+                        "subsetDirs": [
+                            str(d)
+                            for d in ((self._current_plan or {}).get("custom_data_dirs") or [])
+                        ],
+                        "conflictsTab": conflicts,
+                        "tool": tools,
+                        # The Help page: the document to open and where the documents are.
+                        "helpDoc": docs,
+                        "docsDir": str(_docs_dir()),
+                        # The Tools page's Backups looks in these too (the rule files' and
+                        # plugin-order.yml's folders).
+                        "backupDirs": [str(d) for d in self._backup_extra_dirs()],
                         **({"editor": native} if native else {}),
                     }
                 ),
@@ -177,6 +232,18 @@ class CellPreviewMixin:
             cmd += ["--extra", str(extra)]
         if cell:
             cmd += ["--cell", cell]
+        if loadorder and not meshes:
+            cmd += ["--loadorder"]
+            cmd[cmd.index("--title") + 1] = _("Load order")
+        if tools and not meshes:
+            cmd += ["--tools"]
+            cmd[cmd.index("--title") + 1] = _("Tools")
+        if docs and not meshes:
+            cmd += ["--docs"]
+            cmd[cmd.index("--title") + 1] = _("Help")
+        if conflicts and not meshes:
+            cmd += ["--conflicts"]
+            cmd[cmd.index("--title") + 1] = _("Conflicts")
         if editor and not meshes:
             cmd += ["--editor"]
             cmd[cmd.index("--title") + 1] = _("Wraithguard Editor")

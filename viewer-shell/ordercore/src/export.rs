@@ -1150,6 +1150,21 @@ pub struct Written {
     pub toml_text: Option<String>,
     /// The warnings and notes the Python prints while writing.
     pub messages: Vec<String>,
+    /// The `.bak` made of the cfg, if one was.
+    pub cfg_backup: Option<String>,
+    /// The `.bak` made of the TOML, if one was.
+    pub toml_backup: Option<String>,
+    /// The opted-out plugins given a `removeContent`.
+    pub remove_content: Vec<String>,
+    /// The opted-out data lines given a `removeData`.
+    pub remove_data: Vec<String>,
+    /// The cfg's lines as the export read them (new `groundcover=` lines added): what the
+    /// configurator preview applies the TOML to.
+    pub cfg_lines: Vec<String>,
+    /// The data result in the order written.
+    pub data_result: Option<Vec<DataLine>>,
+    /// The data values the TOML was told are the user's (`user_data_values`).
+    pub user_data_values: Vec<String>,
 }
 
 /// Why an export did not happen.
@@ -1176,16 +1191,17 @@ impl From<io::Error> for ExportError {
 /// A timestamped `.bak` copy of a file about to be overwritten (`backup_file`): the bytes, not a
 /// re-encoding. Nothing if there is nothing to back up. A name Python would suffix differently
 /// (one ending in a dot) is declined.
-fn backup_file(path: &Path, no_backup: bool, stamp: &str) -> Result<(), ExportError> {
+fn backup_file(path: &Path, no_backup: bool, stamp: &str) -> Result<Option<String>, ExportError> {
     if no_backup || !path.exists() {
-        return Ok(());
+        return Ok(None);
     }
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if name.ends_with('.') {
         return Err(ExportError::Unsupported);
     }
-    fs::write(path.with_file_name(format!("{name}.bak-{stamp}")), fs::read(path)?)?;
-    Ok(())
+    let backup = path.with_file_name(format!("{name}.bak-{stamp}"));
+    fs::write(&backup, fs::read(path)?)?;
+    Ok(Some(backup.to_string_lossy().into_owned()))
 }
 
 fn lines_of(text: &str) -> Vec<String> {
@@ -1228,12 +1244,24 @@ pub fn write_plan(
 
     let CfgEdits { lines: plan_lines, segments, data_result } = cfg_segments(plan, final_order, data_order)?;
     let mut messages = Vec::new();
-    let mut wrote = Written { wrote_cfg: false, wrote_toml: false, toml_text: None, messages: Vec::new() };
+    let mut wrote = Written {
+        wrote_cfg: false,
+        wrote_toml: false,
+        toml_text: None,
+        messages: Vec::new(),
+        cfg_backup: None,
+        toml_backup: None,
+        remove_content: remove_content.clone(),
+        remove_data: remove_data.clone(),
+        cfg_lines: plan_lines.clone(),
+        data_result: data_result.clone(),
+        user_data_values: Vec::new(),
+    };
 
     if let Some(path) = targets.write_cfg {
         if !targets.dry_run {
             let new_lines = splice_cfg_lines(&plan_lines, &segments);
-            backup_file(path, targets.no_backup, targets.stamp)?;
+            wrote.cfg_backup = backup_file(path, targets.no_backup, targets.stamp)?;
             fs::write(path, cfg_bytes(&new_lines))?;
             wrote.wrote_cfg = true;
         }
@@ -1292,8 +1320,9 @@ pub fn write_plan(
             new_groundcover: &plan.new_groundcover,
         })?;
         messages.extend(toml.warnings.iter().cloned());
+        wrote.user_data_values.clone_from(&emit_user_vals);
         if !targets.dry_run {
-            backup_file(path, targets.no_backup, targets.stamp)?;
+            wrote.toml_backup = backup_file(path, targets.no_backup, targets.stamp)?;
             let bytes = match targets.toml_line_ending {
                 LineEnding::Lf => toml.text.clone(),
                 LineEnding::Crlf => toml.text.replace('\n', "\r\n"),

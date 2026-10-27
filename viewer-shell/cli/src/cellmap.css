@@ -1,0 +1,41 @@
+
+ body{background:#101013;color:#c8c8c8;font-family:Segoe UI,Arial,sans-serif;margin:16px;}
+ h1{color:#e8905a;font-size:20px;margin-bottom:4px;}
+ .sub{color:#8f8f8f;font-size:13px;}
+ .stamp{color:#6f6f6f;font-size:12px;margin-top:2px;}
+ .legend{margin-top:12px;line-height:1.7;}
+ .legend span{display:inline-block;padding:2px 8px;margin-right:6px;border-radius:3px;
+   font-size:12px;}
+ .tabs{margin-top:24px;margin-bottom:4px;}
+ .tabs button{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:6px 14px;
+   margin-right:4px;cursor:pointer;}
+ .tabs button.on{background:#8a3a12;color:#fff;}
+ .tab{display:none;margin-top:10px;} .tab.on{display:block;}
+ .mapwrap{overflow:auto;max-height:74vh;border:1px solid #333;background:#06111c;
+   display:block;max-width:100%;resize:vertical;}
+ .mapwrap svg{display:block;}
+ rect.cell{cursor:pointer;} rect.cell:hover{stroke:#fff;stroke-width:1.4;}
+ rect.cell.dim{opacity:.13;}
+ #tt{position:fixed;pointer-events:none;display:none;z-index:99;max-width:440px;
+   background:#000;color:#eee;border:1px solid #555;border-radius:3px;padding:3px 7px;
+   font-size:12px;}
+ /* The lists scroll in their own pane, like the map, so a 9,000-row exterior
+    list does not push the tab strip off the top of the window. */
+ .listwrap{overflow:auto;max-height:74vh;border:1px solid #262626;resize:vertical;}
+ table.list{border-collapse:collapse;width:100%;font-size:13px;}
+ .list td,.list th{border-bottom:1px solid #262626;padding:4px 8px;text-align:left;
+   vertical-align:top;}
+ .list th{color:#9a9a9a;position:sticky;top:0;background:#101013;}
+ tr.cust td{color:#ff9b6b;}
+ tr.hl td{background:#3a2a10;}
+ input.f{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:6px;width:320px;
+   margin:6px 0;}
+ .focusbar{margin-top:10px;}
+ .focusbar select{background:#1c1c22;color:#ddd;border:1px solid #3a3a3a;padding:5px;
+   max-width:420px;}
+ button.op{background:#20242a;color:#e8905a;border:1px solid #3a3a3a;border-radius:3px;
+   padding:0 6px;cursor:pointer;font-size:10px;margin-right:4px;}
+ button.op:hover{background:#8a3a12;color:#fff;}
+ .focusbar button{background:#20242a;color:#ddd;border:1px solid #3a3a3a;padding:5px 10px;
+   margin-left:6px;cursor:pointer;}
+ #focusinfo{margin-top:4px;max-width:900px;}

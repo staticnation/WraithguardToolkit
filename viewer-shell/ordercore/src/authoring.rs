@@ -769,12 +769,122 @@ pub fn order_rule_frozen_conflicts(
     out
 }
 
+// ---------------------------------------------------------------- the plain form
+
+/// An expression from its plain JSON form: `["plugin", name]`, `["desc", pattern, plugin,
+/// negated]`, `["size", size, plugin, negated]`, `["ver", operator, version, plugin]` or
+/// `["group", operator, [parts]]` (`wraithguard.rules.authoring.expr_plain`); `None` for any
+/// other shape.
+pub fn expr_from_json(v: &serde_json::Value) -> Option<Expr> {
+    let a = v.as_array()?;
+    let s = |i: usize| a.get(i)?.as_str().map(str::to_string);
+    let b = |i: usize| a.get(i)?.as_bool();
+    Some(match a.first()?.as_str()? {
+        "plugin" => Expr::Plugin(s(1)?),
+        "desc" => Expr::Desc { pattern: s(1)?, plugin: s(2)?, negated: b(3)? },
+        "size" => Expr::Size { size: a.get(1)?.as_i64()?, plugin: s(2)?, negated: b(3)? },
+        "ver" => Expr::Ver { operator: s(1)?, version: s(2)?, plugin: s(3)? },
+        "group" => Expr::Group { operator: s(1)?, parts: a.get(2)?.as_array()?.iter().map(expr_from_json).collect::<Option<_>>()? },
+        _ => return None,
+    })
+}
+
+/// An expression from a line of rule text, as mlox writes it: a plugin name, an atomic form
+/// (`[DESC /regex/ plugin]`, `[DESC !/regex/ plugin]`, `[SIZE 123 plugin]`,
+/// `[SIZE !123 plugin]`, `[VER < 1.2 plugin]`) or a group of them (`[ANY a.esp b.esp]`,
+/// `[ALL ...]`, `[NOT ...]`), read by the predicate reader the sort uses. `Err` names what
+/// did not read, so the rule maker can say so rather than write a rule mlox misreads.
+///
+/// # Errors
+/// A line that is empty, holds a `/message/`, an `[MWSE-LUA]` form (nothing under OpenMW), a
+/// group without its operator, or more than one expression.
+pub fn expr_from_text(line: &str) -> Result<Expr, String> {
+    use crate::predicates::{parse, read_form, tokenize, Form, Node};
+    let declined = |_| format!("'{line}' holds something the rule maker does not read");
+    fn convert(node: &Node, line: &str) -> Result<Expr, String> {
+        match node {
+            Node::Leaf(t) if t.starts_with('[') => match read_form(t).map_err(|_| format!("'{t}' holds something the rule maker does not read"))? {
+                Some(Form::Desc { bang, pat, plugin }) => Ok(Expr::Desc { pattern: pat, plugin, negated: bang }),
+                Some(Form::Size { bang, want, plugin }) => {
+                    Ok(Expr::Size { size: want.parse().map_err(|_| format!("'{t}': the size is too large"))?, plugin, negated: bang })
+                }
+                Some(Form::Ver { op, want, plugin }) => Ok(Expr::Ver { operator: op, version: want, plugin }),
+                Some(Form::MwseLua { .. }) => Err(format!("'{t}': MWSE-Lua does not exist under OpenMW")),
+                None => Err(format!("'{t}' is not a [DESC], [SIZE] or [VER] form mlox reads")),
+            },
+            Node::Leaf(t) if t.starts_with('/') => Err(format!("'{t}' is a message; it belongs in the Message box")),
+            Node::Leaf(t) => Ok(Expr::Plugin(t.clone())),
+            Node::Group(items) => {
+                let op = match items.first() {
+                    Some(Node::Leaf(s)) if matches!(s.to_uppercase().as_str(), "ALL" | "ANY" | "NOT") => s.to_uppercase(),
+                    _ => return Err(format!("'{line}': a group starts with ALL, ANY or NOT")),
+                };
+                let parts = items[1..].iter().map(|n| convert(n, line)).collect::<Result<Vec<_>, _>>()?;
+                if parts.is_empty() || (op == "NOT" && parts.len() != 1) {
+                    return Err(format!("'{line}': [{op}] needs {}", if op == "NOT" { "exactly one expression" } else { "something inside it" }));
+                }
+                Ok(Expr::Group { operator: op, parts })
+            }
+        }
+    }
+    let nodes = parse(&tokenize(line).map_err(declined)?).map_err(declined)?;
+    match nodes.as_slice() {
+        [one] => convert(one, line),
+        [] => Err(format!("'{line}' names no plugin")),
+        _ => Err(format!("'{line}' holds more than one expression: one a line, or group them with [ALL ...] or [ANY ...]")),
+    }
+}
+
+/// A rule from its plain JSON form (`wraithguard.rules.authoring.rule_plain`): `kind`,
+/// `plugins`, `expressions`, `message`, `ref`, `priority`, `section`, `comment`, `force_block`.
+/// Missing text fields are empty, a missing priority 0; `None` for a field of another type.
+pub fn rule_from_json(v: &serde_json::Value) -> Option<Rule> {
+    let s = |k: &str| match v.get(k) {
+        None | Some(serde_json::Value::Null) => Some(String::new()),
+        Some(x) => x.as_str().map(str::to_string),
+    };
+    Some(Rule {
+        kind: s("kind")?,
+        plugins: match v.get("plugins") {
+            None => Vec::new(),
+            Some(p) => p.as_array()?.iter().map(|x| x.as_str().map(str::to_string)).collect::<Option<_>>()?,
+        },
+        expressions: match v.get("expressions") {
+            None => Vec::new(),
+            Some(e) => e.as_array()?.iter().map(expr_from_json).collect::<Option<_>>()?,
+        },
+        message: s("message")?,
+        ref_: s("ref")?,
+        priority: v.get("priority").map_or(Some(0), serde_json::Value::as_i64)?,
+        section: s("section")?,
+        comment: s("comment")?,
+        force_block: v.get("force_block").map_or(Some(false), serde_json::Value::as_bool)?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn plugin(n: &str) -> Expr {
         Expr::Plugin(n.to_string())
+    }
+
+    #[test]
+    fn expressions_read_from_rule_text() {
+        assert_eq!(expr_from_text("Some Mod [Main].esp").unwrap(), plugin("Some Mod [Main].esp"));
+        assert_eq!(
+            expr_from_text("[DESC !/foo bar/ a.esp]").unwrap(),
+            Expr::Desc { pattern: "foo bar".into(), plugin: "a.esp".into(), negated: true }
+        );
+        assert_eq!(expr_from_text("[SIZE 1234 a.esp]").unwrap(), Expr::Size { size: 1234, plugin: "a.esp".into(), negated: false });
+        assert_eq!(expr_from_text("[VER < 1.2 a.esp]").unwrap(), Expr::Ver { operator: "<".into(), version: "1.2".into(), plugin: "a.esp".into() });
+        let g = expr_from_text("[ANY a.esp [NOT b.esp] [SIZE !9 c.esp]]").unwrap();
+        assert_eq!(g.render(0), "[ANY a.esp [NOT b.esp] [SIZE !9 c.esp]]");
+        assert!(expr_from_text("a.esp b.esp").unwrap_err().contains("more than one"));
+        assert!(expr_from_text("[a.esp b.esp]").unwrap_err().contains("ALL, ANY or NOT"));
+        assert!(expr_from_text("[NOT a.esp b.esp]").unwrap_err().contains("exactly one"));
+        assert!(expr_from_text("/hello/").unwrap_err().contains("Message box"));
     }
 
     fn msgs(rule: &Rule) -> Vec<String> {

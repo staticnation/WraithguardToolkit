@@ -196,6 +196,39 @@ pub fn preview_target(req: &Value) -> Res<PathBuf> {
     Ok(target)
 }
 
+/// An openmw.cfg's lines with `plugins` loaded last (`with_extra_plugins`): each one's
+/// folder the last `data=` path, so its own file wins, and a `content=` line after the rest
+/// (any line already naming it dropped, so it does not load twice).
+pub fn with_extra_plugins(lines: &[String], plugins: &[PathBuf]) -> Vec<String> {
+    if plugins.is_empty() {
+        return lines.to_vec();
+    }
+    let names: Vec<String> = plugins.iter().map(|p| name_of(p).to_lowercase()).collect();
+    let mut out: Vec<String> = lines
+        .iter()
+        .filter(|ln| {
+            let t = ln.trim().to_lowercase();
+            !(t.starts_with("content=") && ln.split_once('=').is_some_and(|(_, v)| names.contains(&v.trim().to_lowercase())))
+        })
+        .cloned()
+        .collect();
+    let last_data = out.iter().rposition(|ln| ln.trim().to_lowercase().starts_with("data="));
+    let mut dirs: Vec<String> = Vec::new();
+    for p in plugins {
+        let full = std::fs::canonicalize(p).unwrap_or_else(|_| p.clone());
+        let text = full.parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
+        let text = text.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(text);
+        if !dirs.contains(&text) {
+            dirs.push(text);
+        }
+    }
+    let at = last_data.map_or(0, |i| i + 1);
+    let data: Vec<String> = dirs.iter().map(|d| format!("data=\"{d}\"")).collect();
+    out.splice(at..at, data);
+    out.extend(plugins.iter().map(|p| format!("content={}", name_of(p))));
+    out
+}
+
 /// `editBuildInfo`'s answer: what the Build patch panel starts from - the queue's
 /// summary, the patch last written, where to suggest (that, else the default name in the
 /// first data folder; `folders` the setup's, the highest priority first) and the load
@@ -367,6 +400,16 @@ pub fn test_setups(file: &Path, req: &Value) -> Res<Value> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_patch_is_loaded_last() {
+        let lines: Vec<String> = ["data=\"/a\"", "content=Morrowind.esm", "content=Patch.esp", "data=\"/b\"", "content=Mod.esp"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let got = with_extra_plugins(&lines, &[PathBuf::from("/nowhere/x/Patch.esp")]);
+        assert_eq!(got, ["data=\"/a\"", "content=Morrowind.esm", "data=\"/b\"", "data=\"/nowhere/x\"", "content=Mod.esp", "content=Patch.esp"]);
+    }
     use super::*;
     use crate::queue::{PatchQueue, Selection};
 

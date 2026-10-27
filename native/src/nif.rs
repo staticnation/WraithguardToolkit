@@ -22,25 +22,9 @@ fn bad(m: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, m.into())
 }
 
-/// NetImmerse 4.0.0.0 files (some older exporters), which Morrowind and OpenMW load
-/// with the same block layout as 4.0.0.2 - the only version the crate accepts - are
-/// handed to it as 4.0.0.2. Anything else is left as it is.
-fn as_4002(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
-    const V4000: &[u8; 40] = b"NetImmerse File Format, Version 4.0.0.0\n";
-    let text_ok = bytes.len() >= 44 && (&bytes[..40] == V4000 || bytes[..40] == NiStream::HEADER);
-    if text_ok && bytes[40..44] == 0x0400_0000u32.to_le_bytes() {
-        let mut b = bytes.to_vec();
-        b[..40].copy_from_slice(&NiStream::HEADER);
-        b[40..44].copy_from_slice(&NiStream::VERSION.to_le_bytes());
-        return std::borrow::Cow::Owned(b);
-    }
-    std::borrow::Cow::Borrowed(bytes)
-}
-
-fn load(bytes: &[u8]) -> io::Result<NiStream> {
-    let b = as_4002(bytes);
-    crate::guarded(|| NiStream::from_bytes(&b))
-}
+/// The reader, the texture names and the summary are conflictcore's (the viewer's mesh
+/// conflicts read meshes the same way).
+use conflictcore::mesh::{external_texture, load, normalise_texture};
 
 fn type_name(o: &NiType) -> String {
     String::from_utf8_lossy(o.type_name()).into_owned()
@@ -57,65 +41,18 @@ fn name_of(o: &NiType) -> String {
     <&NiObjectNET>::try_from(o).map(|n| n.name.clone()).unwrap_or_default()
 }
 
-fn normalise_texture(p: &str) -> String {
-    p.trim().replace('\\', "/").to_lowercase()
-}
-
-fn external_texture(o: &NiType) -> Option<String> {
-    match <&NiSourceTexture>::try_from(o) {
-        Ok(t) => match &t.source {
-            TextureSource::External(s) => Some(s.clone()),
-            _ => None,
-        },
-        Err(()) => None,
-    }
-}
-
 // ---- summary -----------------------------------------------------------------------
 
 /// What a mesh contains, as `report.py`'s Structure. A file the crate cannot read comes
 /// back with no blocks read and the reason, so it is reported as unreadable rather than
 /// as empty.
 pub fn summary(bytes: &[u8]) -> Value {
-    let declared = if bytes.len() >= 48 { u32::from_le_bytes(bytes[44..48].try_into().unwrap()) } else { 0 };
-    let stream = match load(bytes) {
-        Ok(s) => s,
-        Err(e) => {
-            return json!({"shapes": [], "textures": [], "has_collision": false, "has_animation": false,
-                          "node_count": 0, "blocks_read": 0, "blocks_declared": declared,
-                          "stopped_reason": e.to_string()});
-        }
-    };
-    let mut shapes = Vec::new();
-    let mut textures: Vec<String> = Vec::new();
-    let (mut collision, mut animation, mut nodes) = (false, false, 0usize);
-    for (_, o) in stream.objects.iter() {
-        let t = type_name(o);
-        if t == "NiTriShape"
-            && let Ok(shape) = <&NiTriShape>::try_from(o)
-        {
-            let (mut v, mut tris) = (0usize, 0usize);
-            if let Some(NiType::NiTriShapeData(d)) = stream.objects.get(shape.geometry_data.key) {
-                v = d.vertices.len();
-                tris = d.triangles.len();
-            }
-            shapes.push(json!({"name": shape.name.clone(), "vertices": v, "triangles": tris}));
-        }
-        if let Some(tex) = external_texture(o)
-            && !tex.trim().is_empty()
-        {
-            let n = normalise_texture(&tex);
-            if !textures.contains(&n) {
-                textures.push(n);
-            }
-        }
-        collision |= t == "RootCollisionNode";
-        animation |= t.ends_with("Controller");
-        nodes += usize::from(t.ends_with("Node"));
-    }
-    json!({"shapes": shapes, "textures": textures, "has_collision": collision, "has_animation": animation,
-           "node_count": nodes, "blocks_read": stream.objects.len(), "blocks_declared": declared,
-           "stopped_reason": ""})
+    let s = conflictcore::mesh::summary(bytes);
+    let shapes: Vec<Value> =
+        s.shapes.iter().map(|x| json!({"name": x.name, "vertices": x.vertices, "triangles": x.triangles})).collect();
+    json!({"shapes": shapes, "textures": s.textures, "has_collision": s.has_collision, "has_animation": s.has_animation,
+           "node_count": s.node_count, "blocks_read": s.blocks_read, "blocks_declared": s.blocks_declared,
+           "stopped_reason": s.stopped_reason})
 }
 
 // ---- blocks: tree and fields -------------------------------------------------------

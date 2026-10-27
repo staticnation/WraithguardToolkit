@@ -831,12 +831,13 @@ const Themes={
     const code=this.code();
     const known=this.all.find(t=>t.code===code);
     const nm=btn.querySelector('.thn');
-    if(nm) nm.textContent = known? T(known.name) : code;
+    // Wraithguard's own themes (19_wg_themes.js) carry their name, not a catalogue key.
+    if(nm) nm.textContent = known? (known.label||T(known.name)) : code;
     list.innerHTML='';
     /* Every theme the build has, and — last — the one the profile named that it has not.
        An unknown row wears nothing, so it shows the palette the window actually falls back
        to, which is the honest preview of choosing it. */
-    const rows=this.all.map(t=>({code:t.code, wear:t.wear, label:T(t.name), tag:''}));
+    const rows=this.all.map(t=>({code:t.code, wear:t.wear, label:t.label||T(t.name), tag:''}));
     if(code && !known) rows.push({code, wear:'', label:T('settings.theme_unknown'), tag:code});
     for(const r of rows){
       const el=document.createElement('div');

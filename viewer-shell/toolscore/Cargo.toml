@@ -1,0 +1,36 @@
+# The Tools, read one way for every part of Wraithguard (port step 4.4, TOOLS-PORT.md): the
+# load-order lint, the backups, Remove Master, Save Check and the rest of the Tools page. The
+# viewer's Tools page calls it as Tauri commands, and the Python tools call it through native/
+# until they retire.
+#
+# Beside viewcore rather than in native/ so the viewer's builds (which copy only
+# viewer-shell/) have it; native/ takes it by path, as it does ordercore and conflictcore.
+[package]
+name = "toolscore"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+publish = false
+
+[dependencies]
+# Plugins read and written as the Editor does (Remove / Rename Master), and its panic guard.
+editcore = { path = "../editcore" }
+tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp"] }
+bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
+# Save Check: the setup's data folders (ordercore::cfg), `.omwscripts` lines and Python's repr
+# (luacore), tables kept in the order first met, as Python's dicts (indexmap).
+ordercore = { path = "../ordercore" }
+luacore = { path = "../luacore" }
+indexmap = "2"
+
+[dev-dependencies]
+serde_json = "1"
+
+# [patch] only counts in the package being built (see native/Cargo.toml).
+[patch."https://github.com/Greatness7/tes3"]
+tes3 = { git = "https://github.com/staticnation/tes3" }
+bytes_io = { git = "https://github.com/staticnation/tes3" }
+
+[lints.clippy]
+type_complexity = "allow"

@@ -794,6 +794,266 @@ fn order_check_missing_masters(
     (got.missing, got.order_problems, got.size_notes, got.checked, got.problem_plugins)
 }
 
+// ---------------------------------------------------------------- 2k: the whole sort
+
+use ordercore::plan::{self, ItemKind, PlanArgs, PlanError};
+
+/// The arguments of a run, read off a dict of what `compute_plan` reads (paths as `str`).
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+struct PyPlanArgs {
+    cfg: String,
+    customizations: Option<String>,
+    subset: Vec<String>,
+    subset_file: Option<String>,
+    subset_lines: Option<Vec<String>>,
+    scan_dir: Option<String>,
+    subset_from_cfg: bool,
+    allow_empty_sort: bool,
+    sort_data_paths: bool,
+    emit_toml: bool,
+    groundcover: Vec<String>,
+    plugin_order_yml: Option<String>,
+    list_name: Option<String>,
+    rules: Vec<String>,
+    no_predicate_warnings: bool,
+    data_paths_cache: Option<String>,
+    verbose: bool,
+}
+
+type ReportItem = (&'static str, String, Option<&'static str>, Vec<String>);
+
+fn report_items(report: &plan::Report) -> Vec<ReportItem> {
+    report
+        .items
+        .iter()
+        .map(|i| {
+            let kind = match i.kind {
+                ItemKind::Section => "section",
+                ItemKind::Subsection => "subsection",
+                ItemKind::Line => "line",
+                ItemKind::Log => "log",
+                ItemKind::Scans => "scans",
+                ItemKind::Preview => "preview",
+            };
+            (kind, i.text.clone(), i.warning, i.names.clone())
+        })
+        .collect()
+}
+
+fn insert_dicts(inserts: &[DataInsert]) -> Value {
+    inserts.iter().map(|d| json!({"value": d.value, "after": d.after, "before": d.before})).collect()
+}
+
+/// `order_compute_plan(args)`: a whole sort (`ordercore::plan::compute_plan`), as
+/// `(refused message or None, report items, plan or None)`; each item `(kind, text, warning,
+/// names)`, `kind` one of `section`, `subsection`, `line`, `log`, `scans`. The plan is the
+/// Python's dict without what the Python adds itself (`args`, `original_toml_data`,
+/// `conflicts`), with lists where it has tuples and sets.
+#[pyfunction]
+fn order_compute_plan<'py>(
+    py: Python<'py>,
+    args: Bound<'py, PyAny>,
+) -> PyResult<(Option<String>, Vec<ReportItem>, Option<Py<PyAny>>)> {
+    let a: PyPlanArgs = args.extract()?;
+    let args = PlanArgs {
+        cfg: a.cfg,
+        customizations: a.customizations,
+        subset: a.subset,
+        subset_file: a.subset_file,
+        subset_lines: a.subset_lines,
+        scan_dir: a.scan_dir,
+        subset_from_cfg: a.subset_from_cfg,
+        allow_empty_sort: a.allow_empty_sort,
+        sort_data_paths: a.sort_data_paths,
+        emit_toml: a.emit_toml,
+        groundcover: a.groundcover,
+        plugin_order_yml: a.plugin_order_yml,
+        list_name: a.list_name,
+        rules: a.rules,
+        no_predicate_warnings: a.no_predicate_warnings,
+        data_paths_cache: a.data_paths_cache,
+        verbose: a.verbose,
+    };
+    match py.detach(|| plan::compute_plan(&args)) {
+        Err(PlanError::Unsupported) => Err(declined(Unsupported)),
+        Err(PlanError::Refused { message, report }) => Ok((Some(message), report_items(&report), None)),
+        Ok(got) => {
+            let p = &got.plan;
+            let data_result = p.data_result.as_ref().map(|r| r.iter().map(|(l, n, v)| json!([l, n, v])).collect::<Vec<_>>());
+            let anchors: BTreeMap<&String, Value> = p.custom_anchors.iter().map(|(k, (h, a))| (k, json!([h, a]))).collect();
+            let doc = json!({
+                "subset": p.subset,
+                "lines": p.lines,
+                "content_positions": p.content_positions,
+                "data_positions": p.data_positions,
+                "data_order": p.data_order,
+                "final_order": if got.sorted { json!(p.final_order) } else { Value::Null },
+                "data_result": data_result,
+                "predicate_warnings": got.predicate_warnings,
+                "yml_warnings": got.yml_warnings,
+                "master_warnings": got.master_warnings,
+                "master_problem_plugins": got.master_problem_plugins,
+                "custom_anchors": anchors,
+                "original_content_values": p.original_content_values,
+                "replace_dest_names": p.replace_dest_names.iter().collect::<Vec<_>>(),
+                "raw_toml_data_inserts": insert_dicts(&p.raw_toml_data_inserts),
+                "data_inserts": insert_dicts(&p.data_inserts),
+                "orphan_data_paths": p.orphan_data_paths,
+                "base_order_names": p.base_order_names,
+                "curated_set": p.curated_set,
+                "new_groundcover": p.new_groundcover,
+                "scan_dirs": got.scan_dirs,
+                "custom_data_dirs": got.custom_data_dirs,
+                "subset_origins": got.subset_origins,
+            });
+            Ok((None, report_items(&got.report), Some(to_py(py, &doc)?)))
+        }
+    }
+}
+
+/// A Python plan dict (plain values: lists for tuples and sets, the source TOML as `tomllib`
+/// read it) as the export reads it.
+fn plan_of(v: &Value) -> PyResult<ordercore::export::Plan> {
+    let get = |k: &str| v.get(k).unwrap_or(&Value::Null);
+    let positions = |k: &str| -> PyResult<Vec<usize>> {
+        get(k).as_array().ok_or_else(shape)?.iter().map(|x| x.as_u64().map(|n| n as usize).ok_or_else(shape)).collect()
+    };
+    let values: BTreeMap<String, String> = match get("original_content_values") {
+        Value::Null => BTreeMap::new(),
+        Value::Object(m) => m.iter().map(|(k, v)| Ok((k.clone(), str_of(v)?))).collect::<PyResult<_>>()?,
+        _ => return Err(shape()),
+    };
+    let anchors: BTreeMap<String, (String, Option<String>)> = match get("custom_anchors") {
+        Value::Null => BTreeMap::new(),
+        Value::Object(m) => m
+            .iter()
+            .map(|(k, v)| {
+                let p = v.as_array().filter(|p| p.len() == 2).ok_or_else(shape)?;
+                Ok((k.clone(), (str_of(&p[0])?, opt_str(Some(&p[1]))?)))
+            })
+            .collect::<PyResult<_>>()?,
+        _ => return Err(shape()),
+    };
+    let original = get("original_toml_data");
+    Ok(ordercore::export::Plan {
+        lines: strs_of(get("lines"))?,
+        content_positions: positions("content_positions")?,
+        data_positions: positions("data_positions")?,
+        final_order: opt_strs(Some(get("final_order")))?,
+        data_result: match get("data_result") {
+            Value::Null => None,
+            r => Some(data_lines_of(r)?),
+        },
+        new_groundcover: opt_strs(Some(get("new_groundcover")))?,
+        subset: opt_strs(Some(get("subset")))?,
+        curated_set: opt_strs(Some(get("curated_set")))?,
+        base_order_names: opt_strs(Some(get("base_order_names")))?,
+        data_order: opt_strs(Some(get("data_order")))?,
+        data_inserts: match get("data_inserts") {
+            Value::Null => Vec::new(),
+            d => inserts_of(d)?,
+        },
+        raw_toml_data_inserts: match get("raw_toml_data_inserts") {
+            Value::Null => Vec::new(),
+            d => inserts_of(d)?,
+        },
+        orphan_data_paths: opt_strs(Some(get("orphan_data_paths")))?,
+        original_toml_blocks: if original.is_null() { Vec::new() } else { blocks_of(original)? },
+        original_content_values: values,
+        replace_dest_names: opt_strs(Some(get("replace_dest_names")))?.into_iter().collect(),
+        custom_anchors: anchors,
+    })
+}
+
+/// What [`order_write_plan`] hands back: `(report items, wrote_cfg, wrote_toml, toml text, the
+/// cfg lines the preview applies the TOML to, the data values the TOML was told are the user's)`.
+type WriteAnswer = (Vec<ReportItem>, bool, bool, Option<String>, Vec<String>, Vec<String>);
+
+/// `order_write_plan(args, plan, counts, final_order, data_order, disabled_plugins,
+/// disabled_data)`: `write_plan` (`ordercore::plan::export`): the files written, and its report
+/// with the configurator preview's place marked (`preview`). `args` holds `write_cfg`, `cfg`,
+/// `emit_toml`, `dry_run`, `no_backup`, `sort_data_paths`, `list_name` and `stamp`; `counts` the
+/// rule and plugin-order.yml warning counts.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn order_write_plan(
+    py: Python<'_>,
+    args: Bound<'_, PyAny>,
+    plan: Bound<'_, PyAny>,
+    counts: (usize, usize),
+    final_order: Option<Vec<String>>,
+    data_order: Option<Vec<String>>,
+    disabled_plugins: Vec<String>,
+    disabled_data: Vec<String>,
+) -> PyResult<WriteAnswer> {
+    let a = json_of(&args)?;
+    let get = |k: &str| a.get(k).unwrap_or(&Value::Null);
+    let flag = |k: &str| get(k).as_bool().unwrap_or(false);
+    let export_args = plan::ExportArgs {
+        write_cfg: flag("write_cfg"),
+        cfg: str_of(get("cfg"))?,
+        emit_toml: opt_str(Some(get("emit_toml")))?,
+        dry_run: flag("dry_run"),
+        no_backup: flag("no_backup"),
+        sort_data_paths: flag("sort_data_paths"),
+        list_name: opt_str(Some(get("list_name")))?,
+        stamp: str_of(get("stamp"))?,
+        toml_line_ending: None,
+    };
+    let plan = plan_of(&json_of(&plan)?)?;
+    let counts = plan::Counts { rule_warnings: counts.0, yml_warnings: counts.1 };
+    let done = py
+        .detach(|| {
+            plan::export(
+                &export_args,
+                &plan,
+                counts,
+                final_order.as_deref(),
+                data_order.as_deref(),
+                &disabled_plugins,
+                &disabled_data,
+            )
+        })
+        .map_err(|e| match e {
+            ordercore::export::ExportError::Unsupported => declined(Unsupported),
+            ordercore::export::ExportError::Io(e) => PyOSError::new_err(e.to_string()),
+        })?;
+    let w = done.written;
+    Ok((report_items(&done.report), w.wrote_cfg, w.wrote_toml, w.toml_text, w.cfg_lines, w.user_data_values))
+}
+
+/// `order_preview_configurator(plan_lines, toml_text, expected, subset, user_data_norms,
+/// list_name)`: the configurator preview (`ordercore::apply::preview_configurator_result`),
+/// `(ok, report lines)`.
+#[pyfunction]
+fn order_preview_configurator(
+    plan_lines: Vec<String>,
+    toml_text: &str,
+    expected: Vec<String>,
+    subset: Vec<String>,
+    user_data_norms: Vec<String>,
+    list_name: Option<String>,
+) -> PyResult<(bool, Vec<String>)> {
+    ordercore::apply::preview_configurator_result(
+        &plan_lines,
+        toml_text,
+        &expected,
+        &subset,
+        &user_data_norms,
+        list_name.as_deref(),
+    )
+    .map_err(declined)
+}
+
+/// `order_render_cfg_lines(plan, final_order, data_order)`: the cfg a plan would write
+/// (`ordercore::export::render_cfg_lines`), for the cell viewer's setup.
+#[pyfunction]
+fn order_render_cfg_lines(plan: Bound<'_, PyAny>, final_order: Option<Vec<String>>, data_order: Option<Vec<String>>) -> PyResult<Vec<String>> {
+    let plan = plan_of(&json_of(&plan)?)?;
+    ordercore::export::render_cfg_lines(&plan, final_order.as_deref(), data_order.as_deref()).map_err(declined)
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("OrderUnsupportedError", m.py().get_type::<OrderUnsupportedError>())?;
     m.add_function(wrap_pyfunction!(order_parse_rules, m)?)?;
@@ -835,5 +1095,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(order_cfg_orphans, m)?)?;
     m.add_function(wrap_pyfunction!(order_infer_data_path_anchors, m)?)?;
     m.add_function(wrap_pyfunction!(order_check_missing_masters, m)?)?;
+    m.add_function(wrap_pyfunction!(order_compute_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(order_write_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(order_preview_configurator, m)?)?;
+    m.add_function(wrap_pyfunction!(order_render_cfg_lines, m)?)?;
     Ok(())
 }

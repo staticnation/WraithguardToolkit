@@ -115,6 +115,11 @@ def sort_trace_begin() -> None:
     trace(f"[sort] full sort play-by-play -> {_sort_trace_path}")
 
 
+def tracing_on() -> bool:
+    """Whether a trace was asked for (``--trace``): a run then takes the Python path, which writes it."""
+    return bool(_trace_path)
+
+
 def sort_tracing() -> bool:
     """Whether the sort trace is open (the sort then runs its Python body, which writes it)."""
     return bool(_trace_path) and _sort_trace_handle is not None

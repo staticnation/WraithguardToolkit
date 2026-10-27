@@ -143,29 +143,26 @@ const Ori={
     });
   },
 
-  /** Wraithguard's conflict viewer link, when the viewer was started from Wraithguard. */
-  recordLink(){ return (((window.__WG_VIEW__||{}).extra||{}).links||{}).openRecord||''; },
+  /** Whether the Conflicts page (60_wg_conflicts.js) is in this build: a record link opens
+   *  the record there (port step 4.3's flip; it used to ask Wraithguard's conflict window). */
+  recordLink(){ return typeof WgConflicts==='object'; },
   /** In the Editor a record link opens the record there instead (50_wg_editor.js). */
   inEditor(){ return typeof WgEditor==='object' && WgEditor.on; },
   /** Whether a record id is a link at all: to the Editor, or to the conflict viewer. */
   linked(){ return this.inEditor() || !!this.recordLink(); },
   /** What following a record link does, for its tooltip. */
-  linkNote(){ return this.inEditor()? 'Open this record in the Editor' : 'Show this record in Wraithguard\'s conflict viewer'; },
+  linkNote(){ return this.inEditor()? 'Open this record in the Editor' : 'Show this record on the Conflicts page'; },
   /** Shows the record `tag`/`id`: in the Editor when it is on (its Object Window and its
-   *  dialog), else in Wraithguard's conflict viewer. */
+   *  dialog), else on the Conflicts page. */
   async openRecord(tag,id){
     if(this.inEditor()) return WgEditor.showEntry(tag, id);
     return this.openConflicts(tag, id);
   },
-  /** Asks Wraithguard to show the record in its conflict viewer (the Editor's record dialog
-   *  keeps a "Conflicts" button for this). */
+  /** The record on the Conflicts page, its fields across its plugins (the Editor's record
+   *  dialog keeps a "Conflicts" button for this). */
   async openConflicts(tag,id){
-    const url=this.recordLink();
-    if(!url || !id) return;
-    try{
-      await Engine.call('wg_open_record',{url, body:JSON.stringify({tag:tag||'', id})});
-      toast('Opening '+id+' in Wraithguard\'s conflict viewer','ok',2500);
-    }catch(e){ toast(String(e.message||e),'err',4000); }
+    if(!this.recordLink() || !id) return;
+    return WgConflicts.goto(tag||'', id);
   },
   /** The buttons and links a render put in the panel. */
   wire(body, r){

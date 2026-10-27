@@ -3,8 +3,77 @@
 
 ## 4.5.0
 
+### Removed
+
+- **Sort, Export, Scan, Sources and the rule maker left Wraithguard's main window**: they are
+  the viewer's Load order page now. The Python sort and rule code went with them; the load
+  order is Rust only (`ordercore`), and PyYAML and certifi are no longer needed.
+
 ### Added
 
+- **Wraithguard's tools have their own page in the viewer** (the top bar's Tools button, or
+  `--tools`), each tool a section on the left and its work on the right, all of it Rust
+  (`toolscore`, `landcore`, `editcore::journal`):
+  - **Lint**: evil GMSTs, the fog bug, interiors without a path grid, blank headers,
+    expansion-only script calls in your mods and missing `.omwscripts` twins, filtered by kind.
+  - **Backups**: the copies Wraithguard and tes3cmd took before changing a file, in the data
+    folders, the cfg's folder and the rule files' folder, each restored over its original or
+    deleted.
+  - **Remove / rename master**: a master a plugin lists but OpenMW cannot find, removed (its
+    references renumbered, those into it dropped, a dry run first) or pointed at the file that
+    replaced it; the original kept once as `.premaster.bak`.
+  - **Save Check**: the save's content files the load order lacks, and openmw-save-stats'
+    report: the space each mod takes in the save, what its Lua data is made of, how to shrink
+    it, and two saves compared.
+  - **Journal**: every quest's stages in index order, each with the calls that set it (its own
+    script, a standalone script, an NPC's response), their conditions and what else they do.
+  - **tes3cmd**: clean, header and a custom command on each plugin, with its masters staged
+    beside it; master sizes synced in-app. (A rewrite without Perl is planned in
+    `viewer-shell/TES3CMD-REWRITE.md`.)
+  - **Merge Lands**: `Merged Lands.esp` from the cfg's load order, into the folder you choose,
+    with the progress as Wraithguard's log had it. Two models: each plugin measured against its
+    **masters** (every mod's edits kept, as the original merged_lands) or against **the load
+    order before it** (the OpenMW fork: later plugins' winners followed, cleaned against the
+    load order). Plugins can be left out by name or folder; Merge Lands' own earlier output is
+    always left out. The same plugin as the Python merge wrote, byte for byte
+    (`landcore/tests/merge_cases.rs`).
+  - **Merge settings**: a plugin's `.mergedlands.toml`, per land layer: whether Merge Lands
+    takes the plugin's edits and how they resolve where they collide, previewed before it is
+    written.
+  Wraithguard's buttons for these open the page.
+- **Help is a page in the viewer** (the Help button, or `--docs`): every document of the
+  project, rendered as Wraithguard's help window rendered it, with links between them.
+- **The Conflicts page has a Plugins tab**: plugin, then record type, then records, each
+  plugin's records judged when it is opened, and "Merge fields" across a plugin's records.
+  Wraithguard's plugin view opens it.
+- **Conflicts: a `LAND` record's terrain.** Its heights in each plugin and what each merge
+  strategy would make of them, shaded or as the difference against any of the others.
+- **The viewer has Wraithguard's 23 themes** (Settings, Theme), generated from `theme.py` by
+  `tools/gen_viewer_themes.py`.
+- **The Load order page's rule maker writes conditions**: one expression a line, as mlox
+  writes them: `[DESC /regex/ a.esp]` (or `!/.../`), `[SIZE 1234 a.esp]` (or `!1234`),
+  `[VER < 1.2 a.esp]`, and `[ANY ...]`, `[ALL ...]`, `[NOT ...]` groups, read by the sort's
+  own reader so a rule the sort would misread is refused. A Source field for the rule's
+  citation.
+
+- **Conflicts have their own page in the viewer.** The records two or more plugins define (or
+  only your mods, or only one other plugin), each opening its fields across its plugins,
+  coloured by what each plugin does to them (master, identical to master, override wins,
+  conflict wins, conflict loses); a record or a field taken from a plugin, or a value typed for
+  a field, queued for the patch in the journal the Editor shares. The loose files two or more
+  data folders provide, the differing ones first, a mesh marked when the winner loses
+  collision or animation, a texture compared with what it replaced (both sides and where they
+  differ). The conflicts on the world grid, a plugin focused to see its own. The report and the
+  CSVs. Open it with the top bar's Conflicts button, Wraithguard's Check Conflicts or Resource
+  Conflicts, or `--conflicts`. The scans, the field diff, the mesh and texture comparisons are
+  Rust (`conflictcore`), and Wraithguard's own conflict tools call the same code.
+- **The load order has its own page in the viewer.** Sort and Export, the content= and data=
+  orders (drag to reorder, untick to leave out), the warnings as a list you can filter by kind
+  with each plugin a link into the orders, the full text behind a toggle, the rule files and
+  their ages, Update rules, Update plugin-order.yml, Fetch data paths, and a rule maker. Open it
+  with the top bar's Load order button, Wraithguard's "1. Load order", or `--loadorder`. Its
+  Export writes the order Wraithguard's remaining tools (Conflicts, Cell Map, Merge Lands, Lint,
+  Cell Preview) work from, and Wraithguard takes it in by itself.
 - **The connect log times the whole merge loop by part** (setup, objects, tables,
   definitions, interiors, exteriors, moves, freeing), each in full, so the parts add up to the
   loop; and **says how much of the file index came from the saved one** (folders taken from it,
@@ -66,6 +135,14 @@
   tag, and the plugins with the biggest share of the use index.
 
 ### Changed
+
+- **The viewer no longer opens Wraithguard's windows.** ORI's Conflicts link opens the
+  Conflicts page on that record; the Editor's script flowchart is drawn in the viewer's own
+  chart panel; "Preview it in a new Cell Preview" starts the viewer itself with the written
+  patch loaded last (`editor_preview_patch`); the Editor's "Review and write in Wraithguard"
+  is gone (its Build page writes the patch). Every Editor link is now the viewer's.
+- **Merge Lands' arithmetic exists once**: `native/` hands landcore's functions to the Python
+  run, which is kept only as the fallback while the Tk app remains.
 
 - **Connecting no longer reads every placed mesh's collision shape.** That read (33,267
   meshes and 1.78 GB on a 621-plugin setup, 39-43 s on 16 cores, running beside the merge)
@@ -172,6 +249,9 @@
 
 ### Fixed
 
+- **The rule maker wrote Requires, Conflict and Patch rules without their subject**, and a
+  Note without the plugins it was about: the first plugin went to a field those rules do not
+  write. Every line is now an expression of the rule.
 - **The Use Report finds dialogue results once the use index is built.** The scan of the
   plugins counted an id named in a response's result, but the index (which answers once
   the load order is indexed, and with every id that has a space or a dash) only had

@@ -45,7 +45,9 @@ pub mod worldmap;
 /// OpenMW Lua scripts in plain Rust (viewer-shell/luacore), shared with the Python backend.
 pub use luacore;
 /// One spelling of a cell for the engine, the page and the Python pool (`ordercore::cells`).
-pub use ordercore::cells;
+pub use ::ordercore::cells;
+/// The load order (rules, sort, checks, export): the Load order page's commands use it whole.
+pub use ::ordercore;
 
 /// Make Greatness7's `tes3` crates the engine's plugin and mesh readers (through
 /// `gardenfell-g7`). Call once at startup, before the first read: a mesh opened on its

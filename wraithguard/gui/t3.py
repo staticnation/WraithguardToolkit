@@ -27,7 +27,7 @@ from wraithguard.gui import (
 from wraithguard.gui.theme import DARK, apply_titlebar_theme, style_plain_widget
 from wraithguard.gui.widgets import QueueWriter, RadioButton, add_tooltip, attach_typeahead
 from wraithguard.i18n import gettext as _, ngettext
-from wraithguard.momw import needs_cleaning_set, parse_plugin_order_yml
+from wraithguard import ordercore_bridge
 from wraithguard.plugins import PluginFileIndex
 from wraithguard.tracing import trace
 
@@ -324,8 +324,9 @@ class Tes3cmdMixin:
             self.status_var.set(_("Set the plugin-order.yml path on the main tab first."))
             return
         try:
-            entries = parse_plugin_order_yml(Path(yml))
-            nc = needs_cleaning_set(entries)
+            # ordercore::momw: MOMW's file read, and what it flags for cleaning
+            entries = ordercore_bridge.require("order_momw_parse")(Path(yml).read_bytes())
+            nc = set(ordercore_bridge.require("order_momw_needs_cleaning")(entries))
         except Exception as e:  # noqa: BLE001
             # untrusted plugin-order.yml; status line carries the failure
             self.status_var.set(_("Couldn't read plugin-order.yml: %(error)s") % {"error": e})

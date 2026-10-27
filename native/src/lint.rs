@@ -1,118 +1,33 @@
-//! The per-record half of the load-order lint (`lint_plugins` in
-//! `wraithguard_toolkit.py`): one pass over a plugin's raw records that pulls
-//! out the facts the checks need -- evil GMSTs, interior cells and their fog,
-//! interior path grids, header gaps, masters, and expansion-only script calls.
+//! The load-order lint (`lint_plugins` in `wraithguard_toolkit.py`), from `toolscore::lint`
+//! (`viewer-shell/toolscore`, shared with the viewer's Tools page).
 //!
-//! Ported step for step from the Python `_lint_*` helpers it replaced, down to
-//! how a truncated record is clamped, which duplicate subrecord wins, Python's
-//! `str.strip()` whitespace set and `re`'s Unicode word boundaries over
-//! Latin-1 text. The warning wording, the load-order-wide accumulators and the
-//! skip lists stay in Python; `tests/test_lint_native_parity.py` checks the
-//! two agree on synthetic plugins and on a real load order.
+//! - `lint_order(order, paths, subset, origins)`: the whole lint - the plugins read side by
+//!   side, the load order folded, the warnings worded - and its counts.
+//! - `PluginLinter`: one plugin's facts, as the parity tests read them.
+//! - `backup_scan(roots, max_depth)`: the backups the tools leave (`toolscore::backups`).
+//! - `master_remove` / `master_rename`: a plugin's master removed or renamed
+//!   (`toolscore::masters`).
+//! - `save_content_files(data)`: a save's content files (`toolscore::save`).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::PathBuf;
 
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
-
-/// Top-level records: `(tag, body)`, the body clamped to what the file holds.
-pub(crate) fn records(raw: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
-    frames(raw, 16)
-}
-
-/// Subrecords of a record body: `(tag, data)`, clamped likewise.
-pub(crate) fn subrecords(body: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
-    frames(body, 8)
-}
-
-fn frames(buf: &[u8], header: usize) -> impl Iterator<Item = (&[u8], &[u8])> {
-    let mut i = 0usize;
-    std::iter::from_fn(move || {
-        if i + header > buf.len() {
-            return None;
-        }
-        let tag = &buf[i..i + 4];
-        let size = u32::from_le_bytes(buf[i + 4..i + 8].try_into().expect("4 bytes")) as usize;
-        let start = i + header;
-        let end = start.saturating_add(size).min(buf.len());
-        i = start.saturating_add(size);
-        Some((tag, &buf[start.min(buf.len())..end]))
-    })
-}
-
-/// Python's `str.isspace()` over Latin-1.
-fn is_py_space(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\x0b' | '\x0c' | '\r' | '\x1c'..='\x1f' | ' ' | '\u{85}' | '\u{a0}')
-}
-
-/// Python `re`'s `\w` over Latin-1 text: `str.isalnum()` or underscore.
-pub(crate) fn is_py_word(b: u8) -> bool {
-    let c = b as char;
-    c == '_' || c.is_alphanumeric()
-}
-
-fn latin1(b: &[u8]) -> String {
-    b.iter().map(|&x| x as char).collect()
-}
-
-/// A NUL-terminated string field: up to the first NUL, Latin-1, stripped.
-pub(crate) fn zstr(b: &[u8]) -> String {
-    let end = b.iter().position(|&x| x == 0).unwrap_or(b.len());
-    latin1(&b[..end]).trim_matches(is_py_space).to_string()
-}
-
-/// The expansion-function matcher: `^[^;\n]*?\b(NAME|...)\b`, case-insensitive,
-/// per line. At most one match per line -- the leftmost, and at one position the
-/// first name in list order -- returned as spelled in the script.
-struct Calls {
-    names: Vec<Vec<u8>>,
-}
-
-impl Calls {
-    fn scan(&self, text: &[u8], found: &mut BTreeSet<String>) {
-        let mut line_start = 0usize;
-        while line_start <= text.len() {
-            let line_end = text[line_start..].iter().position(|&c| c == b'\n').map_or(text.len(), |p| line_start + p);
-            let stop = text[line_start..line_end].iter().position(|&c| c == b';').map_or(line_end, |p| line_start + p);
-            'pos: for p in line_start..stop {
-                let before_word = p > 0 && is_py_word(text[p - 1]);
-                if before_word || !is_py_word(text[p]) {
-                    continue;
-                }
-                for name in &self.names {
-                    let end = p + name.len();
-                    if end > text.len() || !text[p..end].eq_ignore_ascii_case(name) {
-                        continue;
-                    }
-                    if end < text.len() && is_py_word(text[end]) {
-                        continue;
-                    }
-                    found.insert(latin1(&text[p..end]));
-                    break 'pos;
-                }
-            }
-            if line_end == text.len() {
-                break;
-            }
-            line_start = line_end + 1;
-        }
-    }
-}
+use toolscore::lint::{Event, Linter};
 
 /// Reads one plugin's records into the facts the lint checks consume.
 #[pyclass(frozen)]
 struct PluginLinter {
-    evil: HashMap<String, (Vec<u8>, Vec<u8>)>,
-    tribunal: Calls,
-    bloodmoon: Calls,
-    skip_cells: BTreeSet<String>,
+    inner: Linter,
 }
 
 #[pymethods]
 impl PluginLinter {
-    /// `evil_gmsts` maps a lower-cased setting name to `(value tag, raw value)`;
-    /// the function lists are the Tribunal and Bloodmoon script functions;
-    /// `skip_cells` are lower-cased cell names left out of the pathgrid check.
+    /// `evil_gmsts` maps a lower-cased setting name to `(value tag, raw value)`; the function
+    /// lists are the Tribunal and Bloodmoon script functions; `skip_cells` are lower-cased
+    /// cell names left out of the pathgrid check.
     #[new]
     fn new(
         evil_gmsts: HashMap<String, (String, Vec<u8>)>,
@@ -120,26 +35,17 @@ impl PluginLinter {
         bloodmoon_funcs: Vec<String>,
         skip_cells: BTreeSet<String>,
     ) -> Self {
-        let strip = |v: Vec<u8>| {
-            let end = v.iter().rposition(|&b| b != 0).map_or(0, |p| p + 1);
-            v[..end].to_vec()
-        };
-        Self {
-            evil: evil_gmsts.into_iter().map(|(k, (t, v))| (k, (t.into_bytes(), strip(v)))).collect(),
-            tribunal: Calls { names: tribunal_funcs.into_iter().map(String::into_bytes).collect() },
-            bloodmoon: Calls { names: bloodmoon_funcs.into_iter().map(String::into_bytes).collect() },
-            skip_cells,
-        }
+        let evil = evil_gmsts.into_iter().map(|(k, (t, v))| (k, (t.into_bytes(), v))).collect();
+        Self { inner: Linter::new(evil, &tribunal_funcs, &bloodmoon_funcs, skip_cells) }
     }
 
-    /// One plugin's lint facts. `is_custom` turns on the header and
-    /// expansion-call checks, which apply only to the user's own mods.
+    /// One plugin's lint facts. `is_custom` turns on the header and expansion-call checks,
+    /// which apply only to the user's own mods.
     ///
-    /// Returns a dict: `events` (in record order: `("header", [missing])` or
-    /// `("cell", name, cell_id, fog_bug)`), `evil_gmsts`, `pathgrids`,
-    /// `masters`, `tribunal`, `bloodmoon`.
+    /// Returns a dict: `events` (in record order: `("header", [missing])` or `("cell", name,
+    /// cell_id, fog_bug)`), `evil_gmsts`, `pathgrids`, `masters`, `tribunal`, `bloodmoon`.
     fn scan<'py>(&self, py: Python<'py>, raw: &[u8], is_custom: bool) -> PyResult<Bound<'py, PyDict>> {
-        let facts = py.detach(|| self.facts(raw, is_custom));
+        let facts = py.detach(|| self.inner.facts(raw, is_custom));
         let out = PyDict::new(py);
         let events = PyList::empty(py);
         for e in facts.events {
@@ -166,157 +72,84 @@ impl PluginLinter {
     }
 }
 
-enum Event {
-    Header(Vec<&'static str>),
-    Cell { name: String, cell_id: String, fog_bug: bool },
+/// `lint_order(order, paths, subset, origins)`: `lint_plugins`, whole. `paths` is each
+/// plugin's file (`None`: not found); `origins` maps a lower-cased plugin name to its tag.
+/// Returns `(warnings, stats)`.
+#[pyfunction]
+fn lint_order<'py>(
+    py: Python<'py>,
+    order: Vec<String>,
+    paths: Vec<Option<String>>,
+    subset: Vec<String>,
+    origins: BTreeMap<String, String>,
+) -> PyResult<(Vec<String>, Bound<'py, PyDict>)> {
+    if paths.len() != order.len() {
+        return Err(PyValueError::new_err("lint_order: one path per plugin"));
+    }
+    let at: HashMap<String, PathBuf> = order.iter().zip(&paths).filter_map(|(n, p)| Some((n.clone(), PathBuf::from(p.as_ref()?)))).collect();
+    let find = move |name: &str| at.get(name).cloned();
+    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4);
+    let (warnings, stats) = py.detach(|| toolscore::lint::lint_order(&order, &find, &subset, &origins, threads));
+    let s = PyDict::new(py);
+    s.set_item("scanned", stats.scanned)?;
+    s.set_item("unreadable", stats.unreadable)?;
+    s.set_item("warnings", stats.warnings)?;
+    s.set_item("interior_cells", stats.interior_cells)?;
+    s.set_item("pathgrids", stats.pathgrids)?;
+    Ok((warnings, s))
 }
 
-#[derive(Default)]
-struct Facts {
-    events: Vec<Event>,
-    evil_gmsts: Vec<String>,
-    pathgrids: Vec<String>,
-    masters: BTreeSet<String>,
-    tribunal: BTreeSet<String>,
-    bloodmoon: BTreeSet<String>,
+/// `backup_scan(roots, max_depth)`: `scan_backups` (`toolscore::backups`): `[(backup,
+/// original, kind)]`, by path without case.
+#[pyfunction]
+fn backup_scan(py: Python<'_>, roots: Vec<String>, max_depth: usize) -> Vec<(String, String, String)> {
+    let roots: Vec<PathBuf> = roots.into_iter().map(PathBuf::from).collect();
+    py.detach(|| toolscore::backups::scan(&roots, max_depth))
+        .into_iter()
+        .map(|b| (b.path.to_string_lossy().into_owned(), b.original.to_string_lossy().into_owned(), b.kind))
+        .collect()
 }
 
-impl PluginLinter {
-    fn facts(&self, raw: &[u8], is_custom: bool) -> Facts {
-        let mut f = Facts::default();
-        for (tag, body) in records(raw) {
-            match tag {
-                b"SCPT" | b"INFO" if is_custom => {
-                    let want: &[u8] = if tag == b"SCPT" { b"SCTX" } else { b"BNAM" };
-                    for (st, data) in subrecords(body) {
-                        if st == want && !data.is_empty() {
-                            self.tribunal.scan(data, &mut f.tribunal);
-                            self.bloodmoon.scan(data, &mut f.bloodmoon);
-                        }
-                    }
-                }
-                b"TES3" => {
-                    for (st, data) in subrecords(body) {
-                        if st == b"MAST" {
-                            f.masters.insert(zstr(data).to_lowercase());
-                        }
-                    }
-                    if is_custom {
-                        let missing = header_gaps(body);
-                        if !missing.is_empty() {
-                            f.events.push(Event::Header(missing));
-                        }
-                    }
-                }
-                b"GMST" => {
-                    if let Some(name) = self.evil_gmst(body) {
-                        f.evil_gmsts.push(name);
-                    }
-                }
-                b"CELL" => {
-                    if let Some(e) = self.cell(body) {
-                        f.events.push(e);
-                    }
-                }
-                b"PGRD" => {
-                    if let Some(name) = interior_pathgrid(body) {
-                        f.pathgrids.push(name);
-                    }
-                }
-                _ => {}
-            }
-        }
-        f
-    }
-
-    /// The setting's name when both name and value match the evil table.
-    fn evil_gmst(&self, body: &[u8]) -> Option<String> {
-        let mut name: Option<String> = None;
-        let mut value: Option<(&[u8], &[u8])> = None;
-        for (st, data) in subrecords(body) {
-            match st {
-                b"NAME" => name = Some(zstr(data).to_lowercase()),
-                b"STRV" | b"INTV" | b"FLTV" => value = Some((st, data)),
-                _ => {}
-            }
-        }
-        let name = name.filter(|n| !n.is_empty())?;
-        let (want_tag, want_value) = self.evil.get(&name)?;
-        let (tag, data) = value?;
-        let end = data.iter().rposition(|&b| b != 0).map_or(0, |p| p + 1);
-        (tag == want_tag.as_slice() && &data[..end] == want_value.as_slice()).then_some(name)
-    }
-
-    /// An interior cell's name, pathgrid id and fog-bug flag; `None` for an
-    /// exterior or a `DATA` too short to read.
-    fn cell(&self, body: &[u8]) -> Option<Event> {
-        let mut name = String::new();
-        let mut data: Option<&[u8]> = None;
-        let mut ambience: Option<&[u8]> = None;
-        for (st, payload) in subrecords(body) {
-            match st {
-                b"NAME" => name = zstr(payload),
-                b"DATA" if data.is_none() => data = Some(payload),
-                b"AMBI" => ambience = Some(payload),
-                _ => {}
-            }
-        }
-        let data = data.filter(|d| d.len() >= 12)?;
-        let flags = u32::from_le_bytes(data[0..4].try_into().expect("4 bytes"));
-        if flags & 1 == 0 {
-            return None;
-        }
-        let cell_id = name.to_lowercase();
-        let mut fog_bug = false;
-        if flags & 128 == 0 {
-            let fog = match ambience {
-                Some(a) if a.len() == 16 => f32::from_le_bytes(a[12..16].try_into().expect("4 bytes")),
-                _ => f32::from_le_bytes(data[8..12].try_into().expect("4 bytes")),
-            };
-            fog_bug = fog == 0.0;
-        }
-        let cell_id = if self.skip_cells.contains(&cell_id) { String::new() } else { cell_id };
-        Some(Event::Cell { name, cell_id, fog_bug })
-    }
+/// `master_remove(data, master)`: `remove_master_from_bytes` (`toolscore::masters`):
+/// `(bytes, {master, removed, references_dropped, dropped_by_cell: [(cell, n)],
+/// references_remapped, remaining_masters})`.
+#[pyfunction]
+fn master_remove<'py>(py: Python<'py>, data: &[u8], master: &str) -> PyResult<(Bound<'py, pyo3::types::PyBytes>, Bound<'py, PyDict>)> {
+    let (out, r) = py.detach(|| toolscore::masters::remove_master(data, master)).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let d = PyDict::new(py);
+    d.set_item("master", r.master)?;
+    d.set_item("removed", r.removed)?;
+    d.set_item("references_dropped", r.references_dropped)?;
+    d.set_item("dropped_by_cell", r.dropped_by_cell)?;
+    d.set_item("references_remapped", r.references_remapped)?;
+    d.set_item("remaining_masters", r.remaining_masters)?;
+    Ok((pyo3::types::PyBytes::new(py, &out), d))
 }
 
-/// Which of author and description the first full `HEDR` leaves blank.
-fn header_gaps(body: &[u8]) -> Vec<&'static str> {
-    for (st, data) in subrecords(body) {
-        if st == b"HEDR" && data.len() >= 296 {
-            let mut out = Vec::new();
-            if zstr(&data[8..40]).is_empty() {
-                out.push("author");
-            }
-            if zstr(&data[40..296]).is_empty() {
-                out.push("description");
-            }
-            return out;
-        }
-    }
-    Vec::new()
+/// `master_rename(data, old, new, new_size)`: `rename_master_in_bytes`: `(bytes, {renamed,
+/// remaining_masters})`; a `ValueError` when `new` is already another master.
+#[pyfunction]
+fn master_rename<'py>(py: Python<'py>, data: &[u8], old: &str, new: &str, new_size: u64) -> PyResult<(Bound<'py, pyo3::types::PyBytes>, Bound<'py, PyDict>)> {
+    let (out, r) = py.detach(|| toolscore::masters::rename_master(data, old, new, new_size)).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let d = PyDict::new(py);
+    d.set_item("renamed", r.renamed)?;
+    d.set_item("remaining_masters", r.remaining_masters)?;
+    Ok((pyo3::types::PyBytes::new(py, &out), d))
 }
 
-/// The lower-cased cell name of an interior path grid (grid `(0, 0)`, named).
-fn interior_pathgrid(body: &[u8]) -> Option<String> {
-    let mut name = String::new();
-    let mut grid: Option<(i32, i32)> = None;
-    for (st, data) in subrecords(body) {
-        match st {
-            b"NAME" => name = zstr(data),
-            b"DATA" if data.len() >= 8 => {
-                grid = Some((
-                    i32::from_le_bytes(data[0..4].try_into().expect("4 bytes")),
-                    i32::from_le_bytes(data[4..8].try_into().expect("4 bytes")),
-                ));
-            }
-            _ => {}
-        }
-    }
-    (grid == Some((0, 0)) && !name.is_empty()).then(|| name.to_lowercase())
+/// `save_content_files(data)`: the content files a save names (`read_savegame_content_files`);
+/// a `ValueError` saying why when they cannot be read.
+#[pyfunction]
+fn save_content_files(data: &[u8]) -> PyResult<Vec<String>> {
+    toolscore::save::content_files(data).map_err(PyValueError::new_err)
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(save_content_files, m)?)?;
+    m.add_function(wrap_pyfunction!(master_remove, m)?)?;
+    m.add_function(wrap_pyfunction!(master_rename, m)?)?;
     m.add_class::<PluginLinter>()?;
+    m.add_function(wrap_pyfunction!(lint_order, m)?)?;
+    m.add_function(wrap_pyfunction!(backup_scan, m)?)?;
     Ok(())
 }

@@ -8,6 +8,20 @@ have left no Python that a user runs.
 Draft from `TODO.md` and the repo's file layout; I have not read the build scripts or the
 Flatpak manifest in detail, so each slice starts by reading its files.
 
+## Decided (Static, 2026-10-26)
+
+- **The command line survives, in Rust**: the same flags as `wraithguard_toolkit.py`'s
+  (`--cfg`, `--rules`, `--write-cfg`, `--emit-toml`, ... and `--check-conflicts`,
+  `--resource-conflicts`, `--cell-map`, `--lint`), as a mode of the one binary over
+  `ordercore`, `conflictcore` and `toolscore`, pinned by running both CLIs on the same inputs.
+- **Translations keep the `.po` files as the source**; a generator builds the page's string
+  tables from them, so the translators' work carries over.
+- **Platforms: Windows, Linux (with the Flatpak), macOS, Android and iOS.** Tauri 2 builds
+  all five. The mobile two are new ground and a slice of their own (10 below): no
+  `std::process` spawning there (a second viewer window, tes3cmd and the OpenMW test run
+  are desktop only), files come through the platform's pickers and app storage rather than
+  free paths, and the page must work by touch.
+
 ## What goes
 
 - The Tk app: `wraithguard_toolkit_gui.py` (5.8k lines), `wraithguard/gui/` (theme 1.9k,
@@ -25,24 +39,21 @@ Flatpak manifest in detail, so each slice starts by reading its files.
 
 ## Slices
 
-1. **Decide the CLI.** `wraithguard_toolkit.py` is both the library and a command line.
-   Decide: does the command line survive (a `wraithguard` binary over the same crates) or
-   go with the window? Everything after depends on it. If it survives, it is a slice of
-   its own: the commands over `ordercore`/`editcore`/the tool crates, pinned by running the
-   Python CLI and the Rust one on the same inputs.
+1. **The CLI in Rust** (decided: it survives). The commands over `ordercore`,
+   `conflictcore` and `toolscore`, pinned by running the Python CLI and the Rust one on the
+   same inputs (a case file, as the other ports).
 2. **Settings and data migration.** The Python app's settings file, caches, queue
    journal (version 1: the Rust side already reads it) and `.bak` files must open in the
    new app unchanged. Pin: a fixture folder from the last Python build opened by the new
    one. This is the step that must not lose a user's work.
 3. **Translations** (`locale/`, `tools/build_locale.py`, `tools/make_pot.py`,
-   `wraithguard/i18n.py`). The Python app uses gettext `_()`; the page needs its own
-   mechanism. Decide: keep the .po files as the source and generate the page's tables from
-   them, or move to something else; either way the translators' files must survive.
+   `wraithguard/i18n.py`). Decided: the `.po` files stay the source; the page's string
+   tables are generated from them, and its strings are extracted into the same `.pot`.
 4. **Fold `native/` into the crates**, one module at a time as the last Python caller goes
    (each module's own tests move with it). End state: `native/` and the pyo3 dependency are
    gone and `pyproject.toml` has nothing to build.
-5. **One Tauri build per platform** in CI: Windows, Linux, macOS if you ship it (I did not
-   check which you do). The installer, icons, the file associations and the updater, if any.
+5. **One Tauri build per platform** in CI: Windows, Linux, macOS. The installer, icons, the
+   file associations and the updater, if any.
 6. **The Flatpak** rebuilt on the Tauri binary: drop Python and `LD_LIBRARY_PATH`, keep the
    permissions the viewer needs (game folders, MO2 and OpenMW config paths). Check the
    `ubuntu-latest` move to Ubuntu 26 first (the TODO's watch item).
@@ -58,6 +69,12 @@ Flatpak manifest in detail, so each slice starts by reading its files.
 9. **After the last Python goes**, the dependency items: Tauri's pinned glib/gtk,
    string_cache and jsonptr are rechecked each Tauri release; CI actions move to the Node 24
    majors; Aikido closes what the Python removal makes moot.
+
+10. **Android and iOS.** Tauri 2's mobile targets. First an audit of what the page and the
+    commands assume of a desktop: spawned processes (`editor_preview_patch`, tes3cmd, the
+    OpenMW test run), free file paths and `openmw.cfg` locations (on Android, OpenMW's own
+    app keeps its files elsewhere), window management, hover-only controls, the gamepad and
+    keyboard paths. Then the builds in CI and a device test of reading a real install.
 
 ## Gate
 

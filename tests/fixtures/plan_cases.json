@@ -1,0 +1,4006 @@
+{
+ "_about": "A whole sort: setups made on disk and the command line, answered by wraithguard_toolkit.compute_plan (the plan, what it prints and logs, or why it stops); run by tests/test_plan_cases.py and viewer-shell/ordercore/tests/plan_cases.rs. Regenerate: python tools/gen_plan_cases.py",
+ "cases": [
+  {
+   "name": "a subset file, sorted with its folders",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "subset.txt": "# my plugins\nAlpha.esp\nBeta.esp   # a note\n<root>/mods/A\n<root>/mods/B\ngroundcover=New Grass.esp\ngroundcover=notaplugin\nreadme\nVurt Grass.esp\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset-file",
+    "<root>/subset.txt",
+    "--sort-data-paths",
+    "--groundcover",
+    "Extra Grass.esp",
+    "--write-cfg",
+    "--emit-toml",
+    "<root>/out.toml"
+   ],
+   "extra": {
+    "export": {}
+   },
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/subset.txt: 3 plugin(s), 2 data path(s)",
+    "",
+    "--- groundcover declared by this run ---",
+    "  groundcover=Extra Grass.esp",
+    "  groundcover=New Grass.esp",
+    "  These are written as groundcover= rather than content=. Their data= folders are inserted normally -- OpenMW has to find the file.",
+    "",
+    "--- groundcover plugins held back ---",
+    "1 plugin in your subset is already declared as groundcover in openmw.cfg, so it was NOT added to content=:",
+    "  Vurt Grass.esp",
+    "  Their groundcover= lines are untouched and their data= paths are still written, so the grass stays enabled -- as grass. Loading one as content= too would spawn every blade as a real object.",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 MLOX RULE WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 6 plugin(s) read, 0 problem(s), 6 size note(s)",
+    "======================================================================",
+    "",
+    "--- 6 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Tribunal.esm' was 0 bytes, installed copy is 362 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp' [subset file (subset.txt)]: header says 'Alpha.esp' was 0 bytes, installed copy is 399 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " SORTING 2 DATA PATH(S)",
+    "======================================================================",
+    "  Inferred anchor for '<root>/mods/A': after '<root>/game' (via plugin alpha.esp)",
+    "  Inferred anchor for '<root>/mods/B': after '<root>/game' (via plugin beta.esp)",
+    "  <root>/mods/A  (after '<root>/game')",
+    "  <root>/mods/B  (after '<root>/game')",
+    "",
+    "--- final data= order ---",
+    "  data=\"<root>/game\"",
+    "  data=\"<root>/mods/A\"  <-- inserted",
+    "  data=\"<root>/mods/B\"  <-- inserted",
+    "  data=\"<root>/mods/G\""
+   ],
+   "logged": [
+    "'readme' from <root>/subset.txt doesn't look like a plugin filename or a data folder path (no recognized extension, no slash) -- skipping.",
+    "'notaplugin' from <root>/subset.txt is declared as groundcover but is not a plugin filename -- skipping."
+   ],
+   "plan": {
+    "subset": [
+     "Alpha.esp",
+     "Beta.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Alpha.esp",
+     "Beta.esp"
+    ],
+    "data_result": [
+     [
+      "data=\"<root>/game\"",
+      false,
+      null
+     ],
+     [
+      "data=\"<root>/mods/A\"",
+      true,
+      "<root>/mods/A"
+     ],
+     [
+      "data=\"<root>/mods/B\"",
+      true,
+      "<root>/mods/B"
+     ],
+     [
+      "data=\"<root>/mods/G\"",
+      false,
+      null
+     ]
+    ],
+    "predicate_warnings": [
+     "[NOTE] Beta is a test plugin.\n    About: Beta.esp [subset file (subset.txt)]",
+     "[NOTE] Beta is a test plugin.\n    About: Beta.esp [subset file (subset.txt)]"
+    ],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "alpha.esp": [
+      "none",
+      null
+     ],
+     "beta.esp": [
+      "after",
+      "Alpha.esp"
+     ]
+    },
+    "original_content_values": {
+     "Alpha.esp": "Alpha.esp",
+     "Beta.esp": "Beta.esp",
+     "Vurt Grass.esp": "Vurt Grass.esp"
+    },
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [
+     {
+      "value": "<root>/mods/A",
+      "after": "<root>/game",
+      "before": null
+     },
+     {
+      "value": "<root>/mods/B",
+      "after": "<root>/game",
+      "before": null
+     }
+    ],
+    "data_inserts": [
+     {
+      "value": "<root>/mods/A",
+      "after": "<root>/game",
+      "before": null
+     },
+     {
+      "value": "<root>/mods/B",
+      "after": "<root>/game",
+      "before": null
+     }
+    ],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [
+     "Extra Grass.esp",
+     "New Grass.esp"
+    ],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G",
+     "<root>/mods/A",
+     "<root>/mods/B"
+    ],
+    "custom_data_dirs": [
+     "<root>/mods/A",
+     "<root>/mods/B"
+    ]
+   },
+   "exported": {
+    "printed": [
+     "",
+     "======================================================================",
+     " WRITING OUTPUT",
+     "======================================================================",
+     "Backup written: <root>/openmw.cfg.bak-20261022-120000",
+     "Wrote updated: <root>/openmw.cfg",
+     "",
+     "--- configurator preview (simulated apply) ---",
+     "  VERIFIED: simulated apply reproduces the sorted order exactly (6 content= lines).",
+     "  Wrote corrected customizations: <root>/out.toml",
+     "",
+     "======================================================================",
+     " SUMMARY",
+     "======================================================================",
+     "  Plugins sorted:        2",
+     "  Data paths inserted:   2",
+     "  Rule warnings raised:  2",
+     "  plugin-order.yml warnings: 0",
+     "  openmw.cfg written:    yes",
+     "  customizations.toml written: yes"
+    ],
+    "wrote_cfg": true,
+    "wrote_toml": true,
+    "files": {
+     "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/A\"\ndata=\"<root>/mods/B\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ncontent=Alpha.esp\ncontent=Beta.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\ngroundcover=Extra Grass.esp\ngroundcover=New Grass.esp\n",
+     "openmw.cfg.bak-20261022-120000": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+     "out.toml": "[[Customizations]]\nlistName = 'generated'\n\n[[Customizations.insert]]\ninsertBlock = '''<root>/mods/A\n<root>/mods/B'''\nbefore = '<root>/mods/G'\n\n# Alpha.esp: no ordering constraint -- positional only\n# Beta.esp: must load after 'Alpha.esp'\n[[Customizations.insert]]\ninsertBlock = '''Alpha.esp\nBeta.esp'''\nafter = 'Curated Two.esp'\n\n[[Customizations.append]]\nappend = 'groundcover=Extra Grass.esp'\n\n[[Customizations.append]]\nappend = 'groundcover=New Grass.esp'\n"
+    }
+   }
+  },
+  {
+   "name": "a subset file, folders not sorted",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "subset.txt": "# my plugins\nAlpha.esp\nBeta.esp   # a note\n<root>/mods/A\n<root>/mods/B\ngroundcover=New Grass.esp\ngroundcover=notaplugin\nreadme\nVurt Grass.esp\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset-file",
+    "<root>/subset.txt"
+   ],
+   "extra": {
+    "export": {}
+   },
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/subset.txt: 3 plugin(s), 2 data path(s)",
+    "  NOTE: data path insertions found but not sorted (pass --sort-data-paths to include them): <root>/mods/A, <root>/mods/B",
+    "",
+    "--- groundcover declared by this run ---",
+    "  groundcover=New Grass.esp",
+    "  These are written as groundcover= rather than content=. Their data= folders are inserted normally -- OpenMW has to find the file.",
+    "",
+    "--- groundcover plugins held back ---",
+    "1 plugin in your subset is already declared as groundcover in openmw.cfg, so it was NOT added to content=:",
+    "  Vurt Grass.esp",
+    "  Their groundcover= lines are untouched and their data= paths are still written, so the grass stays enabled -- as grass. Loading one as content= too would spawn every blade as a real object.",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 MLOX RULE WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp [subset file (subset.txt)]",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 6 plugin(s) read, 0 problem(s), 6 size note(s)",
+    "======================================================================",
+    "",
+    "--- 6 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [subset file (subset.txt)]: header says 'Tribunal.esm' was 0 bytes, installed copy is 362 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Beta.esp' [subset file (subset.txt)]: header says 'Alpha.esp' was 0 bytes, installed copy is 399 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [
+    "'readme' from <root>/subset.txt doesn't look like a plugin filename or a data folder path (no recognized extension, no slash) -- skipping.",
+    "'notaplugin' from <root>/subset.txt is declared as groundcover but is not a plugin filename -- skipping."
+   ],
+   "plan": {
+    "subset": [
+     "Alpha.esp",
+     "Beta.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Alpha.esp",
+     "Beta.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [
+     "[NOTE] Beta is a test plugin.\n    About: Beta.esp [subset file (subset.txt)]",
+     "[NOTE] Beta is a test plugin.\n    About: Beta.esp [subset file (subset.txt)]"
+    ],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "alpha.esp": [
+      "none",
+      null
+     ],
+     "beta.esp": [
+      "after",
+      "Alpha.esp"
+     ]
+    },
+    "original_content_values": {
+     "Alpha.esp": "Alpha.esp",
+     "Beta.esp": "Beta.esp",
+     "Vurt Grass.esp": "Vurt Grass.esp"
+    },
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [
+     {
+      "value": "<root>/mods/A",
+      "after": null,
+      "before": null
+     },
+     {
+      "value": "<root>/mods/B",
+      "after": null,
+      "before": null
+     }
+    ],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [
+     "New Grass.esp"
+    ],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G",
+     "<root>/mods/A",
+     "<root>/mods/B"
+    ],
+    "custom_data_dirs": [
+     "<root>/mods/A",
+     "<root>/mods/B"
+    ]
+   },
+   "exported": {
+    "printed": [
+     "",
+     "======================================================================",
+     " WRITING OUTPUT",
+     "======================================================================",
+     "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+     "",
+     "  NOTE: nothing was written -- this was a preview. Pass --write-cfg and/or --emit-toml to save the result.",
+     "",
+     "======================================================================",
+     " SUMMARY",
+     "======================================================================",
+     "  Plugins sorted:        2",
+     "  Data paths inserted:   0",
+     "  Rule warnings raised:  2",
+     "  plugin-order.yml warnings: 0",
+     "  openmw.cfg written:    no",
+     "  customizations.toml written: no"
+    ],
+    "wrote_cfg": false,
+    "wrote_toml": false,
+    "files": {
+     "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+    }
+   }
+  },
+  {
+   "name": "a customizations TOML with MOMW's file and a list",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "customizations.toml": "[[Customizations]]\nlistName = \"test-list\"\n\n[[Customizations.insert]]\ninsert = \"<root>/mods/C\"\nafter = \"<root>/game\"\n\n[[Customizations.insert]]\ninsertBlock = '''\nClash.esp\nGamma.esp\n'''\n\n[[Customizations.replace]]\nsource = \"Curated One.esp\"\ndest = \"Late Patch.esp\"\n",
+    "plugin-order.yml": "- file_name: Morrowind.esm\n  on_lists: [test-list]\n- file_name: Tribunal.esm\n  on_lists: [test-list]\n- file_name: Curated One.esp\n  on_lists: [test-list]\n  needs_cleaning: true\n- file_name: Curated Two.esp\n  on_lists: [test-list]\n- file_name: Beta.esp\n  on_lists: [test-list]\n- file_name: Gamma.esp\n  on_lists: [other-list]\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--customizations",
+    "<root>/customizations.toml",
+    "--plugin-order-yml",
+    "<root>/plugin-order.yml",
+    "--list-name",
+    "test-list",
+    "--sort-data-paths",
+    "--emit-toml",
+    "<root>/out.toml",
+    "--subset",
+    "Beta.esp",
+    "--write-cfg",
+    "--no-backup"
+   ],
+   "extra": {
+    "export": {
+     "final_order": [
+      "Morrowind.esm",
+      "Tribunal.esm",
+      "Curated One.esp",
+      "Late Patch.esp",
+      "Curated Two.esp",
+      "Gamma.esp"
+     ],
+     "data_order": [
+      "data=\"<root>/mods/C\"",
+      "data=\"<root>/game\"",
+      "data=\"<root>/mods/G\""
+     ],
+     "disabled_plugins": [
+      "Clash.esp",
+      "Curated Two.esp"
+     ],
+     "disabled_data": [
+      "data=\"<root>/mods/G\""
+     ]
+    }
+   },
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/customizations.toml: 3 content plugin(s), 1 data path(s)",
+    "",
+    "======================================================================",
+    " PLUGIN-ORDER.YML (MOMW source of truth)",
+    "======================================================================",
+    "  Loaded 6 plugin entries from plugin-order.yml",
+    "  'test-list': 5 curated plugins on this list",
+    "  Excluded 1 curated plugin from the sort: Beta.esp",
+    "",
+    "======================================================================",
+    " SORTING 3 PLUGIN(S)",
+    "======================================================================",
+    "  Clash.esp, Gamma.esp, Late Patch.esp",
+    "  Not in cfg yet, will be inserted: Clash.esp, Gamma.esp, Late Patch.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 1 of 3 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Clash.esp  <-- inserted/moved",
+    "  content=Gamma.esp  <-- inserted/moved",
+    "  content=Late Patch.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " 2 PLUGIN-ORDER.YML WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[REDUNDANT] 'Beta.esp' is already part of the 'test-list' list -- not sorting it (leaving it to the curated list / configurator).",
+    "",
+    "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 6 plugin(s) read, 0 problem(s), 4 size note(s)",
+    "======================================================================",
+    "",
+    "--- 4 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Clash.esp' [customizations.toml -> 'test-list']: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " SORTING 1 DATA PATH(S)",
+    "======================================================================",
+    "  <root>/mods/C  (after '<root>/game')",
+    "",
+    "--- final data= order ---",
+    "  data=\"<root>/game\"",
+    "  data=\"<root>/mods/C\"  <-- inserted",
+    "  data=\"<root>/mods/G\""
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Clash.esp",
+     "Gamma.esp",
+     "Late Patch.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Clash.esp",
+     "Gamma.esp",
+     "Late Patch.esp"
+    ],
+    "data_result": [
+     [
+      "data=\"<root>/game\"",
+      false,
+      null
+     ],
+     [
+      "data=\"<root>/mods/C\"",
+      true,
+      "<root>/mods/C"
+     ],
+     [
+      "data=\"<root>/mods/G\"",
+      false,
+      null
+     ]
+    ],
+    "predicate_warnings": [],
+    "yml_warnings": [
+     "[REDUNDANT] 'Beta.esp' is already part of the 'test-list' list -- not sorting it (leaving it to the curated list / configurator).",
+     "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml)."
+    ],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "clash.esp": [
+      "none",
+      null
+     ],
+     "gamma.esp": [
+      "none",
+      null
+     ],
+     "late patch.esp": [
+      "nearend",
+      null
+     ]
+    },
+    "original_content_values": {
+     "Clash.esp": "Clash.esp",
+     "Gamma.esp": "Gamma.esp",
+     "Late Patch.esp": "Late Patch.esp"
+    },
+    "replace_dest_names": [
+     "Late Patch.esp"
+    ],
+    "raw_toml_data_inserts": [
+     {
+      "value": "<root>/mods/C",
+      "after": "<root>/game",
+      "before": null
+     }
+    ],
+    "data_inserts": [
+     {
+      "value": "<root>/mods/C",
+      "after": "<root>/game",
+      "before": null
+     }
+    ],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [
+     "beta.esp",
+     "curated one.esp",
+     "curated two.esp",
+     "morrowind.esm",
+     "tribunal.esm"
+    ],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G",
+     "<root>/mods/C"
+    ],
+    "custom_data_dirs": [
+     "<root>/mods/C"
+    ]
+   },
+   "exported": {
+    "printed": [
+     "",
+     "--- opted-out items already in cfg -> removeContent/removeData ---",
+     "  removeContent: Curated Two.esp",
+     "  removeData: <root>/mods/G",
+     "",
+     "--- content= order being exported (manually adjusted) ---",
+     "  content=Morrowind.esm",
+     "  content=Tribunal.esm",
+     "  content=Curated One.esp",
+     "  content=Late Patch.esp",
+     "  content=Curated Two.esp",
+     "  content=Gamma.esp",
+     "",
+     "--- data= order being exported (manually adjusted) ---",
+     "  data=\"<root>/mods/C\"",
+     "  data=\"<root>/game\"",
+     "  data=\"<root>/mods/G\"",
+     "",
+     "======================================================================",
+     " WRITING OUTPUT",
+     "======================================================================",
+     "Wrote updated: <root>/openmw.cfg",
+     "",
+     "--- configurator preview (simulated apply) ---",
+     "  MISMATCH: the simulated Configurator result differs from the sorted order!",
+     "    first difference at #2: simulated 'Late Patch.esp' vs expected 'Curated One.esp'",
+     "    lengths differ: simulated 4 vs expected 5",
+     "  Wrote corrected customizations: <root>/out.toml",
+     "",
+     "======================================================================",
+     " SUMMARY",
+     "======================================================================",
+     "  Plugins sorted:        3",
+     "  Data paths inserted:   1",
+     "  Rule warnings raised:  0",
+     "  plugin-order.yml warnings: 2",
+     "  openmw.cfg written:    yes",
+     "  customizations.toml written: yes"
+    ],
+    "wrote_cfg": true,
+    "wrote_toml": true,
+    "files": {
+     "openmw.cfg": "# openmw.cfg\ndata=\"<root>/mods/C\"\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Late Patch.esp\ncontent=Curated Two.esp\ncontent=Gamma.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+     "out.toml": "[[Customizations]]\nlistName = 'test-list'\nremoveData = [\n  '<root>/mods/G',\n]\nremoveContent = [\n  'Curated Two.esp',\n]\n\n[[Customizations.insert]]\ninsert = '<root>/mods/C'\nbefore = '<root>/game'\n\n# Gamma.esp: no ordering constraint -- positional only\n[[Customizations.insert]]\ninsert = 'Gamma.esp'\nafter = 'Curated Two.esp'\n\n# Yours: carried through unchanged. This tool never writes a replace of\n# its own -- only insert, append and remove blocks are regenerated.\n# mlox sorts Late Patch.esp to position 4 of 6\n#   after: Curated One.esp\n# A replace has no after/before -- it inherits the position of source --\n# so if that is not where it sits now, only you can move it: change this\n# block to an insert, or leave it as it is on purpose.\n[[Customizations.replace]]\nsource = 'Curated One.esp'\ndest = 'Late Patch.esp'\n"
+    }
+   }
+  },
+  {
+   "name": "MOMW's file without a list name",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "plugin-order.yml": "- file_name: Morrowind.esm\n  on_lists: [test-list]\n- file_name: Tribunal.esm\n  on_lists: [test-list]\n- file_name: Curated One.esp\n  on_lists: [test-list]\n  needs_cleaning: true\n- file_name: Curated Two.esp\n  on_lists: [test-list]\n- file_name: Beta.esp\n  on_lists: [test-list]\n- file_name: Gamma.esp\n  on_lists: [other-list]\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset",
+    "Alpha.esp",
+    "Beta.esp",
+    "--plugin-order-yml",
+    "<root>/plugin-order.yml"
+   ],
+   "extra": {},
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " PLUGIN-ORDER.YML (MOMW source of truth)",
+    "======================================================================",
+    "  Loaded 6 plugin entries from plugin-order.yml",
+    "  NOTE: no list name given -- can't separate curated-list plugins from your custom ones, so curated/redundant/orphan/order checks are skipped (needs-cleaning notes still work).",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Beta.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Beta.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  (No header masters read -- mod files not reachable from the cfg's data= folders, so ordering uses mlox rules + ESM-first only.)",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Beta.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 MLOX RULE WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp",
+    "",
+    "[NOTE] Beta is a test plugin.",
+    "    About: Beta.esp",
+    "",
+    "======================================================================",
+    " 1 PLUGIN-ORDER.YML WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Alpha.esp",
+     "Beta.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Alpha.esp",
+     "Beta.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [
+     "[NOTE] Beta is a test plugin.\n    About: Beta.esp",
+     "[NOTE] Beta is a test plugin.\n    About: Beta.esp"
+    ],
+    "yml_warnings": [
+     "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml)."
+    ],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "alpha.esp": [
+      "none",
+      null
+     ],
+     "beta.esp": [
+      "after",
+      "Alpha.esp"
+     ]
+    },
+    "original_content_values": {},
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G"
+    ],
+    "custom_data_dirs": []
+   }
+  },
+  {
+   "name": "a list that has nothing",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "plugin-order.yml": "- file_name: Morrowind.esm\n  on_lists: [test-list]\n- file_name: Tribunal.esm\n  on_lists: [test-list]\n- file_name: Curated One.esp\n  on_lists: [test-list]\n  needs_cleaning: true\n- file_name: Curated Two.esp\n  on_lists: [test-list]\n- file_name: Beta.esp\n  on_lists: [test-list]\n- file_name: Gamma.esp\n  on_lists: [other-list]\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset",
+    "Alpha.esp",
+    "--plugin-order-yml",
+    "<root>/plugin-order.yml",
+    "--list-name",
+    "nope"
+   ],
+   "extra": {},
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " PLUGIN-ORDER.YML (MOMW source of truth)",
+    "======================================================================",
+    "  Loaded 6 plugin entries from plugin-order.yml",
+    "  'nope': 0 curated plugins on this list",
+    "  WARNING: no plugins found for list 'nope' in the yml -- check the list name spelling. Curated-set checks skipped.",
+    "",
+    "======================================================================",
+    " SORTING 1 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  (No header masters read -- mod files not reachable from the cfg's data= folders, so ordering uses mlox rules + ESM-first only.)",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " 1 PLUGIN-ORDER.YML WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Alpha.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Alpha.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [],
+    "yml_warnings": [
+     "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml)."
+    ],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "alpha.esp": [
+      "none",
+      null
+     ]
+    },
+    "original_content_values": {},
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G"
+    ],
+    "custom_data_dirs": []
+   }
+  },
+  {
+   "name": "orphans from the cfg, with a data-paths cache",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ndata=<root>/hand\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ncontent=Hand Added.esp\ncontent=clean_Curated One.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "plugin-order.yml": "- file_name: Morrowind.esm\n  on_lists: [test-list]\n- file_name: Tribunal.esm\n  on_lists: [test-list]\n- file_name: Curated One.esp\n  on_lists: [test-list]\n  needs_cleaning: true\n- file_name: Curated Two.esp\n  on_lists: [test-list]\n- file_name: Beta.esp\n  on_lists: [test-list]\n- file_name: Gamma.esp\n  on_lists: [other-list]\n",
+    "cache.txt": "# data paths\ngame\nmods/G\nmods/Z\n",
+    "hand/Hand Added.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    }
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset-from-cfg",
+    "--plugin-order-yml",
+    "<root>/plugin-order.yml",
+    "--list-name",
+    "test-list",
+    "--data-paths-cache",
+    "<root>/cache.txt",
+    "--emit-toml",
+    "<root>/out.toml"
+   ],
+   "extra": {
+    "export": {}
+   },
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " PLUGIN-ORDER.YML (MOMW source of truth)",
+    "======================================================================",
+    "  Loaded 6 plugin entries from plugin-order.yml",
+    "  'test-list': 5 curated plugins on this list",
+    "",
+    "======================================================================",
+    " UNMANAGED (ORPHAN) ENTRIES FROM openmw.cfg",
+    "======================================================================",
+    "  1 orphan plugin pulled from openmw.cfg",
+    "    content=Hand Added.esp",
+    "  1 orphan data= path found in openmw.cfg",
+    "    data=<root>/hand",
+    "",
+    "======================================================================",
+    " SORTING 1 PLUGIN(S)",
+    "======================================================================",
+    "  Hand Added.esp",
+    "",
+    "  Already in cfg, will be repositioned within it: Hand Added.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 1 of 1 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Hand Added.esp  <-- inserted/moved",
+    "  content=clean_Curated One.esp",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " 2 PLUGIN-ORDER.YML WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+    "",
+    "[ORPHAN] 'Hand Added.esp' is in your cfg but not on the 'test-list' list and not in your customizations -- an unmanaged custom plugin (fine if intentional).",
+    "",
+    "======================================================================",
+    " 1 DATA PATH WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[DATA PATH] 1 of the list's data= path(s) are not in openmw.cfg (usually mods you haven't installed -- not enforced). Re-run with -v to list them.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 5 plugin(s) read, 0 problem(s), 4 size note(s)",
+    "======================================================================",
+    "",
+    "--- 4 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Hand Added.esp' [openmw.cfg (orphan)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Hand Added.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "data=<root>/hand",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "content=Hand Added.esp",
+     "content=clean_Curated One.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     4,
+     5,
+     6,
+     7,
+     8,
+     9
+    ],
+    "data_positions": [
+     1,
+     2,
+     3
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "data=<root>/hand"
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Hand Added.esp",
+     "clean_Curated One.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [],
+    "yml_warnings": [
+     "[NEEDS CLEANING] 'Curated One.esp' should be cleaned with TES3CMD (flagged in plugin-order.yml).",
+     "[ORPHAN] 'Hand Added.esp' is in your cfg but not on the 'test-list' list and not in your customizations -- an unmanaged custom plugin (fine if intentional)."
+    ],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "hand added.esp": [
+      "none",
+      null
+     ]
+    },
+    "original_content_values": {
+     "Hand Added.esp": "Hand Added.esp"
+    },
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [],
+    "data_inserts": [],
+    "orphan_data_paths": [
+     "<root>/hand"
+    ],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Hand Added.esp",
+     "clean_Curated One.esp"
+    ],
+    "curated_set": [
+     "beta.esp",
+     "curated one.esp",
+     "curated two.esp",
+     "morrowind.esm",
+     "tribunal.esm"
+    ],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G",
+     "<root>/hand"
+    ],
+    "custom_data_dirs": []
+   },
+   "exported": {
+    "printed": [
+     "",
+     "======================================================================",
+     " WRITING OUTPUT",
+     "======================================================================",
+     "  openmw.cfg left untouched (pass --write-cfg to patch it directly)",
+     "",
+     "--- configurator preview (simulated apply) ---",
+     "  VERIFIED: simulated apply reproduces the sorted order exactly (6 content= lines).",
+     "  Wrote corrected customizations: <root>/out.toml",
+     "",
+     "======================================================================",
+     " SUMMARY",
+     "======================================================================",
+     "  Plugins sorted:        1",
+     "  Data paths inserted:   0",
+     "  Rule warnings raised:  0",
+     "  plugin-order.yml warnings: 2",
+     "  openmw.cfg written:    no",
+     "  customizations.toml written: yes"
+    ],
+    "wrote_cfg": false,
+    "wrote_toml": true,
+    "files": {
+     "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ndata=<root>/hand\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ncontent=Hand Added.esp\ncontent=clean_Curated One.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+     "out.toml": "[[Customizations]]\nlistName = 'test-list'\n\n[[Customizations.insert]]\ninsert = '<root>/hand'\nafter = '<root>/mods/G'\n\n# Hand Added.esp: no ordering constraint -- positional only\n[[Customizations.insert]]\ninsert = 'Hand Added.esp'\nafter = 'Curated Two.esp'\n"
+    }
+   }
+  },
+  {
+   "name": "orphans without a cache, listed missing paths",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Mine.esp\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset-from-cfg",
+    "--subset",
+    "Gamma.esp",
+    "-v"
+   ],
+   "extra": {},
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " UNMANAGED (ORPHAN) ENTRIES FROM openmw.cfg",
+    "======================================================================",
+    "  3 orphan plugins pulled from openmw.cfg",
+    "    content=Mine.esp",
+    "    content=Curated One.esp",
+    "    content=Curated Two.esp",
+    "  data= paths not classified -- fetch a data-paths cache for this list to surface unmanaged (orphan) data= paths too.",
+    "",
+    "======================================================================",
+    " SORTING 4 PLUGIN(S)",
+    "======================================================================",
+    "  Gamma.esp, Mine.esp, Curated One.esp, Curated Two.esp",
+    "",
+    "  Already in cfg, will be repositioned within it: Mine.esp, Curated One.esp, Curated Two.esp",
+    "  Not in cfg yet, will be inserted: Gamma.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 2 of 4 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Mine.esp  <-- inserted/moved",
+    "  content=Curated Two.esp  <-- inserted/moved",
+    "  content=Curated One.esp  <-- inserted/moved",
+    "  content=Gamma.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp' [openmw.cfg (orphan)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp' [openmw.cfg (orphan)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Gamma.esp",
+     "Mine.esp",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Mine.esp",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6,
+     7
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Mine.esp",
+     "Curated Two.esp",
+     "Curated One.esp",
+     "Gamma.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "gamma.esp": [
+      "none",
+      null
+     ],
+     "mine.esp": [
+      "none",
+      null
+     ],
+     "curated one.esp": [
+      "none",
+      null
+     ],
+     "curated two.esp": [
+      "before",
+      "Curated One.esp"
+     ]
+    },
+    "original_content_values": {
+     "Mine.esp": "Mine.esp",
+     "Curated One.esp": "Curated One.esp",
+     "Curated Two.esp": "Curated Two.esp"
+    },
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Mine.esp",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G"
+    ],
+    "custom_data_dirs": []
+   }
+  },
+  {
+   "name": "a missing MOMW file and cache",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset",
+    "Alpha.esp",
+    "--plugin-order-yml",
+    "<root>/nope.yml",
+    "--data-paths-cache",
+    "<root>/nope.txt"
+   ],
+   "extra": {},
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " PLUGIN-ORDER.YML (MOMW source of truth)",
+    "======================================================================",
+    "  WARNING: could not read plugin-order.yml ([Errno 2] No such file or directory: '<root>/nope.yml') -- skipping yml checks.",
+    "",
+    "======================================================================",
+    " SORTING 1 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  (No header masters read -- mod files not reachable from the cfg's data= folders, so ordering uses mlox rules + ESM-first only.)",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " 1 DATA PATH WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[DATA PATH] could not read nope.txt: [Errno 2] No such file or directory: '<root>/nope.txt'",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Alpha.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Alpha.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "alpha.esp": [
+      "none",
+      null
+     ]
+    },
+    "original_content_values": {},
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G"
+    ],
+    "custom_data_dirs": []
+   }
+  },
+  {
+   "name": "a cache against the cfg, listed",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "cache.txt": "mods/G\ngame\nmods/Q\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset",
+    "Alpha.esp",
+    "--no-predicate-warnings",
+    "--data-paths-cache",
+    "<root>/cache.txt",
+    "--verbose"
+   ],
+   "extra": {},
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " SORTING 1 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  (No header masters read -- mod files not reachable from the cfg's data= folders, so ordering uses mlox rules + ESM-first only.)",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 DATA PATH WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[DATA PATH] the list's 'mods/Q' is not in openmw.cfg.",
+    "",
+    "[DATA PATH ORDER] a data= path appears earlier in openmw.cfg than one the list's order puts before it.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Alpha.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Alpha.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "alpha.esp": [
+      "none",
+      null
+     ]
+    },
+    "original_content_values": {},
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G"
+    ],
+    "custom_data_dirs": []
+   }
+  },
+  {
+   "name": "nothing to sort",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules"
+   ],
+   "extra": {},
+   "refused": "Provide --customizations, --subset, --subset-file, --scan-dir, or --subset-from-cfg so there's something to sort.",
+   "printed": [],
+   "logged": []
+  },
+  {
+   "name": "nothing to sort, shown for editing",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules"
+   ],
+   "extra": {
+    "allow_empty_sort": true
+   },
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " NOTHING TO SORT",
+    "======================================================================",
+    "  No plugins to sort. The current openmw.cfg load order is shown above for editing -- remove entries and Export, or add plugins and Sort again.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": null,
+    "data_result": null,
+    "predicate_warnings": [],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {},
+    "original_content_values": {},
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G"
+    ],
+    "custom_data_dirs": []
+   }
+  },
+  {
+   "name": "a subset of only grass",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset",
+    "Vurt Grass.esp"
+   ],
+   "extra": {},
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "--- groundcover plugins held back ---",
+    "1 plugin in your subset is already declared as groundcover in openmw.cfg, so it was NOT added to content=:",
+    "  Vurt Grass.esp",
+    "  Their groundcover= lines are untouched and their data= paths are still written, so the grass stays enabled -- as grass. Loading one as content= too would spawn every blade as a real object.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 4 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": null,
+    "data_result": null,
+    "predicate_warnings": [],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {},
+    "original_content_values": {},
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G"
+    ],
+    "custom_data_dirs": []
+   }
+  },
+  {
+   "name": "a scan written to the subset file",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "scan/One/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "scan/One/Textures": null
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--scan-dir",
+    "<root>/scan",
+    "--subset-file",
+    "<root>/scanned.txt",
+    "--sort-data-paths"
+   ],
+   "extra": {},
+   "printed": [
+    "",
+    "======================================================================",
+    " SCANNING MODS FOLDER",
+    "======================================================================",
+    "Scanned '<root>/scan': 1 mod folder(s), 1 plugin(s).",
+    "Wrote subset file: <root>/scanned.txt",
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  <root>/scanned.txt: 1 plugin(s), 1 data path(s)",
+    "",
+    "======================================================================",
+    " SORTING 1 PLUGIN(S)",
+    "======================================================================",
+    "  Late Patch.esp",
+    "  Not in cfg yet, will be inserted: Late Patch.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 1 of 1 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Late Patch.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 5 plugin(s) read, 1 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "[MISSING MASTER] 'Late Patch.esp' [subset file (scanned.txt)] requires 'Beta.esp' -- NOT FOUND in any data folder. The game will fail to load with this plugin enabled.",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "======================================================================",
+    " SORTING 1 DATA PATH(S)",
+    "======================================================================",
+    "  Inferred anchor for '<root>/scan/One': after '<root>/game' (via plugin late patch.esp)",
+    "  <root>/scan/One  (after '<root>/game')",
+    "",
+    "--- final data= order ---",
+    "  data=\"<root>/game\"",
+    "  data=\"<root>/scan/One\"  <-- inserted",
+    "  data=\"<root>/mods/G\""
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Late Patch.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Late Patch.esp"
+    ],
+    "data_result": [
+     [
+      "data=\"<root>/game\"",
+      false,
+      null
+     ],
+     [
+      "data=\"<root>/scan/One\"",
+      true,
+      "<root>/scan/One"
+     ],
+     [
+      "data=\"<root>/mods/G\"",
+      false,
+      null
+     ]
+    ],
+    "predicate_warnings": [],
+    "yml_warnings": [],
+    "master_warnings": [
+     "[MISSING MASTER] 'Late Patch.esp' [subset file (scanned.txt)] requires 'Beta.esp' -- NOT FOUND in any data folder. The game will fail to load with this plugin enabled."
+    ],
+    "master_problem_plugins": [
+     "Late Patch.esp"
+    ],
+    "custom_anchors": {
+     "late patch.esp": [
+      "nearend",
+      null
+     ]
+    },
+    "original_content_values": {
+     "Late Patch.esp": "Late Patch.esp"
+    },
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [
+     {
+      "value": "<root>/scan/One",
+      "after": "<root>/game",
+      "before": null
+     }
+    ],
+    "data_inserts": [
+     {
+      "value": "<root>/scan/One",
+      "after": "<root>/game",
+      "before": null
+     }
+    ],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G",
+     "<root>/scan/One"
+    ],
+    "custom_data_dirs": [
+     "<root>/scan/One"
+    ]
+   },
+   "scanned": "<root>/scan/One\nLate Patch.esp\n\n"
+  },
+  {
+   "name": "a scan with nowhere to write",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--scan-dir",
+    "<root>/mods"
+   ],
+   "extra": {},
+   "refused": "--scan-dir requires --subset-file (where to write the scanned list).",
+   "printed": [],
+   "logged": []
+  },
+  {
+   "name": "a scan held in memory",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules"
+   ],
+   "extra": {
+    "subset_lines": [
+     "<root>/mods/A",
+     "Alpha.esp",
+     "",
+     "<root>/mods/C",
+     "Clash.esp",
+     "groundcover=Mem Grass.esp",
+     "huh"
+    ]
+   },
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  in-memory scan: 2 plugin(s), 2 data path(s)",
+    "  NOTE: data path insertions found but not sorted (pass --sort-data-paths to include them): 2 paths",
+    "",
+    "--- groundcover declared by this run ---",
+    "  groundcover=Mem Grass.esp",
+    "  These are written as groundcover= rather than content=. Their data= folders are inserted normally -- OpenMW has to find the file.",
+    "",
+    "======================================================================",
+    " SORTING 2 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp, Clash.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp, Clash.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 2 of 2 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Clash.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 MLOX RULE WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[CONFLICT] ",
+    "    Caused by: Alpha.esp [scanned subset (in memory)], Clash.esp [scanned subset (in memory)]",
+    "",
+    "[CONFLICT] ",
+    "    Caused by: Alpha.esp [scanned subset (in memory)], Clash.esp [scanned subset (in memory)]",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 6 plugin(s) read, 0 problem(s), 6 size note(s)",
+    "======================================================================",
+    "",
+    "--- 6 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [scanned subset (in memory)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [scanned subset (in memory)]: header says 'Tribunal.esm' was 0 bytes, installed copy is 362 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Clash.esp' [scanned subset (in memory)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [
+    "'huh' from scanned subset doesn't look like a plugin filename or a data folder path (no recognized extension, no slash) -- skipping."
+   ],
+   "plan": {
+    "subset": [
+     "Alpha.esp",
+     "Clash.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Alpha.esp",
+     "Clash.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [
+     "[CONFLICT] \n    Caused by: Alpha.esp [scanned subset (in memory)], Clash.esp [scanned subset (in memory)]",
+     "[CONFLICT] \n    Caused by: Alpha.esp [scanned subset (in memory)], Clash.esp [scanned subset (in memory)]"
+    ],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "alpha.esp": [
+      "none",
+      null
+     ],
+     "clash.esp": [
+      "none",
+      null
+     ]
+    },
+    "original_content_values": {
+     "Alpha.esp": "Alpha.esp",
+     "Clash.esp": "Clash.esp"
+    },
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [
+     {
+      "value": "<root>/mods/A",
+      "after": null,
+      "before": null
+     },
+     {
+      "value": "<root>/mods/C",
+      "after": null,
+      "before": null
+     }
+    ],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [
+     "Mem Grass.esp"
+    ],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G",
+     "<root>/mods/A",
+     "<root>/mods/C"
+    ],
+    "custom_data_dirs": [
+     "<root>/mods/A",
+     "<root>/mods/C"
+    ]
+   }
+  },
+  {
+   "name": "one folder in memory, not sorted",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": []
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules"
+   ],
+   "extra": {
+    "subset_lines": [
+     "<root>/mods/A",
+     "Alpha.esp"
+    ]
+   },
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "  in-memory scan: 1 plugin(s), 1 data path(s)",
+    "  NOTE: data path insertion found but not sorted (pass --sort-data-paths to include it): 1 path",
+    "",
+    "======================================================================",
+    " SORTING 1 PLUGIN(S)",
+    "======================================================================",
+    "  Alpha.esp",
+    "  Not in cfg yet, will be inserted: Alpha.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  Read header masters for 1 of 1 custom plugin(s).",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "",
+    "  No [Conflict]/[Requires]/[Note] warnings triggered.",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 5 plugin(s) read, 0 problem(s), 5 size note(s)",
+    "======================================================================",
+    "",
+    "--- 5 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [scanned subset (in memory)]: header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Alpha.esp' [scanned subset (in memory)]: header says 'Tribunal.esm' was 0 bytes, installed copy is 362 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Alpha.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     3,
+     4,
+     5,
+     6
+    ],
+    "data_positions": [
+     1,
+     2
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "Alpha.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "alpha.esp": [
+      "none",
+      null
+     ]
+    },
+    "original_content_values": {
+     "Alpha.esp": "Alpha.esp"
+    },
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [
+     {
+      "value": "<root>/mods/A",
+      "after": null,
+      "before": null
+     }
+    ],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G",
+     "<root>/mods/A"
+    ],
+    "custom_data_dirs": [
+     "<root>/mods/A"
+    ]
+   }
+  },
+  {
+   "name": "a merged file gone stale, and an order the rules turn round",
+   "files": {
+    "rules/mlox_base.txt": "; a rule file in mlox's form\n[Order]\nMorrowind.esm\nTribunal.esm\nBloodmoon.esm\n\n[Order]\nAlpha.esp\nBeta.esp\n\n[Order]\nCurated Two.esp\nCurated One.esp\n\n[Order]\nBase1.esp\n[ANY X.esp Y.esp]\nLate Patch.esp\n\n[NearEnd]\nLate*.esp\n\n[Requires]\nNeedy.esp\n Missing Master.esm\n\n[Conflict]\nAlpha.esp\nClash.esp\n\n[Note]\n Beta is a test plugin.\nBeta.esp\n",
+    "rules/mlox_user.txt": "[Order]\nGamma.esp\nAlpha.esp\n",
+    "rules/readme.md": "not a rule file",
+    "game/Morrowind.esm": {
+     "masters": [],
+     "mtime": 3000000
+    },
+    "game/Tribunal.esm": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ],
+     "mtime": 4000000
+    },
+    "game/Curated One.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ],
+     "mtime": 2000000
+    },
+    "game/Curated Two.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ],
+     "mtime": 500000
+    },
+    "mods/A/Alpha.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ],
+      [
+       "Tribunal.esm",
+       0
+      ]
+     ]
+    },
+    "mods/B/Beta.esp": {
+     "masters": [
+      [
+       "Alpha.esp",
+       0
+      ]
+     ]
+    },
+    "mods/B/Meshes/b.nif": "nif",
+    "mods/C/Clash.esp": {
+     "masters": [
+      [
+       "Morrowind.esm",
+       0
+      ]
+     ]
+    },
+    "mods/C/Gamma.esp": {
+     "masters": []
+    },
+    "mods/N/Needy.esp": {
+     "masters": [
+      [
+       "Missing Master.esm",
+       0
+      ]
+     ]
+    },
+    "mods/L/Late Patch.esp": {
+     "masters": [
+      [
+       "Beta.esp",
+       0
+      ]
+     ]
+    },
+    "mods/G/Vurt Grass.esp": {
+     "masters": []
+    },
+    "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ndata=\"<root>/merged\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ncontent=delta-merged.omwaddon\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n",
+    "merged/delta-merged.omwaddon": {
+     "masters": [],
+     "mtime": 1000000
+    },
+    "game/z.omwscripts": "PLAYER: x.lua"
+   },
+   "argv": [
+    "--cfg",
+    "<root>/openmw.cfg",
+    "--rules",
+    "<root>/rules/mlox_base.txt",
+    "<root>/rules",
+    "--subset",
+    "Gamma.esp",
+    "Alpha.esp",
+    "Needy.esp",
+    "Clash.esp",
+    "--write-cfg",
+    "--emit-toml",
+    "<root>/out.toml",
+    "--dry-run"
+   ],
+   "extra": {
+    "export": {}
+   },
+   "printed": [
+    "",
+    "======================================================================",
+    " READING INPUT",
+    "======================================================================",
+    "",
+    "======================================================================",
+    " SORTING 4 PLUGIN(S)",
+    "======================================================================",
+    "  Gamma.esp, Alpha.esp, Needy.esp, Clash.esp",
+    "  Not in cfg yet, will be inserted: Gamma.esp, Alpha.esp, Needy.esp, Clash.esp",
+    "",
+    "--- loading mlox rules ---",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "NOTE: mlox_base.txt: 1 conditional/unrecognized line inside ordering rules treated as not-installed and bridged over (mlox does the same).",
+    "  (No header masters read -- mod files not reachable from the cfg's data= folders, so ordering uses mlox rules + ESM-first only.)",
+    "",
+    "--- final content= order ---",
+    "  content=Morrowind.esm",
+    "  content=Tribunal.esm",
+    "  content=Curated One.esp",
+    "  content=Curated Two.esp",
+    "  content=delta-merged.omwaddon",
+    "  content=Gamma.esp  <-- inserted/moved",
+    "  content=Alpha.esp  <-- inserted/moved",
+    "  content=Needy.esp  <-- inserted/moved",
+    "  content=Clash.esp  <-- inserted/moved",
+    "",
+    "======================================================================",
+    " 2 MLOX RULE WARNING(S) -- read-only, not enforced",
+    "======================================================================",
+    "",
+    "[CONFLICT] ",
+    "    Caused by: Alpha.esp, Clash.esp",
+    "",
+    "[CONFLICT] ",
+    "    Caused by: Alpha.esp, Clash.esp",
+    "",
+    "======================================================================",
+    " MASTER CHECK -- 5 plugin(s) read, 0 problem(s), 3 size note(s)",
+    "======================================================================",
+    "",
+    "--- 3 master size mismatch note(s) (usually benign) ---",
+    "[MASTER SIZE] 'Tribunal.esm': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated One.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "[MASTER SIZE] 'Curated Two.esp': header says 'Morrowind.esm' was 0 bytes, installed copy is 324 -- header records 0 bytes -- likely damaged by a tes3cmd sync that couldn't find the master. The tes3cmd window's in-app resync fixes this.",
+    "",
+    "[STALE] 'delta-merged.omwaddon' is older than 3 active plugins (e.g. Morrowind.esm, Tribunal.esm, Curated One.esp) -- re-run momw-configurator so it gets rebuilt against the current load order."
+   ],
+   "logged": [],
+   "plan": {
+    "subset": [
+     "Gamma.esp",
+     "Alpha.esp",
+     "Needy.esp",
+     "Clash.esp"
+    ],
+    "lines": [
+     "# openmw.cfg",
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "data=\"<root>/merged\"",
+     "content=Morrowind.esm",
+     "content=Tribunal.esm",
+     "content=Curated One.esp",
+     "content=Curated Two.esp",
+     "content=delta-merged.omwaddon",
+     "groundcover=Vurt Grass.esp",
+     "fallback=foo,bar"
+    ],
+    "content_positions": [
+     4,
+     5,
+     6,
+     7,
+     8
+    ],
+    "data_positions": [
+     1,
+     2,
+     3
+    ],
+    "data_order": [
+     "data=\"<root>/game\"",
+     "data=\"<root>/mods/G\"",
+     "data=\"<root>/merged\""
+    ],
+    "final_order": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "delta-merged.omwaddon",
+     "Gamma.esp",
+     "Alpha.esp",
+     "Needy.esp",
+     "Clash.esp"
+    ],
+    "data_result": null,
+    "predicate_warnings": [
+     "[CONFLICT] \n    Caused by: Alpha.esp, Clash.esp",
+     "[CONFLICT] \n    Caused by: Alpha.esp, Clash.esp"
+    ],
+    "yml_warnings": [],
+    "master_warnings": [],
+    "master_problem_plugins": [],
+    "custom_anchors": {
+     "gamma.esp": [
+      "none",
+      null
+     ],
+     "alpha.esp": [
+      "after",
+      "Gamma.esp"
+     ],
+     "needy.esp": [
+      "none",
+      null
+     ],
+     "clash.esp": [
+      "none",
+      null
+     ]
+    },
+    "original_content_values": {},
+    "replace_dest_names": [],
+    "raw_toml_data_inserts": [],
+    "data_inserts": [],
+    "orphan_data_paths": [],
+    "base_order_names": [
+     "Morrowind.esm",
+     "Tribunal.esm",
+     "Curated One.esp",
+     "Curated Two.esp",
+     "delta-merged.omwaddon"
+    ],
+    "curated_set": [],
+    "new_groundcover": [],
+    "scan_dirs": [
+     "<root>/game",
+     "<root>/mods/G",
+     "<root>/merged"
+    ],
+    "custom_data_dirs": []
+   },
+   "exported": {
+    "printed": [
+     "",
+     "======================================================================",
+     " WRITING OUTPUT",
+     "======================================================================",
+     "",
+     "--- DRY RUN: no files written ---",
+     "",
+     "--- configurator preview (simulated apply) ---",
+     "  VERIFIED: simulated apply reproduces the sorted order exactly (9 content= lines).",
+     "",
+     "  DRY RUN: would write <root>/out.toml",
+     "[[Customizations]]",
+     "listName = 'generated'",
+     "",
+     "# Gamma.esp: no ordering constraint -- positional only",
+     "# Alpha.esp: must load after 'Gamma.esp'",
+     "# Needy.esp: no ordering constraint -- positional only",
+     "# Clash.esp: no ordering constraint -- positional only",
+     "[[Customizations.insert]]",
+     "insertBlock = '''Gamma.esp",
+     "Alpha.esp",
+     "Needy.esp",
+     "Clash.esp'''",
+     "after = 'delta-merged.omwaddon'",
+     "",
+     "",
+     "======================================================================",
+     " SUMMARY",
+     "======================================================================",
+     "  Plugins sorted:        4",
+     "  Data paths inserted:   0",
+     "  Rule warnings raised:  2",
+     "  plugin-order.yml warnings: 0",
+     "  openmw.cfg written:    no",
+     "  customizations.toml written: no"
+    ],
+    "wrote_cfg": false,
+    "wrote_toml": false,
+    "files": {
+     "openmw.cfg": "# openmw.cfg\ndata=\"<root>/game\"\ndata=\"<root>/mods/G\"\ndata=\"<root>/merged\"\ncontent=Morrowind.esm\ncontent=Tribunal.esm\ncontent=Curated One.esp\ncontent=Curated Two.esp\ncontent=delta-merged.omwaddon\ngroundcover=Vurt Grass.esp\nfallback=foo,bar\n"
+    }
+   }
+  }
+ ]
+}

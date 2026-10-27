@@ -440,6 +440,77 @@ actually resolved the brown/black squares here, is ours alone.
 
 ---
 
+## Third cross-check: `landcore` against both Rust trees (October 2026)
+
+`viewer-shell/landcore` is the Rust port of `wraithguard/land/` (port step 4.4), pinned to it
+byte for byte (`landcore/tests/merge_cases.rs`), so everything above about the Python holds for
+it. This pass read the two Rust trees directly against `landcore`, not through the Python, and
+against the fork as it now stands (`OpenMWMergedLands-main`, Cargo 0.2.0, sources dated May
+2026). The fork has moved on since the second cross-check: the "byte-identical to 1.0"
+note above no longer describes it.
+
+**Confirmed against the Rust:** the conflict blend and severity (`classify_conflict`: weight
+`|a|/(|a|+|b|)`, `^1.5`, renormalised, `min(max(0.3*min, 10), 64)`, truncation toward zero);
+equal values are no conflict; Overwrite, Ignore and Resolve as the original applies them
+(Resolve over the *deltas*); the VHGT layout (offset, column 0 row-to-row, the rest
+along-row, gradients clamped); the normals (same cross product, far-edge reuse, `/127`,
+saturating cast, NaN to 0); the zero-normal rule (the fork's `recompute_vertex_normals`
+keeps an existing normal only where the height did not move and it is not `(0,0,0)`, as
+`resolve_cell_normals` does); `vtex = ltex + 1` with 0 passing through. Precision: the
+Rust runs the blend and the normals in `f32`, `landcore` in `f64`, as the Python does; a
+result can differ only at an exact truncation boundary.
+
+**Found, not previously recorded:**
+
+1. **Height encode rounds negative heights the other way.** Both Rust trees store
+   `height / 8` with Rust's integer division, which truncates toward zero; `heights.py`
+   (and so `landcore`) uses `//`, which floors. The two differ only for a negative height
+   that is not a multiple of 8, which happens after seam averaging, feathering or the slope
+   limiter: Rust lifts it to the next stored step up, ours drops it to the next one down. The
+   audit above checked the seam `mean` for exactly this and missed the encoder. Kept as a
+   deliberate divergence: truncation folds -1..-7 into 0, raising a just-underwater vertex
+   to sea level, which is the brown-coast symptom this port spent effort removing; flooring
+   keeps it underwater.
+2. **The fork's decode truncates the `VHGT` offset to an integer before accumulating**
+   (`offset.to_i32()`); ours accumulates from the `f32` offset. Identical for the integer
+   offsets real plugins carry; for a fractional one ours keeps the fraction.
+3. **The fork now diffs each plugin against the *rolling* load-order state**
+   (`create_reference_and_modded_landmasses`: masters plus every earlier plugin's allowed
+   LAND), not against the masters, and so blends *values* rather than deltas in Resolve. A
+   plugin's "changes" are then what it changes relative to what loaded before it: a later
+   plugin that carries vanilla terrain where an earlier one built a hill now counts as
+   reverting the hill, and under the default (`Auto` = Overwrite) wins it - load-order
+   behaviour, with only the seams and the per-layer `.mergedlands.toml` choices on top. The
+   original, the Python and `landcore` diff against the masters, so the hill survives. This
+   is the fork carrying its seam-resolver positioning (which 3.1.3 adopted for the default
+   strategy) one step further, into what a change *is*. Not adopted; a decision, see below.
+4. **The fork cleans against the raw load order** (`clean_landmass_diff`): a merged cell
+   equal to what the game already loads from the plugins as they stand is dropped. Ours drops
+   a cell equal to the masters' or to the one mod that alone edits it; the fork's rule
+   covers both and more (a cell two mods touch whose merge equals the last one's record).
+   Worth taking whether or not 3 is.
+5. **The fork skips its own output and a configurable list** (`ignore_plugins`: delta-merged,
+   S3LightFixes and the like, and every name it has written). Ours skips a previous merge by
+   its `.mergedlands.toml` marker only, so a `Merged Lands.esp` whose marker was deleted is
+   merged as a mod. Skipping the output's own name too is cheap.
+6. The fork writes `Merged Lands.omwaddon` into OpenMW's `data-local` by default and reads
+   `openmw.cfg`; ours writes `.esp` where chosen, from the setup the viewer was given. No
+   action.
+
+**Decided (Static, October 2026): both models, and 4 and 5 taken.** `landcore` measures a
+plugin's change against the masters (`DiffModel::Masters`, the default: every mod's edits
+kept) or against the load order before it (`DiffModel::LoadOrder`, the fork's rolling
+reference: each layer merged onto the running merge by value, `merge::merge_onto`); the
+Tools page's Merge Lands chooses. Cleaning is the fork's, against the load order as the game
+loads it, in both models (`cleaning::clean_against_loaded`), which also keeps a cell whose
+merge equals the masters where a mod's excluded layer would otherwise win - the Python's
+rule dropped it. The output's own name and an ignore list (the fork's defaults; names or
+folders) are left out before anything is read. The Python merge, Wraithguard's fallback
+until Tk goes, keeps the original model and cleaning; `tests/merge_cases.rs` still pins
+`landcore` to it byte for byte in that mode, and pins the new paths on their own cases.
+
+---
+
 ## Function-by-function coverage
 
 Every `fn` in `merged_lands-main/src` — **all 191 of them**, named individually

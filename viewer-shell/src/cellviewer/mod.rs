@@ -5,6 +5,14 @@
 //                                    [--extra <json file>] [--mesh-view]
 //   --mesh-view: the mesh viewer - the meshes in the extra file's `meshes`
 //                ([{path, label}]), on the same setup, instead of a cell.
+//   --loadorder: open on the Load order page (59_wg_loadorder.js): Sort and Export, the
+//                orders, the warnings, as Wraithguard's main window had them.
+//   --conflicts: open on the Conflicts page (60_wg_conflicts.js): record and loose-file
+//                conflicts, the field diff, patching from them, the map.
+//   --tools:     open on the Tools page (61_wg_tools.js): Lint, and the rest of the tools as
+//                they move.
+//   --docs:      open on the Help page (62_wg_help.js): the program's documents, the one
+//                the extra file's `helpDoc` names first.
 //   --editor:    open in the Editor mode (50_wg_editor.js): the Construction Set's
 //                Object Window and Cell View beside the render window, edits going to
 //                Wraithguard's patch pool through the extra file's `links`.
@@ -65,11 +73,19 @@ fn view_request(args: &[String]) -> Value {
     let mesh_view = args.iter().any(|a| a == "--mesh-view");
     // The Editor mode, straight away.
     let editor = args.iter().any(|a| a == "--editor");
+    // The Load order page, straight away.
+    let loadorder = args.iter().any(|a| a == "--loadorder");
+    // The Conflicts page, straight away.
+    let conflicts = args.iter().any(|a| a == "--conflicts");
+    // The Tools page, straight away.
+    let tools = args.iter().any(|a| a == "--tools");
+    // The Help page, straight away.
+    let docs = args.iter().any(|a| a == "--docs");
     // Run from Steam (a Deck's Game Mode, or a non-Steam-game shortcut): Steam sets
     // SteamGameId for what it launches. The page leaves a pad's cursor mode off there - the
     // trackpad is the cursor (49_wg_gamepad.js).
     let steam = std::env::var_os("SteamGameId").is_some_and(|v| !v.is_empty());
-    json!({"cfg": cfg, "cell": cell, "theme": theme, "extra": extra, "meshView": mesh_view, "editor": editor, "steam": steam})
+    json!({"cfg": cfg, "cell": cell, "theme": theme, "extra": extra, "meshView": mesh_view, "editor": editor, "loadorder": loadorder, "conflicts": conflicts, "tools": tools, "docs": docs, "steam": steam})
 }
 
 /// `args` are everything after `--cell-viewer`; `context` is the binary's one

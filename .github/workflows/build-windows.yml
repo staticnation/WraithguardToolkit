@@ -113,7 +113,7 @@ jobs:
         # without it, as the 20 MB build confirmed.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller tkinterweb tkinterdnd2 PyYAML ijson certifi
+          python -m pip install pyinstaller tkinterweb tkinterdnd2 ijson
 
       - name: Build the Rust backend (native/, greatness7's tes3 crates)
         # Into the free-threaded interpreter PyInstaller freezes; PyInstaller then
@@ -134,7 +134,6 @@ jobs:
             --icon wraithguard_toolkit_icon.ico \
             --collect-submodules wraithguard \
             --hidden-import wraithguard_native \
-            --collect-all certifi \
             --hidden-import tkinterweb \
             --add-binary "viewer-shell/target/release/wraithguard-viewer.exe;." \
             --add-data "wraithguard_toolkit.py;." \

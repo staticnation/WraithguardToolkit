@@ -359,7 +359,7 @@ Object.assign(WgEditor, {
       (v.new? '' : '<button class="btn sm" id="edShow" title="Where it stands in the world">Show in world</button> ')+
       (v.new? '' : '<button class="btn sm" id="edUses" title="Every record of the load order that names this one, and the cells it is placed in - the Construction Set\'s Use Report">Use Report</button> ')+
       (v.tag==='SCPT'? '<button class="btn sm" id="edScriptBtn" title="The source, checked as you type, and the compiled listing">Script Edit</button> ' : '')+
-      (Ori.recordLink() && !v.new? '<button class="btn sm" id="edConf" title="This record in Wraithguard\'s conflict viewer">Conflicts</button> ' : '')+
+      (Ori.recordLink() && !v.new? '<button class="btn sm" id="edConf" title="This record on the Conflicts page, its fields across its plugins">Conflicts</button> ' : '')+
       (v.new? '<button class="btn sm" id="edRevertAll" title="Take this record back out of the patch">Remove from the patch</button>'
             : '<button class="btn sm" id="edRevertAll" title="Drop every change waiting for this record">Revert record</button>')+
       (flags && !v.new? ' <button class="btn sm" id="edDelete" title="'+(deleted? 'Take the deleted flag off again' : 'Mark the record deleted, as the Construction Set deletes one: the patch carries it with its DELETED flag')+'">'+(deleted? 'Undelete' : 'Delete record')+'</button>' : '')+

@@ -52,6 +52,13 @@ ordercore = { path = "../viewer-shell/ordercore" }
 # Use Report's scan and the script compiler (src/mwscript wraps it), and the Editor's record
 # and reference lookups, shared with the viewer (viewer-shell/editcore).
 editcore = { path = "../viewer-shell/editcore" }
+# Record and loose-file conflicts and the VFS walk, shared with the viewer
+# (viewer-shell/conflictcore).
+conflictcore = { path = "../viewer-shell/conflictcore" }
+# The Tools (the lint first), shared with the viewer's Tools page (viewer-shell/toolscore).
+toolscore = { path = "../viewer-shell/toolscore" }
+# Merged Lands' arithmetic (land.rs), shared with the viewer's Merge Lands (viewer-shell/landcore).
+landcore = { path = "../viewer-shell/landcore" }
 # The mesh viewer's Optimise (src/nif_order.rs): Gardenfell's triangle order (`triorder`,
 # Robin Hjelte's port of meshoptimizer's vertex cache and overdraw passes) and our port
 # of its vertex fetch order and analysers. Both std only.

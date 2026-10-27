@@ -10,13 +10,16 @@
         viewcore    cargo test  viewer-shell/viewcore/            (the viewer's engine)
         luacore     cargo test  viewer-shell/luacore/             (OpenMW Lua, shared by both)
         ordercore   cargo test  viewer-shell/ordercore/           (the openmw.cfg reader, shared by both)
+        conflicts   cargo test  viewer-shell/conflictcore/        (record and loose-file conflicts)
+        tools       cargo test  viewer-shell/toolscore/           (the Tools page: lint, ...)
+        land        cargo test  viewer-shell/landcore/            (Merge Settings, Merge Lands as it moves)
         editcore    cargo test  viewer-shell/editcore/            (the Editor's backend, shared by both)
         gardenfell  cargo test  viewer-shell/gardenfell-g7/ + our tests in viewer-shell/gardenfell/
                     (G7's tes3 crate against Gardenfell's readers; patches 0004, 0007, 0008)
         meshopt     cargo test  viewer-shell/meshopt-port/        (meshoptimizer's ports, against the C++'s values)
         commands    cargo build viewer-shell/check-commands/      (the viewer's commands, without Tauri)
         check       cargo build viewer-shell/check/
-        clippy      cargo clippy on native, luacore, ordercore, editcore, gardenfell-g7, meshopt-port, viewcore, check-commands and the viewer
+        clippy      cargo clippy on native, luacore, ordercore, conflictcore, toolscore, landcore, editcore, gardenfell-g7, meshopt-port, viewcore, check-commands and the viewer
                     (a warning fails it, as in CI; -ClippyReport only lists them)
         pages       wg-view-serve + node boot.js, cell and mesh   (only with -Pages; needs Node 22)
 
@@ -53,7 +56,7 @@ param(
     [switch]$Pages,
     [switch]$SkipViewer,
     [switch]$ClippyReport,
-    [ValidateSet('viewer', 'native', 'viewcore', 'luacore', 'ordercore', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy', 'pages')]
+    [ValidateSet('viewer', 'native', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy', 'pages')]
     [string[]]$Only
 )
 
@@ -109,7 +112,7 @@ function Invoke-Clippy {
     # passes. The lints this code base allows are in each crate's [lints.clippy].
     $lint = $(if ($ClippyReport) { @('--cap-lints', 'warn') } else { @('-D', 'warnings') })
     $ok = $true
-    foreach ($m in @('native/Cargo.toml', 'viewer-shell/luacore/Cargo.toml', 'viewer-shell/ordercore/Cargo.toml', 'viewer-shell/editcore/Cargo.toml', 'viewer-shell/gardenfell-g7/Cargo.toml', 'viewer-shell/meshopt-port/Cargo.toml', 'viewer-shell/viewcore/Cargo.toml',
+    foreach ($m in @('native/Cargo.toml', 'viewer-shell/luacore/Cargo.toml', 'viewer-shell/ordercore/Cargo.toml', 'viewer-shell/conflictcore/Cargo.toml', 'viewer-shell/toolscore/Cargo.toml', 'viewer-shell/landcore/Cargo.toml', 'viewer-shell/editcore/Cargo.toml', 'viewer-shell/gardenfell-g7/Cargo.toml', 'viewer-shell/meshopt-port/Cargo.toml', 'viewer-shell/viewcore/Cargo.toml',
                      'viewer-shell/check-commands/Cargo.toml', 'viewer-shell/Cargo.toml')) {
         Write-Host "  - clippy $m" -ForegroundColor Cyan
         if (-not (Invoke-Native cargo (@('clippy', '--all-targets', '--manifest-path', $m, '--') + $lint))) { $ok = $false }
@@ -123,6 +126,9 @@ $steps = [ordered]@{
     viewcore = @{ Label = 'viewcore tests';              Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/viewcore/Cargo.toml') } }
     luacore  = @{ Label = 'luacore tests';               Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/luacore/Cargo.toml') } }
     ordercore = @{ Label = 'ordercore tests';            Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/ordercore/Cargo.toml') } }
+    conflicts = @{ Label = 'conflictcore tests';         Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/conflictcore/Cargo.toml') } }
+    tools     = @{ Label = 'toolscore tests';            Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/toolscore/Cargo.toml') } }
+    land      = @{ Label = 'landcore tests';             Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/landcore/Cargo.toml') } }
     editcore = @{ Label = 'editcore tests';              Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/editcore/Cargo.toml') } }
     gardenfell = @{ Label = 'gardenfell-g7 + carried patches tests'; Run = {
         (Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/gardenfell-g7/Cargo.toml')) -and
@@ -141,7 +147,7 @@ $steps = [ordered]@{
 if ($Only) {
     $wanted = $Only
 } else {
-    $wanted = @('viewer', 'native', 'viewcore', 'luacore', 'ordercore', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy')
+    $wanted = @('viewer', 'native', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy')
     if ($SkipViewer) { $wanted = $wanted | Where-Object { $_ -ne 'viewer' } }
     if ($Pages) { $wanted += 'pages' }
 }

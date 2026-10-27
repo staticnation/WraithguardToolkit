@@ -1,16 +1,14 @@
 """Calling ``ordercore`` (``viewer-shell/ordercore``) through the native module.
 
-Port step 4.2 slice 2j. The load order's rules, sort, checks, export, rule maker and updates
-are answered by the Rust crate the viewer uses, so Python and the viewer cannot read a load
-order two ways. Each Python function keeps its own body as the fallback, used when:
+Since port step 4.2 slice 2k the load order - rules, sort, checks, export, the rule maker,
+the downloads - has no Python body: ``compute_plan`` / ``write_plan`` and the rest ask for
+their native function with :func:`require`, which says plainly when the module is missing.
+The few functions still answered both ways (the master check the Tk tools call, say) use
+:func:`native` / :func:`call`, keeping their body for a decline (``OrderUnsupportedError``,
+or a string with a lone surrogate from a cfg read with ``surrogateescape``) and for
+:data:`FORCE_PYTHON` (``WG_ORDERCORE=python``, or :func:`python_only`).
 
-* the native module is not built (a source checkout without ``pip install ./native``);
-* ``ordercore`` declines the input (``OrderUnsupportedError``: something it does not read, which
-  each crate module's text names);
-* :data:`FORCE_PYTHON` is set, as the case generators in ``tools/`` set it, so the expected
-  answers they write still come from the Python side and the Rust is checked against them.
-
-The bodies go with Python when the Load order page takes over (slice 2k).
+:func:`translated` puts ordercore's English messages back into the user's language.
 """
 
 from __future__ import annotations
@@ -60,6 +58,21 @@ def native(name: str) -> Callable[..., Any] | None:
     return fn
 
 
+def require(name: str) -> Callable[..., Any]:
+    """The native function ``name``: the load order has no Python body any more.
+
+    Raises:
+        RuntimeError: The native module is not built, or is too old to have it.
+    """
+    fn: Callable[..., Any] | None = getattr(_native, name, None) if _native is not None else None
+    if fn is None:
+        raise RuntimeError(
+            "Wraithguard's Rust backend (wraithguard_native) is missing or too old for the load "
+            f"order ({name}); build it with `pip install ./native`."
+        )
+    return fn
+
+
 def declined(exc: BaseException) -> bool:
     """Whether ``exc`` is ordercore declining an input (the caller then answers itself).
 
@@ -96,12 +109,36 @@ def call(
         raise
 
 
-def translated(message: str, templates: Iterable[str]) -> str:
+def _matched(message: str, template: str) -> dict[str, object] | None:
+    """What filled each ``%(name)s`` / ``%(name)d`` of ``template`` in ``message``, if it is one."""
+    parts = re.split(r"%\((\w+)\)([sd])", template)
+    pattern, seen, numbers = "", set(), set()
+    for i in range(0, len(parts), 3):
+        pattern += re.escape(parts[i])
+        if i + 2 < len(parts):
+            name, kind = parts[i + 1], parts[i + 2]
+            if name in seen:
+                pattern += f"(?P={name})"
+            else:
+                seen.add(name)
+                pattern += f"(?P<{name}>-?\\d+)" if kind == "d" else f"(?P<{name}>.*?)"
+                if kind == "d":
+                    numbers.add(name)
+    m = re.fullmatch(pattern, message, re.DOTALL)
+    if m is None:
+        return None
+    return {k: int(v) if k in numbers else v for k, v in m.groupdict().items()}
+
+
+def translated(message: str, templates: Iterable[str | tuple[str, str]]) -> str:
     """One of ordercore's English messages in the user's language.
 
     ordercore words a message exactly as the Python's English ``msgid`` does (the case files
     pin it), so the message is matched against those templates and rendered again through
-    gettext with what filled each ``%(name)s``. A message no template matches is kept as is.
+    gettext with what filled each ``%(name)s``. A ``(singular, plural)`` pair is an ``ngettext``
+    message, rendered for its ``count`` (or its first number). A message that matches nothing
+    is tried again without its leading blank lines and spaces (printed outside the msgid), and
+    otherwise kept as is. Where two templates fit, the one with more literal text wins.
 
     Args:
         message: What ordercore said.
@@ -112,26 +149,29 @@ def translated(message: str, templates: Iterable[str]) -> str:
     """
     # Under another name: the template is a msgid already extracted where the Python words it,
     # and tools/make_pot.py reads only literal gettext() calls.
-    from wraithguard.i18n import gettext as render
+    from wraithguard.i18n import gettext as render, ngettext as render_plural
 
-    for template in templates:
-        parts = re.split(r"%\((\w+)\)([sd])", template)
-        pattern, seen, numbers = "", set(), set()
-        for i in range(0, len(parts), 3):
-            pattern += re.escape(parts[i])
-            if i + 2 < len(parts):
-                name, kind = parts[i + 1], parts[i + 2]
-                if name in seen:
-                    pattern += f"(?P={name})"
-                else:
-                    seen.add(name)
-                    pattern += f"(?P<{name}>-?\\d+)" if kind == "d" else f"(?P<{name}>.*?)"
-                    if kind == "d":
-                        numbers.add(name)
-        m = re.fullmatch(pattern, message, re.DOTALL)
-        if m:
-            values: dict[str, object] = {
-                k: int(v) if k in numbers else v for k, v in m.groupdict().items()
-            }
-            return render(template) % values
+    # The most literal text first: "  in-memory scan: %(plugins)d ..." before "  %(file)s: ...",
+    # which would take it too.
+    def literal(template: str | tuple[str, str]) -> int:
+        text = template[0] if isinstance(template, tuple) else template
+        return -len(re.sub(r"%\(\w+\)[sd]", "", text))
+
+    templates = sorted(templates, key=literal)
+    lead = message[: len(message) - len(message.lstrip("\n "))]
+    for text in (message, message[len(lead) :]) if lead else (message,):
+        prefix = lead if text is not message else ""
+        for template in templates:
+            if isinstance(template, tuple):
+                one, many = template
+                for form in (one, many):
+                    values = _matched(text, form)
+                    if values is not None:
+                        numbers = [v for v in values.values() if isinstance(v, int)]
+                        count = values.get("count", numbers[0] if numbers else 1)
+                        return prefix + render_plural(one, many, int(str(count))) % values
+            else:
+                values = _matched(text, template)
+                if values is not None:
+                    return prefix + render(template) % values
     return message

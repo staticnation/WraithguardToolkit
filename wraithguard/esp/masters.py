@@ -21,7 +21,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from wraithguard.esp.plugin import read_plugin, write_plugin
 from wraithguard.esp.records.cell import Cell
 from wraithguard.esp.records.header import Header
 
@@ -194,24 +193,37 @@ def rename_master(
 def remove_master_from_bytes(data: bytes, master_name: str) -> tuple[bytes, RemoveMasterReport]:
     """Read a plugin, remove a master, and hand back the new bytes plus a report.
 
+    In Rust (``toolscore::masters``, shared with the viewer's Tools page): only the header and
+    the CELL records are read and written again; every other record is copied as it is.
+
     Args:
         data: The plugin file's bytes.
         master_name: The master file name to remove (matched case-insensitively).
 
     Returns:
-        ``(new_bytes, report)``. When the master was not present, ``new_bytes`` is
-        a faithful re-serialisation of the unchanged records and
-        ``report.removed`` is ``False``.
+        ``(new_bytes, report)``. When the master was not present, ``new_bytes`` is the
+        plugin as it was and ``report.removed`` is ``False``.
     """
-    records = read_plugin(data)
-    report = remove_master(records, master_name)
-    return write_plugin(records), report
+    from wraithguard import ordercore_bridge
+
+    out, r = ordercore_bridge.require("master_remove")(bytes(data), master_name)
+    report = RemoveMasterReport(
+        master=r["master"],
+        removed=r["removed"],
+        references_dropped=r["references_dropped"],
+        dropped_by_cell=dict(r["dropped_by_cell"]),
+        references_remapped=r["references_remapped"],
+        remaining_masters=list(r["remaining_masters"]),
+    )
+    return bytes(out), report
 
 
 def rename_master_in_bytes(
     data: bytes, old_name: str, new_name: str, new_size: int
 ) -> tuple[bytes, RenameMasterReport]:
     """Read a plugin, rename a master, and hand back the new bytes plus a report.
+
+    In Rust (``toolscore::masters``): only the header changes.
 
     Args:
         data: The plugin file's bytes.
@@ -220,13 +232,19 @@ def rename_master_in_bytes(
         new_size: The new master file's size on disk.
 
     Returns:
-        ``(new_bytes, report)``. When ``old_name`` was not present, ``new_bytes``
-        is a faithful re-serialisation of the unchanged records and
-        ``report.renamed`` is ``False``.
+        ``(new_bytes, report)``. When ``old_name`` was not present, ``new_bytes`` is the
+        plugin as it was and ``report.renamed`` is ``False``.
 
     Raises:
         ValueError: If ``new_name`` is already a different master of the plugin.
     """
-    records = read_plugin(data)
-    report = rename_master(records, old_name, new_name, new_size)
-    return write_plugin(records), report
+    from wraithguard import ordercore_bridge
+
+    out, r = ordercore_bridge.require("master_rename")(bytes(data), old_name, new_name, new_size)
+    report = RenameMasterReport(
+        old_name=old_name,
+        new_name=new_name,
+        renamed=r["renamed"],
+        remaining_masters=list(r["remaining_masters"]),
+    )
+    return bytes(out), report

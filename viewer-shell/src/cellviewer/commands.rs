@@ -3503,6 +3503,54 @@ fn lua_scan(state: State) -> Result<String, String> {
     viewcore::luascan::scan_json(&vfs, order.as_deref())
 }
 
+/// The Editor's script flowchart (`editFlowchart` was Wraithguard's, opening its chart
+/// window): the control flow of the script as typed, `{heading, chart}` (Mermaid), shown in
+/// the viewer's own chart panel.
+#[tauri::command(async)]
+fn editor_script_flowchart(id: String, text: String) -> Result<String, String> {
+    let v = serde_json::json!({"heading": format!("{id} - flowchart"), "chart": editcore::mwscript::flowchart::flowchart(&text)});
+    Ok(v.to_string())
+}
+
+/// Wraithguard: a Lua script's charts, from luacore (`editLuaChart` was Wraithguard's): `kind`
+/// `functions` (each function's name and line, to pick from), `flow` (the whole script's
+/// flowchart, or the function's at `line`) or `calls` (its call graph). `text` is the script
+/// as the page read it. Answers `{functions}` or `{heading, chart}` (Mermaid).
+#[tauri::command(async)]
+fn lua_chart(path: String, text: String, kind: String, line: Option<usize>) -> Result<String, String> {
+    use viewcore::luacore::{mermaid, parser};
+    let tree = parser::parse(&text, path.to_lowercase().ends_with(".tl")).map_err(|(m, l, c)| format!("{path}:{l}:{c}: {m}"))?;
+    // Depth first, as the Python's walk; one per line (a named function's body shares it).
+    fn walk<'a>(n: &'a parser::Node, out: &mut Vec<&'a parser::Node>) {
+        out.push(n);
+        for c in &n.children {
+            walk(c, out);
+        }
+    }
+    let mut all = Vec::new();
+    walk(&tree, &mut all);
+    let mut by_line: std::collections::BTreeMap<usize, &parser::Node> = std::collections::BTreeMap::new();
+    for n in all {
+        if matches!(n.kind, "Function" | "LocalFunction" | "FunctionStat") {
+            by_line.entry(n.line).or_insert(n);
+        }
+    }
+    let name = |n: &parser::Node| n.value.clone().filter(|v| !v.is_empty()).unwrap_or_else(|| format!("function at line {}", n.line));
+    match kind.as_str() {
+        "functions" => Ok(serde_json::json!({"functions": by_line.values().map(|n| serde_json::json!({"name": name(n), "line": n.line})).collect::<Vec<_>>()}).to_string()),
+        "calls" => Ok(serde_json::json!({"heading": format!("{path} - call graph"), "chart": mermaid::call_graph_chart(&tree)}).to_string()),
+        "flow" => {
+            let target = line.and_then(|l| by_line.get(&l).copied());
+            let heading = match target {
+                Some(n) => format!("{path} - {}", name(n)),
+                None => path.clone(),
+            };
+            Ok(serde_json::json!({"heading": heading, "chart": mermaid::flowchart(target.unwrap_or(&tree))}).to_string())
+        }
+        _ => Err(format!("no chart {kind:?}")),
+    }
+}
+
 /// Wraithguard: a POST to Wraithguard's loopback server, at a URL it handed the viewer
 /// (`links` in the launch's extra file); the answer's text. The viewer asks it for the
 /// next place to show (`poll`).
@@ -3518,6 +3566,961 @@ fn wg_post(url: String, body: String) -> Result<String, String> {
 fn wg_open_record(url: String, body: String) -> Result<String, String> {
     let bytes = loopback_post(&url, body.as_bytes())?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/* ---- the Conflicts page (Wraithguard; port step 4.3, slice 11) ----------------------
+
+   Wraithguard's conflict window, answered by `conflictcore`: the record scan over the load
+   order the launch's openmw.cfg names (`conflicts_scan`, conflicts or either kind of single),
+   one record's fields across its plugins with what each field and plugin is doing
+   (`conflicts_fields`), the loose-file scan with its mesh findings (`conflicts_resources`), a
+   texture pair compared (`conflicts_texture`), the reports and CSVs (`conflicts_report`,
+   `conflicts_csv`), and a record or field queued for the patch in the journal the Editor and
+   Wraithguard share (`conflicts_patch`). The last scans are kept here between calls. */
+
+struct ConflictScan {
+    list: Vec<conflictcore::records::Conflict>,
+    stats: conflictcore::records::Stats,
+    mode: String,
+}
+
+struct ResourceScan {
+    list: Vec<conflictcore::resources::Resource>,
+    stats: conflictcore::resources::ResourceStats,
+    mesh: Vec<Option<conflictcore::mesh::Finding>>,
+}
+
+static CONFLICTS: Mutex<Option<ConflictScan>> = Mutex::new(None);
+static RESOURCES: Mutex<Option<ResourceScan>> = Mutex::new(None);
+
+fn cf_setup(cfg: &str) -> Result<viewcore::ordercore::cfg::OpenmwCfg, String> {
+    let path = std::path::Path::new(cfg);
+    viewcore::ordercore::cfg::read(path, &viewcore::ordercore::cfg::Tokens::for_cfg(path)).map_err(|e| format!("{cfg} could not be read: {e}"))
+}
+
+fn cf_conflict_json(c: &conflictcore::records::Conflict) -> serde_json::Value {
+    serde_json::json!({"type": c.rtype, "id": c.id, "plugins": c.plugins, "winner": c.winner,
+                       "involvesSubset": c.involves_subset, "deletedBy": c.deleted_by})
+}
+
+/// Wraithguard: the record scan (`detect_conflicts` / `list_subset_singles` /
+/// `list_other_singles`). `mode`: `conflicts`, `mine` or `other`; `subset`: the user's own
+/// plugins; `exclude`: patterns of plugins left out (`filter_plugins`). Answers `{list,
+/// stats: {scanned, unreadable, records, found, excluded}, cells: [{x, y, total, mine, types,
+/// plugins, byPlugin, winners}]}`.
+#[tauri::command(async)]
+fn conflicts_scan(cfg: String, subset: Vec<String>, mode: String, exclude: Vec<String>) -> Result<String, String> {
+    use conflictcore::records;
+    let setup = cf_setup(&cfg)?;
+    let (order, excluded) = records::filter_plugins(&setup.plugins(), &exclude);
+    let at: std::collections::HashMap<String, PathBuf> =
+        setup.locate(&order).into_iter().filter_map(|(n, p)| Some((n, p?))).collect();
+    let find = move |name: &str| at.get(name).cloned();
+    let scan = records::scan_touch(&order, &find, &records::plugin_keys);
+    let (list, stats) = match mode.as_str() {
+        "conflicts" => records::conflicts(&scan, &subset),
+        "mine" => records::singles(&scan, &subset, true),
+        "other" => records::singles(&scan, &subset, false),
+        _ => return Err(format!("no scan {mode:?}")),
+    };
+    let cells: Vec<serde_json::Value> = if mode == "conflicts" {
+        conflictcore::map::group_by_cell(&list)
+            .values()
+            .map(|c| {
+                serde_json::json!({"x": c.x, "y": c.y, "total": c.total, "mine": c.mine, "types": c.types,
+                                   "plugins": c.plugins, "byPlugin": c.by_plugin, "winners": c.winners})
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let out = serde_json::json!({
+        "list": list.iter().map(cf_conflict_json).collect::<Vec<_>>(),
+        "stats": {"scanned": stats.scanned, "unreadable": stats.unreadable, "records": stats.records,
+                  "found": stats.found, "excluded": excluded},
+        "cells": cells,
+    });
+    *CONFLICTS.lock().unwrap_or_else(|p| p.into_inner()) = Some(ConflictScan { list, stats, mode });
+    Ok(out.to_string())
+}
+
+/// Wraithguard: one record of the last scan across its plugins (`diff_record_fields`, with
+/// `wraithguard.patch.status`). Answers `{plugins, fields: [{name, values: [value | null],
+/// present: [bool], differs, all, this: [status]}], all, this}` - `all` a field's or the
+/// record's `ConflictAll` (0-4), `this` each plugin's `ConflictThis` name.
+#[tauri::command(async)]
+fn conflicts_fields(cfg: String, rtype: String, id: String) -> Result<String, String> {
+    use conflictcore::fields::{conflict_all, conflict_this, diff, records_of, worst_all, worst_this};
+    let plugins: Vec<String> = {
+        let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
+        let scan = slot.as_ref().ok_or("scan first")?;
+        scan.list.iter().find(|c| c.rtype == rtype && c.id == id).map(|c| c.plugins.clone()).ok_or("that record is not in the last scan")?
+    };
+    let setup = cf_setup(&cfg)?;
+    let key = (rtype.clone(), id.clone());
+    let wanted: std::collections::HashSet<(String, String)> = std::iter::once(key.clone()).collect();
+    let records: Vec<Option<serde_json::Value>> = setup
+        .locate(&plugins)
+        .into_iter()
+        .map(|(_, p)| p.and_then(|p| std::fs::read(p).ok()).and_then(|b| records_of(&b, &wanted).ok()).and_then(|mut m| m.remove(&key)))
+        .collect();
+    let versions: Vec<(String, Option<&serde_json::Value>)> = plugins.iter().cloned().zip(records.iter().map(Option::as_ref)).collect();
+    let d = diff(&versions);
+    let mut field_all = Vec::new();
+    let mut field_this: Vec<Vec<conflictcore::fields::ConflictThis>> = Vec::new();
+    let fields: Vec<serde_json::Value> = d
+        .ordered
+        .iter()
+        .map(|name| {
+            let values = d.values(name);
+            let all = conflict_all(&values, false);
+            let this = conflict_this(&values, false);
+            field_all.push(all);
+            field_this.push(this.clone());
+            serde_json::json!({
+                "name": name,
+                "values": values.iter().map(|v| v.cloned().unwrap_or(serde_json::Value::Null)).collect::<Vec<_>>(),
+                "present": values.iter().map(Option::is_some).collect::<Vec<_>>(),
+                "differs": d.differing.contains(name),
+                "all": all.code(),
+                "this": this.iter().map(|t| t.name()).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let per_plugin: Vec<&str> =
+        (0..plugins.len()).map(|i| worst_this(field_this.iter().map(|t| t[i])).name()).collect();
+    Ok(serde_json::json!({
+        "plugins": plugins,
+        "read": records.iter().map(Option::is_some).collect::<Vec<_>>(),
+        "fields": fields,
+        "all": worst_all(field_all).code(),
+        "this": per_plugin,
+    })
+    .to_string())
+}
+
+/// Wraithguard: a conflicting `LAND` record's terrain in each plugin, and what each conflict
+/// strategy would make of it (`_compare_merge_strategies`, `landcore::preview`): the first
+/// plugin with heights the base, the rest merged in load order. `id` is the scan's `(x, y)`.
+/// Answers `{plugins: [{name, heights}], strategies: [{name, heights}]}` (65x65, world units).
+#[tauri::command(async)]
+fn conflicts_land_surfaces(cfg: String, id: String) -> Result<String, String> {
+    let plugins: Vec<String> = {
+        let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
+        let scan = slot.as_ref().ok_or("scan first")?;
+        scan.list.iter().find(|c| c.rtype == "Landscape" && c.id == id).map(|c| c.plugins.clone()).ok_or("that cell is not in the last scan")?
+    };
+    let nums: Vec<i64> = id.trim_matches(|c| c == '(' || c == ')').split(',').filter_map(|n| n.trim().parse().ok()).collect();
+    let [gx, gy] = nums[..] else { return Err(format!("{id} is not a cell")) };
+    let setup = cf_setup(&cfg)?;
+    let mut surfaces: Vec<(String, Vec<i64>)> = Vec::new();
+    for (name, path) in setup.locate(&plugins) {
+        let Some(path) = path else { continue };
+        let Ok(records) = landcore::read::read_landscape_records(&path) else { continue };
+        let found = records.iter().rev().find(|r| matches!(r, landcore::read::Record::Land { grid, .. } if *grid == (gx, gy)));
+        let layers = found.and_then(|r| landcore::layers::LandscapeLayers::from_record(r).ok().flatten());
+        if let Some(h) = layers.and_then(|l| l.heights) {
+            surfaces.push((name, h));
+        }
+    }
+    if surfaces.len() < 2 {
+        return Err("Only one plugin edits this cell's terrain, so every strategy gives the same result. Strategy choice only matters where two or more plugins change the same ground.".into());
+    }
+    let grids: Vec<Vec<i64>> = surfaces.iter().map(|(_, h)| h.clone()).collect();
+    let strategies: Vec<serde_json::Value> = landcore::preview::PREVIEW_STRATEGIES
+        .iter()
+        .filter_map(|s| landcore::preview::merge_preview(&grids, *s).ok().map(|h| serde_json::json!({"name": s.name(), "heights": h})))
+        .collect();
+    Ok(serde_json::json!({
+        "plugins": surfaces.iter().map(|(n, h)| serde_json::json!({"name": n, "heights": h})).collect::<Vec<_>>(),
+        "strategies": strategies,
+    })
+    .to_string())
+}
+
+/// Wraithguard: the loose-file scan (`detect_resource_conflicts`) over the cfg's data
+/// folders, and the mesh analysis of those that differ (`analyse_mesh_conflicts`; `meshes`
+/// false: none; `meshLimit` 0: all). The user's own folders are `subsetDirs` and those the
+/// Load order page's plan file names (`planFile`, its `customDataDirs`; `""`: none). Answers
+/// `{list: [{path, providers, winner, involvesSubset, identical, mesh, meshColumns}], stats,
+/// meshStats}`.
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+fn conflicts_resources(cfg: String, subset_dirs: Vec<String>, exclude_exts: Vec<String>, compare: bool, meshes: bool, mesh_limit: usize, plan_file: String) -> Result<String, String> {
+    let mut subset_dirs = subset_dirs;
+    let plan: Option<serde_json::Value> =
+        if plan_file.is_empty() { None } else { std::fs::read_to_string(&plan_file).ok().and_then(|t| serde_json::from_str(&t).ok()) };
+    if let Some(plan) = plan {
+        subset_dirs.extend(plan["customDataDirs"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)));
+    }
+    let setup = cf_setup(&cfg)?;
+    let dirs: Vec<String> = setup.data.iter().map(|d| d.to_string_lossy().into_owned()).collect();
+    let (list, stats) = conflictcore::resources::detect(&dirs, &subset_dirs, &exclude_exts, compare);
+    let (mesh, mstats) = if meshes { conflictcore::mesh::analyse(&list, mesh_limit) } else { (vec![None; list.len()], conflictcore::mesh::MeshStats::default()) };
+    let rows: Vec<serde_json::Value> = list
+        .iter()
+        .zip(&mesh)
+        .map(|(c, m)| {
+            serde_json::json!({"path": c.path, "providers": c.providers, "winner": c.winner, "involvesSubset": c.involves_subset,
+                               "identical": c.identical, "mesh": m.as_ref().map(conflictcore::mesh::Finding::describe),
+                               "meshColumns": m.as_ref().map(|f| { let (a, b, c, d) = f.columns(); [a, b, c, d] })})
+        })
+        .collect();
+    let out = serde_json::json!({
+        "list": rows,
+        "stats": {"dirs": stats.dirs, "files": stats.files, "conflicts": stats.conflicts, "identical": stats.identical, "differing": stats.differing},
+        "meshStats": {"analysed": mstats.analysed, "findings": mstats.findings, "unreadable": mstats.unreadable},
+    });
+    *RESOURCES.lock().unwrap_or_else(|p| p.into_inner()) = Some(ResourceScan { list, stats, mesh });
+    Ok(out.to_string())
+}
+
+/// Bytes as standard base64, for the page's `atob`.
+fn cf_b64(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        out.push(A[(n >> 18) as usize & 63] as char);
+        out.push(A[(n >> 12) as usize & 63] as char);
+        out.push(if c.len() > 1 { A[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if c.len() > 2 { A[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
+/// RGBA decoded for comparing: what the viewer's texture reader gives as straight RGBA or
+/// blocks (the first level), else the reason.
+fn cf_rgba(bytes: &[u8], path: &str) -> Result<conflictcore::textures::Rgba, String> {
+    use viewcore::img::Kind;
+    let t = viewcore::img::read(bytes, path, false)?;
+    let (w, h, px) = t.levels.into_iter().next().ok_or("no image in the file")?;
+    let pixels = match t.kind {
+        Kind::Rgba => px,
+        Kind::File | Kind::Volume => return Err("this format is not decoded here".into()),
+        k => viewcore::img::decode_blocks(&px, w, h, k),
+    };
+    Ok(conflictcore::textures::Rgba { width: w as usize, height: h as usize, pixels })
+}
+
+/// Wraithguard: a texture conflict's pair compared (`_texture_compare_payload`): the file the
+/// winner replaced and the winner. Answers `{left, right: {label, w, h, rgba (base64) | null},
+/// verdict, detail, changedShare, worstChannel, meanChannel, diff: {w, h, rgba} | null}`, the
+/// images at most `max` on their long side for the page.
+#[tauri::command(async)]
+fn conflicts_texture(path: String, providers: Vec<String>, max: u32) -> Result<String, String> {
+    use conflictcore::textures::{compare_bytes, difference, pair, Verdict};
+    let (lo, wi) = pair(&providers).ok_or("one provider: nothing to compare")?;
+    let read = |dir: &str| std::fs::read(std::path::Path::new(dir).join(&path)).map_err(|e| format!("{dir}: {e}"));
+    let (lb, wb) = (read(lo)?, read(wi)?);
+    let c = compare_bytes(&lb, &wb, |b| cf_rgba(b, &path));
+    let b64 = cf_b64;
+    let side = |dir: &str, bytes: &[u8]| -> serde_json::Value {
+        let label = format!("{} / {path}", std::path::Path::new(dir).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+        match cf_rgba(bytes, &path) {
+            Ok(i) => {
+                let (w, h, px) = viewcore::img::shrink_rgba(i.width as u32, i.height as u32, i.pixels, max);
+                serde_json::json!({"label": label, "w": w, "h": h, "rgba": b64(&px)})
+            }
+            Err(e) => serde_json::json!({"label": label, "w": 0, "h": 0, "rgba": null, "error": e}),
+        }
+    };
+    let diff = if c.verdict == Verdict::Different && c.worst_channel > 0 {
+        match (cf_rgba(&lb, &path), cf_rgba(&wb, &path)) {
+            (Ok(a), Ok(b)) if a.width == b.width && a.height == b.height => {
+                let d = difference(&a.pixels, &b.pixels, 4);
+                let (w, h, px) = viewcore::img::shrink_rgba(a.width as u32, a.height as u32, d, max);
+                serde_json::json!({"w": w, "h": h, "rgba": b64(&px)})
+            }
+            _ => serde_json::Value::Null,
+        }
+    } else {
+        serde_json::Value::Null
+    };
+    Ok(serde_json::json!({
+        "left": side(lo, &lb), "right": side(wi, &wb), "verdict": c.verdict.name(), "detail": c.detail,
+        "changedShare": c.changed_share, "worstChannel": c.worst_channel, "meanChannel": c.mean_channel, "diff": diff,
+    })
+    .to_string())
+}
+
+/// Wraithguard: the text report of the last scan (`kind`: `records` or `files`), the user's
+/// own only with `subsetOnly`, at most `limit` listed (0: all).
+#[tauri::command(async)]
+fn conflicts_report(kind: String, subset_only: bool, limit: usize) -> Result<String, String> {
+    if kind == "files" {
+        let slot = RESOURCES.lock().unwrap_or_else(|p| p.into_inner());
+        let r = slot.as_ref().ok_or("scan the files first")?;
+        let mesh: Vec<Option<conflictcore::resources::MeshColumns>> = r
+            .mesh
+            .iter()
+            .map(|m| m.as_ref().map(|f| conflictcore::resources::MeshColumns { report_note: f.describe(), ..Default::default() }))
+            .collect();
+        return Ok(serde_json::Value::String(conflictcore::resources::report(&r.list, &r.stats, &mesh, subset_only, limit)).to_string());
+    }
+    let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
+    let c = slot.as_ref().ok_or("scan first")?;
+    if c.mode != "conflicts" {
+        return Err("the report is of conflicts: scan for conflicts first".into());
+    }
+    Ok(serde_json::Value::String(conflictcore::records::report(&c.list, &c.stats, subset_only, limit)).to_string())
+}
+
+/// Wraithguard: the last scan's CSV (`write_conflict_csv` / `write_resource_csv`) written to
+/// `path`.
+#[tauri::command(async)]
+fn conflicts_csv(kind: String, path: String) -> Result<(), String> {
+    let text = if kind == "files" {
+        let slot = RESOURCES.lock().unwrap_or_else(|p| p.into_inner());
+        let r = slot.as_ref().ok_or("scan the files first")?;
+        let mesh: Vec<Option<conflictcore::resources::MeshColumns>> = r
+            .mesh
+            .iter()
+            .map(|m| {
+                m.as_ref().map(|f| {
+                    let (note, lost_collision, lost_animation, triangle_ratio) = f.columns();
+                    conflictcore::resources::MeshColumns { note, lost_collision, lost_animation, triangle_ratio, report_note: String::new() }
+                })
+            })
+            .collect();
+        conflictcore::resources::csv(&r.list, &mesh)
+    } else {
+        let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
+        conflictcore::records::conflict_csv(&slot.as_ref().ok_or("scan first")?.list)
+    };
+    write_path_whole(&path, text.as_bytes())
+}
+
+/// Wraithguard: queue a decision for the patch in the shared journal (`queue_whole_record`,
+/// `queue_field`): `op` `record` (the record from `plugin`), `field` (`field` from `plugin`)
+/// or `value` (`field` set to `value`, JSON). Answers how many records the queue holds.
+#[tauri::command(async)]
+fn conflicts_patch(journal: String, op: String, rtype: String, id: String, plugin: String, field: String, value: String) -> Result<usize, String> {
+    use editcore::queue::{Choice, PatchQueue, Selection};
+    if journal.is_empty() {
+        return Err("no patch journal: open this from Wraithguard".into());
+    }
+    let path = std::path::Path::new(&journal);
+    let mut q = PatchQueue::new();
+    q.restore(path);
+    match op.as_str() {
+        "record" => q.add_whole(Selection { plugin, record_type: rtype, key: id }),
+        "field" => q.add_field(&rtype, &id, Choice::Plugin { path: field, plugin }),
+        "value" => {
+            conflictcore::patch::can_define(&field).map_err(|r| r.message())?;
+            let value: serde_json::Value = serde_json::from_str(&value).map_err(|e| format!("the value did not read: {e}"))?;
+            q.add_field(&rtype, &id, Choice::Value { path: field, value });
+        }
+        _ => return Err(format!("no patch step {op:?}")),
+    }
+    q.save(path).map_err(|e| format!("the journal could not be written: {e}"))?;
+    Ok(q.len())
+}
+
+/* ---- Merge Settings (Wraithguard's `.mergedlands.toml` editor; port step 4.4) -----------
+
+   The per-plugin Merge Lands settings file beside a plugin (`landcore::meta`): read
+   (`land_meta_read`), previewed (`land_meta_preview`) and written (`land_meta_write`). */
+
+/// The layers as the page sends them, `[{name, included, strategy}]`.
+fn land_meta_of(meta_type: &str, layers: &[serde_json::Value]) -> Result<landcore::meta::PluginMeta, String> {
+    use landcore::meta::{MergeSettings, PluginMeta, Strategy, META_TYPES};
+    if !META_TYPES.contains(&meta_type) {
+        return Err(format!("unknown meta_type {meta_type:?}"));
+    }
+    let layers = layers
+        .iter()
+        .map(|l| {
+            let name = l["name"].as_str().unwrap_or_default().to_string();
+            let strategy = l["strategy"].as_str().unwrap_or("Auto");
+            let conflict_strategy = Strategy::from_name(strategy).ok_or_else(|| format!("unknown strategy {strategy:?}"))?;
+            Ok((name, MergeSettings { included: l["included"].as_bool().unwrap_or(true), conflict_strategy }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(PluginMeta { meta_type: meta_type.to_string(), layers })
+}
+
+fn land_meta_json(meta: &landcore::meta::PluginMeta) -> serde_json::Value {
+    serde_json::json!({
+        "metaType": meta.meta_type,
+        "layers": meta.full().iter().map(|(n, s)| serde_json::json!({"name": n, "included": s.included, "strategy": s.conflict_strategy.name()})).collect::<Vec<_>>(),
+    })
+}
+
+/// Wraithguard: a plugin's `.mergedlands.toml` (`_open_merge_settings_editor`): `{path, exists,
+/// error, metaType, layers: [{name, included, strategy}], metaTypes, strategies}`. No file, or
+/// one that will not read (`error` says why), starts from a `Patch` at the defaults.
+#[tauri::command(async)]
+fn land_meta_read(plugin: String) -> Result<String, String> {
+    use landcore::meta;
+    let plugin = std::path::Path::new(&plugin);
+    let path = meta::meta_path_for(plugin);
+    let exists = path.is_file();
+    let fresh = meta::PluginMeta { meta_type: meta::META_PATCH.into(), layers: Vec::new() };
+    let (m, error) = if exists {
+        match meta::load_meta(plugin) {
+            Ok(m) => (m, String::new()),
+            Err(e) => (fresh, e.0),
+        }
+    } else {
+        (fresh, String::new())
+    };
+    let mut out = land_meta_json(&m);
+    out["path"] = path.display().to_string().into();
+    out["exists"] = exists.into();
+    out["error"] = error.into();
+    out["metaTypes"] = serde_json::json!(meta::META_TYPES);
+    out["strategies"] = serde_json::json!(meta::STRATEGY_NAMES);
+    Ok(out.to_string())
+}
+
+/// Wraithguard: the file the editor would write (`_ms_refresh_preview`), every layer spelled out
+/// (a JSON string: the page's `Engine.call` reads every answer as JSON).
+#[tauri::command(async)]
+fn land_meta_preview(meta_type: String, layers: Vec<serde_json::Value>) -> Result<String, String> {
+    Ok(serde_json::Value::String(landcore::meta::render_meta(&land_meta_of(&meta_type, &layers)?, true)).to_string())
+}
+
+/// Wraithguard: the `.mergedlands.toml` written beside `plugin` (`_ms_write`, `write_settings`),
+/// header and every layer; answers its path.
+#[tauri::command(async)]
+fn land_meta_write(plugin: String, meta_type: String, layers: Vec<serde_json::Value>) -> Result<String, String> {
+    let m = land_meta_of(&meta_type, &layers)?;
+    landcore::meta::write_settings(std::path::Path::new(&plugin), &m).map(|p| serde_json::Value::String(p.display().to_string()).to_string()).map_err(|e| e.0)
+}
+
+/// Wraithguard: where Merge Lands writes by default (`_merged_lands_home`): the data folder
+/// holding most of the load order. Answers `{folders, home, name, exists}` (`exists`: a
+/// `Merged Lands.esp` is already there).
+#[tauri::command(async)]
+fn land_merge_home(cfg: String) -> Result<String, String> {
+    let setup = cf_setup(&cfg)?;
+    let order = setup.plugins();
+    let folders: Vec<PathBuf> = setup.data.iter().filter(|d| d.is_dir()).cloned().collect();
+    let mut best: Option<&PathBuf> = None;
+    let mut best_count = 0;
+    for f in &folders {
+        let count = order.iter().filter(|n| f.join(n).is_file()).count();
+        if count > best_count {
+            best = Some(f);
+            best_count = count;
+        }
+    }
+    let name = landcore::service::DEFAULT_NAME;
+    Ok(serde_json::json!({
+        "folders": folders.iter().map(|f| f.display().to_string()).collect::<Vec<_>>(),
+        "home": best.map(|b| b.display().to_string()),
+        "name": name,
+        "exists": best.is_some_and(|b| b.join(name).is_file()),
+        "ignore": landcore::service::DEFAULT_IGNORE,
+    })
+    .to_string())
+}
+
+/// Wraithguard: Merge Lands (`build_merged_lands`, landcore::service) over the cfg's load
+/// order and data folders, `Merged Lands.esp` written into `folder` (`dryRun`: nothing
+/// written). `model` `"masters"` measures each plugin against the masters, `"loadorder"`
+/// against the load order before it (the OpenMW fork); `ignore` the plugins left out by name
+/// or folder (`None`: the fork's defaults). Answers `{error, lines, notes, output, result: {cells, textures, contested, major,
+/// seams, slopes, clamped, dropped, borrowed}}` - `error` the reason it stopped, the lines said
+/// before it kept.
+#[tauri::command(async)]
+fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: String, ignore: Option<Vec<String>>) -> Result<String, String> {
+    use landcore::pipeline::DiffModel;
+    use landcore::service::{build_merged_lands, MergeOptions, DEFAULT_NAME};
+    let setup = cf_setup(&cfg)?;
+    let order = setup.plugins();
+    let dirs: Vec<PathBuf> = setup.data.iter().filter(|d| d.is_dir()).cloned().collect();
+    let output = (!folder.is_empty()).then(|| PathBuf::from(&folder).join(DEFAULT_NAME));
+    let model = if model == "loadorder" { DiffModel::LoadOrder } else { DiffModel::Masters };
+    let mut opts = MergeOptions { output, dry_run, verbose, model, ..Default::default() };
+    if let Some(ignore) = ignore {
+        opts.ignore = ignore;
+    }
+    let out = match build_merged_lands(&dirs, &order, &opts, &mut |_| {}) {
+        Ok(r) => serde_json::json!({
+            "error": null, "lines": r.lines, "notes": r.notes,
+            "output": r.output.map(|p| p.display().to_string()),
+            "result": {"cells": r.cells_written, "textures": r.textures_written, "contested": r.contested, "major": r.major,
+                       "seams": r.seam_vertices, "slopes": r.slope_vertices, "clamped": r.clamped, "dropped": r.dropped, "borrowed": r.borrowed},
+        }),
+        Err((error, lines)) => serde_json::json!({"error": error, "lines": lines, "notes": [], "output": null, "result": null}),
+    };
+    Ok(out.to_string())
+}
+
+/* ---- the Help page (Wraithguard's `viz/docs.py`; port step 4.4) -------------------------
+
+   The program's documents (`help_docs`), one rendered (`help_doc`, `toolscore::docs`), and a
+   web link in one opened in the browser (`help_open_link`). `dirs` is where Wraithguard
+   says the documents are (`extra.docsDir`); the program's own folder and those above it
+   follow. */
+
+fn help_dirs(dirs: &[String]) -> Vec<PathBuf> {
+    toolscore::docs::search_dirs(dirs, std::env::current_exe().ok().as_deref())
+}
+
+/// Wraithguard: the documents the Help offers (`HELP_DOCUMENTS`), `[{name, title, found}]`.
+#[tauri::command(async)]
+fn help_docs(dirs: Vec<String>) -> Result<String, String> {
+    let search = help_dirs(&dirs);
+    let out: Vec<serde_json::Value> = toolscore::docs::DOCUMENTS
+        .iter()
+        .map(|(name, title)| serde_json::json!({"name": name, "title": title, "found": toolscore::docs::locate(name, &search).is_some()}))
+        .collect();
+    Ok(serde_json::Value::Array(out).to_string())
+}
+
+/// Wraithguard: one document rendered (`_open_document`, `render_markdown`): `name` a `.md`
+/// file name, no folders. Answers `{name, title, path, body, headings: [[level, text, id]]}`.
+#[tauri::command(async)]
+fn help_doc(name: String, dirs: Vec<String>) -> Result<String, String> {
+    if name.contains(['/', '\\']) || name.starts_with('.') || !name.to_lowercase().ends_with(".md") {
+        return Err(format!("{name} is not one of the program's documents"));
+    }
+    let path = toolscore::docs::locate(&name, &help_dirs(&dirs))
+        .ok_or_else(|| format!("{name} was not found next to the program. It ships alongside the app; in a checkout it is in the project folder."))?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("{name} could not be read: {e}"))?;
+    let r = toolscore::docs::render(&String::from_utf8_lossy(&bytes));
+    let title = toolscore::docs::DOCUMENTS.iter().find(|(n, _)| *n == name).map(|(_, t)| t.to_string()).unwrap_or_else(|| name.clone());
+    Ok(serde_json::json!({
+        "name": name, "title": title, "path": path.display().to_string(), "body": r.body,
+        "headings": r.headings.iter().map(|(l, t, i)| serde_json::json!([l, t, i])).collect::<Vec<_>>(),
+    })
+    .to_string())
+}
+
+/// Wraithguard: a document's web link, in the system's browser (http, https and mailto only).
+#[tauri::command(async)]
+fn help_open_link(url: String) -> Result<(), String> {
+    let low = url.to_lowercase();
+    if !(low.starts_with("http://") || low.starts_with("https://") || low.starts_with("mailto:")) {
+        return Err(format!("{url} is not a web link"));
+    }
+    if std::env::var_os("GARDENFELL_NO_OPEN").is_some() {
+        return Ok(());
+    }
+    viewcore::profiles::show_folder(std::path::Path::new(&url))
+}
+
+/// The Editor's "Preview it in a new Cell Preview" (`editPreviewPatch`, which Wraithguard
+/// used to answer; port step 4.1): a new viewer window on the setup with `path` loaded last,
+/// on the plugin's cells. The setup is written beside `cfg` (so its relative paths still
+/// read), as `wraithguard_preview_setup.cfg`; the window keeps this one's profile and theme.
+#[tauri::command(async)]
+fn editor_preview_patch(cfg: String, path: String) -> Result<(), String> {
+    let target = editcore::buildjob::preview_target(&serde_json::json!({"path": path}))?;
+    let cfg_path = PathBuf::from(&cfg);
+    let text = std::fs::read_to_string(&cfg_path).map_err(|e| format!("{cfg}: {e}"))?;
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let lines = editcore::buildjob::with_extra_plugins(&lines, std::slice::from_ref(&target));
+    let setup = cfg_path.with_file_name("wraithguard_preview_setup.cfg");
+    write_path_whole(&setup.to_string_lossy(), (lines.join("\n") + "\n").as_bytes())?;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut args: Vec<String> = vec!["--cell-viewer".into(), "--openmw-cfg".into(), setup.to_string_lossy().into_owned()];
+    let mine: Vec<String> = std::env::args().collect();
+    for keep in ["--prefs", "--theme"] {
+        if let Some(v) = mine.iter().position(|a| a == keep).and_then(|i| mine.get(i + 1)) {
+            args.extend([keep.to_string(), v.clone()]);
+        }
+    }
+    if !name.is_empty() && !name.contains(['\r', '\n', '\0']) {
+        args.extend(["--cell".to_string(), format!("plugin:{name}")]);
+    }
+    args.extend(["--title".to_string(), "Cell Preview".to_string()]);
+    std::process::Command::new(exe).args(&args).spawn().map(|_| ()).map_err(|e| format!("a new Cell Preview could not be started: {e}"))
+}
+
+/* ---- the plugin view (Wraithguard's `pluginview.py`; port step 4.4) ----------------------
+
+   The last record scan as plugin -> record type -> records (`conflicts_by_plugin`), a type
+   judged for one plugin on demand (`conflicts_plugin_group`), and a plugin's fields taken
+   across every record it shares (`conflicts_plugin_bulk`, `_apply`). */
+
+/// The scan's records each plugin of `plugins` defines, read once per plugin file: `(plugin,
+/// type, id)` to the record.
+fn cf_read_many(
+    setup: &viewcore::ordercore::cfg::OpenmwCfg,
+    list: &[&conflictcore::records::Conflict],
+) -> std::collections::HashMap<(String, String, String), serde_json::Value> {
+    use std::collections::{HashMap, HashSet};
+    let mut wanted: Vec<(String, HashSet<(String, String)>)> = Vec::new();
+    for c in list {
+        for p in &c.plugins {
+            let key = (c.rtype.clone(), c.id.clone());
+            match wanted.iter_mut().find(|(n, _)| n == p) {
+                Some((_, w)) => {
+                    w.insert(key);
+                }
+                None => wanted.push((p.clone(), std::iter::once(key).collect())),
+            }
+        }
+    }
+    let names: Vec<String> = wanted.iter().map(|(n, _)| n.clone()).collect();
+    let at: HashMap<String, PathBuf> = setup.locate(&names).into_iter().filter_map(|(n, p)| Some((n, p?))).collect();
+    let read = |(name, keys): &(String, HashSet<(String, String)>)| -> Vec<((String, String, String), serde_json::Value)> {
+        let Some(bytes) = at.get(name).and_then(|p| std::fs::read(p).ok()) else { return Vec::new() };
+        conflictcore::fields::records_of(&bytes, keys)
+            .map(|m| m.into_iter().map(|((t, i), v)| ((name.clone(), t, i), v)).collect())
+            .unwrap_or_default()
+    };
+    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4);
+    let chunk = wanted.len().div_ceil(threads).max(1);
+    std::thread::scope(|s| {
+        let jobs: Vec<_> = wanted.chunks(chunk).map(|part| s.spawn(move || part.iter().flat_map(read).collect::<Vec<_>>())).collect();
+        jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
+    })
+}
+
+/// Wraithguard: the last record scan as plugin -> type (`group_by_plugin`), plugins in the
+/// cfg's load order. Answers `[{plugin, records, mine, groups: [{type, count}]}]`.
+#[tauri::command(async)]
+fn conflicts_by_plugin(cfg: String, subset: Vec<String>) -> Result<String, String> {
+    let setup = cf_setup(&cfg)?;
+    let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
+    let scan = slot.as_ref().ok_or("scan first")?;
+    let mine: std::collections::HashSet<String> = subset.iter().map(|s| s.to_lowercase()).collect();
+    let out: Vec<serde_json::Value> = conflictcore::summary::group_by_plugin(&scan.list, &setup.plugins())
+        .iter()
+        .map(|b| {
+            serde_json::json!({
+                "plugin": b.plugin, "records": b.records(), "mine": mine.contains(&b.plugin.to_lowercase()),
+                "groups": b.groups.iter().map(|(t, m)| serde_json::json!({"type": t, "count": m.len()})).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(serde_json::Value::Array(out).to_string())
+}
+
+/// Wraithguard: one plugin's records of one type in the last scan (`rtype` `""`: every
+/// type), each judged across its plugins (`_judge_group`, `record_status`,
+/// `record_plugin_statuses`). Answers `{records: [{type, id, plugins, winner, all, this}],
+/// tally: {status: count}, worst}` - `all` the record's `ConflictAll` (0-4), `this` and
+/// `worst` the plugin's `ConflictThis` names.
+#[tauri::command(async)]
+fn conflicts_plugin_group(cfg: String, plugin: String, rtype: String) -> Result<String, String> {
+    use conflictcore::summary::{judge, tally};
+    let setup = cf_setup(&cfg)?;
+    let list: Vec<conflictcore::records::Conflict> = {
+        let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
+        let scan = slot.as_ref().ok_or("scan first")?;
+        scan.list.iter().filter(|c| (rtype.is_empty() || c.rtype == rtype) && c.plugins.contains(&plugin)).cloned().collect()
+    };
+    let refs: Vec<&conflictcore::records::Conflict> = list.iter().collect();
+    let read = cf_read_many(&setup, &refs);
+    let mut statuses = Vec::new();
+    let records: Vec<serde_json::Value> = list
+        .iter()
+        .map(|c| {
+            let versions: Vec<(String, Option<&serde_json::Value>)> =
+                c.plugins.iter().map(|p| (p.clone(), read.get(&(p.clone(), c.rtype.clone(), c.id.clone())))).collect();
+            let (all, this) = judge(&versions);
+            let mine = c.plugins.iter().position(|p| *p == plugin).map(|i| this[i]).unwrap_or(conflictcore::fields::ConflictThis::Unknown);
+            statuses.push(mine);
+            serde_json::json!({"type": c.rtype, "id": c.id, "plugins": c.plugins, "winner": c.winner, "all": all.code(), "this": mine.name()})
+        })
+        .collect();
+    let mut counts = Vec::new();
+    tally(statuses.iter().copied(), &mut counts);
+    let worst = conflictcore::fields::worst_this(statuses.iter().copied());
+    let tally: serde_json::Map<String, serde_json::Value> = counts.into_iter().map(|(s, n)| (s.name().to_string(), n.into())).collect();
+    Ok(serde_json::json!({"records": records, "tally": tally, "worst": worst.name()}).to_string())
+}
+
+/// The records `conflicts_plugin_bulk` read, kept for `_apply`: the plugin and its records.
+static BULK: Mutex<Option<(String, Vec<conflictcore::summary::BulkRecord>)>> = Mutex::new(None);
+
+/// Wraithguard: Merge fields from a plugin (`_bulk_merge_selected_plugin`): reads every record
+/// of the last scan the plugin shares with another, and answers the fields taking would
+/// change, `[{path, count, value}]` (`count` the records it would change, `value` the
+/// plugin's from the first of them).
+#[tauri::command(async)]
+fn conflicts_plugin_bulk(cfg: String, plugin: String) -> Result<String, String> {
+    use conflictcore::summary::{bulk_candidates, BulkRecord};
+    let setup = cf_setup(&cfg)?;
+    let list: Vec<conflictcore::records::Conflict> = {
+        let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
+        let scan = slot.as_ref().ok_or("scan first")?;
+        scan.list.iter().filter(|c| c.plugins.len() >= 2 && c.plugins.contains(&plugin)).cloned().collect()
+    };
+    if list.is_empty() {
+        return Err(format!("{plugin} shares no record with another plugin, so there is nothing to take."));
+    }
+    let refs: Vec<&conflictcore::records::Conflict> = list.iter().collect();
+    let mut read = cf_read_many(&setup, &refs);
+    let records: Vec<BulkRecord> = list
+        .iter()
+        .map(|c| BulkRecord {
+            rtype: c.rtype.clone(),
+            key: c.id.clone(),
+            plugins: c.plugins.clone(),
+            values: c
+                .plugins
+                .iter()
+                .filter_map(|p| read.remove(&(p.clone(), c.rtype.clone(), c.id.clone())).map(|v| (p.clone(), conflictcore::fields::flatten(&v))))
+                .collect(),
+        })
+        .collect();
+    let out: Vec<serde_json::Value> = bulk_candidates(&records, &plugin)
+        .into_iter()
+        .map(|(path, count, value)| serde_json::json!({"path": path, "count": count, "value": value}))
+        .collect();
+    *BULK.lock().unwrap_or_else(|p| p.into_inner()) = Some((plugin, records));
+    Ok(serde_json::Value::Array(out).to_string())
+}
+
+/// Wraithguard: queue the chosen fields from the plugin `conflicts_plugin_bulk` read
+/// (`apply_choices`, `bulk_field_choices`) into the patch journal; `dry` only counts. Answers
+/// how many field takes that is.
+#[tauri::command(async)]
+fn conflicts_plugin_bulk_apply(journal: String, plugin: String, paths: Vec<String>, dry: bool) -> Result<usize, String> {
+    use editcore::queue::{Choice, PatchQueue};
+    let slot = BULK.lock().unwrap_or_else(|p| p.into_inner());
+    let (read_for, records) = slot.as_ref().ok_or("read the plugin first")?;
+    if *read_for != plugin {
+        return Err("read the plugin first".into());
+    }
+    let takes = conflictcore::summary::bulk_takes(records, &plugin, &paths);
+    if dry {
+        return Ok(takes.len());
+    }
+    if journal.is_empty() {
+        return Err("no patch journal: open this from Wraithguard".into());
+    }
+    let path = std::path::Path::new(&journal);
+    let mut q = PatchQueue::new();
+    q.restore(path);
+    for t in &takes {
+        q.add_field(&t.rtype, &t.key, Choice::Plugin { path: t.path.clone(), plugin: plugin.clone() });
+    }
+    q.save(path).map_err(|e| format!("the journal could not be written: {e}"))?;
+    Ok(takes.len())
+}
+
+/* ---- the Tools page (Wraithguard; port step 4.4) ----------------------------------------
+
+   Wraithguard's tools that work on the whole load order, answered by `toolscore`, over the
+   load order the launch's openmw.cfg names: the lint (`tools_lint`), the backups
+   (`tools_backups`, `_restore`, `_delete`), Remove / Rename Master (`tools_masters`,
+   `tools_remove_master`, `tools_rename_master`), Save Check (`tools_save_check`), the Journal view
+   (`tools_journal`), tes3cmd (`tools_tes3cmd`, `_find`, `tools_locate`). */
+
+/// Wraithguard: the load-order lint (`lint_plugins`): `subset` the user's own plugins (their
+/// header and script checks, and the `[your mod]` tag). Answers `{warnings, stats: {scanned,
+/// unreadable, warnings, interiorCells, pathgrids}}`.
+#[tauri::command(async)]
+fn tools_lint(cfg: String, subset: Vec<String>) -> Result<String, String> {
+    let setup = cf_setup(&cfg)?;
+    let order = setup.plugins();
+    let at: std::collections::HashMap<String, PathBuf> = setup.locate(&order).into_iter().filter_map(|(n, p)| Some((n, p?))).collect();
+    let find = move |name: &str| at.get(name).cloned();
+    let origins: std::collections::BTreeMap<String, String> = subset.iter().map(|s| (s.to_lowercase(), "your mod".to_string())).collect();
+    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4);
+    let (warnings, st) = toolscore::lint::lint_order(&order, &find, &subset, &origins, threads);
+    Ok(serde_json::json!({
+        "warnings": warnings,
+        "stats": {"scanned": st.scanned, "unreadable": st.unreadable, "warnings": st.warnings, "interiorCells": st.interior_cells, "pathgrids": st.pathgrids},
+    })
+    .to_string())
+}
+
+/// Wraithguard: the backups the tools leave (`scan_backups`, `toolscore::backups`) in the
+/// cfg's data folders, the cfg's own folder and `dirs` (the rule files' and plugin-order.yml's
+/// folders), four folders deep. Answers `[{path, original, kind, originalExists}]`.
+#[tauri::command(async)]
+fn tools_backups(cfg: String, dirs: Vec<String>) -> Result<String, String> {
+    let setup = cf_setup(&cfg)?;
+    let mut roots: Vec<PathBuf> = setup.data.clone();
+    roots.extend(dirs.into_iter().filter(|d| !d.is_empty()).map(PathBuf::from));
+    if let Some(parent) = std::path::Path::new(&cfg).parent() {
+        roots.push(parent.to_path_buf());
+    }
+    let found = toolscore::backups::scan(&roots, 4);
+    Ok(serde_json::Value::from(
+        found
+            .iter()
+            .map(|b| serde_json::json!({"path": b.path, "original": b.original, "kind": b.kind, "originalExists": b.original.exists()}))
+            .collect::<Vec<_>>(),
+    )
+    .to_string())
+}
+
+/// Wraithguard: backups copied over their originals (`[[backup, original]]`). Answers `{restored,
+/// failed: [[path, why]]}`.
+#[tauri::command(async)]
+fn tools_backups_restore(pairs: Vec<(String, String)>) -> Result<String, String> {
+    let pairs: Vec<(PathBuf, PathBuf)> = pairs.into_iter().map(|(a, b)| (PathBuf::from(a), PathBuf::from(b))).collect();
+    let (ok, failed) = toolscore::backups::restore(&pairs);
+    Ok(serde_json::json!({"restored": ok, "failed": failed.iter().map(|(p, e)| serde_json::json!([p, e])).collect::<Vec<_>>()}).to_string())
+}
+
+/// Wraithguard: backups deleted. Answers how many were.
+#[tauri::command(async)]
+fn tools_backups_delete(paths: Vec<String>) -> Result<usize, String> {
+    Ok(toolscore::backups::delete(&paths.into_iter().map(PathBuf::from).collect::<Vec<_>>()))
+}
+
+/// Wraithguard: a plugin's masters, `[[name, size]]` (Remove / Rename Master's list).
+#[tauri::command(async)]
+fn tools_masters(path: String) -> Result<String, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+    let list = toolscore::masters::masters(&bytes).map_err(|e| format!("{path}: {e}"))?;
+    Ok(serde_json::json!(list).to_string())
+}
+
+/// Wraithguard: a master removed from a plugin, its references renumbered
+/// (`remove_master_from_bytes`), the original kept once as `.premaster.bak`; `dryRun` reports
+/// without writing. Answers `{master, removed, dropped, droppedByCell, remapped, remaining,
+/// backup}`.
+#[tauri::command(async)]
+fn tools_remove_master(path: String, master: String, dry_run: bool) -> Result<String, String> {
+    let (r, backup) = toolscore::masters::remove_master_file(std::path::Path::new(&path), &master, dry_run).map_err(|e| format!("{path}: {e}"))?;
+    Ok(serde_json::json!({"master": r.master, "removed": r.removed, "dropped": r.references_dropped, "droppedByCell": r.dropped_by_cell,
+                          "remapped": r.references_remapped, "remaining": r.remaining_masters, "backup": backup})
+    .to_string())
+}
+
+/// Wraithguard: a plugin's master `old` pointed at the file `newPath` (its name and size), every
+/// reference kept (`rename_master_in_bytes`), the original kept once as `.premaster.bak`.
+/// Answers `{renamed, remaining, backup}`.
+#[tauri::command(async)]
+fn tools_rename_master(path: String, old: String, new_path: String) -> Result<String, String> {
+    let (r, backup) = toolscore::masters::rename_master_file(std::path::Path::new(&path), &old, std::path::Path::new(&new_path)).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"renamed": r.renamed, "remaining": r.remaining_masters, "backup": backup}).to_string())
+}
+
+/// Wraithguard: Save Check (`toolscore::save`): each save's content files against the load
+/// order the cfg names, and `openmw-save-stats`' report - one save, or two compared (older
+/// first). `details`: the largest mods detailed; `mods`: those mods instead; `all`: the tables
+/// of the whole save too; `dump`: the saved data of the scripts whose path holds these. Answers
+/// `{saves: [{name, files, missing, error}], report}`.
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+fn tools_save_check(cfg: String, saves: Vec<String>, details: usize, mods: Vec<String>, all: bool, dump: Vec<String>) -> Result<String, String> {
+    use toolscore::save;
+    if saves.is_empty() || saves.len() > 2 {
+        return Err("one save, or two to compare".into());
+    }
+    let setup = cf_setup(&cfg)?;
+    let order = setup.plugins();
+    let dirs = save::DataDirs::from_cfg(std::path::Path::new(&cfg)).ok();
+    let mut checks = Vec::new();
+    let mut stats = Vec::new();
+    for path in &saves {
+        let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
+        let data = std::fs::read(path).map_err(|e| format!("can't read save: {e}"))?;
+        match save::content_files(&data) {
+            Ok(files) => {
+                let missing = save::missing_from(&files, &order);
+                checks.push(serde_json::json!({"name": name, "files": files, "missing": missing, "error": null}));
+            }
+            Err(e) => checks.push(serde_json::json!({"name": name, "files": [], "missing": [], "error": e})),
+        }
+        stats.push(save::analyse(&name, data, dirs.as_ref(), 4));
+    }
+    let report = if stats.len() == 2 {
+        save::report_diff(&stats[0], &stats[1], 30, &mods)
+    } else {
+        let opt = save::ReportOptions { details, patterns: mods, full: all, dump, ..Default::default() };
+        save::report(&stats[0], &opt)
+    };
+    Ok(serde_json::json!({"saves": checks, "report": report}).to_string())
+}
+
+/// Wraithguard: the Journal view (`editcore::journal`): every quest of the load order the cfg
+/// names, its stages by index, and the calls that set each (where, under what conditions, what
+/// else they do). Only the topics, responses and scripts are read, the plugins side by side.
+#[tauri::command(async)]
+fn tools_journal(cfg: String) -> Result<String, String> {
+    let setup = cf_setup(&cfg)?;
+    let order = setup.plugins();
+    let found: Vec<(String, PathBuf)> = setup.locate(&order).into_iter().filter_map(|(n, p)| Some((n, p?))).collect();
+    let keep: [[u8; 4]; 3] = [*b"DIAL", *b"INFO", *b"SCPT"];
+    let read = |path: &PathBuf| -> Vec<serde_json::Value> {
+        let Ok(bytes) = std::fs::read(path) else { return Vec::new() };
+        editcore::plugin::objects(&bytes, Some(&keep), false)
+            .map(|objs| objs.iter().filter_map(|o| serde_json::to_value(o).ok()).collect())
+            .unwrap_or_default()
+    };
+    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4);
+    let chunk = found.len().div_ceil(threads).max(1);
+    let mut sources: std::collections::HashMap<String, Vec<serde_json::Value>> = std::collections::HashMap::new();
+    std::thread::scope(|sc| {
+        let handles: Vec<_> = found.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(|(n, p)| (n.clone(), read(p))).collect::<Vec<_>>())).collect();
+        for h in handles {
+            if let Ok(part) = h.join() {
+                sources.extend(part);
+            }
+        }
+    });
+    Ok(editcore::journal::view(&sources, &order).to_string())
+}
+
+/// Wraithguard: tes3cmd's file (`find_tes3cmd`): `explicit` when it is one, else `$MLOX_TES3CMD`,
+/// `PATH`, the cfg's folder. Answers its path, or `""`.
+#[tauri::command(async)]
+fn tools_tes3cmd_find(cfg: String, explicit: String) -> String {
+    let dirs: Vec<PathBuf> = std::path::Path::new(&cfg).parent().map(|p| vec![p.to_path_buf()]).unwrap_or_default();
+    serde_json::Value::String(toolscore::tes3cmd::find(Some(&explicit), &dirs).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()).to_string()
+}
+
+/// Wraithguard: plugins of the load order the cfg names, located (`[[name, path]]`; the path
+/// `null` when no data folder has it) - the tes3cmd list's "Add your mods".
+#[tauri::command(async)]
+fn tools_locate(cfg: String, names: Vec<String>) -> Result<String, String> {
+    let setup = cf_setup(&cfg)?;
+    Ok(serde_json::json!(setup.locate(&names)).to_string())
+}
+
+/// Wraithguard: tes3cmd over `files` (`toolscore::tes3cmd`): `cmd` `clean`, `header`, `custom`
+/// (`extra` the whole command) or `sync` (master sizes, done here). `clean` and `custom` run on
+/// a copy staged with the plugin's masters and copy back what changed, a backup kept. Answers
+/// `{lines, status}`.
+#[tauri::command(async)]
+fn tools_tes3cmd(cfg: String, exe: String, cmd: String, extra: Vec<String>, files: Vec<String>) -> Result<String, String> {
+    let setup = cf_setup(&cfg)?;
+    let files: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
+    let mut dirs = setup.data.clone();
+    dirs.extend(files.iter().filter_map(|f| f.parent().map(std::path::Path::to_path_buf)));
+    let index = viewcore::ordercore::inputs::PluginIndex::build(&dirs.iter().map(|d| d.to_string_lossy().into_owned()).collect::<Vec<_>>());
+    let find = |n: &str| index.find(n).map(std::path::Path::to_path_buf);
+    if cmd == "sync" {
+        let mut lines = vec!["=".repeat(70), " MASTER-SIZE RESYNC (in-app, VFS-aware)".to_string(), "=".repeat(70)];
+        let (mut ok, mut fixed, mut fail) = (0, 0, 0);
+        for f in &files {
+            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            match toolscore::tes3cmd::sync_master_sizes(f, &find, true) {
+                Err(e) => {
+                    fail += 1;
+                    lines.push(format!("  {name}: ERROR: {e}"));
+                }
+                Ok((updated, unresolved)) => {
+                    ok += 1;
+                    if updated.is_empty() {
+                        lines.push(format!("  {name}: already in sync"));
+                    } else {
+                        fixed += 1;
+                        lines.extend(updated.iter().map(|(m, a, b)| format!("  {name}: '{m}' {a} -> {b}")));
+                    }
+                    lines.extend(unresolved.iter().map(|m| format!("  {name}: WARNING: master '{m}' not found in any data folder -- its size field left untouched")));
+                }
+            }
+        }
+        let status = format!("Resync: {fixed} plugin(s) updated, {} already in sync, {fail} error(s).", ok - fixed);
+        return Ok(serde_json::json!({"lines": lines, "status": status}).to_string());
+    }
+    let exe_path = PathBuf::from(&exe);
+    if !exe_path.is_file() {
+        return Err(if exe.is_empty() { "tes3cmd not found. Browse to the compiled tes3cmd.exe (MOMW Tools Pack).".into() } else { format!("'{exe}' does not exist.") });
+    }
+    if cmd == "custom" && extra.is_empty() {
+        return Err("Type a tes3cmd command first, e.g. 'dump --type CELL' or 'fixcells'.".into());
+    }
+    let argv = toolscore::tes3cmd::invocation(&exe_path)?;
+    let staging = std::env::temp_dir().join("wraithguard_tes3cmd_staging");
+    let r = toolscore::tes3cmd::run(&argv, &cmd, &extra, &files, &find, &staging, &setup.plugins());
+    Ok(serde_json::json!({"lines": r.lines, "status": r.status}).to_string())
 }
 
 /* ---- the Editor, answered here (Wraithguard; port step 4.1, slice 7) ------------------
@@ -3561,6 +4564,318 @@ fn editor_link(state: State, name: String, body: String) -> Result<String, Strin
     let exists = |path: &str| vfs.as_ref().is_some_and(|v| v.resolve(path).is_some());
     let file_exists: Option<&dyn Fn(&str) -> bool> = if vfs.is_some() { Some(&exists) } else { None };
     links.call_with(&name, &body, &editcore::links::Ctx { file_exists })
+}
+
+/* ---- the Load order page (Wraithguard; port step 4.2, slice 2k) ---------------------
+
+   Sort and Export, as Wraithguard's main window did them, answered by `ordercore::plan`: the
+   page sends what the run reads (`loadorder_compute`), gets the plan's orders and the report
+   as items it lists and filters, lets the person reorder and opt out, and exports
+   (`loadorder_export`), which also writes the plan file the Tk tools still waiting for 4.3 /
+   4.4 read their order from. The last plan is kept here between the two. */
+
+static LOADORDER: Mutex<Option<viewcore::ordercore::plan::Computed>> = Mutex::new(None);
+
+fn lo_items(report: &viewcore::ordercore::plan::Report) -> serde_json::Value {
+    use viewcore::ordercore::plan::ItemKind;
+    report
+        .items
+        .iter()
+        .map(|i| {
+            let kind = match i.kind {
+                ItemKind::Section => "section",
+                ItemKind::Subsection => "subsection",
+                ItemKind::Line => "line",
+                ItemKind::Log => "log",
+                ItemKind::Scans => "scans",
+                ItemKind::Preview => "preview",
+            };
+            serde_json::json!({"kind": kind, "text": i.text, "warning": i.warning, "names": i.names})
+        })
+        .collect()
+}
+
+/// Wraithguard: a whole sort (`ordercore::plan::compute_plan`). `args`: JSON with the fields of
+/// `PlanArgs` in camelCase. Answers `{refused, report: [{kind, text, warning, names}], plan}`;
+/// the plan is kept for `loadorder_export`.
+#[tauri::command(async)]
+fn loadorder_compute(args: String) -> Result<String, String> {
+    use viewcore::ordercore::plan::{compute_plan, PlanArgs, PlanError};
+    let a: serde_json::Value = serde_json::from_str(&args).map_err(|e| format!("the sort's arguments did not read: {e}"))?;
+    let s = |k: &str| a.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty()).map(str::to_string);
+    let b = |k: &str| a.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+    let list = |k: &str| -> Vec<String> {
+        a.get(k).and_then(|v| v.as_array()).map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default()
+    };
+    let args = PlanArgs {
+        cfg: s("cfg").ok_or("no openmw.cfg given")?,
+        customizations: s("customizations"),
+        subset: list("subset"),
+        subset_file: s("subsetFile"),
+        subset_lines: a.get("subsetLines").filter(|v| v.is_array()).map(|_| list("subsetLines")),
+        scan_dir: s("scanDir"),
+        subset_from_cfg: b("subsetFromCfg"),
+        allow_empty_sort: b("allowEmptySort"),
+        sort_data_paths: b("sortDataPaths"),
+        emit_toml: b("emitToml"),
+        groundcover: list("groundcover"),
+        plugin_order_yml: s("pluginOrderYml"),
+        list_name: s("listName"),
+        rules: list("rules"),
+        no_predicate_warnings: b("noPredicateWarnings"),
+        data_paths_cache: s("dataPathsCache"),
+        verbose: b("verbose"),
+    };
+    match compute_plan(&args) {
+        Err(PlanError::Unsupported) => {
+            Err("this setup holds something the load order reader does not read (a file that is not UTF-8, or one that could not be opened)".into())
+        }
+        Err(PlanError::Refused { message, report }) => {
+            Ok(serde_json::json!({"refused": message, "report": lo_items(&report), "plan": null}).to_string())
+        }
+        Ok(got) => {
+            let p = &got.plan;
+            let plan = serde_json::json!({
+                "finalOrder": if got.sorted { serde_json::json!(p.final_order) } else { serde_json::Value::Null },
+                "baseOrder": p.base_order_names,
+                "subset": p.subset,
+                "dataOrder": p.data_order,
+                "dataResult": p.data_result.as_ref().map(|r| r.iter().map(|(l, n, v)| serde_json::json!([l, n, v])).collect::<Vec<_>>()),
+                "curated": p.curated_set,
+                "newGroundcover": p.new_groundcover,
+                "orphanData": p.orphan_data_paths,
+                "origins": got.subset_origins,
+                "masterProblems": got.master_problem_plugins,
+                "scanDirs": got.scan_dirs,
+            });
+            let out = serde_json::json!({"refused": null, "report": lo_items(&got.report), "plan": plan}).to_string();
+            *LOADORDER.lock().unwrap_or_else(|p| p.into_inner()) = Some(got);
+            Ok(out)
+        }
+    }
+}
+
+/// Wraithguard: export the last sort (`ordercore::plan::export`). `args`: JSON with `cfg`,
+/// `writeCfg`, `emitToml`, `dryRun`, `noBackup`, `sortDataPaths`, `listName`, `stamp`,
+/// `finalOrder` / `dataOrder` (the panels' enabled entries; null: the plan's),
+/// `disabledPlugins`, `disabledData`, and `planFile` (where the Tk tools read the order from;
+/// empty: not written). Answers `{report, wroteCfg, wroteToml, toml}`.
+#[tauri::command(async)]
+fn loadorder_export(args: String) -> Result<String, String> {
+    use viewcore::ordercore::plan::{export, Counts, ExportArgs};
+    let a: serde_json::Value = serde_json::from_str(&args).map_err(|e| format!("the export's arguments did not read: {e}"))?;
+    let s = |k: &str| a.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty()).map(str::to_string);
+    let b = |k: &str| a.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+    let list = |k: &str| -> Option<Vec<String>> {
+        a.get(k).and_then(|v| v.as_array()).map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+    };
+    let slot = LOADORDER.lock().unwrap_or_else(|p| p.into_inner());
+    let got = slot.as_ref().ok_or("sort first: there is no plan to export")?;
+    let ex = ExportArgs {
+        write_cfg: b("writeCfg"),
+        cfg: s("cfg").ok_or("no openmw.cfg given")?,
+        emit_toml: s("emitToml"),
+        dry_run: b("dryRun"),
+        no_backup: b("noBackup"),
+        sort_data_paths: b("sortDataPaths"),
+        list_name: s("listName"),
+        stamp: s("stamp").unwrap_or_else(|| "backup".into()),
+        toml_line_ending: None,
+    };
+    let counts = Counts { rule_warnings: got.predicate_warnings.len(), yml_warnings: got.yml_warnings.len() };
+    let final_order = list("finalOrder");
+    let data_order = list("dataOrder");
+    let done = export(
+        &ex,
+        &got.plan,
+        counts,
+        final_order.as_deref(),
+        data_order.as_deref(),
+        &list("disabledPlugins").unwrap_or_default(),
+        &list("disabledData").unwrap_or_default(),
+    )
+    .map_err(|e| match e {
+        viewcore::ordercore::export::ExportError::Unsupported => "the export holds something the writer does not write".to_string(),
+        viewcore::ordercore::export::ExportError::Io(e) => format!("the export could not write: {e}"),
+    })?;
+    if let Some(path) = s("planFile") {
+        let order = final_order.clone().unwrap_or_else(|| got.plan.final_order.clone());
+        let data = data_order.clone().unwrap_or_else(|| {
+            got.plan.data_result.as_ref().map(|r| r.iter().map(|(l, _, _)| l.clone()).collect()).unwrap_or_else(|| got.plan.data_order.clone())
+        });
+        let file = serde_json::json!({
+            "version": 1,
+            "cfg": ex.cfg,
+            "finalOrder": order,
+            "dataLines": data,
+            "subset": got.plan.subset,
+            "scanDirs": got.scan_dirs,
+            "customDataDirs": got.custom_data_dirs,
+            "newDataLines": got.plan.data_result.iter().flatten().filter(|(_, n, _)| *n).map(|(l, _, _)| l.clone()).collect::<Vec<_>>(),
+            "masterProblems": got.master_problem_plugins,
+            "orphanData": got.plan.orphan_data_paths,
+            "newGroundcover": got.plan.new_groundcover,
+        });
+        write_path_whole(&path, file.to_string().as_bytes())?;
+    }
+    Ok(serde_json::json!({
+        "report": lo_items(&done.report),
+        "wroteCfg": done.written.wrote_cfg,
+        "wroteToml": done.written.wrote_toml,
+        "toml": done.written.toml_text,
+    })
+    .to_string())
+}
+
+/// Wraithguard: each rule file's age in days (`null`: missing), for the page's rule list.
+#[tauri::command(async)]
+fn loadorder_rule_ages(rules: Vec<String>) -> Result<String, String> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    let paths: Vec<PathBuf> = rules.iter().map(PathBuf::from).collect();
+    let ages = viewcore::ordercore::updates::rule_file_ages(&paths, now);
+    Ok(serde_json::Value::from(ages.into_iter().map(|(n, a)| serde_json::json!([n, a])).collect::<Vec<_>>()).to_string())
+}
+
+/// Wraithguard: a mods folder scanned for the subset, `{lines, folders, plugins, start}`; the
+/// lines go straight into the sort (`subsetLines`).
+#[tauri::command(async)]
+fn loadorder_scan(dir: String) -> Result<String, String> {
+    let scan = viewcore::ordercore::inputs::scan_mod_directories(&dir);
+    Ok(serde_json::json!({"lines": scan.lines, "folders": scan.folders, "plugins": scan.plugins, "start": scan.start}).to_string())
+}
+
+/* ---- the Load order page: Update rules, Sources and the rule maker ------------------
+
+   The downloads (`ordercore::updates`, as Wraithguard's Update rules and Sources do them) over
+   `ureq`: HTTPS in plain Rust, the size capped as the Python's `_get` caps it; and the rule
+   maker (`ordercore::authoring`) on its plain JSON form. */
+
+/// The network for `ordercore::updates`: one GET, at most `max_bytes` of the body.
+struct Net;
+
+impl viewcore::ordercore::updates::Transport for Net {
+    fn get(&self, url: &str, timeout_secs: u64, max_bytes: usize) -> Result<Vec<u8>, String> {
+        use std::io::Read;
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(timeout_secs)))
+            .build()
+            .into();
+        let mut resp = agent.get(url).call().map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        resp.body_mut()
+            .as_reader()
+            .take(max_bytes as u64)
+            .read_to_end(&mut out)
+            .map_err(|e| e.to_string())?;
+        Ok(out)
+    }
+}
+
+/// How long a download may take, as the Python's default.
+const LO_TIMEOUT: u64 = 30;
+
+fn lo_env_var(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.is_empty())
+}
+
+fn lo_update_err(e: viewcore::ordercore::updates::UpdateError) -> String {
+    match e {
+        viewcore::ordercore::updates::UpdateError::Unsupported => "the download holds something the updater does not read".into(),
+        viewcore::ordercore::updates::UpdateError::Io(e) => format!("could not write the download: {e}"),
+    }
+}
+
+/// Runs `f` with the update flows' outside world: the `.bak` stamp and the three variables.
+fn lo_with_env<T>(stamp: &str, f: impl FnOnce(&viewcore::ordercore::updates::Env<'_>) -> T) -> T {
+    let (po, rt, host) = (lo_env_var("MLOX_PLUGIN_ORDER_URL"), lo_env_var("MLOX_RULES_URL_TEMPLATE"), lo_env_var("MOMW_API_HOST"));
+    let env = viewcore::ordercore::updates::Env {
+        stamp,
+        plugin_order_url: po.as_deref(),
+        rules_url_template: rt.as_deref(),
+        momw_api_host: host.as_deref(),
+    };
+    f(&env)
+}
+
+/// Wraithguard: Update rules - each managed rule file downloaded and replaced (a `.bak` of the
+/// old). `rules`: the rule files and folders; `stamp`: the person's clock. The report's lines.
+#[tauri::command(async)]
+fn loadorder_update_rules(rules: Vec<String>, stamp: String) -> Result<String, String> {
+    let paths: Vec<PathBuf> = rules.iter().map(PathBuf::from).collect();
+    let template = lo_env_var("MLOX_RULES_URL_TEMPLATE");
+    let lines = lo_with_env(&stamp, |env| viewcore::ordercore::updates::update_rule_files(&paths, template.as_deref(), LO_TIMEOUT, env, &Net))
+        .map_err(lo_update_err)?;
+    Ok(serde_json::Value::from(lines).to_string())
+}
+
+/// Wraithguard: Sources - MOMW's plugin-order.yml downloaded to `path` (checked as MOMW's before
+/// it replaces the file). The report's lines.
+#[tauri::command(async)]
+fn loadorder_update_yml(path: String, stamp: String) -> Result<String, String> {
+    let count = |data: &[u8]| viewcore::ordercore::momw::parse_bytes(data).map(|e| e.len()).map_err(|e| e.0);
+    let lines = lo_with_env(&stamp, |env| {
+        viewcore::ordercore::updates::update_plugin_order_yml(std::path::Path::new(&path), None, LO_TIMEOUT, env, &Net, &count)
+    })
+    .map_err(lo_update_err)?;
+    Ok(serde_json::Value::from(lines).to_string())
+}
+
+/// Wraithguard: Sources - a curated list's data paths, from MOMW's cfg generator, cached at
+/// `path`. The report's lines.
+#[tauri::command(async)]
+fn loadorder_fetch_data_paths(path: String, list_name: String, stamp: String) -> Result<String, String> {
+    let host = lo_env_var("MOMW_API_HOST");
+    let lines = lo_with_env(&stamp, |env| {
+        viewcore::ordercore::updates::fetch_list_data_paths(std::path::Path::new(&path), &list_name, host.as_deref(), LO_TIMEOUT, env, &Net)
+    })
+    .map_err(lo_update_err)?;
+    Ok(serde_json::Value::from(lines).to_string())
+}
+
+/// Wraithguard: the rule maker. `rule`: the plain JSON form (`kind`, `plugins`, `expressions`,
+/// `message`, `ref`, ...). `op`: `check` - `{text, problems: [[severity, message, remedy]]}`;
+/// `append` - written to the rule file `path`, `{written}`, or the problems as the error.
+#[tauri::command(async)]
+fn loadorder_author(op: String, rule: String, path: Option<String>) -> Result<String, String> {
+    use viewcore::ordercore::authoring;
+    let v: serde_json::Value = serde_json::from_str(&rule).map_err(|e| format!("the rule did not read: {e}"))?;
+    let mut rule = authoring::rule_from_json(&v).ok_or("the rule is not in the rule maker's form")?;
+    // The page's warning rules come as rule text, one expression a line (`[DESC]`, `[SIZE]`,
+    // `[VER]`, `[ANY]`/`[ALL]`/`[NOT]` groups or a plain name), read here as the sort reads them.
+    if let Some(lines) = v.get("lines").and_then(|l| l.as_array()) {
+        rule.expressions = lines
+            .iter()
+            .filter_map(|l| l.as_str())
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(authoring::expr_from_text)
+            .collect::<Result<_, _>>()?;
+    }
+    let declined = |_| "the rule holds something the rule maker does not write".to_string();
+    match op.as_str() {
+        "check" => {
+            let problems = authoring::validate(&rule).map_err(declined)?;
+            let text = authoring::render_rule(&rule).unwrap_or_default();
+            let problems: Vec<serde_json::Value> =
+                problems.into_iter().map(|p| serde_json::json!([p.severity.as_str(), p.message, p.remedy])).collect();
+            Ok(serde_json::json!({"text": text, "problems": problems}).to_string())
+        }
+        "append" => {
+            let path = path.filter(|p| !p.is_empty()).ok_or("no rule file to write to")?;
+            let written = authoring::append_authored_rule(
+                std::path::Path::new(&path),
+                &rule,
+                viewcore::ordercore::export::LineEnding::platform(),
+            )
+            .map_err(|e| match e {
+                authoring::AppendError::Refused(m) => m,
+                authoring::AppendError::Unsupported => "the rule file holds something the rule maker does not write".into(),
+                authoring::AppendError::Io(e) => format!("could not write the rule file: {e}"),
+            })?;
+            Ok(serde_json::json!({"written": written}).to_string())
+        }
+        other => Err(format!("no such rule maker step: {other}")),
+    }
 }
 
 /* ---- the cell map's coverage (Wraithguard) -------------------------------------------
@@ -4117,6 +5432,47 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             wg_post,
             editor_open,
             editor_link,
+            loadorder_compute,
+            loadorder_export,
+            loadorder_rule_ages,
+            loadorder_scan,
+            loadorder_update_rules,
+            loadorder_update_yml,
+            loadorder_fetch_data_paths,
+            loadorder_author,
+            conflicts_scan,
+            conflicts_fields,
+            conflicts_resources,
+            conflicts_texture,
+            conflicts_report,
+            conflicts_csv,
+            conflicts_patch,
+            conflicts_land_surfaces,
+            editor_preview_patch,
+            conflicts_by_plugin,
+            conflicts_plugin_group,
+            conflicts_plugin_bulk,
+            conflicts_plugin_bulk_apply,
+            help_docs,
+            help_doc,
+            help_open_link,
+            land_meta_read,
+            land_meta_preview,
+            land_meta_write,
+            land_merge_home,
+            land_merge,
+            tools_lint,
+            tools_backups,
+            tools_backups_restore,
+            tools_backups_delete,
+            tools_masters,
+            tools_remove_master,
+            tools_rename_master,
+            tools_save_check,
+            tools_journal,
+            tools_tes3cmd_find,
+            tools_locate,
+            tools_tes3cmd,
             find_record,
             editor_tags,
             editor_records,
@@ -4124,6 +5480,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             editor_cell_refs,
             editor_actors,
             lua_scan,
+            lua_chart,
+            editor_script_flowchart,
             editor_record_tag,
             ori_dialogue,
             mesh_collision,

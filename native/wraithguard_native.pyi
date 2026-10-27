@@ -293,6 +293,63 @@ def walk_files(
 ) -> list[list[str] | None]:
     """Every file under each root, relative with ``/``; None for a root that is no folder."""
 
+def conflict_scan(
+    order: Sequence[str], paths: Sequence[str | None], subset: Sequence[str], mode: str
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The record scan with the native session: ``mode`` ``"conflicts"``, ``"mine"`` or ``"other"``."""
+
+def conflict_report(
+    conflicts: Sequence[Mapping[str, Any]], stats: Mapping[str, Any], subset_only: bool, limit: int
+) -> str:
+    """``format_conflict_report``'s text (English)."""
+
+def conflict_csv(conflicts: Sequence[Mapping[str, Any]]) -> str:
+    """The text ``write_conflict_csv`` writes."""
+
+def resource_scan(
+    data_dirs: Sequence[str], subset_dirs: Sequence[str], exclude_exts: Sequence[str], compare: bool
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """``detect_resource_conflicts``'s loose-file conflicts and counts."""
+
+def resource_report(
+    conflicts: Sequence[Mapping[str, Any]],
+    stats: Mapping[str, Any],
+    notes: Sequence[str],
+    subset_only: bool,
+    limit: int,
+) -> str:
+    """``format_resource_report``'s text (English); ``notes`` the mesh line of each conflict."""
+
+def resource_csv(
+    conflicts: Sequence[Mapping[str, Any]], columns: Sequence[tuple[str, str, str, str]]
+) -> str:
+    """The text ``write_resource_csv`` writes; ``columns`` the mesh cells of each conflict."""
+
+def mesh_analyse(
+    conflicts: Sequence[Mapping[str, Any]], limit: int
+) -> tuple[list[dict[str, Any] | None], dict[str, int]]:
+    """``analyse_mesh_conflicts``'s finding for each conflict (None: not looked at), and counts."""
+
+def lint_order(
+    order: Sequence[str],
+    paths: Sequence[str | None],
+    subset: Sequence[str],
+    origins: Mapping[str, str],
+) -> tuple[list[str], dict[str, int]]:
+    """``lint_plugins``, whole: the warnings and the counts."""
+
+def backup_scan(roots: Sequence[str], max_depth: int) -> list[tuple[str, str, str]]:
+    """``scan_backups``: ``(backup, original, kind)`` for each, by path without case."""
+
+def master_remove(data: bytes, master: str) -> tuple[bytes, dict[str, Any]]:
+    """``remove_master_from_bytes``: the new bytes and the report's fields."""
+
+def master_rename(data: bytes, old: str, new: str, new_size: int) -> tuple[bytes, dict[str, Any]]:
+    """``rename_master_in_bytes``; ValueError when ``new`` is already another master."""
+
+def save_content_files(data: bytes) -> list[str]:
+    """The content files a save names; ValueError (why) when they cannot be read."""
+
 def files_identical(paths: Sequence[str | PathLike[str]]) -> bool:
     """Whether every file holds the same bytes (False when one cannot be read)."""
 
@@ -581,3 +638,34 @@ class RecordCacheDb:
     def compact(self) -> bool: ...
     def size_bytes(self) -> int: ...
     def close(self) -> None: ...
+
+def order_compute_plan(
+    args: Mapping[str, object],
+) -> tuple[str | None, list[tuple[str, str, str | None, list[str]]], dict[str, Any] | None]:
+    """A whole sort: (refused message, report items, plan)."""
+
+def order_write_plan(
+    args: Mapping[str, object],
+    plan: Mapping[str, object],
+    counts: tuple[int, int],
+    final_order: Sequence[str] | None,
+    data_order: Sequence[str] | None,
+    disabled_plugins: Sequence[str],
+    disabled_data: Sequence[str],
+) -> tuple[list[tuple[str, str, str | None, list[str]]], bool, bool, str | None, list[str], list[str]]:
+    """write_plan: (report items, wrote_cfg, wrote_toml, toml text, cfg lines, user data values)."""
+
+def order_preview_configurator(
+    plan_lines: Sequence[str],
+    toml_text: str,
+    expected: Sequence[str],
+    subset: Sequence[str],
+    user_data_norms: Sequence[str],
+    list_name: str | None,
+) -> tuple[bool, list[str]]:
+    """The configurator preview: (ok, report lines)."""
+
+def order_render_cfg_lines(
+    plan: Mapping[str, object], final_order: Sequence[str] | None, data_order: Sequence[str] | None
+) -> list[str]:
+    """The cfg a plan would write."""

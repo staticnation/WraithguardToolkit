@@ -1,0 +1,38 @@
+# Conflicts, read one way for every part of Wraithguard (port step 4.3, CONFLICTS-PORT.md):
+# which records two or more plugins define and which one wins, the records only one plugin
+# defines, the loose files two or more data folders provide and whether their bytes differ,
+# and the reports. The viewer's Conflicts page calls it as Tauri commands, and the Python
+# tools call it through native/ until they retire.
+#
+# Beside viewcore rather than in native/ so the viewer's builds (which copy only
+# viewer-shell/) have it; native/ takes it by path, as it does ordercore and editcore.
+[package]
+name = "conflictcore"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+publish = false
+
+[dependencies]
+# A plugin's conflict keys (editcore::plugin::keys_and_cells), read as the Editor reads them.
+editcore = { path = "../editcore" }
+# The plugin files of a load order's folders (ordercore::inputs::PluginIndex).
+ordercore = { path = "../ordercore" }
+# `.omwscripts` lines split and stripped as Python does (luacore::omwscripts).
+luacore = { path = "../luacore" }
+# Meshes, read for the mesh conflicts (src/mesh.rs).
+tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["nif"] }
+
+# A record's tes3conv-schema form, for the field diff (in the record's own order: editcore
+# turns on preserve_order).
+serde_json = "1"
+
+# [patch] only counts in the package being built (see native/Cargo.toml).
+[patch."https://github.com/Greatness7/tes3"]
+tes3 = { git = "https://github.com/staticnation/tes3" }
+bytes_io = { git = "https://github.com/staticnation/tes3" }
+
+[lints.clippy]
+type_complexity = "allow"
+

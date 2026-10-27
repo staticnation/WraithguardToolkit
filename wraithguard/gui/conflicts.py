@@ -272,6 +272,7 @@ class ConflictWindowsMixin:
 
         # Supplied by PluginViewMixin, which owns the plugin tree window.
         def show_plugin_view(self) -> None: ...  # noqa: D102
+        def on_open_conflicts(self, tab: str) -> None: ...  # noqa: D102
 
         # Supplied by JournalViewMixin, which owns the journal chain window.
         def show_journal_view(self) -> None: ...  # noqa: D102
@@ -414,9 +415,7 @@ class ConflictWindowsMixin:
         if not dirs:
             self.status_var.set(_("No data= folders to scan."))
             return
-        subset_dirs = self._current_plan.get("custom_data_dirs") or core.pending_custom_dirs(
-            self._current_plan.get("raw_toml_data_inserts"), self._current_plan.get("data_inserts")
-        )
+        subset_dirs = list(self._current_plan.get("custom_data_dirs") or [])
         self.worker_running = True
         for b in (
             self.sort_button,
@@ -1718,7 +1717,10 @@ class ConflictWindowsMixin:
             ),
         )
         group_separator(btns)
-        view_button = ttk.Button(btns, text=_("Plugin view..."), command=self.show_plugin_view)
+        # The plugin view is the viewer's Conflicts page, Plugins tab (port step 4.4).
+        view_button = ttk.Button(
+            btns, text=_("Plugin view..."), command=lambda: self.on_open_conflicts("plugins")
+        )
         view_button.pack(side="left")
         add_tooltip(
             view_button,

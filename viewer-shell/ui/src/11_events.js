@@ -1944,6 +1944,14 @@ async function openWraithguardSetup(){
   if(typeof WgNav==='object') WgNav.poll();
   // Launched on `--editor`: straight into the Editor mode (50_wg_editor.js).
   if(want.editor && typeof WgEditor==='object'){ WgEditor.button(); WgEditor.enter(); }
+  // The Load order page (59_wg_loadorder.js): its button always, the page itself on `--loadorder`.
+  if(typeof WgLoadOrder==='object'){ WgLoadOrder.button(); if(want.loadorder) WgLoadOrder.enter(); }
+  // The Conflicts page (60_wg_conflicts.js): its button always, the page itself on `--conflicts`.
+  if(typeof WgConflicts==='object'){ WgConflicts.button(); if(want.conflicts) WgConflicts.enter(); }
+  // The Tools page (61_wg_tools.js): its button always, the page itself on `--tools`.
+  if(typeof WgTools==='object'){ WgTools.button(); if(want.tools) WgTools.enter(); }
+  // The Help page (62_wg_help.js): its button always, the page itself on `--docs`.
+  if(typeof WgHelp==='object'){ WgHelp.button(); if(want.docs) WgHelp.enter(); }
 }
 
 async function start(){

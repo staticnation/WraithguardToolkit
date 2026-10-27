@@ -751,22 +751,7 @@ fn image_measure(py: Python<'_>, left: &[u8], right: &[u8], same: u32) -> PyResu
             right.len()
         )));
     }
-    Ok(py.detach(|| {
-        let (mut changed, mut worst, mut total) = (0u64, 0u32, 0u64);
-        for (a, b) in left.chunks(4).zip(right.chunks(4)) {
-            let mut biggest = 0u32;
-            for (x, y) in a.iter().zip(b) {
-                let gap = x.abs_diff(*y) as u32;
-                total += gap as u64;
-                biggest = biggest.max(gap);
-            }
-            if biggest > same {
-                changed += 1;
-            }
-            worst = worst.max(biggest);
-        }
-        (changed, worst, total)
-    }))
+    Ok(py.detach(|| conflictcore::textures::measure(left, right, same)))
 }
 
 /// The amplified per-channel difference, alpha differences folded into RGB,
@@ -785,24 +770,7 @@ fn image_difference<'py>(
             right.len()
         )));
     }
-    let out = py.detach(|| {
-        let scale = |g: u8| (g as u64 * amplify as u64).min(255) as u8;
-        let mut out = vec![0u8; left.len()];
-        for ((o, a), b) in out.chunks_mut(4).zip(left.chunks(4)).zip(right.chunks(4)) {
-            for c in 0..3 {
-                o[c] = scale(a[c].abs_diff(b[c]));
-            }
-            let alpha_gap = a[3].abs_diff(b[3]);
-            if alpha_gap != 0 {
-                let capped = scale(alpha_gap);
-                for v in o.iter_mut().take(3) {
-                    *v = (*v).max(capped);
-                }
-            }
-            o[3] = 255;
-        }
-        out
-    });
+    let out = py.detach(|| conflictcore::textures::difference(left, right, amplify));
     Ok(PyBytes::new(py, &out))
 }
 

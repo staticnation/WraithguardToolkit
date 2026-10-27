@@ -1,5 +1,7 @@
 /* =====================================================================================
-   Wraithguard Editor (50_wg_editor.js): the Lua panel: the load order's OpenMW Lua scripts checked, and their charts.
+   Wraithguard Editor (50_wg_editor.js): the Lua panel: the load order's OpenMW Lua scripts checked, each script's
+   source with its findings on their lines, and its charts (flowchart, call graph) - luacore's, drawn here with
+   Mermaid (ui/assets/mermaid.min.js). Wraithguard's Lua window (port step 4.4, slice 1) moved here.
 
    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
@@ -70,13 +72,15 @@ Object.assign(WgEditor, {
           '<td class="from">'+escHtml(s.handlers.join(', '))+'</td>'+
           '<td class="'+(s.file? 'from' : 'bad')+'" title="'+escHtml(s.file||'in no data folder or archive')+'">'+
             (s.file? (s.providers>1? s.providers+' providers' : '') : 'missing')+'</td>'+
-          '<td>'+(s.file? '<button class="btn dim sm" data-lflow="'+escHtml(s.path)+'" title="The script\'s control flow as a flowchart - the whole script, or one of its functions - in a Wraithguard window">Flowchart ▾</button>'+
-            '<button class="btn dim sm" data-lcalls="'+escHtml(s.path)+'" title="Which of the script\'s functions call which, in a Wraithguard window">Calls</button>' : '')+'</td></tr>';
+          '<td>'+(s.file? '<button class="btn dim sm" data-lsrc="'+escHtml(s.path)+'" title="The script as the setup has it, its findings marked on their lines">Source</button>'+
+            '<button class="btn dim sm" data-lflow="'+escHtml(s.path)+'" title="The script\'s control flow as a flowchart - the whole script, or one of its functions ">Flowchart ▾</button>'+
+            '<button class="btn dim sm" data-lcalls="'+escHtml(s.path)+'" title="Which of the script\'s functions call which">Calls</button>' : '')+'</td></tr>';
       });
       h+='</tbody></table>';
     }
     body.innerHTML=h;
     body.querySelectorAll('[data-lflow]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); this.luaFlowMenu(b, b.dataset.lflow); });
+    body.querySelectorAll('[data-lsrc]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); this.luaSource(b.dataset.lsrc); });
     body.querySelectorAll('[data-lcalls]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); this.luaChart(b.dataset.lcalls, 'calls'); });
     body.querySelectorAll('tr[data-p]').forEach(tr=>{
       tr.onclick=()=>{
@@ -91,18 +95,84 @@ Object.assign(WgEditor, {
     const buf=await Engine.bytes('read_asset', {path});
     return new TextDecoder('utf-8').decode(new Uint8Array(buf));
   },
-  /** A Lua script's flowchart (whole, or the function at `line`) or call graph, opened in
-   *  Wraithguard's chart window (`editLuaChart`). */
+  /** A Lua script's flowchart (whole, or the function at `line`), call graph, or its functions
+   *  (`lua_chart`, luacore); a chart is drawn in the chart panel. */
   async luaChart(path, kind, line){
-    if(!this.canEdit()) return toast('Charts open in Wraithguard: open the viewer from Wraithguard (Cell Preview)','warn',4000);
     try{
       const text=await this.luaText(path);
-      const r=await this.ask('editLuaChart', Object.assign({path, text, kind}, line? {line} : {}));
-      if(r && r.shown===false) toast('This Wraithguard has no chart window','warn',4000);
+      let r=await Engine.call('lua_chart', Object.assign({path, text, kind}, line? {line} : {}));
+      if(typeof r==='string') r=JSON.parse(r);
+      if(kind!=='functions') this.luaShowChart(r.heading, r.chart);
       return r;
-    }catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); return null; }
+    }catch(e){ toast(String(e.message||e),'err',6000); return null; }
   },
-  /** "Flowchart ▾": the whole script, or one of its functions (Wraithguard lists them). */
+  /** Mermaid, loaded once from the page's assets. */
+  luaMermaid(){
+    if(window.mermaid) return Promise.resolve(window.mermaid);
+    if(!this._mermaid) this._mermaid=new Promise((ok, bad)=>{
+      const sc=document.createElement('script'); sc.src='mermaid.min.js';
+      sc.onload=()=>{ try{ window.mermaid.initialize({startOnLoad:false, theme:'dark', securityLevel:'strict', maxTextSize:500000}); ok(window.mermaid); }catch(e){ bad(e); } };
+      sc.onerror=()=>bad(new Error('mermaid.min.js is missing from this build'));
+      document.head.appendChild(sc);
+    });
+    return this._mermaid;
+  },
+  /** A chart in its own panel: drawn by Mermaid, its source a click away. */
+  async luaShowChart(heading, chart){
+    let d=$('#edLuaChart');
+    if(!d){
+      d=document.createElement('div');
+      d.id='edLuaChart'; d.className='ori'; d.hidden=true;
+      d.innerHTML='<div class="orihead"><b id="edLuaChartH"></b><span style="flex:1"></span>'+
+        '<button class="btn sm" id="edLuaChartSrc" title="The chart as Mermaid text, copied">Copy Mermaid</button> '+
+        '<button class="btn dim ic" id="edLuaChartX" title="Close">&#x2715;</button></div><div class="oribody" id="edLuaChartBody" style="overflow:auto"></div>';
+      WgUI.mount(d);
+      d.querySelector('#edLuaChartX').onclick=()=>{ d.hidden=true; };
+      d.querySelector('#edLuaChartSrc').onclick=async()=>{
+        try{ await navigator.clipboard.writeText(this._luaChartSrc||''); toast('Copied','ok',2000); }catch(e){ toast(String(e.message||e),'err',4000); }
+      };
+    }
+    this._luaChartSrc=chart;
+    d.querySelector('#edLuaChartH').textContent=heading;
+    const body=d.querySelector('#edLuaChartBody');
+    body.innerHTML='<div class="hint">Drawing...</div>';
+    d.hidden=false;
+    try{
+      const m=await this.luaMermaid();
+      const {svg}=await m.render('edLuaSvg'+(++this._luaN||(this._luaN=1)), chart);
+      body.innerHTML=svg;
+    }catch(e){
+      body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div><pre>'+escHtml(chart)+'</pre>';
+    }
+  },
+  /** A script's source with line numbers, each line with a finding marked and its findings
+   *  beside it. */
+  async luaSource(path){
+    let text;
+    try{ text=await this.luaText(path); }catch(e){ return toast(String(e.message||e),'err',5000); }
+    const found=((this._lua||{}).findings||[]).filter(f=>f.path===path && f.line);
+    const at={}; for(const f of found) (at[f.line]=at[f.line]||[]).push(f);
+    let d=$('#edLuaSrc');
+    if(!d){
+      d=document.createElement('div');
+      d.id='edLuaSrc'; d.className='ori'; d.hidden=true;
+      d.innerHTML='<div class="orihead"><b id="edLuaSrcH"></b><span style="flex:1"></span><button class="btn dim ic" id="edLuaSrcX" title="Close">&#x2715;</button></div>'+
+        '<div class="oribody" id="edLuaSrcBody" style="overflow:auto;font-family:var(--mono);white-space:pre"></div>';
+      WgUI.mount(d);
+      d.querySelector('#edLuaSrcX').onclick=()=>{ d.hidden=true; };
+    }
+    d.querySelector('#edLuaSrcH').textContent=path+(found.length? ' - '+found.length+' finding(s)' : '');
+    const lines=text.split(/\r?\n/), w=String(lines.length).length;
+    d.querySelector('#edLuaSrcBody').innerHTML=lines.map((l,i)=>{
+      const fs=at[i+1]||[];
+      const mark=fs.length? (fs.some(f=>f.severity==='error')? 'bad' : 'from') : '';
+      return '<div class="'+mark+'" id="edLuaL'+(i+1)+'"'+(fs.length? ' style="background:var(--acd)"' : '')+'><span class="from">'+String(i+1).padStart(w,' ')+'  </span>'+escHtml(l)+
+        (fs.length? '<span class="'+mark+'">   -- '+escHtml(fs.map(f=>f.code+': '+f.message).join(' | '))+'</span>' : '')+'</div>';
+    }).join('');
+    d.hidden=false;
+    const first=found[0]; if(first){ const el=$('#edLuaL'+first.line); if(el) el.scrollIntoView({block:'center'}); }
+  },
+  /** "Flowchart ▾": the whole script, or one of its functions. */
   async luaFlowMenu(at, path){
     let fns=[];
     try{ const r=await this.luaChart(path, 'functions'); fns=(r && r.functions)||[]; }catch(_){ fns=[]; }

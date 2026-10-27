@@ -82,7 +82,7 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller tkinterweb tkinterdnd2 PyYAML ijson certifi
+          python -m pip install pyinstaller tkinterweb tkinterdnd2 ijson
 
       - name: Build the Rust backend (native/, greatness7's tes3 crates)
         run: python -m pip install ./native
@@ -100,7 +100,6 @@ jobs:
             --icon wraithguard_toolkit_icon.ico \
             --collect-submodules wraithguard \
             --hidden-import wraithguard_native \
-            --collect-all certifi \
             --hidden-import tkinterweb \
             --add-data "wraithguard_toolkit.py:." \
             --add-data "README.md:." \

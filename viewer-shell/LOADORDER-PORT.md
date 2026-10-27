@@ -53,18 +53,36 @@ and derive, Update rules and Sources. Since 2j Python calls all of it through `n
    iterate (so `subset = 'A.esp'` is still read a letter at a time, by the Python), and a
    byte-order mark; a file tomllib refuses is refused by the Python, in its words. The TOML
    reader is the `toml` crate 0.8 (TOML 1.0, as tomllib up to Python 3.14; 0.9 reads 1.1).
-2. **`compute_plan` and `write_plan` whole** (`ordercore::plan`): one function each, the plan
+2. **`compute_plan` and `write_plan` whole** - *done 2026-10-26* (`ordercore::plan`,
+   `tests/fixtures/plan_cases.json`: 17 setups on disk, the plan, every line printed and logged,
+   and the files an export leaves). The report is `Item`s: a heading, a line, a logged warning,
+   each warning tagged (`rule`, `yml`, `master`, `master_size`, `data_path`, `stale`, `drift`,
+   `rule_conflict`, `groundcover`, `orphan`) with the plugins it names. The Python's scans run at
+   the report's `Scans` item. (`ordercore::plan`): one function each, the plan
    a struct, and the report as structured lines (kind + values) so the page and the Python
    can word and translate them. Python calls them through native (as 2j).
-3. **The configurator preview** (`apply.py`) ported, pinned against the Python on the export
+3. **The configurator preview** - *done 2026-10-26* (`ordercore::apply`; the plan cases'
+   exports carry it). (`apply.py`) ported, pinned against the Python on the export
    cases' TOMLs.
-4. **Tauri commands**: `loadorder_compute`, `loadorder_export`, `loadorder_rules` (files,
+4. **Tauri commands** - *done 2026-10-26*: `loadorder_compute`, `loadorder_export` (and the plan
+   file), `loadorder_rule_ages`, `loadorder_scan`, `loadorder_update_rules`,
+   `loadorder_update_yml`, `loadorder_fetch_data_paths` (over `ureq`: HTTPS in plain Rust) and
+   `loadorder_author`.: `loadorder_compute`, `loadorder_export`, `loadorder_rules` (files,
    ages, update, sources), `loadorder_author` (validate, render, append), checked by
    `check-commands` as the Editor's are.
-5. **The page.** See the decisions below. The panels redesigned, not copied: the two orders
+5. **The page** - *done 2026-10-26* (`ui/src/59_wg_loadorder.js`; `--loadorder`, or the top
+   bar's Load order button). See the decisions below. The panels redesigned, not copied: the two orders
    with drag, disable and add; the inputs and outputs; the options; the rule files; the rule
    maker; the warnings as a list the page can filter instead of a log.
-6. **The hand-off**, then **retire**: Wraithguard's Sort and Export go, and the tools still
+6. **The hand-off**, then **retire** - *done 2026-10-26*: the Tk window's Sort and Export,
+   scan, Sources, rule maker and rule-file panel are gone; "1. Load order" opens the page,
+   whose Export writes `wraithguard_loadorder_plan.json`, which the Tk window takes into its
+   order panels for the tools by itself. `wraithguard/rules`, `sort`, `net`, `momw.py`,
+   `momw_datapaths.py` and `configurator/{apply,datapaths,emit}.py` are deleted with their
+   tests and generators; `compute_plan` / `write_plan` in `wraithguard_toolkit.py` call
+   ordercore only. PyYAML and certifi are no longer installed. Still open: the rule maker's
+   conditions (`[DESC]`, `[SIZE]`, `[VER]`, `[ANY]`/`[ALL]`) on the page. Originally:
+   **The hand-off**, then **retire**: Wraithguard's Sort and Export go, and the tools still
    in Tk until 4.3 and 4.4 (Conflicts, Cell Map, Merge Lands, Lint) read the sorted order the
    page writes (see below). Then `wraithguard/rules`, `wraithguard/sort`, `momw.py`,
    `configurator/`, `net/updaters.py`, the bridge's fallbacks and the case generators'

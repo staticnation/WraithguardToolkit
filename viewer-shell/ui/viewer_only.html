@@ -5,9 +5,10 @@
      *current* palette (`__WG_VIEW__.theme`, its `DARK` dict) and Themes.wraithguard()
      rewrites this block from it, so the viewer wears whatever the toolkit is wearing.
      Everything else is derived from those few colours with color-mix, the way the
-     page's own themes derive theirs. -->
+     page's own themes derive theirs. The rest of Wraithguard's themes (19_wg_themes.js,
+     `wg-*` codes) set the same few colours and inherit the rest from this block. -->
 <style id="wg-theme">
-[data-theme="wraithguard"]{
+[data-theme="wraithguard"],[data-theme^="wg-"]{
   --wg-bg:#1e1e1e; --wg-bg2:#252526; --wg-field:#2d2d30; --wg-border:#3f3f46;
   --wg-fg:#e6e6e6; --wg-fg-dim:#9a9a9a; --wg-select:#094771;
   --wg-btn:#3a3a3d; --wg-btn-active:#4a4a4e; --wg-accent:#3794ff; --wg-on-accent:#1b1b1b;
