@@ -3885,7 +3885,7 @@ fn conflicts_land_surfaces(cfg: String, id: String) -> Result<String, String> {
         let found = records.iter().rev().find(|r| matches!(r, landcore::read::Record::Land { grid, .. } if *grid == (gx, gy)));
         let layers = found.and_then(|r| landcore::layers::LandscapeLayers::from_record(r).ok().flatten());
         if let Some(h) = layers.and_then(|l| l.heights) {
-            surfaces.push((name, h));
+            surfaces.push((name, h.to_vec()));
         }
     }
     if surfaces.len() < 2 {

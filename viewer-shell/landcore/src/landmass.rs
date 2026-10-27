@@ -105,7 +105,7 @@ fn decoded(plugin: &str, records: &[Record], mapping: &HashMap<i64, i64>, notes:
                     listed.join(", ")
                 ));
             }
-            l.textures = Some(values);
+            l.textures = Some(crate::layers::Grid::new(values));
         }
         out.push(l);
     }

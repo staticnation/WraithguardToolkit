@@ -126,6 +126,16 @@ program, and a clearer UI on the way. In order:
       list, now after 5.0): translations, the Flatpak on the Tauri binary, the CSP,
       Android/iOS, an installer.
 
+   6. *Merge Lands speed (after 5.0).* Static's 621-plugin order: masters 44 s, mods read
+      85 s, merge 65 s, seams 65 s, write 15 s. Fixed: data folders indexed once
+      (`landcore::service::PluginIndex`), reference grids shared by `Arc` (no full copies
+      for the rolling/loaded landmass). Left, in order: (1) compact layer storage as 4.2's
+      native/land.rs had it (heights i32, normals/world map i8, colours u8, textures u16
+      instead of i64 everywhere; `sole_source` digests and `RelativeGrid` too) - a synthetic
+      3,000-cell order peaks at 3.2 GB, 12,000 cells runs out of memory; (2) then the merge
+      and seam repair across cores. Benchmark: `cargo test --release --test merge_cases --
+      --ignored --nocapture big_order` (prints VmHWM). Get Static's new timings first.
+
    Each Tk window is redesigned as it moves, not copied: that is the UI cleanup.
 5. **Later, not blocking the port:** a sound engine (plan in `viewer-shell/SOUND.md`: decode
    in Rust with Symphonia, play in the page with Web Audio; step 1, a player for Sound

@@ -35,16 +35,24 @@ pub fn declared_layers(flags: Option<u32>) -> u32 {
 
 /// One cell's layers (`LandscapeLayers`); `None` a layer not supplied, which is not the
 /// same claim as zeros.
+///
+/// Each layer is shared (`Grid`, an `Arc`): the reference landmass is copied whole for the
+/// load-order model's rolling landmass and the cleaning's loaded one, and a copy shares
+/// every grid until one is replaced. (Static, 2026-10-27: a 12,634-cell reference held
+/// three times as plain vectors took gigabytes, and the merge crawled.)
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LandscapeLayers {
     pub coords: (i64, i64),
     pub declared: u32,
-    pub heights: Option<Vec<i64>>,
-    pub normals: Option<Vec<i64>>,
-    pub world_map: Option<Vec<i64>>,
-    pub colors: Option<Vec<i64>>,
-    pub textures: Option<Vec<i64>>,
+    pub heights: Option<Grid>,
+    pub normals: Option<Grid>,
+    pub world_map: Option<Grid>,
+    pub colors: Option<Grid>,
+    pub textures: Option<Grid>,
 }
+
+/// One layer's values, shared between copies of a cell (see [`LandscapeLayers`]).
+pub type Grid = std::sync::Arc<Vec<i64>>;
 
 /// Why a record was not decoded: `Skip` the Python's `ValueError` (logged, the record left
 /// out), `Fatal` its `LandscapeDecodeError` (a grid shorter than its format, which stops the
@@ -93,28 +101,28 @@ impl LandscapeLayers {
         let mut out = LandscapeLayers { coords: *grid, declared: declared_layers(*flags), ..Default::default() };
         if let Some((offset, data)) = heights {
             let raw = payload(data, LAND_NUM_VERTS, "VHGT height data")?;
-            out.heights = Some(decode_heights(raw, *offset as f64).map_err(DecodeError::Skip)?);
+            out.heights = Some(Grid::new(decode_heights(raw, *offset as f64).map_err(DecodeError::Skip)?));
         }
         if let Some(p) = normals {
             let raw = payload(p, 3 * LAND_NUM_VERTS, "VNML normals")?;
-            out.normals = Some(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i8 as i64).collect());
+            out.normals = Some(Grid::new(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i8 as i64).collect()));
         }
         if let Some(p) = world_map {
             let raw = payload(p, WNAM_SIZE * WNAM_SIZE, "WNAM world map data")?;
-            out.world_map = Some(raw[..WNAM_SIZE * WNAM_SIZE].iter().map(|&b| b as i8 as i64).collect());
+            out.world_map = Some(Grid::new(raw[..WNAM_SIZE * WNAM_SIZE].iter().map(|&b| b as i8 as i64).collect()));
         }
         if let Some(p) = colors {
             let raw = payload(p, 3 * LAND_NUM_VERTS, "VCLR colors")?;
-            out.colors = Some(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i64).collect());
+            out.colors = Some(Grid::new(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i64).collect()));
         }
         if let Some(p) = textures {
             let raw = payload(p, 2 * NUM_TEXTURES, "VTEX texture indices")?;
-            out.textures = Some(decode_texture_indices(raw));
+            out.textures = Some(Grid::new(decode_texture_indices(raw)));
         }
         Ok(Some(out))
     }
 
-    pub fn get(&self, which: Layer) -> &Option<Vec<i64>> {
+    pub fn get(&self, which: Layer) -> &Option<Grid> {
         match which {
             Layer::Heights => &self.heights,
             Layer::Normals => &self.normals,
@@ -124,7 +132,7 @@ impl LandscapeLayers {
         }
     }
 
-    pub fn get_mut(&mut self, which: Layer) -> &mut Option<Vec<i64>> {
+    pub fn get_mut(&mut self, which: Layer) -> &mut Option<Grid> {
         match which {
             Layer::Heights => &mut self.heights,
             Layer::Normals => &mut self.normals,
@@ -220,7 +228,7 @@ pub fn diff_against_reference(plugin: &str, mine: &LandscapeLayers, reference: O
             out.missing.push(which.name());
             continue;
         };
-        let theirs = reference.and_then(|r| r.get(which).clone()).unwrap_or_else(|| vec![0; values.len()]);
+        let theirs = reference.and_then(|r| r.get(which).as_deref().cloned()).unwrap_or_else(|| vec![0; values.len()]);
         let grid = RelativeGrid::from_difference(theirs, values, side, comps)?;
         if grid.is_modified() {
             *out.grid_mut(which) = Some(grid);

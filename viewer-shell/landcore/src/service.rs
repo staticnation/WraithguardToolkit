@@ -102,6 +102,30 @@ pub fn split_order(names: &[String]) -> (Vec<String>, Vec<String>) {
 
 /// The data folder holding a plugin, the *last* that does, as OpenMW resolves it, matching
 /// the name case-insensitively (`resolve_plugin`).
+/// Every file of the data folders by its lowercase name, the last folder holding one
+/// winning: [`resolve_plugin`]'s answer for any name, with each folder listed once.
+/// (Static, 2026-10-27: resolving each of 621 plugins listed all 1233 folders again -
+/// 44 s for the masters, 85 s before the first mod was read, 15 s to size the masters.)
+pub struct PluginIndex(HashMap<String, PathBuf>);
+
+impl PluginIndex {
+    pub fn new(dirs: &[PathBuf]) -> PluginIndex {
+        let mut map = HashMap::new();
+        for d in dirs {
+            let Ok(entries) = std::fs::read_dir(d) else { continue };
+            for e in entries.flatten() {
+                if e.file_type().is_ok_and(|t| t.is_file() || (t.is_symlink() && e.path().is_file())) {
+                    map.insert(e.file_name().to_string_lossy().to_lowercase(), e.path());
+                }
+            }
+        }
+        PluginIndex(map)
+    }
+    pub fn get(&self, name: &str) -> Option<PathBuf> {
+        self.0.get(&name.to_lowercase()).cloned()
+    }
+}
+
 pub fn resolve_plugin(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     let wanted = name.to_lowercase();
     let mut found = None;
@@ -191,6 +215,8 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     if dirs.is_empty() {
         fail!("no data folder was given, so no plugin can be found");
     }
+    let index = PluginIndex::new(dirs);
+    let resolve_plugin = |name: &str, _dirs: &[PathBuf]| index.get(name);
     // The fork's filter: the output itself (a merge whose marker was lost would otherwise be
     // merged as a mod), and the ignore list, by name or by folder.
     let own = opts.output.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_else(|| DEFAULT_NAME.to_lowercase());

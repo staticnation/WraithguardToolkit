@@ -110,7 +110,7 @@ pub fn inherit_reference_layers(cell: &mut MergedCell, reference: &Landmass) {
     for which in [Layer::Heights, Layer::Textures, Layer::WorldMap, Layer::Colors] {
         let s = slot(cell, which);
         if s.is_none() {
-            *s = l.get(which).clone();
+            *s = l.get(which).as_deref().cloned();
         }
     }
 }
@@ -146,7 +146,7 @@ fn fold_rolling(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>,
         let acc = match grids.entry(which) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
             std::collections::hash_map::Entry::Vacant(e) => {
-                let start = reference.get(cell.coords).and_then(|l| l.get(which).clone()).filter(|v| v.len() == source.reference.len());
+                let start = reference.get(cell.coords).and_then(|l| l.get(which).as_deref().cloned()).filter(|v| v.len() == source.reference.len());
                 match start {
                     Some(values) => e.insert(RelativeGrid::new(values, source.side, source.components)?),
                     None => {
@@ -239,7 +239,7 @@ pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass) -> usiz
     for (coords, cell) in outcome.cells.iter_mut() {
         let Some(h) = &cell.heights else { continue };
         let l = reference.get(*coords);
-        let (mut original, mut base) = (l.and_then(|l| l.normals.as_deref()), l.and_then(|l| l.heights.as_deref()));
+        let (mut original, mut base) = (l.and_then(|l| l.normals.as_deref().map(Vec::as_slice)), l.and_then(|l| l.heights.as_deref().map(Vec::as_slice)));
         if original.is_none() || base.is_none_or(|b| b.len() != h.len()) {
             original = None;
             base = None;
@@ -264,7 +264,7 @@ pub fn add_reference_neighbours(outcome: &mut MergeOutcome, reference: &Landmass
             }
             let Some(l) = reference.get(c) else { continue };
             let Some(h) = &l.heights else { continue };
-            let mut cell = MergedCell { coords: c, heights: Some(h.clone()), ..Default::default() };
+            let mut cell = MergedCell { coords: c, heights: Some(h.to_vec()), ..Default::default() };
             inherit_reference_layers(&mut cell, reference);
             outcome.cells.insert(c, cell);
             added.insert(c);
@@ -285,7 +285,7 @@ fn check_borders(outcome: &mut MergeOutcome, reference: &Landmass, borrowed: &BT
             if written.contains_key(&o) || nearby.contains_key(&o) {
                 continue;
             }
-            if let Some(h) = reference.get(o).and_then(|l| l.heights.clone()) {
+            if let Some(h) = reference.get(o).and_then(|l| l.heights.as_deref().cloned()) {
                 nearby.insert(o, h);
             }
         }
@@ -298,7 +298,7 @@ fn digest_cell(cell: &MergedCell) -> CellDigest {
 }
 
 fn digest_reference(l: &LandscapeLayers) -> CellDigest {
-    CellDigest { heights: l.heights.clone(), normals: None, world_map: l.world_map.clone(), colors: l.colors.clone(), textures: l.textures.clone() }
+    CellDigest { heights: l.heights.as_deref().cloned(), normals: None, world_map: l.world_map.as_deref().cloned(), colors: l.colors.as_deref().cloned(), textures: l.textures.as_deref().cloned() }
 }
 
 /// Seams, slopes, normals, borders and cleaning, in that order (`finish`, every step on).
@@ -310,7 +310,7 @@ pub fn finish(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&
     outcome.borrowed = borrowed.len();
     let mut heights: BTreeMap<Coords, Vec<i64>> = outcome.cells.iter_mut().filter_map(|(c, cell)| cell.heights.take().map(|h| (*c, h))).collect();
     if !heights.is_empty() {
-        let anchor: BTreeMap<Coords, Vec<i64>> = reference.cells.iter().filter_map(|(c, l)| l.heights.clone().map(|h| (*c, h))).collect();
+        let anchor: BTreeMap<Coords, Vec<i64>> = reference.cells.iter().filter_map(|(c, l)| l.heights.as_deref().cloned().map(|h| (*c, h))).collect();
         outcome.seams = repair_seams(&mut heights, DEFAULT_FEATHER, Some(&anchor), &borrowed)?;
         outcome.slopes = limit_slopes(&mut heights, &borrowed);
     }

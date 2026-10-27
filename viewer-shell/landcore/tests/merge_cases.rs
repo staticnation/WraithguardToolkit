@@ -311,3 +311,48 @@ fn the_two_models_and_the_load_order_cleaning() {
     assert_eq!(r.cells_written, 0);
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
+
+/// A load order the size of a real one, timed by stage (`cargo test --release -- --ignored
+/// --nocapture big_order`): 3,000 master cells and 300 mods of 30 cells each.
+#[test]
+#[ignore]
+fn big_order() {
+    use landcore::pipeline::DiffModel;
+    use serde_json::json;
+    let mut base = Vec::new();
+    for x in -30..30 {
+        for y in -25..25 {
+            base.push(json!({"grid": [x, y], "flags": 15, "heights": [400, 1, 1, 9, 0, 0, -1, 0], "colors": [100, 90, 80, 1], "textures": [1, 3, 2], "world_map": "auto"}));
+        }
+    }
+    let mut plugins = vec![json!({"name": "Base.esm", "ltex": [["a", 0, "a.dds"], ["b", 1, "b.dds"], ["c", 2, "c.dds"]], "land": base})];
+    let mut order = vec!["Base.esm".to_string()];
+    let mut seed = 7u64;
+    let mut rnd = |n: i64| {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((seed >> 33) as i64).rem_euclid(n)
+    };
+    for m in 0..300 {
+        let mut land = Vec::new();
+        let (cx, cy) = (rnd(50) - 25, rnd(40) - 20);
+        for k in 0..30 {
+            let (x, y) = (cx + k % 6, cy + k / 6);
+            land.push(json!({"grid": [x, y], "flags": 15, "heights": [400, 1, 1, 9, rnd(64), rnd(64), 3 + rnd(6), 20 + rnd(60)], "colors": [rnd(200), 90, 80, 1 + rnd(3)], "textures": [1, 2 + rnd(3), 2], "world_map": "auto"}));
+        }
+        let name = format!("Mod{m:03}.esp");
+        plugins.push(json!({"name": name, "masters": ["Base.esm"], "land": land}));
+        order.push(name);
+    }
+    let data = setup("big order", serde_json::Value::Array(plugins));
+    let order_refs: Vec<&str> = order.iter().map(String::as_str).collect();
+    let models: Vec<DiffModel> = if std::env::var("WG_MASTERS").is_ok() { vec![DiffModel::Masters] } else { vec![DiffModel::LoadOrder] };
+    for model in models {
+        let t = std::time::Instant::now();
+        let order: Vec<String> = order_refs.iter().map(|s| s.to_string()).collect();
+        let opts = MergeOptions { output: Some(data.parent().unwrap().join("out").join(DEFAULT_NAME)), model, ..Default::default() };
+        let r = build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |l| eprintln!("[{:>6.2}s] {l}", t.elapsed().as_secs_f32()));
+        let hwm = std::fs::read_to_string("/proc/self/status").unwrap_or_default().lines().find(|l| l.starts_with("VmHWM")).unwrap_or("").to_string();
+        eprintln!("{model:?}: {:.2}s, ok={}, {hwm}", t.elapsed().as_secs_f32(), r.is_ok());
+    }
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}

@@ -24,393 +24,140 @@ inside the program as well.
 
 ## Contents
 
-- `wraithguard_toolkit.py` - the command-line tool and the sort engine. It imports
-  from `wraithguard/` like any other caller; import library names from the
-  package they live in, not from here.
-- `wraithguard/` - the engine itself, split by concern: rule handling, the
-  load-order sort, `openmw.cfg` reading/emitting, plugin metadata, downloads,
-  compiled-script decoding, landscape merging (`land/` - the Merged Lands port,
-  see [Merged Lands](#merged-lands-landscape-merging)), and the conflict
-  visualisations (`viz/`, which
-  renders conflicts as self-contained HTML: a world conflict map, terrain
-  height differences, path-grid graphs and a rotatable 3D terrain surface with
-  relief shading, contours and multidirectional lighting - see
-  [The 3D terrain view](#the-3d-terrain-view)).
-- `wraithguard_toolkit_gui.py` - a drag-and-drop GUI front-end (imports the engine
-  directly; it reimplements no logic).
-- `native/` - the Rust backend, `wraithguard_native`: greatness7's `tes3` crates as
-  a Python module (plugins, meshes, archives), plus the hot loops moved out of
-  Python - conflict keys, Merged Lands' per-vertex core, texture decoding and the
-  lint's record scan. See [native/README.md](native/README.md).
-- `viewer-shell/` - `wraithguard-viewer`, the Tauri app behind the cell viewer,
-  the mesh viewer and the in-app cell map. Its engine is `viewer-shell/viewcore`;
-  its page, `viewer-shell/ui`, is GPL-2.0 (MGE XE shader ports) and kept separate
-  from the MIT code.
-- `mlox_base.txt`, `mlox_user.txt` - mlox rule databases (download/update with
-  mlox or `plox`).
-- `plugin-order.yml` - MOMW's source of truth for which plugins belong to which
-  curated list (optional but recommended). From the
+- `wraithguard-viewer` - **the program** (`viewer-shell/`, Tauri). Started on its own it
+  opens on the openmw.cfg its settings file names, or on its **Setup** page. Its pages:
+  the cell viewer and mesh viewer, the **Editor**, **Load order** (sort and export),
+  **Conflicts**, **Tools** (Lint, Backups, masters, Save Check, Journal, tes3cmd, Merge
+  Lands, Merge settings) and **Help**. Its page, `viewer-shell/ui`, is GPL-2.0 (MGE XE
+  shader ports) and kept separate from the MIT code.
+- `wraithguard` - **the command line** (`viewer-shell/cli`): the sort and export, the
+  conflict and resource scans, the cell map and the lint, headless.
+- `viewer-shell/*core` - the Rust crates both are built on: `ordercore` (openmw.cfg, the
+  rules, the sort), `editcore` (plugins, the Editor, patches), `conflictcore` (record and
+  loose-file conflicts, meshes), `toolscore` (the Tools), `landcore` (Merged Lands),
+  `luacore` (OpenMW Lua and Teal) and `viewcore` (the engine), on greatness7's `tes3`
+  crates and Robin Hjelte's Gardenfell.
+- `mlox_base.txt`, `mlox_user.txt` - mlox rule databases (Update rules on the Load order
+  page fetches them).
+- `plugin-order.yml` - MOMW's source of truth for which plugins belong to which curated
+  list (optional but recommended). From the
   [modding-openmw.com repo](https://gitlab.com/modding-openmw/modding-openmw.com/-/blob/master/momw/momw/data_seeds/data/plugin-order.yml).
-- `theme_template.json` - a commented starting point for making your own GUI
-  theme (see [Theming the app](#theming-the-app)).
-- `CREDITS.md` - acknowledgements for the projects this tool ports, references,
-  and depends on (mlox, plox, tes3conv, modmapper, OpenMW, MOMW, and more).
+- `CREDITS.md` - acknowledgements for the projects this tool ports, references, and
+  depends on (mlox, plox, tes3conv, modmapper, OpenMW, MOMW, and more).
 - `CHANGELOG.md` - what changed between releases (current: **5.0.0**).
-- `CODE_REVIEW.md` - the running engineering log: defects found, and the
-  reasoning behind decisions that look odd (including linter suggestions
-  deliberately refused because following them would introduce bugs).
+- `CODE_REVIEW.md` - the running engineering log: defects found, and the reasoning
+  behind decisions that look odd.
+
+> **5.0 is Rust only.** The Python/Tk app (4.x) is retired, and with it PyInstaller and
+> the `native/` Python module. Your settings file carries over; a patch queue left by
+> the 4.x Editor does not - build it into a patch with 4.x before upgrading.
 
 ---
 
 ## Project layout
 
-Everything needed to **build, run and test** the toolkit lives in this folder.
-Reference material (the upstream projects whose formats this tool mirrors) and
-scratch output are deliberately left outside it.
-
 ```
 WraithguardToolkit/
-├── *.md                          Docs at the top level: README, QUICKSTART,
-│                                 CHANGELOG, CREDITS, CODE_REVIEW, MLOX_RULES,
-│                                 NIF_PROVENANCE, MERGED_LANDS, SMOKE_TEST,
-│                                 PREFLIGHT, UNBAKE_MIGRATION.
-├── License/                      This project's MIT licence (`LICENSE`), plus
-│                                 one file per upstream project whose licence
-│                                 travels with code ported or adapted here.
-├── wraithguard_toolkit.py        Engine + CLI. No GUI import; runs headless.
-├── wraithguard_toolkit_gui.py    Tkinter front-end. Imports the engine.
-├── wraithguard/                  Shared foundation package.
-│   ├── i18n.py                   gettext translation, the _() marker.
-│   ├── logging_setup.py          Levelled logging (stderr) + trace file.
-│   ├── gui/                      GUI support (needs Tk): theming, widgets,
-│   │                             tes3cmd + conflict-window mixins, app dir.
-│   ├── mwscript/                 Compiled-script (SCDT) reading + disassembly.
-│   ├── tes3fields/               Decodes binary LAND / PGRD fields for the diff
-│   │                             window, plus the generated TES3 record schema.
-│   ├── viz/                      Maps and visualisations as self-contained HTML:
-│   │                             cell coverage map, conflict map, terrain
-│   │                             deltas, path-grid graphs, 3D surface, and the
-│   │                             Markdown renderer behind in-app Help. No CDN.
-│   ├── esp/                      Plugins as record objects, read and written
-│   │                             by the tes3 crate (through native/).
-│   ├── images/                   Every texture format the game and mods use,
-│   │                             decoded without a third-party dependency (DDS
-│   │                             incl. BC7, Targa, bitmap, a zlib-only PNG
-│   │                             writer; pixel decoding in native/), picked by
-│   │                             inspecting bytes, plus texture-role slots.
-│   ├── nif/                      Morrowind meshes on the tes3 crate: summaries,
-│   │                             comparison, the mesh viewer's block panel and
-│   │                             editor, texture resolution, BSA-aware VFS.
-│   ├── land/                     The Merged Lands port: reference landmass,
-│   │                             per-plugin diff, merge strategies, seam repair
-│   │                             (per-vertex core in native/).
-│   ├── merge/                    Whole-plugin merging: the merge_to_master port.
-│   ├── patch/                    Building a *new* patch plugin from records
-│   │                             chosen in the diff viewer; never writes a
-│   │                             source mod. Conflict-status model + roll-ups.
-│   ├── rules/                    mlox rule handling: patterns, parser, expr.
-│   ├── configurator/             openmw.cfg: read, simulate, emit TOML.
-│   ├── momw.py                   MOMW plugin-order.yml (curated lists).
-│   ├── net/                      Downloads: rule files, curated order.
-│   ├── plugins/                  Plugin location + header metadata.
-│   ├── sort/                     Load-order sort: graph primitives + engine.
-│   ├── tracing.py                Crash-survival trace logs (main + sort).
-│   ├── versions.py               Version regex + mlox's canonical form.
-│   └── viewer_launch.py          Finding and starting wraithguard-viewer.
-├── native/                       The Rust backend (wraithguard_native), on
-│                                 greatness7's tes3 crates.
-├── viewer-shell/                 wraithguard-viewer (Tauri): viewcore/ is its
-│                                 engine, ui/ its page (GPL-2.0, kept apart),
-│                                 check/ + check-commands/ the CI compile checks.
-├── packaging/                    The Linux Flatpak (manifest, launcher, desktop file).
-├── tools/                        Developer scripts (not shipped): the gate
-│                                 checkers, the code generators, make_pot.py,
-│                                 and setup_dev_env.ps1 / build_and_check_rust.ps1
-│                                 (see Developing).
-├── tests/                        pytest suite: the hermetic set plus a Tk smoke
-│                                 set that runs under xvfb in CI.
+├── *.md                          README, QUICKSTART, CHANGELOG, CREDITS, CODE_REVIEW,
+│                                 MLOX_RULES, MERGED_LANDS, NIF_PROVENANCE, PREFLIGHT ...
+├── License/                      The MIT licence, plus one file per upstream project
+│                                 whose licence travels with code ported here.
+├── viewer-shell/                 The program and its crates:
+│   ├── src/                      wraithguard-viewer (Tauri): main.rs, the commands.
+│   ├── ui/                       Its page (GPL-2.0, kept apart), assembled from
+│   │                             ui/src by ui/ORDER into ui-dist at build time;
+│   │                             ui/tests holds the page's boot and Editor tests.
+│   ├── cli/                      wraithguard, the command line.
+│   ├── viewcore/ ordercore/ editcore/ conflictcore/ toolscore/ landcore/ luacore/
+│   │                             The Rust crates (see Contents).
+│   ├── gardenfell/ gardenfell-g7/ meshopt-port/
+│   │                             Vendored Gardenfell, its tes3 bridge, meshoptimizer
+│   │                             ported.
+│   └── check/ check-commands/    CI compile checks without Tauri's native tree, and
+│                                 wg-view-serve, the headless engine the page tests use.
+├── packaging/flatpak/            The Linux Flatpak (being rebuilt on the Tauri binary).
+├── tools/                        Developer scripts: build_and_check_rust.ps1, the
+│                                 generators the fixtures came from (tools/README.md).
+├── tests/fixtures/               The crates' shared test cases.
 ├── testdata/                     Copies of a real setup, used by the tests.
-├── locale/                       wraithguard_toolkit.pot + translator guide.
-├── art/                          Icons, banner, Nexus description, AST graphs.
-├── build/                        PyInstaller / auto-py-to-exe configuration.
-├── pyproject.toml                ruff / black / pytest / mypy configuration.
-└── theme_template.json           Commented starting point for a custom theme.
+├── locale/                       Translations (.po; English only in 5.0).
+└── art/                          Icons, banner, Nexus description.
 ```
-
-The standard library and the Rust module (`native/`) are required to run.
-Optional extras (`tkinterdnd2`, `PyYAML`, `tkinterweb`)
-each enable one feature and degrade gracefully when missing. Kept *outside* this folder because
-none of it is needed to build or run: the reference sources read while porting
-(credited in `CREDITS.md`), the third-party Perl/`tes3cmd` tools the app drives,
-and run output (logs, `cell_map.html`, `resource_conflicts.csv`, the packaged
-`.exe`).
 
 ---
 
-## Requirements & setup (Windows, Linux, macOS)
+## Install
 
-Python + tkinter, with a Rust module for reading and writing game files, so it
-runs on all three platforms.
+Download a release from the
+[Releases page](https://github.com/staticnation/WraithguardToolkit/releases). Each
+package holds `wraithguard-viewer` (the program), `wraithguard` (the command line) and
+the documents the Help page shows. Nothing else to install:
 
-- **Python 3.14+** (`requires-python` in `pyproject.toml`). The release builds use
-  the free-threaded **3.14t**, and CI tests both 3.14 and 3.14t.
-- **The built-in reader, `wraithguard_native`** (`native/`) - greatness7's `tes3`
-  crates, as a Python module: it reads and writes plugins, meshes and `.bsa`
-  archives in process. The release builds carry it. From source, install it once
-  with a Rust toolchain (1.88+): `pip install ./native` (on Windows,
-  `py -3.14t -m pip install ./native`).
-- **tkinter** - bundled with the python.org installers on Windows and macOS. On
-  Linux, install it from your package manager, e.g. Debian/Ubuntu:
-  `sudo apt install python3-tk`.
-- **Optional extras** (the tool degrades gracefully without them):
-  - `pip install tkinterdnd2` - drag files into the GUI from your file manager.
-    Without it, use the **Browse...** buttons (dragging rows to reorder still
-    works regardless).
-  - `pip install PyYAML` - faster/robust `plugin-order.yml` parsing. Without it,
-    a built-in parser is used automatically.
-  - `pip install tkinterweb` - shows the cell map in an in-app window when the
-    viewer (`wraithguard-viewer`, see Packaging) is not built; without either, the
-    map opens in your default browser.
+- **Windows** (10 or later): `wraithguard-windows-x86_64.zip`, which uses the WebView2
+  runtime Windows ships with. On a PC without it (WebView2 removed along with Edge, LTSC,
+  stripped images) take `wraithguard-windows-x86_64-webview2.zip`: it carries its own
+  runtime in a `webview2` folder beside the program, which finds it there itself.
+- **macOS**: `wraithguard-macos-arm64.tar.gz` (Apple Silicon) or `-x86_64` (Intel). The
+  build is unsigned: right-click -> Open the first time, or
+  `xattr -dr com.apple.quarantine wraithguard-viewer`.
+- **Linux**: `wraithguard-linux-x86_64.tar.gz`, on the system's WebKitGTK 4.1
+  (`libwebkit2gtk-4.1-0`: Ubuntu 22.04+, Debian 12+, Fedora, Arch).
+- **Steam Deck**: the Flatpak, once it is rebuilt on 5.0 (until then, 4.x's Flatpak).
 
-Install optional deps on an externally-managed Python with
-`pip install ... --break-system-packages` if needed.
+Start `wraithguard-viewer`. The first start opens **Setup**: point it at your
+`openmw.cfg` (**Find** looks where OpenMW keeps it) and the rest of your files; each
+field is checked as you type. Setup is always one click away (the top bar), and opens by
+itself after a start that never finished loading, so a malformed install never locks you
+out.
 
-### Packaging into a standalone `.exe` (PyInstaller / auto-py-to-exe)
+### Building from source
 
-The tool runs frozen. It never persists data next to `__file__` (which, when
-frozen, is a temp extraction dir that's wiped on exit), so your settings and
-outputs survive the build:
-
-- `wraithguard_toolkit_settings.json`, `wraithguard_toolkit_trace.log`, `cell_map.html`,
-  and (only with the tes3conv fallback) the `tes3conv_json/` spool are written
-  **next to the `.exe`**. If that
-  folder isn't writable (e.g. installed under `Program Files`), they fall back to
-  a per-user data dir (`%APPDATA%\MloxSubsetSort` on Windows,
-  `~/Library/Application Support/MloxSubsetSort` on macOS,
-  `~/.config/MloxSubsetSort` on Linux).
-- **Two things must be bundled that PyInstaller cannot find by itself**: the Rust
-  module (`--hidden-import wraithguard_native`, after `pip install ./native` into the
-  interpreter PyInstaller runs) and the viewer, `wraithguard-viewer`, built from
-  `viewer-shell/` with `cargo build --release` and added beside the app
-  (`--add-binary "viewer-shell/target/release/wraithguard-viewer.exe;."` on Windows,
-  `:.` elsewhere). The release workflows in `.github/workflows/` are the reference
-  build for each platform; copy their PyInstaller line.
-- **The licences travel with the build.** `CREDITS.md`, the `License/` folder and
-  the viewer page's own licence (`viewer-shell/ui/LICENSE`, GPL-2.0) are added with
-  `--add-data` (see the workflows). The viewer binary also carries that GPL-2.0
-  text inside the page it embeds (`viewer-shell/build.rs`).
-
-The viewer (cell map, Cell Preview, mesh viewer, conflict views) draws with the
-system webview: **WebView2** on Windows (present on Windows 11 and updated Windows
-10; the `-webview2.zip` release carries its own for machines without it),
-**WebKitGTK** on Linux (the system's own; the Flatpak's GNOME runtime has it),
-**WKWebView** on macOS. Without
-the viewer, the cell map falls back to **tkinterweb** if installed, then to your
-browser. To see which path a build took, run it with `--trace` and read the
-`viewers:` and `cell map: viewer = ...` lines in the log.
-
-**One data folder must be added by hand: the 3D viewer library.** PyInstaller
-follows imports, not data, so the vendored three.js build under
-`wraithguard/viz/assets/` (loaded as `assets/three.cjs`, beside the Lua charts'
-`assets/mermaid.min.js`) is not collected automatically. Map it into the build:
+Rust (stable, via [rustup](https://rustup.rs)); on Linux also WebKitGTK 4.1 and GTK 3's
+development packages (`libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev`).
 
 ```
---add-data "wraithguard/viz/assets;assets"
+cp wraithguard_toolkit_icon.ico viewer-shell/icons/
+cargo build --release --manifest-path viewer-shell/Cargo.toml       # the program
+cargo build --release --manifest-path viewer-shell/cli/Cargo.toml   # the command line
 ```
 
-Without it the app runs normally, the texture comparison's lit overlay
-falls back to its CSS view, and the Lua flowcharts show as text. You do **not** need to add `wraithguard/` or `locale/` by hand:
-PyInstaller collects the package by following the import graph, and `locale/` is
-a developer directory (no `.mo` catalogues ship yet). Verify any build from the
-Log panel's first line - a build stamp `Wraithguard Toolkit <version> --
-frozen=True built=<timestamp>`; a stale build looks exactly like a code bug. See
-`SMOKE_TEST.md` §5a.
-
-Run the GUI:
-
-```
-python wraithguard_toolkit_gui.py
-```
+The program is `viewer-shell/target/release/wraithguard-viewer`; it keeps its settings
+file (`wraithguard_toolkit_settings.json`) and caches beside itself.
 
 ### Verifying a download
 
-Each file on a Release page shows its SHA-256 digest. To check a download is intact,
-hash it and compare:
-
-```
-Get-FileHash wraithguard-toolkit-windows-x86_64.exe -Algorithm SHA256   # Windows
-sha256sum wraithguard-toolkit-linux-x86_64.flatpak                      # Linux (Flatpak)
-sha256sum wraithguard-toolkit-linux-x86_64.tar.gz                       # Linux (plain)
-shasum -a 256 Wraithguard-Toolkit-macos-arm64.zip                       # macOS
-```
-
-(minisign signing is retired: the signature files drew false antivirus detections,
-and the minisign trusted-comment flaw published at gpg.fail made it a poor
-guarantee. See CHANGELOG.md.)
+Each release lists the packages' SHA-256 sums; compare with `certutil -hashfile <file>
+SHA256` (Windows) or `sha256sum <file>`.
 
 ---
 
-## GUI walkthrough
+## The program
 
-The left half is the drag-to-reorder panels; the right half is inputs, options,
-actions, and a colorized log. Drag the **hamburger grips** on the dividers to
-resize any panel.
+The top bar switches between the pages; each opens on the setup it last used (the
+settings file), and a scan's results are cached (`wraithguard_scan_cache.sqlite3`) so the
+next scan of the same plugins is a lookup.
 
-**Inputs (top right):**
+- **Load order** - the sort. The rule files, customizations TOML, subset file or mods
+  folder, plugin-order.yml and list name come from Setup; it sorts as it opens. The
+  orders are lists you can drag (or select and move), and untick to leave a mod out;
+  Warnings beside them, filtered by kind. **Export** writes the corrected
+  customizations TOML (back into customizations.toml unless *Write customizations to*
+  names another file; a timestamped backup first), and openmw.cfg only with *Write
+  openmw.cfg* ticked. **Rule maker...** writes rules into your own rule file;
+  **Update rules**, **Update plugin-order.yml** and **Fetch data paths** download.
+- **Conflicts** - record conflicts (each record's fields across its plugins, coloured by
+  who wins and who loses), loose-file conflicts with mesh and texture comparison, and a
+  Plugins tab with each plugin's losing work. Queue a record or field for the patch.
+- **Editor** - the Construction Set's Object Window and Cell View beside the render
+  window: change records, place and move references, dialogue, path grids, Lua and
+  MWScript, then **Build patch** writes one new plugin (your mods are never changed).
+- **Tools** - Lint, Backups, Remove / rename master, Save Check, the Journal, tes3cmd
+  (with Add your mods / Add list mods), Merge Lands and Merge settings.
+- **Report**, the **cell viewer** and the **mesh viewer** - walk any cell in 3D, inspect
+  objects (ORI), and open a mesh's blocks, edit its fields and save it.
+- **Help** - these documents.
 
-- **openmw.cfg** *(required)* - read the current `content=`/`data=` order from
-  here, and (optionally) patch it.
-- **customizations.toml** - your `momw-customizations.toml`, to pull the
-  plugin/data-path subset from automatically.
-- **subset file** - a plain-text list (one plugin filename or data folder path
-  per line) or a minimal TOML. A `#` starts a comment only at the start of a line
-  or after a space, so a `#` inside a name (e.g. `FMI_#NotAllDunmer.ESP`) is kept.
-  Combine with an emit target and it's enough on its own to generate a brand-new
-  customizations TOML.
-  - **Scan...** - generate this subset by walking a mods folder (see below).
-- **emit corrected TOML to** - where to write the sorted/re-anchored
-  `momw-customizations.toml`. (Or tick *Write directly back...* to overwrite the
-  source in place, with a timestamped `.bak`.)
-- **list name** - the MOMW list these customizations apply to (e.g.
-  `total-overhaul`). Required by the Configurator; also drives the yml features.
-- **plugin-order.yml** - enables the curated-vs-custom features below.
-- **Rule files** - mlox `.txt` rule databases in priority order (base first,
-  your user rules last).
-
-**Options:**
-
-| Option | Effect |
-| --- | --- |
-| Dry run | Preview only - Export writes nothing (on by default). |
-| Write openmw.cfg directly | Patch `content=`/`data=` in place on Export (`.bak` made first). |
-| Sort data= paths too | Also position `data=` folder inserts (mlox has no data-path order, so this is opt-in). |
-| Skip .bak backup | Don't back up before overwriting. Not recommended. |
-| Skip mlox warnings | Skip evaluating `[Conflict]/[Requires]/[Note]`. |
-| Create subset text document | Controls **Scan...**: on = write a `.txt`; off = keep the scan in memory for this session only. |
-
-**Actions** sit in two compact rows below the options. Top row: the core loop
-(**Sort**, **Export**) plus the record/cell analysis buttons (**Check
-Conflicts**, **Cell Map**, **Resource Conflicts**), with the status text
-trailing. Bottom row: the plugin tools (**Lint**, **tes3cmd**, **Save Check**,
-**Backups**).
-
-1. **Sort** - runs mlox and fills the order panels. Never writes anything; always
-   safe. Red rows are your custom additions; **purple** rows have a missing or
-   mis-ordered master (see the MASTER CHECK section in the log).
-2. **Export** - writes `openmw.cfg` and/or the corrected TOML using whatever
-   order the panels currently show. (Uncheck *Dry run* to actually write.) Every
-   TOML export runs a **Configurator preview**: the emitted customizations are
-   applied to a simulated fresh cfg using a faithful re-implementation of
-   momw-configurator's own apply logic, and the result is verified against the
-   sorted order - a green `VERIFIED` line means what the Configurator will do is
-   exactly what you sorted. Export also warns if `openmw.cfg` changed on disk
-   since the Sort (e.g. the Configurator re-ran underneath you).
-
-The **analysis** buttons (Check Conflicts, Cell Map, Resource Conflicts, Lint)
-run against the sorted, enabled plugins and never modify anything; the **tools**
-row covers tes3cmd (clean / resync / header, VFS-safe), Save Check (verify an
-`.omwsave`'s dependencies are still present), and Backups (restore or delete
-backups left by this tool, tes3cmd, and the Configurator).
-
-**Resource Conflicts shows meshes in 3D.** Select a conflicting `.nif` and
-press **View in 3D**: the viewer's mesh viewer opens with each mod's own copy,
-listed by mod - one at a time, or side by side - drawn by the same renderer as
-Cell Preview, with textures resolved through your current setup. Beside it, the
-shown mesh's block tree (with collision, controllers, particle systems and
-unreferenced blocks named), and the selected block's fields.
-
-**Edit mesh...** opens the winning copy editable: the panel's editable fields
-take input, and **Save edited .nif...** writes an edited copy where you choose
-(the original is never touched). A mesh a record field names opens the same way
-from the field diff's **View mesh**. Saving goes through a small local server on
-`127.0.0.1` - nothing leaves your machine, and every request carries a one-off
-token for that session.
-
-**Resource Conflicts reads meshes.** A conflict list can tell you which mod
-wins a file; it cannot tell you the winner is a low-poly stand-in with no
-collision. So when two mods ship the same `.nif` and the bytes actually differ,
-the report says what the winning mesh *costs* you - lost collision, lost
-animation, a fraction of the triangles, or textures it references that nobody
-ships. Select a row and the panel below reads both meshes then and there and
-describes each provider in full.
-
-Nothing is read during the scan except meshes that already conflict **and**
-already differ, and results are cached on file contents, so a mesh shipped
-identically by four mods is parsed once. A mesh it cannot read - an unfamiliar
-NIF version, a truncated download - is reported as unreadable rather than
-guessed at, and a partly-read mesh never reports something as *missing*, since
-the node may simply be in the part that was not reached.
-
-Every list in the app supports **type-to-jump**: click it and start typing a
-name - prefix match first, substring fallback, tap one letter repeatedly to
-cycle its matches, Backspace edits, Esc clears. The two sort panels show what
-you've typed in their title bar.
-
-### Reordering rows
-
-Drag a row up/down with the mouse, or select it and use **Move Up** / **Move
-Down**. Both work with a multi-selection (Ctrl/Cmd-click, Shift-click) - the Move
-buttons handle any selection, and dragging moves a contiguous block. This only
-overrides where *your* additions land; it's applied at Export time.
-
-### Reading the log
-
-The log color-codes each line so you can scan it quickly:
-
-- **green** - a plugin/path this sort inserted or moved (`<-- inserted`).
-- **orange** - a heads-up: an mlox `[Conflict]/[Requires]/[Note]` warning, a
-  `plugin-order.yml` note, or a rule *not applied* because your curated cfg order
-  already ordered it the other way. Those "not applied" lines are a handy
-  diagnostic: if a mod you just added misbehaves, they tell you exactly where
-  mlox disagreed with your cfg - you decide whether to nudge it in the panel.
-- **blue** - a section header; **red** - an error worth checking.
-- **plain** - a frozen base row left untouched.
-
-### Theming the app
-
-The **Theme:** dropdown next to the log panel sets the colors for the *whole
-app* - window, buttons, frames, tabs, lists and entries, as well as the log's
-own syntax highlighting and the field-diff viewer. Switching re-themes
-everything immediately, including windows you already have open, and your
-choice is remembered between sessions.
-
-23 themes are built in: Dark (default), Dracula, Monokai, Atom One Dark,
-Gruvbox Dark, Monokai Pro, Tokyo Night, Night Owl, Nord, Shades of Purple,
-GitHub Dark, Catppuccin Mocha, Ayu Dark, Cobalt2, SynthWave '84, Winter is
-Coming, Material Dark, Bluloco Dark, Palenight, Poimandres, Noctis, Panda and
-City Lights. (Looking for One Dark Pro? That's the One Dark palette - use
-Atom One Dark.) **Import Theme...** adds your own, in either of two formats:
-
-- **Native JSON** - 9 required colors (`background`, `foreground`, `select`,
-  `section`, `warn`, `error`, `ok`, `inserted`, `dim`), plus optional
-  syntax-token colors and an optional `"chrome"` object if you want to set the
-  window colors explicitly. Start from **`theme_template.json`** next to the
-  app: it is commented, imports as-is, and reproduces the default palette.
-- **base16 schemes** - any `.yaml`/`.yml`/`.json` with `base00`..`base0F`, e.g.
-  from the [base16](https://github.com/chriskempson/base16) or
-  [atelierbram](https://github.com/atelierbram/syntax-highlighting) scheme
-  repos. No PyYAML needed; a small built-in parser reads them.
-
-Any window color you don't specify is derived from the theme's `background` -
-lightened for dark themes, darkened for light ones - so a plain 9-color theme
-or a bare base16 scheme still themes the entire app coherently. Imported themes
-are saved to `log_themes.json` and appear in the dropdown from then on.
-
-### Opting rows out (disable / enable)
-
-Not everything you scanned needs to load. In either order panel, select one or
-more rows (Ctrl/Cmd-click and Shift-click for multi-select) and click
-**Disable / Enable** - or double-click a single row. Disabled rows are dimmed and
-marked with `✗`.
-
-- Disabled rows are left out of **Export**: a brand-new custom item is simply not
-  inserted; an item that already exists in your `openmw.cfg` is emitted as a
-  `removeContent` (plugin) or `removeData` (data path) in the corrected TOML, so
-  the Configurator durably removes it on the next rebuild.
-- Your opt-out choices are remembered across a re-**Sort** (and across **Reset**),
-  so you can disable a few, re-sort, and build with the omissions.
-
----
+Theme, language and camera settings are under the viewer's Settings.
 
 ## Scanning a mods folder
 
@@ -645,10 +392,9 @@ keyed by their script path - whether declared in an `.omwscripts` file or in an
 `.omwaddon`'s `LuaScriptsCfg` - so two mods attaching the same script path show up
 as a conflict.
 
-**The engine is the built-in reader** (`wraithguard_native`, greatness7's
+**The engine is the built-in reader** (`editcore`, on greatness7's
 `tes3::esp` - the crate [`tes3conv`](https://github.com/Greatness7/tes3conv) is
-built on). It parses every TES3 record type in process and hands the records to
-Python directly - no subprocess, no JSON written or parsed, nothing spooled to
+built on). It parses every TES3 record type in process - no subprocess, no JSON written or parsed, nothing spooled to
 disk - and gives both record-level detection (which plugins touch the same
 record) *and* the field-by-field diff. The records have tes3conv's field names
 and layout, so the comparison reads exactly as it would over tes3conv's JSON.
@@ -658,9 +404,8 @@ fast and memory stays bounded on 900+ plugins. (Scripts are keyed by name,
 interior cells by name, exterior cells / landscape by grid, and Lua scripts by
 path.)
 
-**tes3conv is a fallback only**, for a build without the built-in reader: the
-**Set tes3conv...** button (shown only then), the `--tes3conv` CLI flag,
-`$MLOX_TES3CONV`, your `PATH`, or the binary dropped next to the script.
+**tes3conv is not needed**: the reader is built in (the CLI still accepts
+`--tes3conv` from 4.x scripts, and ignores it).
 
 The field-by-field comparison shows each plugin's value side by side, differing
 fields in red, last column wins - the same JSON approach TES3 Conflictsolver
@@ -727,7 +472,7 @@ install.
   opcode value that happens to occur inside expression data is only decoded if
   the script really calls that function.
 - The **Cell map** is written to `cell_map.html` and shown in the viewer's window
-  (or with `tkinterweb`, or in your browser, without it); the
+; the
   window has **Save HTML** / **Open in browser**.
 
 ### Cell map (which mods touch which cells)
@@ -746,8 +491,7 @@ their own color, then 6-10, 11-15, and so on. The differences that matter are
 crowded at the bottom of the range - one, two and three mods in a cell are
 different situations, while 23 and 24 are not - so the legend beside the map is
 its key, with one swatch per band. It writes `cell_map.html` and opens it in an
-in-app window (the viewer, or `tkinterweb`) or your browser, and changes
-nothing.
+in-app window or your browser, and changes nothing.
 
 ### The 3D terrain view
 
@@ -821,8 +565,7 @@ reconciled. It is a port of **Merged Lands** (David Von Derau, MIT) and its
 OpenMW fork; the function-by-function account of what is ported, checked and
 deliberately changed is in [MERGED_LANDS.md](MERGED_LANDS.md).
 
-**Running it.** Click **Merge Lands** (second button row - it is a
-file-producing action, not a read-only scan). It needs only a sort so it knows
+**Running it.** Open **Tools -> Merge Lands** and click **Build Merged Lands.esp**. It needs only a sort so it knows
 the load order - the built-in reader and writer handle the terrain and the
 binary encoding, with no external tool (tes3conv is used only in a build without
 the built-in reader). The per-vertex work runs in the Rust module, so a
@@ -937,19 +680,19 @@ did, rather than inferring it from the counts.
 
 ## Command-line usage
 
+`wraithguard` takes the same flags 4.x's `wraithguard_toolkit.py` did:
+
 ```
 # Preview (default): print the plan, write nothing
-python wraithguard_toolkit.py \
-    --cfg openmw.cfg \
-    --rules mlox_base.txt mlox_user.txt \
+wraithguard --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
     --customizations momw-customizations.toml
 
 # Durable fix: write a corrected customizations TOML (feed back into Configurator)
-python wraithguard_toolkit.py --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
+wraithguard --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
     --customizations momw-customizations.toml --emit-toml momw-customizations.toml
 
 # One-shot: scan a mods folder, use MOMW's yml, and emit a fresh TOML
-python wraithguard_toolkit.py --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
+wraithguard --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
     --scan-dir "E:\OpenMW\Mods\custom" --subset-file mod_scan_results.txt \
     --plugin-order-yml plugin-order.yml --list-name total-overhaul \
     --sort-data-paths --emit-toml momw-customizations.toml
@@ -973,8 +716,7 @@ Key flags:
 | `--check-conflicts` | Scan active plugins for TES3 record-level conflicts. |
 | `--conflicts-out` | Write the conflict list to a CSV (with `--check-conflicts`). |
 | `--conflicts-subset-only` | Only report conflicts involving your custom mods. |
-| `--tes3conv` | Path to tes3conv - a fallback, used only without the built-in reader. |
-| `--json-dump-dir` | With the tes3conv fallback: keep its per-plugin JSON spool in this folder. |
+| `--tes3conv`, `--json-dump-dir` | Accepted for 4.x scripts and unused: the reader is built in. |
 | `--resource-conflicts` | Scan `data=` folders for loose-file (VFS) conflicts. |
 | `--resources-out` | Write the resource-conflict list to a CSV. |
 | `--lint` | tes3lint-style checks (evil GMSTs, fog bug, missing pathgrids, expansion deps, twins, headers). |
@@ -1176,7 +918,7 @@ order. PyYAML is used if installed, otherwise a built-in parser.
 
 `--check-conflicts` (GUI `Conflicts`) scans the active plugins for TES3
 record-level conflicts - two or more plugins defining the same record, where the
-last in load order wins. The **built-in reader** (`wraithguard_native`, on
+last in load order wins. The **built-in reader** (`editcore`, on
 greatness7's `tes3` crates) parses every record type in process, gives exact
 record ids, and drives the **field-level diff viewer**: the side-by-side of what
 each plugin sets on a shared record, down to compiled script bytecode, landscape
@@ -1296,96 +1038,23 @@ exe rebuild.
 
 ## Developing
 
-**Before pushing, see [PREFLIGHT.md](PREFLIGHT.md)**: the checks CI runs, in
-order, how to push a change, a test build and a release, and how to redo a failed
-build.
-
-Besides the standard library, running the tool needs the built-in reader
-(`pip install ./native`, which needs a Rust toolchain; see Requirements). The
-checks below need
-`ruff`, `black`, `mypy` and `pytest`; `pip install -e .[dev]` installs them at
-the exact versions these standards are measured against (see the `dev` extra in
-`pyproject.toml`), so the gates don't drift as the tools add new rules.
-
-On Windows the regular and the free-threaded Python 3.14 (`py -3.14` and
-`py -3.14t`) share one `site-packages`, so compiled modules built for one break the
-other - `wraithguard_native` built for 3.14t will not import in 3.14, and a GIL-only
-C extension (such as `cryptography`) can crash 3.14t outright. Give each its own
-virtual environment. Two scripts do the setup and the Rust side for you:
+**Before pushing, see [PREFLIGHT.md](PREFLIGHT.md).** Everything is Rust and the page:
 
 ```powershell
-.\tools\setup_dev_env.ps1                # .venv-t (3.14t) and .venv (3.14): dev tools + native/
-.\tools\setup_dev_env.ps1 -NativeOnly    # after changing native/
-.\tools\build_and_check_rust.ps1         # build the viewer + every Rust check CI runs
-.\tools\build_and_check_rust.ps1 -Pages  # ...plus the viewer page boot tests (Node 22)
+.\tools\build_and_check_rust.ps1         # build the program + every Rust check CI runs
+.\tools\build_and_check_rust.ps1 -Pages  # ...plus the page tests (Node 22)
 ```
 
-By hand, the environment is:
+By hand, each crate is `cargo test --manifest-path viewer-shell/<crate>/Cargo.toml`
+(`luacore` with `--features teal`), Clippy is strict (`-D warnings`), and the page tests
+run in `viewer-shell/ui/tests` against `wg-view-serve` (`node boot.js`, with
+`WG_MESH_VIEW=1` or `WG_SETUP=1`, and `node editor/run.js`). CI (`.github/workflows/ci.yml`)
+runs exactly that list; `build-app.yml` builds the packages on a `v*` tag or a
+`build/**` branch.
 
-```powershell
-py -3.14t -m venv .venv-t
-.venv-t\Scripts\python -m pip install -e .[dev]
-.venv-t\Scripts\python -m pip install ./native
-.venv-t\Scripts\python -m pytest
-```
+The fixtures in `tests/fixtures/` pin the crates to the answers the retired Python gave
+(the CLI's cases, the sort, the configurator simulation, Merged Lands); a change that
+alters an answer fails loudly. `tools/README.md` says where each came from.
 
-(and the same with `py -3.14` into `.venv` for the regular build).
-
-```bash
-python -m pytest                # the full suite (7,000+ tests): no network, no Tk, no real mods
-                                # (the GUI smoke set skips without Tk; CI runs it under xvfb)
-python -m ruff check .          # PEP 8 style, naming, import order, security, perf
-python -m black --check .       # formatting
-python -m mypy                  # PEP 484 types (on Windows add --platform linux, as CI runs)
-python tools/check_undefined.py wraithguard_toolkit_gui.py
-python tools/check_placeholders.py   # i18n %(key)s placeholders vs their dicts
-python tools/make_pot.py --check     # the .pot template must be current
-cargo test --manifest-path native/Cargo.toml                   # the built-in reader
-cargo test --manifest-path viewer-shell/viewcore/Cargo.toml    # the viewer's engine
-cargo build --manifest-path viewer-shell/check-commands/Cargo.toml  # viewer commands, no Tauri
-cargo build --manifest-path viewer-shell/check/Cargo.toml           # viewer shell, stubbed Tauri
-```
-
-All of these are expected to pass with zero findings (CI runs exactly this
-list, plus a `python -m build` that exercises the packaging metadata, and
-coverage against a `fail_under` floor). A few things worth knowing before
-changing anything:
-
-- **`tests/test_differential.py` is the safety net.** It pins 41 observations
-  of the engine's behaviour - the sorted order of a real 687-plugin list, rule
-  parsing, all 2,964 predicate bodies, the configurator simulation - to hashes
-  in `tests/baselines/`. If a refactor changes an answer, it fails loudly
-  rather than shipping a different load order. Regenerate deliberately, never
-  reflexively:
-
-  ```bash
-  python -m pytest tests/test_differential.py --update-baseline
-  ```
-
-- **`tests/test_standards.py` checks PEP conformance mechanically** - the
-  PEPs that define a standard for this codebase (including PEP 639 licence
-  metadata and the one line of PEP 20 that can be checked: `except: pass`
-  must say why).
-
-- **`tools/check_undefined.py`** reports every name a module uses but never
-  imports. A test run tells you the first one; this tells you all of them.
-  It complements the linter rather than replacing it - the two miss different
-  things, so run both.
-
-- **Every shipped file meets one standard** - full annotations, PEP 257
-  docstrings, no undocumented silent excepts - enforced by ruff and mypy in
-  `pyproject.toml` rather than by convention. The only per-file exemptions left
-  are genuinely specific ones, each with a stated reason (Tk's per-widget
-  `try`/`except`, the engine's section-grouped imports). The last blanket
-  exemption - `F401` on the engine, which the re-export shim had made
-  unavoidable - was retired with the shim itself in 3.0.
-
-- **The GUI has no automated coverage** (no Tk in the test environment).
-  `SMOKE_TEST.md` is a scripted manual pass with log markers, so a broken
-  callback shows up as a *missing log line* rather than something you have to
-  notice by eye.
-
-`CODE_REVIEW.md` records the defects found so far and - more usefully - the
-reasoning behind decisions that look odd, including several linter suggestions
-that were deliberately **refused** because following them would have introduced
-bugs.
+`CODE_REVIEW.md` records the defects found so far and the reasoning behind decisions that
+look odd.
