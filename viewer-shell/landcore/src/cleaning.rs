@@ -10,18 +10,28 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub type Coords = (i64, i64);
 
-/// The layers of a cell compared (`CellDigest`); `None` a layer it does not carry.
+/// The layers of a cell compared (`CellDigest`); `None` a layer it does not carry. Each
+/// layer is held as a hash of its values ([`digest`]): cleaning only asks whether two
+/// are equal, and a merge kept a full copy of every layer of every changed cell for it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CellDigest {
-    pub heights: Option<Vec<i64>>,
-    pub normals: Option<Vec<i64>>,
-    pub world_map: Option<Vec<i64>>,
-    pub colors: Option<Vec<i64>>,
-    pub textures: Option<Vec<i64>>,
+    pub heights: Option<u64>,
+    pub normals: Option<u64>,
+    pub world_map: Option<u64>,
+    pub colors: Option<u64>,
+    pub textures: Option<u64>,
+}
+
+/// A layer's values as a [`CellDigest`] holds them.
+pub fn digest(values: &[i64]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    values.hash(&mut h);
+    h.finish()
 }
 
 impl CellDigest {
-    fn layers(&self) -> [&Option<Vec<i64>>; 5] {
+    fn layers(&self) -> [&Option<u64>; 5] {
         [&self.heights, &self.normals, &self.world_map, &self.colors, &self.textures]
     }
 
@@ -31,7 +41,7 @@ impl CellDigest {
 }
 
 /// A layer only differs when both sides carry it (`differs`).
-fn differs(a: &Option<Vec<i64>>, b: &Option<Vec<i64>>) -> bool {
+fn differs(a: &Option<u64>, b: &Option<u64>) -> bool {
     matches!((a, b), (Some(a), Some(b)) if a != b)
 }
 
@@ -107,7 +117,7 @@ pub fn clean_against_loaded(merged: &BTreeMap<Coords, CellDigest>, loaded: &BTre
     let mut report = CleaningReport::default();
     let mut keep = BTreeSet::new();
     for (coords, grid) in merged {
-        let differs_layer = |mine: &Option<Vec<i64>>, theirs: Option<&Option<Vec<i64>>>| match (mine, theirs.and_then(Option::as_ref)) {
+        let differs_layer = |mine: &Option<u64>, theirs: Option<&Option<u64>>| match (mine, theirs.and_then(Option::as_ref)) {
             (None, _) => false,
             (Some(_), None) => true,
             (Some(a), Some(b)) => a != b,
@@ -132,7 +142,7 @@ mod tests {
     use super::*;
 
     fn d(h: Option<Vec<i64>>, c: Option<Vec<i64>>) -> CellDigest {
-        CellDigest { heights: h, colors: c, ..Default::default() }
+        CellDigest { heights: h.as_deref().map(digest), colors: c.as_deref().map(digest), ..Default::default() }
     }
 
     #[test]

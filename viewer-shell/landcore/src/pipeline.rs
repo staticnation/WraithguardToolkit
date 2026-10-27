@@ -66,7 +66,7 @@ fn slot(cell: &mut MergedCell, which: Layer) -> &mut Option<Vec<i64>> {
     }
 }
 
-fn digest_slot(d: &mut CellDigest, which: Layer) -> &mut Option<Vec<i64>> {
+fn digest_slot(d: &mut CellDigest, which: Layer) -> &mut Option<u64> {
     match which {
         Layer::Heights => &mut d.heights,
         Layer::Textures => &mut d.textures,
@@ -95,7 +95,7 @@ fn fold_change(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>, 
             }
         };
         grids.insert(which, merged);
-        *digest_slot(&mut cell.sole_source, which) = if first { Some(source.flat()) } else { None };
+        *digest_slot(&mut cell.sole_source, which) = if first { Some(crate::cleaning::digest(&source.flat())) } else { None };
         if bit == layer::VERTEX_HEIGHTS {
             cell.contested += contested;
             cell.major += major;
@@ -294,11 +294,17 @@ fn check_borders(outcome: &mut MergeOutcome, reference: &Landmass, borrowed: &BT
 }
 
 fn digest_cell(cell: &MergedCell) -> CellDigest {
-    CellDigest { heights: cell.heights.clone(), normals: None, world_map: cell.world_map.clone(), colors: cell.colors.clone(), textures: cell.textures.clone() }
+    {
+        let d = |v: &Option<Vec<i64>>| v.as_deref().map(crate::cleaning::digest);
+        CellDigest { heights: d(&cell.heights), normals: None, world_map: d(&cell.world_map), colors: d(&cell.colors), textures: d(&cell.textures) }
+    }
 }
 
 fn digest_reference(l: &LandscapeLayers) -> CellDigest {
-    CellDigest { heights: l.heights.as_deref().cloned(), normals: None, world_map: l.world_map.as_deref().cloned(), colors: l.colors.as_deref().cloned(), textures: l.textures.as_deref().cloned() }
+    {
+        let d = |v: &Option<crate::layers::Grid>| v.as_deref().map(|v| crate::cleaning::digest(v));
+        CellDigest { heights: d(&l.heights), normals: None, world_map: d(&l.world_map), colors: d(&l.colors), textures: d(&l.textures) }
+    }
 }
 
 /// Seams, slopes, normals, borders and cleaning, in that order (`finish`, every step on).
