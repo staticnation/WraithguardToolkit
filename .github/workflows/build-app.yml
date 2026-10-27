@@ -114,8 +114,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          f=$(ls wraithguard-${{ matrix.name }}.zip wraithguard-${{ matrix.name }}.tar.gz 2>/dev/null | head -1)
-          gh release upload "${GITHUB_REF_NAME}" "$f" --clobber || gh release create "${GITHUB_REF_NAME}" "$f" --generate-notes
+          # The Package step makes a .zip on Windows and a .tar.gz elsewhere, never both, so
+          # pick the one it made (an `ls` of both exits 2 for the missing one, which fails the
+          # step under bash's `-e -o pipefail`).
+          if [ "$RUNNER_OS" = "Windows" ]; then f=wraithguard-${{ matrix.name }}.zip; else f=wraithguard-${{ matrix.name }}.tar.gz; fi
+          test -f "$f"
+          # The jobs of a matrix run at once: if the release does not exist yet they all try to create
+          # it, and the ones that lose the race upload to the one that won.
+          gh release upload "${GITHUB_REF_NAME}" "$f" --clobber \
+            || gh release create "${GITHUB_REF_NAME}" "$f" --generate-notes \
+            || gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
 
   windows-webview2:
     # The Windows package again with the WebView2 Fixed Version runtime beside the program.
@@ -179,4 +187,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           f=wraithguard-windows-x86_64-webview2.zip
-          gh release upload "${GITHUB_REF_NAME}" "$f" --clobber || gh release create "${GITHUB_REF_NAME}" "$f" --generate-notes
+          # The jobs of a matrix run at once: if the release does not exist yet they all try to create
+          # it, and the ones that lose the race upload to the one that won.
+          gh release upload "${GITHUB_REF_NAME}" "$f" --clobber \
+            || gh release create "${GITHUB_REF_NAME}" "$f" --generate-notes \
+            || gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
