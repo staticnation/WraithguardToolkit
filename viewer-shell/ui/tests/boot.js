@@ -576,6 +576,14 @@ async function placing(w, E, R, fail, sleep){
 async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
+  // The program on its own (4.6): the Editor's setup from the install the viewer has open.
+  {
+    let st=await w.eval("Engine.call('editor_setup',{})");
+    if(typeof st==='string') st=JSON.parse(st);
+    if(!st || !Array.isArray(st.plugins) || !st.plugins.length) fail('editor_setup gave no plugins: '+JSON.stringify(st));
+    else if(!String(st.journal||'').endsWith('wraithguard_patch_journal.json')) fail('editor_setup journal: '+st.journal);
+    else console.log('editor setup: '+st.plugins.length+' plugin(s), '+(st.folders||[]).length+' folder(s)');
+  }
   const links=w.__WG_VIEW__.extra.links;
   for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editNewResponse','editCopyTopic','editPlace','editNew','editNewSet','editNewRemove','editPending']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');

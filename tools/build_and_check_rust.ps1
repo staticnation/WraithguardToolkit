@@ -5,30 +5,26 @@
 .DESCRIPTION
     The Rust side of the preflight (PREFLIGHT.md, section 1). Steps:
 
-        viewer      cargo build --release in viewer-shell/        (the app the GUI launches)
-        native      cargo test  native/                           (the Python module's Rust tests)
+        viewer      cargo build --release in viewer-shell/        (the program)
         viewcore    cargo test  viewer-shell/viewcore/            (the viewer's engine)
-        luacore     cargo test  viewer-shell/luacore/             (OpenMW Lua, shared by both)
-        ordercore   cargo test  viewer-shell/ordercore/           (the openmw.cfg reader, shared by both)
+        luacore     cargo test  viewer-shell/luacore/             (OpenMW Lua, with the Teal checks)
+        ordercore   cargo test  viewer-shell/ordercore/           (the openmw.cfg reader)
         conflicts   cargo test  viewer-shell/conflictcore/        (record and loose-file conflicts)
         tools       cargo test  viewer-shell/toolscore/           (the Tools page: lint, ...)
         land        cargo test  viewer-shell/landcore/            (Merge Settings, Merge Lands as it moves)
-        cli         cargo test  viewer-shell/cli/                 (the wraithguard command line, against the Python's cases)
-        editcore    cargo test  viewer-shell/editcore/            (the Editor's backend, shared by both)
+        cli         cargo test  viewer-shell/cli/                 (the wraithguard command line, against the cases from the Python's last build)
+        editcore    cargo test  viewer-shell/editcore/            (the Editor's backend)
         gardenfell  cargo test  viewer-shell/gardenfell-g7/ + our tests in viewer-shell/gardenfell/
                     (G7's tes3 crate against Gardenfell's readers; patches 0004, 0007, 0008)
         meshopt     cargo test  viewer-shell/meshopt-port/        (meshoptimizer's ports, against the C++'s values)
         commands    cargo build viewer-shell/check-commands/      (the viewer's commands, without Tauri)
         check       cargo build viewer-shell/check/
-        clippy      cargo clippy on native, luacore, ordercore, conflictcore, toolscore, landcore, cli, editcore, gardenfell-g7, meshopt-port, viewcore, check-commands and the viewer
+        clippy      cargo clippy on luacore, ordercore, conflictcore, toolscore, landcore, cli, editcore, gardenfell-g7, meshopt-port, viewcore, check-commands and the viewer
                     (a warning fails it, as in CI; -ClippyReport only lists them)
         pages       wg-view-serve + node boot.js, cell and mesh   (only with -Pages; needs Node 22)
 
     Every step runs even if an earlier one fails, and a table at the end says which
     passed. The exit code is 1 if any failed, so it can gate a push.
-
-    This does not install the Python module into your venvs -- that is
-    tools\setup_dev_env.ps1 (-NativeOnly after changing native/).
 
 .PARAMETER Pages
     Also run the viewer page boot tests. Needed after changing viewer-shell/ui/ or
@@ -42,7 +38,7 @@
     By default the step is strict (-D warnings), as CI's is.
 
 .PARAMETER Only
-    Run just the named steps, e.g. -Only viewcore,native
+    Run just the named steps, e.g. -Only viewcore,cli
 
 .EXAMPLE
     .\tools\build_and_check_rust.ps1
@@ -57,7 +53,7 @@ param(
     [switch]$Pages,
     [switch]$SkipViewer,
     [switch]$ClippyReport,
-    [ValidateSet('viewer', 'native', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy', 'pages')]
+    [ValidateSet('viewer', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy', 'pages')]
     [string[]]$Only
 )
 
@@ -113,7 +109,7 @@ function Invoke-Clippy {
     # passes. The lints this code base allows are in each crate's [lints.clippy].
     $lint = $(if ($ClippyReport) { @('--cap-lints', 'warn') } else { @('-D', 'warnings') })
     $ok = $true
-    foreach ($m in @('native/Cargo.toml', 'viewer-shell/luacore/Cargo.toml', 'viewer-shell/ordercore/Cargo.toml', 'viewer-shell/conflictcore/Cargo.toml', 'viewer-shell/toolscore/Cargo.toml', 'viewer-shell/landcore/Cargo.toml', 'viewer-shell/cli/Cargo.toml', 'viewer-shell/editcore/Cargo.toml', 'viewer-shell/gardenfell-g7/Cargo.toml', 'viewer-shell/meshopt-port/Cargo.toml', 'viewer-shell/viewcore/Cargo.toml',
+    foreach ($m in @('viewer-shell/luacore/Cargo.toml', 'viewer-shell/ordercore/Cargo.toml', 'viewer-shell/conflictcore/Cargo.toml', 'viewer-shell/toolscore/Cargo.toml', 'viewer-shell/landcore/Cargo.toml', 'viewer-shell/cli/Cargo.toml', 'viewer-shell/editcore/Cargo.toml', 'viewer-shell/gardenfell-g7/Cargo.toml', 'viewer-shell/meshopt-port/Cargo.toml', 'viewer-shell/viewcore/Cargo.toml',
                      'viewer-shell/check-commands/Cargo.toml', 'viewer-shell/Cargo.toml')) {
         Write-Host "  - clippy $m" -ForegroundColor Cyan
         if (-not (Invoke-Native cargo (@('clippy', '--all-targets', '--manifest-path', $m, '--') + $lint))) { $ok = $false }
@@ -123,9 +119,8 @@ function Invoke-Clippy {
 
 $steps = [ordered]@{
     viewer   = @{ Label = 'viewer release build';        Run = { Invoke-Native cargo @('build', '--release', '--manifest-path', 'viewer-shell/Cargo.toml') } }
-    native   = @{ Label = 'native tests';                Run = { Invoke-Native cargo @('test', '--manifest-path', 'native/Cargo.toml') } }
     viewcore = @{ Label = 'viewcore tests';              Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/viewcore/Cargo.toml') } }
-    luacore  = @{ Label = 'luacore tests';               Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/luacore/Cargo.toml') } }
+    luacore  = @{ Label = 'luacore tests';               Run = { Invoke-Native cargo @('test', '--features', 'teal', '--manifest-path', 'viewer-shell/luacore/Cargo.toml') } }
     ordercore = @{ Label = 'ordercore tests';            Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/ordercore/Cargo.toml') } }
     conflicts = @{ Label = 'conflictcore tests';         Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/conflictcore/Cargo.toml') } }
     tools     = @{ Label = 'toolscore tests';            Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/toolscore/Cargo.toml') } }
@@ -149,7 +144,7 @@ $steps = [ordered]@{
 if ($Only) {
     $wanted = $Only
 } else {
-    $wanted = @('viewer', 'native', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy')
+    $wanted = @('viewer', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy')
     if ($SkipViewer) { $wanted = $wanted | Where-Object { $_ -ne 'viewer' } }
     if ($Pages) { $wanted += 'pages' }
 }

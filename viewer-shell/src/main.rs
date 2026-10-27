@@ -29,7 +29,41 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 #[cfg(not(wg_check))]
 mod cellviewer;
 
+/// What the Python launcher (`wraithguard/viewer_launch.py`) set in the viewer's
+/// environment before 5.0, set by the program itself now that it starts on its own; a
+/// value already in the environment is left as it is.
+///
+/// - Windows, the WebView2-bundled build: the Fixed Version runtime in a `webview2` folder
+///   beside the program (as Microsoft ships it, one versioned folder inside), for machines
+///   without the system runtime (WebView2 removed with Edge, LTSC, stripped images).
+/// - Linux: WebKitGTK's DMA-BUF renderer off; it fails on several GPU stacks, the Deck's
+///   included.
+fn launch_env() {
+    #[cfg(windows)]
+    if std::env::var_os("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER").is_none() {
+        const EXE: &str = "msedgewebview2.exe";
+        let base = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("webview2")));
+        let found = base.and_then(|base| {
+            if base.join(EXE).is_file() {
+                return Some(base);
+            }
+            let mut subs: Vec<std::path::PathBuf> = std::fs::read_dir(&base).ok()?.flatten().map(|e| e.path()).filter(|p| p.join(EXE).is_file()).collect();
+            subs.sort();
+            subs.pop()
+        });
+        if let Some(dir) = found {
+            // The first thing main does, before any thread is started.
+            std::env::set_var("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", dir);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+}
+
 fn main() {
+    launch_env();
     let args: Vec<String> = std::env::args().collect();
 
     // One context for the whole binary. On macOS `generate_context!` embeds the

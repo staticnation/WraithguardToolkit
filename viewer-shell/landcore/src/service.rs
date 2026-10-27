@@ -280,6 +280,9 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
             jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
         });
         reads.extend(part);
+        // Progress only (not a report line, so the report stays the Python's): the page
+        // shows it while a big order is read.
+        say(&format!("  read {}/{} plugin(s)", reads.len(), resolved.len()));
     }
     let mut mods: Vec<PluginRecords> = Vec::new();
     for (index, ((name, _), (records, failure))) in resolved.iter().zip(reads).enumerate() {

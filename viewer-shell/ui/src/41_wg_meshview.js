@@ -9,10 +9,11 @@
    The meshes are drawn down the same path a cell's objects are (`buildStaticBatch`), at
    the origin or in a row, with the sky, lighting and effects of the Preview section.
    While it is on it owns the viewport: the preview rebuild draws the meshes, not a cell.
-   Beside it, the shown mesh's block tree (`inspect`, from Wraithguard's NIF reader) and
-   the selected block's fields; with `edit` ({url, filename}) the editable ones take
-   input, and Save sends the edits to Wraithguard, which applies them to the original
-   and answers with the edited file, written where the user picks (wg_save_edited).
+   Beside it, the shown mesh's block tree (`inspect`: the viewer reads it itself,
+   mesh_inspect over conflictcore::nifedit, unless the opener handed it over) and the
+   selected block's fields; the editable ones take input, and Save applies the edits to
+   the original and writes the result where the user picks (mesh_save; wg_save_edited
+   when the opener gave a loopback url).
    Comparing versions (the old viewer's tools): one at a time, side by side, or overlaid
    at the origin with a checkbox each and the camera framed over all of them, so it never
    moves as they are switched; lit, flat colour or the surface normals; normal maps; and
@@ -39,7 +40,10 @@ const WgMeshView={
   /** Opens the viewer on `meshes` ([{path,label}]). */
   open(meshes){
     this.list=(meshes||[]).filter(m=>m && m.path).map(m=>({path:String(m.path), label:String(m.label||m.path),
-      inspect:m.inspect||null, edit:(m.edit && m.edit.url)? m.edit : null}));
+      inspect:m.inspect||null,
+      // Save: through the host that handed the mesh over (its loopback url), or the
+      // viewer's own (mesh_save) - every mesh is editable now that the reader is here.
+      edit:(m.edit && m.edit.url)? m.edit : {filename:String(m.path).split(/[\\/]/).pop()||'edited.nif'}}));
     this.sel=null; this.pending={};
     if(!this.list.length) return;
     this.on=true; this.idx=0; this.layout='one'; this.shown=this.list.map(()=>true); this.solo=null;
@@ -142,6 +146,7 @@ const WgMeshView={
     h+='<div class="orisec">Shapes</div><div id="mvShapes" class="from">…</div>';
     h+='<div class="orisec">Textures</div><div id="mvTex" class="from">…</div>';
     const cur=this.list[this.idx];
+    if(cur && !cur.inspect) this.inspect(cur);
     if(cur && cur.inspect && cur.inspect.tree && cur.inspect.tree.length){
       h+='<div class="orisec">Blocks'+(this.layout!=='one' && this.list.length>1? ' · '+escHtml(cur.label) : '')+'</div>'+
          '<div id="mvTree" class="nifTree">'+this.treeHtml(cur.inspect.tree)+'</div>'+
@@ -261,6 +266,17 @@ const WgMeshView={
     });
   },
 
+  /** The block panel's data for `cur`, read by the viewer itself (mesh_inspect,
+      conflictcore::nifedit) when no host handed it over; the panel is drawn again once
+      it is in. Asked once per mesh. */
+  async inspect(cur){
+    if(cur._inspecting) return; cur._inspecting=true;
+    const T=window.__TAURI__; if(!T || !T.core) return;
+    try{ cur.inspect=JSON.parse(await T.core.invoke('mesh_inspect',{path:cur.path})); }
+    catch(e){ cur.inspect={tree:[], blocks:{}, complete:false, error:String(e)}; }
+    if(this.on && this.list[this.idx]===cur) this.panel();
+  },
+
   status(msg){
     const st=$('#mvSaveSt'); if(!st) return;
     const n=Object.keys(this.pending||{}).length;
@@ -281,7 +297,8 @@ const WgMeshView={
     if(!out) return;
     this.status('saving…');
     try{
-      await T.core.invoke('wg_save_edited', {url:cur.edit.url, body:JSON.stringify({edits}), out:String(out)});
+      if(cur.edit.url) await T.core.invoke('wg_save_edited', {url:cur.edit.url, body:JSON.stringify({edits}), out:String(out)});
+      else await T.core.invoke('mesh_save', {path:cur.path, edits:JSON.stringify(edits), out:String(out)});
       this.pending={};
       document.querySelectorAll('#mvFields .orirow.dirty').forEach(x=>x.classList.remove('dirty'));
       const ob=$('#mvOpt'); if(ob) ob.classList.remove('on');

@@ -255,7 +255,7 @@ Object.assign(WgEditor, {
     }
     this.pend.hidden=false;
     if(!this.canEdit()){
-      this.pend.querySelector('#edPendBody').innerHTML='<div class="hint">Editing needs Wraithguard.</div>';
+      this.pend.querySelector('#edPendBody').innerHTML='<div class="hint">Editing needs the Editor open on an OpenMW setup (see Messages).</div>';
       return;
     }
     this.drawPending(await this.refreshPending());
@@ -305,7 +305,7 @@ Object.assign(WgEditor, {
     this.bld.hidden=false;
     const body=this.bld.querySelector('#edBuildBody');
     if(!this.canEdit() || !this.links().editBuild){
-      body.innerHTML='<div class="hint">Writing the patch needs Wraithguard: open this viewer from Wraithguard\'s Cell Preview.</div>';
+      body.innerHTML='<div class="hint">Writing the patch needs the Editor open on an OpenMW setup (see Messages).</div>';
       return null;
     }
     body.innerHTML='<div class="hint">Reading the pool…</div>';

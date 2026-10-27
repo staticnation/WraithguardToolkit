@@ -40,7 +40,7 @@ const WgLoadOrder={
     ['rules','Rule files (one a line, mlox_base.txt first)','text'],
     ['pluginOrderYml','plugin-order.yml','file'], ['listName','List name','plain'],
     ['dataPathsCache','Data-paths cache','file'], ['groundcover','Groundcover (one a line)','text'],
-    ['emitToml','Write customizations to','save'],
+    ['emitToml','Write customizations to (empty: back into customizations.toml)','save'],
     ['userRules','Your rule file (the rule maker writes here)','save'],
   ],
   FLAGS:[
@@ -179,19 +179,8 @@ const WgLoadOrder={
     <button class="btn dim" id="loUpYml" title="Download MOMW's plugin-order.yml to the path above">Update plugin-order.yml</button>
     <button class="btn dim" id="loUpData" title="Fetch the list's data-path order to the data-paths cache above">Fetch data paths</button>
   </div>
-  <label class="f">Rule maker</label>
-  <div class="row"><select id="loRuleKind">${['Requires','Conflict','Patch','Note','Order','NearStart','NearEnd'].map(k=>`<option>${k}</option>`).join('')}</select></div>
-  <label class="f" for="loRulePlugins" id="loRulePluginsL">Plugins (one a line)</label>
-  <textarea id="loRulePlugins" spellcheck="false"></textarea>
-  <div class="hint" id="loRuleHelp" hidden>One expression a line, as mlox writes them: a plugin name, or
-    <code>[DESC /regex/ a.esp]</code>, <code>[DESC !/regex/ a.esp]</code>, <code>[SIZE 1234 a.esp]</code>,
-    <code>[SIZE !1234 a.esp]</code>, <code>[VER &lt; 1.2 a.esp]</code> (&lt; = &gt;), and groups
-    <code>[ANY a.esp b.esp]</code>, <code>[ALL ...]</code>, <code>[NOT ...]</code>. For Requires and Patch the first is
-    the subject; a Conflict needs two or more.</div>
-  <label class="f" for="loRuleMsg">Message</label><input type="text" id="loRuleMsg">
-  <label class="f" for="loRuleRef">Source (a link or where it was said; every rule cites one)</label><input type="text" id="loRuleRef">
-  <pre id="loRuleOut" class="empty"></pre>
-  <div class="row"><button class="btn dim" id="loRuleCheck">Check</button><button class="btn dim" id="loRuleAdd">Add to your rule file</button></div>
+  <label class="f">Rules of your own</label>
+  <div class="row"><button class="btn dim" id="loRuleOpen" title="Write an mlox rule - every kind the guidelines describe - checked as you write it, and add it to your rule file">Rule maker...</button></div>
 </div><div class="acts"><button class="btn" id="loSort">Sort</button><button class="btn" id="loExport" disabled>Export</button></div></div>
 <div class="orders">
   <div class="lo-col"><h3>content= <span class="sp"></span><span id="loCount"></span></h3><div class="lo-scroll"><ol id="loContent"><li class="empty">Sort to see the order.</li></ol></div></div>
@@ -200,6 +189,8 @@ const WgLoadOrder={
 <div class="lo-col"><h3>Warnings <span class="sp"></span><label><input type="checkbox" id="loText"> Full text</label></h3>
   <div class="chips" id="loChips"></div><div class="lo-scroll" id="loWarn"><div class="empty">-</div></div></div>`;
     document.body.appendChild(el);
+    // The inputs, the orders and the warnings, resized by the bars between them.
+    if(typeof WgSplit==='object') WgSplit.make(el, 'lo', [330, 620]);
 
     const v=this.saved();
     const view=window.__WG_VIEW__||{};
@@ -222,15 +213,7 @@ const WgLoadOrder={
       if(!path || !listName) return toast('The data-paths cache and the list name are needed','warn',3000);
       this.download('loadorder_fetch_data_paths',{path, listName});
     };
-    const kindShown=()=>{
-      const k=$('#loRuleKind').value, ordering=['Order','NearStart','NearEnd'].includes(k);
-      $('#loRuleHelp').hidden=ordering;
-      $('#loRulePluginsL').textContent=ordering? 'Plugins (one a line, in order)' : 'Expressions (one a line)';
-      $('#loRuleMsg').disabled=ordering;
-    };
-    $('#loRuleKind').onchange=kindShown; kindShown();
-    $('#loRuleCheck').onclick=()=>this.rule('check');
-    $('#loRuleAdd').onclick=()=>this.rule('append');
+    $('#loRuleOpen').onclick=()=>WgRuleMaker.open();
   },
 
   stamp(){
@@ -250,24 +233,6 @@ const WgLoadOrder={
     }catch(e){ toast(String(e.message||e),'err',6000); }
   },
 
-  /** The rule maker: the rule as written, its problems, or added to the person's rule file. */
-  async rule(op){
-    const kind=$('#loRuleKind').value, names=$('#loRulePlugins').value.split('\n').map(s=>s.trim()).filter(Boolean);
-    const ordering=['Order','NearStart','NearEnd'].includes(kind);
-    // An ordering rule is its plugins; a warning rule is its expressions, sent as the lines
-    // typed and read by the sort's own reader ([DESC], [SIZE], [VER], [ANY]/[ALL]/[NOT]).
-    const rule={kind, message: ordering? '' : $('#loRuleMsg').value.trim(), ref:$('#loRuleRef').value.trim(),
-      plugins: ordering ? names : [], expressions: [], lines: ordering ? [] : names};
-    const out=$('#loRuleOut');
-    try{
-      const got=await Engine.call('loadorder_author',{op, rule:JSON.stringify(rule), path:this.val('userRules')});
-      if(op==='check'){
-        out.textContent=got.text + (got.problems.length? '\n\n'+got.problems.map(([sev,m,r])=>sev+': '+m+(r?' ('+r+')':'')).join('\n') : '');
-      }else{
-        out.textContent=got.written; toast('Added to '+this.val('userRules'),'ok',3000);
-      }
-    }catch(e){ out.textContent=String(e.message||e); }
-  },
 
   async browse(k, kind){
     const p = kind==='save'
@@ -340,26 +305,75 @@ const WgLoadOrder={
   },
 
   /** A list whose rows drag to reorder and tick on and off. */
+  /** A list whose rows are picked (click, Ctrl+click, Shift+click), dragged to a new place
+   *  (the picked rows move together), moved with Alt+Up / Alt+Down, and ticked on and off.
+   *  Pointer events, not HTML drag-and-drop, which the shell's webview hands to the window as
+   *  file drops (the rows would not move). */
   drawList(ol, rows, text, cls){
     ol.innerHTML='';
+    ol.tabIndex=0;
     rows.forEach((r,i)=>{
       const li=document.createElement('li');
-      li.className=(r.on?'':'off')+cls(r);
-      li.draggable=true; li.dataset.i=i; li.dataset.key=text(r).toLowerCase();
+      li.className=(r.on?'':'off')+cls(r)+(r.sel?' hit':'');
+      li.dataset.i=i; li.dataset.key=text(r).toLowerCase();
       li.innerHTML=`<input type="checkbox" ${r.on?'checked':''}><span>${loEsc(text(r))}</span>`;
       li.firstChild.onchange=e=>{ r.on=e.target.checked; this.drawOrders(); };
-      li.ondragstart=e=>{ e.dataTransfer.setData('text/plain', String(i)); this._drag={rows,i}; };
-      li.ondragover=e=>{ if(this._drag && this._drag.rows===rows){ e.preventDefault(); li.classList.add('drop'); } };
-      li.ondragleave=()=>li.classList.remove('drop');
-      li.ondrop=e=>{
-        e.preventDefault(); li.classList.remove('drop');
-        const d=this._drag; this._drag=null; if(!d || d.rows!==rows) return;
-        const [moved]=rows.splice(d.i,1); rows.splice(d.i<i? i-1 : i, 0, moved);
-        this.drawOrders();
-      };
+      li.addEventListener('pointerdown', e=>{
+        if(e.target.tagName==='INPUT' || e.button!==0) return;
+        e.preventDefault(); ol.focus();
+        if(e.shiftKey && this._anchor!=null && this._anchorRows===rows){
+          const [a,b]=[Math.min(this._anchor,i), Math.max(this._anchor,i)];
+          rows.forEach((x,k)=>{ x.sel=k>=a && k<=b; });
+        }else if(e.ctrlKey || e.metaKey){ r.sel=!r.sel; this._anchor=i; this._anchorRows=rows; }
+        else{
+          if(!r.sel) rows.forEach(x=>{ x.sel=false; });
+          r.sel=true; this._anchor=i; this._anchorRows=rows;
+        }
+        for(const [k,x] of rows.entries()) ol.children[k] && ol.children[k].classList.toggle('hit', !!x.sel);
+        // a drag from here moves the picked rows to where it is let go
+        const y0=e.clientY; let target=null, moved=false;
+        li.setPointerCapture(e.pointerId);
+        const move=ev=>{
+          if(!moved && Math.abs(ev.clientY-y0)<4) return;
+          moved=true;
+          const over=document.elementFromPoint(ev.clientX, ev.clientY);
+          const t=over && over.closest && over.closest('li');
+          if(target && target!==t) target.classList.remove('drop');
+          target=t && t.parentElement===ol ? t : null;
+          if(target) target.classList.add('drop');
+          const box=ol.closest('.lo-scroll'); if(box){ const rr=box.getBoundingClientRect(); if(ev.clientY<rr.top+20) box.scrollTop-=12; else if(ev.clientY>rr.bottom-20) box.scrollTop+=12; }
+        };
+        const up=()=>{
+          li.removeEventListener('pointermove', move); li.removeEventListener('pointerup', up);
+          if(target) target.classList.remove('drop');
+          if(moved && target) this.moveTo(rows, +target.dataset.i);
+        };
+        li.addEventListener('pointermove', move); li.addEventListener('pointerup', up);
+      });
       ol.appendChild(li);
     });
+    ol.onkeydown=e=>{
+      if(!e.altKey || (e.key!=='ArrowUp' && e.key!=='ArrowDown')) return;
+      e.preventDefault();
+      const first=rows.findIndex(x=>x.sel); if(first<0) return;
+      const last=rows.length-1-[...rows].reverse().findIndex(x=>x.sel);
+      if(e.key==='ArrowUp' && first>0) this.moveTo(rows, first-1);
+      else if(e.key==='ArrowDown' && last<rows.length-1) this.moveTo(rows, last+2);
+    };
   },
+
+  /** The picked rows of `rows` moved together to stand before row `at` (its index now). */
+  moveTo(rows, at){
+    const picked=rows.filter(x=>x.sel); if(!picked.length) return;
+    const before=rows.slice(0,at).filter(x=>!x.sel).length;
+    const rest=rows.filter(x=>!x.sel);
+    rest.splice(before, 0, ...picked);
+    rows.length=0; rows.push(...rest);
+    this.drawOrders();
+  },
+
+  /** The picked rows of the content= order, in order (the rule maker takes them). */
+  picked(){ return this.content.filter(r=>r.sel).map(r=>r.name); },
 
   drawWarnings(){
     const items=this.report;
@@ -411,7 +425,11 @@ const WgLoadOrder={
     try{
       const stamp=this.stamp();
       const extra=(window.__WG_VIEW__||{}).extra||{};
-      const a={cfg:this.val('cfg'), writeCfg:this.flag('writeCfg'), emitToml:this.val('emitToml'), dryRun:this.flag('dryRun'),
+      // The durable fix is the customizations TOML (the configurator rebuilds openmw.cfg
+      // from it): with no other target named, Export writes it back into customizations.toml
+      // itself (the Tk window's "write directly back"), a backup kept unless No backup.
+      const toml=this.val('emitToml') || this.val('customizations');
+      const a={cfg:this.val('cfg'), writeCfg:this.flag('writeCfg'), emitToml:toml, dryRun:this.flag('dryRun'),
         noBackup:this.flag('noBackup'), sortDataPaths:this.flag('sortDataPaths'), listName:this.val('listName'), stamp,
         finalOrder:this.content.filter(r=>r.on).map(r=>r.name),
         dataOrder:this.plan.dataResult? this.data.filter(r=>r.on).map(r=>r.line) : null,
@@ -422,7 +440,9 @@ const WgLoadOrder={
       this.report=this.report.concat(got.report||[]);
       this.drawWarnings();
       const what=[got.wroteCfg&&'openmw.cfg', got.wroteToml&&'customizations.toml'].filter(Boolean);
-      toast(what.length? 'Wrote '+what.join(' and ') : 'Nothing written (a preview)', what.length?'ok':'warn', 4000);
+      // Say why nothing was written: a preview is what Export does without a target ticked.
+      const why=a.dryRun? 'Dry run is ticked' : !a.emitToml? 'name the customizations.toml (or "Write customizations to") to write the order into' : 'see Warnings';
+      toast(what.length? 'Wrote '+what.join(' and ') : 'Nothing written (a preview): '+why, what.length?'ok':'warn', what.length? 4000 : 7000);
     }catch(e){ toast(String(e.message||e),'err',6000); }
     finally{ btn.disabled=false; }
   },

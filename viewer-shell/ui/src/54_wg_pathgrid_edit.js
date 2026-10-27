@@ -38,7 +38,7 @@ const WgPath={
 
   async start(){
     const E=this.E();
-    if(!E.canEdit()) return toast('Path grid editing needs Wraithguard: open the viewer from Wraithguard (Cell Preview)','warn',5000);
+    if(!E.canEdit()) return toast('Path grid editing needs the Editor open on an OpenMW setup (see Messages)','warn',5000);
     if(!App.R) return;
     this.on=true; this.sel=[]; this.undoStack=[]; this.redoStack=[];
     this.hook();

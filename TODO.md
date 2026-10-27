@@ -120,11 +120,11 @@ program, and a clearer UI on the way. In order:
       Wraithguard's buttons open the pages, its Tk runs kept as fallbacks until 4.5. Left:
       Merge Lands as a job with live progress and a cancel (its lines come back at the end);
       the tes3conv land path is not ported.
-   5. *Drop Tk and PyInstaller.* Next. Retires with Tk: the Python Editor, `gui/conflicts.py`,
-      `patchwin.py`, `journalview.py`, `pluginview.py`, `luaview.py`, `removemaster.py`,
-      `t3.py`, `viz/docs.py`, `wraithguard/land/` and the fallbacks above. One Tauri build per platform; the Flatpak loses its Python
-      runtime (and the `LD_LIBRARY_PATH` workaround); `native/` (pyo3) folds into viewcore
-      and ordercore as its last Python caller goes. Plan: `viewer-shell/DROP-TK.md`.
+   5. *Drop Tk and PyInstaller.* Done: 5.0.0 (2026-10-27; `viewer-shell/DROP-TK.md`). The
+      program on its own with its Setup page, the Rust command line, settings carried over,
+      `build-app.yml`; `native/` folded into the crates and the Python app deleted. Left (4.6
+      list, now after 5.0): translations, the Flatpak on the Tauri binary, the CSP,
+      Android/iOS, an installer.
 
    Each Tk window is redesigned as it moves, not copied: that is the UI cleanup.
 5. **Later, not blocking the port:** a sound engine (plan in `viewer-shell/SOUND.md`: decode

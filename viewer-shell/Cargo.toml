@@ -1,8 +1,8 @@
 [package]
 name = "wraithguard-viewer"
-version = "0.1.0"
+version = "5.0.0"
 edition = "2021"
-description = "Native webview shell: opens one window pointed at a URL, or runs the built-in cell viewer (--cell-viewer). Replaces pywebview as the child-process viewer spawned by wraithguard_toolkit_gui.py -- no Python interpreter involved, so it carries none of PyQt6/sip's free-threading limitations."
+description = "Wraithguard: the program (the cell viewer, Editor, Load order, Conflicts and Tools pages) on Tauri; started on its own it opens on the settings file's openmw.cfg."
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

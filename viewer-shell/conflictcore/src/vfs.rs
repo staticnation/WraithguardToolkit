@@ -16,9 +16,27 @@ pub const MAX_DEPTH: usize = 64;
 /// The compare's read size.
 pub const CHUNK: usize = 1 << 20;
 
+/// The threads a scan may use at most: set by the viewer to half the machine's
+/// ([`set_scan_threads`]) so a scan leaves the rest to drawing and loading cells; 0 until set
+/// (every CPU, up to [`MAX_WORKERS`]).
+static SCAN_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+/// How many threads a scan may use from now on (0: every CPU, up to [`MAX_WORKERS`]).
+pub fn set_scan_threads(n: usize) {
+    SCAN_THREADS.store(n, Ordering::Relaxed);
+}
+
+/// The threads a scan may use now.
+pub fn scan_threads() -> usize {
+    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(MAX_WORKERS);
+    match SCAN_THREADS.load(Ordering::Relaxed) {
+        0 => cpus,
+        n => n.min(cpus).max(1),
+    }
+}
+
 fn workers(n: usize) -> usize {
-    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
-    n.clamp(1, cpus.min(MAX_WORKERS))
+    n.clamp(1, scan_threads())
 }
 
 /// `f(item)` for every item on a few threads, results in the items' order.

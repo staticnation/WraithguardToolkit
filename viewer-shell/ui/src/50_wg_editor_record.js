@@ -77,7 +77,7 @@ Object.assign(WgEditor, {
 
   async ask(link, body){
     const url=this.links()[link];
-    if(!url) throw new Error('Editing needs Wraithguard: open the viewer from Wraithguard (Cell Preview)');
+    if(!url) throw new Error('Editing needs the Editor open on an OpenMW setup (see Messages)');
     /* The links the viewer's own Editor answers (editcore::links) go to the engine, the same
        JSON in and out; the rest to Wraithguard. Both write the patch queue's journal, so
        either sees what the other changed. Wraithguard hands the viewer's links over as
@@ -98,13 +98,22 @@ Object.assign(WgEditor, {
    *  Messages: Wraithguard answers every link then. */
   nativeLinks(){
     if(!this._native){
-      const ed=((window.__WG_VIEW__||{}).extra||{}).editor;
-      this._native=(!ed || !Array.isArray(ed.plugins))? Promise.resolve(new Set())
+      const extra=(window.__WG_VIEW__||{}).extra||{};
+      // No host (the program on its own): the setup comes from the install the viewer has
+      // open (editor_setup), and the links are the Editor's own.
+      const own=!(extra.links && extra.links.editRecord);
+      const setup=(extra.editor && Array.isArray(extra.editor.plugins))? Promise.resolve(extra.editor)
+        : own? Engine.call('editor_setup',{}).then(t=>typeof t==='string'? JSON.parse(t) : t) : Promise.resolve(null);
+      this._native=setup.then(ed=>(!ed || !Array.isArray(ed.plugins))? new Set()
         : Engine.call('editor_open',{plugins:ed.plugins, journal:String(ed.journal||''), folders:ed.folders||[],
             last:String(ed.last||''), testSettings:String(ed.testSettings||'')})
           .then(t=>new Set(typeof t==='string'? JSON.parse(t) : t))
+          .then(names=>{
+            if(own && names.size){ this._ownLinks={}; names.forEach(n=>{ this._ownLinks[n]='native:'+n; }); }
+            return names;
+          }))
           .catch(e=>{
-            if(typeof WgLog==='object' && WgLog.add) WgLog.add('The viewer\'s own Editor did not open ('+String(e && e.message || e)+'): Wraithguard answers every link', 'warn');
+            if(typeof WgLog==='object' && WgLog.add) WgLog.add('The Editor did not open on this install ('+String(e && e.message || e)+')'+(own? ': editing is off' : ': Wraithguard answers every link'), 'warn');
             return new Set();
           });
     }
@@ -118,7 +127,7 @@ Object.assign(WgEditor, {
     d.querySelector('#edDlgTitle').textContent=(this.NAMES[tag]||tag)+' - '+id;
     const body=d.querySelector('#edDlgBody');
     if(!this.canEdit()){
-      body.innerHTML='<div class="hint">Editing needs Wraithguard: open this viewer from Wraithguard\'s Cell Preview, '+
+      body.innerHTML='<div class="hint">Editing needs the Editor open on an OpenMW setup (see Messages), '+
         'and the record\'s fields open here, with changes going to its patch pool.</div>';
       return;
     }

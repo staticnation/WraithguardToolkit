@@ -23,6 +23,11 @@ ordercore = { path = "../ordercore" }
 luacore = { path = "../luacore" }
 # Meshes, read for the mesh conflicts (src/mesh.rs).
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["nif"] }
+# The mesh viewer's Optimise (src/nif_order.rs, from native/ in 4.6): Gardenfell's triangle
+# order (`triorder`, Robin Hjelte's port of meshoptimizer's vertex cache and overdraw passes)
+# and our port of its vertex fetch order and analysers. Both std only.
+gardenfell-nif = { path = "../gardenfell/crates/gardenfell-nif" }
+meshopt-port = { path = "../meshopt-port" }
 
 # A record's tes3conv-schema form, for the field diff (in the record's own order: editcore
 # turns on preserve_order).

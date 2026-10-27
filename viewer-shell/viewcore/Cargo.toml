@@ -12,8 +12,8 @@ description = "Cell viewer engine: VFS/BSA, load order, ESP/ESM world, NIF meshe
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["bsa", "esp", "nif"] }
 bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
 # Wraithguard: OpenMW Lua scripts read and checked (the Editor's Lua panel), the same code
-# the Python backend binds (native/ takes it by path too).
-luacore = { path = "../luacore" }
+# the Python backend bound; with the Teal checks (`teal`, from native/ in 4.6).
+luacore = { path = "../luacore", features = ["teal"] }
 # Wraithguard: the openmw.cfg reader (data folders, content, groundcover, archives, chained
 # cfgs), by OpenMW's documented rules - the one the Python backend uses too.
 ordercore = { path = "../ordercore" }

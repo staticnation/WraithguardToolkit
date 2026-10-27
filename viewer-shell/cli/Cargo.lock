@@ -298,7 +298,9 @@ name = "conflictcore"
 version = "0.1.0"
 dependencies = [
  "editcore",
+ "gardenfell-nif",
  "luacore",
+ "meshopt-port",
  "ordercore",
  "serde_json",
  "tes3",
@@ -586,6 +588,17 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "gardenfell-bytes"
+version = "0.1.0"
+
+[[package]]
+name = "gardenfell-nif"
+version = "0.1.0"
+dependencies = [
+ "gardenfell-bytes",
 ]
 
 [[package]]
@@ -881,6 +894,10 @@ dependencies = [
  "tracing-subscriber",
  "uncased",
 ]
+
+[[package]]
+name = "meshopt-port"
+version = "0.1.0"
 
 [[package]]
 name = "multiversion_no_op"
@@ -1697,7 +1714,7 @@ dependencies = [
 
 [[package]]
 name = "wraithguard-cli"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "base64",
  "chrono",

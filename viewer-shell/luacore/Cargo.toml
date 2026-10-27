@@ -1,7 +1,8 @@
-# OpenMW Lua scripts read and checked in plain Rust (no Python, no embedded Lua): the
-# lexer, parser, per-script checks, the load-order scan, the API tables and docs reader,
-# the Teal findings mapping, the report and the Mermaid charts. Used by native/ (the
-# Python backend, which adds the Teal checker) and viewcore (the viewer's Editor).
+# OpenMW Lua scripts read and checked in plain Rust: the lexer, parser, per-script checks,
+# the load-order scan, the API tables and docs reader, the Teal findings mapping, the
+# report and the Mermaid charts; with the `teal` feature, the Teal checker itself (an
+# embedded Lua 5.4, src/check.rs, from native/ in 4.6). Used by viewcore (the viewer's
+# Editor, with `teal`) and native/ (the Python backend, until it retires).
 #
 # Beside viewcore rather than in native/ so the viewer's builds (which copy only
 # viewer-shell/) have it; native/ takes it by path.
@@ -19,6 +20,14 @@ tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, f
 regex = "1"
 # The openmw.cfg reader (the cfg chain, OpenMW's rules): `resources=` for find_resources.
 ordercore = { path = "../ordercore" }
+# The Teal checks (src/check.rs, the `teal` feature; from native/ in 4.6): the Teal compiler
+# (tl 0.24.8, MIT) in an embedded Lua 5.4 (mlua, vendored), ynishi/htl, MIT OR Apache-2.0.
+# Without its `pkg` feature: no project manifests here, only files and folders of declarations.
+htl-core = { version = "0.12.0", default-features = false, optional = true }
+anyhow = { version = "1", optional = true }
+
+[features]
+teal = ["dep:htl-core", "dep:anyhow"]
 
 [lints.clippy]
 type_complexity = "allow"

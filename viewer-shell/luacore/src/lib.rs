@@ -17,6 +17,8 @@
 //! the reference this is held to (tests on both sides).
 
 pub mod analysis;
+#[cfg(feature = "teal")]
+pub mod check;
 pub mod api;
 pub mod findings;
 pub mod ldt;

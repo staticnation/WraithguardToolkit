@@ -191,6 +191,8 @@ fn a_whole_merge_gives_the_recorded_plugin_and_report() {
         let rootstr = root.display().to_string();
         let un = |lines: &[String]| -> Vec<String> { lines.iter().map(|l| l.replace(&rootstr, "<root>").replace('\\', "/")).collect() };
         let want_lines: Vec<String> = expect["lines"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        // The read progress ("  read n/m plugin(s)") is said for the page only, not the Python's.
+        said.retain(|l| !(l.starts_with("  read ") && l.ends_with(" plugin(s)")));
         assert_eq!(un(&said), want_lines, "{name}: the lines said");
         match got {
             Err((message, lines)) => {

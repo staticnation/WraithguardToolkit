@@ -274,7 +274,14 @@ const WgEditor={
     CLAS:'Class', BSGN:'Birthsign', REGN:'Region', SOUN:'Sound', SNDG:'Sound generator', BODY:'Body part',
     GMST:'Game setting', GLOB:'Global', DIAL:'Dialogue', LTEX:'Land texture', SKIL:'Skill', MGEF:'Magic effect'},
 
-  links(){ return (((window.__WG_VIEW__||{}).extra)||{}).links||{}; },
+  /** The Editor's links: the ones a host handed over in the launch's extra file, else
+   *  (the program on its own, 4.6) the viewer's own Editor's, once `nativeLinks` has
+   *  opened it - each named `native:<link>`, answered by editcore. */
+  links(){
+    const given=(((window.__WG_VIEW__||{}).extra)||{}).links||{};
+    if(given.editRecord || !this._ownLinks) return given;
+    return Object.assign({}, given, this._ownLinks);
+  },
   canEdit(){ return !!this.links().editRecord; },
 
   /** Part of the preview's scene key: the pending changes, and what the layers hide. */
@@ -312,6 +319,9 @@ const WgEditor={
     this.hookDrop();
     this.dock();
     WgUI.onEnter();
+    // The program on its own: open the viewer's Editor on the install before the windows
+    // ask whether they can edit.
+    try{ await this.nativeLinks(); }catch(_){}
     try{
       this.tags=await listTags();
     }catch(e){ toast(String(e.message||e),'err',5000); this.tags=[]; }
@@ -377,7 +387,7 @@ const WgEditor={
     d.querySelector('#edFilterAll').onchange=e=>{
       this.filterAll=e.target.checked;
       d.querySelector('#edFilter').placeholder=this.filterAll? 'Search every field: text, path:text, path=value, path>n (Ctrl+F)' : 'Filter: id, name or model (Ctrl+F)';
-      if(this.filterAll && !this.canEdit()){ toast('Searching every field needs Wraithguard: open the viewer from Wraithguard (Cell Preview)','warn',4000); }
+      if(this.filterAll && !this.canEdit()){ toast('Searching every field needs the Editor open on an OpenMW setup (see Messages)','warn',4000); }
       this._search=null; this.resetLimit('objects');
       if(this.filterAll) this.searchSoon(); else this.drawRows();
     };

@@ -99,6 +99,23 @@ pub fn scan_json(vfs: &Vfs, order_file: Option<&Path>) -> Result<String, String>
         .iter()
         .map(|(p, s, c, l, m)| (p.clone(), s.to_string(), c.to_string(), *l, m.clone()))
         .collect();
+    // The Teal checks (luacore::check, from native/ in 4.6): each loose script as its
+    // winner on disk, the data folders lowest priority first. Packed scripts have no file
+    // for the checker and are left to the scan's own rules.
+    let winners: Vec<Option<PathBuf>> = got.scripts.iter().map(|r| r.providers.last().cloned()).collect();
+    let data_dirs: Vec<PathBuf> = vfs.roots.iter().rev().map(|r| r.dir.clone()).collect();
+    let teal = luacore::check::teal_findings(&winners, &data_dirs, resources.as_deref());
+    let teal_note = match &teal {
+        Ok(t) => format!("Teal checked {} script(s) against {}", t.checked, t.description),
+        Err(e) => format!("Teal checks off: the checker did not start ({e:#})"),
+    };
+    if let Ok(t) = &teal {
+        for (rec, found) in got.scripts.iter().zip(&t.findings) {
+            if let Some(found) = found {
+                rows.extend(found.iter().map(|(s, c, l, m)| (rec.path.clone(), s.to_string(), c.to_string(), *l, m.clone())));
+            }
+        }
+    }
     let mut lines: Vec<ScriptLine> = Vec::new();
     let mut scripts = String::from("[");
     for (i, rec) in got.scripts.iter().enumerate() {
@@ -134,8 +151,8 @@ pub fn scan_json(vfs: &Vfs, order_file: Option<&Path>) -> Result<String, String>
         scripts: got.scripts.len(),
         data_dirs: vfs.roots.len(),
         api_source: match &resources {
-            Some(r) => format!("API rules from {} (Teal checks: the toolkit's Lua window)", r.display()),
-            None => "no OpenMW install found: OpenMW 0.51's API rules (Teal checks: the toolkit's Lua window)".into(),
+            Some(r) => format!("API rules from {}; {teal_note}", r.display()),
+            None => format!("no OpenMW install found: OpenMW 0.51's API rules; {teal_note}"),
         },
         omwaddons: got.omwaddons.len(),
         lual_files: got.lual_files.len(),

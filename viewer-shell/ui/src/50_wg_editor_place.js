@@ -46,7 +46,7 @@ Object.assign(WgEditor, {
   /** Places a record (`{tag, id, model, defined}`) as a new reference: in the cell on
    *  screen, an exterior's by where it lands. Opens it in the reference dialog. */
   async placeAt(rec, clientX, clientY, world, rotation){
-    if(!this.canEdit()) return toast('Placing needs Wraithguard: open this viewer from Wraithguard (Cell Preview)','warn',5000);
+    if(!this.canEdit()) return toast('Placing needs the Editor open on an OpenMW setup (see Messages)','warn',5000);
     const at=world? {world:world.slice()} : this.placePoint(clientX, clientY), sel=App.cellSel;
     if(!at || !sel) return toast('Open a cell first','warn',3000);
     if(!world && this.gridOn && this.grid>0) at.world=at.world.map((v,i)=> i<2? Math.round(v/this.grid)*this.grid : v);

@@ -1,15 +1,38 @@
 # Changelog
 
 
-## 4.5.0
+## 5.0.0
+
+The program is Rust and its page only: the Python app is gone.
+
+It also carries everything planned as 4.5.0, which was never released: the Load order page,
+the Setup page, the program on its own, the Rust command line and the rest below.
 
 ### Removed
+
+- **The Python app (Tk), its PyInstaller builds and `native/` (the pyo3 module).** What only
+  the Python could do moved into the program first (below). `wraithguard_toolkit.py`,
+  `wraithguard_toolkit_gui.py`, `wraithguard/`, the Python tests, `pyproject.toml`, the
+  Docker and Linux build scripts, and the Python-only scripts in `tools/` are deleted. The
+  command line is the `wraithguard` program (below).
+- **No migration of a Python patch queue.** A queue the Python Editor left is not carried
+  over: build it into a patch with 4.x before upgrading. The settings file is still read.
 
 - **Sort, Export, Scan, Sources and the rule maker left Wraithguard's main window**: they are
   the viewer's Load order page now. The Python sort and rule code went with them; the load
   order is Rust only (`ordercore`), and PyYAML and certifi are no longer needed.
 
 ### Added
+
+- **The mesh viewer's block panel, field edits, Save and Optimise** for any mesh it opens,
+  read and written by the program (`mesh_inspect`, `mesh_save`; `conflictcore::nifedit`).
+- **The Teal checks in the Editor's Lua panel** (`luacore`, its `teal` feature: the Teal
+  compiler in an embedded Lua), as the Tk Lua window ran them.
+- **The Editor edits on its own**: record edits, dialogue, placing, path grids and Build
+  patch open on the install the program has loaded (`editor_setup`).
+- **Merge Lands says what it is doing** as it goes, with the time taken, instead of only at
+  the end.
+- **tes3cmd: Add your mods and Add list mods**, from the load order's sort.
 
 - **A Setup page: the paths the program runs on, in one place.** The openmw.cfg (with Find,
   which looks where OpenMW keeps it), the rule files and your own, the customizations TOML,
@@ -158,8 +181,129 @@
 - **`tools/cache_stats.py`**: what the record cache holds - rows per table, record bodies by
   tag, and the plugins with the biggest share of the use index.
 
+### Fixed
+
+- **Yes/no questions** (Merge Lands, tes3cmd, masters, backups, a script with errors) asked
+  nothing and went ahead: tauri-plugin-dialog 2.8's `window.confirm` calls a command it no
+  longer has. They use the dialog's own question now.
+- **Export writes the customizations TOML** back into customizations.toml when no other
+  target is named, and says why when it writes nothing.
+- **Save Check** counted every `.omwscripts` the cfg loads (and `builtin.omwscripts`) as
+  missing; its warning could sit off-screen in dim text.
+- **The Tools page's fields** were white on white in dark themes.
+
+- **The Tools page never opened**: its script and the Preview's tools shared a name, so the
+  page's script stopped as it loaded (and its top-bar button never appeared).
+- **"1. Load order" opened the viewer on empty fields**, with no sort and nothing about the
+  install: the sort's fields (rule files, customizations, list, cache, grass, options) had
+  left Wraithguard's window, so the page had nothing to start from. The page now opens on
+  what Wraithguard's settings file holds and the openmw.cfg Wraithguard names (not the
+  setup copy the viewer is launched on), and sorts at once; Wraithguard keeps those fields
+  in its settings file when it saves. The Tools page takes tes3cmd and the Merge Lands
+  folder from it, and the Conflicts page its exclusions.
+- **The rule maker wrote Requires, Conflict and Patch rules without their subject**, and a
+  Note without the plugins it was about: the first plugin went to a field those rules do not
+  write. Every line is now an expression of the rule.
+- **The Use Report finds dialogue results once the use index is built.** The scan of the
+  plugins counted an id named in a response's result, but the index (which answers once
+  the load order is indexed, and with every id that has a space or a dash) only had
+  scripts' words, so the same report lost those uses on the second click, and Search &
+  Replace then left the results naming the old id. The index has results' words too (the
+  cache is emptied once to rebuild it), and an id with a space or a dash is looked for in
+  results as well as scripts.
+- **A script can name an NPC the patch makes.** The compiler was handed the patch's own
+  records with the three-letter tag the naming table has for an NPC (`NPC`, not `NPC_`)
+  and passed over it, so a script naming an NPC made with "Make a copy as" did not
+  compile (and Search & Replace saved its text without its bytecode).
+- **Script Edit no longer warns about a global the patch makes.** Its checks knew only
+  the load order's globals, so a script setting one the patch adds was flagged as naming
+  neither a local nor a global, though it compiled.
+- **The compiled listing shows a stray last byte at its own place.** A single byte left
+  at the end of a script's bytecode was listed at the offset of an earlier span.
+- **The dialogue flow and the rehearsal show a moved response where it was moved to.** A
+  response dragged to a new place in the dialogue window moved there in the window, but
+  the topic's flow, its map and the rehearsal still read it where the plugins have it
+  (often last, as an orphan), so the rehearsal could pick a different line from the one
+  the patch makes first.
+- **Editing a response's disposition, rank or sex no longer changes what the Editor shows
+  as the plugin's.** Opening the dialogue flow or the rehearsal laid the patch's change
+  to a nested field (`data.disposition`, ...) onto the plugin's own copy the Editor keeps,
+  so the dialogue window then showed the plugin with the patch's value, and taking the
+  change back did not undo it there.
+- **One Ctrl+Z takes back a whole Search & Replace.** A replace that changed a script
+  saved each of the script's fields as its own undo step (its text, then each part of the
+  bytecode), so undoing it took several presses and stopped halfway through; saving a
+  script from Script Edit did the same. Both are one step now.
+- **The viewer and the Editor agree on a placed object one plugin deletes and a later one
+  edits: the later record brings it back, as the game does.** Morrowind.exe takes the last
+  record for a reference whole, so a plugin's change after another plugin's deletion
+  undeletes the object (checked in the game with `tests/ingame/`'s `WG_Del_*` plugins: five
+  piles). The viewer kept such an object hidden (Gardenfell round 18fc; patch 0017 takes that
+  out) and the two sides used different rules; both now use `ordercore::refs`, pinned by
+  `tests/fixtures/ref_cases.json`. Where a moved object stands (a move, moved twice, moved
+  back, moved then deleted, deleted then moved) is pinned the same way for the engine and the
+  Editor: `tests/fixtures/move_cases.json`.
+- **The Editor warns before a change brings back a deleted object.** The placed object's
+  dialog says which plugin deletes it and that a change saved in the patch brings it back,
+  and Verify lists each such change as a warning.
+- **A `[Note]` rule fires when any of the plugins it lists is installed**, as mlox's does, and
+  names those that are. It needed all of them, so a note listing alternatives ("these are
+  modder's resources", "use only one of these") almost never showed.
+- **Rules naming a plugin with brackets in its name work.** `Morrowind Rebirth [Main].ESP`,
+  `[Official]Master Index.esp`, `GCD v1.08 with Startscript, fixed [Galsiah].esp` and about
+  380 other uses in mlox's rules were split into empty groups and stray text, and some came
+  out as another real plugin's name (`[Official]LeFemm Armor.esp` read as `LeFemm Armor.esp`),
+  so a warning could fire for the wrong mod or not at all; `[Order]` lines starting with
+  `[Official]` were dropped. A plain plugin name in a rule is now compared as text, as mlox
+  compares it (it was matched as an expression, which read the brackets as syntax), and in a
+  pattern with a wildcard every character but the wildcards is text too, so
+  `Julan Ashlander Companion <VER> [Rebirth].esp` matches Julan's Rebirth file (in mlox it
+  matches nothing).
+- **`[VER]` reads a version as mlox does.** A plugin with no version in its header or its
+  file name makes the test false; an `=` was assumed to hold, which raised notes and
+  requirements about plugins of any version. With no data folder to read, `=` still holds.
+- **Saving the viewer's settings no longer says "profile not saved".** The save answered with
+  the file's path as bare text, which the page read as JSON; the file had been written. It now
+  answers `{"path": ...}`.
+- **Opening a record or quest from the viewer's inspector no longer reports an error.** The
+  conflict viewer answers the click with the text `ok`; the page read every answer as JSON and
+  said the engine's answer did not read, though the conflict viewer had opened.
+- **Two Wraithguards (or two caches) opening the cache file at the same moment no longer lose
+  it.** The one that set the file up could be refused at once with "database is locked", after
+  which its cache was off for the whole session and its writes were dropped; setup now waits
+  its turn, and a lock is never taken for a cache that cannot work.
+- **A viewer that hangs up no longer fills the console with tracebacks.** An aborted or reset
+  connection (the viewer's own timeout, or closing its window) is not an error on the editor's
+  side.
+- **The Editor's Q menu** acts on a single selected item again, and the menu and other
+  regressions from the Gardenfell 18hu rebase are fixed.
+
 ### Changed
 
+- **The Conflicts page reads as the Tk window did.** The records list in columns (yours,
+  type, record, how many, winner) coloured by verdict; the field comparison with each
+  field's row in its verdict's colours (red an edit lost, amber overridden, green agree),
+  each plugin's name in its status's colour and the winner marked, one line a field with
+  the table scrolling sideways, and a list or table (a cell's references, an inventory)
+  shown as its size and opened in a panel of its own on a click, not printed whole.
+- **The pages' columns can be resized**: drag the bar between them (Load order, Conflicts,
+  Help); double-click it for the default. Remembered.
+- **The load order's rows move**: drag them (the picked rows move together), or Alt+Up /
+  Alt+Down; click, Ctrl+click and Shift+click pick rows. Dragging did nothing in the
+  program's window before.
+- **The rule maker is whole again**: its own panel, as the Tk window had it - the rule
+  type with what each does, the plugins or expressions as a list (from the load order's
+  picked rows, typed, dragged into order, grouped as ANY / ALL / NOT and taken apart), the
+  message, source, @section, highlight and comment, a live preview with its problems, and
+  Append (refused while there is an error) and Rule guide.
+- **Scans no longer hold up the cell you are loading.** The record and loose-file scans, the
+  lint, the journal and the conflict colours run one at a time on half the machine's
+  threads, leaving the rest to the cell load; several started from different pages used to
+  take every core, and a cell sat at 0% for minutes behind them.
+- **A conflict scan of a load order already read is a lookup.** Each plugin's records and
+  cells are kept in `wraithguard_scan_cache.sqlite3` beside the program, read again only when
+  the plugin changes, and filled in the background (two threads) as soon as the program has
+  connected, so the Conflicts page's first scan does not read 600 plugins again.
 - **The viewer no longer opens Wraithguard's windows.** ORI's Conflicts link opens the
   Conflicts page on that record; the Editor's script flowchart is drawn in the viewer's own
   chart panel; "Preview it in a new Cell Preview" starts the viewer itself with the written
@@ -270,94 +414,6 @@
   the viewer can build it.
   The MWScript compiler
   moved into `viewer-shell/editcore` with them; the Python module calls it there.
-
-### Fixed
-
-- **The Tools page never opened**: its script and the Preview's tools shared a name, so the
-  page's script stopped as it loaded (and its top-bar button never appeared).
-- **"1. Load order" opened the viewer on empty fields**, with no sort and nothing about the
-  install: the sort's fields (rule files, customizations, list, cache, grass, options) had
-  left Wraithguard's window, so the page had nothing to start from. The page now opens on
-  what Wraithguard's settings file holds and the openmw.cfg Wraithguard names (not the
-  setup copy the viewer is launched on), and sorts at once; Wraithguard keeps those fields
-  in its settings file when it saves. The Tools page takes tes3cmd and the Merge Lands
-  folder from it, and the Conflicts page its exclusions.
-- **The rule maker wrote Requires, Conflict and Patch rules without their subject**, and a
-  Note without the plugins it was about: the first plugin went to a field those rules do not
-  write. Every line is now an expression of the rule.
-- **The Use Report finds dialogue results once the use index is built.** The scan of the
-  plugins counted an id named in a response's result, but the index (which answers once
-  the load order is indexed, and with every id that has a space or a dash) only had
-  scripts' words, so the same report lost those uses on the second click, and Search &
-  Replace then left the results naming the old id. The index has results' words too (the
-  cache is emptied once to rebuild it), and an id with a space or a dash is looked for in
-  results as well as scripts.
-- **A script can name an NPC the patch makes.** The compiler was handed the patch's own
-  records with the three-letter tag the naming table has for an NPC (`NPC`, not `NPC_`)
-  and passed over it, so a script naming an NPC made with "Make a copy as" did not
-  compile (and Search & Replace saved its text without its bytecode).
-- **Script Edit no longer warns about a global the patch makes.** Its checks knew only
-  the load order's globals, so a script setting one the patch adds was flagged as naming
-  neither a local nor a global, though it compiled.
-- **The compiled listing shows a stray last byte at its own place.** A single byte left
-  at the end of a script's bytecode was listed at the offset of an earlier span.
-- **The dialogue flow and the rehearsal show a moved response where it was moved to.** A
-  response dragged to a new place in the dialogue window moved there in the window, but
-  the topic's flow, its map and the rehearsal still read it where the plugins have it
-  (often last, as an orphan), so the rehearsal could pick a different line from the one
-  the patch makes first.
-- **Editing a response's disposition, rank or sex no longer changes what the Editor shows
-  as the plugin's.** Opening the dialogue flow or the rehearsal laid the patch's change
-  to a nested field (`data.disposition`, ...) onto the plugin's own copy the Editor keeps,
-  so the dialogue window then showed the plugin with the patch's value, and taking the
-  change back did not undo it there.
-- **One Ctrl+Z takes back a whole Search & Replace.** A replace that changed a script
-  saved each of the script's fields as its own undo step (its text, then each part of the
-  bytecode), so undoing it took several presses and stopped halfway through; saving a
-  script from Script Edit did the same. Both are one step now.
-- **The viewer and the Editor agree on a placed object one plugin deletes and a later one
-  edits: the later record brings it back, as the game does.** Morrowind.exe takes the last
-  record for a reference whole, so a plugin's change after another plugin's deletion
-  undeletes the object (checked in the game with `tests/ingame/`'s `WG_Del_*` plugins: five
-  piles). The viewer kept such an object hidden (Gardenfell round 18fc; patch 0017 takes that
-  out) and the two sides used different rules; both now use `ordercore::refs`, pinned by
-  `tests/fixtures/ref_cases.json`. Where a moved object stands (a move, moved twice, moved
-  back, moved then deleted, deleted then moved) is pinned the same way for the engine and the
-  Editor: `tests/fixtures/move_cases.json`.
-- **The Editor warns before a change brings back a deleted object.** The placed object's
-  dialog says which plugin deletes it and that a change saved in the patch brings it back,
-  and Verify lists each such change as a warning.
-- **A `[Note]` rule fires when any of the plugins it lists is installed**, as mlox's does, and
-  names those that are. It needed all of them, so a note listing alternatives ("these are
-  modder's resources", "use only one of these") almost never showed.
-- **Rules naming a plugin with brackets in its name work.** `Morrowind Rebirth [Main].ESP`,
-  `[Official]Master Index.esp`, `GCD v1.08 with Startscript, fixed [Galsiah].esp` and about
-  380 other uses in mlox's rules were split into empty groups and stray text, and some came
-  out as another real plugin's name (`[Official]LeFemm Armor.esp` read as `LeFemm Armor.esp`),
-  so a warning could fire for the wrong mod or not at all; `[Order]` lines starting with
-  `[Official]` were dropped. A plain plugin name in a rule is now compared as text, as mlox
-  compares it (it was matched as an expression, which read the brackets as syntax), and in a
-  pattern with a wildcard every character but the wildcards is text too, so
-  `Julan Ashlander Companion <VER> [Rebirth].esp` matches Julan's Rebirth file (in mlox it
-  matches nothing).
-- **`[VER]` reads a version as mlox does.** A plugin with no version in its header or its
-  file name makes the test false; an `=` was assumed to hold, which raised notes and
-  requirements about plugins of any version. With no data folder to read, `=` still holds.
-- **Saving the viewer's settings no longer says "profile not saved".** The save answered with
-  the file's path as bare text, which the page read as JSON; the file had been written. It now
-  answers `{"path": ...}`.
-- **Opening a record or quest from the viewer's inspector no longer reports an error.** The
-  conflict viewer answers the click with the text `ok`; the page read every answer as JSON and
-  said the engine's answer did not read, though the conflict viewer had opened.
-- **Two Wraithguards (or two caches) opening the cache file at the same moment no longer lose
-  it.** The one that set the file up could be refused at once with "database is locked", after
-  which its cache was off for the whole session and its writes were dropped; setup now waits
-  its turn, and a lock is never taken for a cache that cannot work.
-- **A viewer that hangs up no longer fills the console with tracebacks.** An aborted or reset
-  connection (the viewer's own timeout, or closing its window) is not an error on the editor's
-  side.
-- **The Editor's Q menu** acts on a single selected item again, and the menu and other
-  regressions from the Gardenfell 18hu rebase are fixed.
 
 ### Security
 

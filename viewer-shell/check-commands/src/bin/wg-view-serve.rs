@@ -181,6 +181,28 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "read_asset" => Reply::Bytes(t::read_asset(s(a, "path"), st())?.0),
         "mesh_data" => Reply::Bytes(t::mesh_data(s(a, "path"), a.get("still").and_then(|v| v.as_bool()), st())?.0),
         "mesh_collision" => Reply::Bytes(t::mesh_collision(s(a, "path"), st())?.0),
+        // 4.6, folding native/: the mesh viewer's block panel, and the Editor opened on the
+        // install itself when no host hands it a setup.
+        "mesh_inspect" => Reply::Json(t::mesh_inspect(s(a, "path"), st())?),
+        "editor_setup" => Reply::Json(t::editor_setup(st())?),
+        "editor_open" => Reply::Json(t::editor_open(
+            a.get("plugins")
+                .and_then(|v| v.as_arr())
+                .map(|xs| {
+                    xs.iter()
+                        .filter_map(|x| {
+                            let p = x.as_arr()?;
+                            Some((p.first()?.as_str()?.to_string(), p.get(1)?.as_str()?.to_string()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            s(a, "journal"),
+            Some(strs(a, "folders")),
+            opt(a, "last"),
+            opt(a, "testSettings"),
+        )?),
+        "editor_link" => Reply::Text(t::editor_link(st(), s(a, "name"), s(a, "body"))?),
         "cpu_threads" => Reply::Raw(t::cpu_threads().to_string()),
         // The settings file and the Setup page (port 4.5): the page's first start is driven
         // through these (ui/tests/boot.js, WG_SETUP=1).
@@ -189,6 +211,12 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "setup_find_cfgs" => Reply::Json(t::setup_find_cfgs()?),
         "setup_mark" => {
             t::setup_mark(s(a, "state"), s(a, "cfg"))?;
+            Reply::Raw("null".into())
+        }
+        // The rule maker (66_wg_rulemaker.js) and the scans' cache warm-up after connecting.
+        "loadorder_author" => Reply::Json(t::loadorder_author(s(a, "op"), s(a, "rule"), opt(a, "path"))?),
+        "scan_cache_warm" => {
+            t::scan_cache_warm(s(a, "cfg"))?;
             Reply::Raw("null".into())
         }
         "settings_seed" => Reply::Json(t::settings_seed(s(a, "settingsFile"))?),

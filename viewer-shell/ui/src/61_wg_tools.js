@@ -97,7 +97,10 @@ const WgToolsPage={
 #wgTL{position:fixed;left:0;right:0;top:var(--top-h,40px);bottom:0;z-index:60;background:var(--bg);color:var(--tx);
   display:grid;grid-template-columns:200px 1fr;gap:8px;padding:8px;overflow:hidden;font-size:12px}
 #wgTL[hidden]{display:none}
-#wgTL .col{display:flex;flex-direction:column;min-height:0;background:var(--bg2);border:1px solid var(--line);border-radius:var(--r-box)}
+#wgTL input[type=text],#wgTL input[type=number],#wgTL input:not([type]),#wgTL textarea,#wgTL select{background:var(--bg3);color:var(--tx);border:1px solid var(--line2);border-radius:var(--r-fld);padding:3px 5px;font:inherit}
+#wgTL input::placeholder,#wgTL textarea::placeholder{color:var(--tx3,var(--tx2));opacity:.8}
+#wgTL select option{background:var(--bg3);color:var(--tx)}
+#wgTL .col{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--bg2);border:1px solid var(--line);border-radius:var(--r-box)}
 #wgTL h3{margin:0;padding:6px 8px;font-size:12px;border-bottom:1px solid var(--line);display:flex;gap:6px;align-items:center}
 #wgTL h3 .sp{flex:1}
 #wgTL .nav div{padding:6px 10px;cursor:pointer;border-left:3px solid transparent}
@@ -147,7 +150,7 @@ const WgToolsPage={
   <input type="text" id="tlT3Extra" placeholder="options, or the whole custom command" style="width:220px"><button class="btn" id="tlT3Run">Run</button></h3>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
     <input type="text" id="tlT3Exe" placeholder="tes3cmd (found by itself when empty)" style="flex:1;min-width:200px"><button class="btn dim" id="tlT3Browse">Browse...</button>
-    <button class="btn dim" id="tlT3Add" title="Add plugin files">Add files...</button><button class="btn dim" id="tlT3Mine" title="Your mods, as the launch named them">Add your mods</button><button class="btn dim" id="tlT3Clear">Clear</button></div>
+    <button class="btn dim" id="tlT3Add" title="Add plugin files">Add files...</button><button class="btn dim" id="tlT3Mine" title="Your own mods: the ones the sort places into the curated list">Add your mods</button><button class="btn dim" id="tlT3List" title="The curated list's plugins (the Load order page's list name)">Add list mods</button><button class="btn dim" id="tlT3Clear">Clear</button></div>
   <div class="scroll"><div id="tlT3Files" class="empty">Add the plugins to run on. clean and a custom command run on a copy staged with the plugin's masters, and copy back what changed (a one-time .preclean.bak / .precustom.bak kept); Morrowind.esm, Tribunal.esm and Bloodmoon.esm are never cleaned. sync rewrites only the master sizes (.masterfix.bak kept).</div>
   <pre id="tlT3Out" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
 <div class="col pane" id="tlLands" hidden><h3>Merge Lands <span class="sp"></span>
@@ -183,12 +186,16 @@ const WgToolsPage={
       const p=await Engine.pick('open',{multiple:true, filters:[{name:'Plugins', extensions:['esp','esm','omwaddon','omwgame','ESP','ESM']}]});
       if(!p) return; this.t3Add((Array.isArray(p)?p:[p]).map(String));
     };
-    $('#tlT3Mine').onclick=async()=>{
-      const names=(this.extra().subset||[]).map(String);
-      if(!names.length) return toast('The launch named no mods of yours','warn',3000);
-      try{ let r=await Engine.call('tools_locate',{cfg:this.cfg(), names}); if(typeof r==='string') r=JSON.parse(r); this.t3Add(r.filter(x=>x[1]).map(x=>String(x[1]))); }
-      catch(e){ toast(String(e.message||e),'err',5000); }
+    const addNamed=async(kind)=>{
+      try{
+        const names=await this.mods(kind);
+        if(!names.length) return toast(kind==='mine'? 'The sort found no mods of yours' : 'The sort found no curated list','warn',4000);
+        let r=await Engine.call('tools_locate',{cfg:this.cfg(), names}); if(typeof r==='string') r=JSON.parse(r);
+        this.t3Add(r.filter(x=>x[1]).map(x=>String(x[1])));
+      }catch(e){ toast(String(e.message||e),'err',5000); }
     };
+    $('#tlT3Mine').onclick=()=>addNamed('mine');
+    $('#tlT3List').onclick=()=>addNamed('list');
     $('#tlT3Clear').onclick=()=>{ this.t3.files=[]; this.t3Draw(); };
     $('#tlT3Run').onclick=()=>this.t3Run();
     $('#tlMgPick').onclick=async()=>{
@@ -253,16 +260,31 @@ const WgToolsPage={
     if(!folder && !dry) return toast('Choose the folder to write into first','warn',3000);
     if(!dry){
       const target=folder.replace(/[\\/]+$/,'')+(folder.includes('\\')?'\\':'/')+'Merged Lands.esp';
-      const ok=window.confirm(`A new plugin will be written to:\n${target}\n\nIt carries terrain only -- no references, objects or scripts -- so everything placed in those cells stays where it is. Your mods are NOT modified, and deleting the merged plugin restores your previous behaviour completely.\n\nLoad it LAST, and back up your saves before playing with it the first time.\n\nIf a Merged Lands.esp is already there, it is REPLACED.`);
+      const ok=await wgConfirm(`A new plugin will be written to:\n${target}\n\nIt carries terrain only -- no references, objects or scripts -- so everything placed in those cells stays where it is. Your mods are NOT modified, and deleting the merged plugin restores your previous behaviour completely.\n\nLoad it LAST, and back up your saves before playing with it the first time.\n\nIf a Merged Lands.esp is already there, it is REPLACED.`);
       if(!ok) return;
     }
     this.ml.running=true;
     const btn=$('#tlMlRun'); btn.disabled=true;
     const out=$('#tlMlOut');
-    out.textContent='='.repeat(70)+'\n MERGE LANDS\n'+'='.repeat(70)+'\nReading the load order\'s terrain...';
+    const head='='.repeat(70)+'\n MERGE LANDS\n'+'='.repeat(70)+'\nReading the load order\'s terrain...\n';
+    out.textContent=head;
+    // The merge's lines as it says them (land_merge_progress), every half second, with the
+    // time it has taken: a big load order takes minutes, and the page should show it moving.
+    let seen=0, shown=[], live=true; const t0=performance.now();
+    const tick=async()=>{
+      while(live){
+        try{
+          let p=await Engine.call('land_merge_progress',{from:seen}); if(typeof p==='string') p=JSON.parse(p);
+          if(live && p && Array.isArray(p.lines)){ shown=shown.concat(p.lines); seen=p.next; }
+          if(live) out.textContent=head+shown.map(l=>'  '+l).join('\n')+`\n\n  ... working (${((performance.now()-t0)/1000).toFixed(0)} s)`;
+        }catch(_){}
+        await new Promise(r=>setTimeout(r,500));
+      }
+    };
+    tick();
     try{
       const ignore=$('#tlMlIgnore').value.split(',').map(x=>x.trim()).filter(Boolean);
-      const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore});
+      const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore}).finally(()=>{ live=false; });
       const lines=['='.repeat(70),' MERGE LANDS','='.repeat(70), ...r.lines.map(l=>'  '+l)];
       if(r.error) lines.push('', 'Merge failed: '+r.error);
       if(r.notes && r.notes.length) lines.push('', 'Left out or untranslated:', ...r.notes.map(n=>'  '+n));
@@ -279,11 +301,36 @@ const WgToolsPage={
     finally{ this.ml.running=false; btn.disabled=false; }
   },
 
+  /** Your mods (`mine`) or the curated list's plugins (`list`), by name. A host that
+   *  named your mods (`extra.subset`) is taken at its word; otherwise they are the sort's
+   *  (the Load order page's plan, or a sort run here on the settings file's fields, as the
+   *  page would run it - the program on its own has no host to ask). */
+  async mods(kind){
+    const host=(this.extra().subset||[]).map(String);
+    if(kind==='mine' && host.length) return host;
+    let plan=(typeof WgLoadOrder==='object' && WgLoadOrder.plan) || this._plan;
+    if(!plan){
+      toast('Sorting the load order to find the lists...','ok',3000);
+      let seed=await WgSettings.seed(); if(typeof seed==='string') seed=JSON.parse(seed);
+      const f=(seed && seed.loadorder) || {};
+      const lines=v=>String(v||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+      const a={cfg:f.cfg||this.cfg(), customizations:f.customizations||'', subsetFile:f.subsetFile||'',
+        pluginOrderYml:f.pluginOrderYml||'', listName:f.listName||'', dataPathsCache:f.dataPathsCache||'',
+        rules:lines(f.rules), groundcover:lines(f.groundcover), subset:[], emitToml:false, allowEmptySort:true,
+        sortDataPaths:!!f.sortDataPaths, subsetFromCfg:!!f.subsetFromCfg, noPredicateWarnings:true, verbose:false,
+        writeCfg:false, dryRun:true, noBackup:true};
+      let got=await Engine.call('loadorder_compute',{args:JSON.stringify(a)}); if(typeof got==='string') got=JSON.parse(got);
+      if(got.refused) throw new Error('The sort refused: '+got.refused);
+      plan=this._plan=got.plan;
+    }
+    return ((kind==='mine'? plan.subset : plan.curated) || []).map(String);
+  },
+
   /* ---- Merge settings (landcore::meta) ---- */
   base(p){ return String(p).replace(/[\\/]+$/,'').split(/[\\/]/).pop(); },
   async mergeMine(){
     const sel=$('#tlMgMine'); if(sel.dataset.filled) return;
-    const names=(this.extra().subset||[]).map(String);
+    const names=await this.mods('mine').catch(()=>[]);
     if(!names.length){ sel.hidden=true; return; }
     try{
       let r=await Engine.call('tools_locate',{cfg:this.cfg(), names}); if(typeof r==='string') r=JSON.parse(r);
@@ -345,7 +392,7 @@ const WgToolsPage={
     const cmd=$('#tlT3Cmd').value, extra=$('#tlT3Extra').value.split(/\s+/).filter(Boolean);
     if(!this.t3.files.length) return toast('Add at least one plugin file first','warn',3000);
     const what={clean:'Clean', sync:'Resync the master sizes of', header:'Run tes3cmd header on', custom:'Run tes3cmd '+extra.join(' ')+' on'}[cmd];
-    if(!window.confirm(`${what} ${this.t3.files.length} plugin file(s)?`)) return;
+    if(!await wgConfirm(`${what} ${this.t3.files.length} plugin file(s)?`)) return;
     const btn=$('#tlT3Run'); btn.disabled=true;
     $('#tlT3Out').textContent='Running...';
     try{
@@ -416,6 +463,7 @@ const WgToolsPage={
       let r=await Engine.call('tools_save_check',{cfg:this.cfg(), saves, details:Math.max(0, +$('#tlSvDetails').value||0),
         mods:words('#tlSvMods'), all:$('#tlSvAll').checked, dump:words('#tlSvDump')});
       if(typeof r==='string') r=JSON.parse(r);
+      deps.className='';      // not the placeholder's dim text any more
       deps.innerHTML=r.saves.map(sv=>{
         if(sv.error) return `<div class="warn FOGBUG"><span class="kind">${loEsc(sv.name)}</span>${loEsc(sv.error)}</div>`;
         if(sv.missing.length) return `<div class="warn FOGBUG"><span class="kind">${loEsc(sv.name)}: ${sv.missing.length} content file(s) missing - OpenMW will refuse to load it</span>${sv.missing.map(loEsc).join('<br>')}</div>`;
@@ -455,13 +503,13 @@ const WgToolsPage={
       if(act==='rename'){
         const to=await Engine.pick('open',{filters:[{name:'Plugins', extensions:['esp','esm','omwaddon','omwgame','ESP','ESM']}]});
         if(!to) return;
-        if(!window.confirm(`Point master '${master}' at '${String(to).split(/[\\/]/).pop()}' in '${name}'?\n\nReferences are kept; a one-time .premaster.bak of the original is kept.`)) return;
+        if(!await wgConfirm(`Point master '${master}' at '${String(to).split(/[\\/]/).pop()}' in '${name}'?\n\nReferences are kept; a one-time .premaster.bak of the original is kept.`)) return;
         let r=await Engine.call('tools_rename_master',{path:this.ms.path, old:master, newPath:String(to)});
         if(typeof r==='string') r=JSON.parse(r);
         out.textContent=r.renamed? `Renamed. Masters now: ${r.remaining.join(', ')||'(none)'}\nBackup: ${r.backup}` : `'${master}' is not a master of '${name}'.`;
       }else{
         const dry=act==='preview';
-        if(!dry && !window.confirm(`Remove master '${master}' from '${name}'?\n\nReferences into it are dropped, later ones renumbered; a one-time .premaster.bak of the original is kept.`)) return;
+        if(!dry && !await wgConfirm(`Remove master '${master}' from '${name}'?\n\nReferences into it are dropped, later ones renumbered; a one-time .premaster.bak of the original is kept.`)) return;
         let r=await Engine.call('tools_remove_master',{path:this.ms.path, master, dryRun:dry});
         if(typeof r==='string') r=JSON.parse(r);
         if(!r.removed){ out.textContent=`'${master}' is not a master of '${name}' -- nothing to do.`; return; }
@@ -498,7 +546,7 @@ const WgToolsPage={
   picked(){ return [...document.querySelectorAll('#tlBkBody input:checked')].map(c=>this.bk.rows[+c.dataset.i]); },
   async restoreBackups(){
     const sel=this.picked(); if(!sel.length) return toast('Select backups first','warn',2500);
-    if(!window.confirm(`Copy ${sel.length} backup(s) over their originals (overwriting them)?`)) return;
+    if(!await wgConfirm(`Copy ${sel.length} backup(s) over their originals (overwriting them)?`)) return;
     try{
       let r=await Engine.call('tools_backups_restore',{pairs:sel.map(b=>[b.path,b.original])});
       if(typeof r==='string') r=JSON.parse(r);
@@ -507,7 +555,7 @@ const WgToolsPage={
   },
   async deleteBackups(){
     const sel=this.picked(); if(!sel.length) return toast('Select backups first','warn',2500);
-    if(!window.confirm(`Permanently delete ${sel.length} backup file(s)?`)) return;
+    if(!await wgConfirm(`Permanently delete ${sel.length} backup file(s)?`)) return;
     try{
       const n=await Engine.call('tools_backups_delete',{paths:sel.map(b=>b.path)});
       toast(`Deleted ${n} backup file(s)`,'ok',3000);
@@ -520,7 +568,7 @@ const WgToolsPage={
     const btn=$('#tlLintRun'); btn.disabled=true;
     $('#tlLintStats').textContent='Reading every plugin...';
     try{
-      let r=await Engine.call('tools_lint',{cfg:this.cfg(), subset:(this.extra().subset||[]).map(String)});
+      let r=await Engine.call('tools_lint',{cfg:this.cfg(), subset:await this.mods('mine').catch(()=>[])});
       if(typeof r==='string') r=JSON.parse(r);
       this.lint.warnings=r.warnings; this.lint.stats=r.stats; this.lint.filter='all';
       const s=r.stats;

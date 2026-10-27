@@ -24,7 +24,7 @@ Object.assign(WgEditor, {
       if(typeof WgDial==='object') WgDial.attach(this);
     }
     this.dial.hidden=false;
-    if(!this.canEdit()){ this.dial.querySelector('#edDialTopics').innerHTML='<div class="hint">The dialogue window needs Wraithguard.</div>'; return; }
+    if(!this.canEdit()){ this.dial.querySelector('#edDialTopics').innerHTML='<div class="hint">The dialogue window needs the Editor open on an OpenMW setup (see Messages).</div>'; return; }
     if(!this.topicList){
       this.dial.querySelector('#edDialTopics').innerHTML='<div class="hint">Reading every plugin\'s topics…</div>';
       try{ this.topicList=await this.ask('editTopics', {}); }

@@ -83,6 +83,7 @@ const WgHelp={
     el.innerHTML=`<div class="side" id="hpSide"><div class="empty">Reading...</div></div>
 <div class="doc" id="hpDoc"><main id="hpMain"><div class="empty">Pick a document.</div></main></div>`;
     document.body.appendChild(el);
+    if(typeof WgSplit==='object') WgSplit.make(el, 'help', [240]);
     el.addEventListener('click', e=>this.click(e));
   },
 

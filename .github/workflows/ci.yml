@@ -1,12 +1,9 @@
-# Continuous integration.
+# Continuous integration (5.0: the program is Rust and the page only; the Python app,
+# its PyInstaller builds and native/ were retired - viewer-shell/DROP-TK.md slice 8).
 #
-# Runs exactly the gate list from README.md "Developing", plus the two
-# project-specific checkers, so CI and a local run cannot drift apart. Added
-# per CODE_REVIEW.md §9.3, which asked for this as the cheapest guard against
-# regressing the state 3.0 stabilised.
-#
-# The suite is hermetic -- no network, no Tk, nothing outside the repo -- so
-# there is no service setup here and none should be needed.
+# The crates' tests, Clippy, the command layer compiled without Tauri's native tree, and
+# the page booted in jsdom against the real commands. Hermetic: no network, nothing
+# outside the repo.
 
 name: CI
 
@@ -25,116 +22,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gates:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # The target is free-threaded (GIL-free) Python 3.14 -- the `3.14t` build
-        # -- which the packaged binaries ship. The standard `3.14` (with the GIL)
-        # is tested alongside it so a data race the GIL happens to paper over is
-        # caught by the free-threaded run, and code that assumes free-threading is
-        # caught by the GIL run. Older versions are no longer supported
-        # (`requires-python = ">=3.14"`): the app carries its own interpreter, so
-        # the floor is a build choice, not a user burden.
-        python-version: ["3.14", "3.14t"]
-
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false   # nothing here pushes; the token is not left in .git
-
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: ${{ matrix.python-version }}
-          # setup-python resolves the `t` (free-threaded) builds from its version
-          # manifest; allow-prereleases keeps that resolution working across the
-          # 3.14.x line so `3.14t` never silently falls back to a GIL build.
-          allow-prereleases: true
-          cache: pip
-
-      - name: Verify the interpreter is what we asked for
-        # A silent fall-back from `3.14t` to a GIL build would make the whole
-        # free-threading premise untested. sys._is_gil_enabled() must be False on
-        # the `t` leg (and True on the plain 3.14 leg); print both either way.
-        run: |
-          python --version
-          python -c "import sys, sysconfig; \
-            print('GIL enabled:', sys._is_gil_enabled()); \
-            print('Py_GIL_DISABLED:', sysconfig.get_config_var('Py_GIL_DISABLED'))"
-
-      - name: Install tooling
-        # No zstandard: Python 3.14's stdlib `compression.zstd` covers the
-        # tes3conv bytecode tests, and the C extension has no free-threaded
-        # wheel yet -- installing it would force a source build on `3.14t` for
-        # nothing. ruff and black are Rust binaries and black is pure Python, so
-        # the whole toolchain is free-threading-safe.
-        # Pinned to pyproject's [dev] versions: unpinned, CI took the newest black
-        # the day it ran and disagreed with the pinned one on a file local checks
-        # passed. Bump both together.
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "ruff==0.16.1" "black==26.5.1" "mypy==2.3.0" "pytest==9.1.1" "pytest-cov==7.1.0"
-
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # the stable branch
-        with:
-          toolchain: stable
-
-      - name: Rust backend (native/, greatness7's tes3 crates)
-        # Its own tests, then built and installed into this interpreter (3.14 and
-        # 3.14t each get their own build), since wraithguard imports it.
-        run: |
-          cargo test --manifest-path native/Cargo.toml
-          python -m pip install ./native
-
-      - name: ruff (PEP 8, naming, imports, security, blind-except)
-        run: python -m ruff check .
-
-      - name: black (formatting)
-        run: python -m black --check .
-
-      - name: mypy (PEP 484; gates wraithguard/)
-        run: python -m mypy
-
-      - name: check_undefined (names used but never imported)
-        run: python tools/check_undefined.py wraithguard_toolkit_gui.py
-
-      - name: check_placeholders (i18n %(key)s vs dict keys)
-        # A mistyped placeholder key is a runtime KeyError the suite cannot
-        # reach in the GUI. See CODE_REVIEW.md §17.
-        run: python tools/check_placeholders.py
-
-      - name: .pot template is current
-        # Fails if someone added or changed a _() string without regenerating
-        # locale/wraithguard_toolkit.pot.
-        run: python tools/make_pot.py --check
-
-      - name: build (PEP 517/621 declaration actually produces a wheel)
-        # The build-system + project metadata were declared for correctness
-        # and inspectability, but nothing exercised them until this step --
-        # a package listed that does not exist, or a stale py-module name,
-        # would otherwise only surface for whoever first ran `pip install .`.
-        run: |
-          python -m pip install build
-          python -m build --wheel --outdir dist/ .
-
-      - name: pytest (with coverage)
-        # --cov is passed here rather than in pyproject's addopts, so a plain
-        # local `pytest` needs nothing but pytest. Settings (source, omit,
-        # branch) live in [tool.coverage.*].
-        run: python -m pytest --cov --cov-report=term --cov-report=html
-
-      - name: Upload coverage HTML
-        # Only from one interpreter -- two identical artifacts help nobody. The
-        # free-threaded build is the one that matters, so keep its report.
-        if: matrix.python-version == '3.14t' && always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: coverage-html
-          path: htmlcov/
-          if-no-files-found: ignore
-          retention-days: 14
-
   cell-viewer:
     # The cell viewer, checked without Tauri's native tree (no WebKitGTK on the runner
     # needed): the engine's tests, the command layer compiled against a Tauri stub
@@ -152,8 +39,8 @@ jobs:
       - name: viewcore tests
         run: cargo test --manifest-path viewer-shell/viewcore/Cargo.toml
       - name: luacore tests
-        run: cargo test --manifest-path viewer-shell/luacore/Cargo.toml
-      # The openmw.cfg reader both viewcore and native/ use, against the shared cases
+        run: cargo test --features teal --manifest-path viewer-shell/luacore/Cargo.toml
+      # The openmw.cfg reader, against the shared cases
       # (tests/fixtures/openmw_cfg_cases.json).
       - name: ordercore tests
         run: cargo test --manifest-path viewer-shell/ordercore/Cargo.toml
@@ -167,7 +54,7 @@ jobs:
           cargo test --manifest-path viewer-shell/toolscore/Cargo.toml
           cargo test --manifest-path viewer-shell/landcore/Cargo.toml
       # The command line (port step 4.5, slice 1): the wraithguard binary run on the cases the
-      # Python CLI answered (tests/fixtures/cli_cases.json).
+      # retired Python CLI answered (tests/fixtures/cli_cases.json).
       - name: command line tests
         run: cargo test --manifest-path viewer-shell/cli/Cargo.toml
       # Greatness7's tes3 crate against Gardenfell's readers, record for record and mesh
@@ -196,7 +83,7 @@ jobs:
       - name: clippy
         run: |
           set -e
-          for m in native/Cargo.toml viewer-shell/luacore/Cargo.toml viewer-shell/ordercore/Cargo.toml viewer-shell/editcore/Cargo.toml viewer-shell/conflictcore/Cargo.toml viewer-shell/toolscore/Cargo.toml viewer-shell/landcore/Cargo.toml viewer-shell/cli/Cargo.toml viewer-shell/gardenfell-g7/Cargo.toml viewer-shell/meshopt-port/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
+          for m in viewer-shell/luacore/Cargo.toml viewer-shell/ordercore/Cargo.toml viewer-shell/editcore/Cargo.toml viewer-shell/conflictcore/Cargo.toml viewer-shell/toolscore/Cargo.toml viewer-shell/landcore/Cargo.toml viewer-shell/cli/Cargo.toml viewer-shell/gardenfell-g7/Cargo.toml viewer-shell/meshopt-port/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
             echo "::group::clippy $m"
             cargo clippy --all-targets --manifest-path "$m" -- -D warnings
             echo "::endgroup::"
@@ -236,71 +123,3 @@ jobs:
       - name: editor windows
         working-directory: viewer-shell/ui/tests
         run: node editor/run.js
-
-  gui-smoke:
-    # The GUI is the one part of this project the gate list above cannot see:
-    # it needs Tk, which the hermetic suite deliberately does not have, so it is
-    # excluded from both pytest and mypy. Its verification was a manual run
-    # through SMOKE_TEST.md -- and the last two defects to reach a user were
-    # both here (a window that opened blank, two panels gridded on top of each
-    # other), both invisible to every check above.
-    #
-    # A virtual X server is all it takes to check them automatically. One job,
-    # one interpreter: this is about whether the window builds, not about
-    # version compatibility.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false   # nothing here pushes; the token is not left in .git
-
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          # The standard (GIL) 3.14 build here, not `3.14t`: Tk's free-threaded
-          # support is still experimental, and this job checks that the *window
-          # builds*, not the interpreter variant. The packaged app runs the GUI on
-          # `3.14t`; that path is exercised by the manual SMOKE_TEST.md run and the
-          # pywebview viewer, not by a headless Tk job.
-          python-version: "3.14"
-          allow-prereleases: true
-          cache: pip
-
-      - name: Install Tk and a virtual display
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3-tk tk xvfb
-
-      - name: Install tooling
-        # pytest-timeout so a smoke test that hangs headless (a modal dialog with
-        # no one to click it, a window that never returns) fails with a stack
-        # dump after the timeout instead of blocking the whole job for hours. No
-        # zstandard: 3.14's stdlib `compression.zstd` covers the terrain-comparison
-        # smoke tests.
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest pytest-timeout
-
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # the stable branch
-        with:
-          toolchain: stable
-
-      - name: Rust backend
-        run: python -m pip install ./native
-
-      - name: GUI smoke tests (headless)
-        # Run once, keep the output, then insist the tests actually ran. That
-        # last part guards the failure mode this job exists to prevent: with Tk
-        # or the display missing, every test skips and the job passes green
-        # having verified nothing at all.
-        run: |
-          set -o pipefail
-          xvfb-run -a python -m pytest tests/test_gui_smoke.py -v -rs \
-            --timeout=60 --timeout-method=signal \
-            | tee result.txt
-          # Insist something actually ran (Tk + display present). A few skips are
-          # fine; zero passes means the display or Tk is missing and nothing was
-          # verified.
-          if ! grep -qE "[1-9][0-9]* passed" result.txt; then
-            echo "::error::GUI smoke tests did not run -- Tk or the display is missing, so nothing was verified."
-            exit 1
-          fi

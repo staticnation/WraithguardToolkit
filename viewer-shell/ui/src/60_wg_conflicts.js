@@ -133,21 +133,50 @@ const WgConflicts={
 #wgCF .rows div.r:hover{background:var(--bg3)}
 #wgCF .rows div.r.sel{background:var(--acd)}
 #wgCF .rows div.r.mine::before{content:'* ';color:var(--ac)}
+/* The record list coloured by verdict, as the Tk list was (conflict_colors.py, xEdit's
+   Material family): a conflict red, an override amber, agreeing records receding; your own
+   (*) a shade brighter. Text colour, not fills: it is a long flat list. */
+#wgCF .rows div.r.v4{color:#ef5350} #wgCF .rows div.r.v4.mine{color:#ff4d4d}
+#wgCF .rows div.r.v3{color:#ffca28} #wgCF .rows div.r.v3.mine{color:#ffb454}
+#wgCF .rows div.r.v2,#wgCF .rows div.r.v1{color:#b8b8b8} #wgCF .rows div.r.v2.mine,#wgCF .rows div.r.v1.mine{color:#d0d0d0}
+#wgCF .rows div.r.mine{color:#ff9b6b}
+#wgCF #cfList div.r{display:grid;grid-template-columns:16px 90px minmax(140px,1fr) 28px minmax(120px,38%);gap:8px}
+#wgCF #cfList div.r.mine::before{content:none}
+#wgCF #cfList div.r>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#wgCF #cfList div.r .n{text-align:right}
+#wgCF #cfList .hdr{display:grid;grid-template-columns:16px 90px minmax(140px,1fr) 28px minmax(120px,38%);gap:8px;padding:2px 8px;color:var(--tx3);border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg2);font-family:var(--mono)}
 #wgCF .rows .t{color:var(--tx3)}
 #wgCF .rows .w{color:var(--tx2)}
 #wgCF .rows .same{color:var(--tx3)}
 #wgCF .rows .note{color:var(--warn)}
 #wgCF table{border-collapse:collapse;font-family:var(--mono);width:max-content;min-width:100%}
 #wgCF th,#wgCF td{border:1px solid var(--line);padding:2px 6px;text-align:left;vertical-align:top;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:pre-wrap;word-break:break-all}
+/* The field comparison, as the Tk window drew it: one line a field (a long value cut short,
+   whole in its tooltip), the table scrolling sideways when the plugins outrun the pane, each
+   field's row in its verdict's colours (conflict_colors._ALL_BG: a dark tint behind bright
+   text), each plugin's name in its status's colour (THIS_TEXT). */
+#wgCF table.diff td,#wgCF table.diff th{white-space:nowrap;word-break:normal;max-width:420px}
+#wgCF table.diff tr.va2 td{background:#0e3320;color:#00c853}
+#wgCF table.diff tr.va3 td{background:#33290a;color:#ffd600}
+#wgCF table.diff tr.va4 td{background:#331010;color:#ef5350}
+#wgCF table.diff tr.va1 td{color:#8a8a8a}
+#wgCF table.diff a.open{cursor:pointer;text-decoration:underline dotted}
+#wgCF .legend{padding:4px 8px;color:var(--tx2)}
+#wgCF .legend .k{padding:0 4px;border-radius:2px}
+#wgCF .legend .va4{background:#331010;color:#ef5350} #wgCF .legend .va3{background:#33290a;color:#ffd600} #wgCF .legend .va2{background:#0e3320;color:#00c853}
+#wgCF th.h-cf-master{color:#ce93d8} #wgCF th.h-cf-itm{color:#bdbdbd} #wgCF th.h-cf-ovr{color:#81c784}
+#wgCF th.h-cf-cw{color:#ffb74d} #wgCF th.h-cf-cl{color:#ef5350} #wgCF th.h-cf-del{color:#e57373}
 #wgCF th{position:sticky;top:0;background:var(--bg3);z-index:1}
 #wgCF td.name{color:var(--tx2);white-space:nowrap}
 #wgCF tr.same td{opacity:.55}
-#wgCF .cf-master{background:color-mix(in srgb,var(--bg2) 85%,#6a8)}
-#wgCF .cf-itm{background:color-mix(in srgb,var(--bg2) 85%,#888)}
-#wgCF .cf-ovr{background:color-mix(in srgb,var(--bg2) 80%,#4a9)}
-#wgCF .cf-cw{background:color-mix(in srgb,var(--bg2) 75%,#c90)}
-#wgCF .cf-cl{background:color-mix(in srgb,var(--bg2) 70%,#c44)}
-#wgCF .cf-del{background:color-mix(in srgb,var(--bg2) 70%,#a4a)}
+/* Each plugin's status, as the Tk field panes had it (conflict_colors.THIS_TEXT): the
+   family's bright text over a dark tint of it, xEdit's dark look. */
+#wgCF .cf-master{color:#ce93d8;background:color-mix(in srgb,var(--bg2) 82%,#ce93d8)}
+#wgCF .cf-itm{color:#bdbdbd;background:color-mix(in srgb,var(--bg2) 88%,#bdbdbd)}
+#wgCF .cf-ovr{color:#81c784;background:color-mix(in srgb,var(--bg2) 80%,#00c853)}
+#wgCF .cf-cw{color:#ffb74d;background:color-mix(in srgb,var(--bg2) 78%,#ffd600)}
+#wgCF .cf-cl{color:#ef5350;background:color-mix(in srgb,var(--bg2) 75%,#d50000)}
+#wgCF .cf-del{color:#e57373;background:color-mix(in srgb,var(--bg2) 78%,#a4a)}
 #wgCF .acts{display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);flex-wrap:wrap;align-items:center}
 #wgCF .empty{color:var(--tx3);padding:8px}
 #wgCF pre{margin:0;padding:8px;font-family:var(--mono);white-space:pre-wrap;color:var(--tx2)}
@@ -195,6 +224,8 @@ const WgConflicts={
   <select id="cfFocus"><option value="">Every plugin</option></select></h3><div id="cfMapWrap"><canvas id="cfMap"></canvas></div><div id="cfMapNote" class="empty"></div></div></div>
 <div class="pane" id="cfText" hidden style="grid-template-columns:1fr"><div class="col"><h3>Report <span class="sp"></span><button class="btn dim" id="cfTextClose">Close</button></h3><div class="scroll"><pre id="cfTextBody"></pre></div></div></div>`;
     document.body.appendChild(el);
+    // The list and the detail beside it, resized by the bar between them (65_wg_split.js).
+    if(typeof WgSplit==='object') for(const [id,w] of [['cfRecords',460],['cfFiles',460],['cfPlugins',420]]) WgSplit.make($('#'+id), 'cf.'+id, [w]);
     const tip=document.createElement('div'); tip.id='cfTip'; document.body.appendChild(tip);
 
     const v=this.saved();
@@ -256,6 +287,8 @@ const WgConflicts={
       this.focus='';
       this.branches=[]; this.judged={}; this.openP={}; this.openT={}; this.psel='';
       this.draw();
+      // Each record judged, for the list's colours (a pass over the scan's records).
+      if(this.mode==='conflicts') this.verdicts();
       await this.loadBranches();
       if(this.tab==='map') this.drawMap();
     }catch(e){ $('#cfStats').textContent=''; toast(String(e.message||e),'err',6000); }
@@ -279,6 +312,21 @@ const WgConflicts={
 
   subsetDirs(){ return (this.extra().subsetDirs||[]).map(String); },
 
+  /** Each record of the scan judged (`conflicts_verdicts`), then the list redrawn in colour. */
+  async verdicts(){
+    const list=this.list;
+    const was=$('#cfStats').textContent;
+    $('#cfStats').textContent=was+' - judging each record...';
+    try{
+      const v=await Engine.call('conflicts_verdicts',{cfg:this.cfg()});
+      if(this.list!==list) return;
+      list.forEach((c,i)=>{ c.verdict=v[i]; });
+      const n=k=>v.filter(x=>x===k).length;
+      $('#cfStats').textContent=was+` - ${n(4)} conflict, ${n(3)} override, ${n(2)} agree`;
+      this.draw();
+    }catch(e){ $('#cfStats').textContent=was; }
+  },
+
   match(text){ const q=$('#cfFind').value.trim().toLowerCase(); return !q || text.toLowerCase().includes(q); },
 
   draw(){
@@ -286,14 +334,15 @@ const WgConflicts={
     const recs=this.list.filter(c=>(!mine||c.involvesSubset) && this.match(c.type+' '+c.id+' '+c.plugins.join(' ')));
     const box=$('#cfList');
     $('#cfCount').textContent=this.list.length? recs.length+' of '+this.list.length : '';
-    box.innerHTML='';
+    box.innerHTML=this.list.length? '<div class="hdr"><span>★</span><span>Type</span><span>Record</span><span>#</span><span>Winner (loads last)</span></div>' : '';
     const shown=recs.slice(0,5000);
     for(const c of shown){
       const d=document.createElement('div');
-      d.className='r'+(c.involvesSubset?' mine':'')+(this.sel===c?' sel':'');
-      d.innerHTML=`<span class="t">[${loEsc(c.type)}]</span> ${loEsc(c.id)} <span class="w">- ${c.plugins.length} plugin(s), wins: ${loEsc(c.winner)}</span>`
-        +(c.deletedBy.length? ' <span class="note">deleted</span>' : '');
-      d.title=c.plugins.join('  ->  ');
+      d.className='r'+(c.involvesSubset?' mine':'')+(this.sel===c?' sel':'')+(c.verdict!=null?' v'+c.verdict:'');
+      if(c.verdict!=null) d.dataset.v=this.ALL[c.verdict]||'';
+      // columns, as the Tk list had them: yours, type, record, how many, the winner
+      d.innerHTML=`<span>${c.involvesSubset?'★':''}</span><span>${loEsc(c.type)}</span><span class="id">${loEsc(c.id)}${c.deletedBy.length? ' <span class="note">deleted</span>' : ''}</span><span class="n">${c.plugins.length}</span><span class="wn">${loEsc(c.winner)}</span>`;
+      d.title=(c.verdict!=null? this.ALL[c.verdict]+'\n' : '')+c.plugins.join('  ->  ');
       d.onclick=()=>{ this.sel=c; for(const x of box.querySelectorAll('.sel')) x.classList.remove('sel'); d.classList.add('sel'); this.fields(c); };
       box.appendChild(d);
     }
@@ -326,18 +375,60 @@ const WgConflicts={
     try{
       const d=await Engine.call('conflicts_fields',{cfg:this.cfg(), rtype:c.type, id:c.id});
       this.drawActs(c, d);
-      const head='<tr><th>Field</th>'+d.plugins.map((p,i)=>`<th class="${this.STATUS[d.this[i]]||''}" title="${loEsc(d.this[i])}">${loEsc(p)}${d.read[i]?'':' (not read)'}</th>`).join('')+'</tr>';
+      // As the Tk window had it: each FIELD's row coloured by its verdict (agree green,
+      // overridden-but-nothing-lost amber, an edit lost red), each plugin's name by what it
+      // does, the winner marked; a list or table shown as its size, opened on a click.
+      const last=d.plugins.length-1;
+      const head='<tr><th>Field</th>'+d.plugins.map((p,i)=>`<th class="h-${this.STATUS[d.this[i]]||''}" title="${loEsc(d.this[i])}">${loEsc(p)}${i===last?' (wins)':''}${d.read[i]?'':' (not read)'}</th>`).join('')+'</tr>';
+      const big=[];
+      const cell=(v,present)=>{
+        if(!present) return '<span class="empty">-</span>';
+        if(v && typeof v==='object'){
+          const n=Array.isArray(v)? v.length : Object.keys(v).length;
+          big.push(v);
+          return `<a class="open" data-b="${big.length-1}">[${n} ${Array.isArray(v)?'item':'field'}${n===1?'':'s'}] - click to view</a>`;
+        }
+        return loEsc(this.text(v));
+      };
       const rows=d.fields.map(f=>{
-        const cells=f.values.map((v,i)=>`<td class="${f.differs? (this.STATUS[f.this[i]]||'') : ''}" title="${loEsc(f.this[i])}">${f.present[i]? loEsc(this.text(v)) : '<span class="empty">-</span>'}</td>`).join('');
-        return `<tr class="${f.differs?'':'same'}" data-f="${loEsc(f.name)}"><td class="name" title="${loEsc(this.ALL[f.all]||'')}">${loEsc(f.name)}</td>${cells}</tr>`;
+        const cells=f.values.map((v,i)=>`<td title="${loEsc(f.this[i])}${v!=null && typeof v!=='object'? '\n'+loEsc(this.text(v)) : ''}">${cell(v, f.present[i])}</td>`).join('');
+        return `<tr class="va${f.all}${f.differs?'':' same'}" data-f="${loEsc(f.name)}"><td class="name" title="${loEsc(this.ALL[f.all]||'')}">${loEsc(f.name)}</td>${cells}</tr>`;
       }).join('');
-      box.innerHTML=`<div class="empty">${loEsc(this.ALL[d.all]||'')} - ${d.fields.filter(f=>f.differs).length} of ${d.fields.length} field(s) differ</div><table>${head}${rows}</table>`;
+      box.innerHTML=`<div class="legend">${loEsc(this.ALL[d.all]||'')} - ${d.fields.filter(f=>f.differs).length} of ${d.fields.length} field(s) differ.
+        <span class="k va4">RED</span> a plugin's edit is lost · <span class="k va3">AMBER</span> overridden, nothing lost · <span class="k va2">GREEN</span> all agree · the last column wins · click a list to see it</div><table class="diff">${head}${rows}</table>`;
       for(const tr of box.querySelectorAll('tr[data-f]')) tr.onclick=()=>{ $('#cfField').value=tr.dataset.f; };
+      for(const a of box.querySelectorAll('a.open')) a.onclick=e=>{
+        e.stopPropagation();
+        const tr=a.closest('tr'), td=a.closest('td'), col=[...tr.children].indexOf(td)-1;
+        this.showValue(tr.dataset.f+' - '+(d.plugins[col]||''), big[+a.dataset.b]);
+      };
       this._diff=d;
     }catch(e){ box.innerHTML=`<div class="empty">${loEsc(String(e.message||e))}</div>`; }
   },
 
   text(v){ return v==null? 'null' : typeof v==='string'? v : JSON.stringify(v); },
+
+  /** A list or table value in a panel of its own: one item a row, each item's fields as
+   *  `name: value` (the Tk window's double-click view). */
+  showValue(title, v){
+    let p=$('#cfValue');
+    if(!p){
+      p=document.createElement('div'); p.id='cfValue'; p.className='ori';
+      p.style.zIndex='330'; // over the Conflicts page (z-index 60)
+      p.innerHTML='<div class="orihead"><b id="cfValueT"></b><span style="flex:1"></span><button class="btn dim ic" id="cfValueX" title="Close">&#x2715;</button></div><div class="oribody" id="cfValueB" style="overflow:auto;max-height:70vh"></div>';
+      WgUI.mount(p);
+      document.body.appendChild(p); // over the Conflicts page, not inside the viewport
+      Object.assign(p.style, {position:'fixed', left:'50%', top:'80px', transform:'translateX(-50%)', maxWidth:'90vw'});
+      p.querySelector('#cfValueX').onclick=()=>{ p.hidden=true; };
+    }
+    $('#cfValueT').textContent=title;
+    const items=Array.isArray(v)? v : [v];
+    const fmt=x=> x && typeof x==='object' && !Array.isArray(x)
+      ? Object.entries(x).map(([k,y])=>`<div><span class="t">${loEsc(k)}:</span> ${loEsc(this.text(y))}</div>`).join('')
+      : loEsc(this.text(x));
+    $('#cfValueB').innerHTML='<table class="vals" style="font-family:var(--mono);border-collapse:collapse">'+items.map((x,i)=>`<tr><td style="color:var(--tx3);vertical-align:top;padding:3px 8px">${i+1}</td><td style="padding:3px 8px;border-bottom:1px solid var(--line)">${fmt(x)}</td></tr>`).join('')+'</table>';
+    p.hidden=false;
+  },
 
   /* ---- a LAND record's terrain, and the merge strategies (landcore::preview) ---- */
   async terrain(c){

@@ -1933,6 +1933,9 @@ async function openWraithguardSetup(){
     return;
   }
   if(meshView){ WgMeshView.open(meshes); return; }
+  // The scans' cache filled behind the cell (two threads): a conflict scan of this load order
+  // is then a lookup, not every plugin read again.
+  Engine.call('scan_cache_warm',{cfg:String(want.cfg)}).catch(()=>{});
   // The cell map's coverage, read ahead so the picker opens with it.
   if(typeof WgCoverage==='object') WgCoverage.load();
   // Real-cell mode is the only one; running its handler shows the cell controls.

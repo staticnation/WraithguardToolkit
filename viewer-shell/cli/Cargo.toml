@@ -9,7 +9,7 @@
 # run, so CI and a headless server can use it.
 [package]
 name = "wraithguard-cli"
-version = "0.1.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"

@@ -251,7 +251,8 @@ impl LoadOrder {
                 lo.mods.push(Path::new(name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
             }
             let Some(path) = path else {
-                if data_dirs.is_some() {
+                // builtin.omwscripts is OpenMW's own (its resources/vfs), never in a data folder.
+                if data_dirs.is_some() && !name.eq_ignore_ascii_case("builtin.omwscripts") {
                     lo.missing.push(name.clone());
                 }
                 continue;

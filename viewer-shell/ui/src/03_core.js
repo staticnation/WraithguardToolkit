@@ -233,6 +233,21 @@ if(typeof window!=='undefined' && window.addEventListener){
  *  Every message is also kept in `WgLog`, for the Messages panel: a toast goes, the
  *  log does not.
  */
+/** A yes/no question, answered asynchronously: the dialog plugin's own (`dialog.ask`, its
+ *  `message` command, which the capability allows) in the app, the browser's elsewhere.
+ *  Not `window.confirm`: tauri-plugin-dialog 2.8 replaces it with an *async* function
+ *  calling a `confirm` command the plugin no longer has - refused by the ACL, and as a
+ *  Promise always truthy, so `if(!window.confirm(...)) return` never stopped anything. */
+async function wgConfirm(msg, title){
+  const T=window.__TAURI__;
+  if(T && T.dialog && typeof T.dialog.ask==='function'){
+    try{ return !!(await T.dialog.ask(String(msg), {title:title||'Wraithguard', kind:'warning'})); }
+    catch(e){ toast('The question could not be shown ('+String(e && e.message || e)+'); nothing was done','err',6000); return false; }
+  }
+  const r=window.confirm(String(msg));
+  return (r && typeof r.then==='function')? !!(await r) : !!r;
+}
+
 function toast(msg,kind,ms,opts){
   opts=opts||{};
   WgLog.add(msg, kind);

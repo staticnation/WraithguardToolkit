@@ -111,13 +111,27 @@ Flatpak manifest in detail, so each slice starts by reading its files.
 
 ## Where it stands (2026-10-27)
 
-Done: 1 (the CLI), 2 (settings carried and written back; the theme and a fixture-folder test
-left), 4a (the program on its own, the Setup page), 5 started (build-app.yml). Deferred: 3
-(translations, English for now). Open: 4 and 8 (fold `native/`, retire the Python), which wait
-for the gate below; 6 (the Flatpak on the Tauri binary); 7 (the CSP: the inline handlers);
-9; 10 (Android and iOS).
+**4.5 is wrapped for CI** (Static, 2026-10-27): the program builds and runs on its own
+(`build-app.yml`: the program, the command line and the documents for Windows, Linux and
+macOS). Done: 1 (the CLI), 2 (settings carried and written back), 4a (the program on its
+own, the Setup page), 5 (build-app.yml; an installer later). Moved to step 4.6, after the
+gate below: 3 (translations; English for now), 4 and 8 (fold `native/`, retire the Python),
+6 (the Flatpak on the Tauri binary), 7 (the CSP: the inline handlers), 9, 10 (Android and
+iOS), the theme carried from the Tk settings, and Lint on the scan cache.
 
 ## Gate
 
 Do not delete the Python app until a user's real setup has run the new one end to end:
 sort, export, edit, build a patch, merge lands, and open the old queue and settings.
+
+## 5.0 (2026-10-27)
+
+Static ran it end to end on a real setup (sort, export to the TOML, edit, build a patch,
+merge lands, Save Check) and called the gate passed; the old queue is not migrated (a
+Python queue is built with 4.x before upgrading). Slices 4 and 8 are done: `native/` is
+gone (what only it reached moved first: `conflictcore::nifedit`/`nif_order` for the mesh
+viewer, `luacore::check` for Teal, `editor_setup` for the Editor on its own), and so is the
+Python app with its packaging. Left: 3 (translations), 6 (the Flatpak, still the Python
+one: `build-flatpak.yml` fails until it is rebuilt on the Tauri binary), 7 (the CSP), 9,
+10 (Android and iOS), an installer, the theme from the Tk settings, Lint on the scan cache.
+

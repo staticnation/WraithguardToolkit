@@ -120,7 +120,7 @@ Object.assign(WgEditor, {
   async saveScript(){
     const s=this._script; if(!s) return;
     const text=this.scr.querySelector('#edScriptText').value;
-    if(this._findings.some(f=>f.level==='error') && !window.confirm('The script has errors the compiler would refuse. Save it to the patch anyway?')) return;
+    if(this._findings.some(f=>f.level==='error') && !await wgConfirm('The script has errors the compiler would refuse. Save it to the patch anyway?')) return;
     try{
       const r=await this.ask('editSet', Object.assign({tag:s.tag, id:s.id, path:'text', value:text}, s.plugins? {plugins:s.plugins} : {}));
       const built=r && r.compile && r.compile.compiled;

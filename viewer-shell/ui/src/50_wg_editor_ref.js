@@ -16,7 +16,7 @@ Object.assign(WgEditor, {
     d.querySelector('#edDlgTitle').textContent=ref.uid? 'New reference' : 'Reference - '+ref.origin+':'+ref.refr;
     const body=d.querySelector('#edDlgBody');
     if(!this.canEdit()){
-      body.innerHTML='<div class="hint">Editing needs Wraithguard: open this viewer from Wraithguard\'s Cell Preview.</div>';
+      body.innerHTML='<div class="hint">Editing needs the Editor open on an OpenMW setup (see Messages).</div>';
       return;
     }
     body.innerHTML='<div class="hint">Reading the cell from every plugin that has it…</div>';

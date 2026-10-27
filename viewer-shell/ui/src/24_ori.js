@@ -16,10 +16,8 @@
    own each plugin gives it, and the quests those lines touch. The contents of a container
    belong to whoever owns the container, as in the game.
 
-   Every record named here opens in Wraithguard's conflict viewer when the viewer was
-   started from Wraithguard (the "Conflicts" buttons, and the ids themselves): the page
-   asks the shell (`wg_open_record`) to post `{tag, id}` to the URL Wraithguard handed
-   over in the launch's extra file (`links.openRecord`).
+   Every record named here opens in the Editor when it is on, else on the Conflicts page
+   (the "Conflicts" buttons, and the ids themselves; `Ori.openRecord`).
    Copyright (c) 2026 StaticNation.
    ===================================================================================== */
 /** Wraithguard: the inspector's and the full help's sections as accordions. Every

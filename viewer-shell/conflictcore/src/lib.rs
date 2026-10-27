@@ -26,8 +26,11 @@
 //! documented VFS order (a later `data=` folder wins), not from OpenMW's code.
 
 pub mod fields;
+pub mod keycache;
 pub mod map;
 pub mod mesh;
+pub mod nif_order;
+pub mod nifedit;
 pub mod patch;
 pub mod records;
 pub mod resources;

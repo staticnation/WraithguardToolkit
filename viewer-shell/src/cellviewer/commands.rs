@@ -2500,6 +2500,55 @@ fn mesh_collision(path: String, state: State) -> Result<tauri::ipc::Response, St
     Ok(tauri::ipc::Response::new(collision_payload(&v, &path)?))
 }
 
+/// A mesh's bytes by the mesh viewer's path: a file on disk (`file:` or an absolute path,
+/// one mod's own copy) or a load-order path.
+fn mesh_bytes(v: &Vfs, path: &str) -> Result<Vec<u8>, String> {
+    let disk = std::path::Path::new(path.strip_prefix("file:").unwrap_or(path));
+    if path.starts_with("file:") || (disk.is_absolute() && disk.is_file()) {
+        return std::fs::read(disk).map_err(|e| format!("{}: {}", path, e));
+    }
+    let p = v
+        .resolve_mesh(path)
+        .or_else(|| v.resolve(path))
+        .ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = path))?;
+    v.load(&p).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = path))
+}
+
+/* ---- the mesh viewer's block panel and Save (4.6, folding native/) ------------------
+
+   These came from the Python host (`wraithguard/nif/inspect.py` and `edit.py` over
+   `native/src/nif.rs`), handed to the page in the extra file and a loopback Save. The
+   reader and the editor are conflictcore's now (`nifedit`, `nif_order`), so the viewer
+   answers both itself, for any mesh it shows. */
+
+/// The block tree, every block's fields (the editable ones marked) and what Optimise
+/// would do (`conflictcore::nifedit::blocks`), as JSON text; `{"complete": false}` for a
+/// mesh the crate cannot read through.
+#[tauri::command(async)]
+fn mesh_inspect(path: String, state: State) -> Result<String, String> {
+    let v = { state.app().vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))? };
+    let bytes = mesh_bytes(&v, &path)?;
+    Ok(match conflictcore::nifedit::blocks(&bytes) {
+        Ok(x) => x.to_string(),
+        Err(e) => serde_json::json!({"tree": [], "blocks": {}, "complete": false, "error": e.to_string()}).to_string(),
+    })
+}
+
+/// The mesh at `path` with `edits` applied (field sets by block index, `{"op":"optimize"}`
+/// for the draw order) written to `out`, the path the user picked; through a `.tmp` so a
+/// failed write leaves nothing half done.
+#[tauri::command(async)]
+fn mesh_save(path: String, edits: String, out: String, state: State) -> Result<String, String> {
+    let v = { state.app().vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))? };
+    let bytes = mesh_bytes(&v, &path)?;
+    let edits: Vec<serde_json::Value> = serde_json::from_str(&edits).map_err(|e| e.to_string())?;
+    let edited = conflictcore::nifedit::edit(&bytes, &edits).map_err(|e| e.to_string())?;
+    let tmp = std::path::PathBuf::from(format!("{out}.tmp"));
+    std::fs::write(&tmp, &edited).map_err(|e| format!("{}: {}", tmp.display(), e))?;
+    std::fs::rename(&tmp, &out).map_err(|e| format!("{out}: {e}"))?;
+    Ok(out)
+}
+
 pub(crate) fn collision_payload(v: &Vfs, path: &str) -> Result<Vec<u8>, String> {
     let disk = std::path::Path::new(path.strip_prefix("file:").unwrap_or(path));
     let (bytes, kf) = if path.starts_with("file:") || (disk.is_absolute() && disk.is_file()) {
@@ -3631,6 +3680,68 @@ fn wg_open_record(url: String, body: String) -> Result<String, String> {
    `conflicts_csv`), and a record or field queued for the patch in the journal the Editor and
    Wraithguard share (`conflicts_patch`). The last scans are kept here between calls. */
 
+/* ---- the scans' share of the machine, and what they keep (2026-10-27) -----------------
+
+   Static: several scans started from the pages (conflicts, files, lint) took every core,
+   and a cell load waited minutes behind them at 0%. So the scans get their own budget -
+   half the machine (`scan_budget`, which conflictcore's workers keep to as well) - and run
+   one at a time (`scan_gate`), leaving the rest to drawing and loading cells. And a
+   plugin's conflict keys and cells are kept in an SQLite cache beside the program
+   (`conflictcore::keycache`, `wraithguard_scan_cache.sqlite3`), filled in the background
+   after the program connects (`scan_cache_warm`), so a scan of a load order already read
+   is a lookup, not 600 plugins read again. */
+
+/// The threads a scan may use: half the machine's (at least one, at most eight), set for
+/// conflictcore's workers too the first time it is asked.
+fn scan_budget() -> usize {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    let n = (std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2) / 2).clamp(1, 8);
+    ONCE.call_once(|| conflictcore::vfs::set_scan_threads(n));
+    n
+}
+
+/// One scan at a time: held for the length of a scan, so two pages' scans queue rather than
+/// share the machine with the cell load.
+fn scan_gate() -> std::sync::MutexGuard<'static, ()> {
+    static GATE: Mutex<()> = Mutex::new(());
+    scan_budget();
+    GATE.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// The scans' cache of plugin keys and cells, beside the program; `None` when there is no
+/// folder for it (the cache is a shortcut, never needed).
+fn scan_cache() -> Option<&'static editcore::cache::Cache> {
+    static CACHE: std::sync::OnceLock<Option<editcore::cache::Cache>> = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let dir = app_dir().ok()?;
+            Some(editcore::cache::Cache::with_warn(
+                dir.join("wraithguard_scan_cache.sqlite3"),
+                conflictcore::keycache::PARSER,
+                editcore::cache::MAX_BYTES,
+                Box::new(|m| eprintln!("{m}")),
+            ))
+        })
+        .as_ref()
+}
+
+/// Wraithguard: fills the scans' cache for the cfg's load order in the background, on two
+/// threads (the page asks for it once the program has connected). Answers at once.
+#[tauri::command(async)]
+fn scan_cache_warm(cfg: String) -> Result<(), String> {
+    let setup = cf_setup(&cfg)?;
+    let files: Vec<PathBuf> = setup.locate(&setup.plugins()).into_iter().filter_map(|(_, p)| p).collect();
+    std::thread::Builder::new()
+        .name("scan-cache-warm".into())
+        .spawn(move || {
+            if let Some(c) = scan_cache() {
+                let _ = conflictcore::keycache::warm(c, &files, 2);
+            }
+        })
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 struct ConflictScan {
     list: Vec<conflictcore::records::Conflict>,
     stats: conflictcore::records::Stats,
@@ -3669,7 +3780,8 @@ fn conflicts_scan(cfg: String, subset: Vec<String>, mode: String, exclude: Vec<S
     let at: std::collections::HashMap<String, PathBuf> =
         setup.locate(&order).into_iter().filter_map(|(n, p)| Some((n, p?))).collect();
     let find = move |name: &str| at.get(name).cloned();
-    let scan = records::scan_touch(&order, &find, &records::plugin_keys);
+    let _gate = scan_gate();
+    let scan = records::scan_touch(&order, &find, &conflictcore::keycache::cached_keys(scan_cache()));
     let (list, stats) = match mode.as_str() {
         "conflicts" => records::conflicts(&scan, &subset),
         "mine" => records::singles(&scan, &subset, true),
@@ -3800,6 +3912,7 @@ fn conflicts_land_surfaces(cfg: String, id: String) -> Result<String, String> {
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 fn conflicts_resources(cfg: String, subset_dirs: Vec<String>, exclude_exts: Vec<String>, compare: bool, meshes: bool, mesh_limit: usize, plan_file: String) -> Result<String, String> {
+    let _gate = scan_gate();
     let mut subset_dirs = subset_dirs;
     let plan: Option<serde_json::Value> =
         if plan_file.is_empty() { None } else { std::fs::read_to_string(&plan_file).ok().and_then(|t| serde_json::from_str(&t).ok()) };
@@ -4077,6 +4190,10 @@ fn land_merge_home(cfg: String) -> Result<String, String> {
 /// or folder (`None`: the fork's defaults). Answers `{error, lines, notes, output, result: {cells, textures, contested, major,
 /// seams, slopes, clamped, dropped, borrowed}}` - `error` the reason it stopped, the lines said
 /// before it kept.
+///
+/// While it runs, each line it says is kept in [`LAND_LOG`] for `land_merge_progress`, so the
+/// page shows the merge as it goes (Static, 2026-10-27: a 621-plugin order sat on "Reading
+/// the load order's terrain..." with nothing to say whether it was moving).
 #[tauri::command(async)]
 fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: String, ignore: Option<Vec<String>>) -> Result<String, String> {
     use landcore::pipeline::DiffModel;
@@ -4090,7 +4207,16 @@ fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: 
     if let Some(ignore) = ignore {
         opts.ignore = ignore;
     }
-    let out = match build_merged_lands(&dirs, &order, &opts, &mut |_| {}) {
+    let started = std::time::Instant::now();
+    {
+        let mut log = LAND_LOG.lock().unwrap_or_else(|p| p.into_inner());
+        log.clear();
+        log.push(format!("{} plugin(s) in the load order, {} data folder(s)", order.len(), dirs.len()));
+    }
+    let mut say = |line: &str| {
+        LAND_LOG.lock().unwrap_or_else(|p| p.into_inner()).push(format!("[{:>5.1}s] {line}", started.elapsed().as_secs_f32()));
+    };
+    let out = match build_merged_lands(&dirs, &order, &opts, &mut say) {
         Ok(r) => serde_json::json!({
             "error": null, "lines": r.lines, "notes": r.notes,
             "output": r.output.map(|p| p.display().to_string()),
@@ -4100,6 +4226,18 @@ fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: 
         Err((error, lines)) => serde_json::json!({"error": error, "lines": lines, "notes": [], "output": null, "result": null}),
     };
     Ok(out.to_string())
+}
+
+/// The running (or last) Merge Lands' lines, as it says them.
+static LAND_LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// The Merge Lands lines from `from` on: `{lines, next}` - the page asks every half second
+/// while `land_merge` runs and shows them as they come.
+#[tauri::command(async)]
+fn land_merge_progress(from: usize) -> Result<String, String> {
+    let log = LAND_LOG.lock().unwrap_or_else(|p| p.into_inner());
+    let lines: Vec<&String> = log.iter().skip(from).collect();
+    Ok(serde_json::json!({"lines": lines, "next": log.len()}).to_string())
 }
 
 /* ---- the Help page (Wraithguard's `viz/docs.py`; port step 4.4) -------------------------
@@ -4218,7 +4356,7 @@ fn cf_read_many(
             .map(|m| m.into_iter().map(|((t, i), v)| ((name.clone(), t, i), v)).collect())
             .unwrap_or_default()
     };
-    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4);
+    let threads = scan_budget();
     let chunk = wanted.len().div_ceil(threads).max(1);
     std::thread::scope(|s| {
         let jobs: Vec<_> = wanted.chunks(chunk).map(|part| s.spawn(move || part.iter().flat_map(read).collect::<Vec<_>>())).collect();
@@ -4279,6 +4417,32 @@ fn conflicts_plugin_group(cfg: String, plugin: String, rtype: String) -> Result<
     let worst = conflictcore::fields::worst_this(statuses.iter().copied());
     let tally: serde_json::Map<String, serde_json::Value> = counts.into_iter().map(|(s, n)| (s.name().to_string(), n.into())).collect();
     Ok(serde_json::json!({"records": records, "tally": tally, "worst": worst.name()}).to_string())
+}
+
+/// Wraithguard: every record of the last conflict scan judged (`judge`, as the Tk record list's
+/// plugin summary coloured it): `[all]`, the `ConflictAll` code of each record in the scan's
+/// order (0 unknown, 1 only one, 2 no conflict, 3 override, 4 conflict).
+#[tauri::command(async)]
+fn conflicts_verdicts(cfg: String) -> Result<String, String> {
+    use conflictcore::summary::judge;
+    let _gate = scan_gate();
+    let setup = cf_setup(&cfg)?;
+    let list: Vec<conflictcore::records::Conflict> = {
+        let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
+        let scan = slot.as_ref().ok_or("scan first")?;
+        scan.list.clone()
+    };
+    let refs: Vec<&conflictcore::records::Conflict> = list.iter().collect();
+    let read = cf_read_many(&setup, &refs);
+    let codes: Vec<u8> = list
+        .iter()
+        .map(|c| {
+            let versions: Vec<(String, Option<&serde_json::Value>)> =
+                c.plugins.iter().map(|p| (p.clone(), read.get(&(p.clone(), c.rtype.clone(), c.id.clone())))).collect();
+            judge(&versions).0.code()
+        })
+        .collect();
+    Ok(serde_json::json!(codes).to_string())
 }
 
 /// The records `conflicts_plugin_bulk` read, kept for `_apply`: the plugin and its records.
@@ -4364,12 +4528,13 @@ fn conflicts_plugin_bulk_apply(journal: String, plugin: String, paths: Vec<Strin
 /// unreadable, warnings, interiorCells, pathgrids}}`.
 #[tauri::command(async)]
 fn tools_lint(cfg: String, subset: Vec<String>) -> Result<String, String> {
+    let _gate = scan_gate();
     let setup = cf_setup(&cfg)?;
     let order = setup.plugins();
     let at: std::collections::HashMap<String, PathBuf> = setup.locate(&order).into_iter().filter_map(|(n, p)| Some((n, p?))).collect();
     let find = move |name: &str| at.get(name).cloned();
     let origins: std::collections::BTreeMap<String, String> = subset.iter().map(|s| (s.to_lowercase(), "your mod".to_string())).collect();
-    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4);
+    let threads = scan_budget();
     let (warnings, st) = toolscore::lint::lint_order(&order, &find, &subset, &origins, threads);
     Ok(serde_json::json!({
         "warnings": warnings,
@@ -4456,7 +4621,12 @@ fn tools_save_check(cfg: String, saves: Vec<String>, details: usize, mods: Vec<S
         return Err("one save, or two to compare".into());
     }
     let setup = cf_setup(&cfg)?;
-    let order = setup.plugins();
+    // Every content= line, not only the plugins: a save lists the .omwscripts it ran with
+    // too, and OpenMW loads builtin.omwscripts from its own resources without a line.
+    // (Static, 2026-10-27: measured against plugins() a save "missed" 89 .omwscripts the
+    // cfg loads.)
+    let mut order = setup.content.clone();
+    order.push("builtin.omwscripts".into());
     let dirs = save::DataDirs::from_cfg(std::path::Path::new(&cfg)).ok();
     let mut checks = Vec::new();
     let mut stats = Vec::new();
@@ -4486,6 +4656,7 @@ fn tools_save_check(cfg: String, saves: Vec<String>, details: usize, mods: Vec<S
 /// else they do). Only the topics, responses and scripts are read, the plugins side by side.
 #[tauri::command(async)]
 fn tools_journal(cfg: String) -> Result<String, String> {
+    let _gate = scan_gate();
     let setup = cf_setup(&cfg)?;
     let order = setup.plugins();
     let found: Vec<(String, PathBuf)> = setup.locate(&order).into_iter().filter_map(|(n, p)| Some((n, p?))).collect();
@@ -4496,7 +4667,7 @@ fn tools_journal(cfg: String) -> Result<String, String> {
             .map(|objs| objs.iter().filter_map(|o| serde_json::to_value(o).ok()).collect())
             .unwrap_or_default()
     };
-    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4);
+    let threads = scan_budget();
     let chunk = found.len().div_ceil(threads).max(1);
     let mut sources: std::collections::HashMap<String, Vec<serde_json::Value>> = std::collections::HashMap::new();
     std::thread::scope(|sc| {
@@ -4605,6 +4776,35 @@ fn editor_open(plugins: Vec<(String, String)>, journal: String, folders: Option<
     }
     // Link names are bare words: no escaping to do.
     Ok(format!("[{}]", editcore::links::ANSWERS.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(",")))
+}
+
+/// The program on its own (4.6: no Python host hands `extra.editor` over): what the
+/// Editor opens on, from the install the viewer has open - `{plugins: [[name, path]],
+/// journal, folders, last, testSettings}`, as Wraithguard's `editor_native` said it. The
+/// journal and Test in OpenMW's choices sit beside the program under the names the Python
+/// app used, so a queue it left opens here unchanged.
+#[tauri::command(async)]
+fn editor_setup(state: State) -> Result<String, String> {
+    let cfg = state.app().order_file.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    if !viewcore::luascan::is_openmw_cfg(&cfg) {
+        return Err("The Editor's changes need an OpenMW setup (openmw.cfg); this install is a Morrowind.ini".into());
+    }
+    let setup = cf_setup(&cfg.to_string_lossy())?;
+    let plugins: Vec<(String, String)> = setup
+        .locate(&setup.plugins())
+        .into_iter()
+        .filter_map(|(n, p)| Some((n, p?.to_string_lossy().into_owned())))
+        .collect();
+    let folders: Vec<String> = setup.data.iter().rev().filter(|d| d.is_dir()).map(|d| d.to_string_lossy().into_owned()).collect();
+    let dir = app_dir()?;
+    Ok(serde_json::json!({
+        "plugins": plugins,
+        "journal": dir.join("wraithguard_patch_journal.json"),
+        "folders": folders,
+        "last": "",
+        "testSettings": dir.join("openmw_test.json"),
+    })
+    .to_string())
 }
 
 /// Wraithguard: one Editor link (`name`, its JSON `body`) answered by the viewer's Editor:
@@ -5597,6 +5797,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             wg_post,
             editor_open,
             editor_link,
+            editor_setup,
             loadorder_compute,
             loadorder_export,
             loadorder_rule_ages,
@@ -5623,6 +5824,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             editor_preview_patch,
             conflicts_by_plugin,
             conflicts_plugin_group,
+            conflicts_verdicts,
+            scan_cache_warm,
             conflicts_plugin_bulk,
             conflicts_plugin_bulk_apply,
             help_docs,
@@ -5633,6 +5836,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             land_meta_write,
             land_merge_home,
             land_merge,
+            land_merge_progress,
             tools_lint,
             tools_backups,
             tools_backups_restore,
@@ -5657,6 +5861,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             editor_record_tag,
             ori_dialogue,
             mesh_collision,
+            mesh_inspect,
+            mesh_save,
             open_install,
             textures,
             cells,
