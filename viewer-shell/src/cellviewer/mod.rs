@@ -13,6 +13,10 @@
 //                they move.
 //   --docs:      open on the Help page (62_wg_help.js): the program's documents, the one
 //                the extra file's `helpDoc` names first.
+//   --setup:     open on the Setup page (64_wg_setup.js) and load nothing: the paths every
+//                page runs on (openmw.cfg, customizations, rule files ...), checked and saved.
+//                Without `--openmw-cfg` the program opens on the settings file's cfg, or on
+//                the Setup page when there is none (port step 4.5).
 //   --editor:    open in the Editor mode (50_wg_editor.js): the Construction Set's
 //                Object Window and Cell View beside the render window, edits going to
 //                Wraithguard's patch pool through the extra file's `links`.
@@ -58,7 +62,15 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
 
 /// What the page's viewer_only.html script reads to connect and open a cell.
 fn view_request(args: &[String]) -> Value {
-    let cfg = flag(args, "--openmw-cfg").filter(|p| std::path::Path::new(p).is_file());
+    // Started on its own (no `--openmw-cfg`: the program, not a window the Tk app opened): the
+    // openmw.cfg the settings file names (`commands::settings_cfg`), the settings file beside
+    // the program, and the Setup page when there is no cfg yet or `--setup` asks for it.
+    let app = flag(args, "--openmw-cfg").is_none();
+    let cfg = flag(args, "--openmw-cfg")
+        .filter(|p| std::path::Path::new(p).is_file())
+        .map(str::to_string)
+        .or_else(|| if app { commands::settings_cfg() } else { None });
+    let setup = args.iter().any(|a| a == "--setup");
     let cell = flag(args, "--cell").and_then(parse_cell);
     // Wraithguard's current chrome palette (its `DARK` dict), so the viewer wears the
     // theme the rest of the toolkit is wearing. Ignored when it does not parse.
@@ -85,7 +97,7 @@ fn view_request(args: &[String]) -> Value {
     // SteamGameId for what it launches. The page leaves a pad's cursor mode off there - the
     // trackpad is the cursor (49_wg_gamepad.js).
     let steam = std::env::var_os("SteamGameId").is_some_and(|v| !v.is_empty());
-    json!({"cfg": cfg, "cell": cell, "theme": theme, "extra": extra, "meshView": mesh_view, "editor": editor, "loadorder": loadorder, "conflicts": conflicts, "tools": tools, "docs": docs, "steam": steam})
+    json!({"cfg": cfg, "app": app, "setup": setup, "cell": cell, "theme": theme, "extra": extra, "meshView": mesh_view, "editor": editor, "loadorder": loadorder, "conflicts": conflicts, "tools": tools, "docs": docs, "steam": steam})
 }
 
 /// `args` are everything after `--cell-viewer`; `context` is the binary's one
@@ -98,7 +110,8 @@ pub fn run(args: &[String], context: tauri::Context<tauri::Wry>) -> i32 {
         std::env::set_var("WRAITHGUARD_VIEWER_PREFS", p);
     }
     let init = format!("window.__WG_VIEW__ = {};", view_request(args));
-    let title = flag(args, "--title").unwrap_or("Cell Preview").to_string();
+    let own = if flag(args, "--openmw-cfg").is_none() { "Wraithguard" } else { "Cell Preview" };
+    let title = flag(args, "--title").unwrap_or(own).to_string();
 
     let result = commands::builder()
         .setup(move |app| {

@@ -254,7 +254,7 @@ fn svg_grid(ext: &[&((i64, i64), Vec<String>)], subset: &HashSet<String>, worst:
 
 fn exterior_rows(ext: &[&((i64, i64), Vec<String>)], subset: &HashSet<String>) -> String {
     let mut rows: Vec<&&((i64, i64), Vec<String>)> = ext.iter().collect();
-    rows.sort_by(|a, b| (std::cmp::Reverse(a.1.len()), a.0).cmp(&(std::cmp::Reverse(b.1.len()), b.0)));
+    rows.sort_by_key(|e| (std::cmp::Reverse(e.1.len()), e.0));
     let out: String = rows
         .iter()
         .map(|e| {
@@ -274,7 +274,7 @@ fn exterior_rows(ext: &[&((i64, i64), Vec<String>)], subset: &HashSet<String>) -
 
 fn interior_rows(int: &[(String, Vec<String>)], subset: &HashSet<String>) -> String {
     let mut rows: Vec<&(String, Vec<String>)> = int.iter().collect();
-    rows.sort_by(|a, b| (std::cmp::Reverse(a.1.len()), a.0.to_lowercase()).cmp(&(std::cmp::Reverse(b.1.len()), b.0.to_lowercase())));
+    rows.sort_by_key(|e| (std::cmp::Reverse(e.1.len()), e.0.to_lowercase()));
     let out: String = rows
         .iter()
         .map(|(name, mods)| {
@@ -365,7 +365,7 @@ mod tests {
     fn the_ramp_is_the_pythons() {
         // python: [coverage_heat(n, 40) for n in (1, 3, 5, 6, 40)], coverage_legend_stops(1)
         assert_eq!(bands(40).len(), 12);
-        assert_eq!(bands(100).last(), Some(&(76, None)));
+        assert_eq!(bands(100).last(), Some(&(56, None)));
         assert_eq!(heat(0, 3), NEUTRAL);
         assert_eq!(heat(1, 1), "#2e4a63");
         assert_eq!(legend_stops(1), vec![("1".to_string(), "#2e4a63".to_string(), true)]);

@@ -38,7 +38,9 @@ import gen_plan_cases as plan  # noqa: E402
 # ---------------------------------------------------------------- the scans' plugins
 
 
-def _header(*masters: tuple[str, int], author: str = "me", description: str = "a test") -> dict[str, Any]:
+def _header(
+    *masters: tuple[str, int], author: str = "me", description: str = "a test"
+) -> dict[str, Any]:
     return {
         "type": "Header",
         "flags": "",
@@ -56,7 +58,13 @@ def _static(rid: str, mesh: str) -> dict[str, Any]:
 
 
 def _exterior(x: int, y: int) -> dict[str, Any]:
-    return {"type": "Cell", "flags": "", "name": "", "data": {"flags": "", "grid": [x, y]}, "references": []}
+    return {
+        "type": "Cell",
+        "flags": "",
+        "name": "",
+        "data": {"flags": "", "grid": [x, y]},
+        "references": [],
+    }
 
 
 def _interior(name: str, fog: float) -> dict[str, Any]:
@@ -84,14 +92,25 @@ def _script(rid: str, text: str) -> dict[str, Any]:
         "type": "Script",
         "flags": "",
         "id": rid,
-        "header": {"num_shorts": 0, "num_longs": 0, "num_floats": 0, "bytecode_length": 0, "variables_length": 0},
+        "header": {
+            "num_shorts": 0,
+            "num_longs": 0,
+            "num_floats": 0,
+            "bytecode_length": 0,
+            "variables_length": 0,
+        },
         "variables": EMPTY_PACKED,
         "bytecode": EMPTY_PACKED,
         "text": text,
     }
 
 
-GMST_EVIL = {"type": "GameSetting", "flags": "", "id": "fFleeDistance", "value": {"type": "Float", "data": 3000.0}}
+GMST_EVIL = {
+    "type": "GameSetting",
+    "flags": "",
+    "id": "fFleeDistance",
+    "value": {"type": "Float", "data": 3000.0},
+}
 
 SCAN_PLUGINS: dict[str, list[dict[str, Any]]] = {
     "game/Morrowind.esm": [
@@ -108,7 +127,7 @@ SCAN_PLUGINS: dict[str, list[dict[str, Any]]] = {
         _exterior(1, 1),
         _exterior(2, -3),
         _interior("Vault", 0.0),
-        _script("alpha_s", "begin alpha_s\r\nPlaceItem \"rock\" 0 0 0 0\r\nend\r\n"),
+        _script("alpha_s", 'begin alpha_s\r\nPlaceItem "rock" 0 0 0 0\r\nend\r\n'),
     ],
     "mods/B/Beta.esp": [
         _header(("Morrowind.esm", 1), ("Alpha.esp", 1)),
@@ -116,7 +135,7 @@ SCAN_PLUGINS: dict[str, list[dict[str, Any]]] = {
         _static("tree", "t2.nif"),
         _exterior(1, 1),
         _interior("Vault", 0.5),
-        _interior("Shrine <of> \"Light\"", 0.5),
+        _interior('Shrine <of> "Light"', 0.5),
     ],
     "mods/C/Clash.esp": [
         _header(("Morrowind.esm", 1)),
@@ -180,9 +199,19 @@ def _cases_in() -> list[tuple[str, dict[str, Any], list[str]]]:
     files, argv = by_name["a subset file, sorted with its folders"]
     out.append(("a dry run of writing both", files, [*argv, "--dry-run"]))
     files, argv = by_name["a subset file, folders not sorted"]
-    out.append(("verbose, without the rule warnings", files, [*argv, "-v", "--no-predicate-warnings"]))
+    out.append(
+        ("verbose, without the rule warnings", files, [*argv, "-v", "--no-predicate-warnings"])
+    )
     scan = _scan_files()
-    base = ["--cfg", "<root>/openmw.cfg", "--rules", "<root>/rules/mlox_base.txt", "--subset", "Alpha.esp", "Beta.esp"]
+    base = [
+        "--cfg",
+        "<root>/openmw.cfg",
+        "--rules",
+        "<root>/rules/mlox_base.txt",
+        "--subset",
+        "Alpha.esp",
+        "Beta.esp",
+    ]
     out.append(
         (
             "every scan, their files written",
@@ -205,7 +234,16 @@ def _cases_in() -> list[tuple[str, dict[str, Any], list[str]]]:
         (
             "conflicts of mine only, one plugin left out",
             scan,
-            [*base, "--check-conflicts", "--conflicts-subset-only", "--exclude", "clash*", "--lint", "--cell-map", "<root>/map.html"],
+            [
+                *base,
+                "--check-conflicts",
+                "--conflicts-subset-only",
+                "--exclude",
+                "clash*",
+                "--lint",
+                "--cell-map",
+                "<root>/map.html",
+            ],
         )
     )
     out.append(
@@ -230,13 +268,17 @@ def _build(root: Path, files: dict[str, Any]) -> None:
 
 
 def _snapshot(root: Path) -> dict[str, bytes]:
-    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+    return {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    }
 
 
 def run_case(name: str, files: dict[str, Any], argv: list[str]) -> dict[str, Any]:
     """Make the setup, run the CLI's ``main`` on ``argv`` and record what it did."""
-    import wraithguard.viz.cellmap as cellmap
     import wraithguard_toolkit as tk
+    from wraithguard.viz import cellmap
 
     case: dict[str, Any] = {"name": name, "files": files, "argv": argv}
     with tempfile.TemporaryDirectory() as tmp:
@@ -246,7 +288,9 @@ def run_case(name: str, files: dict[str, Any], argv: list[str]) -> dict[str, Any
         out, err = io.StringIO(), io.StringIO()
         code = 0
         with (
-            mock.patch.object(sys, "argv", ["wraithguard_toolkit.py", *plan._rooted(argv, str(root))]),
+            mock.patch.object(
+                sys, "argv", ["wraithguard_toolkit.py", *plan._rooted(argv, str(root))]
+            ),
             mock.patch.object(tk, "datetime", plan._FixedClock),
             mock.patch.object(cellmap, "datetime", plan._FixedClock),
             contextlib.redirect_stdout(out),
@@ -276,6 +320,7 @@ def run_case(name: str, files: dict[str, Any], argv: list[str]) -> dict[str, Any
 
 
 def main() -> int:
+    """Record every case into the fixture."""
     cases = [run_case(*c) for c in _cases_in()]
     about = (
         "The command line: setups made on disk and a command line, answered by "
@@ -283,7 +328,10 @@ def main() -> int:
         "leaves); run by viewer-shell/cli/tests/cli_cases.rs against the Rust binary. "
         "Regenerate: python tools/gen_cli_cases.py"
     )
-    OUT.write_text(json.dumps({"_about": about, "cases": cases}, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    OUT.write_text(
+        json.dumps({"_about": about, "cases": cases}, indent=1, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     print(f"{len(cases)} cases -> {OUT}")
     return 0
 

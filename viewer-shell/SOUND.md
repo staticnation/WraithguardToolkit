@@ -1,6 +1,12 @@
 # Sound and music in the viewer (plan)
 
-Step 5 of the road in `TODO.md` ("a sound engine"). Nothing here is built yet.
+Step 5 of the road in `TODO.md` ("a sound engine"). **Step 1 (hear a file) is built**
+(2026-10-27): `viewcore::audio` (Symphonia: WAV in PCM and ADPCM, MP3, Ogg Vorbis, FLAC),
+the commands `sound_info` (facts, providers, waveform) and `sound_pcm`, and a player in the
+Editor's record dialog for a Sound record and a response's voice file (`ui/src/63_wg_sound.js`:
+waveform, play from any point, stop, loop, volume; the SOUN volume as the start). Not yet:
+the player in the asset lists and on every field that names a sound, the waveform cache, and
+steps 2-4.
 
 ## Reference: Resonix
 

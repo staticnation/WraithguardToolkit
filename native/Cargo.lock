@@ -1636,7 +1636,9 @@ dependencies = [
  "indexmap",
  "luacore",
  "ordercore",
+ "serde_json",
  "tes3",
+ "toml",
 ]
 
 [[package]]

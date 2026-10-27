@@ -182,6 +182,17 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "mesh_data" => Reply::Bytes(t::mesh_data(s(a, "path"), a.get("still").and_then(|v| v.as_bool()), st())?.0),
         "mesh_collision" => Reply::Bytes(t::mesh_collision(s(a, "path"), st())?.0),
         "cpu_threads" => Reply::Raw(t::cpu_threads().to_string()),
+        // The settings file and the Setup page (port 4.5): the page's first start is driven
+        // through these (ui/tests/boot.js, WG_SETUP=1).
+        "setup_state" => Reply::Json(t::setup_state(s(a, "settingsFile"))?),
+        "setup_check" => Reply::Json(t::setup_check(s(a, "fields"))?),
+        "setup_find_cfgs" => Reply::Json(t::setup_find_cfgs()?),
+        "setup_mark" => {
+            t::setup_mark(s(a, "state"), s(a, "cfg"))?;
+            Reply::Raw("null".into())
+        }
+        "settings_seed" => Reply::Json(t::settings_seed(s(a, "settingsFile"))?),
+        "settings_write" => Reply::Json(t::settings_write(s(a, "settingsFile"), s(a, "fields"))?),
         other => return Err(format!("no such command: {other}")),
     })
 }

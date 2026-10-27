@@ -166,6 +166,10 @@ jobs:
           cargo test --manifest-path viewer-shell/conflictcore/Cargo.toml
           cargo test --manifest-path viewer-shell/toolscore/Cargo.toml
           cargo test --manifest-path viewer-shell/landcore/Cargo.toml
+      # The command line (port step 4.5, slice 1): the wraithguard binary run on the cases the
+      # Python CLI answered (tests/fixtures/cli_cases.json).
+      - name: command line tests
+        run: cargo test --manifest-path viewer-shell/cli/Cargo.toml
       # Greatness7's tes3 crate against Gardenfell's readers, record for record and mesh
       # for mesh (tests/differential*.rs), and our tests inside the vendored crates
       # (patches 0004, 0007, 0008). Robin's own suite is not run here: 32 of its tests
@@ -192,7 +196,7 @@ jobs:
       - name: clippy
         run: |
           set -e
-          for m in native/Cargo.toml viewer-shell/luacore/Cargo.toml viewer-shell/ordercore/Cargo.toml viewer-shell/editcore/Cargo.toml viewer-shell/conflictcore/Cargo.toml viewer-shell/toolscore/Cargo.toml viewer-shell/landcore/Cargo.toml viewer-shell/gardenfell-g7/Cargo.toml viewer-shell/meshopt-port/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
+          for m in native/Cargo.toml viewer-shell/luacore/Cargo.toml viewer-shell/ordercore/Cargo.toml viewer-shell/editcore/Cargo.toml viewer-shell/conflictcore/Cargo.toml viewer-shell/toolscore/Cargo.toml viewer-shell/landcore/Cargo.toml viewer-shell/cli/Cargo.toml viewer-shell/gardenfell-g7/Cargo.toml viewer-shell/meshopt-port/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
             echo "::group::clippy $m"
             cargo clippy --all-targets --manifest-path "$m" -- -D warnings
             echo "::endgroup::"
@@ -222,6 +226,11 @@ jobs:
       - name: mesh viewer boots
         working-directory: viewer-shell/ui/tests
         run: WG_MESH_VIEW=1 node boot.js
+      # And the program on its own with no openmw.cfg yet: the Setup page opens, checks,
+      # saves and loads (port step 4.5).
+      - name: first start opens Setup
+        working-directory: viewer-shell/ui/tests
+        run: WG_SETUP=1 node boot.js
       # The Editor's windows on their own (editor/*.test.js), the engine and Wraithguard
       # answered by the tests: drags, searches, menus, the path grid and navmesh tools.
       - name: editor windows

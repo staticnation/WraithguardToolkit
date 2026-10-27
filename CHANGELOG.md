@@ -11,6 +11,29 @@
 
 ### Added
 
+- **A Setup page: the paths the program runs on, in one place.** The openmw.cfg (with Find,
+  which looks where OpenMW keeps it), the rule files and your own, the customizations TOML,
+  a subset file or mods folder, plugin-order.yml and the list, the data-paths cache, grass,
+  tes3cmd, the Merge Lands folder and what the scans leave out. Each is checked as you type,
+  the way the program will read it: a cfg's data folders that are gone, a TOML that does not
+  parse, a rule file that is not there are named before anything loads. It opens by itself
+  on a first start, after a start that never finished loading its install, and with
+  `--setup`; otherwise it is the Setup button, and a button on the loading card, with Restart
+  for a load that will not finish. Every page reads and writes the same settings file.
+- **The viewer runs on its own.** Started without arguments it opens on the saved
+  openmw.cfg, or on Setup when there is none.
+- **Hear a sound in the Editor.** A Sound record's dialog, and a dialogue response's with a
+  voice file, has a player: what the file is (format, rate, channels, length, peak and RMS,
+  which folder or archive supplies it, and over which others), its waveform, play from any
+  point, stop, loop and volume (starting at the record's own volume). The engine decodes it
+  (Symphonia: WAV, MP3, Ogg Vorbis, FLAC), so it plays the same on every machine; a `.wav`
+  nothing supplies plays as its `.mp3`, as OpenMW does. A file that reaches full scale or is
+  silent is said so.
+- **`wraithguard`, the command line in Rust** (`viewer-shell/cli`): every flag of
+  `wraithguard_toolkit.py` - sort and export, `--check-conflicts` and its CSV, `--cell-map`,
+  `--lint`, `--resource-conflicts` and its CSV - with the same report, warnings and files,
+  pinned against the Python CLI (`tests/fixtures/cli_cases.json`). A console program beside
+  the viewer, built without a webview.
 - **Wraithguard's tools have their own page in the viewer** (the top bar's Tools button, or
   `--tools`), each tool a section on the left and its work on the right, all of it Rust
   (`toolscore`, `landcore`, `editcore::journal`):
@@ -47,7 +70,8 @@
   plugin's records judged when it is opened, and "Merge fields" across a plugin's records.
   Wraithguard's plugin view opens it.
 - **Conflicts: a `LAND` record's terrain.** Its heights in each plugin and what each merge
-  strategy would make of them, shaded or as the difference against any of the others.
+  strategy would make of them, shaded or as the difference against any of the others. From it, any of the cell's plugins'
+  Merge settings, where the strategy is chosen.
 - **The viewer has Wraithguard's 23 themes** (Settings, Theme), generated from `theme.py` by
   `tools/gen_viewer_themes.py`.
 - **The Load order page's rule maker writes conditions**: one expression a line, as mlox
@@ -249,6 +273,15 @@
 
 ### Fixed
 
+- **The Tools page never opened**: its script and the Preview's tools shared a name, so the
+  page's script stopped as it loaded (and its top-bar button never appeared).
+- **"1. Load order" opened the viewer on empty fields**, with no sort and nothing about the
+  install: the sort's fields (rule files, customizations, list, cache, grass, options) had
+  left Wraithguard's window, so the page had nothing to start from. The page now opens on
+  what Wraithguard's settings file holds and the openmw.cfg Wraithguard names (not the
+  setup copy the viewer is launched on), and sorts at once; Wraithguard keeps those fields
+  in its settings file when it saves. The Tools page takes tes3cmd and the Merge Lands
+  folder from it, and the Conflicts page its exclusions.
 - **The rule maker wrote Requires, Conflict and Patch rules without their subject**, and a
   Note without the plugins it was about: the first plugin went to a field those rules do not
   write. Every line is now an expression of the rule.

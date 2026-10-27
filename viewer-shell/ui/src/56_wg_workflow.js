@@ -138,6 +138,7 @@ const WgFlow={
   extendRecord(E, body, v){
     if(v.tag==='INFO' && this.has('editFilterChoices')) this.conditions(E, body, v);
     if((v.tag==='LEVI' || v.tag==='LEVC') && this.has('editLeveledRoll')) this.rollBox(E, body, v);
+    if(typeof WgSound==='object') WgSound.extendRecord(E, body, v);
   },
 
   /** The conditions a filter type's id names (what is offered as it is typed). */

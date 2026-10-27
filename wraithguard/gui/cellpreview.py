@@ -194,6 +194,15 @@ class CellPreviewMixin:
                         # Where the Load order page's Export writes the order for the
                         # tools still here (App._watch_viewer_plan reads it).
                         "loadorderPlan": str(app_base_dir() / "wraithguard_loadorder_plan.json"),
+                        # The Load order page opens on these: the openmw.cfg named here (the
+                        # launch's cfg can be a generated setup copy), and the sort's fields from
+                        # the settings file (toolscore::settings), then sorts.
+                        "loadorderCfg": (
+                            cfg_var.get().strip()
+                            if (cfg_var := getattr(self, "cfg_var", None)) is not None
+                            else ""
+                        ),
+                        "settingsFile": str(app_base_dir() / "wraithguard_toolkit_settings.json"),
                         # The Conflicts page: your own data folders (flagged in the loose-file
                         # scan) and the tab to open on.
                         "subsetDirs": [

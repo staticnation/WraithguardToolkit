@@ -17,6 +17,11 @@ const fs=require('fs'),{JSDOM,VirtualConsole}=require('jsdom');
 const path=require('path');
 const CFG=process.env.WG_VIEW_CFG||path.join(__dirname,'fixture','openmw.cfg');
 const MESH=!!process.env.WG_MESH_VIEW;
+// WG_SETUP=1: the program on its own with no openmw.cfg yet (port 4.5): the Setup page opens
+// on its own and loads nothing; its checks, Save (into a settings file of this run's) and
+// "Save and load" are driven.
+const SETUP=!!process.env.WG_SETUP;
+const SETTINGS=path.join(require('os').tmpdir(), 'wg_boot_settings_'+process.pid+'.json');
 const CELL=process.env.WG_VIEW_CELL?JSON.parse(process.env.WG_VIEW_CELL):{kind:'ext',x:9,y:9,name:'Lamptown',label:'Lamptown'};
 /** The page as build.rs assembles it: ui/ORDER's parts, ui/LICENSE as a comment after
  *  <head>, and viewer_only.html before </head>. */
@@ -141,7 +146,6 @@ const fakeServer=http.createServer((req,res)=>{
                   new:{cell:n.cell, uid:n.uid, id:n.fields.id, tag:n.tag, plugins:n.plugins||[]},
                   changes:Object.entries(n.fields).map(([path,value])=>({path,value}))});
     }
-    else if(name==='editReview'){ fakeWg.reviewed=true; res.writeHead(200); res.end('ok'); return; }
     else { res.writeHead(404); res.end(); return; }
     res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(out));
   });
@@ -180,7 +184,7 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtua
       .observe(w.document,{childList:true, subtree:true});
     w.__TAURI__={core:{invoke:(cmd,args)=>{calls.push(cmd); return engineCall(cmd,args).then(r=>{ if(!(r instanceof ArrayBuffer)) replies[cmd]=typeof r==='string'? r : JSON.stringify(r); return taintOf(cmd,r); });}},
                  dialog:{open:async()=>null,save:async()=>null}};
-    w.__WG_VIEW__= MESH ? {cfg:CFG, meshView:true, extra:{meshes:[
+    w.__WG_VIEW__= SETUP ? {cfg:null, app:true, setup:false, extra:{settingsFile:SETTINGS}} : MESH ? {cfg:CFG, meshView:true, extra:{meshes:[
         {path:'meshes/x/anim.nif', label:'Load order'},
         {path:path.join(__dirname,'fixture','Data Files','meshes','x','anim.nif'), label:'On disk'}]}}
       : {cfg:CFG, cell:CELL, extra:{links:{}}};
@@ -573,7 +577,7 @@ async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
   const port=fakeServer.address().port;
   const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editNewResponse','editCopyTopic','editPlace','editNew','editNewSet','editNewRemove','editPending','editReview']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editNewResponse','editCopyTopic','editPlace','editNew','editNewSet','editNewRemove','editPending']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -610,8 +614,9 @@ async function editor(w, R, fail, done, sleep){
     if(!d.querySelector('#edDlgBody tr.edited [data-revert="data.radius"]')) fail('the dialog does not show the waiting change');
     await E.showPending();
     if(!/data\.radius/.test(d.getElementById('edPendBody').textContent)) fail('the pending list does not have the change');
-    d.getElementById('edReview').onclick(); for(let i=0;i<50 && !fakeWg.reviewed;i++) await sleep(30);
-    if(!fakeWg.reviewed) fail('Review did not reach Wraithguard');
+    // The patch is reviewed and written on the Editor's Build page now (port 4.1's flip): no
+    // button sends it to Wraithguard's Patch Builder.
+    if(d.getElementById('edReview')) fail('the Editor still offers Review in Wraithguard');
     await E.change('editRevert', {path:'data.radius'});
     if(E.edited.size) fail('the revert left the record marked');
     // A list field as a table: a count changed, an entry added and one removed, each
@@ -928,7 +933,7 @@ async function editor(w, R, fail, done, sleep){
 
 // ORI: a few seconds before the report, inspect the first pickable object.
 const WAIT=+process.argv[3]||20000;
-if(!MESH) setTimeout(()=>{ try{ dom.window.eval('(()=>{ const p=(App.R&&App.R.pickables||[])[0]; if(p) Ori.show(p); })()'); }
+if(!MESH && !SETUP) setTimeout(()=>{ try{ dom.window.eval('(()=>{ const p=(App.R&&App.R.pickables||[])[0]; if(p) Ori.show(p); })()'); }
   catch(e){ errors.push('ori: '+short(e)); } }, Math.max(1000,WAIT-4000));
 setTimeout(async ()=>{
   const d=dom.window.document;
@@ -936,6 +941,40 @@ setTimeout(async ()=>{
   if(process.env.WG_DEBUG) console.log('debug:', await dom.window.eval(process.env.WG_DEBUG));
   console.log('calls:',[...new Set(calls)].join(' '));
   const w=dom.window;
+  if(SETUP){
+    const fail=m=>errors.push('setup: '+m);
+    const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+    const done=[];
+    if(!calls.includes('setup_state')) fail('the start did not ask for the settings');
+    if(calls.includes('open_install')) fail('a first start loaded something before it had a cfg');
+    const page=d.getElementById('wgSetup');
+    if(!page || page.hidden) fail('the Setup page did not open on a first start');
+    else if(!/Welcome/.test(d.getElementById('suNote').textContent)) fail('no first-start note: '+d.getElementById('suNote').textContent);
+    else done.push('opens first');
+    const S=w.eval('WgSetup');
+    const set=(k,v)=>{ d.getElementById('su_'+k).value=v; };
+    set('cfg', CFG); set('rules', path.join(__dirname,'no_such_rules.txt'));
+    await S.check();
+    const cfgBox=d.getElementById('suc_cfg'), ruleBox=d.getElementById('suc_rules');
+    if(!/\bok\b|\bwarn\b/.test(cfgBox.className) || !/data folder/.test(cfgBox.textContent)) fail('the cfg check: '+cfgBox.className+' '+cfgBox.textContent);
+    if(!/error/.test(ruleBox.className) || !/no file is there/.test(ruleBox.textContent)) fail('a missing rule file was not marked: '+ruleBox.className+' '+ruleBox.textContent);
+    else done.push('checks');
+    set('rules','');
+    await S.save();
+    let saved={}; try{ saved=JSON.parse(fs.readFileSync(SETTINGS,'utf8')); }catch(e){ fail('nothing saved: '+e); }
+    if(saved.cfg!==CFG) fail('the cfg was not saved: '+JSON.stringify(saved));
+    else done.push('saves');
+    await S.saveAndLoad();
+    for(let i=0;i<200 && !w.eval('!!App._scene');i++) await sleep(50);
+    if(!calls.includes('open_install')) fail('Save and load did not load');
+    if(!page.hidden) fail('the Setup page stayed over the loaded install');
+    if(!d.getElementById('btnSetup')) fail('no Setup button');
+    else done.push('loads');
+    try{ fs.unlinkSync(SETTINGS); }catch(_){ }
+    console.log('setup:', done.join(', '));
+    console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
+    try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);
+  }
   if(MESH){
     let done_mesh='';
     // The mesh viewer: the install opened for its files only, no cell work at all, and
@@ -975,6 +1014,15 @@ setTimeout(async ()=>{
   }
   const loaded=calls.includes('cell_data') && !!w.eval('App._scene');
   if(!loaded) errors.push('the cell never loaded (no cell_data / scene)');
+  /* The pages beside the viewport open: Load order, Conflicts, Tools (whose object once clashed
+     with the Preview's tools by name, and so never ran), Help and Setup. */
+  try{
+    const open=w.eval(`(()=>{ const out=[];
+      for(const [n,P,id] of [['loadorder',WgLoadOrder,'wgLO'],['conflicts',WgConflicts,'wgCF'],['tools',WgToolsPage,'wgTL'],['help',WgHelp,'wgHP'],['setup',WgSetup,'wgSetup']]){
+        try{ P.enter(); const el=document.getElementById(id); if(!el || el.hidden) out.push(n+' did not show'); P.leave(); }catch(e){ out.push(n+': '+e.message); } }
+      return out.join('; '); })()`);
+    if(open) errors.push('pages: '+open);
+  }catch(e){ errors.push('pages: '+short(e)); }
   for(const c of ['preview_cell','interior_scatter','cull_field','avoid_verdict','set_config','config_toml','parse_profile'])
     if(calls.includes(c)) errors.push('the page still asks for grass generation: '+c);
   const ori=(d.getElementById('oriBody')||{}).textContent||'';

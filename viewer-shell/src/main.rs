@@ -18,6 +18,9 @@
 // Usage: wraithguard-viewer <url> [title] [width] [height]
 //        wraithguard-viewer --cell-viewer [--openmw-cfg <path>] [--cell x,y|int:Name] [--title <t>]
 //          (the built-in cell viewer; see src/cellviewer)
+//        wraithguard-viewer [--setup] [--loadorder ...]
+//          (the program on its own: the cell viewer on the settings file's openmw.cfg, its
+//          Setup page first when there is none yet or `--setup` asks; port step 4.5)
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
@@ -37,6 +40,13 @@ fn main() {
     #[cfg(not(wg_check))]
     if args.get(1).map(String::as_str) == Some("--cell-viewer") {
         std::process::exit(cellviewer::run(&args[2..], context));
+    }
+    // Port step 4.5: started on its own - no arguments, or only the cell viewer's flags
+    // (`--setup` ...) - it is the program: the cell viewer on the settings file's openmw.cfg,
+    // or on its Setup page when there is none yet.
+    #[cfg(not(wg_check))]
+    if args.len() == 1 || args.get(1).is_some_and(|a| a.starts_with("--")) {
+        std::process::exit(cellviewer::run(&args[1..], context));
     }
 
     let url_arg = match args.get(1) {

@@ -101,9 +101,12 @@ program, and a clearer UI on the way. In order:
       meshes, textures, the patch rules, the map); Python calls it through native
       (`native/src/conflicts.rs`); the viewer's Conflicts page (`60_wg_conflicts.js`,
       `--conflicts`, the `conflicts_*` commands), which Wraithguard's Check Conflicts and
-      Resource Conflicts open. Slice 9 (merge strategies) goes with 4.4's Merge Settings.
-      Left for 4.5: `gui/conflicts.py` and `viz/conflictmap.py` / `cellmap.py` retire with Tk;
-      the tes3conv engine path is not ported. Plan: `viewer-shell/CONFLICTS-PORT.md`.
+      Resource Conflicts open. Slice 9 (merge strategies) landed with 4.4's Merge Settings: a
+      `LAND` conflict's terrain in each plugin and under each strategy (`landcore::preview`,
+      `conflicts_land_surfaces`), and from it the plugin's Merge settings on the Tools page,
+      where the strategy is chosen. Left for 4.5: `gui/conflicts.py` and `viz/conflictmap.py`
+      retire with Tk; `viz/cellmap.py`'s page is the CLI's now (`viewer-shell/cli`) and retires
+      with them; the tes3conv engine path is not ported. Plan: `viewer-shell/CONFLICTS-PORT.md`.
    4. *Tools.* Done (2026-10-26; `viewer-shell/TOOLS-PORT.md`): the viewer's Tools page
       (`61_wg_tools.js`, `--tools`) with Lint, Backups, Remove / rename master, Save Check,
       the Journal, tes3cmd (the external tool, launched; its rewrite is
@@ -125,8 +128,9 @@ program, and a clearer UI on the way. In order:
 
    Each Tk window is redesigned as it moves, not copied: that is the UI cleanup.
 5. **Later, not blocking the port:** a sound engine (plan in `viewer-shell/SOUND.md`: decode
-   in Rust with Symphonia, play in the page with Web Audio; its step 1, a player for sound
-   records and files, could come with step 3); the MWScript compiler work (waits
+   in Rust with Symphonia, play in the page with Web Audio; step 1, a player for Sound
+   records and voice files, is built - next the asset lists and every field naming a sound,
+   then sounds in place, the world's sound and the checks); the MWScript compiler work (waits
    on G7); LUAL upstream; controllers (the Deck); the MGE extras; OpenMW Lua per release;
    Teal in the viewer. Plan, with each item's gate: `viewer-shell/LATER-PLAN.md`.
 

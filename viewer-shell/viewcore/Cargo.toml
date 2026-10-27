@@ -38,6 +38,11 @@ gardenfell-world = { path = "../gardenfell/crates/gardenfell-world" }
 # needed on any of the three OSes. Only the read-only API is used.
 rusqlite = { version = "0.32", features = ["bundled"] }
 
+# Wraithguard: sounds decoded for the page to play (src/audio.rs, SOUND.md): WAV (PCM and
+# ADPCM), MP3, Ogg Vorbis and FLAC, in Rust, so what plays does not depend on the machine's
+# GStreamer plugins. MPL-2.0, used unmodified (CREDITS.md).
+symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "adpcm", "mp3", "ogg", "vorbis", "flac"] }
+
 # Clippy (tools/build_and_check_rust.ps1, CI): everything on except what is a style call
 # this code base has made on purpose.
 [lints.clippy]

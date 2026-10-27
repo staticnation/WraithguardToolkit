@@ -1854,6 +1854,59 @@ fn write_path_whole(path: &str, bytes: &[u8]) -> Result<(), String> {
 
 
 
+/* ---- sounds (SOUND.md step 1: hear a file) ------------------------------------------
+
+   A sound is decoded here (`viewcore::audio`, Symphonia) and played by the page with Web
+   Audio. The page asks for what the file is and its waveform (`sound_info`), then the PCM
+   (`sound_pcm`); the last one decoded is kept so the two do not decode it twice. Paths are as
+   the data folders hold them (`Sound/Fx/...`, `Music/Explore/...`), found as the game finds
+   them: through the overlay, and a `.wav` nothing supplies as its `.mp3`. */
+
+static SOUND: Mutex<Option<(String, std::sync::Arc<viewcore::audio::Decoded>, String, Vec<String>)>> = Mutex::new(None);
+
+/// The decoded sound at `path`, its resolved path and who supplies it (the providers'
+/// labels, the winner first).
+fn sound_of(path: &str, state: &State) -> Result<(std::sync::Arc<viewcore::audio::Decoded>, String, Vec<String>), String> {
+    let key = viewcore::vfs::norm(path);
+    if let Some((k, d, found, from)) = SOUND.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+        if *k == key {
+            return Ok((d.clone(), found.clone(), from.clone()));
+        }
+    }
+    let v = vfs_of(state)?;
+    let (found, loc) = viewcore::audio::candidates(path)
+        .into_iter()
+        .find_map(|c| v.resolve(&c).map(|l| (c, l)))
+        .ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = path))?;
+    let from: Vec<String> = v.providers(&found, &[]).into_iter().map(|(label, _)| label).collect();
+    let bytes = v.load(&loc).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = path))?;
+    let d = std::sync::Arc::new(viewcore::audio::decode(&bytes).map_err(|e| format!("{found}: {e}"))?);
+    *SOUND.lock().unwrap_or_else(|p| p.into_inner()) = Some((key, d.clone(), found.clone(), from.clone()));
+    Ok((d, found, from))
+}
+
+/// A sound's facts and waveform: `{path (as found), container, codec, bits, rate, channels,
+/// seconds, peak, rms, from: [provider labels, the winner first], peaks: [[min, max]...]}`,
+/// `peaks` `n` buckets (at most 2000).
+#[tauri::command(async)]
+fn sound_info(path: String, n: usize, state: State) -> Result<String, String> {
+    let (d, found, from) = sound_of(&path, &state)?;
+    let peaks: Vec<[f32; 2]> = viewcore::audio::peaks(&d, n.min(2000)).into_iter().map(|(a, b)| [a, b]).collect();
+    Ok(serde_json::json!({
+        "path": found, "container": d.container, "codec": d.codec, "bits": d.bits, "rate": d.rate,
+        "channels": d.channels, "seconds": d.seconds(), "peak": d.peak(), "rms": d.rms(), "from": from, "peaks": peaks,
+    })
+    .to_string())
+}
+
+/// A sound's samples for the page to play (`viewcore::audio::pcm_bytes`: `WGS1`, the header,
+/// interleaved little-endian `i16`).
+#[tauri::command(async)]
+fn sound_pcm(path: String, state: State) -> Result<tauri::ipc::Response, String> {
+    let (d, _, _) = sound_of(&path, &state)?;
+    Ok(tauri::ipc::Response::new(viewcore::audio::pcm_bytes(&d)))
+}
+
 /// Read a file through the overlay, for the meshes and textures the viewport draws.
 /// Reads one asset out of the overlay.
 ///
@@ -4727,6 +4780,118 @@ fn loadorder_export(args: String) -> Result<String, String> {
     .to_string())
 }
 
+/* ---- the settings file and the Setup page (port step 4.5) ----------------------------
+
+   Wraithguard's settings file (`toolscore::settings`) is where every page's paths and options
+   live: the openmw.cfg, the customizations TOML, the rule files, MOMW's file, tes3cmd and the
+   rest. Launched by the Tk app it is the file the Tk app names (`extra.settingsFile`); on its
+   own the program keeps it beside itself, where the Tk app kept it too.
+
+   The Setup page shows and checks every one of them (`toolscore::setup`) and saves them. It
+   opens by itself on a first launch (no cfg yet) and after a start that never finished
+   loading its install (`setup_mark`: the page marks the start before it connects and clears
+   it after), and is one button away the rest of the time, the connect's card included, so a
+   malformed install can be put right without the load that hangs on it. */
+
+/// The marker of a start that is loading its install (`setup_mark`), beside the program.
+const LAST_START: &str = "wraithguard_last_start.json";
+
+/// The settings file: the one named, else the one beside the program.
+pub(crate) fn settings_path(given: &str) -> Result<PathBuf, String> {
+    if given.trim().is_empty() { Ok(app_dir()?.join(toolscore::settings::FILE)) } else { Ok(PathBuf::from(given.trim())) }
+}
+
+/// The openmw.cfg the settings file names, when it is there: what the program opens on when
+/// it is started on its own (no `--openmw-cfg`). (`mod.rs` calls it; check-commands, which
+/// compiles this file without `mod.rs`, does not.)
+#[allow(dead_code)]
+pub(crate) fn settings_cfg() -> Option<String> {
+    let s = toolscore::settings::read(&settings_path("").ok()?);
+    let cfg = s.get("cfg")?.as_str()?.trim().to_string();
+    std::path::Path::new(&cfg).is_file().then_some(cfg)
+}
+
+/// Wraithguard: the pages' fields from the settings file, so each page opens on the setup the
+/// person last used: `{loadorder, tools, conflicts, theme}`, each holding only the fields the
+/// file sets. `settingsFile` empty: the one beside the program.
+#[tauri::command(async)]
+fn settings_seed(settings_file: String) -> Result<String, String> {
+    let s = toolscore::settings::read(&settings_path(&settings_file)?);
+    Ok(toolscore::settings::pages(&s).to_string())
+}
+
+/// Wraithguard: page fields (`toolscore::settings::all_fields`' names, a JSON object) written to
+/// the settings file, every other key kept. Answers the file's fields after.
+#[tauri::command(async)]
+fn settings_write(settings_file: String, fields: String) -> Result<String, String> {
+    let f: serde_json::Value = serde_json::from_str(&fields).map_err(|e| format!("the settings did not read: {e}"))?;
+    let f = f.as_object().ok_or("the settings are not an object")?;
+    let path = settings_path(&settings_file)?;
+    let s = toolscore::settings::write_fields(&path, f).map_err(|e| format!("{} could not be written: {e}", path.display()))?;
+    Ok(serde_json::Value::Object(toolscore::settings::all_fields(&s)).to_string())
+}
+
+/// Wraithguard: the Setup page's state - `{settingsFile, exists, fields, lastStart}`:
+/// `lastStart` the marker of a start still loading (`{state, cfg, at}`), or null.
+#[tauri::command(async)]
+fn setup_state(settings_file: String) -> Result<String, String> {
+    let path = settings_path(&settings_file)?;
+    let s = toolscore::settings::read(&path);
+    let last: serde_json::Value = std::fs::read_to_string(app_dir()?.join(LAST_START))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(serde_json::Value::Null);
+    Ok(serde_json::json!({
+        "settingsFile": path.to_string_lossy(),
+        "exists": path.is_file(),
+        "fields": toolscore::settings::all_fields(&s),
+        "lastStart": last,
+    })
+    .to_string())
+}
+
+/// Wraithguard: every field checked as the program will read it (`toolscore::setup`):
+/// `{field: {level: empty|ok|warn|error, lines}}`.
+#[tauri::command(async)]
+fn setup_check(fields: String) -> Result<String, String> {
+    let f: serde_json::Value = serde_json::from_str(&fields).map_err(|e| format!("the fields did not read: {e}"))?;
+    Ok(toolscore::setup::check_all(f.as_object().ok_or("the fields are not an object")?).to_string())
+}
+
+/// Wraithguard: the openmw.cfg files OpenMW keeps on this machine (`toolscore::setup::find_cfgs`).
+#[tauri::command(async)]
+fn setup_find_cfgs() -> Result<String, String> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
+    // Windows' Documents can be OneDrive's; the profile's own folder is looked in as well
+    let onedrive = std::env::var_os("OneDrive").map(|o| PathBuf::from(o).join("Documents"));
+    let mut found = toolscore::setup::find_cfgs(home.as_deref(), onedrive.as_deref());
+    found.dedup();
+    Ok(serde_json::json!(found.iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>()).to_string())
+}
+
+/// Wraithguard: marks a start (`state` `connecting`, with the `cfg` it is loading) or clears
+/// the mark (`state` `ok`). A mark still there at the next start means that start never
+/// finished loading, and the Setup page opens first.
+#[tauri::command(async)]
+fn setup_mark(state: String, cfg: String) -> Result<(), String> {
+    let path = app_dir()?.join(LAST_START);
+    if state == "ok" {
+        let _ = std::fs::remove_file(&path);
+        return Ok(());
+    }
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    std::fs::write(&path, serde_json::json!({"state": state, "cfg": cfg, "at": at}).to_string()).map_err(|e| e.to_string())
+}
+
+/// Wraithguard: starts the program again, as it was started (the Setup page's "Restart",
+/// for when the install it is loading will not finish), and ends this one.
+#[tauri::command(async)]
+fn app_restart() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    std::process::Command::new(exe).args(std::env::args().skip(1)).spawn().map_err(|e| format!("the program could not be started again: {e}"))?;
+    std::process::exit(0);
+}
+
 /// Wraithguard: each rule file's age in days (`null`: missing), for the page's rule list.
 #[tauri::command(async)]
 fn loadorder_rule_ages(rules: Vec<String>) -> Result<String, String> {
@@ -5435,6 +5600,13 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             loadorder_compute,
             loadorder_export,
             loadorder_rule_ages,
+            settings_seed,
+            settings_write,
+            setup_state,
+            setup_check,
+            setup_find_cfgs,
+            setup_mark,
+            app_restart,
             loadorder_scan,
             loadorder_update_rules,
             loadorder_update_yml,
@@ -5511,6 +5683,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             write_text,
             cursor_park,
             read_asset,
+            sound_info,
+            sound_pcm,
             mesh_data,
             assets_bundle,
             texture_data,

@@ -22,4 +22,6 @@ pub mod lint;
 pub mod lint_tables;
 pub mod masters;
 pub mod save;
+pub mod settings;
+pub mod setup;
 pub mod tes3cmd;

@@ -1922,8 +1922,16 @@ async function openWraithguardSetup(){
   const meshes=(want.extra||{}).meshes;
   const meshView=want.meshView && Array.isArray(meshes) && meshes.length && typeof WgMeshView==='object';
   if(meshView) WgMeshView.prepare();
+  /* The program on its own (not a Tk window): the start is marked while it loads, so a load
+     that never finishes opens the Setup page at the next start instead of the same load. */
+  const mark=want.app && !meshView;
+  if(mark){ try{ await Engine.call('setup_mark',{state:'connecting', cfg:String(want.cfg)}); }catch(_){ } }
   const r=await openInstall('openmw', want.cfg, null, meshView? [] : null);
-  if(!r && !VFS.connected) return;
+  if(mark){ try{ await Engine.call('setup_mark',{state:'ok', cfg:''}); }catch(_){ } }
+  if(!r && !VFS.connected){
+    if(want.app && typeof WgSetup==='object') WgSetup.enter('The openmw.cfg did not load: check what is marked below.');
+    return;
+  }
   if(meshView){ WgMeshView.open(meshes); return; }
   // The cell map's coverage, read ahead so the picker opens with it.
   if(typeof WgCoverage==='object') WgCoverage.load();
@@ -1949,7 +1957,7 @@ async function openWraithguardSetup(){
   // The Conflicts page (60_wg_conflicts.js): its button always, the page itself on `--conflicts`.
   if(typeof WgConflicts==='object'){ WgConflicts.button(); if(want.conflicts) WgConflicts.enter(); }
   // The Tools page (61_wg_tools.js): its button always, the page itself on `--tools`.
-  if(typeof WgTools==='object'){ WgTools.button(); if(want.tools) WgTools.enter(); }
+  if(typeof WgToolsPage==='object'){ WgToolsPage.button(); if(want.tools) WgToolsPage.enter(); }
   // The Help page (62_wg_help.js): its button always, the page itself on `--docs`.
   if(typeof WgHelp==='object'){ WgHelp.button(); if(want.docs) WgHelp.enter(); }
 }
@@ -2004,6 +2012,9 @@ async function start(){
      order. Failure here is silent by design — `Favourites.load` falls back to an empty
      set, and a picker in its plain order is not worth a warning. */
   await Favourites.load(true);
+  /* Port step 4.5: the Setup page first (64_wg_setup.js) - its button, and on a first start, a
+     start that never finished loading, or `--setup`, the page itself with nothing loaded. */
+  if(typeof WgSetup==='object' && !(await WgSetup.boot())) return;
   await openWraithguardSetup();
 }
 

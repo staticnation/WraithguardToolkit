@@ -34,7 +34,7 @@
    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
 
-const WgTools={
+const WgToolsPage={
   on:false,
   tool:'lint',
   TOOLS:[['lint','Lint','Problems in the load order\'s plugins that the game does not report'],
@@ -177,7 +177,7 @@ const WgTools={
     $('#tlSvTwo').onclick=()=>this.saveCheck(2);
     $('#tlJrRead').onclick=()=>this.readJournal();
     try{ $('#tlT3Exe').value=localStorage.getItem('wgTools.tes3cmd')||''; }catch(_){}
-    $('#tlT3Exe').onchange=()=>{ try{ localStorage.setItem('wgTools.tes3cmd', $('#tlT3Exe').value.trim()); }catch(_){} };
+    $('#tlT3Exe').onchange=()=>{ try{ localStorage.setItem('wgTools.tes3cmd', $('#tlT3Exe').value.trim()); }catch(_){} if(typeof WgSettings==='object') WgSettings.write({tes3cmd:$('#tlT3Exe').value.trim()}); };
     $('#tlT3Browse').onclick=async()=>{ const p=await Engine.pick('open',{}); if(p){ $('#tlT3Exe').value=String(p); $('#tlT3Exe').onchange(); } };
     $('#tlT3Add').onclick=async()=>{
       const p=await Engine.pick('open',{multiple:true, filters:[{name:'Plugins', extensions:['esp','esm','omwaddon','omwgame','ESP','ESM']}]});
@@ -198,7 +198,13 @@ const WgTools={
     $('#tlMgMine').onchange=e=>{ const v=e.target.value; e.target.value=''; if(v) this.mergeOpen(v); };
     $('#tlMgWrite').onclick=()=>this.mergeWrite();
     try{ $('#tlMlFolder').value=localStorage.getItem('wgTools.mergeLandsFolder')||''; }catch(_){}
-    $('#tlMlFolder').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsFolder', $('#tlMlFolder').value.trim()); }catch(_){} };
+    // tes3cmd and the Merge Lands folder: the settings file's (the Setup page's) when it has them
+    if(typeof WgSettings==='object') WgSettings.seed().then(sd=>{
+      const t=(sd||{}).tools||{};
+      if(t.tes3cmd){ $('#tlT3Exe').value=t.tes3cmd; try{ localStorage.setItem('wgTools.tes3cmd', t.tes3cmd); }catch(_){} }
+      if(t.mergeLandsFolder){ $('#tlMlFolder').value=t.mergeLandsFolder; try{ localStorage.setItem('wgTools.mergeLandsFolder', t.mergeLandsFolder); }catch(_){} }
+    });
+    $('#tlMlFolder').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsFolder', $('#tlMlFolder').value.trim()); }catch(_){} if(typeof WgSettings==='object') WgSettings.write({mergeLandsFolder:$('#tlMlFolder').value.trim()}); };
     $('#tlMlBrowse').onclick=async()=>{ const p=await Engine.pick('open',{directory:true}); if(p){ $('#tlMlFolder').value=String(p); $('#tlMlFolder').onchange(); } };
     $('#tlMlRun').onclick=()=>this.landsRun();
     try{ const m=localStorage.getItem('wgTools.mergeLandsModel'); if(m) $('#tlMlModel').value=m; const ig=localStorage.getItem('wgTools.mergeLandsIgnore'); if(ig!=null) $('#tlMlIgnore').value=ig; }catch(_){}

@@ -986,11 +986,24 @@ class App(
             self.log_theme_var.set(d["log_theme"])
 
     def _save_settings(self) -> None:
+        """Write the settings, keeping the keys this window no longer has.
+
+        The sort's fields (``rules``, ``customizations``, ``list_name`` ...) left this window
+        for the viewer's Load order page, which opens on them from this file
+        (``toolscore::settings``); rewriting the file with only this window's keys would lose
+        them.
+        """
         import json
 
         try:
+            kept = json.loads(self._settings_file().read_text(encoding="utf-8"))
+        except (OSError, ValueError):  # no file yet / bad JSON
+            kept = {}
+        if not isinstance(kept, dict):
+            kept = {}
+        try:
             self._settings_file().write_text(
-                json.dumps(self._gather_settings(), indent=2), encoding="utf-8"
+                json.dumps({**kept, **self._gather_settings()}, indent=2), encoding="utf-8"
             )
         except (OSError, TypeError, ValueError):  # unwritable path / unserialisable value
             pass

@@ -29,7 +29,7 @@ const WgHelp={
     if(this.on) return;
     if(typeof WgLoadOrder==='object' && WgLoadOrder.on) WgLoadOrder.leave();
     if(typeof WgConflicts==='object' && WgConflicts.on) WgConflicts.leave();
-    if(typeof WgTools==='object' && WgTools.on) WgTools.leave();
+    if(typeof WgToolsPage==='object' && WgToolsPage.on) WgToolsPage.leave();
     this.on=true;
     this.build();
     $('#wgHP').hidden=false;

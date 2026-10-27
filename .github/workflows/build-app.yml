@@ -1,0 +1,107 @@
+# The program without Python (port step 4.5, slice 5; viewer-shell/DROP-TK.md): one Tauri
+# build per platform. Each package holds
+#
+#   wraithguard-viewer   the program: started on its own it opens on the settings file's
+#                        openmw.cfg, or on its Setup page (no Python, no Tk)
+#   wraithguard          the command line (viewer-shell/cli): the sort, export and scans
+#   QUICKSTART.md ...    the documents its Help page shows
+#
+# Runs beside the PyInstaller builds (build-windows/linux/macos.yml) until the Python app is
+# retired (DROP-TK.md slice 8), so both can be tried on the same tag.
+
+name: Build the app (Tauri)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    branches: ["build/**"]
+
+permissions: {}
+
+concurrency:
+  group: build-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    permissions:
+      contents: write # attach to the Release on tag builds
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            name: windows-x86_64
+            exe: .exe
+          - runner: ubuntu-22.04
+            name: linux-x86_64
+            exe: ""
+          - runner: macos-14
+            name: macos-arm64
+            exe: ""
+          - runner: macos-15-intel
+            name: macos-x86_64
+            exe: ""
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # the stable branch
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo registry and build output
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            viewer-shell/target
+            viewer-shell/cli/target
+          key: cargo-app-${{ matrix.name }}-${{ hashFiles('viewer-shell/Cargo.lock', 'viewer-shell/cli/Cargo.lock') }}
+
+      - name: Install WebKitGTK (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev pkg-config build-essential file
+
+      - name: Build the program and the command line
+        shell: bash
+        run: |
+          cp wraithguard_toolkit_icon.ico viewer-shell/icons/wraithguard_toolkit_icon.ico
+          cargo build --release --manifest-path viewer-shell/Cargo.toml
+          cargo build --release --manifest-path viewer-shell/cli/Cargo.toml
+          cargo test --release --manifest-path viewer-shell/cli/Cargo.toml
+
+      - name: Package
+        shell: bash
+        run: |
+          out=wraithguard-${{ matrix.name }}
+          mkdir -p "$out"
+          cp viewer-shell/target/release/wraithguard-viewer${{ matrix.exe }} "$out/"
+          cp viewer-shell/cli/target/release/wraithguard${{ matrix.exe }} "$out/"
+          cp QUICKSTART.md README.md MLOX_RULES.md CHANGELOG.md LICENSE CREDITS.md "$out/" 2>/dev/null || true
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z a "$out.zip" "$out" >/dev/null; else tar czf "$out.tar.gz" "$out"; fi
+          ls -lh "$out"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wraithguard-${{ matrix.name }}
+          path: |
+            wraithguard-${{ matrix.name }}.zip
+            wraithguard-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+
+      - name: Attach to the release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          f=$(ls wraithguard-${{ matrix.name }}.zip wraithguard-${{ matrix.name }}.tar.gz 2>/dev/null | head -1)
+          gh release upload "${GITHUB_REF_NAME}" "$f" --clobber || gh release create "${GITHUB_REF_NAME}" "$f" --generate-notes

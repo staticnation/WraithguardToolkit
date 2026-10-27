@@ -653,6 +653,13 @@ Apache-2.0 (ryu: Apache-2.0 or BSL-1.0), plus their own dependencies:
   **base64**, **memmap2**.
 - **[rusqlite](https://github.com/rusqlite/rusqlite)** (MIT), with **SQLite** (public
   domain) bundled - the viewer reads OpenMW's `navmesh.db` through it.
+- **[Symphonia](https://github.com/pdeljanov/Symphonia)** (MPL-2.0) - the viewer decodes
+  sounds with it (WAV in PCM and ADPCM, MP3, Ogg Vorbis, FLAC; `viewcore/src/audio.rs`) for
+  the page to play. Used unmodified, from crates.io; MPL-2.0 is per-file copyleft, so
+  Symphonia's own files stay under it and nothing of ours does. Its source is at the link.
+- **[clap](https://github.com/clap-rs/clap)** (MIT/Apache-2.0) and
+  **[chrono](https://github.com/chronotope/chrono)** (MIT/Apache-2.0) - the `wraithguard`
+  command line's arguments and its clock (`viewer-shell/cli`).
 
 **OpenMW's navmesh.db is read, not OpenMW's code.** OpenMW (GPLv3) writes the file;
 `viewer-shell/viewcore/src/navmesh.rs` reads it from the file's layout (the SQLite

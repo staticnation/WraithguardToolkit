@@ -61,8 +61,9 @@ const WgLoadOrder={
 
   enter(){
     if(this.on) return;
+    const first=!$('#wgLO');
     if(typeof WgConflicts==='object' && WgConflicts.on) WgConflicts.leave();
-    if(typeof WgTools==='object' && WgTools.on) WgTools.leave();
+    if(typeof WgToolsPage==='object' && WgToolsPage.on) WgToolsPage.leave();
     if(typeof WgHelp==='object' && WgHelp.on) WgHelp.leave();
     this.on=true;
     this.build();
@@ -70,7 +71,30 @@ const WgLoadOrder={
     const i=document.querySelector('#brand i'); if(i){ this._brand=i.textContent; i.textContent='Load order'; }
     document.title='Wraithguard - Load order';
     const b=$('#btnLoadOrder'); if(b) b.classList.add('on');
+    if(first) this.seed(); else this.ages();
+  },
+
+  /** The first open: the fields Wraithguard knows (its settings file, its openmw.cfg), then a
+   *  sort, so the page shows the install's order and warnings instead of empty panels. The
+   *  settings file (the Setup page's, which this page writes back to) wins over what this
+   *  page remembered; a Tk window's own openmw.cfg wins over both, as its field says the page
+   *  opens on it. */
+  async seed(){
+    const x=(window.__WG_VIEW__||{}).extra||{};
+    let seed={};
+    try{ seed=(await WgSettings.seed()).loadorder||{}; }catch(_){}
+    const v=this.saved();
+    void v;
+    this.take(seed, true);
+    if(x.loadorderCfg) $('#lo_cfg').value=x.loadorderCfg;
+    this.save(true);
     this.ages();
+    if(!this.val('cfg')){
+      $('#loContent').innerHTML='<li class="empty">Choose your openmw.cfg on the left, add the rule files (mlox_base.txt first), then Sort.</li>';
+      return;
+    }
+    if(!this.lines('rules').length) toast('No rule files yet: the order is the cfg\'s as it is. Add mlox_base.txt (and your own) on the left, then Sort.','warn',7000);
+    await this.sort();
   },
 
   leave(){
@@ -81,13 +105,23 @@ const WgLoadOrder={
     const b=$('#btnLoadOrder'); if(b) b.classList.remove('on');
   },
 
+  /** Fields from the settings file (the Setup page's names, which are this page's). */
+  take(f, quiet){
+    for(const [k] of this.FIELDS) if(f[k]!=null && $('#lo_'+k)) $('#lo_'+k).value=String(f[k]);
+    for(const [k] of this.FLAGS) if(typeof f[k]==='boolean' && $('#lo_'+k)) $('#lo_'+k).checked=f[k];
+    if(!quiet) this.save(true);
+  },
+
   /* ---- the fields, remembered ---- */
   saved(){ try{ return JSON.parse(localStorage.getItem(this.KEY)||'{}')||{}; }catch(_){ return {}; } },
-  save(){
+  /** Kept in this viewer and in the settings file every page reads (`local`: this viewer only,
+   *  for a value the settings already hold). */
+  save(local){
     const v={};
     for(const [k] of this.FIELDS) v[k]=$('#lo_'+k).value;
     for(const [k] of this.FLAGS) v[k]=$('#lo_'+k).checked;
     try{ localStorage.setItem(this.KEY, JSON.stringify(v)); }catch(_){}
+    if(!local && typeof WgSettings==='object') WgSettings.write(v);
   },
   lines(k){ return $('#lo_'+k).value.split('\n').map(s=>s.trim()).filter(Boolean); },
   val(k){ return $('#lo_'+k).value.trim(); },
@@ -170,7 +204,9 @@ const WgLoadOrder={
     const v=this.saved();
     const view=window.__WG_VIEW__||{};
     for(const [k] of this.FIELDS) $('#lo_'+k).value = v[k]!=null ? v[k] : '';
-    if(!this.val('cfg') && view.cfg) $('#lo_cfg').value=view.cfg;
+    // the launch's cfg only when Wraithguard did not name its own (it can be a generated
+    // setup copy, which must not be sorted and exported over)
+    if(!this.val('cfg') && view.cfg && !(view.extra||{}).loadorderCfg) $('#lo_cfg').value=view.cfg;
     for(const [k] of this.FLAGS) $('#lo_'+k).checked = !!v[k];
     el.addEventListener('change', ()=>this.save());
     el.addEventListener('input', ()=>this.save());
@@ -260,6 +296,7 @@ const WgLoadOrder={
 
   async sort(){
     const btn=$('#loSort'); btn.disabled=true;
+    $('#loContent').innerHTML='<li class="empty">Sorting...</li>';
     try{
       const a=this.args();
       const dir=this.val('scanDir');
@@ -270,10 +307,16 @@ const WgLoadOrder={
       }
       const got=await Engine.call('loadorder_compute',{args:JSON.stringify(a)});
       this.report=got.report||[];
-      if(got.refused){ this.plan=null; toast(got.refused,'err',6000); }
+      if(got.refused){
+        this.plan=null; toast(got.refused,'err',6000);
+        $('#loContent').innerHTML='<li class="empty">'+loEsc(got.refused)+'</li>';
+      }
       else this.load(got.plan);
       this.drawWarnings();
-    }catch(e){ toast(String(e.message||e),'err',6000); }
+    }catch(e){
+      toast(String(e.message||e),'err',6000);
+      $('#loContent').innerHTML='<li class="empty">'+loEsc(String(e.message||e))+'</li>';
+    }
     finally{ btn.disabled=false; }
   },
 
@@ -387,3 +430,26 @@ const WgLoadOrder={
 
 /** Text for innerHTML. */
 function loEsc(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/** Wraithguard's settings file read once for the pages that open on it (`settings_seed`). */
+const WgSettings={
+  _p:null,
+  _w:null, _t:0,
+  file(){ return String(((window.__WG_VIEW__||{}).extra||{}).settingsFile||''); },
+  seed(){
+    if(!this._p) this._p=Engine.call('settings_seed',{settingsFile:this.file()}).catch(()=>({}));
+    return this._p;
+  },
+  /** Read again at the next seed (after the Setup page saved). */
+  reset(){ this._p=null; },
+  /** Page fields written back to the settings file (`settings_write`), a moment after the last
+   *  change, so typing does not write a file a key. */
+  write(fields){
+    this._w=Object.assign(this._w||{}, fields);
+    clearTimeout(this._t);
+    this._t=setTimeout(()=>{
+      const f=this._w; this._w=null;
+      Engine.call('settings_write',{settingsFile:this.file(), fields:JSON.stringify(f)}).then(()=>this.reset()).catch(e=>toast(String(e.message||e),'err',5000));
+    }, 600);
+  },
+};

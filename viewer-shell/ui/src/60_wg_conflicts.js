@@ -55,7 +55,7 @@ const WgConflicts={
   enter(){
     if(this.on) return;
     if(typeof WgLoadOrder==='object' && WgLoadOrder.on) WgLoadOrder.leave();
-    if(typeof WgTools==='object' && WgTools.on) WgTools.leave();
+    if(typeof WgToolsPage==='object' && WgToolsPage.on) WgToolsPage.leave();
     if(typeof WgHelp==='object' && WgHelp.on) WgHelp.leave();
     this.on=true;
     this.build();
@@ -201,6 +201,11 @@ const WgConflicts={
     $('#cfExclude').value=v.exclude||''; $('#cfExts').value=v.exts||'';
     if(v.compare!=null) $('#cfCompare').checked=!!v.compare;
     if(v.meshes!=null) $('#cfMeshes').checked=!!v.meshes;
+    // what the scans leave out: the settings file's (the Setup page's) when it has it
+    if(typeof WgSettings==='object') WgSettings.seed().then(sd=>{
+      const ex=((sd||{}).conflicts||{}).exclude; if(ex){ $('#cfExclude').value=ex; this.save(true); }
+    });
+    $('#cfExclude').addEventListener('change', ()=>{ if(typeof WgSettings==='object') WgSettings.write({exclude:$('#cfExclude').value}); });
     el.addEventListener('change', ()=>this.save());
     for(const c of el.querySelectorAll('.tabs .chip')) c.onclick=()=>this.show(c.dataset.tab);
     $('#cfScan').onclick=()=>this.scan();
@@ -345,7 +350,18 @@ const WgConflicts={
     box.innerHTML=`<div class="acts" id="cfTerChips"></div>
       <div class="acts"><label>Difference against <select id="cfTerAgainst"><option value="-1">nothing (shade the terrain)</option>${surfaces.map((s,i)=>`<option value="${i}">${loEsc(s.label)}</option>`).join('')}</select></label><span id="cfTerStats" class="empty"></span></div>
       <div style="padding:8px"><canvas id="cfTerCanvas" width="390" height="390" style="width:390px;height:390px;image-rendering:pixelated;border:1px solid var(--line)"></canvas></div>
-      <div class="empty">Shading follows slope rather than height, which reads as terrain; north is up. A difference is red where the shown surface is higher, blue where lower. Strategy choice only matters where two or more plugins move the same vertex.</div>`;
+      <div class="empty">Shading follows slope rather than height, which reads as terrain; north is up. A difference is red where the shown surface is higher, blue where lower. Strategy choice only matters where two or more plugins move the same vertex.</div>
+      <div class="acts"><label>Choose the strategy in Merge settings for <select id="cfTerMerge"><option value="">a plugin...</option>${d.plugins.map(p=>`<option>${loEsc(p.name)}</option>`).join('')}</select></label></div>`;
+    // the strategy is a plugin's .mergedlands.toml (the Tools page's Merge settings), which
+    // Merge Lands reads: the comparison above is what that choice does to this cell
+    $('#cfTerMerge').onchange=async e=>{
+      const name=e.target.value; e.target.value=''; if(!name || typeof WgToolsPage!=='object') return;
+      try{
+        let r=await Engine.call('tools_locate',{cfg:this.cfg(), names:[name]}); if(typeof r==='string') r=JSON.parse(r);
+        const path=r[0] && r[0][1]; if(!path) return toast(name+' was not found in the data folders','warn',4000);
+        WgToolsPage.enter(); WgToolsPage.show('mergesettings'); WgToolsPage.mergeOpen(String(path));
+      }catch(err){ toast(String(err.message||err),'err',5000); }
+    };
     const draw=()=>{
       const chips=$('#cfTerChips');
       chips.innerHTML=surfaces.map((s,i)=>`<span class="chip${i===shown?' on':''}" data-i="${i}" style="cursor:pointer;border:1px solid var(--line2);border-radius:10px;padding:2px 8px;${i===shown?'background:var(--acd)':''}">${loEsc(s.label)}</span>`).join(' ');

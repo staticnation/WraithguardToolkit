@@ -1274,6 +1274,7 @@ dependencies = [
  "ordercore",
  "serde_json",
  "tes3",
+ "toml",
 ]
 
 [[package]]
