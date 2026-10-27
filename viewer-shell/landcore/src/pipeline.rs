@@ -110,7 +110,7 @@ pub fn inherit_reference_layers(cell: &mut MergedCell, reference: &Landmass) {
     for which in [Layer::Heights, Layer::Textures, Layer::WorldMap, Layer::Colors] {
         let s = slot(cell, which);
         if s.is_none() {
-            *s = l.get(which).as_deref().cloned();
+            *s = l.get(which).as_deref().map(crate::layers::Packed::to_vec);
         }
     }
 }
@@ -146,7 +146,7 @@ fn fold_rolling(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>,
         let acc = match grids.entry(which) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
             std::collections::hash_map::Entry::Vacant(e) => {
-                let start = reference.get(cell.coords).and_then(|l| l.get(which).as_deref().cloned()).filter(|v| v.len() == source.reference.len());
+                let start = reference.get(cell.coords).and_then(|l| l.get(which).as_deref().map(crate::layers::Packed::to_vec)).filter(|v| v.len() == source.reference.len());
                 match start {
                     Some(values) => e.insert(RelativeGrid::new(values, source.side, source.components)?),
                     None => {
@@ -175,12 +175,19 @@ pub fn merge_landmass(
     metas: &HashMap<String, PluginMeta>,
     strategy: Strategy,
     model: DiffModel,
-    mut loaded: Option<&mut Landmass>,
+    loaded: Option<&mut Landmass>,
 ) -> Result<MergeOutcome, String> {
+    /* Every cell is merged on its own - what a plugin does to one cell never reaches
+       another - so the cells are shared out over the cores (Static, 2026-10-27: the merge
+       took 65 s on one core for a 621-plugin order). The plugins are decoded first, in load
+       order (the land textures each brings are numbered as they are met); then each cell
+       runs through the plugins that touch it, in the same order, against its own rolling
+       and loaded copies; the results are gathered back in coordinate order. */
     let mut outcome = MergeOutcome::default();
-    let mut working: BTreeMap<Coords, HashMap<Layer, RelativeGrid>> = BTreeMap::new();
-    let mut rolling = (model == DiffModel::LoadOrder).then(|| reference.clone());
-    for plugin in plugins {
+    // Each touch: the plugin's index, the layers it may change, its decoded cell.
+    type Touch = (usize, u32, LandscapeLayers);
+    let mut by_cell: BTreeMap<Coords, Vec<Touch>> = BTreeMap::new();
+    for (index, plugin) in plugins.iter().enumerate() {
         let meta = metas.get(&plugin.name);
         if meta.is_some_and(PluginMeta::is_previous_merge) {
             outcome.skipped_plugins.push((plugin.name.clone(), "a previous merge".into()));
@@ -189,45 +196,78 @@ pub fn merge_landmass(
         let allowed = meta.map(PluginMeta::allowed_layers).unwrap_or(ALL_LAYERS);
         if allowed == 0 {
             outcome.skipped_plugins.push((plugin.name.clone(), "every layer excluded".into()));
-            if let Some(l) = loaded.as_deref_mut() {
-                for c in decode_plugin(plugin, known, &mut outcome.notes)? {
-                    layer_onto(l, c, &plugin.name);
-                }
-            }
-            continue;
-        }
-        let cells = decode_plugin(plugin, known, &mut outcome.notes)?;
-        let against = rolling.as_ref().unwrap_or(reference);
-        let changes = differences(against, &plugin.name, &cells, allowed)?;
-        for change in changes {
-            let cell = outcome.cells.entry(change.coords).or_insert_with(|| MergedCell { coords: change.coords, new_land: change.new_land, ..Default::default() });
-            let grids = working.entry(change.coords).or_default();
-            cell.editors.push(plugin.name.clone());
-            cell.new_land = cell.new_land || change.new_land;
-            match model {
-                DiffModel::Masters => fold_change(cell, grids, &change, meta, strategy)?,
-                DiffModel::LoadOrder => fold_rolling(cell, grids, &change, reference, meta, strategy)?,
+            if loaded.is_none() {
+                continue;
             }
         }
-        if let Some(r) = rolling.as_mut() {
-            for c in &cells {
-                layer_onto(r, masked(c.clone(), allowed), &plugin.name);
-            }
-        }
-        if let Some(l) = loaded.as_deref_mut() {
-            for c in cells {
-                layer_onto(l, c, &plugin.name);
-            }
+        for c in decode_plugin(plugin, known, &mut outcome.notes)? {
+            by_cell.entry(c.coords).or_default().push((index, allowed, c));
         }
     }
-    for (coords, grids) in working {
-        let cell = outcome.cells.get_mut(&coords).unwrap();
-        for which in [Layer::Heights, Layer::Textures, Layer::WorldMap, Layer::Colors] {
-            if let Some(g) = grids.get(&which) {
-                *slot(cell, which) = Some(g.flat());
+    let want_loaded = loaded.is_some();
+    let loaded_ref: Option<&Landmass> = loaded.as_deref();
+    type CellOut = (Option<(MergedCell, HashMap<Layer, RelativeGrid>)>, Option<LandscapeLayers>);
+    let one = |coords: Coords, touches: &[Touch]| -> Result<CellOut, String> {
+        let single = |l: Option<&LandscapeLayers>| {
+            let mut m = Landmass::default();
+            if let Some(l) = l {
+                m.cells.insert(coords, l.clone());
+            }
+            m
+        };
+        let mut rolling = (model == DiffModel::LoadOrder).then(|| single(reference.get(coords)));
+        let mut here = want_loaded.then(|| single(loaded_ref.and_then(|l| l.get(coords))));
+        let mut cell: Option<MergedCell> = None;
+        let mut grids: HashMap<Layer, RelativeGrid> = HashMap::new();
+        for (index, allowed, c) in touches {
+            let plugin = &plugins[*index];
+            if *allowed != 0 {
+                let meta = metas.get(&plugin.name);
+                let against = rolling.as_ref().unwrap_or(reference);
+                for change in differences(against, &plugin.name, std::slice::from_ref(c), *allowed)? {
+                    let cell = cell.get_or_insert_with(|| MergedCell { coords, new_land: change.new_land, ..Default::default() });
+                    cell.editors.push(plugin.name.clone());
+                    cell.new_land = cell.new_land || change.new_land;
+                    match model {
+                        DiffModel::Masters => fold_change(cell, &mut grids, &change, meta, strategy)?,
+                        DiffModel::LoadOrder => fold_rolling(cell, &mut grids, &change, reference, meta, strategy)?,
+                    }
+                }
+                if let Some(r) = rolling.as_mut() {
+                    layer_onto(r, masked(c.clone(), *allowed), &plugin.name);
+                }
+            }
+            if let Some(l) = here.as_mut() {
+                layer_onto(l, c.clone(), &plugin.name);
             }
         }
-        inherit_reference_layers(cell, reference);
+        Ok((cell.map(|c| (c, grids)), here.and_then(|mut l| l.cells.remove(&coords))))
+    };
+    let cells: Vec<(&Coords, &Vec<Touch>)> = by_cell.iter().collect();
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(cells.len().max(1));
+    let per = cells.len().div_ceil(threads).max(1);
+    let parts: Vec<Result<Vec<(Coords, CellOut)>, String>> = std::thread::scope(|s| {
+        let jobs: Vec<_> = cells
+            .chunks(per)
+            .map(|part| s.spawn(move || part.iter().map(|(c, t)| one(**c, t).map(|r| (**c, r))).collect::<Result<Vec<_>, String>>()))
+            .collect();
+        jobs.into_iter().map(|j| j.join().unwrap_or_else(|_| Err("a merge thread panicked".to_string()))).collect()
+    });
+    let mut loaded = loaded;
+    for part in parts {
+        for (coords, (merged, here)) in part? {
+            if let (Some(l), Some(h)) = (loaded.as_deref_mut(), here) {
+                l.cells.insert(coords, h);
+            }
+            let Some((mut cell, grids)) = merged else { continue };
+            for which in [Layer::Heights, Layer::Textures, Layer::WorldMap, Layer::Colors] {
+                if let Some(g) = grids.get(&which) {
+                    *slot(&mut cell, which) = Some(g.flat());
+                }
+            }
+            inherit_reference_layers(&mut cell, reference);
+            outcome.cells.insert(coords, cell);
+        }
     }
     Ok(outcome)
 }
@@ -239,12 +279,12 @@ pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass) -> usiz
     for (coords, cell) in outcome.cells.iter_mut() {
         let Some(h) = &cell.heights else { continue };
         let l = reference.get(*coords);
-        let (mut original, mut base) = (l.and_then(|l| l.normals.as_deref().map(Vec::as_slice)), l.and_then(|l| l.heights.as_deref().map(Vec::as_slice)));
-        if original.is_none() || base.is_none_or(|b| b.len() != h.len()) {
+        let (mut original, mut base) = (l.and_then(|l| l.normals.as_deref().map(crate::layers::Packed::to_vec)), l.and_then(|l| l.heights.as_deref().map(crate::layers::Packed::to_vec)));
+        if original.is_none() || base.as_ref().is_none_or(|b| b.len() != h.len()) {
             original = None;
             base = None;
         }
-        let (n, kept) = resolve_cell_normals(h, original, base);
+        let (n, kept) = resolve_cell_normals(h, original.as_deref(), base.as_deref());
         cell.normals = Some(n);
         preserved += kept;
     }
@@ -285,7 +325,7 @@ fn check_borders(outcome: &mut MergeOutcome, reference: &Landmass, borrowed: &BT
             if written.contains_key(&o) || nearby.contains_key(&o) {
                 continue;
             }
-            if let Some(h) = reference.get(o).and_then(|l| l.heights.as_deref().cloned()) {
+            if let Some(h) = reference.get(o).and_then(|l| l.heights.as_deref().map(crate::layers::Packed::to_vec)) {
                 nearby.insert(o, h);
             }
         }
@@ -302,7 +342,7 @@ fn digest_cell(cell: &MergedCell) -> CellDigest {
 
 fn digest_reference(l: &LandscapeLayers) -> CellDigest {
     {
-        let d = |v: &Option<crate::layers::Grid>| v.as_deref().map(|v| crate::cleaning::digest(v));
+        let d = |v: &Option<crate::layers::Grid>| v.as_deref().map(|v| crate::cleaning::digest(&v.to_vec()));
         CellDigest { heights: d(&l.heights), normals: None, world_map: d(&l.world_map), colors: d(&l.colors), textures: d(&l.textures) }
     }
 }
@@ -316,7 +356,7 @@ pub fn finish(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&
     outcome.borrowed = borrowed.len();
     let mut heights: BTreeMap<Coords, Vec<i64>> = outcome.cells.iter_mut().filter_map(|(c, cell)| cell.heights.take().map(|h| (*c, h))).collect();
     if !heights.is_empty() {
-        let anchor: BTreeMap<Coords, Vec<i64>> = reference.cells.iter().filter_map(|(c, l)| l.heights.as_deref().cloned().map(|h| (*c, h))).collect();
+        let anchor: BTreeMap<Coords, Vec<i64>> = reference.cells.iter().filter_map(|(c, l)| l.heights.as_deref().map(crate::layers::Packed::to_vec).map(|h| (*c, h))).collect();
         outcome.seams = repair_seams(&mut heights, DEFAULT_FEATHER, Some(&anchor), &borrowed)?;
         outcome.slopes = limit_slopes(&mut heights, &borrowed);
     }

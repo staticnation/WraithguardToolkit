@@ -130,11 +130,11 @@ program, and a clearer UI on the way. In order:
       85 s, merge 65 s, seams 65 s, write 15 s. Fixed: data folders indexed once
       (`landcore::service::PluginIndex`), reference grids shared by `Arc` (no full copies
       for the rolling/loaded landmass), cleaning digests hashed (`cleaning::digest`):
-      synthetic peak 3.4 GB -> 2.3 GB. Left, in order: (1) compact layer storage as 4.2's
-      native/land.rs had it (heights i32, normals/world map i8, colours u8, textures u16
-      instead of i64 everywhere; `sole_source` digests and `RelativeGrid` too) - a synthetic
-      3,000-cell order peaks at 3.2 GB, 12,000 cells runs out of memory; (2) then the merge
-      and seam repair across cores. Benchmark: `cargo test --release --test merge_cases --
+      synthetic peak 3.4 GB -> 2.3 GB; layers packed into
+      their smallest type (`layers::Packed`, as 4.2's native/land.rs) -> 1.3 GB; the merge
+      run per cell across the cores (`pipeline::merge_landmass`; 1.8 GB, decoded up front).
+      Left: seam repair across cores (`seams::repair_seams`), and `RelativeGrid`/`MergedCell`
+      still i64. Benchmark: `cargo test --release --test merge_cases --
       --ignored --nocapture big_order` (prints VmHWM). Get Static's new timings first.
 
    Each Tk window is redesigned as it moves, not copied: that is the UI cleanup.

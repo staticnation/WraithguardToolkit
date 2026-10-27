@@ -51,8 +51,69 @@ pub struct LandscapeLayers {
     pub textures: Option<Grid>,
 }
 
-/// One layer's values, shared between copies of a cell (see [`LandscapeLayers`]).
-pub type Grid = std::sync::Arc<Vec<i64>>;
+/// One layer's values, shared between copies of a cell (see [`LandscapeLayers`]) and held
+/// in the smallest integer type they fit ([`Packed`]), as 4.2's native/land.rs held the
+/// decoded landscape: normals and the world map in i8, colours in u8, texture indices in
+/// u16, heights in i32 - an eighth of the memory for most of a cell.
+pub type Grid = std::sync::Arc<Packed>;
+
+/// A layer's values in the smallest integer type that holds every one of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Packed {
+    I8(Vec<i8>),
+    U8(Vec<u8>),
+    U16(Vec<u16>),
+    I32(Vec<i32>),
+    I64(Vec<i64>),
+}
+
+impl Packed {
+    /// `values`, packed.
+    pub fn pack(values: Vec<i64>) -> Packed {
+        let (lo, hi) = values.iter().fold((0i64, 0i64), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+        if lo >= i8::MIN as i64 && hi <= i8::MAX as i64 {
+            Packed::I8(values.iter().map(|&v| v as i8).collect())
+        } else if lo >= 0 && hi <= u8::MAX as i64 {
+            Packed::U8(values.iter().map(|&v| v as u8).collect())
+        } else if lo >= 0 && hi <= u16::MAX as i64 {
+            Packed::U16(values.iter().map(|&v| v as u16).collect())
+        } else if lo >= i32::MIN as i64 && hi <= i32::MAX as i64 {
+            Packed::I32(values.iter().map(|&v| v as i32).collect())
+        } else {
+            Packed::I64(values)
+        }
+    }
+
+    /// The values as the merge works on them.
+    pub fn to_vec(&self) -> Vec<i64> {
+        match self {
+            Packed::I8(v) => v.iter().map(|&x| x as i64).collect(),
+            Packed::U8(v) => v.iter().map(|&x| x as i64).collect(),
+            Packed::U16(v) => v.iter().map(|&x| x as i64).collect(),
+            Packed::I32(v) => v.iter().map(|&x| x as i64).collect(),
+            Packed::I64(v) => v.clone(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Packed::I8(v) => v.len(),
+            Packed::U8(v) => v.len(),
+            Packed::U16(v) => v.len(),
+            Packed::I32(v) => v.len(),
+            Packed::I64(v) => v.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// A grid from plain values.
+pub fn pack_grid(values: Vec<i64>) -> Grid {
+    std::sync::Arc::new(Packed::pack(values))
+}
 
 /// Why a record was not decoded: `Skip` the Python's `ValueError` (logged, the record left
 /// out), `Fatal` its `LandscapeDecodeError` (a grid shorter than its format, which stops the
@@ -101,23 +162,23 @@ impl LandscapeLayers {
         let mut out = LandscapeLayers { coords: *grid, declared: declared_layers(*flags), ..Default::default() };
         if let Some((offset, data)) = heights {
             let raw = payload(data, LAND_NUM_VERTS, "VHGT height data")?;
-            out.heights = Some(Grid::new(decode_heights(raw, *offset as f64).map_err(DecodeError::Skip)?));
+            out.heights = Some(pack_grid(decode_heights(raw, *offset as f64).map_err(DecodeError::Skip)?));
         }
         if let Some(p) = normals {
             let raw = payload(p, 3 * LAND_NUM_VERTS, "VNML normals")?;
-            out.normals = Some(Grid::new(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i8 as i64).collect()));
+            out.normals = Some(pack_grid(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i8 as i64).collect()));
         }
         if let Some(p) = world_map {
             let raw = payload(p, WNAM_SIZE * WNAM_SIZE, "WNAM world map data")?;
-            out.world_map = Some(Grid::new(raw[..WNAM_SIZE * WNAM_SIZE].iter().map(|&b| b as i8 as i64).collect()));
+            out.world_map = Some(pack_grid(raw[..WNAM_SIZE * WNAM_SIZE].iter().map(|&b| b as i8 as i64).collect()));
         }
         if let Some(p) = colors {
             let raw = payload(p, 3 * LAND_NUM_VERTS, "VCLR colors")?;
-            out.colors = Some(Grid::new(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i64).collect()));
+            out.colors = Some(pack_grid(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i64).collect()));
         }
         if let Some(p) = textures {
             let raw = payload(p, 2 * NUM_TEXTURES, "VTEX texture indices")?;
-            out.textures = Some(Grid::new(decode_texture_indices(raw)));
+            out.textures = Some(pack_grid(decode_texture_indices(raw)));
         }
         Ok(Some(out))
     }
@@ -228,8 +289,8 @@ pub fn diff_against_reference(plugin: &str, mine: &LandscapeLayers, reference: O
             out.missing.push(which.name());
             continue;
         };
-        let theirs = reference.and_then(|r| r.get(which).as_deref().cloned()).unwrap_or_else(|| vec![0; values.len()]);
-        let grid = RelativeGrid::from_difference(theirs, values, side, comps)?;
+        let theirs = reference.and_then(|r| r.get(which).as_deref().map(Packed::to_vec)).unwrap_or_else(|| vec![0; values.len()]);
+        let grid = RelativeGrid::from_difference(theirs, &values.to_vec(), side, comps)?;
         if grid.is_modified() {
             *out.grid_mut(which) = Some(grid);
         }

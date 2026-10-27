@@ -94,7 +94,7 @@ fn decoded(plugin: &str, records: &[Record], mapping: &HashMap<i64, i64>, notes:
             Err(DecodeError::Fatal(why)) => return Err(why),
         };
         if let Some(t) = l.textures.take() {
-            let (values, unknown) = translate_indices(&t, mapping);
+            let (values, unknown) = translate_indices(&t.to_vec(), mapping);
             if !unknown.is_empty() {
                 let listed: Vec<String> = unknown.keys().take(8).map(|v| v.to_string()).collect();
                 notes.push(format!(
@@ -105,7 +105,7 @@ fn decoded(plugin: &str, records: &[Record], mapping: &HashMap<i64, i64>, notes:
                     listed.join(", ")
                 ));
             }
-            l.textures = Some(crate::layers::Grid::new(values));
+            l.textures = Some(crate::layers::pack_grid(values));
         }
         out.push(l);
     }
