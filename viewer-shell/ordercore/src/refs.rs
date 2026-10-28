@@ -13,6 +13,11 @@
 //! `CellRefList::load` reads it the same way. This replaces the earlier rule, "a deletion
 //! sticks" (Robin, from the community: "moving it just moves the hidden thing"), which the
 //! engine's merge kept as Gardenfell's `dead` set until patch 0017 took it out.
+//! **Scope of that check**: the references in `tests/ingame/`'s first set are all persistent and
+//! in an interior. Robin's own in-game results go the other way for *temporary* references in
+//! exteriors (the Seyda Neen lighthouse, Wolverine Hall's flag; his `gardenfell-esp-format.md`
+//! §7 and §9.0): there the deletion stuck. `tests/ingame/` Variant T (every reference temporary)
+//! is the next check; until it is run this rule is the persistent-reference one.
 //! Cases: `tests/fixtures/ref_cases.json`, run here and by `tests/test_ref_cases.py`.
 
 /// The plugin a reference's master index names, read in the plugin it is in: `0` the

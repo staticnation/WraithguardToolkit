@@ -250,6 +250,116 @@ pub fn optimize(stream: &mut NiStream, index: &HashMap<NiKey, usize>) -> Vec<Val
     run(stream, index, true)
 }
 
+// ---- the same mesh, checked ---------------------------------------------------------
+
+fn index_of(s: &NiStream) -> HashMap<NiKey, usize> {
+    s.objects.keys().enumerate().map(|(i, k)| (k, i)).collect()
+}
+
+fn b3(x: f32, y: f32, z: f32) -> [u32; 3] {
+    [x.to_bits(), y.to_bits(), z.to_bits()]
+}
+
+/// A vertex as everything about it: position, normal, colour, every UV set.
+fn corner_bits(d: &NiTriShapeData, i: usize) -> Vec<u32> {
+    let g = &d.base.base;
+    let n = g.vertices.len();
+    let v = &g.vertices[i];
+    let mut c = b3(v.x, v.y, v.z).to_vec();
+    if !g.normals.is_empty() {
+        let v = &g.normals[i];
+        c.extend(b3(v.x, v.y, v.z));
+    }
+    if !g.vertex_colors.is_empty() {
+        let col = &g.vertex_colors[i];
+        c.extend([col.x.to_bits(), col.y.to_bits(), col.z.to_bits(), col.w.to_bits()]);
+    }
+    for set in g.uv_sets.chunks_exact(n.max(1)) {
+        c.extend([set[i].x.to_bits(), set[i].y.to_bits()]);
+    }
+    c
+}
+
+/// What a mesh means, apart from the order it is written in: per geometry data, its
+/// triangles as their corners (sorted), each skin bone's weights as (vertex, weight) and
+/// each morph target as (vertex, target position). Equal before and after Optimise means
+/// the same mesh (the tests' `meaning`, here so a batch can check what it writes).
+#[allow(clippy::type_complexity)]
+fn meaning_of(s: &NiStream) -> Vec<(Vec<Vec<Vec<u32>>>, Vec<Vec<(Vec<u32>, u32)>>, Vec<Vec<(Vec<u32>, [u32; 3])>>)> {
+    let ix = index_of(s);
+    let u = users(s);
+    let mut out = Vec::new();
+    for (k, o) in s.objects.iter() {
+        let NiType::NiTriShapeData(d) = o else { continue };
+        let mut tris: Vec<Vec<Vec<u32>>> = d.triangles.iter().map(|t| t.iter().map(|&i| corner_bits(d, i as usize)).collect()).collect();
+        tris.sort();
+        let mut skins = Vec::new();
+        let mut morphs = Vec::new();
+        if let Some(us) = u.get(&k) {
+            let mut sk: Vec<_> = us.skins.iter().copied().collect();
+            sk.sort_by_key(|k| ix[k]);
+            for sk in sk {
+                let Some(NiType::NiSkinData(sd)) = s.objects.get(sk) else { continue };
+                for b in &sd.bone_data {
+                    let mut w: Vec<_> = b.vertex_weights.iter().map(|(i, w)| (corner_bits(d, *i as usize), w.to_bits())).collect();
+                    w.sort();
+                    skins.push(w);
+                }
+            }
+            let mut mk: Vec<_> = us.morphs.iter().copied().collect();
+            mk.sort_by_key(|k| ix[k]);
+            for mk in mk {
+                let Some(NiType::NiMorphData(md)) = s.objects.get(mk) else { continue };
+                for t in &md.targets {
+                    let mut m: Vec<_> = t.vertices.iter().enumerate().map(|(i, v)| (corner_bits(d, i), b3(v.x, v.y, v.z))).collect();
+                    m.sort();
+                    morphs.push(m);
+                }
+            }
+        }
+        out.push((tris, skins, morphs));
+    }
+    out.sort();
+    out
+}
+
+/// A hash of [`meaning_of`], for comparing two reads of a mesh (within one run).
+pub fn fingerprint(s: &NiStream) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    meaning_of(s).hash(&mut h);
+    h.finish()
+}
+
+/// The mesh's figures as `report` gives them, for a mesh as bytes. A panic in the reader
+/// or the passes is an error, not a crash.
+pub fn report_bytes(bytes: &[u8]) -> Result<Vec<Value>, String> {
+    let mut s = crate::mesh::load(bytes).map_err(|e| e.to_string())?;
+    let ix = index_of(&s);
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| report(&mut s, &ix))).map_err(|_| "the draw order pass failed on this mesh".to_string())
+}
+
+/// A mesh optimised and saved as bytes, checked: read back, it must mean the same mesh
+/// (every triangle with the same corners, every skin weight and morph target the same),
+/// and at least one shape must have been worth moving. Otherwise nothing is returned, so
+/// nothing is written. The entries are `optimize`'s.
+pub fn optimise_checked(bytes: &[u8]) -> Result<(Vec<u8>, Vec<Value>), String> {
+    let mut s = crate::mesh::load(bytes).map_err(|e| e.to_string())?;
+    let before = fingerprint(&s);
+    let ix = index_of(&s);
+    let rep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| optimize(&mut s, &ix)))
+        .map_err(|_| "the draw order pass failed on this mesh".to_string())?;
+    if !rep.iter().any(|e| e.get("after").is_some() && e.get("skipped").is_none()) {
+        return Err("no shape is worth moving".into());
+    }
+    let saved = editcore::guarded(|| s.save_bytes()).map_err(|e| format!("the mesh would not save: {e}"))?;
+    let back = crate::mesh::load(&saved).map_err(|e| format!("the saved mesh would not read back: {e}"))?;
+    if fingerprint(&back) != before {
+        return Err("the saved mesh differs from the original; not written".into());
+    }
+    Ok((saved, rep))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

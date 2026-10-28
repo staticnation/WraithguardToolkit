@@ -1,0 +1,116 @@
+--- a/crates/gardenfell-nif/src/triorder.rs
++++ b/crates/gardenfell-nif/src/triorder.rs
+@@ -364,6 +364,32 @@
+     out
+ }
+ 
++/// [`reorder_triangles`], kept only when the part's vertex cache does not come out worse
++/// (the passes are heuristics: on a part the file already has in good order they can give
++/// back a little). Returns whether the new order was kept. The cell load uses this; the
++/// overdraw and vertex fetch figures are measured where the mesh is rewritten
++/// (`conflictcore::nif_order`), not here.
++pub fn reorder_triangles_if_not_worse(idx: &mut [u16], positions: &[f32]) -> bool {
++    let vertex_count = positions.len() / 3;
++    if idx.len() < 3 || idx.len() % 3 != 0 || vertex_count == 0 {
++        return false;
++    }
++    let wide = |t: &[u16]| -> Vec<u32> { t.iter().map(|&i| i as u32).collect() };
++    if wide(idx).iter().any(|&i| i as usize >= vertex_count) {
++        return false;
++    }
++    let before = analyze_vertex_cache(&wide(idx), vertex_count, 16).1;
++    let mut trial = idx.to_vec();
++    reorder_triangles(&mut trial, positions);
++    let after = analyze_vertex_cache(&wide(&trial), vertex_count, 16).1;
++    if after <= before + 1e-6 {
++        idx.copy_from_slice(&trial);
++        true
++    } else {
++        false
++    }
++}
++
+ /// Both passes over a part's 16-bit index list, in place. The vertices are untouched.
+ pub fn reorder_triangles(idx: &mut [u16], positions: &[f32]) {
+     if idx.len() < 3 || idx.len() % 3 != 0 {
+--- a/crates/gardenfell-nif/src/nif.rs
++++ b/crates/gardenfell-nif/src/nif.rs
+@@ -3136,8 +3136,10 @@
+             /* Round 18ho: the triangles in the order the GPU's vertex cache likes, the
+             ones likely in front first. The same triangles and the same vertices, so
+             nothing above (skins, morphs, UV sets, the part's bounds) and nothing after
+-            (the hull, the thumbnail, the payload) sees a difference; see `triorder`. */
+-            crate::triorder::reorder_triangles(&mut part.idx, &part.pos);
++            (the hull, the thumbnail, the payload) sees a difference; see `triorder`.
++            Only when the vertex cache does not come out worse: a part the file has in good
++            order is left as it is. */
++            crate::triorder::reorder_triangles_if_not_worse(&mut part.idx, &part.pos);
+             out.push(part);
+             continue;
+         }
+--- /dev/null
++++ b/crates/gardenfell-nif/tests/wraithguard_triorder.rs
+@@ -0,0 +1,63 @@
++//! The cell load's reorder (`reorder_triangles_if_not_worse`): never a worse vertex cache.
++
++use gardenfell_nif::triorder::{analyze_vertex_cache, reorder_triangles_if_not_worse};
++
++/// A `n` x `n` vertex grid of quads, two triangles each, row by row (a good order).
++fn grid(n: usize) -> (Vec<u16>, Vec<f32>) {
++    let mut pos = Vec::new();
++    for y in 0..n {
++        for x in 0..n {
++            pos.extend([x as f32, y as f32, 0.0]);
++        }
++    }
++    let mut idx = Vec::new();
++    for y in 0..n - 1 {
++        for x in 0..n - 1 {
++            let a = (y * n + x) as u16;
++            let (b, c, d) = (a + 1, a + n as u16, a + n as u16 + 1);
++            idx.extend([a, b, c, b, d, c]);
++        }
++    }
++    (idx, pos)
++}
++
++fn acmr(idx: &[u16], n: usize) -> f32 {
++    let w: Vec<u32> = idx.iter().map(|&i| i as u32).collect();
++    analyze_vertex_cache(&w, n, 16).1
++}
++
++#[test]
++fn a_shuffled_part_is_reordered_and_better() {
++    let (good, pos) = grid(24);
++    let n = pos.len() / 3;
++    // the triangles in a scattered order
++    let tris: Vec<[u16; 3]> = good.chunks_exact(3).map(|t| [t[0], t[1], t[2]]).collect();
++    let mut order: Vec<usize> = (0..tris.len()).collect();
++    order.sort_by_key(|&i| (i * 7919) % tris.len());
++    let mut idx: Vec<u16> = order.iter().flat_map(|&i| tris[i]).collect();
++    let before = acmr(&idx, n);
++    assert!(reorder_triangles_if_not_worse(&mut idx, &pos));
++    assert!(acmr(&idx, n) < before);
++}
++
++#[test]
++fn a_part_is_never_left_worse() {
++    let (mut idx, pos) = grid(24);
++    let n = pos.len() / 3;
++    let before = acmr(&idx, n);
++    let kept = reorder_triangles_if_not_worse(&mut idx, &pos);
++    let after = acmr(&idx, n);
++    assert!(after <= before + 1e-6);
++    // whichever it did, the same triangles
++    assert_eq!(idx.len(), 23 * 23 * 6);
++    let _ = kept;
++}
++
++#[test]
++fn bad_input_is_left_alone() {
++    let mut idx: Vec<u16> = vec![0, 1];
++    assert!(!reorder_triangles_if_not_worse(&mut idx, &[0.0; 9]));
++    let mut idx: Vec<u16> = vec![0, 1, 9];
++    assert!(!reorder_triangles_if_not_worse(&mut idx, &[0.0; 9]));
++    assert_eq!(idx, vec![0, 1, 9]);
++}

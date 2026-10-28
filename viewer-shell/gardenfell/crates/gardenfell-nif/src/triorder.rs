@@ -364,6 +364,32 @@ pub fn optimize_overdraw(indices: &[u32], positions: &[f32], vertex_count: usize
     out
 }
 
+/// [`reorder_triangles`], kept only when the part's vertex cache does not come out worse
+/// (the passes are heuristics: on a part the file already has in good order they can give
+/// back a little). Returns whether the new order was kept. The cell load uses this; the
+/// overdraw and vertex fetch figures are measured where the mesh is rewritten
+/// (`conflictcore::nif_order`), not here.
+pub fn reorder_triangles_if_not_worse(idx: &mut [u16], positions: &[f32]) -> bool {
+    let vertex_count = positions.len() / 3;
+    if idx.len() < 3 || idx.len() % 3 != 0 || vertex_count == 0 {
+        return false;
+    }
+    let wide = |t: &[u16]| -> Vec<u32> { t.iter().map(|&i| i as u32).collect() };
+    if wide(idx).iter().any(|&i| i as usize >= vertex_count) {
+        return false;
+    }
+    let before = analyze_vertex_cache(&wide(idx), vertex_count, 16).1;
+    let mut trial = idx.to_vec();
+    reorder_triangles(&mut trial, positions);
+    let after = analyze_vertex_cache(&wide(&trial), vertex_count, 16).1;
+    if after <= before + 1e-6 {
+        idx.copy_from_slice(&trial);
+        true
+    } else {
+        false
+    }
+}
+
 /// Both passes over a part's 16-bit index list, in place. The vertices are untouched.
 pub fn reorder_triangles(idx: &mut [u16], positions: &[f32]) {
     if idx.len() < 3 || idx.len() % 3 != 0 {

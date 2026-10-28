@@ -1,6 +1,10 @@
 # In-game test: does a later edit undelete a reference?
 
-**Result (October 2026): yes, the last record wins.** Vanilla Morrowind.exe shows five piles, and
+**Result (October 2026): yes, the last record wins - for these references: persistent ones, in an
+interior** (no plugin here has a `NAM0`, so every reference is persistent). Robin's cases that say
+the opposite - the Seyda Neen lighthouse, Wolverine Hall's flag (`gardenfell-esp-format.md` §7, §9.0)
+- are *temporary* references in exteriors: see "Variant T" below, which is the same test with a
+`NAM0` in every cell record. Vanilla Morrowind.exe shows five piles, and
 `ori` on them gives:
 
 | sourceID | targetID | file |
@@ -64,3 +68,20 @@ Gardenfell follows OpenMW, so tell Robin (`viewer-shell/gardenfell/patches/NOTES
 A reference that is *absent* from a file (removed, not flagged DELE) is a different case; Gardenfell's
 old comment says an earlier removal is undone by a later file that adds it back. Say so if you want
 a fifth plugin for that.
+
+## Variant T: the same four plugins, every reference temporary
+
+`WG_DelT_Base.esm`, `WG_DelT_P1.esp`, `WG_DelT_A.esp`, `WG_DelT_P2.esp` (written by
+`make_temporary_variant.py` from the files above: same edits, cell "WG Delete Test T", and a
+`NAM0` before the first `FRMR` of every cell record, so every reference is *temporary*, as nearly all
+of the vanilla exteriors' are). They can be enabled beside the first set. In the same order, after
+Morrowind.esm: Base, P1, A, P2. Then `coc "WG Delete Test T"`, `tcl`, look along +Y; piles at
+x = -300 (ref 1), 0 (ref 2), 300 (ref 3), and the markers at 600, 900, 1200.
+
+| What you see | It means |
+|---|---|
+| **Five piles**, a big raised one at x=-300 | A temporary reference is also undeleted by a later record. Persistence is not the difference; the next suspect is an exterior cell (then: a test with an exterior cell and a move, as Robin's `GF_D3_*`). |
+| **Four piles**, nothing at x=-300 | A deletion sticks for temporary references and not for persistent ones. `ordercore::refs::winner` and Gardenfell's merge (patch 0017) then need to know which section a reference is in (Gardenfell carries it as `CellRef.temporary`, Robin's round 18gf). |
+| Fewer than the three markers | A plugin did not load (the master's size is recorded as 642 bytes; a different size only warns). The run proves nothing. |
+
+Do it in OpenMW too (the code says it keeps the last record whatever the section).

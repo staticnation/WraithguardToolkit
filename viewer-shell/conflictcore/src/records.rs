@@ -75,6 +75,13 @@ pub fn plugin_keys(path: &std::path::Path) -> Keys {
     (editcore::plugin::keys_and_cells(&bytes).map(|(k, _)| k).unwrap_or_default(), false)
 }
 
+/// A record id as the engines compare it: without case (ASCII; Morrowind.exe and OpenMW
+/// both fold ASCII only). `Iron_Dagger` in one plugin and `iron_dagger` in another are one
+/// record, and a conflict.
+pub fn fold_id(id: &str) -> String {
+    id.to_ascii_lowercase()
+}
+
 /// A plugin's file by name (`PluginFileIndex.find`); `None`: not found.
 pub type Find<'a> = dyn Fn(&str) -> Option<PathBuf> + Sync + 'a;
 
@@ -102,7 +109,9 @@ pub fn scan_touch(order: &[String], find: &Find<'_>, keys: &(dyn Fn(&std::path::
         scan.paths.push((plugin.clone(), path.to_string_lossy().into_owned()));
         let mut seen_here: HashSet<(String, String)> = HashSet::new();
         for (rtype, id, deleted) in keys {
-            let key = (rtype, id);
+            // The record is the same whatever the case its plugin spells the id in; the
+            // first spelling met is the one shown.
+            let key = (rtype, fold_id(&id));
             if repeats {
                 scan.records += 1;
             }
@@ -116,7 +125,7 @@ pub fn scan_touch(order: &[String], find: &Find<'_>, keys: &(dyn Fn(&std::path::
                 Some(&i) => scan.touched[i].hits.push((plugin.clone(), deleted)),
                 None => {
                     at.insert(key.clone(), scan.touched.len());
-                    scan.touched.push(Touched { rtype: key.0, id: key.1, hits: vec![(plugin.clone(), deleted)] });
+                    scan.touched.push(Touched { rtype: key.0, id, hits: vec![(plugin.clone(), deleted)] });
                 }
             }
         }
@@ -335,5 +344,27 @@ mod filter_tests {
         let (kept, out) = filter_plugins(&order, &["*grass*".into(), "LIGHT".into(), "patch[0-9].esp".into()]);
         assert_eq!(kept, ["Morrowind.esm"]);
         assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn ids_differing_only_in_case_are_one_record() {
+        let order: Vec<String> = ["A.esp", "B.esp"].iter().map(|s| (*s).to_string()).collect();
+        let find = |n: &str| Some(PathBuf::from(n));
+        let keys = |p: &std::path::Path| -> Keys {
+            match p.to_str().unwrap() {
+                "A.esp" => (vec![("Weapon".into(), "Iron_Dagger".into(), false)], false),
+                _ => (vec![("Weapon".into(), "iron_dagger".into(), false), ("Armor".into(), "Iron_Dagger".into(), false)], false),
+            }
+        };
+        let scan = scan_touch(&order, &find, &keys);
+        assert_eq!(scan.touched.len(), 2, "the weapon once (in two spellings), the armor once");
+        let w = scan.touched.iter().find(|t| t.rtype == "Weapon").unwrap();
+        assert_eq!(w.id, "Iron_Dagger", "the first spelling is the one shown");
+        assert_eq!(w.hits.len(), 2);
+        let (conflicts, _) = conflicts(&scan, &[]);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].winner, "B.esp");
+        // the type still tells records apart
+        assert_eq!(scan.touched.iter().find(|t| t.rtype == "Armor").unwrap().hits.len(), 1);
     }
 }

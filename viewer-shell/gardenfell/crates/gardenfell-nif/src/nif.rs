@@ -3136,8 +3136,10 @@ fn draw_parts(rec: &Records) -> Vec<DrawPart> {
             /* Round 18ho: the triangles in the order the GPU's vertex cache likes, the
             ones likely in front first. The same triangles and the same vertices, so
             nothing above (skins, morphs, UV sets, the part's bounds) and nothing after
-            (the hull, the thumbnail, the payload) sees a difference; see `triorder`. */
-            crate::triorder::reorder_triangles(&mut part.idx, &part.pos);
+            (the hull, the thumbnail, the payload) sees a difference; see `triorder`.
+            Only when the vertex cache does not come out worse: a part the file has in good
+            order is left as it is. */
+            crate::triorder::reorder_triangles_if_not_worse(&mut part.idx, &part.pos);
             out.push(part);
             continue;
         }

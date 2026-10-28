@@ -44,12 +44,14 @@ const WgToolsPage={
     ['journal','Journal','Every quest\'s stages, and what sets each one'],
     ['tes3cmd','tes3cmd','Clean plugins, fix headers, sync master sizes'],
     ['mergelands','Merge Lands','Merged Lands.esp: the terrain of every mod that reshapes a cell, kept together'],
-    ['mergesettings','Merge settings','A plugin\'s .mergedlands.toml: which of its land layers Merge Lands takes, and how']],
+    ['mergesettings','Merge settings','A plugin\'s .mergedlands.toml: which of its land layers Merge Lands takes, and how'],
+    ['meshopt','Mesh optimiser','Draw-order copies of the load order\'s meshes, only where it helps']],
   t3:{files:[]},
   jr:{data:null, quest:null},
   ms:{path:'', list:[]},
   mg:{plugin:'', data:null},
   ml:{home:null, running:false},
+  mo:{rows:[], stats:null, shown:0, running:false},
   bk:{rows:[]},
   lint:{warnings:[], stats:null, filter:'all'},
   KINDS:{'EVLGMST':'Evil GMSTs','FOGBUG':'Fog bug','NO PATHGRID':'No path grid','HEADER':'Headers','EXP-DEP':'Expansion calls','TWIN':'Twins'},
@@ -115,6 +117,11 @@ const WgToolsPage={
 #wgTL .warn.FOGBUG,#wgTL .warn.EVLGMST{border-color:var(--err)}
 #wgTL .warn .kind{color:var(--tx3);font-size:11px;display:block}
 #wgTL .empty{color:var(--tx3);padding:8px}
+#wgTL table.mo{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:11px}
+#wgTL table.mo th,#wgTL table.mo td{padding:2px 6px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+#wgTL table.mo th{color:var(--tx3);font-weight:normal;position:sticky;top:0;background:var(--bg2)}
+#wgTL table.mo td.p,#wgTL table.mo th.p{text-align:left;white-space:normal;word-break:break-all}
+#wgTL table.mo tr.no td{color:var(--tx3)}
 #wgTL .pane[hidden]{display:none}`;
     document.head.appendChild(st);
     const el=document.createElement('div');
@@ -170,7 +177,18 @@ const WgToolsPage={
   <div class="scroll" style="padding:8px"><div id="tlMgIntro" class="empty" style="padding:0 0 8px">The per-plugin Merge Lands control file, beside the plugin: uncheck a layer to keep the plugin from touching it, set a strategy for how its edits resolve where they collide with another mod's. The defaults behave as if there were no file, and Merge Lands runs without one: write it only when a conflict needs it.</div>
   <div id="tlMgForm"></div>
   <div class="empty" style="padding:8px 0 0">Auto = later plugin wins for entries it changed · Overwrite = this plugin wins collisions · Ignore = keep the earlier edit · Resolve = blend conflicting numbers · Curvature = structure-weighted blend (ours).</div>
-  <pre id="tlMgPreview" style="white-space:pre;font-family:var(--mono);margin:8px 0 0;padding:8px;background:var(--bg3);border:1px solid var(--line);border-radius:6px"></pre></div></div>`;
+  <pre id="tlMgPreview" style="white-space:pre;font-family:var(--mono);margin:8px 0 0;padding:8px;background:var(--bg3);border:1px solid var(--line);border-radius:6px"></pre></div></div>
+<div class="col pane" id="tlMo" hidden><h3>Mesh optimiser <span class="sp"></span><span id="tlMoStats" class="empty"></span>
+  <button class="btn dim" id="tlMoAll" title="Tick every mesh that qualifies, or none">All</button>
+  <button class="btn dim" id="tlMoWrite" disabled title="Write the ticked meshes, optimised, into the output folder">Write copies</button><button class="btn" id="tlMoRun">Analyse</button></h3>
+  <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <label title="A mesh is rewritten only when it draws at least this much better (vertex cache, overdraw or vertex fetch, weighted by triangles)">Least gain <input type="number" id="tlMoGain" value="3" min="0" step="0.5" style="width:56px"> %</label>
+    <label title="Meshes with fewer triangles than this are left alone">Least triangles <input type="number" id="tlMoTris" value="64" min="0" style="width:64px"></label>
+    <input type="text" id="tlMoFolder" placeholder="only meshes from data folders containing..." style="flex:1;min-width:180px" title="Part of a data folder's path; empty: every mesh the load order provides"></div>
+  <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <span>Write into</span><input type="text" id="tlMoOut" placeholder="a new, empty folder (not one of your mods); add it last in the data= lines" style="flex:1;min-width:240px"><button class="btn dim" id="tlMoBrowse">Browse...</button></div>
+  <div class="scroll"><div id="tlMoIntro" class="empty">Puts the load order's meshes in the order a graphics card draws fastest (vertex cache, then overdraw, then vertex fetch), only the meshes where it pays: each shape is moved only if it really draws better, and a mesh only if the gain reaches the threshold above. Analyse measures the winning copy of every loose mesh (archives are not read); Write copies puts the ticked ones, optimised and checked to be the same mesh, into the folder above, at their own paths. Your mods are not modified; the folder goes last in the load order, or is deleted to undo. What was measured is remembered, so the next run measures only what changed.</div>
+  <div id="tlMoBody"></div></div></div>`;
     document.body.appendChild(el);
     for(const d of el.querySelectorAll('#tlNav [data-t]')) d.onclick=()=>this.show(d.dataset.t);
     $('#tlLintRun').onclick=()=>this.runLint();
@@ -179,6 +197,12 @@ const WgToolsPage={
     $('#tlSvPick').onclick=()=>this.saveCheck(1);
     $('#tlSvTwo').onclick=()=>this.saveCheck(2);
     $('#tlJrRead').onclick=()=>this.readJournal();
+    $('#tlMoRun').onclick=()=>this.moRun();
+    $('#tlMoWrite').onclick=()=>this.moWrite();
+    $('#tlMoAll').onclick=()=>{ const bx=[...document.querySelectorAll('#tlMoBody input[data-p]')]; const on=bx.some(b=>!b.checked); for(const b of bx) b.checked=on; this.moTicked(); };
+    $('#tlMoBrowse').onclick=async()=>{ const p=await Engine.pick('open',{directory:true}); if(p){ $('#tlMoOut').value=String(p); this.moSave(); } };
+    for(const id of ['tlMoGain','tlMoTris','tlMoFolder','tlMoOut']) $('#'+id).onchange=()=>this.moSave();
+    this.moLoad();
     try{ $('#tlT3Exe').value=localStorage.getItem('wgTools.tes3cmd')||''; }catch(_){}
     $('#tlT3Exe').onchange=()=>{ try{ localStorage.setItem('wgTools.tes3cmd', $('#tlT3Exe').value.trim()); }catch(_){} if(typeof WgSettings==='object') WgSettings.write({tes3cmd:$('#tlT3Exe').value.trim()}); };
     $('#tlT3Browse').onclick=async()=>{ const p=await Engine.pick('open',{}); if(p){ $('#tlT3Exe').value=String(p); $('#tlT3Exe').onchange(); } };
@@ -240,6 +264,7 @@ const WgToolsPage={
     $('#tlT3').hidden=tool!=='tes3cmd';
     $('#tlMerge').hidden=tool!=='mergesettings';
     $('#tlLands').hidden=tool!=='mergelands';
+    $('#tlMo').hidden=tool!=='meshopt';
     if(tool==='mergelands') this.landsHome();
     if(tool==='mergesettings') this.mergeMine();
   },
@@ -301,6 +326,100 @@ const WgToolsPage={
       out.textContent=lines.join('\n');
     }catch(e){ out.textContent+='\n\nERROR: '+String(e.message||e); toast(String(e.message||e),'err',6000); }
     finally{ this.ml.running=false; btn.disabled=false; }
+  },
+
+  /* ---- Mesh optimiser (conflictcore::nif_batch) ---- */
+  moOpts(){
+    return {minGain:parseFloat($('#tlMoGain').value)||0, minTriangles:parseInt($('#tlMoTris').value,10)||0, folder:$('#tlMoFolder').value.trim()};
+  },
+  moSave(){
+    try{ localStorage.setItem('wgTools.meshopt', JSON.stringify({gain:$('#tlMoGain').value, tris:$('#tlMoTris').value, folder:$('#tlMoFolder').value, out:$('#tlMoOut').value.trim()})); }catch(_){}
+  },
+  moLoad(){
+    try{
+      const v=JSON.parse(localStorage.getItem('wgTools.meshopt')||'{}');
+      if(v.gain!=null) $('#tlMoGain').value=v.gain;
+      if(v.tris!=null) $('#tlMoTris').value=v.tris;
+      if(v.folder!=null) $('#tlMoFolder').value=v.folder;
+      if(v.out!=null) $('#tlMoOut').value=v.out;
+    }catch(_){}
+  },
+  /** The run's progress (meshopt_progress) in the header, every half second. Returns the stop. */
+  moTick(label){
+    let live=true; const t0=performance.now(), stat=$('#tlMoStats');
+    (async()=>{
+      while(live){
+        try{
+          let p=await Engine.call('meshopt_progress',{}); if(typeof p==='string') p=JSON.parse(p);
+          if(live && Array.isArray(p)) stat.textContent=`${label} ${p[0]} of ${p[1]} (${((performance.now()-t0)/1000).toFixed(0)} s)`;
+        }catch(_){}
+        await new Promise(r=>setTimeout(r,500));
+      }
+    })();
+    return ()=>{ live=false; };
+  },
+  async moRun(){
+    if(this.mo.running) return;
+    this.mo.running=true; const btn=$('#tlMoRun'); btn.disabled=true; $('#tlMoWrite').disabled=true;
+    $('#tlMoBody').innerHTML='<div class="empty">Reading the load order\'s meshes...</div>';
+    const stop=this.moTick('Measuring');
+    try{
+      this.moSave();
+      let r=await Engine.call('meshopt_analyse',{cfg:this.cfg(), opts:this.moOpts(), outDir:$('#tlMoOut').value.trim(), limit:5000});
+      if(typeof r==='string') r=JSON.parse(r);
+      this.mo.rows=r.rows||[]; this.mo.stats=r.stats; this.mo.shown=r.shown||0;
+      stop(); this.moDraw();
+    }catch(e){ stop(); $('#tlMoStats').textContent=''; $('#tlMoBody').innerHTML=`<div class="empty">${loEsc(String(e.message||e))}</div>`; toast(String(e.message||e),'err',6000); }
+    finally{ stop(); this.mo.running=false; btn.disabled=false; }
+  },
+  moDraw(){
+    const s=this.mo.stats, rows=this.mo.rows;
+    const mb=b=>(b/1048576).toFixed(1)+' MB', two=p=>p[0].toFixed(2)+' → '+p[1].toFixed(2);
+    $('#tlMoStats').textContent=`${s.meshes} meshes · ${s.qualifying} worth rewriting (${s.qualifyingTriangles.toLocaleString()} triangles, ${mb(s.qualifyingBytes)}) · ${s.improvable} could improve · ${s.unreadable} unreadable`;
+    if(!rows.length){ $('#tlMoBody').innerHTML='<div class="empty">No meshes found in the load order\'s data folders.</div>'; $('#tlMoWrite').disabled=true; return; }
+    const tail=d=>String(d).replace(/[\\/]+$/,'').split(/[\\/]/).pop();
+    const body=rows.map((r,i)=>{
+      const ok=r.qualifies;
+      return `<tr class="${ok?'':'no'}"><td>${ok?`<input type="checkbox" data-p="${i}" checked>`:''}</td><td class="p">${loEsc(r.path)}</td><td class="p" title="${loEsc(r.dir)}">${loEsc(tail(r.dir))}</td>`+
+        `<td>${r.triangles.toLocaleString()}</td><td>${r.improvable?(r.gain*100).toFixed(1)+'%':''}</td>`+
+        `<td>${r.improvable?two(r.acmr):''}</td><td>${r.improvable?two(r.overdraw):''}</td><td>${r.improvable?two(r.overfetch):''}</td><td class="p">${loEsc(r.note||'')}</td></tr>`;
+    }).join('');
+    const more=s.meshes>this.mo.shown? `<div class="empty">The ${this.mo.shown.toLocaleString()} best of ${s.meshes.toLocaleString()} are listed; Write copies takes every mesh that qualifies when none is ticked.</div>` : '';
+    $('#tlMoBody').innerHTML=`<table class="mo"><tr><th></th><th class="p">Mesh</th><th class="p">From</th><th>Triangles</th><th>Gain</th><th>Cache (ACMR)</th><th>Overdraw</th><th>Fetch</th><th class="p"></th></tr>${body}</table>${more}`;
+    for(const b of document.querySelectorAll('#tlMoBody input[data-p]')) b.onchange=()=>this.moTicked();
+    this.moTicked();
+  },
+  moTicked(){
+    $('#tlMoWrite').disabled=!(this.mo.stats && this.mo.stats.qualifying>0);
+  },
+  async moWrite(){
+    if(this.mo.running) return;
+    const out=$('#tlMoOut').value.trim();
+    if(!out) return toast('Choose the folder the optimised meshes go to first','warn',3500);
+    const boxes=[...document.querySelectorAll('#tlMoBody input[data-p]')];
+    const ticked=boxes.filter(b=>b.checked).map(b=>this.mo.rows[+b.dataset.p].path);
+    // Every box ticked and every qualifying mesh listed: all of them, even those not listed.
+    const all=boxes.length>0 && ticked.length===boxes.length && this.mo.stats.qualifying>boxes.length;
+    if(boxes.length && !ticked.length) return toast('Tick the meshes to write','warn',3000);
+    const n=all? this.mo.stats.qualifying : (ticked.length||this.mo.stats.qualifying);
+    const ok=await wgConfirm(`${n.toLocaleString()} optimised mesh(es) will be written into:\n${out}\n\nYour mods are NOT modified. Each copy is checked to be the same mesh as the original. Add that folder LAST in your data= lines to use them, or delete it to undo.`);
+    if(!ok) return;
+    this.mo.running=true; $('#tlMoRun').disabled=true; $('#tlMoWrite').disabled=true;
+    const stop=this.moTick('Writing');
+    try{
+      this.moSave();
+      let r=await Engine.call('meshopt_write',{cfg:this.cfg(), opts:this.moOpts(), outDir:out, paths:all? [] : ticked});
+      if(typeof r==='string') r=JSON.parse(r);
+      stop();
+      const saved=r.bytesBefore-r.bytesAfter;
+      $('#tlMoStats').textContent=`${r.written} written${r.failed?`, ${r.failed} failed`:''} to ${out}`;
+      toast(`${r.written} optimised mesh(es) written`+(r.failed?`; ${r.failed} failed`:''), r.failed?'warn':'ok', 6000);
+      if(r.failures && r.failures.length){
+        $('#tlMoBody').insertAdjacentHTML('afterbegin', `<div class="warn">Not written:\n${r.failures.map(f=>loEsc(f.path+': '+f.why)).join('\n')}</div>`);
+      }
+      void saved;
+    }catch(e){ stop(); toast(String(e.message||e),'err',6000); }
+    finally{ stop(); this.mo.running=false; $('#tlMoRun').disabled=false; this.moTicked(); }
   },
 
   /** Your mods (`mine`) or the curated list's plugins (`list`), by name. A host that

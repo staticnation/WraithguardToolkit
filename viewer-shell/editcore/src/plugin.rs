@@ -322,7 +322,7 @@ pub fn conflict_key(v: &serde_json::Value, interior: &std::collections::HashSet<
         .or_else(|| text(v.get("cell_name")))
         .or_else(|| data.and_then(|d| text(d.get("cell")).or_else(|| text(d.get("cell_name")))));
     let rid = if let Some(cell) = cell {
-        if interior.contains(&cell.to_lowercase()) {
+        if interior.contains(&cell.to_ascii_lowercase()) {
             cell
         } else {
             let f = |x: Option<i64>| x.map(|n| n.to_string()).unwrap_or_else(|| "None".into());
@@ -411,7 +411,7 @@ fn analyse(
             let name = v.get("id").and_then(|x| x.as_str()).filter(|s| !s.is_empty())
                 .or_else(|| v.get("name").and_then(|x| x.as_str()).filter(|s| !s.is_empty()));
             if let Some(n) = name {
-                interior.insert(n.to_lowercase());
+                interior.insert(n.to_ascii_lowercase());
             }
         }
     }
@@ -430,7 +430,7 @@ fn analyse(
                 .or_else(|| v.get("name").and_then(|x| x.as_str()).filter(|s| !s.is_empty()))
                 .map(str::to_string)
                 .unwrap_or_else(|| rid.clone());
-            if interior.contains(&name.to_lowercase()) {
+            if interior.contains(&name.to_ascii_lowercase()) {
                 cells.push(CellRef::Int(name));
             } else {
                 let grid = v.get("data").and_then(|d| d.get("grid")).filter(|g| !g.is_null()).or_else(|| v.get("grid"));

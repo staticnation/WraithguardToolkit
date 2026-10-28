@@ -50,10 +50,16 @@ pub fn records_of(bytes: &[u8], wanted: &HashSet<Key>) -> io::Result<HashMap<Key
     if known && !tags.contains(b"CELL") && wanted.iter().any(|(t, _)| t == "PathGrid") {
         interior.extend(interior_cells(&to_values(editcore::plugin::objects(bytes, Some(&[*b"CELL"]), true)?)?));
     }
+    // Ids are compared without case (`records::fold_id`); the record comes back under the
+    // spelling it was asked for by.
+    let fold = |k: &Key| (k.0.clone(), crate::records::fold_id(&k.1));
+    let want: HashMap<Key, Key> = wanted.iter().map(|k| (fold(k), k.clone())).collect();
     for v in values {
         let Some(k) = editcore::plugin::conflict_key(&v, &interior) else { continue };
-        if wanted.contains(&k) && !out.contains_key(&k) {
-            out.insert(k, v);
+        if let Some(asked) = want.get(&fold(&k)) {
+            if !out.contains_key(asked) {
+                out.insert(asked.clone(), v);
+            }
         }
     }
     Ok(out)
@@ -78,7 +84,7 @@ fn interior_cells(values: &[Value]) -> HashSet<String> {
                 .filter(|s| !s.is_empty())
                 .or_else(|| v.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()));
             if let Some(n) = name {
-                out.insert(n.to_lowercase());
+                out.insert(n.to_ascii_lowercase());
             }
         }
     }

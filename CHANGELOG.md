@@ -5,6 +5,18 @@
 
 ### Added
 
+- **Mesh optimiser (Tools page).** Puts the load order's meshes in draw order (vertex
+  cache, overdraw, vertex fetch: the mesh viewer's Optimise) in one go, and only where it
+  pays. Analyse measures the winning copy of every loose `.nif` across the data folders
+  (last folder wins, case folded; archives are not read) and lists each mesh's gain; a shape
+  is moved only if it really draws better, and a mesh is rewritten only if its gain reaches
+  *Least gain* (default 3 %, triangle-weighted) and it has *Least triangles* (default 64).
+  Write copies puts the ticked meshes, optimised, into a separate output folder at their own
+  paths (add it last in the data= lines, or delete it to undo), with a record
+  (`wraithguard-mesh-optimiser.json`); no mod is modified. Every copy is read back and must
+  mean the same mesh as the original (triangles with the same corners, skin weights, morph
+  targets) or it is not written. What was measured is kept in the scan cache, so the next run
+  measures only the meshes that changed.
 - **Find in the Load order page's content= and data= lists.** A box on each header lights the
   plugins (or data folders) whose text has what you type, with a count (`3/12`); Enter goes
   to the next match, Shift+Enter to the one before, Esc clears. The lights stay through
@@ -47,12 +59,29 @@
   one, the first time after this update) is read once on the first click or by the background
   fill after the program connects, and then it is a seek; the tables are added without
   emptying the existing cache.
+- **Record ids are compared without case, as the engines do.** The record scan grouped ids
+  exactly as spelled, so `Iron_Dagger` in one plugin and `iron_dagger` in another were two
+  records and no conflict, though both Morrowind.exe and OpenMW treat them as one (ASCII case
+  only). They are one record now, listed under the first spelling met; the winner and the
+  detail pane read each plugin's own spelling. The record offsets kept in the scan cache are
+  rebuilt (new tables: the old ones are dropped, the plugins re-read once in the background).
+  The scan's keys cache is unchanged.
+- **Interior cell names are folded for case ASCII-only**, as both OpenMW and the game's own
+  readers do (Gardenfell's `esp-format.md` §9.8), not through the whole alphabet: two
+  interiors whose names differ only in a non-ASCII letter's case (`É`/`é`) are two cells, as
+  in the engine, and a path grid is matched to its interior the same way. Only names with such
+  letters are affected.
 - **The panel's dock menu (and every other flyout menu) opened under the rule maker**, which
   lies over the Load order page at z-index 330 while menus sat at 70. Flyout menus are now
   above it (340).
 
 ### Changed
 
+- **The cell load keeps a mesh's triangle order when reordering would make the vertex cache
+  worse** (Gardenfell patch 0018, `reorder_triangles_if_not_worse`). Before, every part was
+  reordered whether or not it came out better; a part the file already has in good order is
+  now drawn as the file has it. This is the viewer's in-memory order only; the Mesh optimiser
+  is what writes files OpenMW reads.
 - **The rule maker folds, docks and remembers its size and place** like the Editor's other
   panels.
 

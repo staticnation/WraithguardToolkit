@@ -29,6 +29,7 @@ pub mod fields;
 pub mod keycache;
 pub mod map;
 pub mod mesh;
+pub mod nif_batch;
 pub mod nif_order;
 pub mod nifedit;
 pub mod patch;

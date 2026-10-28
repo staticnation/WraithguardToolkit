@@ -165,6 +165,11 @@ his Clear-only weather tests pin, and only the fixture runs them. Done 2026-10-1
 the series and his fixture on his full 18hu source: it builds, and his whole suite gives
 1553 pass / 0 fail against 1541 / 0 unpatched (the 12 more are ours).
 
+- `patches/0018-cell-load-reorder-if-not-worse.patch`: the cell load's triangle reorder
+  (`nif.rs`, Round 18ho) kept only when the part's vertex cache does not come out worse
+  (`triorder::reorder_triangles_if_not_worse`, so a mesh already in good order is drawn as
+  the file has it). Tests: `crates/gardenfell-nif/tests/wraithguard_triorder.rs`.
+
 ## File hashes (SHA-256)
 
 ```

@@ -135,7 +135,8 @@ pub fn record_at(cache: Option<&Cache>, path: &Path, rtype: &str, id: &str) -> O
     let bytes = std::fs::read(path).ok()?;
     match editcore::plugin::keys_cells_spans(&bytes) {
         Ok((_, _, spans)) => {
-            let at = spans.iter().find(|(t, i, _, _)| t == rtype && i == id).map(|(_, _, off, len)| (*off as usize, *len as usize));
+            let want = crate::records::fold_id(id);
+            let at = spans.iter().find(|(t, i, _, _)| t == rtype && crate::records::fold_id(i) == want).map(|(_, _, off, len)| (*off as usize, *len as usize));
             if let Some(c) = cache {
                 c.put_spans(path, &spans);
             }
@@ -241,6 +242,8 @@ mod tests {
                 let got = record_at(Some(&cache), &path, t, i);
                 assert!(got.is_some(), "pass {pass}: {t} {i}");
                 assert_eq!(got, want(t, i), "pass {pass}: {t} {i}");
+                // an id is the same id in any case
+                assert_eq!(record_at(Some(&cache), &path, t, &i.to_ascii_uppercase()), got, "pass {pass}: {t} {i} upper");
             }
             assert!(cache.spans_current(&path));
         }

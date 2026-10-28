@@ -3765,6 +3765,107 @@ fn cf_setup(cfg: &str) -> Result<viewcore::ordercore::cfg::OpenmwCfg, String> {
     viewcore::ordercore::cfg::read(path, &viewcore::ordercore::cfg::Tokens::for_cfg(path)).map_err(|e| format!("{cfg} could not be read: {e}"))
 }
 
+/// A folder's path as compared here: trailing separators off, case folded.
+fn mo_folded(p: &str) -> String {
+    p.trim_end_matches(['/', '\\']).to_lowercase()
+}
+
+/// The meshes of the load order that the optimiser looks at: the winning copy of each,
+/// not those in the output folder (what it wrote before is not an input).
+fn mo_candidates(cfg: &str, opts: &conflictcore::nif_batch::Options, out_dir: &str) -> Result<Vec<conflictcore::nif_batch::Candidate>, String> {
+    use conflictcore::nif_batch as nb;
+    let setup = cf_setup(cfg)?;
+    let skip = mo_folded(out_dir);
+    let data: Vec<std::path::PathBuf> =
+        setup.data.iter().filter(|d| skip.is_empty() || mo_folded(&d.to_string_lossy()) != skip).cloned().collect();
+    Ok(nb::filter(nb::collect(&data), opts))
+}
+
+/// Wraithguard: the mesh optimiser's measurement over a load order (Tools). `opts`:
+/// `{minGain: percent, minTriangles, folder}`; `out_dir`: the folder the copies will go to
+/// (left out of the inputs); `limit`: the most rows sent, best gain first. Answers
+/// `{stats: {meshes, unreadable, improvable, qualifying, qualifyingTriangles,
+/// qualifyingBytes}, rows: [{path, dir, bytes, triangles, shapes, improvable, gain, acmr,
+/// overdraw, overfetch, qualifies, note}], shown}`. What was measured is kept in the scan
+/// cache, so a second run measures only the meshes that changed.
+#[tauri::command(async)]
+fn meshopt_analyse(cfg: String, opts: serde_json::Value, out_dir: String, limit: usize) -> Result<String, String> {
+    use conflictcore::nif_batch as nb;
+    let _gate = scan_gate();
+    let o = nb::Options::from_json(&opts);
+    let cands = mo_candidates(&cfg, &o, &out_dir)?;
+    let an = nb::analyse_all(scan_cache(), &cands);
+    let mut stats = (0usize, 0usize, 0usize, 0u64, 0u64);
+    for a in &an {
+        if !a.unreadable.is_empty() {
+            stats.0 += 1;
+        }
+        if a.improvable > 0 {
+            stats.1 += 1;
+        }
+        if nb::qualifies(a, &o) {
+            stats.2 += 1;
+            stats.3 += a.triangles;
+            stats.4 += a.bytes;
+        }
+    }
+    let mut order: Vec<usize> = (0..cands.len()).collect();
+    order.sort_by(|&x, &y| {
+        let (qx, qy) = (nb::qualifies(&an[x], &o), nb::qualifies(&an[y], &o));
+        qy.cmp(&qx).then(an[y].gain.partial_cmp(&an[x].gain).unwrap_or(std::cmp::Ordering::Equal))
+    });
+    let shown = order.len().min(if limit == 0 { 5000 } else { limit });
+    let rows: Vec<serde_json::Value> = order.iter().take(shown).map(|&i| nb::row_json(&cands[i], &an[i], &o)).collect();
+    let out = serde_json::json!({
+        "stats": {"meshes": cands.len(), "unreadable": stats.0, "improvable": stats.1, "qualifying": stats.2,
+                  "qualifyingTriangles": stats.3, "qualifyingBytes": stats.4},
+        "rows": rows, "shown": shown,
+    });
+    serde_json::to_string(&out).map_err(|e| e.to_string())
+}
+
+/// Wraithguard: writes the optimised copies (Tools). The meshes that qualify under `opts`
+/// (and, when `paths` is not empty, are in it: the rows the person left ticked), each
+/// optimised, read back and checked to be the same mesh, at its own path under `out_dir`,
+/// and `wraithguard-mesh-optimiser.json` beside them. Nothing in any mod is touched.
+/// Answers `{written, failed, bytesBefore, bytesAfter, failures: [{path, why}]}`.
+#[tauri::command(async)]
+fn meshopt_write(cfg: String, opts: serde_json::Value, out_dir: String, paths: Vec<String>) -> Result<String, String> {
+    use conflictcore::nif_batch as nb;
+    if out_dir.trim().is_empty() {
+        return Err("name the folder the optimised meshes go to".into());
+    }
+    let _gate = scan_gate();
+    let o = nb::Options::from_json(&opts);
+    let mut cands = mo_candidates(&cfg, &o, &out_dir)?;
+    if !paths.is_empty() {
+        let want: std::collections::HashSet<String> = paths.iter().map(|p| p.to_lowercase()).collect();
+        cands.retain(|c| want.contains(&c.rel.to_lowercase()));
+    }
+    let an = nb::analyse_all(scan_cache(), &cands);
+    let picked: Vec<&nb::Candidate> = cands.iter().zip(&an).filter(|(_, a)| nb::qualifies(a, &o)).map(|(c, _)| c).collect();
+    let out = std::path::Path::new(&out_dir);
+    std::fs::create_dir_all(out).map_err(|e| format!("{out_dir} could not be made: {e}"))?;
+    let done = nb::write_all(&picked, out);
+    let manifest = nb::manifest(&done, &o);
+    std::fs::write(out.join("wraithguard-mesh-optimiser.json"), serde_json::to_string_pretty(&manifest).unwrap_or_default())
+        .map_err(|e| format!("the record could not be written: {e}"))?;
+    let ok: Vec<&nb::Written> = done.iter().filter(|w| w.error.is_empty()).collect();
+    let res = serde_json::json!({
+        "written": ok.len(), "failed": done.len() - ok.len(),
+        "bytesBefore": ok.iter().map(|w| w.before).sum::<u64>(), "bytesAfter": ok.iter().map(|w| w.after).sum::<u64>(),
+        "failures": done.iter().filter(|w| !w.error.is_empty()).take(200).map(|w| serde_json::json!({"path": w.rel, "why": w.error})).collect::<Vec<_>>(),
+    });
+    serde_json::to_string(&res).map_err(|e| e.to_string())
+}
+
+/// Wraithguard: how far the optimiser's run has got, `[done, total]`.
+#[tauri::command]
+fn meshopt_progress() -> [usize; 2] {
+    use std::sync::atomic::Ordering;
+    [conflictcore::nif_batch::DONE.load(Ordering::Relaxed), conflictcore::nif_batch::TOTAL.load(Ordering::Relaxed)]
+}
+
 fn cf_conflict_json(c: &conflictcore::records::Conflict) -> serde_json::Value {
     serde_json::json!({"type": c.rtype, "id": c.id, "plugins": c.plugins, "winner": c.winner,
                        "involvesSubset": c.involves_subset, "deletedBy": c.deleted_by})
@@ -5846,6 +5947,9 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             conflicts_scan,
             conflicts_fields,
             conflicts_resources,
+            meshopt_analyse,
+            meshopt_write,
+            meshopt_progress,
             conflicts_texture,
             conflicts_report,
             conflicts_csv,
