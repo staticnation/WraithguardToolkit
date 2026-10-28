@@ -115,7 +115,8 @@ pub fn filter(cands: Vec<Candidate>, opts: &Options) -> Vec<Candidate> {
     if opts.folder.is_empty() {
         return cands;
     }
-    cands.into_iter().filter(|c| c.dir.to_string_lossy().to_lowercase().contains(&opts.folder)).collect()
+    let folder = opts.folder.to_lowercase();
+    cands.into_iter().filter(|c| c.dir.to_string_lossy().to_lowercase().contains(&folder)).collect()
 }
 
 /// What was measured of one mesh (the thresholds are applied to it later, [`qualifies`]).
@@ -371,7 +372,10 @@ mod tests {
         assert_eq!(got.len(), 2);
         let m = got.iter().find(|c| c.rel.to_lowercase() == "meshes/x/m.nif").unwrap();
         assert_eq!(m.dir, b);
-        let only = filter(got, &Options { folder: "A".to_lowercase(), ..Options::default() });
+        // Match the full folder path so parent-directory names cannot affect the result;
+        // uppercase input also checks that the filter itself is case-insensitive.
+        let only = filter(got, &Options { folder: a.to_string_lossy().to_uppercase(), ..Options::default() });
+        assert_eq!(only.len(), 1);
         assert!(only.iter().all(|c| c.dir == a));
         let _ = std::fs::remove_dir_all(&root);
     }
