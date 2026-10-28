@@ -193,6 +193,11 @@ pub enum Item {
 /// `objects`, and with `raw` every record the crate does not model as its tag, flags
 /// and body, in its place in the file.
 pub fn items(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> io::Result<Vec<Item>> {
+    Ok(items_pos(bytes, keep, light, raw)?.into_iter().map(|(_, _, i)| i).collect())
+}
+
+/// [`items`], each with its record's place in the file: `(start, end)`, header included.
+fn items_pos(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> io::Result<Vec<(usize, usize, Item)>> {
     use tes3::esp::TES3Object as O;
     let bad = |m: String| io::Error::new(io::ErrorKind::InvalidData, m);
     let mut out = Vec::new();
@@ -208,7 +213,7 @@ pub fn items(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> 
         })?;
         if !known(tag) && raw && keep.is_none_or(|k| k.contains(&tag)) {
             let flags = u32::from_le_bytes(bytes[pos + 12..pos + 16].try_into().unwrap());
-            out.push(Item::Raw { tag, flags, body: bytes[pos + 16..end].to_vec() });
+            out.push((pos, end, Item::Raw { tag, flags, body: bytes[pos + 16..end].to_vec() }));
         } else if known(tag) && keep.is_none_or(|k| k.contains(&tag)) {
             let mut obj: O = guarded(|| bytes_io::Reader::new(&bytes[pos..end]).load())
                 .map_err(|e| bad(format!("the {} record at {pos}: {e}", String::from_utf8_lossy(&tag))))?;
@@ -231,7 +236,7 @@ pub fn items(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> 
                     _ => {}
                 }
             }
-            out.push(Item::Obj(obj));
+            out.push((pos, end, Item::Obj(obj)));
         }
         pos = end;
     }
@@ -356,6 +361,43 @@ pub fn keys_and_cells(bytes: &[u8]) -> io::Result<(Vec<(String, String, bool)>, 
         .iter()
         .map(|o| serde_json::to_value(o).map_err(io::Error::other))
         .collect::<io::Result<_>>()?;
+    let (keys, cells, _) = analyse(&values, None);
+    Ok((keys, cells))
+}
+
+/// A record's place in its file: `(type, id, offset, length)` - the whole record, header
+/// included, so `bytes[offset..offset + length]` reads it back by itself ([`record_value`]).
+pub type Span = (String, String, u64, u32);
+
+/// [`keys_and_cells`], and where each key's record (the first of its key, as the keys count
+/// it) lies in the file, from the one read: what lets a record be fetched by seeking to it
+/// instead of reading the plugin through again.
+pub fn keys_cells_spans(bytes: &[u8]) -> io::Result<(Vec<(String, String, bool)>, Vec<CellRef>, Vec<Span>)> {
+    let mut values: Vec<serde_json::Value> = Vec::new();
+    let mut places: Vec<(usize, usize)> = Vec::new();
+    for (pos, end, item) in items_pos(bytes, None, true, false)? {
+        if let Item::Obj(o) = item {
+            values.push(serde_json::to_value(&o).map_err(io::Error::other)?);
+            places.push((pos, end));
+        }
+    }
+    Ok(analyse(&values, Some(&places)))
+}
+
+/// One record by itself - its bytes as [`keys_cells_spans`] places them - in its
+/// tes3conv-schema form, whole (no references or vertices cleared).
+pub fn record_value(span: &[u8]) -> io::Result<serde_json::Value> {
+    let obj: tes3::esp::TES3Object = guarded(|| bytes_io::Reader::new(span).load())
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("the record: {e}")))?;
+    serde_json::to_value(&obj).map_err(io::Error::other)
+}
+
+/// The keys, cells and (given the records' places in the file) spans of records already in
+/// their JSON form.
+fn analyse(
+    values: &[serde_json::Value],
+    places: Option<&[(usize, usize)]>,
+) -> (Vec<(String, String, bool)>, Vec<CellRef>, Vec<Span>) {
     let is_cell = |v: &serde_json::Value| v.get("type").and_then(|t| t.as_str()).is_some_and(|t| t.eq_ignore_ascii_case("cell"));
     let mut interior = std::collections::HashSet::new();
     for v in values.iter().filter(|v| is_cell(v)) {
@@ -376,7 +418,8 @@ pub fn keys_and_cells(bytes: &[u8]) -> io::Result<(Vec<(String, String, bool)>, 
     let mut keys = Vec::new();
     let mut cells = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for v in &values {
+    let mut spans = Vec::new();
+    for (vi, v) in values.iter().enumerate() {
         let Some((rtype, rid)) = conflict_key(v, &interior) else { continue };
         if !seen.insert((rtype.clone(), rid.clone())) {
             continue;
@@ -412,9 +455,12 @@ pub fn keys_and_cells(bytes: &[u8]) -> io::Result<(Vec<(String, String, bool)>, 
                 }
             }
         }
+        if let Some(&(pos, end)) = places.and_then(|p| p.get(vi)) {
+            spans.push((rtype.clone(), rid.clone(), pos as u64, (end - pos) as u32));
+        }
         keys.push((rtype, rid, deleted));
     }
-    Ok((keys, cells))
+    (keys, cells, spans)
 }
 
 #[cfg(test)]

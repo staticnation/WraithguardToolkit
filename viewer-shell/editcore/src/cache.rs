@@ -36,7 +36,7 @@ pub const REPORTS_KEPT: i64 = 2000;
 pub const USES_TAG: &str = "~USE";
 
 /// The tables that hold what was read from the plugins (emptied together).
-const DERIVED: [&str; 7] = ["records", "keys", "key_stamps", "reports", "uses", "use_records", "use_plugins"];
+const DERIVED: [&str; 9] = ["records", "keys", "key_stamps", "reports", "uses", "use_records", "use_plugins", "spans", "span_stamps"];
 
 /// Times to open the file again when another connection is setting it up.
 const OPEN_TRIES: u32 = 12;
@@ -193,7 +193,11 @@ impl Cache {
              CREATE TABLE IF NOT EXISTS uses (value TEXT NOT NULL, rid INTEGER NOT NULL,
                paths TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (value, rid)) WITHOUT ROWID;
              CREATE TABLE IF NOT EXISTS reports (sig TEXT NOT NULL, kind TEXT NOT NULL,
-               key TEXT NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sig, kind, key));",
+               key TEXT NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sig, kind, key));
+             CREATE TABLE IF NOT EXISTS spans (plugin TEXT NOT NULL, rtype TEXT NOT NULL, id TEXT NOT NULL,
+               off INTEGER NOT NULL, len INTEGER NOT NULL, PRIMARY KEY (plugin, rtype, id)) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS span_stamps (plugin TEXT PRIMARY KEY,
+               size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL);",
         )?;
         Cache::forget_missing(&tx)?;
         tx.commit()?;
@@ -203,7 +207,7 @@ impl Cache {
     /// Drops what was kept for plugins that are no longer on disk (a mod removed).
     fn forget_missing(conn: &Connection) -> rusqlite::Result<()> {
         let mut gone: Vec<String> = Vec::new();
-        for q in ["SELECT DISTINCT plugin FROM records", "SELECT DISTINCT plugin FROM key_stamps", "SELECT plugin FROM use_plugins"] {
+        for q in ["SELECT DISTINCT plugin FROM records", "SELECT DISTINCT plugin FROM key_stamps", "SELECT plugin FROM use_plugins", "SELECT plugin FROM span_stamps"] {
             let mut st = conn.prepare(q)?;
             let names: Vec<String> = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
             for n in names {
@@ -213,7 +217,7 @@ impl Cache {
             }
         }
         for g in &gone {
-            for t in ["records", "keys", "key_stamps"] {
+            for t in ["records", "keys", "key_stamps", "spans", "span_stamps"] {
                 conn.execute(&format!("DELETE FROM {t} WHERE plugin=?"), [g])?;
             }
             Cache::drop_uses(conn, g)?;
@@ -650,9 +654,98 @@ impl Cache {
         });
     }
 
+    /// Keeps where each record key of a plugin lies in its file - `(type, id, offset,
+    /// length)`, the whole record - as the plugin is now, so one record can be read by
+    /// seeking to it rather than reading the plugin through. Replaces what was kept of it.
+    pub fn put_spans(&self, plugin: &Path, spans: &[(String, String, u64, u32)]) {
+        let Some(s) = stamp(plugin) else { return };
+        self.with(|c| {
+            let r = (|| -> rusqlite::Result<()> {
+                let tx = c.transaction()?;
+                tx.execute("DELETE FROM spans WHERE plugin=?", [&s.key])?;
+                {
+                    let mut ins = tx.prepare("INSERT OR REPLACE INTO spans VALUES (?, ?, ?, ?, ?)")?;
+                    for (t, id, off, len) in spans {
+                        ins.execute(params![s.key, t, id, *off as i64, *len as i64])?;
+                    }
+                }
+                tx.execute("INSERT OR REPLACE INTO span_stamps VALUES (?, ?, ?)", params![s.key, s.size, s.mtime_ns])?;
+                tx.commit()
+            })();
+            if let Err(e) = r {
+                (self.warn)(&format!("editor: record span write failed: {e}"));
+            }
+            Some(())
+        });
+    }
+
+    /// Whether a plugin's record spans are kept and the plugin is unchanged since (so a
+    /// key [`Cache::span`] does not find is not in the plugin).
+    pub fn spans_current(&self, plugin: &Path) -> bool {
+        let Some(s) = stamp(plugin) else { return false };
+        self.with(|c| {
+            let row: Option<(i64, i64)> = c
+                .query_row("SELECT size, mtime_ns FROM span_stamps WHERE plugin=?", [&s.key], |r| Ok((r.get(0)?, r.get(1)?)))
+                .optional()
+                .ok()?;
+            Some(row == Some((s.size, s.mtime_ns)))
+        })
+        .unwrap_or(false)
+    }
+
+    /// Where a record lies in a plugin's file, `(offset, length)`: one indexed lookup; `None`
+    /// when the spans are not kept for the plugin as it is, or it has no such record.
+    pub fn span(&self, plugin: &Path, rtype: &str, id: &str) -> Option<(u64, u32)> {
+        let s = stamp(plugin)?;
+        self.with(|c| {
+            c.query_row(
+                "SELECT p.off, p.len FROM spans p JOIN span_stamps t ON t.plugin = p.plugin \
+                 WHERE p.plugin=?1 AND p.rtype=?2 AND p.id=?3 AND t.size=?4 AND t.mtime_ns=?5",
+                params![s.key, rtype, id, s.size, s.mtime_ns],
+                |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u32)),
+            )
+            .optional()
+            .ok()
+        })
+        .flatten()
+    }
+
+    /// The plugins (indices into `plugins`) whose record spans are not kept as they now
+    /// are; `None` when the cache is out.
+    pub fn stale_spans(&self, plugins: &[PathBuf]) -> Option<Vec<usize>> {
+        let stamps: Vec<Option<Stamp>> = plugins.iter().map(|p| stamp(p)).collect();
+        let keyed: Vec<&str> = stamps.iter().flatten().map(|s| s.key.as_str()).collect();
+        let have = self.with(|c| {
+            let mut have: HashMap<String, (i64, i64)> = HashMap::new();
+            for part in keyed.chunks(CHUNK) {
+                let q = format!("SELECT plugin, size, mtime_ns FROM span_stamps WHERE plugin IN ({})", marks(part.len()));
+                let mut st = c.prepare(&q).ok()?;
+                let rows = st
+                    .query_map(params_from_iter(part.iter().copied()), |r| Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?))))
+                    .ok()?;
+                for row in rows {
+                    let (k, v) = row.ok()?;
+                    have.insert(k, v);
+                }
+            }
+            Some(have)
+        })?;
+        Some(
+            stamps
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| match s {
+                    None => true,
+                    Some(s) => have.get(&s.key) != Some(&(s.size, s.mtime_ns)),
+                })
+                .map(|(i, _)| i)
+                .collect(),
+        )
+    }
+
     /// Forgets everything cached (the use index aside, as before).
     pub fn clear(&self) {
-        self.with(|c| c.execute_batch("DELETE FROM records; DELETE FROM keys; DELETE FROM key_stamps; DELETE FROM reports;").ok());
+        self.with(|c| c.execute_batch("DELETE FROM records; DELETE FROM keys; DELETE FROM key_stamps; DELETE FROM reports; DELETE FROM spans; DELETE FROM span_stamps;").ok());
     }
 
     /// What the cache holds: `pages`, `free`, `page_size`, `used`, and `rows_<table>`.
@@ -661,7 +754,7 @@ impl Cache {
             let q = |s: &str| c.query_row(s, [], |r| r.get::<_, i64>(0)).ok();
             let (pages, free, size) = (q("PRAGMA page_count")?, q("PRAGMA freelist_count")?, q("PRAGMA page_size")?);
             let mut out = vec![("pages".into(), pages), ("free".into(), free), ("page_size".into(), size), ("used".into(), (pages - free) * size)];
-            for t in ["records", "keys", "key_stamps", "uses", "use_records", "use_plugins", "reports"] {
+            for t in ["records", "keys", "key_stamps", "uses", "use_records", "use_plugins", "reports", "spans"] {
                 out.push((format!("rows_{t}"), q(&format!("SELECT COUNT(*) FROM {t}"))?));
             }
             Some(out)

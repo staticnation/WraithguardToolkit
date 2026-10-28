@@ -372,8 +372,12 @@ const WgConflicts={
     $('#cfTitle').textContent=`[${c.type}] ${c.id}`;
     const box=$('#cfFields'); box.innerHTML='<div class="empty">Reading...</div>';
     this.drawActs(c, null);
+    // Rows clicked faster than they are read: only the last click's answer is drawn (an older
+    // one finishing late must not replace it, or the pane shows another record than the title).
+    const tok=this._fieldsTok=(this._fieldsTok||0)+1;
     try{
       const d=await Engine.call('conflicts_fields',{cfg:this.cfg(), rtype:c.type, id:c.id});
+      if(tok!==this._fieldsTok) return;
       this.drawActs(c, d);
       // As the Tk window had it: each FIELD's row coloured by its verdict (agree green,
       // overridden-but-nothing-lost amber, an edit lost red), each plugin's name by what it
@@ -403,7 +407,7 @@ const WgConflicts={
         this.showValue(tr.dataset.f+' - '+(d.plugins[col]||''), big[+a.dataset.b]);
       };
       this._diff=d;
-    }catch(e){ box.innerHTML=`<div class="empty">${loEsc(String(e.message||e))}</div>`; }
+    }catch(e){ if(tok===this._fieldsTok) box.innerHTML=`<div class="empty">${loEsc(String(e.message||e))}</div>`; }
   },
 
   text(v){ return v==null? 'null' : typeof v==='string'? v : JSON.stringify(v); },

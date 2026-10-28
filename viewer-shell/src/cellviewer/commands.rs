@@ -3743,6 +3743,9 @@ fn scan_cache_warm(cfg: String) -> Result<(), String> {
 }
 
 struct ConflictScan {
+    /// Each scanned plugin's file, as the scan located it: a record's detail uses these and
+    /// does not list the (1000+) data folders again for every click.
+    paths: std::collections::HashMap<String, PathBuf>,
     list: Vec<conflictcore::records::Conflict>,
     stats: conflictcore::records::Stats,
     mode: String,
@@ -3779,6 +3782,7 @@ fn conflicts_scan(cfg: String, subset: Vec<String>, mode: String, exclude: Vec<S
     let (order, excluded) = records::filter_plugins(&setup.plugins(), &exclude);
     let at: std::collections::HashMap<String, PathBuf> =
         setup.locate(&order).into_iter().filter_map(|(n, p)| Some((n, p?))).collect();
+    let paths = at.clone();
     let find = move |name: &str| at.get(name).cloned();
     let _gate = scan_gate();
     let scan = records::scan_touch(&order, &find, &conflictcore::keycache::cached_keys(scan_cache()));
@@ -3805,7 +3809,7 @@ fn conflicts_scan(cfg: String, subset: Vec<String>, mode: String, exclude: Vec<S
                   "found": stats.found, "excluded": excluded},
         "cells": cells,
     });
-    *CONFLICTS.lock().unwrap_or_else(|p| p.into_inner()) = Some(ConflictScan { list, stats, mode });
+    *CONFLICTS.lock().unwrap_or_else(|p| p.into_inner()) = Some(ConflictScan { paths, list, stats, mode });
     Ok(out.to_string())
 }
 
@@ -3815,20 +3819,35 @@ fn conflicts_scan(cfg: String, subset: Vec<String>, mode: String, exclude: Vec<S
 /// record's `ConflictAll` (0-4), `this` each plugin's `ConflictThis` name.
 #[tauri::command(async)]
 fn conflicts_fields(cfg: String, rtype: String, id: String) -> Result<String, String> {
-    use conflictcore::fields::{conflict_all, conflict_this, diff, records_of, worst_all, worst_this};
-    let plugins: Vec<String> = {
+    use conflictcore::fields::{conflict_all, conflict_this, diff, worst_all, worst_this};
+    let (plugins, located): (Vec<String>, Vec<Option<PathBuf>>) = {
         let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
         let scan = slot.as_ref().ok_or("scan first")?;
-        scan.list.iter().find(|c| c.rtype == rtype && c.id == id).map(|c| c.plugins.clone()).ok_or("that record is not in the last scan")?
+        let names = scan.list.iter().find(|c| c.rtype == rtype && c.id == id).map(|c| c.plugins.clone()).ok_or("that record is not in the last scan")?;
+        let at: Vec<Option<PathBuf>> = names.iter().map(|n| scan.paths.get(n).cloned()).collect();
+        (names, at)
     };
-    let setup = cf_setup(&cfg)?;
-    let key = (rtype.clone(), id.clone());
-    let wanted: std::collections::HashSet<(String, String)> = std::iter::once(key.clone()).collect();
-    let records: Vec<Option<serde_json::Value>> = setup
-        .locate(&plugins)
-        .into_iter()
-        .map(|(_, p)| p.and_then(|p| std::fs::read(p).ok()).and_then(|b| records_of(&b, &wanted).ok()).and_then(|mut m| m.remove(&key)))
-        .collect();
+    // The files the scan found; only a plugin it has no path for (the program was handed a
+    // different cfg since) is looked for in the data folders.
+    let located: Vec<Option<PathBuf>> = if located.iter().all(Option::is_some) {
+        located
+    } else {
+        let setup = cf_setup(&cfg)?;
+        setup.locate(&plugins).into_iter().map(|(_, p)| p).collect()
+    };
+    // One thread a plugin (a record is in a handful). Each asks the scan cache where the
+    // record lies in its file and reads just those bytes; a plugin not indexed yet is read
+    // once and indexed (`keycache::record_at`), so clicking through records is a seek each.
+    let records: Vec<Option<serde_json::Value>> = std::thread::scope(|s| {
+        let jobs: Vec<_> = located
+            .iter()
+            .map(|p| {
+                let (rtype, id) = (&rtype, &id);
+                s.spawn(move || p.as_ref().and_then(|p| conflictcore::keycache::record_at(scan_cache(), p, rtype, id)))
+            })
+            .collect();
+        jobs.into_iter().map(|j| j.join().ok().flatten()).collect()
+    });
     let versions: Vec<(String, Option<&serde_json::Value>)> = plugins.iter().cloned().zip(records.iter().map(Option::as_ref)).collect();
     let d = diff(&versions);
     let mut field_all = Vec::new();
@@ -3877,9 +3896,20 @@ fn conflicts_land_surfaces(cfg: String, id: String) -> Result<String, String> {
     };
     let nums: Vec<i64> = id.trim_matches(|c| c == '(' || c == ')').split(',').filter_map(|n| n.trim().parse().ok()).collect();
     let [gx, gy] = nums[..] else { return Err(format!("{id} is not a cell")) };
-    let setup = cf_setup(&cfg)?;
+    let located: Vec<(String, Option<PathBuf>)> = {
+        let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
+        let known: Option<Vec<(String, Option<PathBuf>)>> = slot
+            .as_ref()
+            .map(|scan| plugins.iter().map(|n| (n.clone(), scan.paths.get(n).cloned())).collect())
+            .filter(|v: &Vec<(String, Option<PathBuf>)>| v.iter().all(|(_, p)| p.is_some()));
+        drop(slot);
+        match known {
+            Some(v) => v,
+            None => cf_setup(&cfg)?.locate(&plugins),
+        }
+    };
     let mut surfaces: Vec<(String, Vec<i64>)> = Vec::new();
-    for (name, path) in setup.locate(&plugins) {
+    for (name, path) in located {
         let Some(path) = path else { continue };
         let Ok(records) = landcore::read::read_landscape_records(&path) else { continue };
         let found = records.iter().rev().find(|r| matches!(r, landcore::read::Record::Land { grid, .. } if *grid == (gx, gy)));

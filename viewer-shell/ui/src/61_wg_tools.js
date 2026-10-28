@@ -189,7 +189,9 @@ const WgToolsPage={
     const addNamed=async(kind)=>{
       try{
         const names=await this.mods(kind);
-        if(!names.length) return toast(kind==='mine'? 'The sort found no mods of yours' : 'The sort found no curated list','warn',4000);
+        if(!names.length) return toast(kind==='mine'
+          ? 'The sort found no mods of yours. Name them on the Load order page - a Subset file, a Mods folder to scan, or "Pull unmanaged entries from the cfg" - then Sort.'
+          : 'The sort found no curated list. Set plugin-order.yml and the List name on the Load order page (the list comes from there), then Sort.','warn',8000);
         let r=await Engine.call('tools_locate',{cfg:this.cfg(), names}); if(typeof r==='string') r=JSON.parse(r);
         this.t3Add(r.filter(x=>x[1]).map(x=>String(x[1])));
       }catch(e){ toast(String(e.message||e),'err',5000); }
@@ -311,17 +313,26 @@ const WgToolsPage={
     let plan=(typeof WgLoadOrder==='object' && WgLoadOrder.plan) || this._plan;
     if(!plan){
       toast('Sorting the load order to find the lists...','ok',3000);
+      // The fields as the Load order page would sort them: what it remembered, the settings
+      // file's over that (its own opening order), every field and flag - the Mods folder and
+      // "pull unmanaged entries" are where "your mods" come from, so leaving them out found none.
       let seed=await WgSettings.seed(); if(typeof seed==='string') seed=JSON.parse(seed);
-      const f=(seed && seed.loadorder) || {};
+      const lo=(typeof WgLoadOrder==='object')? WgLoadOrder : null;
+      const f=Object.assign({}, lo? lo.saved() : {}, (seed && seed.loadorder) || {});
       const lines=v=>String(v||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
       const a={cfg:f.cfg||this.cfg(), customizations:f.customizations||'', subsetFile:f.subsetFile||'',
         pluginOrderYml:f.pluginOrderYml||'', listName:f.listName||'', dataPathsCache:f.dataPathsCache||'',
         rules:lines(f.rules), groundcover:lines(f.groundcover), subset:[], emitToml:false, allowEmptySort:true,
         sortDataPaths:!!f.sortDataPaths, subsetFromCfg:!!f.subsetFromCfg, noPredicateWarnings:true, verbose:false,
         writeCfg:false, dryRun:true, noBackup:true};
+      if(f.scanDir){
+        let scan=await Engine.call('loadorder_scan',{dir:f.scanDir}); if(typeof scan==='string') scan=JSON.parse(scan);
+        a.subsetLines=scan.lines;
+      }
       let got=await Engine.call('loadorder_compute',{args:JSON.stringify(a)}); if(typeof got==='string') got=JSON.parse(got);
       if(got.refused) throw new Error('The sort refused: '+got.refused);
-      plan=this._plan=got.plan;
+      plan=got.plan;
+      this._plan=null; // never kept: the fields may be filled in a moment later
     }
     return ((kind==='mine'? plan.subset : plan.curated) || []).map(String);
   },

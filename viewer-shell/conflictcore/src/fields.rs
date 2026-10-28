@@ -18,16 +18,38 @@ pub type Key = (String, String);
 
 /// The records of a plugin's bytes whose keys are in `wanted`, in their tes3conv-schema form
 /// (`record_subset`: the first record of each key).
+///
+/// Only the record types `wanted` names are decoded (a plugin's other records - the cells'
+/// references, the landscape's vertices, the dialogue - are stepped over by their size, never
+/// parsed or turned into JSON); with a type this reader does not know, every record is read as
+/// before. A path grid is keyed by its cell's name, and whether that cell is an interior
+/// decides the key, so for those the cells are read too, lightly (no references).
 pub fn records_of(bytes: &[u8], wanted: &HashSet<Key>) -> io::Result<HashMap<Key, Value>> {
     let mut out = HashMap::new();
     if wanted.is_empty() {
         return Ok(out);
     }
-    let values: Vec<Value> = editcore::plugin::objects(bytes, None, false)?
-        .iter()
-        .map(|o| serde_json::to_value(o).map_err(io::Error::other))
-        .collect::<io::Result<_>>()?;
-    let interior = interior_cells(&values);
+    let mut tags: Vec<[u8; 4]> = Vec::new();
+    let mut known = true;
+    for (t, _) in wanted {
+        match editcore::key::tag_of(t).map(|g| g.as_bytes()) {
+            Some(g) if g.len() == 4 => {
+                let g = [g[0], g[1], g[2], g[3]];
+                if !tags.contains(&g) {
+                    tags.push(g);
+                }
+            }
+            _ => known = false,
+        }
+    }
+    let to_values = |objs: Vec<tes3::esp::TES3Object>| -> io::Result<Vec<Value>> {
+        objs.iter().map(|o| serde_json::to_value(o).map_err(io::Error::other)).collect()
+    };
+    let values: Vec<Value> = to_values(editcore::plugin::objects(bytes, if known { Some(tags.as_slice()) } else { None }, false)?)?;
+    let mut interior = interior_cells(&values);
+    if known && !tags.contains(b"CELL") && wanted.iter().any(|(t, _)| t == "PathGrid") {
+        interior.extend(interior_cells(&to_values(editcore::plugin::objects(bytes, Some(&[*b"CELL"]), true)?)?));
+    }
     for v in values {
         let Some(k) = editcore::plugin::conflict_key(&v, &interior) else { continue };
         if wanted.contains(&k) && !out.contains_key(&k) {

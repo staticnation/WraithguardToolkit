@@ -24,6 +24,29 @@
   height. Such a panel is now measured from the browser window, and docking it no longer
   moves it back under the Load order page.
 
+- **tes3cmd's "Add your mods" / "Add list mods" said "The sort found no mods of yours" / "no
+  curated list"** when the Load order page had not been sorted yet. The sort the Tools page
+  ran for itself left out the Mods folder (where "your mods" come from) and used only the
+  settings file's fields, not what the Load order page remembered; and an empty answer was kept
+  for the rest of the session. It now sorts with the page's own fields (the Mods folder
+  scanned in, every flag), keeps nothing, and the messages say what to set when a list really
+  is empty.
+- **Clicking a record on the Conflicts page sat on "Reading..." for seconds** (and a slow
+  answer arriving late replaced a newer click's). The detail pane re-listed all the data
+  folders (1200+) to find the record's few plugins, read each plugin whole and decoded every
+  record in it (cell references, landscapes, dialogue) into JSON to pick out one, one plugin
+  after another. It now uses the files the scan already found, decodes only the record's own
+  type (a path grid also reads the cells' names, without their references), reads the plugins
+  side by side, and only the last click's answer is drawn. The same type filter speeds "Merge
+  fields from a plugin".
+- **A record's detail is now a seek.** The scan cache (`wraithguard_scan_cache.sqlite3`) also
+  keeps, for each plugin, where each record key's record lies in the file (`spans`: offset and
+  length, valid while the plugin's size and time are unchanged, written in the same read that
+  makes the keys). Clicking a record asks the cache where it is in each plugin and reads those
+  few hundred bytes, instead of reading the plugin through. A plugin without its spans (every
+  one, the first time after this update) is read once on the first click or by the background
+  fill after the program connects, and then it is a seek; the tables are added without
+  emptying the existing cache.
 - **The panel's dock menu (and every other flyout menu) opened under the rule maker**, which
   lies over the Load order page at z-index 330 while menus sat at 70. Flyout menus are now
   above it (340).

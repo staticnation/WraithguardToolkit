@@ -27,6 +27,10 @@ pub struct Read {
     pub keys: Keys,
     /// `(interior name)` or `(x, y)`, in the order met.
     pub cells: Vec<Cell>,
+    /// Where each key's record lies in the file, when the file was read whole (a read from
+    /// the cache, or a file that is not a TES3 plugin, has none): kept beside the keys, in
+    /// the cache's `spans`, not in their entry.
+    pub spans: Option<Vec<editcore::plugin::Span>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,11 +43,12 @@ pub enum Cell {
 pub fn read_plugin(path: &Path) -> Read {
     let low = path.to_string_lossy().to_lowercase();
     if low.ends_with(".omwscripts") {
-        return Read { keys: plugin_keys(path), cells: Vec::new() };
+        return Read { keys: plugin_keys(path), cells: Vec::new(), spans: None };
     }
-    let Ok(bytes) = std::fs::read(path) else { return Read { keys: (Vec::new(), true), cells: Vec::new() } };
-    match editcore::plugin::keys_and_cells(&bytes) {
-        Ok((k, c)) => Read {
+    let Ok(bytes) = std::fs::read(path) else { return Read { keys: (Vec::new(), true), cells: Vec::new(), spans: None } };
+    match editcore::plugin::keys_cells_spans(&bytes) {
+        Ok((k, c, spans)) => Read {
+            spans: Some(spans),
             keys: (k, false),
             cells: c
                 .into_iter()
@@ -53,7 +58,7 @@ pub fn read_plugin(path: &Path) -> Read {
                 })
                 .collect(),
         },
-        Err(_) => Read { keys: (Vec::new(), false), cells: Vec::new() },
+        Err(_) => Read { keys: (Vec::new(), false), cells: Vec::new(), spans: None },
     }
 }
 
@@ -86,7 +91,7 @@ fn unpack(b: &[u8]) -> Option<Read> {
             _ => None,
         })
         .collect::<Option<Vec<_>>>()?;
-    Some(Read { keys: (keys, v["r"].as_bool()?), cells })
+    Some(Read { keys: (keys, v["r"].as_bool()?), cells, spans: None })
 }
 
 /// A plugin's keys and cells: from the cache when it holds them for the file as it is, else
@@ -99,8 +104,50 @@ pub fn cached(cache: Option<&Cache>, path: &Path) -> Read {
     if let Some(c) = cache {
         // an empty key list stamps the entry (`key_stamps`), which [`warm`] asks about
         c.put(path, TAG, &pack(&r), Some(&[]));
+        if let Some(sp) = &r.spans {
+            c.put_spans(path, sp);
+        }
     }
     r
+}
+
+/// One record of a plugin, by its key (`rtype`, `id`), in its tes3conv-schema form: the
+/// cache says where it lies in the file and only those bytes are read and decoded - a few
+/// hundred, not the plugin through. A plugin whose spans are not kept yet is read once
+/// (as the scan reads it) and they are kept, so the next record of it is a seek. `None`:
+/// the plugin has no such record, or cannot be read.
+pub fn record_at(cache: Option<&Cache>, path: &Path, rtype: &str, id: &str) -> Option<Value> {
+    use std::io::{Read as _, Seek, SeekFrom};
+    if path.to_string_lossy().to_lowercase().ends_with(".omwscripts") {
+        return None;
+    }
+    let from_file = |off: u64, len: u32| -> Option<Value> {
+        let mut f = std::fs::File::open(path).ok()?;
+        f.seek(SeekFrom::Start(off)).ok()?;
+        let mut buf = vec![0u8; len as usize];
+        f.read_exact(&mut buf).ok()?;
+        editcore::plugin::record_value(&buf).ok()
+    };
+    if let Some(c) = cache.filter(|c| c.spans_current(path)) {
+        // indexed as the file is: its record is where the index says, or it has none
+        return c.span(path, rtype, id).and_then(|(off, len)| from_file(off, len));
+    }
+    let bytes = std::fs::read(path).ok()?;
+    match editcore::plugin::keys_cells_spans(&bytes) {
+        Ok((_, _, spans)) => {
+            let at = spans.iter().find(|(t, i, _, _)| t == rtype && i == id).map(|(_, _, off, len)| (*off as usize, *len as usize));
+            if let Some(c) = cache {
+                c.put_spans(path, &spans);
+            }
+            at.and_then(|(off, len)| bytes.get(off..off + len)).and_then(|b| editcore::plugin::record_value(b).ok())
+        }
+        // a file the key reader cannot take whole: the reader of the wanted type alone
+        Err(_) => {
+            let key = (rtype.to_string(), id.to_string());
+            let wanted: std::collections::HashSet<_> = std::iter::once(key.clone()).collect();
+            crate::fields::records_of(&bytes, &wanted).ok().and_then(|mut m| m.remove(&key))
+        }
+    }
 }
 
 /// The keys alone, for [`crate::records::scan_touch`].
@@ -111,10 +158,20 @@ pub fn cached_keys(cache: Option<&Cache>) -> impl Fn(&Path) -> Keys + Sync + '_ 
 /// Fill the cache for `plugins` (their files), on `threads` threads: what the viewer runs in
 /// the background after it connects. Answers how many were read (the rest were current).
 pub fn warm(cache: &Cache, plugins: &[PathBuf], threads: usize) -> usize {
-    let stale: Vec<PathBuf> = match cache.stale_of(plugins, TAG) {
-        Some(ix) => ix.into_iter().filter_map(|i| plugins.get(i).cloned()).collect(),
-        None => plugins.to_vec(),
+    // Plugins whose keys are not kept as they are, and TES3 plugins whose record spans are
+    // not (a cache made before the spans existed has every key and no span: read once more).
+    let mut want: std::collections::BTreeSet<usize> = match cache.stale_of(plugins, TAG) {
+        Some(ix) => ix.into_iter().collect(),
+        None => (0..plugins.len()).collect(),
     };
+    let tes3: Vec<usize> =
+        (0..plugins.len()).filter(|&i| !plugins[i].to_string_lossy().to_lowercase().ends_with(".omwscripts")).collect();
+    let tes3_paths: Vec<PathBuf> = tes3.iter().map(|&i| plugins[i].clone()).collect();
+    match cache.stale_spans(&tes3_paths) {
+        Some(ix) => want.extend(ix.into_iter().map(|j| tes3[j])),
+        None => want.extend(tes3.iter().copied()),
+    }
+    let stale: Vec<PathBuf> = want.into_iter().filter_map(|i| plugins.get(i).cloned()).collect();
     let next = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|s| {
         for _ in 0..threads.max(1).min(stale.len().max(1)) {
@@ -123,6 +180,9 @@ pub fn warm(cache: &Cache, plugins: &[PathBuf], threads: usize) -> usize {
                 let Some(p) = stale.get(i) else { break };
                 let r = read_plugin(p);
                 cache.put(p, TAG, &pack(&r), Some(&[]));
+                if let Some(sp) = &r.spans {
+                    cache.put_spans(p, sp);
+                }
             });
         }
     });
@@ -138,6 +198,7 @@ mod tests {
         let r = Read {
             keys: (vec![("Static".into(), "rock".into(), false), ("Cell".into(), "(1, 1)".into(), true)], false),
             cells: vec![Cell::Int("Vault".into()), Cell::Ext(-2, 3)],
+            spans: None,
         };
         assert_eq!(unpack(&pack(&r)), Some(r));
         assert_eq!(unpack(b"not json"), None);
@@ -155,6 +216,39 @@ mod tests {
         assert_eq!(warm(&cache, std::slice::from_ref(&plugin), 2), 0);
         let got = cached(Some(&cache), &plugin);
         assert_eq!(got.keys.0, vec![("LuaScript".to_string(), "scripts/a.lua".to_string(), false)]);
+        cache.close();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_record_is_read_by_its_span() {
+        let path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../ui/tests/fixture/Data Files/Lamp.esm"));
+        let bytes = std::fs::read(&path).unwrap();
+        let (keys, _) = editcore::plugin::keys_and_cells(&bytes).unwrap();
+        assert!(!keys.is_empty());
+        let dir = std::env::temp_dir().join(format!("wg_spans_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cache = Cache::new(dir.join("scan.sqlite3"), PARSER, 1 << 20);
+        let want = |t: &String, i: &String| {
+            let k = (t.clone(), i.clone());
+            let wanted: std::collections::HashSet<_> = std::iter::once(k.clone()).collect();
+            crate::fields::records_of(&bytes, &wanted).unwrap().remove(&k)
+        };
+        // not indexed: the plugin is read once and indexed; then each record is a seek
+        for pass in 0..2 {
+            for (t, i, _) in keys.iter().take(25) {
+                let got = record_at(Some(&cache), &path, t, i);
+                assert!(got.is_some(), "pass {pass}: {t} {i}");
+                assert_eq!(got, want(t, i), "pass {pass}: {t} {i}");
+            }
+            assert!(cache.spans_current(&path));
+        }
+        // no cache at all reads the same record
+        let (t, i, _) = &keys[0];
+        assert_eq!(record_at(None, &path, t, i), want(t, i));
+        // indexed, and not there
+        assert_eq!(record_at(Some(&cache), &path, "Static", "no such record ~"), None);
         cache.close();
         let _ = std::fs::remove_dir_all(&dir);
     }
