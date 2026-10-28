@@ -56,10 +56,10 @@ pub fn records_of(bytes: &[u8], wanted: &HashSet<Key>) -> io::Result<HashMap<Key
     let want: HashMap<Key, Key> = wanted.iter().map(|k| (fold(k), k.clone())).collect();
     for v in values {
         let Some(k) = editcore::plugin::conflict_key(&v, &interior) else { continue };
-        if let Some(asked) = want.get(&fold(&k)) {
-            if !out.contains_key(asked) {
-                out.insert(asked.clone(), v);
-            }
+        if let Some(asked) = want.get(&fold(&k))
+            && !out.contains_key(asked)
+        {
+            out.insert(asked.clone(), v);
         }
     }
     Ok(out)

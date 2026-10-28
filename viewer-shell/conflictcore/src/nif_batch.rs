@@ -302,11 +302,11 @@ pub fn write_one(c: &Candidate, out_dir: &Path) -> Written {
     match nif_order::optimise_checked(&bytes) {
         Ok((saved, _)) => {
             let dest = out_dir.join(&c.rel);
-            if let Some(parent) = dest.parent() {
-                if let Err(e) = std::fs::create_dir_all(parent) {
-                    w.error = e.to_string();
-                    return w;
-                }
+            if let Some(parent) = dest.parent()
+                && let Err(e) = std::fs::create_dir_all(parent)
+            {
+                w.error = e.to_string();
+                return w;
             }
             match std::fs::write(&dest, &saved) {
                 Ok(()) => w.after = saved.len() as u64,

@@ -3860,7 +3860,7 @@ fn meshopt_write(cfg: String, opts: serde_json::Value, out_dir: String, paths: V
 }
 
 /// Wraithguard: how far the optimiser's run has got, `[done, total]`.
-#[tauri::command]
+#[tauri::command(async)]
 fn meshopt_progress() -> [usize; 2] {
     use std::sync::atomic::Ordering;
     [conflictcore::nif_batch::DONE.load(Ordering::Relaxed), conflictcore::nif_batch::TOTAL.load(Ordering::Relaxed)]
