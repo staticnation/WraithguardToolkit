@@ -40,6 +40,7 @@ const WgRuleMaker={
   open(){
     this.build();
     this.el.hidden=false;
+    this.centre();
     $('#rmFile').value=(typeof WgLoadOrder==='object' && $('#lo_userRules'))? WgLoadOrder.val('userRules') : '';
     this.refresh();
   },
@@ -49,8 +50,10 @@ const WgRuleMaker={
     const st=document.createElement('style');
     st.textContent=`
 /* over the Load order page (z-index 60), as the Setup page lies over the rest */
-#wgRM{z-index:330 !important}
-#wgRM .rm-body{display:flex;flex-direction:column;gap:8px;max-height:min(80vh,860px);overflow:auto;padding:8px 10px;width:min(860px,92vw);font-size:12px}
+#wgRM{z-index:330 !important;width:min(860px,92vw);min-width:420px;max-width:98vw;max-height:calc(100vh - 80px);display:flex;flex-direction:column;overflow:hidden}
+#wgRM[hidden]{display:none !important}
+#wgRM .orihead{flex:none}
+#wgRM .rm-body{display:flex;flex-direction:column;gap:8px;flex:1;min-height:0;overflow:auto;padding:8px 10px;font-size:12px}
 #wgRM fieldset{border:1px solid var(--line);border-radius:var(--r-box);padding:6px 8px;margin:0}
 #wgRM legend{color:var(--tx2);padding:0 4px}
 #wgRM .kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:2px 10px}
@@ -97,11 +100,15 @@ const WgRuleMaker={
   <div class="row"><button class="btn" id="rmAppend" title="Add the rule to the rule file. Refused while there is an error: mlox drops a rule it cannot read without a word.">Append rule</button>
     <button class="btn dim" id="rmGuide" title="What each rule says, how expressions nest, and the rule-base's conventions">Rule guide</button><span style="flex:1"></span><button class="btn dim" id="rmClose">Close</button></div>
 </div>`;
-    WgUI.mount(d);
     // On the window, not in the viewport (mount's place), so it shows over the Load order
-    // page, which covers the viewport.
+    // page, which covers the viewport. data-host tells WgUI.place/dragPanel to measure from
+    // the window, not from #vpwrap. Its width is the panel's own (not the body's inside a
+    // 360px .ori), and it is placed in px, not left:50% + translateX(-50%): dragging or
+    // resizing writes left/top/width inline and the transform made it jump half a width left.
+    d.dataset.host='body';
     document.body.appendChild(d);
-    Object.assign(d.style, {position:'fixed', zIndex:'330', left:'50%', top:'60px', transform:'translateX(-50%)'});
+    Object.assign(d.style, {position:'fixed', zIndex:'330'});
+    WgUI.adopt(d);
     this.el=d;
     const close=()=>{ d.hidden=true; };
     d.querySelector('#rmX').onclick=close; d.querySelector('#rmClose').onclick=close;
@@ -127,6 +134,22 @@ const WgRuleMaker={
     d.querySelector('#rmGuide').onclick=()=>{ if(typeof WgHelp==='object'){ WgHelp.enter(); WgHelp.open('MLOX_RULES.md'); } };
     // typing in the panel is not a shortcut of the window underneath
     d.addEventListener('keydown', e=>{ if(e.key==='Escape') close(); e.stopPropagation(); });
+  },
+
+  /** Centred under the top bar the first time (a place the person dragged it to is kept), and
+   *  never wider or lower than the window. */
+  centre(){
+    const d=this.el; if(!d) return;
+    const W=window.innerWidth||1200, w=d.offsetWidth;
+    if(d.style.left===''||d.style.top===''){
+      d.style.left=Math.max(8,Math.round((W-w)/2))+'px';
+      d.style.top='60px';
+    }else{
+      const x=parseFloat(d.style.left)||0, y=parseFloat(d.style.top)||0;
+      d.style.left=Math.max(0,Math.min(x,W-Math.min(w,W)))+'px';
+      d.style.top=Math.max(0,Math.min(y,(window.innerHeight||800)-40))+'px';
+    }
+    d.style.right='auto';
   },
 
   keepFile(){

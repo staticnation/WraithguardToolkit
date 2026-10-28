@@ -383,7 +383,7 @@ const WgUI={
       d.classList.add('edDockedL');
     }else{
       dock='float';
-      const host=$('#vpwrap')||document.body;
+      const host=d.dataset.host==='body'? document.body : ($('#vpwrap')||document.body);
       if(d.parentNode!==host) host.appendChild(d);
       if(at){ s.x=at.x; s.y=at.y; }
     }
@@ -434,6 +434,10 @@ const WgUI={
   dragPanel(d, e){
     if(e.button!==0 || e.target.closest('button,input,select,textarea,a,label')) return;
     const host=$('#vpwrap')||document.body;
+    // A panel fixed to the window (the rule maker) is measured from the window, not #vpwrap.
+    const origin=()=> d.dataset.host==='body'
+      ? {left:0, top:0, width:window.innerWidth||1200, height:window.innerHeight||800}
+      : host.getBoundingClientRect();
     const start={x:e.clientX, y:e.clientY};
     let moved=false, off={x:40, y:12}, zone=null;
     const mark=this.dockMark();
@@ -443,7 +447,7 @@ const WgUI={
         moved=true;
         const s=this.state().panels[d.id]||{};
         if(s.dock && s.dock!=='float'){
-          const hr=host.getBoundingClientRect();
+          const hr=origin();
           this.place(d, 'float', {x:ev.clientX-hr.left-off.x, y:ev.clientY-hr.top-off.y});
         }else{
           const r=d.getBoundingClientRect(); off={x:ev.clientX-r.left, y:ev.clientY-r.top};
@@ -451,7 +455,7 @@ const WgUI={
         d.classList.add('dragging');
         this.front(d);
       }
-      const hr=host.getBoundingClientRect();
+      const hr=origin();
       d.style.left=Math.max(0, Math.min(ev.clientX-off.x-hr.left, hr.width-80))+'px';
       d.style.top=Math.max(0, Math.min(ev.clientY-off.y-hr.top, hr.height-32))+'px';
       d.style.right='auto';

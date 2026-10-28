@@ -1,6 +1,26 @@
 # Changelog
 
 
+## 5.0.1
+
+### Fixed
+
+- **The rule maker window opened half as wide as it needs to be, and jumped when dragged or
+  resized.** It sat inside the 360px base panel style while its body asked for 860px, so the
+  right half was cut off; and it was centred with `left:50%` plus `translateX(-50%)`, which
+  the panel code's drag and resize (they write `left`/`top`/`width` inline) did not clear, so
+  it leapt half its width to the left. It now has its own width (`min(860px, 92vw)`), is
+  centred in pixels, keeps where you drag it, and its body scrolls inside the window.
+- **Dragging a panel fixed to the window** (the rule maker) was measured from the render
+  window instead of the browser window, so it landed off the pointer by the top bar's
+  height. Such a panel is now measured from the browser window, and docking it no longer
+  moves it back under the Load order page.
+
+### Changed
+
+- **The rule maker folds, docks and remembers its size and place** like the Editor's other
+  panels.
+
 ## 5.0.0
 
 The program is Rust and its page only: the Python app is gone.
