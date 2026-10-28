@@ -16,6 +16,10 @@
   height. Such a panel is now measured from the browser window, and docking it no longer
   moves it back under the Load order page.
 
+- **The panel's dock menu (and every other flyout menu) opened under the rule maker**, which
+  lies over the Load order page at z-index 330 while menus sat at 70. Flyout menus are now
+  above it (340).
+
 ### Changed
 
 - **The rule maker folds, docks and remembers its size and place** like the Editor's other
