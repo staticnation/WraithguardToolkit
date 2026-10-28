@@ -25,6 +25,8 @@ const WgLoadOrder={
   report:[],
   filter:'all',
   showText:false,
+  q:{content:'', data:''},    // what each order's Find box says (lower case)
+  cur:{content:-1, data:-1}, // the match Enter is on, per order
   content:[],  // [{name, on, mine}]
   data:[],     // [{line, on, isNew}]
   KEY:'wgLoadOrder.fields',
@@ -151,6 +153,10 @@ const WgLoadOrder={
 #wgLO li.new span{color:var(--ac)}
 #wgLO li.bad span{color:var(--err)}
 #wgLO li.hit{background:var(--acd);outline:1px solid var(--ac)}
+#wgLO li.found{box-shadow:3px 0 0 var(--ac) inset;background:color-mix(in srgb,var(--ac) 14%,transparent)}
+#wgLO li.found.cur{background:color-mix(in srgb,var(--ac) 32%,transparent);outline:1px dotted var(--ac)}
+#wgLO h3 .lo-q{flex:none;width:170px;padding:1px 5px}
+#wgLO h3 .qn{color:var(--tx3);font-weight:normal;min-width:34px;text-align:right}
 #wgLO li.drop{box-shadow:0 -2px 0 var(--ac) inset}
 #wgLO .orders{display:grid;grid-template-rows:2fr 1fr;gap:8px;min-height:0}
 #wgLO .chips{display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line)}
@@ -183,14 +189,23 @@ const WgLoadOrder={
   <div class="row"><button class="btn dim" id="loRuleOpen" title="Write an mlox rule - every kind the guidelines describe - checked as you write it, and add it to your rule file">Rule maker...</button></div>
 </div><div class="acts"><button class="btn" id="loSort">Sort</button><button class="btn" id="loExport" disabled>Export</button></div></div>
 <div class="orders">
-  <div class="lo-col"><h3>content= <span class="sp"></span><span id="loCount"></span></h3><div class="lo-scroll"><ol id="loContent"><li class="empty">Sort to see the order.</li></ol></div></div>
-  <div class="lo-col"><h3>data=</h3><div class="lo-scroll"><ol id="loData"></ol></div></div>
+  <div class="lo-col"><h3>content= <span class="sp"></span><input type="text" class="lo-q" id="loQcontent" placeholder="Find...  (Enter: next)" spellcheck="false" title="Lights the plugins whose name has this text. Enter goes to the next, Shift+Enter to the one before, Esc clears."><span class="qn" id="loQncontent"></span><span id="loCount"></span></h3><div class="lo-scroll"><ol id="loContent"><li class="empty">Sort to see the order.</li></ol></div></div>
+  <div class="lo-col"><h3>data= <span class="sp"></span><input type="text" class="lo-q" id="loQdata" placeholder="Find...  (Enter: next)" spellcheck="false" title="Lights the data folders whose line has this text. Enter goes to the next, Shift+Enter to the one before, Esc clears."><span class="qn" id="loQndata"></span></h3><div class="lo-scroll"><ol id="loData"></ol></div></div>
 </div>
 <div class="lo-col"><h3>Warnings <span class="sp"></span><label><input type="checkbox" id="loText"> Full text</label></h3>
   <div class="chips" id="loChips"></div><div class="lo-scroll" id="loWarn"><div class="empty">-</div></div></div>`;
     document.body.appendChild(el);
     // The inputs, the orders and the warnings, resized by the bars between them.
     if(typeof WgSplit==='object') WgSplit.make(el, 'lo', [330, 620]);
+    for(const k of ['content','data']){
+      const inp=$('#loQ'+k);
+      inp.addEventListener('input', ()=>{ this.q[k]=inp.value.trim().toLowerCase(); this.cur[k]=-1; this.markFound(k, 0); });
+      inp.addEventListener('keydown', e=>{
+        if(e.key==='Enter'){ e.preventDefault(); this.markFound(k, e.shiftKey? -1 : 1); }
+        else if(e.key==='Escape'){ inp.value=''; this.q[k]=''; this.cur[k]=-1; this.markFound(k, 0); }
+        e.stopPropagation(); // typing here is not a shortcut of the window underneath
+      });
+    }
 
     const v=this.saved();
     const view=window.__WG_VIEW__||{};
@@ -302,6 +317,31 @@ const WgLoadOrder={
     this.drawList($('#loData'), this.data, r=>r.line, r=>r.isNew?' new':'');
     const on=this.content.filter(r=>r.on).length;
     $('#loCount').textContent=on+' of '+this.content.length;
+    // the lists are made again on every tick and move: the Find lights stay (no scrolling)
+    this.markFound('content'); this.markFound('data');
+  },
+
+  /** Lights the rows of an order (`content` or `data`) whose text has what its Find box says,
+   *  and the count ("3/12"). `step`: none keeps the current match and does not scroll; 0 goes
+   *  to the first; 1 / -1 to the next / the one before (round the ends), scrolled into view. */
+  markFound(k, step){
+    const ol=$(k==='content'? '#loContent' : '#loData'), q=this.q[k], out=$('#loQn'+k);
+    if(!ol) return;
+    const lis=[...ol.querySelectorAll('li[data-key]')], hits=[];
+    for(const li of lis){
+      const m=!!q && li.dataset.key.includes(q);
+      li.classList.toggle('found', m); li.classList.remove('cur');
+      if(m) hits.push(li);
+    }
+    if(!hits.length){ this.cur[k]=-1; if(out) out.textContent= q? '0' : ''; return; }
+    let c=this.cur[k];
+    if(step===0) c=0;
+    else if(step) c=c<0? (step>0? 0 : hits.length-1) : (c+step+hits.length)%hits.length;
+    else c=Math.max(0, Math.min(c, hits.length-1));
+    this.cur[k]=c;
+    hits[c].classList.add('cur');
+    if(step!=null) hits[c].scrollIntoView({block:'center'});
+    if(out) out.textContent=(c+1)+'/'+hits.length;
   },
 
   /** A list whose rows drag to reorder and tick on and off. */

@@ -3,6 +3,14 @@
 
 ## 5.0.1
 
+### Added
+
+- **Find in the Load order page's content= and data= lists.** A box on each header lights the
+  plugins (or data folders) whose text has what you type, with a count (`3/12`); Enter goes
+  to the next match, Shift+Enter to the one before, Esc clears. The lights stay through
+  ticking, dragging and re-sorting, and the rows are only lit, not hidden, so the order
+  around a match stays in view.
+
 ### Fixed
 
 - **The rule maker window opened half as wide as it needs to be, and jumped when dragged or
