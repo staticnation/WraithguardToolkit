@@ -331,6 +331,55 @@ pub fn fingerprint(s: &NiStream) -> u64 {
     h.finish()
 }
 
+/// Check that every vertex index `meaning_of` dereferences is valid before fingerprinting.
+///
+/// `run` already skips geometry whose indices or parallel arrays are inconsistent, but
+/// `optimise_checked` fingerprints the entire stream before it gets to `run`. Without this
+/// check, one malformed mesh can panic while a batch is writing files and take down its
+/// scoped worker instead of being reported as a failed file.
+fn fingerprint_indices_valid(s: &NiStream) -> Result<(), &'static str> {
+    let users = users(s);
+    for (key, object) in &s.objects {
+        let NiType::NiTriShapeData(d) = object else { continue };
+        let g = &d.base.base;
+        let n = g.vertices.len();
+        let corner_is_readable = |i: usize| {
+            i < n
+                && (g.normals.is_empty() || i < g.normals.len())
+                && (g.vertex_colors.is_empty() || i < g.vertex_colors.len())
+        };
+
+        if d.triangles.iter().flatten().any(|&i| !corner_is_readable(i as usize)) {
+            return Err("mesh contains a triangle vertex reference outside its geometry arrays");
+        }
+
+        if let Some(u) = users.get(&key) {
+            for skin_key in &u.skins {
+                if let Some(NiType::NiSkinData(sd)) = s.objects.get(*skin_key)
+                    && sd
+                        .bone_data
+                        .iter()
+                        .flat_map(|bone| bone.vertex_weights.iter())
+                        .any(|(i, _)| !corner_is_readable(*i as usize))
+                {
+                    return Err("mesh contains a skin-weight vertex reference outside its geometry arrays");
+                }
+            }
+
+            for morph_key in &u.morphs {
+                if let Some(NiType::NiMorphData(md)) = s.objects.get(*morph_key)
+                    && md.targets.iter().any(|target| {
+                        target.vertices.iter().enumerate().any(|(i, _)| !corner_is_readable(i))
+                    })
+                {
+                    return Err("mesh contains a morph-target vertex reference outside its geometry arrays");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The mesh's figures as `report` gives them, for a mesh as bytes. A panic in the reader
 /// or the passes is an error, not a crash.
 pub fn report_bytes(bytes: &[u8]) -> Result<Vec<Value>, String> {
@@ -345,6 +394,7 @@ pub fn report_bytes(bytes: &[u8]) -> Result<Vec<Value>, String> {
 /// nothing is written. The entries are `optimize`'s.
 pub fn optimise_checked(bytes: &[u8]) -> Result<(Vec<u8>, Vec<Value>), String> {
     let mut s = crate::mesh::load(bytes).map_err(|e| e.to_string())?;
+    fingerprint_indices_valid(&s).map_err(str::to_string)?;
     let before = fingerprint(&s);
     let ix = index_of(&s);
     let rep = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| optimize(&mut s, &ix)))
@@ -354,6 +404,7 @@ pub fn optimise_checked(bytes: &[u8]) -> Result<(Vec<u8>, Vec<Value>), String> {
     }
     let saved = editcore::guarded(|| s.save_bytes()).map_err(|e| format!("the mesh would not save: {e}"))?;
     let back = crate::mesh::load(&saved).map_err(|e| format!("the saved mesh would not read back: {e}"))?;
+    fingerprint_indices_valid(&back).map_err(str::to_string)?;
     if fingerprint(&back) != before {
         return Err("the saved mesh differs from the original; not written".into());
     }
@@ -476,6 +527,27 @@ mod tests {
     #[test]
     fn every_uv_set_moves_with_its_vertices() {
         check(&format!("{FIX}uvsets.nif"));
+    }
+
+    #[test]
+    fn invalid_triangle_vertex_index_is_reported_instead_of_panicking() {
+        let bytes = std::fs::read(format!("{FIX}flap.nif")).unwrap();
+        let mut s = load(&bytes);
+        let data = s
+            .objects
+            .values_mut()
+            .find_map(|object| match object {
+                NiType::NiTriShapeData(data) => Some(data),
+                _ => None,
+            })
+            .expect("fixture contains triangle data");
+        assert!(!data.triangles.is_empty(), "fixture contains a triangle");
+        let bad_index = data.base.base.vertices.len() + 43;
+        data.triangles[0][0] = u16::try_from(bad_index).unwrap();
+
+        let malformed = s.save_bytes().unwrap();
+        let error = optimise_checked(&malformed).unwrap_err();
+        assert!(error.contains("triangle vertex reference"), "{error}");
     }
 
     #[test]

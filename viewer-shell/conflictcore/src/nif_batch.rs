@@ -299,8 +299,13 @@ pub fn write_one(c: &Candidate, out_dir: &Path) -> Written {
         }
     };
     w.before = bytes.len() as u64;
-    match nif_order::optimise_checked(&bytes) {
-        Ok((saved, _)) => {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        nif_order::optimise_checked(&bytes)
+    }));
+    match result {
+        Err(_) => w.error = "the draw order pass panicked on this mesh".into(),
+        Ok(Err(e)) => w.error = e,
+        Ok(Ok((saved, _))) => {
             let dest = out_dir.join(&c.rel);
             if let Some(parent) = dest.parent()
                 && let Err(e) = std::fs::create_dir_all(parent)
@@ -313,7 +318,6 @@ pub fn write_one(c: &Candidate, out_dir: &Path) -> Written {
                 Err(e) => w.error = e.to_string(),
             }
         }
-        Err(e) => w.error = e,
     }
     w
 }
