@@ -158,6 +158,8 @@ const WgLoadOrder={
 #wgLO h3 .lo-q{flex:none;width:170px;padding:1px 5px}
 #wgLO h3 .qn{color:var(--tx3);font-weight:normal;min-width:34px;text-align:right}
 #wgLO li.drop{box-shadow:0 -2px 0 var(--ac) inset}
+#wgLO li.dropb{box-shadow:0 2px 0 var(--ac) inset}
+#wgLO .lo-col.droptarget{outline:2px dashed var(--ac);outline-offset:-3px}
 #wgLO .orders{display:grid;grid-template-rows:2fr 1fr;gap:8px;min-height:0}
 #wgLO .chips{display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line)}
 #wgLO .chip{background:var(--bg3);border:1px solid var(--line2);border-radius:10px;padding:1px 8px;cursor:pointer;color:var(--tx2)}
@@ -196,7 +198,12 @@ const WgLoadOrder={
   <div class="chips" id="loChips"></div><div class="lo-scroll" id="loWarn"><div class="empty">-</div></div></div>`;
     document.body.appendChild(el);
     // The inputs, the orders and the warnings, resized by the bars between them.
-    if(typeof WgSplit==='object') WgSplit.make(el, 'lo', [330, 620]);
+    if(typeof WgSplit==='object'){
+      WgSplit.make(el, 'lo', [330, 620]);
+      // content= over data=, the bar between them
+      WgSplit.rows(el.querySelector('.orders'), 'lo.orders', 2/3);
+    }
+    this.dropArm();
     for(const k of ['content','data']){
       const inp=$('#loQ'+k);
       inp.addEventListener('input', ()=>{ this.q[k]=inp.value.trim().toLowerCase(); this.cur[k]=-1; this.markFound(k, 0); });
@@ -313,7 +320,7 @@ const WgLoadOrder={
   },
 
   drawOrders(){
-    this.drawList($('#loContent'), this.content, r=>r.name, r=>(r.mine?' mine':'')+(r.bad?' bad':''));
+    this.drawList($('#loContent'), this.content, r=>r.name, r=>(r.mine?' mine':'')+(r.bad?' bad':'')+(r.isNew?' new':''));
     this.drawList($('#loData'), this.data, r=>r.line, r=>r.isNew?' new':'');
     const on=this.content.filter(r=>r.on).length;
     $('#loCount').textContent=on+' of '+this.content.length;
@@ -410,6 +417,122 @@ const WgLoadOrder={
     rest.splice(before, 0, ...picked);
     rows.length=0; rows.push(...rest);
     this.drawOrders();
+  },
+
+  /* ---- files and folders dropped on the lists ------------------------------------------------
+     The shell takes a file drag from the OS (the webview never sends dragover or drop to the
+     page), and tells the page instead: tauri://drag-enter / -over / -leave / -drop, with the
+     paths and the pointer's place (physical pixels). A dropped plugin or a folder of plugins
+     goes into content= where it is let go, and its folder into data= unless that is there; a
+     dropped folder goes into data= as a line. `loadorder_drop_probe` says what the paths are.
+     It changes the lists the page shows - Export writes them; a new Sort starts again from the
+     inputs. */
+
+  dropArm(){
+    if(this._dropArmed) return;
+    const E=window.__TAURI__ && window.__TAURI__.event;
+    if(!E || typeof E.listen!=='function') return;   // a browser: no paths to be had
+    this._dropArmed=true;
+    const at=pl=>{ const d=window.devicePixelRatio||1, p=(pl&&pl.position)||{x:0,y:0}; return {x:p.x/d, y:p.y/d}; };
+    E.listen('tauri://drag-enter', e=>this.dropOver(at(e.payload)));
+    E.listen('tauri://drag-over', e=>this.dropOver(at(e.payload)));
+    E.listen('tauri://drag-leave', ()=>this.dropClear());
+    E.listen('tauri://drag-drop', e=>{ const pl=e.payload||{}; const where=this.dropWhere(at(pl)); this.dropClear(); if(where) this.dropDo(pl.paths||[], where); });
+  },
+
+  /** The list a point is over: `{kind, ol, index, after}` (`index`: the row it is on; `after`:
+   *  the lower half of it) or null. */
+  dropWhere(pt){
+    if(!this.on) return null;
+    const hit=document.elementFromPoint(pt.x, pt.y); if(!hit || !hit.closest) return null;
+    const col=hit.closest('#wgLO .orders > .lo-col'); if(!col) return null;
+    const ol=col.querySelector('ol,ul'); if(!ol) return null;
+    const kind=ol.id==='loContent'? 'content' : ol.id==='loData'? 'data' : null; if(!kind) return null;
+    const li=hit.closest('li[data-i]');
+    if(!li || li.parentElement!==ol) return {kind, ol, col, index:-1, after:false};
+    const r=li.getBoundingClientRect();
+    return {kind, ol, col, index:+li.dataset.i, after:pt.y>r.top+r.height/2};
+  },
+
+  dropClear(){
+    for(const x of document.querySelectorAll('#wgLO .droptarget')) x.classList.remove('droptarget');
+    for(const x of document.querySelectorAll('#wgLO li.drop, #wgLO li.dropb')) x.classList.remove('drop','dropb');
+  },
+
+  dropOver(pt){
+    this.dropClear();
+    const w=this.dropWhere(pt); if(!w) return;
+    w.col.classList.add('droptarget');
+    const li=w.index>=0? w.ol.children[w.index] : null;
+    if(li) li.classList.add(w.after? 'dropb' : 'drop');
+  },
+
+  /** Whether the cfg quotes its data= paths (the lines the page has decide; ties: no). */
+  dataQuoted(){
+    const q=this.data.filter(r=>/^\s*data\s*=\s*"/i.test(r.line)).length;
+    return q>this.data.length-q;
+  },
+
+  async dropDo(paths, w){
+    if(!paths.length) return;
+    if(!this.plan) return toast('Sort first, then drop what you want to add','warn',4000);
+    let got;
+    try{
+      got=await Engine.call('loadorder_drop_probe',{paths, existing:this.data.map(r=>r.line), quoted:this.dataQuoted()});
+      if(typeof got==='string') got=JSON.parse(got);
+    }catch(e){ return toast(String(e.message||e),'err',6000); }
+    const items=got.items||[];
+    if(!items.length) return toast('Nothing to add: those are not files or folders','warn',4000);
+    const live=!!this.plan.dataResult;   // the data= list is written only when its paths are sorted
+    const rows=w.kind==='content'? this.content : this.data;
+    let at=w.index<0? rows.length : w.index+(w.after?1:0);
+    const lower=s=>String(s).toLowerCase();
+    const haveData=new Set(this.data.map(r=>lower(r.line))), haveContent=new Set(this.content.map(r=>lower(r.name)));
+    const note={plugins:0, folders:0, dups:0, none:0, unlisted:0}, fresh=[];
+    for(const r of this.content) r.sel=false;
+    for(const r of this.data) r.sel=false;
+    const addData=(e, where)=>{
+      if(e.dup || haveData.has(lower(e.line))){ note.dups++; return false; }
+      haveData.add(lower(e.line));
+      const row={line:e.line, on:true, isNew:true, sel:true};
+      if(where==null) this.data.push(row); else this.data.splice(where,0,row);
+      note.folders++; fresh.push(row); return true;
+    };
+    if(w.kind==='data'){
+      if(!live) return toast('The data= list is only written when "Sort data paths" is ticked: tick it and Sort first','warn',6000);
+      for(const it of items){ if(addData(it.self, at)) at++; }
+    }else{
+      const added=[];
+      for(const it of items){
+        if(!it.groups.length) note.none++;
+        for(const g of it.groups){
+          const mine=[];
+          for(const n of g.plugins){
+            if(haveContent.has(lower(n))){ note.dups++; continue; }
+            haveContent.add(lower(n)); mine.push(n);
+          }
+          for(const n of mine){
+            const row={name:n, on:true, mine:false, bad:false, isNew:true, sel:true};
+            this.content.splice(at,0,row); at++; note.plugins++; fresh.push(row); added.push(row);
+          }
+          // The plugin has to be found: its folder in data=.
+          if(mine.length && !g.dup && !haveData.has(lower(g.line))){
+            if(live) addData(g, null); else note.unlisted++;
+          }
+        }
+      }
+    }
+    this.drawOrders();
+    const first=fresh[0], ol=$(w.kind==='content'? '#loContent' : '#loData');
+    if(first && ol){ const i=(w.kind==='content'? this.content : this.data).indexOf(first); const li=ol.children[i]; if(li) li.scrollIntoView({block:'nearest'}); }
+    const bits=[];
+    if(note.plugins) bits.push(note.plugins+' plugin'+(note.plugins===1?'':'s')+' into content=');
+    if(note.folders) bits.push(note.folders+' folder'+(note.folders===1?'':'s')+' into data=');
+    if(note.dups) bits.push(note.dups+' already there');
+    if(note.none) bits.push(note.none+' with no plugins');
+    if(note.unlisted) bits.push('not in data= (tick "Sort data paths" to add them, or add the folder yourself)');
+    if(!fresh.length && !bits.length) bits.push('nothing to add');
+    toast((fresh.length? 'Added ' : 'Nothing added: ')+bits.join(', ')+(fresh.length? '. Export writes it; a new Sort starts again from the inputs.' : ''), fresh.length && !note.unlisted? 'ok':'warn', 7000);
   },
 
   /** The picked rows of the content= order, in order (the rule maker takes them). */

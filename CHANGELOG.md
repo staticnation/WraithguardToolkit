@@ -5,6 +5,19 @@
 
 ### Added
 
+- **Drag files and folders onto the Load order page's lists.** Drop a plugin, or a folder of
+  plugins, on **content=**: its plugins go in where you let go (the line shows where; masters
+  first within a folder; any a level or two down are found too), and their folder goes into
+  **data=** unless it is there. Drop a folder (or a file: its folder) on **data=** and it is
+  added as a `data=` line in the cfg's own quoting. Names and folders already in the list are
+  skipped and counted. The new rows are marked and selected (Alt+arrows move them). It changes
+  the lists you see; Export writes them (the data= list is written when "Sort data paths" is
+  ticked, and the page says so when it is not); a new Sort starts again from the inputs. It
+  uses the drops the shell reports (`tauri://drag-drop`), since the webview never gets a
+  file drag itself; a browser has no paths to give.
+- **The bar between content= and data= can be dragged** (the page's other columns already
+  could): up or down for more of the height to one or the other, remembered; a double-click
+  puts it back.
 - **Mesh optimiser (Tools page).** Puts the load order's meshes in draw order (vertex
   cache, overdraw, vertex fetch: the mesh viewer's Optimise) in one go, and only where it
   pays. Analyse measures the winning copy of every loose `.nif` across the data folders

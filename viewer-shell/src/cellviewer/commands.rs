@@ -3765,6 +3765,97 @@ fn cf_setup(cfg: &str) -> Result<viewcore::ordercore::cfg::OpenmwCfg, String> {
     viewcore::ordercore::cfg::read(path, &viewcore::ordercore::cfg::Tokens::for_cfg(path)).map_err(|e| format!("{cfg} could not be read: {e}"))
 }
 
+/// Wraithguard: what files and folders dropped on the Load order page are (the page asks
+/// after the shell hands it the dropped paths). `existing`: the page's `data=` lines (for
+/// "already there"); `quoted`: whether the cfg quotes its `data=` paths (new lines match
+/// it). Answers `{items: [{path, isDir, self: {folder, line, dup}, groups: [{folder, line,
+/// dup, plugins}]}]}`: `self` is the dropped folder (a dropped file: the folder it is in)
+/// as a `data=` line; `groups` are the folders holding plugins - the folder itself when it
+/// has any, else its subfolders (two levels down) that do - each with its plugin names,
+/// masters first. A dropped plugin file is one group of one.
+#[tauri::command(async)]
+fn loadorder_drop_probe(paths: Vec<String>, existing: Vec<String>, quoted: bool) -> Result<String, String> {
+    use std::path::{Path, PathBuf};
+    use viewcore::ordercore::export::{extract_data_path_value, format_data_line, normalize_data_path};
+    const PLUGINS: [&str; 5] = ["esm", "esp", "omwgame", "omwaddon", "omwscripts"];
+    let have: std::collections::HashSet<String> =
+        existing.iter().filter_map(|l| extract_data_path_value(l).ok().flatten()).map(|v| normalize_data_path(&v)).collect();
+    let ext = |n: &str| n.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_default();
+    let is_plugin = |n: &str| PLUGINS.contains(&ext(n).as_str());
+    let rank = |n: &str| match ext(n).as_str() {
+        "esm" | "omwgame" => 0,
+        "esp" | "omwaddon" => 1,
+        _ => 2,
+    };
+    let sorted = |mut v: Vec<String>| {
+        v.sort_by_key(|n| (rank(n), n.to_lowercase()));
+        v
+    };
+    let subdirs = |dir: &Path| -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> =
+            std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|e| e.path().is_dir()).map(|e| e.path()).collect();
+        v.sort_by_key(|p| p.to_string_lossy().to_lowercase());
+        v.truncate(300);
+        v
+    };
+    let plugins_in = |dir: &Path| -> Vec<String> {
+        sorted(
+            std::fs::read_dir(dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|e| e.path().is_file())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| is_plugin(n))
+                .collect(),
+        )
+    };
+    let entry = |dir: &Path| {
+        let d = dir.to_string_lossy().into_owned();
+        serde_json::json!({"folder": d, "line": format_data_line(&d, quoted), "dup": have.contains(&normalize_data_path(&d))})
+    };
+    let group = |dir: &Path, plugins: Vec<String>| {
+        let mut e = entry(dir);
+        e["plugins"] = serde_json::json!(plugins);
+        e
+    };
+    let mut items = Vec::new();
+    for p in paths.iter().take(500) {
+        let path = Path::new(p);
+        if path.is_dir() {
+            let mut groups = Vec::new();
+            let top = plugins_in(path);
+            if !top.is_empty() {
+                groups.push(group(path, top));
+            } else {
+                'find: for s in subdirs(path) {
+                    let ps = plugins_in(&s);
+                    if !ps.is_empty() {
+                        groups.push(group(&s, ps));
+                    } else {
+                        for s2 in subdirs(&s).into_iter().take(60) {
+                            let ps2 = plugins_in(&s2);
+                            if !ps2.is_empty() {
+                                groups.push(group(&s2, ps2));
+                            }
+                        }
+                    }
+                    if groups.len() >= 500 {
+                        break 'find;
+                    }
+                }
+            }
+            items.push(serde_json::json!({"path": p, "isDir": true, "self": entry(path), "groups": groups}));
+        } else if path.is_file() {
+            let Some(parent) = path.parent() else { continue };
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let groups = if is_plugin(&name) { vec![group(parent, vec![name])] } else { Vec::new() };
+            items.push(serde_json::json!({"path": p, "isDir": false, "self": entry(parent), "groups": groups}));
+        }
+    }
+    serde_json::to_string(&serde_json::json!({ "items": items })).map_err(|e| e.to_string())
+}
+
 /// A folder's path as compared here: trailing separators off, case folded.
 fn mo_folded(p: &str) -> String {
     p.trim_end_matches(['/', '\\']).to_lowercase()
@@ -5947,6 +6038,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             conflicts_scan,
             conflicts_fields,
             conflicts_resources,
+            loadorder_drop_probe,
             meshopt_analyse,
             meshopt_write,
             meshopt_progress,
