@@ -31,6 +31,7 @@
 
 use crate::tes3::bytes::Reader;
 use crate::tes3::types::{TextureIndices, VertexColors, VertexHeights, VertexNormals};
+use glam::Vec3;
 
 pub const VERTS: usize = 65;
 /// The height the game gives a cell whose LAND record carries no VHGT: flat ground at
@@ -206,12 +207,13 @@ pub fn vtex_of(v: &TextureIndices) -> Box<[u16; SUBDIV * SUBDIV]> {
 /// `decode_vnml` now declines outright), one triangle at a time.
 #[inline]
 fn unit_vnml(n: &[i8; VERTS * VERTS * 3], k: usize) -> Option<[f32; 3]> {
-    let x = n[k * 3] as f32;
-    let y = n[k * 3 + 1] as f32;
-    let z = n[k * 3 + 2] as f32;
-    let l = (x * x + y * y + z * z).sqrt();
+    // Wraithguard (0019): `glam::Vec3` for the arithmetic, the same operations in the same
+    // order as the hand-written lines it replaced (`mod glam_normals_agree` pins it bit
+    // for bit); the stored and returned types stay arrays.
+    let v = Vec3::new(n[k * 3] as f32, n[k * 3 + 1] as f32, n[k * 3 + 2] as f32);
+    let l = v.length();
     if l > 0.0 {
-        Some([x / l, y / l, z / l])
+        Some((v / l).to_array())
     } else {
         None
     }
@@ -294,17 +296,10 @@ impl Land {
             else {
                 return self.face_normal(v);
             };
-            let mut out = [
-                a[0] * w[0] + b[0] * w[1] + c[0] * w[2],
-                a[1] * w[0] + b[1] * w[1] + c[1] * w[2],
-                a[2] * w[0] + b[2] * w[1] + c[2] * w[2],
-            ];
-            let l = (out[0] * out[0] + out[1] * out[1] + out[2] * out[2]).sqrt();
+            let out = Vec3::from(a) * w[0] + Vec3::from(b) * w[1] + Vec3::from(c) * w[2];
+            let l = out.length();
             if l > 1e-6 {
-                out[0] /= l;
-                out[1] /= l;
-                out[2] /= l;
-                return out;
+                return (out / l).to_array();
             }
         }
         self.face_normal(v)
@@ -315,21 +310,16 @@ impl Land {
     fn face_normal(&self, v: [usize; 3]) -> [f32; 3] {
         let h = &self.heights;
         let p = |k: usize| {
-            [(k % VERTS) as f32 * VERT_STEP, (k / VERTS) as f32 * VERT_STEP, h[k]]
+            Vec3::new((k % VERTS) as f32 * VERT_STEP, (k / VERTS) as f32 * VERT_STEP, h[k])
         };
         let (a, b, c) = (p(v[0]), p(v[1]), p(v[2]));
-        let (u, w) = (
-            [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
-            [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
-        );
-        let mut n =
-            [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
-        if n[2] < 0.0 {
-            n = [-n[0], -n[1], -n[2]];
+        let mut n = (b - a).cross(c - a);
+        if n.z < 0.0 {
+            n = -n;
         }
-        let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let l = n.length();
         if l > 1e-9 {
-            [n[0] / l, n[1] / l, n[2] / l]
+            (n / l).to_array()
         } else {
             [0.0, 0.0, 1.0]
         }
@@ -413,6 +403,159 @@ mod floor_i32_agrees {
         }
         for &a in &v {
             assert_eq!(floor_i32(a), a.floor() as i32, "floor_i32({a})");
+        }
+    }
+}
+
+/// Wraithguard (0019): the normal math is `glam::Vec3` now; these are the hand-written lines
+/// it replaced, kept as the reference, and the two must agree **bit for bit** (the same
+/// operations in the same order; a tolerance would let a changed order through).
+#[cfg(test)]
+mod glam_normals_agree {
+    use super::*;
+
+    fn ref_unit_vnml(n: &[i8; VERTS * VERTS * 3], k: usize) -> Option<[f32; 3]> {
+        let x = n[k * 3] as f32;
+        let y = n[k * 3 + 1] as f32;
+        let z = n[k * 3 + 2] as f32;
+        let l = (x * x + y * y + z * z).sqrt();
+        if l > 0.0 {
+            Some([x / l, y / l, z / l])
+        } else {
+            None
+        }
+    }
+
+    fn ref_face_normal(h: &[f32; VERTS * VERTS], v: [usize; 3]) -> [f32; 3] {
+        let p = |k: usize| [(k % VERTS) as f32 * VERT_STEP, (k / VERTS) as f32 * VERT_STEP, h[k]];
+        let (a, b, c) = (p(v[0]), p(v[1]), p(v[2]));
+        let (u, w) = ([b[0] - a[0], b[1] - a[1], b[2] - a[2]], [c[0] - a[0], c[1] - a[1], c[2] - a[2]]);
+        let mut n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+        if n[2] < 0.0 {
+            n = [-n[0], -n[1], -n[2]];
+        }
+        let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if l > 1e-9 {
+            [n[0] / l, n[1] / l, n[2] / l]
+        } else {
+            [0.0, 0.0, 1.0]
+        }
+    }
+
+    fn ref_normal_at(land: &Land, lx: f32, ly: f32) -> [f32; 3] {
+        let (v, w) = land.tri(lx, ly);
+        if let Some(n) = &land.normals {
+            if let (Some(a), Some(b), Some(c)) =
+                (ref_unit_vnml(n, v[0]), ref_unit_vnml(n, v[1]), ref_unit_vnml(n, v[2]))
+            {
+                let mut out = [
+                    a[0] * w[0] + b[0] * w[1] + c[0] * w[2],
+                    a[1] * w[0] + b[1] * w[1] + c[1] * w[2],
+                    a[2] * w[0] + b[2] * w[1] + c[2] * w[2],
+                ];
+                let l = (out[0] * out[0] + out[1] * out[1] + out[2] * out[2]).sqrt();
+                if l > 1e-6 {
+                    out[0] /= l;
+                    out[1] /= l;
+                    out[2] /= l;
+                    return out;
+                }
+            }
+        }
+        ref_face_normal(&land.heights, v)
+    }
+
+    /// A small deterministic generator (the same on every machine).
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self) -> u32 {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (self.0 >> 33) as u32
+        }
+        fn unit(&mut self) -> f32 {
+            self.next() as f32 / (1u32 << 31) as f32
+        }
+    }
+
+    fn land(seed: u64, with_normals: bool, blank_every: usize) -> Land {
+        let mut r = Lcg(seed);
+        let mut heights = Box::new([0f32; VERTS * VERTS]);
+        for h in heights.iter_mut() {
+            *h = (r.unit() - 0.5) * 3000.0;
+        }
+        let normals = with_normals.then(|| {
+            let mut n = Box::new([0i8; VERTS * VERTS * 3]);
+            for (i, b) in n.iter_mut().enumerate() {
+                *b = if blank_every > 0 && (i / 3) % blank_every == 0 { 0 } else { (r.next() % 255) as i32 as i8 };
+            }
+            n
+        });
+        Land {
+            grid: (0, 0),
+            heights,
+            normals,
+            colours: None,
+            vtex: Box::new([0u16; SUBDIV * SUBDIV]),
+            plugin: 0,
+        }
+    }
+
+    fn same(a: [f32; 3], b: [f32; 3], what: &str) {
+        for k in 0..3 {
+            assert_eq!(a[k].to_bits(), b[k].to_bits(), "{what}: component {k}: {a:?} vs {b:?}");
+        }
+    }
+
+    #[test]
+    fn unit_vnml_is_the_reference_for_every_byte_triple_that_matters() {
+        let mut n = Box::new([0i8; VERTS * VERTS * 3]);
+        let mut r = Lcg(7);
+        for b in n.iter_mut() {
+            *b = (r.next() % 256) as u8 as i8;
+        }
+        // blank, one axis, the extremes
+        n[0..3].copy_from_slice(&[0, 0, 0]);
+        n[3..6].copy_from_slice(&[0, 0, 127]);
+        n[6..9].copy_from_slice(&[-128, -128, -128]);
+        n[9..12].copy_from_slice(&[127, 127, 127]);
+        for k in 0..VERTS * VERTS {
+            match (unit_vnml(&n, k), ref_unit_vnml(&n, k)) {
+                (Some(a), Some(b)) => same(a, b, &format!("vertex {k}")),
+                (None, None) => {}
+                (a, b) => panic!("vertex {k}: {a:?} vs {b:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn face_normals_are_the_reference_and_point_up() {
+        for seed in 1..=4 {
+            let land = land(seed, false, 0);
+            let mut r = Lcg(seed * 31);
+            for _ in 0..4000 {
+                let (lx, ly) = (r.unit() * 8190.0, r.unit() * 8190.0);
+                let (v, _) = land.tri(lx, ly);
+                let (n, want) = (land.face_normal(v), ref_face_normal(&land.heights, v));
+                same(n, want, &format!("seed {seed} at {lx},{ly}"));
+                assert!(n[2] >= 0.0, "a face normal points up: {n:?}");
+            }
+        }
+        // a flat quad: straight up; a degenerate triangle (all three the same vertex): the fallback
+        let mut flat = land(9, false, 0);
+        flat.heights.iter_mut().for_each(|h| *h = 100.0);
+        same(flat.face_normal([0, 1, VERTS]), [0.0, 0.0, 1.0], "flat");
+        same(flat.face_normal([5, 5, 5]), [0.0, 0.0, 1.0], "degenerate");
+    }
+
+    #[test]
+    fn normal_at_is_the_reference_with_authored_normals_with_blank_corners_and_without() {
+        for (seed, with, blank) in [(11, true, 0), (12, true, 5), (13, true, 1), (14, false, 0)] {
+            let land = land(seed, with, blank);
+            let mut r = Lcg(seed * 17);
+            for _ in 0..4000 {
+                let (lx, ly) = (r.unit() * 8200.0 - 5.0, r.unit() * 8200.0 - 5.0);
+                same(land.normal_at(lx, ly), ref_normal_at(&land, lx, ly), &format!("seed {seed} at {lx},{ly}"));
+            }
         }
     }
 }

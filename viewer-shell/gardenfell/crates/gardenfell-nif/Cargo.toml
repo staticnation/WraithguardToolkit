@@ -8,3 +8,6 @@ publish = false
 
 [dependencies]
 gardenfell-bytes = { path = "../gardenfell-bytes" }
+# Wraithguard (0019): vector arithmetic. 0.30, the version the tes3 fork already pulls in
+# (a second glam would mean two incompatible Vec3s); no features.
+glam = "0.30"

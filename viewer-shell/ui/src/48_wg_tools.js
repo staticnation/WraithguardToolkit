@@ -131,7 +131,7 @@ const WgTools={
       ov.innerHTML=
         this.row('Path grids',this.sw('wgOvPathgrid','The cells\' path grids (PGRD): the points NPCs and creatures walk between, and the links between them'))+
         this.row('Navmesh',this.sw('wgOvNavmesh','OpenMW\'s navigation mesh (navmesh.db, built by openmw-navmeshtool): where actors can walk (green), swim (blue), open doors (orange) and the path grid links it was given (purple). Tiles built before the plugins moved, added or removed an object in them, or changed their land or water, are framed in red; the arcs are the links OpenMW adds through teleport doors as it plays. Read from beside openmw.cfg or OpenMW\'s user data folder'))+
-        '<div class="wgNavRow" id="wgNavRow" hidden><select id="wgNavAgent" title="Which actor size\'s mesh to draw: OpenMW builds one per collision box"></select>'+
+        '<div class="wgNavRow" id="wgNavRow" hidden><select class="fld" id="wgNavAgent" title="Which actor size\'s mesh to draw: OpenMW builds one per collision box"></select>'+
           '<button class="btn sm" id="wgNavPick" title="Choose the navmesh.db to read">navmesh.db…</button>'+
           '<div class="hint" id="wgNavNote"></div></div>'+
         this.row('Light radii',this.sw('wgOvLights','Each lit lamp\'s radius, in its colour'))+

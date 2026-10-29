@@ -170,6 +170,16 @@ the series and his fixture on his full 18hu source: it builds, and his whole sui
   (`triorder::reorder_triangles_if_not_worse`, so a mesh already in good order is drawn as
   the file has it). Tests: `crates/gardenfell-nif/tests/wraithguard_triorder.rs`.
 
+- `patches/0019-glam-for-terrain-and-face-normals.patch`: `glam` 0.30 (no features: the version the
+  `tes3` fork already pulls in, so there is one `Vec3`) as a direct dependency of `gardenfell-tes3`
+  and `gardenfell-nif` (and their entries in `Cargo.lock`), and the vector arithmetic of
+  `land.rs` (`unit_vnml`, `normal_at`, `face_normal`) and `nif.rs` (`draw_from_geom`'s flat face
+  normal) written with `glam::Vec3`. The same operations in the same order as before, so the
+  results are **bit for bit** the old ones; the stored and returned types stay arrays. Tests: the
+  old hand-written lines kept as the reference in `land.rs` (`mod glam_normals_agree`) and
+  `crates/gardenfell-nif/tests/wraithguard_glam_face.rs`. Not offered to Robin yet (the workspace's
+  rust-version 1.74 is above glam 0.30's 1.68.2; his other crates are untouched).
+
 ## File hashes (SHA-256)
 
 ```

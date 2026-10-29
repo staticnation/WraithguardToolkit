@@ -12,6 +12,7 @@
 
 use crate::netimmerse::stream::{Link, Stream};
 use crate::netimmerse::types as ni;
+use glam::Vec3;
 
 /// Where an obstacle's shape came from, which is also how much to trust it.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -2291,14 +2292,14 @@ pub fn draw_from_geom(g: &MeshGeom, name: &str) -> Vec<DrawPart> {
     let mut uv = Vec::with_capacity(g.tris.len() * 2);
     let mut idx: Vec<u16> = Vec::with_capacity(g.tris.len());
     for (i, t) in g.tris.chunks_exact(3).enumerate() {
-        let (a, b, c) = (t[0], t[1], t[2]);
-        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-        let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-6);
+        // Wraithguard (0019): the face normal with `glam::Vec3` (the same operations in the same
+        // order as the lines it replaced; `tests/wraithguard_glam_face.rs` pins it bit for bit).
+        let (a, b, c) = (Vec3::from(t[0]), Vec3::from(t[1]), Vec3::from(t[2]));
+        let n = (b - a).cross(c - a);
+        let len = n.length().max(1e-6);
         for p in [a, b, c] {
-            pos.extend_from_slice(&p);
-            nrm.extend_from_slice(&[n[0] / len, n[1] / len, n[2] / len]);
+            pos.extend_from_slice(&p.to_array());
+            nrm.extend_from_slice(&(n / len).to_array());
             uv.extend_from_slice(&[0.0, 0.0]);
         }
         let base = (i * 3) as u16;

@@ -543,6 +543,7 @@ name = "gardenfell-nif"
 version = "0.1.0"
 dependencies = [
  "gardenfell-bytes",
+ "glam",
 ]
 
 [[package]]

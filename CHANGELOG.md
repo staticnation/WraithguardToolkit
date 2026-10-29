@@ -59,6 +59,8 @@
   one, the first time after this update) is read once on the first click or by the background
   fill after the program connects, and then it is a seek; the tables are added without
   emptying the existing cache.
+- **The navmesh's actor-size drop-down (Overlays & measure) was a plain white browser
+  control** against the dark panel: it now takes the same field style as the other drop-downs.
 - **Record ids are compared without case, as the engines do.** The record scan grouped ids
   exactly as spelled, so `Iron_Dagger` in one plugin and `iron_dagger` in another were two
   records and no conflict, though both Morrowind.exe and OpenMW treat them as one (ASCII case
@@ -77,6 +79,13 @@
 
 ### Changed
 
+- **`glam` is a direct dependency now** (0.30, no features: the version the TES3 library already
+  uses, so there is still one vector type), and Gardenfell's terrain normals
+  (`land.rs`: the authored-normal blend, the face normal) and the flat face normal of a
+  stand-in mesh (`draw_from_geom`) are written with `glam::Vec3` instead of hand-written
+  component math (Gardenfell patch 0019). Bit for bit the same results: the operations and their
+  order are unchanged, and tests keep the old lines as the reference and compare every bit. See
+  `viewer-shell/GLAM-PLAN.md` for what is next and what is deliberately left alone.
 - **The cell load keeps a mesh's triangle order when reordering would make the vertex cache
   worse** (Gardenfell patch 0018, `reorder_triangles_if_not_worse`). Before, every part was
   reordered whether or not it came out better; a part the file already has in good order is
