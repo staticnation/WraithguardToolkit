@@ -2697,6 +2697,14 @@ fn draw_parts(rec: &Records) -> Vec<DrawPart> {
         if is_editor_marker(&n.name) {
             continue;
         }
+        /* Wraithguard (0020): a shape OpenMW's `distortion` shader effect owns is not a
+        surface - the game bends what is behind it by its texture and draws no colour of its
+        own. TR's and OAAB's animated water carries one over the water (`Tri Water
+        Distortion2`, 90 frames of `omw_distortion\water\NN.dds`); painted as a texture it was
+        a sheet of normal-map rainbow on top of the water. */
+        if omw_shader(&rec.extras, n.extra).distortion {
+            continue;
+        }
         /* Round 17y: a node that moves. Its resting transform is *not* composed in — the
         page puts the animated one there — so everything below it is baked in its own
         frame, and the transform gathered so far (root to its parent) travels with the
@@ -3908,6 +3916,37 @@ struct RootMarkers {
     mrk: bool,
     /// The collision node is nested deeper than the root's own children.
     rcn: bool,
+}
+
+/// Wraithguard (0020): what a node's OpenMW shader extra data (`omw:data`, a NiStringExtraData
+/// holding YAML/JSON) asks of the renderer, as far as a still preview cares.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+struct OmwShader {
+    /// `shader: distortion:` - not a surface at all: OpenMW draws nothing of the shape's own
+    /// colour and uses its texture (a normal map, `omw_distortion\water\NN.dds`) to bend the
+    /// scene behind it. Drawn as a texture it is the rainbow of a normal map.
+    distortion: bool,
+}
+
+fn omw_shader(extras: &[Option<ExtraString>], head: i32) -> OmwShader {
+    let mut out = OmwShader::default();
+    let mut i = head;
+    for _ in 0..64 {
+        if i < 0 || i as usize >= extras.len() {
+            break;
+        }
+        let Some(e) = extras[i as usize].as_ref() else { break };
+        if e.value.trim_start().to_ascii_lowercase().starts_with("omw:data") {
+            // Quotes, spaces and line breaks do not matter to the reader (it is YAML), so
+            // look at the text without them.
+            let flat: String = e.value.chars().filter(|c| !matches!(c, '"' | '\'' | ' ' | '\t' | '\r' | '\n')).collect::<String>().to_ascii_lowercase();
+            if flat.contains("shader:") && flat.contains("distortion:") {
+                out.distortion = true;
+            }
+        }
+        i = e.next;
+    }
+    out
 }
 
 fn root_markers(extras: &[Option<ExtraString>], head: i32) -> RootMarkers {

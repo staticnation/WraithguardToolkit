@@ -72,6 +72,13 @@
   one, the first time after this update) is read once on the first click or by the background
   fill after the program connects, and then it is a seek; the tables are added without
   emptying the existing cache.
+- **Animated water (TR, OAAB) was drawn with a sheet of normal-map rainbow over it.** Their
+  meshes carry a second shape, `Tri Water Distortion2`, whose `omw:data` extra data asks for
+  OpenMW's `distortion` shader: the game draws no colour for it and bends the scene behind by
+  its texture (`omw_distortion\water\NN.dds`, normal maps). The cell preview painted that
+  texture as a surface. Shapes under a `distortion` shader are now left out of the picture
+  (the refraction itself is not drawn); the real water, its flipbook of `tr_water*` frames,
+  shows as it should (Gardenfell patch 0020, with the mesh as a test fixture).
 - **The navmesh's actor-size drop-down (Overlays & measure) was a plain white browser
   control** against the dark panel: it now takes the same field style as the other drop-downs.
 - **Record ids are compared without case, as the engines do.** The record scan grouped ids

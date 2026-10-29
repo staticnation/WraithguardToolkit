@@ -180,6 +180,14 @@ the series and his fixture on his full 18hu source: it builds, and his whole sui
   `crates/gardenfell-nif/tests/wraithguard_glam_face.rs`. Not offered to Robin yet (the workspace's
   rust-version 1.74 is above glam 0.30's 1.68.2; his other crates are untouched).
 
+- `patches/0020-omw-distortion-shapes-not-drawn.patch`: a shape whose `omw:data` extra data asks
+  for OpenMW's `distortion` shader (TR's and OAAB's animated water has `Tri Water Distortion2`
+  over the water, 90 frames of `omw_distortion\water\NN.dds`) is left out of the draw walk
+  (`nif.rs`, `omw_shader`): OpenMW draws no colour for it, it bends the scene behind by the
+  texture, a normal map; painted as a surface it was a sheet of rainbow. Test:
+  `crates/gardenfell-nif/tests/wraithguard_omw_distortion.rs` with the mesh in
+  `tests/fixtures/tr_water_sqstat512.nif`.
+
 ## File hashes (SHA-256)
 
 ```
