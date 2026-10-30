@@ -77,14 +77,7 @@
   animation file's clips (Greatness7: "the `.kf` has the animation timings"), so a parked
   creature shows what its idle clip says - the bonelord's hood on and robe off, its robe
   coming on only in `Death1` - for every creature with a `.kf`, not one by one. Test with TR's
-  bonelord and its `.kf`. The next entry is the fallback for a creature with no `.kf`.
-- **Bonelords (and anything else shown by a clamping visibility controller) lost their hood
-  and robe after about 22 seconds.** Their hood and robe are shown and hidden by NiVisControllers
-  that *clamp* (run once through the clip, not loop); the preview's clock only counts up, so a
-  clamped controller ended on its last key (both off) and stayed there. A clamping visibility
-  controller now stands at its first frame (the still pose: the hood on, the robe off for
-  `xBoneLord`'s keys); one that loops still runs on the clock. A test with the bonelord's own
-  keys (`ui/tests/vis_controller.test.js`).
+  bonelord and its `.kf`.
 - **Animated water (TR, OAAB) was drawn with a sheet of normal-map rainbow over it.** Their
   meshes carry a second shape, `Tri Water Distortion2`, whose `omw:data` extra data asks for
   OpenMW's `distortion` shader: the game draws no colour for it and bends the scene behind by
