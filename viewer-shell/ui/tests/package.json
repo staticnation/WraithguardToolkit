@@ -5,7 +5,7 @@
   "scripts": {
     "boot": "node boot.js",
     "editor": "node editor/run.js",
-    "preview": "node --test --test-timeout=5000 preview_loading.test.js report_loading.test.js cache_races.test.js cellkey.test.js"
+    "preview": "node --test --test-timeout=5000 preview_loading.test.js report_loading.test.js cache_races.test.js cellkey.test.js vis_controller.test.js"
   },
   "dependencies": {
     "jsdom": "^30.1.3"

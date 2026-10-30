@@ -72,6 +72,13 @@
   one, the first time after this update) is read once on the first click or by the background
   fill after the program connects, and then it is a seek; the tables are added without
   emptying the existing cache.
+- **Bonelords (and anything else shown by a clamping visibility controller) lost their hood
+  and robe after about 22 seconds.** Their hood and robe are shown and hidden by NiVisControllers
+  that *clamp* (run once through the clip, not loop); the preview's clock only counts up, so a
+  clamped controller ended on its last key (both off) and stayed there. A clamping visibility
+  controller now stands at its first frame (the still pose: the hood on, the robe off for
+  `xBoneLord`'s keys); one that loops still runs on the clock. A test with the bonelord's own
+  keys (`ui/tests/vis_controller.test.js`).
 - **Animated water (TR, OAAB) was drawn with a sheet of normal-map rainbow over it.** Their
   meshes carry a second shape, `Tri Water Distortion2`, whose `omw:data` extra data asks for
   OpenMW's `distortion` shader: the game draws no colour for it and bends the scene behind by

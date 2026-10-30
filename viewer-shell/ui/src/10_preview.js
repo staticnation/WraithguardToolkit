@@ -314,7 +314,14 @@ function animVisibleAt(anim, secs){
   if(!anim || !anim.vis || !anim.vis.length) return true;
   for(const c of anim.vis){
     const k=c.keys; if(!k || !k.length) continue;
-    const t=ctrlTime(c, secs);
+    /* A visibility controller that clamps (cycle type 2) is not a loop: it is run once through
+       the animation's clip. A creature's hood and robe are two of these (`xBoneLord`: the hood
+       shown 0.07-18.5 s, the robe 18.4-20.6 s, of a 22.7 s clip). The game feeds them the clock
+       of the clip being played, over and over; the preview's clock only counts up, so after 22 s
+       a clamped one sits on its last key - hood and robe both off, the bonelord in its bones.
+       They stand at the controller's own first frame, which is the still pose, and a controller
+       that loops keeps running on the clock. */
+    const t=(((c.flags|0)>>1)&3)===2? ctrlTime(c, 0) : ctrlTime(c, secs);
     let v=k[0][1];
     for(let i=0;i<k.length && k[i][0]<=t;i++) v=k[i][1];
     if(!(v>0.5)) return false;
