@@ -72,6 +72,12 @@
   one, the first time after this update) is read once on the first click or by the background
   fill after the program connects, and then it is a seek; the tables are added without
   emptying the existing cache.
+- **A creature's hood, robe and other parts the model shows and hides now follow its `.kf`**
+  (Gardenfell patch 0021): a creature's own visibility and morph controllers are timed to the
+  animation file's clips (Greatness7: "the `.kf` has the animation timings"), so a parked
+  creature shows what its idle clip says - the bonelord's hood on and robe off, its robe
+  coming on only in `Death1` - for every creature with a `.kf`, not one by one. Test with TR's
+  bonelord and its `.kf`. The next entry is the fallback for a creature with no `.kf`.
 - **Bonelords (and anything else shown by a clamping visibility controller) lost their hood
   and robe after about 22 seconds.** Their hood and robe are shown and hidden by NiVisControllers
   that *clamp* (run once through the clip, not loop); the preview's clock only counts up, so a

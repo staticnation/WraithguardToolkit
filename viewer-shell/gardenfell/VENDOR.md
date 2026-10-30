@@ -186,7 +186,15 @@ the series and his fixture on his full 18hu source: it builds, and his whole sui
   (`nif.rs`, `omw_shader`): OpenMW draws no colour for it, it bends the scene behind by the
   texture, a normal map; painted as a surface it was a sheet of rainbow. Test:
   `crates/gardenfell-nif/tests/wraithguard_omw_distortion.rs` with the mesh in
-  `tests/fixtures/tr_water_sqstat512.nif`.
+  `tests/fixtures/tr_water_sqstat512.nif` and `oaab_ripples.nif` (OAAB's ripples: `Circle` +
+  `Distortion`).
+
+- `patches/0021-creature-controllers-follow-the-kf-clip.patch`: `bind_kf` also re-times the file's
+  own `NiVisController`s and `NiGeomMorpherController`s that span the idle clip (`follow_clip`):
+  the clip's window, looping, or the still instant when nothing loops - what the `.kf`'s timings
+  say, for every creature (TR's bonelord: hood on 0.07-18.5 s, robe 18.4-20.6 s, idle 0.083-3.333 s,
+  death 18.417-20.667 s). Test: `crates/gardenfell-nif/tests/wraithguard_kf_clock.rs` with
+  `tests/fixtures/xtr_cr_bonelord_grt_01.nif` and `.kf`.
 
 ## File hashes (SHA-256)
 

@@ -2013,6 +2013,43 @@ pub fn parse_kf(buf: &[u8]) -> Option<KfSequence> {
     }
 }
 
+/// Wraithguard (0021): the creature file's own visibility and morph controllers run on the
+/// same clock as the skeleton - the `.kf`'s, the clip being played.
+///
+/// A bonelord's hood and robe are shown and hidden by `NiVisController`s inside the model; their
+/// keys are on the animation's timeline (the hood on from 0.07 to 18.5 s, the robe on from 18.4
+/// to 20.6 s: `Death1: Start`/`Stop` in the `.kf` read 18.417 and 20.667), not on a clock of
+/// their own, and the game plays them by the time of the group that is running - Greatness7:
+/// "the `.kf` has the animation timings ... things that are supposed to be hidden during
+/// specific bits of their animations will have their own animation timings synchronized to
+/// what's in the `.kf`, usually via a NiVisController." So a parked creature (its idle clip)
+/// shows what its idle clip says, every creature, with no list of creatures: the controllers
+/// that span the clip take the clip's window, looping, exactly as the bones' tracks do in
+/// `bind_kf`; where nothing loops (`start == stop`, the still instant) they stand at it.
+/// A controller whose own timeline does not cover the clip (a flame's blink over its own two
+/// seconds) is not on the animation's clock and is left alone.
+fn follow_clip(rec: &mut Records, start: f32, stop: f32) {
+    let spans = |from: f32, to: f32| from <= start + 1e-3 && to >= stop - 1e-3;
+    for c in rec.visctrls.iter_mut().flatten() {
+        if c.flags & 8 != 0 && spans(c.start, c.stop) {
+            c.start = start;
+            c.stop = stop;
+            c.frequency = 1.0;
+            c.phase = 0.0;
+            c.flags = (c.flags & !0x6) | 0x8; // on, looping (cycle bits clear)
+        }
+    }
+    for c in rec.morphctrls.iter_mut().flatten() {
+        if c.flags & 8 != 0 && spans(c.start, c.stop) {
+            c.start = start;
+            c.stop = stop;
+            c.frequency = 1.0;
+            c.phase = 0.0;
+            c.flags = (c.flags & !0x6) | 0x8;
+        }
+    }
+}
+
 /// Round 18ag: hangs a `.kf`'s tracks on this file's nodes, by name, as if the file
 /// carried the controllers itself - after which `draw_parts` finds them exactly as it
 /// finds a NiBSAnimationNode's own. Every track is set to the same clip, the actor's
@@ -2049,6 +2086,7 @@ fn bind_kf(rec: &mut Records, kf: &KfSequence) {
                 nd.scale = s;
             }
         }
+        follow_clip(rec, at, at);
         return;
     };
     let mut bound = 0usize;
@@ -2080,6 +2118,7 @@ fn bind_kf(rec: &mut Records, kf: &KfSequence) {
         }));
         bound += 1;
     }
+    follow_clip(rec, start, stop);
     rec.skel_animated = bound > 0;
 }
 

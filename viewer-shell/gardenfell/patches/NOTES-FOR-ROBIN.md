@@ -7,7 +7,8 @@ install, world) until you take them or say no; either answer is fine, we keep th
 copy otherwise unmodified so your next release drops straight in. With your fixture
 folder (thank you for it) your whole suite passes with the first ten applied: 1553
 pass, 0 fail, against 1541 without them; the 12 more are tests we add. 0011-0014 came
-later (see "Applying them"); 0017 changes a rule of 18fc's, checked in the game.
+later (see "Applying them"); 0017 changes a rule of 18fc's, checked in the game (see its
+follow-up below); 0018-0021 (2026-10-29) are the newest.
 
 ## 0001 world: a record typer hook
 
@@ -335,13 +336,104 @@ game's answer is the one above. OpenMW reads it the same way in its code
 that is itself deleted sets `setDeletedByContentFile`); we have not run the plugins in
 OpenMW yet.
 
+## 0017, after your esp-format.md: what our test did and did not cover
+
+Thank you for the notes (the D3 test, §7 and §9.0). Reading them against our test, the two do
+not contradict each other, and we should have said what ours covered: in `tests/ingame/`
+**no cell record has a `NAM0`, so every reference in it is persistent, and the cell is an
+interior.** Yours are *temporary* references (after `NAM0`) in exteriors - the Seyda Neen
+lighthouse (`NAM0 203`, a moved re-placement) and Wolverine Hall's flag. Where a later record
+does not bring a deleted reference back may depend on which section it sits in (or on
+interior against exterior, or on a plain record against a move); nobody has tried a temporary
+reference in an interior with plain records.
+
+We built that: `WG_DelT_Base.esm`, `WG_DelT_P1.esp`, `WG_DelT_A.esp`, `WG_DelT_P2.esp` are the
+same four plugins and edits with a `NAM0` before the first `FRMR` of every cell record (cell
+`WG Delete Test T`, `make_temporary_variant.py` writes them from the first set). Five piles
+means a temporary reference is undeleted too (then the difference is exterior or move); four
+means the section is the difference, and 0017 then has to carry `CellRef.temporary` (your 18gf)
+into the rule. **Until that is run, 0017 is the persistent-reference rule, not a claim about
+all references**; the patch's text and `kept_deleted` removal stand for that case. We will
+send the result either way. If you can lend `GF_D3_Delete`/`GF_D3_Readd`, we will run them
+beside ours.
+
+Two things from your file we took on our side (not in your crates): record ids are compared
+without case in our conflict scan (your §2: `Iron_Dagger` and `iron_dagger` are one record),
+and interior cell names fold ASCII only (your §9.8; both references do).
+
+## 0018 nif: the cell load's triangle reorder only when the cache is not worse
+
+`triorder::reorder_triangles_if_not_worse(idx, positions) -> bool`: the cell load
+(`nif.rs`, your 18ho call) reordered every part whether or not it came out better; a part the
+file already has in good order can give back a little. The new function runs your
+`reorder_triangles` on a copy and keeps it only when `analyze_vertex_cache` (cache 16) does not
+get worse; bad input (indices out of range, not a multiple of three) is left alone. The call
+site uses it. Overdraw is not measured here (this crate has no analyser for it; our
+`meshopt-port` does, in the tool that *writes* meshes), so the rule is conservative: it also
+declines the small cache-for-overdraw trade your pass allows. Tests:
+`tests/wraithguard_triorder.rs` (a scattered grid is reordered and better; a good one is never
+left worse; bad input untouched).
+
+## 0019 tes3 + nif: `glam` for the terrain normals and the stand-in face normal
+
+`glam = "0.30"`, no features, as a direct dependency of `gardenfell-tes3` and `gardenfell-nif`
+(and their lock entries; your `Cargo.lock` gains the `glam 0.30.10` package, no dependencies).
+Why 0.30: Greatness7's `tes3` fork, which Wraithguard builds with, asks for `^0.30`; a second
+`glam` is a second, incompatible `Vec3`. Its MSRV (1.68.2) is under your workspace's 1.74. The
+change is `land.rs` (`unit_vnml`, `normal_at`, `face_normal`) and `nif.rs` (`draw_from_geom`'s
+flat face normal) written with `Vec3`: **the same operations in the same order, so the results
+are bit for bit the old ones** - arrays stay the stored and returned types, thresholds and the
+face-normal "points up" rule untouched. The old lines are kept in the tests as the reference
+and every bit is compared (`land.rs` `mod glam_normals_agree`: random heights and authored
+normals, blank corners, degenerate triangles; `tests/wraithguard_glam_face.rs`). Take it or
+leave it: it is a readability change, not a speedup, and nothing else in your crates uses
+`glam`.
+
+## 0020 nif: a shape under OpenMW's `distortion` shader is not a surface
+
+OpenMW's `omw:data` extra data (a `NiStringExtraData`, YAML) can ask a shape for a shader
+effect. `shader: distortion:` means OpenMW draws no colour for it and bends the scene behind
+it by its texture, a normal map. TR's and OAAB's animated water carries one (`Tri Water
+Distortion2`, 90 frames of `omw_distortion\water\NN.dds`; OAAB's `ripples.nif` has `Distortion`
+over its `Circle`); drawn as a texture it was a sheet of normal-map rainbow over the water. The
+draw walk now leaves such a shape out (`omw_shader`; the refraction itself is not drawn).
+`soft_effect` (soft edges, depth fade) is the other effect these files carry and is not
+touched. Tests: `tests/wraithguard_omw_distortion.rs`, with `tr_water_sqstat512.nif` and
+`oaab_ripples.nif` as fixtures (one TR's and one OAAB's mesh, 13 KB and 5 KB; say if you would
+rather we did not put them in your tree).
+
+## 0021 nif: a creature's own visibility and morph controllers follow the `.kf`'s clip
+
+Greatness7, asked where a creature's animation says what is shown when: "the `.kf` has the
+animation timings. Death anims play to their end and stop. Things that are supposed to be
+hidden during specific bits of their animations will have their own animation timings
+synchronized to what's in the `.kf`, usually via a NiVisController." That is the whole rule,
+and `bind_kf` only half did it: it replaced the *bones'* windows with the idle clip but left
+the file's own `NiVisController`s and `NiGeomMorpherController`s on their own windows - which
+span the whole animation, every clip end to end. TR's bonelord shows it: its hood is on from
+0.07 to 18.5 s and its robe from 18.4 to 20.6 s, and its `.kf` has `Idle` at 0.083-3.333 s and
+`Death1: Start`/`Stop` at 18.417/20.667. The controllers run on the animation's clock; played
+on a wall clock they leave the clamp (cycle type 2) and sit on the last key, hood and robe both
+off - a bonelord in its bones, which is how we met it.
+
+`follow_clip(rec, start, stop)`, called at the end of both branches of `bind_kf`: every active
+embedded vis or morph controller whose own timeline *spans* the clip takes the clip's window,
+looping, as the bones' tracks do; when nothing loops (`bind_kf`'s still-instant branch) they
+stand at `idle_time()`. A controller that does not span the clip (a flame's blink over its own
+two seconds) is not on the animation's clock and is left alone. So it is the `.kf` that
+decides, for every creature, with no list of them. Tests: `tests/wraithguard_kf_clock.rs`, with
+TR's `xtr_cr_bonelord_grt_01.nif` and its `.kf` (the idle clip is found; hood and robe take it;
+with no `.kf` the windows are the file's own). One open question: OpenMW gives controllers on a
+root `NiBSAnimationNode` with the AutoPlay flag a free-running clock of their own; we do not
+check that flag (the "spans the clip" test stands in for it) and would be glad of your read.
+
 ## Applying them
 
 In order, from the repository root: `for p in patches/0*.patch; do patch -p1 < $p; done`.
 Checked: the series on your 18hu source gives exactly the tree Wraithguard vendors, and
 your whole workspace (all ten crates, the CLI and the Tauri check) builds with it. Your
 full suite, with your fixture: 1553 pass / 0 fail, against 1541 / 0 without the
-patches; the 12 more are the tests we add. That check was made with 0001-0010; 0011 (2026-10-13) and 0012-0014 (2026-10-19) came after. 0011 and 0012 only add functions; 0013 adds timers, fields to `LoadStats` (built with `..Default::default()` everywhere we could find) and three `reserve`/capacity sizings; 0014 asks the twin questions ahead of the loop with the same answers. None of them should break a caller, but they have not been through your full suite yet.
+patches; the 12 more are the tests we add. That check was made with 0001-0010; 0011 (2026-10-13) and 0012-0014 (2026-10-19) came after. 0011 and 0012 only add functions; 0013 adds timers, fields to `LoadStats` (built with `..Default::default()` everywhere we could find) and three `reserve`/capacity sizings; 0014 asks the twin questions ahead of the loop with the same answers. None of them should break a caller, but they have not been through your full suite yet. The same goes for 0015-0021: written against the vendored tree, which is your 18hu with 0001-0017 on it, and checked by their own tests here; not yet run through your suite.
 
 ## Your page: three fixes to the shadow receiver (`page/`)
 
@@ -435,5 +527,6 @@ only after your release, and only if it suits how you want the crate laid out.
 - **Your strict NIF reader caught bad meshes of ours**: several meshes in Wraithguard's
   test fixture were malformed, and your reader (since 18gh) rightly refused them. We
   rebuilt them with your `mklamp.js`. Nothing to fix on your side.
+- **Your esp-format.md on our side**: record ids compared without case (§2) and interior names folded ASCII-only (§9.8) are in Wraithguard's own conflict code now, not in your crates; the notes were right on both.
 - A shared case file for the cfg reader (`openmw_cfg_cases.json`, 13 cases, every expected
   value from OpenMW's code or docs) that both our readers run; yours passes 13/13 with 0005.
