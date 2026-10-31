@@ -1939,6 +1939,8 @@ fn records_from_stream_opts(s: &Stream, kf: Option<&KfSequence>, keep_skin: bool
     };
     if let Some(kf) = kf {
         bind_kf(&mut rec, kf);
+    } else {
+        rest_vis(&mut rec);
     }
     /* Round 18ag: a skeleton is animated whether its keys came from the `.kf` beside
     the mesh or were saved into the file itself - the tea shop's plain banner carries
@@ -2013,8 +2015,53 @@ pub fn parse_kf(buf: &[u8]) -> Option<KfSequence> {
     }
 }
 
-/// Wraithguard (0021): the creature file's own visibility and morph controllers run on the
-/// same clock as the skeleton - the `.kf`'s, the clip being played.
+/// Wraithguard (0022): whether a controller on `target` has a clock of its own. OpenMW's
+/// nif loader (`setupController`) gives a free-running frame clock only to the controllers
+/// under a `NiBSAnimationNode` (or `NiBSParticleNode`) whose flags carry AutoPlay, `0x20`, taking
+/// the flags of the nearest such node above (the node itself counts); every other controller
+/// waits for an animation to drive it - the time of the group that is playing. TR's water
+/// (`Water`, flags `0x6a`) and OAAB's ripples (`Scene Root`, `0x20`) free-run; a bonelord's
+/// root is a plain `NiNode`, so its hood and robe are the `.kf`'s.
+fn free_running(rec: &Records, parent: &[i32], target: i32) -> bool {
+    let mut at = target;
+    for _ in 0..64 {
+        if at < 0 {
+            return false;
+        }
+        if let Some(Some(n)) = rec.nodes.get(at as usize) {
+            if n.kind == "NiBSAnimationNode" || n.kind == "NiBSParticleNode" {
+                return n.flags & 0x20 != 0;
+            }
+        }
+        at = parent.get(at as usize).copied().unwrap_or(-1);
+    }
+    false
+}
+
+/// The time a controller's function gives for the input `secs` (what the page's `ctrlTime`
+/// and OpenMW's `ControllerFunction::calculate` do): cycle type 2 clamps to the window, 0 loops
+/// in it, 1 loops back and forth; a window with no length is its start.
+fn ctrl_time(freq: f32, phase: f32, start: f32, stop: f32, flags: u16, secs: f32) -> f32 {
+    let span = stop - start;
+    if span <= 1e-9 {
+        return start;
+    }
+    let t = freq * secs + phase;
+    let mode = (flags >> 1) & 3;
+    if mode == 2 {
+        return t.clamp(start, stop);
+    }
+    let cyc = (t - start) / span;
+    let mut f = cyc - cyc.floor();
+    if mode == 1 && (cyc.floor() as i64) & 1 == 1 {
+        f = 1.0 - f;
+    }
+    start + f * span
+}
+
+/// Wraithguard (0021, 0022): the creature file's own visibility and morph controllers run on
+/// the animation's clock - the `.kf`'s, the clip being played - **unless they free-run**
+/// (`free_running`).
 ///
 /// A bonelord's hood and robe are shown and hidden by `NiVisController`s inside the model; their
 /// keys are on the animation's timeline (the hood on from 0.07 to 18.5 s, the robe on from 18.4
@@ -2022,16 +2069,22 @@ pub fn parse_kf(buf: &[u8]) -> Option<KfSequence> {
 /// their own, and the game plays them by the time of the group that is running - Greatness7:
 /// "the `.kf` has the animation timings ... things that are supposed to be hidden during
 /// specific bits of their animations will have their own animation timings synchronized to
-/// what's in the `.kf`, usually via a NiVisController." So a parked creature (its idle clip)
-/// shows what its idle clip says, every creature, with no list of creatures: the controllers
-/// that span the clip take the clip's window, looping, exactly as the bones' tracks do in
-/// `bind_kf`; where nothing loops (`start == stop`, the still instant) they stand at it.
-/// A controller whose own timeline does not cover the clip (a flame's blink over its own two
-/// seconds) is not on the animation's clock and is left alone.
+/// what's in the `.kf`, usually via a NiVisController." So a parked creature shows what its idle
+/// clip says, every creature, with no list of creatures: the controllers that span the clip take
+/// the clip's window, looping, exactly as the bones' tracks do in `bind_kf`; where nothing loops
+/// (`start == stop`, the still instant) they stand at it. A controller whose own timeline does
+/// not cover the clip is left alone (the clip's time through its own function would need the
+/// page to carry a clip clock; it keeps what it did).
 fn follow_clip(rec: &mut Records, start: f32, stop: f32) {
+    let parent = parents_of(rec);
     let spans = |from: f32, to: f32| from <= start + 1e-3 && to >= stop - 1e-3;
-    for c in rec.visctrls.iter_mut().flatten() {
-        if c.flags & 8 != 0 && spans(c.start, c.stop) {
+    let vis_free: Vec<bool> =
+        rec.visctrls.iter().map(|c| c.as_ref().map(|c| free_running(rec, &parent, c.target)).unwrap_or(true)).collect();
+    let morph_free: Vec<bool> =
+        rec.morphctrls.iter().map(|c| c.as_ref().map(|c| free_running(rec, &parent, c.target)).unwrap_or(true)).collect();
+    for (c, free) in rec.visctrls.iter_mut().zip(vis_free) {
+        let Some(c) = c else { continue };
+        if !free && c.flags & 8 != 0 && spans(c.start, c.stop) {
             c.start = start;
             c.stop = stop;
             c.frequency = 1.0;
@@ -2039,13 +2092,34 @@ fn follow_clip(rec: &mut Records, start: f32, stop: f32) {
             c.flags = (c.flags & !0x6) | 0x8; // on, looping (cycle bits clear)
         }
     }
-    for c in rec.morphctrls.iter_mut().flatten() {
-        if c.flags & 8 != 0 && spans(c.start, c.stop) {
+    for (c, free) in rec.morphctrls.iter_mut().zip(morph_free) {
+        let Some(c) = c else { continue };
+        if !free && c.flags & 8 != 0 && spans(c.start, c.stop) {
             c.start = start;
             c.stop = stop;
             c.frequency = 1.0;
             c.phase = 0.0;
             c.flags = (c.flags & !0x6) | 0x8;
+        }
+    }
+}
+
+/// Wraithguard (0022): a visibility controller with no clock of its own and no `.kf` to drive it.
+/// The game's animation system hands such a controller the animation's time, which with no clip
+/// playing is 0 (`Animation::AnimationTime::getValue`), so it is where its own function puts
+/// time 0 - for a bonelord's hood, its first key, shown, and for its robe, hidden. It does not
+/// run on a clock that only counts up and leaves it on its last key. Visibility only: a shown
+/// or hidden part is not a thing that can be nearly right.
+fn rest_vis(rec: &mut Records) {
+    let parent = parents_of(rec);
+    let free: Vec<bool> =
+        rec.visctrls.iter().map(|c| c.as_ref().map(|c| free_running(rec, &parent, c.target)).unwrap_or(true)).collect();
+    for (c, free) in rec.visctrls.iter_mut().zip(free) {
+        let Some(c) = c else { continue };
+        if !free && c.flags & 8 != 0 {
+            let at = ctrl_time(c.frequency, c.phase, c.start, c.stop, c.flags, 0.0);
+            c.start = at;
+            c.stop = at;
         }
     }
 }
@@ -4279,3 +4353,46 @@ fn half_box((mn, mx): &([f32; 3], [f32; 3])) -> Vec<[f32; 3]> {
 
 /// Parts hung on another file's skeleton (an NPC's body parts and what it wears).
 pub mod skeleton;
+
+/// Wraithguard (0022): which controllers have a clock of their own, read off real files.
+#[cfg(test)]
+mod autoplay_tests {
+    use super::*;
+
+    const BONELORD: &[u8] = include_bytes!("../tests/fixtures/xtr_cr_bonelord_grt_01.nif");
+    const RIPPLES: &[u8] = include_bytes!("../tests/fixtures/oaab_ripples.nif");
+    const WATER: &[u8] = include_bytes!("../tests/fixtures/tr_water_sqstat512.nif");
+
+    fn index(rec: &Records, name: &str) -> i32 {
+        rec.nodes.iter().position(|n| n.as_ref().map(|n| n.name == name).unwrap_or(false)).unwrap_or_else(|| panic!("no node {name}")) as i32
+    }
+
+    #[test]
+    fn a_bonelords_hood_waits_for_the_animation() {
+        let rec = read_records_kf(BONELORD, None).unwrap();
+        let parent = parents_of(&rec);
+        for n in ["Hood Node", "Robe Node"] {
+            assert!(!free_running(&rec, &parent, index(&rec, n)), "{n}");
+        }
+    }
+
+    #[test]
+    fn the_ripples_and_the_water_free_run() {
+        let rec = read_records_kf(RIPPLES, None).unwrap();
+        let parent = parents_of(&rec);
+        assert!(free_running(&rec, &parent, index(&rec, "Circle")), "ripples: Circle under Scene Root (0x20)");
+        let rec = read_records_kf(WATER, None).unwrap();
+        let parent = parents_of(&rec);
+        assert!(free_running(&rec, &parent, index(&rec, "Tri Water")), "water: under Water (0x6a)");
+    }
+
+    #[test]
+    fn a_controllers_time_is_its_functions() {
+        // clamp (2): held at the ends; loop (0): round; reverse (1): back and forth
+        assert_eq!(ctrl_time(1.0, 0.0, 2.0, 4.0, 0x8 | 4, 0.0), 2.0);
+        assert_eq!(ctrl_time(1.0, 0.0, 2.0, 4.0, 0x8 | 4, 9.0), 4.0);
+        assert!((ctrl_time(1.0, 0.0, 0.0, 2.0, 0x8, 2.5) - 0.5).abs() < 1e-6);
+        assert!((ctrl_time(1.0, 0.0, 0.0, 2.0, 0x8 | 2, 2.5) - 1.5).abs() < 1e-6);
+        assert_eq!(ctrl_time(1.0, 0.0, 3.0, 3.0, 0x8, 7.0), 3.0);
+    }
+}

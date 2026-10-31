@@ -8,7 +8,7 @@ copy otherwise unmodified so your next release drops straight in. With your fixt
 folder (thank you for it) your whole suite passes with the first ten applied: 1553
 pass, 0 fail, against 1541 without them; the 12 more are tests we add. 0011-0014 came
 later (see "Applying them"); 0017 changes a rule of 18fc's, checked in the game (see its
-follow-up below); 0018-0021 (2026-10-29) are the newest.
+follow-up below); 0018-0022 (2026-10-29/30) are the newest.
 
 ## 0001 world: a record typer hook
 
@@ -423,9 +423,34 @@ stand at `idle_time()`. A controller that does not span the clip (a flame's blin
 two seconds) is not on the animation's clock and is left alone. So it is the `.kf` that
 decides, for every creature, with no list of them. Tests: `tests/wraithguard_kf_clock.rs`, with
 TR's `xtr_cr_bonelord_grt_01.nif` and its `.kf` (the idle clip is found; hood and robe take it;
-with no `.kf` the windows are the file's own). One open question: OpenMW gives controllers on a
-root `NiBSAnimationNode` with the AutoPlay flag a free-running clock of their own; we do not
-check that flag (the "spans the clip" test stands in for it) and would be glad of your read.
+with no `.kf` the windows are the file's own). The AutoPlay question this left open is 0022, next.
+
+## 0022 nif: controllers with no clock of their own wait for the animation (AutoPlay)
+
+0021 re-timed the creature's controllers that span the clip; which controllers *have* a clock
+of their own is a flag, and 0022 reads it. As we read OpenMW's nif loader (`setupController`):
+a controller free-runs only when the nearest `NiBSAnimationNode` (or `NiBSParticleNode`) above
+it, itself included, has AutoPlay, `0x20`, in its flags; every other controller is handed the
+animation's time (`AssignControllerSourcesVisitor`), which with no clip playing is 0
+(`Animation::AnimationTime::getValue`). The files agree: TR's `Water` node (flags `0x6a`) and
+OAAB's `Scene Root` (`0x20`) free-run, and a bonelord's root is a plain `NiNode`, so its hood and
+robe are the animation's.
+
+`free_running(rec, parent, target)` reads it. `follow_clip` now leaves the free-running
+controllers alone (their own window is their clock, with or without a `.kf`), which replaces
+0021's "spans the clip" guess for them, and `rest_vis` handles the case with **no `.kf` at all**:
+a visibility controller that waits for an animation stands where its own function puts time 0
+(`ctrl_time`: clamp, loop or reverse, as the page's `ctrlTime`), so the bonelord's hood is shown
+and its robe hidden, instead of the page's clock running the controller out to its last key.
+Visibility only, on purpose: a part shown or hidden cannot be nearly right; the morph
+controllers were not changed for the no-`.kf` case (a moth's wingbeat may be one that free-runs
+or may not, and we would rather you say than that we break it). Not done: the game runs no
+controller at all on an object with no animation system (a STAT: the `still` answer of
+`useAnim()`), which would need the reader to be told; the mesh reader does not know, so a
+STAT's waiting controller stands at 0 too, which is where the game would also not move it.
+Tests: `nif.rs` `mod autoplay_tests` (the bonelord waits; the ripples and the water free-run;
+`ctrl_time`) and `with_no_kf_the_controllers_stand_at_time_zero`. We have not run OpenMW on any
+of this; the reading of its loader is ours, and corrections are welcome.
 
 ## Applying them
 

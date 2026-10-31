@@ -77,7 +77,12 @@
   animation file's clips (Greatness7: "the `.kf` has the animation timings"), so a parked
   creature shows what its idle clip says - the bonelord's hood on and robe off, its robe
   coming on only in `Death1` - for every creature with a `.kf`, not one by one. Test with TR's
-  bonelord and its `.kf`.
+  bonelord and its `.kf`. Which controllers have a clock of their own is read from the file the
+  way OpenMW's loader does (the AutoPlay bit, `0x20`, of the nearest `NiBSAnimationNode`; patch
+  0022): TR's water and OAAB's ripples free-run, a creature's hood and robe wait for the
+  animation. With no `.kf` such a visibility controller stands where its function puts time 0
+  (the hood shown, the robe hidden) rather than being run out to its last key by the preview's
+  clock.
 - **Animated water (TR, OAAB) was drawn with a sheet of normal-map rainbow over it.** Their
   meshes carry a second shape, `Tri Water Distortion2`, whose `omw:data` extra data asks for
   OpenMW's `distortion` shader: the game draws no colour for it and bends the scene behind by

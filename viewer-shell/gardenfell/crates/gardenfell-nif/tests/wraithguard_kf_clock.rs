@@ -42,9 +42,20 @@ fn the_hood_and_robe_run_on_the_idle_clip_with_the_kf_and_on_their_own_without()
             assert!((m.start - a).abs() < 1e-3 && (m.stop - b).abs() < 1e-3, "{what}: morph window {}..{}", m.start, m.stop);
         }
     }
-    // with no .kf nothing is re-timed: the file's own window, as before
+}
+
+/// No `.kf`, and the controllers have no clock of their own (the root is a plain NiNode, no
+/// AutoPlay): the animation system gives them time 0, so each stands where its function puts
+/// it - the hood at its first key (shown), the robe at its first (hidden) - not on a clock that
+/// counts up and ends on the last key (both off).
+#[test]
+fn with_no_kf_the_controllers_stand_at_time_zero() {
     let alone = parse_draw(MESH).expect("the mesh reads alone");
-    let hood = part(&alone, "hood");
-    let v = &hood.anim.as_ref().unwrap().vis[0];
-    assert!(v.start < 0.1 && v.stop > 22.0, "alone: {}..{}", v.start, v.stop);
+    for (what, shown_at_zero) in [("hood", true), ("robe", false)] {
+        let v = &part(&alone, what).anim.as_ref().unwrap().vis[0];
+        assert!((v.stop - v.start).abs() < 1e-6, "{what}: a still instant, {}..{}", v.start, v.stop);
+        let at = v.start;
+        let shown = v.keys.iter().take_while(|k| k.0 <= at + 1e-6).last().or(v.keys.first()).map(|k| k.1 > 0.5).unwrap();
+        assert_eq!(shown, shown_at_zero, "{what} at {at}");
+    }
 }

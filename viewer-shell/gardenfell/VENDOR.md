@@ -196,6 +196,15 @@ the series and his fixture on his full 18hu source: it builds, and his whole sui
   death 18.417-20.667 s). Test: `crates/gardenfell-nif/tests/wraithguard_kf_clock.rs` with
   `tests/fixtures/xtr_cr_bonelord_grt_01.nif` and `.kf`.
 
+- `patches/0022-controllers-with-no-clock-wait-for-the-animation.patch`: reads the AutoPlay bit
+  (`0x20`) of the nearest `NiBSAnimationNode`/`NiBSParticleNode` above a controller, as OpenMW's
+  nif loader does (`free_running`): the controllers under one free-run, every other one waits
+  for an animation to drive it. `follow_clip` (0021) now leaves the free-running ones alone, and
+  `rest_vis` stands a waiting visibility controller at the time the game's animation system
+  gives it when no clip plays - 0 - instead of leaving it on a clock that counts up. Tests:
+  `nif.rs` `mod autoplay_tests` (the bonelord waits; OAAB's ripples and TR's water free-run) and
+  `with_no_kf_the_controllers_stand_at_time_zero` in `wraithguard_kf_clock.rs`.
+
 ## File hashes (SHA-256)
 
 ```
