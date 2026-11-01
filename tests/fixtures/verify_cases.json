@@ -1868,7 +1868,7 @@
    }
   },
   {
-   "name": "a change to a deleted placed object brings it back: a warning",
+   "name": "a change to a deleted placed object has no effect: a warning",
    "plugins": [
     {
      "name": "Morrowind.esm",
@@ -2017,7 +2017,7 @@
         "tag": "CELL",
         "id": "(1, 1)",
         "path": "Morrowind.esm#5",
-        "message": "is deleted by Del.esp; the patch's change brings it back"
+        "message": "is deleted by Del.esp; the patch's change has no effect (a deletion stands)"
        }
       ],
       "checked": 0

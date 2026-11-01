@@ -294,7 +294,7 @@ impl Editor {
     /// What the reference dialog shows: `{cell, origin, refr, id, winner, plugins,
     /// fields, warning}`, each field `{path, value, kind, editable}` with `queued` when a
     /// change waits for it (`value` null for a field the reference does not have);
-    /// `warning` says a change brings back a deleted object, or is null.
+    /// `warning` says a change to a deleted object has no effect, or is null.
     pub fn ref_view(&self, found: &FoundRef) -> Value {
         let queued = self.ref_queued(found);
         let fields: Vec<Value> = REF_KINDS
@@ -307,10 +307,10 @@ impl Editor {
                 item
             })
             .collect();
-        // A later plugin's plain record undeletes a reference (`ordercore::refs`), so a
-        // change saved in the patch brings back what the load order hides.
+        // A deletion sticks (`ordercore::refs`): the game keeps the object, hidden, so a change
+        // saved in the patch edits a hidden object and shows nothing.
         let warning = if found.reference.get("deleted").is_some_and(crate::session::truthy) {
-            json!(format!("{} deletes this object. A change saved in the patch brings it back.", found.winner))
+            json!(format!("{} deletes this object. A change saved in the patch has no effect: the game keeps it deleted.", found.winner))
         } else {
             Value::Null
         };

@@ -3549,7 +3549,7 @@
    }
   },
   {
-   "name": "a deleted placed object: a change brings it back, and the view says so",
+   "name": "a deleted placed object: a change has no effect, and the view says so",
    "plugins": [
     {
      "name": "Morrowind.esm",
@@ -3791,7 +3791,7 @@
         "editable": true
        }
       ],
-      "warning": "Del.esp deletes this object. A change saved in the patch brings it back."
+      "warning": "Del.esp deletes this object. A change saved in the patch has no effect: the game keeps it deleted."
      },
      "ok",
      {
@@ -3929,7 +3929,7 @@
         "editable": true
        }
       ],
-      "warning": "Del.esp deletes this object. A change saved in the patch brings it back."
+      "warning": "Del.esp deletes this object. A change saved in the patch has no effect: the game keeps it deleted."
      }
     ],
     "journal": {

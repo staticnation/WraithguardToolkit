@@ -1,5 +1,5 @@
 {
-  "_about": "A placed object's identity and which of its versions stands (ordercore::refs); run by viewer-shell/ordercore's tests and tests/test_ref_cases.py through the Editor's winning_reference. Each case is a load order: `plugins` in order, each with its `masters` and its `refs`, each a reference record as [master index, reference index, deleted]. `ask` is a reference by [creating plugin, index] (any case); `expect` is the plugin whose version stands, whether it is deleted, and the plugins whose versions the game ignores (null: no plugin has it). Rules: master index 0 is the plugin itself, n its nth master; the last version stands, deleted or not: a later plain record brings back a reference an earlier plugin deleted, and the game ignores no version (checked in Morrowind.exe, tests/ingame/README.md).",
+  "_about": "A placed object's identity and which of its versions stands (ordercore::refs); run by viewer-shell/ordercore's tests and tests/test_ref_cases.py through the Editor's winning_reference. Each case is a load order: `plugins` in order, each with its `masters` and its `refs`, each a reference record as [master index, reference index, deleted]. `ask` is a reference by [creating plugin, index] (any case); `expect` is the plugin whose version stands, whether it is deleted, and the plugins whose versions the game ignores (null: no plugin has it). Rules: master index 0 is the plugin itself, n its nth master; the last version stands, unless a plugin deleted the reference: a deletion sticks (the game keeps the object and hides it), the first plugin to delete it stands and the plain records after it are ignored (Gardenfell round 18fc, Robin's in-game cases; tests/ingame/README.md says what is and is not settled).",
   "cases": [
     {
       "name": "the last plugin's version stands",
@@ -31,17 +31,17 @@
       "expect": {"winner": "Morrowind.esm", "deleted": false, "ignored": []}
     },
     {
-      "name": "a later edit undeletes it: the last version stands",
+      "name": "a deletion sticks: a later edit is ignored",
       "plugins": [
         {"name": "Morrowind.esm", "masters": [], "refs": [[0, 7, false]]},
         {"name": "Cleaner.esp", "masters": ["Morrowind.esm"], "refs": [[1, 7, true]]},
         {"name": "Mod.esp", "masters": ["Morrowind.esm"], "refs": [[1, 7, false]]}
       ],
       "ask": ["Morrowind.esm", 7],
-      "expect": {"winner": "Mod.esp", "deleted": false, "ignored": []}
+      "expect": {"winner": "Cleaner.esp", "deleted": true, "ignored": ["Mod.esp"]}
     },
     {
-      "name": "a deletion after the edit deletes it again",
+      "name": "a second deletion changes nothing: the first stands, the edit between is ignored",
       "plugins": [
         {"name": "Morrowind.esm", "masters": [], "refs": [[0, 7, false]]},
         {"name": "A.esp", "masters": ["Morrowind.esm"], "refs": [[1, 7, true]]},
@@ -49,7 +49,17 @@
         {"name": "C.esp", "masters": ["Morrowind.esm"], "refs": [[1, 7, true]]}
       ],
       "ask": ["Morrowind.esm", 7],
-      "expect": {"winner": "C.esp", "deleted": true, "ignored": []}
+      "expect": {"winner": "A.esp", "deleted": true, "ignored": ["B.esp"]}
+    },
+    {
+      "name": "a deletion that comes last is the version that stands",
+      "plugins": [
+        {"name": "Morrowind.esm", "masters": [], "refs": [[0, 7, false]]},
+        {"name": "Mod.esp", "masters": ["Morrowind.esm"], "refs": [[1, 7, false]]},
+        {"name": "Cleaner.esp", "masters": ["Morrowind.esm"], "refs": [[1, 7, true]]}
+      ],
+      "ask": ["Morrowind.esm", 7],
+      "expect": {"winner": "Cleaner.esp", "deleted": true, "ignored": []}
     },
     {
       "name": "a master index past the list names nothing",

@@ -7,8 +7,8 @@ install, world) until you take them or say no; either answer is fine, we keep th
 copy otherwise unmodified so your next release drops straight in. With your fixture
 folder (thank you for it) your whole suite passes with the first ten applied: 1553
 pass, 0 fail, against 1541 without them; the 12 more are tests we add. 0011-0014 came
-later (see "Applying them"); 0017 changes a rule of 18fc's, checked in the game (see its
-follow-up below); 0018-0022 (2026-10-29/30) are the newest.
+later (see "Applying them"); 0017 was a change to a rule of 18fc's and is withdrawn (see its
+section below); 0018-0022 (2026-10-29/30) are the newest.
 
 ## 0001 world: a record typer hook
 
@@ -309,53 +309,30 @@ and the meshes the world places. Wraithguard turns it off because nothing in it 
 showed that read at 39-43 s on Static's setup, as long as the merge itself. If you would
 rather have the hulls read lazily per cell for everyone, say so and we will look at that.
 
-## 0017 world: a later record undeletes a reference
+## 0017 (withdrawn): we put your `dead` set back
 
-Takes round 18fc's `dead` set out of the merge (both branches, interior and exterior): the
-last record for a reference stands, whole. A plugin that deletes a reference and a later
-plugin whose plain record names it again bring it back, with the later plugin's placement;
-a deletion that comes last still deletes it. `refs_kept_deleted` and `kept_deleted` stay in
-`LoadStats` and the cell's provenance (nothing fills them now) so no caller breaks, and the
-page's "kept deleted" row and connect-log fragment, which show only above 0, no longer
-appear; drop them all if you take this.
+We had proposed taking round 18fc's `dead` set out of the merge, so that the last record for a
+reference stands and a later plain record brings back what an earlier plugin deleted, on the
+strength of an in-game test (`tests/ingame/`, five piles). Your esp-format.md (§7, the D3 test,
+Wolverine Hall's flag) says the deletion sticks, and read against yours our test covered less
+than we said: **no cell record in it has a `NAM0`, so every reference in it is persistent, and
+the cell is an interior.** Yours are *temporary* references in exteriors - the Seyda Neen
+lighthouse (`NAM0 203`, a moved re-placement) and the flag. Where a later record does not bring
+a deleted reference back may depend on the section (or on interior against exterior, or a plain
+record against a move); nobody had tried a temporary reference in an interior with plain records.
 
-Why: we checked it in the game. Four tiny plugins (Wraithguard's `tests/ingame/`, happy to
-send them): a master places three gold piles in an interior; P1 edits pile 2; A deletes
-piles 1 and 2; P2, after A, edits pile 1 (raised, scale 2); each of P1, A and P2 also places
-a marker pile so a missing plugin shows. In vanilla Morrowind.exe (October 2026) there are
-**five** piles: the big raised pile 1 is there and `ori` on it says P2's record, pile 2 is
-gone, the control and the three markers stand. Under 18fc's rule there would be four. So
-the game takes the later record, and the deletion does not stick.
+So 0017 is **withdrawn** (2026-10-31): `world.rs` is back to your 18fc rule, the patch is gone
+from our series (its number is not reused), and the rest of our code - the Editor's reference
+resolver, its warnings, the shared case files - follows 18fc again. Nothing for you to apply.
 
-The quote 18fc was built on ("the reference still exists and is just hidden, so moving it
-just moves the hidden thing") may be about something else: a reference deleted or
-disabled in a save, which the save keeps by identity. For plugins against plugins the
-game's answer is the one above. OpenMW reads it the same way in its code
-(`apps/openmw/mwworld/cellstore.cpp`, `CellRefList<X>::load`: a later record for the same
-`RefNum` replaces the earlier one whole, `*iter = std::move(liveCellRef)`, and only a record
-that is itself deleted sets `setDeletedByContentFile`); we have not run the plugins in
-OpenMW yet.
-
-## 0017, after your esp-format.md: what our test did and did not cover
-
-Thank you for the notes (the D3 test, §7 and §9.0). Reading them against our test, the two do
-not contradict each other, and we should have said what ours covered: in `tests/ingame/`
-**no cell record has a `NAM0`, so every reference in it is persistent, and the cell is an
-interior.** Yours are *temporary* references (after `NAM0`) in exteriors - the Seyda Neen
-lighthouse (`NAM0 203`, a moved re-placement) and Wolverine Hall's flag. Where a later record
-does not bring a deleted reference back may depend on which section it sits in (or on
-interior against exterior, or on a plain record against a move); nobody has tried a temporary
-reference in an interior with plain records.
-
-We built that: `WG_DelT_Base.esm`, `WG_DelT_P1.esp`, `WG_DelT_A.esp`, `WG_DelT_P2.esp` are the
-same four plugins and edits with a `NAM0` before the first `FRMR` of every cell record (cell
-`WG Delete Test T`, `make_temporary_variant.py` writes them from the first set). Five piles
-means a temporary reference is undeleted too (then the difference is exterior or move); four
-means the section is the difference, and 0017 then has to carry `CellRef.temporary` (your 18gf)
-into the rule. **Until that is run, 0017 is the persistent-reference rule, not a claim about
-all references**; the patch's text and `kept_deleted` removal stand for that case. We will
-send the result either way. If you can lend `GF_D3_Delete`/`GF_D3_Readd`, we will run them
-beside ours.
+What stays open is the discrepancy, and we built the test that can separate the two:
+`WG_DelT_Base.esm`, `WG_DelT_P1.esp`, `WG_DelT_A.esp`, `WG_DelT_P2.esp` are the same four
+plugins and edits with a `NAM0` before the first `FRMR` of every cell record (cell `WG Delete
+Test T`; `make_temporary_variant.py` writes them from the first set). Five piles means a
+temporary reference is undeleted too in an interior (then the difference is the exterior or the
+move); four means the section is the difference, and the rule has to carry `CellRef.temporary`
+(your 18gf) so that a persistent one can come back. We will send the result either way. If you
+can lend `GF_D3_Delete`/`GF_D3_Readd` we will run them beside ours.
 
 Two things from your file we took on our side (not in your crates): record ids are compared
 without case in our conflict scan (your §2: `Iron_Dagger` and `iron_dagger` are one record),
@@ -458,7 +435,7 @@ In order, from the repository root: `for p in patches/0*.patch; do patch -p1 < $
 Checked: the series on your 18hu source gives exactly the tree Wraithguard vendors, and
 your whole workspace (all ten crates, the CLI and the Tauri check) builds with it. Your
 full suite, with your fixture: 1553 pass / 0 fail, against 1541 / 0 without the
-patches; the 12 more are the tests we add. That check was made with 0001-0010; 0011 (2026-10-13) and 0012-0014 (2026-10-19) came after. 0011 and 0012 only add functions; 0013 adds timers, fields to `LoadStats` (built with `..Default::default()` everywhere we could find) and three `reserve`/capacity sizings; 0014 asks the twin questions ahead of the loop with the same answers. None of them should break a caller, but they have not been through your full suite yet. The same goes for 0015-0021: written against the vendored tree, which is your 18hu with 0001-0017 on it, and checked by their own tests here; not yet run through your suite.
+patches; the 12 more are the tests we add. That check was made with 0001-0010; 0011 (2026-10-13) and 0012-0014 (2026-10-19) came after. 0011 and 0012 only add functions; 0013 adds timers, fields to `LoadStats` (built with `..Default::default()` everywhere we could find) and three `reserve`/capacity sizings; 0014 asks the twin questions ahead of the loop with the same answers. None of them should break a caller, but they have not been through your full suite yet. The same goes for 0015-0022: written against the vendored tree, which is your 18hu with 0001-0016 on it, and checked by their own tests here; not yet run through your suite.
 
 ## Your page: three fixes to the shadow receiver (`page/`)
 

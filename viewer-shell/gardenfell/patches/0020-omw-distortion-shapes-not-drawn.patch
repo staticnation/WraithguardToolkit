@@ -55,7 +55,7 @@
      let mut i = head;
 --- /dev/null
 +++ b/crates/gardenfell-nif/tests/wraithguard_omw_distortion.rs
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,35 @@
 +//! A shape under OpenMW's `distortion` shader effect is not drawn as a surface (patch 0020).
 +//! `tr_water_sqstat512.nif` is Tamriel Rebuilt's animated water square: `Tri Water` (a
 +//! flipbook of 32 `tr_water00..31` frames), an editor marker, and `Tri Water Distortion2`,
@@ -65,6 +65,7 @@
 +use gardenfell_nif::nif::parse_draw;
 +
 +const WATER: &[u8] = include_bytes!("fixtures/tr_water_sqstat512.nif");
++const RIPPLES: &[u8] = include_bytes!("fixtures/oaab_ripples.nif");
 +
 +#[test]
 +fn the_distortion_shape_is_not_drawn_but_the_water_is() {
@@ -76,4 +77,17 @@
 +    let everything: Vec<String> = parts.iter().flat_map(|p| std::iter::once(p.tex.clone()).chain(p.flip.iter().flat_map(|f| f.frames.clone()))).collect();
 +    assert!(everything.iter().any(|t| t.to_lowercase().contains("tr_water")), "{everything:?}");
 +    assert!(!everything.iter().any(|t| t.to_lowercase().contains("omw_distortion")), "{everything:?}");
++}
++
++/// OAAB's `ripples.nif`: `Circle` (the ripple texture and a dark map, its UVs scrolling) and
++/// `Distortion` (`omw_distortion\water_nm.png`, a normal map). The preview showed the normal
++/// map as a violet disc; it has no `soft_effect`, only the `distortion` shader.
++#[test]
++fn oaab_ripples_draw_the_circle_and_not_the_distortion_normal_map() {
++    let parts = parse_draw(RIPPLES).expect("the mesh reads");
++    let names: Vec<String> = parts.iter().map(|p| p.name.to_lowercase()).collect();
++    assert_eq!(parts.len(), 1, "{names:?}");
++    assert!(names[0].contains("circle") && !names[0].contains("distortion"), "{names:?}");
++    let textures: Vec<String> = parts.iter().map(|p| format!("{} {} {}", p.tex, p.dark_tex, p.detail_tex).to_lowercase()).collect();
++    assert!(textures.iter().all(|t| !t.contains("water_nm")), "{textures:?}");
 +}

@@ -358,18 +358,23 @@ the Setup page, the program on its own, the Rust command line and the rest below
   saved each of the script's fields as its own undo step (its text, then each part of the
   bytecode), so undoing it took several presses and stopped halfway through; saving a
   script from Script Edit did the same. Both are one step now.
-- **The viewer and the Editor agree on a placed object one plugin deletes and a later one
-  edits: the later record brings it back, as the game does.** Morrowind.exe takes the last
-  record for a reference whole, so a plugin's change after another plugin's deletion
-  undeletes the object (checked in the game with `tests/ingame/`'s `WG_Del_*` plugins: five
-  piles). The viewer kept such an object hidden (Gardenfell round 18fc; patch 0017 takes that
-  out) and the two sides used different rules; both now use `ordercore::refs`, pinned by
-  `tests/fixtures/ref_cases.json`. Where a moved object stands (a move, moved twice, moved
-  back, moved then deleted, deleted then moved) is pinned the same way for the engine and the
-  Editor: `tests/fixtures/move_cases.json`.
-- **The Editor warns before a change brings back a deleted object.** The placed object's
-  dialog says which plugin deletes it and that a change saved in the patch brings it back,
-  and Verify lists each such change as a warning.
+- **A deleted placed object stays deleted, in the viewer and the Editor alike.** Deletion is a
+  flag the game keeps on the reference, not its removal: the object is still there, hidden, so a
+  later plugin's record for it (an edit, a re-placing, a move) edits a hidden thing and shows
+  nothing - Gardenfell's round 18fc rule and Robin's in-game cases (the Seyda Neen lighthouse,
+  Wolverine Hall's flag). The first plugin to delete a reference stands and the plain records
+  after it are ignored; a reference nobody deletes takes its last record whole. Wraithguard had
+  the opposite rule for a while (Gardenfell patch 0017, "a later record undeletes", from a
+  single in-game test whose references were all persistent and in an interior); that patch is
+  withdrawn and the engine's `dead` set is back. The viewer and the Editor use the one rule
+  (`ordercore::refs`), pinned by `tests/fixtures/ref_cases.json`, and where a moved object
+  stands (a move, moved twice, moved back, moved then deleted, deleted then moved - now gone) by
+  `tests/fixtures/move_cases.json`. What is still not settled - whether a *persistent* reference
+  can come back - has its in-game test, `tests/ingame/` Variant T.
+- **The Editor says a change to a deleted placed object has no effect.** The placed object's
+  dialog says which plugin deletes it and that a change saved in the patch has no effect (the
+  game keeps it deleted), and Verify lists each such change as a warning. (It said the change
+  "brings it back" while the other rule was in.)
 - **A `[Note]` rule fires when any of the plugins it lists is installed**, as mlox's does, and
   names those that are. It needed all of them, so a note listing alternatives ("these are
   modder's resources", "use only one of these") almost never showed.

@@ -1,5 +1,11 @@
 # In-game test: does a later edit undelete a reference?
 
+**Where Wraithguard stands (2026-10-31): a deletion sticks** - Gardenfell's round 18fc rule, Robin's
+in-game cases - and the result below is the open discrepancy with it, not the rule. Patch 0017
+("a later record undeletes"), which was written from this test, is withdrawn; `ordercore::refs`,
+the Editor's warnings and the shared cases (`ref_cases.json`, `move_cases.json`) follow 18fc again.
+What this test showed is below, with the limits of what it covered.
+
 **Result (October 2026): yes, the last record wins - for these references: persistent ones, in an
 interior** (no plugin here has a `NAM0`, so every reference is persistent). Robin's cases that say
 the opposite - the Seyda Neen lighthouse, Wolverine Hall's flag (`gardenfell-esp-format.md` §7, §9.0)
@@ -80,8 +86,8 @@ x = -300 (ref 1), 0 (ref 2), 300 (ref 3), and the markers at 600, 900, 1200.
 
 | What you see | It means |
 |---|---|
-| **Five piles**, a big raised one at x=-300 | A temporary reference is also undeleted by a later record. Persistence is not the difference; the next suspect is an exterior cell (then: a test with an exterior cell and a move, as Robin's `GF_D3_*`). |
-| **Four piles**, nothing at x=-300 | A deletion sticks for temporary references and not for persistent ones. `ordercore::refs::winner` and Gardenfell's merge (patch 0017) then need to know which section a reference is in (Gardenfell carries it as `CellRef.temporary`, Robin's round 18gf). |
+| **Five piles**, a big raised one at x=-300 | A temporary reference is undeleted by a later record too, in an interior. Persistence is not the difference, and the sticky rule is then wrong for interiors at least; the next suspect is the exterior (a test with an exterior cell and a move, as Robin's `GF_D3_*`). |
+| **Four piles**, nothing at x=-300 | A deletion sticks for temporary references and not for persistent ones: the current rule is right for the temporary kind (what nearly all of the vanilla world is) and `ordercore::refs::winner` and Gardenfell's merge then need to know which section a reference is in (Gardenfell carries it as `CellRef.temporary`, Robin's round 18gf) to let a persistent one come back. |
 | Fewer than the three markers | A plugin did not load (the master's size is recorded as 642 bytes; a different size only warns). The run proves nothing. |
 
-Do it in OpenMW too (the code says it keeps the last record whatever the section).
+Do it in OpenMW too (its `CellRefList::load` replaces the earlier record whole, whatever the section).

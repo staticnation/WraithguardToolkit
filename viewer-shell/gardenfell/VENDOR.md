@@ -140,18 +140,19 @@ Greatness7's `tes3` crate reads, and Robin's code runs on what it read.
   `World::geom`, which is for the grass it does not grow, and the read was 39-43 s of
   every connect on Static's setup (33,267 meshes, 1.78 GB; patch 0015's numbers).
 
-- `patches/0017-later-record-undeletes.patch`: round 18fc's `dead` set taken out of the
-  merge (interior and exterior branches): the last record for a reference stands, whole, so
-  a later plugin's plain record brings back a reference an earlier plugin deleted, and a
-  deletion that comes last still deletes it. `refs_kept_deleted`/`kept_deleted` stay (now
-  always 0). Checked in vanilla Morrowind.exe with `tests/ingame/`'s `WG_Del_*` plugins
-  (five piles: the later record wins); the same rule as `ordercore::refs`, pinned for the
-  engine by `move_cases.json` ("deleted, then moved").
+- ~~`patches/0017-later-record-undeletes.patch`~~: **withdrawn 2026-10-31.** It took round 18fc's
+  `dead` set out of the merge so that the last record for a reference stood (a later plain record
+  brought back what an earlier plugin deleted). Robin's in-game cases (the Seyda Neen lighthouse,
+  Wolverine Hall's flag; `gardenfell-esp-format.md` §7, §9.0) say the deletion sticks, and our
+  test of the opposite covered only persistent references in an interior (no `NAM0`); they are
+  not reconciled (`tests/ingame/` Variant T is the next check). `world.rs` is back to 18fc's
+  rule (`patch -R`), the file is gone from `patches/`, and `ordercore::refs`, the Editor's
+  warnings and `ref_cases.json`/`move_cases.json` follow it again. 0017 is not a number to reuse.
 
 - `patches/0008-followup-preserve-part-tracks.patch` is already inside 0008 (and sorts
   before it, so a `for p in patches/0*.patch` would stop on it): delete it.
 
-0001-0011 are offered to Robin (0012-0017 not yet; the 2026-10-19 zip has 0001-0014), with `patches/NOTES-FOR-ROBIN.md` saying why each.
+0001-0011 are offered to Robin (0012-0016 and 0018 onward not yet; 0017 withdrawn; the 2026-10-19 zip has 0001-0014), with `patches/NOTES-FOR-ROBIN.md` saying why each.
 Applied in order to his 18hu source they give exactly the files here (checked); his
 tests: 503 pass with his fixture (his 491 and 12 of ours). Only 0006 and 0009 add
 a field to an existing struct, and only to `World`, which every caller builds with

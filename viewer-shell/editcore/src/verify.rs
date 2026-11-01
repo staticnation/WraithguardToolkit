@@ -706,7 +706,7 @@ impl Editor {
             if !name.is_empty() && !exists(&objects, &name) {
                 findings.push(finding("error", "Reference", "CELL", &edit.cell, &format!("{}#{}", edit.origin, edit.refr_index), format!("becomes {name}, which no plugin defines")));
             }
-            // The patch's record is the last version, so it undeletes what an earlier plugin deleted.
+            // A deletion sticks (`ordercore::refs`): the patch's record edits a hidden object.
             if !edit.changes.get(&"deleted".to_string()).is_some_and(truthy)
                 && let Some(found) = self.session.find_ref(&edit.cell, &edit.origin, edit.refr_index, None)
                 && found.reference.get("deleted").is_some_and(truthy)
@@ -717,7 +717,7 @@ impl Editor {
                     "CELL",
                     &edit.cell,
                     &format!("{}#{}", edit.origin, edit.refr_index),
-                    format!("is deleted by {}; the patch's change brings it back", found.winner),
+                    format!("is deleted by {}; the patch's change has no effect (a deletion stands)", found.winner),
                 ));
             }
         }
