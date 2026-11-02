@@ -102,6 +102,37 @@ fn users(stream: &NiStream) -> HashMap<NiKey, Users> {
     by_data
 }
 
+/// The triangles that draw nothing - a corner used twice, or three corners in a line (no
+/// area) - and the ones drawn twice: the same corners in the same winding as an earlier
+/// triangle. The same corners wound the other way are a back face (a two-sided part) and
+/// not counted.
+pub fn triangle_faults(d: &NiTriShapeData) -> (usize, usize) {
+    let v = &d.base.base.vertices;
+    let mut seen = std::collections::HashSet::new();
+    let (mut degenerate, mut duplicate) = (0, 0);
+    for t in &d.triangles {
+        let [a, b, c] = t.map(usize::from);
+        if a == b || b == c || a == c {
+            degenerate += 1;
+            continue;
+        }
+        if let (Some(p), Some(q), Some(r)) = (v.get(a), v.get(b), v.get(c)) {
+            let (e1, e2) = ([q.x - p.x, q.y - p.y, q.z - p.z], [r.x - p.x, r.y - p.y, r.z - p.z]);
+            let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+            if n[0] * n[0] + n[1] * n[1] + n[2] * n[2] == 0.0 {
+                degenerate += 1;
+                continue;
+            }
+        }
+        // One rotation for each winding: the smallest corner first.
+        let m = (0..3).min_by_key(|&i| t[i]).unwrap_or(0);
+        if !seen.insert([t[m], t[(m + 1) % 3], t[(m + 2) % 3]]) {
+            duplicate += 1;
+        }
+    }
+    (degenerate, duplicate)
+}
+
 fn flat_positions(d: &NiTriShapeData) -> Vec<f32> {
     d.base.base.vertices.iter().flat_map(|v| [v.x, v.y, v.z]).collect()
 }
@@ -161,6 +192,14 @@ fn run(stream: &mut NiStream, index: &HashMap<NiKey, usize>, apply: bool) -> Vec
         let Some(NiType::NiTriShapeData(d)) = stream.objects.get(key) else { continue };
         let n = d.base.base.vertices.len();
         let mut entry = json!({"block": block, "shapes": u.shapes, "vertices": n, "triangles": d.triangles.len()});
+        // Asset checks, said only when there is something to say.
+        let (degenerate, duplicate) = triangle_faults(d);
+        if degenerate > 0 {
+            entry["degenerate"] = json!(degenerate);
+        }
+        if duplicate > 0 {
+            entry["duplicate"] = json!(duplicate);
+        }
         if let Some(why) = u.blocked.or_else(|| inconsistent(d, stream, u)) {
             entry["skipped"] = json!(why);
             out.push(entry);
@@ -560,6 +599,27 @@ mod tests {
             }
         }
         check(&format!("{FIX}anim.nif"));
+    }
+
+    #[test]
+    fn degenerate_and_duplicate_triangles_are_counted_and_a_back_face_is_not() {
+        let bytes = std::fs::read(format!("{FIX}flap.nif")).unwrap();
+        let mut s = load(&bytes);
+        let data = s.objects.values_mut().find_map(|o| match o { NiType::NiTriShapeData(d) => Some(d), _ => None }).unwrap();
+        assert_eq!(triangle_faults(data), (0, 0), "the fixture is clean");
+        let [a, b, c] = data.triangles[0];
+        // A corner used twice, the first triangle again (rotated), and its back face.
+        data.triangles.extend([[a, a, b], [b, c, a], [a, c, b]]);
+        assert_eq!(triangle_faults(data), (1, 1));
+        // Three corners in a line.
+        let n = data.base.base.vertices.len() as u16;
+        let p = data.base.base.vertices[a as usize];
+        data.base.base.vertices.extend([p, p * 2.0, p * 3.0]);
+        data.triangles.push([n, n + 1, n + 2]);
+        assert_eq!(triangle_faults(data), (2, 1));
+        let ix = index(&s);
+        let rep = report(&mut s, &ix);
+        assert!(rep.iter().any(|e| e["degenerate"] == 2 && e["duplicate"] == 1), "{rep:?}");
     }
 
     #[test]

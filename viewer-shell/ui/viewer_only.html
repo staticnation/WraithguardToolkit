@@ -52,6 +52,31 @@
    Cell Preview's settings are, the render window beside them, the record dialog over it. */
 #edDock{display:none}
 body.wgEditMode #left{display:none}
+/* The Land view (67_wg_land.js): its dock where the Cell Preview's settings are, as the
+   Editor's windows are. */
+/* Cell borders' names (68_wg_cellgrid.js), over the render window and never in the way of it. */
+.wgCellNames{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:4}
+.wgCellName{position:absolute;left:0;top:0;white-space:nowrap;font:12px var(--ui,inherit);color:#ffe9a8;text-align:center;
+  text-shadow:0 0 3px #000,0 0 6px #000;will-change:transform}
+.wgCellName span{font-family:var(--mono);font-size:11px;opacity:.85}
+.wgCellName .r{font-size:10.5px;opacity:.7}
+#wgLandDock{display:none}
+body.wgLandMode #left{display:none}
+body.wgLandMode #wgLandDock{display:flex;flex-direction:column;width:300px;flex:0 0 300px;min-height:0;
+  background:var(--bg2);border-right:1px solid var(--line);overflow:auto;position:relative}
+#wgLandDock .edHead{display:flex;align-items:center;gap:6px;padding:6px 8px;border-left:3px solid var(--ac);background:var(--bg3,var(--bg2))}
+#wgLandDock .lsec{padding:8px 10px;border-bottom:1px solid var(--line)}
+#wgLandDock .lsecT{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--tx3);margin-bottom:6px}
+#wgLandDock .lrow{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:6px}
+#wgLandDock .hint{margin:2px 0 6px}
+/* A narrower label than the settings column's 118 px: the dock is 300 px across. */
+#wgLandDock .row>label{flex-basis:64px}
+#wgLandDock .ltexList{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-fld,4px);background:var(--bg3,var(--bg))}
+#wgLandDock .ltex{padding:3px 8px;cursor:pointer;font-family:var(--mono);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wgLandDock .ltex:hover{background:var(--bg2)}
+#wgLandDock .ltex.on{background:var(--ac2);color:var(--on-ac)}
+#wgLandDock .lcells{max-height:200px;overflow:auto;margin:4px 0}
+#wgLandDock .lcell{display:flex;align-items:center;gap:4px;padding:2px 0;font-family:var(--mono);font-size:11.5px}
 body.wgEditMode #edDock{display:flex;flex-direction:column;width:460px;flex:0 0 460px;min-height:0;
   background:var(--bg2);border-right:1px solid var(--line);overflow:hidden;position:relative}
 #edDock .edPane,.edPopout .edPane{display:flex;flex-direction:column;min-height:0;border-bottom:1px solid var(--line)}
@@ -118,7 +143,7 @@ tr.sel{display:table-row;gap:normal;padding:0;margin:0;border:0;border-radius:0;
 .edFields .edList .fld{min-width:0}
 .edFields .edVec .from{width:12px}
 .edFields .edVec .fld{flex:1;min-width:0;width:auto}
-#btnEditor.on{background:var(--acd);border-color:var(--ac)}
+#btnEditor.on,#btnLand.on{background:var(--acd);border-color:var(--ac)}
 /* The full help (46_wg_tfh.js): on the right, the inspector on the left. */
 #tfhPanel{left:auto;right:12px;width:380px}
 .tfhgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:6px;margin-top:4px}

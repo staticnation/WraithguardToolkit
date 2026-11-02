@@ -170,7 +170,7 @@ const WgForms={
         const f=F[x.color]; if(!f) return '';
         const c=cur(f), rgb=Array.isArray(c)? c : [255,255,255,0];
         const hex='#'+rgb.slice(0,3).map(n=>Math.max(0,Math.min(255,n|0)).toString(16).padStart(2,'0')).join('');
-        return '<div class="edFColor"><input type="color" data-fcolor="'+escHtml(x.color)+'" value="'+hex+'"'+(f.editable?'':' disabled')+' title="Pick the light\'s colour">'+
+        return '<div class="edFColor"><input type="color" data-fcolor="'+escHtml(x.color)+'" value="'+hex+'"'+(f.editable?'':' disabled')+' title="Pick the light\'s color">'+
           '<span class="from">R '+(rgb[0]|0)+' G '+(rgb[1]|0)+' B '+(rgb[2]|0)+'</span></div>';
       }
       return '';

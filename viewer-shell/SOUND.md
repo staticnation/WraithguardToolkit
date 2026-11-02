@@ -4,9 +4,29 @@ Step 5 of the road in `TODO.md` ("a sound engine"). **Step 1 (hear a file) is bu
 (2026-10-27): `viewcore::audio` (Symphonia: WAV in PCM and ADPCM, MP3, Ogg Vorbis, FLAC),
 the commands `sound_info` (facts, providers, waveform) and `sound_pcm`, and a player in the
 Editor's record dialog for a Sound record and a response's voice file (`ui/src/63_wg_sound.js`:
-waveform, play from any point, stop, loop, volume; the SOUN volume as the start). Not yet:
-the player in the asset lists and on every field that names a sound, the waveform cache, and
-steps 2-4.
+waveform, play from any point, stop, loop, volume; the SOUN volume as the start). Since
+2026-11-02: a play button on every field naming a sound (doors, lights, magic effects,
+sound generators, regions' `sounds.N.0`, a Sound's or response's file) and on the Object
+Window's Sound rows; what was read cached in the page by path (48 files, emptied on an
+install switch). **Step 2 is in** (2026-11-02): the world keeps SOUN, LIGH's SNAM and REGN's
+SNAM (`viewcore::world`: `sounds`, `light_sounds`, `region_sounds`), `sound_emitters` hands
+the page a scene's lights with sounds at OpenMW's volume and ranges (`soundbuffer.cpp`:
+`10^((v/255*3348-3348)/2000)`, ranges times `fAudioMin/MaxDistanceMult`, both 0 the
+`fAudioDefault*Distance`), and Preview's "Sounds" plays them through `PannerNode`s
+(the inverse model, culled past the maximum, the 16 nearest). **Step 3 is in** (2026-11-02),
+outdoors: a region's ambients every 1-5 s, the first of its list whose chance comes up (OpenMW's
+`RegionSoundSelector`; `region_sounds`), the weather's loop (Morrowind.ini's
+`Weather_*_Ambient_Loop_Sound_ID` defaults; `sound_records`), and Music/Explore shuffled
+(`music_list`), under Preview's Sound volume, Effects and Music volume. Then the same day: the
+setup's own settings (`sound_fallbacks`: openmw.cfg's `fallback=` or Morrowind.ini's sections,
+`viewcore::weather::fallbacks`; Morrowind.ini's values only where the setup has none), a
+weather's ambient and rain loops as OpenMW reads them (`_Ambient_Loop_Sound_ID`,
+`_Using_Precip` + `_Rain_Loop_Sound_ID`), thunder with its flash (`calculateThunder`: chance
+`frequency*10/60*dt`, `_Thunder_Sound_ID_0..3`, flash 1-0.25 fading at `_Flash_Decrement`;
+`R.lightning`), and activators', doors' and containers' own `PlayLoopSound3D(VP)` loops
+(`viewcore::world::loop_in_script`: the first call on the object itself, not after `->`;
+played whatever the script's conditions are). Not yet: Battle music (no fight to start it),
+step 4.
 
 ## Reference: Resonix
 
@@ -70,7 +90,8 @@ default in the cell preview.
    music: the Explore and Battle folders, and OpenMW's playlists.
 4. **Checks.** A sound record naming a file no folder supplies; a file the game cannot
    play (what Morrowind.exe and OpenMW each accept differs: check both before writing the
-   rule); clipped or silent files; a voice response with no file.
+   rule); clipped or silent files; a voice response with no file. Done (5.0.1): in
+   Verify (`editcore::verify`, the viewer's `editor_link` opening the files).
 
 Step 1 is small, and could ride with the Editor's fine details (road step 3) if wanted;
 the rest waits for the port.

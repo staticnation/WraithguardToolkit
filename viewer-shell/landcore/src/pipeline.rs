@@ -8,23 +8,24 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::cleaning::{clean_against_loaded, clean_landmass, CellDigest, CleaningReport};
 use crate::grid::RelativeGrid;
 use crate::heights::resolve_cell_normals;
-use crate::landmass::{decode_plugin, differences, layer_onto, masked, Coords, Landmass, PluginRecords};
+use crate::landmass::{differences, layer_onto, masked, Coords, Landmass, PluginRecords};
 use crate::layers::{LandscapeDiff, LandscapeLayers, Layer, ALL_LAYERS};
 use crate::merge::{self, merge_layer, ConflictParams};
 use crate::meta::{layer, PluginMeta, Strategy};
 use crate::seams::{find_tears, repair_seams, SeamReport, DEFAULT_FEATHER};
 use crate::slope::{limit_slopes, SlopeReport};
 use crate::textures::KnownTextures;
+use crate::grid::Value;
 
 /// One cell of the merge (`MergedCell`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MergedCell {
     pub coords: Coords,
-    pub heights: Option<Vec<i64>>,
-    pub textures: Option<Vec<i64>>,
-    pub world_map: Option<Vec<i64>>,
-    pub colors: Option<Vec<i64>>,
-    pub normals: Option<Vec<i64>>,
+    pub heights: Option<Vec<Value>>,
+    pub textures: Option<Vec<Value>>,
+    pub world_map: Option<Vec<Value>>,
+    pub colors: Option<Vec<Value>>,
+    pub normals: Option<Vec<Value>>,
     /// The plugins that changed it, in load order.
     pub editors: Vec<String>,
     /// Height vertices more than one plugin moved, and those settled far from an intent.
@@ -56,7 +57,7 @@ const FOLDED: [(Layer, u32); 4] = [
     (Layer::Colors, layer::VERTEX_COLORS),
 ];
 
-fn slot(cell: &mut MergedCell, which: Layer) -> &mut Option<Vec<i64>> {
+fn slot(cell: &mut MergedCell, which: Layer) -> &mut Option<Vec<Value>> {
     match which {
         Layer::Heights => &mut cell.heights,
         Layer::Textures => &mut cell.textures,
@@ -187,6 +188,11 @@ pub fn merge_landmass(
     // Each touch: the plugin's index, the layers it may change, its decoded cell.
     type Touch = (usize, u32, LandscapeLayers);
     let mut by_cell: BTreeMap<Coords, Vec<Touch>> = BTreeMap::new();
+    /* The plugins' land textures numbered in load order (the table is shared, and a
+       texture's number is the order it was first met), then their records decoded across
+       the cores, then gathered in load order - their notes too, so the log reads as it did
+       one plugin after another. */
+    let mut work: Vec<(usize, u32, HashMap<Value, Value>)> = Vec::new();
     for (index, plugin) in plugins.iter().enumerate() {
         let meta = metas.get(&plugin.name);
         if meta.is_some_and(PluginMeta::is_previous_merge) {
@@ -200,7 +206,18 @@ pub fn merge_landmass(
                 continue;
             }
         }
-        for c in decode_plugin(plugin, known, &mut outcome.notes)? {
+        work.push((index, allowed, known.observe(&plugin.name, &plugin.records)));
+    }
+    let decoded_all = par_each(work, |(index, allowed, mapping)| {
+        let plugin = &plugins[index];
+        let mut notes = Vec::new();
+        let cells = crate::landmass::decoded(&plugin.name, &plugin.records, &mapping, &mut notes);
+        (index, allowed, cells, notes)
+    });
+    for (index, allowed, cells, notes) in decoded_all {
+        // As one after another: this plugin's notes, then its error stops the merge.
+        outcome.notes.extend(notes);
+        for c in cells? {
             by_cell.entry(c.coords).or_default().push((index, allowed, c));
         }
     }
@@ -245,17 +262,40 @@ pub fn merge_landmass(
     };
     let cells: Vec<(&Coords, &Vec<Touch>)> = by_cell.iter().collect();
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(cells.len().max(1));
-    let per = cells.len().div_ceil(threads).max(1);
-    let parts: Vec<Result<Vec<(Coords, CellOut)>, String>> = std::thread::scope(|s| {
-        let jobs: Vec<_> = cells
-            .chunks(per)
-            .map(|part| s.spawn(move || part.iter().map(|(c, t)| one(**c, t).map(|r| (**c, r))).collect::<Result<Vec<_>, String>>()))
+    /* Each core takes the next cell as it finishes one, rather than a fixed share: the cells
+       a load order edits most are next to each other (a city, a coast), and a share of them
+       kept one core busy while the others had finished. The answers are put back in the
+       cells' order before they are used, so nothing depends on which core took which. */
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let parts: Vec<Vec<(usize, Result<CellOut, String>)>> = std::thread::scope(|s| {
+        let jobs: Vec<_> = (0..threads)
+            .map(|_| {
+                let (cells, next, one) = (&cells, &next, &one);
+                s.spawn(move || {
+                    let mut got = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some((c, t)) = cells.get(i) else { break };
+                        let r = one(**c, t);
+                        let stop = r.is_err();
+                        got.push((i, r));
+                        if stop {
+                            break;
+                        }
+                    }
+                    got
+                })
+            })
             .collect();
-        jobs.into_iter().map(|j| j.join().unwrap_or_else(|_| Err("a merge thread panicked".to_string()))).collect()
+        jobs.into_iter().map(|j| j.join().unwrap_or_else(|_| vec![(usize::MAX, Err("a merge thread panicked".to_string()))])).collect()
     });
+    let mut answers: Vec<(usize, Result<CellOut, String>)> = parts.into_iter().flatten().collect();
+    answers.sort_by_key(|(i, _)| *i);
     let mut loaded = loaded;
-    for part in parts {
-        for (coords, (merged, here)) in part? {
+    {
+        for (i, answer) in answers {
+            let coords = cells.get(i).map(|(c, _)| **c).unwrap_or_default();
+            let (merged, here) = answer?;
             if let (Some(l), Some(h)) = (loaded.as_deref_mut(), here) {
                 l.cells.insert(coords, h);
             }
@@ -275,9 +315,10 @@ pub fn merge_landmass(
 /// Each written cell's normals from its final heights, the reference's kept where the
 /// height did not move (`resolve_normals`). Answers how many were kept.
 pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass) -> usize {
-    let mut preserved = 0;
-    for (coords, cell) in outcome.cells.iter_mut() {
-        let Some(h) = &cell.heights else { continue };
+    // Each cell on its own: shared out over the cores.
+    let cells: Vec<(&Coords, &mut MergedCell)> = outcome.cells.iter_mut().collect();
+    par_each(cells, |(coords, cell)| {
+        let Some(h) = &cell.heights else { return 0 };
         let l = reference.get(*coords);
         let (mut original, mut base) = (l.and_then(|l| l.normals.as_deref().map(crate::layers::Packed::to_vec)), l.and_then(|l| l.heights.as_deref().map(crate::layers::Packed::to_vec)));
         if original.is_none() || base.as_ref().is_none_or(|b| b.len() != h.len()) {
@@ -286,9 +327,29 @@ pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass) -> usiz
         }
         let (n, kept) = resolve_cell_normals(h, original.as_deref(), base.as_deref());
         cell.normals = Some(n);
-        preserved += kept;
+        kept
+    })
+    .into_iter()
+    .sum()
+}
+
+/// `f` over `items` on every core, the answers in the items' order.
+fn par_each<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Sync) -> Vec<R> {
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(items.len().max(1));
+    if threads <= 1 {
+        return items.into_iter().map(f).collect();
     }
-    preserved
+    let per = items.len().div_ceil(threads);
+    let mut chunks: Vec<Vec<T>> = Vec::new();
+    let mut it = items.into_iter().peekable();
+    while it.peek().is_some() {
+        chunks.push(it.by_ref().take(per).collect());
+    }
+    let f = &f;
+    std::thread::scope(|s| {
+        let jobs: Vec<_> = chunks.into_iter().map(|c| s.spawn(move || c.into_iter().map(f).collect::<Vec<R>>())).collect();
+        jobs.into_iter().flat_map(|j| j.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+    })
 }
 
 /// The untouched reference cells bordering the merge, brought in so their borders can be
@@ -314,11 +375,11 @@ pub fn add_reference_neighbours(outcome: &mut MergeOutcome, reference: &Landmass
 }
 
 fn check_borders(outcome: &mut MergeOutcome, reference: &Landmass, borrowed: &BTreeSet<Coords>) {
-    let written: BTreeMap<Coords, Vec<i64>> = outcome.cells.iter().filter_map(|(c, cell)| cell.heights.clone().map(|h| (*c, h))).collect();
+    let written: BTreeMap<Coords, Vec<Value>> = outcome.cells.iter().filter_map(|(c, cell)| cell.heights.clone().map(|h| (*c, h))).collect();
     if written.is_empty() {
         return;
     }
-    let mut nearby: BTreeMap<Coords, Vec<i64>> = BTreeMap::new();
+    let mut nearby: BTreeMap<Coords, Vec<Value>> = BTreeMap::new();
     for c in written.keys() {
         for (dx, dy) in [(-1, 0), (1, 0), (0, 1), (0, -1)] {
             let o = (c.0 + dx, c.1 + dy);
@@ -335,7 +396,7 @@ fn check_borders(outcome: &mut MergeOutcome, reference: &Landmass, borrowed: &BT
 
 fn digest_cell(cell: &MergedCell) -> CellDigest {
     {
-        let d = |v: &Option<Vec<i64>>| v.as_deref().map(crate::cleaning::digest);
+        let d = |v: &Option<Vec<Value>>| v.as_deref().map(crate::cleaning::digest);
         CellDigest { heights: d(&cell.heights), normals: None, world_map: d(&cell.world_map), colors: d(&cell.colors), textures: d(&cell.textures) }
     }
 }
@@ -354,9 +415,13 @@ fn digest_reference(l: &LandscapeLayers) -> CellDigest {
 pub fn finish(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&Landmass>) -> Result<(), String> {
     let borrowed = add_reference_neighbours(outcome, reference);
     outcome.borrowed = borrowed.len();
-    let mut heights: BTreeMap<Coords, Vec<i64>> = outcome.cells.iter_mut().filter_map(|(c, cell)| cell.heights.take().map(|h| (*c, h))).collect();
+    let mut heights: BTreeMap<Coords, Vec<Value>> = outcome.cells.iter_mut().filter_map(|(c, cell)| cell.heights.take().map(|h| (*c, h))).collect();
     if !heights.is_empty() {
-        let anchor: BTreeMap<Coords, Vec<i64>> = reference.cells.iter().filter_map(|(c, l)| l.heights.as_deref().map(crate::layers::Packed::to_vec).map(|h| (*c, h))).collect();
+        // The reference only around the merge (a corner's outside cells), not the whole
+        // landmass unpacked.
+        let near: BTreeSet<Coords> = heights.keys().flat_map(|&(x, y)| (-1..=1).flat_map(move |dx| (-1..=1).map(move |dy| (x + dx, y + dy)))).collect();
+        let anchor: BTreeMap<Coords, Vec<Value>> =
+            near.into_iter().filter_map(|c| reference.get(c).and_then(|l| l.heights.as_deref()).map(|h| (c, h.to_vec()))).collect();
         outcome.seams = repair_seams(&mut heights, DEFAULT_FEATHER, Some(&anchor), &borrowed)?;
         outcome.slopes = limit_slopes(&mut heights, &borrowed);
     }
@@ -365,13 +430,15 @@ pub fn finish(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&
     }
     resolve_normals(outcome, reference);
     check_borders(outcome, reference, &borrowed);
-    let merged: BTreeMap<Coords, CellDigest> = outcome.cells.iter().map(|(c, cell)| (*c, digest_cell(cell))).collect();
-    let refs: BTreeMap<Coords, CellDigest> = outcome.cells.keys().filter_map(|c| reference.get(*c).map(|l| (*c, digest_reference(l)))).collect();
+    let merged: BTreeMap<Coords, CellDigest> = par_each(outcome.cells.iter().collect(), |(c, cell)| (*c, digest_cell(cell))).into_iter().collect();
+    let refs: BTreeMap<Coords, CellDigest> =
+        par_each(outcome.cells.keys().filter_map(|c| reference.get(*c).map(|l| (*c, l))).collect(), |(c, l)| (c, digest_reference(l))).into_iter().collect();
     let sources: BTreeMap<Coords, Vec<String>> = outcome.cells.iter().map(|(c, cell)| (*c, cell.editors.clone())).collect();
     let originals: BTreeMap<Coords, CellDigest> = outcome.cells.iter().map(|(c, cell)| (*c, cell.sole_source.clone())).collect();
     let (keep, report) = match loaded {
         Some(loaded) => {
-            let there: BTreeMap<Coords, CellDigest> = outcome.cells.keys().filter_map(|c| loaded.get(*c).map(|l| (*c, digest_reference(l)))).collect();
+            let there: BTreeMap<Coords, CellDigest> =
+                par_each(outcome.cells.keys().filter_map(|c| loaded.get(*c).map(|l| (*c, l))).collect(), |(c, l)| (c, digest_reference(l))).into_iter().collect();
             clean_against_loaded(&merged, &there)
         }
         None => clean_landmass(&merged, &refs, &sources, &originals),

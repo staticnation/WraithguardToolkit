@@ -88,12 +88,15 @@ const TX_STRINGS = {
   "vp.nav_wasd_text":
     ["WASD navigation",
      "Viewport, the navigation button's own words while the WASD scheme is on. The Orbit wording is the button's markup (vp.nav_orbit)."],
+  "vp.nav_walk_text":
+    ["First person",
+     "Viewport, the navigation button's own words while the game's first-person camera is on."],
   "preview.fogd_from":
     ["fog from",
      "Left column, on the sources line after Reset to install — before the file the fog distances came from."],
   "preview.sky_src":
     ["Sky:",
-     "Left column, under the Weather picker — the lead-in before the list of files the sky's colours were read from."],
+     "Left column, under the Weather picker — the lead-in before the list of files the sky's colors were read from."],
   "preview.sky_src_none":
     ["Sky: using default values, until an install is connected.",
      "Left column, under the atmosphere rows while nothing is connected."],
@@ -528,13 +531,13 @@ const TX_STRINGS = {
      rule they stand for. */
   "cell.painted_tip":
     ["Painted with {colours}",
-     "The painted-cell mark's note, and a line of the map's hover note on a painted cell. {colours} is the list of colour names."],
+     "The painted-cell mark's note, and a line of the map's hover note on a painted cell. {colours} is the list of color names."],
   "cell.painted_objects":
     ["some of it on objects standing here",
      "Added after the painted line when part of the paint lies on objects (rocks, trees) in the cell rather than on its ground."],
   "cell.painted_unknown_colour":
     ["a color no longer in the palette",
-     "Stands in the painted line for a colour whose swatch has been removed."],
+     "Stands in the painted line for a color whose swatch has been removed."],
   /* Round 18ap: keyed for the language packs — the object dialogue (verdicts, paint, canopies) and the two pattern lists (18_cellpreview.js). */
   "connect.cell_preview":
     ["Connect a setup first. Cell preview needs the plugin data.",
@@ -634,16 +637,16 @@ const TX_STRINGS = {
      "Viewport legend: the cull overlay's entry; its note lists the reasons."],
   "legend.painted_bare":
     ["Painted: no grass",
-     "Viewport legend: the No grass cover colour."],
+     "Viewport legend: the No grass cover color."],
   "legend.painted_grass":
     ["Painted: grass here",
-     "Viewport legend: the Grass cover colour."],
+     "Viewport legend: the Grass cover color."],
   "legend.a_rule":
     ["a rule",
      "Viewport legend: what to call a painted rule with no name."],
   "legend.painted_rule":
     ["Painted: {rule}",
-     "Viewport legend: a rule colour's entry."],
+     "Viewport legend: a rule color's entry."],
   "legend.brush":
     ["Brush",
      "Viewport legend: the brush ring while painting."],
@@ -896,7 +899,7 @@ const TX_STRINGS = {
     ["Texture-aware",
      "Left column, Preview, Scene, Distant simplify: more kept where the texture is busy."],
   "preview.distant_title":
-    ["The exteriors past the loaded rings, out to your install's view distance: their ground, coarse, coloured as it is, and the sea over it. On when the install draws distant land (OpenMW's distant terrain, MGE's distant land) and when the viewer cannot tell. Preview only.",
+    ["The exteriors past the loaded rings, out to your install's view distance: their ground, coarse, colored as it is, and the sea over it. On when the install draws distant land (OpenMW's distant terrain, MGE's distant land) and when the viewer cannot tell. Preview only.",
      "Left column, Preview, Scene: the Distant land switch's tooltip."],
   /* Round 18aq: the language picker in Settings (19_settings.js). */
   /* Round 18cg: the colour themes, by name. Names rather than descriptions — the row a
@@ -925,10 +928,10 @@ const TX_STRINGS = {
      "Settings, Theme: a palette — coin gold on yellow clay."],
   "settings.theme_firmament":
     ["The Firmament",
-     "Settings, Theme: a palette — dark greys and starlight, Masser's rust for the warm colours; the quiet one."],
+     "Settings, Theme: a palette — dark greys and starlight, Masser's rust for the warm colors; the quiet one."],
   "settings.theme_unknown":
     ["A theme this version does not have",
-     "Settings, Theme: the entry for a theme the profile names and this build has no colours for; its code is shown beside it."],
+     "Settings, Theme: the entry for a theme the profile names and this build has no colors for; its code is shown beside it."],
   "settings.lang_english":
     ["English (built in)",
      "Settings, Language: the picker's first entry — the wording built into the program."],

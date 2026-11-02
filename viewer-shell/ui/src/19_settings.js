@@ -28,6 +28,9 @@ const PrevSettings={
     ['fxaa','#p_fxaa','bool'],   // round 18do
     ['underwater','#p_under','bool'],   // round 18dt
     ['pauseStill','#p_pause','bool'],   // round 18fh
+    ['sounds','#p_sounds','bool'], ['soundVolume','#p_sndvol','num'],   // SOUND.md step 2
+    ['soundEffects','#p_sndfx','num'], ['music','#p_music','bool'], ['musicVolume','#p_musvol','num'],   // step 3
+    ['soundScripts','#p_sndscripts','bool'],
     ['dof','#p_dof','bool'],            // round 18dy
     ['bloom','#p_bloom','bool'],        // Wraithguard: 42_wg_bloom.js
     ['shadows','#p_shadows','bool'],       // round 18ee
@@ -173,7 +176,7 @@ const PrevSettings={
       ['brush_opacity',n(o.brushOpacity)],
       ['show_adjacent',+o.showAdjacent||0], ['show_empty',!!+o.showEmpty],   // rings, 0..3 (round 15)
       ['texture_detail', (App.textureDetail==null)? 2048 : (+App.textureDetail||0)],   // longest side, 0 = full (round 16)
-      ['navigation', (App.R && App.R.nav)||'orbit'],                    // round 17: orbit | wasd
+      ['navigation', (App.R && (App.R.navScheme? App.R.navScheme() : App.R.nav))||'orbit'],                    // round 17: orbit | wasd
       ['fly_speed', App.R? Math.round(App.R.fly.speed) : 1500],
       ['look_smoothing', App.R? Math.round(Math.max(1,Math.min(100,+App.R.lookSmooth||35))) : 35],   // round 17d: the catch-up rate, 1..100
       /* Round 18ag: the WASD head's turn per pixel as a multiple of the built-in rate -

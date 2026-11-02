@@ -134,7 +134,7 @@ const WgTools={
         '<div class="wgNavRow" id="wgNavRow" hidden><select class="fld" id="wgNavAgent" title="Which actor size\'s mesh to draw: OpenMW builds one per collision box"></select>'+
           '<button class="btn sm" id="wgNavPick" title="Choose the navmesh.db to read">navmesh.db…</button>'+
           '<div class="hint" id="wgNavNote"></div></div>'+
-        this.row('Light radii',this.sw('wgOvLights','Each lit lamp\'s radius, in its colour'))+
+        this.row('Light radii',this.sw('wgOvLights','Each lit lamp\'s radius, in its color'))+
         this.row('Collision',this.sw('wgOvCollision','The collision shape of every object in the loaded cells (its hull, or the drawn mesh where it has none)'))+
         this.row('Door links',this.sw('wgOvDoors','A line from each door to where it leads, when that is in view; a post over doors that lead elsewhere'))+
         this.row('Editor markers',this.sw('wgOvMarkers','The Construction Set\'s markers the game does not draw - door and travel landing spots, north markers and the rest - as outlines (door and travel markers in R-Zero\'s replacements)'))+

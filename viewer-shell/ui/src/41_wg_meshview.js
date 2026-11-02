@@ -123,7 +123,7 @@ const WgMeshView={
       h+='<div class="orirow"><span class="k">Mesh</span><span class="v"><code>'+escHtml(this.list[0].path)+'</code></span></div>';
     }
     h+='<div class="orisec">View</div><div class="orirow mvSeg">'+
-       [[0,'Lit'],[1,'Flat colour'],[2,'Relief']].map(([k,t])=>
+       [[0,'Lit'],[1,'Flat color'],[2,'Relief']].map(([k,t])=>
          '<button class="btn sm'+(this.viewMode===k?' on':'')+'" data-view="'+k+'" title="'+
          (k===1?'Clay grey under a light that moves with the camera: the shape, and the relief the normal map puts in it':
           k===2?'The textures under a light that moves with the camera, raking across them: the normal map bends it, the specular map shines in it':'As the game lights it')+'">'+t+'</button>').join('')+'</div>'+
@@ -131,7 +131,7 @@ const WgMeshView={
        /* The light the studio views use (Flat colour, Relief), as the old texture
           viewer's lit material had it: where it comes from, round the view and above it,
           and how strong it and the ambient are. */
-       '<div class="orisec">Light (Flat colour, Relief)</div>'+
+       '<div class="orisec">Light (Flat color, Relief)</div>'+
        [['angle','Angle',-3.14,3.14,0.05],['elevation','Elevation',-1.5,1.5,0.05],['key','Light',0,4,0.05],['ambient','Ambient',0,2,0.05]].map(([k,t,lo,hi,st])=>
          '<div class="orirow"><span class="k">'+t+'</span><span class="v"><input type="range" style="width:100%" data-light="'+k+'" min="'+lo+'" max="'+hi+'" step="'+st+'" value="'+this.light[k]+'"></span></div>').join('')+
        '<div class="orisec">Maps</div><div id="mvMaps" class="from">…</div>'+
@@ -218,6 +218,15 @@ const WgMeshView={
         '<td>'+pair(e,'acmr')+'</td><td>'+pair(e,'overfetch')+'</td><td>'+pair(e,'overdraw')+'</td></tr>';
     }
     h+='</tbody></table>';
+    // Asset checks: triangles that draw nothing, and ones drawn twice.
+    const bad=rows.filter(e=>e.degenerate||e.duplicate);
+    if(bad.length) h+='<div class="hint warn" style="padding:4px 6px" title="Degenerate: a corner used twice, or three corners in a line, so the triangle has no area and draws nothing. Duplicate: the same corners in the same winding as another triangle, drawn twice (a back face, the same corners wound the other way, is not counted).">'+
+      bad.map(e=>{
+        const name=(e.shapes&&e.shapes.length? e.shapes.join(', ') : 'block '+e.block), say=[];
+        if(e.degenerate) say.push(e.degenerate+' degenerate');
+        if(e.duplicate) say.push(e.duplicate+' duplicate');
+        return escHtml(name)+': '+say.join(', ')+' triangle'+((e.degenerate||0)+(e.duplicate||0)===1?'':'s');
+      }).join('<br>')+'</div>';
     if(cur.edit && can) h+='<div class="orirow"><button class="btn sm'+(this.pending.optimize?' on':'')+'" id="mvOpt" '+
       'title="Queue the new order as an edit; Save writes it. Only the shapes it improves are changed.">Optimise draw order</button></div>';
     else if(!can) h+='<div class="from">Nothing to gain: every shape is in good order or cannot be reordered.</div>';
@@ -370,7 +379,7 @@ const WgMeshView={
     const tris=(p.idx? p.idx.length/3 : 0)|0, verts=(p.pos? p.pos.length/3 : 0)|0;
     const bits=[tris+' tri', verts+' vert'];
     if(!p.uv || !p.uv.length) bits.push('no UVs');
-    if(p.col) bits.push('vertex colours');
+    if(p.col) bits.push('vertex colors');
     const blend=typeof alphaBlend==='function'? alphaBlend(p) : null;
     if(blend) bits.push('blend'+(p.matAlpha!=null && p.matAlpha<1? ' @ '+Math.round(p.matAlpha*100)+'%' : ''));
     if(p.alphaThreshold!=null) bits.push('cutout @ '+p.alphaThreshold);

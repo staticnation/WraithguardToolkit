@@ -130,7 +130,7 @@ function boot(){
     const a=document.activeElement;
     try{ if(a && a!==document.body && a!==R.cv) a.blur(); }catch(_){ }
     try{ R.cv.focus({preventScroll:true}); }catch(_){ }
-    R.setNav(R.nav==='wasd'? 'orbit' : 'wasd');
+    R.setNav(R.nextNav? R.nextNav() : (R.nav==='wasd'? 'orbit' : 'wasd'));
   });
   /* Round 18ba: and the webview's own menu never opens. Robin: "When I right click on
      something that doesn't consume my right click for use in the editor, I get a webview
@@ -579,6 +579,13 @@ function boot(){
   { const e=$('#p_sewers'); if(e) e.onchange=()=>{ if(App.R){ App.R.opts.sewerWaves=e.checked; App.R.dirty=true; } }; }  // Wraithguard: MGE XE's water settings, driven here (26_water.js, 35_underwater.js).
   { const e=$('#p_waves'); if(e){ const f=()=>{ if(App.R){ App.R.opts.waves=e.checked; App.R.dirty=true; } }; e.onchange=f; f(); } }
   lightSlider('#p_wheight','#p_wheightV',v=>{ if(App.R) App.R.opts.waveHeight=v; });
+  // SOUND.md step 2: the scene's sounds (63_wg_sound.js).
+  { const e=$('#p_sounds'); if(e){ const f=()=>{ if(typeof WgSound==='object') WgSound.placeOn(e.checked); }; e.onchange=f; f(); } }
+  lightSlider('#p_sndvol','#p_sndvolV',v=>{ if(typeof WgSound==='object') WgSound.placeVolume(v/100); });
+  lightSlider('#p_sndfx','#p_sndfxV',v=>{ if(typeof WgSound==='object') WgSound.placeEffects(v/100); });
+  lightSlider('#p_musvol','#p_musvolV',v=>{ if(typeof WgSound==='object') WgSound.placeMusicVolume(v/100); });
+  { const e=$('#p_music'); if(e){ const f=()=>{ if(typeof WgSound==='object') WgSound.placeMusic(e.checked); }; e.onchange=f; f(); } }
+  { const e=$('#p_sndscripts'); if(e){ const f=()=>{ if(typeof WgSound==='object') WgSound.placeScripts(e.checked); }; e.onchange=f; f(); } }
   lightSlider('#p_caust','#p_caustV',v=>{ if(App.R) App.R.opts.caustics=v; });
   { const e=$('#p_weather'); if(e){ const f=()=>{ if(typeof Sky==='object'){ Sky.weather=e.value||'Clear'; } if(App.R){ App.R.opts.weather=e.value||'Clear'; App.R.dirty=true; } if(typeof Sky==='object' && Sky.showSources) Sky.showSources(); }; e.onchange=f; e.oninput=f; f(); } }   // Wraithguard: the weathers
   { const e=$('#p_wdepth'); if(e){ const f=()=>{ if(App.R){ App.R.opts.waterDepth=e.checked; App.R.dirty=true; } }; e.onchange=f; f(); } }   // Wonders of Water
@@ -868,7 +875,10 @@ function boot(){
     const vh=$('#vphint'); if(!vh) return;
     // Round 17: the WASD scheme has its own three, and a fourth while the button is held.
     const wasd=App.R && App.R.nav==='wasd';
-    const src = wasd
+    const walk=App.R && App.R.walk;
+    const src = (typeof WgLand==='object' && WgLand.on) ? $('#vphintLand')
+      : walk && !App.paintMode ? $('#vphintWalk')
+      : wasd
       ? (App._flying ? $('#vphintWasdFly')
          : App.paintMode ? $('#vphintWasdPaint')
          : (App.inspect || App.mode!=='cell') ? $('#vphintWasdPlain')
@@ -903,15 +913,15 @@ function boot(){
     }
   };
   const syncNav=()=>{
-    const wasd=App.R && App.R.nav==='wasd';
+    const wasd=App.R && App.R.nav==='wasd', walk=!!(App.R && App.R.walk);
     /* Round 17h: the button at the top of the viewport's toggles says which scheme is
        on, and is lit like every other "this is on" toggle. */
     { const nb=$('#tbNav');
-      if(nb){ nb.textContent = wasd? T('vp.nav_wasd_text') : T('vp.nav_orbit');
+      if(nb){ nb.textContent = walk? T('vp.nav_walk_text') : wasd? T('vp.nav_wasd_text') : T('vp.nav_orbit');
               nb.classList.toggle('orbit',!wasd); nb.classList.toggle('wasd',wasd); nb.classList.remove('on'); }
     }
-    const sp=$('#vpSpeed'); if(sp) sp.hidden=!wasd;
-    const pick=$('#setNav'); if(pick) pick.value=wasd? 'wasd' : 'orbit';
+    const sp=$('#vpSpeed'); if(sp) sp.hidden=!wasd || walk;
+    const pick=$('#setNav'); if(pick) pick.value=walk? 'walk' : wasd? 'wasd' : 'orbit';
     /* Round 18ag: the sensitivity, shown as a percentage of the built-in rate, with the
        bar's middle at 100%. The bar is a log scale over a quarter to four times, so the
        left half and the right half are the same size in feel - halving at 25, doubling
@@ -977,7 +987,7 @@ function boot(){
   const navPick=$('#setNav');
   if(navPick) navPick.onchange=()=>{ if(App.R) App.R.setNav(navPick.value); };
   { const nb=$('#tbNav');
-    if(nb) nb.onclick=()=>{ if(App.R) App.R.setNav(App.R.nav==='wasd'? 'orbit' : 'wasd'); }; }
+    if(nb) nb.onclick=()=>{ if(App.R) App.R.setNav(App.R.nextNav()); }; }
   const sens=$('#setSens');
   if(sens) sens.oninput=()=>{
     /* Snapped to the middle within a step either side: the bar's whole point is that
@@ -1131,6 +1141,8 @@ function markInstall(kind,label,title){
     const rb=$('#btnReport'); if(rb) rb.hidden=false;
     // Wraithguard: the Editor mode's switch, beside it (50_wg_editor.js).
     if(typeof WgEditor==='object') WgEditor.button();
+    if(typeof WgLand==='object') WgLand.button();
+    if(typeof WgCellGrid==='object') WgCellGrid.wire();
     fs.querySelector('.p').textContent=label;
     if(title) fs.querySelector('.p').title=title;
   }
@@ -1155,6 +1167,8 @@ function unloadForSwitch(){
           const cr=$('#cellRow'); if(cr) cr.hidden=true;
           }
   if(typeof GameData!=='undefined'){ GameData.newWorld(); GameData.clear(); }
+  if(typeof WgSound==='object') WgSound.forget();   // the sounds read were this install's
+  if(typeof WgRegions==='object') WgRegions.forget();
   if(typeof CellData!=='undefined' && CellData.clear) CellData.clear();
   // Round 18cx: the picker's map is the install's; the connect that follows reads the next one.
   if(typeof CellMap==='object' && CellMap.drop) CellMap.drop();
@@ -1611,7 +1625,7 @@ function openLog(){
       if(d){
         const e=x=>x? '0x'+x.toString(16) : 'ok';
         line({k:(d.errCol||d.errDep||d.errSurface)? 'w' : 'ok',
-              t:'water: resolve colour '+e(d.errCol)+', depth '+e(d.errDep)+', surface '+e(d.errSurface)+
+              t:'water: resolve color '+e(d.errCol)+', depth '+e(d.errDep)+', surface '+e(d.errSurface)+
                 ' · '+d.W+'×'+d.H+' ×'+d.samples+' samples, depth '+d.depBits+' bits'+
                 ' · near '+(+d.near).toFixed(2)+' far '+Math.round(d.far)+' · highp '+d.hp+' bits'+
                 ' · reflection '+(d.refl? (d.rect? 'band '+d.rect.map(v=>v.toFixed(2)).join(',') : 'whole') : 'skipped')+

@@ -5,6 +5,132 @@
 
 ### Added
 
+- **Degenerate and duplicate triangles in the mesh viewer**, under Draw order, per shape: a
+  triangle with a corner used twice or its corners in a line (it draws nothing), and one
+  with the same corners in the same winding as another (drawn twice). A back face, the
+  same corners wound the other way, is a two-sided part and is not counted
+  (`conflictcore::nif_order::triangle_faults`; the report's `degenerate`, `duplicate`).
+- **Matching IDs in Verify and the Use Report.** An object the patch changes or makes whose
+  id is also another object type (a Static and an NPC both called `fargoth`, say) is a
+  warning in Verify, naming the other type and the last plugin that defines it; the Use
+  Report says it above the uses. Morrowind.exe will not load the two; OpenMW keeps both and
+  places only one. `editUses` answers `twins` when there are any.
+- **Cancel for Merge Lands** (Tools page): beside Build while it runs. The merge stops at
+  its next step (each master, each batch of mods read, before and after the merge and the
+  seam repair, before the write) and writes nothing; the log says so. `landcore::service`
+  takes the switch as `MergeOptions::cancel`; new command `land_merge_cancel`.
+- **Script loops** (Preview, under Sounds): the switch for the loops objects' scripts
+  start. The viewer plays them whatever the script waits for (a quest stage, the hour, a
+  lever), so a loop that starts late in the game is heard from the first; off, only the
+  lights' loops play. On by default, kept with the other settings.
+- **A preview in the Land view.** **Preview first** (under In the patch, kept between
+  runs) holds strokes back from the patch: they are drawn, and **Keep** (Enter) writes them
+  while **Drop** (Esc, or Ctrl+Z) puts the ground back as it was, land made on an empty
+  square included. Leaving the Land view keeps what waits; strokes waiting on a cell follow
+  it when the scene is built again (a cell arrow, **Go**), so Keep writes them and not the
+  load order's ground.
+- **Sound checks in Verify.** A sound record's file, and now a dialogue response's, is
+  looked for as the game looks (a `.wav` nothing supplies is found as its `.mp3`, as the
+  voice files ship), then opened: a file that will not decode is an error; a silent one, a
+  clipped one (full scale held three samples or more, counted per place) and an OGG or FLAC
+  (OpenMW plays it, Morrowind.exe does not) are warnings. A voice response with no file is
+  a warning too.
+- **OpenMW 0.52 in the Lua check** (`luacore::api`): its built-in interfaces
+  (`Projectiles` and `SpellCasting` besides 0.51's) and built-in events (`AddGlow`,
+  `ApplyMagicEffects`, `CommitCrime`, `ExplodeSpell`, `PlayOnHitEffects`, `RemoveVfx`,
+  `SetSaveState`, `UnlockAttempted` besides 0.51's), read from 0.52.0 RC1's `resources`;
+  0.52 is the table for an install with no documentation, and an install that has its
+  `resources/lua_api` is read from them as before.
+- **A region map on the cell map.** The picker's **Regions** button colors every exterior
+  by its region (the region's own map color; one of its own where that is black) and opens
+  a bar: **Look**, **Paint region** (drag over cells: each gets the chosen region, or none, as
+  its cell's region in the Editor's patch; with **Make cells** a square without a cell gets
+  the patch's own first) and **Make exteriors** (drag a box over the sea: every empty square
+  in it gets flat land at the sea's level and its cell, and the chosen region). What the
+  patch changed is dashed; a cell's tip says its region. New Editor link `editCellRegions`;
+  the engine lists the regions (`regions_list`).
+- **Cell borders in the render window** (the viewport's **▢ Cell borders**, beside Cell
+  arrows): each exterior's edges on the ground, faintly through hills, and its name (or
+  grid) and region at its middle, following the camera and fading with distance.
+- **Path grid tools as OpenMW-CS has them.** Ctrl+drag from a point draws a link out: let
+  go on a point to link the two (again: unlink), on the ground for a new point there,
+  linked. A drag on the ground draws a box and selects the points in it (Shift adds), in a
+  path from the westmost so **J** joins them in a sensible chain.
+- **A key binding page** (the Editor's Keys menu, **Change the keys…**): every Editor
+  shortcut by group, a key changed by clicking it and pressing another, a second key added,
+  one taken away, a key two actions share marked, Reset per action or for everything; the
+  Keys help shows the keys as they are now. Below it, the controller: each of the pad's
+  functions (switch mode, Escape, the clicks, orbit/WASD, zoom or speed, the D-pad) on the
+  button you choose. Kept in the browser's storage.
+- **The Land view: landscape editing in the render window.** A new view mode (the **Land**
+  button beside **Editor**) brings Gardenfell's brush back for the ground itself, with
+  OpenMW-CS's three terrain modes: **Height** (raise, lower, smooth, and flatten to the
+  height where the stroke began), **Texture** (a land texture painted onto the 16 x 16
+  texture cells under the brush; pick one from the list or from the ground) and **Color**
+  (the vertex colors the game tints the ground with). Size, strength and feather are the
+  brush's own controls and are remembered. The ground changes under the brush as you paint;
+  a vertex on a cell's border belongs to both cells and moves in both, so no seam opens.
+  A moment after each stroke the touched cells go to the Editor's patch: heights with the
+  normals and world map derived as Merge Lands writes them (`landcore`), textures through
+  land texture records of the patch's own (a texture number means nothing outside its
+  plugin), colors as vertex colors. Undo, the journal and Test in OpenMW work as for any
+  record, and the view redraws what the patch has after an undo or a reconnect. Over the sea
+  the first stroke makes flat land of the patch's own (and its cell when there is none).
+  It is a view mode like the Editor: its dock takes the settings column's place, with the
+  modes, the tools, a filterable list of the land textures, the brush and **In the patch**
+  (the land cells the patch changes, each with Go and a ✕ to take it out, and Undo and Redo,
+  also Ctrl+Z and Ctrl+Y). Taking a cell out, here or in the Editor's Pending or Build patch,
+  puts the drawn ground back to the load order's at once, its neighbours' texture edges with
+  it. Leaving the mode, or opening the Editor, sends the last stroke to the patch first and
+  reads the Editor's Pending again. Its dock wears the chosen theme as the rest of the page
+  does: the chosen mode and tool lit as the page lights a chosen button, the sliders the
+  Preview's own, the chosen land texture in the theme's accent.
+- **Merge to master on the Tools page** (greatness7's merge_to_master, as 4.x's Tk had it):
+  a plugin into its master, or a whole list of plugins into one master, in the order given
+  (add files, your mods or the list's mods; move them up and down). The result goes to the
+  file you name, never over one of the plugins being merged; a file already there is kept
+  once as `.premerge.bak`. Options: remove
+  deleted records, apply moved references, keep duplicates.
+- **Play a sound from any field that names one.** In the Editor's record dialog every field
+  that names a Sound record - a door's open and close sounds, a light's, a magic effect's
+  cast, bolt, hit and area sounds, a sound generator's, a region's ambient sounds - has a
+  play button beside it (press again to stop), at that Sound's volume; so has a Sound's or a
+  response's file field, and every row of the Object Window's Sound tab. What was read is
+  kept for the session (the last 48 files), and dropped when the install changes.
+- **Sounds in place (Preview's "Sounds", off by default, with its own volume).** The lights
+  in the scene that loop a sound - a fire's crackle, a lantern's hum - play from where they
+  stand, heard from the camera: as loud and as far as OpenMW plays them (its
+  `10^((volume/255*3348-3348)/2000)` and the `fAudio*` range settings, from the load order),
+  stopped past their range, the 16 nearest at a time, each loop starting at a point of its
+  own so twenty braziers do not crackle in step. A file that cannot be played is said once in
+  Messages and skipped. The engine now keeps the load order's Sound records, the lights'
+  sounds and the regions' ambient sounds (`viewcore::world`; `sound_emitters`,
+  `region_sounds`).
+- **The world's sound and music (Preview, with Sounds on).** Outdoors, the region's ambient
+  sounds play as OpenMW picks them (every 1 to 5 seconds, the first of the region's list whose
+  chance comes up), and the weather chosen in Preview plays its loop (rain, a thunderstorm's
+  heavy rain, ash storm, blight, blizzard), fading in and out as it changes. **Music** plays
+  the data folders' Music/Explore in a shuffled order. Preview's sound controls are now
+  **Sound volume** (everything), **Effects** (objects, region, weather) and **Music volume**.
+  All of it follows the setup's own settings: openmw.cfg's `fallback=` lines, or
+  Morrowind.ini's `[Weather ...]` sections (the time between the region's sounds, each
+  weather's ambient and rain loops, the thunder), Morrowind.ini's values only where the setup
+  has none.
+- **Thunder in a thunderstorm**, as OpenMW strikes it: by the weather's thunder frequency, one
+  of its four thunder sounds (the nearest the loudest), with a lightning flash in the sky that
+  fades at the weather's flash decrement.
+- **Activators, doors and containers that loop a sound from their script**
+  (`PlayLoopSound3D`, `PlayLoopSound3DVP` with its volume) play it where they stand, beside
+  the lights. A script's first such call on its own object is taken, whatever the script's
+  conditions are.
+- **A third camera: first person, the game's.** Beside Orbit and WASD (Settings, Tab, or the
+  toolbar's button, which now go round the three): W A S D walk on the land and on objects'
+  tops at a person's eye height whenever the render window has the keyboard, Shift walks
+  slowly, Space jumps, the right button looks; gravity holds you down, a step of up to 34
+  units is climbed and anything taller stops you (you slide along it), and the view is
+  OpenMW's 60 degrees. The pace is an average character's (no stats are read). Collision is
+  against the drawn triangles, not the collision shapes.
+
 - **Drag files and folders onto the Load order page's lists.** Drop a plugin, or a folder of
   plugins, on **content=**: its plugins go in where you let go (the line shows where; masters
   first within a folder; any a level or two down are found too), and their folder goes into
@@ -38,6 +164,15 @@
 
 ### Fixed
 
+- **A Land stroke made just before a cell arrow was lost.** In the moment before a stroke
+  goes to the patch, a step to another cell built the scene again: a cell still in view
+  was written with the load order's ground, and one out of view not at all. The stroke now
+  follows its cell.
+- **The Lua check took a built-in interface's documentation for the `openmw.interfaces`
+  package** where the reader had not marked it as an interface (0.52's `Combat`,
+  `SkillProgression`, `ItemUsage`), so the last one read decided where the package may be
+  required - on 0.52, global scripts only, and every local or player script requiring it
+  was reported. Such a module is an interface now, and the package keeps its own contexts.
 - **The rule maker window opened half as wide as it needs to be, and jumped when dragged or
   resized.** It sat inside the 360px base panel style while its body asked for 860px, so the
   right half was cut off; and it was centred with `left:50%` plus `translateX(-50%)`, which
@@ -85,7 +220,7 @@
   clock.
 - **Animated water (TR, OAAB) was drawn with a sheet of normal-map rainbow over it.** Their
   meshes carry a second shape, `Tri Water Distortion2`, whose `omw:data` extra data asks for
-  OpenMW's `distortion` shader: the game draws no colour for it and bends the scene behind by
+  OpenMW's `distortion` shader: the game draws no color for it and bends the scene behind by
   its texture (`omw_distortion\water\NN.dds`, normal maps). The cell preview painted that
   texture as a surface. Shapes under a `distortion` shader are now left out of the picture
   (the refraction itself is not drawn); the real water, its flipbook of `tr_water*` frames,
@@ -110,6 +245,33 @@
 
 ### Changed
 
+- **Merge Lands' finish step runs across the cores**: the normals, the cells' digests and the
+  seam anchor (which now takes only the cells near the merge). The 65 s "seams" step on a
+  621-plugin order was memory pressure, not the work: seam repair itself is 0.1 s on 12,000
+  cells.
+- **Merge Lands' merge step about twice as fast.** The `Overwrite` merge (the load
+  order's own rule, and what nearly every vertex two plugins both move goes through) made a
+  small list for every such vertex - 28 million of them on the benchmark's 300 plugins - and
+  now writes the answer straight into the grid; the plugins' land records are decoded
+  across the cores (their land textures still numbered in load order, their notes in load
+  order); and each core takes the next cell as it finishes one instead of a fixed share, so
+  a busy stretch of the map no longer holds one core while the rest wait. On the benchmark
+  the merge went from 2.15 s to 1.05 s and the whole run from 3.6 s to 2.4 s (two cores),
+  writing the same plugin to the byte; a test checks the new `Overwrite` against the old.
+- **Merge Lands holds a quarter less in memory, and its slope limiter runs across the
+  cores.** Every land grid value is an `i32` now (`landcore::grid::Value`; it was `i64`, and
+  nothing a `LAND` record holds comes near either limit). On the benchmark load order (3,000
+  cells, 300 plugins) the peak went from 1.88 GB to 1.43 GB. The slope limiter gives each
+  cell a level, one past the highest level of the neighbours that come before it, and runs
+  the cells of a level at once. Cells on the same level share no vertex, so the answer is
+  the one-after-another answer, bit for bit. A test checks this against the old limiter,
+  and the benchmark writes the same plugin to the byte. A plugin whose land offset puts a
+  height past 200 million units is refused (as a non-finite one already was) instead of
+  overflowing.
+- **The viewer's landscape routines are landcore's** (GLAM-PLAN step 1): the average and
+  weighted deltas and the curvature (`viewcore::mland`) call `landcore`, and landcore's
+  curvature is written with `glam::DVec3`. Bit for bit the same answers: tests keep the old
+  code as the reference.
 - **`glam` is a direct dependency now** (0.30, no features: the version the TES3 library already
   uses, so there is still one vector type), and Gardenfell's terrain normals
   (`land.rs`: the authored-normal blend, the face normal) and the flat face normal of a

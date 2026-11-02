@@ -24,8 +24,48 @@ pub fn atmosphere_json_with(order_file: &std::path::Path, vfs: &crate::vfs::Vfs,
     )
 }
 
+/// The load order's fallback settings: openmw.cfg's `fallback=` lines (its chain), or
+/// Morrowind.ini's sections spelled as OpenMW spells them (`[Weather Rain]` `Rain Loop
+/// Sound ID=Rain` is `Weather_Rain_Rain_Loop_Sound_ID`), in file order.
+pub fn fallbacks(order_file: &std::path::Path) -> Vec<(String, String)> {
+    if gardenfell_bytes::paths::is_openmw_cfg(order_file) {
+        gardenfell_bytes::openmwcfg::read(order_file).fallback
+    } else {
+        ini_fallbacks(&gardenfell_bytes::openmwcfg::order_text(order_file))
+    }
+}
+
+/// Morrowind.ini's `[Section]` `Key=value` lines as OpenMW's fallback keys.
+pub fn ini_fallbacks(text: &str) -> Vec<(String, String)> {
+    let mut sec = String::new();
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with(';') {
+            continue;
+        }
+        if let Some(n) = t.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+            sec = n.trim().replace(' ', "_");
+        } else if let Some((k, v)) = t.split_once('=') {
+            if !sec.is_empty() {
+                out.push((format!("{}_{}", sec, k.trim().replace(' ', "_")), v.trim().to_string()));
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn morrowind_ini_reads_as_openmw_s_fallbacks() {
+        let f = super::ini_fallbacks("[Weather Rain]\r\nRain Loop Sound ID=Rain\r\n; x=y\r\n[Weather]\r\nMinimum Time Between Environmental Sounds=1.0\r\n");
+        assert_eq!(f, vec![
+            ("Weather_Rain_Rain_Loop_Sound_ID".to_string(), "Rain".to_string()),
+            ("Weather_Minimum_Time_Between_Environmental_Sounds".to_string(), "1.0".to_string()),
+        ]);
+    }
+
     #[test]
     fn atmosphere_keeps_openmw_texture_map_settings() {
         let dir = std::env::temp_dir().join(format!("wg_weather_maps_{}", std::process::id()));

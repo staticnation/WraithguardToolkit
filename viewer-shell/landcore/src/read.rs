@@ -29,7 +29,7 @@ pub enum Record {
         textures: Option<Vec<u8>>,
     },
     /// An `LTEX` record (index 0 without an `INTV`).
-    Ltex { deleted: bool, id: String, index: i64, file_name: Option<String> },
+    Ltex { deleted: bool, id: String, index: crate::grid::Value, file_name: Option<String> },
 }
 
 fn u32_at(b: &[u8], at: usize) -> u32 {
@@ -101,11 +101,11 @@ fn landscape(flags: u32, body: &[u8]) -> Option<Record> {
 
 fn texture(flags: u32, body: &[u8]) -> Option<Record> {
     let mut deleted = flags & DELETED != 0;
-    let (mut id, mut index, mut file_name) = (None, 0i64, None);
+    let (mut id, mut index, mut file_name) = (None, 0, None);
     for (tag, p) in subrecords(body) {
         match tag {
             b"NAME" => id = Some(text(p)),
-            b"INTV" if p.len() >= 4 => index = u32_at(p, 0) as i64,
+            b"INTV" if p.len() >= 4 => index = u32_at(p, 0) as crate::grid::Value,
             b"DATA" => file_name = Some(text(p)),
             b"DELE" => deleted = true,
             _ => {}

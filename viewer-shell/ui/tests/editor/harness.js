@@ -186,6 +186,6 @@ function ev(w, type, x, y, more) {
 /** The editor's modules and what they lean on, in page order. */
 /** The Editor's parts, in ORDER's order. */
 const EDITOR_PARTS = ['objects', 'cells', 'record', 'ref', 'move', 'qmenu', 'place', 'dialogue', 'script', 'lua', 'uses', 'build', 'keys'];
-const EDITOR = ['src/38_wg_cellkey.js', 'src/24_ori.js', 'src/50_wg_editor.js', ...EDITOR_PARTS.map(p => 'src/50_wg_editor_' + p + '.js'), 'src/51_wg_editor_ui.js', 'src/53_wg_record_forms.js', 'src/56_wg_workflow.js'];
+const EDITOR = ['src/38_wg_cellkey.js', 'src/24_ori.js', 'src/50_wg_editor.js', ...EDITOR_PARTS.map(p => 'src/50_wg_editor_' + p + '.js'), 'src/51_wg_editor_ui.js', 'src/53_wg_record_forms.js', 'src/56_wg_workflow.js', 'src/69_wg_keys.js'];
 
 module.exports = { tainted, page, ev, EDITOR, source, CONTRACT, violations };

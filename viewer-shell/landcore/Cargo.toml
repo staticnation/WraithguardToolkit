@@ -15,6 +15,9 @@ publish = false
 toml = { version = "0.8", default-features = false, features = ["parse", "preserve_order"] }
 # The merged plugin written (emit.rs) as the Python's native writer writes it.
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp"] }
+# Vector arithmetic (curvature.rs; GLAM-PLAN.md): 0.30, the version the tes3 fork takes (a second
+# glam would be a second, incompatible DVec3); no features.
+glam = "0.30"
 
 [dev-dependencies]
 # The shared cases (tests/fixtures/land_merge_cases.json) are JSON; the plugins they stand for

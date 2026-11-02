@@ -9,6 +9,11 @@
                               the pointer; the grid snap applies)
      Shift+click the ground   a new point there, linked to the one selected
      Ctrl+click a point       link it to the selected point, or unlink the two
+     Ctrl+drag from a point   a connection dragged out (OpenMW-CS's way): let go on a point
+                              to link the two (again: unlink), on the ground for a new point
+                              there, linked
+     Drag on the ground       a box: the points inside it selected (Shift: added), in a
+                              path from the first so J joins them in a sensible chain
      J / U                    link the selected points in a chain / unlink them
      Delete                   delete the selected points and their links
      Ctrl+Z / Ctrl+Y          undo / redo (path grid changes only, while the mode is on)
@@ -44,7 +49,7 @@ const WgPath={
     this.hook();
     this.button();
     await this.load();
-    toast('Path grid: click a point to select, drag to move, Shift+click the ground to add, Ctrl+click to link (Keys lists the rest)','ok',5000);
+    toast('Path grid: click a point to select, drag to move, Shift+click the ground to add, Ctrl+drag from a point to link, drag on the ground to box-select (Keys lists the rest)','ok',5000);
   },
 
   stop(){
@@ -137,6 +142,8 @@ const WgPath={
         if(sel) L.circle(at(p), 26, [1,1,1], 'z', 16);
       });
     }
+    // The connection being dragged out.
+    if(this._rubber){ const [a,b]=this._rubber; L.seg(at(a), at(b), [1,1,1]); L.circle(at(b), 18, [1,1,1], 'z', 12); }
     R.setOverlay('pgedit', L, {xray:true});
     R.dirty=true;
   },
@@ -246,8 +253,11 @@ const WgPath={
   /** The renderer's `onGrab` while the mode is on: a press on a point drags it. */
   grab(e){
     const R=App.R, E=this.E(); if(!R) return null;
+    const hit0=this.pointAt(e.clientX, e.clientY);
+    if((e.ctrlKey || e.metaKey) && hit0) return this.connectDrag(e, hit0);
+    if(!hit0 && !e.ctrlKey && !e.metaKey && !e.altKey) return this.boxDrag(e);
     if(e.ctrlKey || e.metaKey || e.shiftKey) return null;
-    const hit=this.pointAt(e.clientX, e.clientY); if(!hit) return null;
+    const hit=hit0; if(!hit) return null;
     const g=this.grids.get(hit.spec), o=this.origin();
     const p0=g.pts[hit.i].slice();
     const local=[p0[0]-o[0], p0[1]-o[1], p0[2]], off=[o[0], o[1], 0];
@@ -280,6 +290,84 @@ const WgPath={
         this.send(hit.spec);
       },
       cancel:()=>{ g.pts[hit.i]=p0; this.draw(); },
+    };
+  },
+
+  /** Ctrl+drag from a point: a connection drawn to the pointer; on a point it links the
+   *  two (or unlinks them, as Ctrl+click does), on the ground it makes a point there, linked. */
+  connectDrag(e, from){
+    const g=this.grids.get(from.spec);
+    const a=g.pts[from.i];
+    return {
+      move:ev=>{
+        const to=this.pointAt(ev.clientX, ev.clientY);
+        let b;
+        if(to && to.spec===from.spec){ b=this.grids.get(to.spec).pts[to.i]; }
+        else{ const at=this.E().placePoint(ev.clientX, ev.clientY); if(!at) return; b=at.world; }
+        this._rubber=[a, b];
+        this.draw();
+      },
+      end:async ev=>{
+        this._rubber=null;
+        const to=this.pointAt(ev.clientX, ev.clientY);
+        if(to){
+          if(to.spec!==from.spec){ this.draw(); return toast('A link joins two points of one cell\'s path grid','warn',3000); }
+          if(to.i===from.i){ this.draw(); return; }
+          this.remember(from.spec);
+          this.link(g, from.i, to.i, !this.linked(g, from.i, to.i));
+          this.sel=[to];
+          return this.send(from.spec);
+        }
+        // On the ground: a new point, linked to the one dragged from.
+        this.sel=[from];
+        await this.add(ev.clientX, ev.clientY);
+      },
+      cancel:()=>{ this._rubber=null; this.draw(); },
+    };
+  },
+
+  /** A drag on the ground: a box on screen, the points inside it selected. */
+  boxDrag(e){
+    const R=App.R, host=R.cv.parentElement||document.body;
+    const hr=host.getBoundingClientRect();
+    const x0=e.clientX, y0=e.clientY, add=e.shiftKey;
+    let div=null;
+    const rect=ev=>({l:Math.min(x0,ev.clientX), t:Math.min(y0,ev.clientY), r:Math.max(x0,ev.clientX), b:Math.max(y0,ev.clientY)});
+    return {
+      move:ev=>{
+        if(!div){
+          div=document.createElement('div');
+          Object.assign(div.style,{position:'absolute', zIndex:'6', pointerEvents:'none', border:'1px dashed #fff', background:'rgba(255,255,255,.08)'});
+          host.appendChild(div);
+        }
+        const q=rect(ev);
+        Object.assign(div.style,{left:(q.l-hr.left)+'px', top:(q.t-hr.top)+'px', width:(q.r-q.l)+'px', height:(q.b-q.t)+'px'});
+      },
+      end:ev=>{
+        if(div) div.remove();
+        const q=rect(ev), proj=this.E().projector(); if(!proj) return;
+        const o=this.origin();
+        const inside=[];
+        for(const g of this.grids.values()) g.pts.forEach((p,i)=>{
+          const s=proj([p[0]-o[0], p[1]-o[1], p[2]]); if(!s) return;
+          const x=s[0], y=s[1];   // the projector's are the window's own
+          if(x>=q.l && x<=q.r && y>=q.t && y<=q.b) inside.push({spec:g.spec, i, p});
+        });
+        // In a path: from the westmost, each next the nearest not yet taken.
+        const path=[];
+        const left=inside.slice().sort((a,b)=>a.p[0]-b.p[0]);
+        let cur=left.shift();
+        while(cur){
+          path.push({spec:cur.spec, i:cur.i});
+          let k=-1, bd=Infinity;
+          left.forEach((c,j)=>{ const d=Math.hypot(c.p[0]-cur.p[0], c.p[1]-cur.p[1], c.p[2]-cur.p[2]); if(d<bd){ bd=d; k=j; } });
+          cur=k>=0? left.splice(k,1)[0] : null;
+        }
+        this.sel=add? this.sel.concat(path.filter(p=>!this.isSel(p.spec,p.i))) : path;
+        if(path.length>1) toast(path.length+' points selected - J joins them in a chain, U unlinks them','ok',2500);
+        this.draw();
+      },
+      cancel:()=>{ if(div) div.remove(); },
     };
   },
 

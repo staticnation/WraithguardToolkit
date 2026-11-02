@@ -74,4 +74,8 @@
 64_wg_setup.js
 65_wg_split.js
 66_wg_rulemaker.js
+67_wg_land.js
+68_wg_cellgrid.js
+69_wg_keys.js
+70_wg_regions.js
 11_events.js

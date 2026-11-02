@@ -40,6 +40,11 @@ pub const ANSWERS: &[&str] = &[
     "editNewRemove",
     "editNewCell",
     "editNewLand",
+    "editLandSet",
+    "editLandTextures",
+    "editLandColors",
+    "editLandPending",
+    "editCellRegions",
     "editDuplicateCell",
     "editPathgrid",
     "editPathgridSet",
@@ -104,6 +109,8 @@ pub struct Ctx<'a> {
     /// Whether the load order's data folders (loose or archived) have a file (the
     /// verifier's), when the viewer knows its install.
     pub file_exists: Option<&'a dyn Fn(&str) -> bool>,
+    /// What is wrong with a sound file the load order has (the verifier's), when known.
+    pub sound_problem: Option<crate::verify::SoundProblem<'a>>,
 }
 
 /// A link's answer: JSON, or a word (`ok`).
@@ -606,6 +613,40 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
             };
             Json(edit(ed.new_land(&cell, height, &texture, no_land, has_cell))?)
         }
+        "editLandSet" => {
+            let req = body_of(body)?;
+            let cell = need_words(&req, "cell", "cell")?;
+            let Some(heights) = req.get("heights").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<f64>>()) else {
+                return Err("bad heights".into());
+            };
+            Json(edit(ed.set_land(&cell, &heights))?)
+        }
+        "editLandTextures" => {
+            let req = body_of(body)?;
+            let cell = need_words(&req, "cell", "cell")?;
+            let Some(ids) = req.get("ids").and_then(Value::as_array).map(|a| a.iter().map(|v| v.as_str().unwrap_or("").to_string()).collect::<Vec<String>>()) else {
+                return Err("bad ids".into());
+            };
+            Json(edit(ed.set_land_textures(&cell, &ids))?)
+        }
+        "editLandColors" => {
+            let req = body_of(body)?;
+            let cell = need_words(&req, "cell", "cell")?;
+            let Some(colors) = req.get("colors").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<f64>>()) else {
+                return Err("bad colors".into());
+            };
+            Json(edit(ed.set_land_colors(&cell, &colors))?)
+        }
+        "editCellRegions" => {
+            let req = body_of(body)?;
+            let Some(cells) = req.get("cells").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<String>>())
+            else {
+                return Err("bad cells".into());
+            };
+            let region = req.get("region").and_then(Value::as_str).unwrap_or("").to_string();
+            let make = req.get("make") == Some(&Value::Bool(true));
+            Json(edit(ed.set_cell_regions(&cells, &region, make))?)
+        }
         "editDuplicateCell" => {
             let req = body_of(body)?;
             let cell = need_words(&req, "cell", "cell")?;
@@ -668,6 +709,7 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
             Json(out)
         }
         "editPending" => Json(Value::Array(ed.pending())),
+        "editLandPending" => Json(ed.land_pending()),
         // -- 7b ----------------------------------------------------------------------
         "editUses" => {
             let found = record_request(ed, &record_body(body)?)?;
@@ -787,7 +829,7 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
             let req = body_of(body)?;
             Json(edit(ed.who_can_say(&text_or_empty(req.get("id")), WHO_CAN_SAY_LIMIT))?)
         }
-        "editVerify" => Json(ed.verify(ctx.file_exists)),
+        "editVerify" => Json(ed.verify_with(ctx.file_exists, ctx.sound_problem)),
         other => return Err(format!("{other} is not a link the viewer answers")),
     })
 }
@@ -832,13 +874,38 @@ mod tests {
         assert!(!Links::answers("editReview") && Links::answers("editRecord") && Links::answers("editBuild"));
         // The verifier, with the files the install has (none here but one).
         let have = |p: &str| p == "meshes/x.nif";
-        let out: Value = serde_json::from_str(&links.call_with("editVerify", "{}", &Ctx { file_exists: Some(&have) }).unwrap()).unwrap();
+        let out: Value = serde_json::from_str(&links.call_with("editVerify", "{}", &Ctx { file_exists: Some(&have), sound_problem: None }).unwrap()).unwrap();
         assert!(out["findings"].is_array());
         // The build links: where the last patch went comes with the launch.
         let links = links.with_setup(vec!["/data".into()], Some(dir.join("Old.esp")), None);
         let info: Value = serde_json::from_str(&links.call("editBuildInfo", "{}").unwrap()).unwrap();
         assert_eq!((info["last"].clone(), info["folders"].clone()), (json!(dir.join("Old.esp").to_string_lossy()), json!(["/data"])));
         assert!(links.call("editTestSetups", "{}").unwrap_err().starts_with("Test in OpenMW needs Wraithguard"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_id_defined_as_two_object_types_is_said_in_verify_and_the_use_report() {
+        let dir = std::env::temp_dir().join(format!("wg-twins-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mw = dir.join("Morrowind.esm");
+        let header = json!({"type": "Header", "flags": "", "version": 1.3, "file_type": "Esm", "author": "", "description": "", "num_objects": 0, "masters": []});
+        let mut rock = crate::blank::blank("Static").unwrap();
+        rock["id"] = json!("Fargoth");
+        rock["mesh"] = json!("x.nif");
+        std::fs::write(&mw, crate::build::patch_bytes(&[header, npc("fargoth", 2), npc("caius", 3), rock]).unwrap()).unwrap();
+        let links = Links::open(vec![("Morrowind.esm".into(), mw)], None);
+        links.call("editSet", r#"{"tag": "NPC_", "id": "fargoth", "path": "data.level", "value": 9}"#).unwrap();
+        links.call("editSet", r#"{"tag": "NPC_", "id": "caius", "path": "data.level", "value": 9}"#).unwrap();
+        let out: Value = serde_json::from_str(&links.call("editVerify", "{}").unwrap()).unwrap();
+        let said: Vec<String> = out["findings"].as_array().unwrap().iter().filter(|f| f["message"].as_str().unwrap_or("").contains("Matching IDs")).map(|f| format!("{} {}", f["id"].as_str().unwrap(), f["message"].as_str().unwrap())).collect();
+        assert_eq!(said.len(), 1, "{said:#?}");
+        assert!(said[0].starts_with("fargoth fargoth is also a Static (Morrowind.esm)"), "{}", said[0]);
+        let uses: Value = serde_json::from_str(&links.call("editUses", r#"{"tag": "NPC_", "id": "fargoth"}"#).unwrap()).unwrap();
+        assert_eq!(uses["twins"], json!([{"tag": "STAT", "plugin": "Morrowind.esm"}]));
+        let uses: Value = serde_json::from_str(&links.call("editUses", r#"{"tag": "NPC_", "id": "caius"}"#).unwrap()).unwrap();
+        assert!(uses.get("twins").is_none(), "only when there are any");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

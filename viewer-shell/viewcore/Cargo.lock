@@ -534,6 +534,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "landcore"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "tes3",
+ "toml",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1177,6 +1186,7 @@ version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
 dependencies = [
+ "indexmap",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -1249,6 +1259,7 @@ dependencies = [
  "gardenfell-tes3",
  "gardenfell-text",
  "gardenfell-world",
+ "landcore",
  "luacore",
  "meshopt-port",
  "ordercore",

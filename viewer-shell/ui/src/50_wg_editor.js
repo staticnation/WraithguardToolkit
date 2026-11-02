@@ -308,6 +308,8 @@ const WgEditor={
 
   async enter(){
     if(this.on) return;
+    // One view mode at a time: the Land view's last stroke goes to the patch first.
+    if(typeof WgLand==='object' && WgLand.on) await WgLand.leave();
     this.on=true;
     this.loadPrefs();
     this.hookTints();

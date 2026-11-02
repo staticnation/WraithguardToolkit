@@ -38,7 +38,15 @@ const M4={
   }
 };
 
-const FOV=48*Math.PI/180;   // vertical field of view, shared by projection and pan scaling
+let FOV=48*Math.PI/180;   // vertical field of view, shared by projection and pan scaling
+/* Wraithguard: the game's first-person camera (`setNav('walk')`). The view is the game's
+   (OpenMW's default "field of view", 60 degrees vertical); the body is an average one: walk
+   and run from the Morrowind formula for Speed 50 and Athletics 30 (fMinWalkSpeed 100,
+   fMaxWalkSpeed 200, fBaseRunMultiplier 1.75), OpenMW's gravity (9.81 m/s^2 at its 69.99
+   units a metre), its step (sStepSizeUp, 34), an eye about where a human's head is, and the
+   actor's half-width. Approximate: no Speed, Athletics or Acrobatics are read. */
+const VIEW_FOV=48*Math.PI/180, WALK_FOV=60*Math.PI/180;
+const WALK={eye:116, walk:150, run:300, gravity:686, jump:400, step:34, radius:29};
 /* Round 18fh/18fi: how much faster the WASD flight goes while Shift is held with the right
    button down. The one number to change if the boost feels too little or too much: the
    speed on the bar stays what it is, and this multiplies it for as long as Shift is held.
@@ -2693,6 +2701,8 @@ class Renderer{
     this.lights=null;
     this._anyUvAnim=false;
     this.nav='orbit';          // round 17: or 'wasd' - see setNav
+    this.walk=false;           // Wraithguard: 'wasd' as the game's first person (setNav('walk'))
+    this.walkSt={vz:0, ground:false};
     this.hovered=false;        // round 18cw: the pointer is over the picture (Tab swaps the scheme)
     this.lookSmooth=35;        // the WASD look's catch-up rate, 1..100 (round 17h: 35)
     /* Round 18ag: how far the head turns per pixel of mouse, as a multiple of the rate
@@ -6980,7 +6990,7 @@ class Renderer{
        paint mode it is the brush. */
     let look=null;
     this.fly={speed:1500, vel:[0,0,0], keys:{}, active:false, last:0, boost:false};
-    const keyOf=e=>{ const c=e.code||''; return /^Key[WASDQE]$/.test(c)? c[3] : null; };
+    const keyOf=e=>{ const c=e.code||''; if(c==='Space' && this.walk) return 'J'; return /^Key[WASDQE]$/.test(c)? c[3] : null; };
     const typing=e=>{ const t=e.target; return !!(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||t.isContentEditable)); };
     /* Round 18fh, Robin: "when I am in WASD navigation mode and hold right mouse button
        AND hold SHIFT, my current speed that I am flying at is doubled. This should NOT be
@@ -6991,7 +7001,8 @@ class Renderer{
        pressed with nothing held is a Shift pressed. Read from the modifier itself as well
        as from the key, so a window that comes back with Shift already down is right. */
     const boost=e=>{
-      const on=!!look && this.nav==='wasd' && !!e.shiftKey;
+      this._walkShift=this.walk && !!e.shiftKey;
+      const on=!!look && this.nav==='wasd' && !this.walk && !!e.shiftKey;
       if(this.fly.boost!==on){ this.fly.boost=on; if(this.onFlyBoost) this.onFlyBoost(on); }
     };
     this._flyBoost=boost;
@@ -7003,7 +7014,10 @@ class Renderer{
          back buttons, bound to E and Q in Steam, lift and drop the camera without the
          right button held. */
       const pad=typeof WgPad==='object' && WgPad.active();
-      if(look || pad){ this.fly.keys[k]=true; e.preventDefault(); }
+      /* Walking, the keys move the body whenever the viewport has the keyboard, as in the
+         game; the right button only turns the head. */
+      const here=this.walk && (document.activeElement===cv || document.activeElement===document.body);
+      if(look || pad || here){ this.fly.keys[k]=true; e.preventDefault(); }
     });
     window.addEventListener('keyup',e=>{
       boost(e);
@@ -7186,7 +7200,7 @@ class Renderer{
     cv.addEventListener('keydown',e=>{
       if(e.key!=='Tab' || e.altKey || e.ctrlKey || e.metaKey) return;
       e.preventDefault();
-      this.setNav(this.nav==='wasd'? 'orbit' : 'wasd');
+      this.setNav(this.nextNav());
     });
     cv.addEventListener('pointerdown',e=>{
       const wasd=this.nav==='wasd';
@@ -7463,6 +7477,7 @@ class Renderer{
     cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
     cv.addEventListener('wheel',e=>{
       e.preventDefault();
+      if(this.walk) return;   // the body's pace is the game's
       if(this.nav==='wasd'){
         // The wheel sets the pace here - the top speed and, with it, how fast it is reached.
         this.setFlySpeed(this.fly.speed*(e.deltaY>0? 1/1.18 : 1.18), true);
@@ -7676,17 +7691,128 @@ class Renderer{
     this.dirty=true;
     return true;
   }
+  /** The scheme as Settings and the toolbar name it: 'orbit', 'wasd' or 'walk'. */
+  navScheme(){ return this.walk? 'walk' : this.nav; }
+  /** Tab and the toolbar's button go round the three. */
+  nextNav(){ const s=this.navScheme(); return s==='orbit'? 'wasd' : s==='wasd'? 'walk' : 'orbit'; }
   setNav(scheme){
     const was=this.nav;
-    this.nav = scheme==='wasd'? 'wasd' : 'orbit';
+    this.nav = scheme==='wasd' || scheme==='walk'? 'wasd' : 'orbit';
+    const walked=this.walk;
+    this.walk = scheme==='walk';
     this.fly.keys={}; this.fly.vel=[0,0,0];
+    FOV = this.walk? WALK_FOV : VIEW_FOV;
+    if(this.walk && !walked) this._walkLand();
+    this.walkSt.vz=0;
+    this.dirty=true;
     // Round 17g: a turn still catching up belongs to the scheme it started in.
     this._turn=null; this._turnLast=0;
     this.unpull();   // and so does a pivot pulled in with Ctrl (round 17j)
     /* Round 17m: coming back from the flying camera, the pivot goes on whatever the view
        is pointed at rather than staying at whatever distance orbit mode was left with. */
     if(this.nav==='orbit' && was==='wasd') this.focusOnView();
-    if(this.onNavChange) this.onNavChange(this.nav);
+    if(this.onNavChange) this.onNavChange(this.navScheme());
+  }
+  /** A lightning flash of `amount` (OpenMW: 1, 0.75, 0.5 or 0.25, by the strike's
+   *  distance; strikes add up), fading at `decrement` a second (Weather_*_Flash_Decrement). */
+  lightning(amount, decrement){
+    this._flash=this._flashNow()+Math.max(0, +amount||0);
+    this._flashT=performance.now(); this._flashDec=Math.max(0.01, +decrement||4);
+    this.dirty=true;
+  }
+  _flashNow(){
+    if(!(this._flash>0)) return 0;
+    const v=this._flash-this._flashDec*(performance.now()-this._flashT)/1000;
+    if(v<=0){ this._flash=0; return 0; }
+    return v;
+  }
+  /** Where the eye stands now. */
+  _eye(){
+    const c=this.cam, ce=Math.cos(c.el), se=Math.sin(c.el);
+    return [c.tx+c.dist*ce*Math.cos(c.az), c.ty+c.dist*ce*Math.sin(c.az), c.tz+c.dist*se];
+  }
+  /** Moves the eye by d, the head turned as it was. */
+  _moveEye(d){ const c=this.cam; c.tx+=d[0]; c.ty+=d[1]; c.tz+=d[2]; }
+  /** The highest floor at (x, y) a body with its feet at `feet` can stand on: the land
+   *  (`groundZ`) or an object's top under feet + a step (`pickRay` straight down). */
+  _floorAt(x, y, feet){
+    const top=feet+WALK.step;
+    let best=null;
+    const gz=this.groundZ? this.groundZ(x, y) : null;
+    if(gz!=null && isFinite(gz) && gz<=top+0.5) best=gz;
+    const h=this.pickRay([x, y, top], [0, 0, -1]);
+    if(h && isFinite(h.t)){ const z=top-h.t; if(best==null || z>best) best=z; }
+    return best;
+  }
+  /** Whether something stands in the way of a step from the eye along (dx, dy): a ray at
+   *  knee (above the step) and at chest height, the body's half-width beyond the step. */
+  _blocked(eye, feet, dx, dy){
+    const l=Math.hypot(dx, dy); if(!(l>0)) return false;
+    const d=[dx/l, dy/l, 0];
+    for(const z of [feet+WALK.step+4, feet+WALK.eye*0.6]){
+      const h=this.pickRay([eye[0], eye[1], z], d);
+      if(h && h.t < l+WALK.radius) return true;
+    }
+    const gz=this.groundZ? this.groundZ(eye[0]+dx, eye[1]+dy) : null;
+    return gz!=null && isFinite(gz) && gz>feet+WALK.step;   // a cliff of land
+  }
+  /** Onto the floor under the eye, on the way into walking. */
+  _walkLand(){
+    const e=this._eye();
+    const f=this._floorAt(e[0], e[1], e[2]-WALK.step);
+    if(f!=null){ this._moveEye([0, 0, f+WALK.eye-e[2]]); this.walkSt.ground=true; }
+    else this.walkSt.ground=false;
+    const c=this.cam; c.el=Math.max(-1.2, Math.min(1.2, c.el));
+  }
+  /** One step of the game's first person: the keys along the ground (the head's heading,
+   *  never its pitch), Shift to walk, Space to jump; gravity and floors hold the body. */
+  _walkStep(now){
+    const f=this.fly, w=this.walkSt;
+    const dt=Math.min(0.05, Math.max(0, (now-(f.last||now))/1000)); f.last=now;
+    if(!(dt>0)) return false;
+    const c=this.cam, ca=Math.cos(c.az), sa=Math.sin(c.az);
+    const fwd=[-ca, -sa], right=[-sa, ca];
+    const k=f.keys, p=f.pad;
+    let wx=0, wy=0;
+    if(k.W){ wx+=fwd[0]; wy+=fwd[1]; }
+    if(k.S){ wx-=fwd[0]; wy-=fwd[1]; }
+    if(k.D){ wx+=right[0]; wy+=right[1]; }
+    if(k.A){ wx-=right[0]; wy-=right[1]; }
+    if(p){ wx+=fwd[0]*p[0]+right[0]*p[1]; wy+=fwd[1]*p[0]+right[1]*p[1]; }
+    const wl=Math.hypot(wx, wy), keyed=k.W||k.A||k.S||k.D;
+    const top=f.boost || (this._walkShift)? WALK.walk : WALK.run;
+    if(wl>0){ const s=top/(keyed? wl : Math.max(1, wl)); wx*=s; wy*=s; }
+    // On the ground the legs answer at once; in the air the body keeps what it had.
+    const a=w.ground? 1-Math.exp(-dt*20) : 1-Math.exp(-dt*1.5);
+    f.vel[0]+=(wx-f.vel[0])*a; f.vel[1]+=(wy-f.vel[1])*a; f.vel[2]=0;
+    if(Math.abs(f.vel[0])<1 && !wx) f.vel[0]=0;
+    if(Math.abs(f.vel[1])<1 && !wy) f.vel[1]=0;
+    const e=this._eye();
+    let feet=e[2]-WALK.eye;
+    let dx=f.vel[0]*dt, dy=f.vel[1]*dt;
+    if((dx||dy) && this._blocked(e, feet, dx, dy)){
+      // Slide along what is in the way: each axis on its own.
+      if(!this._blocked(e, feet, dx, 0)) dy=0;
+      else if(!this._blocked(e, feet, 0, dy)) dx=0;
+      else { dx=0; dy=0; }
+      if(!dx) f.vel[0]=0; if(!dy) f.vel[1]=0;
+    }
+    if(k.J && w.ground){ w.vz=WALK.jump; w.ground=false; }
+    const floor=this._floorAt(e[0]+dx, e[1]+dy, feet);
+    if(w.ground && floor!=null && floor<feet-WALK.step) w.ground=false;   // walked off an edge
+    if(w.ground && floor!=null){ feet=floor; w.vz=0; }
+    else if(floor==null && w.ground){ w.vz=0; }   // nothing loaded under: stand where it is
+    else{
+      w.vz-=WALK.gravity*dt;
+      feet+=w.vz*dt;
+      const under=this._floorAt(e[0]+dx, e[1]+dy, feet-w.vz*dt);
+      if(under!=null && feet<=under){ feet=under; w.vz=0; w.ground=true; }
+      else if(under==null && feet<e[2]-WALK.eye-4000){ w.vz=0; w.ground=true; }   // nothing below at all
+    }
+    const dz=feet+WALK.eye-e[2];
+    if(!dx && !dy && Math.abs(dz)<1e-4) return false;
+    this._moveEye([dx, dy, dz]);
+    return true;
   }
   /** The flying camera's top speed, units a second, 50..50000. `announce` shows it. */
   setFlySpeed(v,announce){
@@ -8081,7 +8207,8 @@ class Renderer{
     if(this._turn && (Math.abs(this._turn.az)>1e-9 || Math.abs(this._turn.el)>1e-9)) return true;
     if(this.fly && this.nav==='wasd'){
       const k=this.fly.keys||{};
-      if(k.W||k.A||k.S||k.D||k.Q||k.E) return true;
+      if(k.W||k.A||k.S||k.D||k.Q||k.E||k.J) return true;
+      if(this.walk && !this.walkSt.ground) return true;
       const v=this.fly.vel||[0,0,0]; if(v[0]||v[1]||v[2]) return true;
     }
     if(this._orbitG && this.nav!=='wasd'){
@@ -8096,13 +8223,18 @@ class Renderer{
     // Round 17: the flying camera, while it is moving or asked to.
     if(this.nav==='wasd' && this.fly){
       const k=this.fly.keys, pd=this.fly.pad;
-      const held=k.W||k.A||k.S||k.D||k.Q||k.E||!!(pd && (pd[0]||pd[1]||pd[2]));
+      const held=k.W||k.A||k.S||k.D||k.Q||k.E||k.J||!!(pd && (pd[0]||pd[1]||pd[2]));
       const moving=this.fly.vel[0]||this.fly.vel[1]||this.fly.vel[2];
-      if(held||moving){ if(this._flyStep(performance.now())) this.dirty=true; }
+      if(this.walk){
+        if(held||moving||!this.walkSt.ground){ if(this._walkStep(performance.now())) this.dirty=true; }
+        else this.fly.last=0;
+      }
+      else if(held||moving){ if(this._flyStep(performance.now())) this.dirty=true; }
       else this.fly.last=0;
     }
     // Round 17f: and the orbit camera easing towards where the pan and the wheel put it.
     else if(this._orbitStep(performance.now())) this.dirty=true;
+    if(this._flash>0) this.dirty=true;   // a lightning flash fading
     /* Round 18gr, Robin: "I also want to update its position during the smoothed motion, so
        it doesn't get stuck, and then teleport to where the cursor is when the cursor moves."
        The ring sits on the ground under the pointer, and the ground moves under a still
@@ -8524,8 +8656,11 @@ class Renderer{
     // 18fc: the water's colour as deep as the eye is, when Wonders of Water acts.
     const uwK = (under && under.wow)? under.wow.scale : 1;
     const tint = c => (under && lit)? Sky.underwaterTint(c, uwK) : c;
-    const sunCol = tint(room? room.sunlight : (scat&&now)? mul(now.sun, lm.sunMult) : [1,1,1]);
-    const ambCol = tint(room? room.ambient : (scat&&now)? mul(now.ambient, lm.ambMult) : [1,1,1]);
+    let sunCol = tint(room? room.sunlight : (scat&&now)? mul(now.sun, lm.sunMult) : [1,1,1]);
+    let ambCol = tint(room? room.ambient : (scat&&now)? mul(now.ambient, lm.ambMult) : [1,1,1]);
+    /* Wraithguard: a lightning flash (`lightning`, 63_wg_sound.js's thunder), added to the
+       sun and the ambient alike as OpenMW adds its flash brightness. Outdoors only. */
+    { const fl=room? 0 : this._flashNow(); if(fl>0){ sunCol=sunCol.map(v=>v+fl); ambCol=ambCol.map(v=>v+fl); } }
     /* The sky's own colour takes the sky blend, not the fog's: the probe reads them
        separately and under the water they differ (0.1117,0.1776,0.2161 against
        0.1639,0.2241,0.2587 in his frame). `uFogColFar` stays the fog blend, which is

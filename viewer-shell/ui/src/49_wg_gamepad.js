@@ -133,11 +133,16 @@ const WgPad={
     if(a<this.DEAD) return 0;
     return Math.sign(v)*(a-this.DEAD)/(1-this.DEAD);
   },
-  level(p,i){ const b=p.buttons[i]; return b? (typeof b==='object'? (b.value||(b.pressed?1:0)) : +b) : 0; },
+  /** Function `i` (the standard layout's button number) as pressed: read from the button
+   *  the key binding page puts it on (69_wg_keys.js). */
+  level(p,i){
+    const j=typeof WgKeys==='object'? WgKeys.padButton(i) : i;
+    const b=p.buttons[j]; return b? (typeof b==='object'? (b.value||(b.pressed?1:0)) : +b) : 0;
+  },
   /** True on the frame a button goes down. Every button is read every frame. */
   edges(p){
     const out=[];
-    for(let i=0;i<p.buttons.length;i++){
+    for(let i=0;i<Math.max(16,p.buttons.length);i++){
       const now=this.level(p,i)>0.5;
       out[i]=now && !this._prev[i];
       this._prev[i]=now;

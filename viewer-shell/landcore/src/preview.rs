@@ -5,13 +5,14 @@
 use crate::grid::{RelativeGrid, LAND_NUM_VERTS, LAND_SIZE};
 use crate::merge::{merge_layer, ConflictParams};
 use crate::meta::{layer, Strategy};
+use crate::grid::Value;
 
 /// The strategies a preview shows, in order (`PREVIEW_STRATEGIES`).
 pub const PREVIEW_STRATEGIES: [Strategy; 4] = [Strategy::Overwrite, Strategy::Resolve, Strategy::Ignore, Strategy::Curvature];
 
 /// The heights merged under one strategy (`merge_preview`): each grid in load order, the
 /// first the base.
-pub fn merge_preview(grids: &[Vec<i64>], strategy: Strategy) -> Result<Vec<i64>, String> {
+pub fn merge_preview(grids: &[Vec<Value>], strategy: Strategy) -> Result<Vec<Value>, String> {
     let Some(reference) = grids.first() else { return Err("no terrain to merge".into()) };
     if grids.iter().any(|g| g.len() != LAND_NUM_VERTS) {
         return Err(format!("each terrain grid must be {LAND_SIZE}x{LAND_SIZE}"));

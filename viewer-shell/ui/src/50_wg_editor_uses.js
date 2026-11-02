@@ -35,6 +35,11 @@ Object.assign(WgEditor, {
     let h='<div class="hint">'+(uses.length
       ? r.live+' live use'+(r.live===1?'':'s')+(r.cells? ', '+r.cells+' placed in cells' : '')+'. Greyed: in a version a later plugin overrides.'
       : 'Nothing in the load order names '+escHtml(r.id)+'.')+'</div>';
+    // The id is also another object type (the Construction Set's Matching IDs).
+    const twins=Array.isArray(r.twins)? r.twins : [];
+    if(twins.length) h+='<div class="hint warn" style="padding:4px 6px">'+escHtml(r.id)+' is also '+
+      twins.map(x=>'a '+escHtml(this.NAMES[x.tag]||x.tag)+' ('+escHtml(x.plugin)+')').join(' and ')+
+      '. Morrowind.exe will not load the two; OpenMW keeps both and places only one, so a placed '+escHtml(r.id)+' may not be this record.</div>';
     const cells=uses.filter(u=>u.type==='Cell'), other=uses.filter(u=>u.type!=='Cell');
     if(other.length){
       h+='<div class="orisec">Records</div><table class="edT"><tbody>';

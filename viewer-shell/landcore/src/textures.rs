@@ -9,11 +9,12 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::read::Record;
+use crate::grid::Value;
 
-pub const NO_TEXTURE: i64 = 0;
+pub const NO_TEXTURE: Value = 0;
 
 /// `vtex_of`.
-pub fn vtex_of(ltex: i64) -> i64 {
+pub fn vtex_of(ltex: Value) -> Value {
     ltex + 1
 }
 
@@ -22,7 +23,7 @@ pub fn vtex_of(ltex: i64) -> i64 {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct KnownTexture {
     pub identifier: String,
-    pub index: i64,
+    pub index: Value,
     pub file_name: Option<String>,
     pub source: String,
 }
@@ -33,7 +34,7 @@ pub struct KnownTexture {
 pub struct KnownTextures {
     by_id: HashMap<String, KnownTexture>,
     order: Vec<String>,
-    table: Vec<(i64, String)>,
+    table: Vec<(Value, String)>,
 }
 
 impl KnownTextures {
@@ -53,14 +54,14 @@ impl KnownTextures {
     }
 
     /// Learn a plugin's `LTEX` records and answer its translation (`observe`).
-    pub fn observe(&mut self, plugin: &str, records: &[Record]) -> HashMap<i64, i64> {
+    pub fn observe(&mut self, plugin: &str, records: &[Record]) -> HashMap<Value, Value> {
         for r in records {
             let Record::Ltex { deleted, id, index, file_name } = r else { continue };
             if !self.by_id.contains_key(id) {
                 if *deleted {
                     continue;
                 }
-                let t = KnownTexture { identifier: id.clone(), index: self.by_id.len() as i64, file_name: None, source: String::new() };
+                let t = KnownTexture { identifier: id.clone(), index: self.by_id.len() as Value, file_name: None, source: String::new() };
                 self.by_id.insert(id.clone(), t);
                 self.order.push(id.clone());
             }
@@ -80,7 +81,7 @@ impl KnownTextures {
     }
 
     /// Every index seen so far to its shared `VTEX` value (`translation`).
-    pub fn translation(&self) -> HashMap<i64, i64> {
+    pub fn translation(&self) -> HashMap<Value, Value> {
         let mut m = HashMap::from([(NO_TEXTURE, NO_TEXTURE)]);
         for (index, id) in &self.table {
             if let Some(k) = self.by_id.get(id) {
@@ -93,7 +94,7 @@ impl KnownTextures {
 
 /// A plugin's `VTEX` values in the shared table (`translate_indices`), and those no `LTEX`
 /// defines, with how often each appears (left as they are).
-pub fn translate_indices(values: &[i64], mapping: &HashMap<i64, i64>) -> (Vec<i64>, BTreeMap<i64, usize>) {
+pub fn translate_indices(values: &[Value], mapping: &HashMap<Value, Value>) -> (Vec<Value>, BTreeMap<Value, usize>) {
     let mut unknown = BTreeMap::new();
     let out = values
         .iter()
@@ -109,15 +110,15 @@ pub fn translate_indices(values: &[i64], mapping: &HashMap<i64, i64>) -> (Vec<i6
 }
 
 /// The smallest real value a mapping gives (`fallback_texture_index`).
-fn fallback_texture_index(mapping: &HashMap<i64, i64>) -> i64 {
+fn fallback_texture_index(mapping: &HashMap<Value, Value>) -> Value {
     mapping.values().copied().filter(|v| *v != NO_TEXTURE).min().unwrap_or(NO_TEXTURE)
 }
 
 /// The table compacted to the textures `used` paints with (`compact_textures`): the mapping
 /// from shared to written values, the textures kept (renumbered), and the values no texture
 /// defines (substituted with the smallest kept one when `substitute_unknown`).
-pub fn compact_textures(known: &KnownTextures, used: &BTreeSet<i64>, substitute_unknown: bool) -> (HashMap<i64, i64>, Vec<KnownTexture>, Vec<i64>) {
-    let by_index: HashMap<i64, &KnownTexture> = known.sorted().into_iter().map(|t| (vtex_of(t.index), t)).collect();
+pub fn compact_textures(known: &KnownTextures, used: &BTreeSet<Value>, substitute_unknown: bool) -> (HashMap<Value, Value>, Vec<KnownTexture>, Vec<Value>) {
+    let by_index: HashMap<Value, &KnownTexture> = known.sorted().into_iter().map(|t| (vtex_of(t.index), t)).collect();
     let mut mapping = HashMap::from([(NO_TEXTURE, NO_TEXTURE)]);
     let mut kept: Vec<KnownTexture> = Vec::new();
     let mut unresolved = Vec::new();
@@ -129,8 +130,8 @@ pub fn compact_textures(known: &KnownTextures, used: &BTreeSet<i64>, substitute_
             unresolved.push(value);
             continue;
         };
-        kept.push(KnownTexture { identifier: t.identifier.clone(), index: kept.len() as i64, file_name: t.file_name.clone(), source: t.source.clone() });
-        mapping.insert(value, vtex_of(kept.len() as i64 - 1));
+        kept.push(KnownTexture { identifier: t.identifier.clone(), index: kept.len() as Value, file_name: t.file_name.clone(), source: t.source.clone() });
+        mapping.insert(value, vtex_of(kept.len() as Value - 1));
     }
     if substitute_unknown && !unresolved.is_empty() {
         let fallback = fallback_texture_index(&mapping);

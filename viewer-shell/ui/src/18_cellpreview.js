@@ -1174,6 +1174,8 @@ async function _rebuildCellPreview(){
   if(pan) for(const ch of (pan.chunks||[])) if(ch.grid) oldChunks.set(ch.grid[0]+','+ch.grid[1],ch);
   let chunksKept=0;
   for(const c of cells){
+    // Wraithguard: land the Editor's patch changes is drawn as the patch has it (67_wg_land.js).
+    if(c.kind!=='int' && typeof WgLand==='object' && WgLand.apply(c, cells)) oldChunks.delete(c.gx+','+c.gy);
     if(c.kind==='int'||!c.heights) continue;
     const off=cellOffsetFrom(origin,c);
     const old=oldChunks.get(c.gx+','+c.gy);
@@ -2901,11 +2903,13 @@ function openCellPicker(){
       /* Wraithguard: what the heat over the map shows - how many mods touch each cell, how
          contested its references are, how many plugins edit its ground, or one plugin's
          cells (39_wg_coverage.js). */
-      '<select class="fld sm" id="cellHeat" style="width:auto" title="Colour the map by: how many mods touch each cell; how many of its references two or more plugins changed, deleted or moved; how many plugins edit its ground; or the cells one plugin touches. Hover a cell for the details; your own mods’ cells are ringed.">'+
+      '<select class="fld sm" id="cellHeat" style="width:auto" title="Color the map by: how many mods touch each cell; how many of its references two or more plugins changed, deleted or moved; how many plugins edit its ground; or the cells one plugin touches. Hover a cell for the details; your own mods’ cells are ringed.">'+
         '<option value="off">Heat: off</option><option value="mods">Heat: mods</option>'+
         '<option value="conflicts">Heat: reference conflicts</option><option value="land">Heat: land edits</option>'+
         '<option value="plugin">Heat: one plugin…</option></select>'+
       '<select class="fld sm" id="cellHeatPlugin" style="width:auto;max-width:180px" hidden></select>'+
+      // Wraithguard: the region map - colours, a region brush, exteriors made (70_wg_regions.js).
+      '<button class="btn sm" id="cellRegions" title="Color the map by region; paint regions onto cells and make exteriors by dragging (in the Editor\'s patch)">Regions</button>'+
       '<span class="vsep"></span>'+
       '<label class="sw sm" title="'+escHtml(T('cell.pick_show_int_title'))+'"><input type="checkbox" id="cellShowInt"><span class="tr"></span></label>'+
       '<span style="font-size:11px;color:var(--tx2)">'+T('cell.pick_show_int')+'</span></div>'+
@@ -2921,6 +2925,7 @@ function openCellPicker(){
   }
   m.hidden=false;
   // Wraithguard: the coverage for this world, and the Mods switch's state.
+  if(typeof WgRegions==='object') WgRegions.bindPicker();
   if(typeof WgCoverage==='object'){
     WgCoverage.bindPicker();
     WgCoverage.load().then(()=>{ WgCoverage.bindPicker(); if(!isMap() && typeof render==='function') render(); });

@@ -19,6 +19,9 @@ luacore = { path = "../luacore", features = ["teal"] }
 ordercore = { path = "../ordercore" }
 # Wraithguard: meshoptimizer's simplifier, ported (distant objects' models, src/lod.rs).
 meshopt-port = { path = "../meshopt-port" }
+# Wraithguard: Merge Lands' per-vertex arithmetic (landcore::merge, landcore::curvature), so the
+# merged-lands preview (src/mland.rs) blends exactly as Merge Lands does - one copy, not two.
+landcore = { path = "../landcore" }
 # Wraithguard: Greatness7's `tes3` crate reading for Gardenfell's engine (the hooks of
 # patches 0001/0002), so G7's updates arrive with a version bump.
 gardenfell-g7 = { path = "../gardenfell-g7" }

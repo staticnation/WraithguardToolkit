@@ -655,6 +655,8 @@ const CellMap={
 
     // Wraithguard: the mods-per-cell heat, as translucent masks over the picture.
     if(typeof WgCoverage==='object') WgCoverage.drawOverlay(c,this);
+    // Wraithguard: the regions, and what the region brushes are doing (70_wg_regions.js).
+    if(typeof WgRegions==='object') WgRegions.drawOverlay(c,this);
     lap('coverage');
     // 3. The grid, over the world's own extent and no further — there are no cells in
     //    the open sea — and fainter as the cells get small, so at six pixels a cell it
@@ -802,6 +804,8 @@ const CellMap={
     cv.addEventListener('pointerdown',e=>{
       if(e.button===1){ e.preventDefault(); this.startPan(e); return; }
       if(this.drag){ e.preventDefault(); return; }
+      // Wraithguard: the region map's brushes have the left button while one is chosen.
+      if(typeof WgRegions==='object' && WgRegions.down(this,e)) return;
       /* Where the left button went down, so a click can be told from a drag that
          happened to end over the map: the browser sends `click` for both. */
       if(e.button===0) this.press={x:e.clientX,y:e.clientY};
@@ -813,6 +817,7 @@ const CellMap={
       if(e.button===2){ const [px,py]=this.local(e); this.rpress=this.cellAt(px,py); }
     });
     cv.addEventListener('pointerup',e=>{
+      if(typeof WgRegions==='object' && WgRegions.up(this,e)) return;
       if(this.drag){ if(!(e.buttons&(this.drag.left? 1 : 4))) this.endPan(e,true); return; }
       /* The star lands on the *release* of the right button, and only where it went down.
          Not on `contextmenu`: Windows sends that on the release and Linux on the press, and
@@ -896,6 +901,7 @@ const CellMap={
     if(px>=0 && py>=0 && px<this.W && py<this.H) this.onMove(e);
   },
   onMove(e){
+    if(typeof WgRegions==='object' && WgRegions.move(this,e)) return;
     /* Wraithguard: a left press that travels becomes a pan too - a click stays a click,
        but dragging the map with the button everybody reaches for first now moves it.
        `startPan` forgets the press, so no cell is picked at the release. */
@@ -999,6 +1005,7 @@ const CellMap={
     return !!this.zoom;
   },
   onClick(e){
+    if(typeof WgRegions==='object' && WgRegions.active()){ this.press=null; return; }
     const pr=this.press; this.press=null;
     if(!pr) return;                                   // a press that began during a pan (round 18cw)
     if(Math.hypot(e.clientX-pr.x, e.clientY-pr.y)>4) return;   // a drag, not a click
@@ -1044,6 +1051,7 @@ const CellMap={
     if(sel && sel.kind==='ext' && sel.x===c.x && sel.y===c.y) s+=' · '+T('cell.map_current');
     // Wraithguard: which mods touch it.
     if(typeof WgCoverage==='object') s+=WgCoverage.tip({kind:'ext',x:c.x,y:c.y});
+    { const r=typeof WgRegions==='object'? WgRegions.tip(c) : ''; if(r) s+='\n'+r; }
     const on=typeof Favourites==='object' && Favourites.has('cell', c.x+','+c.y);
     s+='\n'+T(on? 'cell.map_star_note' : 'cell.map_star_note_off');
     return s;

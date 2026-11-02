@@ -15,6 +15,9 @@ license = "MIT"
 publish = false
 
 [dependencies]
+# Land editing (places.rs `set_land`): a LAND record's heights, normals and world map built as
+# Merge Lands writes them (landcore::emit), so one encoder serves both.
+landcore = { path = "../landcore" }
 # greatness7's TES3 crates (MIT OR Apache-2.0), with serde: records as tes3conv's JSON.
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp", "serde", "serde-zstd"] }
 bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }

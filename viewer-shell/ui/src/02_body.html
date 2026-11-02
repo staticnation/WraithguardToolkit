@@ -159,7 +159,7 @@
               <!-- Round 18f, Robin: "I want a toggle just above Brightness which toggles on and
                    off Unlit mode in the viewport. Call it Unlit and default to OFF." Every
                    surface at its texture: no sun, no ambient, no lamps; fog and the rest stay. -->
-              <div class="row"><label data-tx="preview.unlit" data-txt="preview.unlit_title" title="Draw every surface at its texture, with no sun, ambient or lamps on it - the colours as they are painted. The fog stays. Preview only.">Unlit</label><div class="ctl">
+              <div class="row"><label data-tx="preview.unlit" data-txt="preview.unlit_title" title="Draw every surface at its texture, with no sun, ambient or lamps on it - the colors as they are painted. The fog stays. Preview only.">Unlit</label><div class="ctl">
                 <label class="sw"><input type="checkbox" id="p_unlit"><span class="tr"></span></label></div></div>
               <!-- Round 13: the game clock places the sun and picks the ramp's colours,
                    and the weather names which ramp. "Sun height" went with the old sky. -->
@@ -168,7 +168,7 @@
                 <span class="val" id="p_hourV">15:00</span></div></div></div>
               <!-- Wraithguard: the weathers back, for their sky, fog and water, and what falls
                    in them (44_wg_precip.js). -->
-              <div class="row" id="rowWeather"><label title="The weather: its sky and fog colours from your Morrowind.ini or openmw.cfg, its fog distance, how much sun comes through, and - with Deep water darkens on - how rough the water is. Rain, snow, ash and blight fall around the camera with Particles on.">Weather</label><div class="ctl">
+              <div class="row" id="rowWeather"><label title="The weather: its sky and fog colors from your Morrowind.ini or openmw.cfg, its fog distance, how much sun comes through, and - with Deep water darkens on - how rough the water is. Rain, snow, ash and blight fall around the camera with Particles on.">Weather</label><div class="ctl">
                 <select class="fld" id="p_weather"><option>Clear</option><option>Cloudy</option><option>Foggy</option><option>Overcast</option><option>Rain</option><option>Thunderstorm</option><option>Ashstorm</option><option>Blight</option><option>Snow</option><option>Blizzard</option></select></div></div>
               <!-- Round 17s: the clock runs on its own, so a sunset can be watched rather
                    than scrubbed. Off by default — a preview that moves while you are trying
@@ -238,8 +238,24 @@
                    measuring without them. -->
               <div class="row"><label data-tx="preview.particles" data-txt="preview.particles_title" title="The particle systems the meshes carry — a waterfall's mist, a torch's flame and smoke, a candle's flicker — run as the game runs them. A lamp's follow the Lights rule. Preview only.">Particles</label><div class="ctl">
                 <label class="sw"><input type="checkbox" id="p_particles" checked><span class="tr"></span></label></div></div>
+              <!-- Wraithguard (SOUND.md step 2): the loops placed objects play, where they are. -->
+              <div class="row" id="rowSounds"><label title="The scene's sound as OpenMW plays it: the lights' loops (a fire's crackle, a lantern's hum) from where they stand, and outdoors the region's ambient sounds and the weather's loop.">Sounds</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_sounds"><span class="tr"></span></label></div></div>
+              <div class="row" id="rowSndScripts"><label title="The loops objects' scripts start (PlayLoopSound3D: a machine's hum, a waterfall). The viewer plays them whatever the script waits for - a quest stage, a time of day, a lever - so one that starts late in the game is heard from the first. Off, only the lights' loops play.">Script loops</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_sndscripts" checked><span class="tr"></span></label></div></div>
+              <div class="row" id="rowSndVol"><label title="How loud the scene's sounds are.">Sound volume</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_sndvol" min="0" max="100" step="1" value="70">
+                <span class="val" id="p_sndvolV">70</span></div></div></div>
+              <div class="row" id="rowSndFx"><label title="The objects' loops, the region's ambient sounds and the weather's, under the sound volume (OpenMW's effects volume).">Effects</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_sndfx" min="0" max="100" step="1" value="100">
+                <span class="val" id="p_sndfxV">100</span></div></div></div>
+              <div class="row" id="rowMusic"><label title="The data folders' Music/Explore, one track after another in a shuffled order, while Sounds is on.">Music</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_music"><span class="tr"></span></label></div></div>
+              <div class="row" id="rowMusicVol"><label title="How loud the music is, under the sound volume.">Music volume</label><div class="ctl"><div class="rng">
+                <input type="range" id="p_musvol" min="0" max="100" step="1" value="50">
+                <span class="val" id="p_musvolV">50</span></div></div></div>
               <!-- Wraithguard: distant land past the rings (57_wg_distant.js). -->
-              <div class="row"><label data-tx="preview.distant" data-txt="preview.distant_title" title="The exteriors past the loaded rings, out to your install's view distance: their ground, coarse, coloured as it is, and the sea over it. On when the install draws distant land (OpenMW's distant terrain, MGE's distant land) and when the viewer cannot tell. Preview only.">Distant land</label><div class="ctl">
+              <div class="row"><label data-tx="preview.distant" data-txt="preview.distant_title" title="The exteriors past the loaded rings, out to your install's view distance: their ground, coarse, colored as it is, and the sea over it. On when the install draws distant land (OpenMW's distant terrain, MGE's distant land) and when the viewer cannot tell. Preview only.">Distant land</label><div class="ctl">
                 <label class="sw"><input type="checkbox" id="p_distant" checked><span class="tr"></span></label></div></div>
               <!-- Wraithguard: what stands on it (58_wg_distant_objects.js), and how it is simplified. -->
               <div class="row"><label data-tx="preview.distant_objects" data-txt="preview.distant_objects_title" title="The buildings, rocks and trees on the distant land, as OpenMW pages them: simplified, the further the more, and only what is big enough to see from here. Follows Distant land until switched. Preview only.">Distant objects</label><div class="ctl">
@@ -256,7 +272,7 @@
                    does it (XE Mod Grass.fx): wrap lighting with a little backlight, a
                    fixed alpha cutout softened by coverage, the mesh's vertex colours
                    ignored. Off draws the blades by the plain rules the objects get. -->
-              <div class="row"><label data-tx="preview.mge" data-txt="preview.mge_title" title="The blades lit and cut out as MGE XE's grass shader does it: light wrapping round the blade with a little glow from behind, a soft-edged cutout, and the mesh's vertex colours ignored as MGE ignores them. Off draws them by the plain rules the placed objects get.">MGE grass light</label><div class="ctl">
+              <div class="row"><label data-tx="preview.mge" data-txt="preview.mge_title" title="The blades lit and cut out as MGE XE's grass shader does it: light wrapping round the blade with a little glow from behind, a soft-edged cutout, and the mesh's vertex colors ignored as MGE ignores them. Off draws them by the plain rules the placed objects get.">MGE grass light</label><div class="ctl">
                 <label class="sw"><input type="checkbox" id="p_mge" checked><span class="tr"></span></label></div></div>
               <!-- Round 11 item 11. The ground tint is the viewport's own idea - a blade
                    coloured by the ground it stands on at its base, its own colour by the
@@ -268,7 +284,7 @@
               <div class="row" id="windRow"><label data-tx="preview.wind" data-txt="preview.wind_title" title="How hard the grass sways. Preview only: nothing in the plugin moves. Zero is still.">Wind</label><div class="ctl"><div class="rng">
                 <input type="range" id="p_wind" min="0" max="100" step="5" value="25">
                 <span class="val" id="p_windV">25</span></div></div></div>
-              <div class="row"><label data-tx="preview.tint" data-txt="preview.tint_title" title="How much of the ground's colour a blade takes at its base, fading to its own colour at the tip. Preview only: a placed blade carries no colour.">Ground tint</label><div class="ctl"><div class="rng">
+              <div class="row"><label data-tx="preview.tint" data-txt="preview.tint_title" title="How much of the ground's color a blade takes at its base, fading to its own color at the tip. Preview only: a placed blade carries no color.">Ground tint</label><div class="ctl"><div class="rng">
                 <input type="range" id="p_tint" min="0" max="100" step="5" value="100">
                 <span class="val" id="p_tintV">100</span></div></div></div>
               <!-- Round 18cn: Grass distance used to sit here, between Ground tint and the
@@ -297,10 +313,10 @@
               <!-- Wraithguard: a colour over MGE XE's water - its hue, and how much of it: at
                    0 the colour layer is fully transparent (MGE XE's own water), at 100 it is
                    opaque. -->
-              <div class="row wtint" id="rowWHue"><label title="The hue of the colour laid over the water.">Water hue</label><div class="ctl"><div class="rng">
+              <div class="row wtint" id="rowWHue"><label title="The hue of the color laid over the water.">Water hue</label><div class="ctl"><div class="rng">
                 <input type="range" id="p_whue" min="0" max="360" step="1" value="190" class="hue">
                 <span class="val" id="p_whueV">190</span></div></div></div>
-              <div class="row wtint" id="rowWTint"><label title="How much of the water hue shows. All the way left the colour is fully transparent and the water is MGE XE's own; all the way right it is opaque.">Water colour</label><div class="ctl"><div class="rng">
+              <div class="row wtint" id="rowWTint"><label title="How much of the water hue shows. All the way left the color is fully transparent and the water is MGE XE's own; all the way right it is opaque.">Water color</label><div class="ctl"><div class="rng">
                 <input type="range" id="p_wtint" min="0" max="100" step="1" value="0">
                 <span class="val" id="p_wtintV">0</span></div></div></div>
               <!-- The sewer waves of Vivec and Molag Mar (mod 45432), in MGE XE's water. -->
@@ -334,7 +350,7 @@
                    automatically off when MGE water is turned off. Hide the option when the
                    MGE water is not toggled on." The row hides with the switch above it and
                    the effect stands down with it, whatever this one remembers. -->
-              <div class="row" id="rowUnder"><label data-tx="preview.under" data-txt="preview.under_title" title="What the game shows with the eye under the water: its underwater fog, in the install's own colour and distances, the surface seen from beneath, and the wobble and light rays (in a room, the caustics) of MGE XE's Underwater Effects shaders. Off, the frame is drawn as if the eye were in the air. Preview only.">Underwater effects</label><div class="ctl">
+              <div class="row" id="rowUnder"><label data-tx="preview.under" data-txt="preview.under_title" title="What the game shows with the eye under the water: its underwater fog, in the install's own color and distances, the surface seen from beneath, and the wobble and light rays (in a room, the caustics) of MGE XE's Underwater Effects shaders. Off, the frame is drawn as if the eye were in the air. Preview only.">Underwater effects</label><div class="ctl">
                 <label class="sw"><input type="checkbox" id="p_under" checked><span class="tr"></span></label></div></div>
               </div>
             </div>
@@ -351,7 +367,7 @@
               <!-- Wraithguard: which ambient occlusion - MGE's SSAO HQ, or SSGI (HBAO with
                    screen-space global illumination: nearby lit surfaces bounce their colour into
                    the shade). One or the other. -->
-              <div class="row" id="rowAoMode"><label title="SSAO: the corners and creases darkened. SSGI: the same, and the colour of nearby lit surfaces bounced into the shade - heavier on the GPU.">Occlusion mode</label><div class="ctl">
+              <div class="row" id="rowAoMode"><label title="SSAO: the corners and creases darkened. SSGI: the same, and the color of nearby lit surfaces bounced into the shade - heavier on the GPU.">Occlusion mode</label><div class="ctl">
                 <select class="fld" id="p_aomode"><option value="ssao">SSAO</option><option value="ssgi">SSGI</option></select></div></div>
               <!-- Round 18do: FXAA over the finished frame (33_fxaa.js), the shader Robin's
                    game runs last in its chain, on top of the multisampling the frame already
@@ -493,6 +509,8 @@
             <button class="vpbtn on" id="tbHiSlot" data-txt="vp.hislot_title" title="Hovering a grass slot lights up every instance it placed and dims the rest" data-tx="vp.hislot">Highlight slot</button>
             <button class="vpbtn on" id="tbHiObj" data-txt="vp.hiobj_title" title="Pointing at an object in the viewport lights it up, and hovering a never-avoid or never-paint-on pattern, or canopy lights up everything it matches" data-tx="vp.hiobj">Highlight objects</button>
             <button class="vpbtn on" id="tbArrows" data-txt="vp.arrows_title" title="Show the four arrows that step the view one cell in each direction" data-tx="vp.arrows">⤢ Cell arrows</button>
+            <!-- Wraithguard: the exterior cells' borders and names on the ground (68_wg_cellgrid.js). -->
+            <button class="vpbtn" id="tbBorders" title="Draw each exterior cell's border on the ground, with its name (or grid) and region at its middle">▢ Cell borders</button>
             <button class="vpbtn" id="tbRecentre" data-txt="vp.recentre_title" title="Point the camera back at the middle of what is loaded" data-tx="vp.recentre">⌖ Recentre</button>
             <!-- Wraithguard: back to the cell map from inside a cell (38_wg_viewport.js). -->
             <button class="vpbtn" id="tbMap" title="Open the cell map: choose another cell, with the mods touching each (key: §)">▦ Cell map</button>
@@ -537,6 +555,8 @@
           <span id="vphintWasd" data-tx="vp.wasd_pick" hidden>click an object for ORI · Shift+click a door to go through · hold right button + W A S D (E up, Q down) to fly · wheel sets speed</span>
           <span id="vphintWasdPaint" data-tx="vp.wasd_paint" hidden>left-drag to paint · hold right button + W A S D (E up, Q down) to fly · wheel sets speed</span>
           <span id="vphintWasdPlain" data-tx="vp.wasd_plain" hidden>hold right button + W A S D (E up, Q down) to fly · wheel sets speed</span>
+          <span id="vphintLand" data-tx="vp.land" hidden>Land: left-drag to paint with the brush · right-drag to orbit · middle-drag to pan · wheel to zoom · Done (left) to leave</span>
+          <span id="vphintWalk" data-tx="vp.walk" hidden>first person: W A S D to walk · Shift walks slowly · Space jumps · hold right button to look · Tab for Orbit</span>
           <span id="vphintWasdFly" data-tx="vp.wasd_fly" hidden>move the mouse to look · W A S D to move · E up · Q down · wheel sets speed · release to stop</span>
           <!-- What the colours on the ground mean. Built from the renderer's own state
                (`legendItems`), so it can only ever name a colour that is actually being
@@ -645,11 +665,12 @@
       <!-- Round 17b: how the mouse moves the view, and how softly it turns. Robin
            asked for these here rather than in the viewport. Saved with the profile. -->
       <div class="mhead2" data-tx="settings.nav">Viewport navigation</div>
-      <div class="hint" style="margin:0 0 8px" data-tx="settings.nav_hint2">Orbit navigation: the left button clicks objects and paints, the right button orbits, middle-drag pans and the wheel zooms. WASD on Right mouse button: hold the right button to look around and fly with W A S D (E up, Q down), the wheel sets the speed. The left button clicks objects and paints, and never orbits.</div>
+      <div class="hint" style="margin:0 0 8px" data-tx="settings.nav_hint2">Orbit navigation: the left button clicks objects and paints, the right button orbits, middle-drag pans and the wheel zooms. WASD on Right mouse button: hold the right button to look around and fly with W A S D (E up, Q down), the wheel sets the speed. The left button clicks objects and paints, and never orbits. First person: the game's camera - you walk on land and floors at a person's eye height with the game's view, run and jump; hold the right button to look.</div>
       <div class="row"><label data-tx="settings.nav_scheme">Scheme</label><div class="ctl">
         <select class="fld" id="setNav">
           <option value="orbit" selected data-tx="settings.nav_orbit">Orbit navigation</option>
           <option value="wasd" data-tx="settings.nav_wasd">WASD on Right mouse button</option>
+          <option value="walk" data-tx="settings.nav_walk">First person (the game's camera)</option>
         </select></div></div>
       <!-- Round 17c: Robin's own camera smoothing, from his MWSE mod - the view lags the
            mouse and catches up at this rate. WASD scheme only; hidden under Orbit. -->
@@ -711,7 +732,7 @@
             <span class="thmini"></span><span class="thn">—</span><span class="thcar">▾</span>
           </button>
           <div class="thlist" id="setThemeList" role="listbox"
-               aria-label="Colour themes" hidden></div>
+               aria-label="Color themes" hidden></div>
         </div>
       </div></div>
       <div class="hint" data-tx="settings.theme_note" style="margin:8px 0 16px">The paint colors for Grass and No Grass never change with the theme.</div>

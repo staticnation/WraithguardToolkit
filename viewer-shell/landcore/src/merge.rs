@@ -8,6 +8,7 @@
 use crate::curvature::curvature_at;
 use crate::grid::RelativeGrid;
 use crate::meta::{layer, Strategy};
+use crate::grid::Value;
 
 /// The thresholds below which a blended vertex counts as a minor compromise (`ConflictParams`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -35,7 +36,7 @@ pub struct MergeReport {
     pub major_vertices: Vec<(usize, usize)>,
 }
 
-fn is_major(first: i64, second: i64, blended: f64, p: ConflictParams) -> bool {
+fn is_major(first: Value, second: Value, blended: f64, p: ConflictParams) -> bool {
     let smaller = first.min(second) as f64;
     let threshold = (p.minor_threshold_pct * smaller).max(p.minor_threshold_min).min(p.minor_threshold_max);
     (smaller - blended).abs() >= threshold
@@ -43,7 +44,7 @@ fn is_major(first: i64, second: i64, blended: f64, p: ConflictParams) -> bool {
 
 /// `average_delta`: the two edits blended toward the larger, and whether the compromise
 /// is major.
-pub fn average_delta(first: i64, second: i64, p: ConflictParams) -> (i64, bool) {
+pub fn average_delta(first: Value, second: Value, p: ConflictParams) -> (Value, bool) {
     let (s1, s2) = (first.abs() as f64, second.abs() as f64);
     let total = s1 + s2;
     if total == 0.0 {
@@ -54,18 +55,18 @@ pub fn average_delta(first: i64, second: i64, p: ConflictParams) -> (i64, bool) 
     let other = (1.0 - weight).powf(1.5);
     let weight = biased / (biased + other);
     let blended = weight * first as f64 + (1.0 - weight) * second as f64;
-    (blended.trunc() as i64, is_major(first, second, blended, p))
+    (blended.trunc() as Value, is_major(first, second, blended, p))
 }
 
 /// `weighted_delta`: the two edits blended with the caller's weights.
-pub fn weighted_delta(first: i64, second: i64, w1: f64, w2: f64, p: ConflictParams) -> (i64, bool) {
+pub fn weighted_delta(first: Value, second: Value, w1: f64, w2: f64, p: ConflictParams) -> (Value, bool) {
     let total = w1 + w2;
     if total <= 0.0 {
         return average_delta(first, second, p);
     }
     let share = w1 / total;
     let blended = share * first as f64 + (1.0 - share) * second as f64;
-    (blended.trunc() as i64, is_major(first, second, blended, p))
+    (blended.trunc() as Value, is_major(first, second, blended, p))
 }
 
 /// The layer's name as `LandData` spells it, for the refusals.
@@ -135,11 +136,11 @@ pub fn merge_grids(first: &RelativeGrid, second: &RelativeGrid, chosen: Strategy
 
     // Curvature weighting reads each side's terrain: the reference, and each applied.
     let surfaces = (chosen == Strategy::Curvature).then(|| {
-        let f = |v: Vec<i64>| v.into_iter().map(|x| x as f64).collect::<Vec<f64>>();
+        let f = |v: Vec<Value>| v.into_iter().map(|x| x as f64).collect::<Vec<f64>>();
         (f(first.reference.clone()), f(first.flat()), f(second.flat()))
     });
 
-    let put = |merged: &mut RelativeGrid, v: usize, deltas: &[i64]| {
+    let put = |merged: &mut RelativeGrid, v: usize, deltas: &[Value]| {
         let start = v * comps;
         let mut changed = false;
         for (o, d) in deltas.iter().enumerate() {
@@ -228,13 +229,17 @@ pub fn merge_onto(acc: &mut RelativeGrid, incoming: &RelativeGrid, layer_bits: u
     let chosen = resolve_for(layer_bits, strategy)?;
     let (side, comps) = (acc.side, acc.components);
     let mut report = MergeReport { strategy: chosen, ..Default::default() };
+    if chosen == Strategy::Overwrite {
+        overwrite_onto(acc, incoming, &mut report);
+        return Ok(report);
+    }
     let before = acc.flat();
     let theirs = incoming.flat();
     let surfaces = (chosen == Strategy::Curvature).then(|| {
-        let f = |v: &[i64]| v.iter().map(|&x| x as f64).collect::<Vec<f64>>();
+        let f = |v: &[Value]| v.iter().map(|&x| x as f64).collect::<Vec<f64>>();
         (f(&acc.reference), f(&before), f(&theirs))
     });
-    let set = |acc: &mut RelativeGrid, v: usize, values: &[i64]| {
+    let set = |acc: &mut RelativeGrid, v: usize, values: &[Value]| {
         let mut changed = false;
         for (o, value) in values.iter().enumerate() {
             let i = v * comps + o;
@@ -266,9 +271,13 @@ pub fn merge_onto(acc: &mut RelativeGrid, incoming: &RelativeGrid, layer_bits: u
                 continue;
             }
             report.contested += 1;
+            /* The answer for this vertex, in a buffer on the stack (a vertex has at most
+               three components): a `Vec` here was an allocation per contested vertex, 28
+               million of them on the benchmark's 300 plugins, most of the merge's time. */
             let mut worst = false;
-            let blended: Vec<i64> = match chosen {
-                Strategy::Overwrite => new.to_vec(),
+            let mut buf = [0 as Value; 4];
+            let blended: &[Value] = match chosen {
+                Strategy::Overwrite => new,
                 Strategy::Ignore => continue,
                 Strategy::Curvature => {
                     let (reference, t1, t2) = surfaces.as_ref().unwrap();
@@ -281,22 +290,23 @@ pub fn merge_onto(acc: &mut RelativeGrid, incoming: &RelativeGrid, layer_bits: u
                     let w2 = d2.abs() as f64 * (1.0 + added2 * 8.0);
                     let (value, sev) = weighted_delta(mine[0], new[0], w1, w2, p);
                     worst = sev;
-                    vec![value]
+                    buf[0] = value;
+                    &buf[..1]
                 }
-                _ => mine
-                    .iter()
-                    .zip(new)
-                    .map(|(a, b)| {
-                        if a == b {
-                            return *a;
-                        }
-                        let (value, sev) = average_delta(*a, *b, p);
-                        worst = worst || sev;
-                        value
-                    })
-                    .collect(),
+                _ => {
+                    for (o, (a, b)) in mine.iter().zip(new).enumerate() {
+                        buf[o] = if a == b {
+                            *a
+                        } else {
+                            let (value, sev) = average_delta(*a, *b, p);
+                            worst = worst || sev;
+                            value
+                        };
+                    }
+                    &buf[..mine.len()]
+                }
             };
-            set(acc, v, &blended);
+            set(acc, v, blended);
             if matches!(chosen, Strategy::Resolve | Strategy::Curvature) {
                 if worst {
                     report.major += 1;
@@ -310,9 +320,106 @@ pub fn merge_onto(acc: &mut RelativeGrid, incoming: &RelativeGrid, layer_bits: u
     Ok(report)
 }
 
+/// `merge_onto` for `Overwrite`, the load order's own rule and the commonest by far, in
+/// one pass with nothing allocated: the same answers and the same counts as the general
+/// loop (`overwrite_is_the_general_loop_s_answer`), read straight from the two grids'
+/// reference and delta rather than from copies of their flat values.
+fn overwrite_onto(acc: &mut RelativeGrid, incoming: &RelativeGrid, report: &mut MergeReport) {
+    let comps = acc.components;
+    for v in 0..acc.changed.len() {
+        let at = v * comps;
+        if !incoming.changed[v] {
+            if acc.changed[v] {
+                report.taken_from_one += 1;
+            }
+            continue;
+        }
+        if acc.changed[v] {
+            let same = (at..at + comps).all(|i| acc.reference[i] + acc.delta[i] == incoming.reference[i] + incoming.delta[i]);
+            if same {
+                continue;
+            }
+            report.contested += 1;
+        } else {
+            report.taken_from_two += 1;
+        }
+        let mut changed = false;
+        for i in at..at + comps {
+            acc.delta[i] = incoming.reference[i] + incoming.delta[i] - acc.reference[i];
+            changed = changed || acc.delta[i] != 0;
+        }
+        acc.changed[v] = changed;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The general loop's `Overwrite`, as it was before `overwrite_onto`.
+    fn overwrite_general(acc: &mut RelativeGrid, incoming: &RelativeGrid) -> MergeReport {
+        let (side, comps) = (acc.side, acc.components);
+        let mut report = MergeReport { strategy: Strategy::Overwrite, ..Default::default() };
+        let before = acc.flat();
+        let theirs = incoming.flat();
+        for v in 0..side * side {
+            let mine = &before[v * comps..(v + 1) * comps];
+            let new = &theirs[v * comps..(v + 1) * comps];
+            let set = |acc: &mut RelativeGrid, values: &[Value]| {
+                let mut changed = false;
+                for (o, value) in values.iter().enumerate() {
+                    let i = v * comps + o;
+                    acc.delta[i] = value - acc.reference[i];
+                    changed = changed || acc.delta[i] != 0;
+                }
+                acc.changed[v] = changed;
+            };
+            match (acc.changed[v], incoming.changed[v]) {
+                (_, false) => {
+                    if acc.changed[v] {
+                        report.taken_from_one += 1;
+                    }
+                    continue;
+                }
+                (false, true) => {
+                    report.taken_from_two += 1;
+                    set(acc, new);
+                    continue;
+                }
+                (true, true) => {}
+            }
+            if mine == new {
+                continue;
+            }
+            report.contested += 1;
+            set(acc, new);
+        }
+        report
+    }
+
+    #[test]
+    fn overwrite_is_the_general_loop_s_answer() {
+        let mut seed = 5u64;
+        let mut rnd = |n: i32| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) as i32).rem_euclid(n)
+        };
+        for comps in [1usize, 3] {
+            for _ in 0..20 {
+                let n = 9 * 9 * comps;
+                let reference: Vec<Value> = (0..n).map(|_| rnd(50)).collect();
+                let a: Vec<Value> = reference.iter().map(|&r| if rnd(3) == 0 { r + rnd(5) - 2 } else { r }).collect();
+                let b: Vec<Value> = reference.iter().map(|&r| if rnd(3) == 0 { r + rnd(5) - 2 } else { r }).collect();
+                let acc = RelativeGrid::from_difference(reference.clone(), &a, 9, comps).unwrap();
+                let inc = RelativeGrid::from_difference(reference.clone(), &b, 9, comps).unwrap();
+                let (mut x, mut y) = (acc.clone(), acc.clone());
+                let rx = merge_onto(&mut x, &inc, crate::meta::layer::VERTEX_COLORS, Strategy::Overwrite, ConflictParams::default()).unwrap();
+                let ry = overwrite_general(&mut y, &inc);
+                assert_eq!(x, y);
+                assert_eq!(rx, ry);
+            }
+        }
+    }
 
     #[test]
     fn blends_toward_the_larger_edit() {

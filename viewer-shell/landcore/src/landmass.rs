@@ -10,6 +10,7 @@ use crate::layers::{diff_against_reference, DecodeError, Layer, LandscapeDiff, L
 use crate::meta::{layer, PluginMeta};
 use crate::read::Record;
 use crate::textures::{translate_indices, KnownTextures};
+use crate::grid::Value;
 
 pub type Coords = (i64, i64);
 
@@ -77,7 +78,7 @@ fn mask_layers(l: &mut LandscapeLayers, allowed: u32) {
 /// A plugin's undeleted `LAND` records, decoded and in the shared texture table
 /// (`_landscape_records`, `_decode_cell`); a record that will not decode is logged in
 /// `notes` and left out.
-fn decoded(plugin: &str, records: &[Record], mapping: &HashMap<i64, i64>, notes: &mut Vec<String>) -> Result<Vec<LandscapeLayers>, String> {
+pub(crate) fn decoded(plugin: &str, records: &[Record], mapping: &HashMap<Value, Value>, notes: &mut Vec<String>) -> Result<Vec<LandscapeLayers>, String> {
     let mut out = Vec::new();
     for r in records {
         let Record::Land { deleted, .. } = r else { continue };

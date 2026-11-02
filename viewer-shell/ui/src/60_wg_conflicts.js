@@ -133,9 +133,9 @@ const WgConflicts={
 #wgCF .rows div.r:hover{background:var(--bg3)}
 #wgCF .rows div.r.sel{background:var(--acd)}
 #wgCF .rows div.r.mine::before{content:'* ';color:var(--ac)}
-/* The record list coloured by verdict, as the Tk list was (conflict_colors.py, xEdit's
+/* The record list colored by verdict, as the Tk list was (conflict_colors.py, xEdit's
    Material family): a conflict red, an override amber, agreeing records receding; your own
-   (*) a shade brighter. Text colour, not fills: it is a long flat list. */
+   (*) a shade brighter. Text color, not fills: it is a long flat list. */
 #wgCF .rows div.r.v4{color:#ef5350} #wgCF .rows div.r.v4.mine{color:#ff4d4d}
 #wgCF .rows div.r.v3{color:#ffca28} #wgCF .rows div.r.v3.mine{color:#ffb454}
 #wgCF .rows div.r.v2,#wgCF .rows div.r.v1{color:#b8b8b8} #wgCF .rows div.r.v2.mine,#wgCF .rows div.r.v1.mine{color:#d0d0d0}
@@ -153,8 +153,8 @@ const WgConflicts={
 #wgCF th,#wgCF td{border:1px solid var(--line);padding:2px 6px;text-align:left;vertical-align:top;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:pre-wrap;word-break:break-all}
 /* The field comparison, as the Tk window drew it: one line a field (a long value cut short,
    whole in its tooltip), the table scrolling sideways when the plugins outrun the pane, each
-   field's row in its verdict's colours (conflict_colors._ALL_BG: a dark tint behind bright
-   text), each plugin's name in its status's colour (THIS_TEXT). */
+   field's row in its verdict's colors (conflict_colors._ALL_BG: a dark tint behind bright
+   text), each plugin's name in its status's color (THIS_TEXT). */
 #wgCF table.diff td,#wgCF table.diff th{white-space:nowrap;word-break:normal;max-width:420px}
 #wgCF table.diff tr.va2 td{background:#0e3320;color:#00c853}
 #wgCF table.diff tr.va3 td{background:#33290a;color:#ffd600}
@@ -216,7 +216,7 @@ const WgConflicts={
 <div class="pane" id="cfFiles" hidden><div class="col"><h3>Files <span class="sp"></span><span id="cfFCount"></span></h3><div class="scroll rows" id="cfFList"><div class="empty">Scan to see the files.</div></div></div>
   <div class="col"><h3 id="cfFTitle">-</h3><div class="scroll" id="cfFDetail"><div class="empty">Pick a file.</div></div></div></div>
 <div class="pane" id="cfPlugins" hidden><div class="col"><h3>Plugins <span class="sp"></span><span id="cfPCount"></span>
-  <button class="btn dim" id="cfJudgeAll" title="Judge every plugin's records, so the whole tree is coloured">Colour all</button>
+  <button class="btn dim" id="cfJudgeAll" title="Judge every plugin's records, so the whole tree is colored">Color all</button>
   <button class="btn dim" id="cfBulk" title="Pick fields the selected plugin should win, across every record it shares">Merge fields...</button></h3>
   <div class="empty" id="cfPeers" style="padding:4px 8px"></div><div class="scroll rows tree" id="cfPTree"><div class="empty">Scan to see the plugins.</div></div></div>
   <div id="cfPDetail" style="display:flex;flex-direction:column;min-height:0"></div></div>

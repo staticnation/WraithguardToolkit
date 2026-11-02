@@ -342,6 +342,26 @@
     "cell": "Test Room"
    }
   },
+  "editCellRegions": {
+   "req": [
+    "cells"
+   ],
+   "opt": [
+    "region",
+    "make"
+   ],
+   "ans": [
+    "set",
+    "made",
+    "skipped"
+   ],
+   "example": {
+    "cells": [
+     "(4, 5)"
+    ],
+    "region": "Bitter Coast Region"
+   }
+  },
   "editNewLand": {
    "req": [
     "cell"

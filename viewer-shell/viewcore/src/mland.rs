@@ -113,66 +113,24 @@ fn rel(reference: &[i64], plugin: &[i64], comps: usize) -> Rel {
     Rel { delta, changed }
 }
 
-/// `native/src/land.rs` `average_delta`: towards the larger edit, and whether the
-/// compromise is major.
+/* The per-vertex arithmetic is landcore's (GLAM-PLAN step 1, 2026-11-02): this preview and
+   Merge Lands had two copies of the blend and the curvature, with their constants spelled
+   apart (`VERTS`/`HS` here, `side`/`HEIGHT_SCALE` there). One copy now; the old one is kept
+   in the tests and checked bit for bit against it. */
+/// landcore's grid values are `i32` (`landcore::grid::Value`); a preview's deltas are
+/// heights apart, far inside it.
 fn average_delta(first: i64, second: i64) -> (i64, bool) {
-    let (s1, s2) = (first.abs() as f64, second.abs() as f64);
-    let total = s1 + s2;
-    if total == 0.0 {
-        return (0, false);
-    }
-    let weight = s1 / total;
-    let biased = weight.powf(1.5);
-    let other = (1.0 - weight).powf(1.5);
-    let weight = biased / (biased + other);
-    let blended = weight * first as f64 + (1.0 - weight) * second as f64;
-    (blended.trunc() as i64, is_major(first, second, blended))
-}
-
-fn is_major(first: i64, second: i64, blended: f64) -> bool {
-    let smaller = first.min(second) as f64;
-    let threshold = (0.3 * smaller).clamp(10.0, 64.0);
-    (smaller - blended).abs() >= threshold
+    let (v, major) = landcore::merge::average_delta(first as i32, second as i32, landcore::merge::ConflictParams::default());
+    (v as i64, major)
 }
 
 fn weighted_delta(first: i64, second: i64, w1: f64, w2: f64) -> (i64, bool) {
-    let total = w1 + w2;
-    if total <= 0.0 {
-        return average_delta(first, second);
-    }
-    let share = w1 / total;
-    let blended = share * first as f64 + (1.0 - share) * second as f64;
-    (blended.trunc() as i64, is_major(first, second, blended))
-}
-
-const HS: f64 = 8.0;
-
-fn normal_at(rows: &[f64], x: usize, y: usize) -> (f64, f64, f64) {
-    let limit = VERTS - 1;
-    let fx = if x == limit { x - 1 } else { x };
-    let fy = if y == limit { y - 1 } else { y };
-    let step = 128.0 / HS;
-    let here = rows[fy * VERTS + fx] / HS;
-    let east = rows[fy * VERTS + fx + 1] / HS;
-    let north = rows[(fy + 1) * VERTS + fx] / HS;
-    let (nx, ny, nz) = (-(east - here) * step, -(north - here) * step, step * step);
-    let l = (nx * nx + ny * ny + nz * nz).sqrt();
-    if l == 0.0 { (0.0, 0.0, 1.0) } else { (nx / l, ny / l, nz / l) }
+    let (v, major) = landcore::merge::weighted_delta(first as i32, second as i32, w1, w2, landcore::merge::ConflictParams::default());
+    (v as i64, major)
 }
 
 fn curvature_at(rows: &[f64], x: usize, y: usize) -> f64 {
-    let here = normal_at(rows, x, y);
-    let (mut total, mut n) = (0.0, 0);
-    for (dx, dy) in [(1i64, 0i64), (0, 1), (-1, 0), (0, -1)] {
-        let (nx, ny) = (x as i64 + dx, y as i64 + dy);
-        if nx < 0 || ny < 0 || nx >= VERTS as i64 || ny >= VERTS as i64 {
-            continue;
-        }
-        let o = normal_at(rows, nx as usize, ny as usize);
-        total += (here.0 * o.0 + here.1 * o.1 + here.2 * o.2).clamp(-1.0, 1.0).acos();
-        n += 1;
-    }
-    if n > 0 { total / n as f64 } else { 0.0 }
+    landcore::curvature::curvature_at(rows, VERTS, x, y)
 }
 
 /// Folds `second` into `acc` (both against `reference`), vertex by vertex. Returns the
@@ -342,6 +300,105 @@ pub fn texture_of(m: &Merged, i: usize, j: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
+    /// The copy this module had before it called landcore, kept to check landcore against.
+    mod before {
+        use super::super::VERTS;
+        /// `native/src/land.rs` `average_delta`: towards the larger edit, and whether the
+        /// compromise is major.
+        pub fn average_delta(first: i64, second: i64) -> (i64, bool) {
+            let (s1, s2) = (first.abs() as f64, second.abs() as f64);
+            let total = s1 + s2;
+            if total == 0.0 {
+                return (0, false);
+            }
+            let weight = s1 / total;
+            let biased = weight.powf(1.5);
+            let other = (1.0 - weight).powf(1.5);
+            let weight = biased / (biased + other);
+            let blended = weight * first as f64 + (1.0 - weight) * second as f64;
+            (blended.trunc() as i64, is_major(first, second, blended))
+        }
+
+        fn is_major(first: i64, second: i64, blended: f64) -> bool {
+            let smaller = first.min(second) as f64;
+            let threshold = (0.3 * smaller).clamp(10.0, 64.0);
+            (smaller - blended).abs() >= threshold
+        }
+
+        pub fn weighted_delta(first: i64, second: i64, w1: f64, w2: f64) -> (i64, bool) {
+            let total = w1 + w2;
+            if total <= 0.0 {
+                return average_delta(first, second);
+            }
+            let share = w1 / total;
+            let blended = share * first as f64 + (1.0 - share) * second as f64;
+            (blended.trunc() as i64, is_major(first, second, blended))
+        }
+
+        const HS: f64 = 8.0;
+
+        fn normal_at(rows: &[f64], x: usize, y: usize) -> (f64, f64, f64) {
+            let limit = VERTS - 1;
+            let fx = if x == limit { x - 1 } else { x };
+            let fy = if y == limit { y - 1 } else { y };
+            let step = 128.0 / HS;
+            let here = rows[fy * VERTS + fx] / HS;
+            let east = rows[fy * VERTS + fx + 1] / HS;
+            let north = rows[(fy + 1) * VERTS + fx] / HS;
+            let (nx, ny, nz) = (-(east - here) * step, -(north - here) * step, step * step);
+            let l = (nx * nx + ny * ny + nz * nz).sqrt();
+            if l == 0.0 { (0.0, 0.0, 1.0) } else { (nx / l, ny / l, nz / l) }
+        }
+
+        pub fn curvature_at(rows: &[f64], x: usize, y: usize) -> f64 {
+            let here = normal_at(rows, x, y);
+            let (mut total, mut n) = (0.0, 0);
+            for (dx, dy) in [(1i64, 0i64), (0, 1), (-1, 0), (0, -1)] {
+                let (nx, ny) = (x as i64 + dx, y as i64 + dy);
+                if nx < 0 || ny < 0 || nx >= VERTS as i64 || ny >= VERTS as i64 {
+                    continue;
+                }
+                let o = normal_at(rows, nx as usize, ny as usize);
+                total += (here.0 * o.0 + here.1 * o.1 + here.2 * o.2).clamp(-1.0, 1.0).acos();
+                n += 1;
+            }
+            if n > 0 { total / n as f64 } else { 0.0 }
+        }
+
+    }
+
+    /// GLAM-PLAN's rule: the same arithmetic, the same order - every answer equal to the bit.
+    #[test]
+    fn landcore_gives_the_old_answers_bit_for_bit() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..20_000 {
+            let (a, b) = ((next() % 4001) as i64 - 2000, (next() % 4001) as i64 - 2000);
+            assert_eq!(average_delta(a, b), before::average_delta(a, b), "{a} {b}");
+            let (w1, w2) = ((next() % 1000) as f64 / 7.0, (next() % 1000) as f64 / 3.0);
+            assert_eq!(weighted_delta(a, b, w1, w2), before::weighted_delta(a, b, w1, w2), "{a} {b} {w1} {w2}");
+        }
+        for case in 0..6 {
+            let rows: Vec<f64> = (0..VERTS * VERTS)
+                .map(|i| match case {
+                    0 => 0.0,
+                    1 => (i % VERTS) as f64 * 40.0,
+                    _ => (next() % 20_000) as f64 - 10_000.0,
+                })
+                .collect();
+            for y in 0..VERTS {
+                for x in 0..VERTS {
+                    assert_eq!(curvature_at(&rows, x, y).to_bits(), before::curvature_at(&rows, x, y).to_bits(), "case {case} at {x},{y}");
+                }
+            }
+        }
+    }
+
     use super::*;
 
     fn rel_of(reference: &[i64], plugin: &[i64]) -> Rel {

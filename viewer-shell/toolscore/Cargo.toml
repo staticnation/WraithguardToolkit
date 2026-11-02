@@ -16,6 +16,10 @@ publish = false
 [dependencies]
 # Plugins read and written as the Editor does (Remove / Rename Master), and its panic guard.
 editcore = { path = "../editcore" }
+# Merge to master (src/mergemaster.rs): greatness7's merge_to_master (public domain), from our
+# fork as editcore takes it.
+merge_to_master = { git = "https://github.com/staticnation/merge_to_master", default-features = false, features = ["strip-logs"] }
+anyhow = "1"
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp"] }
 bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
 # Save Check: the setup's data folders (ordercore::cfg), `.omwscripts` lines and Python's repr

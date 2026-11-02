@@ -110,6 +110,8 @@ Object.assign(WgEditor, {
           .then(t=>new Set(typeof t==='string'? JSON.parse(t) : t))
           .then(names=>{
             if(own && names.size){ this._ownLinks={}; names.forEach(n=>{ this._ownLinks[n]='native:'+n; }); }
+            // Land the patch already changes (a journal from an earlier run) drawn as it will be.
+            if(names.has('editLandPending') && typeof WgLand==='object') setTimeout(()=>WgLand.sync(), 0);
             return names;
           }))
           .catch(e=>{

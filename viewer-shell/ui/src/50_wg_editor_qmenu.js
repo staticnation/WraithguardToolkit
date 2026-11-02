@@ -144,7 +144,7 @@ Object.assign(WgEditor, {
   drawLayers(){
     const body=this.lay.querySelector('#edLayersBody'), L=this.layers();
     let h='<div class="hint">Groups of references, shown or hidden in the render window. Q on an object puts it on one; '+
-      'Ctrl+Shift+1 to 9 shows or hides the layer of that number; the colour box tints its objects. A view only: nothing here is written to the patch.</div>';
+      'Ctrl+Shift+1 to 9 shows or hides the layer of that number; the color box tints its objects. A view only: nothing here is written to the patch.</div>';
     if(!L.length) h+='<div class="hint">No layers yet.</div>';
     h+='<table class="edT"><tbody>'+L.map((l,i)=>
       '<tr><td class="num" title="Ctrl+Shift+'+(i+1)+'">'+(i<9? i+1 : '')+'</td><td><input type="checkbox" data-lvis="'+i+'"'+(l.visible?' checked':'')+' title="Shown"></td>'+

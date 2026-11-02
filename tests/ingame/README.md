@@ -1,30 +1,35 @@
 # In-game test: does a later edit undelete a reference?
 
-**Where Wraithguard stands (2026-10-31): a deletion sticks** - Gardenfell's round 18fc rule, Robin's
-in-game cases - and the result below is the open discrepancy with it, not the rule. Patch 0017
-("a later record undeletes"), which was written from this test, is withdrawn; `ordercore::refs`,
-the Editor's warnings and the shared cases (`ref_cases.json`, `move_cases.json`) follow 18fc again.
-What this test showed is below, with the limits of what it covered.
+**Result (corrected 2026-11-01): four piles. A deletion sticks** - in Morrowind.exe, for a
+persistent reference in an interior, as Robin's in-game cases (the Seyda Neen lighthouse,
+Wolverine Hall's flag; `gardenfell-esp-format.md` §7, §9.0) say for temporary references in
+exteriors, and as Gardenfell's round 18fc rule has it. The first run was written up as *five*
+piles ("a later record wins", Gardenfell patch 0017): the fifth was the marker coin pile at
+`coc`, counted as a pile of the test. There were four countable
+piles - the control (ref 3) and the three markers - and nothing at x = -300.
 
-**Result (October 2026): yes, the last record wins - for these references: persistent ones, in an
-interior** (no plugin here has a `NAM0`, so every reference is persistent). Robin's cases that say
-the opposite - the Seyda Neen lighthouse, Wolverine Hall's flag (`gardenfell-esp-format.md` §7, §9.0)
-- are *temporary* references in exteriors: see "Variant T" below, which is the same test with a
-`NAM0` in every cell record. Vanilla Morrowind.exe shows five piles, and
-`ori` on them gives:
+The Construction Set says the same without a count: loading plugins in which a later one edits a
+reference an earlier one deleted makes it report an error, which it would have no reason to do if
+the later record brought the reference back.
+
+Patch 0017 is withdrawn; `ordercore::refs`, the Editor's warnings and the shared cases
+(`ref_cases.json`, `move_cases.json`) follow 18fc.
+
+`ori` on the piles:
 
 | sourceID | targetID | file |
 |---|---|---|
-| 02000001 | 01000001 | WG_Del_P2.esp (ref 1, the big raised pile: P2's edit after A's deletion) |
 | 01000003 | | WG_Del_Base.esm (ref 3, the control) |
 | 0180000a | | WG_Del_P1.esp (marker) |
 | 01c0000b | | WG_Del_A.esp (marker) |
 | 0200000c | | WG_Del_P2.esp (marker) |
 
-Ref 2 (edited by P1, deleted later by A) is gone. OpenMW's code reads it the same way
-(`apps/openmw/mwworld/cellstore.cpp`, `CellRefList<X>::load`: a later record for a reference replaces
-the earlier one whole, and only a deleted record marks it deleted); the run in OpenMW is still to do.
-So `ordercore::refs` and Gardenfell patch 0017 stand.
+Refs 1 (deleted by A; P2's later edit is dropped) and 2 (edited by P1, deleted later by A) are both
+gone. **Not yet run: OpenMW.** Its `cellstore.cpp`, `CellRefList<X>::load`, replaces the earlier
+record for a reference whole and marks it deleted only if the *new* record is, which would bring
+ref 1 back (five real piles, the big one at x = -300); if it does, the two engines differ and the
+viewer (Gardenfell, which follows OpenMW elsewhere) and the Editor (which follows the game) would
+want to say so. See "What you should see".
 
 Four plugins, one interior cell, three gold piles. Load order (after Morrowind.esm):
 
@@ -64,10 +69,12 @@ So: **five piles** (the big raised one at x=-300, the control, three markers) pr
 
 Do it in Morrowind.exe and in OpenMW (they can differ).
 
-## If OpenMW shows four piles
+## If OpenMW shows five piles
 
-The two engines would then differ: the Editor follows the game (Morrowind.exe), and the viewer's
-Gardenfell follows OpenMW, so tell Robin (`viewer-shell/gardenfell/patches/NOTES-FOR-ROBIN.md`, 0017).
+Then OpenMW brings a reference back that Morrowind.exe keeps deleted, and the two engines differ.
+Both of Wraithguard's readers use the Morrowind.exe rule today (`ordercore::refs`, Gardenfell's
+`dead` set); which engine the viewer's picture should follow is then a decision to make, and Robin
+should be told (`viewer-shell/gardenfell/patches/NOTES-FOR-ROBIN.md`, 0017).
 
 ## Not covered
 
@@ -77,17 +84,18 @@ a fifth plugin for that.
 
 ## Variant T: the same four plugins, every reference temporary
 
-`WG_DelT_Base.esm`, `WG_DelT_P1.esp`, `WG_DelT_A.esp`, `WG_DelT_P2.esp` (written by
-`make_temporary_variant.py` from the files above: same edits, cell "WG Delete Test T", and a
-`NAM0` before the first `FRMR` of every cell record, so every reference is *temporary*, as nearly all
-of the vanilla exteriors' are). They can be enabled beside the first set. In the same order, after
-Morrowind.esm: Base, P1, A, P2. Then `coc "WG Delete Test T"`, `tcl`, look along +Y; piles at
-x = -300 (ref 1), 0 (ref 2), 300 (ref 3), and the markers at 600, 900, 1200.
+Optional now: a cross-check that the section does not matter. `WG_DelT_Base.esm`, `WG_DelT_P1.esp`,
+`WG_DelT_A.esp`, `WG_DelT_P2.esp` (written by `make_temporary_variant.py` from the files above: same
+edits, cell "WG Delete Test T", and a `NAM0` before the first `FRMR` of every cell record, so every
+reference is *temporary*, as nearly all of the vanilla exteriors' are). They can be enabled beside the
+first set. In the same order, after Morrowind.esm: Base, P1, A, P2. Then `coc "WG Delete Test T"`,
+`tcl`, look along +Y; piles at x = -300 (ref 1), 0 (ref 2), 300 (ref 3), and the markers at 600, 900,
+1200.
 
 | What you see | It means |
 |---|---|
-| **Five piles**, a big raised one at x=-300 | A temporary reference is undeleted by a later record too, in an interior. Persistence is not the difference, and the sticky rule is then wrong for interiors at least; the next suspect is the exterior (a test with an exterior cell and a move, as Robin's `GF_D3_*`). |
-| **Four piles**, nothing at x=-300 | A deletion sticks for temporary references and not for persistent ones: the current rule is right for the temporary kind (what nearly all of the vanilla world is) and `ordercore::refs::winner` and Gardenfell's merge then need to know which section a reference is in (Gardenfell carries it as `CellRef.temporary`, Robin's round 18gf) to let a persistent one come back. |
+| **Four piles**, nothing at x=-300 | As expected: a deletion sticks for temporary references too. |
+| **Five piles**, a big raised one at x=-300 | Surprising: a temporary reference is undeleted by a later record. Count again (the marker at the arrival point), and tell Robin. |
 | Fewer than the three markers | A plugin did not load (the master's size is recorded as 642 bytes; a different size only warns). The run proves nothing. |
 
-Do it in OpenMW too (its `CellRefList::load` replaces the earlier record whole, whatever the section).
+Do it in OpenMW too.

@@ -4,6 +4,12 @@
 //! Values are flat and interleaved: a 65x65 grid of three-component normals is one list of
 //! 12,675 integers. One changed flag per *vertex*.
 
+/// A value of a land grid: a height in world units, a normal's or a colour's component, a
+/// world-map step, a texture number. `i32`: the merge holds every cell's layers at once
+/// (Merge Lands on 621 plugins peaked from memory, not work), and nothing a `LAND` record
+/// holds comes near its range - heights are at most 65 x 2 x 127 x 8 from an `f32` offset.
+pub type Value = i32;
+
 /// Vertices per edge of a `LAND` grid.
 pub const LAND_SIZE: usize = 65;
 /// Vertices in a `LAND` grid.
@@ -19,12 +25,12 @@ pub const WNAM_STEP: usize = (LAND_SIZE - 1) / (WNAM_SIZE - 1);
 /// World units per world-map step.
 pub const WNAM_HEIGHT_SCALE: f64 = 128.0;
 /// Stored heights are divided by this.
-pub const HEIGHT_SCALE: i64 = 8;
+pub const HEIGHT_SCALE: Value = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RelativeGrid {
-    pub reference: Vec<i64>,
-    pub delta: Vec<i64>,
+    pub reference: Vec<Value>,
+    pub delta: Vec<Value>,
     pub changed: Vec<bool>,
     pub side: usize,
     pub components: usize,
@@ -32,7 +38,7 @@ pub struct RelativeGrid {
 
 impl RelativeGrid {
     /// A reference grid with no deltas.
-    pub fn new(reference: Vec<i64>, side: usize, components: usize) -> Result<Self, String> {
+    pub fn new(reference: Vec<Value>, side: usize, components: usize) -> Result<Self, String> {
         let expected = side * side * components;
         if reference.len() != expected {
             return Err(format!(
@@ -44,7 +50,7 @@ impl RelativeGrid {
     }
 
     /// A plugin's grid against a reference (`from_difference`).
-    pub fn from_difference(reference: Vec<i64>, plugin: &[i64], side: usize, components: usize) -> Result<Self, String> {
+    pub fn from_difference(reference: Vec<Value>, plugin: &[Value], side: usize, components: usize) -> Result<Self, String> {
         let mut grid = Self::new(reference, side, components)?;
         if plugin.len() != grid.reference.len() {
             return Err(format!("plugin grid has {} values, reference has {}", plugin.len(), grid.reference.len()));
@@ -59,7 +65,7 @@ impl RelativeGrid {
     }
 
     /// The plugin's grid: reference plus delta (`to_flat`).
-    pub fn flat(&self) -> Vec<i64> {
+    pub fn flat(&self) -> Vec<Value> {
         self.reference.iter().zip(&self.delta).map(|(a, b)| a + b).collect()
     }
 

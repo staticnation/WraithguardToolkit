@@ -68,6 +68,9 @@ pub const MAX_CELL_NAME: usize = 63;
 
 /// Heights flat land may sit at, in units from the sea's level.
 pub const MAX_HEIGHT: f64 = 30000.0;
+/// How far from the sea's level a shaped height may go: what `VHGT`'s float offset and
+/// byte steps can carry across a cell, with room to spare.
+const LAND_HEIGHT_LIMIT: f64 = 1.0e6;
 
 fn err<T>(m: impl Into<String>) -> Result<T, EditError> {
     Err(EditError(m.into()))
@@ -553,6 +556,291 @@ impl Editor {
         Ok(json!({"cell": key, "land": true, "madeCell": made_cell}))
     }
 
+    /// A cell's heights set (land editing, the Land view's brushes): `heights` the 65 x 65
+    /// vertex heights in world units, row by row from the south-west. The record's normals
+    /// and world map are derived from them (`landcore::emit`, as Merge Lands writes them);
+    /// its vertex colors and textures are kept. The land must be there already (the load
+    /// order's, or the patch's own from New land). A step too steep for the format is
+    /// clamped, as the game's own encoding would. `{cell, clamped}`.
+    pub fn set_land(&mut self, cell: &str, heights: &[f64]) -> Result<Value, EditError> {
+        let Some(grid) = exterior_grid(&cell_key(cell)) else {
+            return err("land belongs to an exterior square: give (x, y)");
+        };
+        let key = format!("({}, {})", grid.0, grid.1);
+        if heights.len() != 65 * 65 {
+            return err(format!("a cell has 4225 heights, not {}", heights.len()));
+        }
+        if heights.iter().any(|h| !h.is_finite() || h.abs() > LAND_HEIGHT_LIMIT) {
+            return err(format!("every height is a number within {LAND_HEIGHT_LIMIT} units of the sea's level"));
+        }
+        let Some(found) = self.find("LAND", &key, None) else {
+            return err(format!("{key} has no land to shape: make land there first (New land)"));
+        };
+        let whole: Vec<landcore::grid::Value> = heights.iter().map(|h| h.round_ties_even() as landcore::grid::Value).collect();
+        let (built, clamped) = landcore::emit::build_landscape_record((grid.0 as i64, grid.1 as i64), Some(&whole), None, None, None).map_err(EditError)?;
+        let as_json = serde_json::to_value(tes3::esp::TES3Object::Landscape(built)).map_err(|e| EditError(e.to_string()))?;
+        let mut fields: Vec<(&str, Value)> = ["vertex_heights", "vertex_normals", "world_map_data"].iter().map(|f| (*f, as_json[*f].clone())).collect();
+        let flags = found.record().get("landscape_flags").and_then(Value::as_str).unwrap_or("").to_string();
+        if !flags.contains("USES_VERTEX_HEIGHTS_AND_NORMALS") {
+            let with = if flags.trim().is_empty() { "USES_VERTEX_HEIGHTS_AND_NORMALS".to_string() } else { format!("{flags} | USES_VERTEX_HEIGHTS_AND_NORMALS") };
+            fields.push(("landscape_flags", json!(with)));
+        }
+        if found.new {
+            let Some(made) = self.queue.new_record(&found.record_type, &found.key).cloned() else {
+                return err(format!("{} is no longer in the patch", found.key));
+            };
+            let mut record = made.record.clone();
+            for (path, value) in fields {
+                record[path] = value;
+            }
+            self.queue.add_new_record(NewRecord { record, ..made });
+        } else {
+            for (path, value) in fields {
+                self.queue.add_field(&found.record_type, &found.key, Choice::Value { path: path.into(), value });
+            }
+            self.queue.set_base(&found.record_type, &found.key, found.winner());
+        }
+        self.save_journal();
+        Ok(json!({"cell": key, "clamped": clamped.len()}))
+    }
+
+    /// Every cell whose land the patch changes, as the Land view draws it over the load
+    /// order's (after a reconnect, a restart with the journal, or an undo): `[{cell, heights?,
+    /// colors?, ids?}]`, each layer only when the patch carries it. `ids` are the texture
+    /// cells' land texture ids, row by row; a texture number the patch does not define is
+    /// `null` there (the load order's drawing is kept for that cell's textures then).
+    pub fn land_pending(&mut self) -> Value {
+        let mut keys: Vec<(String, bool)> = Vec::new();
+        for ((rtype, key), _) in self.queue.fields().iter() {
+            if rtype == "Landscape" && !keys.iter().any(|(k, _)| k == key) {
+                keys.push((key.clone(), false));
+            }
+        }
+        for r in self.queue.new_records().filter(|r| r.record_type == "Landscape") {
+            if !keys.iter().any(|(k, _)| *k == r.key) {
+                keys.push((r.key.clone(), true));
+            }
+        }
+        let ltex: HashMap<i64, String> = self
+            .queue
+            .new_records()
+            .filter(|r| r.record_type == "LandscapeTexture")
+            .filter_map(|r| r.record.get("index").and_then(Value::as_i64).map(|i| (i, r.key.clone())))
+            .collect();
+        let mut out = Vec::new();
+        for (key, whole) in keys {
+            let Some(found) = self.find("LAND", &key, None) else { continue };
+            let mut record = found.record().clone();
+            let mut changed: Vec<String> = Vec::new();
+            if let (false, Some(choices)) = (found.new, self.queue.fields().get(&("Landscape".to_string(), key.clone()))) {
+                for c in choices {
+                    if let Choice::Value { path, value } = c {
+                        record[path.as_str()] = value.clone();
+                        changed.push(path.clone());
+                    }
+                }
+            }
+            let has = |f: &str| whole || found.new || changed.iter().any(|c| c == f);
+            let Ok(tes3::esp::TES3Object::Landscape(l)) = serde_json::from_value::<tes3::esp::TES3Object>(record) else { continue };
+            let mut o = json!({"cell": key});
+            if has("vertex_heights") {
+                let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+                if let Ok(h) = landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64) {
+                    o["heights"] = json!(h);
+                }
+            }
+            if has("vertex_colors") {
+                o["colors"] = json!(l.vertex_colors.data.iter().flatten().flatten().copied().collect::<Vec<u8>>());
+            }
+            if has("texture_indices") {
+                let raw: Vec<u8> = l.texture_indices.data.iter().flatten().flat_map(|v| v.to_le_bytes()).collect();
+                let ids: Vec<Value> = landcore::layers::decode_texture_indices(&raw)
+                    .into_iter()
+                    .map(|v| if v == 0 { json!("_land_default") } else { ltex.get(&(v as i64 - 1)).map(|id| json!(id)).unwrap_or(Value::Null) })
+                    .collect();
+                o["ids"] = Value::Array(ids);
+            }
+            out.push(o);
+        }
+        Value::Array(out)
+    }
+
+    /// A cell's vertex colors set (the Land view's color brush): `colors` the 65 x 65
+    /// vertices' red, green and blue, 0-255 each, row by row from the south-west - the tint
+    /// the game multiplies the ground's textures by. `{cell}`.
+    pub fn set_land_colors(&mut self, cell: &str, colors: &[f64]) -> Result<Value, EditError> {
+        let Some(grid) = exterior_grid(&cell_key(cell)) else {
+            return err("land belongs to an exterior square: give (x, y)");
+        };
+        let key = format!("({}, {})", grid.0, grid.1);
+        if colors.len() != 65 * 65 * 3 {
+            return err(format!("a cell has 12675 color values (red, green, blue per vertex), not {}", colors.len()));
+        }
+        let Some(found) = self.find("LAND", &key, None) else {
+            return err(format!("{key} has no land to color: make land there first (New land)"));
+        };
+        let whole: Vec<landcore::grid::Value> = colors.iter().map(|c| if c.is_finite() { c.round_ties_even().clamp(0.0, 255.0) as landcore::grid::Value } else { 255 }).collect();
+        let (built, _) = landcore::emit::build_landscape_record((grid.0 as i64, grid.1 as i64), None, None, None, Some(&whole)).map_err(EditError)?;
+        let as_json = serde_json::to_value(tes3::esp::TES3Object::Landscape(built)).map_err(|e| EditError(e.to_string()))?;
+        let mut fields: Vec<(&str, Value)> = vec![("vertex_colors", as_json["vertex_colors"].clone())];
+        let flags = found.record().get("landscape_flags").and_then(Value::as_str).unwrap_or("").to_string();
+        if !flags.contains("USES_VERTEX_COLORS") {
+            let with = if flags.trim().is_empty() { "USES_VERTEX_COLORS".to_string() } else { format!("{flags} | USES_VERTEX_COLORS") };
+            fields.push(("landscape_flags", json!(with)));
+        }
+        self.queue_land_fields(&found, fields)?;
+        Ok(json!({"cell": key}))
+    }
+
+    /// The region map's brush (TODO, "The world"): `region` (a region id; empty clears it)
+    /// set on each exterior square of `cells`, as the cell's `region` field - over the load
+    /// order's record, or on the patch's own. A square with no cell anywhere gets one of the
+    /// patch's own first when `make` (else it is left and counted). `{set, made, skipped}`.
+    pub fn set_cell_regions(&mut self, cells: &[String], region: &str, make: bool) -> Result<Value, EditError> {
+        let region = region.trim();
+        let value = if region.is_empty() {
+            Value::Null
+        } else {
+            let Some(found) = self.find("REGN", region, None) else {
+                return err(format!("no plugin has a region {region}"));
+            };
+            json!(found.record().get("id").and_then(Value::as_str).unwrap_or(region))
+        };
+        let (mut set, mut made, mut skipped) = (0, 0, 0);
+        for cell in cells {
+            let Some(grid) = exterior_grid(&cell_key(cell)) else {
+                return err(format!("{cell}: a region belongs to an exterior square, (x, y)"));
+            };
+            let key = format!("({}, {})", grid.0, grid.1);
+            let found = match self.find("CELL", &key, None) {
+                Some(f) => f,
+                None if make => {
+                    self.new_cell(&key, false)?;
+                    made += 1;
+                    match self.find("CELL", &key, None) {
+                        Some(f) => f,
+                        None => return err(format!("{key} was made but cannot be found")),
+                    }
+                }
+                None => {
+                    skipped += 1;
+                    continue;
+                }
+            };
+            self.queue_land_fields(&found, vec![("region", value.clone())])?;
+            set += 1;
+        }
+        Ok(json!({"set": set, "made": made, "skipped": skipped}))
+    }
+
+    /// Fields into the patch (land's, a cell's region): onto the patch's own record, or as
+    /// field values over the load order's (the winner as the base).
+    fn queue_land_fields(&mut self, found: &Found, fields: Vec<(&str, Value)>) -> Result<(), EditError> {
+        if found.new {
+            let Some(mine) = self.queue.new_record(&found.record_type, &found.key).cloned() else {
+                return err(format!("{} is no longer in the patch", found.key));
+            };
+            let mut record = mine.record.clone();
+            for (path, value) in fields {
+                record[path] = value;
+            }
+            self.queue.add_new_record(NewRecord { record, ..mine });
+        } else {
+            for (path, value) in fields {
+                self.queue.add_field(&found.record_type, &found.key, Choice::Value { path: path.into(), value });
+            }
+            self.queue.set_base(&found.record_type, &found.key, found.winner());
+        }
+        self.save_journal();
+        Ok(())
+    }
+
+    /// A cell's land textures set (the Land view's texture brush): `ids` the 16 x 16 texture
+    /// cells' land texture ids, row by row from the south-west (`""` or `_land_default` for
+    /// unpainted ground). A `VTEX` value only means something inside the plugin that wrote
+    /// it, so every texture the cell wears gets a land texture record of the patch's own,
+    /// copied from the load order's and numbered for the patch, and the cell's grid is
+    /// written in that numbering. `{cell, textures}`.
+    pub fn set_land_textures(&mut self, cell: &str, ids: &[String]) -> Result<Value, EditError> {
+        let Some(grid) = exterior_grid(&cell_key(cell)) else {
+            return err("land belongs to an exterior square: give (x, y)");
+        };
+        let key = format!("({}, {})", grid.0, grid.1);
+        if ids.len() != 256 {
+            return err(format!("a cell has 256 texture cells, not {}", ids.len()));
+        }
+        let Some(found) = self.find("LAND", &key, None) else {
+            return err(format!("{key} has no land to paint: make land there first (New land)"));
+        };
+        // The patch's own land textures: what it numbers each id, the next free number.
+        let mut numbered: HashMap<String, i64> = HashMap::new();
+        let mut next = 0i64;
+        for r in self.queue.new_records().filter(|r| r.record_type == "LandscapeTexture") {
+            let i = r.record.get("index").and_then(Value::as_i64).unwrap_or(0);
+            numbered.insert(r.key.to_lowercase(), i);
+            next = next.max(i + 1);
+        }
+        let mut rows = Vec::with_capacity(256);
+        let mut made = Vec::new();
+        for id in ids {
+            let id = id.trim();
+            if id.is_empty() || id.eq_ignore_ascii_case("_land_default") {
+                rows.push(0);
+                continue;
+            }
+            let index = match numbered.get(&id.to_lowercase()) {
+                Some(&i) => i,
+                None => {
+                    let Some(ltex) = self.find("LTEX", id, None) else {
+                        return err(format!("no plugin has a land texture {id}"));
+                    };
+                    let mut record = ltex.record().clone();
+                    record["index"] = json!(next);
+                    let source = if ltex.new { String::new() } else { ltex.winner().to_string() };
+                    made.push(NewRecord { record_type: "LandscapeTexture".into(), key: ltex.key.clone(), record, source, topic: String::new() });
+                    numbered.insert(id.to_lowercase(), next);
+                    next += 1;
+                    next - 1
+                }
+            };
+            rows.push(index + 1);
+        }
+        let mut lt = tes3::esp::Landscape { grid, ..Default::default() };
+        let rows: Vec<landcore::grid::Value> = rows.iter().map(|&v| v as landcore::grid::Value).collect();
+        landcore::emit::attach_texture_indices(&mut lt, &rows);
+        let as_json = serde_json::to_value(tes3::esp::TES3Object::Landscape(lt)).map_err(|e| EditError(e.to_string()))?;
+        let mut fields: Vec<(&str, Value)> = vec![("texture_indices", as_json["texture_indices"].clone())];
+        let flags = found.record().get("landscape_flags").and_then(Value::as_str).unwrap_or("").to_string();
+        if !flags.contains("USES_TEXTURES") {
+            let with = if flags.trim().is_empty() { "USES_TEXTURES".to_string() } else { format!("{flags} | USES_TEXTURES") };
+            fields.push(("landscape_flags", json!(with)));
+        }
+        let textures = made.len();
+        self.batch(|ed| {
+            for m in made {
+                ed.queue.add_new_record(m);
+            }
+            if found.new {
+                let Some(mine) = ed.queue.new_record(&found.record_type, &found.key).cloned() else {
+                    return err(format!("{} is no longer in the patch", found.key));
+                };
+                let mut record = mine.record.clone();
+                for (path, value) in fields {
+                    record[path] = value;
+                }
+                ed.queue.add_new_record(NewRecord { record, ..mine });
+            } else {
+                for (path, value) in fields {
+                    ed.queue.add_field(&found.record_type, &found.key, Choice::Value { path: path.into(), value });
+                }
+                ed.queue.set_base(&found.record_type, &found.key, found.winner());
+            }
+            ed.save_journal();
+            Ok(())
+        })?;
+        Ok(json!({"cell": key, "textures": textures}))
+    }
+
     /// A copy of a whole interior, a cell of the patch's own: the cell as the load order
     /// resolves it with the pool's changes on top, every reference placed anew, and its
     /// path grid. `{cell, refs, pathgrid}`.
@@ -834,5 +1122,149 @@ mod tests {
         let land = flat_land((0, 0), 0.0, 0).unwrap();
         let back: Result<tes3::esp::TES3Object, _> = serde_json::from_value(land);
         assert!(back.is_ok(), "flat land is a record the crate reads: {:?}", back.err());
+    }
+
+    /// The Land view's write: heights in, a LAND record the build can write out, with the
+    /// normals and world map derived from them - for the load order's land and the patch's own.
+    #[test]
+    fn shaped_heights_queue_as_landcore_encodes_them() {
+        use crate::queue::PatchQueue;
+        use crate::session::Session;
+        let land = flat_land((2, -3), 256.0, 0).unwrap();
+        let header = json!({"type": "Header", "flags": "", "version": 1.3, "file_type": "Esm", "author": "", "description": "", "num_objects": 1, "masters": []});
+        let session = Session::with_reader(
+            vec![("Base.esm".into(), std::path::PathBuf::from("Base.esm"))],
+            Box::new(move |_, tag| Ok(match tag { "TES3" => vec![header.clone()], "LAND" => vec![land.clone()], _ => Vec::new() })),
+        );
+        let mut ed = Editor::new(session, PatchQueue::new(), None);
+        // A hill in the middle of the cell.
+        let heights: Vec<f64> = (0..65 * 65).map(|i| { let (x, y) = ((i % 65) as f64 - 32.0, (i / 65) as f64 - 32.0); 256.0 + (1000.0 - (x * x + y * y) * 4.0).max(0.0) }).collect();
+        let r = ed.set_land("2, -3", &heights).unwrap();
+        assert_eq!((r["cell"].as_str(), r["clamped"].as_u64()), (Some("(2, -3)"), Some(0)));
+        let queued = ed.queue.fields().get(&("Landscape".to_string(), "(2, -3)".to_string())).cloned().unwrap();
+        let paths: Vec<&str> = queued.iter().map(Choice::path).collect();
+        assert_eq!(paths, ["vertex_heights", "vertex_normals", "world_map_data"]);
+        // The queued heights read back as written (to the format's 8-unit step).
+        let mut rec = flat_land((2, -3), 0.0, 0).unwrap();
+        for c in &queued {
+            let Choice::Value { path, value } = c else { panic!() };
+            rec[path.as_str()] = value.clone();
+        }
+        let lt: tes3::esp::TES3Object = serde_json::from_value(rec).unwrap();
+        let tes3::esp::TES3Object::Landscape(l) = lt else { panic!() };
+        let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+        let back = landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap();
+        for (a, b) in back.iter().zip(&heights) {
+            assert!((*a as f64 - b).abs() < 8.0, "{a} vs {b}");
+        }
+        // The Land view reads it back to draw over the load order's.
+        let pending = ed.land_pending();
+        let p = &pending[0];
+        assert_eq!(p["cell"], "(2, -3)");
+        assert!(p.get("colors").is_none() && p.get("ids").is_none());
+        assert!((p["heights"][32 * 65 + 32].as_f64().unwrap() - heights[32 * 65 + 32]).abs() < 8.0);
+        // No land, no shaping; and the wrong number of heights is refused.
+        assert!(ed.set_land("5, 5", &heights).is_err());
+        assert!(ed.set_land("2, -3", &heights[..100]).is_err());
+    }
+
+    /// The texture brush's write: ids in, the patch's own land textures numbered from zero,
+    /// and the cell's grid in that numbering (a `VTEX` value means nothing outside its plugin).
+    #[test]
+    fn painted_textures_get_the_patch_s_own_numbering() {
+        use crate::queue::PatchQueue;
+        use crate::session::Session;
+        let land = flat_land((0, 0), 0.0, 0).unwrap();
+        let ltex = json!({"type": "LandscapeTexture", "flags": "", "id": "Grass", "index": 7, "file_name": "grass.dds"});
+        let header = json!({"type": "Header", "flags": "", "version": 1.3, "file_type": "Esm", "author": "", "description": "", "num_objects": 2, "masters": []});
+        let session = Session::with_reader(
+            vec![("Base.esm".into(), std::path::PathBuf::from("Base.esm"))],
+            Box::new(move |_, tag| Ok(match tag { "TES3" => vec![header.clone()], "LAND" => vec![land.clone()], "LTEX" => vec![ltex.clone()], _ => Vec::new() })),
+        );
+        let mut ed = Editor::new(session, PatchQueue::new(), None);
+        let mut ids = vec![String::new(); 256];
+        ids[0] = "grass".into();
+        ids[17] = "Grass".into();
+        ids[255] = "_land_default".into();
+        assert_eq!(ed.set_land_textures("(0, 0)", &ids).unwrap()["textures"], 1);
+        let made = ed.queue.new_record("LandscapeTexture", "Grass").cloned().unwrap();
+        assert_eq!((made.record["index"].as_i64(), made.source.as_str()), (Some(0), "Base.esm"));
+        // A second cell reuses the patch's number for the same texture.
+        assert_eq!(ed.set_land_textures("(0, 0)", &ids).unwrap()["textures"], 0);
+        let queued = ed.queue.fields().get(&("Landscape".to_string(), "(0, 0)".to_string())).cloned().unwrap();
+        let mut rec = flat_land((0, 0), 0.0, 0).unwrap();
+        for c in &queued {
+            let Choice::Value { path, value } = c else { panic!() };
+            rec[path.as_str()] = value.clone();
+        }
+        let tes3::esp::TES3Object::Landscape(l) = serde_json::from_value(rec).unwrap() else { panic!() };
+        let raw: Vec<u8> = l.texture_indices.data.iter().flatten().flat_map(|v| v.to_le_bytes()).collect();
+        let rows = landcore::layers::decode_texture_indices(&raw);
+        assert_eq!((rows[0], rows[17], rows[1], rows[255]), (1, 1, 0, 0));
+        let pending = ed.land_pending();
+        assert_eq!((pending[0]["ids"][0].as_str(), pending[0]["ids"][1].as_str()), (Some("Grass"), Some("_land_default")));
+        assert!(ed.set_land_textures("(0, 0)", &vec!["Nothing".to_string(); 256]).is_err());
+    }
+
+    /// The color brush's write: the cell's vertex colors, the rest of its record kept.
+    #[test]
+    fn painted_colors_queue_as_vertex_colors() {
+        use crate::queue::PatchQueue;
+        use crate::session::Session;
+        let land = flat_land((1, 1), 0.0, 0).unwrap();
+        let header = json!({"type": "Header", "flags": "", "version": 1.3, "file_type": "Esm", "author": "", "description": "", "num_objects": 1, "masters": []});
+        let session = Session::with_reader(
+            vec![("Base.esm".into(), std::path::PathBuf::from("Base.esm"))],
+            Box::new(move |_, tag| Ok(match tag { "TES3" => vec![header.clone()], "LAND" => vec![land.clone()], _ => Vec::new() })),
+        );
+        let mut ed = Editor::new(session, PatchQueue::new(), None);
+        let colors: Vec<f64> = (0..65 * 65 * 3).map(|i| [200.0, 120.0, 300.0][i % 3]).collect();
+        ed.set_land_colors("(1, 1)", &colors).unwrap();
+        let queued = ed.queue.fields().get(&("Landscape".to_string(), "(1, 1)".to_string())).cloned().unwrap();
+        let mut rec = flat_land((1, 1), 0.0, 0).unwrap();
+        for c in &queued {
+            let Choice::Value { path, value } = c else { panic!() };
+            rec[path.as_str()] = value.clone();
+        }
+        let tes3::esp::TES3Object::Landscape(l) = serde_json::from_value(rec).unwrap() else { panic!() };
+        assert_eq!(l.vertex_colors.data[3][7], [200, 120, 255]);
+        assert!(ed.set_land_colors("(1, 1)", &colors[..30]).is_err());
+    }
+
+    /// The region map (TODO, "The world"): an exterior's region set as a field of its cell,
+    /// whether the load order has the cell or the patch made it.
+    #[test]
+    fn a_region_painted_onto_cells_queues_as_their_region_field() {
+        use crate::queue::PatchQueue;
+        use crate::session::Session;
+        let header = json!({"type": "Header", "flags": "", "version": 1.3, "file_type": "Esm", "author": "", "description": "", "num_objects": 1, "masters": []});
+        let cell = json!({"type": "Cell", "flags": "", "name": "", "data": {"flags": "", "grid": [4, 5]}, "references": []});
+        let session = Session::with_reader(
+            vec![("Base.esm".into(), std::path::PathBuf::from("Base.esm"))],
+            Box::new(move |_, tag| Ok(match tag {
+                "TES3" => vec![header.clone()],
+                "CELL" => vec![cell.clone()],
+                "REGN" => vec![json!({"type": "Region", "flags": "", "id": "Bitter Coast Region", "name": "Bitter Coast", "sleep_creature": "", "map_color": [30, 80, 40, 0], "sounds": [],
+                    "weather_chances": {"clear": 100, "cloudy": 0, "foggy": 0, "overcast": 0, "rain": 0, "thunder": 0, "ash": 0, "blight": 0, "snow": 0, "blizzard": 0}})],
+                _ => Vec::new(),
+            })),
+        );
+        let mut ed = Editor::new(session, PatchQueue::new(), None);
+        // No such region: refused.
+        assert!(ed.set_cell_regions(&["(4, 5)".into()], "Nowhere Region", false).is_err());
+        // The load order's cell, and an empty square: left alone unless `make`.
+        let r = ed.set_cell_regions(&["(4, 5)".into(), "(9, 9)".into()], "", false).unwrap();
+        assert_eq!((r["set"].as_u64(), r["skipped"].as_u64()), (Some(1), Some(1)));
+        let queued = ed.queue.fields().get(&("Cell".to_string(), "(4, 5)".to_string())).cloned().unwrap();
+        assert!(queued.iter().any(|c| matches!(c, Choice::Value { path, value } if path == "region" && value.is_null())));
+        // Made, then painted.
+        let r = ed.set_cell_regions(&["(9, 9)".into()], "", true).unwrap();
+        assert_eq!(r["made"].as_u64(), Some(1));
+        assert!(ed.queue.new_record("Cell", "(9, 9)").is_some());
+        // A real region, on both: the id as the load order spells it.
+        ed.set_cell_regions(&["(4, 5)".into(), "(9, 9)".into()], "bitter coast region", false).unwrap();
+        assert_eq!(ed.queue.new_record("Cell", "(9, 9)").unwrap().record["region"], json!("Bitter Coast Region"));
+        let queued = ed.queue.fields().get(&("Cell".to_string(), "(4, 5)".to_string())).cloned().unwrap();
+        assert!(queued.iter().any(|c| matches!(c, Choice::Value { path, value } if path == "region" && value == "Bitter Coast Region")));
     }
 }

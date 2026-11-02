@@ -45,8 +45,10 @@ const WgToolsPage={
     ['tes3cmd','tes3cmd','Clean plugins, fix headers, sync master sizes'],
     ['mergelands','Merge Lands','Merged Lands.esp: the terrain of every mod that reshapes a cell, kept together'],
     ['mergesettings','Merge settings','A plugin\'s .mergedlands.toml: which of its land layers Merge Lands takes, and how'],
+    ['m2m','Merge to master','A plugin folded into its master, or a whole load order into one master (merge_to_master)'],
     ['meshopt','Mesh optimiser','Draw-order copies of the load order\'s meshes, only where it helps']],
   t3:{files:[]},
+  m2:{plugin:'', master:'', files:[]},
   jr:{data:null, quest:null},
   ms:{path:'', list:[]},
   mg:{plugin:'', data:null},
@@ -122,7 +124,8 @@ const WgToolsPage={
 #wgTL table.mo th{color:var(--tx3);font-weight:normal;position:sticky;top:0;background:var(--bg2)}
 #wgTL table.mo td.p,#wgTL table.mo th.p{text-align:left;white-space:normal;word-break:break-all}
 #wgTL table.mo tr.no td{color:var(--tx3)}
-#wgTL .pane[hidden]{display:none}`;
+#wgTL .pane[hidden]{display:none}
+#wgTL .acts[hidden]{display:none !important}`;
     document.head.appendChild(st);
     const el=document.createElement('div');
     el.id='wgTL'; el.hidden=true;
@@ -164,7 +167,7 @@ const WgToolsPage={
   <label title="Report every plugin's settings and everything that could not be read"><input type="checkbox" id="tlMlVerbose"> Verbose</label>
   <label title="Report what would be merged without writing anything"><input type="checkbox" id="tlMlDry"> Dry run</label>
   <select id="tlMlModel" title="What a plugin's change is measured against"><option value="masters">Against the masters (keep every mod's edits)</option><option value="loadorder">Against the load order (follow the winners, fix the seams)</option></select>
-  <button class="btn" id="tlMlRun">Build Merged Lands.esp</button></h3>
+  <button class="btn" id="tlMlRun">Build Merged Lands.esp</button><button class="btn dim" id="tlMlCancel" hidden title="Stop at the next step; nothing is written">Cancel</button></h3>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
     <span>Leave out</span><input type="text" id="tlMlIgnore" placeholder="plugin names or folders, comma separated" style="flex:1;min-width:200px" title="Plugins with nothing to merge that are slow to read (generated patches), by name or by folder. The output's own name is always left out.">
   </div>
@@ -172,6 +175,20 @@ const WgToolsPage={
     <span>Write into</span><input type="text" id="tlMlFolder" placeholder="the data folder holding most of the load order" style="flex:1;min-width:240px"><button class="btn dim" id="tlMlBrowse">Browse...</button></div>
   <div class="scroll"><div id="tlMlIntro" class="empty">Where two mods reshape different vertices of the same exterior cell, the load order keeps only the last one's LAND record and discards the other; this recovers both into a new plugin, Merged Lands.esp. Seams between cells are repaired and the terrain is conditioned so every height fits the format. Your mods are never modified, and deleting the merged plugin restores your previous behaviour exactly. Load it LAST. Merge settings (a plugin's .mergedlands.toml) decide, per layer, what a mod contributes and how its edits resolve.</div>
   <pre id="tlMlOut" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
+<div class="col pane" id="tlM2m" hidden><h3>Merge to master <span class="sp"></span>
+  <select id="tlM2Mode" title="What is merged"><option value="plugin">A plugin into its master</option><option value="order">Plugins into one master</option></select>
+  <label title="Drop the records a plugin deletes instead of carrying the deletion"><input type="checkbox" id="tlM2Del"> Remove deleted</label>
+  <label title="Put moved references in the cell they were moved to"><input type="checkbox" id="tlM2Moved"> Apply moved references</label>
+  <label title="Keep references that are exact duplicates of one another"><input type="checkbox" id="tlM2Dup"> Keep duplicate references</label>
+  <button class="btn" id="tlM2Run">Merge...</button></h3>
+  <div class="acts" id="tlM2One" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <span>Plugin</span><input type="text" id="tlM2Plugin" placeholder="the plugin to fold in" style="flex:1;min-width:200px"><button class="btn dim" id="tlM2PickP">Browse...</button>
+    <span>into master</span><input type="text" id="tlM2Master" placeholder="its master" style="flex:1;min-width:200px"><button class="btn dim" id="tlM2PickM">Browse...</button></div>
+  <div class="acts" id="tlM2Many" hidden style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <button class="btn dim" id="tlM2Add">Add files...</button><button class="btn dim" id="tlM2Mine">Add your mods</button><button class="btn dim" id="tlM2List">Add list mods</button><button class="btn dim" id="tlM2Clear">Clear</button>
+    <span class="empty" style="padding:0">masters first, in load order: later plugins win</span></div>
+  <div class="scroll"><div id="tlM2Files" class="empty">greatness7's merge_to_master: the plugin's records written into a copy of its master, as the game would resolve them (or a whole list of plugins into one master). You pick where the merged master is written; the files merged are never changed, and a file the merge replaces is kept once as .premerge.bak.</div>
+  <pre id="tlM2Out" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
 <div class="col pane" id="tlMerge" hidden><h3>Merge settings <span class="sp"></span><select id="tlMgMine" title="One of your mods"><option value="">Your mods...</option></select>
   <button class="btn dim" id="tlMgPick">Pick a plugin...</button><button class="btn" id="tlMgWrite" disabled>Write .mergedlands.toml</button></h3>
   <div class="scroll" style="padding:8px"><div id="tlMgIntro" class="empty" style="padding:0 0 8px">The per-plugin Merge Lands control file, beside the plugin: uncheck a layer to keep the plugin from touching it, set a strategy for how its edits resolve where they collide with another mod's. The defaults behave as if there were no file, and Merge Lands runs without one: write it only when a conflict needs it.</div>
@@ -222,6 +239,23 @@ const WgToolsPage={
     };
     $('#tlT3Mine').onclick=()=>addNamed('mine');
     $('#tlT3List').onclick=()=>addNamed('list');
+    const pickPlugin=async(multiple)=>Engine.pick('open',{multiple, filters:[{name:'Plugins', extensions:['esp','esm','omwaddon','omwgame','ESP','ESM']}]});
+    $('#tlM2Mode').onchange=()=>{ const one=$('#tlM2Mode').value==='plugin'; $('#tlM2One').hidden=!one; $('#tlM2Many').hidden=one; this.m2Draw(); };
+    $('#tlM2PickP').onclick=async()=>{ const p=await pickPlugin(false); if(p) $('#tlM2Plugin').value=String(p); };
+    $('#tlM2PickM').onclick=async()=>{ const p=await pickPlugin(false); if(p) $('#tlM2Master').value=String(p); };
+    $('#tlM2Add').onclick=async()=>{ const p=await pickPlugin(true); if(p) this.m2Add((Array.isArray(p)?p:[p]).map(String)); };
+    const m2Named=async(kind)=>{
+      try{
+        const names=await this.mods(kind);
+        if(!names.length) return toast(kind==='mine'? 'The sort found no mods of yours' : 'The sort found no curated list','warn',4000);
+        let r=await Engine.call('tools_locate',{cfg:this.cfg(), names}); if(typeof r==='string') r=JSON.parse(r);
+        this.m2Add(r.filter(x=>x[1]).map(x=>String(x[1])));
+      }catch(e){ toast(String(e.message||e),'err',5000); }
+    };
+    $('#tlM2Mine').onclick=()=>m2Named('mine');
+    $('#tlM2List').onclick=()=>m2Named('list');
+    $('#tlM2Clear').onclick=()=>{ this.m2.files=[]; this.m2Draw(); };
+    $('#tlM2Run').onclick=()=>this.m2Run();
     $('#tlT3Clear').onclick=()=>{ this.t3.files=[]; this.t3Draw(); };
     $('#tlT3Run').onclick=()=>this.t3Run();
     $('#tlMgPick').onclick=async()=>{
@@ -240,6 +274,7 @@ const WgToolsPage={
     $('#tlMlFolder').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsFolder', $('#tlMlFolder').value.trim()); }catch(_){} if(typeof WgSettings==='object') WgSettings.write({mergeLandsFolder:$('#tlMlFolder').value.trim()}); };
     $('#tlMlBrowse').onclick=async()=>{ const p=await Engine.pick('open',{directory:true}); if(p){ $('#tlMlFolder').value=String(p); $('#tlMlFolder').onchange(); } };
     $('#tlMlRun').onclick=()=>this.landsRun();
+    $('#tlMlCancel').onclick=()=>this.landsCancel();
     try{ const m=localStorage.getItem('wgTools.mergeLandsModel'); if(m) $('#tlMlModel').value=m; const ig=localStorage.getItem('wgTools.mergeLandsIgnore'); if(ig!=null) $('#tlMlIgnore').value=ig; }catch(_){}
     $('#tlMlModel').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsModel', $('#tlMlModel').value); }catch(_){} };
     $('#tlMlIgnore').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsIgnore', $('#tlMlIgnore').value); }catch(_){} };
@@ -265,6 +300,7 @@ const WgToolsPage={
     $('#tlMerge').hidden=tool!=='mergesettings';
     $('#tlLands').hidden=tool!=='mergelands';
     $('#tlMo').hidden=tool!=='meshopt';
+    $('#tlM2m').hidden=tool!=='m2m';
     if(tool==='mergelands') this.landsHome();
     if(tool==='mergesettings') this.mergeMine();
   },
@@ -291,7 +327,8 @@ const WgToolsPage={
       if(!ok) return;
     }
     this.ml.running=true;
-    const btn=$('#tlMlRun'); btn.disabled=true;
+    const btn=$('#tlMlRun'), stop=$('#tlMlCancel'); btn.disabled=true;
+    stop.hidden=false; stop.disabled=false;
     const out=$('#tlMlOut');
     const head='='.repeat(70)+'\n MERGE LANDS\n'+'='.repeat(70)+'\nReading the load order\'s terrain...\n';
     out.textContent=head;
@@ -313,7 +350,8 @@ const WgToolsPage={
       const ignore=$('#tlMlIgnore').value.split(',').map(x=>x.trim()).filter(Boolean);
       const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore}).finally(()=>{ live=false; });
       const lines=['='.repeat(70),' MERGE LANDS','='.repeat(70), ...r.lines.map(l=>'  '+l)];
-      if(r.error) lines.push('', 'Merge failed: '+r.error);
+      if(r.cancelled) lines.push('', 'Cancelled: nothing was written.');
+      else if(r.error) lines.push('', 'Merge failed: '+r.error);
       if(r.notes && r.notes.length) lines.push('', 'Left out or untranslated:', ...r.notes.map(n=>'  '+n));
       if(!r.error && r.output){
         const res=r.result;
@@ -321,11 +359,20 @@ const WgToolsPage={
         if(res.major) detail+=` ${res.major} were blended far from a mod's intent where a .mergedlands.toml asked to Resolve.`;
         lines.push('', `Written to: ${r.output}`, 'Enable it and place it LAST in your load order.', `${res.cells} land record(s), ${res.textures} land texture(s).`, detail);
         toast('Merged Lands written: '+res.cells+' cell(s)','ok',5000);
-      }else if(r.error){ toast('Merge failed -- see the log','err',6000); }
+      }else if(r.cancelled){ toast('Merge Lands cancelled','ok',3000); }
+      else if(r.error){ toast('Merge failed -- see the log','err',6000); }
       else toast('Merge produced nothing to write','ok',4000);
       out.textContent=lines.join('\n');
     }catch(e){ out.textContent+='\n\nERROR: '+String(e.message||e); toast(String(e.message||e),'err',6000); }
-    finally{ this.ml.running=false; btn.disabled=false; }
+    finally{ this.ml.running=false; btn.disabled=false; stop.hidden=true; }
+  },
+
+  /** The running merge stopped at its next step (`land_merge_cancel`); it writes nothing. */
+  async landsCancel(){
+    if(!this.ml.running) return;
+    const stop=$('#tlMlCancel'); stop.disabled=true;
+    try{ await Engine.call('land_merge_cancel',{}); }
+    catch(e){ stop.disabled=false; toast(String(e.message||e),'err',5000); }
   },
 
   /* ---- Mesh optimiser (conflictcore::nif_batch) ---- */
@@ -510,6 +557,37 @@ const WgToolsPage={
   },
 
   /* ---- tes3cmd ---- */
+  m2Add(paths){ for(const p of paths) if(!this.m2.files.includes(p)) this.m2.files.push(p); this.m2Draw(); },
+  m2Draw(){
+    const box=$('#tlM2Files'); if(!box || $('#tlM2Mode').value!=='order') return;
+    if(!this.m2.files.length){ box.className='empty'; box.textContent='Add the plugins to merge, masters first, in load order.'; return; }
+    box.className='';
+    box.innerHTML=this.m2.files.map((f,i)=>`<div style="font-family:var(--mono);padding:1px 8px;display:flex;gap:6px"><span style="flex:1">${loEsc(f)}</span>`+
+      `<a href="#" data-up="${i}">up</a><a href="#" data-dn="${i}">down</a><a href="#" data-rm="${i}">remove</a></div>`).join('');
+    const move=(i,d)=>{ const j=i+d; if(j<0||j>=this.m2.files.length) return; [this.m2.files[i],this.m2.files[j]]=[this.m2.files[j],this.m2.files[i]]; this.m2Draw(); };
+    box.querySelectorAll('a[data-up]').forEach(a=>a.onclick=e=>{ e.preventDefault(); move(+a.dataset.up,-1); });
+    box.querySelectorAll('a[data-dn]').forEach(a=>a.onclick=e=>{ e.preventDefault(); move(+a.dataset.dn,1); });
+    box.querySelectorAll('a[data-rm]').forEach(a=>a.onclick=e=>{ e.preventDefault(); this.m2.files.splice(+a.dataset.rm,1); this.m2Draw(); });
+  },
+  async m2Run(){
+    const mode=$('#tlM2Mode').value, plugin=$('#tlM2Plugin').value.trim(), master=$('#tlM2Master').value.trim();
+    if(mode==='plugin' && (!plugin || !master)) return toast('Pick the plugin and its master first','warn',3000);
+    if(mode==='order' && this.m2.files.length<2) return toast('Add at least two plugins, masters first','warn',3000);
+    const base=(mode==='plugin'? master : this.m2.files[0]).replace(/\.[^.\\/]+$/,'');
+    const out=await Engine.pick('save',{defaultPath:base+' (merged).esm', filters:[{name:'Master', extensions:['esm']}]});
+    if(!out) return;
+    const btn=$('#tlM2Run'); btn.disabled=true;
+    const o=$('#tlM2Out'); o.textContent='Merging...';
+    try{
+      let r=await Engine.call('tools_merge_master',{mode, plugin, master, plugins:this.m2.files, out:String(out),
+        removeDeleted:$('#tlM2Del').checked, applyMoved:$('#tlM2Moved').checked, keepDuplicates:$('#tlM2Dup').checked});
+      if(typeof r==='string') r=JSON.parse(r);
+      o.textContent=`Wrote ${r.out} (${r.bytes.toLocaleString()} bytes).`+(r.backup? `\nThe file it replaced: ${r.backup}` : '')+
+        '\nThe plugins merged are unchanged. Load the merged master in place of what it holds, not beside it.';
+      toast('Merged into '+String(r.out).split(/[\\/]/).pop(),'ok',4000);
+    }catch(e){ o.textContent='Merge failed: '+String(e.message||e); toast('Merge failed','err',5000); }
+    finally{ btn.disabled=false; }
+  },
   t3Add(paths){ for(const p of paths) if(!this.t3.files.includes(p)) this.t3.files.push(p); this.t3Draw(); },
   t3Draw(){
     const box=$('#tlT3Files');

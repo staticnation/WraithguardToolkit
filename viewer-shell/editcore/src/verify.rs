@@ -314,8 +314,17 @@ fn asset_paths(prefix: &str, path: &str) -> Vec<String> {
         let stem = full.rsplit_once('.').map_or(full.as_str(), |(s, _)| s);
         out.push(format!("{stem}.dds"));
     }
+    // The game plays a `.wav` nothing supplies as its `.mp3` (the voice files ship so).
+    if prefix == "sound/" && let Some(stem) = full.strip_suffix(".wav") {
+        out.push(format!("{stem}.mp3"));
+    }
     out
 }
+
+/// What is wrong with a sound file the load order has (`path` as a record names it, under
+/// `Sound/`): `(level, message)` - it does not decode, it is silent, it is clipped - or
+/// `None` when nothing is, or the file is not there.
+pub type SoundProblem<'a> = &'a dyn Fn(&str) -> Option<(&'static str, String)>;
 
 /// Python's `==` of two optional values (absent is `None`).
 fn same(a: Option<&Value>, b: Option<&Value>) -> bool {
@@ -334,7 +343,14 @@ fn twice(values: &[Value]) -> Vec<String> {
 
 /// OpenMW-CS's per-type checks, on one record as the patch leaves it; files looked for
 /// when `file_exists` can tell.
-pub fn record_checks(tag: &str, key: &str, record_type: &str, record: &Value, file_exists: Option<&dyn Fn(&str) -> bool>) -> Vec<Value> {
+pub fn record_checks(
+    tag: &str,
+    key: &str,
+    record_type: &str,
+    record: &Value,
+    file_exists: Option<&dyn Fn(&str) -> bool>,
+    sound_problem: Option<SoundProblem>,
+) -> Vec<Value> {
     let mut out = Vec::new();
     let check = record_type;
     let txt = |path: &str| value_at(record, path).map(|v| text(Some(v))).unwrap_or_default().trim().to_string();
@@ -352,6 +368,14 @@ pub fn record_checks(tag: &str, key: &str, record_type: &str, record: &Value, fi
             && !asset_paths(prefix, &name).iter().any(|p| exists(p))
         {
             add("error", path, format!("{name} is in no data folder or archive"));
+        }
+    };
+    let sound_file = |add: &mut dyn FnMut(&str, &str, String), name: &str| {
+        if let Some(problem) = sound_problem
+            && !name.is_empty()
+            && let Some((level, message)) = problem(name)
+        {
+            add(level, "sound_path", format!("{name} {message}"));
         }
     };
     if ["Class", "Faction", "Race", "Region", "Birthsign", "Spell"].contains(&record_type) && txt("name").is_empty() {
@@ -424,7 +448,21 @@ pub fn record_checks(tag: &str, key: &str, record_type: &str, record: &Value, fi
                 add("warning", "race", "a skin part with no race".into());
             }
         }
-        "Sound" => asset(&mut add, "sound_path", "sound/", true),
+        "Sound" => {
+            asset(&mut add, "sound_path", "sound/", true);
+            sound_file(&mut add, &txt("sound_path"));
+        }
+        "DialogueInfo" => {
+            let name = txt("sound_path");
+            if name.is_empty() {
+                if crate::build::topic_kind(Some(record)) == "Voice" {
+                    add("warning", "sound_path", "a voice response with no file".into());
+                }
+            } else {
+                asset(&mut add, "sound_path", "sound/", false);
+                sound_file(&mut add, &name);
+            }
+        }
         "SoundGen" => {
             if txt("sound").is_empty() {
                 add("error", "sound", "no sound is given".into());
@@ -558,6 +596,28 @@ impl Editor {
         self.session.order().iter().flat_map(|p| self.session.records(p, tag).keys().cloned().collect::<Vec<_>>()).collect()
     }
 
+    /// The other object types an object id is also defined as - the Construction Set's
+    /// "Matching IDs": `(tag, where)`, `where` the last plugin defining it as that type, or
+    /// `(the patch)` for a record the patch makes. Morrowind.exe will not load such an order;
+    /// OpenMW keeps both and places only one of them.
+    pub fn other_types(&self, tag: &str, key: &str) -> Vec<(String, String)> {
+        let want = key.to_lowercase();
+        let mut out = Vec::new();
+        for t in object_tags() {
+            if t == tag {
+                continue;
+            }
+            let made = self.queue.new_records().any(|m| tag_of(&m.record_type) == Some(t) && m.key.to_lowercase() == want);
+            let last = self.session.order().iter().rev().find(|p| self.session.records(p, t).contains_key(&want)).cloned();
+            if made {
+                out.push((t.to_string(), "(the patch)".to_string()));
+            } else if let Some(p) = last {
+                out.push((t.to_string(), p));
+            }
+        }
+        out
+    }
+
     /// A numeric game setting as the load order leaves it (the last plugin's).
     fn gmst(&self, name: &str) -> Option<f64> {
         let mut value = None;
@@ -631,6 +691,11 @@ impl Editor {
     /// Every check over what the patch carries: `{findings, checked}` - `checked` how many
     /// records. `file_exists` looks for the files records name (`None`: not looked for).
     pub fn verify(&self, file_exists: Option<&dyn Fn(&str) -> bool>) -> Value {
+        self.verify_with(file_exists, None)
+    }
+
+    /// `verify`, with `sound_problem` also opening the sound files records name.
+    pub fn verify_with(&self, file_exists: Option<&dyn Fn(&str) -> bool>, sound_problem: Option<SoundProblem>) -> Value {
         let known: std::cell::RefCell<HashMap<String, HashSet<String>>> = Default::default();
         let exists = |tags: &[&str], name: &str| {
             let want = name.to_lowercase();
@@ -658,7 +723,20 @@ impl Editor {
             let (tag, key, rtype) = (found.tag.as_str(), found.key.as_str(), found.record_type.as_str());
             findings.extend(missing_ids(tag, key, rtype, &record, &exists));
             findings.extend(leveled(tag, key, rtype, &record));
-            findings.extend(record_checks(tag, key, rtype, &record, file_exists));
+            findings.extend(record_checks(tag, key, rtype, &record, file_exists, sound_problem));
+            if object_tags().contains(&tag) {
+                for (other, place) in self.other_types(tag, key) {
+                    let name = crate::key::type_of(&other).unwrap_or(&other);
+                    findings.push(finding(
+                        "warning",
+                        rtype,
+                        tag,
+                        key,
+                        "id",
+                        format!("{key} is also a {name} ({place}): the Construction Set's Matching IDs - Morrowind.exe will not load the two; OpenMW keeps both and places only one"),
+                    ));
+                }
+            }
             if !text(record.get("enchanting")).trim().is_empty() {
                 findings.extend(enchant_capacity(tag, key, &record, self.enchant_cost(&record), self.gmst("fEnchantmentMult")));
             }
@@ -741,5 +819,37 @@ impl Editor {
             }
         }
         json!({"findings": findings, "checked": checked})
+    }
+}
+
+#[cfg(test)]
+mod sound_tests {
+    use super::*;
+
+    fn messages(found: &[Value]) -> Vec<String> {
+        found.iter().map(|f| format!("{} {}", str_of(&f["level"]), str_of(&f["message"]))).collect()
+    }
+
+    #[test]
+    fn a_voice_file_is_found_as_its_mp3_and_checked_once_opened() {
+        let have = |p: &str| p == "sound/vo/d/m/hlo_dm001.mp3" || p == "sound/fx/quiet.wav";
+        let problem = |p: &str| if p.contains("quiet") { Some(("warning", "is silent".to_string())) } else { None };
+        let info = json!({"sound_path": "Vo\\d\\m\\Hlo_DM001.wav", "data": {"dialogue_type": "Voice"}});
+        assert!(record_checks("INFO", "1", "DialogueInfo", &info, Some(&have), Some(&problem)).is_empty());
+        let missing = json!({"sound_path": "Vo\\d\\m\\none.wav", "data": {"dialogue_type": "Voice"}});
+        let found = messages(&record_checks("INFO", "2", "DialogueInfo", &missing, Some(&have), Some(&problem)));
+        assert_eq!(found, vec!["error Vo\\d\\m\\none.wav is in no data folder or archive".to_string()]);
+        let quiet = json!({"sound_path": "Fx\\quiet.wav"});
+        let found = messages(&record_checks("SOUN", "q", "Sound", &quiet, Some(&have), Some(&problem)));
+        assert_eq!(found, vec!["warning Fx\\quiet.wav is silent".to_string()]);
+    }
+
+    #[test]
+    fn a_voice_response_with_no_file_is_warned_of_and_a_topic_response_is_not() {
+        let voice = json!({"sound_path": "", "data": {"dialogue_type": "Voice"}});
+        let found = messages(&record_checks("INFO", "1", "DialogueInfo", &voice, None, None));
+        assert_eq!(found, vec!["warning a voice response with no file".to_string()]);
+        let topic = json!({"data": {"dialogue_type": "Topic"}});
+        assert!(record_checks("INFO", "2", "DialogueInfo", &topic, None, None).is_empty());
     }
 }

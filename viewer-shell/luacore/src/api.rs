@@ -1,8 +1,8 @@
 //! What OpenMW's Lua API allows where, per release (the tables of `wraithguard/lua/api.py`,
 //! which the Python side still passes in itself; these are for callers with no Python -
 //! the viewer). Taken from each release's engine handlers and built-in events pages:
-//! [`api_051`] is 0.51.0 (Lua API revision 129), [`api_050`] 0.50.0 (97), [`api_049`]
-//! 0.49.0 (76). An install's own documentation carries its packages and interfaces
+//! [`api_052`] is 0.52.0 as its first release candidate has it (its revision not yet known), [`api_051`] 0.51.0 (Lua API revision
+//! 129), [`api_050`] 0.50.0 (97), [`api_049`] 0.49.0 (76). An install's own documentation carries its packages and interfaces
 //! ([`from_docs`]), but not its handlers or built-in events, which come from the release.
 
 use std::collections::{HashMap, HashSet};
@@ -84,6 +84,14 @@ const EVENTS_051: &[&str] = &[
     "ConsumeItem", "Lock", "Unlock",
 ];
 
+/// 0.51's, and what 0.52's built-in scripts handle besides (Static's 0.52.0 RC1 `resources`,
+/// 2026-11-02, commit 4ff261bf: the `eventHandlers` of `vfs` and `vfs-mw`, the engine's own
+/// `OMW...` events left out as 0.51's list leaves them).
+const EVENTS_052_NEW: &[&str] = &[
+    "AddGlow", "ApplyMagicEffects", "CommitCrime", "ExplodeSpell", "PlayOnHitEffects", "RemoveVfx", "SetSaveState",
+    "UnlockAttempted",
+];
+
 const EVENTS_049: &[&str] = &[
     "Died", "StartAIPackage", "RemoveAIPackages", "UseItem", "UiModeChanged", "AddUiMode", "SetUiMode", "Pause",
     "Unpause", "SetGameTimeScale", "SetSimulationTimeScale",
@@ -120,6 +128,20 @@ fn version(openmw: &str, revision: i64, handlers: HashMap<String, Vec<String>>, 
     }
 }
 
+/// 0.52's built-in interfaces besides 0.51's (its scripts' `interfaceName`s).
+const INTERFACES_052_NEW: &[&str] = &["Projectiles", "SpellCasting"];
+
+/// OpenMW 0.52.0, from its first release candidate (RC1): 0.51's handlers and packages (its documentation's `@context`s are 0.51's,
+/// and its built-in scripts use no new public handler), more built-in events, and the
+/// `Projectiles` and `SpellCasting` interfaces. Its `API_REVISION` is not in the resources
+/// (0: unknown until the release says). Check it again against the release itself.
+pub fn api_052() -> ApiVersion {
+    let events: Vec<&str> = EVENTS_051.iter().chain(EVENTS_052_NEW).copied().collect();
+    let mut v = version("0.52.0", 0, table(HANDLERS, false), table(PACKAGES, false), &events, set(INTERFACES));
+    v.rules.builtin_interfaces.extend(INTERFACES_052_NEW.iter().map(|s| s.to_string()));
+    v
+}
+
 /// OpenMW 0.51.0 (API 129).
 pub fn api_051() -> ApiVersion {
     version("0.51.0", 129, table(HANDLERS, false), table(PACKAGES, false), EVENTS_051, set(INTERFACES))
@@ -147,10 +169,10 @@ fn version_key(text: &str) -> Vec<u32> {
 /// The table for an OpenMW release: the newest one not newer than it (the newest for an
 /// unknown or newer one, the oldest for an older one).
 pub fn for_version(version: Option<&str>) -> ApiVersion {
-    let Some(v) = version.filter(|v| !v.is_empty()) else { return api_051() };
+    let Some(v) = version.filter(|v| !v.is_empty()) else { return api_052() };
     let want = version_key(v);
     let mut best = api_049();
-    for rel in [api_049(), api_050(), api_051()] {
+    for rel in [api_049(), api_050(), api_051(), api_052()] {
         if version_key(&rel.openmw) <= want {
             best = rel;
         }
@@ -178,7 +200,7 @@ pub fn from_docs(docs: &ldt::Api) -> ApiVersion {
     let base = for_version(docs.version.as_deref());
     let mut packages: HashMap<String, Vec<String>> = HashMap::new();
     for m in &docs.modules {
-        if m.interface.as_deref().is_some_and(|i| !i.is_empty()) || !m.require.starts_with("openmw.") {
+        if interface_of(m).is_some() || !m.require.starts_with("openmw.") {
             continue;
         }
         let mut ctx: Vec<String> = Vec::new();
@@ -202,11 +224,23 @@ pub fn from_docs(docs: &ldt::Api) -> ApiVersion {
         out.rules.rules.packages = packages;
     }
     for m in &docs.modules {
-        if let Some(i) = m.interface.as_deref().filter(|i| !i.is_empty()) {
-            out.rules.builtin_interfaces.insert(i.to_string());
+        if let Some(i) = interface_of(m) {
+            out.rules.builtin_interfaces.insert(i);
         }
     }
     out
+}
+
+/// The interface a documented module is, if it is one: its `interface`, or - for a script's
+/// documentation the reader did not mark (0.52's `Combat`, `SkillProgression`, `ItemUsage`)
+/// - its module name when it is required as `openmw.interfaces` and is not the package
+/// itself. Before 2026-11-02 such a module was taken for the `openmw.interfaces` package, and
+/// the last one read decided where the package could be required (0.52: global only).
+fn interface_of(m: &ldt::Module) -> Option<String> {
+    if let Some(i) = m.interface.as_deref().filter(|i| !i.is_empty()) {
+        return Some(i.to_string());
+    }
+    (m.require == "openmw.interfaces" && !m.file.starts_with("lua_api/") && !m.name.is_empty()).then(|| m.name.clone())
 }
 
 /// The rules for a setup: its install's documentation when `resources` is one
@@ -214,7 +248,7 @@ pub fn from_docs(docs: &ldt::Api) -> ApiVersion {
 pub fn for_install(resources: Option<&std::path::Path>) -> ApiVersion {
     match resources.and_then(ldt::read_resources) {
         Some(docs) => from_docs(&docs),
-        None => api_051(),
+        None => api_052(),
     }
 }
 
@@ -236,7 +270,55 @@ mod tests {
         assert!(!c.rules.builtin_events.contains("ModifyStat"));
         assert_eq!(for_version(Some("0.50.2")).openmw, "0.50.0");
         assert_eq!(for_version(Some("0.48.0")).openmw, "0.49.0");
-        assert_eq!(for_version(Some("0.52.0")).openmw, "0.51.0");
-        assert_eq!(for_version(None).revision, 129);
+        assert_eq!(for_version(Some("0.51.3")).openmw, "0.51.0");
+        assert_eq!(for_version(Some("0.51.3")).revision, 129);
+        assert_eq!(for_version(Some("0.52.0")).openmw, "0.52.0");
+        assert_eq!(for_version(None).openmw, "0.52.0");
+        let d = api_052();
+        assert!(d.rules.builtin_interfaces.contains("SpellCasting") && d.rules.builtin_interfaces.contains("Projectiles"));
+        assert!(d.rules.builtin_events.contains("UnlockAttempted") && d.rules.builtin_events.contains("DialogueResponse"));
+        assert!(!api_051().rules.builtin_interfaces.contains("SpellCasting"));
+    }
+
+    #[test]
+    fn a_script_s_interface_is_not_the_interfaces_package() {
+        let m = |name: &str, interface: Option<&str>, ctx: &[&str], file: &str| ldt::Module {
+            name: name.into(),
+            require: "openmw.interfaces".into(),
+            interface: interface.map(str::to_string),
+            contexts: ctx.iter().map(|c| c.to_string()).collect(),
+            file: file.into(),
+            types: Default::default(),
+        };
+        let docs = ldt::Api {
+            version: Some("0.52.0".into()),
+            modules: vec![
+                m("interfaces", None, &["global", "menu", "local", "player"], "lua_api/openmw/interfaces.lua"),
+                m("ItemUsage", None, &["global"], "vfs/scripts/omw/usehandlers.lua"),
+            ],
+        };
+        let v = from_docs(&docs);
+        assert!(v.rules.builtin_interfaces.contains("ItemUsage"));
+        assert_eq!(v.rules.rules.packages["openmw.interfaces"], ["global", "local", "menu", "player"]);
+    }
+
+    /// An install's own resources (`WG_OPENMW_RESOURCES`, e.g. 0.52.0's): read, their
+    /// version taken, its release's table under them, its interfaces all known.
+    #[test]
+    fn an_install_s_resources_when_given() {
+        let Ok(dir) = std::env::var("WG_OPENMW_RESOURCES") else { return };
+        let v = for_install(Some(std::path::Path::new(&dir)));
+        eprintln!("{} (revision {}): {} interfaces, {} events, {} packages", v.openmw, v.revision, v.rules.builtin_interfaces.len(), v.rules.builtin_events.len(), v.rules.rules.packages.len());
+        let mut i: Vec<&String> = v.rules.builtin_interfaces.iter().collect();
+        i.sort();
+        eprintln!("interfaces: {i:?}");
+        let mut p: Vec<(&String, &Vec<String>)> = v.rules.rules.packages.iter().collect();
+        p.sort();
+        eprintln!("packages: {p:?}");
+        assert!(!v.openmw.is_empty());
+        // The package itself stays where its own documentation says it can be required.
+        if let Some(p) = v.rules.rules.packages.get("openmw.interfaces") {
+            assert!(p.len() > 1, "openmw.interfaces taken from an interface's documentation: {p:?}");
+        }
     }
 }

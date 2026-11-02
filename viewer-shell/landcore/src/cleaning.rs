@@ -7,6 +7,7 @@
 //! the same answer.
 
 use std::collections::{BTreeMap, BTreeSet};
+use crate::grid::Value;
 
 pub type Coords = (i64, i64);
 
@@ -23,7 +24,7 @@ pub struct CellDigest {
 }
 
 /// A layer's values as a [`CellDigest`] holds them.
-pub fn digest(values: &[i64]) -> u64 {
+pub fn digest(values: &[Value]) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     values.hash(&mut h);
@@ -141,7 +142,7 @@ pub fn clean_against_loaded(merged: &BTreeMap<Coords, CellDigest>, loaded: &BTre
 mod tests {
     use super::*;
 
-    fn d(h: Option<Vec<i64>>, c: Option<Vec<i64>>) -> CellDigest {
+    fn d(h: Option<Vec<Value>>, c: Option<Vec<Value>>) -> CellDigest {
         CellDigest { heights: h.as_deref().map(digest), colors: c.as_deref().map(digest), ..Default::default() }
     }
 

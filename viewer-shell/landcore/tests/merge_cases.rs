@@ -16,15 +16,15 @@ use sha2::{Digest, Sha256};
 const CASES: &str = include_str!("../../../tests/fixtures/land_merge_cases.json");
 const SIZE: usize = 65;
 
-fn ints(v: &Value) -> Vec<i64> {
-    v.as_array().unwrap().iter().map(|x| x.as_i64().unwrap()).collect()
+fn ints(v: &Value) -> Vec<i32> {
+    v.as_array().unwrap().iter().map(|x| x.as_i64().unwrap() as i32).collect()
 }
 
-fn heights_of(r: &[i64]) -> Vec<i64> {
+fn heights_of(r: &[i32]) -> Vec<i32> {
     let (base, a, b, m, cx, cy, rad, bump) = (r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]);
     let mut out = Vec::with_capacity(SIZE * SIZE);
-    for y in 0..SIZE as i64 {
-        for x in 0..SIZE as i64 {
+    for y in 0..SIZE as i32 {
+        for x in 0..SIZE as i32 {
             let mut v = base + (x * a + y * b).rem_euclid(m);
             if (x - cx).pow(2) + (y - cy).pow(2) <= rad * rad {
                 v += bump;
@@ -57,14 +57,14 @@ fn latin1(s: &str) -> Vec<u8> {
 
 fn land(r: &Value) -> Vec<u8> {
     let g = ints(&r["grid"]);
-    let mut body = sub(b"INTV", &[(g[0] as i32).to_le_bytes(), (g[1] as i32).to_le_bytes()].concat());
+    let mut body = sub(b"INTV", &[g[0].to_le_bytes(), g[1].to_le_bytes()].concat());
     if let Some(f) = r.get("flags") {
         body.extend(sub(b"DATA", &(f.as_u64().unwrap() as u32).to_le_bytes()));
     }
     let stored = r.get("heights").map(|h| heights_of(&ints(h)));
-    let world: Option<Vec<i64>> = stored.as_ref().map(|s| s.iter().map(|v| v * 8).collect());
+    let world: Option<Vec<i32>> = stored.as_ref().map(|s| s.iter().map(|v| v * 8).collect());
     if let (Some(stored), Some(world)) = (&stored, &world) {
-        let normals: Vec<i64> = if r.get("normals").and_then(Value::as_str).unwrap_or("auto") == "auto" {
+        let normals: Vec<i32> = if r.get("normals").and_then(Value::as_str).unwrap_or("auto") == "auto" {
             normals_from_heights(&world.iter().map(|&v| v as f64).collect::<Vec<_>>())
         } else {
             vec![0; 3 * SIZE * SIZE]
@@ -85,7 +85,7 @@ fn land(r: &Value) -> Vec<u8> {
         body.extend(sub(b"VHGT", &vhgt));
     }
     if let Some(wm) = r.get("world_map") {
-        let values: Vec<i64> = match wm.as_str() {
+        let values: Vec<i32> = match wm.as_str() {
             Some("auto") => world_map_from_heights(world.as_ref().unwrap()),
             Some(_) => vec![0; 81],
             None => ints(wm),
@@ -95,8 +95,8 @@ fn land(r: &Value) -> Vec<u8> {
     if let Some(c) = r.get("colors") {
         let c = ints(c);
         let mut data = Vec::new();
-        for y in 0..SIZE as i64 {
-            for x in 0..SIZE as i64 {
+        for y in 0..SIZE as i32 {
+            for x in 0..SIZE as i32 {
                 data.extend([(c[0] + (x * c[3]).rem_euclid(50)).rem_euclid(256) as u8, (c[1] + (y * c[3]).rem_euclid(50)).rem_euclid(256) as u8, c[2].rem_euclid(256) as u8]);
             }
         }
@@ -104,7 +104,7 @@ fn land(r: &Value) -> Vec<u8> {
     }
     if let Some(t) = r.get("textures") {
         let t = ints(t);
-        let rows: Vec<i64> = (0..256).map(|i| if ((i % 16) + (i / 16)) % t[1] == 0 { t[2] } else { t[0] }).collect();
+        let rows: Vec<i32> = (0..256).map(|i| if ((i % 16) + (i / 16)) % t[1] == 0 { t[2] } else { t[0] }).collect();
         let packed = swizzle_texture_indices(&rows);
         body.extend(sub(b"VTEX", &packed.iter().flatten().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>()));
     }
@@ -328,9 +328,9 @@ fn big_order() {
     let mut plugins = vec![json!({"name": "Base.esm", "ltex": [["a", 0, "a.dds"], ["b", 1, "b.dds"], ["c", 2, "c.dds"]], "land": base})];
     let mut order = vec!["Base.esm".to_string()];
     let mut seed = 7u64;
-    let mut rnd = |n: i64| {
+    let mut rnd = |n: i32| {
         seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        ((seed >> 33) as i64).rem_euclid(n)
+        ((seed >> 33) as i32).rem_euclid(n)
     };
     for m in 0..300 {
         let mut land = Vec::new();
@@ -352,7 +352,51 @@ fn big_order() {
         let opts = MergeOptions { output: Some(data.parent().unwrap().join("out").join(DEFAULT_NAME)), model, ..Default::default() };
         let r = build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |l| eprintln!("[{:>6.2}s] {l}", t.elapsed().as_secs_f32()));
         let hwm = std::fs::read_to_string("/proc/self/status").unwrap_or_default().lines().find(|l| l.starts_with("VmHWM")).unwrap_or("").to_string();
-        eprintln!("{model:?}: {:.2}s, ok={}, {hwm}", t.elapsed().as_secs_f32(), r.is_ok());
+        let sha = {
+            use sha2::Digest;
+            let bytes = std::fs::read(opts.output.as_ref().unwrap()).unwrap_or_default();
+            sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect::<String>()
+        };
+        eprintln!("{model:?}: {:.2}s, ok={}, {hwm}, sha256 {sha}", t.elapsed().as_secs_f32(), r.is_ok());
     }
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+#[test]
+fn a_cancelled_merge_stops_and_writes_nothing() {
+    use serde_json::json;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let flat = json!([400, 1, 1, 9, 0, 0, -1, 0]);
+    let data = setup(
+        "cancelled",
+        json!([
+            {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": flat}]},
+            {"name": "A.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": [400, 1, 1, 9, 20, 20, 6, 60]}]},
+            {"name": "B.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": [400, 1, 1, 9, 48, 48, 5, 40]}]},
+        ]),
+    );
+    let out = data.parent().unwrap().join("out").join(DEFAULT_NAME);
+    let order: Vec<String> = ["Base.esm", "A.esp", "B.esp"].iter().map(|s| s.to_string()).collect();
+    // Cancelled while the merge runs (as the page's Cancel does, from another thread).
+    let stop = Arc::new(AtomicBool::new(false));
+    let opts = MergeOptions { output: Some(out.clone()), cancel: Some(stop.clone()), ..Default::default() };
+    let got = build_merged_lands(&[data.clone()], &order, &opts, &mut |l| {
+        if l == "merging ..." {
+            stop.store(true, Ordering::Relaxed);
+        }
+    });
+    match got {
+        Err((e, lines)) => {
+            assert_eq!(e, landcore::service::CANCELLED);
+            assert!(lines.contains(&"merging ...".to_string()), "{lines:#?}");
+        }
+        Ok(r) => panic!("not cancelled: {:#?}", r.lines),
+    }
+    assert!(!out.exists(), "a cancelled merge wrote {}", out.display());
+    // Not cancelled, the same merge writes.
+    let opts = MergeOptions { output: Some(out.clone()), cancel: Some(Arc::new(AtomicBool::new(false))), ..Default::default() };
+    build_merged_lands(&[data.clone()], &order, &opts, &mut |_| {}).unwrap_or_else(|(e, _)| panic!("{e}"));
+    assert!(out.exists());
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }

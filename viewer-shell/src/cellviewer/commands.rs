@@ -1899,6 +1899,153 @@ fn sound_info(path: String, n: usize, state: State) -> Result<String, String> {
     .to_string())
 }
 
+/// A Sound record as OpenMW plays it (`mwsound/soundbuffer.cpp`, `insertSound`): the gain
+/// `10^((volume/255*3348 - 3348)/2000)`, the ranges (both 0: `fAudioDefaultMin/MaxDistance`)
+/// times `fAudioMin/MaxDistanceMult`, the minimum at least 1 and the maximum at least it.
+fn sound_played(w: &viewcore::world::World, d: &viewcore::world::SoundDef) -> (f64, f64, f64) {
+    let g = |k: &str, def: f32| *w.gmst.get(k).unwrap_or(&def) as f64;
+    let gain = 10f64.powf((d.volume as f64 / 255.0 * 3348.0 - 3348.0) / 2000.0);
+    let (mut min, mut max) = (d.min as f64, d.max as f64);
+    if min == 0.0 && max == 0.0 {
+        min = g("faudiodefaultmindistance", 5.0);
+        max = g("faudiodefaultmaxdistance", 40.0);
+    }
+    min *= g("faudiomindistancemult", 20.0);
+    max *= g("faudiomaxdistancemult", 50.0);
+    let min = min.max(1.0);
+    (gain, min, max.max(min))
+}
+
+fn sound_json(w: &viewcore::world::World, id: &str) -> Option<J> {
+    let d = w.sounds.get(id)?;
+    if d.file.is_empty() {
+        return None;
+    }
+    let (gain, min, max) = sound_played(w, d);
+    let mut o = J::obj();
+    o.str("sound", id).str("file", &d.file).num("gain", gain).num("min", min).num("max", max);
+    Some(o)
+}
+
+/// The sounds placed objects loop (SOUND.md step 2): for each object id asked about that
+/// is a light with a sound, or an activator, door or container whose script loops one on
+/// itself (`PlayLoopSound3D`; `...VP`'s volume times the record's), `{id, sound, file, gain,
+/// min, max, via: "light"|"script"}` as OpenMW plays it.
+#[tauri::command(async)]
+fn sound_emitters(ids: Vec<String>, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut rows = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for id in ids {
+        let k = id.to_ascii_lowercase();
+        if !seen.insert(k.clone()) {
+            continue;
+        }
+        let (snd, vol, via) = if let Some(snd) = w.light_sounds.get(&k) {
+            (snd, 1.0f32, "light")
+        } else if let Some((snd, vol)) = w.object_scripts.get(&k).and_then(|sc| w.script_loops.get(sc)) {
+            (snd, *vol, "script")
+        } else {
+            continue;
+        };
+        let Some(d) = w.sounds.get(snd).filter(|d| !d.file.is_empty()) else { continue };
+        let (gain, min, max) = sound_played(&w, d);
+        let mut o = J::obj();
+        o.str("id", &k).str("sound", snd).str("file", &d.file).num("gain", gain * vol.clamp(0.0, 1.0) as f64);
+        o.num("min", min).num("max", max).str("via", via);
+        rows.push(o.done());
+    }
+    Ok(format!("[{}]", rows.join(",")))
+}
+
+/// The load order's settings the world's sound follows (SOUND.md step 3): every fallback
+/// whose key starts `Weather_` and names a sound, the thunder or the environmental sounds'
+/// timing, as `{key: value}` - from openmw.cfg's `fallback=` lines, or Morrowind.ini's
+/// sections spelled the same way (`[Weather Rain]` `Rain Loop Sound ID` is
+/// `Weather_Rain_Rain_Loop_Sound_ID`).
+#[tauri::command(async)]
+fn sound_fallbacks(state: State) -> Result<String, String> {
+    let order = { state.app().order_file.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install_is"))?;
+    let pairs = viewcore::weather::fallbacks(&order);
+    let mut o = J::obj();
+    for (k, v) in pairs {
+        if wanted_sound_fallback(&k) {
+            o.str(&k, &v);
+        }
+    }
+    Ok(o.done())
+}
+
+fn wanted_sound_fallback(k: &str) -> bool {
+    let l = k.to_ascii_lowercase();
+    l.starts_with("weather_") && (l.contains("sound") || l.contains("thunder") || l.contains("using_precip"))
+}
+
+/// Sound records by id (a weather's loop, SOUND.md step 3): `[{id, sound, file, gain, min,
+/// max}]` for those the load order has, as OpenMW plays them.
+#[tauri::command(async)]
+fn sound_records(ids: Vec<String>, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let rows: Vec<String> = ids
+        .iter()
+        .filter_map(|id| {
+            let k = id.to_ascii_lowercase();
+            let mut o = sound_json(&w, &k)?;
+            o.str("id", id);
+            Some(o.done())
+        })
+        .collect();
+    Ok(format!("[{}]", rows.join(",")))
+}
+
+/// The music a folder of the data's `Music/` holds (`explore`, `battle`), as OpenMW's
+/// playlists find it: every MP3, WAV, OGG and FLAC under it, loose or packed.
+#[tauri::command(async)]
+fn music_list(kind: String, state: State) -> Result<String, String> {
+    let v = vfs_of(&state)?;
+    let k: String = kind.to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let files = v.list(&format!("music/{k}/"), &[".mp3", ".wav", ".ogg", ".flac"]);
+    Ok(string_array(&files))
+}
+
+/// The load order's regions for the cell map (TODO, "The world"): `[{id, name, color:
+/// [r, g, b]}]`, by name.
+#[tauri::command(async)]
+fn regions_list(state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut list: Vec<&viewcore::world::RegionDef> = w.region_defs.values().collect();
+    list.sort_by_key(|r| (if r.name.is_empty() { r.id.to_ascii_lowercase() } else { r.name.to_ascii_lowercase() }, r.id.to_ascii_lowercase()));
+    let rows: Vec<String> = list
+        .iter()
+        .map(|r| {
+            let mut o = J::obj();
+            o.str("id", &r.id).str("name", &r.name).raw("color", &format!("[{},{},{}]", r.color[0], r.color[1], r.color[2]));
+            o.done()
+        })
+        .collect();
+    Ok(format!("[{}]", rows.join(",")))
+}
+
+/// A region's ambient sounds (SOUND.md step 3): `[{sound, file, gain, min, max, chance}]`.
+#[tauri::command(async)]
+fn region_sounds(region: String, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let rows: Vec<String> = w
+        .region_sounds
+        .get(&region.to_ascii_lowercase())
+        .map(|l| {
+            l.iter()
+                .filter_map(|(snd, chance)| {
+                    let mut o = sound_json(&w, snd)?;
+                    o.num("chance", *chance as f64);
+                    Some(o.done())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(format!("[{}]", rows.join(",")))
+}
+
 /// A sound's samples for the page to play (`viewcore::audio::pcm_bytes`: `WGS1`, the header,
 /// interleaved little-endian `i16`).
 #[tauri::command(async)]
@@ -4100,7 +4247,7 @@ fn conflicts_land_surfaces(cfg: String, id: String) -> Result<String, String> {
             None => cf_setup(&cfg)?.locate(&plugins),
         }
     };
-    let mut surfaces: Vec<(String, Vec<i64>)> = Vec::new();
+    let mut surfaces: Vec<(String, Vec<landcore::grid::Value>)> = Vec::new();
     for (name, path) in located {
         let Some(path) = path else { continue };
         let Ok(records) = landcore::read::read_landscape_records(&path) else { continue };
@@ -4113,7 +4260,7 @@ fn conflicts_land_surfaces(cfg: String, id: String) -> Result<String, String> {
     if surfaces.len() < 2 {
         return Err("Only one plugin edits this cell's terrain, so every strategy gives the same result. Strategy choice only matters where two or more plugins change the same ground.".into());
     }
-    let grids: Vec<Vec<i64>> = surfaces.iter().map(|(_, h)| h.clone()).collect();
+    let grids: Vec<Vec<landcore::grid::Value>> = surfaces.iter().map(|(_, h)| h.clone()).collect();
     let strategies: Vec<serde_json::Value> = landcore::preview::PREVIEW_STRATEGIES
         .iter()
         .filter_map(|s| landcore::preview::merge_preview(&grids, *s).ok().map(|h| serde_json::json!({"name": s.name(), "heights": h})))
@@ -4409,7 +4556,7 @@ fn land_merge_home(cfg: String) -> Result<String, String> {
 /// order and data folders, `Merged Lands.esp` written into `folder` (`dryRun`: nothing
 /// written). `model` `"masters"` measures each plugin against the masters, `"loadorder"`
 /// against the load order before it (the OpenMW fork); `ignore` the plugins left out by name
-/// or folder (`None`: the fork's defaults). Answers `{error, lines, notes, output, result: {cells, textures, contested, major,
+/// or folder (`None`: the fork's defaults). Answers `{error, cancelled, lines, notes, output, result: {cells, textures, contested, major,
 /// seams, slopes, clamped, dropped, borrowed}}` - `error` the reason it stopped, the lines said
 /// before it kept.
 ///
@@ -4425,7 +4572,10 @@ fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: 
     let dirs: Vec<PathBuf> = setup.data.iter().filter(|d| d.is_dir()).cloned().collect();
     let output = (!folder.is_empty()).then(|| PathBuf::from(&folder).join(DEFAULT_NAME));
     let model = if model == "loadorder" { DiffModel::LoadOrder } else { DiffModel::Masters };
-    let mut opts = MergeOptions { output, dry_run, verbose, model, ..Default::default() };
+    // A new switch each run, so a Cancel meant for the last one cannot stop this one.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    *LAND_STOP.lock().unwrap_or_else(|p| p.into_inner()) = Some(stop.clone());
+    let mut opts = MergeOptions { output, dry_run, verbose, model, cancel: Some(stop), ..Default::default() };
     if let Some(ignore) = ignore {
         opts.ignore = ignore;
     }
@@ -4445,9 +4595,25 @@ fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: 
             "result": {"cells": r.cells_written, "textures": r.textures_written, "contested": r.contested, "major": r.major,
                        "seams": r.seam_vertices, "slopes": r.slope_vertices, "clamped": r.clamped, "dropped": r.dropped, "borrowed": r.borrowed},
         }),
-        Err((error, lines)) => serde_json::json!({"error": error, "lines": lines, "notes": [], "output": null, "result": null}),
+        Err((error, lines)) => serde_json::json!({"error": error, "cancelled": error == landcore::service::CANCELLED, "lines": lines, "notes": [], "output": null, "result": null}),
     };
+    *LAND_STOP.lock().unwrap_or_else(|p| p.into_inner()) = None;
     Ok(out.to_string())
+}
+
+/// The running Merge Lands' stop switch (`land_merge_cancel`), while one runs.
+static LAND_STOP: Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>> = Mutex::new(None);
+
+/// Stops the running Merge Lands at its next step; it writes nothing. `true` when one was
+/// running.
+#[tauri::command(async)]
+fn land_merge_cancel() -> Result<bool, String> {
+    let stop = LAND_STOP.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    if let Some(s) = &stop {
+        s.store(true, std::sync::atomic::Ordering::Relaxed);
+        LAND_LOG.lock().unwrap_or_else(|p| p.into_inner()).push("cancel asked: stopping at the next step".into());
+    }
+    Ok(stop.is_some())
 }
 
 /// The running (or last) Merge Lands' lines, as it says them.
@@ -4821,6 +4987,31 @@ fn tools_remove_master(path: String, master: String, dry_run: bool) -> Result<St
     .to_string())
 }
 
+/// Wraithguard: Merge to master (`toolscore::mergemaster`, greatness7's merge_to_master).
+/// `mode` `"plugin"`: `plugin` folded into `master`; `"order"`: `plugins` (in load order)
+/// into one master. The result goes to `out` (a file there kept once as `.premerge.bak`); the
+/// sources are never written. Answers `{out, bytes, backup}`.
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+fn tools_merge_master(mode: String, plugin: String, master: String, plugins: Vec<String>, out: String, remove_deleted: bool, apply_moved: bool, keep_duplicates: bool) -> Result<String, String> {
+    use toolscore::mergemaster::{merge_into_master, merge_order, write_merged, MergeOptions};
+    let _gate = scan_gate();
+    let o = MergeOptions { remove_deleted, apply_moved_references: apply_moved, preserve_duplicate_references: keep_duplicates };
+    let out_path = std::path::Path::new(&out);
+    for src in plugins.iter().chain([&plugin, &master]) {
+        if !src.is_empty() && std::path::Path::new(src) == out_path {
+            return Err(format!("{out} is one of the files being merged: write the merge somewhere else"));
+        }
+    }
+    let bytes = if mode == "order" {
+        merge_order(&plugins.iter().map(PathBuf::from).collect::<Vec<_>>(), o)?
+    } else {
+        merge_into_master(std::path::Path::new(&plugin), std::path::Path::new(&master), o)?
+    };
+    let backup = write_merged(out_path, &bytes).map_err(|e| format!("{out}: {e}"))?;
+    Ok(serde_json::json!({"out": out, "bytes": bytes.len(), "backup": backup}).to_string())
+}
+
 /// Wraithguard: a plugin's master `old` pointed at the file `newPath` (its name and size), every
 /// reference kept (`rename_master_in_bytes`), the original kept once as `.premaster.bak`.
 /// Answers `{renamed, remaining, backup}`.
@@ -5038,7 +5229,25 @@ fn editor_link(state: State, name: String, body: String) -> Result<String, Strin
     let vfs = if name == "editVerify" { state.app().vfs.clone() } else { None };
     let exists = |path: &str| vfs.as_ref().is_some_and(|v| v.resolve(path).is_some());
     let file_exists: Option<&dyn Fn(&str) -> bool> = if vfs.is_some() { Some(&exists) } else { None };
-    links.call_with(&name, &body, &editcore::links::Ctx { file_exists })
+    // A sound a record names, opened as the game finds it: one that will not decode is an
+    // error; a silent or clipped one, or one only OpenMW plays, a warning.
+    let sound = |name: &str| -> Option<(&'static str, String)> {
+        let v = vfs.as_ref()?;
+        let rel = name.trim().replace('\\', "/");
+        let path = if rel.to_ascii_lowercase().starts_with("sound/") { rel } else { format!("Sound/{rel}") };
+        let loc = viewcore::audio::candidates(&path).into_iter().find_map(|c| v.resolve(&c))?;
+        let bytes = v.load(&loc)?;
+        match viewcore::audio::decode(&bytes) {
+            Err(e) => Some(("error", format!("will not play: {e}"))),
+            Ok(d) => d.problem().or_else(|| {
+                // OpenMW plays what FFmpeg reads; Morrowind.exe only WAV and MP3.
+                matches!(d.container, "ogg" | "flac").then(|| format!("is {}: OpenMW plays it, Morrowind.exe does not", d.container.to_uppercase()))
+            })
+            .map(|m| ("warning", m)),
+        }
+    };
+    let sound_problem: Option<editcore::verify::SoundProblem> = if vfs.is_some() { Some(&sound) } else { None };
+    links.call_with(&name, &body, &editcore::links::Ctx { file_exists, sound_problem })
 }
 
 /* ---- the Load order page (Wraithguard; port step 4.2, slice 2k) ---------------------
@@ -6063,6 +6272,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             land_merge_home,
             land_merge,
             land_merge_progress,
+            land_merge_cancel,
             tools_lint,
             tools_backups,
             tools_backups_restore,
@@ -6070,6 +6280,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             tools_masters,
             tools_remove_master,
             tools_rename_master,
+            tools_merge_master,
             tools_save_check,
             tools_journal,
             tools_tes3cmd_find,
@@ -6116,6 +6327,12 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             cursor_park,
             read_asset,
             sound_info,
+            sound_emitters,
+            sound_records,
+            sound_fallbacks,
+            regions_list,
+            music_list,
+            region_sounds,
             sound_pcm,
             mesh_data,
             assets_bundle,

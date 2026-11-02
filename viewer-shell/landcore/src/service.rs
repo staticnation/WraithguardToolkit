@@ -16,6 +16,7 @@ use crate::meta::{self, PluginMeta, Strategy, LAYER_NAMES};
 use crate::pipeline::{finish, merge_landmass, DiffModel, MergeOutcome};
 use crate::read::{has_landscape, read_landscape_records, Record};
 use crate::textures::{compact_textures, KnownTextures};
+use crate::grid::Value;
 
 /// The name the community expects.
 pub const DEFAULT_NAME: &str = "Merged Lands.esp";
@@ -39,6 +40,9 @@ pub struct MergeResult {
     pub notes: Vec<String>,
 }
 
+/// The error of a merge stopped through `MergeOptions::cancel`, before it wrote anything.
+pub const CANCELLED: &str = "cancelled: nothing was written";
+
 /// The options `build_merged_lands` takes.
 #[derive(Clone, Debug)]
 pub struct MergeOptions {
@@ -56,6 +60,10 @@ pub struct MergeOptions {
     /// in a folder when the entry is a path (the fork's `ignore_plugins`,
     /// `ignore_plugins_from_path`). The output's own name is always left out.
     pub ignore: Vec<String>,
+    /// Set from elsewhere to stop the merge: it is looked at between its steps (each master,
+    /// each batch of mods read, before and after the merge, before the write), and a merge
+    /// stopped writes nothing.
+    pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// The fork's starting `ignore_plugins`: generated or non-land plugins, expensive to read and
@@ -80,6 +88,7 @@ impl Default for MergeOptions {
             model: DiffModel::Masters,
             clean_against_load_order: true,
             ignore: DEFAULT_IGNORE.iter().map(|s| s.to_string()).collect(),
+            cancel: None,
         }
     }
 }
@@ -212,6 +221,13 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
             return Err((format!($($t)*), lines))
         };
     }
+    macro_rules! stop {
+        () => {
+            if opts.cancel.as_ref().is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed)) {
+                fail!("{CANCELLED}");
+            }
+        };
+    }
     if dirs.is_empty() {
         fail!("no data folder was given, so no plugin can be found");
     }
@@ -259,6 +275,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     let mut metas: Vec<(String, PluginMeta)> = Vec::new();
     let mut masters: Vec<PluginRecords> = Vec::new();
     for name in &master_names {
+        stop!();
         let Some(path) = resolve_plugin(name, dirs) else {
             fail!(
                 "master {name} is not in any of the {} data folder(s) searched. Every master has to be readable: they are the reference terrain the whole merge is measured against.",
@@ -300,6 +317,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).clamp(1, 4);
     let mut reads: Vec<(Vec<Record>, String)> = Vec::with_capacity(resolved.len());
     for chunk in resolved.chunks(threads.max(1) * 8) {
+        stop!();
         let part: Vec<(Vec<Record>, String)> = std::thread::scope(|s| {
             let per = chunk.len().div_ceil(threads).max(1);
             let jobs: Vec<_> = chunk.chunks(per).map(|c| s.spawn(move || c.iter().map(|(_, p)| records_of(p)).collect::<Vec<_>>())).collect();
@@ -350,11 +368,13 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         }
     }
 
+    stop!();
     say!("merging ...");
     let mut outcome = match merge_landmass(&reference, &mods, &mut known, &meta_map, opts.strategy, opts.model, opts.clean_against_load_order.then_some(&mut loaded)) {
         Ok(o) => o,
         Err(e) => fail!("{e}"),
     };
+    stop!();
     notes.append(&mut outcome.notes);
     for (name, why) in &outcome.skipped_plugins {
         say!("  skipped {name}: {why}");
@@ -363,6 +383,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     if let Err(e) = finish(&mut outcome, &reference, opts.clean_against_load_order.then_some(&loaded)) {
         fail!("{e}");
     }
+    stop!();
     say!("  seam repair moved {} vertex/vertices (widest gap {} units)", outcome.seams.total(), outcome.seams.largest_gap);
     if outcome.borrowed > 0 {
         say!("  brought in {} untouched cell(s) to reconcile their borders", outcome.borrowed);
@@ -397,8 +418,8 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
 
     // _build_records
     let mut lands = Vec::new();
-    let mut pending: Vec<(usize, Vec<i64>)> = Vec::new();
-    let mut used: BTreeSet<i64> = BTreeSet::new();
+    let mut pending: Vec<(usize, Vec<Value>)> = Vec::new();
+    let mut used: BTreeSet<Value> = BTreeSet::new();
     let mut clamped = 0;
     for (c, cell) in &outcome.cells {
         match build_landscape_record(*c, cell.heights.as_deref(), cell.normals.as_deref(), cell.world_map.as_deref(), cell.colors.as_deref()) {
@@ -430,7 +451,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     if !pending.is_empty() {
         let (mapping, kept, unresolved) = compact_textures(&known, &used, opts.substitute_unknown_textures);
         for (i, rows) in &pending {
-            let written: Vec<i64> = rows.iter().map(|v| mapping.get(v).copied().unwrap_or(*v)).collect();
+            let written: Vec<Value> = rows.iter().map(|v| mapping.get(v).copied().unwrap_or(*v)).collect();
             attach_texture_indices(&mut lands[*i], &written);
         }
         say!("  land textures: {} known, {} painted by the merge", known.len(), kept.len());
@@ -460,6 +481,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     if declared.is_empty() {
         declared = master_names.clone();
     }
+    stop!();
     say!("  declaring {} master(s): the plugins that actually contributed", declared.len());
     let target = opts.output.clone().unwrap_or_else(|| dirs[0].join(DEFAULT_NAME));
 

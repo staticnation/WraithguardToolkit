@@ -823,7 +823,7 @@ const WgUI={
     if(!t.querySelector('#edPathBtn')){
       const b=document.createElement('button');
       b.className='btn sm edTb'; b.id='edPathBtn'; b.dataset.glyph='⋰'; b.textContent='Path grid';
-      b.title='Path grid mode: the loaded cells\' path grids drawn and edited here - click a point to select, drag to move, Shift+click the ground to add, Ctrl+click to link or unlink, J / U, Delete. Right-click: drop the queued grids of these cells';
+      b.title='Path grid mode: the loaded cells\' path grids drawn and edited here - click a point to select, drag to move, Shift+click the ground to add, Ctrl+click to link or unlink, Ctrl+drag from a point to draw a link (or a new linked point), drag on the ground to box-select, J / U, Delete. Right-click: drop the queued grids of these cells';
       b.onclick=()=>WgPath.toggle();
       b.oncontextmenu=ev=>{ ev.preventDefault(); this.menu({x:ev.clientX, y:ev.clientY}, [
         {head:'Path grid'},
@@ -991,37 +991,42 @@ const WgUI={
 
   helpItems(){
     const k=(label, key)=>({label, key, info:true});
+    // The keys the binding page can change, as they are now.
+    const K=(id, def)=>typeof WgKeys==='object'? WgKeys.label(id) : def;
     return [
+      {label:'Change the keys…', title:'The key binding page: every shortcut below, and the controller\'s buttons', act:()=>{ if(typeof WgKeys==='object') WgKeys.page(); }},
+      {sep:true},
       {head:'Render window'},
       k('Pick an object', 'Click'), k('Pick several', 'Ctrl+click'),
       k('Select everything in a box', 'Drag on empty ground'), k('Add a box to the selection', 'Ctrl / Shift + drag'),
       k('Move everything selected', 'Drag one of them'),
       k('Let them go', 'Esc'),
       k('Move on the ground plane', 'Drag'), k('Lift / lower', 'Z + drag'), k('Keep to an axis', 'X / Y + drag'),
-      k('Onto the surface under the pointer', 'Alt + drag'), k('Turn', 'Shift + drag'), k('Drop to the ground', 'F'),
+      k('Onto the surface under the pointer', 'Alt + drag'), k('Turn', 'Shift + drag'), k('Drop to the ground', K('drop','F')),
       k('What can be done to it', 'Q'),
-      k('Centre the view on it (the middle of several)', 'C'), k('Delete it', 'Delete'),
-      k('Copy it / place a copy under the pointer', 'Ctrl+C / Ctrl+V'),
-      k('Duplicate it beside itself', 'Ctrl+D'),
-      k('Undo / redo the last change - any of them: a field, a move, a path grid, a placed or deleted object, a moved response', 'Ctrl+Z / Ctrl+Y'),
-      k('Snap to grid / to angle', 'G / Shift+G'),
-      k('Inspector (ORI) / full help (TFH) on or off', 'I / Shift+I'),
-      k('Messages: every result, warning and error, kept', 'Ctrl+Shift+M'),
+      k('Centre the view on it (the middle of several)', K('frame','C')), k('Delete it', K('delete','Delete')),
+      k('Copy it / place a copy under the pointer', K('copy','Ctrl+C')+' / '+K('paste','Ctrl+V')),
+      k('Duplicate it beside itself', K('duplicate','Ctrl+D')),
+      k('Undo / redo the last change - any of them: a field, a move, a path grid, a placed or deleted object, a moved response', K('undo','Ctrl+Z')+' / '+K('redo','Ctrl+Y')),
+      k('Snap to grid / to angle', K('grid','G')+' / '+K('angle','Shift+G')),
+      k('Inspector (ORI) / full help (TFH) on or off', K('ori','I')+' / '+K('tfh','Shift+I')),
+      k('Messages: every result, warning and error, kept', K('messages','Ctrl+Shift+M')),
       k('Keep the selection as set 1-9 / select set 1-9 again', 'Ctrl+1..9 / 1..9'),
-      k('Hide the selection / show only it (again: everything)', 'H / Shift+H'),
-      k('Transform by numbers: move, turn and scale, one object or several', 'Ctrl+T'),
-      k('Test in OpenMW: the pool as a scratch plugin, the game started in the cell on screen', 'Ctrl+F5'),
-      k('Verify what the patch carries', 'Ctrl+Shift+V'),
-      k('Search everything (every record type), and replace', 'Ctrl+Shift+F'),
-      k('Prefabs: place one under the pointer, or keep the selection as one', 'Ctrl+Shift+P'),
+      k('Hide the selection / show only it (again: everything)', K('hide','H')+' / '+K('isolate','Shift+H')),
+      k('Transform by numbers: move, turn and scale, one object or several', K('transform','Ctrl+T')),
+      k('Test in OpenMW: the pool as a scratch plugin, the game started in the cell on screen', K('testRun','Ctrl+F5')),
+      k('Verify what the patch carries', K('verify','Ctrl+Shift+V')),
+      k('Search everything (every record type), and replace', K('searchAll','Ctrl+Shift+F')),
+      k('Prefabs: place one under the pointer, or keep the selection as one', K('prefab','Ctrl+Shift+P')),
       k('Script Edit: complete the word / open what it names', 'Ctrl+Space / Ctrl+click'),
       {head:'Path grid mode (toolbar: Path grid)'},
       k('Select a point / add one to the selection', 'Click / Shift+click'), k('Move it', 'Drag (Z: up and down, Alt: onto the surface)'),
       k('A new point, linked to the selected one', 'Shift+click the ground'), k('Link or unlink two points', 'Ctrl+click'),
+      k('Draw a link out to a point, or to a new point', 'Ctrl+drag from a point'), k('Select the points in a box (Shift: add)', 'Drag on the ground'),
       k('Link the selected in a chain / unlink them', 'J / U'), k('Delete the selected points', 'Delete'),
       k('Undo / redo', 'Ctrl+Z / Ctrl+Y'), k('Let go / leave the mode', 'Esc'),
       {head:'Windows'},
-      k('Edit record', 'F2'), k('Edit reference', 'F3'), k('Filter the Object Window', 'Ctrl+F'),
+      k('Edit record', K('record','F2')), k('Edit reference', K('reference','F3')), k('Filter the Object Window', K('filter','Ctrl+F')),
       k('Show / hide layer N', 'Ctrl+Shift+N'), k('Close the dialog or menu', 'Esc'),
       {head:'Placing'},
       k('Drag a record into the render window', 'Drag'), k('At the view\'s pivot', 'Right-click a record'),

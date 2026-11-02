@@ -12,6 +12,7 @@ use crate::grid::{LAND_NUM_VERTS, LAND_SIZE, WNAM_HEIGHT_SCALE, WNAM_SIZE, WNAM_
 use crate::heights::{encode_vertex_heights, normals_from_heights};
 use crate::layers::swizzle_texture_indices;
 use crate::textures::KnownTexture;
+use crate::grid::Value;
 
 pub const DESCRIPTION: &str = "Merged landscape. Load last.";
 pub const AUTHOR: &str = "Wraithguard Toolkit";
@@ -24,12 +25,12 @@ fn round_half_even(v: f64) -> f64 {
 
 /// The 9x9 world map from a cell's heights (`world_map_from_heights`): every eighth vertex
 /// over 128, as the engine and the Construction Set derive it.
-pub fn world_map_from_heights(heights: &[i64]) -> Vec<i64> {
+pub fn world_map_from_heights(heights: &[Value]) -> Vec<Value> {
     let mut out = Vec::with_capacity(WNAM_SIZE * WNAM_SIZE);
     for gy in 0..WNAM_SIZE {
         for gx in 0..WNAM_SIZE {
             let h = heights[gy * WNAM_STEP * LAND_SIZE + gx * WNAM_STEP] as f64;
-            out.push((round_half_even(h / WNAM_HEIGHT_SCALE) as i64).clamp(-128, 127));
+            out.push((round_half_even(h / WNAM_HEIGHT_SCALE) as Value).clamp(-128, 127));
         }
     }
     out
@@ -37,7 +38,7 @@ pub fn world_map_from_heights(heights: &[i64]) -> Vec<i64> {
 
 /// A world-map vertex over terrain below sea level made to read as water
 /// (`sink_underwater_land`); nothing is pushed toward land.
-pub fn sink_underwater_land(world_map: &[i64], heights: &[i64]) -> Vec<i64> {
+pub fn sink_underwater_land(world_map: &[Value], heights: &[Value]) -> Vec<Value> {
     let mut out = Vec::with_capacity(WNAM_SIZE * WNAM_SIZE);
     for gy in 0..WNAM_SIZE {
         for gx in 0..WNAM_SIZE {
@@ -55,10 +56,10 @@ pub fn sink_underwater_land(world_map: &[i64], heights: &[i64]) -> Vec<i64> {
 /// colours (textures are attached after, by [`attach_texture_indices`]).
 pub fn build_landscape_record(
     coords: (i64, i64),
-    heights: Option<&[i64]>,
-    normals: Option<&[i64]>,
-    world_map: Option<&[i64]>,
-    colors: Option<&[i64]>,
+    heights: Option<&[Value]>,
+    normals: Option<&[Value]>,
+    world_map: Option<&[Value]>,
+    colors: Option<&[Value]>,
 ) -> Result<(Landscape, Vec<(usize, usize)>), String> {
     if heights.is_none() && colors.is_none() {
         return Err(format!(
@@ -69,7 +70,7 @@ pub fn build_landscape_record(
     let mut r = Landscape { grid: (coords.0 as i32, coords.1 as i32), ..Default::default() };
     let mut flags = LandscapeFlags::empty();
     let mut clamped = Vec::new();
-    let mut world: Option<Vec<i64>> = world_map.map(<[i64]>::to_vec);
+    let mut world: Option<Vec<Value>> = world_map.map(<[Value]>::to_vec);
     if let Some(h) = heights {
         let (offset, deltas, c) = encode_vertex_heights(h);
         clamped = c;
@@ -115,7 +116,7 @@ pub fn build_landscape_record(
 
 /// A texture grid (row-major, written values) added to a built record, and declared
 /// (`attach_texture_indices`).
-pub fn attach_texture_indices(r: &mut Landscape, rows: &[i64]) {
+pub fn attach_texture_indices(r: &mut Landscape, rows: &[Value]) {
     *r.texture_indices.data = swizzle_texture_indices(rows);
     r.landscape_flags |= LandscapeFlags::USES_TEXTURES;
 }
@@ -159,7 +160,7 @@ mod tests {
 
     #[test]
     fn world_map_follows_the_heights() {
-        let mut h = vec![0i64; LAND_NUM_VERTS];
+        let mut h: Vec<Value> = vec![0; LAND_NUM_VERTS];
         h[0] = 64; // 0.5: half to even is 0
         h[8] = 192; // 1.5 -> 2
         h[16] = -10; // underwater: -0.078 rounds to -0, then sinks to -1

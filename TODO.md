@@ -2,333 +2,177 @@
 
 Open work only. Done items go to `CHANGELOG.md`; what a finished item taught us goes
 beside its code, or in `viewer-shell/gardenfell/VENDOR.md` for the vendored crates.
+Cleaned up 2026-11-02: the port to one program is done (5.0.0, `viewer-shell/DROP-TK.md`),
+so its history left this file.
 
-## The road to one program
+## This week (Static, 2026-11-02): landscape editing and sound
 
-Static's plan (2026-10-16/17): land editing, then the Editor's fine details, then the Python
-GUI moved into the viewer, so everything is Rust and the page, with no Python, in one
-program, and a clearer UI on the way. In order:
+Done this week (in `CHANGELOG.md`, 5.0.1): the Land view, Merge to master, sounds on every
+field and in place, the world's sound and music, the first-person camera - each tried on
+Static's setup. Left:
 
-1. **Close what is open now.** The mesh geometry read beside the merge, then exteriors (below);
-   the Aikido leftovers; confirm phase 2a in the game; the R4 visual checks; send Robin
-   `subset sort\Gardenfell-offering-2026-10-19.zip` (0001-0014).
-2. **Land editing** ("The world": raise, lower, smooth, flatten; textures and vertex colours).
-3. **The Editor's fine details** (the rest of Foundations 2b and 2c, the two-types warning, the MO2 and
-   Morrowind.ini orders into ordercore, `editor_records` unreadable, the region map, cell
-   borders, path grid tools, shortcuts). Plan for steps 1-3: `viewer-shell/EDITOR-WORLD.md`.
-4. **The port, backend first**, so each step ships on its own and Python only shrinks:
-   1. *The Editor's calls into Python.* The plan is `viewer-shell/PORT.md`: the logic
-      moves into `viewer-shell/editcore` slice by slice, with Python calling it through
-      native and both sides run against shared case files. Then the viewer becomes the
-      owner and each of `editorlink.py`'s 57 links becomes a Tauri command. Slices 1
-      (reading and lookups), 2 (the record cache, no pickles) 3 (the queue, the journal
-      and undo) and 4 (the record and reference dialogs and every edit behind them) are done.
-      Slices 5a (search and the columns), 5b (the Use Report and Search & Replace), 5c
-      (dialogue), 5d (scripts: the compiler is editcore's now) and 5e (Verify) are done,
-      so every reading link has its Rust twin, and slice 6 (the build: `editcore::build` writes
-      the same patch, byte for byte; its job, status, the test run and the launch
-      setups) is done, so every link has its Rust twin. Slice 7, the flip, is done
-      (7a reading and editing, 7b dialogue, scripts, uses and the verifier, 7c the
-      build and the test run): the viewer answers every Editor link, the queue shared with
-      Wraithguard through the journal, and Wraithguard no longer serves them. The last four,
-      which opened Wraithguard's windows, are the viewer's own since 2026-10-26
-      (`editor_script_flowchart`, `lua_chart`, `editor_preview_patch`, the Build page for
-      `editReview`; `links::WRAITHGUARDS` is empty). Left for 4.5: retire the Python Editor
-      (`editorlink.py`'s handlers, those four included, and `EditorSession`'s editing, once
-      only the link cases use them).
-      Untested here: the real viewer build (no webview libraries in this environment;
-      the command layer is checked by `check-commands`), and the Patch Builder's journal
-      changes (no tkinter here; `test_patchwin_steps.py` ran against a stand-in). Small: the two sides' journal writes can cross - a change made on one
-      in the moment the other is writing is lost to the later write (a single person
-      editing in both windows at once). Small: a record made with "New" lists an NPC's or a creature's fields in
-      the Python blank's order (race, class... before the inventory), not the order the
-      crate reads them from a plugin in; the Rust Editor uses the crate's.
-      Decide: the Object Window's search matches a record's deleting version (a later
-      plugin's DELETED record); the port keeps that until you say otherwise. Decide:
-      moving a response only sets its own `prev_id`/`next_id`, not the one that followed
-      it, so two responses moved to the same place in one patch both claim it, and which
-      the game puts first depends on the order the build writes them (the dialogue window
-      shows the one moved first on top, and the build writes them in the order they were
-      queued, as the Python build does). Small: a patch carrying an OpenMW Lua script
-      list (only an earlier build's, appended to: the queue has no key for one) is
-      refused by the Python writer ("unknown record type"), which has no record for it;
-      the Rust writer writes it. Left as it is until the flip retires the Python writer.
-   2. *Load order.* Sort (`rules/` for mlox, MOMW's `plugin-order.yml`, `sort/`), Export
-      (openmw.cfg, customizations.toml), the rule panels, the rule maker, Update rules and
-      Sources (`net/updaters.py`), into ordercore and a Load order page. Each slice is pinned
-      by a case file both sides run (`tests/fixtures/*_cases.json`, answered by the Python side
-      and regenerated by `tools/gen_*_cases.py`). Slices 2a-2i are done (the rule files,
-      patterns, the sort's graph and order, predicates, `plugin-order.yml`, export, the rule
-      maker and derive, updates; CHANGELOG 4.5.0); what each leaves is in its module's text.
-      Audited 2026-10-26 against mlox itself (`subset sort\mlox-master`, its `mlox_base.txt`
-      and the 687-plugin testdata order, then random installs drawn from the rule file):
-      the sort's orderings now match mlox's exactly, and the predicate warnings differ on one
-      malformed rule (the DBBA `[Conflict]`, whose first `[ANY ...]` closes on its first line).
-      Deliberately not mlox: a pattern's brackets are text (`Julan ... <VER> [Rebirth].esp`),
-      MOMW's curated order is never reordered, and the OpenMW extensions are names.
-      Next, the whole of step 4 before any flip (Static, 2026-10-26):
-      - **2j. Python calls `ordercore`** through native (done 2026-10-26): `native/src/loadorder.rs`
-        and `wraithguard/ordercore_bridge.py`. Each Python function asks ordercore first and keeps
-        its body for a decline (`OrderUnsupportedError`, or a string with a lone surrogate from
-        a cfg read with `surrogateescape`), for a source checkout without the native module, and
-        for the generators (`python_only()`, `WG_ORDERCORE=python`), whose answers check the Rust.
-        At function level: `parse_mlox_text`, `build_and_sort` (not while the sort trace is
-        open: the Python writes it), `check_predicates`, MOMW's reader and list helpers, the
-        rule maker (`render_rule`, `validate`, `format_ref`, the two appends,
-        `order_rule_frozen_conflicts`), `derive`, `insert_data_paths`,
-        `generate_customizations_toml`, the two removal rules, `read_groundcover_names`,
-        `splice_cfg_lines`, and Update rules and Sources (the network is `updaters._get`, one
-        place for both). Still Python, for 2k: `write_plan`'s and `compute_plan`'s orchestration
-        and printing, `cfg_segments`, `write_cfg`, the configurator preview
-        (`configurator/apply.py`, never ported) and the small cfg-line helpers the GUI calls.
-        ordercore's messages are English; `ordercore_bridge.translated` matches them to the
-        Python's msgids and renders them through gettext, so translations stay (export's notes
-        and warnings; the rest were never translated). MOMW's file (decided 2026-10-26):
-        `serde-saphyr`, refused whole on anything that is not MOMW's (`momw_cases.json`
-        pins what is read and what refused); PyYAML is gone from the reading. ordercore now
-        needs Rust 1.89 (`rust-version` in it and the crates that take it).
-      - **2k. The flip** (done 2026-10-26; `viewer-shell/LOADORDER-PORT.md`): the sort's inputs,
-        `compute_plan` / `write_plan` and the configurator preview in `ordercore`
-        (`inputs.rs`, `plan.rs`, `apply.rs`; `input_cases.json`, `plan_cases.json`); the viewer's
-        Load order page (`59_wg_loadorder.js`, `--loadorder`) on its commands, Update rules and
-        Sources over `ureq`; the Tk window hands off (its Sort / Export / Sources / rule maker
-        gone, the tools reading the page's plan file); the Python sort, rules, MOMW, configurator
-        and updater code deleted with its tests and generators. The page's rule maker writes
-        every form since 2026-10-26: one expression a line, read by `authoring::expr_from_text`
-        (the sort's own tokenizer), so `[DESC]`, `[SIZE]`, `[VER]` and `[ANY]`/`[ALL]`/`[NOT]`.
-   3. *Conflicts.* Done (slices 1-8, 10, 11): `viewer-shell/conflictcore` (the record scan
-      and singles, the field diff and its statuses, the reports and CSVs, the loose-file scan,
-      meshes, textures, the patch rules, the map); Python calls it through native
-      (`native/src/conflicts.rs`); the viewer's Conflicts page (`60_wg_conflicts.js`,
-      `--conflicts`, the `conflicts_*` commands), which Wraithguard's Check Conflicts and
-      Resource Conflicts open. Slice 9 (merge strategies) landed with 4.4's Merge Settings: a
-      `LAND` conflict's terrain in each plugin and under each strategy (`landcore::preview`,
-      `conflicts_land_surfaces`), and from it the plugin's Merge settings on the Tools page,
-      where the strategy is chosen. Left for 4.5: `gui/conflicts.py` and `viz/conflictmap.py`
-      retire with Tk; `viz/cellmap.py`'s page is the CLI's now (`viewer-shell/cli`) and retires
-      with them; the tes3conv engine path is not ported. Plan: `viewer-shell/CONFLICTS-PORT.md`.
-   4. *Tools.* Done (2026-10-26; `viewer-shell/TOOLS-PORT.md`): the viewer's Tools page
-      (`61_wg_tools.js`, `--tools`) with Lint, Backups, Remove / rename master, Save Check,
-      the Journal, tes3cmd (the external tool, launched; its rewrite is
-      `viewer-shell/TES3CMD-REWRITE.md`), Merge Lands and Merge settings (`toolscore`,
-      `landcore`, `editcore::journal`); the Help page (`62_wg_help.js`, `--docs`,
-      `toolscore::docs`); the plugin view as the Conflicts page's Plugins tab; the Lua view as
-      the Editor's Lua panel; the 23 themes (`19_wg_themes.js`, from `theme.py`). Merge Lands
-      takes both models, the original's (against the masters, the default) and the OpenMW
-      fork's (against the load order before it), with the fork's cleaning and skip list
-      (`MERGED_LANDS.md`); `native/src/land.rs` hands landcore's functions to the Python.
-      Wraithguard's buttons open the pages, its Tk runs kept as fallbacks until 4.5. Left:
-      Merge Lands as a job with live progress and a cancel (its lines come back at the end);
-      the tes3conv land path is not ported.
-   5. *Drop Tk and PyInstaller.* Done: 5.0.0 (2026-10-27; `viewer-shell/DROP-TK.md`). The
-      program on its own with its Setup page, the Rust command line, settings carried over,
-      `build-app.yml`; `native/` folded into the crates and the Python app deleted. Left (4.6
-      list, now after 5.0): translations, the Flatpak on the Tauri binary, the CSP,
-      Android/iOS, an installer.
+### First person (`06_gl.js`, `_walkStep`)
 
-   6. *Merge Lands speed (after 5.0).* Static's 621-plugin order: masters 44 s, mods read
-      85 s, merge 65 s, seams 65 s, write 15 s. Fixed: data folders indexed once
-      (`landcore::service::PluginIndex`), reference grids shared by `Arc` (no full copies
-      for the rolling/loaded landmass), cleaning digests hashed (`cleaning::digest`):
-      synthetic peak 3.4 GB -> 2.3 GB; layers packed into
-      their smallest type (`layers::Packed`, as 4.2's native/land.rs) -> 1.3 GB; the merge
-      run per cell across the cores (`pipeline::merge_landmass`; 1.8 GB, decoded up front).
-      Left: seam repair across cores (`seams::repair_seams`), and `RelativeGrid`/`MergedCell`
-      still i64. Benchmark: `cargo test --release --test merge_cases --
-      --ignored --nocapture big_order` (prints VmHWM). Get Static's new timings first.
+- The collision shapes instead of the drawn triangles; actors in the way.
+- The pace from a chosen NPC's Speed and Athletics; the controller's sticks (untested).
 
-   Each Tk window is redesigned as it moves, not copied: that is the UI cleanup.
-5. **Later, not blocking the port:** a sound engine (plan in `viewer-shell/SOUND.md`: decode
-   in Rust with Symphonia, play in the page with Web Audio; step 1, a player for Sound
-   records and voice files, is built - next the asset lists and every field naming a sound,
-   then sounds in place, the world's sound and the checks); the MWScript compiler work (waits
-   on G7); LUAL upstream; controllers (the Deck); the MGE extras; OpenMW Lua per release;
-   Teal in the viewer. Plan, with each item's gate: `viewer-shell/LATER-PLAN.md`.
+## Tools page
 
-## Security and dependencies
+- Merge Lands speed: Static's run of `big_order` on 2026-11-02 (before the merge step's
+  work that day): read 0.37 s, merge 2.91 s, seams 0.68 s, write 0.25 s, the same plugin.
+  The merge step since: no allocation per contested vertex, decoding across the cores, cells
+  taken one at a time (2.15 s to 1.05 s here). Next, if it still leads: `differences` per
+  touch (a `RelativeGrid` unpacked from the packed layers each time) and the finish step.
+  Then the 621-plugin order on the Tools page. Benchmark, from `viewer-shell\landcore` (not
+  a workspace member), on one line; prints the steps' times, VmHWM (Linux only) and the
+  output's SHA-256 (`4d2e6cee...` on 2026-11-02):
 
-Aikido after the 4.5.0 push (2026-10-19 rescan): 33 solved; glib, gtk, string_cache and
-jsonptr ignored as Tauri-pinned (below). Left:
+      cargo test --release --test merge_cases -- --ignored --nocapture big_order
 
-- **`paste`:** merge_to_master no longer uses `lending-iterator` (its one `windows_mut`
-  is a `split_at_mut` loop now; done locally). Push merge_to_master, then
-  `cargo update -p merge_to_master` in `native/`.
-- **`assert` in `tools/gen_tes3_schema.py`:** explicit checks now (done locally).
-- **To ignore, with these reasons:** path traversal and file inclusion (a desktop app
-  opening the files its user picks); the two `engine_behaviour.json` "secrets" (SHA-256
-  hashes of test outputs); SSRF in `updaters.py` (http/https only, a host required, a size cap, hostile URLs
-  tested); CSP and clickjacking on `none.com` (not our site: remove it under Domains).
-- **`innerHTML` (Aikido's 40, 177 in all):** audited 2026-10-19 - every value reaching
-  `innerHTML`/`insertAdjacentHTML` traced statically, and the page run with every engine and
-  Wraithguard answer ending in markup (`WG_TAINT=1 node boot.js`, `WG_TAINT=2` taints the
-  connect too; `WG_TAINT=1 node editor/run.js`). Two real ones, both file names in the
-  report (`11_events.js`), now escaped and checked by `boot.js`. The taint runs break many
-  flows (ids no longer match), so they reach less than the normal tests: run them again
-  after a page change. Left: a CSP (`tauri.conf.json` has `"csp": null`), which first needs
-  the page's ~230 inline `on...=` handlers moved to `addEventListener`, page by page with
-  the port. Then mark the Aikido finding.
-- **Tauri 2:** glib/gtk 0.18 (Linux GTK3, unmaintained), string_cache 0.9 (html5ever) and
-  jsonptr 0.7 (json-patch) are pinned by Tauri; even 2.12.4 keeps them. Recheck on each
-  Tauri release. In Aikido: "waiting on upstream", and the two `engine_behaviour.json`
-  "secrets" are SHA-256 hashes of test outputs (false positives).
-- CI: every action is pinned to a commit of its current major (2026-10-19); moving to the
-  Node 24 majors (checkout 7, setup-python 7, upload-artifact 7, cache 6, ...) is a
-  separate step: read each one's breaking changes, then re-pin. `ubuntu-latest` becomes Ubuntu 26 on
-  2026-10-19: watch the Linux and Flatpak builds.
+- tes3cmd rewritten in Rust (`viewer-shell/TES3CMD-REWRITE.md`).
 
-## Forks: LUAL, Clippy
+## After 5.0 (`viewer-shell/DROP-TK.md`)
 
-tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_to_master`
-(the `[patch]` sections in native/, viewer-shell/, viewcore/ and check-commands'
-Cargo.toml).
-
-- Offer merge_to_master's LUAL work upstream (a PR to Greatness7/merge_to_master, once
-  tes3#7 is merged there), and ask greatness7 for the `ignore/` pairs behind the `MW`,
-  `MW_TB`, `MW_BM` and `MW_TB_BM` dialogue tests.
-- When both are upstream: delete the `[patch]` sections and point merge_to_master back
-  at Greatness7.
-- Greatness7: the NIF field-swap fix goes into his next tes3 update - drop it from our
-  fork then. LUAL/LUAD waits for his next breaking release. We only parse them and carry
-  them through, never LUAD bytecode unread; show what a LUAL/LUAD carries before it goes
-  into a patch.
+- Translations: the page's string tables generated from the `.po` files (English only now).
+- The Flatpak rebuilt on the Tauri binary (`build-flatpak.yml` still packages 4.x).
+- A CSP: `tauri.conf.json` has `"csp": null`; the page's inline `on...=` handlers move to
+  `addEventListener` first, then the `WG_TAINT` runs once more, then mark Aikido's finding.
+- Android and iOS (DROP-TK slice 10: an audit of what assumes a desktop first).
+- An installer; the viewer wearing the Tk settings' `theme` when its profile names none;
+  Lint on the scan cache.
 
 ## The Editor
 
 OpenMW-CS (`openmw-master/apps/opencs`) is a reference for what a modder expects, never
 for code: it is GPL-3.
 
-### Foundations (`viewer-shell/ordercore`, one reader of the load order)
+### Foundations
 
 - Confirm phase 2a in the game: `wg_clash_test/WG_Clash_A.esp` (wg_clash as a weapon) then
   `WG_Clash_B.esp` (a misc item, and the cell `WG Clash Test` placing it). Expected: the
   placed one is the weapon; `player->additem wg_clash 1` gives the weapon.
-- Phase 2b, one open question (Static decides; the rest is done): a reference moved by
-  one plugin (MVRF), then given a plain record in its home cell by a later plugin that
-  does not know of the move. The engine keeps it in **both** cells (its merge only calls
-  `leave()` for a move or a deletion, so the plain record is added at home and the moved
-  copy stays); the Editor puts it back home. One object standing twice is wrong under any
-  rule. Options: (a) home, as the Editor does - a one-line Gardenfell patch (0018: `leave()`
-  for every record) and a note for Robin; (b) the move stands and the plain record only
-  edits it - the Editor's `find_ref` keeps the last `moved_cell`. Check which the game and
-  OpenMW do first (a two-plugin test in-game: `WG_Move_B.esp` moves a rock, `WG_Move_C.esp`
-  edits its scale in the home cell). Pinned as is: `tests/fixtures/move_cases.json`, case
-  "moved, then a plain record in its home cell".
-- Phase 2c, left over: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`,
-  `18_cellpreview.js`, `32_cellhistory.js`, `50_wg_editor_ref.js`) are Robin's and are a
-  separate key space (cache and history, compared as written); they read cell objects, not
-  specs, so they were left alone. Fold them onto `CellKey.doorKey` only if one of them
-  shows a case bug (`17_cell.js` lowercases the name, the others do not).
-- The Use Report and Verify: say when an id is defined as two object types (the CS warns
-  "Matching IDs", Morrowind.exe refuses it; OpenMW keeps both and places one), and which
-  one a placed object is.
-- The MO2 and Morrowind.ini load orders (`layout::mo2_profile`, `GameFileN=`,
-  `[Archives]`) into ordercore too.
-- Find why `editor_records` came back unreadable on Static's setup (the fallback's Messages
-  line carries the first 120 characters of the answer).
+- Phase 2b, Static decides: a reference moved by one plugin (MVRF), then given a plain
+  record in its home cell by a later plugin. The engine keeps it in both cells; the Editor
+  puts it back home. Options: (a) home - Gardenfell patch 0018 (`leave()` for every record)
+  and a note for Robin; (b) the move stands and the plain record only edits it. Test in the
+  game first (`WG_Move_B.esp` moves a rock, `WG_Move_C.esp` edits its scale at home). Pinned:
+  `tests/fixtures/move_cases.json`, "moved, then a plain record in its home cell".
+- Phase 2c: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`, `18_cellpreview.js`,
+  `32_cellhistory.js`, `50_wg_editor_ref.js`) - fold onto `CellKey.doorKey` only if one shows
+  a case bug (`17_cell.js` lowercases the name, the others do not).
+- The MO2 and Morrowind.ini load orders (`layout::mo2_profile`, `GameFileN=`, `[Archives]`)
+  into ordercore.
+- Why `editor_records` came back unreadable on Static's setup (Messages has the first 120
+  characters of the answer).
+- Decide: the Object Window's search matches a record's deleting version (a later plugin's
+  DELETED record). Decide: moving a response sets only its own `prev_id`/`next_id`, so two
+  responses moved to the same place both claim it (the build writes them in queue order).
+- Small: a record made with "New" lists an NPC's or creature's fields in the old blank's
+  order, not the crate's.
 
 ### The world
 
-- Terrain editing: raise, lower, smooth and flatten with brushes; land textures and vertex
-  colours painted (OpenMW-CS's three terrain modes). Merged Lands' land paths are the start;
-  new land of the patch's own (flat, at the sea) is in.
-- A region map: cells coloured by region, regions painted onto cells, exteriors made by
-  dragging - from the cell map.
-- Cell borders and names drawn in the render window beside the cell arrows.
-- Path grid tools as OpenMW-CS has them: a connection dragged out from a point, points
-  joined by a box.
-- Remappable Editor shortcuts (a key binding page), with the controller bindings below.
+The region map, cell borders, the path grid's drag tools and the key binding page are in
+(2026-11-02, `CHANGELOG.md`). Try them on the real setup: paint a region over a few cells
+and Test in OpenMW (the region's weather and sounds there), make a row of exteriors off the
+coast, a path grid joined by a box, a key moved and the controller's A moved to B.
 
-## Record cache (`wraithguard/patch/recordcache.py`; moves to Rust in step 4.1)
+### The record cache (`editcore::cache`)
 
-- If the cache's 356-420 MB is too much (the `uses` table is most of it): keep only the
-  strings of fields that can name a record. If the first indexing is too slow: more
-  workers (memory: one whole decoded plugin each).
-- Measure on the real 621-plugin load order: the first indexing, how much of it the
-  viewer's requests feel, and the per-lookup `stat` of every plugin.
-- "Search all fields": an FTS5 index of the plugins' own fields, with the patch's pending
-  edits layered over the hits at query time.
-- Load-order tooling outside the editor (per-plugin headers, record counts, conflict sets
-  for the Patch Builder and the conflict viewer): read that code first; probably a large
-  win on the same hundreds of plugins.
-
-Decided: a record a plugin deletes still counts as present in the key index (a name
-another plugin deleted is refused, not reused). Not cached: the queue and journal, the
-pending list, search results, Verify's findings.
+- Measure on the real 621-plugin order: the first indexing, how much of it the viewer's
+  requests feel, the per-lookup `stat` of every plugin. If it is too big (the `uses` table
+  is most of it): keep only the strings of fields that can name a record.
+- "Search all fields": an FTS5 index of the plugins' own fields, with the pending edits
+  layered over the hits.
 
 ## Opening a big install (the viewer engine)
 
-Measured on 621 plugins: read 5 s, parse 8.7 s, merge loop 51.8 s (the mesh read beside
-it waits 19 ms), the 205,535-file index 4 s; about 6 us a reference across 8.6M.
+Measured on 621 plugins: read 5 s, parse 8.7 s, merge loop 40-47 s (exteriors 26-31 s,
+interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
 
-- The merge and the mesh read beside it (Static, 2026-10-19, after 0015): the loop takes
-  40-47 s (exteriors 26-31 s, interiors 9-10 s, tables 3-4 s), and the mesh read beside it
-  38.6-42.7 s, so they finish together. The read: 33,267 meshes, 1.78 GB, on 16 threads;
-  summed over the threads, reading the files 333-363 s and parsing 244-272 s. Nothing in
-  Wraithguard uses that geometry (it is for Gardenfell's grass), so patch 0016 skips it;
-  check the connect log says "meshes' geometry: not read" and the merge time. Next:
-  exteriors (history about a third of it, the rest per-reference bookkeeping).
-- The file index is reused: all 1233 folders from the saved index, 0.7-2.1 s (checking
-  the folders' times). Was 4.2 s.
-- A cache of the merged world would need invalidation on the whole load order and a
-  mappable flat file, not SQLite; only if the above is not enough.
+- Patch 0016 skips the mesh geometry read beside the merge: check the connect log says
+  "meshes' geometry: not read" and the merge time. Next: exteriors (history about a third,
+  the rest per-reference bookkeeping).
+- A cache of the merged world only if that is not enough (a mappable flat file, invalidated
+  on the whole load order).
 
-## MWScript compiler: TESCS and MWEdit differences
+## Release and CI
 
-**Wait for G7:** his compiler goes into the tes3 crate (tested on 15k+ mods); then we drop
-our MWEdit port (`viewer-shell/editcore/src/mwscript`), after running both on `MwEditScriptTest.esp` and
-keeping the port's tests as a cross-check. No compiler work until then. PT, TR and OAAB
-still use the vanilla CS, so:
+- Actions are pinned to a commit of their current major; moving to the Node 24 majors
+  (checkout 7, upload-artifact 7, cache 6) is a separate step: read each one's breaking
+  changes, then re-pin.
+- Tauri pins glib/gtk 0.18, string_cache 0.9 and jsonptr 0.7 (Aikido: waiting on upstream);
+  recheck each Tauri release.
+- Aikido, to ignore with these reasons: path traversal and file inclusion (a desktop app
+  opening files its user picks); the two `engine_behaviour.json` "secrets" (SHA-256 hashes of
+  test outputs); CSP and clickjacking on `none.com` (not our site: remove it under Domains).
+  The findings about the Python (`updaters.py`, `gen_tes3_schema.py`) closed with 5.0.
 
-- Warn in Script Edit when a script would not round-trip through TESCS, and say why.
-- Mark the scripts the patch recompiled, in the Build report and the plugin's description.
-- Never recompile a script the patch did not change.
-- Tests once G7's compiler is in: TESCS resolves an id against every script's locals first
-  (`GetSoundPlaying "Drink"` vs `bittercup`'s `drink`; warn on locals named like a record
-  id); a comma in the wrong place breaks silently in the CS.
-- A corpus of scripts where TESCS and MWEdit disagree, with each one's bytecode (ask on
-  the MMC; abot would know).
-- Checker warnings still to do (morromod.htm): `set x to x + 1` without parentheses; a
-  local another script declares but this one does not; `SetHealth`/`Mod*` given a remote
-  variable or missing its `mycompanion.` qualifier; `StopScript ItsOwnName` / records made
-  in the same session (resolve against the pool); MWEdit's misses (`RemoteLocalVar` in
-  targeted scripts, region names with `PositionCell`, anything under `Choice` in a result).
+## Forks: LUAL, Clippy
 
-## Gardenfell 18hu rebase (viewer-shell/REBASE-18hu.md)
+tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_to_master`
+(the `[patch]` sections in the crates' Cargo.toml).
 
-- Send Robin the patch offering (`Gardenfell-offering-2026-10-12.zip`, with 0011 and
-  meshopt-port; rebuilt as `Gardenfell-offering-2026-10-19.zip` with 0001-0014). His `fixture/` stays out of the repo (real `Morrowind.ini` copies under
-  `ru/`); put it in `viewer-shell/gardenfell/fixture` locally to run his suite.
+- Push merge_to_master's `lending-iterator` removal (Aikido's `paste`), then
+  `cargo update -p merge_to_master` in `viewer-shell`.
+- Offer merge_to_master's LUAL work upstream (once tes3#7 is merged), and ask greatness7 for
+  the `ignore/` pairs behind the `MW`, `MW_TB`, `MW_BM` and `MW_TB_BM` dialogue tests.
+- When both are upstream: delete the `[patch]` sections.
+- Greatness7: the NIF field-swap fix goes into his next tes3 update (drop it from our fork
+  then); LUAL/LUAD waits for his next breaking release. Show what a LUAL/LUAD carries before
+  it goes into a patch.
+
+## MWScript compiler
+
+**Wait for G7:** his compiler goes into the tes3 crate; then drop our MWEdit port
+(`editcore::mwscript`) after running both on `MwEditScriptTest.esp`. PT, TR and OAAB still use
+the vanilla CS, so then:
+
+- Warn in Script Edit when a script would not round-trip through TESCS; mark the scripts a
+  patch recompiled; never recompile one it did not change.
+- Tests: TESCS resolves an id against every script's locals first (`GetSoundPlaying "Drink"`
+  vs `bittercup`'s `drink`); a comma in the wrong place breaks silently in the CS. A corpus
+  where TESCS and MWEdit disagree (ask on the MMC).
+- Checker warnings (morromod.htm): `set x to x + 1` without parentheses; a local another
+  script declares but this one does not; `SetHealth`/`Mod*` on a remote variable or missing
+  `mycompanion.`; `StopScript ItsOwnName`; MWEdit's misses (`RemoteLocalVar` in targeted
+  scripts, region names with `PositionCell`, anything under `Choice` in a result).
+
+## Gardenfell (`viewer-shell/REBASE-18hu.md`)
+
+- Send Robin `subset sort\Gardenfell-offering-2026-10-19.zip` (0001-0014). His `fixture/`
+  stays out of the repo; put it in `viewer-shell/gardenfell/fixture` locally to run his suite.
 - Tell Greatness7: his crate refuses an NPC_ with a FILL subrecord that Robin's reads; one
   corpus mesh panics inside `bytemuck` (caught, falls back).
-- Run `gardenfell-g7`'s differential tests on a full install (`GARDENFELL_G7_PLUGINS`,
+- `gardenfell-g7`'s differential tests on a full install (`GARDENFELL_G7_PLUGINS`,
   `GARDENFELL_G7_NIFS`): ARMO, CLOT, BOOK, ALCH, APPA, INGR, CONT, LOCK, PROB, REPA have no
   fixture.
-- One cfg reader: luascan, navmesh and `native/` still read openmw.cfg through ordercore.
-- R4: the visual checks in `viewer-shell/R4-CHECKLIST.md` sections 2 and 3 (window
-  restore, the pills and the toolbar bar); the text delta after Robin's string audit, and
-  the rebase onto his release after that.
+- R4: the visual checks in `viewer-shell/R4-CHECKLIST.md` sections 2 and 3; the text delta
+  after Robin's string audit, and the rebase onto his release after that.
 
 ## Meshes and distant view
 
 - "Optimise draw order": compare with G7's Blender exporter's output on the same mesh.
-- Asset checks: degenerate and duplicate triangles.
-- Distant view on a real setup: does the viewer still close with distant objects on (if so,
-  retest with them off); the tier bands vs the install's draw distance; how far the
-  texture-aware mode's choice shows; the first-load time.
-- From MGE XE, not taken yet: VRAM streaming with eviction (a fixed cap could stand in), a
-  frame-budgeted upload pump, horizon culling of terrain, static texture atlases, building
-  classification (MGE doubles a building's radius).
+- Distant view on a real setup: does the viewer still close with distant objects on; the
+  tier bands vs the install's draw distance; the first-load time.
+- From MGE XE, not taken yet: VRAM streaming with eviction, a frame-budgeted upload pump,
+  horizon culling of terrain, static texture atlases, building classification.
 
 ## Controllers
 
-`49_wg_gamepad.js`, behind Settings' "Game controller". Once tested on the Deck and with
-Robin: an action layer and a binding table so buttons can be remapped (inputs write
-impulses, the camera consumes them once a tick); D-pad focus navigation for the menus;
-move the real pointer where the system allows (Tauri `set_cursor_position`: Windows, X11).
+`49_wg_gamepad.js`, behind Settings' "Game controller"; its buttons are remapped on the
+key binding page (`69_wg_keys.js`) since 2026-11-02. Once tested on the Deck: D-pad focus
+navigation for the menus; the real pointer moved where the system allows (Tauri
+`set_cursor_position`).
 
-## OpenMW Lua tools
+## OpenMW Lua
 
-- Each new OpenMW release: add its engine handlers and built-in events table (`lua/api.py`,
-  from the release's `engine_handlers.html` and `events.html`). 0.49-0.51 are there.
-- The Teal checks in the viewer too (htl in viewcore: a vendored Lua 5.4 in the viewer
-  binary, so measure first).
+- Each new OpenMW release: its engine handlers and built-in events (`luacore::api`, from the
+  release's `engine_handlers.html` and `events.html`). 0.49-0.52 are there; 0.52's came from
+  Static's 0.52.0 RC1 `resources` (commit 4ff261bf), so when 0.52 is released (or a later RC): its
+  `API_REVISION` (0 until then) and its pages, for handlers and events its scripts do not
+  show. Check `WG_OPENMW_RESOURCES=<resources> cargo test -p luacore an_install -- --nocapture`.
+
+## Later (`viewer-shell/LATER-PLAN.md`)
+
+LUAL upstream; the MGE extras; the MWScript compiler work above.

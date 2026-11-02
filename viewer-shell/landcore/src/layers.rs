@@ -9,6 +9,7 @@ use crate::grid::{RelativeGrid, LAND_NUM_VERTS, LAND_SIZE, NUM_TEXTURES, TEXTURE
 use crate::heights::decode_heights;
 use crate::meta::layer;
 use crate::read::Record;
+use crate::grid::Value;
 
 /// Every layer (`ALL_LAYERS`).
 pub const ALL_LAYERS: u32 = layer::VERTEX_COLORS | layer::TEXTURES | layer::VERTEX_HEIGHTS | layer::VERTEX_NORMALS | layer::WORLD_MAP;
@@ -63,35 +64,31 @@ pub enum Packed {
     I8(Vec<i8>),
     U8(Vec<u8>),
     U16(Vec<u16>),
-    I32(Vec<i32>),
-    I64(Vec<i64>),
+    I32(Vec<Value>),
 }
 
 impl Packed {
     /// `values`, packed.
-    pub fn pack(values: Vec<i64>) -> Packed {
-        let (lo, hi) = values.iter().fold((0i64, 0i64), |(lo, hi), &v| (lo.min(v), hi.max(v)));
-        if lo >= i8::MIN as i64 && hi <= i8::MAX as i64 {
+    pub fn pack(values: Vec<Value>) -> Packed {
+        let (lo, hi) = values.iter().fold((0, 0), |(lo, hi): (Value, Value), &v| (lo.min(v), hi.max(v)));
+        if lo >= i8::MIN as Value && hi <= i8::MAX as Value {
             Packed::I8(values.iter().map(|&v| v as i8).collect())
-        } else if lo >= 0 && hi <= u8::MAX as i64 {
+        } else if lo >= 0 && hi <= u8::MAX as Value {
             Packed::U8(values.iter().map(|&v| v as u8).collect())
-        } else if lo >= 0 && hi <= u16::MAX as i64 {
+        } else if lo >= 0 && hi <= u16::MAX as Value {
             Packed::U16(values.iter().map(|&v| v as u16).collect())
-        } else if lo >= i32::MIN as i64 && hi <= i32::MAX as i64 {
-            Packed::I32(values.iter().map(|&v| v as i32).collect())
         } else {
-            Packed::I64(values)
+            Packed::I32(values)
         }
     }
 
     /// The values as the merge works on them.
-    pub fn to_vec(&self) -> Vec<i64> {
+    pub fn to_vec(&self) -> Vec<Value> {
         match self {
-            Packed::I8(v) => v.iter().map(|&x| x as i64).collect(),
-            Packed::U8(v) => v.iter().map(|&x| x as i64).collect(),
-            Packed::U16(v) => v.iter().map(|&x| x as i64).collect(),
-            Packed::I32(v) => v.iter().map(|&x| x as i64).collect(),
-            Packed::I64(v) => v.clone(),
+            Packed::I8(v) => v.iter().map(|&x| x as Value).collect(),
+            Packed::U8(v) => v.iter().map(|&x| x as Value).collect(),
+            Packed::U16(v) => v.iter().map(|&x| x as Value).collect(),
+            Packed::I32(v) => v.clone(),
         }
     }
 
@@ -101,7 +98,6 @@ impl Packed {
             Packed::U8(v) => v.len(),
             Packed::U16(v) => v.len(),
             Packed::I32(v) => v.len(),
-            Packed::I64(v) => v.len(),
         }
     }
 
@@ -111,7 +107,7 @@ impl Packed {
 }
 
 /// A grid from plain values.
-pub fn pack_grid(values: Vec<i64>) -> Grid {
+pub fn pack_grid(values: Vec<Value>) -> Grid {
     std::sync::Arc::new(Packed::pack(values))
 }
 
@@ -135,10 +131,10 @@ fn payload<'a>(raw: &'a [u8], expected: usize, what: &str) -> Result<&'a [u8], D
 }
 
 /// `VTEX` as row-major `LTEX` values, its 4x4 block order undone (`decode_texture_indices`).
-pub fn decode_texture_indices(raw: &[u8]) -> Vec<i64> {
-    let mut grid = vec![0i64; NUM_TEXTURES];
+pub fn decode_texture_indices(raw: &[u8]) -> Vec<Value> {
+    let mut grid: Vec<Value> = vec![0; NUM_TEXTURES];
     for k in 0..NUM_TEXTURES {
-        let v = u16::from_le_bytes([raw[2 * k], raw[2 * k + 1]]) as i64;
+        let v = u16::from_le_bytes([raw[2 * k], raw[2 * k + 1]]) as Value;
         let (x2, y2, x1, y1) = (k % 4, (k / 4) % 4, (k / 16) % 4, k / 64);
         grid[(y1 * 4 + y2) * TEXTURE_SIZE + x1 * 4 + x2] = v;
     }
@@ -146,7 +142,7 @@ pub fn decode_texture_indices(raw: &[u8]) -> Vec<i64> {
 }
 
 /// Row-major texture values back to `VTEX`'s 4x4 block order (`pack_texture_indices`).
-pub fn swizzle_texture_indices(rows: &[i64]) -> [[u16; 16]; 16] {
+pub fn swizzle_texture_indices(rows: &[Value]) -> [[u16; 16]; 16] {
     let mut out = [[0u16; 16]; 16];
     for p in 0..NUM_TEXTURES {
         let (x2, y2, x1, y1) = (p % 4, (p / 4) % 4, (p / 16) % 4, p / 64);
@@ -166,15 +162,15 @@ impl LandscapeLayers {
         }
         if let Some(p) = normals {
             let raw = payload(p, 3 * LAND_NUM_VERTS, "VNML normals")?;
-            out.normals = Some(pack_grid(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i8 as i64).collect()));
+            out.normals = Some(pack_grid(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i8 as Value).collect()));
         }
         if let Some(p) = world_map {
             let raw = payload(p, WNAM_SIZE * WNAM_SIZE, "WNAM world map data")?;
-            out.world_map = Some(pack_grid(raw[..WNAM_SIZE * WNAM_SIZE].iter().map(|&b| b as i8 as i64).collect()));
+            out.world_map = Some(pack_grid(raw[..WNAM_SIZE * WNAM_SIZE].iter().map(|&b| b as i8 as Value).collect()));
         }
         if let Some(p) = colors {
             let raw = payload(p, 3 * LAND_NUM_VERTS, "VCLR colors")?;
-            out.colors = Some(pack_grid(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as i64).collect()));
+            out.colors = Some(pack_grid(raw[..3 * LAND_NUM_VERTS].iter().map(|&b| b as Value).collect()));
         }
         if let Some(p) = textures {
             let raw = payload(p, 2 * NUM_TEXTURES, "VTEX texture indices")?;
@@ -304,7 +300,7 @@ mod tests {
 
     #[test]
     fn textures_swizzle_both_ways() {
-        let rows: Vec<i64> = (0..256).collect();
+        let rows: Vec<Value> = (0..256).collect();
         let packed = swizzle_texture_indices(&rows);
         let raw: Vec<u8> = packed.iter().flatten().flat_map(|v| v.to_le_bytes()).collect();
         assert_eq!(decode_texture_indices(&raw), rows);

@@ -999,6 +999,7 @@ dependencies = [
  "bytes_io",
  "encoding_rs",
  "indexmap 2.14.2",
+ "landcore",
  "luacore",
  "memmap2",
  "merge_to_master",
@@ -2259,6 +2260,7 @@ dependencies = [
 name = "landcore"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "tes3",
  "toml 0.8.2",
 ]
@@ -4747,10 +4749,12 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 name = "toolscore"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bytes_io",
  "editcore",
  "indexmap 2.14.2",
  "luacore",
+ "merge_to_master",
  "ordercore",
  "serde_json",
  "tes3",
@@ -5070,6 +5074,7 @@ dependencies = [
  "gardenfell-tes3",
  "gardenfell-text",
  "gardenfell-world",
+ "landcore",
  "luacore",
  "meshopt-port",
  "ordercore",

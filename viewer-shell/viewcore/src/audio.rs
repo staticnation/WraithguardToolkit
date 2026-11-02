@@ -55,6 +55,39 @@ impl Decoded {
         let sum: f64 = self.samples.iter().map(|s| (f64::from(*s) / 32768.0).powi(2)).sum();
         (sum / self.samples.len() as f64).sqrt()
     }
+
+    /// How many times a channel holds full scale for three or more frames running: the
+    /// flat tops a clipped recording leaves (one full-scale peak alone is not clipping).
+    pub fn clipped_runs(&self) -> usize {
+        let ch = usize::from(self.channels.max(1));
+        let mut runs = 0;
+        for c in 0..ch {
+            let mut run = 0;
+            for s in self.samples.iter().skip(c).step_by(ch) {
+                if *s >= 32767 || *s <= -32767 {
+                    run += 1;
+                    if run == 3 {
+                        runs += 1;
+                    }
+                } else {
+                    run = 0;
+                }
+            }
+        }
+        runs
+    }
+
+    /// What the verifier says of the sound: silent (no sample above zero) or clipped.
+    pub fn problem(&self) -> Option<String> {
+        if self.samples.iter().all(|s| *s == 0) {
+            return Some("is silent".into());
+        }
+        match self.clipped_runs() {
+            0 => None,
+            1 => Some("is clipped in 1 place".into()),
+            n => Some(format!("is clipped in {n} places")),
+        }
+    }
 }
 
 /// The container a file's first bytes say it is.
@@ -191,6 +224,20 @@ mod tests {
         out.extend((data.len() as u32).to_le_bytes());
         out.extend(data);
         out
+    }
+
+    #[test]
+    fn a_flat_top_is_clipping_and_a_lone_peak_or_silence_is_told_apart() {
+        let mut s: Vec<i16> = (0..400).map(|i| ((i % 40) as i16 - 20) * 500).collect();
+        let fine = decode(&wav(22050, 1, &s)).unwrap();
+        assert_eq!(fine.problem(), None);
+        s[10] = 32767;
+        assert_eq!(decode(&wav(22050, 1, &s)).unwrap().problem(), None);
+        s[100..104].fill(32767);
+        s[200..203].fill(-32768);
+        assert_eq!(decode(&wav(22050, 1, &s)).unwrap().problem().as_deref(), Some("is clipped in 2 places"));
+        let quiet = decode(&wav(22050, 2, &[0; 200])).unwrap();
+        assert_eq!(quiet.problem().as_deref(), Some("is silent"));
     }
 
     #[test]

@@ -453,8 +453,9 @@ fn swap(v: &Value, old: &str, new: &str) -> Value {
 
 impl Editor {
     /// The record's Use Report: `{tag, id, uses: [{plugin, type, tag, key, paths, count,
-    /// wins}], live, cells}` - `live` the uses in the versions the load order uses,
-    /// `cells` the references placed. The plugins as they are; the patch's own records
+    /// wins}], live, cells, twins?}` - `live` the uses in the versions the load order uses,
+    /// `cells` the references placed, `twins` (when there are any) the other object types
+    /// the id is also defined as (`other_types`). The plugins as they are; the patch's own records
     /// are not looked in.
     pub fn uses(&self, found: &Found) -> Value {
         let found_uses = self.session.use_report(&found.record_type, &found.key);
@@ -473,13 +474,20 @@ impl Editor {
                 })
             })
             .collect();
-        json!({
+        let mut out = json!({
             "tag": found.tag,
             "id": found.key,
             "uses": rows,
             "live": found_uses.iter().filter(|u| u.wins).map(|u| u.count).sum::<usize>(),
             "cells": found_uses.iter().filter(|u| u.record_type == "Cell").map(|u| u.count).sum::<usize>(),
-        })
+        });
+        // The other object types the id is also defined as (Matching IDs), only when there
+        // are any: `[{tag, plugin}]`.
+        let twins: Vec<Value> = self.other_types(&found.tag, &found.key).into_iter().map(|(tag, plugin)| json!({"tag": tag, "plugin": plugin})).collect();
+        if !twins.is_empty() {
+            out["twins"] = json!(twins);
+        }
+        out
     }
 
     /// The references of a cell (its versions, load order) that place an object, as the

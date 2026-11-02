@@ -272,11 +272,14 @@ Object.assign(WgEditor, {
     (this.part('edCount')||{}).textContent=rows.length+(rows.length===1?' record':' records')+(S && S.capped? ' (of '+S.count+')' : '')+
       (this.filterAll && f && !S? ' - searching…' : '');
     const icon=this.ICONS[this.tag]||'';
+    // A Sound record's row plays its file (SOUND.md step 1: the player in the lists).
+    const snd=this.tag==='SOUN' && typeof WgSound==='object' && this.canEdit();
     let h='<table class="edT edObj"><thead><tr>'+cols.map((t,k)=>
       '<th data-col="'+k+'"'+(t.title? ' title="'+escHtml(t.title)+'"' : '')+'>'+escHtml(t.label)+(k===c? (dir>0?' ▲':' ▼') : '')+'</th>').join('')+'</tr></thead><tbody>';
     const cell=(t, r)=>{
       const v=t.get(r);
-      if(t.kind==='id') return '<td>'+(icon? '<span class="edIco">'+icon+'</span>' : '')+escHtml(v)+'</td>';
+      if(t.kind==='id') return '<td>'+(icon? '<span class="edIco">'+icon+'</span>' : '')+escHtml(v)+
+        (snd? ' <button class="btn sm dim edSndRow" title="Play it (again: stop)">▶</button>' : '')+'</td>';
       if(t.kind==='defs') return '<td title="'+escHtml(v.join(' > '))+'">'+escHtml(v[v.length-1]||'')+(v.length>1? ' <span class="from">+'+(v.length-1)+'</span>' : '')+'</td>';
       if(t.kind==='num') return '<td class="num">'+escHtml(v==null? '' : String(v))+'</td>';
       if(t.kind==='bool' || t.kind==='mod') return '<td class="ctr'+(v==='yes'? ' yes' : '')+'">'+escHtml(v)+'</td>';
@@ -327,6 +330,15 @@ Object.assign(WgEditor, {
         WgUI.hideHover(); WgUI.selectedPreview(card());
       };
       if(this._rowsSel? this._rowsSel.has(tr.dataset.id) : this._rowSel===tr.dataset.id) tr.classList.add('sel');
+      const sb=tr.querySelector('.edSndRow');
+      if(sb){
+        sb.ondblclick=e=>e.stopPropagation();
+        sb.onclick=async e=>{
+          e.stopPropagation();
+          try{ const r=await WgSound.soundRecord(this, tr.dataset.id); await WgSound.quick(sb, r.path, r.gain); }
+          catch(err){ toast(String(err && err.message || err),'err',4000); }
+        };
+      }
       tr.ondblclick=e=>{
         // A cell showing a field as it is: edited in place (on every selected row).
         const td=e && e.target && e.target.closest && e.target.closest('td');

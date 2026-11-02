@@ -7,14 +7,15 @@
 //! floors, `x ** 0.5` is `pow`.
 
 use crate::grid::{HEIGHT_SCALE, LAND_NUM_VERTS, LAND_SIZE};
+use crate::grid::Value;
 
 /// The largest step `VHGT` stores between two vertices, in stored units.
-pub const MAX_GRADIENT: i64 = 127;
-pub const MIN_GRADIENT: i64 = -128;
+pub const MAX_GRADIENT: Value = 127;
+pub const MIN_GRADIENT: Value = -128;
 
 /// `VHGT` to absolute heights, flat, truncated to ints as `LandscapeLayers` holds them;
 /// `Err` for a non-finite height (the Python's `ValueError`).
-pub fn decode_heights(raw: &[u8], offset: f64) -> Result<Vec<i64>, String> {
+pub fn decode_heights(raw: &[u8], offset: f64) -> Result<Vec<Value>, String> {
     if raw.len() < LAND_NUM_VERTS {
         return Err(format!("VHGT height data is {} bytes, needs {LAND_NUM_VERTS}", raw.len()));
     }
@@ -32,7 +33,12 @@ pub fn decode_heights(raw: &[u8], offset: f64) -> Result<Vec<i64>, String> {
             if !v.is_finite() {
                 return Err("cannot convert float NaN or infinity to integer".into());
             }
-            out.push(v.trunc() as i64);
+            // A grid value is an `i32` (`grid::Value`): a broken offset far past any terrain
+            // is refused like a non-finite one rather than wrapped in the merge's sums.
+            if v.abs() > 2.0e8 {
+                return Err(format!("a height of {v} is beyond what a land grid holds (an offset of {offset})"));
+            }
+            out.push(v.trunc() as Value);
         }
     }
     Ok(out)
@@ -40,13 +46,13 @@ pub fn decode_heights(raw: &[u8], offset: f64) -> Result<Vec<i64>, String> {
 
 /// `encode_vertex_heights`: the offset, the 65x65 deltas, and the vertices whose step had
 /// to be clamped to fit a signed byte. Heights are whole world units here.
-pub fn encode_vertex_heights(heights: &[i64]) -> (f32, Vec<i8>, Vec<(usize, usize)>) {
-    let stored: Vec<i64> = heights.iter().map(|&v| v.div_euclid(HEIGHT_SCALE)).collect();
+pub fn encode_vertex_heights(heights: &[Value]) -> (f32, Vec<i8>, Vec<(usize, usize)>) {
+    let stored: Vec<Value> = heights.iter().map(|&v| v.div_euclid(HEIGHT_SCALE)).collect();
     let at = |x: usize, y: usize| stored[y * LAND_SIZE + x];
     let offset = at(0, 0);
     let mut deltas = vec![0i8; LAND_NUM_VERTS];
     let mut clamped = Vec::new();
-    let mut fit = |value: i64, x: usize, y: usize| -> i8 {
+    let mut fit = |value: Value, x: usize, y: usize| -> i8 {
         if value > MAX_GRADIENT {
             clamped.push((x, y));
             return MAX_GRADIENT as i8;
@@ -69,7 +75,7 @@ pub fn encode_vertex_heights(heights: &[i64]) -> (f32, Vec<i8>, Vec<(usize, usiz
 }
 
 /// `_to_signed_byte`: saturate to a signed byte, NaN to zero, truncating.
-fn to_signed_byte(v: f64) -> i64 {
+fn to_signed_byte(v: f64) -> Value {
     if v.is_nan() {
         0
     } else if v >= 127.0 {
@@ -77,12 +83,12 @@ fn to_signed_byte(v: f64) -> i64 {
     } else if v <= -128.0 {
         -128
     } else {
-        v.trunc() as i64
+        v.trunc() as Value
     }
 }
 
 /// `vertex_normals_from_heights`, flat: 65x65 heights in, 65x65x3 normals out.
-pub fn normals_from_heights(h: &[f64]) -> Vec<i64> {
+pub fn normals_from_heights(h: &[f64]) -> Vec<Value> {
     let scale = HEIGHT_SCALE as f64;
     let step = 128.0 / scale;
     let limit = LAND_SIZE - 1;
@@ -116,7 +122,7 @@ pub fn normals_from_heights(h: &[f64]) -> Vec<i64> {
 /// One merged cell's normals (`resolve_cell_normals`): recomputed from its final heights,
 /// keeping the reference's own normal wherever the height did not move and that normal is not
 /// `(0, 0, 0)`. Returns the normals and how many were kept.
-pub fn resolve_cell_normals(heights: &[i64], original: Option<&[i64]>, base: Option<&[i64]>) -> (Vec<i64>, usize) {
+pub fn resolve_cell_normals(heights: &[Value], original: Option<&[Value]>, base: Option<&[Value]>) -> (Vec<Value>, usize) {
     let hf: Vec<f64> = heights.iter().map(|&v| v as f64).collect();
     let mut normals = normals_from_heights(&hf);
     let mut preserved = 0;
@@ -145,7 +151,7 @@ mod tests {
 
     #[test]
     fn heights_round_trip() {
-        let heights: Vec<i64> = (0..LAND_NUM_VERTS).map(|i| ((i % 65) as i64 * 37 - (i / 65) as i64 * 11) * 8 - 3000).collect();
+        let heights: Vec<Value> = (0..LAND_NUM_VERTS).map(|i| ((i % 65) as Value * 37 - (i / 65) as Value * 11) * 8 - 3000).collect();
         let (offset, deltas, clamped) = encode_vertex_heights(&heights);
         assert!(clamped.is_empty());
         let raw: Vec<u8> = deltas.iter().map(|&d| d as u8).collect();

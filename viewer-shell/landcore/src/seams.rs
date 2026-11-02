@@ -10,10 +10,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 use crate::grid::LAND_SIZE;
+use crate::grid::Value;
 
 pub type Coords = (i64, i64);
 const LAST: usize = LAND_SIZE - 1;
-pub const DEFAULT_FEATHER: i64 = 2;
+pub const DEFAULT_FEATHER: Value = 2;
 const SIDES: [(i64, i64); 4] = [(-1, 0), (1, 0), (0, 1), (0, -1)];
 
 /// One corner: the vertex and the offset of each cell holding it.
@@ -33,7 +34,7 @@ pub struct Tear {
     pub left: Coords,
     pub right: Option<Coords>,
     pub vertices: usize,
-    pub worst: i64,
+    pub worst: Value,
 }
 
 /// What seam repair did (`SeamReport`).
@@ -44,7 +45,7 @@ pub struct SeamReport {
     pub tears: Vec<Tear>,
     pub pinned_corners: usize,
     pub anchored_corners: usize,
-    pub largest_gap: i64,
+    pub largest_gap: Value,
     pub worst_borders: Vec<(Coords, Coords, usize)>,
     pub feathered_vertices: usize,
 }
@@ -60,14 +61,14 @@ fn index(x: usize, y: usize) -> usize {
 }
 
 /// Python's `int // int` for a positive divisor rounds down; `mean` rounds toward zero.
-pub fn mean(values: &[i64]) -> i64 {
-    let total: i64 = values.iter().sum();
-    let count = values.len() as i64;
+pub fn mean(values: &[Value]) -> Value {
+    let total: Value = values.iter().sum();
+    let count = values.len() as Value;
     if total < 0 { -((-total).div_euclid(count)) } else { total.div_euclid(count) }
 }
 
 /// Neighbouring pairs of cells, each once, lower first (`_border_pairs`).
-fn border_pairs(cells: &BTreeMap<Coords, Vec<i64>>) -> Vec<(Coords, Coords)> {
+fn border_pairs(cells: &BTreeMap<Coords, Vec<Value>>) -> Vec<(Coords, Coords)> {
     let mut seen: HashSet<(Coords, Coords)> = HashSet::new();
     let mut queue: VecDeque<(Coords, Coords)> = VecDeque::new();
     for &coords in cells.keys() {
@@ -82,7 +83,7 @@ fn border_pairs(cells: &BTreeMap<Coords, Vec<i64>>) -> Vec<(Coords, Coords)> {
     queue.into_iter().filter(|(l, r)| cells.contains_key(l) && cells.contains_key(r)).collect()
 }
 
-fn compare_border(low: &[i64], high: &[i64], vertical: bool) -> Option<(usize, i64)> {
+fn compare_border(low: &[Value], high: &[Value], vertical: bool) -> Option<(usize, Value)> {
     let (mut count, mut worst) = (0, 0);
     for step in 0..LAND_SIZE {
         let (a, b) = if vertical { (index(step, LAST), index(step, 0)) } else { (index(LAST, step), index(0, step)) };
@@ -96,7 +97,7 @@ fn compare_border(low: &[i64], high: &[i64], vertical: bool) -> Option<(usize, i
 }
 
 /// The borders that still disagree (`find_tears`), worst first.
-pub fn find_tears(cells: &BTreeMap<Coords, Vec<i64>>, reference: Option<&BTreeMap<Coords, Vec<i64>>>, untouched: &BTreeSet<Coords>) -> Vec<Tear> {
+pub fn find_tears(cells: &BTreeMap<Coords, Vec<Value>>, reference: Option<&BTreeMap<Coords, Vec<Value>>>, untouched: &BTreeSet<Coords>) -> Vec<Tear> {
     let mut tears = Vec::new();
     for (left, right) in border_pairs(cells) {
         if untouched.contains(&left) && untouched.contains(&right) {
@@ -129,7 +130,7 @@ pub fn find_tears(cells: &BTreeMap<Coords, Vec<i64>>, reference: Option<&BTreeMa
     tears
 }
 
-fn anchor_value(corner: &Corner, coords: Coords, cells: &BTreeMap<Coords, Vec<i64>>, anchor: Option<&BTreeMap<Coords, Vec<i64>>>) -> Option<i64> {
+fn anchor_value(corner: &Corner, coords: Coords, cells: &BTreeMap<Coords, Vec<Value>>, anchor: Option<&BTreeMap<Coords, Vec<Value>>>) -> Option<Value> {
     let anchor = anchor?;
     for &((x, y), (dx, dy)) in corner {
         let other = (coords.0 + dx, coords.1 + dy);
@@ -160,11 +161,11 @@ fn shared_cells(coords: Coords, x: usize, y: usize) -> Vec<Coords> {
     xs.iter().flat_map(|&gx| ys.iter().map(move |&gy| (gx, gy))).collect()
 }
 
-fn is_pinned(cells: &BTreeMap<Coords, Vec<i64>>, coords: Coords, x: usize, y: usize) -> bool {
+fn is_pinned(cells: &BTreeMap<Coords, Vec<Value>>, coords: Coords, x: usize, y: usize) -> bool {
     shared_cells(coords, x, y).iter().any(|c| !cells.contains_key(c))
 }
 
-fn repair_corners(cells: &mut BTreeMap<Coords, Vec<i64>>, report: &mut SeamReport, anchor: Option<&BTreeMap<Coords, Vec<i64>>>, authoritative: &BTreeSet<Coords>) {
+fn repair_corners(cells: &mut BTreeMap<Coords, Vec<Value>>, report: &mut SeamReport, anchor: Option<&BTreeMap<Coords, Vec<Value>>>, authoritative: &BTreeSet<Coords>) {
     let order: Vec<Coords> = cells.keys().copied().collect();
     for coords in order {
         for corner in &CORNERS {
@@ -178,12 +179,12 @@ fn repair_corners(cells: &mut BTreeMap<Coords, Vec<i64>>, report: &mut SeamRepor
             if present.len() < 2 {
                 continue;
             }
-            let values: Vec<i64> = present.iter().map(|(c, o)| cells[c][*o]).collect();
+            let values: Vec<Value> = present.iter().map(|(c, o)| cells[c][*o]).collect();
             let spread = values.iter().max().unwrap() - values.iter().min().unwrap();
             if spread != 0 {
                 report.largest_gap = report.largest_gap.max(spread);
             }
-            let fixed: Vec<i64> = present.iter().filter(|(c, _)| authoritative.contains(c)).map(|(c, o)| cells[c][*o]).collect();
+            let fixed: Vec<Value> = present.iter().filter(|(c, _)| authoritative.contains(c)).map(|(c, o)| cells[c][*o]).collect();
             let average = if let Some(&first) = fixed.first() {
                 report.anchored_corners += 1;
                 first
@@ -207,7 +208,7 @@ fn repair_corners(cells: &mut BTreeMap<Coords, Vec<i64>>, report: &mut SeamRepor
     }
 }
 
-fn repair_edges(cells: &mut BTreeMap<Coords, Vec<i64>>, report: &mut SeamReport, authoritative: &BTreeSet<Coords>) -> Result<(), String> {
+fn repair_edges(cells: &mut BTreeMap<Coords, Vec<Value>>, report: &mut SeamReport, authoritative: &BTreeSet<Coords>) -> Result<(), String> {
     let mut borders = Vec::new();
     for (left, right) in border_pairs(cells) {
         let vertical = left.0 == right.0;
@@ -256,7 +257,7 @@ fn repair_edges(cells: &mut BTreeMap<Coords, Vec<i64>>, report: &mut SeamReport,
     Ok(())
 }
 
-fn feather_corrections(cells: &mut BTreeMap<Coords, Vec<i64>>, moves: &BTreeMap<Coords, Vec<(usize, i64)>>, depth: i64, report: &mut SeamReport) {
+fn feather_corrections(cells: &mut BTreeMap<Coords, Vec<Value>>, moves: &BTreeMap<Coords, Vec<(usize, Value)>>, depth: Value, report: &mut SeamReport) {
     if depth < 2 {
         return;
     }
@@ -266,13 +267,13 @@ fn feather_corrections(cells: &mut BTreeMap<Coords, Vec<i64>>, moves: &BTreeMap<
             if delta == 0 {
                 continue;
             }
-            let (x, y) = ((offset % LAND_SIZE) as i64, (offset / LAND_SIZE) as i64);
-            let last = LAST as i64;
-            for (ax, ay, limit) in [(-1i64, 0i64, x), (1, 0, last - x), (0, -1, y), (0, 1, last - y)] {
+            let (x, y) = ((offset % LAND_SIZE) as Value, (offset / LAND_SIZE) as Value);
+            let last = LAST as Value;
+            for (ax, ay, limit) in [(-1, 0, x), (1, 0, last - x), (0, -1, y), (0, 1, last - y)] {
                 if limit != 0 && limit != last {
                     continue;
                 }
-                for step in 1..depth.min(LAND_SIZE as i64 - 1) {
+                for step in 1..depth.min(LAND_SIZE as Value - 1) {
                     let (nx, ny) = (x + ax * step, y + ay * step);
                     if !(0 < nx && nx < last && 0 < ny && ny < last) {
                         break;
@@ -303,9 +304,9 @@ fn boundary_offsets() -> Vec<usize> {
 
 /// `repair_seams`: corners, edges, then the feather, in place.
 pub fn repair_seams(
-    cells: &mut BTreeMap<Coords, Vec<i64>>,
-    feather: i64,
-    anchor: Option<&BTreeMap<Coords, Vec<i64>>>,
+    cells: &mut BTreeMap<Coords, Vec<Value>>,
+    feather: Value,
+    anchor: Option<&BTreeMap<Coords, Vec<Value>>>,
     authoritative: &BTreeSet<Coords>,
 ) -> Result<SeamReport, String> {
     for (c, g) in cells.iter() {
@@ -315,11 +316,11 @@ pub fn repair_seams(
     }
     let mut report = SeamReport::default();
     let offsets = boundary_offsets();
-    let before: BTreeMap<Coords, Vec<(usize, i64)>> = cells.iter().map(|(c, g)| (*c, offsets.iter().map(|&o| (o, g[o])).collect())).collect();
+    let before: BTreeMap<Coords, Vec<(usize, Value)>> = cells.iter().map(|(c, g)| (*c, offsets.iter().map(|&o| (o, g[o])).collect())).collect();
     repair_corners(cells, &mut report, anchor, authoritative);
     repair_edges(cells, &mut report, authoritative)?;
     if feather >= 2 {
-        let moves: BTreeMap<Coords, Vec<(usize, i64)>> = before
+        let moves: BTreeMap<Coords, Vec<(usize, Value)>> = before
             .iter()
             .map(|(c, vals)| (*c, vals.iter().filter(|(o, v)| cells[c][*o] != *v).map(|(o, v)| (*o, cells[c][*o] - v)).collect()))
             .collect();

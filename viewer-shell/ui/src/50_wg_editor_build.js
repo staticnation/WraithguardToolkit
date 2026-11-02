@@ -236,6 +236,8 @@ Object.assign(WgEditor, {
       if(this._rev!=null && r.rev!==this._rev){
         await this.refreshPending();
         await this.rereadViews(false);
+        // The Land view's ground follows the patch too (an undo of a stroke, say).
+        if(typeof WgLand==='object') WgLand.sync();
       }
       this._rev=r.rev; this._hist=hist;
       if(typeof WgUI==='object') WgUI.refresh();
@@ -451,6 +453,8 @@ Object.assign(WgEditor, {
       }catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',5000); break; }
     }
     if(n>1) toast(n+' taken out of the patch','ok',2000);
+    // Land taken out: the drawn ground goes back to the load order's at once.
+    if(n && typeof WgLand==='object') WgLand.sync();
     await this.showBuild();
     return n;
   },

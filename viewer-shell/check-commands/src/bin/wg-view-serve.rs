@@ -151,6 +151,13 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         // two-file edit and the symptom of forgetting is the engine insisting a value is
         // missing while the page plainly sent it.
         "atmosphere" => Reply::Json(t::atmosphere(st())?),
+        // The world's sound and the region map (SOUND.md, TODO "The world").
+        "regions_list" => Reply::Json(t::regions_list(st())?),
+        "region_sounds" => Reply::Json(t::region_sounds(s(a, "region"), st())?),
+        "sound_emitters" => Reply::Json(t::sound_emitters(strs(a, "ids"), st())?),
+        "sound_records" => Reply::Json(t::sound_records(strs(a, "ids"), st())?),
+        "sound_fallbacks" => Reply::Json(t::sound_fallbacks(st())?),
+        "music_list" => Reply::Json(t::music_list(s(a, "kind"), st())?),
         "favourites_list" => Reply::Json(t::favourites_list()?),
         "lang_list" => Reply::Json(t::lang_list()?),
         "lang_get" => Reply::Json(t::lang_get(s(a, "code"))?),

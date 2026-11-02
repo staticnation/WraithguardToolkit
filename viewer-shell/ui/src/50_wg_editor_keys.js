@@ -17,47 +17,46 @@ Object.assign(WgEditor, {
     if(typeof WgPath==='object' && WgPath.keys(e)) return true;
     const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
     const k=String(e.key||'').toLowerCase();
+    // The shortcuts are the key binding page's (69_wg_keys.js): `is(e, action)`.
+    const K=(id)=>typeof WgKeys==='object'? WgKeys.is(e, id) : false;
     if(!typing && (k==='z'||k==='x'||k==='y') && !e.ctrlKey && !e.metaKey) this.held.add(k);
-    if(k==='f' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && this.selected()) return this.drop();
-    if(k==='q' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && (this.selected() || this.group().length>=1) && !(App.R && App.R.fly && App.R.fly.active)){
+    if(K('drop') && !typing && this.selected()) return this.drop();
+    if(K('quick') && !typing && (this.selected() || this.group().length>=1) && !(App.R && App.R.fly && App.R.fly.active)){
       this.quickMenu(this._pointer? this._pointer[0] : null, this._pointer? this._pointer[1] : null);
       return true;
     }
     if(e.key==='Escape' && this.qm && !this.qm.hidden){ this.qm.hidden=true; return true; }
     // The Construction Set's own: snaps, undo, copy and paste, delete, centre on it.
-    const plain=!typing && !e.altKey && !(App.R && App.R.fly && App.R.fly.active);
-    if(plain && !e.ctrlKey && !e.metaKey && k==='g'){
-      if(e.shiftKey){ this.angleOn=!this.angleOn; toast('Snap to angle '+(this.angleOn? 'on: '+this.angle+'° steps' : 'off'),'ok',1800); }
-      else{ this.gridOn=!this.gridOn; toast('Snap to grid '+(this.gridOn? 'on: '+this.grid+' units' : 'off'),'ok',1800); }
-      this.savePrefs(); return true;
-    }
-    if(plain && (e.ctrlKey||e.metaKey) && k==='z'){ if(e.shiftKey) this.redo(); else this.undo(); return true; }
-    if(plain && (e.ctrlKey||e.metaKey) && k==='y'){ this.redo(); return true; }
-    if(plain && (e.ctrlKey||e.metaKey) && k==='c' && this.selected()) return this.copySel();
-    if(plain && (e.ctrlKey||e.metaKey) && !e.shiftKey && k==='v' && this._clip){ this.paste(); return true; }
-    if(plain && (e.ctrlKey||e.metaKey) && k==='d' && this.selected()){
+    // Alt is part of a chord now (an exact match), so it no longer rules a key out.
+    const plain=!typing && !(App.R && App.R.fly && App.R.fly.active);
+    if(plain && K('angle')){ this.angleOn=!this.angleOn; toast('Snap to angle '+(this.angleOn? 'on: '+this.angle+'° steps' : 'off'),'ok',1800); this.savePrefs(); return true; }
+    if(plain && K('grid')){ this.gridOn=!this.gridOn; toast('Snap to grid '+(this.gridOn? 'on: '+this.grid+' units' : 'off'),'ok',1800); this.savePrefs(); return true; }
+    if(plain && K('undo')){ this.undo(); return true; }
+    if(plain && K('redo')){ this.redo(); return true; }
+    if(plain && K('copy') && this.selected()) return this.copySel();
+    if(plain && K('paste') && this._clip){ this.paste(); return true; }
+    if(plain && K('duplicate') && this.selected()){
       const sel=this.selected(), rec=this.selectedRecord(sel);
       if(rec.tag){ this.quickAction('dup', sel, rec); return true; }
     }
-    if(plain && !e.ctrlKey && !e.metaKey && e.key==='Delete' && this.selected()){
+    if(plain && K('delete') && this.selected()){
       const sel=this.selected(); this.quickAction('del', sel, this.selectedRecord(sel)); return true;
     }
-    if(plain && !e.ctrlKey && !e.metaKey && !e.shiftKey && k==='c' && this.transformTargets().length) return this.frameSel();
+    if(plain && K('frame') && this.transformTargets().length) return this.frameSel();
     // Selection sets (Ctrl+1..9 keeps, 1..9 recalls), hide (H), isolate (Shift+H), Ctrl+T.
     if(plain && !e.shiftKey && /^Digit[1-9]$/.test(e.code||'')){
       const n=+e.code.slice(5);
       if(e.ctrlKey||e.metaKey) return this.keepSet(n);
       return this.recallSet(n);
     }
-    if(plain && !e.ctrlKey && !e.metaKey && k==='h'){ return e.shiftKey? this.isolateSel() : this.hideSel(); }
-    if(plain && (e.ctrlKey||e.metaKey) && !e.shiftKey && k==='t'){ this.showTransform(); return true; }
-    if(plain && !e.ctrlKey && !e.metaKey && k==='i'){
-      if(e.shiftKey) this.setPanels('tfh', this.showTfh===false); else this.setPanels('ori', this.showOri===false);
-      return true;
-    }
-    if((e.ctrlKey||e.metaKey) && e.shiftKey && k==='m' && typeof WgMessages==='object'){ WgMessages.toggle(); return true; }
-    if((e.ctrlKey||e.metaKey) && e.key==='F5' && this.links().editTestRun){ this.testRun(); return true; }
-    if(plain && (e.ctrlKey||e.metaKey) && e.shiftKey && k==='v' && this.links().editVerify){ this.showVerify(); return true; }
+    if(plain && K('hide')) return this.hideSel();
+    if(plain && K('isolate')) return this.isolateSel();
+    if(plain && K('transform')){ this.showTransform(); return true; }
+    if(plain && K('tfh')){ this.setPanels('tfh', this.showTfh===false); return true; }
+    if(plain && K('ori')){ this.setPanels('ori', this.showOri===false); return true; }
+    if(K('messages') && typeof WgMessages==='object'){ WgMessages.toggle(); return true; }
+    if(K('testRun') && this.links().editTestRun){ this.testRun(); return true; }
+    if(plain && K('verify') && this.links().editVerify){ this.showVerify(); return true; }
     if(e.key==='Escape' && !typing && this._group.length){ this.clearGroup(); return true; }
     // Layers: Ctrl+Shift+1..9 shows or hides layer N (the Layers panel numbers them).
     if(!typing && (e.ctrlKey||e.metaKey) && e.shiftKey && /^Digit[1-9]$/.test(e.code||'')){
@@ -65,17 +64,17 @@ Object.assign(WgEditor, {
       if(l){ l.visible=!l.visible; this.layersChanged(); toast('Layer '+l.name+(l.visible? ' shown' : ' hidden'),'ok',1500); }
       return true;
     }
-    if(plain && (e.ctrlKey||e.metaKey) && e.shiftKey && k==='p' && typeof WgFlow==='object'){ WgFlow.prefabMenu(this._pointer && this._pointer[0], this._pointer && this._pointer[1]); return true; }
-    if((e.ctrlKey||e.metaKey) && e.shiftKey && k==='f' && this.links().editSearchAll && typeof WgFlow==='object'){ WgFlow.showSearch(); return true; }
-    if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='f'){
+    if(plain && K('prefab') && typeof WgFlow==='object'){ WgFlow.prefabMenu(this._pointer && this._pointer[0], this._pointer && this._pointer[1]); return true; }
+    if(K('searchAll') && this.links().editSearchAll && typeof WgFlow==='object'){ WgFlow.showSearch(); return true; }
+    if(K('filter')){
       const f=this.part('edFilter'); if(f){ f.focus(); f.select(); }
       return true;
     }
-    if(e.key==='F2' && !typing){
+    if(K('record') && !typing){
       const r=this._oriRecord;
       if(r && Ori.el && !Ori.el.hidden){ this.openRecord(r.tag, r.id, r.plugins); return true; }
     }
-    if(e.key==='F3' && !typing){
+    if(K('reference') && !typing){
       const r=this._sel && this._sel.ref;
       if(r){ this.openRef(r); return true; }
     }

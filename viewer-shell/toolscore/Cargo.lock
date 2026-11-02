@@ -379,6 +379,7 @@ dependencies = [
  "bytes_io",
  "encoding_rs",
  "indexmap",
+ "landcore",
  "luacore",
  "memmap2",
  "merge_to_master",
@@ -637,6 +638,15 @@ checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
 dependencies = [
  "getrandom",
  "libc",
+]
+
+[[package]]
+name = "landcore"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "tes3",
+ "toml",
 ]
 
 [[package]]
@@ -1235,6 +1245,7 @@ version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
 dependencies = [
+ "indexmap",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -1267,10 +1278,12 @@ dependencies = [
 name = "toolscore"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bytes_io",
  "editcore",
  "indexmap",
  "luacore",
+ "merge_to_master",
  "ordercore",
  "serde_json",
  "tes3",
