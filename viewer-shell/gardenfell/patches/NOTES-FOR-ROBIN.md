@@ -313,31 +313,27 @@ rather have the hulls read lazily per cell for everyone, say so and we will look
 
 We had proposed taking round 18fc's `dead` set out of the merge, so that the last record for a
 reference stands and a later plain record brings back what an earlier plugin deleted, on the
-strength of an in-game test (`tests/ingame/`, five piles). Your esp-format.md (§7, the D3 test,
-Wolverine Hall's flag) says the deletion sticks, and read against yours our test covered less
-than we said: **no cell record in it has a `NAM0`, so every reference in it is persistent, and
-the cell is an interior.** Yours are *temporary* references in exteriors - the Seyda Neen
-lighthouse (`NAM0 203`, a moved re-placement) and the flag. Where a later record does not bring
-a deleted reference back may depend on the section (or on interior against exterior, or a plain
-record against a move); nobody had tried a temporary reference in an interior with plain records.
+strength of an in-game test (`tests/ingame/`). The test was miscounted: it was written up as
+five piles, and the fifth was the marker coin pile at `coc`; there were four, and
+nothing at the deleted-then-edited reference. The deletion sticks, as your esp-format.md
+(§7, the D3 test, Wolverine Hall's flag) says; the Construction Set says it too, by reporting
+an error when it loads a plugin that edits a reference an earlier plugin deleted (it would have
+no reason to if the later record brought the reference back). Sorry for the detour.
 
-So 0017 is **withdrawn** (2026-10-31): `world.rs` is back to your 18fc rule, the patch is gone
+So 0017 is **withdrawn** (2026-11-01): `world.rs` is back to your 18fc rule, the patch is gone
 from our series (its number is not reused), and the rest of our code - the Editor's reference
 resolver, its warnings, the shared case files - follows 18fc again. Nothing for you to apply.
 
-What stays open is the discrepancy, and we built the test that can separate the two:
-`WG_DelT_Base.esm`, `WG_DelT_P1.esp`, `WG_DelT_A.esp`, `WG_DelT_P2.esp` are the same four
-plugins and edits with a `NAM0` before the first `FRMR` of every cell record (cell `WG Delete
-Test T`; `make_temporary_variant.py` writes them from the first set). Five piles means a
-temporary reference is undeleted too in an interior (then the difference is the exterior or the
-move); four means the section is the difference, and the rule has to carry `CellRef.temporary`
-(your 18gf) so that a persistent one can come back. We will send the result either way. If you
-can lend `GF_D3_Delete`/`GF_D3_Readd` we will run them beside ours.
+One thing we have not run: OpenMW. Its `CellRefList<X>::load` (`cellstore.cpp`) replaces the
+earlier record whole and marks a reference deleted only if the new record is, so it reads as if
+it brings the reference back where Morrowind.exe does not (your §9.0 may say as much; we will
+check it against your text). We will run the four-plugin test in OpenMW and send the result. The
+plugins are `WG_DelT_*` (and the first set, `WG_Del_*`) in `tests/ingame/`; the second set is the
+same edits with a `NAM0` so the references are temporary, an optional cross-check.
 
 Two things from your file we took on our side (not in your crates): record ids are compared
 without case in our conflict scan (your §2: `Iron_Dagger` and `iron_dagger` are one record),
 and interior cell names fold ASCII only (your §9.8; both references do).
-
 ## 0018 nif: the cell load's triangle reorder only when the cache is not worse
 
 `triorder::reorder_triangles_if_not_worse(idx, positions) -> bool`: the cell load
