@@ -6022,6 +6022,10 @@ fn lua_run_start(weathers: Vec<String>, state: State) -> Result<String, String> 
     let answer = run.call("__wg_start", &start)?;
     let backend = run.backend.clone();
     *LUA_RUN.lock().map_err(|e| e.to_string())? = Some(run);
+    // nearby.castRay's world: the land now, the objects' shapes as the frames bring them.
+    let world = { state.app().world.clone() };
+    *viewcore::luarun::COLLIDER.lock().map_err(|e| e.to_string())? = Some(viewcore::luarun::Collider { world, ..Default::default() });
+    *LUA_SHAPES.lock().map_err(|e| e.to_string())? = None;
     let note = if resources.is_none() { "OpenMW's resources folder was not found: its built-in scripts (I.AI, activation, music) are not running." } else { "" };
     let answer: serde_json::Value = serde_json::from_str(&answer).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({"backend": backend, "resources": resources.map(|p| p.display().to_string()), "note": note, "answer": answer}).to_string())
@@ -6030,16 +6034,81 @@ fn lua_run_start(weathers: Vec<String>, state: State) -> Result<String, String> 
 /// Wraithguard: one frame of the Preview's OpenMW Lua: what changed in the scene in (JSON,
 /// `luarun.lua`'s `__wg_step`), `{effects, log, status}` out.
 #[tauri::command(async)]
-fn lua_run_step(frame: String) -> Result<String, String> {
+fn lua_run_step(frame: String, state: State) -> Result<String, String> {
+    lua_collision(&frame, &state);
     let mut g = LUA_RUN.lock().map_err(|e| e.to_string())?;
     let run = g.as_mut().ok_or("OpenMW Lua is not running")?;
     run.call("__wg_step", &frame)
+}
+
+/// Wraithguard: each mesh's collision triangles, read once while the Lua runs (`None`: the
+/// mesh has no collision, or could not be read).
+static LUA_SHAPES: std::sync::Mutex<Option<std::collections::HashMap<String, Option<std::sync::Arc<Vec<[f32; 3]>>>>>> = std::sync::Mutex::new(None);
+
+/// Wraithguard: the collision `nearby.castRay` casts against, kept to the frame the page
+/// sent: each object with a `model` and the renderer's matrix `m` placed (plus the scene's
+/// `origin`), one sent as `false` taken out, `enabled` followed; the land counted while
+/// the player is outside.
+fn lua_collision(frame: &str, state: &State) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(frame) else { return };
+    let Ok(mut col) = viewcore::luarun::COLLIDER.lock() else { return };
+    let Some(col) = col.as_mut() else { return };
+    if let Some(ext) = v.pointer("/player/cell/ext").and_then(serde_json::Value::as_bool) {
+        col.exterior = ext;
+    }
+    let Some(objs) = v.get("objects").and_then(serde_json::Value::as_object) else { return };
+    let origin = v.get("origin").and_then(serde_json::Value::as_array).map(|o| [o.first().and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32, o.get(1).and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32]).unwrap_or([0.0, 0.0]);
+    let vfs = state.app().vfs.clone();
+    let Some(vfs) = vfs else { return };
+    let Ok(mut cache) = LUA_SHAPES.lock() else { return };
+    let cache = cache.get_or_insert_with(Default::default);
+    for (k, o) in objs {
+        if o.is_boolean() {
+            col.shapes.remove(k);
+            continue;
+        }
+        let enabled = o.get("enabled").and_then(serde_json::Value::as_bool).unwrap_or(true);
+        let (Some(model), Some(m)) = (o.get("model").and_then(serde_json::Value::as_str), o.get("m").and_then(serde_json::Value::as_array)) else {
+            if let Some(sh) = col.shapes.get_mut(k) {
+                sh.enabled = enabled;
+            }
+            continue;
+        };
+        let mut mm = [0f32; 12];
+        for (i, x) in m.iter().take(12).enumerate() {
+            mm[i] = x.as_f64().unwrap_or(0.0) as f32;
+        }
+        let tris = cache.entry(model.to_ascii_lowercase()).or_insert_with(|| {
+            let b = collision_payload(&vfs, model).ok()?;
+            // GDCL, the shape (0 hull, 1 the visible mesh, 2 none), the count, the floats.
+            if b.len() < 9 || b[4] == 2 {
+                return None;
+            }
+            let n = u32::from_le_bytes([b[5], b[6], b[7], b[8]]) as usize;
+            let f: Vec<f32> = b[9..].chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+            Some(std::sync::Arc::new(f.chunks_exact(3).take(n * 3).map(|c| [c[0], c[1], c[2]]).collect()))
+        });
+        match tris {
+            Some(t) => {
+                col.shapes.insert(k.clone(), viewcore::luarun::Shape::placed(t, &mm, origin, enabled));
+            }
+            None => {
+                col.shapes.remove(k);
+            }
+        }
+    }
 }
 
 /// Wraithguard: the Preview's OpenMW Lua stopped and its state dropped.
 #[tauri::command(async)]
 fn lua_run_stop() -> Result<String, String> {
     *LUA_RUN.lock().map_err(|e| e.to_string())? = None;
+    if let Ok(mut c) = viewcore::luarun::COLLIDER.lock() {
+        *c = None;
+    }
+    if let Ok(mut c) = LUA_SHAPES.lock() {
+        *c = None;
+    }
     Ok("{}".into())
 }
 

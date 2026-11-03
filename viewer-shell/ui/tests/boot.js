@@ -844,9 +844,15 @@ async function editor(w, R, fail, done, sleep){
     d.querySelector('#edDialTabs [data-kind="Topic"]').onclick();
     // The tab's own opening may still be in flight, and the latest opening wins: wait for
     // Rumors to be the one drawn, not only for this call to return.
+    // Settled: Rumors drawn, and the same box still there a moment later (a late redraw
+    // replaces it, and with it the mark the refusal puts on it).
     for(let i=0;i<100;i++){
       await E.openTopic('Rumors');
-      if(d.getElementById('edTopicCopyId') && E.dialTopic && /rumors/i.test(E.dialTopic.topic||E._dialSel||'')) break;
+      const box=d.getElementById('edTopicCopyId');
+      if(box && E.dialTopic && /rumors/i.test(E.dialTopic.topic||E._dialSel||'')){
+        await sleep(150);
+        if(d.getElementById('edTopicCopyId')===box) break;
+      }
       await sleep(30);
     }
     d.getElementById('edTopicCopyId').value='Greeting 0';

@@ -145,7 +145,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "script_texts" => Reply::Json(t::script_texts(strs(a, "names"), st())?),
         "lua_scene" => Reply::Json(t::lua_scene(strs(a, "ids"), st())?),
         "lua_run_start" => Reply::Json(t::lua_run_start(strs(a, "weathers"), st())?),
-        "lua_run_step" => Reply::Json(t::lua_run_step(s(a, "frame"))?),
+        "lua_run_step" => Reply::Json(t::lua_run_step(s(a, "frame"), st())?),
         "lua_run_stop" => Reply::Json(t::lua_run_stop()?),
         "dialogue_state_from_save" => Reply::Json(t::dialogue_state_from_save(s(a, "path"))?),
         "write_b64" => {

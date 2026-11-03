@@ -26,9 +26,11 @@ use crate::vfs::Vfs;
 pub const PRELUDE: &str = include_str!("luarun.lua");
 
 /// OpenMW's built-in scripts the Preview runs: the ones that act on a scene (AI,
-/// activation, music, weather, the world's events, settings storage). The camera, input,
-/// UI, console, combat and spellcasting ones need the game itself.
-pub const BUILTINS: [&str; 8] = [
+/// activation, music, weather, the world's events, settings storage) and the UI templates
+/// mods draw their windows with (`I.MWUI`). The camera, input, HUD, console, combat and
+/// spellcasting ones need the game itself.
+pub const BUILTINS: [&str; 9] = [
+    "scripts/omw/mwui/init.lua",
     "scripts/omw/activationhandlers.lua",
     "scripts/omw/worldeventhandlers.lua",
     "scripts/omw/ai.lua",
@@ -38,6 +40,209 @@ pub const BUILTINS: [&str; 8] = [
     "scripts/omw/cellhandlers.lua",
     "scripts/omw/settings/global.lua",
 ];
+
+/* ---- the scene's collision, for nearby.castRay ------------------------------------------ */
+
+/// One object's collision as the scene places it: its triangles in world units.
+pub struct Shape {
+    pub tris: Vec<[f32; 9]>,
+    lo: [f32; 3],
+    hi: [f32; 3],
+    pub enabled: bool,
+}
+
+/// What a ray can hit: the objects' collision shapes (by key) and, outside, the land.
+#[derive(Default)]
+pub struct Collider {
+    pub shapes: std::collections::HashMap<String, Shape>,
+    /// The land's heights by grid, the engine's own (`World::lands`): a square with none is
+    /// flat at -2048, as OpenMW has it.
+    pub world: Option<std::sync::Arc<crate::world::World>>,
+    /// Whether the player is outside (the land is there to hit).
+    pub exterior: bool,
+}
+
+/// The scene's collision (one Lua at a time, as the runner).
+pub static COLLIDER: std::sync::Mutex<Option<Collider>> = std::sync::Mutex::new(None);
+
+impl Shape {
+    /// `tris` in the mesh's own units (three vertices a triangle), placed by `m` (3x4, rows,
+    /// the renderer's matrix) and `origin` (the scene's, added to x and y).
+    pub fn placed(tris: &[[f32; 3]], m: &[f32; 12], origin: [f32; 2], enabled: bool) -> Shape {
+        let mut lo = [f32::MAX; 3];
+        let mut hi = [f32::MIN; 3];
+        let tr = |v: &[f32; 3]| -> [f32; 3] {
+            [
+                m[0] * v[0] + m[1] * v[1] + m[2] * v[2] + m[3] + origin[0],
+                m[4] * v[0] + m[5] * v[1] + m[6] * v[2] + m[7] + origin[1],
+                m[8] * v[0] + m[9] * v[1] + m[10] * v[2] + m[11],
+            ]
+        };
+        let mut out = Vec::with_capacity(tris.len() / 3);
+        for t in tris.chunks_exact(3) {
+            let (a, b, c) = (tr(&t[0]), tr(&t[1]), tr(&t[2]));
+            for p in [a, b, c] {
+                for k in 0..3 {
+                    lo[k] = lo[k].min(p[k]);
+                    hi[k] = hi[k].max(p[k]);
+                }
+            }
+            out.push([a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]]);
+        }
+        Shape { tris: out, lo, hi, enabled }
+    }
+}
+
+/// Where a ray from `a` to `b` first meets: `(point, normal, key)` - the key of the object
+/// hit, `None` for the land.
+pub type Hit = ([f64; 3], [f64; 3], Option<String>);
+
+impl Collider {
+    pub fn cast(&self, a: [f64; 3], b: [f64; 3], ignore: Option<&str>) -> Option<Hit> {
+        let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if len < 1e-6 {
+            return None;
+        }
+        let mut best: Option<(f64, [f64; 3], Option<String>)> = None;
+        for (k, s) in &self.shapes {
+            if !s.enabled || Some(k.as_str()) == ignore || !box_hit(a, d, s.lo, s.hi) {
+                continue;
+            }
+            for t in &s.tris {
+                if let Some((u, n)) = tri_hit(a, d, t) {
+                    if u <= 1.0 && best.as_ref().is_none_or(|b| u < b.0) {
+                        best = Some((u, n, Some(k.clone())));
+                    }
+                }
+            }
+        }
+        if self.exterior {
+            if let Some((u, n)) = self.land_hit(a, d, best.as_ref().map_or(1.0, |b| b.0)) {
+                best = Some((u, n, None));
+            }
+        }
+        best.map(|(u, n, k)| ([a[0] + d[0] * u, a[1] + d[1] * u, a[2] + d[2] * u], n, k))
+    }
+
+    /// The land's height at a point (the game's triangles: each quad cut from (x+1, y) to
+    /// (x, y+1)), -2048 where a square has no land.
+    pub fn ground(&self, x: f64, y: f64) -> f64 {
+        const CELL: f64 = 8192.0;
+        const N: usize = 65;
+        let (gx, gy) = ((x / CELL).floor() as i32, (y / CELL).floor() as i32);
+        let Some(land) = self.world.as_ref().and_then(|w| w.lands.get(&(gx, gy))) else { return -2048.0 };
+        let step = CELL / (N - 1) as f64;
+        let fx = ((x - gx as f64 * CELL) / step).clamp(0.0, (N - 1) as f64 - 1e-3);
+        let fy = ((y - gy as f64 * CELL) / step).clamp(0.0, (N - 1) as f64 - 1e-3);
+        let (x0, y0) = (fx.floor() as usize, fy.floor() as usize);
+        let (tx, ty) = (fx - x0 as f64, fy - y0 as f64);
+        let h = |x: usize, y: usize| land.heights[y * N + x] as f64;
+        if tx + ty <= 1.0 {
+            h(x0, y0) * (1.0 - tx - ty) + h(x0 + 1, y0) * tx + h(x0, y0 + 1) * ty
+        } else {
+            h(x0 + 1, y0 + 1) * (tx + ty - 1.0) + h(x0, y0 + 1) * (1.0 - tx) + h(x0 + 1, y0) * (1.0 - ty)
+        }
+    }
+
+    /// The land along the ray, up to `limit` of it: stepped at most 32 units at a time, the
+    /// crossing then halved down to a hundredth of a unit.
+    fn land_hit(&self, a: [f64; 3], d: [f64; 3], limit: f64) -> Option<(f64, [f64; 3])> {
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let at = |u: f64| [a[0] + d[0] * u, a[1] + d[1] * u, a[2] + d[2] * u];
+        let above = |u: f64| { let p = at(u); p[2] - self.ground(p[0], p[1]) };
+        if above(0.0) < 0.0 {
+            return None;
+        }
+        let n = ((len * limit) / 32.0).ceil().max(1.0) as usize;
+        let mut prev = 0.0;
+        for i in 1..=n {
+            let u = limit * i as f64 / n as f64;
+            if above(u) < 0.0 {
+                let (mut lo, mut hi) = (prev, u);
+                for _ in 0..24 {
+                    let mid = (lo + hi) / 2.0;
+                    if above(mid) < 0.0 { hi = mid } else { lo = mid }
+                }
+                let p = at(hi);
+                let e = 16.0;
+                let (gx0, gx1) = (self.ground(p[0] - e, p[1]), self.ground(p[0] + e, p[1]));
+                let (gy0, gy1) = (self.ground(p[0], p[1] - e), self.ground(p[0], p[1] + e));
+                let nn = [-(gx1 - gx0) / (2.0 * e), -(gy1 - gy0) / (2.0 * e), 1.0];
+                let l = (nn[0] * nn[0] + nn[1] * nn[1] + 1.0).sqrt();
+                return Some((hi, [nn[0] / l, nn[1] / l, nn[2] / l]));
+            }
+            prev = u;
+        }
+        None
+    }
+}
+
+fn box_hit(a: [f64; 3], d: [f64; 3], lo: [f32; 3], hi: [f32; 3]) -> bool {
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    for k in 0..3 {
+        let (l, h) = (lo[k] as f64 - 1e-3, hi[k] as f64 + 1e-3);
+        if d[k].abs() < 1e-12 {
+            if a[k] < l || a[k] > h {
+                return false;
+            }
+            continue;
+        }
+        let (mut n, mut f) = ((l - a[k]) / d[k], (h - a[k]) / d[k]);
+        if n > f {
+            std::mem::swap(&mut n, &mut f);
+        }
+        t0 = t0.max(n);
+        t1 = t1.min(f);
+        if t0 > t1 {
+            return false;
+        }
+    }
+    true
+}
+
+/// Möller-Trumbore: where along `d` (0..1 of it) the ray from `a` meets the triangle, and
+/// the triangle's normal facing the ray.
+fn tri_hit(a: [f64; 3], d: [f64; 3], t: &[f32; 9]) -> Option<(f64, [f64; 3])> {
+    let v = |i: usize| [t[i * 3] as f64, t[i * 3 + 1] as f64, t[i * 3 + 2] as f64];
+    let (p0, p1, p2) = (v(0), v(1), v(2));
+    let sub = |x: [f64; 3], y: [f64; 3]| [x[0] - y[0], x[1] - y[1], x[2] - y[2]];
+    let cross = |x: [f64; 3], y: [f64; 3]| [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+    let dot = |x: [f64; 3], y: [f64; 3]| x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+    let (e1, e2) = (sub(p1, p0), sub(p2, p0));
+    let p = cross(d, e2);
+    let det = dot(e1, p);
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let s = sub(a, p0);
+    let u = dot(s, p) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let q = cross(s, e1);
+    let w = dot(d, q) * inv;
+    if w < 0.0 || u + w > 1.0 {
+        return None;
+    }
+    let tt = dot(e2, q) * inv;
+    if tt < 0.0 {
+        return None;
+    }
+    let mut n = cross(e1, e2);
+    let l = dot(n, n).sqrt().max(1e-12);
+    if dot(n, d) > 0.0 {
+        n = [-n[0], -n[1], -n[2]];
+    }
+    Some((tt, [n[0] / l, n[1] / l, n[2] / l]))
+}
+
+/// The ray the Lua asks for (`__wg_ray`), against the scene's collision.
+pub fn ray(a: [f64; 3], b: [f64; 3], ignore: Option<&str>) -> Option<Hit> {
+    let g = COLLIDER.lock().ok()?;
+    g.as_ref()?.cast(a, b, ignore)
+}
 
 type St = *mut c_void;
 
@@ -56,6 +261,54 @@ struct Jit {
 
 const LUA_GLOBALSINDEX: c_int = -10002;
 
+/// The calls `__wg_ray` makes on the LuaJIT it is registered in (set each time one opens).
+#[derive(Clone, Copy)]
+struct RayFns {
+    gettop: unsafe extern "C" fn(St) -> c_int,
+    type_: unsafe extern "C" fn(St, c_int) -> c_int,
+    tonumber: unsafe extern "C" fn(St, c_int) -> f64,
+    tolstring: unsafe extern "C" fn(St, c_int, *mut usize) -> *const c_char,
+    pushnumber: unsafe extern "C" fn(St, f64),
+    pushlstring: unsafe extern "C" fn(St, *const c_char, usize),
+}
+static RAY_FNS: std::sync::Mutex<Option<RayFns>> = std::sync::Mutex::new(None);
+
+/// `__wg_ray(x1, y1, z1, x2, y2, z2 [, ignore])` on LuaJIT: nothing on a miss, else the
+/// point, the normal and the key of what was hit (nothing more for the land). It never
+/// raises a Lua error, so nothing unwinds through it.
+unsafe extern "C" fn ray_c(l: St) -> c_int {
+    let Some(f) = RAY_FNS.lock().ok().and_then(|g| *g) else { return 0 };
+    let got = std::panic::catch_unwind(|| {
+        // SAFETY: called by Lua with its own state; indexes within the arguments given.
+        unsafe {
+            let n = (f.gettop)(l);
+            let num = |i: c_int| (f.tonumber)(l, i);
+            let ignore = if n >= 7 && (f.type_)(l, 7) == 4 {
+                let mut len = 0usize;
+                let p = (f.tolstring)(l, 7, &mut len);
+                (!p.is_null()).then(|| String::from_utf8_lossy(std::slice::from_raw_parts(p as *const u8, len)).into_owned())
+            } else {
+                None
+            };
+            ray([num(1), num(2), num(3)], [num(4), num(5), num(6)], ignore.as_deref())
+        }
+    });
+    let Ok(Some((p, nrm, key))) = got else { return 0 };
+    // SAFETY: pushes onto the same state; Lua makes room for a C function's results.
+    unsafe {
+        for x in p.iter().chain(nrm.iter()) {
+            (f.pushnumber)(l, *x);
+        }
+        match key {
+            Some(k) => {
+                (f.pushlstring)(l, k.as_ptr() as *const c_char, k.len());
+                7
+            }
+            None => 6,
+        }
+    }
+}
+
 impl Jit {
     fn open(path: &Path) -> Result<Jit, String> {
         // SAFETY: OpenMW's own LuaJIT; the symbols are Lua 5.1's C API, called with its types.
@@ -68,6 +321,16 @@ impl Jit {
             }
             let newstate: unsafe extern "C" fn() -> St = sym!(b"luaL_newstate\0");
             let openlibs: unsafe extern "C" fn(St) = sym!(b"luaL_openlibs\0");
+            let pushcclosure: unsafe extern "C" fn(St, unsafe extern "C" fn(St) -> c_int, c_int) = sym!(b"lua_pushcclosure\0");
+            let setfield: unsafe extern "C" fn(St, c_int, *const c_char) = sym!(b"lua_setfield\0");
+            let fns = RayFns {
+                gettop: sym!(b"lua_gettop\0"),
+                type_: sym!(b"lua_type\0"),
+                tonumber: sym!(b"lua_tonumber\0"),
+                tolstring: sym!(b"lua_tolstring\0"),
+                pushnumber: sym!(b"lua_pushnumber\0"),
+                pushlstring: sym!(b"lua_pushlstring\0"),
+            };
             let jit = Jit {
                 loadbuffer: sym!(b"luaL_loadbuffer\0"),
                 pcall: sym!(b"lua_pcall\0"),
@@ -83,6 +346,11 @@ impl Jit {
                 return Err("LuaJIT could not make a state".into());
             }
             openlibs(jit.l);
+            if let Ok(mut g) = RAY_FNS.lock() {
+                *g = Some(fns);
+            }
+            pushcclosure(jit.l, ray_c, 0);
+            setfield(jit.l, LUA_GLOBALSINDEX, c"__wg_ray".as_ptr());
             Ok(jit)
         }
     }
@@ -161,6 +429,21 @@ impl Runner {
             }
         }
         let lua = mlua::Lua::new();
+        let rayf = lua
+            .create_function(|lua, (x1, y1, z1, x2, y2, z2, ig): (f64, f64, f64, f64, f64, f64, Option<String>)| {
+                let mut out = mlua::MultiValue::new();
+                if let Some((p, n, k)) = ray([x1, y1, z1], [x2, y2, z2], ig.as_deref()) {
+                    for x in p.iter().chain(n.iter()) {
+                        out.push_back(mlua::Value::Number(*x));
+                    }
+                    if let Some(k) = k {
+                        out.push_back(mlua::Value::String(lua.create_string(&k)?));
+                    }
+                }
+                Ok(out)
+            })
+            .map_err(|e| e.to_string())?;
+        lua.globals().set("__wg_ray", rayf).map_err(|e| e.to_string())?;
         lua.load(PRELUDE).set_name("=wg_luarun").exec().map_err(|e| e.to_string())?;
         Ok(Runner { vm: Vm::Lua54(lua), backend: format!("Lua 5.4 (built in){why}") })
     }
@@ -431,5 +714,106 @@ mod tests {
         assert!(all.contains(r#""k":"ai""#) && all.contains(r#""kind":"travel""#), "ai.lua's _startAiTravel: {all}");
         assert!(all.contains(r#""k":"activate","key":"d1""#) || all.contains(r#""key":"d1","by":"player""#) || all.contains(r#""k":"activate""#), "activationhandlers' standard action: {all}");
         assert!(all.contains(r#""k":"music""#), "OpenMW's music playlists: {all}");
+    }
+
+    /// nearby.castRay against the collider: a wall's shape hit (with its key and normal),
+    /// `ignore` passing through it, and nothing past its end. On Lua 5.4 and, when given
+    /// (`WG_LUAJIT`), the install's LuaJIT.
+    #[test]
+    fn rays_hit_the_scene_s_collision() {
+        // A wall across y = 500, 1000 wide and 400 high, placed by a matrix moved 100 up.
+        let quad = [[-500.0, 0.0, 0.0], [500.0, 0.0, 0.0], [500.0, 0.0, 400.0], [-500.0, 0.0, 0.0], [500.0, 0.0, 400.0], [-500.0, 0.0, 400.0]];
+        let m = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 500.0, 0.0, 0.0, 1.0, 100.0];
+        let mut c = Collider::default();
+        c.shapes.insert("w1".into(), Shape::placed(&quad, &m, [0.0, 0.0], true));
+        *COLLIDER.lock().unwrap() = Some(c);
+        let script = "local nearby = require('openmw.nearby') local util = require('openmw.util') local done = false\n\
+            return { engineHandlers = { onUpdate = function() if done then return end done = true\n\
+            local a = nearby.castRay(util.vector3(0, 0, 200), util.vector3(0, 1000, 200))\n\
+            print('hit', a.hit, a.hitObject and a.hitObject.recordId, math.floor(a.hitPos.y + 0.5), a.hitNormal.y)\n\
+            local b = nearby.castRay(util.vector3(0, 0, 200), util.vector3(0, 1000, 200), { ignore = a.hitObject })\n\
+            local c = nearby.castRay(util.vector3(0, 0, 200), util.vector3(0, 400, 200))\n\
+            local d = nearby.castRay(util.vector3(0, 0, 600), util.vector3(0, 1000, 600))\n\
+            print('then', b.hit, c.hit, d.hit) end } }";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/ray.lua","flags":["NPC"]}}],"sources":{{"scripts/t/ray.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+        let mut runners = vec![Runner::new(None, true).unwrap()];
+        if let Ok(p) = std::env::var("WG_LUAJIT") {
+            runners.push(Runner::new(Some(Path::new(&p)), false).unwrap());
+        }
+        for r in &mut runners {
+            r.call("__wg_start", &start).unwrap();
+            let got = r.call("__wg_step", r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"cell":{"name":"x","ext":false}},
+                "w1":{"id":"ex_wall","tag":"STAT","pos":[0,500,100],"cell":{"name":"x","ext":false}}}}"#).unwrap();
+            assert!(got.contains(r#""text":"hit true ex_wall 500 -1"#), "{}: {got}", r.backend);
+            assert!(got.contains(r#""text":"then false false false""#), "{}: {got}", r.backend);
+        }
+        *COLLIDER.lock().unwrap() = None;
+    }
+
+    #[test]
+    fn the_land_is_hit_where_it_is() {
+        let c = Collider { exterior: true, ..Default::default() };
+        // No world: every square flat at -2048.
+        let h = c.cast([100.0, 100.0, 0.0], [100.0, 100.0, -5000.0], None).unwrap();
+        assert!((h.0[2] + 2048.0).abs() < 0.01 && h.2.is_none() && (h.1[2] - 1.0).abs() < 1e-6, "{h:?}");
+        assert!(c.cast([100.0, 100.0, 0.0], [100.0, 100.0, -1000.0], None).is_none());
+    }
+
+    /// ui.create: a window from a template (its content into the template's slot), a
+    /// child found by name, a click sent back to the button's own callback, update and
+    /// destroy.
+    #[test]
+    fn ui_elements_are_sent_and_answer_clicks() {
+        let script = "local ui = require('openmw.ui') local util = require('openmw.util') local async = require('openmw.async')\n\
+            local box = { type = ui.TYPE.Image, props = { resource = ui.texture { path = 'white' }, color = util.color.rgb(0, 0, 0) },\n\
+              content = ui.content { { name = 'slot', external = { slot = true }, props = { position = util.vector2(4, 4) } } } }\n\
+            local el\n\
+            el = ui.create({ layer = 'Windows', template = box, props = { relativePosition = util.vector2(0.5, 0.5), anchor = util.vector2(0.5, 0.5) },\n\
+              content = ui.content { { name = 'title', type = ui.TYPE.Text, props = { text = 'Hello', textSize = 18 } },\n\
+                { name = 'ok', type = ui.TYPE.Text, props = { text = 'OK' }, events = { mouseClick = async:callback(function() print('clicked') el.layout.content.title.props.text = 'Bye' el:update() end) } } } })\n\
+            return { engineHandlers = { onUpdate = function() end } }";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/ui.lua","flags":["PLAYER"]}}],"sources":{{"scripts/t/ui.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+        let mut r = Runner::new(None, true).unwrap();
+        let a = r.call("__wg_start", &start).unwrap();
+        assert!(a.contains(r#""k":"ui""#) && a.contains(r#""layer":"Windows""#), "{a}");
+        // The template's image first, the node's content inside its slot.
+        assert!(a.contains(r#""path":"white""#) && a.contains(r#""text":"Hello""#), "{a}");
+        // The node's own content is put in the template's slot (paths `r.s1`...), the slot
+        // itself is the template's (`r.t1`).
+        assert!(a.contains(r#""name":"slot""#) && a.contains(r#""path":"r.t1""#) && a.contains(r#""path":"r.s1""#), "the content inside the slot: {a}");
+        // The button's path, then a click on it.
+        // The button is the slot's second (`r.s2`), the one with a click.
+        let path = "r.s2";
+        assert!(a.contains(r#""events":["mouseClick"]"#) && a.contains(r#""path":"r.s2""#), "{a}");
+        let got = r.call("__wg_step", &format!(r#"{{"dt":0.05,"ui":[{{"id":"e1","path":"{path}","event":"mouseClick","x":3,"y":4}}]}}"#)).unwrap();
+        assert!(got.contains(r#""text":"clicked""#) && got.contains(r#""text":"Bye""#), "{got}");
+    }
+
+    /// OpenMW's own `mwui` templates (`WG_RESOURCES`): a player script's window from
+    /// `I.MWUI.templates.boxSolid` and `textHeader` is drawn, with the border images.
+    #[test]
+    #[ignore]
+    fn openmw_mwui_templates_draw() {
+        let res = PathBuf::from(std::env::var("WG_RESOURCES").expect("WG_RESOURCES"));
+        let mut r = Runner::new(None, true).unwrap();
+        let script = "local ui = require('openmw.ui') local I = require('openmw.interfaces') local done = false\n\
+            return { engineHandlers = { onUpdate = function() if done then return end done = true\n\
+            ui.create({ layer = 'Windows', template = I.MWUI.templates.boxSolid, content = ui.content { { template = I.MWUI.templates.textHeader, props = { text = 'Mod window' } } } }) end } }";
+        let vfs = Vfs::with_roots(&[]);
+        let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
+        let start = start_json(&vfs, Some(&res), &[], &["Clear".into()])
+            .replacen("\"scripts\":[", "\"scripts\":[{\"path\":\"scripts/t/w.lua\",\"flags\":[\"PLAYER\"]},", 1)
+            .replacen("\"sources\":{", &format!("\"sources\":{{\"scripts/t/w.lua\":{},", q(script)), 1);
+        let a = r.call("__wg_start", &start).unwrap();
+        assert!(!a.contains("\"kind\":\"error\""), "{a}");
+        let got = r.call("__wg_step", r#"{"dt":0.05}"#).unwrap();
+        assert!(!got.contains("\"kind\":\"error\""), "{got}");
+        assert!(got.contains(r#""text":"Mod window""#) && got.contains("menu_thin_border"), "{got}");
     }
 }

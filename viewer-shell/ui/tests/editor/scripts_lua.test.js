@@ -23,7 +23,7 @@ module.exports = async (t) => {
     performance: { now: () => Date.now() }, requestAnimationFrame: () => 0, cancelAnimationFrame() {}, setTimeout,
     document: { activeElement: null },
     $: s => s === '#p_weather' ? weather : null, escHtml: s => String(s), schedulePreview() {}, toast: m => toasts.push(m),
-    App: { _scene: { origin: [0, 0], cells: [cell] }, R: { cam: { tx: 0, ty: 0, tz: 116, dist: 0.0001, az: 0, el: 0 }, groundZ: () => 0 } },
+    App: { _scene: { origin: [0, 0], cells: [cell] }, R: { cam: { tx: 0, ty: 0, tz: 116, dist: 0.0001, az: 0, el: 0 }, groundZ: () => 0, pickables: [{ refKey: 's1', model: 'x\\ex_wall.nif', m: [1, 0, 0, 0, 0, 1, 0, 900, 0, 0, 1, 0] }] } },
     WgSound: { place: { on: true }, audio: () => ({}), placeGraph() {}, musicStop() {}, buffer: async st => { music.push(st.path); throw new Error('no audio'); } },
     Engine: {
       async call(c, a) {
@@ -55,6 +55,7 @@ module.exports = async (t) => {
   const f1 = frames[0];
   t.ok(f1 && f1.objects && f1.objects.l1.tag === 'LIGH' && f1.objects.n1.tag === 'NPC_' && f1.objects.s1.tag === 'STAT', 'every object, typed: ' + JSON.stringify(f1 && f1.objects));
   t.ok(f1.objects.l1.cell.name === 'Balmora' && f1.objects.l1.cell.ext === true && f1.objects.l1.pos[2] === 100, 'with its cell and place');
+  t.ok(f1.objects.s1.model === 'x\\ex_wall.nif' && f1.objects.s1.m[7] === 900 && !f1.objects.l1.model && Array.isArray(f1.origin), 'what is drawn, with its model and matrix, for castRay');
   t.ok(f1.globals && f1.globals.townlit && f1.globals.townlit.v === 0 && f1.player && f1.player.pos, 'the globals and the player');
 
   // What the scripts did, done.

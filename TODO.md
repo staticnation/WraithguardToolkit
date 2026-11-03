@@ -136,9 +136,9 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 
 ## Scripts in the scene (`73_wg_scripts.js`)
 
-- OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): `nearby.castRay` from the engine's
-  collision shapes (it finds nothing yet); `onNewExterior` (OpenMW's fish spawning) and
-  other built-ins left out; `ui.create` windows. Check on a real install: a mod's global and
+- OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): `castRay`'s collision types (it hits
+  every shape); `onNewExterior` (OpenMW's fish spawning) and
+  other built-ins left out; `ui.create`: mouseMove, focus, keys, an Image's tint over a texture, the game's font. Check on a real install: a mod's global and
   local scripts, OpenMW's music playlists, `I.AI` packages through `ai.lua`.
 - Physics when placing objects (optional), with Bullet - the engine OpenMW itself uses
   (bullet3, zlib license; `subset sort\bullet3-master`):

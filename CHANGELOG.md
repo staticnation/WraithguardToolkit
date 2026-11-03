@@ -42,8 +42,15 @@
     the hour; MWScript globals and locals (`world.mwscript`); actors' health, inventories
     and AI packages; messages.
   - The panel says which Lua is running, and the log shows each script's prints and errors.
-  - Not yet: `nearby.castRay` finds nothing, and windows made with `ui.create` are not
-    drawn.
+  - `nearby.castRay` casts against the scene's collision: each drawn object's collision
+    shape (its hull, or its visible mesh where it has none) placed as the renderer places
+    it, and outside the land (flat at -2048 where a square has none). It answers the point,
+    the normal and the object hit, and takes `ignore`.
+  - Windows made with `ui.create` are drawn over the Preview (`75_wg_luaui.js`), OpenMW's
+    own `I.MWUI` templates among them (the built-in `mwui` runs). Templates are resolved as
+    OpenMW resolves them. Placing, sizing and anchoring follow OpenMW's props, and so do
+    Flex rows and columns, text, flat-color and texture images, and a Container sized to
+    what it holds. Clicks and typed text go back to the element's own callbacks.
 - **The scene's scripts, run** (the Preview's ▶ Scripts, `73_wg_scripts.js`). The loaded
   objects' MWScript (and the start scripts, and the scripts they start) runs every frame as the
   game runs it, each object with its own locals, and what it does shows in the scene: lamps

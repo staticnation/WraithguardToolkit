@@ -47,6 +47,7 @@ const WgLua={
   async stop(){
     const was=this.running;
     this.running=false; this.busy=false; this._dt=0; this._acts=[]; this._status=null;
+    if(typeof WgLuaUI==='object') WgLuaUI.clear();
     if(typeof WgSound==='object') WgSound.place.scriptMusic=false;
     if(was){ try{ await Engine.call('lua_run_stop',{}); }catch(_){ } }
   },
@@ -67,12 +68,15 @@ const WgLua={
 
   /* ---- what is sent ------------------------------------------------------------------ */
 
-  /** One object as the engine's scene holds it. */
+  /** One object as the engine's scene holds it; with its model and the renderer's matrix
+   *  where it is drawn, for the collision nearby.castRay casts against. */
   desc(key, r, cell){
     const S=WgScripts, t=this.t(key, r);
     const p=S.posOf(t), q=S.rotOf(t), m=S.moved.get(key);
     const ext=!cell || cell.kind!=='int';
+    const pk=this._picks && this._picks.get(key);
     return {id:String(r.id).toLowerCase(), tag:this.types.get(String(r.id).toLowerCase())||'', pos:p.map(x=>Math.round(x*100)/100), rot:q.map(x=>Math.round(x*1e4)/1e4),
+      model:pk && pk.model || undefined, m:pk && pk.m? pk.m.map(x=>Math.round(x*1e4)/1e4) : undefined,
       scale:m && m.scale!=null? m.scale : (r.scale||1), enabled:!S.disabled.has(key),
       cell:ext? {name:(cell && cell.name)||'', ext:true, gx:Math.floor(p[0]/8192), gy:Math.floor(p[1]/8192), region:(cell && cell.region)||''} : {name:cell.name||'', ext:false}};
   },
@@ -82,6 +86,10 @@ const WgLua={
   /** What changed since the last frame sent. */
   delta(dt){
     const S=WgScripts, out={dt};
+    // What is drawn where, by key (the renderer's own matrices, in the scene's frame).
+    const R=App.R;
+    if(R && R.pickables!==this._picksOf){ this._picksOf=R.pickables; this._picks=new Map((R.pickables||[]).filter(o=>o.refKey).map(o=>[o.refKey, o])); this._all=true; }
+    out.origin=(App._scene && App._scene.origin)||[0,0];
     const objects={}, seen=new Set();
     const one=(key, r, cell)=>{
       seen.add(key);
@@ -110,7 +118,7 @@ const WgLua={
     this._wasOff=new Set(S.disabled);
     if(Object.keys(objects).length) out.objects=objects;
     // The player (the camera), the clock and the weather.
-    const pp=S.posOf({player:true}), R=App.R, az=R && R.cam? R.cam.az : 0, c=App._scene && App._scene.centre;
+    const pp=S.posOf({player:true}), az=R && R.cam? R.cam.az : 0, c=App._scene && App._scene.centre;
     const player={pos:pp.map(x=>Math.round(x)), yaw:Math.round(Math.atan2(-Math.cos(az), -Math.sin(az))*1e3)/1e3,
       cell:c && c.kind==='int'? {name:c.name||'', ext:false} : {name:(c && c.name)||'', ext:true, gx:Math.floor(pp[0]/8192), gy:Math.floor(pp[1]/8192)}};
     const ps=JSON.stringify(player); if(ps!==this._sentP){ this._sentP=ps; out.player=player; }
@@ -142,6 +150,8 @@ const WgLua={
     for(const [k, until] of S.playing) if(until>now) playing.push(k);
     out.sounds=playing;
     if(this._acts.length){ out.activations=this._acts; this._acts=[]; }
+    // The scripts' windows: what was clicked or typed, and the screen they are drawn on.
+    if(typeof WgLuaUI==='object'){ const ev=WgLuaUI.take(); if(ev.length) out.ui=ev; out.screen=WgLuaUI.screen(); }
     return out;
   },
 
@@ -247,6 +257,8 @@ const WgLua={
     aiClear(e){ const A=WgScripts.actorOf(this.thing(e.key)); if(A){ A.ai=null; A.combat=null; } },
     combat(e){ const S=WgScripts, A=S.actorOf(this.thing(e.key)), foe=e.target? this.thing(e.target) : null; if(A && foe){ A.combat=foe.player? {player:true} : foe; this.say('', 'do', A.id+' attacks '+foe.id); } },
     activate(e){ const it=WgScripts.inst.get(e.key); if(it){ it._activate=true; this.say(it.script, 'do', 'activated ('+it.id+')'); } },
+    ui(e){ if(typeof WgLuaUI==='object') WgLuaUI.draw(e.id, e.layer, e.tree); },
+    uiDestroy(e){ if(typeof WgLuaUI==='object') WgLuaUI.remove(e.id); },
   },
   /** For the panel: the last frame's count of running scripts. */
   status(){ return this._status; },

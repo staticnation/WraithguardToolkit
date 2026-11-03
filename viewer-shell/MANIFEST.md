@@ -119,7 +119,8 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `71_wg_walk.js` | 21 KB | The first-person body: OpenMW's pace from its stats (sliders, presets, a save), swimming, levitation, collision shapes, footsteps. |
 | `72_wg_landbrush.js` | 12 KB | The Land view's brush engine: falloffs and shapes, the nine height tools, the stroke's dynamics (click, drag, hold, decay, fade, velocity, jitter, stabilizer, cap). |
 | `73_wg_scripts.js` | 63 KB | The scene's MWScript, run: Enable and Disable, movement, music and sounds, weather and fades shown in the scene; a game-state panel (hour, date, globals, journal) and a log. |
-| `74_wg_lua.js` | 15 KB | OpenMW Lua in the scene: the engine's copy of the scene kept current a frame at a time, and what the scripts did applied (luarun.rs runs them). |
+| `74_wg_lua.js` | 16 KB | OpenMW Lua in the scene: the engine's copy of the scene kept current a frame at a time, and what the scripts did applied (luarun.rs runs them). |
+| `75_wg_luaui.js` | 8 KB | The windows OpenMW Lua scripts make (ui.create), drawn over the Preview, their clicks and text sent back. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
 ## Engine commands (`src/cellviewer/commands.rs`: 143)
@@ -195,7 +196,7 @@ names a command that is not defined, or one is left unregistered.
 | `lang.rs` | 582 | Language packs. |
 | `lib.rs` | 59 | Crate root; `init()` installs the G7 readers. |
 | `lod.rs` | 405 | Distant objects' models, simplified (meshopt-port). |
-| `luarun.rs` | 435 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
+| `luarun.rs` | 819 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
 | `luascan.rs` | 313 | The load order's Lua scripts checked through the overlay (luacore, Teal). |
 | `markers.rs` | 36 | The Construction Set markers the viewer carries itself. |
 | `mland.rs` | 434 | The merged-lands preview: one cell's landscape as Merge Lands would write it (landcore). |

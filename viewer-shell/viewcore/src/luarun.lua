@@ -11,6 +11,9 @@
 -- reads it. Copyright (c) 2026 StaticNation, GPL-2.0 as part of the viewer.
 
 local G = _G
+-- The engine's ray against the scene's collision (luarun.rs), the one call out of Lua.
+local RAY = __wg_ray
+__wg_ray = nil
 local unpack = unpack or table.unpack
 local floor, huge = math.floor, math.huge
 local atan2 = math.atan2 or math.atan
@@ -181,6 +184,10 @@ util.color = {
   rgb = function(r, g, b) return { r = r, g = g, b = b, a = 1 } end,
   rgba = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end,
   hex = function(h) local n = tonumber(h, 16) or 0 return { r = floor(n / 65536) % 256 / 255, g = floor(n / 256) % 256 / 255, b = n % 256 / 255, a = 1 } end,
+  commaString = function(s)
+    local r, g, b = tostring(s or ''):match('(%d+)%s*,%s*(%d+)%s*,%s*(%d+)')
+    return { r = (tonumber(r) or 255) / 255, g = (tonumber(g) or 255) / 255, b = (tonumber(b) or 255) / 255, a = 1 }
+  end,
 }
 -- Transforms: 3x3 rows and a move. rotateZ(a) turns +y toward +x, as Morrowind's yaw.
 local function tf(m, o) return setmetatable({ m = m, o = o or v3(0, 0, 0) }, T) end
@@ -500,7 +507,12 @@ packages['openmw.core'] = function(inst)
     getRealTime = function() return S.real end,
     isWorldPaused = function() return false end,
     sendGlobalEvent = function(name, d) globalQueue[#globalQueue + 1] = { name, d } end,
-    getGMST = function() return nil end,
+    -- The game settings the built-ins read (the UI's colors), as Morrowind ships them.
+    getGMST = function(k)
+      local t = { FontColor_color_header = '223,201,159', FontColor_color_normal = '202,165,96', FontColor_color_normal_over = '223,201,159',
+        FontColor_color_active = '96,112,202', FontColor_color_disabled = '179,168,135', FontColor_color_link = '112,126,207' }
+      return t[k]
+    end,
     contentFiles = { has = function() return true end, indexOf = function() return 1 end, list = {} },
     l10n = function() return function(k) return k end end,
     getFormId = function(file, id) return tostring(id) end,
@@ -685,13 +697,22 @@ packages['openmw.self'] = function(inst)
   rawset(s, '__key', inst.key)
   return s
 end
+-- nearby.castRay: the scene's collision shapes and the land; `ignore` an object (or a list).
+local function castRay(from, to, opt)
+  if not RAY then once('castRay', 'skip', 'nearby.castRay: no collision to cast against') return { hit = false } end
+  local ig = opt and opt.ignore
+  if type(ig) == 'table' and not rawget(ig, '__key') and ig[1] then ig = ig[1] end
+  local x, y, z, nx, ny, nz, k = RAY(from.x, from.y, from.z, to.x, to.y, to.z, keyOf(ig))
+  if not x then return { hit = false } end
+  return { hit = true, hitPos = v3(x, y, z), hitNormal = v3(nx, ny, nz), hitObject = k and handle(k) or nil }
+end
 packages['openmw.nearby'] = function(inst)
   if inst.ctx == 'global' then error('openmw.nearby is only for local scripts', 3) end
   local kinds = { actors = { NPC_ = true, CREA = true }, items = { ARMO = true, BOOK = true, CLOT = true, INGR = true, MISC = true, ALCH = true, WEAP = true, APPA = true, LOCK = true, PROB = true, REPA = true, LIGH = true },
     doors = { DOOR = true }, activators = { ACTI = true }, containers = { CONT = true } }
   return setmetatable({
-    castRay = function() once('castRay', 'skip', 'nearby.castRay: no collision in the preview yet (no hit)') return { hit = false } end,
-    castRenderingRay = function() once('castRay', 'skip', 'nearby.castRay: no collision in the preview yet (no hit)') return { hit = false } end,
+    castRay = function(from, to, opt) return castRay(from, to, opt) end,
+    castRenderingRay = function(from, to, opt) return castRay(from, to, opt) end,
     players = { handle('player') },
     COLLISION_TYPE = { World = 1, Door = 2, Actor = 4, HeightMap = 8, Projectile = 16, Water = 32, Default = 31, AnyPhysical = 127, Camera = 64, VisualOnly = 128 },
     findPath = function() return 1, {} end,
@@ -721,21 +742,131 @@ packages['openmw.ambient'] = function(inst)
     stopSay = function() end, isSayActive = function() return S.sounds['player|*say'] == true end,
   }
 end
+-- ui.create: each element's layout, its templates resolved as OpenMW resolves them, sent
+-- to the page to draw (`{k = 'ui', id, layer, tree}`); a click or a typed text comes back
+-- and calls the element's own event callback.
+local uiElements, uiNext = {}, 0        -- id -> element
+local uiNodes = {}                      -- id -> {path -> layout node} (for the events)
+local Content = {}
+-- A content's children by name too (`layout.content.title`), as OpenMW's.
+Content.__index = function(t, k) if Content[k] then return Content[k] end local i = type(k) == 'string' and rawget(t, '#' .. k) return i and rawget(t, i) or nil end
+function Content:add(v) self[#self + 1] = v if type(v) == 'table' and v.name then rawset(self, '#' .. v.name, #self) end return #self end
+function Content:insert(i, v) table.insert(self, i, v) end
+function Content:indexOf(v) for i, x in ipairs(self) do if x == v or (type(v) == 'string' and type(x) == 'table' and x.name == v) then return i end end return nil end
+local function uiContent(t)
+  local c = setmetatable({}, Content)
+  for _, v in ipairs(t or {}) do c:add(v) end
+  return c
+end
+local function isElement(v) return type(v) == 'table' and rawget(v, '__wgElement') ~= nil end
+local function plain(v)
+  local mt = getmetatable(v)
+  if mt == V2 or mt == V3 then return { x = v.x, y = v.y, z = v.z } end
+  if type(v) == 'table' and v.__texture then return { path = v.path, offset = v.offset and plain(v.offset), size = v.size and plain(v.size) } end
+  if type(v) == 'table' and v.r and v.g and v.b then return { r = v.r, g = v.g, b = v.b, a = v.a or 1 } end
+  if type(v) == 'function' or type(v) == 'userdata' then return nil end
+  if type(v) == 'table' then local o = {} for k, x in pairs(v) do if type(k) == 'string' then o[k] = plain(x) end end return o end
+  return v
+end
+-- A node as drawn: its template under it (template props first, the node's own over them;
+-- the node's content into the template's `external.slot`).
+local resolve
+resolve = function(node, nodes, path, depth)
+  if depth > 40 then return nil end
+  if isElement(node) then
+    node.__parents = node.__parents or {}
+    return resolve(node.layout or {}, nodes, path, depth + 1)
+  end
+  if type(node) ~= 'table' then return nil end
+  local tpl = node.template
+  local typ = node.type or (tpl and tpl.type) or 'Widget'
+  local props = {}
+  if tpl and tpl.props then for k, v in pairs(tpl.props) do props[k] = v end end
+  for k, v in pairs(node.props or {}) do props[k] = v end
+  local out = { type = typ, props = plain(props), name = node.name, path = path, events = json.array() }
+  for k in pairs(node.events or {}) do out.events[#out.events + 1] = k end
+  nodes[path] = node
+  local kids = json.array()
+  local function add(list, at)
+    for i, c in ipairs(list or {}) do
+      local r = resolve(c, nodes, path .. '.' .. at .. i, depth + 1)
+      if r then kids[#kids + 1] = r end
+    end
+  end
+  if tpl and tpl.content then
+    -- The template's content, with this node's content where the template takes it.
+    local function walk(list, at)
+      for i, c in ipairs(list) do
+        if type(c) == 'table' and c.external and c.external.slot then
+          local r = resolve({ type = c.type, props = c.props, template = c.template, name = c.name }, nodes, path .. '.' .. at .. i, depth + 1)
+          if r then
+            local inner = json.array()
+            for k, x in ipairs(node.content or {}) do local rr = resolve(x, nodes, path .. '.s' .. k, depth + 1) if rr then inner[#inner + 1] = rr end end
+            r.content = inner
+            kids[#kids + 1] = r
+          end
+        else
+          local r = resolve(c, nodes, path .. '.' .. at .. i, depth + 1)
+          if r then kids[#kids + 1] = r end
+        end
+      end
+    end
+    walk(tpl.content, 't')
+  else
+    add(node.content, 'c')
+  end
+  out.content = kids
+  return out
+end
+local function uiSend(el)
+  local nodes = {}
+  local tree = resolve(el.layout or {}, nodes, 'r', 0)
+  uiNodes[el.__id] = nodes
+  emit({ k = 'ui', id = el.__id, layer = (el.layout and el.layout.layer) or 'Windows', tree = tree })
+end
+local Element = {}
+Element.__index = Element
+function Element:update() if not self.__gone then uiSend(self) end end
+function Element:destroy() if not self.__gone then self.__gone = true uiElements[self.__id] = nil uiNodes[self.__id] = nil emit({ k = 'uiDestroy', id = self.__id }) end end
+
+-- A click or typed text from the page: the node's own callback, as OpenMW calls it.
+function __wg_ui_event(id, path, event, x, y, text)
+  local node = uiNodes[id] and uiNodes[id][path]
+  local cb = node and node.events and node.events[event]
+  if not cb then return end
+  local el = uiElements[id]
+  local fn = type(cb) == 'table' and cb.fn or cb
+  local arg = event == 'textChanged' and text or { position = v2(x or 0, y or 0), offset = v2(0, 0), button = 1 }
+  call(el and el.__inst or { path = 'ui' }, fn, arg, node)
+end
+
 packages['openmw.ui'] = function(inst)
   if inst.ctx ~= 'player' then error('openmw.ui is only for player scripts', 3) end
+  local any = setmetatable({}, { __index = function(_, k) return k end })
   return {
     showMessage = function(t) emit({ k = 'msg', text = tostring(t) }) end,
     printToConsole = function(t) log('do', inst.path, tostring(t)) end,
     setConsoleMode = function() end, setConsoleSelectedObject = function() end,
-    create = function(layout) once('ui.create:' .. inst.path, 'skip', 'ui.create: windows are not drawn in the preview') return { update = function() end, destroy = function() end, layout = layout } end,
-    updateAll = function() end,
-    TYPE = setmetatable({}, { __index = function(_, k) return k end }),
+    create = function(layout)
+      uiNext = uiNext + 1
+      local el = setmetatable({ layout = layout, __id = 'e' .. uiNext, __inst = inst, __wgElement = true, __type = { name = 'LuaUi::Element' } }, Element)
+      uiElements[el.__id] = el
+      -- Only a top-level element is drawn by itself; one inside another's content is drawn
+      -- with that one (and sent again when it is).
+      if layout and layout.layer then uiSend(el) end
+      return el
+    end,
+    updateAll = function() for _, el in pairs(uiElements) do if el.layout and el.layout.layer then uiSend(el) end end end,
+    content = uiContent,
+    TYPE = { Widget = 'Widget', Text = 'Text', TextEdit = 'TextEdit', Image = 'Image', Flex = 'Flex', Container = 'Container', Window = 'Window' },
     ALIGNMENT = { Start = 'Start', Center = 'Center', End = 'End' },
-    CONSOLE_COLOR = {}, WINDOW = setmetatable({}, { __index = function(_, k) return k end }), MODE = setmetatable({}, { __index = function(_, k) return k end }),
-    texture = function(t) return t end,
+    CONSOLE_COLOR = any, WINDOW = any, MODE = any,
+    texture = function(t) return { path = t.path, offset = t.offset, size = t.size, __texture = true } end,
     layers = setmetatable({ indexOf = function() return 1 end, insertAfter = function() end, insertBefore = function() end }, { __index = function() return nil end }),
-    screenSize = function() return v2(1920, 1080) end,
+    screenSize = function() return v2(S.screen and S.screen[1] or 1920, S.screen and S.screen[2] or 1080) end,
     _getMenuTransparency = function() return 1 end,
+    _getDefaultFontSize = function() return 16 end,
+    _setHudVisibility = function() end, _isHudVisible = function() return true end,
   }
 end
 packages['openmw.camera'] = function(inst)
@@ -921,6 +1052,8 @@ function __wg_step(arg)
   local dt = a.dt or 0
   S.sim = S.sim + dt
   for _, e in ipairs(a.activations or {}) do activate(e.key, e.by) end
+  if a.screen then S.screen = a.screen end
+  for _, e in ipairs(a.ui or {}) do __wg_ui_event(e.id, e.path, e.event, e.x, e.y, e.text) end
   local g, l = globalQueue, localQueue
   globalQueue, localQueue = {}, {}
   local globals = {}
