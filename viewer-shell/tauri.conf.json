@@ -30,7 +30,9 @@
       "../MLOX_RULES.md": "MLOX_RULES.md",
       "../MERGED_LANDS.md": "MERGED_LANDS.md",
       "../CHANGELOG.md": "CHANGELOG.md",
-      "../CREDITS.md": "CREDITS.md"
+      "../CREDITS.md": "CREDITS.md",
+      "../License/": "License/",
+      "ui/LICENSE": "License/page-GPL-2.0.txt"
     },
     "linux": {
       "appimage": {

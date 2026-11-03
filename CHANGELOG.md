@@ -523,6 +523,10 @@
   `viewer-shell/DROP-TK.md` (what was left after the port, now under "After 5.0" in
   `TODO.md`). All are in the repository's history.
 
+- **License files for what the program no longer carries** (2026-11-03): `License/Three.js`,
+  `io_scene_mw`, `Tes3conv`, `PLOX`, `Tes3EditX` and `TES3Tool` (no longer shipped or run, or
+  only ever read for reference; still credited in `CREDITS.md`).
+
 ### Changed (documents)
 
 - **`CREDITS.md` goes over the program as it is**: each port named by the crate it lives in
@@ -530,6 +534,11 @@
   pythonize) and three.js (no longer shipped) taken out, the program's Rust libraries listed
   (ureq, serde-saphyr, toml, zstd, encoding_rs, mlua, libloading and the rest), the NIF
   reader and texture history cut to what still applies, and in American English.
+- **The packages carry the licenses.** `build-app.yml` copied a root `LICENSE` that does not
+  exist (the license files are in `License/`), and hid the failure, so the zips and tarballs
+  shipped with no license at all. Each package now has `License/` (with the page's GPL-2.0 as
+  `License/page-GPL-2.0.txt`), the AppImage too (`tauri.conf.json` resources), and a missing
+  document fails the build.
 - **`PREFLIGHT.md`** describes the two workflows there are (`ci.yml`, `build-app.yml`), the
   Rust and page checks, and a release by the Tauri build; the Python environments, the
   separate per-platform build workflows and the Flatpak are gone from it.

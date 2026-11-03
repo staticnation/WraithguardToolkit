@@ -19,8 +19,9 @@ step for step, pinned by the cases in `tests/fixtures/` that the Python answered
 ## Code ported or adapted from (MIT-licensed)
 
 These projects are MIT-licensed. We ported logic and/or cross-referenced their
-implementations; their copyright notices are reproduced with the relevant parts
-and their license files are in `License/`.
+implementations; their copyright notices are reproduced with the relevant parts,
+and the license files of those whose code or data the program carries are in `License/`
+(shipped in every package). Projects only read for reference have none there.
 
 - **mlox** - © 2009–2017 John Moonsugar (alias), dragon32, Arthur Moore. MIT.
   The load-order rule engine and the rule databases (`mlox_base.txt` /
@@ -285,8 +286,9 @@ On 28 July 2026, **Greatness7** - author of the Morrowind Blender Plugin and of
 `Greatness7/tes3` - offered to relicense the NIF library inside `io_scene_mw`,
 and then did it:
 [`cbe18b5`](https://github.com/Greatness7/io_scene_mw/commit/cbe18b558299e14ecd959183e3cf9ea096fe95df)
-adds an MIT `LICENSE` to `lib/es3/` (`License/io_scene_mw`). `Greatness7/tes3` was
-already MIT.
+adds an MIT `LICENSE` to `lib/es3/`. `Greatness7/tes3` was already MIT. Nothing of
+`es3` is in the program now (it was the old reader's cross-check), so its license is no
+longer carried.
 
 That was an unprompted act of generosity toward a project that had spent months
 carefully working around his code, and it is worth naming plainly. The

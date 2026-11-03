@@ -1,5 +1,5 @@
 # Continuous integration (5.0: the program is Rust and the page only; the Python app,
-# its PyInstaller builds and native/ were retired - viewer-shell/DROP-TK.md slice 8).
+# its PyInstaller builds and native/ were retired.
 #
 # The crates' tests, Clippy, the command layer compiled without Tauri's native tree, and
 # the page booted in jsdom against the real commands. Hermetic: no network, nothing
