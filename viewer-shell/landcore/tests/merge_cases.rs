@@ -381,7 +381,7 @@ fn a_cancelled_merge_stops_and_writes_nothing() {
     // Cancelled while the merge runs (as the page's Cancel does, from another thread).
     let stop = Arc::new(AtomicBool::new(false));
     let opts = MergeOptions { output: Some(out.clone()), cancel: Some(stop.clone()), ..Default::default() };
-    let got = build_merged_lands(&[data.clone()], &order, &opts, &mut |l| {
+    let got = build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |l| {
         if l == "merging ..." {
             stop.store(true, Ordering::Relaxed);
         }
@@ -396,7 +396,7 @@ fn a_cancelled_merge_stops_and_writes_nothing() {
     assert!(!out.exists(), "a cancelled merge wrote {}", out.display());
     // Not cancelled, the same merge writes.
     let opts = MergeOptions { output: Some(out.clone()), cancel: Some(Arc::new(AtomicBool::new(false))), ..Default::default() };
-    build_merged_lands(&[data.clone()], &order, &opts, &mut |_| {}).unwrap_or_else(|(e, _)| panic!("{e}"));
+    build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |_| {}).unwrap_or_else(|(e, _)| panic!("{e}"));
     assert!(out.exists());
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }

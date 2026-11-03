@@ -1,5 +1,5 @@
-//! Conflicts, read one way for the viewer's Conflicts page and the Python tools (port step 4.3,
-//! `viewer-shell/CONFLICTS-PORT.md`):
+//! Conflicts, read one way for the viewer's Conflicts page and the command line (port step
+//! 4.3; its history is in `CHANGELOG.md`):
 //!
 //! - [`patch`]: the rules behind patching from a conflict (which plugin starts chosen, what a
 //!   typed value starts from, the fields that cannot be typed).
@@ -22,7 +22,7 @@
 //!   concludes (`wraithguard/images/compare.py`).
 //! - [`vfs`]: the folders' files and the byte compare, on a few threads.
 //!
-//! Written from the Python's behaviour (the reference until it retires) and OpenMW's
+//! Written from the retired Python's behaviour and OpenMW's
 //! documented VFS order (a later `data=` folder wins), not from OpenMW's code.
 
 pub mod fields;

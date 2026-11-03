@@ -119,8 +119,8 @@ and their `LICENSE` files are included in their source folders in this repo.
     frontend loaded into the webview, so the GPL does not reach the MIT code. See
     `viewer-shell/ui/LICENSE`, `License/Gardenfell` and `License/MGE-XE`.
 
-  Rebased on Robin's 18hu page in October 2026 (`viewer-shell/R3-LEDGER.md`); his
-  parts now carry his licence line at their top, and the MGE XE ports sit in his
+  Rebased on Robin's 18hu page in October 2026 (`viewer-shell/GARDENFELL.md`); his
+  parts now carry his license line at their top, and the MGE XE ports sit in his
   `06_mge.js`. What we changed: stripped it to a viewer (grass generation, painting, the
   statics setup, ESP export and the profile/rules managers are gone from the page,
   the commands and the engine); it opens Wraithguard's own setup (the sort panels'

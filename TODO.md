@@ -138,7 +138,7 @@ the vanilla CS, so then:
   `mycompanion.`; `StopScript ItsOwnName`; MWEdit's misses (`RemoteLocalVar` in targeted
   scripts, region names with `PositionCell`, anything under `Choice` in a result).
 
-## Gardenfell (`viewer-shell/REBASE-18hu.md`)
+## Gardenfell (`viewer-shell/GARDENFELL.md`, `viewer-shell/gardenfell/VENDOR.md`)
 
 - Send Robin `subset sort\Gardenfell-offering-2026-10-19.zip` (0001-0014). His `fixture/`
   stays out of the repo; put it in `viewer-shell/gardenfell/fixture` locally to run his suite.
@@ -147,7 +147,8 @@ the vanilla CS, so then:
 - `gardenfell-g7`'s differential tests on a full install (`GARDENFELL_G7_PLUGINS`,
   `GARDENFELL_G7_NIFS`): ARMO, CLOT, BOOK, ALCH, APPA, INGR, CONT, LOCK, PROB, REPA have no
   fixture.
-- R4: the visual checks in `viewer-shell/R4-CHECKLIST.md` sections 2 and 3; the text delta
+- The checks on a real setup in `viewer-shell/GARDENFELL.md` (shadows, flipbooks, skinned
+  NPCs, the UI brought in from 18hu, the Deck, Balmora's speed); the text delta
   after Robin's string audit, and the rebase onto his release after that.
 
 ## Meshes and distant view
@@ -173,6 +174,3 @@ navigation for the menus; the real pointer moved where the system allows (Tauri
   `API_REVISION` (0 until then) and its pages, for handlers and events its scripts do not
   show. Check `WG_OPENMW_RESOURCES=<resources> cargo test -p luacore an_install -- --nocapture`.
 
-## Later (`viewer-shell/LATER-PLAN.md`)
-
-LUAL upstream; the MGE extras; the MWScript compiler work above.

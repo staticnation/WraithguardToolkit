@@ -1,11 +1,7 @@
-# Conflicts, read one way for every part of Wraithguard (port step 4.3, CONFLICTS-PORT.md):
-# which records two or more plugins define and which one wins, the records only one plugin
-# defines, the loose files two or more data folders provide and whether their bytes differ,
-# and the reports. The viewer's Conflicts page calls it as Tauri commands, and the Python
-# tools call it through native/ until they retire.
-#
-# Beside viewcore rather than in native/ so the viewer's builds (which copy only
-# viewer-shell/) have it; native/ takes it by path, as it does ordercore and editcore.
+# Conflicts, read one way for every part of Wraithguard: which records two or more plugins
+# define and which one wins, the records only one plugin defines, the loose files two or more
+# data folders provide and whether their bytes differ, and the reports. The viewer's Conflicts
+# page calls it as Tauri commands (port step 4.3; its history is in CHANGELOG.md).
 [package]
 name = "conflictcore"
 version = "0.1.0"

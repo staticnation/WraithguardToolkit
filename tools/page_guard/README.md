@@ -1,7 +1,7 @@
 # Page guards (viewer-shell/ui)
 
-Three checks for the viewer page after a merge of Gardenfell's page (R3 of the 18hu rebase,
-`viewer-shell/R3-LEDGER.md`). The page is one script assembled from `ui/src` in `ui/ORDER`,
+Three checks for the viewer page after a merge of Gardenfell's page (the 18hu rebase, and the
+next one: `viewer-shell/GARDENFELL.md`). The page is one script assembled from `ui/src` in `ui/ORDER`,
 so a part merged from upstream can call a function, an element or a string that only a part
 we left out (the grass tools) defined. The page tests only find what a test happens to click.
 

@@ -64,7 +64,7 @@ impl Decoded {
         for c in 0..ch {
             let mut run = 0;
             for s in self.samples.iter().skip(c).step_by(ch) {
-                if *s >= 32767 || *s <= -32767 {
+                if *s == i16::MAX || *s <= -i16::MAX {
                     run += 1;
                     if run == 3 {
                         runs += 1;

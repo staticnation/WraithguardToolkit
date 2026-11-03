@@ -1,6 +1,6 @@
-# Sound and music in the viewer (plan)
+# Sound and music in the viewer
 
-Step 5 of the road in `TODO.md` ("a sound engine"). **Step 1 (hear a file) is built**
+**Step 1 (hear a file) is built**
 (2026-10-27): `viewcore::audio` (Symphonia: WAV in PCM and ADPCM, MP3, Ogg Vorbis, FLAC),
 the commands `sound_info` (facts, providers, waveform) and `sound_pcm`, and a player in the
 Editor's record dialog for a Sound record and a response's voice file (`ui/src/63_wg_sound.js`:
@@ -25,15 +25,17 @@ weather's ambient and rain loops as OpenMW reads them (`_Ambient_Loop_Sound_ID`,
 `frequency*10/60*dt`, `_Thunder_Sound_ID_0..3`, flash 1-0.25 fading at `_Flash_Decrement`;
 `R.lightning`), and activators', doors' and containers' own `PlayLoopSound3D(VP)` loops
 (`viewcore::world::loop_in_script`: the first call on the object itself, not after `->`;
-played whatever the script's conditions are). Not yet: Battle music (no fight to start it),
-step 4.
+played whatever the script's conditions are, behind Preview's "Script loops"). **Step 4 is in**
+(2026-11-02): Verify opens the files sound records and responses name (below). Not yet: Battle
+music (no fight to start it), and `sound_peaks` cached by file (the page caches by path for
+the session).
 
 ## Reference: Resonix
 
 [Resonix](https://github.com/joncarr/resonix) (Tauri 2, Rust and React) is an audio sample
 browser: folders, a file table with duration, rate and channels, waveform thumbnails and a
-larger cached waveform, play/pause/seek/loop/volume, a live spectrum, favourites, all
-cached in SQLite. **It has no licence, so it is all rights reserved: we read it for its
+larger cached waveform, play/pause/seek/loop/volume, a live spectrum, favorites, all
+cached in SQLite. **It has no license, so it is all rights reserved: we read it for its
 approach and copy nothing** (no code, no assets, no UI). What it shows that applies here:
 
 - Decode with **Symphonia** (WAV, MP3, OGG/Vorbis, FLAC) in Rust, to mono `f32` for analysis.
@@ -93,5 +95,3 @@ default in the cell preview.
    rule); clipped or silent files; a voice response with no file. Done (5.0.1): in
    Verify (`editcore::verify`, the viewer's `editor_link` opening the files).
 
-Step 1 is small, and could ride with the Editor's fine details (road step 3) if wanted;
-the rest waits for the port.

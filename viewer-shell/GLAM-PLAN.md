@@ -28,8 +28,8 @@ come with it:
    round-trip tests against the *current* code and real fixtures (skinned too) first; then a small
    internal transform type behind the same `[f32; 12]` output; benchmark only then. Skinning,
    visible drawing and collision walk must move together.
-2. **`gardenfell-bytes/src/geom.rs`, `segdist.rs`**: no caller found in this snapshot; check
-   before spending anything on them.
+2. ~~`gardenfell-bytes/src/geom.rs`, `segdist.rs`~~: checked 2026-11-02, nothing in our tree
+   calls them (Robin's grass crates do, and those are not vendored). Nothing to do here.
 
 ## Left alone on purpose
 

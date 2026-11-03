@@ -1,10 +1,6 @@
-# The Tools, read one way for every part of Wraithguard (port step 4.4, TOOLS-PORT.md): the
-# load-order lint, the backups, Remove Master, Save Check and the rest of the Tools page. The
-# viewer's Tools page calls it as Tauri commands, and the Python tools call it through native/
-# until they retire.
-#
-# Beside viewcore rather than in native/ so the viewer's builds (which copy only
-# viewer-shell/) have it; native/ takes it by path, as it does ordercore and conflictcore.
+# The Tools: the load-order lint, the backups, Remove Master, Save Check, tes3cmd, the settings
+# file and Setup, and the rest of the Tools page, which calls it as Tauri commands (port step
+# 4.4; its history is in CHANGELOG.md).
 [package]
 name = "toolscore"
 version = "0.1.0"

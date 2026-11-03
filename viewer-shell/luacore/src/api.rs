@@ -231,9 +231,9 @@ pub fn from_docs(docs: &ldt::Api) -> ApiVersion {
     out
 }
 
-/// The interface a documented module is, if it is one: its `interface`, or - for a script's
-/// documentation the reader did not mark (0.52's `Combat`, `SkillProgression`, `ItemUsage`)
-/// - its module name when it is required as `openmw.interfaces` and is not the package
+/// The interface a documented module is, if it is one: its `interface`, or (for a script's
+/// documentation the reader did not mark: 0.52's `Combat`, `SkillProgression`, `ItemUsage`)
+/// its module name when it is required as `openmw.interfaces` and is not the package
 /// itself. Before 2026-11-02 such a module was taken for the `openmw.interfaces` package, and
 /// the last one read decided where the package could be required (0.52: global only).
 fn interface_of(m: &ldt::Module) -> Option<String> {

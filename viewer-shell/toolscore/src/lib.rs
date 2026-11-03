@@ -1,5 +1,5 @@
-//! The Tools, for the viewer's Tools page and the Python tools (port step 4.4,
-//! `viewer-shell/TOOLS-PORT.md`):
+//! The Tools, for the viewer's Tools page and the command line (port step 4.4; its history is
+//! in `CHANGELOG.md`):
 //!
 //! - [`backups`]: the copies the tools leave before changing a file, found, restored or
 //!   deleted (`scan_backups`).
@@ -14,7 +14,7 @@
 //!   bug, interiors without a path grid, blank headers, expansion-only script calls, missing
 //!   `.omwscripts` twins.
 //!
-//! Written from the Python's behaviour (the reference until it retires).
+//! Written from the retired Python's behaviour.
 
 pub mod backups;
 pub mod docs;

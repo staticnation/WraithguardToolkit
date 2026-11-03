@@ -3,8 +3,8 @@
 //! `find_ref`, `_home_cell`), on the same tes3conv-schema records and the same rules.
 //!
 //! [`Session::find_in`] also finds the records the patch makes itself (the queue's new
-//! records, `crate::queue`), as the Python `find` does. Not here yet (later slices of
-//! port step 4.1, `viewer-shell/PORT.md`): the disk cache in the session, and every edit.
+//! records, `crate::queue`), as the Python `find` did. The edits are `crate::edit`'s and
+//! `crate::places`'; the disk cache is `crate::cache`.
 
 use std::collections::HashMap;
 use std::io;

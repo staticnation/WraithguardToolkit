@@ -1,6 +1,5 @@
-# The landscape: Merge Settings now, Merge Lands as it moves (port step 4.4, TOOLS-PORT.md slices
-# 9 and 10). The viewer's Tools page calls it as Tauri commands; native/ takes it by path for the
-# Python tools until they retire.
+# The landscape: Merge Lands and its settings files, and the Land view's encoder. The viewer's
+# Tools page and Editor call it (port step 4.4; its history is in CHANGELOG.md).
 [package]
 name = "landcore"
 version = "0.1.0"

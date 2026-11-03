@@ -1,13 +1,12 @@
 /* =====================================================================================
-   Wraithguard: the Land view - landscape editing with Gardenfell's brush (TODO, "This
-   week": landscape editing; viewer-shell/EDITOR-WORLD.md step 2).
+   Wraithguard: the Land view - landscape editing with Gardenfell's brush.
 
    Gardenfell's grass paint was taken out of this viewer (the agreement with Robin: it is
    not a grass generator), but its brush stayed in the renderer: the ring that shows where
    a sphere of the brush's radius meets the ground, its feather, the exponential size
    slider, and strokes batched once a frame (`opts.paintMode`, `onBrushMove`, `onPaint`,
    `setBrush` in 06_gl.js, `BrushSize` in 09_ui.js). "Brushes may come back later for
-   landscape editing" (REBASE-18hu.md) - this is that, as a view mode of its own, with
+   landscape editing" (viewer-shell/GARDENFELL.md) - this is that, as a view mode of its own, with
    OpenMW-CS's three terrain modes (a reference for what a modder expects, not for code):
 
    - Height: raise, lower, smooth and flatten (flatten to the height under the brush where

@@ -1,5 +1,5 @@
-//! The landscape, read one way for the viewer's Tools page and the Python tools (port step
-//! 4.4, `viewer-shell/TOOLS-PORT.md` slices 9 and 10):
+//! The landscape, read one way for the viewer's Tools page and the Land view (port step 4.4;
+//! its history is in `CHANGELOG.md`):
 //!
 //! - [`meta`]: Merge Settings - the per-plugin `.mergedlands.toml` read, written and checked
 //!   (`wraithguard/land/meta.py`, itself from Merged Lands' `io/meta_schema.rs`, MIT, David

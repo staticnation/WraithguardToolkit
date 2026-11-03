@@ -1,11 +1,7 @@
-# The Editor's backend, in Rust: plugins read as tes3conv-schema records, a record and a
-# placed object found over a load order, and (as the port goes on) the patch queue, its
-# journal and the edits. Port step 4.1 (TODO.md, PORT.md): the viewer's Editor calls it
-# as Tauri commands, and the Python Editor calls it through native/ until it retires, so
-# the two cannot disagree.
-#
-# Beside viewcore rather than in native/ so the viewer's builds (which copy only
-# viewer-shell/) have it; native/ takes it by path, as it does ordercore.
+# The Editor's backend: plugins read as tes3conv-schema records, a record and a placed
+# object found over a load order, the patch queue, its journal and the edits, Verify and the
+# patch build. The viewer's Editor calls it as Tauri commands. Ported from the Python Editor
+# (port step 4.1; its history is in CHANGELOG.md), whose answers its case files still pin.
 [package]
 name = "editcore"
 version = "0.1.0"

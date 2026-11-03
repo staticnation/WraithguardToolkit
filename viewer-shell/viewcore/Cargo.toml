@@ -27,7 +27,7 @@ landcore = { path = "../landcore" }
 gardenfell-g7 = { path = "../gardenfell-g7" }
 # Wraithguard: Gardenfell's engine crates (Robin Hjelte, MIT), vendored unmodified in
 # viewer-shell/gardenfell (VENDOR.md); viewcore's modules re-export them and add ours on top
-# (REBASE-18hu.md, R1c). The grass crates are not among them.
+# (viewer-shell/GARDENFELL.md). The grass crates are not among them.
 gardenfell-bytes = { path = "../gardenfell/crates/gardenfell-bytes" }
 gardenfell-text = { path = "../gardenfell/crates/gardenfell-text" }
 gardenfell-tes3 = { path = "../gardenfell/crates/gardenfell-tes3" }

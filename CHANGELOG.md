@@ -287,6 +287,18 @@
 - **The rule maker folds, docks and remembers its size and place** like the Editor's other
   panels.
 
+### Removed
+
+- **The finished plans in `viewer-shell/`**: `PORT.md`, `LOADORDER-PORT.md`, `CONFLICTS-PORT.md`,
+  `TOOLS-PORT.md` (the port's steps 4.1 to 4.4, all landed; their history is in this file),
+  `EDITOR-WORLD.md` (its items done or in `TODO.md`), `LATER-PLAN.md` (everything in it is in
+  `TODO.md`), and `REBASE-18hu.md`, `R3-LEDGER.md` and `R4-CHECKLIST.md`, folded into one
+  `GARDENFELL.md`: the ground rules with Robin, what our page kept and left out of his, the
+  checks still to do on a real setup, and how to do the next merge. `DROP-TK.md` is now only
+  what is left after 5.0; `MANIFEST.md` lists the page, the commands and the engine as they are
+  (it still listed 38 commands and modules that are gone); `SOUND.md` and `GLAM-PLAN.md` say
+  where they stand.
+
 ## 5.0.0
 
 The program is Rust and its page only: the Python app is gone.

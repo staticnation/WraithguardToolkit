@@ -1,4 +1,4 @@
-//! The Editor's backend (port step 4.1, `viewer-shell/PORT.md`).
+//! The Editor's backend (port step 4.1; its history is in `CHANGELOG.md`).
 //!
 //! - [`blank`]: a blank record of a type, as the crate makes it (the Editor's "New").
 //! - [`cache`]: the record cache on disk (`wraithguard/patch/recordcache.py`'s tables, its
