@@ -428,6 +428,11 @@
 
 ### Changed
 
+- **README and QUICKSTART rewritten for the program as it is**: the pages one by one (the
+  Cell Preview, Load order, Conflicts, the Editor, Land, Tools), Setup's fields, the command
+  line's flags, where files live. The 4.x walkthrough of the Tk windows is gone.
+- **The Scripts panel's OpenMW Lua uses Setup's OpenMW folder** when no other folder was
+  chosen in the panel.
 - **The program is `wraithguard-toolkit`** (was `wraithguard-viewer`): the binary the build
   and the release packages hold (`viewer-shell/Cargo.toml`, `tauri.conf.json`,
   `build-app.yml`, the Flatpak). Its identifier stays `dev.wraithguard.viewer`, so its WebView

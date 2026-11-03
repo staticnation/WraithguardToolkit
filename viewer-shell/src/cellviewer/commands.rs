@@ -6016,7 +6016,14 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, state: State) ->
     };
     let cfg = order.as_deref().filter(|p| viewcore::luascan::is_openmw_cfg(p));
     // The OpenMW folder the person chose (or its resources), before the cfg and the usual places.
-    let chosen = openmw.filter(|p| !p.trim().is_empty()).map(|p| std::path::PathBuf::from(p.trim().trim_matches('"')));
+    // Else Setup's OpenMW folder (the settings file's `openmw_install`).
+    let chosen = openmw
+        .filter(|p| !p.trim().is_empty())
+        .or_else(|| {
+            let s = toolscore::settings::read(&settings_path("").ok()?);
+            s.get("openmw_install").and_then(|v| v.as_str()).map(str::to_string).filter(|p| !p.trim().is_empty())
+        })
+        .map(|p| std::path::PathBuf::from(p.trim().trim_matches('"')));
     let resources = viewcore::luacore::findings::find_resources(cfg, chosen.as_deref());
     let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
     let mut run = viewcore::luarun::Runner::new(jit.as_deref(), false)?;

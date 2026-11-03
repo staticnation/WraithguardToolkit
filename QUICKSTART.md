@@ -1,68 +1,82 @@
 # Quick Start
 
-Get from "I added some custom mods" to "a corrected `momw-customizations.toml`"
-in about five minutes. For the full reference, see [README.md](README.md).
+From "I added some mods to my OpenMW setup" to "they're sorted, checked, and the fix is
+saved" in a few minutes. The full reference is [README.md](README.md).
 
 ## What you need
 
-- Your **`openmw.cfg`** (the one MOMW Configurator generated).
-- mlox rules: **`mlox_base.txt`** and (optionally) **`mlox_user.txt`** - or let
-  **Update rules** fetch them.
-- Your **`momw-customizations.toml`**, a subset file, or your `custom` mods folder.
-- Optional but recommended: MOMW's **`plugin-order.yml`** and your list's name
-  (e.g. `total-overhaul`).
-- The program: a release from the
-  [Releases page](https://github.com/staticnation/WraithguardToolkit/releases).
-  Windows: the `.zip` (or `-webview2.zip` for a PC without WebView2); macOS:
-  `macos-arm64` or `macos-x86_64`; Linux: the `.tar.gz` (needs the system's
-  WebKitGTK 4.1, e.g. `libwebkit2gtk-4.1-0`). Unpack it and run
-  `wraithguard-toolkit` - nothing else to install.
+- **The program**, from the
+  [Releases page](https://github.com/staticnation/WraithguardToolkit/releases). Unpack it
+  and run `wraithguard-toolkit` (`wraithguard-toolkit.exe` on Windows). Nothing else to
+  install.
+  - Windows 10 or later: the `.zip`. If WebView2 is missing (it was removed with Edge,
+    or this is an LTSC or stripped install), take the `-webview2.zip` instead.
+  - macOS: `macos-arm64` (Apple Silicon) or `macos-x86_64` (Intel). The first time,
+    right-click the program and choose Open.
+  - Linux: the `.tar.gz`. It needs WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`).
+- **Your `openmw.cfg`**. If you use a curated
+  [Modding-OpenMW.com](https://modding-openmw.com/) (MOMW) list, the one MOMW
+  Configurator wrote.
+- **mlox rules**: `mlox_base.txt` and, optionally, `mlox_user.txt`. **Update rules** on
+  the Load order page downloads them.
+- Optional, for a MOMW list: your **`momw-customizations.toml`** (or a plain list of
+  your plugins, or your mods folder), MOMW's **`plugin-order.yml`**, and the **list
+  name** (`total-overhaul`, `expanded-vanilla` ...).
 
 ---
 
-## In 5 steps
+## In five steps
 
-1. **Setup** opens on the first start. Point **openmw.cfg** at yours (**Find**
-   looks where OpenMW keeps it), add the rule files (`mlox_base.txt` first), and
-   your **customizations.toml** (or a subset file, or your mods folder to scan).
-   Each field is checked as you type. Save.
-2. *(Recommended)* Also in Setup: **plugin-order.yml** and the **list name**, so
-   the sort tells your curated list apart from your additions and never touches
-   the curated order.
-3. Open **Load order**. It sorts as it opens: your mods placed into the curated
-   order, the warnings beside them. Tick **Sort data paths** (and Sort again) if
-   your mods add asset folders.
-4. Look it over. Drag a row (or select and move it) to adjust; untick one to leave
-   it out. The warnings filter by kind (rules, masters, plugin-order.yml ...).
-5. **Export**. It writes the corrected order back into your customizations.toml
-   (a timestamped backup first), or into the file named in *Write customizations
-   to*. openmw.cfg is left alone unless you tick *Write openmw.cfg*. With *Dry
-   run* ticked nothing is written.
+1. **Setup** opens on the first start. Point **openmw.cfg** at yours (**Find** looks
+   where OpenMW keeps it), list the rule files (`mlox_base.txt` first), and add your
+   customizations.toml, subset file or mods folder. Each field is checked as you type.
+   Then **Save and load**.
+2. *(MOMW lists)* Also in Setup: **plugin-order.yml** and the **list name**, so the sort
+   tells the curated list apart from your additions and never moves the curated order.
+3. Open **Load order**. It sorts as it opens: your mods placed into the order, the
+   warnings listed beside it. Tick **Sort data paths** and sort again if your mods add
+   asset folders.
+4. Look it over. Drag a row (or select it and move it) to adjust; untick one to leave
+   it out. The warnings filter by kind: rules, masters, plugin-order.yml, data paths ...
+   Each warning's plugin names find the plugin in the order.
+5. **Export**. It writes the corrected order into your customizations.toml (a
+   timestamped backup first), or into the file Setup names under *Write customizations
+   to*. `openmw.cfg` is left alone unless you tick *Write openmw.cfg*. With *Dry run*
+   ticked, nothing is written.
 
 ### Then apply it
 
-Re-run MOMW Configurator with the updated `momw-customizations.toml`. Your custom
-mods now sort into place on every rebuild, and the curated list stays untouched.
-
-### While you are here (optional)
-
-- **Conflicts**: which plugins edit the same records and files, each record's
-  fields across its plugins coloured by who wins, and a Plugins tab with each
-  plugin's losing work. Queue what you want kept into a patch.
-- **Editor**: change records, place objects, edit dialogue and path grids, then
-  **Build patch** writes one new plugin - your mods are never modified.
-- **Tools**: Lint, Backups, Remove / rename master, Save Check (will this save
-  load, and what takes the space), the Journal, tes3cmd, and **Merge Lands** -
-  one `Merged Lands.esp` combining every mod's terrain edits, loaded last.
-- **The cell viewer**: walk any cell in 3D with its terrain, objects, grass and
-  sky; click an object for its readout, Shift+click a door to go through it.
-- **Help**: these documents, in the program.
+With a MOMW list, run MOMW Configurator again on the updated `momw-customizations.toml`.
+Your mods now sort into place on every rebuild, and the curated list stays as it is.
 
 ---
 
-## The one-liner (command line)
+## What else is here
 
-The package's `wraithguard` does the same headless:
+The top bar switches between the pages.
+
+- **The Cell Preview** (where the program opens): walk any cell of your load order in
+  3D, with its terrain, objects, water, sky, weather and sound. Click an object to see
+  what it is and which plugin placed it; Shift+click a door to go through it; **Cell
+  map** (or the key under Escape) picks another cell. **Scripts** runs the scene's MWScript and OpenMW Lua;
+  **Body** walks it at your character's pace.
+- **Conflicts**: which plugins change the same records and files. Each record's fields
+  are shown across its plugins, colored by who wins. Queue what you want kept into a
+  patch.
+- **Editor**: the Construction Set's windows around the render window. Change records,
+  place and move objects, edit dialogue, scripts, path grids and terrain, then **Build
+  patch** writes one new plugin. Your mods are never modified. **Test in OpenMW** starts
+  the game on it.
+- **Land**: sculpt, paint and color the terrain with a brush, into the Editor's patch.
+- **Tools**: Lint, Backups, Remove / rename master, Save Check, Journal, tes3cmd, Merge
+  Lands, Merge settings, Merge to master and the Mesh optimiser.
+- **Help**: these documents, inside the program.
+
+---
+
+## The command line
+
+The package's `wraithguard` does the sort and the scans without a window:
 
 ```
 wraithguard --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
@@ -71,16 +85,17 @@ wraithguard --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
     --sort-data-paths --emit-toml momw-customizations.toml
 ```
 
-Drop `--emit-toml` to just preview the plan and write nothing. A timestamped
-`.bak` is made before anything is overwritten.
+Leave out `--emit-toml` to preview the plan and write nothing. A timestamped `.bak` is
+made before anything is overwritten.
 
 ---
 
 ## Golden rules
 
-- **Nothing is written until you Export** (and *Dry run* writes nothing even then;
-  the command line previews by default).
-- **Your curated MOMW order is never reordered** - only your additions move.
-- **Your mods are never modified**: patches and Merged Lands are new plugins.
-- Customizations aren't supported by the MOMW team; this tool helps you place and
-  inspect them, not guarantee they're conflict-free.
+- **Nothing is written until you Export.** *Dry run* writes nothing even then, and the
+  command line previews by default.
+- **A curated MOMW order is never reordered.** Only your additions move.
+- **Your mods are never modified.** Patches, Merged Lands and the Land view's edits all
+  go into new plugins.
+- The MOMW team doesn't support customizations. This program helps you place and
+  inspect them; it can't promise they're conflict-free.
