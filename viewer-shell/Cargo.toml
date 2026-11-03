@@ -1,5 +1,5 @@
 [package]
-name = "wraithguard-viewer"
+name = "wraithguard-toolkit"
 version = "5.0.0"
 edition = "2021"
 description = "Wraithguard: the program (the cell viewer, Editor, Load order, Conflicts and Tools pages) on Tauri; started on its own it opens on the settings file's openmw.cfg."
@@ -42,7 +42,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(wg_check)"] }
 type_complexity = "allow"
 
 [[bin]]
-name = "wraithguard-viewer"
+name = "wraithguard-toolkit"
 path = "src/main.rs"
 
 # Release builds. opt-level 3, not "z": the cell viewer's engine (mesh/texture

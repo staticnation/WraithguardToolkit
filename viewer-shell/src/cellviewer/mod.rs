@@ -1,6 +1,6 @@
 // Cell viewer mode:
 //
-//   wraithguard-viewer --cell-viewer --openmw-cfg <setup.cfg> [--prefs <viewer profile .toml>]
+//   wraithguard-toolkit --cell-viewer --openmw-cfg <setup.cfg> [--prefs <viewer profile .toml>]
 //                                    [--cell x,y | int:<name>] [--title <t>] [--theme <json>]
 //                                    [--extra <json file>] [--mesh-view]
 //   --mesh-view: the mesh viewer - the meshes in the extra file's `meshes`
@@ -134,7 +134,7 @@ pub fn run(args: &[String], context: tauri::Context<tauri::Wry>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(e) => {
-            eprintln!("wraithguard-viewer: fatal error: {e}");
+            eprintln!("wraithguard-toolkit: fatal error: {e}");
             1
         }
     }

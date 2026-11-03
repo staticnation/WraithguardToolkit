@@ -1,6 +1,6 @@
 # Viewer shell manifest
 
-What is in `viewer-shell/`: `wraithguard-viewer`, the Wraithguard program (the cell viewer, the
+What is in `viewer-shell/`: `wraithguard-toolkit`, the Wraithguard program (the cell viewer, the
 mesh viewer, the Editor, and the Load order, Conflicts, Tools, Setup and Help pages), and the
 crates behind it. The viewer came from Gardenfell (Robin Hjelte, MIT) and was stripped to a
 viewer (`GARDENFELL.md`). Sizes and counts are as of the last regeneration of this file.

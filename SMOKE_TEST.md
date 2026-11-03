@@ -371,7 +371,7 @@ tellable apart at a glance (a highlighted row you then select shows both).
 | # | Action | What to expect |
 |---|---|---|
 | 1 | Launch with `--trace`, sort, click **Cell Map** | The map opens in the in-app window as before. In the log / pywebview line the address is now `http://127.0.0.1:<port>/…`, **not** `…\cell_map.html`. The old bare-`file://` open is the regression this replaced. |
-| 2 | If the viewer (`wraithguard-viewer`) isn't bundled | It still falls back to tkinterweb, then the browser - and the browser too gets the `127.0.0.1` URL, not a file path. (The log's `pywebview=` key reports whether the viewer was found.) |
+| 2 | If the viewer (`wraithguard-toolkit`) isn't bundled | It still falls back to tkinterweb, then the browser - and the browser too gets the `127.0.0.1` URL, not a file path. (The log's `pywebview=` key reports whether the viewer was found.) |
 
 ### 7c. Old cell maps get tidied
 

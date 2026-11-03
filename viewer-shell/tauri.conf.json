@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "wraithguard-viewer",
+  "productName": "wraithguard-toolkit",
   "version": "5.0.0",
   "identifier": "dev.wraithguard.viewer",
   "build": {

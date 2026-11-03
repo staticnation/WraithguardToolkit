@@ -24,7 +24,7 @@ inside the program as well.
 
 ## Contents
 
-- `wraithguard-viewer` - **the program** (`viewer-shell/`, Tauri). Started on its own it
+- `wraithguard-toolkit` - **the program** (`viewer-shell/`, Tauri). Started on its own it
   opens on the openmw.cfg its settings file names, or on its **Setup** page. Its pages:
   the cell viewer and mesh viewer, the **Editor**, **Load order** (sort and export),
   **Conflicts**, **Tools** (Lint, Backups, masters, Save Check, Journal, tes3cmd, Merge
@@ -63,7 +63,7 @@ WraithguardToolkit/
 ├── License/                      The MIT licence, plus one file per upstream project
 │                                 whose licence travels with code ported here.
 ├── viewer-shell/                 The program and its crates:
-│   ├── src/                      wraithguard-viewer (Tauri): main.rs, the commands.
+│   ├── src/                      wraithguard-toolkit (Tauri): main.rs, the commands.
 │   ├── ui/                       Its page (GPL-2.0, kept apart), assembled from
 │   │                             ui/src by ui/ORDER into ui-dist at build time;
 │   │                             ui/tests holds the page's boot and Editor tests.
@@ -90,7 +90,7 @@ WraithguardToolkit/
 
 Download a release from the
 [Releases page](https://github.com/staticnation/WraithguardToolkit/releases). Each
-package holds `wraithguard-viewer` (the program), `wraithguard` (the command line) and
+package holds `wraithguard-toolkit` (the program), `wraithguard` (the command line) and
 the documents the Help page shows. Nothing else to install:
 
 - **Windows** (10 or later): `wraithguard-windows-x86_64.zip`, which uses the WebView2
@@ -99,12 +99,12 @@ the documents the Help page shows. Nothing else to install:
   runtime in a `webview2` folder beside the program, which finds it there itself.
 - **macOS**: `wraithguard-macos-arm64.tar.gz` (Apple Silicon) or `-x86_64` (Intel). The
   build is unsigned: right-click -> Open the first time, or
-  `xattr -dr com.apple.quarantine wraithguard-viewer`.
+  `xattr -dr com.apple.quarantine wraithguard-toolkit`.
 - **Linux**: `wraithguard-linux-x86_64.tar.gz`, on the system's WebKitGTK 4.1
   (`libwebkit2gtk-4.1-0`: Ubuntu 22.04+, Debian 12+, Fedora, Arch).
 - **Steam Deck**: the Flatpak, once it is rebuilt on 5.0 (until then, 4.x's Flatpak).
 
-Start `wraithguard-viewer`. The first start opens **Setup**: point it at your
+Start `wraithguard-toolkit`. The first start opens **Setup**: point it at your
 `openmw.cfg` (**Find** looks where OpenMW keeps it) and the rest of your files; each
 field is checked as you type. Setup is always one click away (the top bar), and opens by
 itself after a start that never finished loading, so a malformed install never locks you
@@ -121,7 +121,7 @@ cargo build --release --manifest-path viewer-shell/Cargo.toml       # the progra
 cargo build --release --manifest-path viewer-shell/cli/Cargo.toml   # the command line
 ```
 
-The program is `viewer-shell/target/release/wraithguard-viewer`; it keeps its settings
+The program is `viewer-shell/target/release/wraithguard-toolkit`; it keeps its settings
 file (`wraithguard_toolkit_settings.json`) and caches beside itself.
 
 ### Verifying a download
@@ -523,7 +523,7 @@ Everything about the shading is a control:
 
 ### Cell preview (walk a cell in 3D)
 
-Click **Cell Preview** (after a Sort) to open the viewer (`wraithguard-viewer`,
+Click **Cell Preview** (after a Sort) to open the viewer (`wraithguard-toolkit`,
 beside the tool) on the load order as the sort panels hold it now -- the point
 being to check a cell for conflicts *without* loading the game. Pick a cell from
 the list or from the **cell map** (heat-coloured by how many plugins touch each

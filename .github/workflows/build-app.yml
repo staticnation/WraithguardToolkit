@@ -1,7 +1,7 @@
 # The program without Python (port step 4.5, slice 5; viewer-shell/DROP-TK.md): one Tauri
 # build per platform. Each package holds
 #
-#   wraithguard-viewer   the program: started on its own it opens on the settings file's
+#   wraithguard-toolkit   the program: started on its own it opens on the settings file's
 #                        openmw.cfg, or on its Setup page (no Python, no Tk)
 #   wraithguard          the command line (viewer-shell/cli): the sort, export and scans
 #   QUICKSTART.md ...    the documents its Help page shows
@@ -94,7 +94,7 @@ jobs:
         run: |
           out=wraithguard-${{ matrix.name }}
           mkdir -p "$out"
-          cp viewer-shell/target/release/wraithguard-viewer${{ matrix.exe }} "$out/"
+          cp viewer-shell/target/release/wraithguard-toolkit${{ matrix.exe }} "$out/"
           cp viewer-shell/cli/target/release/wraithguard${{ matrix.exe }} "$out/"
           cp QUICKSTART.md README.md MLOX_RULES.md CHANGELOG.md LICENSE CREDITS.md "$out/" 2>/dev/null || true
           if [ "$RUNNER_OS" = "Windows" ]; then 7z a "$out.zip" "$out" >/dev/null; else tar czf "$out.tar.gz" "$out"; fi
@@ -165,8 +165,7 @@ jobs:
         run: |
           $out = "wraithguard-windows-x86_64-webview2"
           New-Item -ItemType Directory -Force -Path "$out/webview2" | Out-Null
-          Copy-Item viewer-shell/target/release/wraithguard-viewer.exe, viewer-shell/cli/target/release/wraithguard.exe $out
-          foreach ($f in "QUICKSTART.md","README.md","MLOX_RULES.md","CHANGELOG.md","CREDITS.md") { if (Test-Path $f) { Copy-Item $f $out } }
+          Copy-Item viewer-shell/target/release/wraithguard-toolkit.exe, viewer-shell/cli/target/release/wraithguard.exe $out          foreach ($f in "QUICKSTART.md","README.md","MLOX_RULES.md","CHANGELOG.md","CREDITS.md") { if (Test-Path $f) { Copy-Item $f $out } }
           Invoke-WebRequest -Uri $env:WEBVIEW2_URL -OutFile webview2.cab
           expand.exe webview2.cab -F:* "$out/webview2" | Out-Null
           $exe = Get-ChildItem -Path "$out/webview2" -Recurse -Filter msedgewebview2.exe | Select-Object -First 1

@@ -1,4 +1,4 @@
-// wraithguard-viewer: a single-purpose native webview window.
+// wraithguard-toolkit: a single-purpose native webview window.
 //
 // This is the entire replacement for pywebview in WraithguardToolkit. It is
 // invoked exactly the way the old pywebview child process was invoked --
@@ -15,10 +15,10 @@
 // PyQt6/sip's free-threading limitations: the Python process can run
 // GIL-free (3.14t) or not, and it makes no difference to this binary.
 //
-// Usage: wraithguard-viewer <url> [title] [width] [height]
-//        wraithguard-viewer --cell-viewer [--openmw-cfg <path>] [--cell x,y|int:Name] [--title <t>]
+// Usage: wraithguard-toolkit <url> [title] [width] [height]
+//        wraithguard-toolkit --cell-viewer [--openmw-cfg <path>] [--cell x,y|int:Name] [--title <t>]
 //          (the built-in cell viewer; see src/cellviewer)
-//        wraithguard-viewer [--setup] [--loadorder ...]
+//        wraithguard-toolkit [--setup] [--loadorder ...]
 //          (the program on its own: the cell viewer on the settings file's openmw.cfg, its
 //          Setup page first when there is none yet or `--setup` asks; port step 4.5)
 
@@ -86,7 +86,7 @@ fn main() {
     let url_arg = match args.get(1) {
         Some(u) => u.clone(),
         None => {
-            eprintln!("wraithguard-viewer: missing required <url> argument");
+            eprintln!("wraithguard-toolkit: missing required <url> argument");
             std::process::exit(2);
         }
     };
@@ -103,7 +103,7 @@ fn main() {
     let parsed_url = match url_arg.parse() {
         Ok(u) => u,
         Err(e) => {
-            eprintln!("wraithguard-viewer: invalid URL '{url_arg}': {e}");
+            eprintln!("wraithguard-toolkit: invalid URL '{url_arg}': {e}");
             std::process::exit(2);
         }
     };
@@ -127,7 +127,7 @@ fn main() {
         .run(context);
 
     if let Err(e) = result {
-        eprintln!("wraithguard-viewer: fatal error: {e}");
+        eprintln!("wraithguard-toolkit: fatal error: {e}");
         std::process::exit(1);
     }
 }

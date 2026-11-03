@@ -428,6 +428,11 @@
 
 ### Changed
 
+- **The program is `wraithguard-toolkit`** (was `wraithguard-viewer`): the binary the build
+  and the release packages hold (`viewer-shell/Cargo.toml`, `tauri.conf.json`,
+  `build-app.yml`, the Flatpak). Its identifier stays `dev.wraithguard.viewer`, so its WebView
+  data and settings carry over. The command line stays `wraithguard`, a program of its own,
+  for headless use.
 - **Merge Lands uses less memory**: each plugin's decoded cell is moved into the merge's
   copies rather than cloned (peak 1.50 to 1.22 GB on the 300-plugin benchmark), and a layer
   that repeats what it is measured against is recognised without unpacking it. The output is

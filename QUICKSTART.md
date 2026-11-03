@@ -16,7 +16,7 @@ in about five minutes. For the full reference, see [README.md](README.md).
   Windows: the `.zip` (or `-webview2.zip` for a PC without WebView2); macOS:
   `macos-arm64` or `macos-x86_64`; Linux: the `.tar.gz` (needs the system's
   WebKitGTK 4.1, e.g. `libwebkit2gtk-4.1-0`). Unpack it and run
-  `wraithguard-viewer` - nothing else to install.
+  `wraithguard-toolkit` - nothing else to install.
 
 ---
 

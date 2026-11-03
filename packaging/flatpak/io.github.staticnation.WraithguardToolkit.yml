@@ -128,7 +128,7 @@ modules:
       # The viewer shell, on the runtime's WebKitGTK. It is started by
       # wraithguard/viewer_launch.py through WRAITHGUARD_VIEWER (see wraithguard.sh).
       - cd viewer-shell && cargo build --release
-      - install -Dm755 viewer-shell/target/release/wraithguard-viewer /app/bin/wraithguard-viewer
+      - install -Dm755 viewer-shell/target/release/wraithguard-toolkit /app/bin/wraithguard-toolkit
       # The app, laid out as in a checkout (resource_path() and the imports expect
       # the scripts beside the package), plus what the frozen builds carry.
       - install -d /app/share/wraithguard
