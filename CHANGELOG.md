@@ -5,6 +5,10 @@
 
 ### Added
 
+- **A Linux AppImage, in place of the Flatpak** (`build-app.yml`, Tauri's bundler): one file
+  for any distribution and the Steam Deck, WebKitGTK and GStreamer inside. Run as an
+  AppImage, the program keeps its settings beside the `.AppImage` file, starts itself again
+  through it (Restart, a new Cell Preview), and its Help reads the documents it carries.
 - **The Physics drop keeps hollows, falls onto unsaved land and drops meshes with no
   collision** (`physcore`, `76_wg_physics.js`). A bowl, a cart or a tray is split into convex
   parts (V-HACD) so things land inside it (Hollow shapes, on by default); the ground is the

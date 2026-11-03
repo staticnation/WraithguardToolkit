@@ -59,8 +59,8 @@ Help page shows. Unpack it anywhere and run the program; there is nothing to ins
 | Windows without WebView2 | `wraithguard-windows-x86_64-webview2.zip` | Carries its own runtime in a `webview2` folder beside the program, for PCs where WebView2 was removed (with Edge, LTSC, stripped images). |
 | macOS, Apple Silicon | `wraithguard-macos-arm64.tar.gz` | Unsigned: right-click > Open the first time, or `xattr -dr com.apple.quarantine wraithguard-toolkit`. |
 | macOS, Intel | `wraithguard-macos-x86_64.tar.gz` | As above. |
-| Linux | `wraithguard-linux-x86_64.tar.gz` | Needs WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`: Ubuntu 22.04+, Debian 12+, Fedora, Arch). |
-| Steam Deck | Flatpak | Being rebuilt on the current program. Until then, the 4.x Flatpak. |
+| Linux and the Steam Deck | `wraithguard-linux-x86_64.AppImage` | Everything it needs is inside. Make it executable (`chmod +x`, or Properties > Permissions), then run it. On the Deck, use Desktop Mode; add it to Steam as a non-Steam game to start it from Game Mode. Its settings are kept beside the `.AppImage` file. |
+| Linux, plain | `wraithguard-linux-x86_64.tar.gz` | Smaller, with the command line. Needs the system's WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`: Ubuntu 22.04+, Debian 12+, Fedora, Arch). |
 
 **Verifying a download.** Each release lists the packages' SHA-256 sums. Compare them with
 `certutil -hashfile <file> SHA256` (Windows) or `sha256sum <file>`.
@@ -439,7 +439,8 @@ runs every check CI runs:
     by `viewer-shell/check-commands`.
 
 CI (`.github/workflows/ci.yml`) runs exactly that list. `build-app.yml` builds the release
-packages on a `v*` tag or a `build/**` branch.
+packages on a `v*` tag or a `build/**` branch, the Linux AppImage with Tauri's bundler
+(`cargo tauri build --bundles appimage` in `viewer-shell`).
 
 The fixtures in `tests/fixtures/` pin the crates to the answers the retired Python gave
 (the command line, the sort, the Configurator simulation, Merged Lands), so a change that
@@ -476,7 +477,6 @@ WraithguardToolkit/
 │   └── check/ check-commands/
 │                            Compile checks without Tauri's native tree, and
 │                            wg-view-serve, the headless engine the page tests use.
-├── packaging/flatpak/       The Linux Flatpak (being rebuilt on the current program).
 ├── tools/                   Developer scripts and the fixture generators.
 ├── tests/fixtures/          The crates' shared test cases.
 ├── testdata/                Copies of a real setup, used by the tests.

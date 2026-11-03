@@ -13,7 +13,9 @@ saved" in a few minutes. The full reference is [README.md](README.md).
     or this is an LTSC or stripped install), take the `-webview2.zip` instead.
   - macOS: `macos-arm64` (Apple Silicon) or `macos-x86_64` (Intel). The first time,
     right-click the program and choose Open.
-  - Linux: the `.tar.gz`. It needs WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`).
+  - Linux and the Steam Deck: the `.AppImage`. Make it executable, then run it (on the
+    Deck, from Desktop Mode). Or the `.tar.gz`, which needs the system's WebKitGTK 4.1
+    (`libwebkit2gtk-4.1-0`).
 - **Your `openmw.cfg`**. If you use a curated
   [Modding-OpenMW.com](https://modding-openmw.com/) (MOMW) list, the one MOMW
   Configurator wrote.

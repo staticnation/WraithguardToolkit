@@ -4636,7 +4636,26 @@ fn land_merge_progress(from: usize) -> Result<String, String> {
    follow. */
 
 fn help_dirs(dirs: &[String]) -> Vec<PathBuf> {
-    toolscore::docs::search_dirs(dirs, std::env::current_exe().ok().as_deref())
+    let mut out = toolscore::docs::search_dirs(dirs, std::env::current_exe().ok().as_deref());
+    // An AppImage: the documents it carries (Tauri puts resources in usr/lib/<product>),
+    // then any beside the .AppImage file.
+    if let Some(app) = std::env::var_os("APPDIR") {
+        out.push(PathBuf::from(app).join("usr").join("lib").join("wraithguard-toolkit"));
+    }
+    if let Some(dir) = std::env::var_os("APPIMAGE").map(PathBuf::from).and_then(|p| p.parent().map(std::path::Path::to_path_buf)) {
+        out.push(dir);
+    }
+    out
+}
+
+/// Wraithguard: the program to start again (a new Cell Preview, a restart): the .AppImage
+/// file when it runs as one - its own binary lives in a mount that ends with it - else the
+/// executable itself.
+fn self_exe() -> Result<PathBuf, String> {
+    if let Some(p) = std::env::var_os("APPIMAGE").map(PathBuf::from).filter(|p| p.is_file()) {
+        return Ok(p);
+    }
+    std::env::current_exe().map_err(|e| e.to_string())
 }
 
 /// Wraithguard: the documents the Help offers (`HELP_DOCUMENTS`), `[{name, title, found}]`.
@@ -4695,7 +4714,7 @@ fn editor_preview_patch(cfg: String, path: String) -> Result<(), String> {
     let lines = editcore::buildjob::with_extra_plugins(&lines, std::slice::from_ref(&target));
     let setup = cfg_path.with_file_name("wraithguard_preview_setup.cfg");
     write_path_whole(&setup.to_string_lossy(), (lines.join("\n") + "\n").as_bytes())?;
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = self_exe()?;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mut args: Vec<String> = vec!["--cell-viewer".into(), "--openmw-cfg".into(), setup.to_string_lossy().into_owned()];
     let mine: Vec<String> = std::env::args().collect();
@@ -5518,7 +5537,7 @@ fn setup_mark(state: String, cfg: String) -> Result<(), String> {
 /// for when the install it is loading will not finish), and ends this one.
 #[tauri::command(async)]
 fn app_restart() -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = self_exe()?;
     std::process::Command::new(exe).args(std::env::args().skip(1)).spawn().map_err(|e| format!("the program could not be started again: {e}"))?;
     std::process::exit(0);
 }

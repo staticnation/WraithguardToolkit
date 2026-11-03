@@ -569,6 +569,12 @@ fn override_dir() -> Option<PathBuf> {
 }
 
 fn beside_exe() -> Result<PathBuf, String> {
+    /* Started as an AppImage, the program runs from a read-only mount that goes away when
+       it ends: the folder that matters is the one the .AppImage file sits in (`APPIMAGE`,
+       set by the AppImage runtime), so the settings stay beside the file people keep. */
+    if let Some(dir) = std::env::var_os("APPIMAGE").map(PathBuf::from).and_then(|p| p.parent().map(Path::to_path_buf)) {
+        return Ok(dir);
+    }
     let exe = std::env::current_exe().map_err(|e| format!("cannot locate the app: {}", e))?;
     Ok(exe.parent().ok_or("the app has no parent directory")?.to_path_buf())
 }

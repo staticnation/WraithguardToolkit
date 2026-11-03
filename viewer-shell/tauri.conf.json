@@ -14,9 +14,28 @@
     "withGlobalTauri": true
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": [
+      "appimage"
+    ],
     "icon": [
-      "icons/wraithguard_toolkit_icon.ico"
-    ]
+      "icons/wraithguard_toolkit_icon.ico",
+      "icons/icon.png"
+    ],
+    "category": "Utility",
+    "shortDescription": "Sort, check, preview and edit a Morrowind load order on OpenMW",
+    "resources": {
+      "../QUICKSTART.md": "QUICKSTART.md",
+      "../README.md": "README.md",
+      "../MLOX_RULES.md": "MLOX_RULES.md",
+      "../MERGED_LANDS.md": "MERGED_LANDS.md",
+      "../CHANGELOG.md": "CHANGELOG.md",
+      "../CREDITS.md": "CREDITS.md"
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    }
   }
 }

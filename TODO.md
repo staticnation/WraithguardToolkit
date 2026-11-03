@@ -48,7 +48,10 @@ Static's setup. Left:
 ## After 5.0 (`viewer-shell/DROP-TK.md`)
 
 - Translations: the page's string tables generated from the `.po` files (English only now).
-- The Flatpak rebuilt on the Tauri binary (`build-flatpak.yml` still packages 4.x).
+- The AppImage (`build-app.yml`'s `linux-appimage`, replacing the Flatpak): check the first
+  build on a desktop distro and on the Deck (Desktop Mode, and Game Mode as a non-Steam game),
+  that its sound plays (the bundled GStreamer), and that settings land beside the .AppImage.
+  Then remove `build-flatpak.yml` and `packaging/flatpak/`.
 - A CSP: `tauri.conf.json` has `"csp": null`; the page's inline `on...=` handlers move to
   `addEventListener` first, then the `WG_TAINT` runs once more, then mark Aikido's finding.
 - Android and iOS (DROP-TK slice 10: an audit of what assumes a desktop first).
