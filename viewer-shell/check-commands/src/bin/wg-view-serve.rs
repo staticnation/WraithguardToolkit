@@ -140,6 +140,9 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "where_used" => Reply::Json(t::where_used(s(a, "kind"), s(a, "name"), st())?),
         "asset_providers" => Reply::Json(t::asset_providers(s(a, "path"), s(a, "kind"), st())?),
         "game_settings" => Reply::Json(t::game_settings(st())?),
+        "walk_player_from_save" => Reply::Json(t::walk_player_from_save(s(a, "path"))?),
+        "scene_scripts" => Reply::Json(t::scene_scripts(strs(a, "ids"), st())?),
+        "script_texts" => Reply::Json(t::script_texts(strs(a, "names"), st())?),
         "write_b64" => {
             t::write_b64(s(a, "path"), s(a, "data"))?;
             Reply::Raw("true".into())

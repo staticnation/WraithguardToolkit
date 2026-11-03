@@ -15,6 +15,7 @@ module.exports = async (t) => {
   });
   const { w, d } = p;
   w.eval(`var BrushSize={pos:()=>50, radius:()=>600}; var DEFAULT_LTEX='_land_default'; var GameData={};`);
+  w.eval(require('./harness').source('src/72_wg_landbrush.js'));
   w.eval(require('./harness').source('src/67_wg_land.js'));
   const L = w.WgLand;
   t.ok(L, 'WgLand is there');

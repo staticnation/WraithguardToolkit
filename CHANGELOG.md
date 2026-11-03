@@ -5,6 +5,60 @@
 
 ### Added
 
+- **The scene's scripts, run** (the Preview's ▶ Scripts, `73_wg_scripts.js`). The loaded
+  objects' MWScript (and the start scripts, and the scripts they start) runs every frame as the
+  game runs it, each object with its own locals, and what it does shows in the scene: lamps
+  and statics enabled and disabled (by the hour, by a global), objects moved, turned, scaled
+  and placed (`SetPos`, `SetAngle`, `Move`, `Rotate`, `MoveWorld`, `RotateWorld`, `Position`,
+  `PlaceAtMe`, `SetScale`), music streamed and sounds played (`StreamMusic`, `PlaySound`,
+  `PlaySound3D`, `PlayLoopSound3D`, `Say`, `StopSound`), the weather changed, the view faded,
+  the clock set. Actors carry what the load order gives them (AddItem, RemoveItem, Drop,
+  GetItemCount), have health, magicka and fatigue (Set/Mod/ModCurrent*, OnDeath,
+  Resurrect), walk their AI packages through the scene (AiWander, AiTravel, AiFollow,
+  AiEscort, AiActivate) and fight (StartCombat: they close in and strike until one falls and
+  lies down). GetSoundPlaying, SayDone, GetLOS and GetDetected answer from the scene; a
+  MessageBox's buttons are put to you and the choice is GetButtonPressed; PlaceAtMe in a room
+  stays in that room. A state panel sets what the scripts read: the hour (the Preview's clock), the
+  day, month and year, every global, journal indexes; Pause, Step and Reset; Ctrl+click
+  activates an object. A log says what each script did, and names once each function the
+  preview does not run. Nothing is written: Reset or closing the panel puts the scene back.
+  The engine reads every scriptable record's script, the scripts' text, the start scripts and
+  the globals (`scene_scripts`, `script_texts`).
+
+- **Landscape brushes with a modern brush engine** (the Land view, `72_wg_landbrush.js`),
+  with GIMP's brush options and paint dynamics as the model. Nine height tools: Raise,
+  Lower, Smooth (average, gaussian or a wide blur), Sharpen, Flatten (to where the stroke
+  began, the brush's average, a fixed or picked height, or the sea; up and down, only up or
+  only down), Ramp, Noise (fractal: scale, octaves, roughness, seed), Terrace (step and
+  riser) and Erode (thermal, by talus angle). The brush has a falloff curve (smooth,
+  linear, sphere, sharp, gaussian, flat; drawn under the slider), a shape (circle, square,
+  diamond) with aspect ratio and angle, drawn as that outline on the ground, and spacing. The stroke has its own intensity for a
+  click and for a drag, a hold rate that builds while the button is held still (with a
+  delay), attack, decay (half-life), a fade over distance (none, loop, sawtooth, triangle),
+  velocity and random dynamics, jitter, smooth stroke (a stabilizer), and a per-stroke cap
+  (incremental at 0). Seven ready-made brushes (Gentle sculpt, Airbrush, Stamp, Clean line,
+  Tapering stroke, Rough...). Shift smooths, Alt inverts, [ ] the size, { } the strength.
+- **Map overlays in the Land view**, as the old 3D terrain view drew them: a hillshade from
+  the ground's own slope (over the textures, or a grey relief), lit from an azimuth and
+  altitude by one, three or six weighted lights; a height tint in the green-tan-white
+  (hypsometric), rainbow or grey palette at an opacity; and contours at an interval or a
+  round one picked for about a dozen lines, every fifth heavier and dropped where they
+  would crowd. **Relief map** turns the old view's look on in one click. Drawn in the
+  ground shader (06_gl.js), never in the water's reflection, and off outside the Land view.
+- **The first-person body** (the viewport's **🧍 Body** while walking). It moves at OpenMW's
+  pace from its stats: Speed, Athletics, Acrobatics, encumbrance and fatigue, and the
+  Levitate, Jump and Swift Swim magnitudes, each a slider (the stats 0.01 to 255) or typed,
+  set from a preset or from an OpenMW save's player (**From a save...**). The walk, run,
+  sneak (Ctrl), sideways step, swim, levitation and jump are OpenMW's formulas over the load
+  order's game settings (`game_settings` now carries them). In water deeper than
+  fSwimHeightScale of the body it swims where it looks, the head held at the surface; **L**
+  levitates (E up, Q down). It collides with the objects' collision shapes (a
+  RootCollisionNode, else the drawn mesh, nothing for a mesh without collision) instead of
+  every drawn triangle, and actors stand in its way. With Preview's Sounds on it hears its
+  steps by the boots' weight, wading, swim strokes and its landings, at a footsteps volume.
+  New command `walk_player_from_save` (`toolscore::save::player_stats`: the run of stats in the
+  save's `PLAY` record, checked on a format 39 save; `WG_PLAYER_SAVE=<save> cargo test -p
+  toolscore a_real_save -- --ignored --nocapture` prints what it reads).
 - **Degenerate and duplicate triangles in the mesh viewer**, under Draw order, per shape: a
   triangle with a corner used twice or its corners in a line (it draws nothing), and one
   with the same corners in the same winding as another (drawn twice). A back face, the
@@ -245,6 +299,10 @@
 
 ### Changed
 
+- **Merge Lands uses less memory**: each plugin's decoded cell is moved into the merge's
+  copies rather than cloned (peak 1.50 to 1.22 GB on the 300-plugin benchmark), and a layer
+  that repeats what it is measured against is recognised without unpacking it. The output is
+  byte for byte the same.
 - **Merge Lands' finish step runs across the cores**: the normals, the cells' digests and the
   seam anchor (which now takes only the cells near the merge). The 65 s "seams" step on a
   621-plugin order was memory pressure, not the work: seam repair itself is 0.1 s on 12,000

@@ -224,7 +224,7 @@ pub fn merge_landmass(
     let want_loaded = loaded.is_some();
     let loaded_ref: Option<&Landmass> = loaded.as_deref();
     type CellOut = (Option<(MergedCell, HashMap<Layer, RelativeGrid>)>, Option<LandscapeLayers>);
-    let one = |coords: Coords, touches: &[Touch]| -> Result<CellOut, String> {
+    let one = |coords: Coords, touches: Vec<Touch>| -> Result<CellOut, String> {
         let single = |l: Option<&LandscapeLayers>| {
             let mut m = Landmass::default();
             if let Some(l) = l {
@@ -237,11 +237,14 @@ pub fn merge_landmass(
         let mut cell: Option<MergedCell> = None;
         let mut grids: HashMap<Layer, RelativeGrid> = HashMap::new();
         for (index, allowed, c) in touches {
-            let plugin = &plugins[*index];
-            if *allowed != 0 {
+            let plugin = &plugins[index];
+            // The decoded cell is moved into the last copy that keeps it, cloned only when
+            // both the rolling and the loaded landmass need one.
+            let mut c = Some(c);
+            if allowed != 0 {
                 let meta = metas.get(&plugin.name);
                 let against = rolling.as_ref().unwrap_or(reference);
-                for change in differences(against, &plugin.name, std::slice::from_ref(c), *allowed)? {
+                for change in differences(against, &plugin.name, std::slice::from_ref(c.as_ref().expect("the cell")), allowed)? {
                     let cell = cell.get_or_insert_with(|| MergedCell { coords, new_land: change.new_land, ..Default::default() });
                     cell.editors.push(plugin.name.clone());
                     cell.new_land = cell.new_land || change.new_land;
@@ -251,16 +254,18 @@ pub fn merge_landmass(
                     }
                 }
                 if let Some(r) = rolling.as_mut() {
-                    layer_onto(r, masked(c.clone(), *allowed), &plugin.name);
+                    let own = if here.is_some() { c.clone() } else { c.take() };
+                    layer_onto(r, masked(own.expect("the cell"), allowed), &plugin.name);
                 }
             }
-            if let Some(l) = here.as_mut() {
-                layer_onto(l, c.clone(), &plugin.name);
+            if let (Some(l), Some(c)) = (here.as_mut(), c.take()) {
+                layer_onto(l, c, &plugin.name);
             }
         }
         Ok((cell.map(|c| (c, grids)), here.and_then(|mut l| l.cells.remove(&coords))))
     };
-    let cells: Vec<(&Coords, &Vec<Touch>)> = by_cell.iter().collect();
+    // Each cell's touches handed to the core that takes it (taken out, so they move).
+    let cells: Vec<(Coords, std::sync::Mutex<Vec<Touch>>)> = by_cell.into_iter().map(|(c, t)| (c, std::sync::Mutex::new(t))).collect();
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(cells.len().max(1));
     /* Each core takes the next cell as it finishes one, rather than a fixed share: the cells
        a load order edits most are next to each other (a city, a coast), and a share of them
@@ -276,7 +281,8 @@ pub fn merge_landmass(
                     loop {
                         let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some((c, t)) = cells.get(i) else { break };
-                        let r = one(**c, t);
+                        let touches = std::mem::take(&mut *t.lock().unwrap_or_else(|p| p.into_inner()));
+                        let r = one(*c, touches);
                         let stop = r.is_err();
                         got.push((i, r));
                         if stop {
@@ -294,7 +300,7 @@ pub fn merge_landmass(
     let mut loaded = loaded;
     {
         for (i, answer) in answers {
-            let coords = cells.get(i).map(|(c, _)| **c).unwrap_or_default();
+            let coords = cells.get(i).map(|(c, _)| *c).unwrap_or_default();
             let (merged, here) = answer?;
             if let (Some(l), Some(h)) = (loaded.as_deref_mut(), here) {
                 l.cells.insert(coords, h);

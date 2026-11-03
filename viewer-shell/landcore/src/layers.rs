@@ -92,6 +92,19 @@ impl Packed {
         }
     }
 
+    /// Whether the two hold the same values, without unpacking either when they are packed
+    /// the same way (the commonest case: a plugin's layer that repeats what it is measured
+    /// against).
+    pub fn same_values(&self, other: &Packed) -> bool {
+        match (self, other) {
+            (Packed::I8(a), Packed::I8(b)) => a == b,
+            (Packed::U8(a), Packed::U8(b)) => a == b,
+            (Packed::U16(a), Packed::U16(b)) => a == b,
+            (Packed::I32(a), Packed::I32(b)) => a == b,
+            _ => self.len() == other.len() && self.to_vec() == other.to_vec(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match self {
             Packed::I8(v) => v.len(),
@@ -285,8 +298,14 @@ pub fn diff_against_reference(plugin: &str, mine: &LandscapeLayers, reference: O
             out.missing.push(which.name());
             continue;
         };
+        // Nothing changed: no grid to build (what `is_modified` would have said of it).
+        if let Some(r) = reference.and_then(|r| r.get(which).as_deref())
+            && r.same_values(values)
+        {
+            continue;
+        }
         let theirs = reference.and_then(|r| r.get(which).as_deref().map(Packed::to_vec)).unwrap_or_else(|| vec![0; values.len()]);
-        let grid = RelativeGrid::from_difference(theirs, &values.to_vec(), side, comps)?;
+        let grid = RelativeGrid::from_packed(theirs, values, side, comps)?;
         if grid.is_modified() {
             *out.grid_mut(which) = Some(grid);
         }

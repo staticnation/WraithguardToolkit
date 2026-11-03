@@ -11,18 +11,32 @@ Done this week (in `CHANGELOG.md`, 5.0.1): the Land view, Merge to master, sound
 field and in place, the world's sound and music, the first-person camera - each tried on
 Static's setup. Left:
 
-### First person (`06_gl.js`, `_walkStep`)
+### Landscape brushes and overlays (`67_wg_land.js`, `72_wg_landbrush.js`)
 
-- The collision shapes instead of the drawn triangles; actors in the way.
-- The pace from a chosen NPC's Speed and Athletics; the controller's sticks (untested).
+- Try on the real setup: each tool and preset, a click vs a drag vs a hold, the overlays
+  (relief map, rainbow, contours) over a real region; the ring's outline for a square,
+  diamond or narrow brush turned to an angle.
+
+### First person (`06_gl.js` `_walkStep`, `71_wg_walk.js`)
+
+- Try on the real setup: the pace against the game's with your own save (Body, From a
+  save...; `Mage_Begining.omwsave`, format 39, reads as Speed 32, Athletics 5, Acrobatics 0);
+  swimming and levitating; the steps, swim strokes and landings with Sounds on; collision on a few
+  meshes with and without a RootCollisionNode (and an NCO one walked through).
+- The controller's sticks (untested); the encumbrance from what the body wears rather than
+  a slider.
 
 ## Tools page
 
 - Merge Lands speed: Static's run of `big_order` on 2026-11-02 (before the merge step's
   work that day): read 0.37 s, merge 2.91 s, seams 0.68 s, write 0.25 s, the same plugin.
   The merge step since: no allocation per contested vertex, decoding across the cores, cells
-  taken one at a time (2.15 s to 1.05 s here). Next, if it still leads: `differences` per
-  touch (a `RelativeGrid` unpacked from the packed layers each time) and the finish step.
+  taken one at a time (2.15 s to 1.05 s here). Static's run after that (2026-11-02): merge
+  2.23 s, seams 0.9 s, 4.47 s in all, the same SHA. Then: the decoded cells moved rather than
+  cloned (peak memory 1.50 to 1.22 GB), a packed layer compared and read in place, the merge
+  loop settling untouched vertices first - only 1% fewer instructions in the merge (callgrind):
+  what is left is blending the 28 million contested vertices, the work itself. Next, if it
+  still leads: the finish step (seams).
   Then the 621-plugin order on the Tools page. Benchmark, from `viewer-shell\landcore` (not
   a workspace member), on one line; prints the steps' times, VmHWM (Linux only) and the
   output's SHA-256 (`4d2e6cee...` on 2026-11-02):
@@ -67,8 +81,6 @@ for code: it is GPL-3.
 - Decide: the Object Window's search matches a record's deleting version (a later plugin's
   DELETED record). Decide: moving a response sets only its own `prev_id`/`next_id`, so two
   responses moved to the same place both claim it (the build writes them in queue order).
-- Small: a record made with "New" lists an NPC's or creature's fields in the old blank's
-  order, not the crate's.
 
 ### The world
 
@@ -121,6 +133,18 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 - Greatness7: the NIF field-swap fix goes into his next tes3 update (drop it from our fork
   then); LUAL/LUAD waits for his next breaking release. Show what a LUAL/LUAD carries before
   it goes into a patch.
+
+## Scripts in the scene (`73_wg_scripts.js`)
+
+- OpenMW Lua next: the same panel running a mod's local and global Lua scripts (`luacore`)
+  against the scene, with `openmw.core`/`openmw.world` answering from the load order.
+- MWScript the preview still does not run (logged once each): choosing and showing dialogue
+  (ForceGreeting says who greets; `Choice` belongs to dialogue results), animations
+  (PlayGroup, LoopGroup), spells and their effects. Combat is a stand-in: blows of 4-11
+  health a second, no weapons, skills or animations. Actors move each time the scene is
+  built again (about three times a second), so a walk steps rather than glides.
+- Check on a real install: Seyda Neen's lighthouse and lamps by the hour, a mod's static swap
+  by a global, a mod's music script.
 
 ## MWScript compiler
 

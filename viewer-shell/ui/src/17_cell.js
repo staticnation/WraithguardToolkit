@@ -232,7 +232,9 @@ const CellData={
    *  moved, turned, scaled or deleted objects (50_wg_editor.js). The cached record is
    *  kept as the load order has it; this is a copy, made only when a change touches it. */
   live(rec){
-    return (typeof WgEditor==='object' && rec)? WgEditor.overlay(rec) : rec;
+    const r=(typeof WgEditor==='object' && rec)? WgEditor.overlay(rec) : rec;
+    // Wraithguard: and as the running scripts leave it (73_wg_scripts.js).
+    return (typeof WgScripts==='object' && WgScripts.on)? WgScripts.overlay(r) : r;
   },
 
   /** Ground height at a cell-local point, on the triangle the game draws.

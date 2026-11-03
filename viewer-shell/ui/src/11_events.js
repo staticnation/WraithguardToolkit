@@ -921,6 +921,7 @@ function boot(){
               nb.classList.toggle('orbit',!wasd); nb.classList.toggle('wasd',wasd); nb.classList.remove('on'); }
     }
     const sp=$('#vpSpeed'); if(sp) sp.hidden=!wasd || walk;
+    { const bb=$('#tbBody'); if(bb) bb.hidden=!walk; }   // the first-person body (71_wg_walk.js)
     const pick=$('#setNav'); if(pick) pick.value=walk? 'walk' : wasd? 'wasd' : 'orbit';
     /* Round 18ag: the sensitivity, shown as a percentage of the built-in rate, with the
        bar's middle at 100%. The bar is a log scale over a quarter to four times, so the
@@ -1143,6 +1144,8 @@ function markInstall(kind,label,title){
     if(typeof WgEditor==='object') WgEditor.button();
     if(typeof WgLand==='object') WgLand.button();
     if(typeof WgCellGrid==='object') WgCellGrid.wire();
+    if(typeof WgWalk==='object') WgWalk.attach();
+    if(typeof WgScripts==='object') WgScripts.wire();
     fs.querySelector('.p').textContent=label;
     if(title) fs.querySelector('.p').title=title;
   }

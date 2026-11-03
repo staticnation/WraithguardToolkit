@@ -48,8 +48,24 @@ pub struct World {
     /// The sound a script loops on its own object (`PlayLoopSound3D "id"`, or
     /// `PlayLoopSound3DVP "id", volume, pitch`), by lowercased script id: (SOUN id, volume).
     pub script_loops: HashMap<String, (String, f32)>,
-    /// An activator's, door's or container's script (SCRI), by the object's lowercased id.
+    /// An object's script (SCRI), by the object's lowercased id: every type that can carry
+    /// one (activators, doors, containers, lights, actors and items).
     pub object_scripts: HashMap<String, String>,
+    /// Each script's source (SCPT SCTX), by lowercased id: (its id as written, its text) -
+    /// for the scene's script interpreter (`ui/src/73_wg_scripts.js`).
+    pub script_texts: HashMap<String, (String, String)>,
+    /// The start scripts (SSCR): the global scripts the game runs from the start.
+    pub start_scripts: Vec<String>,
+    /// The start scripts by their record's id, in the order they were met (for the above).
+    start_scripts_by: Vec<(String, String)>,
+    /// The global variables (GLOB), by lowercased name: (name as written, `s`/`l`/`f`, value).
+    pub globals: HashMap<String, (String, char, f32)>,
+    /// What an NPC, creature or container carries (NPCO), by lowercased id: (item id
+    /// lowercased, count; negative for an item that restocks) - the scripts' `GetItemCount`.
+    pub inventories: HashMap<String, Vec<(String, i32)>>,
+    /// An NPC's or creature's health, magicka and fatigue (NPDT), by lowercased id; an NPC
+    /// whose stats the game works out (auto-calculated, the short NPDT) has none.
+    pub actor_stats: HashMap<String, [i32; 3]>,
     /// The path grids: exteriors by grid, rooms by `room_key`.
     pub pathgrids_ext: HashMap<(i32, i32), Pathgrid>,
     pub pathgrids_int: HashMap<String, Pathgrid>,
@@ -134,10 +150,42 @@ impl World {
                     None => self.script_loops.remove(&k),
                 };
             }
+            for (k, v) in e.inventories {
+                match v {
+                    Some(d) => self.inventories.insert(k, d),
+                    None => self.inventories.remove(&k),
+                };
+            }
+            for (k, v) in e.actor_stats {
+                match v {
+                    Some(d) => self.actor_stats.insert(k, d),
+                    None => self.actor_stats.remove(&k),
+                };
+            }
             for (k, v) in e.object_scripts {
                 match v {
                     Some(d) => self.object_scripts.insert(k, d),
                     None => self.object_scripts.remove(&k),
+                };
+            }
+            for (k, v) in e.script_texts {
+                match v {
+                    Some(d) => self.script_texts.insert(k, d),
+                    None => self.script_texts.remove(&k),
+                };
+            }
+            // A start script is keyed by its record's id (DATA); the later plugin replaces it.
+            for (k, v) in e.start_scripts {
+                self.start_scripts_by.retain(|(id, _)| *id != k);
+                if let Some(script) = v {
+                    self.start_scripts_by.push((k, script));
+                }
+                self.start_scripts = self.start_scripts_by.iter().map(|(_, s)| s.clone()).collect();
+            }
+            for (k, v) in e.globals {
+                match v {
+                    Some(d) => self.globals.insert(k, d),
+                    None => self.globals.remove(&k),
                 };
             }
             for mut p in e.pathgrids {
@@ -175,9 +223,17 @@ struct Extras {
     region_defs: Vec<(String, Option<RegionDef>)>,
     script_loops: Vec<(String, Option<(String, f32)>)>,
     object_scripts: Vec<(String, Option<String>)>,
+    script_texts: Vec<(String, Option<(String, String)>)>,
+    start_scripts: Vec<(String, Option<String>)>,
+    globals: Vec<(String, Option<(String, char, f32)>)>,
+    inventories: Vec<(String, Option<Vec<(String, i32)>>)>,
+    actor_stats: Vec<(String, Option<[i32; 3]>)>,
     pathgrids: Vec<Pathgrid>,
     land_at: Vec<((i32, i32), u64, u32)>,
 }
+
+/// The record types an object of which may carry a script.
+const SCRIPTED: [&[u8; 4]; 17] = [b"ACTI", b"DOOR", b"CONT", b"LIGH", b"NPC_", b"CREA", b"MISC", b"WEAP", b"ARMO", b"CLOT", b"BOOK", b"ALCH", b"APPA", b"INGR", b"LOCK", b"PROB", b"REPA"];
 
 fn extras_of(buf: &[u8]) -> Extras {
     let mut e = Extras::default();
@@ -190,6 +246,12 @@ fn extras_of(buf: &[u8]) -> Extras {
             }
         }
         crate::npc::collect(&mut e.npc, rec.tag, rec.body);
+        // Every type that can carry a script (SCRI).
+        if SCRIPTED.contains(&&rec.tag) {
+            if let Some(x) = object_script(rec.body) {
+                e.object_scripts.push(x);
+            }
+        }
         match &rec.tag {
             b"LAND" => {
                 let at = rec.body.as_ptr() as usize - buf.as_ptr() as usize - 16;
@@ -214,6 +276,17 @@ fn extras_of(buf: &[u8]) -> Extras {
                 if let Some(h) = actor_hello(rec.body) {
                     e.hello.push(h);
                 }
+                if let Some(x) = carried(rec.body) {
+                    e.inventories.push(x);
+                }
+                if let Some(x) = actor_stats(rec.tag, rec.body) {
+                    e.actor_stats.push(x);
+                }
+            }
+            b"CONT" => {
+                if let Some(x) = carried(rec.body) {
+                    e.inventories.push(x);
+                }
             }
             b"SOUN" => {
                 if let Some(x) = sound_def(rec.body) {
@@ -237,10 +310,18 @@ fn extras_of(buf: &[u8]) -> Extras {
                 if let Some(x) = script_loop(rec.body) {
                     e.script_loops.push(x);
                 }
+                if let Some(x) = script_text(rec.body) {
+                    e.script_texts.push(x);
+                }
             }
-            b"ACTI" | b"DOOR" | b"CONT" => {
-                if let Some(x) = object_script(rec.body) {
-                    e.object_scripts.push(x);
+            b"SSCR" => {
+                if let Some(x) = start_script(rec.body) {
+                    e.start_scripts.push(x);
+                }
+            }
+            b"GLOB" => {
+                if let Some(x) = global_var(rec.body) {
+                    e.globals.push(x);
                 }
             }
             _ => {}
@@ -472,6 +553,57 @@ pub fn loop_in_script(text: &str) -> Option<(String, f32)> {
     None
 }
 
+/// A SCPT record's id and its source (`None`: deleted).
+fn script_text(body: &[u8]) -> Option<(String, Option<(String, String)>)> {
+    let mut id = String::new();
+    let mut text = String::new();
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"SCHD" if s.data.len() >= 32 => id = cstring(&s.data[..32]),
+            b"SCTX" => text = String::from_utf8_lossy(s.data).into_owned(),
+            _ => {}
+        }
+    }
+    if id.is_empty() {
+        return None;
+    }
+    Some((id.to_ascii_lowercase(), (!deleted_of(body)).then(|| (id.clone(), text))))
+}
+
+/// A start script record (SSCR): its id (DATA) and the script it starts (NAME).
+fn start_script(body: &[u8]) -> Option<(String, Option<String>)> {
+    let (mut key, mut name) = (String::new(), String::new());
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"DATA" => key = cstring(s.data),
+            b"NAME" => name = cstring(s.data),
+            _ => {}
+        }
+    }
+    if key.is_empty() && name.is_empty() {
+        return None;
+    }
+    let key = if key.is_empty() { name.to_ascii_lowercase() } else { key.to_ascii_lowercase() };
+    Some((key, (!deleted_of(body) && !name.is_empty()).then_some(name)))
+}
+
+/// A global variable (GLOB): its name, its type (`s`hort, `l`ong, `f`loat) and value.
+fn global_var(body: &[u8]) -> Option<(String, Option<(String, char, f32)>)> {
+    let (mut name, mut kind, mut value) = (String::new(), 'f', 0.0f32);
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"NAME" => name = cstring(s.data),
+            b"FNAM" if !s.data.is_empty() => kind = (s.data[0] as char).to_ascii_lowercase(),
+            b"FLTV" if s.data.len() >= 4 => value = f32::from_le_bytes([s.data[0], s.data[1], s.data[2], s.data[3]]),
+            _ => {}
+        }
+    }
+    if name.is_empty() {
+        return None;
+    }
+    Some((name.to_ascii_lowercase(), (!deleted_of(body)).then(|| (name.clone(), kind, value))))
+}
+
 /// An object's id and its script (`None`: deleted, or no script).
 fn object_script(body: &[u8]) -> Option<(String, Option<String>)> {
     let mut id = String::new();
@@ -487,6 +619,47 @@ fn object_script(body: &[u8]) -> Option<(String, Option<String>)> {
         return None;
     }
     Some((id.to_ascii_lowercase(), (!deleted_of(body) && !scri.is_empty()).then(|| scri.to_ascii_lowercase())))
+}
+
+/// What a record carries (NPCO: a count, then a 32-byte item id), by its lowercased id;
+/// `None` for a deleted record.
+fn carried(body: &[u8]) -> Option<(String, Option<Vec<(String, i32)>>)> {
+    let mut id = String::new();
+    let mut items = Vec::new();
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"NAME" => id = cstring(s.data),
+            b"NPCO" if s.data.len() >= 36 => items.push((cstring(&s.data[4..36]).to_ascii_lowercase(), i32le(s.data, 0))),
+            _ => {}
+        }
+    }
+    if id.is_empty() {
+        return None;
+    }
+    Some((id.to_ascii_lowercase(), (!deleted_of(body)).then_some(items)))
+}
+
+/// An NPC's or creature's health, magicka and fatigue from its NPDT: an NPC's long form
+/// (52 bytes: level, 8 attributes, 27 skills, a byte, then the three as u16), a creature's
+/// (type, level, 8 attributes as i32, then the three). An auto-calculated NPC has none.
+fn actor_stats(tag: [u8; 4], body: &[u8]) -> Option<(String, Option<[i32; 3]>)> {
+    let mut id = String::new();
+    let mut st = None;
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"NAME" => id = cstring(s.data),
+            b"NPDT" if &tag == b"NPC_" && s.data.len() >= 52 => {
+                let u = |o: usize| u16::from_le_bytes([s.data[o], s.data[o + 1]]) as i32;
+                st = Some([u(38), u(40), u(42)]);
+            }
+            b"NPDT" if &tag == b"CREA" && s.data.len() >= 52 => st = Some([i32le(s.data, 40), i32le(s.data, 44), i32le(s.data, 48)]),
+            _ => {}
+        }
+    }
+    if id.is_empty() || deleted_of(body) {
+        return (!id.is_empty()).then(|| (id.to_ascii_lowercase(), None));
+    }
+    st.map(|v| (id.to_ascii_lowercase(), Some(v)))
 }
 
 /// A GMST's number: its INTV or FLTV (`None` for a string setting).
@@ -590,6 +763,36 @@ mod wraithguard_world_tests {
         assert_eq!(w.light_sounds["torch_01"], "fire");
         assert_eq!(w.region_sounds["ascadian isles region"], vec![("crickt".to_string(), 40)]);
         assert_eq!(w.region_defs["ascadian isles region"].id, "Ascadian Isles Region");
+    }
+
+    #[test]
+    fn a_script_s_text_a_start_script_and_a_global_are_read() {
+        let sub = |t: &[u8; 4], d: &[u8]| { let mut v = t.to_vec(); v.extend((d.len() as u32).to_le_bytes()); v.extend(d); v };
+        let mut schd = b"MusicBox".to_vec(); schd.resize(52, 0);
+        let scpt = [sub(b"SCHD", &schd), sub(b"SCTX", b"begin MusicBox\nend")].concat();
+        assert_eq!(super::script_text(&scpt), Some(("musicbox".into(), Some(("MusicBox".into(), "begin MusicBox\nend".into())))));
+        let sscr = [sub(b"DATA", b"1234\0"), sub(b"NAME", b"MusicBox\0")].concat();
+        assert_eq!(super::start_script(&sscr), Some(("1234".into(), Some("MusicBox".into()))));
+        let glob = [sub(b"NAME", b"GameHour\0"), sub(b"FNAM", b"f"), sub(b"FLTV", &13.5f32.to_le_bytes())].concat();
+        assert_eq!(super::global_var(&glob), Some(("gamehour".into(), Some(("GameHour".into(), 'f', 13.5)))));
+    }
+
+    #[test]
+    fn what_an_actor_carries_and_its_health_are_read() {
+        let sub = |t: &[u8; 4], d: &[u8]| { let mut v = t.to_vec(); v.extend((d.len() as u32).to_le_bytes()); v.extend(d); v };
+        let mut npco = 3i32.to_le_bytes().to_vec();
+        let mut item = b"Gold_001".to_vec(); item.resize(32, 0); npco.extend(item);
+        let mut npdt = vec![0u8; 52];
+        npdt[38..40].copy_from_slice(&45u16.to_le_bytes()); npdt[40..42].copy_from_slice(&80u16.to_le_bytes()); npdt[42..44].copy_from_slice(&120u16.to_le_bytes());
+        let npc = [sub(b"NAME", b"fargoth\0"), sub(b"NPDT", &npdt), sub(b"NPCO", &npco)].concat();
+        assert_eq!(super::carried(&npc), Some(("fargoth".into(), Some(vec![("gold_001".into(), 3)]))));
+        assert_eq!(super::actor_stats(*b"NPC_", &npc), Some(("fargoth".into(), Some([45, 80, 120]))));
+        let auto = [sub(b"NAME", b"auto\0"), sub(b"NPDT", &[0u8; 12])].concat();
+        assert_eq!(super::actor_stats(*b"NPC_", &auto), None);
+        let mut cdt = vec![0u8; 96];
+        cdt[40..44].copy_from_slice(&30i32.to_le_bytes());
+        let crea = [sub(b"NAME", b"rat\0"), sub(b"NPDT", &cdt)].concat();
+        assert_eq!(super::actor_stats(*b"CREA", &crea), Some(("rat".into(), Some([30, 0, 0]))));
     }
 
     #[test]

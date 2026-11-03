@@ -36,6 +36,20 @@ const WgLand={
   strength:40,          // height: world units a dab moves the centre; texture/color: %
   feather:60,           // % of the radius that fades
   preview:false,        // strokes wait for Keep or Drop instead of going to the patch
+  /* The brush engine's settings (72_wg_landbrush.js): its shape and falloff, the stroke's
+     dynamics, and each height tool's own. */
+  b:{falloff:'smooth', shape:'circle', aspect:1, angle:0, spacing:25,
+     click:100, drag:100, rate:8, delay:150, attack:0, decay:0, fadeLen:0, fadeRepeat:'none',
+     velocity:0, random:0, jitter:0, stabilize:0, cap:0,
+     smooth:'average', wide:3, flatTarget:'start', flatHeight:0, flatOnly:'both',
+     noiseScale:1024, noiseOct:4, noiseRough:0.5, noiseSeed:1, terrace:128, edge:0.2, talus:35},
+  _stroke:null, _mods:{shift:false, alt:false}, _pressed:false, _raf:0, _lastT:0,
+  /* The map overlays over the ground while the Land view is on (06_gl.js's ground shader),
+     as the old 3D terrain view drew them: a hillshade (lit from the azimuth, at the
+     altitude, by 1, 3 or 6 lights), a height tint (hypsometric, rainbow or grey) and
+     contours (an interval, or a round one picked for about a dozen lines). */
+  ov:{hill:0, hillGrey:false, az:225, alt:45, lights:1, tint:'none', tintA:55, contours:false, interval:0},
+  OV_DEFAULT:{hill:0.6, hillGrey:false, az:225, alt:45, lights:1, tint:'hypso', tintA:55, contours:true, interval:0},
   dirty:new Map(),      // "gx,gy" -> Set of 'h', 't', 'c', 'n' changed since the last commit
   saved:new Map(),      // "gx,gy" -> {rev, heights?, colors?, ids?}: what the patch has
   _rev:0, _patchRev:null, _poll:0,
@@ -44,14 +58,14 @@ const WgLand={
   _edited:new Map(),    // "gx,gy" -> the scene's cell object the strokes not yet written changed
 
   /** The brush's settings, kept between runs (the page's storage, when it has one). */
-  KEEP:['mode','tool','texture','color','sizePos','strength','feather','preview'],
+  KEEP:['mode','tool','texture','color','sizePos','strength','feather','preview','b','ov'],
   restore(){
     try{
       const v=JSON.parse(localStorage.getItem('wgLand')||'{}');
       // Kept before 2026-11-02 under the British spelling.
       if(v.color==null && v.colour!=null) v.color=v.colour;
       if(v.mode==='colour') v.mode='color';
-      for(const k of this.KEEP) if(v[k]!=null) this[k]=v[k];
+      for(const k of this.KEEP) if(v[k]!=null) this[k]= (k==='b' || k==='ov')? Object.assign({}, this[k], v[k]) : v[k];
     }catch(_){}
   },
   keep(){
@@ -108,14 +122,27 @@ const WgLand={
     // The patch can change under the view (an undo in the Editor): follow it.
     this._poll=setInterval(()=>this.pollPatch(), 1500);
     this.sync();
-    this._down=()=>{ this._flatZ=null; };
-    this._up=()=>this.scheduleCommit();
+    // A stroke is the button's press to its release: the engine times it (click, drag, hold).
+    this._down=e=>{ if(e.button!==0) return; this._flatZ=null; this._pressed=true; this.beginStroke(); this.holdLoop(); };
+    this._up=e=>{ if(e && e.button!=null && e.button!==0) return; this._pressed=false; this.endStroke(); this.scheduleCommit(); };
     R.gl.canvas.addEventListener('pointerdown', this._down);
     R.gl.canvas.addEventListener('pointerup', this._up);
     this.panel();
     // Ctrl+Z / Ctrl+Y as in the Editor (whose keys are off while this mode is on).
+    this._mod=e=>{ this._mods.shift=!!e.shiftKey; this._mods.alt=!!e.altKey; };
+    window.addEventListener('keydown', this._mod); window.addEventListener('keyup', this._mod);
     this._keys=e=>{
       const t=e.target; if(t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.isContentEditable)) return;
+      // [ and ] the size, { and } the strength, as paint programs have them.
+      if(!e.ctrlKey && !e.metaKey && !e.altKey && (e.key==='[' || e.key===']' || e.key==='{' || e.key==='}')){
+        e.preventDefault();
+        if(e.key==='[') this.sizePos=Math.max(0, this.sizePos-4);
+        else if(e.key===']') this.sizePos=Math.min(100, this.sizePos+4);
+        else this.strength=Math.max(1, Math.min(200, Math.round(this.strength*(e.key==='}'? 1.25 : 0.8))));
+        if(this._show) this._show();
+        const R=App.R; if(R && R._ptr) this.brushMove({clientX:R._ptr[0], clientY:R._ptr[1]});
+        return;
+      }
       if(this.waiting() && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key==='Enter' || e.key==='Escape')){
         e.preventDefault(); e.stopPropagation();
         if(e.key==='Enter') this.commit(); else this.drop();
@@ -152,6 +179,9 @@ const WgLand={
     this.on=false;
     clearInterval(this._poll); this._poll=0;
     if(this._keys){ window.removeEventListener('keydown', this._keys); this._keys=null; }
+    if(this._mod){ window.removeEventListener('keydown', this._mod); window.removeEventListener('keyup', this._mod); this._mod=null; }
+    cancelAnimationFrame(this._raf); this._raf=0; this._stroke=null; this._pressed=false;
+    this.applyOverlays(true);
     const b=$('#btnLand'); if(b) b.classList.remove('on');
     if(this._el){ this._el.remove(); this._el=null; }
     document.body.classList.remove('wgLandMode');
@@ -170,21 +200,60 @@ const WgLand={
     return [...out].sort((a,b)=>a.localeCompare(b));
   },
 
+  /** Ready-made brushes: each sets the stroke's dynamics (and the falloff), not the tool,
+   *  size or strength. */
+  PRESETS:{
+    standard:{label:'Standard', b:{falloff:'smooth', spacing:25, click:100, drag:100, rate:8, delay:150, attack:0, decay:0, fadeLen:0, velocity:0, random:0, jitter:0, stabilize:0, cap:0}},
+    gentle:{label:'Gentle sculpt (layers evenly)', b:{falloff:'smooth', spacing:15, click:40, drag:35, rate:3, delay:200, attack:0.3, decay:0, fadeLen:0, velocity:0, random:0, jitter:0, stabilize:30, cap:64}},
+    airbrush:{label:'Airbrush (builds while held)', b:{falloff:'gauss', spacing:10, click:20, drag:25, rate:20, delay:0, attack:0, decay:0, fadeLen:0, velocity:-40, random:0, jitter:0, stabilize:0, cap:0}},
+    stamp:{label:'Stamp (one dab a click)', b:{falloff:'sphere', spacing:100, click:100, drag:0, rate:0, delay:150, attack:0, decay:0, fadeLen:0, velocity:0, random:0, jitter:0, stabilize:0, cap:0}},
+    line:{label:'Clean line (stabilized)', b:{falloff:'sharp', spacing:10, click:60, drag:60, rate:0, delay:150, attack:0, decay:0, fadeLen:0, velocity:0, random:0, jitter:0, stabilize:70, cap:0}},
+    taper:{label:'Tapering stroke (fades out)', b:{falloff:'smooth', spacing:15, click:100, drag:100, rate:0, delay:150, attack:0, decay:0, fadeLen:4096, fadeRepeat:'none', velocity:0, random:0, jitter:0, stabilize:20, cap:0}},
+    rough:{label:'Rough (scattered, uneven)', b:{falloff:'linear', spacing:30, click:100, drag:100, rate:4, delay:150, attack:0, decay:0, fadeLen:0, velocity:0, random:60, jitter:40, stabilize:0, cap:0}},
+  },
+  TOOLS:[['raise','Raise','Lifts the ground under the brush by the strength (units) each dab.'],
+    ['lower','Lower','Lowers the ground under the brush by the strength (units) each dab.'],
+    ['smooth','Smooth','Pulls each vertex toward its neighbours\' height (Shift smooths with any tool).'],
+    ['sharpen','Sharpen','Pushes each vertex away from its neighbours\' height: the detail the smoothing takes out.'],
+    ['flatten','Flatten','Levels toward a height: where the stroke began, a fixed height, the sea, or the brush\'s average.'],
+    ['ramp','Ramp','A straight slope from where the stroke began to the brush, as wide as the brush.'],
+    ['noise','Noise','Adds fractal noise, up to the strength (units) either way.'],
+    ['terrace','Terrace','Steps the ground into flat treads of the step height.'],
+    ['erode','Erode','Thermal erosion: slopes steeper than the talus angle slide down.']],
+
   panel(){
     if(this._el) this._el.remove();
     const d=document.createElement('div');
     d.id='wgLandDock';
+    const b=this.b;
     const modes=[['height','Height'],['texture','Texture'],['color','Color']];
-    const tools=[['raise','Raise'],['lower','Lower'],['smooth','Smooth'],['flatten','Flatten']];
     const sec=(id, title, body)=>'<div class="lsec" id="'+id+'"><div class="lsecT">'+title+'</div>'+body+'</div>';
+    const fold=(id, title, body, open)=>'<details class="lsec" id="'+id+'"'+(open?' open':'')+'><summary class="lsecT" style="cursor:pointer">'+title+'</summary>'+body+'</details>';
+    const opt=(v, t, cur)=>'<option value="'+v+'"'+(String(cur)===String(v)?' selected':'')+'>'+escHtml(t)+'</option>';
+    // A slider on the brush engine's settings (`b`): data-k names it, its value beside it.
+    const rng=(k, label, min, max, step, tip)=>'<div class="row" data-row="'+k+'"><label title="'+escHtml(tip||'')+'">'+label+'</label><div class="ctl"><div class="rng">'+
+      '<input type="range" data-k="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+b[k]+'"><span class="val" data-v="'+k+'"></span></div></div></div>';
+    const sel=(k, label, list, tip)=>'<div class="row" data-row="'+k+'"><label title="'+escHtml(tip||'')+'">'+label+'</label><div class="ctl"><select class="fld" data-s="'+k+'">'+list.map(([v,t])=>opt(v,t,b[k])).join('')+'</select></div></div>';
     d.innerHTML=
       '<div class="edHead"><b>Land</b><span style="flex:1"></span><button class="btn sm" id="wgLandDone" title="Back to the Cell Preview">Done</button></div>'+
       /* The page's own controls, so the theme dresses them as it dresses the rest (Static,
          2026-11-02: "our Wraithguard Land page needs to use the themes we set"): the chosen
          button lit as `.btn.pri`, the sliders in `.row`/`.rng` with their `.val`. */
       sec('wgLandModeS','Mode','<div class="lrow" id="wgLandModes">'+modes.map(([k,t])=>'<button class="btn sm'+(this.mode===k?' pri':'')+'" data-m="'+k+'">'+t+'</button>').join('')+'</div>')+
-      sec('wgLandHeight','Tool','<div class="lrow">'+tools.map(([k,t])=>'<button class="btn sm'+(this.tool===k?' pri':'')+'" data-t="'+k+'">'+t+'</button>').join('')+'</div>'+
-        '<div class="hint" id="wgLandToolHint"></div>')+
+      sec('wgLandHeight','Tool','<div class="lrow">'+this.TOOLS.map(([k,t,tip])=>'<button class="btn sm'+(this.tool===k?' pri':'')+'" data-t="'+k+'" title="'+escHtml(tip)+'">'+t+'</button>').join('')+'</div>'+
+        '<div class="hint" id="wgLandToolHint"></div>'+
+        sel('smooth','Smoothing',[['average','Average (its 8 neighbours)'],['gauss','Gaussian (5 x 5)'],['wide','Wide blur']],'How a vertex\'s neighbourhood is averaged')+
+        rng('wide','Blur reach',1,8,1,'How many vertices out the wide blur reaches')+
+        sel('flatTarget','Level to',[['start','Where the stroke began'],['average','The brush\'s average'],['fixed','A fixed height'],['sea','The sea (0)']],'The height Flatten levels toward, fixed for the stroke')+
+        '<div class="row" data-row="flatHeight"><label>Height</label><div class="ctl"><input class="fld" type="number" step="8" data-n="flatHeight" value="'+b.flatHeight+'" style="width:90px"> <button class="btn sm" id="wgLandFlatPick" title="Take the height under the next click">Pick</button></div></div>'+
+        sel('flatOnly','Direction',[['both','Up and down'],['up','Only raise toward it'],['down','Only lower toward it']],'Fill hollows only, cut tops only, or both')+
+        rng('noiseScale','Scale',64,8192,64,'The size of the noise\'s largest features, in units')+
+        rng('noiseOct','Octaves',1,8,1,'Layers of finer detail')+
+        rng('noiseRough','Roughness',0,1,0.05,'How strong each finer layer is')+
+        '<div class="row" data-row="noiseSeed"><label>Seed</label><div class="ctl"><input class="fld" type="number" step="1" data-n="noiseSeed" value="'+b.noiseSeed+'" style="width:90px"> <button class="btn sm" id="wgLandSeed" title="Another seed">Shuffle</button></div></div>'+
+        rng('terrace','Step height',16,1024,8,'The height of each terrace, in units')+
+        rng('edge','Riser',0,1,0.05,'How much of each step is the slope between treads: 0 a sheer edge')+
+        rng('talus','Talus angle',5,80,1,'Slopes steeper than this slide down'))+
       sec('wgLandTexture','Land texture',
         '<div class="lrow"><input class="fld" id="wgLandTexF" placeholder="Filter textures" spellcheck="false" style="flex:1;min-width:0">'+
         '<button class="btn sm" id="wgLandPick" title="Take the texture under the next click">Pick</button></div>'+
@@ -192,9 +261,42 @@ const WgLand={
         '<div class="ltexList" id="wgLandTexList"></div>')+
       sec('wgLandColor','Color','<div class="lrow"><input type="color" id="wgLandCol" value="'+this.color+'"><span class="hint">the tint the ground\'s textures are multiplied by; white is none</span></div>')+
       sec('wgLandBrush','Brush',
-        '<div class="row"><label for="wgLandSize">Size</label><div class="ctl"><div class="rng"><input type="range" id="wgLandSize" min="0" max="100" value="'+this.sizePos+'"><span class="val" id="wgLandSizeV"></span></div></div></div>'+
-        '<div class="row" id="wgLandStrL"><label for="wgLandStr">Strength</label><div class="ctl"><div class="rng"><input type="range" id="wgLandStr" min="1" max="200" value="'+this.strength+'"><span class="val" id="wgLandStrV"></span></div></div></div>'+
-        '<div class="row" id="wgLandFeaL"><label for="wgLandFea">Feather</label><div class="ctl"><div class="rng"><input type="range" id="wgLandFea" min="0" max="100" value="'+this.feather+'"><span class="val" id="wgLandFeaV"></span></div></div></div>')+
+        '<div class="row"><label>Preset</label><div class="ctl"><select class="fld" id="wgLandPre">'+opt('','Choose a brush…','')+
+          Object.entries(this.PRESETS).map(([k,p])=>opt(k,p.label,'')).join('')+'</select></div></div>'+
+        '<div class="row"><label for="wgLandSize" title="[ and ] while painting">Size</label><div class="ctl"><div class="rng"><input type="range" id="wgLandSize" min="0" max="100" value="'+this.sizePos+'"><span class="val" id="wgLandSizeV"></span></div></div></div>'+
+        '<div class="row" id="wgLandStrL"><label for="wgLandStr" title="{ and } while painting">Strength</label><div class="ctl"><div class="rng"><input type="range" id="wgLandStr" min="1" max="200" value="'+this.strength+'"><span class="val" id="wgLandStrV"></span></div></div></div>'+
+        '<div class="row" id="wgLandFeaL"><label for="wgLandFea">Feather</label><div class="ctl"><div class="rng"><input type="range" id="wgLandFea" min="0" max="100" value="'+this.feather+'"><span class="val" id="wgLandFeaV"></span></div></div></div>'+
+        sel('falloff','Falloff',WgLandBrush.FALLOFFS,'How the strength fades across the feathered rim')+
+        '<canvas id="wgLandCurve" width="240" height="44" style="width:100%;height:44px;display:block;margin:0 0 6px"></canvas>'+
+        sel('shape','Shape',WgLandBrush.SHAPES,'The brush\'s outline (the ring shows its reach)')+
+        rng('aspect','Aspect',0.1,1,0.05,'1 round; less a narrower blade, along the angle')+
+        rng('angle','Angle',0,180,1,'Which way a narrow or square brush is turned')+
+        rng('spacing','Spacing',1,200,1,'How far apart a drag\'s dabs fall, as a share of the radius'))+
+      fold('wgLandOv','Overlays',
+        '<div class="row"><label title="Shading from the ground\'s own slope, as a relief map has it">Hillshade</label><div class="ctl"><div class="rng"><input type="range" id="wgOvHill" min="0" max="1" step="0.05" value="'+this.ov.hill+'"><span class="val" id="wgOvHillV"></span></div></div></div>'+
+        '<div class="row"><label>Shade</label><div class="ctl"><select class="fld" id="wgOvGrey">'+opt('0','Over the textures',this.ov.hillGrey?'1':'0')+opt('1','Grey relief (the old terrain view)',this.ov.hillGrey?'1':'0')+'</select></div></div>'+
+        '<div class="row"><label title="The compass bearing the light comes from: 225 south-west, the old view\'s">Azimuth</label><div class="ctl"><div class="rng"><input type="range" id="wgOvAz" min="0" max="359" step="1" value="'+this.ov.az+'"><span class="val" id="wgOvAzV"></span></div></div></div>'+
+        '<div class="row"><label title="How high the light stands over the horizon">Altitude</label><div class="ctl"><div class="rng"><input type="range" id="wgOvAlt" min="5" max="85" step="1" value="'+this.ov.alt+'"><span class="val" id="wgOvAltV"></span></div></div></div>'+
+        '<div class="row"><label title="Several lights round the compass fill the shadow side without flattening the relief; the azimuth\'s stays strongest">Lights</label><div class="ctl"><select class="fld" id="wgOvLights">'+opt('1','One',this.ov.lights)+opt('3','Three',this.ov.lights)+opt('6','Six',this.ov.lights)+'</select></div></div>'+
+        '<div class="row"><label title="The ground colored by its height">Tint</label><div class="ctl"><select class="fld" id="wgOvTint">'+opt('none','None',this.ov.tint)+opt('hypso','Green, tan and white (hypsometric)',this.ov.tint)+opt('rainbow','Rainbow',this.ov.tint)+opt('grey','Grey',this.ov.tint)+'</select></div></div>'+
+        '<div class="row"><label>Tint opacity</label><div class="ctl"><div class="rng"><input type="range" id="wgOvTintA" min="0" max="100" step="1" value="'+this.ov.tintA+'"><span class="val" id="wgOvTintAV"></span></div></div></div>'+
+        '<div class="row"><label title="A line every interval of height; every fifth heavier">Contours</label><div class="ctl"><input type="checkbox" id="wgOvCont"'+(this.ov.contours?' checked':'')+'> <input class="fld" type="number" id="wgOvInt" min="0" step="8" value="'+this.ov.interval+'" style="width:80px" title="Units between lines; 0 picks a round one for about a dozen lines"> <span class="hint" id="wgOvIntV"></span></div></div>'+
+        '<div class="lrow"><button class="btn sm" id="wgOvRelief" title="Hillshade, the green-tan-white tint and contours, as the old terrain view opened">Relief map</button><button class="btn sm" id="wgOvOff">Off</button></div>', false)+
+      fold('wgLandStroke','Stroke and dynamics',
+        rng('click','Click',0,200,1,'A single click\'s dab, as a share of the strength')+
+        rng('drag','Drag',0,200,1,'Each dab of a drag, as a share of the strength')+
+        rng('rate','Hold rate',0,60,0.5,'Held still: dabs a second where the brush stands (0: nothing)')+
+        rng('delay','Hold delay',0,1000,10,'How long the brush stands still before the hold starts (ms)')+
+        rng('attack','Attack',0,3,0.05,'Seconds the stroke takes to reach full strength')+
+        rng('decay','Decay',0,10,0.1,'The stroke\'s half-life in seconds: weaker the longer it is held (0: none)')+
+        rng('fadeLen','Fade length',0,32768,256,'The stroke fades out over this many units of travel (0: no fade)')+
+        sel('fadeRepeat','Fade repeat',[['none','None'],['loop','Loop'],['saw','Sawtooth'],['tri','Triangle']],'What happens after the fade length, as GIMP\'s paint dynamics have it')+
+        rng('velocity','Velocity',-100,100,5,'A fast stroke stronger (+) or weaker (-)')+
+        rng('random','Random',0,100,5,'How much each dab\'s strength varies')+
+        rng('jitter','Jitter',0,100,5,'How far dabs scatter from the path, as a share of the radius')+
+        rng('stabilize','Smooth stroke',0,95,5,'The brush trails the pointer: a steadier line the higher it is')+
+        rng('cap','Stroke cap',0,1024,8,'The most any vertex moves in one stroke, in units (0: incremental, no limit)'), false)+
+      '<div class="lsec"><div class="hint">Shift smooths, Alt inverts (raise and lower, smooth and sharpen), [ ] the size, { } the strength. A click is one dab, a drag lays them along the path, and holding still builds up.</div></div>'+
       sec('wgLandPatchS','In the patch',
         '<div class="lrow"><button class="btn sm'+(this.preview?' pri':'')+'" id="wgLandPrev" title="Strokes wait to be kept or dropped instead of going to the patch on their own">Preview first</button></div>'+
         '<div class="lrow" id="wgLandWait" style="display:none"><span class="hint" id="wgLandWaitN" style="flex:1;margin:0"></span>'+
@@ -222,15 +324,26 @@ const WgLand={
       $('#wgLandFeaL').style.display=this.mode==='texture'? 'none' : '';
       $('#wgLandStrL').style.display=this.mode==='texture'? 'none' : '';
       $('#wgLandSizeV').textContent=this.radius()+' u';
-      const pct=this.mode!=='height' || this.tool==='smooth' || this.tool==='flatten';
+      const pct=this.mode!=='height' || !['raise','lower','noise'].includes(this.tool);
       $('#wgLandStrV').textContent=(pct? Math.min(100,this.strength) : this.strength)+(pct? ' %' : ' u');
+      // Each tool's own settings, only for it.
+      const own={smooth:['smooth','wide'], flatten:['flatTarget','flatHeight','flatOnly'], noise:['noiseScale','noiseOct','noiseRough','noiseSeed'],
+        terrace:['terrace','edge'], erode:['talus']}[this.tool]||[];
+      d.querySelectorAll('#wgLandHeight [data-row]').forEach(r=>{
+        const k=r.dataset.row;
+        r.style.display=own.includes(k) && (k!=='wide' || this.b.smooth==='wide') && (k!=='flatHeight' || this.b.flatTarget==='fixed')? '' : 'none';
+      });
+      d.querySelectorAll('[data-v]').forEach(v=>{ const k=v.dataset.v, x=this.b[k];
+        v.textContent=k==='angle'? x+'°' : k==='talus'? x+'°' : ['click','drag','spacing','random','jitter','stabilize'].includes(k)? x+' %'
+          : k==='rate'? x+'/s' : k==='delay'? x+' ms' : (k==='attack' || k==='decay')? (x? x+' s' : 'off') : k==='fadeLen'? (x? x+' u' : 'off')
+          : k==='cap'? (x? x+' u' : 'incremental') : k==='velocity'? (x>0? '+' : '')+x+' %' : (k==='terrace' || k==='noiseScale')? x+' u' : String(x); });
+      this.drawCurve();
+      // The ring follows a change of shape, aspect or angle at once.
+      { const R=App.R; if(R && R._ptr && this.on) this.brushMove({clientX:R._ptr[0], clientY:R._ptr[1]}); }
       $('#wgLandFeaV').textContent=this.feather+' %';
       $('#wgLandPick').classList.toggle('pri', this._picking);
       $('#wgLandTexNow').textContent=this.texture||'(none: pick one)';
-      $('#wgLandToolHint').textContent={raise:'Lifts the ground under the brush by the strength each dab.',
-        lower:'Lowers the ground under the brush by the strength each dab.',
-        smooth:'Pulls each vertex toward its neighbours\' average.',
-        flatten:'Levels toward the height where the stroke began.'}[this.tool]||'';
+      $('#wgLandToolHint').textContent=(this.TOOLS.find(t=>t[0]===this.tool)||[,,''])[2];
       this.keep();
     };
     d.querySelectorAll('#wgLandModes [data-m]').forEach(b=>b.onclick=()=>{
@@ -249,6 +362,33 @@ const WgLand={
     $('#wgLandSize').oninput=e=>{ this.sizePos=+e.target.value; show(); };
     $('#wgLandStr').oninput=e=>{ this.strength=+e.target.value; show(); };
     $('#wgLandFea').oninput=e=>{ this.feather=+e.target.value; show(); };
+    // The brush engine's settings: sliders (data-k), lists (data-s), numbers (data-n).
+    d.querySelectorAll('input[data-k]').forEach(r=>r.oninput=()=>{ this.b[r.dataset.k]=+r.value; show(); });
+    d.querySelectorAll('select[data-s]').forEach(r=>r.onchange=()=>{ this.b[r.dataset.s]=r.value; show(); });
+    d.querySelectorAll('input[data-n]').forEach(r=>r.onchange=()=>{ const v=parseFloat(r.value); if(isFinite(v)) this.b[r.dataset.n]=v; show(); });
+    $('#wgLandPre').onchange=e=>{
+      const pr=this.PRESETS[e.target.value]; if(!pr) return;
+      Object.assign(this.b, pr.b); e.target.value='';
+      this.panel(); toast('Brush: '+pr.label,'ok',2000);
+    };
+    $('#wgLandSeed').onclick=()=>{ this.b.noiseSeed=Math.floor(Math.random()*100000); const n=d.querySelector('[data-n="noiseSeed"]'); if(n) n.value=this.b.noiseSeed; show(); };
+    $('#wgLandFlatPick').onclick=()=>{ this._pickHeight=true; toast('Click the ground to take its height','ok',2500); };
+    // The overlays.
+    const ov=()=>{ this.applyOverlays(); this.keep();
+      $('#wgOvHillV').textContent=Math.round(this.ov.hill*100)+' %'; $('#wgOvAzV').textContent=this.ov.az+'°';
+      $('#wgOvAltV').textContent=this.ov.alt+'°'; $('#wgOvTintAV').textContent=this.ov.tintA+' %'; };
+    $('#wgOvHill').oninput=e=>{ this.ov.hill=+e.target.value; ov(); };
+    $('#wgOvGrey').onchange=e=>{ this.ov.hillGrey=e.target.value==='1'; ov(); };
+    $('#wgOvAz').oninput=e=>{ this.ov.az=+e.target.value; ov(); };
+    $('#wgOvAlt').oninput=e=>{ this.ov.alt=+e.target.value; ov(); };
+    $('#wgOvLights').onchange=e=>{ this.ov.lights=+e.target.value; ov(); };
+    $('#wgOvTint').onchange=e=>{ this.ov.tint=e.target.value; ov(); };
+    $('#wgOvTintA').oninput=e=>{ this.ov.tintA=+e.target.value; ov(); };
+    $('#wgOvCont').onchange=e=>{ this.ov.contours=e.target.checked; ov(); };
+    $('#wgOvInt').onchange=e=>{ this.ov.interval=Math.max(0, +e.target.value||0); ov(); };
+    $('#wgOvRelief').onclick=()=>{ Object.assign(this.ov, this.OV_DEFAULT, {hillGrey:true}); this.panel(); this.applyOverlays(); this.keep(); };
+    $('#wgOvOff').onclick=()=>{ Object.assign(this.ov, {hill:0, tint:'none', contours:false}); this.panel(); this.applyOverlays(); this.keep(); };
+    ov();
     $('#wgLandDone').onclick=()=>this.leave();
     $('#wgLandUndo').onclick=()=>this.step('undo');
     $('#wgLandRedo').onclick=()=>this.step('redo');
@@ -339,7 +479,7 @@ const WgLand={
   drop(){
     clearTimeout(this._commitT);
     const before=this._before; this._before=null;
-    this.dirty.clear(); this._edited.clear();
+    this.dirty.clear(); this._edited.clear(); this._stroke=null;
     if(before){
       const sc=App._scene, back=new Set(), gone=new Set();
       for(const [k,b] of before){
@@ -368,7 +508,10 @@ const WgLand={
     const r=this.radius();
     const z=(g.length>2 && g[2]!=null)? g[2] : (R.groundZ? R.groundZ(g[0],g[1]) : 0);
     const inner=this.mode==='texture'? r : r*(1-this.feather/100);
-    R.setBrush({x:g[0], y:g[1], z, r, inner});
+    // The ring is the brush's own outline: its shape, aspect and angle (texture paints whole
+    // texture cells, so a plain circle).
+    const b=this.b, shaped=this.mode!=='texture';
+    R.setBrush({x:g[0], y:g[1], z, r, inner, shape:shaped? (b.shape||'circle') : 'circle', aspect:shaped? b.aspect : 1, angle:shaped? b.angle : 0});
   },
 
   /** The cells of the scene with land, by "gx,gy". */
@@ -392,13 +535,15 @@ const WgLand={
 
   /** The world vertices inside the brush around (wx, wy), with their weights. */
   vertices(wx, wy){
-    const r=this.radius(), inner=r*(1-this.feather/100), S=this.STEP, out=[];
+    const r=this.radius(), S=this.STEP, out=[], b=this.b;
     const vx0=Math.ceil((wx-r)/S), vx1=Math.floor((wx+r)/S), vy0=Math.ceil((wy-r)/S), vy1=Math.floor((wy+r)/S);
     for(let vy=vy0; vy<=vy1; vy++) for(let vx=vx0; vx<=vx1; vx++){
-      const d=Math.hypot(vx*S-wx, vy*S-wy);
+      const d=WgLandBrush.dist(vx*S-wx, vy*S-wy, b);
       if(d>r) continue;
-      out.push(vx, vy, d<=inner? 1 : (r>inner? 0.5+0.5*Math.cos(Math.PI*(d-inner)/(r-inner)) : 1));
+      out.push(vx, vy, WgLandBrush.weight(b.falloff, d, r, this.feather));
     }
+    // A brush smaller than the land's grid still moves the vertex nearest it.
+    if(!out.length && this.mode!=='texture') out.push(Math.round(wx/S), Math.round(wy/S), 1);
     return out;
   },
 
@@ -525,27 +670,124 @@ const WgLand={
   },
 
   /** One batch of a stroke: `pts` the ground points [x, y, ...] in viewport units. */
+  /** The falloff's profile, centre at the left, the brush's edge at the right. */
+  drawCurve(){
+    const cv=this._el && this._el.querySelector('#wgLandCurve'); if(!cv || !cv.getContext) return;
+    if(/jsdom/i.test(navigator.userAgent||'')) return;   // the page tests have no canvas
+    const g=cv.getContext('2d'); if(!g) return;
+    const W=cv.width, H=cv.height, cs=getComputedStyle(cv);
+    const ac=cs.getPropertyValue('--ac').trim()||'#e0a050', tx=cs.getPropertyValue('--tx3').trim()||'#888';
+    g.clearRect(0,0,W,H);
+    g.strokeStyle=tx; g.globalAlpha=0.35; g.beginPath(); g.moveTo(0,H-2); g.lineTo(W,H-2); g.stroke(); g.globalAlpha=1;
+    g.strokeStyle=ac; g.lineWidth=2; g.beginPath();
+    for(let i=0;i<=W;i++){ const y=H-3-(H-6)*WgLandBrush.weight(this.b.falloff, i/W*100, 100, this.feather); i? g.lineTo(i,y) : g.moveTo(i,y); }
+    g.stroke();
+  },
+
+  /** The round contour interval (1, 2 or 5 times a power of ten) that puts about a dozen
+   *  lines over the loaded ground, as the old terrain view chose it; and the range. */
+  heightRange(){
+    let lo=Infinity, hi=-Infinity;
+    for(const c of this.cells().values()) for(let i=0;i<c.heights.length;i+=7){ const h=c.heights[i]; if(h<lo) lo=h; if(h>hi) hi=h; }
+    if(!isFinite(lo)) return {lo:0, hi:1024, interval:128};
+    const span=Math.max(16, hi-lo), raw=span/12, p=Math.pow(10, Math.floor(Math.log10(raw)));
+    const interval=[1,2,5,10].map(m=>m*p).reduce((a,b)=>Math.abs(Math.log(b/raw))<Math.abs(Math.log(a/raw))? b : a);
+    return {lo, hi, interval};
+  },
+  /** The overlays onto the renderer (none outside the Land view). */
+  applyOverlays(off){
+    const R=App.R; if(!R) return;
+    const o=R.opts, v=this.ov;
+    if(off || !this.on){ o.hill=0; o.elev=0; o.contour=0; R.dirty=true; return; }
+    const rg=this.heightRange();
+    // The lights round the compass, weighted toward the azimuth; the weights sum to one.
+    const n=Math.max(1, v.lights|0), L=[], alt=v.alt*Math.PI/180;
+    let sum=0; const ws=[];
+    for(let i=0;i<6;i++){
+      if(i>=n){ ws.push(0); continue; }
+      const w=n===1? 1 : 1+Math.cos(2*Math.PI*i/n); ws.push(w); sum+=w;
+    }
+    for(let i=0;i<6;i++){
+      const az=(v.az+360*i/n)*Math.PI/180;
+      L.push(Math.sin(az)*Math.cos(alt), Math.cos(az)*Math.cos(alt), Math.sin(alt), sum? ws[i]/sum : 0);
+    }
+    o.hill=+v.hill||0; o.hillGrey=!!v.hillGrey; o.hillLights=L;
+    o.elev={none:0, hypso:1, rainbow:2, grey:3}[v.tint]||0; o.elevA=(+v.tintA||0)/100;
+    o.elevLo=Math.min(-256, rg.lo); o.elevHi=Math.max(256, rg.hi);
+    o.contour=v.contours? (v.interval>0? v.interval : rg.interval) : 0;
+    const iv=this._el && this._el.querySelector('#wgOvIntV');
+    if(iv) iv.textContent=v.contours? 'every '+o.contour+' u' : '';
+    R.dirty=true;
+  },
+
+  /** The tool a dab uses: Shift smooths, Alt turns raise into lower (and back) and smooth
+   *  into sharpen (and back). */
+  activeTool(){
+    if(this._mods.shift && this.mode==='height') return 'smooth';
+    const t=this.tool;
+    if(!this._mods.alt) return t;
+    return {raise:'lower', lower:'raise', smooth:'sharpen', sharpen:'smooth'}[t]||t;
+  },
+  beginStroke(){
+    this._stroke=WgLandBrush.begin(performance.now(), this.b);
+    this._stroke.target=null; this._stroke.ramp=null;
+    return this._stroke;
+  },
+  endStroke(){ this._stroke=null; cancelAnimationFrame(this._raf); this._raf=0; },
+  /** While the button is held: the hold's dabs where the brush stands (the airbrush). */
+  holdLoop(){
+    cancelAnimationFrame(this._raf);
+    this._lastT=performance.now();
+    const step=()=>{
+      if(!this.on || !this._pressed || !this._stroke){ this._raf=0; return; }
+      this._raf=requestAnimationFrame(step);
+      const now=performance.now(), dt=Math.min(0.1, (now-this._lastT)/1000); this._lastT=now;
+      if(this.mode==='texture' || this._picking) return;
+      const S=this._stroke, share=WgLandBrush.hold(S, now, dt);
+      if(share>0 && S.cursor) this.applyDabs([[S.cursor[0], S.cursor[1], share]]);
+    };
+    this._raf=requestAnimationFrame(step);
+  },
+
+  /** One batch of a stroke: `pts` the ground points [x, y, ...] in viewport units. The
+   *  engine decides where the dabs fall (the click, then the spacing along the path). */
   paint(pts){
     const sc=App._scene; if(!sc || !sc.origin) return;
     const cells=this.cells(); if(!cells.size) return;
     const [ox,oy]=sc.origin;
     if(this._picking && pts.length>=2){ this.pickTexture(cells, pts[0]+ox, pts[1]+oy); return; }
+    if(this._pickHeight && pts.length>=2){
+      this._pickHeight=false;
+      const vx=Math.round((pts[0]+ox)/this.STEP), vy=Math.round((pts[1]+oy)/this.STEP), h=this.holders(cells,vx,vy)[0];
+      if(h){ this.b.flatHeight=Math.round(h.c.heights[h.k]); this.b.flatTarget='fixed'; this.panel(); toast('Flatten to '+this.b.flatHeight,'ok',2000); }
+      return;
+    }
+    const S=this._stroke||this.beginStroke(), now=performance.now(), r=this.radius();
+    const dabs=[];
+    for(let p=0;p+1<pts.length;p+=2) for(const d of WgLandBrush.along(S, pts[p]+ox, pts[p+1]+oy, r, now)) dabs.push(d);
+    this.applyDabs(dabs);
+  },
+
+  /** Dabs [wx, wy, mult] in world units onto the ground, then the ground drawn again. */
+  applyDabs(dabs){
+    const sc=App._scene; if(!sc || !sc.origin || !dabs.length) return;
+    const cells=this.cells(); if(!cells.size) return;
     this.snapshot();
     // Cells of the scene the brush reaches that have no land yet get flat land at the sea.
     const r=this.radius();
     for(const c of (sc.cells||[])){
       if(c.kind!=='ext' || c.heights) continue;
-      for(let p=0;p+1<pts.length;p+=2){
-        const wx=pts[p]+ox, wy=pts[p+1]+oy, x0=c.gx*this.CELL, y0=c.gy*this.CELL;
+      for(const [wx, wy] of dabs){
+        const x0=c.gx*this.CELL, y0=c.gy*this.CELL;
         if(wx+r>=x0 && wx-r<=x0+this.CELL && wy+r>=y0 && wy-r<=y0+this.CELL){ this.newLand(c); cells.set(c.gx+','+c.gy,c); break; }
       }
     }
     const touched=new Set();
-    for(let p=0;p+1<pts.length;p+=2){
-      const wx=pts[p]+ox, wy=pts[p+1]+oy;
-      if(this.mode==='height') this.dabHeight(cells, pts[p], pts[p+1], wx, wy, touched);
+    for(const [wx, wy, m] of dabs){
+      if(!(m>0)) continue;
+      if(this.mode==='height') this.dabHeight(cells, wx, wy, m, touched);
       else if(this.mode==='texture') this.dabTexture(cells, wx, wy, touched);
-      else this.dabColor(cells, wx, wy, touched);
+      else this.dabColor(cells, wx, wy, touched, m);
     }
     if(!touched.size) return;
     for(const k of touched) this._edited.set(k, cells.get(k));
@@ -561,42 +803,56 @@ const WgLand={
       for(const k of rebuild) this.relayer(cells.get(k), cells);
     }
     this.rebuild(rebuild);
+    if(this.ov.tint!=='none' || this.ov.contours){ clearTimeout(this._ovT); this._ovT=setTimeout(()=>this.applyOverlays(), 300); }
     if(this.preview){ this.status(''); this.showWait(); return; }
     this.status(this.dirty.size+' cell'+(this.dirty.size===1?'':'s')+' changed, not yet in the patch');
     this.scheduleCommit();
   },
 
-  dabHeight(cells, vx0, vy0, wx, wy, touched){
-    if(this.tool==='flatten' && this._flatZ==null){
-      const g=App.R.groundZ? App.R.groundZ(vx0,vy0) : null;
-      if(g==null) return;
-      this._flatZ=g;
-    }
+  /** One dab of a height tool at world (wx, wy), at `mult` of the strength. */
+  dabHeight(cells, wx, wy, mult, touched){
+    const S=this._stroke||this.beginStroke(), b=this.b, tool=this.activeTool(), STEP=this.STEP;
     const at=(vx,vy)=>{ const h=this.holders(cells,vx,vy)[0]; return h? h.c.heights[h.k] : null; };
-    const k=Math.min(1,this.strength/100), vs=this.vertices(wx,wy), changes=[];
-    for(let i=0;i<vs.length;i+=3){
-      const vx=vs[i], vy=vs[i+1], w=vs[i+2], h=at(vx,vy);
-      if(h==null) continue;
-      let to=h;
-      if(this.tool==='raise') to=h+this.strength*w;
-      else if(this.tool==='lower') to=h-this.strength*w;
-      else if(this.tool==='flatten') to=h+(this._flatZ-h)*w*k;
-      else{
-        const n=[at(vx+1,vy),at(vx-1,vy),at(vx,vy+1),at(vx,vy-1)].filter(v=>v!=null);
-        if(!n.length) continue;
-        to=h+(n.reduce((a,b)=>a+b,0)/n.length-h)*w*k;
-      }
-      if(to!==h) changes.push(vx,vy,to);
+    const vs=this.vertices(wx,wy);
+    if(!vs.length) return;
+    const here=at(Math.round(wx/STEP), Math.round(wy/STEP));
+    // What the stroke aims at, fixed where it began.
+    if(tool==='flatten' && S.target==null){
+      if(b.flatTarget==='fixed') S.target=+b.flatHeight||0;
+      else if(b.flatTarget==='sea') S.target=0;
+      else if(b.flatTarget==='average'){
+        let s=0, n=0; for(let i=0;i<vs.length;i+=3){ const h=at(vs[i],vs[i+1]); if(h!=null){ s+=h*vs[i+2]; n+=vs[i+2]; } }
+        S.target=n? s/n : here;
+      }else S.target=here;
+      if(S.target==null) return;
     }
+    if(tool==='ramp'){
+      if(!S.ramp){ if(here==null) return; S.ramp={x0:wx, y0:wy, z0:here}; }
+      S.ramp.x1=wx; S.ramp.y1=wy; S.ramp.z1=here!=null? here : S.ramp.z0;
+    }
+    const k=Math.min(1, this.strength/100)*mult;
+    const p={tool, amount:this.strength*mult, k, smooth:b.smooth, wide:b.wide, target:S.target, only:b.flatOnly,
+      ramp:S.ramp, step:STEP, radius:this.radius(), feather:this.feather, falloff:b.falloff,
+      noise:{scale:b.noiseScale, octaves:b.noiseOct, rough:b.noiseRough, seed:b.noiseSeed},
+      terrace:b.terrace, edge:b.edge, talus:b.talus};
+    // The ramp's sides follow the line, not the dab: every vertex of the brush gets weight 1.
+    let verts=vs;
+    if(tool==='ramp'){ verts=vs.slice(); for(let i=2;i<verts.length;i+=3) verts[i]=1; }
+    const changes=WgLandBrush.dab({get:at}, verts, p);
     // Applied after the dab is measured, so smoothing reads one surface, not a moving one.
-    for(let i=0;i<changes.length;i+=3) for(const h of this.holders(cells,changes[i],changes[i+1])){
-      this.original(h.c); h.c.heights[h.k]=changes[i+2]; touched.add(h.key); this.mark(h.key,'h');
+    for(let i=0;i<changes.length;i+=3){
+      const vx=changes[i], vy=changes[i+1], from=at(vx,vy);
+      const to=WgLandBrush.capped(S, vx+','+vy, from, changes[i+2]);
+      if(to===from) continue;
+      for(const h of this.holders(cells,vx,vy)){
+        this.original(h.c); h.c.heights[h.k]=to; touched.add(h.key); this.mark(h.key,'h');
+      }
     }
   },
 
-  dabColor(cells, wx, wy, touched){
+  dabColor(cells, wx, wy, touched, mult){
     const hex=this.color.replace('#',''), rgb=[0,2,4].map(i=>parseInt(hex.substr(i,2),16));
-    const k=Math.min(1,this.strength/100), vs=this.vertices(wx,wy);
+    const k=Math.min(1,this.strength/100*(mult==null? 1 : mult)), vs=this.vertices(wx,wy);
     for(let i=0;i<vs.length;i+=3) for(const h of this.holders(cells,vs[i],vs[i+1])){
       const c=h.c;
       this.original(c);
@@ -739,6 +995,7 @@ const WgLand={
   async commit(){
     clearTimeout(this._commitT);
     this._before=null;
+    if(!this._pressed) this._stroke=null;
     if(!this.dirty.size){ this.showWait(); return; }
     // A changed cell the scene has since left is written from the object the strokes changed.
     const cells=this.cells(), work=[...this.dirty], edited=new Map(this._edited); this.dirty.clear(); this._edited.clear();

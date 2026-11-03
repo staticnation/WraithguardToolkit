@@ -233,11 +233,13 @@ pub fn merge_onto(acc: &mut RelativeGrid, incoming: &RelativeGrid, layer_bits: u
         overwrite_onto(acc, incoming, &mut report);
         return Ok(report);
     }
-    let before = acc.flat();
-    let theirs = incoming.flat();
+    /* The merge's and the incoming values, read a vertex at a time from reference + delta
+       rather than from two copies of the whole grid: a vertex's own values are read before
+       it is set, and setting one changes no other's. Curvature alone reads the surfaces
+       around a vertex, so it keeps whole copies, taken before anything is set. */
     let surfaces = (chosen == Strategy::Curvature).then(|| {
         let f = |v: &[Value]| v.iter().map(|&x| x as f64).collect::<Vec<f64>>();
-        (f(&acc.reference), f(&before), f(&theirs))
+        (f(&acc.reference), f(&acc.flat()), f(&incoming.flat()))
     });
     let set = |acc: &mut RelativeGrid, v: usize, values: &[Value]| {
         let mut changed = false;
@@ -248,24 +250,27 @@ pub fn merge_onto(acc: &mut RelativeGrid, incoming: &RelativeGrid, layer_bits: u
         }
         acc.changed[v] = changed;
     };
-    for y in 0..side {
-        for x in 0..side {
-            let v = y * side + x;
-            let mine = &before[v * comps..(v + 1) * comps];
-            let new = &theirs[v * comps..(v + 1) * comps];
-            match (acc.changed[v], incoming.changed[v]) {
-                (_, false) => {
-                    if acc.changed[v] {
-                        report.taken_from_one += 1;
-                    }
-                    continue;
-                }
-                (false, true) => {
-                    report.taken_from_two += 1;
-                    set(acc, v, new);
-                    continue;
-                }
-                (true, true) => {}
+    for v in 0..side * side {
+        // Most vertices the incoming plugin left alone: settled before anything is read.
+        if !incoming.changed[v] {
+            if acc.changed[v] {
+                report.taken_from_one += 1;
+            }
+            continue;
+        }
+        let (x, y) = (v % side, v / side);
+        {
+            let (mut mine_b, mut new_b) = ([0 as Value; 4], [0 as Value; 4]);
+            for o in 0..comps {
+                let i = v * comps + o;
+                mine_b[o] = acc.reference[i] + acc.delta[i];
+                new_b[o] = incoming.reference[i] + incoming.delta[i];
+            }
+            let (mine, new) = (&mine_b[..comps], &new_b[..comps]);
+            if !acc.changed[v] {
+                report.taken_from_two += 1;
+                set(acc, v, new);
+                continue;
             }
             if mine == new {
                 continue;

@@ -1184,6 +1184,103 @@ impl Parser {
     }
 }
 
+/// The player's stats as a save keeps them, for the viewer's first-person body: the 27 skills
+/// and 8 attributes (base plus modifier) and fatigue (current, maximum).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayerStats {
+    pub name: String,
+    /// By the game's skill index (Block 0 ... Hand-to-hand 26).
+    pub skills: Vec<f32>,
+    /// By the game's attribute index (Strength 0 ... Luck 7).
+    pub attributes: Vec<f32>,
+    /// `(current, maximum)`.
+    pub fatigue: (f32, f32),
+}
+
+/// A 4-byte stat that a save may hold as a float or (older saves) as an integer: the
+/// reading that is a plausible stat is taken.
+fn stat_value(b: &[u8]) -> Option<f32> {
+    let raw: [u8; 4] = b.get(..4)?.try_into().ok()?;
+    let f = f32::from_le_bytes(raw);
+    let i = i32::from_le_bytes(raw);
+    if f.is_finite() && (f == 0.0 || f.abs() >= 1e-3) && f.abs() < 1e7 {
+        Some(f)
+    } else if i.abs() < 10_000_000 {
+        Some(i as f32)
+    } else {
+        None
+    }
+}
+
+/// The player's stats from an OpenMW save's `PLAY` record. The player is saved as an NPC's
+/// state: the NPC's stats (its skills first) then the creature's (the 8 attributes, then
+/// health, magicka and fatigue), each a base (`STBA`) with an optional modifier (`STMO`),
+/// current value (`STCU`), damage (`STDF`) and progress (`STPR`), one after another. That run
+/// is read alone - the record goes on with other `STBA`s (the AI settings after `AISE`) - and
+/// counted from both ends, so stats saved between (an older save's werewolf skills) do not
+/// move them. Checked against a format 39 save (2026-11-02).
+pub fn player_stats(data: &[u8]) -> Result<PlayerStats, String> {
+    if data.get(..4) != Some(b"TES3") {
+        return Err("not an OpenMW save (no TES3 header)".into());
+    }
+    let mut name = String::new();
+    // Each unbroken run of stat subrecords; the player's is the longest.
+    let mut runs: Vec<Vec<(f32, f32, Option<f32>)>> = Vec::new();
+    let mut open = false;
+    for (tag, _, subs) in records(data) {
+        if &tag == b"SAVE" {
+            for s in subs.iter().filter(|s| &s.0 == b"PLNA") {
+                let b = slice(data, s.1, s.2);
+                let end = b.iter().rposition(|&c| c != 0).map_or(0, |i| i + 1);
+                name = String::from_utf8_lossy(&b[..end]).into_owned();
+            }
+        }
+        if &tag != b"PLAY" {
+            continue;
+        }
+        for &(sub, start, size) in &subs {
+            let v = || stat_value(slice(data, start, size));
+            match &sub {
+                b"STBA" => {
+                    if !open {
+                        runs.push(Vec::new());
+                        open = true;
+                    }
+                    if let Some(r) = runs.last_mut() {
+                        r.push((v().unwrap_or(0.0), 0.0, None));
+                    }
+                }
+                b"STMO" if open => {
+                    if let (Some(last), Some(x)) = (runs.last_mut().and_then(|r| r.last_mut()), v()) {
+                        last.1 = x;
+                    }
+                }
+                b"STCU" if open => {
+                    if let Some(last) = runs.last_mut().and_then(|r| r.last_mut()) {
+                        last.2 = v();
+                    }
+                }
+                b"STDF" | b"STPR" if open => {}
+                _ => open = false,
+            }
+        }
+        break;
+    }
+    let stats = runs.into_iter().max_by_key(|r| r.len()).unwrap_or_default();
+    if stats.len() < 38 {
+        return Err(format!("the save's player has {} stats where 38 were expected: not a layout this reads", stats.len()));
+    }
+    let n = stats.len();
+    let at = |i: usize| stats[i].0 + stats[i].1;
+    let fatigue = &stats[n - 1];
+    Ok(PlayerStats {
+        name,
+        skills: (0..27).map(at).collect(),
+        attributes: (n - 11..n - 3).map(at).collect(),
+        fatigue: (fatigue.2.unwrap_or(fatigue.0 + fatigue.1), fatigue.0 + fatigue.1),
+    })
+}
+
 /// A save read and credited (`analyse`): `name` for the reports, `data_dirs` to find the load
 /// order's files (`None`: mods guessed from names), `key_depth` how deep the Lua data's keys are
 /// broken down (0: not).
@@ -1874,5 +1971,51 @@ mod tests {
         assert!(text.contains("## Space per mod"));
         let d = report_diff(&s, &s, 30, &[]);
         assert!(d.contains("(none)"));
+    }
+
+    #[test]
+    fn the_player_s_skills_attributes_and_fatigue_are_read_from_the_play_record() {
+        let f = |v: f32| v.to_le_bytes();
+        let mut play = vec![sub(b"NAME", b"player\0"), sub(b"FACT", b"\x02x")];
+        for i in 0..27 {
+            play.push(sub(b"STBA", &f(i as f32 + 5.0)));
+            play.push(sub(b"STPR", &f(0.5)));
+        }
+        // Attributes as an older save writes them: integers, one with a modifier.
+        for i in 0..8 {
+            play.push(sub(b"STBA", &(30i32 + i).to_le_bytes()));
+            if i == 4 {
+                play.push(sub(b"STMO", &10i32.to_le_bytes()));
+            }
+        }
+        for (base, cur) in [(50.0, 40.0), (100.0, 100.0), (200.0, 150.0)] {
+            play.push(sub(b"STBA", &f(base)));
+            play.push(sub(b"STCU", &f(cur)));
+        }
+        // Then, as a real save has them, spells and the AI settings: four more STBAs.
+        play.push(sub(b"MOVE", &4i32.to_le_bytes()));
+        play.push(sub(b"SPEL", b"\x02mage ability"));
+        play.push(sub(b"AISE", &[1]));
+        for v in [30i32, 30, 30, 0] {
+            play.push(sub(b"STBA", &v.to_le_bytes()));
+        }
+        let save = [rec(b"TES3", &[sub(b"FORM", &40u32.to_le_bytes())]), rec(b"SAVE", &[sub(b"PLNA", b"Nerevar\0")]), rec(b"PLAY", &play)].concat();
+        let p = player_stats(&save).unwrap();
+        assert_eq!(p.name, "Nerevar");
+        assert_eq!((p.skills[8], p.skills[20], p.skills.len()), (13.0, 25.0, 27));
+        assert_eq!((p.attributes[0], p.attributes[4], p.attributes.len()), (30.0, 44.0, 8));
+        assert_eq!(p.fatigue, (150.0, 200.0));
+        let short = [rec(b"TES3", &[sub(b"FORM", &40u32.to_le_bytes())]), rec(b"PLAY", &play[..20])].concat();
+        assert!(player_stats(&short).is_err());
+    }
+
+    /// `WG_PLAYER_SAVE=<a .omwsave>`: the player's stats as the first-person body reads them.
+    #[test]
+    #[ignore]
+    fn a_real_save_s_player() {
+        let Ok(path) = std::env::var("WG_PLAYER_SAVE") else { return };
+        let p = player_stats(&std::fs::read(path).unwrap()).unwrap();
+        eprintln!("{}: attributes {:?}\nskills {:?}\nfatigue {:?}", p.name, p.attributes, p.skills, p.fatigue);
+        assert!(p.attributes.iter().chain(&p.skills).all(|v| (0.0..=1000.0).contains(v)));
     }
 }

@@ -46,7 +46,10 @@ let FOV=48*Math.PI/180;   // vertical field of view, shared by projection and pa
    units a metre), its step (sStepSizeUp, 34), an eye about where a human's head is, and the
    actor's half-width. Approximate: no Speed, Athletics or Acrobatics are read. */
 const VIEW_FOV=48*Math.PI/180, WALK_FOV=60*Math.PI/180;
-const WALK={eye:116, walk:150, run:300, gravity:686, jump:400, step:34, radius:29};
+/* The first-person body: eye height, a step it climbs, its half-width, and how deep water
+   has to be over its feet to swim (OpenMW: fSwimHeightScale 0.9 of a 128-unit body). The
+   speeds here are the fallback; `walkBody` (71_wg_walk.js) gives OpenMW's from the stats. */
+const WALK={eye:116, walk:150, run:300, gravity:686, jump:400, step:34, radius:29, swim:115};
 /* Round 18fh/18fi: how much faster the WASD flight goes while Shift is held with the right
    button down. The one number to change if the boost feels too little or too much: the
    speed on the bar stays what it is, and this multiplies it for as long as Shift is held.
@@ -1340,7 +1343,39 @@ uniform vec2 uBlendXf;   // x: scale, y: offset
 // numbers the placed-object shader uses. (No backticks in here: this is inside a template
 // literal, and one would end the shader.)
 uniform vec3 uGridCol;
+/* Wraithguard: the Land view's map overlays (67_wg_land.js), as the old 3D terrain view
+   drew them; all 0 (off) unless it sets them. uHill: a hillshade from the surface's own
+   slope (per pixel), lit by up to six lights (uHillL: direction, weight; the weights sum to
+   one, so flat ground is lit the same at one light or six), mixed in by its strength - over
+   the textures (uHillGrey 0) or as a grey relief under the tint (1). uElev: the ground
+   tinted by its height between uElevLo and uElevHi at uElevA - 1 hypsometric (green
+   valleys, tan, rock, pale summits; blue under the sea), 2 a rainbow in Turbo's order
+   (our own stops), 3 grey. uContour: a line every that many units of height, every fifth
+   heavier, in uContourCol, dropped where they would crowd into a smear. (No backticks.) */
+uniform float uHill, uContour, uElevLo, uElevHi, uElevA;
+uniform int uHillGrey, uElev;
+uniform vec4 uHillL[6];
+uniform vec3 uContourCol;
+vec3 wgRamp(int pal, float t){
+  t=clamp(t,0.0,1.0);
+  if(pal==3) return vec3(0.08+0.9*t);
+  vec3 a, b; float f;
+  if(pal==2){
+    // Dark blue, blue, cyan, green, yellow, orange, dark red: the rainbow's order.
+    float x=t*6.0; int i=int(min(5.0,floor(x))); f=x-float(i);
+    vec3 st[7]=vec3[7](vec3(0.19,0.07,0.23),vec3(0.27,0.51,0.97),vec3(0.10,0.89,0.76),vec3(0.53,0.99,0.31),
+      vec3(0.98,0.78,0.21),vec3(0.96,0.42,0.09),vec3(0.48,0.02,0.01));
+    return mix(st[i],st[i+1],f);
+  }
+  float x=t*4.0; int i=int(min(3.0,floor(x))); f=x-float(i);
+  vec3 hy[5]=vec3[5](vec3(0.33,0.55,0.30),vec3(0.62,0.68,0.40),vec3(0.80,0.72,0.50),vec3(0.55,0.45,0.35),vec3(0.95,0.95,0.93));
+  return mix(hy[i],hy[i+1],f);
+}
 uniform vec4 uBrushS;
+/* Wraithguard: the Land view's brush outline (72_wg_landbrush.js), across the ground rather
+   than as a sphere: uBrushS.x the shape (0 the sphere as before, 1 a circle, 2 a square,
+   3 a diamond), uBrushS.y its aspect ratio, uBrushA its angle as (cos, sin). */
+uniform vec2 uBrushA;
 uniform vec4 uPivot;    // round 17j: the orbit pivot's stamp, xyz and radius (w<=0 off)
 uniform vec3 uPivotCol; // round 18cj: in the theme's own orbit colour
 uniform vec3 uBrushP;
@@ -1416,6 +1451,33 @@ void main(){
   vec3 c = uLampModel == 1 ? gdnTonemap(base*light)*uBright : base*light*uBright;
   c += lspec*uBright;
   if(uShowSlope==1 && gdnCulled(vW,vN)) c=mix(c,vec3(0.812,0.416,0.298),0.38);
+  if(uHill>0.0 || uElev>0){
+    float hs=1.0;
+    if(uHill>0.0){
+      vec3 hn=normalize(cross(dFdx(vW),dFdy(vW)));
+      if(hn.z<0.0) hn=-hn;
+      hs=0.0;
+      for(int i=0;i<6;i++) hs+=uHillL[i].w*clamp(dot(hn, uHillL[i].xyz),0.0,1.0);
+    }
+    // The relief: the hillshade grey (or the textures shaded by it), the tint over it.
+    vec3 rel = uHillGrey==1 ? vec3(0.10+0.90*hs) : c*(0.25+1.15*hs);
+    if(uHill>0.0) c=mix(c, rel, uHill);
+    if(uElev>0){
+      vec3 hc;
+      if(uElev==1 && vW.z<0.0) hc=mix(vec3(0.45,0.65,0.85), vec3(0.10,0.20,0.45), clamp(vW.z/min(-1.0,uElevLo),0.0,1.0));
+      else hc=wgRamp(uElev, uElev==1 ? vW.z/max(1.0,uElevHi) : (vW.z-uElevLo)/max(1.0,uElevHi-uElevLo));
+      c=mix(c, hc*(uHill>0.0 ? (0.35+0.75*hs) : 1.0), uElevA);
+    }
+  }
+  if(uContour>0.0){
+    float cf=vW.z/uContour, fw=fwidth(cf);
+    // Closer than three line widths they would merge into a smear: left out, as paper maps do.
+    if(fw<0.33){
+      float cl=abs(fract(cf+0.5)-0.5)/max(fw,1e-5);
+      float cw=mod(floor(cf+0.5),5.0)==0.0 ? 1.6 : 0.9;
+      if(cl<cw) c=mix(c, uContourCol, 0.85*(1.0-cl/cw));
+    }
+  }
   if(uGrid==1){
     vec2 f=abs(fract(vW.xy/512.0)-0.5);
     float ln=min(f.x,f.y);
@@ -1424,6 +1486,11 @@ void main(){
   }
   if(uBrushS.w>=0.0){
     float d=length(vW-uBrushP);
+    if(uBrushS.x>0.5){
+      vec2 dv=vW.xy-uBrushP.xy;
+      float bu=abs(dot(dv,uBrushA)), bv=abs(-dv.x*uBrushA.y+dv.y*uBrushA.x)/max(0.05,uBrushS.y);
+      d = uBrushS.x<1.5 ? length(vec2(bu,bv)) : uBrushS.x<2.5 ? max(bu,bv) : (bu+bv)*0.70710678;
+    }
     float t=fwidth(d)*1.5+2.0;
     // Two outlines: where the brush stops, and where the feather begins.
     float rim=min(abs(d-uBrushS.z), abs(d-uBrushS.w));
@@ -5749,6 +5816,14 @@ class Renderer{
     this.dirty=true;
   }
   /** Where the brush is, in world units, or null. */
+  /** The ground shader's brush: its shape and aspect (Wraithguard: the Land view's shapes;
+   *  0 the sphere), its two radii; and the angle beside it. */
+  _brushS(){
+    const b=this.brush, g=this.progGround;
+    const sh={circle:1, square:2, diamond:3}[b.shape]||0;
+    if(g && g.u.uBrushA){ const a=(b.angle||0)*Math.PI/180; this.gl.uniform2f(g.u.uBrushA, Math.cos(a), Math.sin(a)); }
+    return [sh, b.aspect==null? 1 : b.aspect, b.r, b.inner];
+  }
   setBrush(b){
     const a=this.brush, n=b||null;
     if(!a && !n) return;
@@ -5757,7 +5832,7 @@ class Renderer{
        the landscape when it is not. Two sets of coordinates were two chances to draw
        the ring somewhere the paint does not go. */
     if(a && n && a.x===n.x && a.y===n.y && a.z===n.z && a.r===n.r && a.inner===n.inner
-       && a.onStatics===n.onStatics && a.free===n.free) return;
+       && a.onStatics===n.onStatics && a.free===n.free && a.shape===n.shape && a.aspect===n.aspect && a.angle===n.angle) return;
     this.brush=n;
     this.dirty=true;
   }
@@ -6990,7 +7065,9 @@ class Renderer{
        paint mode it is the brush. */
     let look=null;
     this.fly={speed:1500, vel:[0,0,0], keys:{}, active:false, last:0, boost:false};
-    const keyOf=e=>{ const c=e.code||''; if(c==='Space' && this.walk) return 'J'; return /^Key[WASDQE]$/.test(c)? c[3] : null; };
+    const keyOf=e=>{ const c=e.code||''; if(c==='Space' && this.walk) return 'J';
+      if(this.walk && (c==='ControlLeft' || c==='ControlRight')) return 'C';   // sneak, as in the game
+      return /^Key[WASDQE]$/.test(c)? c[3] : null; };
     const typing=e=>{ const t=e.target; return !!(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||t.isContentEditable)); };
     /* Round 18fh, Robin: "when I am in WASD navigation mode and hold right mouse button
        AND hold SHIFT, my current speed that I am flying at is doubled. This should NOT be
@@ -7740,9 +7817,17 @@ class Renderer{
     let best=null;
     const gz=this.groundZ? this.groundZ(x, y) : null;
     if(gz!=null && isFinite(gz) && gz<=top+0.5) best=gz;
-    const h=this.pickRay([x, y, top], [0, 0, -1]);
+    const h=this._walkRay([x, y, top], [0, 0, -1]);
     if(h && isFinite(h.t)){ const z=top-h.t; if(best==null || z>best) best=z; }
     return best;
+  }
+  /** A ray against what the body collides with: the objects' collision shapes when the
+   *  body has them (`walkBody.ray`, 71_wg_walk.js: a RootCollisionNode, else the drawn
+   *  mesh, and nothing for an object without collision, as OpenMW), else the drawn ones. */
+  _walkRay(o, d, max){
+    const B=this.walkBody;
+    if(B && B.ray){ const h=B.ray(o, d, max); if(h!==undefined) return h; }
+    return this.pickRay(o, d);
   }
   /** Whether something stands in the way of a step from the eye along (dx, dy): a ray at
    *  knee (above the step) and at chest height, the body's half-width beyond the step. */
@@ -7750,9 +7835,10 @@ class Renderer{
     const l=Math.hypot(dx, dy); if(!(l>0)) return false;
     const d=[dx/l, dy/l, 0];
     for(const z of [feet+WALK.step+4, feet+WALK.eye*0.6]){
-      const h=this.pickRay([eye[0], eye[1], z], d);
+      const h=this._walkRay([eye[0], eye[1], z], d, l+WALK.radius);
       if(h && h.t < l+WALK.radius) return true;
     }
+    if(this.walkBody && this.walkBody.actorAt && this.walkBody.actorAt(eye[0]+dx, eye[1]+dy, feet, WALK.radius)) return true;
     const gz=this.groundZ? this.groundZ(eye[0]+dx, eye[1]+dy) : null;
     return gz!=null && isFinite(gz) && gz>feet+WALK.step;   // a cliff of land
   }
@@ -7764,32 +7850,64 @@ class Renderer{
     else this.walkSt.ground=false;
     const c=this.cam; c.el=Math.max(-1.2, Math.min(1.2, c.el));
   }
-  /** One step of the game's first person: the keys along the ground (the head's heading,
-   *  never its pitch), Shift to walk, Space to jump; gravity and floors hold the body. */
+  /** One step of the game's first person. On the ground: the keys along the ground (the
+   *  head's heading, never its pitch), Shift to walk, Ctrl to sneak, Space to jump; gravity
+   *  and floors hold the body. In water deeper than the body can stand in, or levitating:
+   *  the keys along where the head looks, E and Q up and down. The speeds are OpenMW's from
+   *  the body's stats (`walkBody.speeds`), and the body hears its own steps (`walkBody.step`,
+   *  `walkBody.land`). */
   _walkStep(now){
-    const f=this.fly, w=this.walkSt;
+    const f=this.fly, w=this.walkSt, B=this.walkBody;
     const dt=Math.min(0.05, Math.max(0, (now-(f.last||now))/1000)); f.last=now;
     if(!(dt>0)) return false;
-    const c=this.cam, ca=Math.cos(c.az), sa=Math.sin(c.az);
-    const fwd=[-ca, -sa], right=[-sa, ca];
     const k=f.keys, p=f.pad;
-    let wx=0, wy=0;
-    if(k.W){ wx+=fwd[0]; wy+=fwd[1]; }
-    if(k.S){ wx-=fwd[0]; wy-=fwd[1]; }
-    if(k.D){ wx+=right[0]; wy+=right[1]; }
-    if(k.A){ wx-=right[0]; wy-=right[1]; }
-    if(p){ wx+=fwd[0]*p[0]+right[0]*p[1]; wy+=fwd[1]*p[0]+right[1]*p[1]; }
-    const wl=Math.hypot(wx, wy), keyed=k.W||k.A||k.S||k.D;
-    const top=f.boost || (this._walkShift)? WALK.walk : WALK.run;
-    if(wl>0){ const s=top/(keyed? wl : Math.max(1, wl)); wx*=s; wy*=s; }
-    // On the ground the legs answer at once; in the air the body keeps what it had.
-    const a=w.ground? 1-Math.exp(-dt*20) : 1-Math.exp(-dt*1.5);
-    f.vel[0]+=(wx-f.vel[0])*a; f.vel[1]+=(wy-f.vel[1])*a; f.vel[2]=0;
-    if(Math.abs(f.vel[0])<1 && !wx) f.vel[0]=0;
-    if(Math.abs(f.vel[1])<1 && !wy) f.vel[1]=0;
+    const sp=(B && B.speeds)? B.speeds() : {walk:WALK.walk, run:WALK.run, sneak:WALK.walk*0.75, swimWalk:WALK.walk*0.6,
+      swimRun:WALK.run*0.6, fly:WALK.run, jump:WALK.jump, gravity:WALK.gravity, swimDepth:WALK.swim};
+    const c=this.cam, ca=Math.cos(c.az), sa=Math.sin(c.az), ce=Math.cos(c.el), se=Math.sin(c.el);
     const e=this._eye();
     let feet=e[2]-WALK.eye;
-    let dx=f.vel[0]*dt, dy=f.vel[1]*dt;
+    const water=(B && B.waterZ)? B.waterZ() : (this.water? this.water.z : null);
+    const lev=!!(B && B.levitating && B.levitating());
+    const swimDepth=sp.swimDepth||WALK.swim;
+    const swim=!lev && water!=null && isFinite(water) && water-feet>swimDepth;
+    const walking=!!this._walkShift, sneak=!!k.C;
+    let mode=lev? 'fly' : swim? 'swim' : 'walk';
+    let dx=0, dy=0, dz=0;
+    if(mode!=='walk'){
+      // Along the look, as the game swims and levitates.
+      const fwd=[-ce*ca, -ce*sa, -se], right=[-sa, ca, 0];
+      let v=[0, 0, 0];
+      const add=(a, m)=>{ v[0]+=a[0]*m; v[1]+=a[1]*m; v[2]+=a[2]*m; };
+      if(k.W) add(fwd, 1); if(k.S) add(fwd, -1);
+      if(k.D) add(right, 1); if(k.A) add(right, -1);
+      if(k.E || k.J) v[2]+=1; if(k.Q) v[2]-=1;
+      if(p){ add(fwd, p[0]); add(right, p[1]); v[2]+=p[2]||0; }
+      const vl=Math.hypot(v[0], v[1], v[2]);
+      const top=mode==='fly'? sp.fly : (walking? sp.swimWalk : sp.swimRun);
+      if(vl>0){ const m=top/Math.max(1, vl); v=v.map(x=>x*m); }
+      const a=1-Math.exp(-dt*8);
+      for(let i=0;i<3;i++){ f.vel[i]+=(v[i]-f.vel[i])*a; if(Math.abs(f.vel[i])<1 && !v[i]) f.vel[i]=0; }
+      dx=f.vel[0]*dt; dy=f.vel[1]*dt; dz=f.vel[2]*dt;
+      w.vz=0; w.ground=false;
+    }else{
+      const fwd=[-ca, -sa], right=[-sa, ca];
+      let wx=0, wy=0;
+      if(k.W){ wx+=fwd[0]; wy+=fwd[1]; }
+      if(k.S){ wx-=fwd[0]; wy-=fwd[1]; }
+      if(k.D){ wx+=right[0]; wy+=right[1]; }
+      if(k.A){ wx-=right[0]; wy-=right[1]; }
+      if(p){ wx+=fwd[0]*p[0]+right[0]*p[1]; wy+=fwd[1]*p[0]+right[1]*p[1]; }
+      const wl=Math.hypot(wx, wy), keyed=k.W||k.A||k.S||k.D;
+      let top=sneak? sp.sneak : (f.boost || walking)? sp.walk : sp.run;
+      if(keyed && !k.W && !k.S) top*=sp.strafe||1;   // OpenMW: a sideways step is slower
+      if(wl>0){ const s=top/(keyed? wl : Math.max(1, wl)); wx*=s; wy*=s; }
+      // On the ground the legs answer at once; in the air the body keeps what it had.
+      const a=w.ground? 1-Math.exp(-dt*20) : 1-Math.exp(-dt*1.5);
+      f.vel[0]+=(wx-f.vel[0])*a; f.vel[1]+=(wy-f.vel[1])*a; f.vel[2]=0;
+      if(Math.abs(f.vel[0])<1 && !wx) f.vel[0]=0;
+      if(Math.abs(f.vel[1])<1 && !wy) f.vel[1]=0;
+      dx=f.vel[0]*dt; dy=f.vel[1]*dt;
+    }
     if((dx||dy) && this._blocked(e, feet, dx, dy)){
       // Slide along what is in the way: each axis on its own.
       if(!this._blocked(e, feet, dx, 0)) dy=0;
@@ -7797,21 +7915,36 @@ class Renderer{
       else { dx=0; dy=0; }
       if(!dx) f.vel[0]=0; if(!dy) f.vel[1]=0;
     }
-    if(k.J && w.ground){ w.vz=WALK.jump; w.ground=false; }
-    const floor=this._floorAt(e[0]+dx, e[1]+dy, feet);
-    if(w.ground && floor!=null && floor<feet-WALK.step) w.ground=false;   // walked off an edge
-    if(w.ground && floor!=null){ feet=floor; w.vz=0; }
-    else if(floor==null && w.ground){ w.vz=0; }   // nothing loaded under: stand where it is
-    else{
-      w.vz-=WALK.gravity*dt;
-      feet+=w.vz*dt;
-      const under=this._floorAt(e[0]+dx, e[1]+dy, feet-w.vz*dt);
-      if(under!=null && feet<=under){ feet=under; w.vz=0; w.ground=true; }
-      else if(under==null && feet<e[2]-WALK.eye-4000){ w.vz=0; w.ground=true; }   // nothing below at all
+    const floor=this._floorAt(e[0]+dx, e[1]+dy, feet+Math.min(0, dz));
+    if(mode!=='walk'){
+      feet+=dz;
+      if(floor!=null && feet<floor){ feet=floor; f.vel[2]=Math.max(0, f.vel[2]); }
+      // A swimmer's head stays at the surface: it cannot climb out of the water by looking up.
+      if(mode==='swim' && feet>water-swimDepth && !(floor!=null && floor>water-swimDepth)) { feet=Math.min(feet, water-swimDepth+0.5); f.vel[2]=Math.min(0, f.vel[2]); }
+      if(mode==='fly' && floor!=null && feet<=floor+0.5) w.ground=true;
+    }else{
+      const was=w.ground, fallV=w.vz;
+      if(k.J && w.ground && sp.jump>0){ w.vz=(walking || sneak)? (sp.jumpWalk||sp.jump) : sp.jump; w.ground=false; }
+      if(w.ground && floor!=null && floor<feet-WALK.step) w.ground=false;   // walked off an edge
+      if(w.ground && floor!=null){ feet=floor; w.vz=0; }
+      else if(floor==null && w.ground){ w.vz=0; }   // nothing loaded under: stand where it is
+      else{
+        w.vz-=sp.gravity*dt;
+        feet+=w.vz*dt;
+        const under=this._floorAt(e[0]+dx, e[1]+dy, feet-w.vz*dt);
+        if(under!=null && feet<=under){ feet=under; w.vz=0; w.ground=true; }
+        else if(under==null && feet<e[2]-WALK.eye-4000){ w.vz=0; w.ground=true; }   // nothing below at all
+        // Falling into deep water ends the fall there.
+        if(water!=null && isFinite(water) && water-feet>swimDepth){ w.vz=0; }
+      }
+      if(!was && w.ground && B && B.land) B.land(-fallV, water!=null && isFinite(water) && feet<water);
     }
-    const dz=feet+WALK.eye-e[2];
-    if(!dx && !dy && Math.abs(dz)<1e-4) return false;
-    this._moveEye([dx, dy, dz]);
+    const moved=Math.hypot(dx, dy, mode==='walk'? 0 : dz);
+    if(moved>0 && B && B.step) B.step(moved, {mode, ground:w.ground, running:!walking && !sneak && !f.boost, sneak,
+      wading:mode==='walk' && water!=null && isFinite(water) && feet<water});
+    const ez=feet+WALK.eye-e[2];
+    if(!dx && !dy && Math.abs(ez)<1e-4) return false;
+    this._moveEye([dx, dy, ez]);
     return true;
   }
   /** The flying camera's top speed, units a second, 50..50000. `announce` shows it. */
@@ -8985,8 +9118,21 @@ class Renderer{
       gl.uniform1i(g.u.uUnlit,0);
       gl.uniform1i(g.u.uVCol, o.vcol===false?0:1);   // the record's VCLR, unless switched off
       gl.uniform3fv(g.u.uGridCol, o.paintMode? [1.000,0.627,0.322] : [0.690,0.702,0.635]);
+      // Wraithguard: the Land view's map overlays, never in the water's reflection.
+      const mapOv=(on)=>{
+        if(g.u.uHill) gl.uniform1f(g.u.uHill, on? Math.max(0, Math.min(1, +o.hill||0)) : 0);
+        if(g.u.uHillGrey) gl.uniform1i(g.u.uHillGrey, o.hillGrey? 1 : 0);
+        if(g.u.uContour) gl.uniform1f(g.u.uContour, on? Math.max(0, +o.contour||0) : 0);
+        if(g.u.uContourCol) gl.uniform3fv(g.u.uContourCol, o.contourCol||[0.12,0.10,0.08]);
+        if(g.u.uElev) gl.uniform1i(g.u.uElev, on? (o.elev|0) : 0);
+        if(g.u.uElevA) gl.uniform1f(g.u.uElevA, o.elevA==null? 0.55 : +o.elevA);
+        if(g.u.uHillL) gl.uniform4fv(g.u.uHillL, o.hillLights||[0.5,0.5,0.7071,1, 0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0]);
+        if(g.u.uElevLo) gl.uniform1f(g.u.uElevLo, +o.elevLo||-1024);
+        if(g.u.uElevHi) gl.uniform1f(g.u.uElevHi, +o.elevHi||4096);
+      };
+      mapOv(!reflect);
       if(this.brush && o.paintMode){
-        gl.uniform4fv(g.u.uBrushS,[0,0,this.brush.r,this.brush.inner]);
+        gl.uniform4fv(g.u.uBrushS,this._brushS());
         gl.uniform3fv(g.u.uBrushP,[this.brush.x,this.brush.y,this.brush.z||0]);
       }else gl.uniform4fv(g.u.uBrushS,[0,0,0,-1]);
       /* The slab first: the walls and the bottom under the ground, dirt all over, lit
@@ -8998,6 +9144,7 @@ class Renderer{
         gl.uniform1i(g.u.uVCol,0);
         gl.uniform1i(g.u.uGrid,0);
         gl.uniform1i(g.u.uShowSlope,0);
+        mapOv(false);
         gl.uniform4fv(g.u.uBrushS,[0,0,0,-1]);
         gl.uniform2f(g.u.uBlendXf,1.0,0.0);
         gl.uniform1f(g.u.uTile,1.0);   // the slab's UVs are already in tiles
@@ -9015,10 +9162,11 @@ class Renderer{
         gl.uniform1i(g.u.uUseBlend, o.blend===false?0:1);
         gl.uniform1i(g.u.uGrid,o.grid?1:0);
         gl.uniform1i(g.u.uShowSlope,o.showSlope?1:0);
+        mapOv(!reflect);
         this._cullUniforms(g,o.showSlope);
         gl.uniform1i(g.u.uVCol, o.vcol===false?0:1);
         if(this.brush && o.paintMode){
-          gl.uniform4fv(g.u.uBrushS,[0,0,this.brush.r,this.brush.inner]);
+          gl.uniform4fv(g.u.uBrushS,this._brushS());
         }
       }
       /* Round 18cr: the layers' state sent on change. Forty-nine chunks of nine layers

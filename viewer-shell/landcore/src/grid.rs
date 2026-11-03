@@ -64,6 +64,32 @@ impl RelativeGrid {
         Ok(grid)
     }
 
+    /// `from_difference` over a packed layer, read in place rather than unpacked first.
+    pub fn from_packed(reference: Vec<Value>, plugin: &crate::layers::Packed, side: usize, components: usize) -> Result<Self, String> {
+        use crate::layers::Packed;
+        let mut grid = Self::new(reference, side, components)?;
+        if plugin.len() != grid.reference.len() {
+            return Err(format!("plugin grid has {} values, reference has {}", plugin.len(), grid.reference.len()));
+        }
+        fn fill<T: Copy + Into<Value>>(g: &mut RelativeGrid, now: &[T]) {
+            let c = g.components;
+            for (i, (was, now)) in g.reference.iter().zip(now).enumerate() {
+                let now: Value = (*now).into();
+                if *was != now {
+                    g.delta[i] = now - was;
+                    g.changed[i / c] = true;
+                }
+            }
+        }
+        match plugin {
+            Packed::I8(v) => fill(&mut grid, v),
+            Packed::U8(v) => fill(&mut grid, v),
+            Packed::U16(v) => fill(&mut grid, v),
+            Packed::I32(v) => fill(&mut grid, v),
+        }
+        Ok(grid)
+    }
+
     /// The plugin's grid: reference plus delta (`to_flat`).
     pub fn flat(&self) -> Vec<Value> {
         self.reference.iter().zip(&self.delta).map(|(a, b)| a + b).collect()

@@ -5887,11 +5887,97 @@ fn asset_providers(path: String, kind: String, state: State) -> Result<String, S
 fn game_settings(state: State) -> Result<String, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
     let g = |k: &str, d: f32| w.gmst.get(k).copied().unwrap_or(d);
-    Ok(format!(
-        "{{\"activate\":{},\"greetMult\":{}}}",
-        g("imaxactivatedist", 192.0),
-        g("igreetdistancemultiplier", 6.0)
-    ))
+    // The first-person body's movement (06_gl.js, 71_wg_walk.js): OpenMW's formulas over
+    // these, each the game's default where the load order sets none.
+    let movement: serde_json::Map<String, serde_json::Value> = MOVEMENT_GMSTS.iter().map(|(k, d)| (k.to_string(), serde_json::json!(g(&k.to_ascii_lowercase(), *d)))).collect();
+    Ok(serde_json::json!({
+        "activate": g("imaxactivatedist", 192.0),
+        "greetMult": g("igreetdistancemultiplier", 6.0),
+        "move": movement,
+    })
+    .to_string())
+}
+
+/// The game settings the first-person body moves by, with Morrowind's defaults.
+const MOVEMENT_GMSTS: [(&str, f32); 18] = [
+    ("fMinWalkSpeed", 100.0),
+    ("fMaxWalkSpeed", 200.0),
+    ("fBaseRunMultiplier", 1.75),
+    ("fAthleticsRunBonus", 1.0),
+    ("fEncumberedMoveEffect", 0.3),
+    ("fSneakSpeedMultiplier", 0.75),
+    ("fSwimRunBase", 0.5),
+    ("fSwimRunAthleticsMult", 0.1),
+    ("fSwimHeightScale", 0.9),
+    ("fMinFlySpeed", 5.0),
+    ("fMaxFlySpeed", 50.0),
+    ("fJumpAcrobaticsBase", 128.0),
+    ("fJumpAcroMultiplier", 4.0),
+    ("fJumpRunMultiplier", 1.0),
+    ("fJumpEncumbranceBase", 0.5),
+    ("fJumpEncumbranceMultiplier", 1.0),
+    ("fFatigueBase", 1.25),
+    ("fFatigueMult", 0.5),
+];
+
+/// Wraithguard: what the scene's script interpreter (`ui/src/73_wg_scripts.js`) starts from:
+/// for the object ids asked about, the script each runs (`objects: {id: script}`); those
+/// scripts' and the start scripts' source (`scripts: {lowercased id: {id, text}}`); the start
+/// scripts (`start`); every global variable (`globals: [{name, kind, value}]`); and the actors
+/// and containers among the ids (`actors: {id: {tag, items: [[item, count]], stats}}`).
+#[tauri::command(async)]
+fn scene_scripts(ids: Vec<String>, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let mut objects = serde_json::Map::new();
+    let mut want: std::collections::BTreeSet<String> = w.start_scripts.iter().map(|s| s.to_ascii_lowercase()).collect();
+    // The actors and containers among them: their type, what they carry, their health,
+    // magicka and fatigue (the scripts' GetItemCount, GetHealth, AI and combat).
+    let mut actors = serde_json::Map::new();
+    for id in ids {
+        let k = id.to_ascii_lowercase();
+        if let Some(sc) = w.object_scripts.get(&k) {
+            want.insert(sc.clone());
+            objects.insert(k.clone(), serde_json::json!(sc));
+        }
+        let tag = w.records.placed_type(&k);
+        if let Some(t @ (b"NPC_" | b"CREA" | b"CONT")) = tag.as_ref() {
+            actors.insert(k.clone(), serde_json::json!({
+                "tag": String::from_utf8_lossy(t),
+                "items": w.inventories.get(&k).cloned().unwrap_or_default(),
+                "stats": w.actor_stats.get(&k),
+            }));
+        }
+    }
+    let scripts: serde_json::Map<String, serde_json::Value> = want
+        .iter()
+        .filter_map(|k| w.script_texts.get(k).map(|(id, text)| (k.clone(), serde_json::json!({"id": id, "text": text}))))
+        .collect();
+    let globals: Vec<serde_json::Value> = w.globals.values().map(|(name, kind, value)| serde_json::json!({"name": name, "kind": kind.to_string(), "value": value})).collect();
+    Ok(serde_json::json!({"objects": objects, "scripts": scripts, "start": w.start_scripts, "globals": globals, "actors": actors}).to_string())
+}
+
+/// Wraithguard: scripts' source by id (a script another starts, `StartScript`):
+/// `{lowercased id: {id, text}}`, the ones the load order has.
+#[tauri::command(async)]
+fn script_texts(names: Vec<String>, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let out: serde_json::Map<String, serde_json::Value> = names
+        .iter()
+        .filter_map(|n| {
+            let k = n.to_ascii_lowercase();
+            w.script_texts.get(&k).map(|(id, text)| (k, serde_json::json!({"id": id, "text": text})))
+        })
+        .collect();
+    Ok(serde_json::Value::Object(out).to_string())
+}
+
+/// Wraithguard: the player's stats from an OpenMW save, for the first-person body
+/// (`toolscore::save::player_stats`): `{name, skills: [27], attributes: [8], fatigue: [cur, max]}`.
+#[tauri::command(async)]
+fn walk_player_from_save(path: String) -> Result<String, String> {
+    let data = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+    let p = toolscore::save::player_stats(&data)?;
+    Ok(serde_json::json!({"name": p.name, "skills": p.skills, "attributes": p.attributes, "fatigue": [p.fatigue.0, p.fatigue.1]}).to_string())
 }
 
 /// Wraithguard: writes base64 bytes (a screenshot for the report bundle) to `path`.
@@ -6222,6 +6308,9 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             where_used,
             asset_providers,
             game_settings,
+            walk_player_from_save,
+            scene_scripts,
+            script_texts,
             write_b64,
             wg_save_edited,
             wg_open_record,

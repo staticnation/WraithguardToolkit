@@ -511,6 +511,10 @@
             <button class="vpbtn on" id="tbArrows" data-txt="vp.arrows_title" title="Show the four arrows that step the view one cell in each direction" data-tx="vp.arrows">⤢ Cell arrows</button>
             <!-- Wraithguard: the exterior cells' borders and names on the ground (68_wg_cellgrid.js). -->
             <button class="vpbtn" id="tbBorders" title="Draw each exterior cell's border on the ground, with its name (or grid) and region at its middle">▢ Cell borders</button>
+            <!-- Wraithguard: the first-person body's stats, levitation and steps (71_wg_walk.js); shown while walking. -->
+            <button class="vpbtn" id="tbBody" hidden title="The first-person body: Speed, Athletics, Acrobatics and the rest, from a preset or a save; levitation; collision; footsteps">🧍 Body</button>
+            <!-- Wraithguard: the scene's MWScript, run (73_wg_scripts.js). -->
+            <button class="vpbtn" id="tbScripts" title="Run the scene's scripts: lamps and statics enabled and disabled by the hour, music, sounds, things that move and turn, the weather; with the game state they read">▶ Scripts</button>
             <button class="vpbtn" id="tbRecentre" data-txt="vp.recentre_title" title="Point the camera back at the middle of what is loaded" data-tx="vp.recentre">⌖ Recentre</button>
             <!-- Wraithguard: back to the cell map from inside a cell (38_wg_viewport.js). -->
             <button class="vpbtn" id="tbMap" title="Open the cell map: choose another cell, with the mods touching each (key: §)">▦ Cell map</button>
@@ -556,7 +560,7 @@
           <span id="vphintWasdPaint" data-tx="vp.wasd_paint" hidden>left-drag to paint · hold right button + W A S D (E up, Q down) to fly · wheel sets speed</span>
           <span id="vphintWasdPlain" data-tx="vp.wasd_plain" hidden>hold right button + W A S D (E up, Q down) to fly · wheel sets speed</span>
           <span id="vphintLand" data-tx="vp.land" hidden>Land: left-drag to paint with the brush · right-drag to orbit · middle-drag to pan · wheel to zoom · Done (left) to leave</span>
-          <span id="vphintWalk" data-tx="vp.walk" hidden>first person: W A S D to walk · Shift walks slowly · Space jumps · hold right button to look · Tab for Orbit</span>
+          <span id="vphintWalk" data-tx="vp.walk" hidden>first person: W A S D to walk · Shift walks · Ctrl sneaks · Space jumps · L levitates · hold right button to look · Tab for Orbit</span>
           <span id="vphintWasdFly" data-tx="vp.wasd_fly" hidden>move the mouse to look · W A S D to move · E up · Q down · wheel sets speed · release to stop</span>
           <!-- What the colours on the ground mean. Built from the renderer's own state
                (`legendItems`), so it can only ever name a colour that is actually being
