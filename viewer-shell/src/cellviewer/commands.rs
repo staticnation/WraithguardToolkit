@@ -6043,6 +6043,18 @@ fn lua_run_stop() -> Result<String, String> {
     Ok("{}".into())
 }
 
+/// Wraithguard: the game state an OpenMW save holds, for the Dialogue window's In game tab
+/// (`toolscore::save::game_state`): `{name, sex, race, class, level, factions: [[id, rank]],
+/// globals: [{name, kind, value}], journal: [[quest, index]]}`.
+#[tauri::command(async)]
+fn dialogue_state_from_save(path: String) -> Result<String, String> {
+    let data = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+    let g = toolscore::save::game_state(&data)?;
+    let globals: Vec<serde_json::Value> = g.globals.iter().map(|(n, k, v)| serde_json::json!({"name": n, "kind": k.to_string(), "value": v})).collect();
+    Ok(serde_json::json!({"name": g.name, "sex": g.sex, "race": g.race, "class": g.class, "level": g.level,
+        "factions": g.factions, "globals": globals, "journal": g.journal}).to_string())
+}
+
 /// Wraithguard: the player's stats from an OpenMW save, for the first-person body
 /// (`toolscore::save::player_stats`): `{name, skills: [27], attributes: [8], fatigue: [cur, max]}`.
 #[tauri::command(async)]
@@ -6387,6 +6399,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             lua_run_start,
             lua_run_step,
             lua_run_stop,
+            dialogue_state_from_save,
             write_b64,
             wg_save_edited,
             wg_open_record,

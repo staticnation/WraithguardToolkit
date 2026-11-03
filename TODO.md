@@ -154,15 +154,9 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
     ordinary move edit (undoable).
   - Settings: gravity, friction, bounce, the most seconds to simulate, and "only up to the
     ground" (no tumbling: the drop alone).
-- Dialogue window, Map tab: zoom (wheel), pan (drag), Fit, and a larger area. Rings spaced
-  by how many topics they hold, so 2-step maps stop overlapping. Full labels once zoomed in.
-- Dialogue window, In game tab: conditions that can be set, so fewer are only "assumed":
-  - the cell from a picker of the load order's cells, with NotCell checked too (it is only
-    assumed now, even with a cell given);
-  - the player's sex, race, faction and rank, and level;
-  - the speaker's rank;
-  - the hour and the day;
-  - globals and journal indexes, shared with the Scripts panel's game state.
+- Dialogue window, In game tab: the player's faction from a save with several (the first is
+  set); items from a save's inventory (the Scripts panel's player carries them for now);
+  Local and NotLocal conditions (an NPC's own MWScript locals).
 - MWScript the preview still does not run (logged once each): choosing and showing dialogue
   (ForceGreeting says who greets; `Choice` belongs to dialogue results), animations
   (PlayGroup, LoopGroup), spells and their effects. Combat is a stand-in: blows of 4-11

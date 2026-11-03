@@ -1212,6 +1212,82 @@ fn stat_value(b: &[u8]) -> Option<f32> {
     }
 }
 
+/// What a save says of the game for the dialogue rehearsal (the Dialogue window's In game
+/// tab): the player as the conditions read them, every global, and each quest's index.
+#[derive(Debug, Default, PartialEq)]
+pub struct GameState {
+    pub name: String,
+    /// "Male" or "Female".
+    pub sex: String,
+    pub race: String,
+    pub class: String,
+    pub level: i32,
+    /// The factions the player belongs to: (id, rank), rank -1 when not given.
+    pub factions: Vec<(String, i32)>,
+    /// (name, `s`/`l`/`f`, value).
+    pub globals: Vec<(String, char, f32)>,
+    /// (quest id, journal index).
+    pub journal: Vec<(String, i32)>,
+}
+
+/// The player's record (`NPC_` named `player`: FNAM, RNAM, CNAM, FLAG, NPDT's level), the
+/// player's factions (PLAY's NPC stats: FACT, then FARA its rank), the `GLOB` records and
+/// the `QUES` records (YETO the quest, QSTA its index).
+pub fn game_state(data: &[u8]) -> Result<GameState, String> {
+    if data.get(..4) != Some(b"TES3") {
+        return Err("not an OpenMW save (no TES3 header)".into());
+    }
+    let text = |b: &[u8]| { let end = b.iter().rposition(|&c| c != 0).map_or(0, |i| i + 1); latin1(&b[..end]) };
+    let mut g = GameState { sex: "Male".into(), ..Default::default() };
+    for (tag, _, subs) in records(data) {
+        let sub = |name: &[u8; 4]| subs.iter().find(|s| &s.0 == name).map(|s| slice(data, s.1, s.2));
+        match &tag {
+            b"NPC_" => {
+                if sub(b"NAME").map(decode_refid).is_none_or(|n| !n.eq_ignore_ascii_case("player")) {
+                    continue;
+                }
+                if let Some(b) = sub(b"FNAM") {
+                    g.name = text(b);
+                }
+                g.race = sub(b"RNAM").map(decode_refid).unwrap_or_default();
+                g.class = sub(b"CNAM").map(decode_refid).unwrap_or_default();
+                if sub(b"FLAG").and_then(|b| u32_at(b, 0)).is_some_and(|f| f & 1 != 0) {
+                    g.sex = "Female".into();
+                }
+                if let Some(b) = sub(b"NPDT").filter(|b| b.len() >= 2) {
+                    g.level = i16::from_le_bytes([b[0], b[1]]) as i32;
+                }
+            }
+            b"PLAY" => {
+                for &(name, start, size) in &subs {
+                    let b = slice(data, start, size);
+                    match &name {
+                        b"FACT" => g.factions.push((decode_refid(b), -1)),
+                        b"FARA" => {
+                            if let (Some(f), Some(r)) = (g.factions.last_mut(), i32_at(b, 0)) {
+                                f.1 = r;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            b"GLOB" => {
+                let Some(name) = sub(b"NAME").map(decode_refid) else { continue };
+                let kind = sub(b"FNAM").and_then(|b| b.first().copied()).map_or('f', |c| c as char);
+                let v = sub(b"FLTV").filter(|b| b.len() >= 4).map_or(0.0, |b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+                g.globals.push((name, kind, v));
+            }
+            b"QUES" => {
+                let Some(q) = sub(b"YETO").map(decode_refid) else { continue };
+                g.journal.push((q, sub(b"QSTA").and_then(|b| i32_at(b, 0)).unwrap_or(0)));
+            }
+            _ => {}
+        }
+    }
+    Ok(g)
+}
+
 /// The player's stats from an OpenMW save's `PLAY` record. The player is saved as an NPC's
 /// state: the NPC's stats (its skills first) then the creature's (the 8 attributes, then
 /// health, magicka and fatigue), each a base (`STBA`) with an optional modifier (`STMO`),
@@ -2010,6 +2086,35 @@ mod tests {
     }
 
     /// `WG_PLAYER_SAVE=<a .omwsave>`: the player's stats as the first-person body reads them.
+    #[test]
+    fn the_game_state_a_save_holds() {
+        let sub = |t: &[u8; 4], d: &[u8]| { let mut v = t.to_vec(); v.extend((d.len() as u32).to_le_bytes()); v.extend(d); v };
+        let rec = |t: &[u8; 4], subs: Vec<Vec<u8>>| { let body: Vec<u8> = subs.concat(); let mut v = t.to_vec(); v.extend((body.len() as u32).to_le_bytes()); v.extend([0u8; 8]); v.extend(body); v };
+        let id = |s: &str| { let mut v = vec![2u8]; v.extend(s.as_bytes()); v };
+        let data = [
+            rec(b"TES3", vec![]),
+            rec(b"NPC_", vec![sub(b"NAME", &id("player")), sub(b"FNAM", b"Nerevar\0"), sub(b"RNAM", &id("Dark Elf")), sub(b"CNAM", &id("Mage")), sub(b"NPDT", &[12, 0, 0]), sub(b"FLAG", &1u32.to_le_bytes())]),
+            rec(b"NPC_", vec![sub(b"NAME", &id("fargoth")), sub(b"FNAM", b"Fargoth\0")]),
+            rec(b"PLAY", vec![sub(b"FACT", &id("Mages Guild")), sub(b"FARA", &3i32.to_le_bytes()), sub(b"FACT", &id("Telvanni"))]),
+            rec(b"GLOB", vec![sub(b"NAME", &id("PCRace")), sub(b"FNAM", b"s"), sub(b"FLTV", &4.0f32.to_le_bytes())]),
+            rec(b"QUES", vec![sub(b"YETO", &id("A1_1_FindSpymaster")), sub(b"QSTA", &10i32.to_le_bytes())]),
+        ].concat();
+        let g = game_state(&data).unwrap();
+        assert_eq!((g.name.as_str(), g.sex.as_str(), g.race.as_str(), g.class.as_str(), g.level), ("Nerevar", "Female", "Dark Elf", "Mage", 12));
+        assert_eq!(g.factions, vec![("Mages Guild".to_string(), 3), ("Telvanni".to_string(), -1)]);
+        assert_eq!(g.globals, vec![("PCRace".to_string(), 's', 4.0)]);
+        assert_eq!(g.journal, vec![("A1_1_FindSpymaster".to_string(), 10)]);
+    }
+
+    #[test]
+    #[ignore]
+    fn a_real_save_s_game_state() {
+        let Ok(path) = std::env::var("WG_PLAYER_SAVE") else { return };
+        let g = game_state(&std::fs::read(path).unwrap()).unwrap();
+        eprintln!("{} {} {} {} level {}; {} globals; journal {:?}; factions {:?}", g.name, g.sex, g.race, g.class, g.level, g.globals.len(), g.journal, g.factions);
+        assert!(!g.race.is_empty() && g.level >= 1 && !g.globals.is_empty());
+    }
+
     #[test]
     #[ignore]
     fn a_real_save_s_player() {

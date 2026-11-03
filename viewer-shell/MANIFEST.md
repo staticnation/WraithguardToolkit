@@ -97,7 +97,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `50_wg_editor_build.js` | 31 KB | What waits in the pool, and Build patch. |
 | `50_wg_editor_keys.js` | 6 KB | The Editor's keys (through `WgKeys`), and the page listeners that feed them. |
 | `51_wg_editor_ui.js` | 74 KB | The Editor's window furniture: dockable panels, the toolbar, flyout menus, folding sections, previews, drag-to-place. |
-| `52_wg_dialogue_views.js` | 24 KB | The Dialogue window's other views: a topic's flow, the topic map, the flags, the rehearsal with an NPC. |
+| `52_wg_dialogue_views.js` | 37 KB | The Dialogue window's other views: a topic's flow, the topic map, the flags, the rehearsal with an NPC. |
 | `53_wg_record_forms.js` | 19 KB | The record dialog's Construction Set form per record type. |
 | `54_wg_pathgrid_edit.js` | 23 KB | Path grid editing in the render window: select, drag, add, link (Ctrl+drag), box select, delete, undo. |
 | `55_wg_messages.js` | 4 KB | The Editor's Messages panel: every toast and page error kept, filtered, copied. |
@@ -122,7 +122,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `74_wg_lua.js` | 15 KB | OpenMW Lua in the scene: the engine's copy of the scene kept current a frame at a time, and what the scripts did applied (luarun.rs runs them). |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
-## Engine commands (`src/cellviewer/commands.rs`: 142)
+## Engine commands (`src/cellviewer/commands.rs`: 143)
 
 By the word they start with. `check-commands/build.rs` fails the build if `generate_handler!`
 names a command that is not defined, or one is left unregistered.
@@ -177,6 +177,7 @@ names a command that is not defined, or one is left unregistered.
 - **game**: `game_settings`
 - **scene**: `scene_scripts`
 - **script**: `script_texts`
+- **dialogue**: `dialogue_state_from_save`
 - **walk**: `walk_player_from_save`
 - **viewer**: `viewer_profile_read`, `viewer_profile_write`
 - **window**: `window_set`

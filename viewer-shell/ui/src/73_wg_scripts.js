@@ -850,6 +850,14 @@ const WgScripts={
     try{ const p=this.parse(s.text); p.id=s.id; this.parsed.set(k, p); }
     catch(e){ this.parsed.set(k, {error:String(e && e.message || e), locals:[], body:[]}); this.say(k, 'error', 'did not parse: '+String(e && e.message || e)); }
   },
+  /** The load order's globals at their start values, when none are known yet (the
+   *  Dialogue window's In game tab checks conditions on them, the scripts not running). */
+  async loadGlobals(){
+    if(this.state.globals.size) return;
+    let got;
+    try{ got=await Engine.call('scene_scripts',{ids:[]}); if(typeof got==='string') got=JSON.parse(got); }catch(_){ return; }
+    for(const g of (got && got.globals)||[]){ const k=g.name.toLowerCase(); if(!this.state.globals.has(k)) this.state.globals.set(k, {name:g.name, kind:g.kind, v:g.value}); }
+  },
   /** The scene's scripted objects, read again when the scene changes (state kept by key). */
   async gather(){
     const sc=App._scene; if(!sc) return;

@@ -817,14 +817,8 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
                 return Err("Choose who to talk to (an NPC's id)".into());
             };
             let strict = req.get("strict").is_some_and(crate::session::truthy);
-            Json(edit(ed.dialogue_play(
-                speaker,
-                &text_or_empty(req.get("topic")),
-                num(req.get("choice"), 0),
-                &text_or_empty(req.get("cell")),
-                num(req.get("disposition"), 50),
-                strict,
-            ))?)
+            let st = crate::dialogue_graph::PlayState::from_request(&text_or_empty(req.get("cell")), num(req.get("disposition"), 50), strict, req.get("state"));
+            Json(edit(ed.dialogue_play(speaker, &text_or_empty(req.get("topic")), num(req.get("choice"), 0), &st))?)
         }
         "editWhoCanSay" => {
             let req = body_of(body)?;

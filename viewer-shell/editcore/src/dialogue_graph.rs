@@ -388,6 +388,71 @@ pub fn npc_of(record: &Value) -> Value {
     })
 }
 
+/// What the In game rehearsal knows of the game beyond the speaker: set in the Dialogue
+/// window (and the Scripts panel's game state), else assumed. `new_game`: a quest, item or
+/// death not given is at 0, as when a game starts; without it those are only assumed.
+#[derive(Clone, Debug, Default)]
+pub struct PlayState {
+    pub cell: String,
+    pub disposition: i64,
+    pub strict: bool,
+    /// "Male" or "Female".
+    pub pc_sex: Option<String>,
+    pub pc_race: Option<String>,
+    pub pc_faction: Option<String>,
+    pub pc_rank: Option<i64>,
+    pub pc_level: Option<f64>,
+    /// The speaker's rank in their faction, in place of their record's.
+    pub npc_rank: Option<i64>,
+    pub globals: HashMap<String, f64>,
+    pub journal: HashMap<String, f64>,
+    pub items: HashMap<String, f64>,
+    pub new_game: bool,
+}
+
+impl PlayState {
+    /// The rehearsal as it was before the game state (`cell`, disposition, strict only).
+    pub fn basic(cell: &str, disposition: i64, strict: bool) -> PlayState {
+        PlayState { cell: cell.to_string(), disposition, strict, ..Default::default() }
+    }
+
+    /// From the window's request (`state`: {pcSex, pcRace, pcFaction, pcRank, pcLevel,
+    /// npcRank, globals, journal, items, newGame}).
+    pub fn from_request(cell: &str, disposition: i64, strict: bool, st: Option<&Value>) -> PlayState {
+        let mut p = PlayState::basic(cell, disposition, strict);
+        let Some(st) = st.filter(|v| v.is_object()) else { return p };
+        let word = |k: &str| st.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && *s != "Any").map(String::from);
+        let int = |k: &str| st.get(k).and_then(Value::as_f64).map(|x| x.trunc() as i64);
+        p.pc_sex = word("pcSex");
+        p.pc_race = word("pcRace");
+        p.pc_faction = word("pcFaction");
+        p.pc_rank = int("pcRank");
+        p.pc_level = st.get("pcLevel").and_then(Value::as_f64);
+        p.npc_rank = int("npcRank");
+        let map = |k: &str| -> HashMap<String, f64> {
+            st.get(k).and_then(Value::as_object).map(|m| m.iter().filter_map(|(k, v)| v.as_f64().map(|x| (k.to_lowercase(), x))).collect()).unwrap_or_default()
+        };
+        p.globals = map("globals");
+        p.journal = map("journal");
+        p.items = map("items");
+        p.new_game = st.get("newGame").is_some_and(truthy);
+        p
+    }
+}
+
+/// A condition's comparison, on numbers.
+fn compare(a: f64, comp: &str, b: f64) -> bool {
+    match comp {
+        "Equal" => a == b,
+        "NotEqual" => a != b,
+        "Greater" => a > b,
+        "GreaterEqual" => a >= b,
+        "Less" => a < b,
+        "LessEqual" => a <= b,
+        _ => true,
+    }
+}
+
 // -- the index ---------------------------------------------------------------------------
 
 /// One response, as every view reads it.
@@ -913,7 +978,8 @@ impl DialogueIndex {
     }
 
     /// Whether a response could be said by this NPC, and what could not be checked here.
-    fn speaker_ok(rec: &Value, npc: &Value, cell: &str, disposition: i64, choice: i64) -> (bool, Vec<String>) {
+    fn speaker_ok(rec: &Value, npc: &Value, st: &PlayState, choice: i64) -> (bool, Vec<String>) {
+        let (cell, disposition) = (st.cell.as_str(), st.disposition);
         for (k, mine) in [("speaker_id", "id"), ("speaker_race", "race"), ("speaker_class", "class"), ("speaker_faction", "faction")] {
             if rec.get(k).is_some_and(truthy) && low(rec.get(k)) != low(npc.get(mine)) {
                 return (false, Vec::new());
@@ -940,8 +1006,29 @@ impl DialogueIndex {
         if int_of(data.and_then(|d| d.get("disposition"))).is_some_and(|d| d > disposition) {
             return (false, Vec::new());
         }
+        // The speaker's rank: theirs from the record, or as the window sets it.
+        if let Some(need) = int_of(data.and_then(|d| d.get("speaker_rank"))).filter(|r| *r > 0) {
+            let rank = st.npc_rank.or_else(|| npc.get("rank").and_then(Value::as_i64));
+            if rank.is_some_and(|r| r < need) {
+                return (false, Vec::new());
+            }
+        }
         if rec.get("player_faction").is_some_and(truthy) {
-            unchecked.push(format!("player faction {}", str_of(&rec["player_faction"])));
+            let f = low(rec.get("player_faction"));
+            let prank = data.and_then(|d| d.get("player_rank")).and_then(Value::as_f64);
+            match &st.pc_faction {
+                Some(pf) => {
+                    let member = pf.to_lowercase() == f;
+                    let ok = if prank == Some(0.0) { !member } else { member && prank.is_none_or(|r| r < 0.0 || st.pc_rank.is_none_or(|have| have as f64 >= r)) };
+                    if !ok {
+                        return (false, Vec::new());
+                    }
+                    if member && prank.is_some_and(|r| r > 0.0) && st.pc_rank.is_none() {
+                        unchecked.push(format!("player rank in faction {}", str_of(&rec["player_faction"])));
+                    }
+                }
+                None => unchecked.push(format!("player faction {}", str_of(&rec["player_faction"]))),
+            }
         }
         if choice_gate(rec).is_some_and(|g| g != choice) {
             return (false, Vec::new());
@@ -956,6 +1043,43 @@ impl DialogueIndex {
                 continue;
             }
             if ftype.as_deref() == Some("Function") && flt.get("function").and_then(Value::as_str) == Some("Choice") {
+                continue;
+            }
+            let comp = flt.get("comparison").map(str_of).unwrap_or_default();
+            let want = filter_value(flt).as_f64().unwrap_or(0.0);
+            // What the game state answers: a number to compare, or nothing known.
+            let known: Option<f64> = match ftype.as_deref() {
+                Some("Function") => {
+                    let pc_sex = st.pc_sex.as_deref().map(|s| s.eq_ignore_ascii_case("female"));
+                    let npc_sex = npc.get("sex").and_then(Value::as_str).map(|s| s.eq_ignore_ascii_case("female"));
+                    let npc_f = low(npc.get("faction"));
+                    match flt.get("function").and_then(Value::as_str).unwrap_or("") {
+                        "PcSex" => pc_sex.map(|f| if f { 1.0 } else { 0.0 }),
+                        "PcLevel" => st.pc_level,
+                        "SameSex" => pc_sex.zip(npc_sex).map(|(a, b)| if a == b { 1.0 } else { 0.0 }),
+                        "SameRace" => st.pc_race.as_ref().map(|r| if r.to_lowercase() == low(npc.get("race")) { 1.0 } else { 0.0 }),
+                        "SameFaction" => st.pc_faction.as_ref().map(|f| if !npc_f.is_empty() && f.to_lowercase() == npc_f { 1.0 } else { 0.0 }),
+                        "FactionRankDifference" => {
+                            let nr = st.npc_rank.or_else(|| npc.get("rank").and_then(Value::as_i64));
+                            match (&st.pc_faction, st.pc_rank, nr) {
+                                (Some(f), Some(pr), Some(nr)) if f.to_lowercase() == npc_f => Some((pr - nr) as f64),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    }
+                }
+                Some("Global") => st.globals.get(&low(flt.get("id"))).copied(),
+                Some("Journal") => st.journal.get(&low(flt.get("id"))).copied().or(st.new_game.then_some(0.0)),
+                Some("Item") => st.items.get(&low(flt.get("id"))).copied().or(st.new_game.then_some(0.0)),
+                Some("Dead") => st.new_game.then_some(0.0),
+                Some("NotCell") if !cell.is_empty() => Some(if cell.trim().to_lowercase().starts_with(&low(flt.get("id"))) { 1.0 } else { 0.0 }),
+                _ => None,
+            };
+            if let Some(v) = known {
+                if !compare(v, &comp, want) {
+                    return (false, Vec::new());
+                }
                 continue;
             }
             let ident = low(flt.get("id"));
@@ -983,7 +1107,7 @@ impl DialogueIndex {
 
     /// The response the engine would give for a topic (lower): the first whose conditions
     /// hold - `(line, place, what could not be checked)`.
-    pub fn pick(&self, topic: &str, npc: &Value, cell: &str, disposition: i64, choice: i64, strict: bool) -> Option<(&Line, usize, Vec<String>)> {
+    pub fn pick(&self, topic: &str, npc: &Value, st: &PlayState, choice: i64) -> Option<(&Line, usize, Vec<String>)> {
         let lines = self.lines.get(topic)?;
         let mut order: Vec<(usize, &Line)> = lines.iter().enumerate().collect();
         if choice != 0 {
@@ -996,8 +1120,8 @@ impl DialogueIndex {
             if text(line.rec.get("flags")).to_uppercase().contains("DELETED") {
                 continue;
             }
-            let (ok, unchecked) = DialogueIndex::speaker_ok(&line.rec, npc, cell, disposition, choice);
-            if ok && !(strict && !unchecked.is_empty()) {
+            let (ok, unchecked) = DialogueIndex::speaker_ok(&line.rec, npc, st, choice);
+            if ok && !(st.strict && !unchecked.is_empty()) {
                 return Some((line, i, unchecked));
             }
         }
@@ -1006,23 +1130,23 @@ impl DialogueIndex {
 
     /// The game's dialogue window, rehearsed for an NPC (`npc_of`): `{topics, line}` - the
     /// topics they answer, and the line said for `topic` (empty: the greeting), or null.
-    pub fn play(&self, npc: &Value, topic: &str, choice: i64, cell: &str, disposition: i64, strict: bool) -> Value {
+    pub fn play(&self, npc: &Value, topic: &str, choice: i64, st: &PlayState) -> Value {
         let mut answers = Vec::new();
         let mut allowed = HashSet::new();
         for name in self.topic_names(TOPIC) {
             let low = name.to_lowercase();
-            if self.pick(&low, npc, cell, disposition, 0, strict).is_some() {
+            if self.pick(&low, npc, st, 0).is_some() {
                 answers.push(name);
                 allowed.insert(low);
             }
         }
         let asked = topic.trim().to_lowercase();
         let got = if !asked.is_empty() {
-            self.pick(&asked, npc, cell, disposition, choice, strict)
+            self.pick(&asked, npc, st, choice)
         } else {
             let mut greetings = self.topic_names(GREETING);
             greetings.sort_by(|a, b| natural_cmp(a, b));
-            greetings.iter().find_map(|name| self.pick(&name.to_lowercase(), npc, cell, disposition, 0, strict))
+            greetings.iter().find_map(|name| self.pick(&name.to_lowercase(), npc, st, 0))
         };
         let line = got.map(|(line, pos, unchecked)| {
             let eff = line.effects();
@@ -1108,7 +1232,7 @@ impl Editor {
 
     /// `editDialoguePlay`: the rehearsal for the NPC (or creature) `speaker`, with
     /// `speaker` (the NPC as read) in the answer.
-    pub fn dialogue_play(&self, speaker: &str, topic: &str, choice: i64, cell: &str, disposition: i64, strict: bool) -> Result<Value, EditError> {
+    pub fn dialogue_play(&self, speaker: &str, topic: &str, choice: i64, st: &PlayState) -> Result<Value, EditError> {
         let who = speaker.trim();
         if who.is_empty() {
             return err("Choose who to talk to (an NPC's id)");
@@ -1117,7 +1241,10 @@ impl Editor {
             return err(format!("{speaker} is not an NPC or creature of this load order"));
         };
         let npc = npc_of(found.record());
-        let mut out = self.dialogue_index().play(&npc, topic, choice, cell, disposition, strict);
+        // Their rank in their faction (the record's), for the conditions that ask.
+        let mut checked = npc.clone();
+        checked["rank"] = json!(found.record().get("data").and_then(|d| d.get("rank")).and_then(Value::as_i64).unwrap_or(0));
+        let mut out = self.dialogue_index().play(&checked, topic, choice, st);
         out["speaker"] = npc;
         Ok(out)
     }
@@ -1202,6 +1329,58 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
+    /// The In game rehearsal's game state: NotCell checked against the cell given; the
+    /// player's sex, level, faction and rank; the speaker's rank; globals, quests and items,
+    /// and with a new game what is not set at 0.
+    #[test]
+    fn the_rehearsal_checks_the_game_state_it_is_given() {
+        use super::{DialogueIndex, PlayState};
+        let npc = serde_json::json!({"id": "fargoth", "race": "Wood Elf", "class": "Commoner", "faction": "", "sex": "Male", "rank": 2});
+        let flt = |ftype: &str, func: &str, id: &str, comp: &str, v: f64| serde_json::json!({"filter_type": ftype, "function": func, "id": id, "comparison": comp, "value": {"type": "Integer", "data": v}});
+        let rec = |filters: Vec<serde_json::Value>| serde_json::json!({"data": {}, "filters": filters});
+        let ok = |r: &serde_json::Value, st: &PlayState| DialogueIndex::speaker_ok(r, &npc, st, 0);
+        let mut st = PlayState::basic("Seyda Neen, Census and Excise Office", 0, false);
+        // Not in Seyda Neen: false in Seyda Neen, and no longer only assumed.
+        let not_sn = rec(vec![flt("NotCell", "", "Seyda Neen", "Equal", 0.0)]);
+        assert!(!ok(&not_sn, &st).0);
+        assert!(ok(&not_sn, &PlayState::basic("Balmora", 0, false)) == (true, vec![]));
+        assert!(!ok(&not_sn, &PlayState::basic("", 0, false)).1.is_empty(), "no cell: assumed");
+        // The player: female, level 5.
+        let female = rec(vec![flt("Function", "PcSex", "", "Equal", 1.0)]);
+        assert!(!ok(&female, &st).1.is_empty(), "not set: assumed");
+        st.pc_sex = Some("Male".into());
+        assert!(!ok(&female, &st).0);
+        st.pc_sex = Some("Female".into());
+        assert_eq!(ok(&female, &st), (true, vec![]));
+        st.pc_level = Some(5.0);
+        assert!(!ok(&rec(vec![flt("Function", "PcLevel", "", "GreaterEqual", 10.0)]), &st).0);
+        // The speaker's rank from their record, or as set.
+        let ranked = serde_json::json!({"data": {"speaker_rank": 3}, "filters": []});
+        assert!(!ok(&ranked, &st).0);
+        st.npc_rank = Some(4);
+        assert!(ok(&ranked, &st).0);
+        // The player's faction and rank.
+        let guild = serde_json::json!({"data": {"player_rank": 2}, "player_faction": "Mages Guild", "filters": []});
+        assert!(ok(&guild, &st).0 && !ok(&guild, &st).1.is_empty(), "not set: assumed");
+        st.pc_faction = Some("Fighters Guild".into());
+        assert!(!ok(&guild, &st).0);
+        st.pc_faction = Some("Mages Guild".into());
+        st.pc_rank = Some(1);
+        assert!(!ok(&guild, &st).0);
+        st.pc_rank = Some(2);
+        assert_eq!(ok(&guild, &st), (true, vec![]));
+        // Globals, quests, items: as set; a new game's start for what is not.
+        let quest = rec(vec![flt("Journal", "", "A1_1_FindSpymaster", "GreaterEqual", 10.0)]);
+        assert!(ok(&quest, &st).0 && !ok(&quest, &st).1.is_empty(), "not set, not a new game: assumed");
+        st.new_game = true;
+        assert!(!ok(&quest, &st).0, "a new game: at 0");
+        st.journal.insert("a1_1_findspymaster".into(), 14.0);
+        assert_eq!(ok(&quest, &st), (true, vec![]));
+        st.globals.insert("pcrace".into(), 4.0);
+        assert!(!ok(&rec(vec![flt("Global", "", "PCRace", "Equal", 3.0)]), &st).0);
+        assert!(!ok(&rec(vec![flt("Item", "", "Gold_001", "GreaterEqual", 100.0)]), &st).0);
+    }
+
     use super::*;
 
     #[test]

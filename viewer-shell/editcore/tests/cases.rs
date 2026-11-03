@@ -849,7 +849,7 @@ fn run_dialogue(case: &Value) -> Value {
             "flow" => ed.dialogue_index().flow(&s(&a[0])),
             "map" => ed.dialogue_index().neighbourhood(&s(&a[0]), a[1].as_i64().unwrap()),
             "flags" => ed.dialogue_index().flags(&s(&a[0]), &s(&a[1])),
-            "play" => ed.dialogue_play(&s(&a[0]), &s(&a[1]), a[2].as_i64().unwrap(), &s(&a[3]), a[4].as_i64().unwrap(), a[5].as_bool().unwrap()),
+            "play" => ed.dialogue_play(&s(&a[0]), &s(&a[1]), a[2].as_i64().unwrap(), &editcore::dialogue_graph::PlayState::from_request(&s(&a[3]), a[4].as_i64().unwrap(), a[5].as_bool().unwrap(), a.get(6))),
             "who_can_say" => ed.who_can_say(&rid(&a[0]), 500),
             "pending" => Ok(Value::Array(ed.pending())),
             "undo" => Ok(ed.undo()),

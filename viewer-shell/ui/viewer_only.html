@@ -228,7 +228,7 @@ body:not(.wgEditMode) .edPopout{display:none!important}
 /* The Dialogue window's other views (52_wg_dialogue_views.js). */
 .edSeg{display:inline-flex;gap:2px;margin-left:10px}
 .edSeg .btn.on{background:var(--acd);border-color:var(--ac);color:var(--ac)}
-#edDial.edDialWide{width:min(980px,calc(100% - 160px))}
+#edDial.edDialWide{width:min(1280px,calc(100% - 80px))}
 #edDialView{max-height:72vh;overflow:auto;padding-right:4px}
 .edDTop{display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap}
 .edDEdges{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:3px 0}
@@ -253,7 +253,9 @@ a.edChip{cursor:pointer}
 .edChip.gate,.edChip.choice{border-color:var(--ac);color:var(--ac)}
 a.edDLink{color:#7aa6ff;cursor:pointer;text-decoration:underline dotted}
 .edDMacro{color:#c9a227;font-family:var(--mono);font-size:11.5px}
-.edDMap{width:100%;height:auto;max-height:64vh;background:var(--bg);border:1px solid var(--line);border-radius:5px}
+.edDMapWrap{height:62vh;min-height:240px;resize:vertical;overflow:hidden;border:1px solid var(--line);border-radius:5px;background:var(--bg)}
+.edDMap{width:100%;height:100%;display:block;cursor:grab;touch-action:none;user-select:none}
+.edDMap.dragging{cursor:grabbing}
 .edDMap .edDNode{cursor:pointer}
 .edDMap .edDNode rect{fill:var(--bg3,#252526);stroke:var(--line2)}
 .edDMap .edDNode.centre rect{fill:var(--acd);stroke:var(--ac)}
@@ -267,6 +269,8 @@ tr.edDWOnly td:nth-child(2){color:#c9a227}
 tr.edDROnly td:nth-child(2){color:#e5534b}
 #edDFlagList tr[data-dflag]{cursor:pointer}
 /* The game's dialogue window, rehearsed: parchment and brass, as Morrowind draws it. */
+.edPState{margin:2px 0 6px;font-size:12px}
+.edPState>summary{cursor:pointer;margin:2px 0 4px}
 .mwDlg{display:flex;gap:10px;height:56vh;min-height:300px;padding:10px;border:2px solid #8a6d3b;border-radius:4px;
   background:linear-gradient(180deg,#2b2117,#1c150e);box-shadow:inset 0 0 30px rgba(0,0,0,.6);font-family:Georgia,'Palatino Linotype',serif}
 .mwDlgL{flex:1;display:flex;flex-direction:column;min-width:0}

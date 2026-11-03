@@ -5,6 +5,24 @@
 
 ### Added
 
+- **The Dialogue window's In game tab checks the game you give it** (`52_wg_dialogue_views.js`,
+  `editcore::dialogue_graph::PlayState`).
+  - **The cell:** pick one from the load order's cells, take the Preview's, or use where the
+    speaker is placed (the first cell the load order puts them in). NotCell is checked
+    against it.
+  - **The player:** sex, race, faction and rank, and level.
+  - **The speaker's rank:** their record's, or one you set.
+  - **Globals, quest indexes and the player's items:** from the Scripts panel's game state,
+    shared. With New game, a quest, item or death that isn't set is at 0, as when a game
+    starts.
+  - **From a save:** loads the player, every global and each quest's index from an OpenMW
+    save (`toolscore::save::game_state`).
+  - What is still unknown is said beside the line and assumed, as before.
+- **The Dialogue window's Map zooms and pans:** the wheel zooms about the pointer, a drag
+  moves it, and there are − / + / Fit buttons. The area is larger and can be made taller
+  from its corner, and labels are written in full once zoomed in. Each ring is as wide as
+  its topics need, so a busy topic's map no longer piles labels on each other.
+
 - **OpenMW Lua runs in the scene too** (the same ▶ Scripts panel; `viewcore::luarun`,
   `74_wg_lua.js`), on the install's own LuaJIT, loaded at run time from where each
   platform's OpenMW keeps it (`lua51.dll`, `lib/libluajit-5.1.so.2`,
@@ -238,6 +256,9 @@
   around a match stays in view.
 
 ### Fixed
+
+- **The In game tab's cell filter checks NotCell:** it was only ever "assumed", even with a
+  cell typed.
 
 - **New land starts where the Construction Set starts it.** An exterior square with no land
   is flat ground at -2048 (OpenMW's `ESM::Land::DEFAULT_HEIGHT`); New land, Add flat land,
