@@ -515,6 +515,27 @@
   what is left after 5.0; `MANIFEST.md` lists the page, the commands and the engine as they are
   (it still listed 38 commands and modules that are gone); `SOUND.md` and `GLAM-PLAN.md` say
   where they stand.
+- **The documents of the Python app** (2026-11-03): `CODE_REVIEW.md` (the 4.x code's review
+  log), `SMOKE_TEST.md` (the Tk GUI's checklist), `UNBAKE_MIGRATION.md` (the Python
+  previewer's plan), `NIF_PROVENANCE.md` (the retired NIF reader's sources; what still applies
+  is in `CREDITS.md`), the AST charts in `art/` (`AST-calls.md`, `AST-classes.md`,
+  `AST-deps.md`, `wraithguard_flowcharts.md`, all of the Python package), and
+  `viewer-shell/DROP-TK.md` (what was left after the port, now under "After 5.0" in
+  `TODO.md`). All are in the repository's history.
+
+### Changed (documents)
+
+- **`CREDITS.md` goes over the program as it is**: each port named by the crate it lives in
+  now, the Python-only libraries (Tkinter, tkinterdnd2, PyYAML, tkinterweb, PyO3, maturin,
+  pythonize) and three.js (no longer shipped) taken out, the program's Rust libraries listed
+  (ureq, serde-saphyr, toml, zstd, encoding_rs, mlua, libloading and the rest), the NIF
+  reader and texture history cut to what still applies, and in American English.
+- **`PREFLIGHT.md`** describes the two workflows there are (`ci.yml`, `build-app.yml`), the
+  Rust and page checks, and a release by the Tauri build; the Python environments, the
+  separate per-platform build workflows and the Flatpak are gone from it.
+- **`locale/README.md`** says what the catalogues are now (the 4.x translations, kept as the
+  source for the program's); **`MERGED_LANDS.md`** says the port is `landcore` since 5.0;
+  `tools/README.md`, `README.md` and the fixtures' `SOURCE.md` point at the current files.
 
 ## 5.0.0
 

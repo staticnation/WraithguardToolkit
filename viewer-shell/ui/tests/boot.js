@@ -249,7 +249,7 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtua
   }});
 /* The Preview features since 4.2.0, each through the flag its code sets for the tests.
    The GL context is a stub, so these prove the paths run and set their state - not how
-   the result looks (SMOKE_TEST.md rows 6b-6g are the visual check). Each check draws a
+   the result looks (that is a check by eye, on a real setup). Each check draws a
    frame itself with the options it needs, and puts them back after. */
 async function features(w){
   // The page's globals are `const`s of its scripts, not window properties.

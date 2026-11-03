@@ -1,5 +1,5 @@
 //! Wraithguard's settings file (`wraithguard_toolkit_settings.json`, beside the app), read
-//! for the viewer's pages (the Load order, Tools and Conflicts pages' fields) (port step 4.5, slice 2: settings and data migration, DROP-TK.md).
+//! for the viewer's pages (the Load order, Tools and Conflicts pages' fields) (port step 4.5, slice 2: settings and data migration; CHANGELOG.md, 5.0.0).
 //!
 //! The file is the Tk app's: a flat JSON object it rewrites on close. Since the load order moved
 //! to the viewer (4.2, slice 2k) the Tk app no longer has the sort's fields, but a file written

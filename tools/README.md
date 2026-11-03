@@ -1,6 +1,6 @@
 # tools/
 
-Since 5.0 (the Python app retired, `viewer-shell/DROP-TK.md`):
+Since 5.0 (the Python app retired; `CHANGELOG.md`, 5.0.0):
 
 - `build_and_check_rust.ps1`: every Rust check CI runs, locally; `check_pushed.ps1`.
 - `page_guard/`, `meshopt_oracle/`, `gen_g7_nif.py`: checks and generators for the viewer
@@ -12,5 +12,7 @@ Since 5.0 (the Python app retired, `viewer-shell/DROP-TK.md`):
   crates' fixtures and tables came from (the Python app, last in the commit before 5.0). They do not run any
   more; a fixture that needs regenerating is edited by hand or regenerated from that
   commit.
-- `build_locale.py`, `make_pot.py`: the `.po` tooling, kept for the translations slice.
+- `build_locale.py`: builds a language's `.po`/`.mo` from `locale/` (`locale/README.md`);
+  `make_pot.py` extracted the template from the Python app's source and has nothing to
+  read now. Both kept for the translations (`TODO.md`).
 - `check_plugin_roundtrip.py`, `diff_roundtrip_json.py`: tes3conv round-trip checks.

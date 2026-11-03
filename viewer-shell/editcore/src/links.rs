@@ -92,8 +92,8 @@ const BUILD_LINKS: &[&str] = &["editBuildInfo", "editBuildCheck", "editBuild", "
 /// The links that stay Wraithguard's. None now: the four that opened its windows
 /// (`editReview`, `editFlowchart`, `editLuaChart`, `editPreviewPatch`) are the viewer's own
 /// commands (`editor_script_flowchart`, `lua_chart`, `editor_preview_patch`, and the Editor's
-/// Build page in place of the Patch Builder). Their Python handlers go with the Python
-/// Editor (DROP-TK.md).
+/// Build page in place of the Patch Builder). Their Python handlers went with the Python
+/// Editor (5.0; `CHANGELOG.md`).
 pub const WRAITHGUARDS: &[&str] = &[];
 
 /// How many records the Object Window's search lists, and the search across every type;

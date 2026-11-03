@@ -445,8 +445,9 @@ packages on a `v*` tag or a `build/**` branch, the Linux AppImage with Tauri's b
 The fixtures in `tests/fixtures/` pin the crates to the answers the retired Python gave
 (the command line, the sort, the Configurator simulation, Merged Lands), so a change that
 alters an answer fails loudly. `tools/README.md` says where each came from.
-`CODE_REVIEW.md` records the defects found and the reasoning behind decisions that look
-odd. `viewer-shell/MANIFEST.md` lists every file of the page and every engine command.
+`viewer-shell/MANIFEST.md` lists every file of the page and every engine command;
+`TODO.md` has the open work, and the design notes beside it (`viewer-shell/SOUND.md`,
+`GLAM-PLAN.md`, `TES3CMD-REWRITE.md`, `GARDENFELL.md`) the plans it follows.
 
 ---
 
@@ -454,8 +455,8 @@ odd. `viewer-shell/MANIFEST.md` lists every file of the page and every engine co
 
 ```
 WraithguardToolkit/
-├── *.md                     README, QUICKSTART, CHANGELOG, CREDITS, MLOX_RULES,
-│                            MERGED_LANDS, CODE_REVIEW, PREFLIGHT, TODO ...
+├── *.md                     README, QUICKSTART, CHANGELOG, CREDITS, PREFLIGHT, TODO,
+│                            MLOX_RULES (writing rules), MERGED_LANDS (the port's audit).
 ├── License/                 The MIT license, and one file per upstream project whose
 │                            license travels with code ported here.
 ├── viewer-shell/            The program and its crates:
@@ -480,8 +481,8 @@ WraithguardToolkit/
 ├── tools/                   Developer scripts and the fixture generators.
 ├── tests/fixtures/          The crates' shared test cases.
 ├── testdata/                Copies of a real setup, used by the tests.
-├── locale/                  Translations (.po; English only for now).
-└── art/                     Icons, banner, the Nexus description.
+├── locale/                  The 4.x translations, kept for the program's (English only now).
+└── art/                     The Nexus description, the icon.
 ```
 
 ---

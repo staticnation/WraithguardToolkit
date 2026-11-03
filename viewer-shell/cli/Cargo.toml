@@ -1,4 +1,4 @@
-# The command line (port step 4.5, slice 1; DROP-TK.md): `wraithguard`, the flags of
+# The command line (port step 4.5, slice 1; CHANGELOG.md, 5.0.0): `wraithguard`, the flags of
 # `wraithguard_toolkit.py` over the crates that already answer them - the sort and export
 # (ordercore::plan), the record and loose-file conflicts (conflictcore), the lint (toolscore)
 # and the cell map. Pinned against the Python CLI by tests/fixtures/cli_cases.json

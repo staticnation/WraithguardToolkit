@@ -2,8 +2,10 @@
 
 Open work only. Done items go to `CHANGELOG.md`; what a finished item taught us goes
 beside its code, or in `viewer-shell/gardenfell/VENDOR.md` for the vendored crates.
-Cleaned up 2026-11-02: the port to one program is done (5.0.0, `viewer-shell/DROP-TK.md`),
-so its history left this file.
+Cleaned up 2026-11-02: the port to one program is done (5.0.0, in `CHANGELOG.md`), so its
+history left this file; what was left of it is under "After 5.0" (2026-11-03, from the retired
+`viewer-shell/DROP-TK.md`). Design notes that still guide open work: `viewer-shell/SOUND.md`,
+`viewer-shell/GLAM-PLAN.md`, `viewer-shell/TES3CMD-REWRITE.md`, `viewer-shell/GARDENFELL.md`.
 
 ## This week (Static, 2026-11-02): landscape editing and sound
 
@@ -45,18 +47,35 @@ Static's setup. Left:
 
 - tes3cmd rewritten in Rust (`viewer-shell/TES3CMD-REWRITE.md`).
 
-## After 5.0 (`viewer-shell/DROP-TK.md`)
+## After 5.0
 
-- Translations: the page's string tables generated from the `.po` files (English only now).
+Decided (Static, 2026-10-26): the command line stays, in Rust; translations keep the `.po`
+files as their source; the platforms are Windows, Linux, macOS, Android and iOS.
+
+- Translations: English only until everything is in and working (Static, 2026-10-27). Then
+  the page's string tables generated from the `.po` files in `locale/`, and the page's own
+  strings extracted into the same `.pot` (`locale/README.md`).
 - The AppImage (`build-app.yml`'s `linux-appimage`, replacing the Flatpak): check the first
   build on a desktop distro and on the Deck (Desktop Mode, and Game Mode as a non-Steam game),
   that its sound plays (the bundled GStreamer), and that settings land beside the .AppImage.
   Then remove `build-flatpak.yml` and `packaging/flatpak/`.
-- A CSP: `tauri.conf.json` has `"csp": null`; the page's inline `on...=` handlers move to
-  `addEventListener` first, then the `WG_TAINT` runs once more, then mark Aikido's finding.
-- Android and iOS (DROP-TK slice 10: an audit of what assumes a desktop first).
-- An installer; the viewer wearing the Tk settings' `theme` when its profile names none;
-  Lint on the scan cache.
+- A CSP: `tauri.conf.json` has `"csp": null`. The page's inline `on...=` handlers move to
+  `addEventListener` first (recount them before scoping), then the policy is set, the
+  `WG_TAINT` runs go once more, and Aikido's finding is marked.
+- Android and iOS (Tauri 2's mobile targets). First an audit of what the page and the
+  commands assume of a desktop: spawned processes (`editor_preview_patch`, tes3cmd, the
+  OpenMW test run), free file paths and `openmw.cfg` locations (OpenMW's Android app keeps
+  its files elsewhere), window management, hover-only controls, the gamepad and keyboard
+  paths. Then the builds in CI and a device test reading a real install.
+- An installer (the WebView2-bundled Windows package is in).
+- The viewer wearing the old settings' `theme` (`toolscore::settings` reads it) when its
+  profile names none.
+- Lint on the scan cache.
+- Sound (`viewer-shell/SOUND.md`): Battle music (no fight to start it yet); `sound_peaks`
+  cached by file (the page caches by path for the session).
+- glam (`viewer-shell/GLAM-PLAN.md`, its rules first): the NIF transform pipeline
+  (`gardenfell-nif/src/nif.rs`), tests against the current code and real fixtures before
+  any change.
 
 ## The Editor
 
@@ -113,6 +132,8 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
 
 ## Release and CI
 
+- `viewer-shell/physcore`'s tests and clippy are in neither `ci.yml` nor
+  `build_and_check_rust.ps1` yet: add them to both.
 - Actions are pinned to a commit of their current major; moving to the Node 24 majors
   (checkout 7, upload-artifact 7, cache 6) is a separate step: read each one's breaking
   changes, then re-pin.

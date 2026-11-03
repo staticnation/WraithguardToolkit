@@ -12,6 +12,17 @@ Merged Lands is MIT (David Von Derau, 2022). Licence text vendored at
 `License/MergedLands/LICENSE`; see `CREDITS.md`. The function coverage table is
 generated -- see *Function-by-function coverage* below.
 
+> **Since 5.0 the port is `viewer-shell/landcore`.** Most of this document was written
+> against the first port, the 4.x app's Python `wraithguard/land/` package, which is
+> retired. `landcore` was carried from it module for module (`land/meta.py` is
+> `landcore::meta`, `land/merge.py` is `landcore::merge`, and so on; `landcore/src/lib.rs`
+> maps them) and is pinned to its answers byte for byte
+> (`tests/fixtures/land_merge_cases.json`, `landcore/tests/merge_cases.rs`), so what is
+> said here about the Python's behavior holds for `landcore`. The *Third cross-check*
+> section reads `landcore` directly. The coverage table's generator
+> (`tools/gen_merged_lands_table.py`) read the Python and no longer runs; the table stands
+> as of 5.0.
+
 ---
 ## Port coverage: what is ported, what is not
 
