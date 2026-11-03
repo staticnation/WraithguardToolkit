@@ -1,7 +1,7 @@
 //! What OpenMW's Lua API allows where, per release (the tables of `wraithguard/lua/api.py`,
 //! which the Python side still passes in itself; these are for callers with no Python -
 //! the viewer). Taken from each release's engine handlers and built-in events pages:
-//! [`api_052`] is 0.52.0 as its first release candidate has it (its revision not yet known), [`api_051`] 0.51.0 (Lua API revision
+//! [`api_052`] is 0.52.0 as its first release candidate has it (Lua API revision 166), [`api_051`] 0.51.0 (Lua API revision
 //! 129), [`api_050`] 0.50.0 (97), [`api_049`] 0.49.0 (76). An install's own documentation carries its packages and interfaces
 //! ([`from_docs`]), but not its handlers or built-in events, which come from the release.
 
@@ -133,11 +133,12 @@ const INTERFACES_052_NEW: &[&str] = &["Projectiles", "SpellCasting"];
 
 /// OpenMW 0.52.0, from its first release candidate (RC1): 0.51's handlers and packages (its documentation's `@context`s are 0.51's,
 /// and its built-in scripts use no new public handler), more built-in events, and the
-/// `Projectiles` and `SpellCasting` interfaces. Its `API_REVISION` is not in the resources
-/// (0: unknown until the release says). Check it again against the release itself.
+/// `Projectiles` and `SpellCasting` interfaces. Its `API_REVISION` is not in the resources:
+/// 166 is RC1's own (`OPENMW_LUA_API_REVISION` in its CMakeLists.txt, commit 4ff261bf).
+/// Check it again against the release itself.
 pub fn api_052() -> ApiVersion {
     let events: Vec<&str> = EVENTS_051.iter().chain(EVENTS_052_NEW).copied().collect();
-    let mut v = version("0.52.0", 0, table(HANDLERS, false), table(PACKAGES, false), &events, set(INTERFACES));
+    let mut v = version("0.52.0", 166, table(HANDLERS, false), table(PACKAGES, false), &events, set(INTERFACES));
     v.rules.builtin_interfaces.extend(INTERFACES_052_NEW.iter().map(|s| s.to_string()));
     v
 }
@@ -272,6 +273,7 @@ mod tests {
         assert_eq!(for_version(Some("0.48.0")).openmw, "0.49.0");
         assert_eq!(for_version(Some("0.51.3")).openmw, "0.51.0");
         assert_eq!(for_version(Some("0.51.3")).revision, 129);
+        assert_eq!(for_version(Some("0.52.0")).revision, 166);
         assert_eq!(for_version(Some("0.52.0")).openmw, "0.52.0");
         assert_eq!(for_version(None).openmw, "0.52.0");
         let d = api_052();

@@ -6046,7 +6046,8 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, state: State) ->
     let resources = viewcore::luacore::findings::find_resources(cfg, chosen.as_deref());
     let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
     let mut run = viewcore::luarun::Runner::new(jit.as_deref(), false)?;
-    let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers);
+    let content = viewcore::luascan::content(order.as_deref());
+    let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers, &content);
     let answer = run.call("__wg_start", &start)?;
     let backend = run.backend.clone();
     *LUA_RUN.lock().map_err(|e| e.to_string())? = Some(run);

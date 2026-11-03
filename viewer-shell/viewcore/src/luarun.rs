@@ -593,7 +593,22 @@ pub fn required(text: &str) -> Vec<String> {
 /// What `__wg_start` takes: the built-ins and the load order's scripts (built-ins first),
 /// every script's and module's text, the music files (for OpenMW's playlists) and the
 /// weather names. `registered` is the load order's (`luascan::registered`).
-pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Vec<String>)], weathers: &[String]) -> String {
+/// The `core.API_REVISION` the scripts are given: the install's, by the version in its
+/// `resources/version` (OpenMW writes the release there; the revision is the release's,
+/// `luacore::api`), else the newest release's. Scripts compare it to refuse an old OpenMW
+/// (`NGarde`: "API_REVISION 100 is less than minimum 129"), so a guess too low stops them.
+pub fn api_revision(resources: Option<&Path>) -> i64 {
+    let version = resources
+        .and_then(|r| std::fs::read_to_string(r.join("version")).ok())
+        .and_then(|t| t.lines().next().map(|l| l.trim().to_string()))
+        .filter(|v| !v.is_empty());
+    let r = luacore::api::for_version(version.as_deref()).revision;
+    if r > 0 { r } else { luacore::api::for_version(None).revision }
+}
+
+/// What `__wg_start` is given. `content` is the load order's `content=` names, in order
+/// (`core.contentFiles`).
+pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Vec<String>)], weathers: &[String], content: &[String]) -> String {
     let mut scripts: Vec<(String, Vec<String>)> = Vec::new();
     if let Some(r) = resources {
         for sub in ["vfs", "vfs-mw"] {
@@ -667,6 +682,8 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
         .raw("sources", &src)
         .raw("files", &string_array(&files))
         .raw("weathers", &string_array(weathers))
+        .raw("content", &string_array(content))
+        .int("apiRevision", api_revision(resources).max(0) as u64)
         .done()
 }
 
@@ -759,7 +776,7 @@ mod tests {
             I.AI.startPackage({ type = 'Travel', destPosition = util.vector3(600, 0, 0) }) print('package', I.AI.getActivePackage().type)\n\
             print('interfaces', I.Combat ~= nil, I.AnimationController ~= nil) end } }";
         let vfs = Vfs::with_roots(&[]);
-        let mut start = start_json(&vfs, Some(&res), &[], &["Clear".into(), "Rain".into()]);
+        let mut start = start_json(&vfs, Some(&res), &[], &["Clear".into(), "Rain".into()], &[]);
         // The mod's script, as the load order would register it.
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
         start = start.replacen("\"scripts\":[", "\"scripts\":[{\"path\":\"scripts/t/ai.lua\",\"flags\":[\"NPC\"]},", 1)
@@ -905,6 +922,38 @@ mod tests {
         assert!(!again.contains("every frame"), "the same error is not named again: {again}");
     }
 
+    /// What mods check before they start (Static, 2026-11-03): `core.API_REVISION` is the
+    /// install's (NGarde refused 100, wanting 129), and `core.contentFiles` is the load order
+    /// (Go Home! refused to start when `has` said every plugin was loaded).
+    #[test]
+    fn the_install_revision_and_the_load_orders_content() {
+        let global = "local core = require('openmw.core') local said = false\n\
+            return { engineHandlers = { onUpdate = function() if said then return end said = true\n\
+              local cf = core.contentFiles\n\
+              print('rev', core.API_REVISION, cf.has('morrowind.ESM'), cf.has('NPC Schedule.esp'), cf.indexOf('Mod.omwaddon'), cf.indexOf('nope.esp'), #cf.list) end } }";
+        let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/g.lua","flags":["GLOBAL"]}}],
+            "sources":{{"scripts/t/g.lua":{}}},"files":[],"weathers":["Clear"],"content":["Morrowind.esm","Mod.omwaddon"],"apiRevision":166}}"#, q(global));
+        let mut r = Runner::new(None, true).unwrap();
+        r.call("__wg_start", &start).unwrap();
+        let got = r.call("__wg_step", r#"{"dt":0.05}"#).unwrap();
+        assert!(got.contains(r#""text":"rev 166 true false 2 nil 2""#), "{got}");
+    }
+
+    /// An install's revision by its `resources/version`; a version newer than any known, or
+    /// none, gets the newest release's.
+    #[test]
+    fn api_revision_from_the_install() {
+        let d = std::env::temp_dir().join(format!("wg_apirev_{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("version"), "0.51.0\r\nabc\r\n").unwrap();
+        assert_eq!(api_revision(Some(&d)), 129);
+        std::fs::write(d.join("version"), "0.52.0\r\n4ff261bf\r\n").unwrap();
+        assert_eq!(api_revision(Some(&d)), 166);
+        assert_eq!(api_revision(None), 166);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     /// Keys over the Preview reach a player script's onKeyPress and input.isKeyPressed; an
     /// exterior square entered for the first time calls the global scripts' onNewExterior,
     /// once a square.
@@ -939,7 +988,7 @@ mod tests {
             ui.create({ layer = 'Windows', template = I.MWUI.templates.boxSolid, content = ui.content { { template = I.MWUI.templates.textHeader, props = { text = 'Mod window' } } } }) end } }";
         let vfs = Vfs::with_roots(&[]);
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
-        let start = start_json(&vfs, Some(&res), &[], &["Clear".into()])
+        let start = start_json(&vfs, Some(&res), &[], &["Clear".into()], &[])
             .replacen("\"scripts\":[", "\"scripts\":[{\"path\":\"scripts/t/w.lua\",\"flags\":[\"PLAYER\"]},", 1)
             .replacen("\"sources\":{", &format!("\"sources\":{{\"scripts/t/w.lua\":{},", q(script)), 1);
         let a = r.call("__wg_start", &start).unwrap();

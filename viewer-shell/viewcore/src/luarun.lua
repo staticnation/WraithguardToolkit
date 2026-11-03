@@ -121,7 +121,7 @@ end
 -- What the page sent (kept between frames), and what the scripts did this frame.
 local S = {
   objects = {}, player = { pos = { 0, 0, 0 }, yaw = 0, cell = { name = '', ext = true, gx = 0, gy = 0 } },
-  hour = 12, day = 16, month = 7, year = 427, weather = 0, weathers = {}, globals = {}, actors = {},
+  hour = 12, day = 16, month = 7, year = 427, weather = 0, weathers = {}, content = {}, contentIndex = {}, globals = {}, actors = {},
   sounds = {}, musicPlaying = false, mwlocals = {}, files = {}, sim = 0, real = 0, dt = 0, journal = {}, keysDown = {}, exteriorsSeen = {},
 }
 local OUT, LOG = {}, {}
@@ -542,7 +542,8 @@ end
 packages['openmw.util'] = function() return util end
 packages['openmw.core'] = function(inst)
   local core = {
-    API_REVISION = 100,
+    -- The install's (luarun.rs `api_revision`); scripts refuse an OpenMW older than they need.
+    API_REVISION = S.apiRevision or 166,
     getSimulationTime = function() return S.sim end,
     getSimulationTimeScale = function() return 1 end,
     getGameTime = function() return ((S.day - 1) + (S.month - 1) * 30) * 86400 + S.hour * 3600 end,
@@ -558,7 +559,13 @@ packages['openmw.core'] = function(inst)
         FontColor_color_active = '96,112,202', FontColor_color_disabled = '179,168,135', FontColor_color_link = '112,126,207' }
       return t[k]
     end,
-    contentFiles = { has = function() return true end, indexOf = function() return 1 end, list = {} },
+    -- The load order's content files (`content=`), as OpenMW answers: `has` and `indexOf`
+    -- ignore case, `indexOf` is 1-based and nil for one not loaded.
+    contentFiles = {
+      has = function(name) return S.contentIndex[string.lower(tostring(name))] ~= nil end,
+      indexOf = function(name) return S.contentIndex[string.lower(tostring(name))] end,
+      list = S.content,
+    },
     l10n = function() return function(k) return k end end,
     getFormId = function(file, id) return tostring(id) end,
     sound = {
@@ -1106,13 +1113,21 @@ local function answer()
   return json.encode(out)
 end
 
--- `{scripts: [{path, flags}], sources: {path: text}, files: [vfs paths], weathers: [names]}`
+-- `{scripts: [{path, flags}], sources: {path: text}, files: [vfs paths], weathers: [names],
+-- content: [content= names], apiRevision}`
 function __wg_start(arg)
   local a = json.decode(arg)
   registered = a.scripts or {}
   for p, t in pairs(a.sources or {}) do sources[string.lower(p)] = t end
   S.files = a.files or {}
   S.weathers = a.weathers or {}
+  S.content = a.content or {}
+  S.contentIndex = {}
+  for i, n in ipairs(S.content) do
+    local k = string.lower(n)
+    if S.contentIndex[k] == nil then S.contentIndex[k] = i end
+  end
+  S.apiRevision = a.apiRevision
   if a.state then __wg_merge(a.state) end
   for _, r in ipairs(registered) do
     if has(r.flags, 'GLOBAL') then instantiate(r.path, nil, 'global') end

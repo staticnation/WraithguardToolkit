@@ -69,6 +69,13 @@ pub fn content_of(cfg_text: &str) -> Vec<String> {
     ordercore::cfg::read_text(cfg_text, Path::new(""), &ordercore::cfg::Tokens::default()).content
 }
 
+/// The load order's `content=` names (every chained cfg's, in order), for a Lua run's
+/// `core.contentFiles`; none for a setup that is not OpenMW's.
+pub fn content(order_file: Option<&Path>) -> Vec<String> {
+    let Some(cfg) = order_file.filter(|p| is_openmw_cfg(p)) else { return Vec::new() };
+    ordercore::cfg::read(cfg, &ordercore::cfg::Tokens::for_cfg(cfg)).map(|c| c.content).unwrap_or_default()
+}
+
 /// The scan as the page reads it: `{openmw, revision, resources, note, scripts,
 /// findings, report}`. `order_file` is what the install's load order came from; a setup
 /// that is not OpenMW's (a Morrowind.ini) has no Lua and gets an empty answer and a note.

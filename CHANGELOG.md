@@ -311,6 +311,14 @@
 
 ### Fixed
 
+- **Lua mods that check the OpenMW version start in the Preview** (Static's 0.52 install,
+  2026-11-03). `core.API_REVISION` was a fixed 100, so a mod needing a newer OpenMW refused to
+  run (NGarde: "100 is less than minimum supported 129"; Daisy's Lua Multimark's "Your OpenMW
+  version is too old", every second, looks like the same check). It is now the install's: the release named in its
+  `resources/version`, 166 for 0.52.0 (RC1's own `OPENMW_LUA_API_REVISION`), 129 for 0.51.
+  And `core.contentFiles` said every plugin was loaded, so a mod that refuses to run beside
+  another (Go Home!: "dontLoadNPCScheduleEsp", "dontLoadNighttimeDoorLocksEsp") stopped; it
+  now answers from the load order's `content=` lines (`has`, `indexOf`, `list`).
 - **The Load order page's drop line is where the rows go** (`59_wg_loadorder.js`). Dragging
   rows drew the line under the row they would land above, one row off; it is drawn above it
   now, and the lower half of a row puts them after it (so past the last row too). A file
