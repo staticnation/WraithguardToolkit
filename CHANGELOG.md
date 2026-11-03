@@ -257,6 +257,12 @@
 
 ### Fixed
 
+- **A Preview panel docked on the right no longer vanishes.** The right-hand dock column
+  only showed in the Editor, so the Scripts panel (or the first-person Body panel) dragged
+  to the right edge in the Preview was docked out of sight, and stayed there each time it
+  was opened again. Outside the Editor the column now shows while one of the Preview's own
+  panels is open in it; the Editor's panels docked there stay hidden until the Editor.
+
 - **The In game tab's cell filter checks NotCell:** it was only ever "assumed", even with a
   cell typed.
 

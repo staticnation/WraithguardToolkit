@@ -285,6 +285,7 @@ const WgWalk={
     if(this._el) return this.draw();
     const d=document.createElement('div');
     d.id='wgWalkPanel'; d.className='ori'; d.hidden=true;
+    d.dataset.anywhere='';   // the Preview's own: shown docked outside the Editor too (51_wg_editor_ui.js)
     d.innerHTML='<div class="orihead"><b>First-person body</b><span style="flex:1"></span>'+
       '<button class="btn dim ic" id="wgWalkX" title="Close">&#x2715;</button></div><div class="oribody" id="wgWalkBody"></div>';
     if(typeof WgUI==='object' && WgUI.mount) WgUI.mount(d); else ($('#vpwrap')||document.body).appendChild(d);

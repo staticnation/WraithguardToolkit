@@ -937,6 +937,7 @@ const WgScripts={
     if(this._el) return;
     const d=document.createElement('div');
     d.id='wgScrPanel'; d.className='ori'; d.hidden=true;
+    d.dataset.anywhere='';   // the Preview's own: shown docked outside the Editor too (51_wg_editor_ui.js)
     d.innerHTML='<div class="orihead"><b>Scripts</b><span style="flex:1"></span>'+
       '<button class="btn sm" id="wgScrPause" title="Stop the scripts where they are">Pause</button>'+
       '<button class="btn sm" id="wgScrStep" title="One frame of every script">Step</button>'+

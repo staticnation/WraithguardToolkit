@@ -379,9 +379,12 @@ body.edResizing,body.edResizing *{cursor:col-resize!important;user-select:none}
 .edWrapBtn.on{background:var(--acd);color:var(--ac)}
 /* The rail on the right that panels dock into. */
 #edRail{display:none}
-body.wgEditMode #edRail{display:flex;flex-direction:column;gap:6px;width:420px;flex:0 0 auto;position:relative;overflow:auto;
+body.wgEditMode #edRail,body:not(.wgEditMode) #edRail.anywhere{display:flex;flex-direction:column;gap:6px;width:420px;flex:0 0 auto;position:relative;overflow:auto;
   background:var(--bg2);border-left:1px solid var(--line);padding:6px 6px 6px 10px;min-height:0}
 body.wgEditMode #edRail.empty{display:none}
+/* Outside the Editor the rail holds only the Preview's own panels (the Scripts panel, the
+   first-person Body: `data-anywhere`), and shows while one of them is open. */
+body:not(.wgEditMode) #edRail>.edPanel:not([data-anywhere]){display:none}
 /* Panels: dragged by the title bar, folded, docked. */
 .edPanel .orihead.edDragBar{cursor:move;user-select:none}
 .edPanel .edPanTools{display:flex;gap:1px}

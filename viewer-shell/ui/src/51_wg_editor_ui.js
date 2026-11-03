@@ -364,10 +364,14 @@ const WgUI={
     return r;
   },
 
-  /** The rail shows only while something docked in it is open. */
+  /** The rail shows only while something docked in it is open (outside the Editor, only
+   *  while one of the Preview's own panels is: `data-anywhere`). */
   syncRail(){
     const r=$('#edRail'); if(!r) return;
-    r.classList.toggle('empty', ![...r.children].some(c=>c.classList.contains('edPanel') && !c.hidden));
+    const open=[...r.children].filter(c=>c.classList.contains('edPanel') && !c.hidden);
+    r.classList.toggle('empty', !open.length);
+    // Outside the Editor: shown while a panel that belongs to the Preview too is open in it.
+    r.classList.toggle('anywhere', open.some(c=>c.dataset.anywhere!=null));
   },
 
   /** Docks (`right`, `left`) or floats a panel. */
