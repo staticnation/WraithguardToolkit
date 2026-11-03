@@ -856,7 +856,18 @@ pub fn build_record_patch(plan: &Plan, sources: &Sources, load_order: &[String],
     let own = output_name;
     let mut stand = selections.clone();
     stand.extend(new_records.iter().filter(|m| !m.source.is_empty()).map(|m| Selection { plugin: m.source.clone(), record_type: m.record_type.clone(), key: m.key.clone() }));
-    let masters = masters_for(&stand, plan, sources, load_order, own);
+    let mut masters = masters_for(&stand, plan, sources, load_order, own);
+    // A patch of only its own new records (new land and cells over the sea, say) names no
+    // master. The game's base file goes in, as the Construction Set always puts it: a
+    // plugin with none is one OpenMW reads, but tools and the engine's terrain expect it.
+    if masters.is_empty()
+        && let Some(base) = load_order.iter().find(|n| {
+            let l = n.to_lowercase();
+            (l.ends_with(".esm") || l.ends_with(".omwgame")) && sizes.contains_key(*n) && l != own.to_lowercase()
+        })
+    {
+        masters.push(base.clone());
+    }
     say(format!("declaring {} master(s): {}", masters.len(), masters.join(", ")), &mut lines);
     let mut decided: HashSet<(String, String)> = whole.iter().chain(merged.iter()).cloned().collect();
     decided.extend(new_records.iter().map(|m| (m.record_type.clone(), m.key.clone())));
@@ -1209,6 +1220,15 @@ mod tests {
         let ids: Vec<&str> = back.iter().map(|r| r["id"].as_str().unwrap_or("")).collect();
         assert_eq!(ids, ["", "fargoth", "caius"]);
         assert_eq!(back[1]["data"]["level"], json!(10));
+
+        // A patch of only its own new land over the sea names no master: the base file is
+        // declared (it used to be refused: "a merged landscape plugin must declare its masters").
+        let mut ed = Editor::new(ed.session, crate::queue::PatchQueue::new(), None);
+        ed.new_land("(9, 9)", -2048.0, "", true, Some(false)).unwrap();
+        let sea = dir.join("Sea.esp");
+        let job = ed.prepare_patch(&sea, false).unwrap();
+        let result = run_patch(&ed.session, &job, false, &mut |_| {}).unwrap();
+        assert_eq!(result.masters, vec!["Morrowind.esm".to_string()], "{:?}", result.lines);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

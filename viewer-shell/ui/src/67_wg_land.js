@@ -569,6 +569,7 @@ const WgLand={
     c.normals=up;
     c.layers=[{id:DEFAULT_LTEX, blend:new Uint8Array(P*P).fill(255), size:P, coverage:1}];
     c._landIds=new Array(this.TS*this.TS).fill(DEFAULT_LTEX);
+    c._newHere=true;
     this.mark(c.gx+','+c.gy,'n');
     this._edited.set(c.gx+','+c.gy, c);
   },
@@ -873,6 +874,7 @@ const WgLand={
       coverage maps (each inner texel belongs to exactly one layer). */
   ids(c){
     if(c._landIds) return c._landIds;
+    if(!c.layers || !c.layers.length) return (c._landIds=new Array(this.TS*this.TS).fill(DEFAULT_LTEX));
     const P=18, TS=this.TS, out=new Array(TS*TS).fill(DEFAULT_LTEX);
     for(const L of (c.layers||[])) for(let j=0;j<TS;j++) for(let i=0;i<TS;i++) if(L.blend[(j+1)*P+i+1]===255) out[j*TS+i]=L.id||DEFAULT_LTEX;
     return (c._landIds=out);
@@ -1004,6 +1006,9 @@ const WgLand={
   /** The changed cells into the Editor's patch. */
   async commit(){
     clearTimeout(this._commitT);
+    // One at a time: a stroke ending while the last one is still being written waits for it
+    // (two at once could shape a square before its New land was made).
+    if(this._committing){ this._commitT=setTimeout(()=>this.commit(), 300); return; }
     this._before=null;
     if(!this._pressed) this._stroke=null;
     if(!this.dirty.size){ this.showWait(); return; }
@@ -1011,17 +1016,35 @@ const WgLand={
     const cells=this.cells(), work=[...this.dirty], edited=new Map(this._edited); this.dirty.clear(); this._edited.clear();
     this._committing=true;
     let clamped=0, done=0, made=0;
+    const failed=[];
     for(const [key,kinds] of work){
       const c=cells.get(key)||edited.get(key); if(!c || !c.heights) continue;
       const [gx,gy]=key.split(',').map(Number), cell='('+gx+', '+gy+')';
+      /* A square with no land in the patch yet (made here, or a stroke that reached it while
+         its New land was still being written) gets it first, at the sea floor the page
+         drew it at: Static, 2026-11-03, "(-68, 22) has no land to shape: make land there
+         first (New land)" for every stroke over open sea after the first. */
+      const newLand=()=>WgEditor.ask('editNewLand',{cell, height:DEFAULT_LAND_HEIGHT});
+      const step=async(what, f)=>{
+        try{ return await f(); }
+        catch(e){
+          if(!/has no land to shape/.test(String(e.message||e))) throw new Error(what+': '+String(e.message||e));
+          await newLand();
+          return await f();
+        }
+      };
       try{
-        if(kinds.has('n')) await WgEditor.ask('editNewLand',{cell, height:0});
-        if(kinds.has('h')){ const r=await WgEditor.ask('editLandSet',{cell, heights:Array.from(c.heights, v=>Math.round(v))}); clamped+=(r&&r.clamped)||0; }
-        if(kinds.has('t')){ const r=await WgEditor.ask('editLandTextures',{cell, ids:this.ids(c)}); made+=(r&&r.textures)||0; }
-        if(kinds.has('c') && c.colours) await WgEditor.ask('editLandColors',{cell, colors:Array.from(c.colours)});
+        if(kinds.has('n') || c._newHere) await newLand().catch(e=>{ if(!/already|has land/i.test(String(e.message||e))) throw e; });
+        c._newHere=false;
+        if(kinds.has('h')){ const r=await step('heights', ()=>WgEditor.ask('editLandSet',{cell, heights:Array.from(c.heights, v=>Math.round(v))})); clamped+=(r&&r.clamped)||0; }
+        if(kinds.has('t')){ const r=await step('textures', ()=>WgEditor.ask('editLandTextures',{cell, ids:this.ids(c)})); made+=(r&&r.textures)||0; }
+        if(kinds.has('c') && c.colours) await step('colors', ()=>WgEditor.ask('editLandColors',{cell, colors:Array.from(c.colours)}));
         done++;
-      }catch(e){ toast(cell+': '+String(e.message||e),'err',6000); }
+      }catch(e){ failed.push(cell+': '+String(e.message||e)); }
     }
+    // Said once for the whole stroke, not a toast a square.
+    if(failed.length) toast(failed.length===1? failed[0] : failed.length+' squares were not written: '+failed[0]+(failed.length>1? ' (and '+(failed.length-1)+' more, in Messages)' : ''),'err',8000);
+    if(failed.length>1 && typeof WgLog==='object') for(const f of failed) WgLog.add(f, 'err');
     this.status(done? done+' cell'+(done===1?'':'s')+' in the patch'+
       (made? ' · '+made+' land texture'+(made===1?'':'s')+' added to the patch' : '')+
       (clamped? ' · '+clamped+' step(s) too steep for the format, clamped' : '') : '');

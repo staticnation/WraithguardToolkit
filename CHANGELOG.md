@@ -308,6 +308,15 @@
 
 ### Fixed
 
+- **Land over open sea is written, and the patch with it builds** (`67_wg_land.js`,
+  `editcore::build`). After the first stroke, strokes over the sea failed square by square
+  ("has no land to shape: make land there first", a toast each): a square reached while its
+  New land was still being written, or by a stroke written alongside it, never got its land.
+  Now the patch makes the land first wherever the engine says there is none, at the sea floor
+  the page drew (New land had been made at 0), strokes are written one after another, and a
+  failed stroke says so once. Build patch then refused a patch of only new land and cells
+  ("a merged landscape plugin must declare its masters"): such a patch now declares the load
+  order's base file (Morrowind.esm), as the Construction Set does.
 - **The Scripts panel's globals list keeps its place** (`73_wg_scripts.js`): it went back to
   the top each time a script changed something, so it could not be scrolled.
 - **OpenMW Lua found an install at a drive's root** (`luacore::findings::find_resources`):

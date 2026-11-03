@@ -86,4 +86,25 @@ module.exports = async (t) => {
   L.paint([3 * 8192 + 4096, 3 * 8192 + 4096, 0]);
   t.ok(sea.heights && sea.heights[32 * N + 32] > -2048 && sea.heights[0] === -2048, 'open sea: new land, raised under the brush: ' + (sea.heights && sea.heights[32 * N + 32]));
   t.ok(L.waiting(), 'and waiting for Keep');
+
+  // Kept: the square's New land first, at the sea floor, then its heights. A square a stroke
+  // reached without the mark (written while its New land was) gets it on the engine's word.
+  const made = new Set();
+  w.WgEditor.ask = async (name, body) => {
+    asked.push([name, body]);
+    if (name === 'editNewLand') { made.add(body.cell); return { cell: body.cell, land: true }; }
+    if (name === 'editLandSet' && !made.has(body.cell)) throw new Error(body.cell + ' has no land to shape: make land there first (New land)');
+    return /Pending$/.test(name) ? [] : {};
+  };
+  d.getElementById('wgLandKeep').click();
+  await p.wait(20);
+  const nl = asked.filter(a => a[0] === 'editNewLand').pop();
+  t.ok(nl && nl[1].cell === '(3, 3)' && nl[1].height === -2048, 'New land at the sea floor: ' + JSON.stringify(nl && nl[1]));
+  t.ok(asked.some(a => a[0] === 'editLandSet' && a[1].cell === '(3, 3)') && !L.waiting(), 'then its heights');
+  const sea2 = { kind: 'ext', gx: 4, gy: 3, heights: new w.Float32Array(N * N).fill(-2048), layers: [] };
+  w.App._scene = { origin: [0, 0], cells: [sea2], chunks: [] };
+  L.paint([4 * 8192 + 4096, 3 * 8192 + 4096, 0]);
+  d.getElementById('wgLandKeep').click();
+  await p.wait(20);
+  t.ok(made.has('(4, 3)') && asked.filter(a => a[0] === 'editLandSet' && a[1].cell === '(4, 3)').length === 2, 'no land in the patch yet: made, then shaped');
 };
