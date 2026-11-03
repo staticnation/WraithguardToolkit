@@ -50,6 +50,15 @@ function terrainSpan(extent){
   return [Math.max(0,Math.floor(mid-halfV)), Math.min(N-1,Math.ceil(mid+halfV))];
 }
 
+/** Wraithguard: what a square with no land is drawn from - flat at DEFAULT_LAND_HEIGHT,
+ *  normals up, the default texture everywhere (the game's and the CS's look for it). A
+ *  stand-in for drawing only; the cell itself keeps `heights` null. */
+function seabedOf(c){
+  const N=LAND_VERTS, P=18;
+  return {kind:'ext', gx:c.gx, gy:c.gy, heights:new Float32Array(N*N).fill(DEFAULT_LAND_HEIGHT), normals:null, colours:null,
+          layers:[{id:DEFAULT_LTEX, blend:new Uint8Array(P*P).fill(255), size:P, coverage:1}]};
+}
+
 function cellTerrain(cell,neighbour,extent){
   const N=LAND_VERTS, S=LAND_SUBDIV;
   const step=8192/(N-1), half=4096;
@@ -1176,22 +1185,29 @@ async function _rebuildCellPreview(){
   for(const c of cells){
     // Wraithguard: land the Editor's patch changes is drawn as the patch has it (67_wg_land.js).
     if(c.kind!=='int' && typeof WgLand==='object' && WgLand.apply(c, cells)) oldChunks.delete(c.gx+','+c.gy);
-    if(c.kind==='int'||!c.heights) continue;
+    if(c.kind==='int') continue;
+    /* Wraithguard: a square with no land is drawn as the CS and OpenMW draw it, flat ground
+       at DEFAULT_LAND_HEIGHT under the sea, wearing the default texture (Static, 2026-11-02:
+       "default for regular cs to have land in all external cells"). Drawn only: the cell
+       still has no heights, so nothing else takes it for land, and the Land view's first
+       stroke there makes real land at the same height. */
+    const bed=!c.heights;
+    const src=bed? seabedOf(c) : c;
     const off=cellOffsetFrom(origin,c);
     const old=oldChunks.get(c.gx+','+c.gy);
-    if(old){
+    if(old && !!old.seabed===bed){
       chunks.push(old); chunksKept++;
       gx0=Math.min(gx0,old.span[0]+off[0]); gx1=Math.max(gx1,old.span[1]+off[0]);
       gy0=Math.min(gy0,old.span[0]+off[1]); gy1=Math.max(gy1,old.span[1]+off[1]);
-      landCells++;
-      for(const L of old.layers){
+      if(!bed) landCells++;
+      if(!bed) for(const L of old.layers){
         if(L.id && !L.tex && !L.flat) texMissing.add(L.id);
         if(L.id){ texAgg.set(L.id,(texAgg.get(L.id)||0)+L.coverage); }
       }
       continue;
     }
-    landCells++;
-    const T=cellTerrain(c,(dx,dy)=>byGrid.get((c.gx+dx)+','+(c.gy+dy))||null,extent);
+    if(!bed) landCells++;
+    const T=cellTerrain(src,(dx,dy)=>byGrid.get((c.gx+dx)+','+(c.gy+dy))||null,extent);
     if(off[0]||off[1]){
       const p=T.mesh.pos;
       for(let i=0;i<p.length;i+=3){ p[i]+=off[0]; p[i+1]+=off[1]; }
@@ -1223,6 +1239,7 @@ async function _rebuildCellPreview(){
          gray and white checker board terrain texture." */
       if(L.id && !L.tex && !L.flat && GameData.scanned && !GameData.knowsTexture(L.id)) L.absent=true;
       // Worth naming rather than leaving as an unexplained checker on the ground.
+      if(bed) continue;
       if(L.id && !L.tex && !L.flat) texMissing.add(L.id);
       if(L.id){
         const cur=texAgg.get(L.id)||0;
@@ -1230,7 +1247,7 @@ async function _rebuildCellPreview(){
       }
     }
     chunks.push({mesh:T.mesh,layers:T.layers,inner:T.inner,total:T.total,span:T.span,
-                 grid:[c.gx,c.gy]});
+                 grid:[c.gx,c.gy], seabed:bed});
   }
   /* The slab under the ground wears the default dirt (round 12 item 5) — the texture
      when the install can supply it, its flat stand-in colour when it cannot. Before

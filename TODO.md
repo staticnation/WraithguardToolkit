@@ -136,8 +136,33 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 
 ## Scripts in the scene (`73_wg_scripts.js`)
 
-- OpenMW Lua next: the same panel running a mod's local and global Lua scripts (`luacore`)
-  against the scene, with `openmw.core`/`openmw.world` answering from the load order.
+- OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): `nearby.castRay` from the engine's
+  collision shapes (it finds nothing yet); `onNewExterior` (OpenMW's fish spawning) and
+  other built-ins left out; `ui.create` windows. Check on a real install: a mod's global and
+  local scripts, OpenMW's music playlists, `I.AI` packages through `ai.lua`.
+- Physics when placing objects (optional), with Bullet - the engine OpenMW itself uses
+  (bullet3, zlib license; `subset sort\bullet3-master`):
+  - A `physcore` crate: BulletCollision, BulletDynamics and LinearMath built with `cc`, behind
+    a small C wrapper (a world; static triangle meshes; dynamic convex bodies; step; read a
+    body's transform). Rust calls only the wrapper.
+  - Static: the scene's collision shapes (the engine's `collision_bundle`, as the walk body
+    uses) and the land's heights. Dynamic: the objects being placed, as convex hulls of
+    their collision shapes (their visual mesh where they have none), at their scale.
+  - In the Editor: a "Physics" toggle beside Drop. Selected objects fall, tumble and settle
+    (gravity, friction, a time limit, a rest threshold); the run is shown as it happens,
+    then Keep or Drop, as the Land view's preview. Keep writes the resting places as one
+    ordinary move edit (undoable).
+  - Settings: gravity, friction, bounce, the most seconds to simulate, and "only up to the
+    ground" (no tumbling: the drop alone).
+- Dialogue window, Map tab: zoom (wheel), pan (drag), Fit, and a larger area. Rings spaced
+  by how many topics they hold, so 2-step maps stop overlapping. Full labels once zoomed in.
+- Dialogue window, In game tab: conditions that can be set, so fewer are only "assumed":
+  - the cell from a picker of the load order's cells, with NotCell checked too (it is only
+    assumed now, even with a cell given);
+  - the player's sex, race, faction and rank, and level;
+  - the speaker's rank;
+  - the hour and the day;
+  - globals and journal indexes, shared with the Scripts panel's game state.
 - MWScript the preview still does not run (logged once each): choosing and showing dialogue
   (ForceGreeting says who greets; `Choice` belongs to dialogue results), animations
   (PlayGroup, LoopGroup), spells and their effects. Combat is a stand-in: blows of 4-11

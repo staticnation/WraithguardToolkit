@@ -372,6 +372,10 @@ function isMarkerMesh(model){
 }
 
 const DEFAULT_LTEX='_land_default';
+/* Wraithguard: an exterior square with no land is flat ground this far under the sea - what
+   the Construction Set and OpenMW show there (OpenMW's ESM::Land::DEFAULT_HEIGHT) - and new
+   land starts at it, so it meets the empty squares around it without a step. */
+const DEFAULT_LAND_HEIGHT=-2048;
 const DEFAULT_LTEX_FILE='_land_default.dds';
 /* If that file is not loose in the overlay (vanilla keeps it inside Morrowind.bsa,
    which this tool does not read) the layer still has to look like ground rather than

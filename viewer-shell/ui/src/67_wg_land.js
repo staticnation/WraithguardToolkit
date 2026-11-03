@@ -108,8 +108,9 @@ const WgLand={
     R.opts.paintMode=true;
     R.onBrushMove=e=>this.brushMove(e);
     R.onPaint=(pts)=>this.paint(pts);
-    /* Over the sea where no cell has land the brush still needs ground to stand on: the
-       sea's level, so a stroke there makes land (New land) and shapes it. */
+    /* Over a square with no land the brush still needs ground to stand on: the flat ground
+       the CS and OpenMW show there (DEFAULT_LAND_HEIGHT), so a stroke makes land (New
+       land) where it is drawn and shapes it. */
     this._groundZ=R.groundZ;
     const base=R.groundZ;
     R.groundZ=(x,y)=>{
@@ -117,7 +118,7 @@ const WgLand={
       if(z!=null) return z;
       const sc=App._scene; if(!sc || !sc.origin) return null;
       const gx=Math.floor((x+sc.origin[0])/this.CELL), gy=Math.floor((y+sc.origin[1])/this.CELL);
-      return (sc.cells||[]).some(c=>c.kind==='ext' && c.gx===gx && c.gy===gy)? 0 : null;
+      return (sc.cells||[]).some(c=>c.kind==='ext' && c.gx===gx && c.gy===gy)? DEFAULT_LAND_HEIGHT : null;
     };
     // The patch can change under the view (an undo in the Editor): follow it.
     this._poll=setInterval(()=>this.pollPatch(), 1500);
@@ -558,12 +559,12 @@ const WgLand={
     return c._landOrig;
   },
 
-  /** Flat land at the sea for a cell of the scene with none: drawn at once, made in the
-      patch (New land) at the next commit. */
+  /** Flat land for a cell of the scene with none, at the empty square's own ground
+      (DEFAULT_LAND_HEIGHT): drawn at once, made in the patch (New land) at the next commit. */
   newLand(c){
     const N=this.N, P=18;
     this.original(c);
-    c.heights=new Float32Array(N*N);
+    c.heights=new Float32Array(N*N).fill(DEFAULT_LAND_HEIGHT);
     const up=new Float32Array(N*N*3); for(let i=0;i<N*N;i++) up[i*3+2]=1;
     c.normals=up;
     c.layers=[{id:DEFAULT_LTEX, blend:new Uint8Array(P*P).fill(255), size:P, coverage:1}];
@@ -773,7 +774,7 @@ const WgLand={
     const sc=App._scene; if(!sc || !sc.origin || !dabs.length) return;
     const cells=this.cells(); if(!cells.size) return;
     this.snapshot();
-    // Cells of the scene the brush reaches that have no land yet get flat land at the sea.
+    // Cells of the scene the brush reaches that have no land yet get flat land at the sea floor.
     const r=this.radius();
     for(const c of (sc.cells||[])){
       if(c.kind!=='ext' || c.heights) continue;
@@ -933,6 +934,9 @@ const WgLand={
       if(x>=0 && x<N && y>=0 && y<N) return H[y*N+x];
       const nb=cells.get((c.gx+(x<0?-1:x>=N?1:0))+','+(c.gy+(y<0?-1:y>=N?1:0)));
       if(!nb) return H[Math.min(N-1,Math.max(0,y))*N+Math.min(N-1,Math.max(0,x))];
+      // A neighbour square with no land: its flat ground (Static, 2026-11-02: new land
+      // beside one threw "Cannot read properties of null (reading '63')").
+      if(!nb.heights) return DEFAULT_LAND_HEIGHT;
       const lx=x<0? x+N-1 : x>=N? x-N+1 : x, ly=y<0? y+N-1 : y>=N? y-N+1 : y;
       return nb.heights[ly*N+lx];
     };

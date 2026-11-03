@@ -244,10 +244,15 @@ fn pack(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(zstd::encode_all(bytes, 0).expect("zstd into memory"))
 }
 
+/// Where an exterior square with no land is: the flat ground the Construction Set and
+/// OpenMW show under the sea there (OpenMW's `ESM::Land::DEFAULT_HEIGHT`), and where new
+/// land starts, so it joins the empty squares around it with no step.
+pub const DEFAULT_LAND_HEIGHT: f64 = -2048.0;
+
 /// Flat land for an exterior square, in tes3conv's form: every vertex of the 65 x 65
 /// grid at one height (0 is the sea's level), normals straight up, one texture over
 /// all 256 texture cells (`texture_index`: 0 the default ground, else a land texture's
-/// index plus one).
+/// index plus one). VHGT's offset is stored in eighths of a unit, as the game reads it.
 pub fn flat_land(grid: (i32, i32), height: f64, texture_index: i64) -> Result<Value, EditError> {
     if !height.is_finite() || height.abs() > MAX_HEIGHT {
         return err(format!("the height is within {MAX_HEIGHT} units of the sea's level"));
@@ -265,7 +270,7 @@ pub fn flat_land(grid: (i32, i32), height: f64, texture_index: i64) -> Result<Va
         "grid": [grid.0, grid.1],
         "landscape_flags": "USES_VERTEX_HEIGHTS_AND_NORMALS | USES_TEXTURES",
         "vertex_normals": {"data": pack(&normals)},
-        "vertex_heights": {"offset": pyval::float_value(height), "data": pack(&vec![0u8; VERTICES])},
+        "vertex_heights": {"offset": pyval::float_value(height / 8.0), "data": pack(&vec![0u8; VERTICES])},
         "world_map_data": {"data": pack(&[coarse as u8; 81])},
         "vertex_colors": {"data": pack(&vec![0u8; VERTICES * 3])},
         "texture_indices": {"data": pack(&textures)},
@@ -1126,6 +1131,18 @@ mod tests {
 
     /// The Land view's write: heights in, a LAND record the build can write out, with the
     /// normals and world map derived from them - for the load order's land and the patch's own.
+    #[test]
+    fn flat_land_is_at_its_height_as_the_game_reads_it() {
+        for h in [DEFAULT_LAND_HEIGHT, 0.0, 256.0] {
+            let rec = flat_land((4, 4), h, 0).unwrap();
+            let lt: tes3::esp::TES3Object = serde_json::from_value(rec).unwrap();
+            let tes3::esp::TES3Object::Landscape(l) = lt else { panic!() };
+            let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+            let back = landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap();
+            assert!(back.iter().all(|&v| v as f64 == h), "{h}: {:?}", &back[..3]);
+        }
+    }
+
     #[test]
     fn shaped_heights_queue_as_landcore_encodes_them() {
         use crate::queue::PatchQueue;

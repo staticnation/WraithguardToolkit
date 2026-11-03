@@ -2007,7 +2007,7 @@
        "data": "sha256:17355523900152c93badb8d13ebfc41938b9f93bcc255dd8ce6e62a4af279393"
       },
       "vertex_heights": {
-       "offset": 64.5,
+       "offset": 8.0625,
        "data": "sha256:31ef6078ab23831e391f325a13ff93e59f98a4d57889897f5249e9efaa84c672"
       },
       "world_map_data": {
@@ -2032,7 +2032,7 @@
        "data": "sha256:17355523900152c93badb8d13ebfc41938b9f93bcc255dd8ce6e62a4af279393"
       },
       "vertex_heights": {
-       "offset": -20000.0,
+       "offset": -2500.0,
        "data": "sha256:31ef6078ab23831e391f325a13ff93e59f98a4d57889897f5249e9efaa84c672"
       },
       "world_map_data": {
@@ -2200,7 +2200,7 @@
          "data": "sha256:17355523900152c93badb8d13ebfc41938b9f93bcc255dd8ce6e62a4af279393"
         },
         "vertex_heights": {
-         "offset": 100.0,
+         "offset": 12.5,
          "data": "sha256:31ef6078ab23831e391f325a13ff93e59f98a4d57889897f5249e9efaa84c672"
         },
         "world_map_data": {
@@ -2250,7 +2250,7 @@
          "data": "sha256:17355523900152c93badb8d13ebfc41938b9f93bcc255dd8ce6e62a4af279393"
         },
         "vertex_heights": {
-         "offset": -300.0,
+         "offset": -37.5,
          "data": "sha256:31ef6078ab23831e391f325a13ff93e59f98a4d57889897f5249e9efaa84c672"
         },
         "world_map_data": {

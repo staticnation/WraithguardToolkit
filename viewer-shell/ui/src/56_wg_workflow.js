@@ -107,7 +107,8 @@ const WgFlow={
   },
 
   /** Flat land for an exterior square (`k` is `x,y`, `(x, y)`, or a Cell View key): its cell
-   *  too when nothing has one. At the sea's level the square is flooded until it is raised. */
+   *  too when nothing has one. At the empty square's own ground (DEFAULT_LAND_HEIGHT, under
+   *  the sea, as the CS makes it), so it joins its neighbours until it is shaped. */
   async newLand(k){
     const m=String(k).match(/(-?\d+)\s*,\s*(-?\d+)/);
     if(!m) return toast('Land belongs to an exterior square: two numbers, (x, y)','warn',3000);
@@ -125,7 +126,7 @@ const WgFlow={
     }
     try{
       const r=await this.ask('editNewLand', body);
-      toast('Flat land at the sea\'s level for '+r.cell+(r.madeCell? ' (and its cell)' : '')+', made by the patch - raise it with the terrain tools','ok',4500);
+      toast('Flat land for '+r.cell+(r.madeCell? ' (and its cell)' : '')+' at '+DEFAULT_LAND_HEIGHT+', the sea floor an empty square has, made by the patch - shape it in the Land view','ok',4500);
       await WgEditor.refreshPending();
       if(r.madeCell) WgEditor.revealCell((+m[1])+','+(+m[2]));   // its cell is new: show it
       return r;

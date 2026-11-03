@@ -595,8 +595,9 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
         "editNewLand" => {
             let req = body_of(body)?;
             let cell = need_words(&req, "cell", "cell")?;
+            // The ground an empty square shows (the CS's and OpenMW's), unless a height is given.
             let height = match req.get("height") {
-                None => 0.0,
+                None => crate::places::DEFAULT_LAND_HEIGHT,
                 Some(v) if v.is_number() => v.as_f64().unwrap_or(0.0),
                 _ => return Err("bad height".into()),
             };

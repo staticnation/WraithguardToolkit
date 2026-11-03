@@ -5971,6 +5971,78 @@ fn script_texts(names: Vec<String>, state: State) -> Result<String, String> {
     Ok(serde_json::Value::Object(out).to_string())
 }
 
+/// Wraithguard: what the scene's OpenMW Lua (`ui/src/74_wg_lua.js`) starts from: the load
+/// order's registered scripts, `scripts: [{path, flags}]` in load order (none, and a `note`,
+/// for a Morrowind.ini setup), and the record type of each object id asked about,
+/// `types: {id: tag}`, which decides the scripts an object gets (`NPC`, `LIGHT`, ...).
+#[tauri::command(async)]
+fn lua_scene(ids: Vec<String>, state: State) -> Result<String, String> {
+    let (vfs, order, w) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone(), app.world.clone())
+    };
+    let reg = viewcore::luascan::registered(&vfs, order.as_deref())?;
+    let note = if reg.is_none() { "Not an OpenMW setup: Morrowind.ini load orders have no Lua scripts." } else { "" };
+    let scripts: Vec<serde_json::Value> = reg.unwrap_or_default().into_iter().map(|(path, flags)| serde_json::json!({"path": path, "flags": flags})).collect();
+    let mut types = serde_json::Map::new();
+    if let Some(w) = &w {
+        for id in ids {
+            let k = id.to_ascii_lowercase();
+            if let Some(t) = w.records.placed_type(&k) {
+                types.insert(k, serde_json::json!(String::from_utf8_lossy(&t)));
+            }
+        }
+    }
+    Ok(serde_json::json!({"note": note, "scripts": scripts, "types": types}).to_string())
+}
+
+/// Wraithguard: the Preview's OpenMW Lua (`viewcore::luarun`), one at a time.
+static LUA_RUN: std::sync::Mutex<Option<viewcore::luarun::Runner>> = std::sync::Mutex::new(None);
+
+/// Wraithguard: starts the Preview's OpenMW Lua on the install's own LuaJIT (Lua 5.4 where
+/// none is found): OpenMW's built-ins and the load order's scripts read, the global and
+/// player scripts started. `weathers` are the Preview's weather names, in order.
+/// `{backend, resources, note, answer: {effects, log, status}}`; a Morrowind.ini setup has
+/// no Lua and gets only a `note`.
+#[tauri::command(async)]
+fn lua_run_start(weathers: Vec<String>, state: State) -> Result<String, String> {
+    let (vfs, order) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone())
+    };
+    *LUA_RUN.lock().map_err(|e| e.to_string())? = None;
+    let Some(reg) = viewcore::luascan::registered(&vfs, order.as_deref())? else {
+        return Ok(serde_json::json!({"note": "Not an OpenMW setup: Morrowind.ini load orders have no Lua scripts."}).to_string());
+    };
+    let cfg = order.as_deref().filter(|p| viewcore::luascan::is_openmw_cfg(p));
+    let resources = viewcore::luacore::findings::find_resources(cfg, None);
+    let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
+    let mut run = viewcore::luarun::Runner::new(jit.as_deref(), false)?;
+    let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers);
+    let answer = run.call("__wg_start", &start)?;
+    let backend = run.backend.clone();
+    *LUA_RUN.lock().map_err(|e| e.to_string())? = Some(run);
+    let note = if resources.is_none() { "OpenMW's resources folder was not found: its built-in scripts (I.AI, activation, music) are not running." } else { "" };
+    let answer: serde_json::Value = serde_json::from_str(&answer).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"backend": backend, "resources": resources.map(|p| p.display().to_string()), "note": note, "answer": answer}).to_string())
+}
+
+/// Wraithguard: one frame of the Preview's OpenMW Lua: what changed in the scene in (JSON,
+/// `luarun.lua`'s `__wg_step`), `{effects, log, status}` out.
+#[tauri::command(async)]
+fn lua_run_step(frame: String) -> Result<String, String> {
+    let mut g = LUA_RUN.lock().map_err(|e| e.to_string())?;
+    let run = g.as_mut().ok_or("OpenMW Lua is not running")?;
+    run.call("__wg_step", &frame)
+}
+
+/// Wraithguard: the Preview's OpenMW Lua stopped and its state dropped.
+#[tauri::command(async)]
+fn lua_run_stop() -> Result<String, String> {
+    *LUA_RUN.lock().map_err(|e| e.to_string())? = None;
+    Ok("{}".into())
+}
+
 /// Wraithguard: the player's stats from an OpenMW save, for the first-person body
 /// (`toolscore::save::player_stats`): `{name, skills: [27], attributes: [8], fatigue: [cur, max]}`.
 #[tauri::command(async)]
@@ -6311,6 +6383,10 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             walk_player_from_save,
             scene_scripts,
             script_texts,
+            lua_scene,
+            lua_run_start,
+            lua_run_step,
+            lua_run_stop,
             write_b64,
             wg_save_edited,
             wg_open_record,

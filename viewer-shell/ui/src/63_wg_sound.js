@@ -435,7 +435,8 @@ const WgSound={
     const dt=Math.min(0.5, Math.max(0, now-(P.thunderLast||now))); P.thunderLast=now;
     if(freq>0 && Math.random()<=freq*10/60*dt) this.thunder(wx);
     // Music.
-    if(P.musicOn && !P.music) this.musicNext();
+    // Wraithguard: not while the scene's scripts choose the music (OpenMW's playlists, 74_wg_lua.js).
+    if(P.musicOn && !P.music && !P.scriptMusic) this.musicNext();
   },
 
   async thunder(wx){

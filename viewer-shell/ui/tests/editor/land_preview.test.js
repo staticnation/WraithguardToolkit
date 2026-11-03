@@ -26,6 +26,20 @@ module.exports = async (t) => {
   w.WgEditor.canEdit = () => true;
   const rebuilt = [];
   L.rebuild = keys => rebuilt.push([...keys]);
+  // Static, 2026-11-02: new land beside a square with none threw "Cannot read properties of
+  // null (reading '63')" here. That square's ground is the flat default under the sea.
+  {
+    w.eval('var DEFAULT_LAND_HEIGHT=-2048;');
+    const N0 = 65;
+    const lone = { kind: 'ext', gx: 5, gy: 5, heights: new w.Float32Array(N0 * N0).fill(-2048) };
+    const empty = { kind: 'ext', gx: 6, gy: 5, heights: null };
+    let threw = null;
+    try { L.renormal(lone, new w.Map([['5,5', lone], ['6,5', empty]])); } catch (e) { threw = e; }
+    t.ok(!threw && lone.normals && Math.abs(lone.normals[(32 * N0 + 64) * 3 + 2] - 1) < 1e-6, 'land beside an empty square: lit flat, no error (' + (threw && threw.message) + ')');
+    L.newLand({ kind: 'ext', gx: 7, gy: 5, heights: null, layers: [] });
+    t.ok(L._edited.get('7,5').heights.every(h => h === -2048), 'new land starts at the empty square\'s own ground, -2048');
+    L._edited.delete('7,5'); L.dirty && L.dirty.delete && L.dirty.delete('7,5');
+  }
   L.renormal = () => {};
   const N = 65;
   const cell = () => ({ kind: 'ext', gx: 0, gy: 0, heights: new w.Float32Array(N * N), normals: new w.Float32Array(N * N * 3), colours: null, layers: [], _landIds: [] });

@@ -14,6 +14,11 @@ bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
 # Wraithguard: OpenMW Lua scripts read and checked (the Editor's Lua panel), the same code
 # the Python backend bound; with the Teal checks (`teal`, from native/ in 4.6).
 luacore = { path = "../luacore", features = ["teal"] }
+# Wraithguard: the Preview's OpenMW Lua (src/luarun.rs). The install's own LuaJIT is loaded
+# at run time (libloading, ISC); where there is none, the Lua 5.4 luacore's Teal checks
+# already build (mlua, MIT, its features the ones htl-core asks for).
+libloading = "0.7"
+mlua = "0.12"
 # Wraithguard: the openmw.cfg reader (data folders, content, groundcover, archives, chained
 # cfgs), by OpenMW's documented rules - the one the Python backend uses too.
 ordercore = { path = "../ordercore" }

@@ -64,7 +64,7 @@ Object.assign(WgEditor, {
 
   /** What the engine would answer for a cell of the patch's own (`interior_data`,
    *  `cell_data`): nothing in it but what the patch places - an empty room, or a square
-   *  with no land (drawn flat, at the sea). `overlay` then adds the patch's references. */
+   *  with no land (drawn as flat sea floor). `overlay` then adds the patch's references. */
   emptyCell(target){
     return {name:target.kind==='int'? String(target.name||'') : '', ltex:{}, models:{}, lights:{}, actors:{},
             refs:[], hasLand:false, water:null, quasi:false, ambi:null};
@@ -140,9 +140,9 @@ Object.assign(WgEditor, {
            act:()=>this.copyCell(ck.name)},
           {sep:true},
           {label:'New interior…', disabled:!this.links().editNewCell, title:'A blank interior of the patch\'s own, under a name', act:()=>WgFlow.newCell(false)},
-          {label:'New exterior square…', disabled:!this.links().editNewCell, title:'A grid square no plugin has, of the patch\'s own (no land: the game draws it flat, at the sea)', act:()=>WgFlow.newCell(true)},
-          {label:'New exterior square with land…', disabled:!this.links().editNewLand, title:'A grid square no plugin has, with flat land at the sea\'s level (what the Construction Set makes on the first brush stroke)', act:()=>WgFlow.newCell(true, true)},
-          {label:'Add flat land to this square', disabled:inner || !this.links().editNewLand, title:inner? 'Land belongs to an exterior square' : 'Flat land at the sea\'s level, for a square with none (the patch refuses one that has land)', act:()=>WgFlow.newLand(k)},
+          {label:'New exterior square…', disabled:!this.links().editNewCell, title:'A grid square no plugin has, of the patch\'s own (no land: the game draws it as flat sea floor, '+DEFAULT_LAND_HEIGHT+' under the water)', act:()=>WgFlow.newCell(true)},
+          {label:'New exterior square with land…', disabled:!this.links().editNewLand, title:'A grid square no plugin has, with flat land at the sea floor ('+DEFAULT_LAND_HEIGHT+', what the Construction Set makes on the first brush stroke)', act:()=>WgFlow.newCell(true, true)},
+          {label:'Add flat land to this square', disabled:inner || !this.links().editNewLand, title:inner? 'Land belongs to an exterior square' : 'Flat land at the sea floor ('+DEFAULT_LAND_HEIGHT+'), for a square with none (the patch refuses one that has land)', act:()=>WgFlow.newLand(k)},
         ]);
       };
     });

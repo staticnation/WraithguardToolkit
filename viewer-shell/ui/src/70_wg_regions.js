@@ -10,7 +10,7 @@
                       `region` field in the Editor's patch (`editCellRegions`); with "Make
                       cells", a square without one gets the patch's own cell first
      - Make exteriors drag a box over the sea: every empty square in it gets flat land at
-                      the sea's level and its cell, the patch's own (`editNewLand`), and the
+                      the sea floor (DEFAULT_LAND_HEIGHT) and its cell, the patch's own (`editNewLand`), and the
                       chosen region with them
    The middle button still pans and the wheel still zooms; Esc gives up a drag. What the
    patch has is drawn over the load order's at once (dashed: changed or made here).
@@ -170,11 +170,11 @@ const WgRegions={
     const keys=this.boxCells(a, b).filter(k=>!map.known(...k.split(',').map(Number)) && !this.made.has(k));
     if(!keys.length){ this.say('Every square in that box has a cell already'); return; }
     if(keys.length>this.MAX_BOX){ this.say('That is '+keys.length+' squares; at most '+this.MAX_BOX+' at a time'); return; }
-    if(keys.length>40 && !confirm('Make '+keys.length+' new exteriors (flat land at the sea\'s level, and their cells) in the patch?')) return;
+    if(keys.length>40 && !confirm('Make '+keys.length+' new exteriors (flat land at the sea floor, and their cells) in the patch?')) return;
     let made=0;
     for(const k of keys){
       this.say('Making '+(made+1)+' of '+keys.length+'…');
-      try{ await WgEditor.ask('editNewLand',{cell:this.cellName(k), height:0}); made++; this.made.add(k); this.edits.set(k, ''); }
+      try{ await WgEditor.ask('editNewLand',{cell:this.cellName(k), height:DEFAULT_LAND_HEIGHT}); made++; this.made.add(k); this.edits.set(k, ''); }
       catch(e){ toast(this.cellName(k)+': '+String(e.message||e),'err',5000); break; }
     }
     if(made && this.region){

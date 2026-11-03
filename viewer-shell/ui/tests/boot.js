@@ -1121,6 +1121,18 @@ setTimeout(async ()=>{
       GameData.missing.length=0; before.forEach(x=>GameData.missing.push(x)); GameData.orderSource=src; return n; })()`);
     if(marked) errors.push('the report put a file name in as markup ('+marked+')');
   }catch(e){ errors.push('report with odd file names: '+short(e)); }
+  /* The Preview's OpenMW Lua (viewcore::luarun) answers: a Morrowind.ini setup has none and
+     says so, and a frame asked of a Lua not running is refused, not a crash. */
+  try{
+    const st=await engineCall('lua_run_start',{weathers:['Clear','Rain']});
+    console.log('lua:', JSON.stringify(st).slice(0,200));
+    if(!st || (!st.note && !st.answer)) errors.push('lua_run_start answered neither a note nor a start: '+JSON.stringify(st).slice(0,200));
+    if(!st.answer){
+      let refused=false; try{ await engineCall('lua_run_step',{frame:'{"dt":0.05}'}); }catch(_){ refused=true; }
+      if(!refused) errors.push('lua_run_step ran with no Lua started');
+    }
+    await engineCall('lua_run_stop',{});
+  }catch(e){ errors.push('OpenMW Lua: '+short(e)); }
   if(process.env.WG_TAINT){ console.log('unescaped:', tainted.size); [...tainted].forEach(t=>console.log(' -',t)); }
   console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
   try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);

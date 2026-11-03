@@ -388,6 +388,15 @@ folder, as OpenMW's own `openmwluadocumentor` does for its published
 for them. The same separation as the cell viewer below: the GPL part stays where its
 licence puts it, and the toolkit stays MIT.
 
+**OpenMW's LuaJIT and built-in scripts are run from the install, never shipped.** The
+Preview's Scripts panel runs OpenMW Lua (`viewer-shell/viewcore/src/luarun.rs`) on the
+user's own OpenMW build: its LuaJIT (MIT; `lua51.dll`, `lib/libluajit-5.1.so.2` or
+`Frameworks/libluajit-5.1.*.dylib`) loaded at run time with **libloading** (Simonas
+Kazlauskas, ISC), and its `resources/vfs` and `vfs-mw` built-in scripts (GPLv3) read from
+the install as OpenMW reads them. Where an install has no LuaJIT, the viewer's own Lua 5.4
+(mlua, above) runs them. The API they run against (`luarun.lua`) is our own, written from
+OpenMW's documentation.
+
 ## Archives and textures, and why they are ours
 
 Archives went the same way as meshes. Since 4.2.0 they are read by `tes3::bsa` (through

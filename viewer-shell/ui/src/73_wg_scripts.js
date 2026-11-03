@@ -227,6 +227,8 @@ const WgScripts={
     for(const g of this.globalRun.values()) this.runOne(g, null);
     // A disabled object's script runs on (it is how a lamp turns itself back on).
     for(const it of this.inst.values()) this.runOne(it, it);
+    // OpenMW Lua (74_wg_lua.js), against the same scene.
+    if(typeof WgLua==='object') WgLua.frame(dt);
     this.actorsFrame(dt);
     this.loopsFrame();
     if(this._dirtyScene) this.flushScene();
@@ -384,7 +386,7 @@ const WgScripts={
       case 'getscale': { const m=t && this.moved.get(t.key); const r=this.refOf(t); return m && m.scale!=null? m.scale : (r && r.scale) || 1; }
       case 'scriptrunning': return this.globalRun.has(String(a[0]).toLowerCase())? 1 : 0;
       case 'getsoundplaying': return t && this.soundOn(t, String(a[0]))? 1 : 0;
-      case 'saydone': return t && this.soundOn(t, '#say')? 0 : 1;
+      case 'saydone': return t && this.soundOn(t, '*say')? 0 : 1;
       case 'getlos': return this.los(t, this.target(String(a[0]).toLowerCase(), ctx))? 1 : 0;
       case 'getdetected': { const o=this.target(String(a[0]).toLowerCase(), ctx); return this.los(o, t) && this.dist(o, t)<2000? 1 : 0; }
       case 'getitemcount': { const A=this.actorOf(t); return A? A.items.get(String(a[0]).toLowerCase())||0 : 0; }
@@ -768,7 +770,7 @@ const WgScripts={
   },
   /** StreamMusic: the file, through the Preview's music volume, in place of what plays. */
   async music(path){
-    if(typeof WgSound!=='object' || !WgSound.place.on) return;
+    if(typeof WgSound!=='object' || !WgSound.place.on || WgSound.place.musicOn===false) return;
     const S=WgSound, P=S.place, ctx=S.audio();
     S.placeGraph(ctx);
     S.musicStop();
@@ -884,7 +886,7 @@ const WgScripts={
       if(!this.on){ this._raf=0; return; }
       this._raf=requestAnimationFrame(step);
       const dt=Math.min(0.1, Math.max(0, (now-(this._last||now))/1000)); this._last=now;
-      if(App._scene!==this._sceneSeen && App._scene && performance.now()-this._lastRebuild>300) this.gather();
+      if(App._scene!==this._sceneSeen && App._scene && performance.now()-this._lastRebuild>300) this.gather().then(()=>{ if(typeof WgLua==='object') WgLua.gather(); });
       if(!this.paused && dt>0) this.frame(dt);
       this._uiT=(this._uiT||0)+dt; if(this._uiT>0.5){ this._uiT=0; this.drawLive(); }
     };
@@ -893,8 +895,14 @@ const WgScripts={
   setOn(on){
     this.on=!!on;
     const b=$('#tbScripts'); if(b) b.classList.toggle('on', this.on);
-    if(this.on){ this.panel(); this._el.hidden=false; this.gather(); this._last=0; this.loopRun(); }
+    if(this.on){ this.panel(); this._el.hidden=false; this.gather().then(()=>this.startLua()); this._last=0; this.loopRun(); }
     else this.reset(true);
+  },
+  /** OpenMW Lua beside MWScript: started once the scene's objects are known. */
+  async startLua(){
+    if(typeof WgLua!=='object' || !this.on) return;
+    await WgLua.start();
+    this.drawLive();
   },
   /** Back to the scene as the load order has it: every change the scripts made undone, their
    *  locals and the started scripts forgotten. */
@@ -904,6 +912,7 @@ const WgScripts={
     this._globalsRead=false; this._asked=null; this.objScript.clear(); this.state.globals.clear(); this.state.journal.clear(); this._logged.clear(); this.log=[];
     this.actors.clear(); this.actorDefs.clear(); this.playing.clear(); this.topics.clear(); this.msg=null; this.drawMsg();
     this.fade(0, 0);
+    if(typeof WgLua==='object') WgLua.stop();
     if(off){ cancelAnimationFrame(this._raf); this._raf=0; if(this._el) this._el.hidden=true; }
     this._sceneSeen=null;
     if(typeof schedulePreview==='function') schedulePreview();
@@ -925,7 +934,7 @@ const WgScripts={
       '<button class="btn sm" id="wgScrStep" title="One frame of every script">Step</button>'+
       '<button class="btn sm" id="wgScrReset" title="Undo what the scripts did and start them again">Reset</button>'+
       '<button class="btn dim ic" id="wgScrX" title="Stop the scripts">&#x2715;</button></div>'+
-      '<div class="oribody"><div class="hint">The scene\'s MWScript runs as the game runs it, against the state below; the hour is the Preview\'s clock and the weather its weather. Activate an object: <b>Ctrl+click</b> it.</div>'+
+      '<div class="oribody"><div class="hint">The scene\'s MWScript and the load order\'s OpenMW Lua run as the game runs them, against the state below; the hour is the Preview\'s clock and the weather its weather. Activate an object: <b>Ctrl+click</b> it.</div>'+
       '<div id="wgScrMsg" hidden></div>'+
       '<div class="orisec">Game state</div><div id="wgScrState"></div>'+
       '<div class="orisec">Running</div><div id="wgScrLive" class="hint"></div>'+
@@ -937,7 +946,7 @@ const WgScripts={
     d.querySelector('#wgScrX').onclick=()=>this.setOn(false);
     d.querySelector('#wgScrPause').onclick=e=>{ this.paused=!this.paused; e.target.classList.toggle('pri', this.paused); e.target.textContent=this.paused? 'Resume' : 'Pause'; };
     d.querySelector('#wgScrStep').onclick=()=>{ this.frame(1/30); this.drawLive(); };
-    d.querySelector('#wgScrReset').onclick=()=>{ this.reset(false); this.gather(); };
+    d.querySelector('#wgScrReset').onclick=()=>{ this.reset(false); this.gather().then(()=>this.startLua()); };
     d.querySelector('#wgScrClear').onclick=()=>{ this.log=[]; this.drawLog(); };
     // Ctrl+click on an object activates it (OnActivate is true for its script's next frame).
     const R=App.R;
@@ -948,6 +957,7 @@ const WgScripts={
         const hit=R.pickAt? R.pickAt(e.clientX, e.clientY) : null;
         const it=hit && hit.refKey? this.inst.get(hit.refKey) : null;
         if(it){ it._activate=true; this.say(it.script, 'do', 'activated ('+it.id+')'); }
+        if(hit && hit.refKey && typeof WgLua==='object' && WgLua.running) WgLua.activate(hit.refKey);
       }, true);
     }
     this.drawState();
@@ -987,6 +997,12 @@ const WgScripts={
       ' ('+escHtml([...this.globalRun.keys()].slice(0, 8).join(', '))+(this.globalRun.size>8? '…' : '')+'). ')+
       (this.disabled.size? this.disabled.size+' disabled. ' : '')+(this.moved.size? this.moved.size+' moved. ' : '')+(this.placed.length? this.placed.length+' placed. ' : '')+
       (bad.length? '<br>Not run: '+escHtml(bad.slice(0, 6).join(', ')) : '');
+    if(typeof WgLua==='object'){
+      const st=WgLua.status(), n=x=>x+' ';
+      box.innerHTML+='<br>'+(st? 'OpenMW Lua on '+escHtml(WgLua.backend.replace(/ - .*/, ''))+': '+n(st.global)+'global, '+n(st.player)+'player and '+st['local']+' object script'+(st['local']===1?'':'s')+(st.timers? ', '+st.timers+' timer'+(st.timers===1?'':'s')+' waiting' : '')+'.'+
+        (st.failing && st.failing.length? ' Failing: '+escHtml([].concat(st.failing).slice(0, 6).join(', ')) : '')+(WgLua.note? ' '+escHtml(WgLua.note) : '') :
+        'OpenMW Lua: '+escHtml(WgLua.note||(WgLua.running? 'starting…' : 'not running.')));
+    }
     const ab=this._el.querySelector('#wgScrActors');
     if(ab){
       const AIN={wander:'wandering', travel:'traveling', follow:'following', escort:'escorting', activate:'going to activate'};

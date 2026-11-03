@@ -5,6 +5,27 @@
 
 ### Added
 
+- **OpenMW Lua runs in the scene too** (the same ▶ Scripts panel; `viewcore::luarun`,
+  `74_wg_lua.js`), on the install's own LuaJIT, loaded at run time from where each
+  platform's OpenMW keeps it (`lua51.dll`, `lib/libluajit-5.1.so.2`,
+  `Frameworks/libluajit-5.1.*.dylib`). Where there is none it runs on the Lua 5.4 the
+  viewer already has. OpenMW's own built-ins run first, from the install's `resources`
+  folder: `I.AI` (`ai.lua`), activation, the music playlists, weather and the world's
+  events. Then the load order's registered scripts run, each on what it is registered for:
+  GLOBAL once, PLAYER on the camera, NPC, LIGHT, DOOR and the rest on every loaded object of
+  that type.
+  - Scripts get `onInit`, `onActive`, `onInactive`, `onUpdate`, `onFrame` and `onActivated`
+    (Ctrl+click), events, interfaces, timers and storage.
+  - `openmw.world`, `self`, `nearby`, `types`, `core` (sound, weather), `ambient`, `ui`,
+    `util`, `async`, `vfs` and `openmw_aux` are there, with OpenMW's rules of where:
+    `openmw.world` only in global scripts, another object changed only from a global one.
+  - What the scripts do shows through the same scene layer as MWScript's: objects enabled,
+    disabled, teleported, scaled, created and removed; sounds and music; the weather and
+    the hour; MWScript globals and locals (`world.mwscript`); actors' health, inventories
+    and AI packages; messages.
+  - The panel says which Lua is running, and the log shows each script's prints and errors.
+  - Not yet: `nearby.castRay` finds nothing, and windows made with `ui.create` are not
+    drawn.
 - **The scene's scripts, run** (the Preview's ▶ Scripts, `73_wg_scripts.js`). The loaded
   objects' MWScript (and the start scripts, and the scripts they start) runs every frame as the
   game runs it, each object with its own locals, and what it does shows in the scene: lamps
@@ -217,6 +238,18 @@
   around a match stays in view.
 
 ### Fixed
+
+- **New land starts where the Construction Set starts it.** An exterior square with no land
+  is flat ground at -2048 (OpenMW's `ESM::Land::DEFAULT_HEIGHT`); New land, Add flat land,
+  the region map's Make exteriors and the Land view's first stroke over an empty square
+  made it at 0 instead, a step of 2048 against every empty square around it. They make it
+  at -2048 now. The Preview draws empty squares as that flat ground too (the default
+  texture under the sea), as the CS and OpenMW do.
+- **New land beside an empty square no longer throws** ("Cannot read properties of null
+  (reading '63')"): the Land view's lighting read the empty neighbor's heights.
+- **Flat land's height was written eight times too high.** VHGT's offset is stored in
+  eighths of a unit; `flat_land` wrote the height itself, which only went unnoticed
+  because new land was always at 0. The pinned place cases had the same mistake.
 
 - **A Land stroke made just before a cell arrow was lost.** In the moment before a stroke
   goes to the patch, a step to another cell built the scene again: a cell still in view

@@ -202,6 +202,63 @@ fn quoted(s: &str) -> String {
     out
 }
 
+/// The load order's registered scripts, for running them (the Preview's scripts,
+/// `ui/src/74_wg_lua.js`): every `.omwscripts` line and LUAL record the cfg's `content=`
+/// names, in load order, as `(path, flags)` - a script registered twice has its flags
+/// joined, as the scan has them. Nothing is read or checked; `None` for a setup that is not
+/// OpenMW's.
+pub fn registered(vfs: &Vfs, order_file: Option<&Path>) -> Result<Option<Vec<(String, Vec<String>)>>, String> {
+    use luacore::omwscripts::{normalize_vfs_path, parse_omwscripts};
+    let Some(cfg) = order_file.filter(|p| is_openmw_cfg(p)) else { return Ok(None) };
+    let content = ordercore::cfg::read(cfg, &ordercore::cfg::Tokens::for_cfg(cfg))
+        .map_err(|e| format!("{}: {e}", cfg.display()))?
+        .content;
+    let mut files = VfsScripts::new(vfs);
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    let mut at: HashMap<String, usize> = HashMap::new();
+    for name in &content {
+        let low = name.to_lowercase();
+        let addon = low.ends_with(".omwaddon") || low.ends_with(".omwgame");
+        if !addon && !low.ends_with(".omwscripts") {
+            continue;
+        }
+        let found = files.providers(name);
+        let Some(file) = found.last() else { continue };
+        let Ok(bytes) = files.read(file) else { continue };
+        let parsed = if addon {
+            scan::lual_entries(luacore::lual_scripts_of(&bytes), name)
+        } else {
+            parse_omwscripts(&scan::text_of(&bytes), name)
+        };
+        for e in parsed.entries {
+            let key = normalize_vfs_path(&e.path);
+            match at.get(&key) {
+                Some(&i) => {
+                    for f in e.flags {
+                        if !out[i].1.contains(&f) {
+                            out[i].1.push(f);
+                        }
+                    }
+                }
+                None => {
+                    at.insert(key, out.len());
+                    out.push((e.path, e.flags));
+                }
+            }
+        }
+    }
+    Ok(Some(out))
+}
+
+/// A script's or module's text from the overlay (the winning copy), by its path in the
+/// data folders (`scripts/my/mod.lua`).
+pub fn source(vfs: &Vfs, path: &str) -> Option<String> {
+    let mut files = VfsScripts::new(vfs);
+    let found = files.providers(&path.replace('\\', "/"));
+    let file = found.last()?;
+    files.read(file).ok().map(|b| scan::text_of(&b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +292,22 @@ mod tests {
         assert!(is_openmw_cfg(Path::new("wraithguard_cellviewer_setup.cfg")));
         assert!(!is_openmw_cfg(Path::new("Morrowind.ini")));
         assert!(mw.contains("\"scripts\":[]"));
+    }
+
+    #[test]
+    fn registered_scripts_and_their_source() {
+        let root = std::env::temp_dir().join(format!("wg_viewcore_luareg_{}", std::process::id()));
+        std::fs::create_dir_all(root.join("d").join("scripts")).unwrap();
+        std::fs::write(root.join("d").join("m.omwscripts"), "GLOBAL: scripts/g.lua\nNPC, CREATURE: scripts/a.lua\nPLAYER: scripts/a.lua\n").unwrap();
+        std::fs::write(root.join("d").join("scripts").join("g.lua"), "return {}").unwrap();
+        let cfg = root.join("openmw.cfg");
+        std::fs::write(&cfg, "content=m.omwscripts\n").unwrap();
+        let vfs = Vfs::with_roots(&[("d".into(), root.join("d"))]);
+        let got = registered(&vfs, Some(&cfg)).unwrap().unwrap();
+        let src = source(&vfs, "scripts/g.lua");
+        std::fs::remove_dir_all(&root).ok();
+        assert_eq!(got, vec![("scripts/g.lua".to_string(), vec!["GLOBAL".to_string()]), ("scripts/a.lua".to_string(), vec!["NPC".into(), "CREATURE".into(), "PLAYER".into()])]);
+        assert_eq!(src.as_deref(), Some("return {}"));
+        assert_eq!(registered(&vfs, Some(Path::new("Morrowind.ini"))).unwrap(), None);
     }
 }

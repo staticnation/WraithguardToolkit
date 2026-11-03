@@ -103,7 +103,7 @@ function page(opts = {}) {
     function escHtml(s){ return String(s==null? '' : s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';'); }
     function toast(m){ __toasts.push(String(m)); }
     function T(k){ return k; }
-    var CELL=8192; function Renderer(){} function refMatrix(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0]; }
+    var CELL=8192; var DEFAULT_LAND_HEIGHT=-2048; function Renderer(){} function refMatrix(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0]; }
     function schedulePreview(){}
     var CellData={models:new Map(), actors:new Map()};
     var App={R:{opts:{}, pickables:[], setOverlay(k,L){ (this.ov=this.ov||{})[k]=L; }, setStaticHighlight(){}, setSelection(){}}, _scene:null};

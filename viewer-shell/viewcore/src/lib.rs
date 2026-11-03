@@ -20,6 +20,7 @@ pub mod lang;
 pub mod lod;
 pub mod layout;
 pub mod luascan;
+pub mod luarun;
 pub mod mge;
 pub mod markers;
 pub mod mland;
