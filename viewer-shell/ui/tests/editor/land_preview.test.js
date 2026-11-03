@@ -78,4 +78,12 @@ module.exports = async (t) => {
   const set = asked.find(a => a[0] === 'editLandSet');
   t.ok(set && set[1].cell === '(0, 0)' && set[1].heights[32 * N + 32] === Math.round(h), 'Keep writes the stroke');
   t.ok(!L.waiting(), 'nothing waits after Keep');
+
+  // Static, 2026-11-03: "trying to edit land in the ocean did nothing with the brush". A
+  // scene of open sea (no square with land): the stroke makes land there and raises it.
+  const sea = { kind: 'ext', gx: 3, gy: 3, heights: null, layers: [] };
+  w.App._scene = { origin: [0, 0], cells: [sea], chunks: [] };
+  L.paint([3 * 8192 + 4096, 3 * 8192 + 4096, 0]);
+  t.ok(sea.heights && sea.heights[32 * N + 32] > -2048 && sea.heights[0] === -2048, 'open sea: new land, raised under the brush: ' + (sea.heights && sea.heights[32 * N + 32]));
+  t.ok(L.waiting(), 'and waiting for Keep');
 };

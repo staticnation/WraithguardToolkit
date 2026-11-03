@@ -754,7 +754,10 @@ const WgLand={
    *  engine decides where the dabs fall (the click, then the spacing along the path). */
   paint(pts){
     const sc=App._scene; if(!sc || !sc.origin) return;
-    const cells=this.cells(); if(!cells.size) return;
+    /* Over open sea there may be no land in the scene at all: the stroke still goes ahead
+       and makes it (applyDabs). Static, 2026-11-03: "trying to edit land in the ocean did
+       nothing with the brush" - a scene with no land returned here. */
+    const cells=this.cells();
     const [ox,oy]=sc.origin;
     if(this._picking && pts.length>=2){ this.pickTexture(cells, pts[0]+ox, pts[1]+oy); return; }
     if(this._pickHeight && pts.length>=2){
@@ -772,17 +775,20 @@ const WgLand={
   /** Dabs [wx, wy, mult] in world units onto the ground, then the ground drawn again. */
   applyDabs(dabs){
     const sc=App._scene; if(!sc || !sc.origin || !dabs.length) return;
-    const cells=this.cells(); if(!cells.size) return;
-    this.snapshot();
-    // Cells of the scene the brush reaches that have no land yet get flat land at the sea floor.
-    const r=this.radius();
+    const cells=this.cells();
+    // Cells of the scene the brush reaches that have no land yet get flat land at the sea
+    // floor - before anything else, so a scene of open sea has land to shape.
+    const r=this.radius(), fresh=[];
     for(const c of (sc.cells||[])){
       if(c.kind!=='ext' || c.heights) continue;
       for(const [wx, wy] of dabs){
         const x0=c.gx*this.CELL, y0=c.gy*this.CELL;
-        if(wx+r>=x0 && wx-r<=x0+this.CELL && wy+r>=y0 && wy-r<=y0+this.CELL){ this.newLand(c); cells.set(c.gx+','+c.gy,c); break; }
+        if(wx+r>=x0 && wx-r<=x0+this.CELL && wy+r>=y0 && wy-r<=y0+this.CELL){ fresh.push(c); break; }
       }
     }
+    if(!cells.size && !fresh.length) return;
+    this.snapshot();
+    for(const c of fresh){ this.newLand(c); cells.set(c.gx+','+c.gy, c); }
     const touched=new Set();
     for(const [wx, wy, m] of dabs){
       if(!(m>0)) continue;

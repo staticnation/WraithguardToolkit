@@ -10,7 +10,7 @@
      fJumpAcrobaticsBase + (Acrobatics up to 50 / 15) ^ fJumpAcroMultiplier, 3 x
      fJumpAcroMultiplier a point past 50, 64 a point of Jump, by the encumbrance, the run and
      fatigue terms, then (x + gravity) / 3; a sideways step is 3/4 (OpenMW's strafing). The
-     stats are sliders (0.01-255), a preset, or a save's player (`walk_player_from_save`).
+     stats are sliders (whole numbers, 0-255), a preset, or a save's player (`walk_player_from_save`).
    - It collides with the objects' collision shapes (`collision_bundle`): a mesh's
      RootCollisionNode, else its drawn triangles, and nothing for a mesh with no collision,
      as OpenMW has it - not with every drawn triangle, as the camera's picking does. Actors
@@ -297,20 +297,20 @@ const WgWalk={
     const box=this._el && this._el.querySelector('#wgWalkBody'); if(!box) return;
     const s=this.st, sp=this.speeds();
     const opt=(v, t)=>'<option value="'+v+'">'+escHtml(t)+'</option>';
-    // A slider over 0.01..255 that is fine where most stats sit: the bar is the square root.
-    const pos=v=>Math.round(Math.sqrt(Math.max(0.01, Math.min(255, +v||0)))/Math.sqrt(255)*1000);
-    const val=p=>Math.max(0.01, Math.round(Math.pow(p/1000*Math.sqrt(255), 2)*100)/100);
+    // Whole numbers, 0-255, as the game keeps them (Static, 2026-11-03: "0-255 better call,
+    // whole numbers not floats").
+    const whole=v=>Math.max(0, Math.min(255, Math.round(+v||0)));
     let h='<div class="row"><label>Preset</label><div class="ctl"><select class="fld" id="wgWalkPre"><option value="">Choose…</option>'+
       Object.entries(this.PRESETS).map(([k,p])=>opt(k, p.label+' ('+p.speed+' / '+p.athletics+' / '+p.acrobatics+')')).join('')+
       '</select> <button class="btn sm" id="wgWalkSave" title="The player\'s Speed, Athletics, Acrobatics and fatigue from an OpenMW save">From a save…</button></div></div>';
     for(const [k, label, tip] of this.STATS){
       const pct=k==='encumbrance' || k==='fatigue';
       const max=k==='encumbrance'? 110 : k==='fatigue'? 100 : 255;
-      const v=+s[k]||0;
+      const v=pct? Math.round(+s[k]||0) : whole(s[k]);
+      s[k]=v;
       h+='<div class="row"><label title="'+escHtml(tip)+'">'+escHtml(label)+'</label><div class="ctl"><div class="rng">'+
-        (pct? '<input type="range" min="0" max="'+max+'" step="1" value="'+v+'" data-k="'+k+'" data-pct="1">'
-            : '<input type="range" min="0" max="1000" step="1" value="'+pos(v)+'" data-k="'+k+'">')+
-        '<input class="fld val" style="width:62px" type="number" min="'+(pct? 0 : 0.01)+'" max="'+max+'" step="0.01" value="'+v+'" data-n="'+k+'"></div></div></div>';
+        '<input type="range" min="0" max="'+max+'" step="1" value="'+v+'" data-k="'+k+'">'+
+        '<input class="fld val" style="width:62px" type="number" min="0" max="'+max+'" step="1" value="'+v+'" data-n="'+k+'"></div></div></div>';
     }
     h+='<div class="row"><label title="What the steps sound like: the boots\' armor weight">Feet</label><div class="ctl"><select class="fld" id="wgWalkFeet">'+
       opt('bare','Bare (or shoes)')+opt('light','Light boots')+opt('medium','Medium boots')+opt('heavy','Heavy boots')+'</select></div></div>';
@@ -328,13 +328,13 @@ const WgWalk={
     const feet=box.querySelector('#wgWalkFeet'); feet.value=s.feet||'bare';
     feet.onchange=()=>{ s.feet=feet.value; this.keep(); };
     box.querySelectorAll('input[data-k]').forEach(r=>r.oninput=()=>{
-      const k=r.dataset.k; s[k]=r.dataset.pct? +r.value : val(+r.value);
+      const k=r.dataset.k; s[k]=Math.round(+r.value);
       box.querySelector('[data-n="'+k+'"]').value=s[k]; this.keep(); this.hint();
     });
     box.querySelectorAll('input[data-n]').forEach(r=>r.onchange=()=>{
       const k=r.dataset.n, pct=k==='encumbrance' || k==='fatigue';
-      let v=parseFloat(r.value); if(!isFinite(v)) v=0;
-      s[k]=pct? Math.max(0, Math.min(k==='fatigue'? 100 : 110, v)) : Math.max(0.01, Math.min(255, v));
+      let v=Math.round(parseFloat(r.value)); if(!isFinite(v)) v=0;
+      s[k]=pct? Math.max(0, Math.min(k==='fatigue'? 100 : 110, v)) : whole(v);
       this.keep(); this.draw();
     });
     box.querySelector('#wgWalkVol').oninput=e=>{ s.footVol=+e.target.value; e.target.nextElementSibling.textContent=s.footVol; this.keep(); };

@@ -19,7 +19,7 @@ const WgLua={
   running:false, busy:false, note:'', backend:'', resources:'', _status:null,
   types:new Map(),       // lowercased object id -> record tag
   sent:new Map(),        // object key -> what was last sent of it (a signature)
-  _sentG:new Map(), _sentA:new Map(), _sentL:new Map(), _sentP:'',
+  _sentG:new Map(), _sentA:new Map(), _sentL:new Map(), _sentJ:new Map(), _sentP:'',
   _dt:0, _acts:[], _all:true,
 
   say(path, kind, text){ WgScripts.say(path? String(path).replace(/^scripts\//i, '') : 'lua', kind==='print'? 'do' : kind, text); },
@@ -37,7 +37,7 @@ const WgLua={
     this.note=got.note||''; this.backend=got.backend||''; this.resources=got.resources||'';
     if(!got.answer){ if(this.note) this.say('', 'skip', this.note); return; }
     this.running=true; this._all=true;
-    this.sent.clear(); this._sentG.clear(); this._sentA.clear(); this._sentL.clear(); this._sentP='';
+    this.sent.clear(); this._sentG.clear(); this._sentA.clear(); this._sentL.clear(); this._sentJ.clear(); this._sentP='';
     // OpenMW's playlists choose the music while its built-ins run.
     if(this.resources && typeof WgSound==='object') WgSound.place.scriptMusic=true;
     this.say('', 'do', 'OpenMW Lua on '+this.backend+(this.note? ' - '+this.note : ''));
@@ -139,13 +139,18 @@ const WgLua={
     }
     if(Object.keys(actors).length) out.actors=actors;
     const mw={};
-    for(const [k, it] of S.inst){
+    // Global scripts too (StartScript's), by `global:<id>`, for world.mwscript.getGlobalScript.
+    for(const [k, it] of [...S.inst, ...[...S.globalRun.values()].map(g=>[g.key, g])]){
       if(!it.locals) continue;
       const vars={}; for(const [n, l] of it.locals) vars[n]=l.v;
       const m={script:it.script, vars}, sig=JSON.stringify(m);
       if(this._sentL.get(k)!==sig){ this._sentL.set(k, sig); mw[k]=m; }
     }
     if(Object.keys(mw).length) out.mwlocals=mw;
+    // The journal (types.Player.quests).
+    const jr={};
+    for(const [k, v] of S.state.journal) if(this._sentJ.get(k)!==v){ this._sentJ.set(k, v); jr[k]=v; }
+    if(Object.keys(jr).length) out.journal=jr;
     const now=performance.now(), playing=[...S.loops.keys()];
     for(const [k, until] of S.playing) if(until>now) playing.push(k);
     out.sounds=playing;
@@ -227,7 +232,11 @@ const WgLua={
     },
     hour(e){ const el=typeof $==='function' && $('#p_hour'); if(el){ el.value=String(((e.v%24)+24)%24); el.dispatchEvent(new Event('input')); } },
     global(e){ const g=WgScripts.state.globals.get(e.name); if(g){ g.v=e.v; this._sentG.set(e.name, g.kind+':'+g.v); WgScripts.drawState(); } },
-    mwlocal(e){ const it=WgScripts.inst.get(e.key), l=it && it.locals && it.locals.get(e.name); if(l) l.v=l.kind==='float'? +e.v||0 : Math.trunc(+e.v||0); },
+    mwlocal(e){
+      const k=String(e.key||''), it=k.startsWith('global:')? WgScripts.globalRun.get(k.slice(7)) : WgScripts.inst.get(k);
+      const l=it && it.locals && it.locals.get(e.name); if(l) l.v=l.kind==='float'? +e.v||0 : Math.trunc(+e.v||0);
+    },
+    journal(e){ const k=String(e.id).toLowerCase(), v=Math.trunc(+e.v||0); WgScripts.state.journal.set(k, v); this._sentJ.set(k, v); if(WgScripts.drawState) WgScripts.drawState(); this.say('', 'do', 'journal '+k+' '+v); },
     msg(e){ this.say('', 'do', 'message: '+e.text); if(typeof toast==='function') try{ toast(String(e.text), 'ok', 3000); }catch(_){ } },
     dyn(e){
       const A=WgScripts.actorOf(this.thing(e.key)); if(!A) return;

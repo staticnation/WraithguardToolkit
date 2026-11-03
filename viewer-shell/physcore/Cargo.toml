@@ -1,0 +1,13 @@
+# Wraithguard: physics for placing objects (the Editor's Physics drop): Rapier (dimforge,
+# Apache-2.0; its math is glam's) over the scene's own collision - the meshes' collision
+# shapes and the land, as OpenMW collides them. Used by viewcore; nothing else in it.
+[package]
+name = "physcore"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+publish = false
+
+[dependencies]
+rapier3d = "0.36"

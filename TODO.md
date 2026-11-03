@@ -138,22 +138,14 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 
 - OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): `castRay`'s collision types (it hits
   every shape); `onNewExterior` (OpenMW's fish spawning) and
-  other built-ins left out; `ui.create`: mouseMove, focus, keys, an Image's tint over a texture, the game's font. Check on a real install: a mod's global and
+  other built-ins left out; `types.Player.quests` knows only the stages the Scripts panel's
+  journal holds (a save's journal is not read for it yet); `ui.create`: mouseMove, focus, keys, an Image's tint over a texture, the game's font. Check on a real install: a mod's global and
   local scripts, OpenMW's music playlists, `I.AI` packages through `ai.lua`.
-- Physics when placing objects (optional), with Bullet - the engine OpenMW itself uses
-  (bullet3, zlib license; `subset sort\bullet3-master`):
-  - A `physcore` crate: BulletCollision, BulletDynamics and LinearMath built with `cc`, behind
-    a small C wrapper (a world; static triangle meshes; dynamic convex bodies; step; read a
-    body's transform). Rust calls only the wrapper.
-  - Static: the scene's collision shapes (the engine's `collision_bundle`, as the walk body
-    uses) and the land's heights. Dynamic: the objects being placed, as convex hulls of
-    their collision shapes (their visual mesh where they have none), at their scale.
-  - In the Editor: a "Physics" toggle beside Drop. Selected objects fall, tumble and settle
-    (gravity, friction, a time limit, a rest threshold); the run is shown as it happens,
-    then Keep or Drop, as the Land view's preview. Keep writes the resting places as one
-    ordinary move edit (undoable).
-  - Settings: gravity, friction, bounce, the most seconds to simulate, and "only up to the
-    ground" (no tumbling: the drop alone).
+- Physics drop (`76_wg_physics.js`, `physcore`): the land it falls onto is the load
+  order's, not land being painted in the Land view and not yet kept; a body that is concave
+  (a bowl, a cart) is its convex hull, so nothing rests inside it; objects with no collision
+  shape fall as nothing (a visual-mesh hull for them could be an option). Check on a real
+  install: a crate onto Balmora's tables, a book onto a shelf, a heap of rocks down a slope.
 - Dialogue window, In game tab: the player's faction from a save with several (the first is
   set); items from a save's inventory (the Scripts panel's player carries them for now);
   Local and NotLocal conditions (an NPC's own MWScript locals).

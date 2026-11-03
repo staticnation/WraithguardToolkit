@@ -6045,6 +6045,28 @@ fn lua_run_step(frame: String, state: State) -> Result<String, String> {
 /// mesh has no collision, or could not be read).
 static LUA_SHAPES: std::sync::Mutex<Option<std::collections::HashMap<String, Option<std::sync::Arc<Vec<[f32; 3]>>>>>> = std::sync::Mutex::new(None);
 
+/// Wraithguard: a mesh's collision triangles in its own units (three vertices each), read
+/// once: `None` for a mesh with no collision (or one that cannot be read). The collision
+/// the first-person body walks on, `nearby.castRay` casts against and the Physics drop
+/// falls onto.
+fn collision_tris(vfs: &Vfs, model: &str) -> Option<std::sync::Arc<Vec<[f32; 3]>>> {
+    let mut cache = LUA_SHAPES.lock().ok()?;
+    let cache = cache.get_or_insert_with(Default::default);
+    cache
+        .entry(model.to_ascii_lowercase())
+        .or_insert_with(|| {
+            let b = collision_payload(vfs, model).ok()?;
+            // GDCL, the shape (0 hull, 1 the visible mesh, 2 none), the count, the floats.
+            if b.len() < 9 || b[4] == 2 {
+                return None;
+            }
+            let n = u32::from_le_bytes([b[5], b[6], b[7], b[8]]) as usize;
+            let f: Vec<f32> = b[9..].as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect();
+            Some(std::sync::Arc::new(f.as_chunks::<3>().0.iter().take(n * 3).copied().collect()))
+        })
+        .clone()
+}
+
 /// Wraithguard: the collision `nearby.castRay` casts against, kept to the frame the page
 /// sent: each object with a `model` and the renderer's matrix `m` placed (plus the scene's
 /// `origin`), one sent as `false` taken out, `enabled` followed; the land counted while
@@ -6060,8 +6082,6 @@ fn lua_collision(frame: &str, state: &State) {
     let origin = v.get("origin").and_then(serde_json::Value::as_array).map(|o| [o.first().and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32, o.get(1).and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32]).unwrap_or([0.0, 0.0]);
     let vfs = state.app().vfs.clone();
     let Some(vfs) = vfs else { return };
-    let Ok(mut cache) = LUA_SHAPES.lock() else { return };
-    let cache = cache.get_or_insert_with(Default::default);
     for (k, o) in objs {
         if o.is_boolean() {
             col.shapes.remove(k);
@@ -6078,25 +6098,94 @@ fn lua_collision(frame: &str, state: &State) {
         for (i, x) in m.iter().take(12).enumerate() {
             mm[i] = x.as_f64().unwrap_or(0.0) as f32;
         }
-        let tris = cache.entry(model.to_ascii_lowercase()).or_insert_with(|| {
-            let b = collision_payload(&vfs, model).ok()?;
-            // GDCL, the shape (0 hull, 1 the visible mesh, 2 none), the count, the floats.
-            if b.len() < 9 || b[4] == 2 {
-                return None;
-            }
-            let n = u32::from_le_bytes([b[5], b[6], b[7], b[8]]) as usize;
-            let f: Vec<f32> = b[9..].chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
-            Some(std::sync::Arc::new(f.chunks_exact(3).take(n * 3).map(|c| [c[0], c[1], c[2]]).collect()))
-        });
-        match tris {
+        match collision_tris(&vfs, model) {
             Some(t) => {
-                col.shapes.insert(k.clone(), viewcore::luarun::Shape::placed(t, &mm, origin, enabled));
+                col.shapes.insert(k.clone(), viewcore::luarun::Shape::placed(&t, &mm, origin, enabled));
             }
             None => {
                 col.shapes.remove(k);
             }
         }
     }
+}
+
+/// Wraithguard: the Editor's Physics drop (`physcore`): the `bodies` fall onto the
+/// `statics` and, outside, the land, until they rest or `settings.seconds` runs out.
+/// `request`: `{bodies: [{key, model, m}], statics: [{model, m}], origin: [x, y],
+/// exterior, settings: {gravity, friction, bounce, seconds, dropOnly}}`, each `m` the
+/// renderer's matrix (3x4, rows) in the scene's frame. Answers `{frames: [[[x, y, z, rx,
+/// ry, rz]]], seconds, settled, skipped}`, positions in the world's units.
+#[tauri::command(async)]
+fn phys_drop(request: String, state: State) -> Result<String, String> {
+    use viewcore::physcore::{self as pc, glam_mat3_from_rows};
+    let req: serde_json::Value = serde_json::from_str(&request).map_err(|e| e.to_string())?;
+    let (vfs, world) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.world.clone())
+    };
+    let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
+    let origin = req.get("origin").and_then(serde_json::Value::as_array).map(|o| [o.first().map_or(0.0, f), o.get(1).map_or(0.0, f)]).unwrap_or([0.0, 0.0]);
+    let mat = |o: &serde_json::Value| -> Option<[f32; 12]> {
+        let a = o.get("m")?.as_array()?;
+        let mut m = [0f32; 12];
+        for (i, x) in a.iter().take(12).enumerate() {
+            m[i] = f(x);
+        }
+        Some(m)
+    };
+    let st = req.get("settings").cloned().unwrap_or_default();
+    let d = pc::Settings::default();
+    let num = |k: &str, def: f32| st.get(k).and_then(serde_json::Value::as_f64).map_or(def, |x| x as f32);
+    let settings = pc::Settings {
+        gravity: num("gravity", d.gravity),
+        friction: num("friction", d.friction).clamp(0.0, 2.0),
+        restitution: num("bounce", d.restitution).clamp(0.0, 1.0),
+        max_seconds: num("seconds", d.max_seconds).clamp(0.1, 30.0),
+        drop_only: st.get("dropOnly").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        fps: 30.0,
+    };
+    // The bodies: their collision's points, where they stand in the world, turned and scaled.
+    let mut bodies = Vec::new();
+    let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+    for b in req.get("bodies").and_then(serde_json::Value::as_array).into_iter().flatten() {
+        let (Some(key), Some(model), Some(m)) = (b.get("key").and_then(serde_json::Value::as_str), b.get("model").and_then(serde_json::Value::as_str), mat(b)) else { continue };
+        let scale = (m[0] * m[0] + m[4] * m[4] + m[8] * m[8]).sqrt().max(1e-6);
+        let rot = pc::angles(glam_mat3_from_rows([[m[0] / scale, m[1] / scale, m[2] / scale], [m[4] / scale, m[5] / scale, m[6] / scale], [m[8] / scale, m[9] / scale, m[10] / scale]]));
+        let pos = [m[3] + origin[0], m[7] + origin[1], m[11]];
+        let points = collision_tris(&vfs, model).map(|t| t.to_vec()).unwrap_or_default();
+        for k in 0..2 {
+            lo[k] = lo[k].min(pos[k]);
+            hi[k] = hi[k].max(pos[k]);
+        }
+        bodies.push(pc::Body { key: key.to_string(), points, pos, rot, scale });
+    }
+    if bodies.is_empty() {
+        return Err("Nothing to drop: select objects in the render window".into());
+    }
+    // What they fall onto: the other objects' collision, placed, and the land around them.
+    let mut statics = Vec::new();
+    for s in req.get("statics").and_then(serde_json::Value::as_array).into_iter().flatten() {
+        let (Some(model), Some(m)) = (s.get("model").and_then(serde_json::Value::as_str), mat(s)) else { continue };
+        if let Some(t) = collision_tris(&vfs, model) {
+            statics.push(pc::Static { tris: viewcore::luarun::Shape::placed(&t, &m, origin, true).tris });
+        }
+    }
+    if req.get("exterior").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+        let reach = 8192.0;
+        let cell = |v: f32| (v / 8192.0).floor() as i32;
+        for gx in cell(lo[0] - reach)..=cell(hi[0] + reach) {
+            for gy in cell(lo[1] - reach)..=cell(hi[1] + reach) {
+                let tris = match world.as_ref().and_then(|w| w.lands.get(&(gx, gy))) {
+                    Some(l) => pc::land_tris((gx, gy), &l.heights[..]),
+                    None => pc::flat_square((gx, gy)),
+                };
+                statics.push(pc::Static { tris });
+            }
+        }
+    }
+    let out = pc::drop(&statics, &bodies, &settings);
+    let frames: Vec<Vec<[f32; 6]>> = out.frames.iter().map(|fr| fr.iter().map(|(p, r)| [p[0], p[1], p[2], r[0], r[1], r[2]]).collect()).collect();
+    Ok(serde_json::json!({"frames": frames, "seconds": out.seconds, "settled": out.settled, "skipped": out.skipped}).to_string())
 }
 
 /// Wraithguard: the Preview's OpenMW Lua stopped and its state dropped.
@@ -6469,6 +6558,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             lua_run_step,
             lua_run_stop,
             dialogue_state_from_save,
+            phys_drop,
             write_b64,
             wg_save_edited,
             wg_open_record,

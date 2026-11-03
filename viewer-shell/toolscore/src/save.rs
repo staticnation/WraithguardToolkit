@@ -1288,72 +1288,120 @@ pub fn game_state(data: &[u8]) -> Result<GameState, String> {
     Ok(g)
 }
 
+/// The game's skills by index (Block 0 ... Hand-to-hand 26), as a format 40 save names them.
+const SKILL_IDS: [&str; 27] = ["block", "armorer", "mediumarmor", "heavyarmor", "bluntweapon", "longblade", "axe", "spear", "athletics",
+    "enchant", "destruction", "alteration", "illusion", "conjuration", "mysticism", "restoration", "alchemy", "unarmored", "security",
+    "sneak", "acrobatics", "lightarmor", "shortblade", "marksman", "mercantile", "speechcraft", "handtohand"];
+/// The attributes by index (Strength 0 ... Luck 7).
+const ATTRIBUTE_IDS: [&str; 8] = ["strength", "intelligence", "willpower", "agility", "speed", "endurance", "personality", "luck"];
+
 /// The player's stats from an OpenMW save's `PLAY` record. The player is saved as an NPC's
 /// state: the NPC's stats (its skills first) then the creature's (the 8 attributes, then
 /// health, magicka and fatigue), each a base (`STBA`) with an optional modifier (`STMO`),
-/// current value (`STCU`), damage (`STDF`) and progress (`STPR`), one after another. That run
-/// is read alone - the record goes on with other `STBA`s (the AI settings after `AISE`) - and
-/// counted from both ends, so stats saved between (an older save's werewolf skills) do not
-/// move them. Checked against a format 39 save (2026-11-02).
+/// current value (`STCU`), damage (`STDF`) and progress (`STPR`). Between the stats, from
+/// save to save, come other fields (`DRTI`, `INCR`, `SPEC`, `USED`, `REPU`...): they are
+/// stepped over, and the stats end where the record moves on (`MOVE`, `SPEL`, `AISE`, `LEVL`;
+/// the AI settings after `AISE` are `STBA`s too). A format 40 save names each skill (`SKIL`)
+/// and attribute (`ATTR`) before its stat; older ones keep the game's order, counted from
+/// both ends. Checked against format 37, 39 and 40 saves (2026-11-03: "the save's player
+/// has 27 stats where 38 were expected" - a format 37 save's `DRTI` between the skills and
+/// the attributes; "has 4" - a format 40 save's `SKIL` before each skill).
 pub fn player_stats(data: &[u8]) -> Result<PlayerStats, String> {
     if data.get(..4) != Some(b"TES3") {
         return Err("not an OpenMW save (no TES3 header)".into());
     }
+    struct Stat {
+        key: Option<(bool, String)>,
+        base: f32,
+        modi: Option<f32>,
+        cur: Option<f32>,
+    }
     let mut name = String::new();
-    // Each unbroken run of stat subrecords; the player's is the longest.
-    let mut runs: Vec<Vec<(f32, f32, Option<f32>)>> = Vec::new();
-    let mut open = false;
+    let mut stats: Vec<Stat> = Vec::new();
+    let text = |b: &[u8]| {
+        let end = b.iter().rposition(|&c| c != 0).map_or(0, |i| i + 1);
+        String::from_utf8_lossy(&b[..end]).into_owned()
+    };
     for (tag, _, subs) in records(data) {
         if &tag == b"SAVE" {
             for s in subs.iter().filter(|s| &s.0 == b"PLNA") {
-                let b = slice(data, s.1, s.2);
-                let end = b.iter().rposition(|&c| c != 0).map_or(0, |i| i + 1);
-                name = String::from_utf8_lossy(&b[..end]).into_owned();
+                name = text(slice(data, s.1, s.2));
             }
         }
         if &tag != b"PLAY" {
             continue;
         }
+        let mut key: Option<(bool, String)> = None;
         for &(sub, start, size) in &subs {
-            let v = || stat_value(slice(data, start, size));
+            let b = slice(data, start, size);
             match &sub {
-                b"STBA" => {
-                    if !open {
-                        runs.push(Vec::new());
-                        open = true;
-                    }
-                    if let Some(r) = runs.last_mut() {
-                        r.push((v().unwrap_or(0.0), 0.0, None));
-                    }
-                }
-                b"STMO" if open => {
-                    if let (Some(last), Some(x)) = (runs.last_mut().and_then(|r| r.last_mut()), v()) {
-                        last.1 = x;
+                // A RefId: its kind's byte (2, a string id) first.
+                b"SKIL" => key = Some((true, text(b).trim_start_matches(|c: char| !c.is_ascii_alphanumeric()).to_ascii_lowercase())),
+                b"ATTR" => key = Some((false, text(b).trim_start_matches(|c: char| !c.is_ascii_alphanumeric()).to_ascii_lowercase())),
+                b"STBA" => stats.push(Stat { key: key.take(), base: stat_value(b).unwrap_or(0.0), modi: None, cur: None }),
+                b"STMO" => {
+                    if let Some(s) = stats.last_mut() {
+                        s.modi = stat_value(b);
                     }
                 }
-                b"STCU" if open => {
-                    if let Some(last) = runs.last_mut().and_then(|r| r.last_mut()) {
-                        last.2 = v();
+                b"STCU" => {
+                    if let Some(s) = stats.last_mut() {
+                        s.cur = stat_value(b);
                     }
                 }
-                b"STDF" | b"STPR" if open => {}
-                _ => open = false,
+                b"MOVE" | b"SPEL" | b"AISE" | b"LEVL" if !stats.is_empty() => break,
+                _ => {}
             }
         }
         break;
     }
-    let stats = runs.into_iter().max_by_key(|r| r.len()).unwrap_or_default();
-    if stats.len() < 38 {
-        return Err(format!("the save's player has {} stats where 38 were expected: not a layout this reads", stats.len()));
+    // A skill's or attribute's value: its base and modifier, else (a format 40 save) what it is
+    // now; never below 0 (a Drain or Damage can take the sum under it), as the game has it.
+    let value = |s: &Stat| match (s.modi, s.cur) {
+        (Some(m), _) => s.base + m,
+        (None, Some(c)) => c,
+        _ => s.base,
     }
+    .max(0.0);
     let n = stats.len();
-    let at = |i: usize| stats[i].0 + stats[i].1;
+    let keyed = stats.iter().any(|s| s.key.is_some());
+    if keyed {
+        let mut skills = vec![None; 27];
+        let mut attributes = vec![None; 8];
+        let mut last_attr = None;
+        for (i, s) in stats.iter().enumerate() {
+            match &s.key {
+                Some((true, id)) => {
+                    if let Some(k) = SKILL_IDS.iter().position(|x| x == id) {
+                        skills[k] = Some(value(s));
+                    }
+                }
+                Some((false, id)) => {
+                    if let Some(k) = ATTRIBUTE_IDS.iter().position(|x| x == id) {
+                        attributes[k] = Some(value(s));
+                    }
+                    last_attr = Some(i);
+                }
+                None => {}
+            }
+        }
+        let fatigue = last_attr.and_then(|i| stats.get(i + 3));
+        let (Some(skills), Some(attributes), Some(f)) = (skills.into_iter().collect::<Option<Vec<f32>>>(), attributes.into_iter().collect::<Option<Vec<f32>>>(), fatigue) else {
+            return Err("the save's player is missing skills or attributes: not a layout this reads".into());
+        };
+        let max = f.base + f.modi.unwrap_or(0.0);
+        return Ok(PlayerStats { name, skills, attributes, fatigue: (f.cur.unwrap_or(max), max) });
+    }
+    if n < 38 {
+        return Err(format!("the save's player has {n} stats where 38 were expected: not a layout this reads"));
+    }
     let fatigue = &stats[n - 1];
+    let max = fatigue.base + fatigue.modi.unwrap_or(0.0);
     Ok(PlayerStats {
         name,
-        skills: (0..27).map(at).collect(),
-        attributes: (n - 11..n - 3).map(at).collect(),
-        fatigue: (fatigue.2.unwrap_or(fatigue.0 + fatigue.1), fatigue.0 + fatigue.1),
+        skills: stats[..27].iter().map(value).collect(),
+        attributes: stats[n - 11..n - 3].iter().map(value).collect(),
+        fatigue: (fatigue.cur.unwrap_or(max), max),
     })
 }
 
@@ -2083,6 +2131,43 @@ mod tests {
         assert_eq!(p.fatigue, (150.0, 200.0));
         let short = [rec(b"TES3", &[sub(b"FORM", &40u32.to_le_bytes())]), rec(b"PLAY", &play[..20])].concat();
         assert!(player_stats(&short).is_err());
+
+        // A format 37 save: DRTI between the skills and the attributes (Static, 2026-11-03:
+        // "has 27 stats where 38 were expected").
+        let at = play.iter().position(|x| x.starts_with(b"STBA") && x[8..12] == 30i32.to_le_bytes()).unwrap();
+        let mut drti = play.clone();
+        drti.insert(at, sub(b"DRTI", &0f32.to_le_bytes()));
+        let save = [rec(b"TES3", &[sub(b"FORM", &37u32.to_le_bytes())]), rec(b"PLAY", &drti)].concat();
+        let q = player_stats(&save).unwrap();
+        assert_eq!((q.skills[20], q.attributes[4], q.fatigue), (25.0, 44.0, (150.0, 200.0)));
+
+        // A format 40 save: each skill and attribute named first, in alphabetical order, the
+        // current value (a Fortify) in STCU; fields between; then the three dynamic stats.
+        let mut named = vec![sub(b"NAME", b"player\0")];
+        let mut ids: Vec<(usize, &str)> = SKILL_IDS.iter().copied().enumerate().collect();
+        ids.sort_by_key(|x| x.1);
+        for (i, id) in ids {
+            named.push(sub(b"SKIL", &[&[2u8][..], id.as_bytes()].concat()));
+            named.push(sub(b"STBA", &f(i as f32 + 5.0)));
+            named.push(sub(b"STCU", &f(i as f32 + 5.0)));
+        }
+        named.push(sub(b"REPU", &0i32.to_le_bytes()));
+        named.push(sub(b"USED", b"x"));
+        named.push(sub(b"DRTI", &0f32.to_le_bytes()));
+        for (i, id) in ATTRIBUTE_IDS.iter().enumerate() {
+            named.push(sub(b"ATTR", &[&[2u8][..], id.as_bytes()].concat()));
+            named.push(sub(b"STBA", &f(30.0 + i as f32)));
+            named.push(sub(b"STCU", &f(if i == 4 { 234.0 } else { 30.0 + i as f32 })));
+        }
+        for (base, cur) in [(50.0, 40.0), (100.0, 100.0), (200.0, 150.0)] {
+            named.push(sub(b"STBA", &f(base)));
+            named.push(sub(b"STCU", &f(cur)));
+        }
+        named.push(sub(b"AFLG", &0i32.to_le_bytes()));
+        named.push(sub(b"LEVL", &1i32.to_le_bytes()));
+        let save = [rec(b"TES3", &[sub(b"FORM", &40u32.to_le_bytes())]), rec(b"PLAY", &named)].concat();
+        let r = player_stats(&save).unwrap();
+        assert_eq!((r.skills[8], r.skills[20], r.attributes[0], r.attributes[4], r.fatigue), (13.0, 25.0, 30.0, 234.0, (150.0, 200.0)));
     }
 
     /// `WG_PLAYER_SAVE=<a .omwsave>`: the player's stats as the first-person body reads them.

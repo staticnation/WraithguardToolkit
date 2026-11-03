@@ -46,6 +46,8 @@ pub mod worldmap;
 
 /// OpenMW Lua scripts in plain Rust (viewer-shell/luacore), shared with the Python backend.
 pub use luacore;
+/// The Editor's Physics drop (viewer-shell/physcore): Rapier over the scene's collision.
+pub use physcore;
 /// One spelling of a cell for the engine, the page and the Python pool (`ordercore::cells`).
 pub use ::ordercore::cells;
 /// The load order (rules, sort, checks, export): the Load order page's commands use it whole.

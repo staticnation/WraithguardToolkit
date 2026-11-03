@@ -122,7 +122,7 @@ end
 local S = {
   objects = {}, player = { pos = { 0, 0, 0 }, yaw = 0, cell = { name = '', ext = true, gx = 0, gy = 0 } },
   hour = 12, day = 16, month = 7, year = 427, weather = 0, weathers = {}, globals = {}, actors = {},
-  sounds = {}, musicPlaying = false, mwlocals = {}, files = {}, sim = 0, real = 0,
+  sounds = {}, musicPlaying = false, mwlocals = {}, files = {}, sim = 0, real = 0, dt = 0, journal = {},
 }
 local OUT, LOG = {}, {}
 local current          -- the script running now
@@ -423,6 +423,39 @@ end
 types.Actor.stats = { dynamic = { health = dyn(0), magicka = dyn(1), fatigue = dyn(2) }, attributes = {}, skills = {},
   level = function() return { current = 1, progress = 0 } end }
 types.NPC.stats, types.Creature.stats, types.Player.stats = types.Actor.stats, types.Actor.stats, types.Actor.stats
+-- The player's journal, as the Scripts panel keeps it (Journal / SetJournalIndex): each quest
+-- by its id, its stage; a stage set here goes back to the panel.
+local function quest(id)
+  id = string.lower(tostring(id))
+  local q = { id = id }
+  q.addJournalEntry = function(self, stage) if type(self) ~= 'table' then stage = self end S.journal[id] = stage emit({ k = 'journal', id = id, v = stage }) end
+  return setmetatable(q, {
+    __index = function(_, k)
+      local st = S.journal[id] or 0
+      if k == 'stage' then return st elseif k == 'started' then return st > 0 elseif k == 'finished' then return false end
+    end,
+    __newindex = function(_, k, v)
+      if k == 'stage' then S.journal[id] = v emit({ k = 'journal', id = id, v = v }) else rawset(q, k, v) end
+    end,
+  })
+end
+types.Player.quests = function()
+  local l = {}
+  for id in pairs(S.journal) do l[id] = quest(id) end
+  return setmetatable(l, { __index = function(t, id) local q = quest(id) rawset(t, string.lower(tostring(id)), q) return q end })
+end
+local switches = {}
+types.Player.CONTROL_SWITCH = { Controls = 'playercontrols', Fighting = 'playerfighting', Jumping = 'playerjumping', Looking = 'playerlooking',
+  Magic = 'playermagic', ViewMode = 'playerviewswitch', VanityMode = 'vanitymode' }
+types.Player.getControlSwitch = function(_, k) return switches[k] ~= false end
+types.Player.setControlSwitch = function(_, k, v) switches[k] = v end
+types.Player.isCharGenFinished = function() return true end
+types.Player.isTeleportingEnabled = function() return true end
+types.Player.setTeleportingEnabled = function() end
+types.Player.getCrimeLevel = function() return 0 end
+types.Player.getBirthSign = function() return '' end
+types.Player.sendMenuEvent = function() end
+types.Player.isWerewolf = function() return false end
 types.Actor.isDead = function(o) return actor(o).dead or false end
 types.Actor.isDeathFinished = types.Actor.isDead
 types.Actor.isInActorsProcessingRange = function() return true end
@@ -451,7 +484,10 @@ local function call(inst, fn, ...)
   local res = { pcall(fn, ...) }
   current = was
   if not res[1] then
-    log('error', inst.path, tostring(res[2]))
+    -- Once each: a handler that fails every frame is named once, not thirty times a second.
+    local msg = tostring(res[2])
+    local key = 'err|' .. inst.path .. '|' .. msg
+    if not said[key] then said[key] = true log('error', inst.path, msg) end
     inst.errors = (inst.errors or 0) + 1
   end
   return unpack(res)
@@ -505,6 +541,8 @@ packages['openmw.core'] = function(inst)
     getGameTime = function() return ((S.day - 1) + (S.month - 1) * 30) * 86400 + S.hour * 3600 end,
     getGameTimeScale = function() return 30 end,
     getRealTime = function() return S.real end,
+    getRealFrameDuration = function() return S.dt end,
+    getSimulationFrameDuration = function() return S.dt end,
     isWorldPaused = function() return false end,
     sendGlobalEvent = function(name, d) globalQueue[#globalQueue + 1] = { name, d } end,
     -- The game settings the built-ins read (the UI's colors), as Morrowind ships them.
@@ -638,7 +676,16 @@ packages['openmw.world'] = function(inst)
           __index = function(_, n) return m.vars[string.lower(n)] end,
           __newindex = function(_, n, v) m.vars[string.lower(n)] = v emit({ k = 'mwlocal', key = k, name = string.lower(n), v = v }) end }) }
       end,
-      getGlobalScript = function() return nil end,
+      -- A global MWScript the Scripts panel runs (StartScript), with its locals; nil for
+      -- one not started, as in OpenMW.
+      getGlobalScript = function(id)
+        local m = S.mwlocals['global:' .. string.lower(tostring(id))]
+        if not m then return nil end
+        local k = 'global:' .. string.lower(tostring(id))
+        return { recordId = m.script, isRunning = true, variables = setmetatable({}, {
+          __index = function(_, n) return m.vars[string.lower(n)] end,
+          __newindex = function(_, n, v) m.vars[string.lower(n)] = v emit({ k = 'mwlocal', key = k, name = string.lower(n), v = v }) end }) }
+      end,
     },
   }
   return setmetatable(world, { __index = function(_, k) if k == 'activeActors' then return actors() end end })
@@ -871,8 +918,24 @@ packages['openmw.ui'] = function(inst)
 end
 packages['openmw.camera'] = function(inst)
   if inst.ctx ~= 'player' then error('openmw.camera is only for player scripts', 3) end
+  -- The Preview's camera is the player's eyes: first person, OpenMW's defaults for the rest.
+  -- What a script sets is kept for it to read back; the view itself stays the page's.
+  local set = { tpd = 192, fov = math.rad(60), extra = { 0, 0 }, roll = 0, crosshair = true }
+  local nop = function() end
   return { getPosition = function() local p = S.player.pos return v3(p[1], p[2], p[3] + 116) end, getYaw = function() return S.player.yaw or 0 end,
-    getPitch = function() return 0 end, getMode = function() return 0 end, MODE = { FirstPerson = 0, ThirdPerson = 1, Static = 2, Preview = 3, Vanity = 4 } }
+    getPitch = function() return 0 end, getRoll = function() return set.roll end, getMode = function() return 0 end, getQueuedMode = function() return nil end,
+    MODE = { FirstPerson = 0, ThirdPerson = 1, Static = 2, Preview = 3, Vanity = 4 },
+    getThirdPersonDistance = function() return set.tpd end, setPreferredThirdPersonDistance = function(d) set.tpd = d end,
+    getFieldOfView = function() return set.fov end, getBaseFieldOfView = function() return math.rad(60) end, setFieldOfView = function(f) set.fov = f end,
+    getViewDistance = function() return 8192 end, setViewDistance = nop, getBaseViewDistance = function() return 8192 end,
+    getExtraPitch = function() return set.extra[1] end, getExtraYaw = function() return set.extra[2] end,
+    setExtraPitch = function(v) set.extra[1] = v end, setExtraYaw = function(v) set.extra[2] = v end, setExtraRoll = nop, getExtraRoll = function() return 0 end,
+    getTrackedPosition = function() local p = S.player.pos return v3(p[1], p[2], p[3] + 116) end,
+    getFocalPreferredOffset = function() return v2(0, 0) end, setFocalPreferredOffset = nop, getFocalTransitionSpeed = function() return 1 end, setFocalTransitionSpeed = nop,
+    instantTransition = nop, setMode = nop, setStaticPosition = nop, setYaw = nop, setPitch = nop, setRoll = nop,
+    allowCharacterDeferredRotation = nop, showCrosshair = function(b) set.crosshair = b end, getCollisionType = function() return 0 end, setCollisionType = nop,
+    viewportToWorldVector = function() local y = S.player.yaw or 0 return v3(math.sin(y), math.cos(y), 0) end,
+    worldToViewportVector = function() return v3(0.5, 0.5, 1) end }
 end
 packages['openmw.input'] = function()
   local any = setmetatable({}, { __index = function(_, k) return k end })
@@ -1042,6 +1105,7 @@ function __wg_merge(a)
   for k, x in pairs(a.actors or {}) do S.actors[k] = x end
   if a.sounds then S.sounds = {} for _, s in ipairs(a.sounds) do S.sounds[s] = true end end
   for k, m in pairs(a.mwlocals or {}) do S.mwlocals[k] = m end
+  for k, v in pairs(a.journal or {}) do S.journal[k] = v end
 end
 
 -- `{dt, ...what changed, activations: [{key, by}]}` -> `{effects, log, status}`
@@ -1051,6 +1115,7 @@ function __wg_step(arg)
   for k in pairs(a.objects or {}) do if S.objects[k] then attach(k) end end
   local dt = a.dt or 0
   S.sim = S.sim + dt
+  S.dt = dt
   for _, e in ipairs(a.activations or {}) do activate(e.key, e.by) end
   if a.screen then S.screen = a.screen end
   for _, e in ipairs(a.ui or {}) do __wg_ui_event(e.id, e.path, e.event, e.x, e.y, e.text) end

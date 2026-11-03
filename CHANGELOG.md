@@ -5,6 +5,17 @@
 
 ### Added
 
+- **Physics drop in the Editor** (`76_wg_physics.js`, the engine's `phys_drop`,
+  `viewer-shell/physcore` on Rapier). A Physics button beside Drop on the toolbar (also in
+  the right-click menus) opens a small panel: gravity, friction, bounce, a time limit and
+  Drop only (fall without tipping over). Run lets the selected object, or every object
+  Ctrl+clicked, fall, tumble and come to rest on the other objects' collision near them and,
+  outside, the land (OpenMW's -2048 where a square has none). The fall plays in the render
+  window as gold ghosts; Keep writes where they came to rest as one move (one Ctrl+Z), Drop
+  throws it away. Each body is the convex hull of its collision shape at its scale; a flat
+  one (a page, a rug, a veil) is thickened a little so it has a weight. An object with no
+  collision shape stays where it is and is named in the panel.
+
 - **The Dialogue window's In game tab checks the game you give it** (`52_wg_dialogue_views.js`,
   `editcore::dialogue_graph::PlayState`).
   - **The cell:** pick one from the load order's cells, take the Preview's, or use where the
@@ -93,7 +104,7 @@
   ground shader (06_gl.js), never in the water's reflection, and off outside the Land view.
 - **The first-person body** (the viewport's **🧍 Body** while walking). It moves at OpenMW's
   pace from its stats: Speed, Athletics, Acrobatics, encumbrance and fatigue, and the
-  Levitate, Jump and Swift Swim magnitudes, each a slider (the stats 0.01 to 255) or typed,
+  Levitate, Jump and Swift Swim magnitudes, each a slider (the stats whole numbers, 0 to 255) or typed,
   set from a preset or from an OpenMW save's player (**From a save...**). The walk, run,
   sneak (Ctrl), sideways step, swim, levitation and jump are OpenMW's formulas over the load
   order's game settings (`game_settings` now carries them). In water deeper than
@@ -264,6 +275,24 @@
 
 ### Fixed
 
+- **A save's player is read from every save format** (`toolscore::save::player_stats`, the
+  first-person body's and the Dialogue window's From a save). Saves from OpenMW builds that
+  write a field between the skills and the attributes (format 37's `DRTI`) were refused as
+  "27 stats where 38 were expected", and format 40 saves, which name each skill and
+  attribute before it, as "4 stats". Both read now (checked on format 37, 39 and 40 saves);
+  a format 40 save's current values (a Fortify Speed) are used, and a drained skill is never
+  below 0.
+- **The Land brush works over open sea** (`67_wg_land.js`). A stroke where no square of the
+  scene had land did nothing: the brush returned before it made New land. It now makes flat
+  land at -2048 under the stroke and shapes it, as next to existing land.
+- **OpenMW Lua: what mods on a real install called** (`luarun.lua`, `74_wg_lua.js`).
+  `core.getRealFrameDuration` (questman), `camera.getThirdPersonDistance` and the rest of
+  `openmw.camera`'s getters and setters (SharedRay), `types.Player.quests` with each quest's
+  stage, started and `addJournalEntry` from the Scripts panel's journal, and back to it
+  (Tamriel Rebuilt's strongholds), the Player's control switches and other calls, and
+  `world.mwscript.getGlobalScript` for a global MWScript the panel runs, with its locals
+  (BountyCancel; nil for one not started, as in OpenMW). A handler that fails every frame is
+  named once in the log, not on every frame.
 - **A Preview panel docked on the right no longer vanishes.** The right-hand dock column
   only showed in the Editor, so the Scripts panel (or the first-person Body panel) dragged
   to the right edge in the Preview was docked out of sight, and stayed there each time it

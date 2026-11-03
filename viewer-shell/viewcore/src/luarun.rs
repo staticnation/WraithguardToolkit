@@ -795,6 +795,36 @@ mod tests {
         assert!(got.contains(r#""text":"clicked""#) && got.contains(r#""text":"Bye""#), "{got}");
     }
 
+    /// What mods on a real install called that the preview lacked (Static, 2026-11-03):
+    /// `core.getRealFrameDuration`, `camera.getThirdPersonDistance`, `types.Player.quests`,
+    /// `world.mwscript.getGlobalScript`; and a handler failing every frame is named once.
+    #[test]
+    fn what_mods_call_answers_and_errors_are_named_once() {
+        let player = "local core = require('openmw.core') local camera = require('openmw.camera') local types = require('openmw.types') local self = require('openmw.self')\n\
+            local done = false\n\
+            return { engineHandlers = { onUpdate = function(dt) if done then return end done = true\n\
+              local q = types.Player.quests(self)\n\
+              print('frame', core.getRealFrameDuration(), 'tpd', camera.getThirdPersonDistance(), 'stage', q['MS_Lookout'].stage, q.ms_lookout.started)\n\
+              q.ms_other:addJournalEntry(20) end } }";
+        let global = "local world = require('openmw.world') local said = false\n\
+            return { engineHandlers = { onUpdate = function() local s = world.mwscript.getGlobalScript('BountyScript')\n\
+              if not said then said = true print('bounty', s.variables.cancel, world.mwscript.getGlobalScript('NotRunning')) end\n\
+              error('every frame') end } }";
+        let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/p.lua","flags":["PLAYER"]}},{{"path":"scripts/t/g.lua","flags":["GLOBAL"]}}],
+            "sources":{{"scripts/t/p.lua":{},"scripts/t/g.lua":{}}},"files":[],"weathers":["Clear"]}}"#, q(player), q(global));
+        let mut r = Runner::new(None, true).unwrap();
+        r.call("__wg_start", &start).unwrap();
+        let step = r#"{"dt":0.05,"journal":{"ms_lookout":10},"mwlocals":{"global:bountyscript":{"script":"BountyScript","vars":{"cancel":1}}}}"#;
+        let got = r.call("__wg_step", step).unwrap();
+        assert!(got.contains(r#""text":"frame 0.05 tpd 192 stage 10 true""#), "{got}");
+        assert!(got.contains(r#""k":"journal""#) && got.contains(r#""id":"ms_other""#) && got.contains(r#""v":20"#), "{got}");
+        assert!(got.contains(r#""text":"bounty 1 nil""#), "{got}");
+        assert!(got.contains("every frame"), "{got}");
+        let again = r.call("__wg_step", r#"{"dt":0.05}"#).unwrap();
+        assert!(!again.contains("every frame"), "the same error is not named again: {again}");
+    }
+
     /// OpenMW's own `mwui` templates (`WG_RESOURCES`): a player script's window from
     /// `I.MWUI.templates.boxSolid` and `textHeader` is drawn, with the border images.
     #[test]

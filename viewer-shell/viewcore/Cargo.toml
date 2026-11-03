@@ -19,6 +19,8 @@ luacore = { path = "../luacore", features = ["teal"] }
 # already build (mlua, MIT, its features the ones htl-core asks for).
 libloading = "0.7"
 mlua = "0.12"
+# Wraithguard: the Editor's Physics drop (Rapier over the scene's collision; ../physcore).
+physcore = { path = "../physcore" }
 # Wraithguard: the openmw.cfg reader (data folders, content, groundcover, archives, chained
 # cfgs), by OpenMW's documented rules - the one the Python backend uses too.
 ordercore = { path = "../ordercore" }

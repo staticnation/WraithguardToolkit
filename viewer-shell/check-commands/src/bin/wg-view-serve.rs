@@ -148,6 +148,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "lua_run_step" => Reply::Json(t::lua_run_step(s(a, "frame"), st())?),
         "lua_run_stop" => Reply::Json(t::lua_run_stop()?),
         "dialogue_state_from_save" => Reply::Json(t::dialogue_state_from_save(s(a, "path"))?),
+        "phys_drop" => Reply::Json(t::phys_drop(s(a, "request"), st())?),
         "write_b64" => {
             t::write_b64(s(a, "path"), s(a, "data"))?;
             Reply::Raw("true".into())

@@ -247,6 +247,7 @@ Object.assign(WgEditor, {
       ['rot0', 'Reset rotation'],
       ['scl1', 'Reset scale'],
       ['drop', 'Drop each to the ground'],
+      ['phys', 'Physics drop…'],
       ['hide', 'Hide (layer "Hidden")'],
       ['clear', 'Clear the selection ('+group.length+')'],
       ['-'],
@@ -274,6 +275,7 @@ Object.assign(WgEditor, {
       for(const g of group) this.toLayer(this.refKeyOf(g.ref), 'Hidden').visible=false;
       this._group=[]; this._sel=null; this.syncSel(); return this.layersChanged();
     }
+    if(a==='phys') return WgPhysics.toggle();
     if(a==='drop'){
       for(const g of group){ this._sel={hit:g.hit, ref:g.ref}; this.drop(); }
       return;
@@ -479,6 +481,7 @@ Object.assign(WgEditor, {
       rec.tag? ['uses', 'Use Report'] : null,
       ['-'],
       ['drop', 'Drop to ground', 'F'],
+      ['phys', 'Physics drop…'],
       rec.tag? ['dup', 'Duplicate'] : null,
       ['rot0', 'Reset rotation'],
       ['scale1', 'Reset scale'],
@@ -534,6 +537,7 @@ Object.assign(WgEditor, {
     if(a==='record') return this.openRecord(rec.tag, rec.id, this._oriRecord? this._oriRecord.plugins : null);
     if(a==='uses') return this.showUses(rec.tag, rec.id, null);
     if(a==='drop') return this.drop();
+    if(a==='phys') return WgPhysics.toggle();
     if(a==='del'){
       if(sel.ref.uid){ this.refRec=Object.assign({}, sel.ref); return this.refChange('editRefRevert', {}); }
       return this.sendRef(sel.ref, [['deleted', true]]);

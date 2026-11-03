@@ -666,6 +666,11 @@ Apache-2.0 (ryu: Apache-2.0 or BSL-1.0), plus their own dependencies:
   sounds with it (WAV in PCM and ADPCM, MP3, Ogg Vorbis, FLAC; `viewcore/src/audio.rs`) for
   the page to play. Used unmodified, from crates.io; MPL-2.0 is per-file copyleft, so
   Symphonia's own files stay under it and nothing of ours does. Its source is at the link.
+- **[Rapier](https://rapier.rs/)** and **[Parry](https://parry.rs/)** (Dimforge, Apache-2.0),
+  with **[glam](https://github.com/bitshifter/glam-rs)** (MIT/Apache-2.0) for their maths -
+  the Editor's Physics drop (`viewer-shell/physcore`). Used unmodified, from crates.io.
+  OpenMW itself uses Bullet; it does not simulate loose objects, so the drop is a placing
+  tool and only the collision it falls onto is the game's.
 - **[clap](https://github.com/clap-rs/clap)** (MIT/Apache-2.0) and
   **[chrono](https://github.com/chronotope/chrono)** (MIT/Apache-2.0) - the `wraithguard`
   command line's arguments and its clock (`viewer-shell/cli`).

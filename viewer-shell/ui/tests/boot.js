@@ -1127,6 +1127,22 @@ setTimeout(async ()=>{
       GameData.missing.length=0; before.forEach(x=>GameData.missing.push(x)); GameData.orderSource=src; return n; })()`);
     if(marked) errors.push('the report put a file name in as markup ('+marked+')');
   }catch(e){ errors.push('report with odd file names: '+short(e)); }
+  /* The Editor's Physics drop (physcore, Rapier): an object of the cell lifted 200 units
+     falls back onto what is around it - the other objects' collision and the land. */
+  try{
+    const req=JSON.parse(w.eval(`(()=>{ const o=App.R.pickables.find(p=>p.model && p.m && p.aabb && (p.aabb.x1-p.aabb.x0)<300 && (p.aabb.z1-p.aabb.z0)>8);
+      if(!o) return 'null';
+      const up=Object.assign({}, o, {m:Array.from(o.m)}); up.m[11]+=200;
+      return JSON.stringify(WgPhysics.request([{hit:up, ref:{}}])); })()`));
+    if(!req) errors.push('physics: no small object in the cell to drop');
+    else{
+      const z0=req.bodies[0].m[11];
+      const got=await engineCall('phys_drop',{request:JSON.stringify(req)});
+      const last=got.frames && got.frames[got.frames.length-1];
+      console.log('physics:', req.bodies[0].model, req.statics.length+' statics,', got.frames.length+' frames,', (+got.seconds).toFixed(2)+' s, settled '+got.settled+', skipped '+got.skipped.length+', z', z0.toFixed(1), '->', last && (last[0][2]).toFixed(1));
+      if(!got.skipped.length && !(last && last[0][2]<z0-50)) errors.push('physics: the object did not fall: '+JSON.stringify(last));
+    }
+  }catch(e){ errors.push('physics: '+short(e)); }
   /* The Preview's OpenMW Lua (viewcore::luarun) answers: a Morrowind.ini setup has none and
      says so, and a frame asked of a Lua not running is refused, not a crash. */
   try{

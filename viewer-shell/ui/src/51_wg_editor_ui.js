@@ -709,6 +709,7 @@ const WgUI={
         b('ref', '⌖', 'Reference', 'Edit the selected placed object: where it stands, owner, lock, trap (F3)')+
         b('uses', '⇶', 'Uses', 'The selected object\'s record: every record that names it, and the cells it is placed in (Use Report)')+
         b('drop', '⤓', 'Drop', 'Drop the selected object onto what is under it (F)')+
+        b('phys', '☄', 'Physics', 'Physics drop: let the selected objects fall, tumble and come to rest on what is around them, then keep where they landed')+
         b('dup', '⧉', 'Duplicate', 'A new reference of the same record beside the selected one')+
         b('hide', '◌', 'Hide', 'Hide the selected object (layer "Hidden"; Layers brings it back)')+
         b('del', '✕', 'Delete', 'Delete the selected reference (one the patch made is taken back out of it)')+
@@ -920,6 +921,7 @@ const WgUI={
     if(a==='xform') return this.menu(el, this.transformItems());
     if(a==='view') return this.menu(el, this.viewItems());
     if(a==='help') return this.keysSheet(el);
+    if(a==='phys') return WgPhysics.toggle();
     if(a==='ori') return E.setPanels('ori', E.showOri===false);
     if(a==='tfh') return E.setPanels('tfh', E.showTfh===false);
     if(a==='undo') return E.undo();
