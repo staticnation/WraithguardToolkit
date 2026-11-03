@@ -308,6 +308,10 @@
 
 ### Fixed
 
+- **The Load order page's drop line is where the rows go** (`59_wg_loadorder.js`). Dragging
+  rows drew the line under the row they would land above, one row off; it is drawn above it
+  now, and the lower half of a row puts them after it (so past the last row too). A file
+  dragged in from outside had the same line, the same way round.
 - **Land over open sea is written, and the patch with it builds** (`67_wg_land.js`,
   `editcore::build`). After the first stroke, strokes over the sea failed square by square
   ("has no land to shape: make land there first", a toast each): a square reached while its

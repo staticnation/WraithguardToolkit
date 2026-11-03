@@ -107,4 +107,21 @@ module.exports = async (t) => {
   d.getElementById('wgLandKeep').click();
   await p.wait(20);
   t.ok(made.has('(4, 3)') && asked.filter(a => a[0] === 'editLandSet' && a[1].cell === '(4, 3)').length === 2, 'no land in the patch yet: made, then shaped');
+
+  // A texture painted over open sea: the square's land made, then the texture written.
+  const sea3 = { kind: 'ext', gx: 5, gy: 3, heights: null, layers: [] };
+  w.App._scene = { origin: [0, 0], cells: [sea3], chunks: [] };
+  L.relayer = () => {};
+  L.mode = 'texture'; L.texture = 'Grass';
+  w.WgEditor.ask = async (name, body) => {
+    asked.push([name, body]);
+    if (name === 'editNewLand') { made.add(body.cell); return { cell: body.cell, land: true }; }
+    if (name === 'editLandTextures' && !made.has(body.cell)) throw new Error(body.cell + ' has no land to shape: make land there first (New land)');
+    return name === 'editLandTextures' ? { textures: 1 } : /Pending$/.test(name) ? [] : {};
+  };
+  L.paint([5 * 8192 + 4096, 3 * 8192 + 4096, 0]);
+  d.getElementById('wgLandKeep').click();
+  await p.wait(20);
+  const tex = asked.filter(a => a[0] === 'editLandTextures' && a[1].cell === '(5, 3)').pop();
+  t.ok(made.has('(5, 3)') && tex && tex[1].ids.includes('Grass') && tex[1].ids.filter(x => x === 'Grass').length < 256, 'texture over the sea: land made, the brush\'s texture cells written: ' + (tex && tex[1].ids.filter(x => x === 'Grass').length));
 };

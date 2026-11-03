@@ -157,8 +157,11 @@ const WgLoadOrder={
 #wgLO li.found.cur{background:color-mix(in srgb,var(--ac) 32%,transparent);outline:1px dotted var(--ac)}
 #wgLO h3 .lo-q{flex:none;width:170px;padding:1px 5px}
 #wgLO h3 .qn{color:var(--tx3);font-weight:normal;min-width:34px;text-align:right}
-#wgLO li.drop{box-shadow:0 -2px 0 var(--ac) inset}
-#wgLO li.dropb{box-shadow:0 2px 0 var(--ac) inset}
+/* The line where the rows will go: above the row (drop), or below it (dropb). An inset
+   shadow's y offset is the edge it comes from: +2 draws along the top, -2 along the bottom.
+   (They were the other way round: Static, 2026-11-03, "the underline is off by a line".) */
+#wgLO li.drop{box-shadow:0 2px 0 var(--ac) inset}
+#wgLO li.dropb{box-shadow:0 -2px 0 var(--ac) inset}
 #wgLO .lo-col.droptarget{outline:2px dashed var(--ac);outline-offset:-3px}
 #wgLO .orders{display:grid;grid-template-rows:2fr 1fr;gap:8px;min-height:0}
 #wgLO .chips{display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line)}
@@ -378,22 +381,23 @@ const WgLoadOrder={
         }
         for(const [k,x] of rows.entries()) ol.children[k] && ol.children[k].classList.toggle('hit', !!x.sel);
         // a drag from here moves the picked rows to where it is let go
-        const y0=e.clientY; let target=null, moved=false;
+        const y0=e.clientY; let target=null, after=false, moved=false;
         li.setPointerCapture(e.pointerId);
         const move=ev=>{
           if(!moved && Math.abs(ev.clientY-y0)<4) return;
           moved=true;
           const over=document.elementFromPoint(ev.clientX, ev.clientY);
           const t=over && over.closest && over.closest('li');
-          if(target && target!==t) target.classList.remove('drop');
+          if(target) target.classList.remove('drop', 'dropb');
           target=t && t.parentElement===ol ? t : null;
-          if(target) target.classList.add('drop');
+          // The lower half of a row puts them after it: the last row can be passed too.
+          if(target){ const b=target.getBoundingClientRect(); after=ev.clientY>b.top+b.height/2; target.classList.add(after? 'dropb' : 'drop'); }
           const box=ol.closest('.lo-scroll'); if(box){ const rr=box.getBoundingClientRect(); if(ev.clientY<rr.top+20) box.scrollTop-=12; else if(ev.clientY>rr.bottom-20) box.scrollTop+=12; }
         };
         const up=()=>{
           li.removeEventListener('pointermove', move); li.removeEventListener('pointerup', up);
-          if(target) target.classList.remove('drop');
-          if(moved && target) this.moveTo(rows, +target.dataset.i);
+          if(target) target.classList.remove('drop', 'dropb');
+          if(moved && target) this.moveTo(rows, +target.dataset.i+(after? 1 : 0));
         };
         li.addEventListener('pointermove', move); li.addEventListener('pointerup', up);
       });
