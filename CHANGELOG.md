@@ -5,6 +5,9 @@
 
 ### Added
 
+- **Flatten to the sea floor** (the Land view's *Level to*: Sea floor (-2048)). The height
+  of a square with no land, so the edge of raised ground can be brought down to meet an empty
+  neighbour without a wall. (*The sea (0)* is the water's surface.)
 - **A Linux AppImage, in place of the Flatpak** (`build-app.yml`, Tauri's bundler): one file
   for any distribution and the Steam Deck, WebKitGTK and GStreamer inside. Run as an
   AppImage, the program keeps its settings beside the `.AppImage` file, starts itself again

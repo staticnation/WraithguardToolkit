@@ -124,4 +124,13 @@ module.exports = async (t) => {
   await p.wait(20);
   const tex = asked.filter(a => a[0] === 'editLandTextures' && a[1].cell === '(5, 3)').pop();
   t.ok(made.has('(5, 3)') && tex && tex[1].ids.includes('Grass') && tex[1].ids.filter(x => x === 'Grass').length < 256, 'texture over the sea: land made, the brush\'s texture cells written: ' + (tex && tex[1].ids.filter(x => x === 'Grass').length));
+
+  // Flatten to the sea floor: the ground under the brush goes down toward -2048.
+  const hill = { kind: 'ext', gx: 6, gy: 3, heights: new w.Float32Array(N * N).fill(500), normals: new w.Float32Array(N * N * 3), layers: [], _landIds: [] };
+  w.App._scene = { origin: [0, 0], cells: [hill], chunks: [] };
+  L.mode = 'height'; L.tool = 'flatten'; L.b.flatTarget = 'floor'; L.strength = 100; L._stroke = null;
+  L.paint([6 * 8192 + 4096, 3 * 8192 + 4096, 0]);
+  const mid = hill.heights[32 * N + 32];
+  t.ok(mid < 500 && mid >= -2048, 'Level to Sea floor flattens toward -2048: ' + mid);
+  t.ok(d.querySelector('[data-s="flatTarget"] option[value="floor"]'), 'and it is a choice in Level to');
 };

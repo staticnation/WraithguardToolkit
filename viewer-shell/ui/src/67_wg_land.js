@@ -245,7 +245,7 @@ const WgLand={
         '<div class="hint" id="wgLandToolHint"></div>'+
         sel('smooth','Smoothing',[['average','Average (its 8 neighbours)'],['gauss','Gaussian (5 x 5)'],['wide','Wide blur']],'How a vertex\'s neighbourhood is averaged')+
         rng('wide','Blur reach',1,8,1,'How many vertices out the wide blur reaches')+
-        sel('flatTarget','Level to',[['start','Where the stroke began'],['average','The brush\'s average'],['fixed','A fixed height'],['sea','The sea (0)']],'The height Flatten levels toward, fixed for the stroke')+
+        sel('flatTarget','Level to',[['start','Where the stroke began'],['average','The brush\'s average'],['fixed','A fixed height'],['sea','The sea (0)'],['floor','Sea floor (-2048)']],'The height Flatten levels toward, fixed for the stroke. Sea floor: the height of a square with no land, so an edge meets an empty neighbour without a wall')+
         '<div class="row" data-row="flatHeight"><label>Height</label><div class="ctl"><input class="fld" type="number" step="8" data-n="flatHeight" value="'+b.flatHeight+'" style="width:90px"> <button class="btn sm" id="wgLandFlatPick" title="Take the height under the next click">Pick</button></div></div>'+
         sel('flatOnly','Direction',[['both','Up and down'],['up','Only raise toward it'],['down','Only lower toward it']],'Fill hollows only, cut tops only, or both')+
         rng('noiseScale','Scale',64,8192,64,'The size of the noise\'s largest features, in units')+
@@ -828,6 +828,7 @@ const WgLand={
     if(tool==='flatten' && S.target==null){
       if(b.flatTarget==='fixed') S.target=+b.flatHeight||0;
       else if(b.flatTarget==='sea') S.target=0;
+      else if(b.flatTarget==='floor') S.target=DEFAULT_LAND_HEIGHT;
       else if(b.flatTarget==='average'){
         let s=0, n=0; for(let i=0;i<vs.length;i+=3){ const h=at(vs[i],vs[i+1]); if(h!=null){ s+=h*vs[i+2]; n+=vs[i+2]; } }
         S.target=n? s/n : here;
