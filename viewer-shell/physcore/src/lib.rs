@@ -34,11 +34,14 @@ pub struct Settings {
     pub drop_only: bool,
     /// Frames kept for showing the fall, per second.
     pub fps: f32,
+    /// A body's hollows kept (a bowl, a cart): its triangles split into convex parts
+    /// (V-HACD) instead of one hull round them all. Slower.
+    pub hollow: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { gravity: 9.81 * UNITS_PER_METER, friction: 0.7, restitution: 0.05, max_seconds: 6.0, drop_only: false, fps: 30.0 }
+        Settings { gravity: 9.81 * UNITS_PER_METER, friction: 0.7, restitution: 0.05, max_seconds: 6.0, drop_only: false, fps: 30.0, hollow: true }
     }
 }
 
@@ -52,6 +55,8 @@ pub struct Static {
 #[derive(Clone, Debug)]
 pub struct Body {
     pub key: String,
+    /// Its shape in its own units: triangles, three points each (a hull takes them as
+    /// points; the hollow shape as the triangles).
     pub points: Vec<[f32; 3]>,
     pub pos: [f32; 3],
     pub rot: [f32; 3],
@@ -86,6 +91,47 @@ pub fn matrix(rot: [f32; 3]) -> Mat3 {
         Vec3::new(-cy * sz, cx * cz - sx * sy * sz, sx * cz + cx * sy * sz),
         Vec3::new(sy, -sx * cy, cx * cy),
     )
+}
+
+/// A body's triangles as convex parts (V-HACD), when it has a hollow worth keeping: `None`
+/// for a shape that is not triangles, too small to split, or that its hull fills nearly
+/// all of anyway (a crate). The decomposition is coarse (a 32-voxel grid, at most 16
+/// parts), which is enough to keep a bowl's inside and a cart's bed.
+fn hollow(soup: &[[f32; 3]], scale: f32) -> Option<ColliderBuilder> {
+    use rapier3d::parry::transformation::vhacd::VHACDParameters;
+    if soup.len() < 36 || !soup.len().is_multiple_of(3) {
+        return None;
+    }
+    // One vertex where several triangles share it, so the grid sees a surface.
+    let mut verts: Vec<Vec3> = Vec::new();
+    let mut seen = std::collections::HashMap::new();
+    let mut idx = Vec::with_capacity(soup.len() / 3);
+    for t in soup.as_chunks::<3>().0 {
+        let mut tri = [0u32; 3];
+        for (k, p) in t.iter().enumerate() {
+            let key = [(p[0] * 64.0).round() as i64, (p[1] * 64.0).round() as i64, (p[2] * 64.0).round() as i64];
+            tri[k] = *seen.entry(key).or_insert_with(|| {
+                verts.push(Vec3::new(p[0], p[1], p[2]) * scale);
+                (verts.len() - 1) as u32
+            });
+        }
+        if tri[0] != tri[1] && tri[1] != tri[2] && tri[0] != tri[2] {
+            idx.push(tri);
+        }
+    }
+    if idx.len() < 12 {
+        return None;
+    }
+    // Worth it only when the hull is much more than the mesh: the mesh's own volume (closed
+    // or nearly so), against the hull's.
+    let vol: f32 = idx.iter().map(|t| verts[t[0] as usize].dot(verts[t[1] as usize].cross(verts[t[2] as usize])) / 6.0).sum::<f32>().abs();
+    let hull = ColliderBuilder::convex_hull(&verts)?;
+    let hull_vol = hull.shape.mass_properties(1.0).mass();
+    if hull_vol.is_nan() || hull_vol <= 0.0 || vol > hull_vol * 0.7 {
+        return None;
+    }
+    let params = VHACDParameters { resolution: 32, max_convex_hulls: 16, ..Default::default() };
+    std::panic::catch_unwind(|| ColliderBuilder::convex_decomposition_with_params(&verts, &idx, &params)).ok()
 }
 
 /// A rotation from rows (the viewer's 3x3, as its 3x4 matrices hold it).
@@ -153,7 +199,8 @@ pub fn drop(statics: &[Static], bodies: &[Body], s: &Settings) -> Outcome {
                 pts.extend(more);
             }
         }
-        let Some(shape) = (pts.len() >= 4).then(|| ColliderBuilder::convex_hull(&pts)).flatten() else {
+        let shape = if s.hollow { hollow(&b.points, b.scale) } else { None };
+        let Some(shape) = shape.or_else(|| (pts.len() >= 4).then(|| ColliderBuilder::convex_hull(&pts)).flatten()) else {
             skipped.push(b.key.clone());
             handles.push(None);
             continue;
@@ -315,6 +362,36 @@ mod tests {
         let out = drop(&[floor], &[line], &Settings { max_seconds: 0.2, ..Default::default() });
         assert_eq!(out.skipped, vec!["l".to_string()]);
         assert_eq!(out.frames.last().unwrap()[0].0, [0.0, 0.0, 50.0]);
+    }
+
+    /// A closed box as triangles, from `lo` to `hi`.
+    fn box_tris(lo: [f32; 3], hi: [f32; 3]) -> Vec<[f32; 3]> {
+        let c = |i: usize| [if i & 1 == 0 { lo[0] } else { hi[0] }, if i & 2 == 0 { lo[1] } else { hi[1] }, if i & 4 == 0 { lo[2] } else { hi[2] }];
+        let faces = [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]];
+        faces.iter().flat_map(|f| [c(f[0]), c(f[1]), c(f[2]), c(f[0]), c(f[2]), c(f[3])]).collect()
+    }
+
+    #[test]
+    fn something_dropped_into_a_tray_rests_inside_it() {
+        // A tray 128 across with walls 48 high, 8 thick; a 24-unit crate dropped over its middle.
+        let mut tray = box_tris([-64.0, -64.0, 0.0], [64.0, 64.0, 8.0]);
+        for (lo, hi) in [([-64.0, -64.0, 0.0], [-56.0, 64.0, 48.0]), ([56.0, -64.0, 0.0], [64.0, 64.0, 48.0]), ([-64.0, -64.0, 0.0], [64.0, -56.0, 48.0]), ([-64.0, 56.0, 0.0], [64.0, 64.0, 48.0])] {
+            tray.extend(box_tris(lo, hi));
+        }
+        let floor = Static { tris: land_tris((0, 0), &vec![0.0; 65 * 65]) };
+        let bodies = [
+            Body { key: "tray".into(), points: tray, pos: [4096.0, 4096.0, 0.5], rot: [0.0; 3], scale: 1.0 },
+            Body { key: "c".into(), points: box_tris([-12.0; 3], [12.0; 3]), pos: [4096.0, 4096.0, 150.0], rot: [0.0; 3], scale: 1.0 },
+        ];
+        let t = std::time::Instant::now();
+        let out = drop(std::slice::from_ref(&floor), &bodies, &Settings::default());
+        let z = out.frames.last().unwrap()[1].0[2];
+        eprintln!("hollow: {:?}, crate at {z}", t.elapsed());
+        assert!(z < 40.0, "inside the tray, not on a lid over it: {z}");
+        // As one hull, it would sit on top.
+        let out = drop(&[floor], &bodies, &Settings { hollow: false, ..Default::default() });
+        let z = out.frames.last().unwrap()[1].0[2];
+        assert!(z > 55.0, "on the hull's lid: {z}");
     }
 
     #[test]

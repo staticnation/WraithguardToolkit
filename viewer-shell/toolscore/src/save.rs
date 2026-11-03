@@ -1228,6 +1228,8 @@ pub struct GameState {
     pub globals: Vec<(String, char, f32)>,
     /// (quest id, journal index).
     pub journal: Vec<(String, i32)>,
+    /// What the player carries: (item id, count), one entry an item.
+    pub inventory: Vec<(String, i32)>,
 }
 
 /// The player's record (`NPC_` named `player`: FNAM, RNAM, CNAM, FLAG, NPDT's level), the
@@ -1259,9 +1261,40 @@ pub fn game_state(data: &[u8]) -> Result<GameState, String> {
                 }
             }
             b"PLAY" => {
+                // The inventory: after ICNT, each item's NAME and, past one, its count (NAM9),
+                // up to the equipment (EQIP) or the NPC's stats.
+                let mut in_inv = false;
+                let mut item = 0usize;
                 for &(name, start, size) in &subs {
                     let b = slice(data, start, size);
+                    if in_inv {
+                        match &name {
+                            b"NAME" => {
+                                let id = decode_refid(b);
+                                item = match g.inventory.iter().position(|(i, _)| i.eq_ignore_ascii_case(&id)) {
+                                    Some(at) => {
+                                        g.inventory[at].1 += 1;
+                                        at
+                                    }
+                                    None => {
+                                        g.inventory.push((id, 1));
+                                        g.inventory.len() - 1
+                                    }
+                                };
+                                continue;
+                            }
+                            b"NAM9" => {
+                                if let (Some(e), Some(n)) = (g.inventory.get_mut(item), i32_at(b, 0)) {
+                                    e.1 += n - 1;
+                                }
+                                continue;
+                            }
+                            b"EQIP" | b"DISP" | b"SKIL" | b"STBA" | b"FACT" => in_inv = false,
+                            _ => continue,
+                        }
+                    }
                     match &name {
+                        b"ICNT" => in_inv = true,
                         b"FACT" => g.factions.push((decode_refid(b), -1)),
                         b"FARA" => {
                             if let (Some(f), Some(r)) = (g.factions.last_mut(), i32_at(b, 0)) {
@@ -2196,7 +2229,7 @@ mod tests {
     fn a_real_save_s_game_state() {
         let Ok(path) = std::env::var("WG_PLAYER_SAVE") else { return };
         let g = game_state(&std::fs::read(path).unwrap()).unwrap();
-        eprintln!("{} {} {} {} level {}; {} globals; journal {:?}; factions {:?}", g.name, g.sex, g.race, g.class, g.level, g.globals.len(), g.journal, g.factions);
+        eprintln!("{} {} {} {} level {}; {} globals; journal {:?}; factions {:?}; carries {:?}", g.name, g.sex, g.race, g.class, g.level, g.globals.len(), g.journal.len(), g.factions, g.inventory);
         assert!(!g.race.is_empty() && g.level >= 1 && !g.globals.is_empty());
     }
 

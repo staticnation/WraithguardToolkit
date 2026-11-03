@@ -46,6 +46,25 @@ module.exports = async (t) => {
   t.ok(ev.length === 1 && ev[0].id === 'e1' && ev[0].path === 'r.s2.c1' && ev[0].event === 'mouseClick', 'the click, for the engine: ' + JSON.stringify(ev));
   t.ok(U.take().length === 0, 'once');
 
+  // A move (at most ten a second), the pointer in and out, keys once clicked; a tint.
+  const tree2 = { type: 'Widget', path: 'r', events: ['mouseMove', 'focusGain', 'focusLoss', 'keyPress'], props: { size: { x: 50, y: 50 } }, content: [
+    { type: 'Image', path: 'r.t1', events: [], props: { resource: { path: 'icons/x.dds' }, color: { r: 1, g: 0, b: 0, a: 1 } }, content: [] }] };
+  w.eval('Engine.bytes=async()=>new ArrayBuffer(8); readTextureBytes=()=>({kind:"rgba", levels:[{w:1,h:1,data:new Uint8Array(4)}]}); rgbaToDataURL=()=>"data:x";');
+  U.imgs.clear();
+  U.draw('e2', 'HUD', tree2);
+  const box2 = d.querySelector('[data-lua-el="e2"]');
+  box2.dispatchEvent(new w.Event('pointerenter'));
+  box2.dispatchEvent(new w.MouseEvent('pointermove', { clientX: 5, clientY: 6 }));
+  box2.dispatchEvent(new w.MouseEvent('pointermove', { clientX: 7, clientY: 6 }));
+  box2.dispatchEvent(new w.KeyboardEvent('keydown', { code: 'KeyE', key: 'e' }));
+  box2.dispatchEvent(new w.Event('pointerleave'));
+  const ev2 = U.take().map(e => e.event + (e.event === 'keyPress' ? ':' + e.x + e.text : ''));
+  t.ok(ev2.join() === 'focusGain,mouseMove,keyPress:8e,focusLoss', 'in, one move, a key (E is 8), out: ' + ev2.join());
+  await new Promise(r => setTimeout(r, 10));
+  const img = box2.firstChild;
+  t.ok(/multiply/.test(img.style.backgroundBlendMode) && /rgba?\(255,\s*0,\s*0/.test(img.style.backgroundColor), 'a red tint over the texture: ' + img.style.backgroundBlendMode + ' ' + img.style.backgroundColor);
+  U.remove('e2');
+
   // Drawn again (an update) and destroyed.
   tree.content[0].content[0].props.text = 'Bye';
   U.draw('e1', 'Windows', tree);

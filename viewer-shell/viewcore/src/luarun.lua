@@ -122,7 +122,7 @@ end
 local S = {
   objects = {}, player = { pos = { 0, 0, 0 }, yaw = 0, cell = { name = '', ext = true, gx = 0, gy = 0 } },
   hour = 12, day = 16, month = 7, year = 427, weather = 0, weathers = {}, globals = {}, actors = {},
-  sounds = {}, musicPlaying = false, mwlocals = {}, files = {}, sim = 0, real = 0, dt = 0, journal = {},
+  sounds = {}, musicPlaying = false, mwlocals = {}, files = {}, sim = 0, real = 0, dt = 0, journal = {}, keysDown = {}, exteriorsSeen = {},
 }
 local OUT, LOG = {}, {}
 local current          -- the script running now
@@ -356,7 +356,14 @@ local function typeOf(name, tags)
   end
   t.record = function(o) local id = type(o) == 'string' and o or o.recordId return id and { id = id, name = id } or nil end
   t.records = {}
-  return t
+  -- An enum the preview does not list (`Armor.TYPE`, `Actor.EQUIPMENT_SLOT`): each value is its name.
+  return setmetatable(t, { __index = function(tt, k)
+    if type(k) == 'string' and k:match('^[A-Z][A-Z_]*$') then
+      local e = setmetatable({}, { __index = function(_, n) return n end })
+      rawset(tt, k, e)
+      return e
+    end
+  end })
 end
 types.NPC = typeOf('NPC', { 'NPC_' })
 types.Creature = typeOf('Creature', { 'CREA' })
@@ -749,7 +756,9 @@ local function castRay(from, to, opt)
   if not RAY then once('castRay', 'skip', 'nearby.castRay: no collision to cast against') return { hit = false } end
   local ig = opt and opt.ignore
   if type(ig) == 'table' and not rawget(ig, '__key') and ig[1] then ig = ig[1] end
-  local x, y, z, nx, ny, nz, k = RAY(from.x, from.y, from.z, to.x, to.y, to.z, keyOf(ig))
+  -- What it hits: World, Door, Actor and HeightMap unless it says (OpenMW's Default).
+  local mask = (opt and tonumber(opt.collisionType)) or 15
+  local x, y, z, nx, ny, nz, k = RAY(from.x, from.y, from.z, to.x, to.y, to.z, keyOf(ig), mask)
   if not x then return { hit = false } end
   return { hit = true, hitPos = v3(x, y, z), hitNormal = v3(nx, ny, nz), hitObject = k and handle(k) or nil }
 end
@@ -761,7 +770,7 @@ packages['openmw.nearby'] = function(inst)
     castRay = function(from, to, opt) return castRay(from, to, opt) end,
     castRenderingRay = function(from, to, opt) return castRay(from, to, opt) end,
     players = { handle('player') },
-    COLLISION_TYPE = { World = 1, Door = 2, Actor = 4, HeightMap = 8, Projectile = 16, Water = 32, Default = 31, AnyPhysical = 127, Camera = 64, VisualOnly = 128 },
+    COLLISION_TYPE = { World = 1, Door = 2, Actor = 4, HeightMap = 8, Projectile = 16, Water = 32, Default = 15, AnyPhysical = 63, Camera = 64, VisualOnly = 128 },
     findPath = function() return 1, {} end,
     NAVIGATOR_FLAGS = {}, FIND_PATH_STATUS = { Success = 0 },
   }, { __index = function(_, n)
@@ -883,7 +892,11 @@ function __wg_ui_event(id, path, event, x, y, text)
   if not cb then return end
   local el = uiElements[id]
   local fn = type(cb) == 'table' and cb.fn or cb
-  local arg = event == 'textChanged' and text or { position = v2(x or 0, y or 0), offset = v2(0, 0), button = 1 }
+  local arg
+  if event == 'textChanged' then arg = text
+  elseif event == 'keyPress' or event == 'keyRelease' then arg = { code = x or 0, symbol = text or '', withShift = y == 1, withCtrl = false, withAlt = false, withSuper = false }
+  elseif event == 'focusGain' or event == 'focusLoss' then arg = nil
+  else arg = { position = v2(x or 0, y or 0), offset = v2(x or 0, y or 0), button = 1 } end
   call(el and el.__inst or { path = 'ui' }, fn, arg, node)
 end
 
@@ -914,6 +927,14 @@ packages['openmw.ui'] = function(inst)
     _getMenuTransparency = function() return 1 end,
     _getDefaultFontSize = function() return 16 end,
     _setHudVisibility = function() end, _isHudVisible = function() return true end,
+    -- What OpenMW's own ui.lua (I.UI) asks: no game windows, so no modes open.
+    _getAllUiModes = function() local m = {} for _, n in ipairs({ 'Alchemy', 'Barter', 'Book', 'Companion', 'Container', 'Dialogue', 'Enchanting', 'Interface', 'Journal',
+      'LevelUp', 'Loading', 'MainMenu', 'Merchant', 'QuickKeysMenu', 'Recharge', 'Repair', 'Rest', 'Scroll', 'SpellBuying', 'SpellCreation', 'Training', 'Travel' }) do m[n] = n end return m end,
+    _getAllWindowIds = function() local m = {} for _, n in ipairs({ 'Alchemy', 'Barter', 'Book', 'Companion', 'Container', 'Dialogue', 'Inventory', 'Journal', 'Magic',
+      'Map', 'QuickKeys', 'Recharge', 'Repair', 'Scroll', 'SpellBuying', 'SpellCreation', 'Stats', 'Training', 'Travel' }) do m[n] = n end return m end,
+    _getAllowedWindows = function() return {} end, _setWindowDisabled = function() end, _isWindowVisible = function() return false end,
+    _setUiModeStack = function() end, _getUiModeStack = function() return {} end,
+    _showInteractiveMessage = function(t) emit({ k = 'msg', text = tostring(t) }) end,
   }
 end
 packages['openmw.camera'] = function(inst)
@@ -937,10 +958,24 @@ packages['openmw.camera'] = function(inst)
     viewportToWorldVector = function() local y = S.player.yaw or 0 return v3(math.sin(y), math.cos(y), 0) end,
     worldToViewportVector = function() return v3(0.5, 0.5, 1) end }
 end
+-- input.KEY as OpenMW has it: SDL's scancodes.
+local KEYS = { Backspace = 42, Tab = 43, Enter = 40, Escape = 41, Space = 44, Minus = 45, Equals = 46, LeftBracket = 47, RightBracket = 48,
+  BackSlash = 49, Semicolon = 51, Apostrophe = 52, BackQuote = 53, Comma = 54, Period = 55, Slash = 56, CapsLock = 57,
+  RightArrow = 79, LeftArrow = 80, DownArrow = 81, UpArrow = 82, Insert = 73, Home = 74, PageUp = 75, Delete = 76, End = 77, PageDown = 78,
+  LeftCtrl = 224, LeftShift = 225, LeftAlt = 226, LeftSuper = 227, RightCtrl = 228, RightShift = 229, RightAlt = 230, RightSuper = 231 }
+for i = 0, 25 do KEYS[string.char(65 + i)] = 4 + i end
+for i = 1, 9 do KEYS['_' .. i] = 29 + i end
+KEYS._0 = 39
+for i = 1, 12 do KEYS['F' .. i] = 57 + i end
+for i = 0, 9 do KEYS['NP_' .. i] = i == 0 and 98 or 88 + i end
 packages['openmw.input'] = function()
   local any = setmetatable({}, { __index = function(_, k) return k end })
-  return { isKeyPressed = function() return false end, isActionPressed = function() return false end, getBooleanActionValue = function() return false end,
-    getRangeActionValue = function() return 0 end, KEY = any, ACTION = any, CONTROLLER_BUTTON = any, CONTROLLER_AXIS = any,
+  local down = function(c) return S.keysDown[c] == true end
+  return { isKeyPressed = down, isActionPressed = function() return false end, getBooleanActionValue = function() return false end,
+    isShiftPressed = function() return down(225) or down(229) end, isCtrlPressed = function() return down(224) or down(228) end,
+    isAltPressed = function() return down(226) or down(230) end, isSuperPressed = function() return false end,
+    getKeyName = function(c) for n, v in pairs(KEYS) do if v == c then return (n:gsub('^_', '')) end end return '' end,
+    getRangeActionValue = function() return 0 end, KEY = setmetatable(KEYS, { __index = function(_, k) return k end }), ACTION = any, CONTROLLER_BUTTON = any, CONTROLLER_AXIS = any,
     registerAction = function() end, registerActionHandler = function() end, registerTrigger = function() end, registerTriggerHandler = function() end,
     getMouseMoveX = function() return 0 end, getMouseMoveY = function() return 0 end, isIdle = function() return true end }
 end
@@ -984,7 +1019,9 @@ local function sandbox(inst)
       if not text then
         if name:match('^openmw%.') then
           once('pkg:' .. name, 'skip', name .. ' is not run in the preview')
-          v = setmetatable({}, { __index = function() return function() end end })
+          -- Anything asked of it answers: a call does nothing, an enum's value is its name.
+          local function stub() return setmetatable({}, { __call = function() return nil end, __index = function(t, k) local x = stub() rawset(t, k, x) return x end, __tostring = function() return name end }) end
+          v = stub()
         else
           error('module ' .. name .. ' not found', 2)
         end
@@ -1119,6 +1156,26 @@ function __wg_step(arg)
   for _, e in ipairs(a.activations or {}) do activate(e.key, e.by) end
   if a.screen then S.screen = a.screen end
   for _, e in ipairs(a.ui or {}) do __wg_ui_event(e.id, e.path, e.event, e.x, e.y, e.text) end
+  -- Keys pressed over the Preview: player scripts' onKeyPress and onKeyRelease, and input.isKeyPressed.
+  for _, e in ipairs(a.keys or {}) do
+    S.keysDown[e.code] = e.down and true or nil
+    local key = { code = e.code, symbol = e.symbol or '', withShift = e.shift == true, withCtrl = e.ctrl == true, withAlt = e.alt == true, withSuper = false }
+    for _, i in ipairs(scripts) do
+      if i.ctx == 'player' and not i.dead then call(i, e.down and i.handlers.onKeyPress or i.handlers.onKeyRelease, key) end
+    end
+  end
+  -- An exterior square entered for the first time: global scripts' onNewExterior (OpenMW's
+  -- fish and the like are placed from it).
+  local pc = S.player.cell
+  if pc and pc.ext and pc.gx then
+    local k = pc.gx .. ',' .. pc.gy
+    if not S.exteriorsSeen[k] then
+      S.exteriorsSeen[k] = true
+      for _, i in ipairs(scripts) do
+        if i.ctx == 'global' and not i.dead and i.handlers.onNewExterior then call(i, i.handlers.onNewExterior, cellOf(pc)) end
+      end
+    end
+  end
   local g, l = globalQueue, localQueue
   globalQueue, localQueue = {}, {}
   local globals = {}

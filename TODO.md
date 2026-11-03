@@ -136,26 +136,23 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 
 ## Scripts in the scene (`73_wg_scripts.js`)
 
-- OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): `castRay`'s collision types (it hits
-  every shape); `onNewExterior` (OpenMW's fish spawning) and
-  other built-ins left out; `types.Player.quests` knows only the stages the Scripts panel's
-  journal holds (a save's journal is not read for it yet); `ui.create`: mouseMove, focus, keys, an Image's tint over a texture, the game's font. Check on a real install: a mod's global and
-  local scripts, OpenMW's music playlists, `I.AI` packages through `ai.lua`.
-- Physics drop (`76_wg_physics.js`, `physcore`): the land it falls onto is the load
-  order's, not land being painted in the Land view and not yet kept; a body that is concave
-  (a bowl, a cart) is its convex hull, so nothing rests inside it; objects with no collision
-  shape fall as nothing (a visual-mesh hull for them could be an option). Check on a real
-  install: a crate onto Balmora's tables, a book onto a shelf, a heap of rocks down a slope.
-- Dialogue window, In game tab: the player's faction from a save with several (the first is
-  set); items from a save's inventory (the Scripts panel's player carries them for now);
-  Local and NotLocal conditions (an NPC's own MWScript locals).
-- MWScript the preview still does not run (logged once each): choosing and showing dialogue
-  (ForceGreeting says who greets; `Choice` belongs to dialogue results), animations
-  (PlayGroup, LoopGroup), spells and their effects. Combat is a stand-in: blows of 4-11
-  health a second, no weapons, skills or animations. Actors move each time the scene is
-  built again (about three times a second), so a walk steps rather than glides.
+- OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): the camera, input bindings, console and
+  HUD built-ins are left out (they need the game); `openmw.animation` answers but nothing
+  is animated; `ui.create`'s keys go to a node once it is clicked. Check on a real install:
+  a mod's global and local scripts, OpenMW's music playlists, `I.AI` packages through
+  `ai.lua`, `I.Combat` and `I.UI` from the built-ins, the OpenMW folder found at a drive's
+  root (`E:/OpenMW`).
+- Physics drop (`76_wg_physics.js`, `physcore`): a hollow body is split coarsely (a 32-voxel
+  grid, 16 parts at most), so a thin-walled vase may still fill in. Check on a real install:
+  a crate onto Balmora's tables, a book onto a shelf, rocks down a slope, a cup into a bowl.
+- MWScript the preview still does not run: animations are named but not drawn (PlayGroup,
+  LoopGroup: the mesh stands still), a spell's effects (Cast is counted for GetSpellEffects
+  for ten seconds; GetEffect is not answered). Combat has no weapons, armor or fatigue.
+  Actors move each time the scene is built again (about three times a second), so a walk
+  steps rather than glides: gliding needs the renderer to move one drawn object between
+  builds.
 - Check on a real install: Seyda Neen's lighthouse and lamps by the hour, a mod's static swap
-  by a global, a mod's music script.
+  by a global, a mod's music script, a ForceGreeting opening the In game tab.
 
 ## MWScript compiler
 

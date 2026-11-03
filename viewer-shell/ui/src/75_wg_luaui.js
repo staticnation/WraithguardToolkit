@@ -25,6 +25,7 @@ const WgLuaUI={
       r=document.createElement('div'); r.id='wgLuaUI';
       r.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:6;overflow:hidden;font-family:"Magic Cards","Pelagiad",Georgia,serif';
       ($('#vpwrap')||document.body).appendChild(r);
+      this.font();
     }
     return r;
   },
@@ -97,7 +98,18 @@ const WgLuaUI={
         else{
           s.backgroundSize=(p.tileH || p.tileV)? 'auto' : '100% 100%';
           s.backgroundRepeat=p.tileH && p.tileV? 'repeat' : p.tileH? 'repeat-x' : p.tileV? 'repeat-y' : 'no-repeat';
-          this.image(path).then(url=>{ if(url) s.backgroundImage='url("'+url+'")'; });
+          // A color over a texture tints it (multiplied), the texture's own shape kept.
+          const tint=p.color && !(p.color.r===1 && p.color.g===1 && p.color.b===1)? this.color(p.color) : '';
+          this.image(path).then(url=>{
+            if(!url) return;
+            s.backgroundImage='url("'+url+'")';
+            if(tint){
+              s.backgroundColor=tint; s.backgroundBlendMode='multiply';
+              for(const k of ['maskImage', 'webkitMaskImage']){ s[k]='url("'+url+'")'; }
+              for(const k of ['maskSize', 'webkitMaskSize']) s[k]=s.backgroundSize;
+              for(const k of ['maskRepeat', 'webkitMaskRepeat']) s[k]=s.backgroundRepeat;
+            }
+          });
         }
         break;
       }
@@ -121,8 +133,45 @@ const WgLuaUI={
       if(ev.includes('mouseClick')) el.addEventListener('click', e=>{ e.stopPropagation(); send('mouseClick', e); });
       if(ev.includes('mousePress')) el.addEventListener('pointerdown', e=>{ e.stopPropagation(); send('mousePress', e); });
       if(ev.includes('mouseRelease')) el.addEventListener('pointerup', e=>send('mouseRelease', e));
+      // A move, at most ten a second; the pointer coming in and going out.
+      if(ev.includes('mouseMove')){ let last=-Infinity; el.addEventListener('pointermove', e=>{ const now=performance.now(); if(now-last<100) return; last=now; send('mouseMove', e); }); }
+      if(ev.includes('focusGain')) el.addEventListener('pointerenter', ()=>this.events.push({id, path:n.path, event:'focusGain'}));
+      if(ev.includes('focusLoss')) el.addEventListener('pointerleave', ()=>this.events.push({id, path:n.path, event:'focusLoss'}));
+      // Keys, to a node that takes them once it is clicked.
+      if(ev.includes('keyPress') || ev.includes('keyRelease')){
+        el.tabIndex=0; s.outline='none';
+        const key=(event, e)=>{ e.stopPropagation(); this.events.push({id, path:n.path, event, x:WgLuaUI.scancode(e.code), y:e.shiftKey? 1 : 0, text:e.key.length===1? e.key : ''}); };
+        if(ev.includes('keyPress')) el.addEventListener('keydown', e=>key('keyPress', e));
+        if(ev.includes('keyRelease')) el.addEventListener('keyup', e=>key('keyRelease', e));
+      }
     }else if(t==='TextEdit') s.pointerEvents='auto';
     return el;
+  },
+  /** SDL's scancode for a key (`KeyboardEvent.code`), as OpenMW's input.KEY numbers them. */
+  scancode(code){
+    let m;
+    if((m=/^Key([A-Z])$/.exec(code))) return 4+m[1].charCodeAt(0)-65;
+    if((m=/^Digit([0-9])$/.exec(code))) return m[1]==='0'? 39 : 29+(+m[1]);
+    if((m=/^F([0-9]+)$/.exec(code)) && +m[1]<=12) return 57+(+m[1]);
+    if((m=/^Numpad([0-9])$/.exec(code))) return m[1]==='0'? 98 : 88+(+m[1]);
+    return {Enter:40, Escape:41, Backspace:42, Tab:43, Space:44, Minus:45, Equal:46, BracketLeft:47, BracketRight:48, Backslash:49, Semicolon:51,
+      Quote:52, Backquote:53, Comma:54, Period:55, Slash:56, CapsLock:57, Insert:73, Home:74, PageUp:75, Delete:76, End:77, PageDown:78,
+      ArrowRight:79, ArrowLeft:80, ArrowDown:81, ArrowUp:82, ControlLeft:224, ShiftLeft:225, AltLeft:226, MetaLeft:227,
+      ControlRight:228, ShiftRight:229, AltRight:230, MetaRight:231}[code]||0;
+  },
+  /** OpenMW's own font (its resources' MysticCards), for the windows' text, once. */
+  async font(){
+    if(this._font!==undefined) return this._font;
+    this._font=null;
+    try{
+      const buf=await Engine.bytes('lua_ui_font',{});
+      if(buf && buf.byteLength && typeof FontFace==='function'){
+        const f=new FontFace('OpenMW Mystic Cards', buf); await f.load(); document.fonts.add(f);
+        this._font='OpenMW Mystic Cards';
+        const r=$('#wgLuaUI'); if(r) r.style.fontFamily='"OpenMW Mystic Cards","Magic Cards","Pelagiad",Georgia,serif';
+      }
+    }catch(_){ }
+    return this._font;
   },
   /** A texture from the data folders as an image the page can show (decoded by the engine). */
   image(path){

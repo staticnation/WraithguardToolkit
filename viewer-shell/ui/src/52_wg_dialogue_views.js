@@ -329,6 +329,25 @@ const WgDial={
 
   /* ---- in game --------------------------------------------------------------------------- */
 
+  /** A script's ForceGreeting: the Dialogue window's In game tab, talking to `id` in the
+   *  Preview's cell, the game state the scripts have. False when the Editor's window is not
+   *  there to open. */
+  async greetFrom(id){
+    const E=this.E || (typeof WgEditor==='object'? WgEditor : null);
+    if(!E || !E.showDialogue || !(E.canEdit && E.canEdit())) return false;
+    await E.showDialogue();
+    if(!this.box) return false;
+    this._play=this._play||null;
+    await this.show('play');
+    const P=this._play;
+    P.speaker=String(id); P.cellFrom='current'; P.newGame=false;
+    await this.cellFor();
+    P.log=[];
+    await this.play();
+    await this.say('', 0);
+    return true;
+  },
+
   async play(){
     const box=this.box;
     const P=this._play=this._play||{speaker:'', log:[], cell:'', cellFrom:'set', disposition:50, strict:false, topics:[], name:'',
@@ -425,26 +444,17 @@ const WgDial={
   /** The player, globals and quest indexes from an OpenMW save: the player into the boxes,
    *  globals and the journal into the Scripts panel's game state (shared). */
   async stateFromSave(){
-    let p;
-    try{ p=await Engine.pick('open',{filters:[{name:'OpenMW saves', extensions:['omwsave']}]}); }catch(_){ return; }
-    if(!p) return;
-    let g;
-    try{ g=await Engine.call('dialogue_state_from_save',{path:String(p)}); if(typeof g==='string') g=JSON.parse(g); }
-    catch(e){ return toast(String(e.message||e),'err',6000); }
+    const g=typeof WgScripts==='object'? await WgScripts.fromSave() : null;
+    if(!g) return;
     const P=this._play;
     Object.assign(P, {pcSex:g.sex||'Any', pcRace:g.race||'', pcLevel:String(g.level||''), newGame:false, stateOpen:true});
     const f=(g.factions||[])[0];
     P.pcFaction=f? f[0] : ''; P.pcRank=f && f[1]>=0? String(f[1]) : '';
-    if(typeof WgScripts==='object'){
-      const S=WgScripts.state;
-      for(const x of g.globals||[]) S.globals.set(x.name.toLowerCase(), {name:x.name, kind:x.kind, v:x.value});
-      S.journal.clear();
-      for(const [q, i] of g.journal||[]) S.journal.set(q.toLowerCase(), i);
-      WgScripts.drawState();
-    }
+    // Every faction the save has the player in: each condition asks the rank in its own.
+    P.pcFactions=(g.factions||[]).map(([id, r])=>[String(id), +r]);
     this.play();
     toast((g.name||'The player')+': '+[g.sex, g.race, g.class, 'level '+g.level].filter(Boolean).join(', ')+'; '+(g.globals||[]).length+' globals, '+(g.journal||[]).length+' quests'+
-      ((g.factions||[]).length>1? '; '+g.factions.length+' factions, the first set (choose another in Faction)' : ''),'ok',6000);
+      ((g.factions||[]).length>1? '; '+g.factions.length+' factions, each ranked' : '')+((g.inventory||[]).length? '; carries '+g.inventory.length+' kinds of item' : ''),'ok',6000);
   },
 
   /** The game state the rehearsal is given, as the engine takes it. */
@@ -453,8 +463,18 @@ const WgDial={
     const num=v=>v===''||v==null? null : +v;
     const items={};
     if(typeof WgScripts==='object' && WgScripts.actors.get('player')) for(const [k, n] of WgScripts.actors.get('player').items) items[k]=n;
+    // The player's factions: a save's, with the one set here over it.
+    const factions={};
+    for(const [id, r] of P.pcFactions||[]) factions[id.toLowerCase()]=r;
+    if(P.pcFactions && P.pcFactions.length && P.pcFaction) factions[P.pcFaction.toLowerCase()]=num(P.pcRank)==null? -1 : num(P.pcRank);
+    // The speaker's MWScript locals as the scene has them (a placed one's script running).
+    const locals={};
+    if(typeof WgScripts==='object' && WgScripts.inst && P.speaker){
+      const who=String(P.speaker).toLowerCase();
+      for(const it of WgScripts.inst.values()) if(it.id===who && it.locals){ for(const [n, l] of it.locals) locals[n]=l.v; break; }
+    }
     return {pcSex:P.pcSex, pcRace:P.pcRace, pcFaction:P.pcFaction, pcRank:num(P.pcRank), pcLevel:num(P.pcLevel), npcRank:num(P.npcRank), newGame:P.newGame,
-      globals:S? Object.fromEntries([...S.globals].map(([k, g])=>[k, g.v])) : {}, journal:S? Object.fromEntries(S.journal) : {}, items};
+      globals:S? Object.fromEntries([...S.globals].map(([k, g])=>[k, g.v])) : {}, journal:S? Object.fromEntries(S.journal) : {}, items, factions, locals};
   },
   drawStateSum(){
     const P=this._play, b=this.box; if(!P || !b) return;

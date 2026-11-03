@@ -98,7 +98,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `50_wg_editor_build.js` | 31 KB | What waits in the pool, and Build patch. |
 | `50_wg_editor_keys.js` | 6 KB | The Editor's keys (through `WgKeys`), and the page listeners that feed them. |
 | `51_wg_editor_ui.js` | 74 KB | The Editor's window furniture: dockable panels, the toolbar, flyout menus, folding sections, previews, drag-to-place. |
-| `52_wg_dialogue_views.js` | 37 KB | The Dialogue window's other views: a topic's flow, the topic map, the flags, the rehearsal with an NPC. |
+| `52_wg_dialogue_views.js` | 38 KB | The Dialogue window's other views: a topic's flow, the topic map, the flags, the rehearsal with an NPC. |
 | `53_wg_record_forms.js` | 19 KB | The record dialog's Construction Set form per record type. |
 | `54_wg_pathgrid_edit.js` | 23 KB | Path grid editing in the render window: select, drag, add, link (Ctrl+drag), box select, delete, undo. |
 | `55_wg_messages.js` | 4 KB | The Editor's Messages panel: every toast and page error kept, filtered, copied. |
@@ -119,13 +119,13 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `70_wg_regions.js` | 13 KB | The region map: the cell map colored by region, regions painted onto cells, exteriors made by dragging. |
 | `71_wg_walk.js` | 21 KB | The first-person body: OpenMW's pace from its stats (sliders, presets, a save), swimming, levitation, collision shapes, footsteps. |
 | `72_wg_landbrush.js` | 12 KB | The Land view's brush engine: falloffs and shapes, the nine height tools, the stroke's dynamics (click, drag, hold, decay, fade, velocity, jitter, stabilizer, cap). |
-| `73_wg_scripts.js` | 63 KB | The scene's MWScript, run: Enable and Disable, movement, music and sounds, weather and fades shown in the scene; a game-state panel (hour, date, globals, journal) and a log. |
-| `74_wg_lua.js` | 17 KB | OpenMW Lua in the scene: the engine's copy of the scene kept current a frame at a time, and what the scripts did applied (luarun.rs runs them). |
-| `75_wg_luaui.js` | 8 KB | The windows OpenMW Lua scripts make (ui.create), drawn over the Preview, their clicks and text sent back. |
-| `76_wg_physics.js` | 10 KB | The Editor's Physics drop: the selection falls and comes to rest on the scene's collision and the land (phys_drop, physcore); the fall as ghosts, then Keep or Drop. |
+| `73_wg_scripts.js` | 69 KB | The scene's MWScript, run: Enable and Disable, movement, music and sounds, weather and fades shown in the scene; a game-state panel (hour, date, globals, journal) and a log. |
+| `74_wg_lua.js` | 19 KB | OpenMW Lua in the scene: the engine's copy of the scene kept current a frame at a time, and what the scripts did applied (luarun.rs runs them). |
+| `75_wg_luaui.js` | 11 KB | The windows OpenMW Lua scripts make (ui.create), drawn over the Preview, their clicks and text sent back. |
+| `76_wg_physics.js` | 11 KB | The Editor's Physics drop: the selection falls and comes to rest on the scene's collision and the land (phys_drop, physcore); the fall as ghosts, then Keep or Drop. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
-## Engine commands (`src/cellviewer/commands.rs`: 144)
+## Engine commands (`src/cellviewer/commands.rs`: 145)
 
 By the word they start with. `check-commands/build.rs` fails the build if `generate_handler!`
 names a command that is not defined, or one is left unregistered.
@@ -160,7 +160,7 @@ names a command that is not defined, or one is left unregistered.
 - **ori**: `ori`, `ori_dialogue`
 - **find**: `find_record`
 - **editor**: `editor_tags`, `editor_tags_bytes`, `editor_records`, `editor_rows`, `editor_actors`, `editor_cell_refs`, `editor_cell_refs_bytes`, `editor_record_tag`, `editor_script_flowchart`, `editor_preview_patch`, `editor_open`, `editor_setup`, `editor_link`
-- **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `lua_run_start`, `lua_run_step`, `lua_run_stop`
+- **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`
 - **wg**: `wg_post`, `wg_open_record`, `wg_save_edited`
 - **scan**: `scan_cache_warm`
 - **loadorder**: `loadorder_drop_probe`, `loadorder_compute`, `loadorder_export`, `loadorder_rule_ages`, `loadorder_scan`, `loadorder_update_rules`, `loadorder_update_yml`, `loadorder_fetch_data_paths`, `loadorder_author`
@@ -199,7 +199,7 @@ names a command that is not defined, or one is left unregistered.
 | `lang.rs` | 582 | Language packs. |
 | `lib.rs` | 61 | Crate root; `init()` installs the G7 readers. |
 | `lod.rs` | 405 | Distant objects' models, simplified (meshopt-port). |
-| `luarun.rs` | 849 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
+| `luarun.rs` | 951 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
 | `luascan.rs` | 313 | The load order's Lua scripts checked through the overlay (luacore, Teal). |
 | `markers.rs` | 36 | The Construction Set markers the viewer carries itself. |
 | `mland.rs` | 434 | The merged-lands preview: one cell's landscape as Merge Lands would write it (landcore). |
@@ -215,7 +215,7 @@ names a command that is not defined, or one is left unregistered.
 | `usage.rs` | 186 | Where a mesh, texture or base record is used, cell by cell. |
 | `vfsindex.rs` | 346 | The overlay's file index, kept between connects. |
 | `weather.rs` | 89 | Gardenfell's weather, plus the setup's sound and weather fallbacks (openmw.cfg or Morrowind.ini). |
-| `world.rs` | 807 | Gardenfell's world, wrapped with Wraithguard's extras pass (records index, GMSTs, path grids, land edits, NPCs, groundcover, sounds, regions, script loops). |
+| `world.rs` | 826 | Gardenfell's world, wrapped with Wraithguard's extras pass (records index, GMSTs, path grids, land edits, NPCs, groundcover, sounds, regions, script loops). |
 
 Re-exports of Gardenfell's modules (`gardenfell/`), with our additions where noted: `bsa.rs`, `esp.rs`, `json.rs`, `land.rs`, `layout.rs`, `mge.rs`, `nif.rs`, `plugins.rs`, `pool.rs`, `renderer.rs`, `toml.rs`, `vfs.rs`, `worldmap.rs`.
 

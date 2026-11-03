@@ -14,9 +14,12 @@ module.exports = async (t) => {
   w.eval('var escHtml=s=>String(s==null?"":s).replace(/[&<>"\']/g,c=>"&#"+c.charCodeAt(0)+";"); var toast=m=>__toast(m);');
   w.eval('var App={_scene:{centre:{kind:"int", name:"Balmora, Guild of Mages"}, cells:[]}};');
   w.eval(`var WgScripts={state:{globals:new Map(), journal:new Map()}, actors:new Map([['player',{items:new Map([['gold_001',40]])}]]),
-    async loadGlobals(){ if(!this.state.globals.size) this.state.globals.set('pcrace',{name:'PCRace',kind:'s',v:0}); }, panel(){}, drawState(){}, _el:{}};`);
+    async loadGlobals(){ if(!this.state.globals.size) this.state.globals.set('pcrace',{name:'PCRace',kind:'s',v:0}); }, panel(){}, drawState(){}, _el:{},
+    inst:new Map([['r1',{id:'fargoth', locals:new Map([['nolore',{v:1}]])}]]),
+    async fromSave(){ const g=await Engine.call('dialogue_state_from_save',{path:await Engine.pick()}); for(const x of g.globals) this.state.globals.set(x.name.toLowerCase(),{name:x.name,kind:x.kind,v:x.value});
+      for(const [q,i] of g.journal) this.state.journal.set(q.toLowerCase(), i); toast(g.name); return g; }};`);
   w.eval(`var Engine={ async pick(){ return 'C:/saves/Mage.omwsave'; }, async call(c){ if(c==='dialogue_state_from_save') return {name:'Barelos Mothran', sex:'Male', race:'Dark Elf', class:'Mage', level:3,
-    factions:[['Mages Guild', 1]], globals:[{name:'PCRace', kind:'s', value:5}, {name:'GameHour', kind:'f', value:9.5}], journal:[['CS_BasicChargen', 190]]}; return {}; } };`);
+    factions:[['Mages Guild', 1], ['Blades', 4]], inventory:[['gold_001', 87]], globals:[{name:'PCRace', kind:'s', value:5}, {name:'GameHour', kind:'f', value:9.5}], journal:[['CS_BasicChargen', 190]]}; return {}; } };`);
   w.eval('var WgEditor={recordRows: async tag=>({rows: tag==="RACE"? [["Dark Elf"],["Nord"]] : [["Mages Guild"],["Fighters Guild"]]})};');
   w.eval(fs.readFileSync(path.join(__dirname, '..', '..', 'src', '52_wg_dialogue_views.js'), 'utf8').replace(/^const WgDial=/m, 'var WgDial='));
   const D = w.WgDial;
@@ -53,6 +56,7 @@ module.exports = async (t) => {
   const play = asked.filter(a => a[0] === 'editDialoguePlay').pop();
   t.ok(play && play[1].cell === 'Seyda Neen' && play[1].state.pcSex === 'Female' && play[1].state.pcLevel === 7 && play[1].state.newGame === true, 'the line asked with the cell and the player: ' + JSON.stringify(play && play[1]));
   t.ok(play[1].state.globals.pcrace === 0 && play[1].state.items.gold_001 === 40, 'and the globals and what the player carries');
+  t.ok(play[1].state.locals.nolore === 1, 'and the speaker\'s locals as the scene has them: ' + JSON.stringify(play[1].state.locals));
 
   // The Preview's cell.
   $('#edPCellFrom').value = 'current';
@@ -66,4 +70,8 @@ module.exports = async (t) => {
   const S = w.WgScripts.state;
   t.ok(S.globals.get('pcrace').v === 5 && S.globals.get('gamehour').v === 9.5 && S.journal.get('cs_basicchargen') === 190, 'globals and the journal shared with the Scripts panel');
   t.ok(toasts.some(m => /Barelos Mothran/.test(m)), 'and said');
+  await $('#edPGreet').onclick();
+  await new Promise(r => setTimeout(r, 5));
+  const after = asked.filter(a => a[0] === 'editDialoguePlay').pop();
+  t.ok(JSON.stringify(after[1].state.factions) === '{"mages guild":1,"blades":4}', 'every faction the save has, ranked: ' + JSON.stringify(after[1].state.factions));
 };

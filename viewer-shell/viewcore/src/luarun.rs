@@ -26,19 +26,32 @@ use crate::vfs::Vfs;
 pub const PRELUDE: &str = include_str!("luarun.lua");
 
 /// OpenMW's built-in scripts the Preview runs: the ones that act on a scene (AI,
-/// activation, music, weather, the world's events, settings storage) and the UI templates
-/// mods draw their windows with (`I.MWUI`). The camera, input, HUD, console, combat and
-/// spellcasting ones need the game itself.
-pub const BUILTINS: [&str; 9] = [
+/// activation, use, crimes, music, weather, the world's events, settings storage), the
+/// interfaces mods lean on (`I.Combat`, `I.UI`, `I.SkillProgression`,
+/// `I.AnimationController`, `I.Settings`), and the UI templates mods draw their windows
+/// with (`I.MWUI`). The camera, input, console and HUD ones need the game itself.
+pub const BUILTINS: [&str; 21] = [
     "scripts/omw/mwui/init.lua",
+    "scripts/omw/settings/global.lua",
+    "scripts/omw/settings/player.lua",
     "scripts/omw/activationhandlers.lua",
+    "scripts/omw/usehandlers.lua",
     "scripts/omw/worldeventhandlers.lua",
+    "scripts/omw/crimes.lua",
     "scripts/omw/ai.lua",
+    "scripts/omw/mechanics/animationcontroller.lua",
+    "scripts/omw/mechanics/actorcontroller.lua",
+    "scripts/omw/mechanics/globalcontroller.lua",
+    "scripts/omw/skillhandlers.lua",
+    "scripts/omw/playerskillhandlers.lua",
+    "scripts/omw/combat/interface.lua",
+    "scripts/omw/combat/local.lua",
+    "scripts/omw/combat/global.lua",
+    "scripts/omw/ui.lua",
     "scripts/omw/music/actor.lua",
     "scripts/omw/music/music.lua",
     "scripts/omw/weather.lua",
     "scripts/omw/cellhandlers.lua",
-    "scripts/omw/settings/global.lua",
 ];
 
 /* ---- the scene's collision, for nearby.castRay ------------------------------------------ */
@@ -49,6 +62,27 @@ pub struct Shape {
     lo: [f32; 3],
     hi: [f32; 3],
     pub enabled: bool,
+    /// OpenMW's collision type (`nearby.COLLISION_TYPE`): World 1, Door 2, Actor 4.
+    pub kind: u32,
+}
+
+/// `nearby.COLLISION_TYPE` as OpenMW has it.
+pub mod collision_type {
+    pub const WORLD: u32 = 1;
+    pub const DOOR: u32 = 2;
+    pub const ACTOR: u32 = 4;
+    pub const HEIGHT_MAP: u32 = 8;
+    pub const WATER: u32 = 32;
+    /// What a cast hits when it does not say: World, Door, Actor and HeightMap.
+    pub const DEFAULT: u32 = 15;
+    /// The collision type of an object by its record's tag.
+    pub fn of_tag(tag: &str) -> u32 {
+        match tag {
+            "DOOR" => DOOR,
+            "NPC_" | "CREA" => ACTOR,
+            _ => WORLD,
+        }
+    }
 }
 
 /// What a ray can hit: the objects' collision shapes (by key) and, outside, the land.
@@ -60,6 +94,9 @@ pub struct Collider {
     pub world: Option<std::sync::Arc<crate::world::World>>,
     /// Whether the player is outside (the land is there to hit).
     pub exterior: bool,
+    /// The water's height where there is water: the sea outside (0); an interior's own,
+    /// when it has water.
+    pub water: Option<f64>,
 }
 
 /// The scene's collision (one Lua at a time, as the runner).
@@ -89,7 +126,7 @@ impl Shape {
             }
             out.push([a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]]);
         }
-        Shape { tris: out, lo, hi, enabled }
+        Shape { tris: out, lo, hi, enabled, kind: collision_type::WORLD }
     }
 }
 
@@ -98,7 +135,8 @@ impl Shape {
 pub type Hit = ([f64; 3], [f64; 3], Option<String>);
 
 impl Collider {
-    pub fn cast(&self, a: [f64; 3], b: [f64; 3], ignore: Option<&str>) -> Option<Hit> {
+    /// What the ray meets first, of the collision types in `mask` (`collision_type`).
+    pub fn cast(&self, a: [f64; 3], b: [f64; 3], ignore: Option<&str>, mask: u32) -> Option<Hit> {
         let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         if len < 1e-6 {
@@ -106,7 +144,7 @@ impl Collider {
         }
         let mut best: Option<(f64, [f64; 3], Option<String>)> = None;
         for (k, s) in &self.shapes {
-            if !s.enabled || Some(k.as_str()) == ignore || !box_hit(a, d, s.lo, s.hi) {
+            if !s.enabled || s.kind & mask == 0 || Some(k.as_str()) == ignore || !box_hit(a, d, s.lo, s.hi) {
                 continue;
             }
             for t in &s.tris {
@@ -117,9 +155,18 @@ impl Collider {
                 }
             }
         }
-        if self.exterior {
+        if self.exterior && mask & collision_type::HEIGHT_MAP != 0 {
             if let Some((u, n)) = self.land_hit(a, d, best.as_ref().map_or(1.0, |b| b.0)) {
                 best = Some((u, n, None));
+            }
+        }
+        // The water's surface, from either side.
+        if let Some(w) = self.water.filter(|_| mask & collision_type::WATER != 0) {
+            if d[2].abs() > 1e-9 {
+                let u = (w - a[2]) / d[2];
+                if (0.0..=1.0).contains(&u) && best.as_ref().is_none_or(|b| u < b.0) {
+                    best = Some((u, [0.0, 0.0, if d[2] < 0.0 { 1.0 } else { -1.0 }], None));
+                }
             }
         }
         best.map(|(u, n, k)| ([a[0] + d[0] * u, a[1] + d[1] * u, a[2] + d[2] * u], n, k))
@@ -238,10 +285,11 @@ fn tri_hit(a: [f64; 3], d: [f64; 3], t: &[f32; 9]) -> Option<(f64, [f64; 3])> {
     Some((tt, [n[0] / l, n[1] / l, n[2] / l]))
 }
 
-/// The ray the Lua asks for (`__wg_ray`), against the scene's collision.
-pub fn ray(a: [f64; 3], b: [f64; 3], ignore: Option<&str>) -> Option<Hit> {
+/// The ray the Lua asks for (`__wg_ray`), against the scene's collision: the types in
+/// `mask` (`collision_type`).
+pub fn ray(a: [f64; 3], b: [f64; 3], ignore: Option<&str>, mask: u32) -> Option<Hit> {
     let g = COLLIDER.lock().ok()?;
-    g.as_ref()?.cast(a, b, ignore)
+    g.as_ref()?.cast(a, b, ignore, mask)
 }
 
 type St = *mut c_void;
@@ -273,7 +321,7 @@ struct RayFns {
 }
 static RAY_FNS: std::sync::Mutex<Option<RayFns>> = std::sync::Mutex::new(None);
 
-/// `__wg_ray(x1, y1, z1, x2, y2, z2 [, ignore])` on LuaJIT: nothing on a miss, else the
+/// `__wg_ray(x1, y1, z1, x2, y2, z2 [, ignore [, mask]])` on LuaJIT: nothing on a miss, else the
 /// point, the normal and the key of what was hit (nothing more for the land). It never
 /// raises a Lua error, so nothing unwinds through it.
 unsafe extern "C" fn ray_c(l: St) -> c_int {
@@ -290,7 +338,8 @@ unsafe extern "C" fn ray_c(l: St) -> c_int {
             } else {
                 None
             };
-            ray([num(1), num(2), num(3)], [num(4), num(5), num(6)], ignore.as_deref())
+            let mask = if n >= 8 && (f.type_)(l, 8) == 3 { num(8) as u32 } else { collision_type::DEFAULT };
+            ray([num(1), num(2), num(3)], [num(4), num(5), num(6)], ignore.as_deref(), mask)
         }
     });
     let Ok(Some((p, nrm, key))) = got else { return 0 };
@@ -430,9 +479,10 @@ impl Runner {
         }
         let lua = mlua::Lua::new();
         let rayf = lua
-            .create_function(|lua, (x1, y1, z1, x2, y2, z2, ig): (f64, f64, f64, f64, f64, f64, Option<String>)| {
+            .create_function(|lua, (x1, y1, z1, x2, y2, z2, ig, mask): (f64, f64, f64, f64, f64, f64, Option<String>, Option<f64>)| {
                 let mut out = mlua::MultiValue::new();
-                if let Some((p, n, k)) = ray([x1, y1, z1], [x2, y2, z2], ig.as_deref()) {
+                let mask = mask.map_or(collision_type::DEFAULT, |m| m as u32);
+                if let Some((p, n, k)) = ray([x1, y1, z1], [x2, y2, z2], ig.as_deref(), mask) {
                     for x in p.iter().chain(n.iter()) {
                         out.push_back(mlua::Value::Number(*x));
                     }
@@ -570,6 +620,22 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
     for aux in ["openmw_aux/util.lua", "openmw_aux/time.lua", "openmw_aux/calendar.lua", "openmw_aux/calendarconfig.lua", "openmw_aux/ui.lua"] {
         want.push(aux.into());
     }
+    // A mod's other modules too, by its folder: a `require` built from a string at run time
+    // (`require(base .. '.utils.defs')`) is not seen in the text.
+    let mut tops: Vec<String> = Vec::new();
+    for (p, _) in registered {
+        let p = p.replace('\\', "/").to_ascii_lowercase();
+        let mut parts = p.split('/');
+        if let (Some("scripts"), Some(top), Some(_)) = (parts.next(), parts.next(), parts.next()) {
+            let t = format!("scripts/{top}/");
+            if !tops.contains(&t) {
+                tops.push(t);
+            }
+        }
+    }
+    for t in &tops {
+        want.extend(vfs.list(t, &[".lua"]).into_iter().take(400));
+    }
     let mut seen: HashSet<String> = HashSet::new();
     while let Some(p) = want.pop() {
         let k = p.replace('\\', "/").to_ascii_lowercase();
@@ -690,7 +756,8 @@ mod tests {
         let mut r = Runner::new(jit.as_deref().map(Path::new), jit.is_none()).unwrap();
         let mod_ai = "local self = require('openmw.self') local I = require('openmw.interfaces') local util = require('openmw.util') local started = false\n\
             return { engineHandlers = { onUpdate = function() if started then return end started = true\n\
-            I.AI.startPackage({ type = 'Travel', destPosition = util.vector3(600, 0, 0) }) print('package', I.AI.getActivePackage().type) end } }";
+            I.AI.startPackage({ type = 'Travel', destPosition = util.vector3(600, 0, 0) }) print('package', I.AI.getActivePackage().type)\n\
+            print('interfaces', I.Combat ~= nil, I.AnimationController ~= nil) end } }";
         let vfs = Vfs::with_roots(&[]);
         let mut start = start_json(&vfs, Some(&res), &[], &["Clear".into(), "Rain".into()]);
         // The mod's script, as the load order would register it.
@@ -711,6 +778,7 @@ mod tests {
         }
         assert!(!all.contains("\"kind\":\"error\""), "{}: {all}", r.backend);
         assert!(all.contains(r#""text":"package Travel""#), "{all}");
+        assert!(all.contains(r#""text":"interfaces true true""#), "the interfaces mods use: {all}");
         assert!(all.contains(r#""k":"ai""#) && all.contains(r#""kind":"travel""#), "ai.lua's _startAiTravel: {all}");
         assert!(all.contains(r#""k":"activate","key":"d1""#) || all.contains(r#""key":"d1","by":"player""#) || all.contains(r#""k":"activate""#), "activationhandlers' standard action: {all}");
         assert!(all.contains(r#""k":"music""#), "OpenMW's music playlists: {all}");
@@ -726,6 +794,10 @@ mod tests {
         let m = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 500.0, 0.0, 0.0, 1.0, 100.0];
         let mut c = Collider::default();
         c.shapes.insert("w1".into(), Shape::placed(&quad, &m, [0.0, 0.0], true));
+        // A door further on, by its type.
+        let mut door = Shape::placed(&quad, &[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 800.0, 0.0, 0.0, 1.0, 100.0], [0.0, 0.0], true);
+        door.kind = collision_type::DOOR;
+        c.shapes.insert("d1".into(), door);
         *COLLIDER.lock().unwrap() = Some(c);
         let script = "local nearby = require('openmw.nearby') local util = require('openmw.util') local done = false\n\
             return { engineHandlers = { onUpdate = function() if done then return end done = true\n\
@@ -734,7 +806,8 @@ mod tests {
             local b = nearby.castRay(util.vector3(0, 0, 200), util.vector3(0, 1000, 200), { ignore = a.hitObject })\n\
             local c = nearby.castRay(util.vector3(0, 0, 200), util.vector3(0, 400, 200))\n\
             local d = nearby.castRay(util.vector3(0, 0, 600), util.vector3(0, 1000, 600))\n\
-            print('then', b.hit, c.hit, d.hit) end } }";
+            local e = nearby.castRay(util.vector3(0, 0, 200), util.vector3(0, 1000, 200), { collisionType = nearby.COLLISION_TYPE.Door })\n\
+            print('then', b.hit, c.hit, d.hit, b.hitObject and b.hitObject.recordId, e.hitObject and e.hitObject.recordId) end } }";
         let mut esc = String::from("\"");
         crate::json::escape_into(script, &mut esc);
         esc.push('"');
@@ -746,9 +819,10 @@ mod tests {
         for r in &mut runners {
             r.call("__wg_start", &start).unwrap();
             let got = r.call("__wg_step", r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"cell":{"name":"x","ext":false}},
-                "w1":{"id":"ex_wall","tag":"STAT","pos":[0,500,100],"cell":{"name":"x","ext":false}}}}"#).unwrap();
+                "w1":{"id":"ex_wall","tag":"STAT","pos":[0,500,100],"cell":{"name":"x","ext":false}},
+                "d1":{"id":"door_a","tag":"DOOR","pos":[0,800,100],"cell":{"name":"x","ext":false}}}}"#).unwrap();
             assert!(got.contains(r#""text":"hit true ex_wall 500 -1"#), "{}: {got}", r.backend);
-            assert!(got.contains(r#""text":"then false false false""#), "{}: {got}", r.backend);
+            assert!(got.contains(r#""text":"then true false false door_a door_a""#), "{}: {got}", r.backend);
         }
         *COLLIDER.lock().unwrap() = None;
     }
@@ -757,9 +831,15 @@ mod tests {
     fn the_land_is_hit_where_it_is() {
         let c = Collider { exterior: true, ..Default::default() };
         // No world: every square flat at -2048.
-        let h = c.cast([100.0, 100.0, 0.0], [100.0, 100.0, -5000.0], None).unwrap();
+        let h = c.cast([100.0, 100.0, 0.0], [100.0, 100.0, -5000.0], None, collision_type::DEFAULT).unwrap();
         assert!((h.0[2] + 2048.0).abs() < 0.01 && h.2.is_none() && (h.1[2] - 1.0).abs() < 1e-6, "{h:?}");
-        assert!(c.cast([100.0, 100.0, 0.0], [100.0, 100.0, -1000.0], None).is_none());
+        assert!(c.cast([100.0, 100.0, 0.0], [100.0, 100.0, -1000.0], None, collision_type::DEFAULT).is_none());
+        // Not asked for: the land is not hit; the water is, when asked.
+        assert!(c.cast([100.0, 100.0, 0.0], [100.0, 100.0, -5000.0], None, collision_type::WORLD).is_none());
+        let c = Collider { exterior: true, water: Some(0.0), ..Default::default() };
+        let w = c.cast([100.0, 100.0, 500.0], [100.0, 100.0, -5000.0], None, collision_type::WATER | collision_type::HEIGHT_MAP).unwrap();
+        assert!(w.0[2].abs() < 1e-6 && w.1[2] == 1.0, "the sea's surface: {w:?}");
+        assert!((c.cast([100.0, 100.0, 500.0], [100.0, 100.0, -5000.0], None, collision_type::DEFAULT).unwrap().0[2] + 2048.0).abs() < 0.01, "under it by default");
     }
 
     /// ui.create: a window from a template (its content into the template's slot), a
@@ -823,6 +903,28 @@ mod tests {
         assert!(got.contains("every frame"), "{got}");
         let again = r.call("__wg_step", r#"{"dt":0.05}"#).unwrap();
         assert!(!again.contains("every frame"), "the same error is not named again: {again}");
+    }
+
+    /// Keys over the Preview reach a player script's onKeyPress and input.isKeyPressed; an
+    /// exterior square entered for the first time calls the global scripts' onNewExterior,
+    /// once a square.
+    #[test]
+    fn keys_and_new_exteriors_reach_the_scripts() {
+        let player = "local input = require('openmw.input')\n\
+            return { engineHandlers = { onKeyPress = function(k) print('key', k.code == input.KEY.E, k.symbol, input.isKeyPressed(input.KEY.E)) end,\n\
+              onKeyRelease = function(k) print('up', input.isKeyPressed(k.code)) end } }";
+        let global = "return { engineHandlers = { onNewExterior = function(c) print('new', c.gridX, c.gridY) end } }";
+        let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/p.lua","flags":["PLAYER"]}},{{"path":"scripts/t/g.lua","flags":["GLOBAL"]}}],
+            "sources":{{"scripts/t/p.lua":{},"scripts/t/g.lua":{}}},"files":[],"weathers":["Clear"]}}"#, q(player), q(global));
+        let mut r = Runner::new(None, true).unwrap();
+        r.call("__wg_start", &start).unwrap();
+        let a = r.call("__wg_step", r#"{"dt":0.05,"player":{"pos":[100,100,0],"cell":{"name":"","ext":true,"gx":-2,"gy":-9}},"keys":[{"code":8,"down":true,"symbol":"e"}]}"#).unwrap();
+        assert!(a.contains(r#""text":"key true e true""#) && a.contains(r#""text":"new -2 -9""#), "{a}");
+        let b = r.call("__wg_step", r#"{"dt":0.05,"keys":[{"code":8,"down":false}]}"#).unwrap();
+        assert!(b.contains(r#""text":"up false""#) && !b.contains("new -2"), "once a square: {b}");
+        let c = r.call("__wg_step", r#"{"dt":0.05,"player":{"pos":[9000,100,0],"cell":{"name":"","ext":true,"gx":-1,"gy":-9}}}"#).unwrap();
+        assert!(c.contains(r#""text":"new -1 -9""#), "{c}");
     }
 
     /// OpenMW's own `mwui` templates (`WG_RESOURCES`): a player script's window from

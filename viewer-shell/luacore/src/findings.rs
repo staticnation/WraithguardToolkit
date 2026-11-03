@@ -354,7 +354,9 @@ fn glob_one(pattern: &str) -> Vec<PathBuf> {
     let (head, rest) = pattern.split_once('*').unwrap_or((pattern, ""));
     let (dir, prefix) = head.rsplit_once('/').unwrap_or(("", head));
     let rest = rest.trim_start_matches('/');
-    let mut out: Vec<PathBuf> = std::fs::read_dir(if dir.is_empty() { "/" } else { dir })
+    // A drive's root is `E:/`; `E:` alone is that drive's current folder.
+    let dir = if dir.is_empty() { "/".to_string() } else if dir.ends_with(':') { format!("{dir}/") } else { dir.to_string() };
+    let mut out: Vec<PathBuf> = std::fs::read_dir(&dir)
         .map(|rd| {
             rd.flatten()
                 .filter(|e| {
@@ -398,6 +400,17 @@ pub fn find_resources(cfg: Option<&Path>, explicit: Option<&Path>) -> Option<Pat
     }
     if cfg!(target_os = "macos") {
         tried.push(expand_user("~/Applications/OpenMW.app/Contents/Resources/resources"));
+    }
+    // An install at a drive's root or in its Games folder (`E:/OpenMW`, `D:/Games/OpenMW 0.50`).
+    if cfg!(windows) {
+        for d in 'C'..='Z' {
+            if !std::path::Path::new(&format!("{d}:/")).is_dir() {
+                continue;
+            }
+            for p in ["{d}:/OpenMW*/resources", "{d}:/Games/OpenMW*/resources", "{d}:/Program Files/OpenMW*/resources"] {
+                tried.extend(glob_one(&p.replace("{d}", &d.to_string())));
+            }
+        }
     }
     tried.into_iter().find(|p| is_resources(p))
 }

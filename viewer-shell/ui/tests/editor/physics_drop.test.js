@@ -34,7 +34,13 @@ module.exports = async (t) => {
   const crate = hit('k1', 'm\\crate.nif', [10, 20, 300]), leaf = hit('k2', 'm\\page.nif', [500, 0, 0]);
   const table = hit('k3', 'f\\table.nif', [0, 0, 0]), rock = hit('k4', 'r\\rock.nif', [90000, 0, 0]);
   w.App.R.pickables = [crate, leaf, table, rock];
-  w.App._scene = { origin: [4096, 0], centre: { kind: 'ext', x: 0, y: 0 } };
+  // The ground: one square with land (a stroke not yet kept raised a vertex), one with none,
+  // one far off.
+  const N = 65, hs = new w.Float32Array(N * N).fill(-100); hs[32 * N + 32] = 250.4;
+  w.App._scene = { origin: [4096, 0], centre: { kind: 'ext', x: 0, y: 0 },
+    cells: [{ kind: 'ext', gx: 0, gy: 0, heights: hs }, { kind: 'ext', gx: 1, gy: 0, heights: null }, { kind: 'ext', gx: 30, gy: 0, heights: hs }] };
+  // The crate's drawn triangles (one), for when its mesh has no collision.
+  crate.parts = [{ pos: new w.Float32Array([0, 0, 0, 10, 0, 0, 0, 10, 0]), idx: new w.Uint16Array([0, 1, 2]) }];
   let ghosts = [];
   w.App.R.setStaticHighlight = (l) => { ghosts = l; };
   E._group = [{ hit: crate, ref: r1 }, { hit: leaf, ref: r2 }];
@@ -49,6 +55,9 @@ module.exports = async (t) => {
   await P.start();
   t.ok(asked && asked.bodies.length === 2 && asked.bodies[0].key === 'k1' && asked.bodies[0].model === 'm\\crate.nif', 'the bodies go to the engine: ' + JSON.stringify(asked && asked.bodies[0]));
   t.ok(asked.statics.length === 1 && asked.statics[0].model === 'f\\table.nif', 'what is near them is the ground, not what is far off: ' + JSON.stringify(asked.statics.map(s => s.model)));
+  t.ok(JSON.stringify(asked.bodies[0].tris) === '[0,0,0,10,0,0,0,10,0]' && asked.bodies[1].tris.length === 0, 'the drawn triangles go too: ' + JSON.stringify(asked.bodies[0].tris));
+  t.ok(asked.land.length === 2 && asked.land[0].h[32 * N + 32] === 250 && asked.land[1].h === null, 'the ground as the render window has it, near them: ' + JSON.stringify(asked.land.map(l => [l.gx, l.h && l.h[32 * N + 32]])));
+  t.ok(asked.settings.hollow === true, 'hollow shapes by default');
   t.ok(asked.exterior === true && asked.origin[0] === 4096 && asked.settings.dropOnly === true && Math.abs(asked.settings.gravity - 9.81 * 70.3) < 1e-6, 'outside, with the land; the settings: ' + JSON.stringify(asked.settings));
   await p.wait(60);
   t.ok(ghosts.length === 2 && Math.abs(ghosts[0].m[11] - 200) < 1e-6, 'the fall plays as ghosts, in the render window\'s frame: ' + (ghosts[0] && ghosts[0].m[11]));

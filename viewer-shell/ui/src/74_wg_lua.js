@@ -32,7 +32,8 @@ const WgLua={
   async start(){
     await this.stop();
     let got;
-    try{ got=await Engine.call('lua_run_start',{weathers:this.weathers()}); }
+    let dir=''; try{ dir=localStorage.getItem('wgOpenMWDir')||''; }catch(_){ }
+    try{ got=await Engine.call('lua_run_start',{weathers:this.weathers(), openmw:dir||null}); }
     catch(e){ this.say('', 'error', 'OpenMW Lua did not start: '+String(e && e.message || e)); return; }
     this.note=got.note||''; this.backend=got.backend||''; this.resources=got.resources||'';
     if(!got.answer){ if(this.note) this.say('', 'skip', this.note); return; }
@@ -41,8 +42,33 @@ const WgLua={
     // OpenMW's playlists choose the music while its built-ins run.
     if(this.resources && typeof WgSound==='object') WgSound.place.scriptMusic=true;
     this.say('', 'do', 'OpenMW Lua on '+this.backend+(this.note? ' - '+this.note : ''));
+    this.listenKeys();
     this.apply(got.answer);
     await this.gather();
+  },
+  /** The OpenMW folder chosen (its LuaJIT and its built-in scripts), kept, and the Lua
+   *  started again on it. */
+  async chooseOpenMW(){
+    let p=null; try{ p=await Engine.pick('open',{directory:true}); }catch(_){ }
+    if(!p) return;
+    try{ localStorage.setItem('wgOpenMWDir', String(p)); }catch(_){ }
+    if(this.running) await this.start();
+    if(typeof WgScripts==='object' && WgScripts.drawState) WgScripts.drawState();
+  },
+  /** Keys over the Preview (not typed into a field), for the player scripts while the Lua runs. */
+  listenKeys(){
+    if(this._keysOn || typeof window==='undefined') return;
+    this._keysOn=true; this._keys=[];
+    const on=(e, down)=>{
+      if(!this.running || e.repeat) return;
+      const t=e.target, typing=t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.tagName==='SELECT' || t.isContentEditable);
+      if(typing) return;
+      const code=typeof WgLuaUI==='object'? WgLuaUI.scancode(e.code) : 0; if(!code) return;
+      this._keys.push({code, down, symbol:e.key && e.key.length===1? e.key : '', shift:e.shiftKey, ctrl:e.ctrlKey, alt:e.altKey});
+      if(this._keys.length>64) this._keys.shift();
+    };
+    window.addEventListener('keydown', e=>on(e, true), true);
+    window.addEventListener('keyup', e=>on(e, false), true);
   },
   async stop(){
     const was=this.running;
@@ -120,7 +146,7 @@ const WgLua={
     // The player (the camera), the clock and the weather.
     const pp=S.posOf({player:true}), az=R && R.cam? R.cam.az : 0, c=App._scene && App._scene.centre;
     const player={pos:pp.map(x=>Math.round(x)), yaw:Math.round(Math.atan2(-Math.cos(az), -Math.sin(az))*1e3)/1e3,
-      cell:c && c.kind==='int'? {name:c.name||'', ext:false} : {name:(c && c.name)||'', ext:true, gx:Math.floor(pp[0]/8192), gy:Math.floor(pp[1]/8192)}};
+      cell:c && c.kind==='int'? Object.assign({name:c.name||'', ext:false}, c.water!=null? {water:c.water} : {}) : {name:(c && c.name)||'', ext:true, gx:Math.floor(pp[0]/8192), gy:Math.floor(pp[1]/8192)}};
     const ps=JSON.stringify(player); if(ps!==this._sentP){ this._sentP=ps; out.player=player; }
     const h=typeof $==='function' && $('#p_hour'), w=typeof $==='function' && $('#p_weather');
     out.hour=h? +h.value : 12; out.day=S.state.day; out.month=S.state.month; out.year=S.state.year;
@@ -151,6 +177,8 @@ const WgLua={
     const jr={};
     for(const [k, v] of S.state.journal) if(this._sentJ.get(k)!==v){ this._sentJ.set(k, v); jr[k]=v; }
     if(Object.keys(jr).length) out.journal=jr;
+    // Keys pressed over the Preview since the last frame (player scripts' hotkeys).
+    if(this._keys && this._keys.length){ out.keys=this._keys; this._keys=[]; }
     const now=performance.now(), playing=[...S.loops.keys()];
     for(const [k, until] of S.playing) if(until>now) playing.push(k);
     out.sounds=playing;

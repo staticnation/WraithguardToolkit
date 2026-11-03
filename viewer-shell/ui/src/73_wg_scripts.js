@@ -391,6 +391,10 @@ const WgScripts={
       case 'getdetected': { const o=this.target(String(a[0]).toLowerCase(), ctx); return this.los(o, t) && this.dist(o, t)<2000? 1 : 0; }
       case 'getitemcount': { const A=this.actorOf(t); return A? A.items.get(String(a[0]).toLowerCase())||0 : 0; }
       case 'gethealth': { const A=this.actorOf(t); return A? A.hp : 0; }
+      // Spells: those the actor has (AddSpell), and those cast on it still running (ten
+      // seconds; their effects themselves are not worked out).
+      case 'getspell': { const A=this.actorOf(t); return A && A.spells && A.spells.has(String(a[0]).toLowerCase())? 1 : 0; }
+      case 'getspelleffects': { const A=this.actorOf(t), k=String(a[0]).toLowerCase(); return A && ((A.spells && A.spells.has(k)) || ((A.active && A.active.get(k))||0)>performance.now())? 1 : 0; }
       case 'getmagicka': { const A=this.actorOf(t); return A? A.mp : 0; }
       case 'getfatigue': { const A=this.actorOf(t); return A? A.fp : 0; }
       case 'ondeath': case 'onmurder': { const A=this.actorOf(t); if(A && A.dead && !A[name+'Seen']){ A[name+'Seen']=true; return 1; } return 0; }
@@ -479,7 +483,12 @@ const WgScripts={
       }
       case 'choice': did('Choice '+a.filter((_, i)=>i%2===0).join(' | ')+' (only in a dialogue result)'); return;
       case 'addtopic': { const k=String(a[0]); this.topics.add(k); did('AddTopic '+k); this.drawState(); return; }
-      case 'forcegreeting': if(t){ did('ForceGreeting: '+(t.id||'the player')+' greets the player (the dialogue itself is not run)'); this.flash(t); } return;
+      case 'forcegreeting': if(t && !t.player){
+        this.flash(t);
+        // The greeting itself in the Dialogue window's In game tab, when the Editor has it.
+        const open=typeof WgDial==='object' && WgDial.greetFrom? WgDial.greetFrom(t.id) : Promise.resolve(false);
+        Promise.resolve(open).then(ok=>did('ForceGreeting: '+t.id+' greets the player'+(ok? ' (in the Dialogue window\'s In game tab)' : ' (open the Editor to see the dialogue)')));
+      } return;
       case 'additem': case 'removeitem': case 'drop': {
         const A=this.actorOf(t); if(!A) return;
         const id=String(a[0]).toLowerCase(), n=Math.trunc(this.num(a[1]));
@@ -490,6 +499,30 @@ const WgScripts={
         this.drawState(); return;
       }
       case 'equip': did('Equip '+a[0]); return;
+      case 'addspell': case 'removespell': {
+        const A=this.actorOf(t); if(!A) return;
+        A.spells=A.spells||new Set();
+        const k=String(a[0]).toLowerCase();
+        if(fn==='addspell') A.spells.add(k); else A.spells.delete(k);
+        did((fn==='addspell'? 'AddSpell ' : 'RemoveSpell ')+a[0]); this.drawState(); return;
+      }
+      case 'cast': case 'explodespell': {
+        // On the target (Cast) or the caster itself (ExplodeSpell): flashed, and counted as
+        // on it for GetSpellEffects for ten seconds.
+        const on=fn==='cast'? this.target(String(a[1]||'').toLowerCase(), ctx) : t;
+        const A=this.actorOf(on); if(!A) return;
+        A.active=A.active||new Map(); A.active.set(String(a[0]).toLowerCase(), performance.now()+10000);
+        this.flash(on);
+        did((fn==='cast'? 'Cast ' : 'ExplodeSpell ')+a[0]+(fn==='cast'? ' on '+(on.player? 'the player' : on.id) : '')+' (its effects are not worked out)'); return;
+      }
+      case 'playgroup': case 'loopgroup': {
+        // Which animation each actor is playing, for the scripts that ask and the Actors list;
+        // the mesh itself is drawn standing.
+        const A=this.actorOf(t); if(!A) return;
+        A.anim={group:String(a[0]), loops:fn==='loopgroup'? this.num(a[1])|0 : 0};
+        did((fn==='playgroup'? 'PlayGroup ' : 'LoopGroup ')+a.join(' ')); this.drawLive(); return;
+      }
+      case 'skipanim': return;
       case 'sethealth': case 'setmagicka': case 'setfatigue':
       case 'modhealth': case 'modmagicka': case 'modfatigue':
       case 'modcurrenthealth': case 'modcurrentmagicka': case 'modcurrentfatigue': {
@@ -537,7 +570,10 @@ const WgScripts={
     const st=(def && def.stats)||[100, 100, 100];
     A={key, id:t.player? 'player' : t.id, tag:t.player? 'NPC_' : def? def.tag : '', t:t.player? {player:true} : t,
       items:new Map(((def && def.items)||[]).filter(([, n])=>n).map(([i, n])=>[i, Math.abs(n)])),
-      hp:st[0], mp:st[1], fp:st[2], max:st.slice(), ai:null, combat:null, dead:false, attacked:false, _hitT:0};
+      hp:st[0], mp:st[1], fp:st[2], max:st.slice(0, 3), ai:null, combat:null, dead:false, attacked:false, _hitT:0,
+      // How it fights (its NPDT's level, strength, agility, attack skill and, for a creature,
+      // its strongest attack); an auto-calculated NPC and the player: middling numbers.
+      fight:{level:st[3]||1, str:st[4]||50, agi:st[5]||50, attack:st[6]||(t.player? 50 : 35), most:st[7]||0}};
     this.actors.set(key, A);
     this.drawState();
     return A;
@@ -590,7 +626,7 @@ const WgScripts={
         else{
           this.face(A.t, this.posOf(foe));
           A._hitT+=dt;
-          if(A._hitT>=1){ A._hitT=0; this.hurt(fa, 4+Math.floor(Math.random()*8), A, null); }
+          if(A._hitT>=1){ A._hitT=0; this.blow(A, fa); }
         }
         continue;
       }
@@ -632,6 +668,17 @@ const WgScripts={
     return false;
   },
   face(t, at){ const p=this.posOf(t), r=this.rotOf(t); const z=Math.atan2(at[0]-p[0], at[1]-p[1]); if(Math.abs(r[2]-z)>0.05){ r[2]=z; this.place(t, {rot:r}); } },
+  /** One swing of a fight, roughly as the game weighs it: the chance to hit is the
+   *  attacker's skill and a fifth of its agility, less a fifth of the defender's; the blow is
+   *  a creature's attack (up to its strongest) or what an NPC's strength and skill give a
+   *  blow - with no weapons, armor or fatigue. */
+  blow(A, D){
+    const f=A.fight||{}, g=D.fight||{};
+    const chance=Math.max(5, Math.min(95, (f.attack||35)+(f.agi||50)/5+5-((g.agi||50)/5+5)));
+    if(Math.random()*100>=chance){ this.say(A.id, 'do', A.id+' misses '+D.id+' ('+Math.round(chance)+'% to hit)'); return; }
+    const n=f.most? 1+Math.floor(Math.random()*f.most) : Math.max(1, Math.round((1+(f.str||50)/10+(f.attack||35)/20)*(0.5+Math.random())));
+    this.hurt(D, n, A, null);
+  },
   /** A blow (or a health change): at 0 an actor dies, lies down, and stops fighting; the one
    *  struck fights back. */
   hurt(A, n, by, ctx){
@@ -852,6 +899,26 @@ const WgScripts={
   },
   /** The load order's globals at their start values, when none are known yet (the
    *  Dialogue window's In game tab checks conditions on them, the scripts not running). */
+  /** A save's game: its globals, its journal and what the player carries, into the game
+   *  state (the scripts, OpenMW Lua's quests and the dialogue rehearsal read them). Answers
+   *  what the save holds (`dialogue_state_from_save`), null when none was read. */
+  async fromSave(){
+    let p;
+    try{ p=await Engine.pick('open',{filters:[{name:'OpenMW saves', extensions:['omwsave']}]}); }catch(_){ return null; }
+    if(!p) return null;
+    let g;
+    try{ g=await Engine.call('dialogue_state_from_save',{path:String(p)}); if(typeof g==='string') g=JSON.parse(g); }
+    catch(e){ toast(String(e.message||e),'err',6000); return null; }
+    const S=this.state;
+    for(const x of g.globals||[]) S.globals.set(x.name.toLowerCase(), {name:x.name, kind:x.kind, v:x.value});
+    S.journal.clear();
+    for(const [q, i] of g.journal||[]) S.journal.set(String(q).toLowerCase(), i);
+    const A=this.actorOf({player:true});
+    if(A && g.inventory){ A.items.clear(); for(const [id, n] of g.inventory) A.items.set(String(id).toLowerCase(), n); }
+    this.drawState(); this.drawPlayer && this.drawPlayer();
+    this.say('', 'do', 'from '+(g.name||'a save')+': '+(g.globals||[]).length+' globals, '+(g.journal||[]).length+' quests, '+(g.inventory||[]).length+' kinds of item');
+    return g;
+  },
   async loadGlobals(){
     if(this.state.globals.size) return;
     let got;
@@ -974,8 +1041,14 @@ const WgScripts={
   drawState(){
     const box=this._el && this._el.querySelector('#wgScrState'); if(!box) return;
     if(box.contains(document.activeElement)) return;   // not under the person typing
+    /* Drawn again as the scripts change things: the globals list keeps where it was
+       scrolled and what it was filtered by (Static, 2026-11-03: "cant scroll down the
+       first inner window it resets to top when I try"). */
+    const oldG=box.querySelector('#wgScrGlobals'), keepTop=oldG? oldG.scrollTop : 0;
+    const oldF=box.querySelector('#wgScrGF'), keepF=oldF? oldF.value : '';
     const S=this.state, row=(label, input)=>'<div class="orirow"><span class="k">'+label+'</span><span class="v">'+input+'</span></div>';
     let h=row('Day / month / year','<input class="fld" type="number" data-st="day" value="'+S.day+'" style="width:52px"> <input class="fld" type="number" data-st="month" value="'+S.month+'" style="width:44px"> <input class="fld" type="number" data-st="year" value="'+S.year+'" style="width:60px">');
+    h+='<div class="orirow"><span class="k">Game</span><span class="v"><button class="btn sm" id="wgScrSave" title="A save\'s globals, journal and what the player carries">From a save…</button></span></div>';
     h+='<div class="orirow"><span class="k">Globals</span><span class="v"><input class="fld" id="wgScrGF" placeholder="Filter" style="width:100%"></span></div><div id="wgScrGlobals" style="max-height:160px;overflow:auto"></div>';
     h+='<div class="orirow"><span class="k">Journal</span><span class="v"><input class="fld" id="wgScrJId" placeholder="Quest id" style="width:110px"> <input class="fld" type="number" id="wgScrJIx" placeholder="Index" style="width:60px"> <button class="btn sm" id="wgScrJSet">Set</button></span></div>';
     h+='<div class="hint">'+[...S.journal].map(([k,v])=>escHtml(k)+' '+v).join(' · ')+'</div>';
@@ -983,6 +1056,7 @@ const WgScripts={
     box.innerHTML=h;
     this.drawPlayer();
     box.querySelectorAll('[data-st]').forEach(i=>i.onchange=()=>{ S[i.dataset.st]=Math.trunc(+i.value||0); });
+    box.querySelector('#wgScrSave').onclick=()=>this.fromSave();
     const drawG=()=>{
       const f=(box.querySelector('#wgScrGF').value||'').toLowerCase();
       const list=[...S.globals.entries()].filter(([k])=>!f || k.includes(f)).sort((a,b)=>a[0]<b[0]?-1:1).slice(0, 200);
@@ -990,12 +1064,14 @@ const WgScripts={
       g.innerHTML=list.map(([k,v])=>'<div class="orirow"><span class="k" title="'+(v.kind==='f'? 'float' : v.kind==='l'? 'long' : 'short')+'">'+escHtml(v.name)+'</span><span class="v"><input class="fld" type="number" step="any" data-g="'+escHtml(k)+'" value="'+v.v+'" style="width:90px"></span></div>').join('')||'<div class="hint">No global matches.</div>';
       g.querySelectorAll('[data-g]').forEach(i=>i.onchange=()=>{ const v=S.globals.get(i.dataset.g); if(v) v.v=v.kind==='f'? +i.value||0 : Math.trunc(+i.value||0); });
     };
+    box.querySelector('#wgScrGF').value=keepF;
     box.querySelector('#wgScrGF').oninput=drawG;
     box.querySelector('#wgScrJSet').onclick=()=>{
       const id=(box.querySelector('#wgScrJId').value||'').trim().toLowerCase(); if(!id) return;
       S.journal.set(id, Math.trunc(+box.querySelector('#wgScrJIx').value||0)); this.drawState();
     };
     drawG();
+    box.querySelector('#wgScrGlobals').scrollTop=keepTop;
   },
   drawLive(){
     const box=this._el && this._el.querySelector('#wgScrLive'); if(!box) return;
@@ -1011,13 +1087,18 @@ const WgScripts={
       box.innerHTML+='<br>'+(st? 'OpenMW Lua on '+escHtml(WgLua.backend.replace(/ - .*/, ''))+': '+n(st.global)+'global, '+n(st.player)+'player and '+st['local']+' object script'+(st['local']===1?'':'s')+(st.timers? ', '+st.timers+' timer'+(st.timers===1?'':'s')+' waiting' : '')+'.'+
         (st.failing && st.failing.length? ' Failing: '+escHtml([].concat(st.failing).slice(0, 6).join(', ')) : '')+(WgLua.note? ' '+escHtml(WgLua.note) : '') :
         'OpenMW Lua: '+escHtml(WgLua.note||(WgLua.running? 'starting…' : 'not running.')));
+      let dir=''; try{ dir=localStorage.getItem('wgOpenMWDir')||''; }catch(_){ }
+      box.innerHTML+=' <button class="btn sm" id="wgScrOmw" title="The OpenMW folder (the one with openmw.exe): its LuaJIT runs the scripts and its built-in scripts (AI, activation, music, combat) run with them'+(dir? '. Now: '+escHtml(dir) : '')+'">OpenMW folder…</button>'+
+        (WgLua.resources? ' <span class="hint">Built-ins from '+escHtml(WgLua.resources)+'</span>' : '');
+      const ob=box.querySelector('#wgScrOmw'); if(ob) ob.onclick=()=>WgLua.chooseOpenMW();
     }
     const ab=this._el.querySelector('#wgScrActors');
     if(ab){
       const AIN={wander:'wandering', travel:'traveling', follow:'following', escort:'escorting', activate:'going to activate'};
       const rows=[...this.actors.values()].filter(A=>A.key!=='player').slice(0, 40).map(A=>{
         const what=A.dead? 'dead' : A.combat? 'fighting '+(A.combat.player? 'the player' : A.combat.id) : A.ai && !A.ai.done? AIN[A.ai.kind]+(A.ai.who? ' '+(A.ai.who.player? 'the player' : A.ai.who.id) : '') : A.ai? A.ai.kind+' done' : '';
-        return '<div>'+escHtml(A.id)+(A.tag==='CONT'? '' : ': '+Math.max(0, Math.round(A.hp))+'/'+Math.round(A.max[0])+' health')+(what? ', '+escHtml(what) : '')+(A.items.size? ', carries '+A.items.size+' kinds' : '')+'</div>';
+        return '<div>'+escHtml(A.id)+(A.tag==='CONT'? '' : ': '+Math.max(0, Math.round(A.hp))+'/'+Math.round(A.max[0])+' health')+(what? ', '+escHtml(what) : '')+
+          (A.anim? ', playing '+escHtml(A.anim.group) : '')+(A.spells && A.spells.size? ', '+A.spells.size+' spell'+(A.spells.size===1? '' : 's') : '')+(A.items.size? ', carries '+A.items.size+' kinds' : '')+'</div>';
       });
       ab.innerHTML=rows.join('')||'None yet: an actor is listed once a script asks about it.';
     }

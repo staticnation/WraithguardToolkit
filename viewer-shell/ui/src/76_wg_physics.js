@@ -10,7 +10,7 @@
    StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
 const WgPhysics={
-  st:{gravity:1, friction:0.7, bounce:0.05, seconds:6, dropOnly:false},
+  st:{gravity:1, friction:0.7, bounce:0.05, seconds:6, dropOnly:false, hollow:true},
   run:null,               // {bodies:[{hit, ref, off, scale}], frames, i, raf}
   REACH:1024,             // how far around the bodies other objects count as ground (units)
 
@@ -49,7 +49,8 @@ const WgPhysics={
       rng('bounce', 'Bounce', 0, 0.9, 0.05, 'How much of the fall comes back as a bounce')+
       rng('seconds', 'Time limit', 1, 20, 1, 'The most seconds to let them fall and roll; they stop sooner when they come to rest');
     h+='<div class="lrow" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">'+
-      '<button class="btn sm'+(s.dropOnly? ' pri' : '')+'" id="wgPhysOnly" title="Only fall: they keep their turn and do not tip over">Drop only</button></div>';
+      '<button class="btn sm'+(s.dropOnly? ' pri' : '')+'" id="wgPhysOnly" title="Only fall: they keep their turn and do not tip over">Drop only</button>'+
+      '<button class="btn sm'+(s.hollow? ' pri' : '')+'" id="wgPhysHollow" title="Keep their hollows: a bowl or a cart is split into convex parts, so things can land inside it. Off, each is one hull round all of it (faster)">Hollow shapes</button></div>';
     h+='<div class="lrow" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">'+
       '<button class="btn sm pri" id="wgPhysRun" title="Let the selected objects fall (the selection, or every object Ctrl+clicked)"'+(r && r.busy? ' disabled' : '')+'>Run</button>'+
       '<button class="btn sm" id="wgPhysKeep" title="Put them where they came to rest: one move, one Ctrl+Z"'+(r && r.frames? '' : ' disabled')+'>Keep</button>'+
@@ -61,6 +62,7 @@ const WgPhysics={
       const v=box.querySelector('[data-v="'+el.dataset.k+'"]'); if(v) v.textContent=this.shown(el.dataset.k);
     });
     box.querySelector('#wgPhysOnly').onclick=()=>{ s.dropOnly=!s.dropOnly; this.keep(); this.draw(); };
+    box.querySelector('#wgPhysHollow').onclick=()=>{ s.hollow=!s.hollow; this.keep(); this.draw(); };
     box.querySelector('#wgPhysRun').onclick=()=>this.start();
     box.querySelector('#wgPhysKeep').onclick=()=>this.commit();
     box.querySelector('#wgPhysDrop').onclick=()=>this.discard();
@@ -95,11 +97,35 @@ const WgPhysics={
       if(!o || !o.model || !o.m || o.hidden || keys.has(String(o.refKey||'').toLowerCase())) continue;
       if(near(o)) statics.push({model:o.model, m:Array.from(o.m).slice(0, 12)});
     }
+    const exterior=!(sc.centre && sc.centre.kind==='int');
     return {
-      bodies:list.map(g=>({key:String(g.hit.refKey||''), model:g.hit.model, m:Array.from(g.hit.m).slice(0, 12)})),
-      statics, origin:sc.origin||[0,0], exterior:!(sc.centre && sc.centre.kind==='int'),
-      settings:{gravity:9.81*70.3*this.st.gravity, friction:this.st.friction, bounce:this.st.bounce, seconds:this.st.seconds, dropOnly:this.st.dropOnly},
+      bodies:list.map(g=>({key:String(g.hit.refKey||''), model:g.hit.model, m:Array.from(g.hit.m).slice(0, 12), tris:this.drawn(g.hit)})),
+      statics, origin:sc.origin||[0,0], exterior, land:exterior? this.land(lo, hi) : [],
+      settings:{gravity:9.81*70.3*this.st.gravity, friction:this.st.friction, bounce:this.st.bounce, seconds:this.st.seconds, dropOnly:this.st.dropOnly, hollow:this.st.hollow},
     };
+  },
+  /** An object's drawn triangles in its own units (nine numbers each), for a mesh with no
+   *  collision; at most 6000 of them. */
+  drawn(o){
+    const out=[], MAX=6000*9;
+    for(const part of o.parts||[]){
+      const V=part.pos, I=part.idx; if(!V || !I) continue;
+      for(let t=0; t+2<I.length && out.length<MAX; t+=3)
+        for(let k=0;k<3;k++){ const q=I[t+k]*3; out.push(Math.round(V[q]*10)/10, Math.round(V[q+1]*10)/10, Math.round(V[q+2]*10)/10); }
+    }
+    return out;
+  },
+  /** The ground as the render window has it, squares near the bodies (the Land view's
+   *  strokes not yet kept are in it): 65 x 65 heights, null for a square with no land. */
+  land(lo, hi){
+    const sc=App._scene||{}, o=sc.origin||[0,0], out=[], C=8192;
+    for(const c of sc.cells||[]){
+      if(c.kind==='int' || c.gx==null) continue;
+      const x0=c.gx*C-o[0], y0=c.gy*C-o[1];
+      if(x0>hi[0]+C || x0+C<lo[0]-C || y0>hi[1]+C || y0+C<lo[1]-C) continue;
+      out.push({gx:c.gx, gy:c.gy, h:c.heights? Array.from(c.heights, v=>Math.round(v)) : null});
+    }
+    return out;
   },
 
   async start(){

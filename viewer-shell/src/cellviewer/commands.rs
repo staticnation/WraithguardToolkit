@@ -6005,7 +6005,7 @@ static LUA_RUN: std::sync::Mutex<Option<viewcore::luarun::Runner>> = std::sync::
 /// `{backend, resources, note, answer: {effects, log, status}}`; a Morrowind.ini setup has
 /// no Lua and gets only a `note`.
 #[tauri::command(async)]
-fn lua_run_start(weathers: Vec<String>, state: State) -> Result<String, String> {
+fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, state: State) -> Result<String, String> {
     let (vfs, order) = {
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone())
@@ -6015,20 +6015,35 @@ fn lua_run_start(weathers: Vec<String>, state: State) -> Result<String, String> 
         return Ok(serde_json::json!({"note": "Not an OpenMW setup: Morrowind.ini load orders have no Lua scripts."}).to_string());
     };
     let cfg = order.as_deref().filter(|p| viewcore::luascan::is_openmw_cfg(p));
-    let resources = viewcore::luacore::findings::find_resources(cfg, None);
+    // The OpenMW folder the person chose (or its resources), before the cfg and the usual places.
+    let chosen = openmw.filter(|p| !p.trim().is_empty()).map(|p| std::path::PathBuf::from(p.trim().trim_matches('"')));
+    let resources = viewcore::luacore::findings::find_resources(cfg, chosen.as_deref());
     let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
     let mut run = viewcore::luarun::Runner::new(jit.as_deref(), false)?;
     let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers);
     let answer = run.call("__wg_start", &start)?;
     let backend = run.backend.clone();
     *LUA_RUN.lock().map_err(|e| e.to_string())? = Some(run);
+    *LUA_RESOURCES.lock().map_err(|e| e.to_string())? = resources.clone();
     // nearby.castRay's world: the land now, the objects' shapes as the frames bring them.
     let world = { state.app().world.clone() };
     *viewcore::luarun::COLLIDER.lock().map_err(|e| e.to_string())? = Some(viewcore::luarun::Collider { world, ..Default::default() });
     *LUA_SHAPES.lock().map_err(|e| e.to_string())? = None;
-    let note = if resources.is_none() { "OpenMW's resources folder was not found: its built-in scripts (I.AI, activation, music) are not running." } else { "" };
+    let note = if resources.is_none() { "OpenMW's resources folder was not found: its built-in scripts (I.AI, activation, music, combat) are not running. Choose the OpenMW folder (the one with openmw.exe) to run them." } else { "" };
     let answer: serde_json::Value = serde_json::from_str(&answer).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({"backend": backend, "resources": resources.map(|p| p.display().to_string()), "note": note, "answer": answer}).to_string())
+}
+
+/// Wraithguard: the OpenMW resources folder the Preview's Lua runs on (its built-ins and fonts).
+static LUA_RESOURCES: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+
+/// Wraithguard: OpenMW's own font for the windows Lua scripts make (`ui.create`): its
+/// resources' MysticCards, as the game draws them. Empty when no resources are known.
+#[tauri::command(async)]
+fn lua_ui_font() -> Result<tauri::ipc::Response, String> {
+    let r = LUA_RESOURCES.lock().map_err(|e| e.to_string())?.clone();
+    let bytes = r.and_then(|r| std::fs::read(r.join("vfs").join("fonts").join("MysticCards.ttf")).ok()).unwrap_or_default();
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Wraithguard: one frame of the Preview's OpenMW Lua: what changed in the scene in (JSON,
@@ -6077,6 +6092,8 @@ fn lua_collision(frame: &str, state: &State) {
     let Some(col) = col.as_mut() else { return };
     if let Some(ext) = v.pointer("/player/cell/ext").and_then(serde_json::Value::as_bool) {
         col.exterior = ext;
+        // The sea outside; an interior's water when the page says it has some.
+        col.water = if ext { Some(0.0) } else { v.pointer("/player/cell/water").and_then(serde_json::Value::as_f64) };
     }
     let Some(objs) = v.get("objects").and_then(serde_json::Value::as_object) else { return };
     let origin = v.get("origin").and_then(serde_json::Value::as_array).map(|o| [o.first().and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32, o.get(1).and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32]).unwrap_or([0.0, 0.0]);
@@ -6100,7 +6117,9 @@ fn lua_collision(frame: &str, state: &State) {
         }
         match collision_tris(&vfs, model) {
             Some(t) => {
-                col.shapes.insert(k.clone(), viewcore::luarun::Shape::placed(&t, &mm, origin, enabled));
+                let mut sh = viewcore::luarun::Shape::placed(&t, &mm, origin, enabled);
+                sh.kind = viewcore::luarun::collision_type::of_tag(o.get("tag").and_then(serde_json::Value::as_str).unwrap_or(""));
+                col.shapes.insert(k.clone(), sh);
             }
             None => {
                 col.shapes.remove(k);
@@ -6111,9 +6130,12 @@ fn lua_collision(frame: &str, state: &State) {
 
 /// Wraithguard: the Editor's Physics drop (`physcore`): the `bodies` fall onto the
 /// `statics` and, outside, the land, until they rest or `settings.seconds` runs out.
-/// `request`: `{bodies: [{key, model, m}], statics: [{model, m}], origin: [x, y],
-/// exterior, settings: {gravity, friction, bounce, seconds, dropOnly}}`, each `m` the
-/// renderer's matrix (3x4, rows) in the scene's frame. Answers `{frames: [[[x, y, z, rx,
+/// `request`: `{bodies: [{key, model, m, tris?}], statics: [{model, m}], origin: [x, y],
+/// exterior, land?: [{gx, gy, h}], settings: {gravity, friction, bounce, seconds, dropOnly,
+/// hollow}}`, each `m` the renderer's matrix (3x4, rows) in the scene's frame. A body's
+/// `tris` (its drawn triangles, nine numbers each) stand in for a mesh with no collision;
+/// `land` is the ground as the page has it (the Land view's strokes not yet kept), a
+/// square's 65 x 65 heights, `null` for none - the load order's for squares not given. Answers `{frames: [[[x, y, z, rx,
 /// ry, rz]]], seconds, settled, skipped}`, positions in the world's units.
 #[tauri::command(async)]
 fn phys_drop(request: String, state: State) -> Result<String, String> {
@@ -6143,6 +6165,7 @@ fn phys_drop(request: String, state: State) -> Result<String, String> {
         max_seconds: num("seconds", d.max_seconds).clamp(0.1, 30.0),
         drop_only: st.get("dropOnly").and_then(serde_json::Value::as_bool).unwrap_or(false),
         fps: 30.0,
+        hollow: st.get("hollow").and_then(serde_json::Value::as_bool).unwrap_or(true),
     };
     // The bodies: their collision's points, where they stand in the world, turned and scaled.
     let mut bodies = Vec::new();
@@ -6152,7 +6175,11 @@ fn phys_drop(request: String, state: State) -> Result<String, String> {
         let scale = (m[0] * m[0] + m[4] * m[4] + m[8] * m[8]).sqrt().max(1e-6);
         let rot = pc::angles(glam_mat3_from_rows([[m[0] / scale, m[1] / scale, m[2] / scale], [m[4] / scale, m[5] / scale, m[6] / scale], [m[8] / scale, m[9] / scale, m[10] / scale]]));
         let pos = [m[3] + origin[0], m[7] + origin[1], m[11]];
-        let points = collision_tris(&vfs, model).map(|t| t.to_vec()).unwrap_or_default();
+        // Its collision; for a mesh with none (marked so, or nothing in it collides), what is drawn.
+        let points = collision_tris(&vfs, model).map(|t| t.to_vec()).unwrap_or_else(|| {
+            let f: Vec<f32> = b.get("tris").and_then(serde_json::Value::as_array).into_iter().flatten().map(f).collect();
+            f.as_chunks::<3>().0.to_vec()
+        });
         for k in 0..2 {
             lo[k] = lo[k].min(pos[k]);
             hi[k] = hi[k].max(pos[k]);
@@ -6171,13 +6198,24 @@ fn phys_drop(request: String, state: State) -> Result<String, String> {
         }
     }
     if req.get("exterior").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+        // The page's ground first: the Land view's strokes are in it before they are kept.
+        let mut given: std::collections::HashMap<(i32, i32), Option<Vec<f32>>> = std::collections::HashMap::new();
+        for l in req.get("land").and_then(serde_json::Value::as_array).into_iter().flatten() {
+            let (Some(gx), Some(gy)) = (l.get("gx").and_then(serde_json::Value::as_i64), l.get("gy").and_then(serde_json::Value::as_i64)) else { continue };
+            let h = l.get("h").and_then(serde_json::Value::as_array).map(|a| a.iter().map(f).collect::<Vec<f32>>()).filter(|h| h.len() == 65 * 65);
+            given.insert((gx as i32, gy as i32), h);
+        }
         let reach = 8192.0;
         let cell = |v: f32| (v / 8192.0).floor() as i32;
         for gx in cell(lo[0] - reach)..=cell(hi[0] + reach) {
             for gy in cell(lo[1] - reach)..=cell(hi[1] + reach) {
-                let tris = match world.as_ref().and_then(|w| w.lands.get(&(gx, gy))) {
-                    Some(l) => pc::land_tris((gx, gy), &l.heights[..]),
-                    None => pc::flat_square((gx, gy)),
+                let tris = match given.get(&(gx, gy)) {
+                    Some(Some(h)) => pc::land_tris((gx, gy), h),
+                    Some(None) => pc::flat_square((gx, gy)),
+                    None => match world.as_ref().and_then(|w| w.lands.get(&(gx, gy))) {
+                        Some(l) => pc::land_tris((gx, gy), &l.heights[..]),
+                        None => pc::flat_square((gx, gy)),
+                    },
                 };
                 statics.push(pc::Static { tris });
             }
@@ -6210,7 +6248,7 @@ fn dialogue_state_from_save(path: String) -> Result<String, String> {
     let g = toolscore::save::game_state(&data)?;
     let globals: Vec<serde_json::Value> = g.globals.iter().map(|(n, k, v)| serde_json::json!({"name": n, "kind": k.to_string(), "value": v})).collect();
     Ok(serde_json::json!({"name": g.name, "sex": g.sex, "race": g.race, "class": g.class, "level": g.level,
-        "factions": g.factions, "globals": globals, "journal": g.journal}).to_string())
+        "factions": g.factions, "globals": globals, "journal": g.journal, "inventory": g.inventory}).to_string())
 }
 
 /// Wraithguard: the player's stats from an OpenMW save, for the first-person body
@@ -6559,6 +6597,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             lua_run_stop,
             dialogue_state_from_save,
             phys_drop,
+            lua_ui_font,
             write_b64,
             wg_save_edited,
             wg_open_record,

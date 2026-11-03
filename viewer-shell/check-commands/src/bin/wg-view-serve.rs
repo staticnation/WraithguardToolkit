@@ -144,11 +144,12 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "scene_scripts" => Reply::Json(t::scene_scripts(strs(a, "ids"), st())?),
         "script_texts" => Reply::Json(t::script_texts(strs(a, "names"), st())?),
         "lua_scene" => Reply::Json(t::lua_scene(strs(a, "ids"), st())?),
-        "lua_run_start" => Reply::Json(t::lua_run_start(strs(a, "weathers"), st())?),
+        "lua_run_start" => Reply::Json(t::lua_run_start(strs(a, "weathers"), Some(s(a, "openmw")).filter(|x| !x.is_empty()), st())?),
         "lua_run_step" => Reply::Json(t::lua_run_step(s(a, "frame"), st())?),
         "lua_run_stop" => Reply::Json(t::lua_run_stop()?),
         "dialogue_state_from_save" => Reply::Json(t::dialogue_state_from_save(s(a, "path"))?),
         "phys_drop" => Reply::Json(t::phys_drop(s(a, "request"), st())?),
+        "lua_ui_font" => Reply::Bytes(t::lua_ui_font()?.0),
         "write_b64" => {
             t::write_b64(s(a, "path"), s(a, "data"))?;
             Reply::Raw("true".into())

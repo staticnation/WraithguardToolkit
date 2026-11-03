@@ -408,6 +408,15 @@ pub struct PlayState {
     pub journal: HashMap<String, f64>,
     pub items: HashMap<String, f64>,
     pub new_game: bool,
+    /// Every faction the player is in, with the rank (lower id): from a save with several,
+    /// in place of `pc_faction` and `pc_rank`.
+    pub factions: HashMap<String, i64>,
+    /// The speaker's MWScript locals as the scene has them (lower name), over the values
+    /// their script starts with.
+    pub locals: HashMap<String, f64>,
+    /// The game state was given (the In game tab's): the speaker's script is read for
+    /// Local and NotLocal. Without it they are only assumed, as before.
+    pub given: bool,
 }
 
 impl PlayState {
@@ -435,9 +444,44 @@ impl PlayState {
         p.globals = map("globals");
         p.journal = map("journal");
         p.items = map("items");
+        p.locals = map("locals");
+        p.factions = map("factions").into_iter().map(|(k, v)| (k, v.trunc() as i64)).collect();
         p.new_game = st.get("newGame").is_some_and(truthy);
+        p.given = true;
         p
     }
+
+    /// The player's rank in `faction` (lower), when it is known they are in it; `Some(None)`
+    /// when they are in it at a rank not given; `None` when they are not in it (or nothing
+    /// is known: see `knows_factions`).
+    fn rank_in(&self, faction: &str) -> Option<Option<i64>> {
+        if !self.factions.is_empty() {
+            return self.factions.get(faction).map(|r| Some(*r).filter(|r| *r >= 0));
+        }
+        self.pc_faction.as_ref().filter(|f| f.to_lowercase() == faction).map(|_| self.pc_rank)
+    }
+
+    /// Whether the player's factions are known (set, or read from a save).
+    fn knows_factions(&self) -> bool {
+        !self.factions.is_empty() || self.pc_faction.is_some()
+    }
+}
+
+/// The local variables an MWScript declares (`short`, `long`, `float`), lower case.
+pub fn declared_locals(source: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in source.lines() {
+        let code = line.split(';').next().unwrap_or("").trim();
+        let mut words = code.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty());
+        let Some(kind) = words.next() else { continue };
+        if !matches!(kind.to_ascii_lowercase().as_str(), "short" | "long" | "float") {
+            continue;
+        }
+        if let Some(name) = words.next() {
+            out.push(name.trim_matches('"').to_lowercase());
+        }
+    }
+    out
 }
 
 /// A condition's comparison, on numbers.
@@ -1016,18 +1060,19 @@ impl DialogueIndex {
         if rec.get("player_faction").is_some_and(truthy) {
             let f = low(rec.get("player_faction"));
             let prank = data.and_then(|d| d.get("player_rank")).and_then(Value::as_f64);
-            match &st.pc_faction {
-                Some(pf) => {
-                    let member = pf.to_lowercase() == f;
-                    let ok = if prank == Some(0.0) { !member } else { member && prank.is_none_or(|r| r < 0.0 || st.pc_rank.is_none_or(|have| have as f64 >= r)) };
-                    if !ok {
-                        return (false, Vec::new());
-                    }
-                    if member && prank.is_some_and(|r| r > 0.0) && st.pc_rank.is_none() {
-                        unchecked.push(format!("player rank in faction {}", str_of(&rec["player_faction"])));
-                    }
+            if st.knows_factions() {
+                let have = st.rank_in(&f);
+                let member = have.is_some();
+                let rank = have.flatten();
+                let ok = if prank == Some(0.0) { !member } else { member && prank.is_none_or(|r| r < 0.0 || rank.is_none_or(|have| have as f64 >= r)) };
+                if !ok {
+                    return (false, Vec::new());
                 }
-                None => unchecked.push(format!("player faction {}", str_of(&rec["player_faction"]))),
+                if member && prank.is_some_and(|r| r > 0.0) && rank.is_none() {
+                    unchecked.push(format!("player rank in faction {}", str_of(&rec["player_faction"])));
+                }
+            } else {
+                unchecked.push(format!("player faction {}", str_of(&rec["player_faction"])));
             }
         }
         if choice_gate(rec).is_some_and(|g| g != choice) {
@@ -1058,11 +1103,11 @@ impl DialogueIndex {
                         "PcLevel" => st.pc_level,
                         "SameSex" => pc_sex.zip(npc_sex).map(|(a, b)| if a == b { 1.0 } else { 0.0 }),
                         "SameRace" => st.pc_race.as_ref().map(|r| if r.to_lowercase() == low(npc.get("race")) { 1.0 } else { 0.0 }),
-                        "SameFaction" => st.pc_faction.as_ref().map(|f| if !npc_f.is_empty() && f.to_lowercase() == npc_f { 1.0 } else { 0.0 }),
+                        "SameFaction" => st.knows_factions().then(|| if !npc_f.is_empty() && st.rank_in(&npc_f).is_some() { 1.0 } else { 0.0 }),
                         "FactionRankDifference" => {
                             let nr = st.npc_rank.or_else(|| npc.get("rank").and_then(Value::as_i64));
-                            match (&st.pc_faction, st.pc_rank, nr) {
-                                (Some(f), Some(pr), Some(nr)) if f.to_lowercase() == npc_f => Some((pr - nr) as f64),
+                            match (st.rank_in(&npc_f).flatten(), nr) {
+                                (Some(pr), Some(nr)) if !npc_f.is_empty() => Some((pr - nr) as f64),
                                 _ => None,
                             }
                         }
@@ -1073,6 +1118,25 @@ impl DialogueIndex {
                 Some("Journal") => st.journal.get(&low(flt.get("id"))).copied().or(st.new_game.then_some(0.0)),
                 Some("Item") => st.items.get(&low(flt.get("id"))).copied().or(st.new_game.then_some(0.0)),
                 Some("Dead") => st.new_game.then_some(0.0),
+                // The speaker's own MWScript local: known when their script is (`locals`, by
+                // the rehearsal); one their script does not have fails, as in the game.
+                Some("Local") => match npc.get("locals").and_then(Value::as_object) {
+                    Some(l) => match l.get(&low(flt.get("id"))).and_then(Value::as_f64) {
+                        Some(v) => Some(v),
+                        None => return (false, Vec::new()),
+                    },
+                    None => None,
+                },
+                // NotLocal: the speaker's script lacks the variable.
+                Some("NotLocal") => match npc.get("locals").and_then(Value::as_object) {
+                    Some(l) => {
+                        if l.contains_key(&low(flt.get("id"))) {
+                            return (false, Vec::new());
+                        }
+                        continue;
+                    }
+                    None => None,
+                },
                 Some("NotCell") if !cell.is_empty() => Some(if cell.trim().to_lowercase().starts_with(&low(flt.get("id"))) { 1.0 } else { 0.0 }),
                 _ => None,
             };
@@ -1244,6 +1308,21 @@ impl Editor {
         // Their rank in their faction (the record's), for the conditions that ask.
         let mut checked = npc.clone();
         checked["rank"] = json!(found.record().get("data").and_then(|d| d.get("rank")).and_then(Value::as_i64).unwrap_or(0));
+        // Their script's locals (0 as it starts), with the scene's values over them.
+        let script = text(found.record().get("script"));
+        let mut locals = serde_json::Map::new();
+        if st.given
+            && !script.trim().is_empty()
+            && let Some(sc) = self.find("SCPT", script.trim(), None)
+        {
+            for name in declared_locals(&text(sc.record().get("text"))) {
+                let v = st.locals.get(&name).copied().unwrap_or(0.0);
+                locals.insert(name, json!(v));
+            }
+        }
+        if st.given {
+            checked["locals"] = Value::Object(locals);
+        }
         let mut out = self.dialogue_index().play(&checked, topic, choice, st);
         out["speaker"] = npc;
         Ok(out)
@@ -1379,6 +1458,26 @@ mod tests {
         st.globals.insert("pcrace".into(), 4.0);
         assert!(!ok(&rec(vec![flt("Global", "", "PCRace", "Equal", 3.0)]), &st).0);
         assert!(!ok(&rec(vec![flt("Item", "", "Gold_001", "GreaterEqual", 100.0)]), &st).0);
+        // Several factions (a save's): the rank is the one in the faction asked about.
+        st.factions.insert("fighters guild".into(), 0);
+        st.factions.insert("mages guild".into(), 3);
+        assert_eq!(ok(&guild, &st), (true, vec![]));
+        st.factions.insert("mages guild".into(), 1);
+        assert!(!ok(&guild, &st).0);
+        let fighters = serde_json::json!({"data": {"player_rank": 0}, "player_faction": "Fighters Guild", "filters": []});
+        assert!(!ok(&fighters, &st).0, "rank 0 of a faction: not a member");
+        // The speaker's locals: their script's, with the scene's values.
+        let local = rec(vec![flt("Local", "", "noLore", "Equal", 1.0)]);
+        let not_local = rec(vec![flt("NotLocal", "", "noLore", "Equal", 0.0)]);
+        assert!(ok(&local, &st).0 && !ok(&local, &st).1.is_empty(), "the script not known: assumed");
+        let ok2 = |r: &serde_json::Value, n: &serde_json::Value| DialogueIndex::speaker_ok(r, n, &st, 0);
+        let scripted = serde_json::json!({"id": "fargoth", "rank": 2, "locals": {"nolore": 1.0}});
+        let plain = serde_json::json!({"id": "fargoth", "rank": 2, "locals": {}});
+        assert_eq!(ok2(&local, &scripted), (true, vec![]));
+        assert!(!ok2(&not_local, &scripted).0, "NotLocal: the script has it");
+        assert!(!ok2(&local, &plain).0, "Local: no such variable fails");
+        assert_eq!(ok2(&not_local, &plain), (true, vec![]));
+        assert_eq!(declared_locals("begin x\nshort noLore ; the flag\nFloat timer\n; long hidden\nlong a, b\nend"), ["nolore", "timer", "a"]);
     }
 
     use super::*;

@@ -55,6 +55,19 @@ elseif ( asked == 1 )
   endif
 endif
 End`,
+  magecast: `Begin MageCast
+short s
+if ( s == 0 )
+  AddSpell "fireball"
+  PlayGroup Idle2
+  Cast "frost bolt" "rat_a"
+  set s to 1
+elseif ( s == 1 )
+  if ( GetSpell "fireball" == 1 )
+    set s to 2
+  endif
+endif
+End`,
   roomdrop: `Begin RoomDrop
 short done
 if ( done == 0 )
@@ -69,7 +82,7 @@ module.exports = async (t) => {
   const out = {
     kind: 'ext', gx: 0, gy: 0, name: 'Pelagiad',
     refs: [ref('chest_a', 'c1', [0, 0, 0]), ref('guard_a', 'g1', [0, 0, 0]), ref('rat_a', 'r1', [1100, 0, 0]),
-      ref('brazier_a', 'b1', [200, 200, 0]), ref('wall_a', 'w1', [0, 500, 0])],
+      ref('brazier_a', 'b1', [200, 200, 0]), ref('wall_a', 'w1', [0, 500, 0]), ref('mage_a', 'm1', [-300, 0, 0])],
   };
   const room = { kind: 'int', name: 'Pelagiad, Halfway Tavern', refs: [ref('dropper', 'd1', [10, 10, 0])] };
   const room2 = { kind: 'int', name: 'Pelagiad, Ahnia\'s House', refs: [] };
@@ -100,7 +113,7 @@ module.exports = async (t) => {
     Engine: {
       async call(c, a) {
         if (c === 'scene_scripts') {
-          const objects = { chest_a: 'chestcount', guard_a: 'guardwalk', rat_a: 'ratdies', brazier_a: 'asker', dropper: 'roomdrop' };
+          const objects = { chest_a: 'chestcount', guard_a: 'guardwalk', rat_a: 'ratdies', brazier_a: 'asker', dropper: 'roomdrop', mage_a: 'magecast' };
           const o = {}; for (const id of a.ids) if (objects[id]) o[id] = objects[id];
           const scripts = {}; for (const k of Object.values(o)) scripts[k] = { id: k, text: SCRIPTS[k] };
           return {
@@ -108,7 +121,8 @@ module.exports = async (t) => {
             globals: [{ name: 'RatsDead', kind: 's', value: 0 }, { name: 'GoldLeft', kind: 'f', value: 12.5 }],
             actors: {
               chest_a: { tag: 'CONT', items: [['gold_001', 25]], stats: null },
-              guard_a: { tag: 'NPC_', items: [], stats: [200, 0, 300] },
+              guard_a: { tag: 'NPC_', items: [], stats: [200, 0, 300, 10, 70, 60, 75, 0] },
+              mage_a: { tag: 'NPC_', items: [], stats: [80, 200, 150] },
               rat_a: { tag: 'CREA', items: [], stats: [20, 0, 50] },
             },
           };
@@ -128,6 +142,15 @@ module.exports = async (t) => {
   // The chest: 25 gold from the load order, then 5 more.
   tick(1);
   t.ok(S.actors.get('c1').items.get('gold_001') === 30, 'the chest held 25 and was given 5: ' + S.actors.get('c1').items.get('gold_001'));
+
+  // The mage: a spell added, an animation played, a spell cast on the rat.
+  tick(2);
+  const M = S.actors.get('m1');
+  t.ok(M.spells.has('fireball') && M.anim.group.toLowerCase() === 'idle2', 'AddSpell and PlayGroup: ' + JSON.stringify({ sp: [...(M.spells || [])], anim: M.anim }));
+  t.ok(S.inst.get('m1').locals.get('s').v === 2, 'GetSpell answers it');
+  t.ok(S.actors.get('r1').active.has('frost bolt'), 'Cast puts the spell on the rat');
+  const G0 = S.actorOf(S.inst.get('g1'));
+  t.ok(G0.fight.attack === 75 && G0.fight.str === 70, 'the guard fights with its record\'s numbers');
 
   // The guard walks 1000 units at walk pace (150 a second): about 6 seconds, facing +x.
   tick(60, 0.05);

@@ -65,7 +65,7 @@ pub struct World {
     pub inventories: HashMap<String, Vec<(String, i32)>>,
     /// An NPC's or creature's health, magicka and fatigue (NPDT), by lowercased id; an NPC
     /// whose stats the game works out (auto-calculated, the short NPDT) has none.
-    pub actor_stats: HashMap<String, [i32; 3]>,
+    pub actor_stats: HashMap<String, [i32; 8]>,
     /// The path grids: exteriors by grid, rooms by `room_key`.
     pub pathgrids_ext: HashMap<(i32, i32), Pathgrid>,
     pub pathgrids_int: HashMap<String, Pathgrid>,
@@ -227,7 +227,7 @@ struct Extras {
     start_scripts: Vec<(String, Option<String>)>,
     globals: Vec<(String, Option<(String, char, f32)>)>,
     inventories: Vec<(String, Option<Vec<(String, i32)>>)>,
-    actor_stats: Vec<(String, Option<[i32; 3]>)>,
+    actor_stats: Vec<(String, Option<[i32; 8]>)>,
     pathgrids: Vec<Pathgrid>,
     land_at: Vec<((i32, i32), u64, u32)>,
 }
@@ -639,10 +639,14 @@ fn carried(body: &[u8]) -> Option<(String, Option<Vec<(String, i32)>>)> {
     Some((id.to_ascii_lowercase(), (!deleted_of(body)).then_some(items)))
 }
 
-/// An NPC's or creature's health, magicka and fatigue from its NPDT: an NPC's long form
-/// (52 bytes: level, 8 attributes, 27 skills, a byte, then the three as u16), a creature's
-/// (type, level, 8 attributes as i32, then the three). An auto-calculated NPC has none.
-fn actor_stats(tag: [u8; 4], body: &[u8]) -> Option<(String, Option<[i32; 3]>)> {
+/// An NPC's or creature's fighting numbers from its NPDT: `[health, magicka, fatigue,
+/// level, strength, agility, attack, most damage]`. An NPC's long form (52 bytes: level, 8
+/// attributes, 27 skills, a byte, then the three as u16): its attack the best of its weapon
+/// and hand-to-hand skills, its damage what its strength gives a blow (0: worked out by the
+/// page). A creature's (type, level, 8 attributes as i32, the three, soul, combat, magic,
+/// stealth, then three attacks' least and most): its combat skill and its strongest attack.
+/// An auto-calculated NPC has none.
+fn actor_stats(tag: [u8; 4], body: &[u8]) -> Option<(String, Option<[i32; 8]>)> {
     let mut id = String::new();
     let mut st = None;
     for s in Subs::new(body) {
@@ -650,9 +654,17 @@ fn actor_stats(tag: [u8; 4], body: &[u8]) -> Option<(String, Option<[i32; 3]>)> 
             b"NAME" => id = cstring(s.data),
             b"NPDT" if &tag == b"NPC_" && s.data.len() >= 52 => {
                 let u = |o: usize| u16::from_le_bytes([s.data[o], s.data[o + 1]]) as i32;
-                st = Some([u(38), u(40), u(42)]);
+                let d = s.data;
+                // Long blade, blunt, axe, spear, short blade, marksman, hand-to-hand.
+                let attack = [5usize, 4, 6, 7, 22, 23, 26].iter().map(|k| d[10 + k] as i32).max().unwrap_or(0);
+                st = Some([u(38), u(40), u(42), u(0), d[2] as i32, d[5] as i32, attack, 0]);
             }
-            b"NPDT" if &tag == b"CREA" && s.data.len() >= 52 => st = Some([i32le(s.data, 40), i32le(s.data, 44), i32le(s.data, 48)]),
+            b"NPDT" if &tag == b"CREA" && s.data.len() >= 52 => {
+                let d = s.data;
+                let most = if d.len() >= 92 { [72usize, 80, 88].iter().map(|o| i32le(d, *o)).max().unwrap_or(0) } else { 0 };
+                let combat = if d.len() >= 60 { i32le(d, 56) } else { 0 };
+                st = Some([i32le(d, 40), i32le(d, 44), i32le(d, 48), i32le(d, 4), i32le(d, 8), i32le(d, 20), combat, most]);
+            }
             _ => {}
         }
     }
@@ -786,13 +798,20 @@ mod wraithguard_world_tests {
         npdt[38..40].copy_from_slice(&45u16.to_le_bytes()); npdt[40..42].copy_from_slice(&80u16.to_le_bytes()); npdt[42..44].copy_from_slice(&120u16.to_le_bytes());
         let npc = [sub(b"NAME", b"fargoth\0"), sub(b"NPDT", &npdt), sub(b"NPCO", &npco)].concat();
         assert_eq!(super::carried(&npc), Some(("fargoth".into(), Some(vec![("gold_001".into(), 3)]))));
-        assert_eq!(super::actor_stats(*b"NPC_", &npc), Some(("fargoth".into(), Some([45, 80, 120]))));
+        assert_eq!(super::actor_stats(*b"NPC_", &npc), Some(("fargoth".into(), Some([45, 80, 120, 0, 0, 0, 0, 0]))));
         let auto = [sub(b"NAME", b"auto\0"), sub(b"NPDT", &[0u8; 12])].concat();
         assert_eq!(super::actor_stats(*b"NPC_", &auto), None);
         let mut cdt = vec![0u8; 96];
         cdt[40..44].copy_from_slice(&30i32.to_le_bytes());
         let crea = [sub(b"NAME", b"rat\0"), sub(b"NPDT", &cdt)].concat();
-        assert_eq!(super::actor_stats(*b"CREA", &crea), Some(("rat".into(), Some([30, 0, 0]))));
+        assert_eq!(super::actor_stats(*b"CREA", &crea), Some(("rat".into(), Some([30, 0, 0, 0, 0, 0, 0, 0]))));
+        // A creature's level, strength, agility, combat skill and strongest attack.
+        let mut cdt = vec![0u8; 96];
+        for (o, v) in [(4usize, 3i32), (8, 40), (20, 55), (40, 30), (56, 45), (68, 1), (72, 4), (76, 2), (80, 9), (84, 1), (88, 3)] {
+            cdt[o..o + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        let wolf = [sub(b"NAME", b"wolf\0"), sub(b"NPDT", &cdt)].concat();
+        assert_eq!(super::actor_stats(*b"CREA", &wolf), Some(("wolf".into(), Some([30, 0, 0, 3, 40, 55, 45, 9]))));
     }
 
     #[test]

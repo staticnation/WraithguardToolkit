@@ -5,6 +5,35 @@
 
 ### Added
 
+- **The Physics drop keeps hollows, falls onto unsaved land and drops meshes with no
+  collision** (`physcore`, `76_wg_physics.js`). A bowl, a cart or a tray is split into convex
+  parts (V-HACD) so things land inside it (Hollow shapes, on by default); the ground is the
+  render window's, Land view strokes not yet kept included; a mesh with no collision falls
+  as what is drawn.
+- **OpenMW Lua: more of the game** (`luarun.lua`, `74_wg_lua.js`, `75_wg_luaui.js`).
+  `nearby.castRay` hits only the collision types asked for (World, Door, Actor, HeightMap,
+  Water - the sea's surface outside; OpenMW's Default when none); `onNewExterior` for each
+  exterior square entered the first time; keys over the Preview reach player scripts'
+  `onKeyPress` and `onKeyRelease` and `input.isKeyPressed` (OpenMW's `input.KEY` numbers);
+  `ui.create`'s mouseMove, focusGain, focusLoss and keyPress events, an Image's color tinting
+  its texture, and OpenMW's own font (its resources' MysticCards). More of OpenMW's built-ins
+  run: `I.Combat`, `I.UI`, `I.SkillProgression`, `I.AnimationController`, crimes and use
+  handlers, the player's settings. A mod's other modules are read with it, for a `require`
+  built at run time. An enum the preview does not list answers its names, and a package it
+  does not run answers every call.
+- **The OpenMW folder for the Scripts panel's Lua** (the OpenMW folder... button), for an
+  install the cfg does not name: its LuaJIT runs the scripts and its built-ins run with them.
+- **A save's game in the Scripts panel** (From a save...): its globals, its journal (OpenMW
+  Lua's `types.Player.quests` reads it) and what the player carries.
+- **The Dialogue window's In game tab, from a save: every faction and the inventory.** Each
+  faction condition asks the player's rank in its own faction; the Item conditions see what
+  the save's player carries. **Local and NotLocal** are checked against the speaker's script
+  (its declared locals, at the values the scene's running script has).
+- **MWScript in the Preview: ForceGreeting, spells, animations, a fairer fight.**
+  ForceGreeting opens the Dialogue window's In game tab on the speaker's greeting;
+  AddSpell, RemoveSpell, GetSpell, Cast, ExplodeSpell and GetSpellEffects are kept per
+  actor; PlayGroup and LoopGroup are listed with the actors; a blow's chance and damage come
+  from the record's attack skill, agility and strength (a creature's own attacks).
 - **Physics drop in the Editor** (`76_wg_physics.js`, the engine's `phys_drop`,
   `viewer-shell/physcore` on Rapier). A Physics button beside Drop on the toolbar (also in
   the right-click menus) opens a small panel: gravity, friction, bounce, a time limit and
@@ -275,8 +304,12 @@
 
 ### Fixed
 
+- **The Scripts panel's globals list keeps its place** (`73_wg_scripts.js`): it went back to
+  the top each time a script changed something, so it could not be scrolled.
+- **OpenMW Lua found an install at a drive's root** (`luacore::findings::find_resources`):
+  `E:/OpenMW` was not looked in, so its LuaJIT and built-in scripts were not used.
 - **A save's player is read from every save format** (`toolscore::save::player_stats`, the
-  first-person body's and the Dialogue window's From a save). Saves from OpenMW builds that
+  first-person body's From a save). Saves from OpenMW builds that
   write a field between the skills and the attributes (format 37's `DRTI`) were refused as
   "27 stats where 38 were expected", and format 40 saves, which name each skill and
   attribute before it, as "4 stats". Both read now (checked on format 37, 39 and 40 saves);
