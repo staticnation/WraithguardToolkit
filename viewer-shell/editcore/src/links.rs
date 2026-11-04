@@ -343,7 +343,13 @@ fn record_request(ed: &Editor, req: &Value) -> Res<Found> {
         return Err("bad id".into());
     }
     let plugins = names(req.get("plugins"), "plugins")?;
-    ed.find(&tag, &rid, plugins.as_deref()).ok_or_else(|| format!("{rid} is not a record any plugin of this load order defines"))
+    ed.find(&tag, &rid, plugins.as_deref()).ok_or_else(|| {
+        if ed.queued_without_record(&tag, &rid) {
+            format!("{rid}: the patch changes it, but no plugin of this load order has it now. The plugin it was changed in has left the load order, or was written again without it (a patch written over itself, most likely). Delete these changes in Build patch, or put that plugin back in the load order.")
+        } else {
+            format!("{rid} is not a record any plugin of this load order defines")
+        }
+    })
 }
 
 /// The record request's own refusal of a body that is not a JSON object.
@@ -457,6 +463,12 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
         }
         "editRevert" => {
             let req = record_body(body)?;
+            // Changes to a record no plugin has now cannot be opened, but can be taken out.
+            if req.get("path").and_then(Value::as_str).is_none_or(str::is_empty)
+                && ed.drop_orphan(&text_or_empty(req.get("tag")), text_or_empty(req.get("id")).trim())
+            {
+                return Ok(Json(json!({"dropped": true})));
+            }
             let found = record_request(ed, &req)?;
             let path = req.get("path").and_then(Value::as_str).filter(|p| !p.is_empty());
             edit(ed.revert(&found, path))?;
@@ -490,8 +502,19 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
         }
         "editRefRevert" => {
             let req = body_of(body)?;
-            let found = ref_request(ed, &req)?;
             let path = req.get("path").and_then(Value::as_str).filter(|p| !p.is_empty());
+            let found = match ref_request(ed, &req) {
+                Ok(f) => f,
+                // A placed object no plugin has now: its queued changes are still taken out.
+                Err(e) => {
+                    let s = |k: &str| req.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+                    let refr = req.get("refr").and_then(Value::as_i64).unwrap_or(-1);
+                    if path.is_none() && ed.drop_orphan_ref(&s("cell"), &s("origin"), refr) {
+                        return Ok(Json(json!({"dropped": true})));
+                    }
+                    return Err(e);
+                }
+            };
             ed.revert_ref(&found, path);
             Json(ed.ref_view(&found))
         }
@@ -582,7 +605,12 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
             Json(ed.new_view(&now))
         }
         "editNewRemove" => {
-            let new = new_request(ed, &body_of(body)?)?;
+            // One no longer in the patch is out of it already: nothing to refuse.
+            let new = match new_request(ed, &body_of(body)?) {
+                Ok(n) => n,
+                Err(e) if e.contains("no longer in the patch") => return Ok(Answer::Text("ok".into())),
+                Err(e) => return Err(e),
+            };
             ed.remove_new(&new);
             Answer::Text("ok".into())
         }
@@ -876,6 +904,52 @@ mod tests {
         let info: Value = serde_json::from_str(&links.call("editBuildInfo", "{}").unwrap()).unwrap();
         assert_eq!((info["last"].clone(), info["folders"].clone()), (json!(dir.join("Old.esp").to_string_lossy()), json!(["/data"])));
         assert!(links.call("editTestSetups", "{}").unwrap_err().starts_with("Test in OpenMW needs Wraithguard"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Static, 2026-11-03: two land squares in Build patch, "1 change" each, whose pencil said
+    /// "(-69, 23) is not a record any plugin of this load order defines". Changes queued
+    /// against a plugin's record that the plugin no longer has are said as that, in the
+    /// list and when opened; and a plugin written over (the patch, loaded) is read again.
+    #[test]
+    fn changes_to_a_record_no_plugin_has_now_are_named_and_a_rewritten_plugin_is_read_again() {
+        let dir = std::env::temp_dir().join(format!("wg-gone-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let header = json!({"type": "Header", "flags": "", "version": 1.3, "file_type": "Esp", "author": "", "description": "", "num_objects": 0, "masters": []});
+        let patch = dir.join("Patch.esp");
+        std::fs::write(&patch, crate::build::patch_bytes(&[header.clone(), npc("fargoth", 2)]).unwrap()).unwrap();
+        let journal = dir.join("journal.json");
+        let links = Links::open(vec![("Patch.esp".into(), patch.clone())], Some(journal));
+        links.call("editSet", r#"{"tag": "NPC_", "id": "fargoth", "path": "data.level", "value": 9}"#).unwrap();
+        // The plugin written again without the record, and the Editor told (as a build does).
+        std::fs::write(&patch, crate::build::patch_bytes(&[header, npc("caius", 3)]).unwrap()).unwrap();
+        assert!(links.editor.lock().unwrap().session.forget_file(&patch));
+        let pending: Value = serde_json::from_str(&links.call("editPending", "{}").unwrap()).unwrap();
+        assert_eq!(pending[0]["missing"], json!(true), "{pending}");
+        let e = links.call("editRecord", r#"{"tag": "NPC_", "id": "fargoth"}"#).unwrap_err();
+        assert!(e.contains("the patch changes it, but no plugin of this load order has it now"), "{e}");
+        // And they can be taken out of the patch, the record not being there to open.
+        let out: Value = serde_json::from_str(&links.call("editRevert", r#"{"tag": "NPC_", "id": "Fargoth"}"#).unwrap()).unwrap();
+        assert_eq!(out["dropped"], json!(true));
+        let pending: Value = serde_json::from_str(&links.call("editPending", "{}").unwrap()).unwrap();
+        assert_eq!(pending, json!([]), "the pool is empty");
+        // A placed object's changes and a new object, when what they name is gone: taken out
+        // (or already out), not refused.
+        {
+            let mut ed = links.editor.lock().unwrap();
+            ed.queue.add_ref_edit(crate::queue::RefEdit { cell: "Gone Cell".into(), origin: "Gone.esp".into(), refr_index: 7, changes: Default::default(), plugins: vec!["Gone.esp".into()] });
+        }
+        let out: Value = serde_json::from_str(&links.call("editRefRevert", r#"{"cell": "gone cell", "origin": "Gone.esp", "refr": 7}"#).unwrap()).unwrap();
+        assert_eq!(out["dropped"], json!(true));
+        assert_eq!(links.call("editNewRemove", r#"{"cell": "Gone Cell", "uid": "nope"}"#).unwrap(), "ok");
+        assert!(links.call("editNewRemove", r#"{"cell": "Gone Cell"}"#).is_err(), "a bad request is still refused");
+        // What the file has now is found.
+        let v: Value = serde_json::from_str(&links.call("editRecord", r#"{"tag": "NPC_", "id": "caius"}"#).unwrap()).unwrap();
+        assert_eq!(v["id"], "caius");
+        // A record nobody ever had is still the plain refusal.
+        let e = links.call("editRecord", r#"{"tag": "NPC_", "id": "nobody"}"#).unwrap_err();
+        assert!(e.ends_with("is not a record any plugin of this load order defines"), "{e}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

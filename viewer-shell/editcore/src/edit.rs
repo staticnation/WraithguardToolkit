@@ -462,6 +462,36 @@ impl Editor {
         Ok(Found { tag: found.tag.clone(), record_type: found.record_type.clone(), key: rid, versions: vec![(PATCH.into(), record)], new: true })
     }
 
+    /// Whether the patch queues changes to the record `tag`/`rid` that no plugin of the load
+    /// order has (`missing` in [`Editor::pending`]).
+    pub fn queued_without_record(&self, tag: &str, rid: &str) -> bool {
+        self.orphan_key(tag, rid).is_some()
+    }
+
+    /// The queue's own `(type, key)` for changes to `tag`/`rid` when no plugin has that
+    /// record now.
+    fn orphan_key(&self, tag: &str, rid: &str) -> Option<(String, String)> {
+        let t = type_of(tag)?;
+        let k = rid.trim().to_lowercase();
+        let queued = self
+            .queue
+            .fields()
+            .iter()
+            .map(|((rt, key), _)| (rt.clone(), key.clone()))
+            .chain(self.queue.selections().iter().map(|s| (s.record_type.clone(), s.key.clone())))
+            .find(|(rt, key)| rt == t && key.to_lowercase() == k)?;
+        self.find(tag, rid, None).is_none().then_some(queued)
+    }
+
+    /// Takes out of the patch what it queues for a record no plugin has now (it cannot be
+    /// written, and cannot be opened to revert it the usual way). `false`: nothing like that.
+    pub fn drop_orphan(&mut self, tag: &str, rid: &str) -> bool {
+        let Some((t, k)) = self.orphan_key(tag, rid) else { return false };
+        self.queue.remove_record(&t, &k);
+        self.save_journal();
+        true
+    }
+
     /// Everything the patch would carry: one `{tag, type, id, whole, changes}` per record;
     /// a changed placed object is `Reference` with `ref`, a new one `NewReference` with
     /// `new`, a record the patch makes has `made`.
@@ -481,7 +511,13 @@ impl Editor {
                     Choice::Plugin { path, plugin } => json!({"path": path, "plugin": plugin}),
                 })
                 .collect();
-            out.push(json!({"tag": tag(t), "type": t, "id": k, "whole": null, "changes": changes}));
+            let mut row = json!({"tag": tag(t), "type": t, "id": k, "whole": null, "changes": changes});
+            // Changes to a record no plugin has now (its plugin left the load order, or was
+            // written again without it): the patch cannot write them.
+            if self.find(&tag(t), k, None).is_none() {
+                row["missing"] = json!(true);
+            }
+            out.push(row);
         }
         for e in self.queue.ref_edits() {
             out.push(json!({

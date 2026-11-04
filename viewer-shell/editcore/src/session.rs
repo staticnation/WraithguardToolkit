@@ -130,6 +130,20 @@ impl Session {
         }
     }
 
+    /// Forgets what was read of the plugin at `path` (a patch the Editor just wrote over one
+    /// of the load order's files): its records are read again from the file as it is now.
+    /// Without it, the Editor kept answering from the file as it was when first read - land
+    /// the new patch carries was "not there", and changes queued against the old copy
+    /// pointed at records the file no longer has. `true` when `path` is one of its plugins.
+    pub fn forget_file(&self, path: &Path) -> bool {
+        let Some(name) = self.paths.iter().find(|(_, (_, p))| same_file(p, path)).map(|(k, _)| k.clone()) else { return false };
+        self.cache.lock().unwrap().retain(|(p, _), _| *p != name);
+        self.masters.lock().unwrap().remove(&name);
+        self.home.lock().unwrap().remove(&name);
+        self.dialogue.lock().unwrap().remove(&name);
+        true
+    }
+
     /// The session, reading a plugin whole through `read_all` for the Use Report.
     pub fn with_read_all(mut self, read_all: Box<ReadAll>) -> Session {
         self.read_all = Some(read_all);
@@ -425,4 +439,13 @@ pub(crate) fn truthy(v: &Value) -> bool {
         Value::Array(a) => !a.is_empty(),
         Value::Object(o) => !o.is_empty(),
     }
+}
+
+/// Two paths naming one file: the same path, or (Windows ignores case) the same path in
+/// any case, or the same file once resolved.
+fn same_file(a: &Path, b: &Path) -> bool {
+    if a == b || a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase() {
+        return true;
+    }
+    matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
 }

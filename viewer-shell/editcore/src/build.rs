@@ -1093,6 +1093,9 @@ impl Editor {
         self.queue.consume(&job.snapshot);
         self.save_journal();
         if let Some(out) = &result.output {
+            // The patch is one of the load order's plugins when it was written before and
+            // loaded: read it again as it is now.
+            self.session.forget_file(out);
             self.last_patch = Some(out.clone());
         }
     }

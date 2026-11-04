@@ -364,6 +364,22 @@ impl Editor {
 
     /// Drops the change to one field of a placed object, or all of them (a move takes the
     /// cell it moved to with it).
+    /// Takes out of the patch the changes queued for a placed object no plugin has now
+    /// (`editRefRevert` when the object cannot be found). `false`: none queued.
+    pub fn drop_orphan_ref(&mut self, cell: &str, origin: &str, refr: i64) -> bool {
+        let Some((c, o, r)) = self
+            .queue
+            .ref_edits()
+            .find(|e| e.cell.eq_ignore_ascii_case(cell.trim()) && e.origin.eq_ignore_ascii_case(origin.trim()) && e.refr_index == refr)
+            .map(|e| (e.cell.clone(), e.origin.clone(), e.refr_index))
+        else {
+            return false;
+        };
+        self.queue.remove_ref_edit(&c, &o, r, None);
+        self.save_journal();
+        true
+    }
+
     pub fn revert_ref(&mut self, found: &FoundRef, path: Option<&str>) {
         self.queue.remove_ref_edit(&found.cell, &found.origin, found.refr_index, path);
         if path == Some("translation") {

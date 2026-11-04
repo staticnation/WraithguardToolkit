@@ -331,9 +331,13 @@ Object.assign(WgEditor, {
     const rows=list.map((p,i)=>{
       const what=p.new? 'New placed object' : p.ref? 'Placed object' : (this.NAMES[p.tag]||p.tag||p.type);
       const id=p.new? (p.new.id||p.id) : p.ref? p.id+' ('+p.ref.origin+':'+p.ref.refr+')' : p.id;
-      const how=p.whole? 'whole, from '+p.whole : p.made? 'made by the patch' : (p.changes||[]).length+' change'+((p.changes||[]).length===1?'':'s');
+      const how=p.whole? 'whole, from '+p.whole : p.made? 'made by the patch' : (p.changes||[]).length+' change'+((p.changes||[]).length===1?'':'s')
+        +(p.missing? ' - no plugin has it now' : '');
+      // Changes to a record its plugin no longer has (it left the load order, or was written
+      // again without it): the patch cannot write them.
+      const warn=p.missing? ' style="color:var(--warn,#e3b341)" title="The plugin these changes were made in has left the load order, or was written again without this record: the patch cannot write them. Delete them, or put that plugin back."' : '';
       const drop=this.canDrop(p);
-      return '<tr data-i="'+i+'"'+(this._bSel && this._bSel.has(this.pendKey(p))? ' class="sel"' : '')+'><td>'+escHtml(what)+'</td><td class="edWrapCell">'+escHtml(id)+'</td><td class="from">'+escHtml(how)+'</td>'+
+      return '<tr data-i="'+i+'"'+(this._bSel && this._bSel.has(this.pendKey(p))? ' class="sel"' : '')+'><td>'+escHtml(what)+'</td><td class="edWrapCell">'+escHtml(id)+'</td><td class="from"'+warn+'>'+escHtml(how)+'</td>'+
         '<td><button class="btn dim ic" data-bopen="'+i+'" title="Open it">✎</button>'+
         (drop? '<button class="btn dim ic" data-bdrop="'+i+'" title="Take it out of the patch (its changes are dropped)">&#x2715;</button>' : '')+'</td></tr>';
     }).join('');
@@ -450,7 +454,9 @@ Object.assign(WgEditor, {
         else await this.ask('editRevert', {tag:p.tag, id:p.id});
         n++;
         if(this._bSel) this._bSel.delete(this.pendKey(p));
-      }catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',5000); break; }
+      // One that cannot be taken out is said, and the rest still go (Static: an error must
+      // not stop the pool being cleared).
+      }catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',5000); }
     }
     if(n>1) toast(n+' taken out of the patch','ok',2000);
     // Land taken out: the drawn ground goes back to the load order's at once.

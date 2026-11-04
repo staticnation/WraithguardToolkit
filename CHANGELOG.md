@@ -315,6 +315,18 @@
 
 ### Fixed
 
+- **The Editor reads a plugin again after writing over it** (Static, 2026-11-03: two land
+  squares in Build patch, "1 change" each, whose pencil said "(-69, 23) is not a record any
+  plugin of this load order defines"). The Editor read each plugin once and kept it; writing
+  the patch over a copy that was in the load order left it answering from the old copy, so
+  land the new patch carried was "not there" and changes could be queued against records the
+  file no longer has. A written patch is now read again (`Session::forget_file`). Changes to a
+  record no plugin has now are marked in Build patch ("no plugin has it now"), and opening one
+  says why and what to do (delete them, or put the plugin back) instead of the bare refusal.
+  **And they can always be taken out of the pool**: deleting a record's changes, a placed
+  object's changes or a new object no longer needs what it names to still be there (it was
+  refused with the same error), and Delete selected goes on past one that fails instead of
+  stopping there.
 - **Lua mods that check the OpenMW version start in the Preview** (Static's 0.52 install,
   2026-11-03). `core.API_REVISION` was a fixed 100, so a mod needing a newer OpenMW refused to
   run (NGarde: "100 is less than minimum supported 129"; Daisy's Lua Multimark's "Your OpenMW
