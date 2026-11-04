@@ -315,6 +315,12 @@
 
 ### Fixed
 
+- **The Editor stalled with a cell change in the pool** (Static, 2026-11-04: a record's
+  window stuck at "Reading ... from every plugin that defines it", and dragging or Place
+  putting nothing down). Marking Build patch's rows "no plugin has it now" looked each record
+  up in every plugin, and the pool's list is asked for again and again; for a cell that read
+  every plugin's cells, all 619 of them, and the Editor answered nothing else meanwhile. The
+  list now marks a row only from what has been read already, and reads nothing itself.
 - **The Editor reads a plugin again after writing over it** (Static, 2026-11-03: two land
   squares in Build patch, "1 change" each, whose pencil said "(-69, 23) is not a record any
   plugin of this load order defines"). The Editor read each plugin once and kept it; writing

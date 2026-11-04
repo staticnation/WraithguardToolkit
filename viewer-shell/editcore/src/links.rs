@@ -925,10 +925,14 @@ mod tests {
         // The plugin written again without the record, and the Editor told (as a build does).
         std::fs::write(&patch, crate::build::patch_bytes(&[header, npc("caius", 3)]).unwrap()).unwrap();
         assert!(links.editor.lock().unwrap().session.forget_file(&patch));
+        // The pool's list reads nothing itself (a CELL change would read every plugin, each time
+        // it is asked): before the plugin is read again, it cannot say.
         let pending: Value = serde_json::from_str(&links.call("editPending", "{}").unwrap()).unwrap();
-        assert_eq!(pending[0]["missing"], json!(true), "{pending}");
+        assert!(pending[0].get("missing").is_none(), "nothing read, nothing said: {pending}");
         let e = links.call("editRecord", r#"{"tag": "NPC_", "id": "fargoth"}"#).unwrap_err();
         assert!(e.contains("the patch changes it, but no plugin of this load order has it now"), "{e}");
+        let pending: Value = serde_json::from_str(&links.call("editPending", "{}").unwrap()).unwrap();
+        assert_eq!(pending[0]["missing"], json!(true), "once read, it is said: {pending}");
         // And they can be taken out of the patch, the record not being there to open.
         let out: Value = serde_json::from_str(&links.call("editRevert", r#"{"tag": "NPC_", "id": "Fargoth"}"#).unwrap()).unwrap();
         assert_eq!(out["dropped"], json!(true));

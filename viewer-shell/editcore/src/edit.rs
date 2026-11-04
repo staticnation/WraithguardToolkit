@@ -514,7 +514,9 @@ impl Editor {
             let mut row = json!({"tag": tag(t), "type": t, "id": k, "whole": null, "changes": changes});
             // Changes to a record no plugin has now (its plugin left the load order, or was
             // written again without it): the patch cannot write them.
-            if self.find(&tag(t), k, None).is_none() {
+            // From what has been read only: this list is asked for again and again, and must
+            // not read every plugin (a CELL change would read all 600 of them each time).
+            if self.session.has_read(&tag(t), k) == Some(false) {
                 row["missing"] = json!(true);
             }
             out.push(row);

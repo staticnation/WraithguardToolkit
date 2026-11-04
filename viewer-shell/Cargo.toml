@@ -1,6 +1,6 @@
 [package]
 name = "wraithguard-toolkit"
-version = "5.0.0"
+version = "5.0.1"
 edition = "2021"
 description = "Wraithguard: the program (the cell viewer, Editor, Load order, Conflicts and Tools pages) on Tauri; started on its own it opens on the settings file's openmw.cfg."
 

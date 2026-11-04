@@ -261,6 +261,25 @@ impl Session {
         self.find_in(tag, rid, plugins, None)
     }
 
+    /// Whether a plugin of the load order has the record, from what has been read already
+    /// and nothing more: `None` when a plugin's records of that type have not been read yet.
+    /// For what must never wait on reading every plugin (the pool's list, asked for again
+    /// and again: a CELL read through 600 plugins held the Editor for minutes).
+    pub fn has_read(&self, tag: &str, rid: &str) -> Option<bool> {
+        let record_type = type_of(tag)?;
+        let tag = crate::key::tag_of(record_type)?;
+        let want = rid.trim().to_lowercase();
+        let cache = self.cache.lock().unwrap();
+        let mut found = false;
+        for name in &self.order {
+            let recs = cache.get(&(name.to_lowercase(), tag.to_string()))?;
+            if let Some(rec) = recs.get(&want).filter(|r| type_name(r) == record_type) {
+                found = !deletes(rec);
+            }
+        }
+        Some(found)
+    }
+
     /// [`Session::find`], with the records `queue` makes: one the patch makes is in no
     /// plugin (its id was checked free when made), so none is read for it - for a CELL
     /// that would be every plugin of the load order - and its one version is the patch's.
