@@ -133,4 +133,20 @@ module.exports = async (t) => {
   const mid = hill.heights[32 * N + 32];
   t.ok(mid < 500 && mid >= -2048, 'Level to Sea floor flattens toward -2048: ' + mid);
   t.ok(d.querySelector('[data-s="flatTarget"] option[value="floor"]'), 'and it is a choice in Level to');
+
+  // Static, 2026-11-03: hovering a land texture shows it - its swatch tiled, its file and size.
+  w.eval(`GameData.ltex=new Map([['gl_grass_03',{id:'GL_Grass_03',file:'gl_grass_03.dds'}]]);
+    GameData.textureFileFor=id=>id==='GL_Grass_03'? 'gl_grass_03.dds' : null;
+    var loadTexture=async f=>({thumb:'data:image/png;base64,AAAA', w:256, h:128});`);
+  const f = d.getElementById('wgLandTexF');
+  f.value = 'grass_03'; f.dispatchEvent(new w.Event('input'));
+  const row = d.querySelector('#wgLandTexList [data-id="GL_Grass_03"]');
+  t.ok(row, 'the texture is listed');
+  row.dispatchEvent(new w.Event('mouseenter'));
+  await p.wait(5);
+  const tip = d.getElementById('wgLandTexTip');
+  t.ok(tip && !tip.hidden && /AAAA/.test(tip.querySelector('.sw').style.backgroundImage), 'the hover card shows the swatch: ' + (tip && tip.querySelector('.sw').style.backgroundImage));
+  t.ok(/GL_Grass_03/.test(tip.textContent) && /gl_grass_03\.dds\s+256 x 128/.test(tip.textContent), 'its name, file and size: ' + tip.textContent);
+  row.dispatchEvent(new w.Event('mouseleave'));
+  t.ok(tip.hidden, 'and leaves with the pointer');
 };

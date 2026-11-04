@@ -5,6 +5,10 @@
 
 ### Added
 
+- **A land texture's picture on hover** (the Land view's texture list). Hovering a name shows
+  a card beside the list: the texture tiled two by two, so its seams show as they will on the
+  ground, with its file and size. It is the swatch the engine already makes for each texture,
+  so a hover reads the file at most once.
 - **Flatten to the sea floor** (the Land view's *Level to*: Sea floor (-2048)). The height
   of a square with no land, so the edge of raised ground can be brought down to meet an empty
   neighbour without a wall. (*The sea (0)* is the water's surface.)

@@ -75,6 +75,14 @@ body.wgLandMode #wgLandDock{display:flex;flex-direction:column;width:300px;flex:
 #wgLandDock .ltex{padding:3px 8px;cursor:pointer;font-family:var(--mono);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #wgLandDock .ltex:hover{background:var(--bg2)}
 #wgLandDock .ltex.on{background:var(--ac2);color:var(--on-ac)}
+/* The hovered land texture's card (67_wg_land.js texTip): the swatch tiled 2 x 2. */
+#wgLandTexTip{position:fixed;z-index:60;pointer-events:none;width:178px;padding:8px;background:var(--bg2);
+  border:1px solid var(--line2);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.45);font-family:var(--mono);font-size:11px}
+#wgLandTexTip[hidden]{display:none}
+#wgLandTexTip .sw{width:160px;height:160px;background-repeat:repeat;background-size:80px 80px;border:1px solid var(--line);
+  margin-bottom:6px;display:flex;align-items:center;justify-content:center;color:var(--mut,inherit);text-align:center}
+#wgLandTexTip .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wgLandTexTip .fl{opacity:.75;word-break:break-all}
 #wgLandDock .lcells{max-height:200px;overflow:auto;margin:4px 0}
 #wgLandDock .lcell{display:flex;align-items:center;gap:4px;padding:2px 0;font-family:var(--mono);font-size:11.5px}
 body.wgEditMode #edDock{display:flex;flex-direction:column;width:460px;flex:0 0 460px;min-height:0;

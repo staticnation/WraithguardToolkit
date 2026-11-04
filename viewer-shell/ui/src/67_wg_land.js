@@ -164,6 +164,7 @@ const WgLand={
   /** Out of the mode: the last stroke into the patch first (a preview waiting is kept,
    *  not lost), then the pool read again so the Editor's Pending and Build patch have it. */
   async leave(){
+    this.texTip(null);
     if(!this.on) return;
     await this.commit();
     const R=App.R;
@@ -194,6 +195,39 @@ const WgLand={
   },
 
   /** The land textures the install has, by their own spelling. */
+  /* Static, 2026-11-03: "hover over these should show preview of the texture". A card beside
+     the hovered row: the texture tiled 2 x 2 (so its seams show, as they will on the ground),
+     its name, file and size. The picture is the engine's swatch of it (`loadTexture`'s
+     72-pixel thumb, the same read the ground's own drawing caches), so a hover costs one read
+     at most. `row` null hides it. */
+  texTip(row){
+    let tip=document.getElementById('wgLandTexTip');
+    if(!row){ if(tip) tip.hidden=true; this._tipId=null; return; }
+    if(!tip){
+      tip=document.createElement('div'); tip.id='wgLandTexTip'; tip.hidden=true;
+      tip.innerHTML='<div class="sw"></div><div class="nm"></div><div class="fl"></div>';
+      document.body.appendChild(tip);
+    }
+    const id=row.dataset.id, file=GameData.textureFileFor? GameData.textureFileFor(id) : null;
+    this._tipId=id;
+    const sw=tip.querySelector('.sw');
+    sw.style.backgroundImage=''; sw.textContent=file? 'Reading...' : '';
+    tip.querySelector('.nm').textContent=id;
+    tip.querySelector('.fl').textContent=file||'No texture file named';
+    const r=row.getBoundingClientRect(), list=row.parentElement.getBoundingClientRect();
+    tip.hidden=false;
+    tip.style.left=Math.round(list.right+8)+'px';
+    tip.style.top=Math.round(Math.max(8, Math.min(r.top-8, window.innerHeight-tip.offsetHeight-8)))+'px';
+    if(!file || typeof loadTexture!=='function') return;
+    loadTexture(file).then(rec=>{
+      if(this._tipId!==id || tip.hidden) return;
+      if(rec && rec.thumb){
+        sw.textContent=''; sw.style.backgroundImage='url("'+rec.thumb+'")';
+        tip.querySelector('.fl').textContent=file+(rec.w? '  '+rec.w+' x '+rec.h : '');
+      }else sw.textContent=(rec && rec.err) || 'No picture';
+    }).catch(e=>{ if(this._tipId===id) sw.textContent=String(e&&e.message||e); });
+  },
+
   textureIds(){
     const out=new Set();
     try{ for(const r of GameData.ltex.values()) if(r && r.id) out.add(r.id); }catch(_){}
@@ -314,9 +348,14 @@ const WgLand={
     const drawTex=()=>{
       const f=($('#wgLandTexF').value||'').toLowerCase();
       const ids=this.textureIds().filter(id=>!f || id.toLowerCase().includes(f)).slice(0,400);
-      $('#wgLandTexList').innerHTML=ids.map(id=>'<div class="ltex'+(id===this.texture?' on':'')+'" data-id="'+escHtml(id)+'" title="'+escHtml(GameData.textureFileFor? (GameData.textureFileFor(id)||'') : '')+'">'+escHtml(id)+'</div>').join('')||
+      this.texTip(null);
+      $('#wgLandTexList').innerHTML=ids.map(id=>'<div class="ltex'+(id===this.texture?' on':'')+'" data-id="'+escHtml(id)+'">'+escHtml(id)+'</div>').join('')||
         '<div class="hint">No land texture matches.</div>';
-      $('#wgLandTexList').querySelectorAll('[data-id]').forEach(r=>r.onclick=()=>{ this.texture=r.dataset.id; this._picking=false; drawTex(); show(); });
+      $('#wgLandTexList').querySelectorAll('[data-id]').forEach(r=>{
+        r.onclick=()=>{ this.texture=r.dataset.id; this._picking=false; drawTex(); show(); };
+        r.onmouseenter=()=>this.texTip(r);
+        r.onmouseleave=()=>this.texTip(null);
+      });
     };
     const show=()=>{
       $('#wgLandHeight').style.display=this.mode==='height'? '' : 'none';
