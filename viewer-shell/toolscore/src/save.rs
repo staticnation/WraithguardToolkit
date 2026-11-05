@@ -2229,7 +2229,7 @@ mod tests {
     fn a_real_save_s_game_state() {
         let Ok(path) = std::env::var("WG_PLAYER_SAVE") else { return };
         let g = game_state(&std::fs::read(path).unwrap()).unwrap();
-        eprintln!("{} {} {} {} level {}; {} globals; journal {:?}; factions {:?}; carries {:?}", g.name, g.sex, g.race, g.class, g.level, g.globals.len(), g.journal.len(), g.factions, g.inventory);
+        eprintln!("{} {} {} level {}; {} globals; journal {:?}; factions {:?}; carries {:?}", g.name, g.race, g.class, g.level, g.globals.len(), g.journal.len(), g.factions, g.inventory);
         assert!(!g.race.is_empty() && g.level >= 1 && !g.globals.is_empty());
     }
 
