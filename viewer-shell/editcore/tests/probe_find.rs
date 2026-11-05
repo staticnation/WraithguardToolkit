@@ -110,10 +110,10 @@ fn probe_find() {
     println!("again  find(CELL, {cell}): {:?}  found={}", t.elapsed(), c2.is_some());
 }
 
-/// The stall itself: the Misc tab asks `editColumns` (every plugin's records of the type,
-/// copied, with the Editor locked) and a record is opened at the same moment. Prints how
-/// long `editColumns` takes and how long `editRecord` waits for it, with and without the
-/// plugins the Object Window's row names (its Open button sends them).
+/// The stall itself: a slow link takes the Editor and a record is opened at the same moment
+/// (the Open button names the row's plugin). For each of `editColumns` (the Misc tab's
+/// columns) and `editUses` (the Use Report) it prints how long the slow link takes and how
+/// long `editRecord` waits for it.
 ///   cargo test --release --test probe_find probe_lock -- --ignored --nocapture
 #[test]
 #[ignore]
@@ -125,39 +125,31 @@ fn probe_lock() {
     let named = std::env::var("WG_PLUGIN").unwrap_or_else(|_| "OAAB_Data.esm".into());
     println!("{} plugin(s); record {tag} {id}; its row names {named}", plugins.len());
 
-    for with_plugins in [true, false] {
+    for slow in ["editColumns", "editUses"] {
         let links = Arc::new(Links::open(plugins.clone(), None));
-        let cols = {
+        let slow_body = if slow == "editColumns" {
+            format!(r#"{{"tag": "{tag}"}}"#)
+        } else {
+            format!(r#"{{"tag": "{tag}", "id": "{id}", "plugins": ["{named}"]}}"#)
+        };
+        let held = {
             let links = links.clone();
-            let body = format!(r#"{{"tag": "{tag}"}}"#);
             std::thread::spawn(move || {
                 let t = Instant::now();
-                let r = links.call("editColumns", &body);
+                let r = links.call(slow, &slow_body);
                 (t.elapsed(), r.map(|s| s.len()))
             })
         };
-        // Let editColumns take the lock first, as a click on a tab does before the Open.
+        // Let the slow link take the lock first, as it does in the viewer.
         std::thread::sleep(std::time::Duration::from_millis(50));
-        let body = if with_plugins {
-            format!(r#"{{"tag": "{tag}", "id": "{id}", "plugins": ["{named}"]}}"#)
-        } else {
-            format!(r#"{{"tag": "{tag}", "id": "{id}"}}"#)
-        };
+        let body = format!(r#"{{"tag": "{tag}", "id": "{id}", "plugins": ["{named}"]}}"#);
         let t = Instant::now();
         let r = links.call("editRecord", &body);
         let waited = t.elapsed();
-        let (cols_took, cols_len) = cols.join().unwrap();
-        println!(
-            "editRecord {:<26} waited {:?} (ok={})   editColumns took {:?} ({:?} bytes)",
-            if with_plugins { "naming the row's plugin:" } else { "of every plugin:" },
-            waited,
-            r.is_ok(),
-            cols_took,
-            cols_len
-        );
-        // The same record again, nothing else running: the cost of the lookup itself.
+        let (slow_took, slow_len) = held.join().unwrap();
+        println!("{slow:<12} took {slow_took:?} ({slow_len:?} bytes);  editRecord waited {waited:?} (ok={})", r.is_ok());
         let t = Instant::now();
         let _ = links.call("editRecord", &body);
-        println!("   again, alone: {:?}", t.elapsed());
+        println!("{:<12} editRecord again, alone: {:?}", "", t.elapsed());
     }
 }

@@ -330,6 +330,19 @@
 
 ### Fixed
 
+- **The Use Report held the whole Editor while it scanned** (2026-11-04: a record opened next
+  to it sat on "Reading ..." for as long as the report took). `editUses` scans every plugin
+  file, 14 s or so over 596 plugins, with the Editor locked, and every other link waited. The
+  Editor is now locked to find the record and again to answer, not across the scan
+  (`Links::uses_link`; the report is `uses::report` over `Session::plugin_paths`, and
+  `Editor::uses_from` builds the answer). Sessions that read through `read_all` (the tests)
+  take the old path. The scan is as long as before: the use index in the record cache
+  (`uses::from_index`) is not wired to the report yet.
+- **The other first reads of a type went one plugin at a time too** (`probe_find`: 14 s for
+  the CELLs of 596 plugins). A record looked up over every plugin (`find_in`), a search over a
+  type (`winners`) and the plugins holding a cell (`cell_plugins`) now read what they need on
+  threads first (`Session::warm`), as the columns do; they still hold the Editor while they
+  read, for a shorter time.
 - **Opening a record no longer waits for the tab's columns** (`editcore`: `session.rs`,
   `search.rs`, `links.rs`; `50_wg_editor_record.js`). `editColumns` read every plugin's
   records of a type one after another, copied every plugin's whole record map, and held the

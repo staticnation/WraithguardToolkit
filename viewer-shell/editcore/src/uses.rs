@@ -459,6 +459,12 @@ impl Editor {
     /// are not looked in.
     pub fn uses(&self, found: &Found) -> Value {
         let found_uses = self.session.use_report(&found.record_type, &found.key);
+        self.uses_from(found, &found_uses)
+    }
+
+    /// [`Editor::uses`] over a report already made (`crate::uses::report`, which the
+    /// viewer's link runs with the Editor not locked: it scans every plugin file).
+    pub fn uses_from(&self, found: &Found, found_uses: &[Use]) -> Value {
         let order = self.session.order();
         let rows: Vec<Value> = found_uses
             .iter()

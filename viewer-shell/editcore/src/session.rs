@@ -215,6 +215,13 @@ impl Session {
         self.order.iter().map(|n| self.paths[&n.to_lowercase()].1.clone()).collect()
     }
 
+    /// Whether the Use Report scans the plugin files (no `read_all`): then
+    /// [`crate::uses::report`] over [`Session::plugin_paths`] is the report, and can be
+    /// run without the Editor.
+    pub fn scans_files(&self) -> bool {
+        self.read_all.is_none()
+    }
+
     /// Every use of a record over the plugins (`crate::uses`): the files scanned, or the
     /// records `read_all` gives.
     pub fn use_report(&self, record_type: &str, rid: &str) -> Vec<crate::uses::Use> {
@@ -393,6 +400,9 @@ impl Session {
         let tag = crate::key::tag_of(record_type)?.to_string();
         let want = rid.trim().to_lowercase();
         let mut versions: Vec<(String, Value)> = Vec::new();
+        if plugins.is_none() {
+            self.warm(&[tag.as_str()]);
+        }
         for name in self.known(plugins) {
             let recs = self.records(&name, &tag);
             if let Some(rec) = recs.get(&want).filter(|r| type_name(r) == record_type) {

@@ -209,6 +209,7 @@ impl Editor {
     /// records the patch makes; in the order they are first met.
     fn winners(&self, tag: &str, record_type: &str) -> IndexMap<String, Value> {
         let mut out: IndexMap<String, Value> = IndexMap::new();
+        self.session.warm(&[tag]);
         for name in self.session.order() {
             for (k, r) in self.session.records(name, tag).iter() {
                 if type_name(r) == record_type {

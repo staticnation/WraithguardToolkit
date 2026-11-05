@@ -398,6 +398,9 @@ impl Editor {
             return Vec::new();
         }
         let want = cell.trim().to_lowercase();
+        if plugins.is_none() {
+            self.session.warm(&["CELL"]);
+        }
         self.session
             .known(plugins)
             .into_iter()

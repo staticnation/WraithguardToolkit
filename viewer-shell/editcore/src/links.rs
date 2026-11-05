@@ -232,6 +232,27 @@ impl Links {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm(&tags)));
     }
 
+    /// `editUses`: the Use Report scans every plugin file (seconds on a big load order), so
+    /// the Editor is locked to find the record and again to answer, not across the scan -
+    /// a record opened meanwhile is not held behind it. `None` when the session reads
+    /// through `read_all` (the tests): the usual link answers then.
+    fn uses_link(&self, body: &str) -> Option<Res<String>> {
+        let prepared = {
+            let mut ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
+            self.sync(&mut ed);
+            if !ed.session.scans_files() {
+                return None;
+            }
+            record_body(body).and_then(|req| record_request(&ed, &req)).map(|found| (found, ed.session.plugin_paths()))
+        };
+        Some(prepared.and_then(|(found, paths)| {
+            let hits = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::uses::report(&paths, &found.record_type, &found.key)))
+                .map_err(|_| "the viewer's Editor failed on editUses".to_string())?;
+            let ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
+            Ok(ed.uses_from(&found, &hits).to_string())
+        }))
+    }
+
     /// The queue read again from the journal, under the Editor's lock, and let go.
     fn synced(&self) {
         let mut ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
@@ -307,6 +328,11 @@ impl Links {
         }
         if name == "editColumns" {
             self.warm_columns(body);
+        }
+        if name == "editUses"
+            && let Some(out) = self.uses_link(body)
+        {
+            return out;
         }
         let mut ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
         let before = self.sync(&mut ed);
