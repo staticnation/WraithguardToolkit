@@ -232,6 +232,18 @@ impl Links {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm(&tags)));
     }
 
+    /// What placing is about to read - the CELL records of every plugin, to find which of
+    /// them hold the cell - read now, on several threads, without the Editor's lock, as
+    /// `warm_columns` does for a type's columns. A request that names the plugins to look in
+    /// (`plugins`) reads only those, which the link does itself.
+    fn warm_cells(&self, body: &str) {
+        let named = body_of(body).ok().and_then(|r| r.get("plugins").and_then(Value::as_array).map(|a| !a.is_empty())).unwrap_or(false);
+        if named {
+            return;
+        }
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm(&["CELL"])));
+    }
+
     /// `editUses`: the Use Report scans every plugin file (seconds on a big load order), so
     /// the Editor is locked to find the record and again to answer, not across the scan -
     /// a record opened meanwhile is not held behind it. `None` when the session reads
@@ -329,6 +341,9 @@ impl Links {
         if name == "editColumns" {
             self.warm_columns(body);
         }
+        if CELL_LINKS.contains(&name) {
+            self.warm_cells(body);
+        }
         if name == "editUses"
             && let Some(out) = self.uses_link(body)
         {
@@ -349,6 +364,11 @@ impl Links {
         out.map(|a| a.text())
     }
 }
+
+/// The links that look for the plugins holding a cell (`Editor::cell_plugins`,
+/// `Editor::in_load_order`): the first of them reads every plugin's CELL records, which is
+/// seconds over a big load order (`warm_cells` does it before the Editor is locked).
+const CELL_LINKS: &[&str] = &["editPlace", "editPlaceMany", "editNewCell", "editDuplicateCell"];
 
 /// A request's JSON object (`_body`).
 fn body_of(body: &str) -> Res<Value> {

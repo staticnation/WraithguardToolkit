@@ -338,6 +338,14 @@
   `Editor::uses_from` builds the answer). Sessions that read through `read_all` (the tests)
   take the old path. The scan is as long as before: the use index in the record cache
   (`uses::from_index`) is not wired to the report yet.
+- **Placing held the whole Editor while it read the cells** (Messages, 2026-11-05: the first
+  `editPlace` took 100.1 s, and the `editRecord`, `editUses`, `editRevision` and `editColumns`
+  asked meanwhile took 80 s and more, each saying `editPlace` was out when it began; the
+  later places took about a second, the cells being read by then). Placing looks for the
+  plugins holding the cell, which reads every plugin's CELL records; that read now happens
+  on several threads before the Editor is locked (`Links::warm_cells`, for `editPlace`,
+  `editPlaceMany`, `editNewCell` and `editDuplicateCell`; a request that names its plugins
+  reads only those).
 - **The other first reads of a type went one plugin at a time too** (`probe_find`: 14 s for
   the CELLs of 596 plugins). A record looked up over every plugin (`find_in`), a search over a
   type (`winners`) and the plugins holding a cell (`cell_plugins`) now read what they need on
