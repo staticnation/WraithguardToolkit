@@ -1,0 +1,8 @@
+# What CodeQL reads (sast.yml). Not our code: the vendored Mermaid bundle, the fixtures the
+# tests pin (large JSON and plugin files) and the locale catalogues.
+name: Wraithguard CodeQL
+paths-ignore:
+  - viewer-shell/ui/assets
+  - tests/fixtures
+  - testdata
+  - locale

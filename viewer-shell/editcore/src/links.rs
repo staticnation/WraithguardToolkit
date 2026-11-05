@@ -145,6 +145,10 @@ fn stamp(path: &Path) -> Option<(u64, SystemTime)> {
 /// The Editor as the viewer holds it, with the journal it shares.
 pub struct Links {
     pub editor: Arc<Mutex<Editor>>,
+    /// The Editor's session, held here too: what a link reads from the plugins is read
+    /// through it before the Editor's lock is taken (`warm_columns`), so a slow read of a
+    /// type never keeps another link (opening a record) waiting.
+    session: Arc<Session>,
     /// The journal as this side last read or wrote it.
     seen: Mutex<Option<(u64, SystemTime)>>,
     /// The load order it was opened on, `(name, path)`, and the journal.
@@ -170,21 +174,24 @@ impl Links {
         if let Some(j) = &journal {
             queue.restore(j);
         }
-        let editor = Editor::new(session, queue, journal.clone());
-        Links { editor: Arc::new(Mutex::new(editor)), seen: Mutex::new(seen), plugins, journal, ..Links::blank() }
+        let session = Arc::new(session);
+        let editor = Editor::new(session.clone(), queue, journal.clone());
+        Links { editor: Arc::new(Mutex::new(editor)), session, seen: Mutex::new(seen), plugins, journal, ..Links::blank() }
     }
 
     /// Links over an Editor made elsewhere (the tests' sessions).
     pub fn with_editor(editor: Editor) -> Links {
         let seen = editor.journal.as_deref().and_then(stamp);
         let journal = editor.journal.clone();
-        Links { editor: Arc::new(Mutex::new(editor)), seen: Mutex::new(seen), journal, ..Links::blank() }
+        let session = editor.session.clone();
+        Links { editor: Arc::new(Mutex::new(editor)), session, seen: Mutex::new(seen), journal, ..Links::blank() }
     }
 
     fn blank() -> Links {
-        let session = Session::new(Vec::new());
+        let session = Arc::new(Session::new(Vec::new()));
         Links {
-            editor: Arc::new(Mutex::new(Editor::new(session, PatchQueue::new(), None))),
+            editor: Arc::new(Mutex::new(Editor::new(session.clone(), PatchQueue::new(), None))),
+            session,
             seen: Mutex::new(None),
             plugins: Vec::new(),
             journal: None,
@@ -208,6 +215,21 @@ impl Links {
     pub fn with_scratch(mut self, scratch: PathBuf) -> Links {
         self.scratch = scratch;
         self
+    }
+
+    /// What `editColumns` is about to read - every plugin's records of the type (armor's game
+    /// settings too) - read now, on several threads, *without* the Editor's lock. The link
+    /// itself then finds them in the session's cache and holds the lock only to build the
+    /// table. Before this, the read ran under the lock, and an `editRecord` asked for meanwhile
+    /// waited for all of it (Static, 2026-11-05: Open said "Reading..." for as long as the tab's
+    /// columns took). A request this cannot make sense of is left to the link to refuse; a read
+    /// that panics is read again under the lock, where the panic is caught and said.
+    fn warm_columns(&self, body: &str) {
+        let Ok(req) = body_of(body) else { return };
+        let Some(tag) = req.get("tag").and_then(Value::as_str) else { return };
+        let tag = crate::search::tag4(tag.trim());
+        let tags: Vec<&str> = if tag == "ARMO" { vec![tag.as_str(), "GMST"] } else { vec![tag.as_str()] };
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm(&tags)));
     }
 
     /// The queue read again from the journal, under the Editor's lock, and let go.
@@ -282,6 +304,9 @@ impl Links {
     pub fn call_with(&self, name: &str, body: &str, ctx: &Ctx) -> Res<String> {
         if BUILD_LINKS.contains(&name) {
             return self.build_link(name, body);
+        }
+        if name == "editColumns" {
+            self.warm_columns(body);
         }
         let mut ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
         let before = self.sync(&mut ed);

@@ -6,10 +6,11 @@
 //! records, `crate::queue`), as the Python `find` did. The edits are `crate::edit`'s and
 //! `crate::places`'; the disk cache is `crate::cache`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 
 use indexmap::IndexMap;
 use ordercore::cells::CellKey;
@@ -103,7 +104,30 @@ pub struct Session {
     masters: Mutex<HashMap<String, Arc<Vec<String>>>>,
     /// Per plugin: its exterior references by index, `index -> [(origin, cell key)]`.
     home: Mutex<HashMap<String, Arc<HashMap<i64, Vec<(String, String)>>>>>,
+    /// Bumped when a plugin is forgotten: a read begun before it may be of the file as it was,
+    /// and is not kept.
+    generation: AtomicU64,
+    /// The reads under way, `(plugin, tag)`: a second asker waits for the first's read rather
+    /// than make its own (the Object Window asks for a type's columns more than once).
+    reading: Mutex<HashSet<(String, String)>>,
+    reading_done: Condvar,
 }
+
+/// A read under way, let go when it ends (or panics), so that those waiting for it go on.
+struct Claim<'a> {
+    session: &'a Session,
+    key: (String, String),
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        self.session.reading.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.key);
+        self.session.reading_done.notify_all();
+    }
+}
+
+/// The most plugins read at once.
+const MAX_READERS: usize = 16;
 
 impl Session {
     /// A session over the load order `(file name, path)`, reading the files.
@@ -127,6 +151,9 @@ impl Session {
             cache: Mutex::default(),
             masters: Mutex::default(),
             home: Mutex::default(),
+            generation: AtomicU64::new(0),
+            reading: Mutex::default(),
+            reading_done: Condvar::new(),
         }
     }
 
@@ -137,6 +164,9 @@ impl Session {
     /// pointed at records the file no longer has. `true` when `path` is one of its plugins.
     pub fn forget_file(&self, path: &Path) -> bool {
         let Some(name) = self.paths.iter().find(|(_, (_, p))| same_file(p, path)).map(|(k, _)| k.clone()) else { return false };
+        // First, so that a read already under way (these run without the Editor's lock) does
+        // not put the file as it was back in the cache after it is cleared.
+        self.generation.fetch_add(1, Ordering::SeqCst);
         self.cache.lock().unwrap().retain(|(p, _), _| *p != name);
         self.masters.lock().unwrap().remove(&name);
         self.home.lock().unwrap().remove(&name);
@@ -217,9 +247,26 @@ impl Session {
     /// Python logs it and carries on, as here).
     pub fn records(&self, plugin: &str, tag: &str) -> Arc<IndexMap<String, Value>> {
         let k = (plugin.to_lowercase(), tag.to_string());
-        if let Some(hit) = self.cache.lock().unwrap().get(&k) {
-            return hit.clone();
+        // Take the read, or wait for whoever has it and use what they read. The cache is looked
+        // at again once the claim list is held: a read puts its result in the cache before it
+        // lets go of its claim, so a claim that is gone has left its result there.
+        loop {
+            if let Some(hit) = self.cache.lock().unwrap().get(&k) {
+                return hit.clone();
+            }
+            let mut busy = self.reading.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(hit) = self.cache.lock().unwrap().get(&k) {
+                return hit.clone();
+            }
+            if busy.insert(k.clone()) {
+                break;
+            }
+            while busy.contains(&k) {
+                busy = self.reading_done.wait(busy).unwrap_or_else(|p| p.into_inner());
+            }
         }
+        let _claim = Claim { session: self, key: k.clone() };
+        let generation = self.generation.load(Ordering::SeqCst);
         let mut found = IndexMap::new();
         if let Some((_, path)) = self.paths.get(&k.0) {
             match (self.read)(path, tag) {
@@ -235,8 +282,56 @@ impl Session {
             }
         }
         let found = Arc::new(found);
-        self.cache.lock().unwrap().insert(k, found.clone());
+        if self.generation.load(Ordering::SeqCst) == generation {
+            self.cache.lock().unwrap().insert(k, found.clone());
+        }
         found
+    }
+
+    /// Reads, on several threads at once, what of the `tags` each plugin has not been read
+    /// for yet; `records` then has them. The biggest plugins go first, so that one of them
+    /// is not left for last. Needs no more of the Session than a `&self`: the Editor's
+    /// links call it before taking the Editor's lock, so a cold read holds nothing up.
+    pub fn warm(&self, tags: &[&str]) {
+        let mut todo: Vec<(&str, &str, u64)> = Vec::new();
+        {
+            let cache = self.cache.lock().unwrap();
+            for tag in tags {
+                for name in &self.order {
+                    if !cache.contains_key(&(name.to_lowercase(), tag.to_string())) {
+                        todo.push((name, tag, 0));
+                    }
+                }
+            }
+        }
+        for t in &mut todo {
+            t.2 = self.paths.get(&t.0.to_lowercase()).and_then(|(_, p)| std::fs::metadata(p).ok()).map_or(0, |m| m.len());
+        }
+        todo.sort_by_key(|t| std::cmp::Reverse(t.2));
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MAX_READERS).min(todo.len());
+        if threads <= 1 {
+            for (name, tag, _) in &todo {
+                self.records(name, tag);
+            }
+            return;
+        }
+        let next = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..threads {
+                scope.spawn(|| {
+                    while let Some((name, tag, _)) = todo.get(next.fetch_add(1, Ordering::SeqCst)) {
+                        self.records(name, tag);
+                    }
+                });
+            }
+        });
+    }
+
+    /// Each plugin's records of a tag, in load order (`records` for all of them, the unread
+    /// ones read on several threads: `warm`).
+    pub fn records_all(&self, tag: &str) -> Vec<Arc<IndexMap<String, Value>>> {
+        self.warm(&[tag]);
+        self.order.iter().map(|n| self.records(n, tag)).collect()
     }
 
     /// `names` (or the whole order) known to the load order, sorted into it.

@@ -312,9 +312,50 @@
   to the next match, Shift+Enter to the one before, Esc clears. The lights stay through
   ticking, dragging and re-sorting, and the rows are only lit, not hidden, so the order
   around a match stays in view.
+- **Static analysis in CI** (`.github/workflows/sast.yml`, `.github/codeql/codeql-config.yml`).
+  CodeQL reads the page's JavaScript and the Rust crates on every push and pull request and
+  weekly, with the security-extended queries, and reports to the Security tab. The vendored
+  Mermaid bundle, the test fixtures and the locale files are left out.
+- **Messages names a slow Editor link** (`50_wg_editor_record.js`, `ask`). The Editor answers
+  one link at a time, so one slow answer holds the rest; any link that takes 1.5 s or more is
+  now said with its name and the links still out when it began ("Editor link editColumns took
+  14.2 s (out when it began: ...)"), which tells which one is holding which.
+- **A timing probe for the record window's first read** (`editcore/tests/probe_find.rs`, an
+  ignored test). Over the data folders of an `openmw.cfg` (`WG_CFG`; or a short list in `WG_DATA`), it times the first `Session::find` of a
+  record (`WG_TAG`, `WG_ID`), the same lookup again, a missing id of the same type, and a cell (`WG_CELL`), so the
+  cost of reading every plugin can be told from the cost of each lookup:
+  `cargo test --release --test probe_find -- --ignored --nocapture`, from `viewer-shell\editcore`.
+  `probe_lock` (same folder and variables, plus `WG_PLUGIN`) reproduces the stall: a type's
+  `editColumns` and a record's `editRecord` asked together, and how long the record waits.
 
 ### Fixed
 
+- **Opening a record no longer waits for the tab's columns** (`editcore`: `session.rs`,
+  `search.rs`, `links.rs`; `50_wg_editor_record.js`). `editColumns` read every plugin's
+  records of a type one after another, copied every plugin's whole record map, and held the
+  Editor's one lock throughout, so an `editRecord` (the Open click) queued behind it and the
+  popup said "Reading..." for as long as it took (probe, 596 plugins: 2.51 s waited for a
+  2.56 s column read). Now the plugins are read on several threads, before the Editor is
+  locked, each plugin and type once however many ask; the table is built from the cached
+  maps without copying them; a plugin rewritten while being read is not kept as it was. The
+  popup says what it waits for.
+
+- **"ResizeObserver loop completed with undelivered notifications" in Messages**
+  (2026-11-04: two of them, a couple of seconds apart, on loading a cell). `placePills`
+  (`11_events.js`), which places the row of pills over the viewport, resizes the row it is
+  observing (its max-width), and ran inside the observer's own delivery, so the browser could
+  not deliver the notification that resize raised in the same frame. The observer now asks
+  for a run on the next animation frame (several asks make one), and `placePills` writes the
+  row's max-width and left only when they change. The browser's notice itself is a layout
+  warning, not a failure, so it is no longer logged as an error (`03_core.js`).
+- **A record's window said nothing while it read every plugin** (2026-11-04: "Reading
+  AB_Misc_CeramicTeapot01 from every plugin that defines it..." on a 619-plugin order, with
+  no sign of whether it was working). The first lookup of a record type reads that type from
+  every plugin one after another, with the Editor locked, which is long on a big order; later
+  lookups of the type come from what was read. The window now counts the seconds from the
+  second one and, after six, says why it is slow, and an open that takes 3 s or more is
+  written to Messages with how long it took (`50_wg_editor_record.js`). The read itself is
+  not faster yet.
 - **The Editor stalled with a cell change in the pool** (Static, 2026-11-04: a record's
   window stuck at "Reading ... from every plugin that defines it", and dragging or Place
   putting nothing down). Marking Build patch's rows "no plugin has it now" looked each record

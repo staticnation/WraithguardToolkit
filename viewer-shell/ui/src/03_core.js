@@ -212,7 +212,10 @@ const WgLog={
 };
 // The page's own failures, which no toast reports, are kept too.
 if(typeof window!=='undefined' && window.addEventListener){
-  window.addEventListener('error', e=>WgLog.add((e.message||'Error')+(e.filename? ' ('+String(e.filename).split('/').pop()+':'+e.lineno+')' : ''), 'err'));
+  // The browser's "ResizeObserver loop ..." notice is a layout warning, not a failure: nothing
+  // is lost by it, and it is kept out of Messages as an error (placePills defers its work
+  // so the page does not raise it itself).
+  window.addEventListener('error', e=>{ if(/^ResizeObserver loop/.test(e.message||'')){ e.stopImmediatePropagation(); return; } WgLog.add((e.message||'Error')+(e.filename? ' ('+String(e.filename).split('/').pop()+':'+e.lineno+')' : ''), 'err'); });
   // Where it happened, from the stack's first line in the page's code - so a report of
   // one names the part to fix.
   const where=r=>{ const l=String((r && r.stack)||'').split('\n').slice(1).find(x=>/:\d+:\d+/.test(x)); return l? ' ('+l.trim().replace(/^at\s+/,'')+')' : ''; };

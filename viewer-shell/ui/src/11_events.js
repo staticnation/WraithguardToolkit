@@ -556,19 +556,34 @@ function boot(){
        a second line, centred in that room, rather than lie over the box or run off the
        edge; with the box gone the width limit goes too. Measured with the limit off, so a
        row that has wrapped once is not measured as narrow and kept wrapped for good. */
+    const had=row.style.maxWidth;
     row.style.maxWidth='';
     const w=row.offsetWidth;
-    let x=W/2;
+    let x=W/2, limit='';
     if(clear && x-w/2<clear){
       const avail=W-clear-12;
       if(w<=avail) x=clear+w/2;
-      else{ row.style.maxWidth=Math.max(120,avail)+'px'; x=clear+Math.max(120,avail)/2; }
+      else{ limit=Math.max(120,avail)+'px'; x=clear+Math.max(120,avail)/2; }
     }
-    row.style.left=Math.round(x)+'px';
+    // Written once, and only when it differs from what stood before, so a pass that
+    // changes nothing changes nothing for the observer to see.
+    if(limit!==had) row.style.maxWidth=limit; else if(limit==='' && row.style.maxWidth!=='') row.style.maxWidth='';
+    const left=Math.round(x)+'px';
+    if(row.style.left!==left) row.style.left=left;
   };
   App.placePills=placePills;
   if(typeof ResizeObserver==='function'){
-    const ro=new ResizeObserver(placePills);
+    /* placePills resizes #vpTop itself (the max-width it sets), and #vpTop is observed: run
+       inside the observer's own delivery it queued a notification it could not deliver in
+       the same frame - "ResizeObserver loop completed with undelivered notifications".
+       So the observer only asks for a run on the next animation frame (coalesced), and the
+       run happens outside the delivery; its final size is the same as the one it started
+       from once placed, so it settles after one more notification rather than looping. */
+    let pillRaf=0;
+    const ro=new ResizeObserver(()=>{
+      if(pillRaf) return;
+      pillRaf=requestAnimationFrame(()=>{ pillRaf=0; placePills(); });
+    });
     for(const id of ['#vpwrap','#vpTop','#stats']){ const el=$(id); if(el) ro.observe(el); }
   }
   placePills();

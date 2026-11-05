@@ -209,7 +209,8 @@ pub fn coerce(current: &Value, raw: &Value, kind: Option<&str>) -> Result<Value,
 /// The Editor's session: the load order read, the patch queue, its undo history and its
 /// journal.
 pub struct Editor {
-    pub session: Session,
+    /// Shared: the links read a type's plugins through it before they lock the Editor.
+    pub session: std::sync::Arc<Session>,
     pub queue: PatchQueue,
     pub history: History,
     /// Where the queue is saved after every change (`None`: nowhere).
@@ -224,7 +225,8 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn new(session: Session, queue: PatchQueue, journal: Option<PathBuf>) -> Editor {
+    pub fn new(session: impl Into<std::sync::Arc<Session>>, queue: PatchQueue, journal: Option<PathBuf>) -> Editor {
+        let session = session.into();
         let history = History::new(&queue);
         Editor { session, queue, history, journal, batching: false, dial_index: std::sync::Mutex::default(), compiler: std::sync::Mutex::default(), last_patch: None }
     }

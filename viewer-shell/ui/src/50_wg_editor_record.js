@@ -75,7 +75,23 @@ Object.assign(WgEditor, {
     R.setSelection(this._group.length? this._group.map(g=>g.hit) : (this._sel && this._sel.hit? [this._sel.hit] : null));
   },
 
+  /** One Editor link. Any that takes 1.5 s or more is said in Messages with its name and the
+   *  links that were still out when it began: the Editor answers one link at a time, so a
+   *  slow one (a type's columns, a cell read) holds the others, and this names which. */
   async ask(link, body){
+    const out=this._out||(this._out=new Map()), tok={}, t0=Date.now();
+    const others=[...out.values()];
+    out.set(tok, link);
+    try{ return await this._ask(link, body); }
+    finally{
+      out.delete(tok);
+      const ms=Date.now()-t0;
+      if(ms>=1500 && typeof WgLog==='object' && WgLog.add)
+        WgLog.add('Editor link '+link+' took '+(ms/1000).toFixed(1)+' s'+(others.length? ' (out when it began: '+others.join(', ')+')' : ''), 'warn');
+    }
+  },
+
+  async _ask(link, body){
     const url=this.links()[link];
     if(!url) throw new Error('Editing needs the Editor open on an OpenMW setup (see Messages)');
     /* The links the viewer's own Editor answers (editcore::links) go to the engine, the same
@@ -133,10 +149,38 @@ Object.assign(WgEditor, {
         'and the record\'s fields open here, with changes going to its patch pool.</div>';
       return;
     }
-    body.innerHTML='<div class="hint">Reading '+escHtml(id)+' from every plugin that defines it…</div>';
+    body.innerHTML='<div class="hint"></div>';
     const mine=this.record;
+    /* What the hint says follows what is happening. A click that names the plugins
+       (`plugins`, the row's `defined`) reads only those; one that does not reads the type
+       from every plugin of the load order, which on a 600-plugin order is slow the first
+       time and quick after. And if the tab's columns (`editColumns`, every plugin's records
+       of the type) are still being read, say that is what is awaited rather than a read of
+       this record. The engine now reads columns without the Editor's lock, so an Open no
+       longer queues behind them, but one that is still out is worth saying, not hiding
+       behind a sentence that never changes. */
+    const named=!!(plugins && plugins.length);
+    const t0=Date.now(), hint=body.querySelector('.hint');
+    const say=()=>{
+      const s=Math.round((Date.now()-t0)/1000);
+      const cols=this._colAsk && this._colAsk.size>0;
+      let t=named? 'Opening '+id+'…' : 'Reading '+id+' from every plugin that defines it…';
+      if(s>=1 && cols) t='Waiting for the list\'s columns to finish loading… '+s+' s';
+      else if(s>=2) t+=' '+s+' s'+((!named && s>=6)? ' (the first lookup of a record type reads every plugin of the load order; later ones are quick)' : '');
+      hint.textContent=t;
+    };
+    say();
+    const tick=setInterval(()=>{
+      if(this.record!==mine || !hint.isConnected){ clearInterval(tick); return; }
+      say();
+    }, 1000);
     try{ const v=await this.ask('editRecord', this.req()); if(this.record===mine) this.drawRecord(v); }
     catch(e){ if(this.record!==mine) return; body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; }
+    finally{
+      clearInterval(tick);
+      const ms=Date.now()-t0;
+      if(ms>=3000 && typeof WgLog==='object' && WgLog.add) WgLog.add('Opening '+tag+' '+id+' took '+(ms/1000).toFixed(1)+' s'+(plugins? ' ('+plugins.length+' plugin(s) named)' : ' (read from every plugin)'), 'warn');
+    }
   },
 
   /** A record named by a link (the inspector, the full help, a list): shown here - its

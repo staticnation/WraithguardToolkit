@@ -388,7 +388,7 @@ fn show(value: Value, kind: &str) -> Value {
 /// `{columns: [{label, kind, title, path}], rows: {id: [value, ...]}}`, persists and
 /// blocked last; empty for a type with no table. `path` is the field a column shows as
 /// it is (editable in place), null for one worked out.
-pub fn table(tag: &str, versions: &[IndexMap<String, Value>], settings: &Settings) -> Value {
+pub fn table(tag: &str, versions: &[&IndexMap<String, Value>], settings: &Settings) -> Value {
     let mut t = tag.to_uppercase();
     while t.len() < 4 {
         t.push('_');
@@ -402,7 +402,7 @@ pub fn table(tag: &str, versions: &[IndexMap<String, Value>], settings: &Setting
     cols.push(BLOCKED);
     let want = type_for(&t);
     let mut winners: IndexMap<&String, &Value> = IndexMap::new();
-    for records in versions {
+    for records in versions.iter().copied() {
         for (key, rec) in records {
             if want.is_none_or(|w| rec.get("type").and_then(Value::as_str) == Some(w)) {
                 winners.insert(key, rec);

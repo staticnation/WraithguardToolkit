@@ -1,0 +1,54 @@
+# Static analysis (SAST): CodeQL over the page's JavaScript and the Rust crates, on every
+# push and pull request and once a week (new queries land without a push). Results go to
+# the repository's Security tab (Code scanning). Needs code scanning on the repository:
+# free for a public one, GitHub Code Security for a private one.
+#
+# Complements ci.yml (tests, Clippy); it does not replace them. Build-less: the JavaScript
+# is read as it is, and Rust's `none` build mode reads the sources without compiling the
+# Tauri tree (no WebKitGTK on the runner needed).
+
+name: SAST
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"   # Mondays, 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # uploads the results; the only write this workflow has
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, rust]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # The other workflows pin each action to a commit. GitHub's own advice for CodeQL is the
+      # major tag, which follows its fixes and query updates; pin it to a commit (and let
+      # Dependabot move it) if you want it to match them.
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+          config-file: ./.github/codeql/codeql-config.yml
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

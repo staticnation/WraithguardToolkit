@@ -292,10 +292,13 @@ impl Editor {
     /// the patch's overlay last; armor with its weight classes (`armorClass`).
     pub fn columns(&self, tag: &str) -> Value {
         let tag = tag4(tag.trim());
-        let mut versions: Vec<IndexMap<String, Value>> = self.session.order().iter().map(|n| (*self.session.records(n, &tag)).clone()).collect();
-        versions.push(self.column_overlay(&tag));
-        let gmst: Vec<IndexMap<String, Value>> = if tag == "ARMO" { self.session.order().iter().map(|n| (*self.session.records(n, "GMST")).clone()).collect() } else { Vec::new() };
-        let settings = settings_from(gmst.iter());
+        // The plugins' own maps, held, not copied: a table is read from them as they are.
+        let held = self.session.records_all(&tag);
+        let overlay = self.column_overlay(&tag);
+        let mut versions: Vec<&IndexMap<String, Value>> = held.iter().map(|a| &**a).collect();
+        versions.push(&overlay);
+        let gmst = if tag == "ARMO" { self.session.records_all("GMST") } else { Vec::new() };
+        let settings = settings_from(gmst.iter().map(|a| &**a));
         let mut out = table(&tag, &versions, &settings);
         if tag == "ARMO" {
             out["armorClass"] = browser_table(&settings);
@@ -447,7 +450,7 @@ impl Editor {
 }
 
 /// A tag as four upper-case letters (`npc` -> `NPC_`).
-fn tag4(tag: &str) -> String {
+pub(crate) fn tag4(tag: &str) -> String {
     let mut t = tag.to_uppercase();
     while t.len() < 4 {
         t.push('_');
