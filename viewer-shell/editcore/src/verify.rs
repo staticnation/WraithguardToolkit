@@ -603,6 +603,10 @@ impl Editor {
     pub fn other_types(&self, tag: &str, key: &str) -> Vec<(String, String)> {
         let want = key.to_lowercase();
         let mut out = Vec::new();
+        // Every object type is read from every plugin for this (about 25 types over 596
+        // plugins: minutes one plugin at a time): on threads, and the links that call it have
+        // done it before the Editor's lock (`Links::warm_for`).
+        self.session.warm(&object_tags().into_iter().filter(|t| *t != tag).collect::<Vec<_>>());
         for t in object_tags() {
             if t == tag {
                 continue;

@@ -274,12 +274,55 @@ impl Links {
     /// cell names and grids - read now, on several threads, without the Editor's lock, as
     /// `warm_columns` does for a type's columns. A request that names the plugins to look in
     /// (`plugins`) reads only those, which the link does itself.
-    fn warm_cells(&self, body: &str) {
-        let named = body_of(body).ok().and_then(|r| r.get("plugins").and_then(Value::as_array).map(|a| !a.is_empty())).unwrap_or(false);
+    fn warm_cells(&self, name: &str, body: &str) {
+        let req = body_of(body).ok();
+        let named = req.as_ref().and_then(|r| r.get("plugins").and_then(Value::as_array).map(|a| !a.is_empty())).unwrap_or(false);
         if named {
             return;
         }
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm_cell_keys()));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.session.warm_cell_keys();
+            // Placing then reads the cell's record from the last plugin that has it (a big
+            // plugin's cells can take seconds): read it now, outside the lock too.
+            if name == "editPlace"
+                && let Some(cell) = req.as_ref().and_then(|r| r.get("cell")).and_then(Value::as_str)
+                && let Some(holders) = self.session.cell_holders(&cell.trim().to_lowercase())
+                && let Some(last) = holders.last()
+            {
+                self.session.records(last, "CELL");
+            }
+        }));
+    }
+
+    /// What the other slow links are about to read, read now on several threads, without the
+    /// Editor's lock (Messages, 2026-11-05: `editTopics` 52 s, `editDialogueFlags` 66 s,
+    /// `editDialoguePlay` 71 s, `editLandPending` 40 s, each held the Editor while it read
+    /// one plugin after another, and the links asked meanwhile waited).
+    fn warm_for(&self, name: &str) {
+        if DIALOGUE_LINKS.contains(&name) {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm_dialogue()));
+        } else if name == "editVerify" {
+            // Verify checks the ids its records name against every type's ids over the load
+            // order (and each land, and each response's topic): one type after another, and
+            // plugin after plugin, with the Editor locked. All of them are read first, on threads.
+            let mut tags: Vec<&str> = crate::verify::object_tags();
+            tags.extend(VERIFY_TAGS);
+            tags.sort_unstable();
+            tags.dedup();
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.session.warm(&tags);
+                self.session.warm_dialogue();
+            }));
+        } else if name == "editLandPending" {
+            // Only when the patch has landscape changes, which are looked up in every plugin's LAND.
+            let pending = {
+                let ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
+                ed.queue.fields().iter().any(|((t, _), _)| t == "Landscape") || ed.queue.new_records().any(|r| r.record_type == "Landscape")
+            };
+            if pending {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm(&["LAND"])));
+            }
+        }
     }
 
     /// `editUses`: the Use Report scans every plugin file (seconds on a big load order), so
@@ -312,6 +355,12 @@ impl Links {
                         .map_err(|_| "the viewer's Editor failed on editUses".to_string())?
                 }
             };
+            // The answer names the other object types the id is also defined as, which reads
+            // every object type of every plugin: on threads, and not with the Editor locked
+            // (Messages, 2026-11-05: `editUses` 101 s, `editRevision` 94 s behind it).
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.session.warm(&crate::verify::object_tags().into_iter().filter(|t| *t != found.tag.as_str()).collect::<Vec<_>>())
+            }));
             let ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
             Ok(ed.uses_from(&found, &hits).to_string())
         }))
@@ -394,8 +443,9 @@ impl Links {
             self.warm_columns(body);
         }
         if CELL_LINKS.contains(&name) {
-            self.warm_cells(body);
+            self.warm_cells(name, body);
         }
+        self.warm_for(name);
         if name == "editUses"
             && let Some(out) = self.uses_link(body)
         {
@@ -421,6 +471,23 @@ impl Links {
 /// `Editor::in_load_order`): the first of them reads every plugin's CELL records, which is
 /// seconds over a big load order (`warm_cells` does it before the Editor is locked).
 const CELL_LINKS: &[&str] = &["editPlace", "editPlaceMany", "editNewCell", "editDuplicateCell"];
+
+/// The record types Verify looks ids up in besides the object types (`verify.rs`).
+const VERIFY_TAGS: [&str; 14] = ["CELL", "CLAS", "ENCH", "FACT", "GLOB", "GMST", "LAND", "PGRD", "RACE", "REGN", "SCPT", "SOUN", "SPEL", "BODY"];
+
+/// The links that read the topics and responses of the plugins (`Session::dialogue`).
+const DIALOGUE_LINKS: &[&str] = &[
+    "editTopics",
+    "editTopic",
+    "editNewResponse",
+    "editMoveResponse",
+    "editCopyTopic",
+    "editDialogueFlow",
+    "editDialogueMap",
+    "editDialogueFlags",
+    "editDialoguePlay",
+    "editWhoCanSay",
+];
 
 /// A request's JSON object (`_body`).
 fn body_of(body: &str) -> Res<Value> {

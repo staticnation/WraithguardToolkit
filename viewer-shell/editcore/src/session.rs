@@ -211,6 +211,38 @@ impl Session {
         found
     }
 
+    /// Reads, on several threads, the topics and responses of every plugin not read yet (the
+    /// biggest first), as `warm` does the records of a tag; `dialogue` then has them. Needs no
+    /// more than a `&self`, so the links that read dialogue can do it before the Editor's lock.
+    pub fn warm_dialogue(&self) {
+        let names: Vec<&str> = {
+            let have = self.dialogue.lock().unwrap();
+            self.order.iter().map(String::as_str).filter(|n| !have.contains_key(&n.to_lowercase())).collect()
+        };
+        let mut todo: Vec<(&str, u64)> = names
+            .into_iter()
+            .map(|n| (n, self.paths.get(&n.to_lowercase()).and_then(|(_, p)| std::fs::metadata(p).ok()).map_or(0, |m| m.len())))
+            .collect();
+        todo.sort_by_key(|t| std::cmp::Reverse(t.1));
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MAX_READERS).min(todo.len());
+        if threads <= 1 {
+            for (name, _) in &todo {
+                self.dialogue(name);
+            }
+            return;
+        }
+        let next = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..threads {
+                scope.spawn(|| {
+                    while let Some((name, _)) = todo.get(next.fetch_add(1, Ordering::SeqCst)) {
+                        self.dialogue(name);
+                    }
+                });
+            }
+        });
+    }
+
     /// The load order's plugin names, in order.
     pub fn order(&self) -> &[String] {
         &self.order
