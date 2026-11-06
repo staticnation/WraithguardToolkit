@@ -592,8 +592,12 @@ pub fn land_heights(record: &Value) -> Option<Vec<Vec<f64>>> {
 
 impl Editor {
     /// Every id (lower case) a tag has over the load order's plugins.
+    ///
+    /// From the key index on disk, or the files' framing: no record is parsed for it
+    /// (`Session::plugin_ids`). Reading every cell and land of a big load order only to list
+    /// their ids filled the machine's memory (Messages, 2026-11-06).
     pub fn plugin_ids(&self, tag: &str) -> HashSet<String> {
-        self.session.order().iter().flat_map(|p| self.session.records(p, tag).keys().cloned().collect::<Vec<_>>()).collect()
+        self.session.plugin_ids(tag)
     }
 
     /// The other object types an object id is also defined as - the Construction Set's
@@ -603,16 +607,15 @@ impl Editor {
     pub fn other_types(&self, tag: &str, key: &str) -> Vec<(String, String)> {
         let want = key.to_lowercase();
         let mut out = Vec::new();
-        // Every object type is read from every plugin for this (about 25 types over 596
-        // plugins: minutes one plugin at a time): on threads, and the links that call it have
-        // done it before the Editor's lock (`Links::warm_for`).
-        self.session.warm(&object_tags().into_iter().filter(|t| *t != tag).collect::<Vec<_>>());
+        // Which plugins have the id as each object type: the key index, or the files' framing,
+        // on threads (`Links::warm_for` has done it before the Editor's lock).
+        self.session.warm_ids(&object_tags().into_iter().filter(|t| *t != tag).collect::<Vec<_>>());
         for t in object_tags() {
             if t == tag {
                 continue;
             }
             let made = self.queue.new_records().any(|m| tag_of(&m.record_type) == Some(t) && m.key.to_lowercase() == want);
-            let last = self.session.order().iter().rev().find(|p| self.session.records(p, t).contains_key(&want)).cloned();
+            let last = self.session.id_holders(t, &want).pop();
             if made {
                 out.push((t.to_string(), "(the patch)".to_string()));
             } else if let Some(p) = last {
@@ -645,15 +648,10 @@ impl Editor {
     fn land(&self, grid: &Value) -> Option<Vec<Vec<f64>>> {
         let g = grid.as_array().filter(|g| g.len() == 2)?;
         let want = (num(&g[0]) as i64, num(&g[1]) as i64);
-        let mut found = None;
-        for plugin in self.session.order() {
-            for rec in self.session.records(plugin, "LAND").values() {
-                let rg = rec.get("grid").and_then(Value::as_array);
-                if rg.is_some_and(|rg| rg.len() == 2 && (num(&rg[0]) as i64, num(&rg[1]) as i64) == want) {
-                    found = Some(rec.clone());
-                }
-            }
-        }
+        // The last plugin with the square, and that one square parsed (not every land of the load
+        // order, nor of that plugin).
+        let last = self.session.id_holders("LAND", &format!("({}, {})", want.0, want.1)).pop();
+        let found = last.and_then(|plugin| self.session.land_record(&plugin, want));
         land_heights(&found?)
     }
 

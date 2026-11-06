@@ -121,7 +121,12 @@ Object.assign(WgEditor, {
     const d=this.verEl, body=d.querySelector('#edVerBody');
     d.hidden=false;
     body.innerHTML='<div class="hint">Checking what the patch carries…</div>';
-    try{ this._verify=await this.ask('editVerify', {}); }
+    try{
+      this._verify=await this.ask('editVerify', {});
+      const t=this._verify && this._verify.took;
+      if(t && typeof WgLog==='object' && WgLog.add)
+        WgLog.add('Verify: reading the load order '+(t.read_ms/1000).toFixed(1)+' s, waiting for the Editor '+(t.lock_ms/1000).toFixed(1)+' s, checking '+(t.check_ms/1000).toFixed(1)+' s', 'warn');
+    }
     catch(e){ body.innerHTML='<div class="hint edBad">'+escHtml(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''))+'</div>'; return null; }
     const sel=d.querySelector('#edVerCheck'), was=sel.value;
     const checks=[...new Set(this._verify.findings.map(f=>f.check))].sort();

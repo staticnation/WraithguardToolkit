@@ -219,6 +219,15 @@ impl Links {
         }
     }
 
+    /// What the Editor reads from the plugins kept in the database at `path` between runs (the
+    /// Python Editor's record cache, `wraithguard_record_cache.sqlite3`): a plugin's records of a
+    /// type and which keys it has, valid while the plugin's size and date are the same.
+    pub fn with_record_cache(self, path: PathBuf) -> Links {
+        let parser = format!("editcore-records-1-{}", env!("CARGO_PKG_VERSION"));
+        self.session.set_disk_cache(Arc::new(crate::cache::Cache::new(path, &parser, crate::cache::MAX_BYTES)));
+        self
+    }
+
     /// The Use Report's index, kept in the database at `path`: the first report scans the
     /// plugin files as before and starts indexing the plugins in the background; once all are
     /// in, a report is a query.
@@ -315,7 +324,10 @@ impl Links {
             tags.dedup();
             let _one_at_a_time = self.verify_warm.lock().unwrap_or_else(|p| p.into_inner());
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                self.session.warm(&tags);
+                // The ids: from the key index, or the files' framing - no record parsed. Only the
+                // game settings are read whole (a few records), and a land is read when a cell asks.
+                self.session.warm_ids(&tags);
+                self.session.warm(&["GMST"]);
                 self.session.warm_dialogue();
             }));
         } else if name == "editLandPending" {
@@ -352,9 +364,14 @@ impl Links {
                 .as_ref()
                 .filter(|_| crate::uses::indexable(&found.key))
                 .and_then(|cache| crate::uses::from_index(cache, &paths, &found.record_type, &found.key, |_| Vec::new()));
+            let mut index_state = None;
             let hits = match indexed {
                 Some(hits) => hits,
                 None => {
+                    if let Some(cache) = &self.use_index {
+                        let missing = cache.missing_uses(&paths).len();
+                        index_state = Some(json!({"indexed": paths.len() - missing.min(paths.len()), "total": paths.len(), "building": true}));
+                    }
                     self.index_in_background(paths.clone());
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::uses::report(&paths, &found.record_type, &found.key)))
                         .map_err(|_| "the viewer's Editor failed on editUses".to_string())?
@@ -367,7 +384,11 @@ impl Links {
                 self.session.warm(&crate::verify::object_tags().into_iter().filter(|t| *t != found.tag.as_str()).collect::<Vec<_>>())
             }));
             let ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
-            Ok(ed.uses_from(&found, &hits).to_string())
+            let mut answer = ed.uses_from(&found, &hits);
+            if let Some(state) = index_state {
+                answer["index"] = state;
+            }
+            Ok(answer.to_string())
         }))
     }
 
@@ -450,13 +471,18 @@ impl Links {
         if CELL_LINKS.contains(&name) {
             self.warm_cells(name, body);
         }
+        let t_read = std::time::Instant::now();
         self.warm_for(name);
+        let read_ms = t_read.elapsed().as_millis();
         if name == "editUses"
             && let Some(out) = self.uses_link(body)
         {
             return out;
         }
+        let t_lock = std::time::Instant::now();
         let mut ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
+        let lock_ms = t_lock.elapsed().as_millis();
+        let t_check = std::time::Instant::now();
         let before = self.sync(&mut ed);
         let revision = ed.queue.revision;
         let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| answer(&mut ed, name, body, ctx))).unwrap_or_else(|p| {
@@ -468,7 +494,22 @@ impl Links {
         // next time.
         let journal = ed.journal.clone();
         *self.seen.lock().unwrap_or_else(|p| p.into_inner()) = if ed.queue.revision != revision { journal.as_deref().and_then(stamp) } else { before };
-        out.map(|a| a.text())
+        let check_ms = t_check.elapsed().as_millis();
+        out.map(|a| {
+            let text = a.text();
+            // Verify is the one link that takes minutes: where they go is said in its answer
+            // (`took`: reading the load order before the lock, waiting for the Editor, checking),
+            // when it took 1.5 s or more - a quick one answers exactly as the reference does.
+            if name == "editVerify"
+                && read_ms + lock_ms + check_ms >= 1500
+                && let Ok(mut v) = serde_json::from_str::<Value>(&text)
+                && v.is_object()
+            {
+                v["took"] = json!({"read_ms": read_ms as u64, "lock_ms": lock_ms as u64, "check_ms": check_ms as u64});
+                return v.to_string();
+            }
+            text
+        })
     }
 }
 

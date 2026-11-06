@@ -35,6 +35,9 @@ Object.assign(WgEditor, {
     let h='<div class="hint">'+(uses.length
       ? r.live+' live use'+(r.live===1?'':'s')+(r.cells? ', '+r.cells+' placed in cells' : '')+'. Greyed: in a version a later plugin overrides.'
       : 'Nothing in the load order names '+escHtml(r.id)+'.')+'</div>';
+    // The report was scanned because the use index does not have every plugin yet.
+    if(r.index && r.index.indexed<r.index.total)
+      h+='<div class="hint" style="padding:4px 6px">Use index: '+r.index.indexed+' of '+r.index.total+' plugins indexed (in the background); reports are quicker once all are.</div>';
     // The id is also another object type (the Construction Set's Matching IDs).
     const twins=Array.isArray(r.twins)? r.twins : [];
     if(twins.length) h+='<div class="hint warn" style="padding:4px 6px">'+escHtml(r.id)+' is also '+

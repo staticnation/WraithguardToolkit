@@ -330,13 +330,35 @@
 
 ### Fixed
 
-- **Verify no longer freezes the machine** (`editcore::session`, `editcore::links`). Its warm-up
-  read every plugin once per record type, each time copying the whole file into memory, on up to
-  16 threads (Messages, 2026-11-06: over 2.5 minutes, the PC nearly frozen, every other link
-  slow behind it). A plugin is now mapped, so the OS holds one copy of it however many types are
-  read; a warm-up uses at most eight threads and leaves two cores free; a second Verify (a double
-  click, Check again) waits for the first's reads instead of starting its own.
-
+- **Verify no longer fills the machine's memory, and the Editor keeps what it reads between
+  runs again** (`editcore::session`, `editcore::verify`, `editcore::links`). Since 5.0.0 the
+  Rust Editor had no disk cache: `cache.rs` was ported and the session never used it (the
+  Python Editor's `disk_cache` went with `recordcache.py`), so every launch read the plugins
+  again, and Verify listed the ids of each type by parsing every record of every plugin - every
+  reference of every cell, every vertex of every land - for 25 types over 619 plugins
+  (Messages, 2026-11-06: over 2.5 minutes, the PC nearly frozen, every other link slow behind it).
+  - **Ids come from the files' framing**, as the cell names already did (`Session::ids_of`): the
+    `NAME` of an object, a script's `SCHD`, a cell's name or grid, a land's `INTV`, with no record
+    parsed. A name that is not plain ASCII leaves that plugin to the parse, so the answer is the
+    same (tested tag by tag against the parsed records' keys).
+  - **The key index on disk is used** (`Session::plugin_ids`, `id_holders`): once every plugin is
+    indexed as it is, "which ids / which plugins have this?" is one query, as in 4.4. Verify's
+    "other types" and a cell's land look-up ask it too; a land is parsed one square from the one
+    plugin, not every land of every plugin (it was the largest read of all).
+  - **Records are kept between runs** (`Links::with_record_cache`,
+    `wraithguard_record_cache.sqlite3` beside the journal): a plugin's records of a type are read
+    once and come from the cache until the plugin's size or date changes. A cache that cannot be
+    opened is skipped, never an error.
+  - Also: a plugin is mapped, not copied, for each type read; a warm-up uses at most eight
+    threads and leaves two cores free; a second Verify (a double click, Check again) waits for the
+    first's reads instead of starting its own.
+- **Verify says where its time goes, and the Use Report how far its index is** (Messages,
+  2026-11-06: `editVerify` took 357.8 s, `editUses` 8 to 27 s on every report). Verify's answer
+  carries `took` when it took 1.5 s or more (`read_ms` reading the load order before the lock,
+  `lock_ms` waiting for the Editor, `check_ms` checking), and the Editor writes it to Messages; a Use Report that had to
+  scan carries `index` (`indexed` of `total` plugins), and its panel says so. A plugin that does
+  not parse is now indexed as having no uses (the scan skips it), and the index reads plugins
+  mapped, so the index can be complete.
 - **The Use Report held the whole Editor while it scanned** (2026-11-04: a record opened next
   to it sat on "Reading ..." for as long as the report took). `editUses` scans every plugin
   file, 14 s or so over 596 plugins, with the Editor locked, and every other link waited. The
@@ -345,6 +367,20 @@
   `Editor::uses_from` builds the answer). Sessions that read through `read_all` (the tests)
   take the old path. The scan is as long as before: the use index in the record cache
   (`uses::from_index`) is not wired to the report yet.
+- **Answering a Use Report held the Editor for ~100 s, and the dialogue, land and place links
+  for as long as their reads** (Messages, 2026-11-05: `editUses` 101 s with `editRevision` 94 s
+  and `editNewRemove` 91 s behind it; `editTopics` 52 s, `editDialogueFlags` 66 s,
+  `editDialoguePlay` 71 s, `editLandPending` 40 s, `editPlace` 12.7 s). The answer names the
+  other object types the id is also defined as (`Editor::other_types`), which reads about 25
+  types from every plugin, one plugin after another, under the lock - after the scan itself
+  had been moved out of it. Now `other_types` reads them on threads, and the link does so
+  before it locks (`Links::uses_link`). The same is done, before the lock, for the links that
+  read dialogue (`Session::warm_dialogue`: `editTopics`, `editTopic`, `editDialogueFlags`,
+  `editDialoguePlay`, ... - `Links::warm_for`), for `editVerify` (every type's ids and every
+  plugin's LAND and responses, which it looks ids up in), for `editLandPending` when the patch has
+  landscape changes (every plugin's LAND), and for `editPlace` the last plugin that has the
+  cell. Each read is on threads, biggest plugin first, and the slow part no longer holds the
+  other links up.
 - **Which plugins have a cell is read from the plugins' own cell names** (`Session::cell_holders`,
   `session::cell_keys_of`). Placing, `find` of a cell and `cell_plugins` read the CELL records
   of every plugin (a cell's references are most of a plugin: 6 to 14 s over 596) to learn which
