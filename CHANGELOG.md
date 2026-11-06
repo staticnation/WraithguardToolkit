@@ -330,6 +330,13 @@
 
 ### Fixed
 
+- **Verify no longer freezes the machine** (`editcore::session`, `editcore::links`). Its warm-up
+  read every plugin once per record type, each time copying the whole file into memory, on up to
+  16 threads (Messages, 2026-11-06: over 2.5 minutes, the PC nearly frozen, every other link
+  slow behind it). A plugin is now mapped, so the OS holds one copy of it however many types are
+  read; a warm-up uses at most eight threads and leaves two cores free; a second Verify (a double
+  click, Check again) waits for the first's reads instead of starting its own.
+
 - **The Use Report held the whole Editor while it scanned** (2026-11-04: a record opened next
   to it sat on "Reading ..." for as long as the report took). `editUses` scans every plugin
   file, 14 s or so over 596 plugins, with the Editor locked, and every other link waited. The
